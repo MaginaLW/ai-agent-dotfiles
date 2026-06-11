@@ -1,0 +1,47 @@
+# Secrets and local credentials: use exact names or extensions only.
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+auth.json
+.credentials.json
+id_rsa
+id_ed25519
+.ssh/
+
+# Generated skills: build outputs, never committed.
+claude/skills/
+codex/skills/
+
+# Claude runtime and machine-local files.
+claude/**/*.local.json
+claude/projects/
+claude/history*
+claude/todos/
+claude/statsig/
+claude/shell-snapshots/
+claude/logs/
+claude/plugins/repos/
+claude/agent-memory/
+claude/ide/
+claude/downloads/
+claude/file-history/
+claude/local/
+
+# Codex runtime and machine-local files.
+codex/**/*.local.toml
+codex/sessions/
+codex/log/
+codex/cache/
+codex/history.jsonl
+codex/**/*.sqlite
+codex/**/*.sqlite*
+codex/volumes/
+
+# Generated, backup, and temporary files.
+backup/
+tmp/
+*.bak
+*.tmp

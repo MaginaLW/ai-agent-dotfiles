@@ -1,0 +1,57 @@
+title = "ai-agent-dotfiles secret scanning"
+
+[allowlist]
+description = "Documented placeholders and explicit false-positive acknowledgements."
+regexes = [
+  '''\$\{[A-Za-z_][A-Za-z0-9_]*\}''',
+  '''(?i)\b\w+_env_var\s*=\s*["'][A-Za-z_][A-Za-z0-9_]*["']''',
+  '''#\s*scan-ok\b'''
+]
+
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic API key"
+regex = '''sk-ant-[A-Za-z0-9_-]{20,}'''
+keywords = ["sk-ant-"]
+
+[[rules]]
+id = "openai-api-key"
+description = "OpenAI API key"
+regex = '''sk-(proj-)?[A-Za-z0-9_-]{20,}'''
+keywords = ["sk-", "sk-proj-"]
+
+[[rules]]
+id = "github-classic-pat"
+description = "GitHub classic personal access token"
+regex = '''ghp_[A-Za-z0-9]{36}'''
+keywords = ["ghp_"]
+
+[[rules]]
+id = "github-fine-grained-pat"
+description = "GitHub fine-grained personal access token"
+regex = '''github_pat_[A-Za-z0-9_]{22,}'''
+keywords = ["github_pat_"]
+
+[[rules]]
+id = "slack-token"
+description = "Slack token"
+regex = '''xox[bpars]-[A-Za-z0-9-]{10,}'''
+keywords = ["xox"]
+
+[[rules]]
+id = "private-key"
+description = "Private key block"
+regex = '''-----BEGIN (RSA|OPENSSH|EC) PRIVATE KEY-----'''
+keywords = ["-----BEGIN"]
+
+[[rules]]
+id = "bearer-literal-token"
+description = "Literal bearer token"
+regex = '''Bearer\s+[A-Za-z0-9._-]{20,}'''
+keywords = ["Bearer"]
+
+[[rules]]
+id = "quoted-secret-value"
+description = "Quoted literal assigned to a sensitive key"
+regex = '''(?i)(api_key|token|secret|password|client_secret|refresh_token|access_token)\s*[:=]\s*["'][^$][^"']{8,}["']'''
+keywords = ["api_key", "token", "secret", "password", "client_secret", "refresh_token", "access_token"]

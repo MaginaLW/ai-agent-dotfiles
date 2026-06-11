@@ -1,0 +1,7 @@
+[mcp_servers.github]
+url = "https://example.com/mcp"
+bearer_token_env_var = "GITHUB_PAT"
+
+[examples]
+authorization = "Bearer ${GITHUB_PAT}"
+token = "${GITHUB_PAT}"
