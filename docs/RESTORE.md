@@ -101,8 +101,9 @@ if (Compare-Object $repo $live) { 'MISMATCH' } else { 'OK: managed skills match 
 
 ## Rules (do not violate)
 
-- Never delete `~/.codex/skills/.system` — see `README.md` (Deployment Targets) and
-  `ai-agent-dotfiles-sync-plan-v2.md` §7.5.
+- Never delete `~/.codex/skills/.system` — see the root `README.md` (Deployment Targets),
+  [README.md](README.md) (the usage manual, §8), and
+  `archive/plans/ai-agent-dotfiles-sync-plan-v2.md` §7.5.
 - Never run a bare `robocopy /MIR` against `~/.codex/skills` from the **repo** generated output
   (it would purge `.system`); only mirror from a backup that already contains `.system`.
 - Restoring into a live dir is not the same as adding to the repo; use the inbox + Phase 2.6 flow
