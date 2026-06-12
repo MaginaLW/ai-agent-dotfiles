@@ -109,25 +109,24 @@ if (Compare-Object $repo $live) { 'MISMATCH' } else { 'OK' }
 
 ## 8. Quality findings (audit 2026-06-12)
 
-Open issues found in a review pass. None are security or correctness blockers; all are
-cleanliness/quality items affecting what ships into the generated output and live dirs.
+Findings from the review pass. Q1–Q3 were fixed on 2026-06-12 (build-output hygiene cleanup).
+None were security or correctness blockers.
 
-| # | Severity | Finding | Recommendation |
+| # | Status | Finding | Resolution |
 |---|---|---|---|
-| Q1 | Low–Med | **Bookkeeping files ship to runtime.** `build-skills.ps1` does a blind recursive copy of each skill dir, so repo-internal provenance files — `MERGE_NOTES.md` (every merged skill) and `CREATION-LOG.md` (`systematic-debugging`) — are copied into `claude/skills/` + `codex/skills/` and then deployed into `~/.claude/skills` and `~/.codex/skills`. Codex/Claude only need `SKILL.md` (+ referenced assets); the merge notes are internal clutter in the shipped skill. | Add an exclude list to `build-skills.ps1` (skip `MERGE_NOTES.md`, `CREATION-LOG.md`, and `*.magina-laptop.*`) so generated output contains only runtime files. Keep the provenance files in `skills-source/` only. (Touches `scripts/` — confirm before changing.) |
-| Q2 | Low | **Redundant identical agent yaml.** `skills-source/codex-only/google-drive-comments/agents/openai.magina-laptop.yaml` is **byte-identical** to `openai.yaml` (a leftover from the magina-laptop merge of a `-copy-1` duplicate). It ships to output and live. | Delete the redundant `openai.magina-laptop.yaml` from source and drop its line from that skill's `MERGE_NOTES.md`; rebuild. (After Q1's exclude, the `*.magina-laptop.*` would be skipped anyway, but the source copy is still cruft.) |
-| Q3 | Low | **Source↔live drift if fixed.** Because the user asked not to redeploy, fixing Q1/Q2 in the repo will make live dirs contain files no longer in the generated output until a (separate) targeted sync removes them. | When fixing, remove the specific stale files from live with a **targeted file delete** (not `robocopy /MIR`), preserving `.system`. |
-| Q4 | Info | **Status-doc sprawl.** 10 docs under `docs/`, several overlapping status reports. | Optional future consolidation; kept as-is to preserve per-phase provenance. This snapshot is the canonical "current state." |
-| Q5 | Info | **Sync/backup scripts are placeholders.** `scripts/sync.ps1` and `backup.ps1` still `throw`; only a TODO was added. | Implement real, manifest-scoped sync honoring the `.system` rule and the `~/.codex/skills` path correction (see §5). Separate task. |
-
-> Q1–Q2 are repo-side fixes that would also require touching the live dirs and `scripts/build-skills.ps1`. They are **not** applied in this snapshot — they are recorded here for an explicit go-ahead, consistent with the deploy-control workflow.
+| Q1 | ✅ Resolved | **Bookkeeping files shipped to runtime.** `build-skills.ps1` did a blind recursive copy of each skill dir, so repo-internal provenance files — `MERGE_NOTES.md` (every merged skill) and `CREATION-LOG.md` (`systematic-debugging`) — were copied into `claude/skills/` + `codex/skills/` and deployed into the live dirs. | `build-skills.ps1` now strips `MERGE_NOTES.md`, `CREATION-LOG.md`, and `*.magina-laptop.*` from the generated copy (`$script:RuntimeExcludePatterns`). The provenance files remain in `skills-source/` only. Verified absent from generated output. |
+| Q2 | ✅ Resolved | **Redundant identical agent yaml.** `skills-source/codex-only/google-drive-comments/agents/openai.magina-laptop.yaml` was **byte-identical** to `openai.yaml` (leftover from the magina-laptop merge of a `-copy-1` duplicate). | Deleted from source; the skill's `MERGE_NOTES.md` updated to note the removal (rest of provenance kept). |
+| Q3 | ✅ Resolved | **Source↔live drift after the fix.** With redeploy disallowed, the Q1/Q2 fixes left stale internal files in the live dirs. | Removed via **targeted file delete** (31 files: 30 `MERGE_NOTES.md`/`CREATION-LOG.md` + 1 stray yaml) — no `robocopy /MIR`, `.system` untouched. Live now has file-level parity with generated output (Codex 59 files, Claude 30 files, excluding `.system`). |
+| Q4 | Info | **Status-doc sprawl.** ~10 docs under `docs/`, several overlapping status reports. | Optional future consolidation; kept as-is to preserve per-phase provenance. This snapshot is the canonical "current state." |
+| Q5 | Open | **Sync/backup scripts are placeholders.** `scripts/sync.ps1` and `backup.ps1` still `throw`; only a TODO was added. | Implement real, manifest-scoped sync honoring the `.system` rule and the `~/.codex/skills` path correction (see §5). Separate task — **not** done in this snapshot. |
 
 ---
 
 ## 9. Conclusion
 
 Phase 3 office deployment is successful and fully documented; the repo is clean and in sync with
-origin (`306c196` at time of writing, plus this snapshot update); the `.system` preservation rule is
-formalized across README, plan, and the sync script; a verified backup and restore guide exist.
-Outstanding items are quality cleanups (Q1–Q2, build-output hygiene) and the separate real
-sync/backup script implementation (Q5) — none block current operation.
+origin; the `.system` preservation rule is formalized across README, plan, and the sync script; a
+verified backup and restore guide exist. Build-output hygiene (Q1–Q3) is now fixed: generated output
+and live dirs contain only runtime skill files (`SKILL.md` + assets), `.system` is preserved, and
+build/scan pass. The only outstanding item is the separate real manifest-scoped sync/backup script
+implementation (Q5) — it does not block current operation.

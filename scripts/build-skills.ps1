@@ -48,6 +48,10 @@ function Get-SkillDirectories {
     })
 }
 
+# Repo-internal provenance/bookkeeping files that live in skills-source/ but must NOT
+# ship into the generated runtime skill bundles (claude/skills, codex/skills).
+$script:RuntimeExcludePatterns = @('MERGE_NOTES.md', 'CREATION-LOG.md', '*.magina-laptop.*')
+
 function Copy-SkillDirectory {
     param(
         [Parameter(Mandatory)] [System.IO.DirectoryInfo] $Source,
@@ -57,6 +61,15 @@ function Copy-SkillDirectory {
     $destination = Join-Path $DestinationRoot $Source.Name
     Assert-UnderRepo -Path $destination
     Copy-Item -LiteralPath $Source.FullName -Destination $destination -Recurse
+
+    # Strip bookkeeping files from the generated copy only; skills-source/ keeps them.
+    foreach ($pattern in $script:RuntimeExcludePatterns) {
+        Get-ChildItem -LiteralPath $destination -Recurse -Force -File -Filter $pattern |
+            ForEach-Object {
+                Assert-UnderRepo -Path $_.FullName
+                Remove-Item -LiteralPath $_.FullName -Force
+            }
+    }
 }
 
 $sharedSource = Join-RepoPath 'skills-source/shared'
