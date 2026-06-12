@@ -1,0 +1,153 @@
+{
+  "generated_at": "2026-06-12T08:20:41.3121152+08:00",
+  "mode": "apply",
+  "scanned_skill_count": 6,
+  "merged_shared": [
+    "git-review",
+    "paper-polish",
+    "path-risk",
+    "placeholder-ok"
+  ],
+  "merged_claude_only": [],
+  "merged_codex_only": [
+    "codex-repo-maintainer"
+  ],
+  "exact_duplicate_count": 0,
+  "similar_purpose_groups": [
+    "git-review"
+  ],
+  "archived": [
+    {
+      "name": "codex-repo-maintainer",
+      "reason": "previous-source",
+      "target": "imports/skills-archive/previous-source/codex-repo-maintainer"
+    },
+    {
+      "name": "codex-repo-maintainer",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/fake-pc/codex/codex-repo-maintainer"
+    },
+    {
+      "name": "git-review",
+      "reason": "previous-source",
+      "target": "imports/skills-archive/previous-source/git-review"
+    },
+    {
+      "name": "git-review",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/fake-pc/claude/git-review"
+    },
+    {
+      "name": "git-review",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/fake-pc/codex/git-review"
+    },
+    {
+      "name": "paper-polish",
+      "reason": "previous-source",
+      "target": "imports/skills-archive/previous-source/paper-polish"
+    },
+    {
+      "name": "paper-polish",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/fake-pc/claude/paper-polish"
+    },
+    {
+      "name": "path-risk",
+      "reason": "previous-source",
+      "target": "imports/skills-archive/previous-source/path-risk"
+    },
+    {
+      "name": "path-risk",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/fake-pc/codex/path-risk"
+    },
+    {
+      "name": "placeholder-ok",
+      "reason": "previous-source",
+      "target": "imports/skills-archive/previous-source/placeholder-ok"
+    },
+    {
+      "name": "placeholder-ok",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/fake-pc/codex/placeholder-ok"
+    }
+  ],
+  "quarantined": [],
+  "path_rewrites": [
+    {
+      "name": "path-risk",
+      "file": "imports/skills-inbox/fake-pc/codex/path-risk/SKILL.md",
+      "rule": "Windows user path normalized",
+      "replacement": "$HOME"
+    }
+  ],
+  "skipped": [],
+  "merged": [
+    {
+      "name": "codex-repo-maintainer",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/codex-repo-maintainer",
+      "canonical_source": "existing-skills-source",
+      "sources": [
+        "imports/skills-inbox/fake-pc/codex/codex-repo-maintainer"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "git-review",
+      "target_type": "shared",
+      "target": "skills-source/shared/git-review",
+      "canonical_source": "existing-skills-source",
+      "sources": [
+        "imports/skills-inbox/fake-pc/claude/git-review",
+        "imports/skills-inbox/fake-pc/codex/git-review"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "paper-polish",
+      "target_type": "shared",
+      "target": "skills-source/shared/paper-polish",
+      "canonical_source": "existing-skills-source",
+      "sources": [
+        "imports/skills-inbox/fake-pc/claude/paper-polish"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "path-risk",
+      "target_type": "shared",
+      "target": "skills-source/shared/path-risk",
+      "canonical_source": "existing-skills-source",
+      "sources": [
+        "imports/skills-inbox/fake-pc/codex/path-risk"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "placeholder-ok",
+      "target_type": "shared",
+      "target": "skills-source/shared/placeholder-ok",
+      "canonical_source": "existing-skills-source",
+      "sources": [
+        "imports/skills-inbox/fake-pc/codex/placeholder-ok"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    }
+  ],
+  "final_skills_source_structure": [
+    "codex-only/codex-repo-maintainer",
+    "shared/git-review",
+    "shared/paper-polish",
+    "shared/path-risk",
+    "shared/placeholder-ok"
+  ],
+  "build_skills_result": "Built Claude skills: 4\nBuilt Codex skills: 5\nUpdated manifest: C:\\Repos\\ai-agent-dotfiles\\manifests\\managed-skills.txt",
+  "scan_secrets_result": "Running gitleaks from <gitleaks executable>\n\n    ○\n    │╲\n    │ ○\n    ○ ░\n    ░    gitleaks\n\n8:20AM INF scanned ~320874 bytes (320.87 KB) in 17.8ms\n8:20AM INF no leaks found\nWARN: Keyword hints found (non-blocking): 78\n\nFile                                   Line Pattern\n----                                   ---- -------\n.gitleaks.toml                            1 Keyword hint\n.gitleaks.toml                           25 Keyword hint\n.gitleaks.toml                           31 Keyword hint\n.gitleaks.toml                           36 Keyword hint\n.gitleaks.toml                           37 Keyword hint\n.gitleaks.toml                           48 Keyword hint\n.gitleaks.toml                           49 Keyword hint\n.gitleaks.toml                           50 Keyword hint\n.gitleaks.toml                           51 Keyword hint\n.gitleaks.toml                           54 Keyword hint\n.gitleaks.toml                           56 Keyword hint\n.gitleaks.toml                           57 Keyword hint\nREADME.md                                19 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md    7 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   11 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   72 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   77 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  191 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  201 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  268 Keyword hint\n\n\nWARN: 58 additional keyword hints suppressed.\nNo blocking secrets found."
+}

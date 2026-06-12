@@ -45,3 +45,19 @@ backup/
 tmp/
 *.bak
 *.tmp
+
+# Raw imported skills awaiting review.
+imports/skills-inbox/**
+imports/skills-quarantine/**
+imports/skills-archive/**
+
+# Keep documentation placeholders and generated reports.
+!imports/
+!imports/skills-inbox/
+!imports/skills-inbox/README.md
+!imports/skills-quarantine/
+!imports/skills-quarantine/README.md
+!imports/skills-archive/
+!imports/skills-archive/README.md
+!imports/skills-reports/
+!imports/skills-reports/README.md

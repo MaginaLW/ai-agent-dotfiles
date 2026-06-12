@@ -123,7 +123,7 @@ git-review
 Secret scan:
 
 ```text
-Running gitleaks from C:\Users\admin\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\gitleaks.exe
+Running gitleaks from <gitleaks executable>
 No blocking secrets found.
 no leaks found
 ```
@@ -141,7 +141,7 @@ Setup check:
 ```text
 PowerShell: 7.6.2
 Git: git version 2.45.1.windows.1
-gitleaks: C:\Users\admin\AppData\Local\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe\gitleaks.exe
+gitleaks: <gitleaks executable>
 .gitattributes: present.
 Pre-commit hook prepared but not installed.
 ```
