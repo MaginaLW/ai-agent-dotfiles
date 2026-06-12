@@ -338,7 +338,7 @@ Required:
 Insecure patterns:
 
 * `app.use(session({ store: new MemoryStore(), ... }))` or missing store (defaults to MemoryStore).
-* Hard-coded for example: `secret: 'keyboard cat'` / `secret: 's3Cur3'` in repo.
+* Hard-coding the session secret literal in source instead of loading it from a secret manager or environment variable at runtime.
 * Using `cookie-session` to store access tokens, refresh tokens, or PII.
 
 Detection hints:
