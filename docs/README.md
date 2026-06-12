@@ -168,10 +168,10 @@ pwsh -NoProfile -File scripts/sync.ps1 -Apply     # 真实同步
 
 ## 11. 当前状态摘要
 
-- Baseline commit：`f2639a5`
-- Claude：12
-- Codex：18 + `.system`
-- 已在 `MAGINA-LAPTOP` 与 `DESKTOP-3GMDAB7` 验收通过
+- Previous baseline commit：`f2639a5`
+- Claude：15
+- Codex：21 + `.system`
+- 已在 `DESKTOP-3GMDAB7` 验收通过；其它机器 `git pull --ff-only` 后按标准流程同步
 - 详见 [CURRENT_STATE.md](CURRENT_STATE.md)
 
 ---
@@ -182,7 +182,7 @@ pwsh -NoProfile -File scripts/sync.ps1 -Apply     # 真实同步
 A：`update` 只表示该 skill 在源和 live 中都存在、会被受控重新同步到与源一致。若内容本就一致，结果是等效 no-op。关键看的是 `add` / `prune` / `unknown` 是否符合预期。
 
 **Q：为什么 Codex 比 repo 多一个 `.system`？**
-A：`.system` 是 Codex 平台自带目录，不由本仓库管理。live 校验时排除它即可（`Codex 18 managed + .system`）。
+A：`.system` 是 Codex 平台自带目录，不由本仓库管理。live 校验时排除它即可（`Codex 21 managed + .system`）。
 
 **Q：为什么 generated output 不提交？**
 A：`claude/skills/`、`codex/skills/` 是由 `build-skills.ps1` 从 `skills-source/` 生成的，属派生物，已 Git-ignored；提交它会造成源与产物双份维护和漂移。

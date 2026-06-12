@@ -1,3 +1,4 @@
+brainstorming
 chatgpt-apps
 cli-creator
 code-review
@@ -18,6 +19,8 @@ placeholder-ok
 security-best-practices
 security-ownership-map
 security-threat-model
+subagent-driven-development
 systematic-debugging
 verification-before-completion
+writing-plans
 writing-skills
