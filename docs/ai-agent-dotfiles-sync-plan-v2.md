@@ -211,6 +211,8 @@ codex/skills/  -> ~/.agents/skills         # 仅 pull 方向，来源是 build �
 
 > Codex 用户级 skills 的官方位置是 `$HOME/.agents/skills`（仓库级为项目内 `.agents/skills`），不是 `~/.codex/skills`。`~/.codex/config.toml` 中的 `[[skills.config]]` 仅用于启用/禁用某个 skill。
 
+> ⚠️ **环境实测修正（Phase 3 / 2026-06-12 / `DESKTOP-3GMDAB7`）**：本机当前 Codex 版本的 live skills 实际位于 `~/.codex/skills`（内含平台目录 `.system` + `.codex-system-skills.marker`），而 `~/.agents/skills` **不存在**。Phase 3 部署据此写入 `~/.codex/skills`。因此实现 `sync.ps1` 时必须按本机实测路径探测：优先使用实际存在的目标目录，不要假定 `~/.agents/skills`。本文档其余处对 `~/.agents/skills` 的引用属早期设计假设，需以实测为准。
+
 ---
 
 ## 4. 绝对排除范围（第二道防线，白名单为主）
