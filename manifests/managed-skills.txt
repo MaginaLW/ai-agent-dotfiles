@@ -10,6 +10,7 @@ define-goal
 git-review
 google-drive-comments
 gpt-5-4-prompting
+hatch-pet
 latex-tectonic
 paper-polish
 path-risk

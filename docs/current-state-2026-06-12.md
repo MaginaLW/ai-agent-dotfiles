@@ -15,13 +15,13 @@ Single source-of-truth snapshot of the `ai-agent-dotfiles` project after Phase 3
 |---|---|
 | Latest deployment hotfix | `e6a2d90 fix: sanitize security best practices example` |
 | Latest rule/docs commit | `49e51db docs: record office deployment and codex system skill rule` |
-| `build-skills.ps1` | ✅ Claude 12 / Codex 17, exit 0 |
+| `build-skills.ps1` | ✅ Claude 12 / Codex 18, exit 0 (Codex 17→18 after `hatch-pet` promotion, 2026-06-12) |
 | `scan-secrets.ps1` | ✅ no leaks / no blocking secrets, exit 0 |
 | Working tree | clean except expected ignored paths + untracked docs (see §6) |
 
 Source of truth: `skills-source/` (hand-maintained). `claude/skills/` and `codex/skills/` are
 **generated** by `build-skills.ps1` and Git-ignored. `manifests/managed-skills.txt` lists the
-22 repo-managed skill names (union of Claude + Codex).
+23 repo-managed skill names (union of Claude + Codex; 22→23 after `hatch-pet` promotion, 2026-06-12).
 
 ---
 
@@ -131,3 +131,30 @@ verified backup and restore guide exist. Build-output hygiene (Q1–Q3) is fixed
 manifest-scoped sync/backup scripts (Q5) are now implemented (`sync.ps1` dry-run by default,
 `-Apply` takes a backup first and never mirrors or touches `.system`). All audit findings Q1–Q5 are
 resolved; the remaining items are informational (Q4 doc sprawl). Nothing blocks current operation.
+
+---
+
+## 10. MAGINA-LAPTOP sync + `hatch-pet` promotion (2026-06-12)
+
+Work performed on the **`MAGINA-LAPTOP`** machine (live Codex path `~/.codex/skills`):
+
+- **Repo synced to latest:** fast-forwarded to `c934922 feat: implement manifest-scoped skill sync and backup` and ran the manifest-scoped `sync.ps1 -Apply` (backup-first, `.system` preserved, no `robocopy /MIR`).
+- **Empty unknown dir removed:** `codex-primary-runtime` (a 0-file shell, residue of an old Codex user skill) was deleted from live only — confirmed empty first; not a repo change.
+- **`hatch-pet` promoted to repo management** as a **codex-only** skill:
+  - Two divergent variants existed. The promoted **canonical source** is the 21-file variant
+    (`imports/skills-inbox/magina-laptop/codex/hatch-pet`, byte-identical to MAGINA-LAPTOP live).
+    The divergent 14-file variant (`hatch-pet-copy-1` / quarantine `platform-conflict` copy) was
+    **not** promoted.
+  - Classified codex-only because it depends on the Codex `.system/imagegen` platform skill and
+    packages pets under `${CODEX_HOME:-$HOME/.codex}/pets/`. Lives in `claude/skills`? **No** —
+    Codex only.
+  - Security audit: no hard-coded secrets / machine paths / accounts; API credentials read from
+    env vars at runtime. Provenance recorded in `skills-source/codex-only/hatch-pet/MERGE_NOTES.md`.
+- **Counts after promotion:** Claude **12** (unchanged), Codex **17 → 18**, manifest **22 → 23**.
+- **Live state:** `codex/skills/hatch-pet` present, `claude/skills/hatch-pet` absent;
+  live unknown Codex dirs = **0**; `.system` marker = **True**; no stale bookkeeping files in live
+  managed dirs. `build-skills.ps1` and `scan-secrets.ps1` both pass.
+- **Backup (MAGINA-LAPTOP, outside repo):**
+  `C:\Users\Magina\.ai-agent-dotfiles-backups\sync-backup-20260612-154909`.
+
+**Q4 status-doc sprawl remains unaddressed** (intentionally not cleaned up this round).
