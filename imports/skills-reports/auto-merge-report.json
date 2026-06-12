@@ -1,153 +1,779 @@
 {
-  "generated_at": "2026-06-12T08:20:41.3121152+08:00",
+  "generated_at": "2026-06-12T10:21:21.4039039+08:00",
   "mode": "apply",
-  "scanned_skill_count": 6,
+  "scanned_skill_count": 87,
   "merged_shared": [
-    "git-review",
-    "paper-polish",
-    "path-risk",
-    "placeholder-ok"
+    "control-chrome",
+    "latex-tectonic",
+    "verification-before-completion"
   ],
-  "merged_claude_only": [],
+  "merged_claude_only": [
+    "codex-cli-runtime",
+    "codex-result-handling",
+    "gpt-5-4-prompting",
+    "systematic-debugging",
+    "writing-skills"
+  ],
   "merged_codex_only": [
-    "codex-repo-maintainer"
+    "chatgpt-apps",
+    "cli-creator",
+    "code-review",
+    "control-in-app-browser",
+    "define-goal",
+    "google-drive-comments",
+    "security-best-practices",
+    "security-ownership-map",
+    "security-threat-model"
   ],
   "exact_duplicate_count": 0,
   "similar_purpose_groups": [
-    "git-review"
+    "codex-cli-runtime",
+    "codex-result-handling",
+    "gh-address-comments",
+    "gh-fix-ci",
+    "github",
+    "gmail",
+    "gmail-inbox-triage",
+    "google-docs",
+    "google-drive",
+    "google-drive-comments",
+    "google-sheets",
+    "google-slides",
+    "gpt-5-4-prompting",
+    "hatch-pet",
+    "notion-knowledge-capture",
+    "notion-meeting-intelligence",
+    "notion-research-documentation",
+    "notion-spec-to-implementation",
+    "openai-docs",
+    "yeet"
   ],
   "archived": [
     {
-      "name": "codex-repo-maintainer",
-      "reason": "previous-source",
-      "target": "imports/skills-archive/previous-source/codex-repo-maintainer"
-    },
-    {
-      "name": "codex-repo-maintainer",
+      "name": "chatgpt-apps",
       "reason": "merged-inbox-copy",
-      "target": "imports/skills-archive/merged/fake-pc/codex/codex-repo-maintainer"
+      "target": "imports/skills-archive/merged/magina-laptop/codex/chatgpt-apps"
     },
     {
-      "name": "git-review",
-      "reason": "previous-source",
-      "target": "imports/skills-archive/previous-source/git-review"
-    },
-    {
-      "name": "git-review",
+      "name": "cli-creator",
       "reason": "merged-inbox-copy",
-      "target": "imports/skills-archive/merged/fake-pc/claude/git-review"
+      "target": "imports/skills-archive/merged/magina-laptop/codex/cli-creator"
     },
     {
-      "name": "git-review",
+      "name": "code-review",
       "reason": "merged-inbox-copy",
-      "target": "imports/skills-archive/merged/fake-pc/codex/git-review"
+      "target": "imports/skills-archive/merged/magina-laptop/codex/code-review"
     },
     {
-      "name": "paper-polish",
-      "reason": "previous-source",
-      "target": "imports/skills-archive/previous-source/paper-polish"
-    },
-    {
-      "name": "paper-polish",
+      "name": "codex-cli-runtime",
       "reason": "merged-inbox-copy",
-      "target": "imports/skills-archive/merged/fake-pc/claude/paper-polish"
+      "target": "imports/skills-archive/merged/magina-laptop/claude/codex-cli-runtime"
     },
     {
-      "name": "path-risk",
-      "reason": "previous-source",
-      "target": "imports/skills-archive/previous-source/path-risk"
-    },
-    {
-      "name": "path-risk",
+      "name": "codex-cli-runtime",
       "reason": "merged-inbox-copy",
-      "target": "imports/skills-archive/merged/fake-pc/codex/path-risk"
+      "target": "imports/skills-archive/merged/magina-laptop/claude/codex-cli-runtime"
     },
     {
-      "name": "placeholder-ok",
-      "reason": "previous-source",
-      "target": "imports/skills-archive/previous-source/placeholder-ok"
-    },
-    {
-      "name": "placeholder-ok",
+      "name": "codex-result-handling",
       "reason": "merged-inbox-copy",
-      "target": "imports/skills-archive/merged/fake-pc/codex/placeholder-ok"
+      "target": "imports/skills-archive/merged/magina-laptop/claude/codex-result-handling"
+    },
+    {
+      "name": "codex-result-handling",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/claude/codex-result-handling"
+    },
+    {
+      "name": "control-chrome",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/control-chrome"
+    },
+    {
+      "name": "control-in-app-browser",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/control-in-app-browser"
+    },
+    {
+      "name": "define-goal",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/define-goal"
+    },
+    {
+      "name": "google-drive-comments",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/google-drive-comments"
+    },
+    {
+      "name": "google-drive-comments",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/google-drive-comments"
+    },
+    {
+      "name": "gpt-5-4-prompting",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/claude/gpt-5-4-prompting"
+    },
+    {
+      "name": "gpt-5-4-prompting",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/claude/gpt-5-4-prompting"
+    },
+    {
+      "name": "latex-tectonic",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/latex-tectonic"
+    },
+    {
+      "name": "security-best-practices",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/security-best-practices"
+    },
+    {
+      "name": "security-ownership-map",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/security-ownership-map"
+    },
+    {
+      "name": "security-threat-model",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/security-threat-model"
+    },
+    {
+      "name": "systematic-debugging",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/systematic-debugging"
+    },
+    {
+      "name": "verification-before-completion",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/verification-before-completion"
+    },
+    {
+      "name": "writing-skills",
+      "reason": "merged-inbox-copy",
+      "target": "imports/skills-archive/merged/magina-laptop/codex/writing-skills"
     }
   ],
-  "quarantined": [],
-  "path_rewrites": [
+  "quarantined": [
     {
-      "name": "path-risk",
-      "file": "imports/skills-inbox/fake-pc/codex/path-risk/SKILL.md",
-      "rule": "Windows user path normalized",
-      "replacement": "$HOME"
+      "name": "aspnet-core",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/aspnet-core",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/aspnet-core"
+    },
+    {
+      "name": "cloudflare-deploy",
+      "reason": "possible-secret",
+      "source": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy",
+      "target": "imports/skills-quarantine/possible-secret/magina-laptop/codex/cloudflare-deploy"
+    },
+    {
+      "name": "documents",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/documents",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/documents"
+    },
+    {
+      "name": "figma",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/figma",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/figma"
+    },
+    {
+      "name": "figma-code-connect-components",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/figma-code-connect-components",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/figma-code-connect-components"
+    },
+    {
+      "name": "figma-create-design-system-rules",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/figma-create-design-system-rules",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/figma-create-design-system-rules"
+    },
+    {
+      "name": "figma-create-new-file",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/figma-create-new-file",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/figma-create-new-file"
+    },
+    {
+      "name": "figma-generate-design",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/figma-generate-design",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/figma-generate-design"
+    },
+    {
+      "name": "figma-generate-library",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/figma-generate-library",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/figma-generate-library"
+    },
+    {
+      "name": "figma-implement-design",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/figma-implement-design",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/figma-implement-design"
+    },
+    {
+      "name": "figma-use",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/figma-use",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/figma-use"
+    },
+    {
+      "name": "gh-address-comments",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gh-address-comments",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gh-address-comments"
+    },
+    {
+      "name": "gh-address-comments",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gh-address-comments"
+    },
+    {
+      "name": "gh-address-comments",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-2",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gh-address-comments"
+    },
+    {
+      "name": "gh-fix-ci",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gh-fix-ci"
+    },
+    {
+      "name": "gh-fix-ci",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gh-fix-ci"
+    },
+    {
+      "name": "gh-fix-ci",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-2",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gh-fix-ci"
+    },
+    {
+      "name": "github",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/github",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/github"
+    },
+    {
+      "name": "github",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/github-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/github"
+    },
+    {
+      "name": "gmail",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gmail",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gmail"
+    },
+    {
+      "name": "gmail",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gmail-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gmail"
+    },
+    {
+      "name": "gmail-inbox-triage",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gmail-inbox-triage"
+    },
+    {
+      "name": "gmail-inbox-triage",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/gmail-inbox-triage"
+    },
+    {
+      "name": "google-docs",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/google-docs",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/google-docs"
+    },
+    {
+      "name": "google-docs",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/google-docs-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/google-docs"
+    },
+    {
+      "name": "google-drive",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/google-drive",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/google-drive"
+    },
+    {
+      "name": "google-drive",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/google-drive-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/google-drive"
+    },
+    {
+      "name": "google-sheets",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/google-sheets",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/google-sheets"
+    },
+    {
+      "name": "google-sheets",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/google-sheets-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/google-sheets"
+    },
+    {
+      "name": "google-slides",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/google-slides",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/google-slides"
+    },
+    {
+      "name": "google-slides",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/google-slides-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/google-slides"
+    },
+    {
+      "name": "hatch-pet",
+      "reason": "platform-conflict",
+      "source": "imports/skills-inbox/magina-laptop/codex/hatch-pet",
+      "target": "imports/skills-quarantine/platform-conflict/magina-laptop/codex/hatch-pet"
+    },
+    {
+      "name": "hatch-pet",
+      "reason": "platform-conflict",
+      "source": "imports/skills-inbox/magina-laptop/codex/hatch-pet-copy-1",
+      "target": "imports/skills-quarantine/platform-conflict/magina-laptop/codex/hatch-pet"
+    },
+    {
+      "name": "imagegen",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/imagegen",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/imagegen"
+    },
+    {
+      "name": "jupyter-notebook",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/jupyter-notebook",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/jupyter-notebook"
+    },
+    {
+      "name": "linear",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/linear",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/linear"
+    },
+    {
+      "name": "migrate-to-codex",
+      "reason": "platform-conflict",
+      "source": "imports/skills-inbox/magina-laptop/codex/migrate-to-codex",
+      "target": "imports/skills-quarantine/platform-conflict/magina-laptop/codex/migrate-to-codex"
+    },
+    {
+      "name": "netlify-deploy",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/netlify-deploy",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/netlify-deploy"
+    },
+    {
+      "name": "notion-knowledge-capture",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/notion-knowledge-capture"
+    },
+    {
+      "name": "notion-knowledge-capture",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/notion-knowledge-capture"
+    },
+    {
+      "name": "notion-meeting-intelligence",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/notion-meeting-intelligence"
+    },
+    {
+      "name": "notion-meeting-intelligence",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/notion-meeting-intelligence"
+    },
+    {
+      "name": "notion-research-documentation",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/notion-research-documentation",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/notion-research-documentation"
+    },
+    {
+      "name": "notion-research-documentation",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/notion-research-documentation-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/notion-research-documentation"
+    },
+    {
+      "name": "notion-spec-to-implementation",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/notion-spec-to-implementation"
+    },
+    {
+      "name": "notion-spec-to-implementation",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/notion-spec-to-implementation"
+    },
+    {
+      "name": "openai-docs",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/openai-docs",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/openai-docs"
+    },
+    {
+      "name": "openai-docs",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/openai-docs-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/openai-docs"
+    },
+    {
+      "name": "pdf",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/pdf",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/pdf"
+    },
+    {
+      "name": "playwright",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/playwright",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/playwright"
+    },
+    {
+      "name": "playwright-interactive",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/playwright-interactive",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/playwright-interactive"
+    },
+    {
+      "name": "plugin-creator",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/plugin-creator",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/plugin-creator"
+    },
+    {
+      "name": "presentations",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/presentations",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/presentations"
+    },
+    {
+      "name": "render-deploy",
+      "reason": "possible-secret",
+      "source": "imports/skills-inbox/magina-laptop/codex/render-deploy",
+      "target": "imports/skills-quarantine/possible-secret/magina-laptop/codex/render-deploy"
+    },
+    {
+      "name": "screenshot",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/screenshot",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/screenshot"
+    },
+    {
+      "name": "sentry",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/sentry",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/sentry"
+    },
+    {
+      "name": "skill-creator",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/skill-creator",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/skill-creator"
+    },
+    {
+      "name": "skill-installer",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/skill-installer",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/skill-installer"
+    },
+    {
+      "name": "speech",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/speech",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/speech"
+    },
+    {
+      "name": "spreadsheets",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/spreadsheets",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/spreadsheets"
+    },
+    {
+      "name": "transcribe",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/transcribe",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/transcribe"
+    },
+    {
+      "name": "vercel-deploy",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/vercel-deploy",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/vercel-deploy"
+    },
+    {
+      "name": "winui-app",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/winui-app",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/winui-app"
+    },
+    {
+      "name": "yeet",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/yeet",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/yeet"
+    },
+    {
+      "name": "yeet",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/yeet-copy-1",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/yeet"
+    },
+    {
+      "name": "yeet",
+      "reason": "binary-or-large-file",
+      "source": "imports/skills-inbox/magina-laptop/codex/yeet-copy-2",
+      "target": "imports/skills-quarantine/binary-or-large-file/magina-laptop/codex/yeet"
     }
   ],
+  "path_rewrites": [],
   "skipped": [],
   "merged": [
     {
-      "name": "codex-repo-maintainer",
+      "name": "chatgpt-apps",
       "target_type": "codex-only",
-      "target": "skills-source/codex-only/codex-repo-maintainer",
-      "canonical_source": "existing-skills-source",
+      "target": "skills-source/codex-only/chatgpt-apps",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/chatgpt-apps",
       "sources": [
-        "imports/skills-inbox/fake-pc/codex/codex-repo-maintainer"
+        "imports/skills-inbox/magina-laptop/codex/chatgpt-apps"
       ],
       "supporting_files": [],
       "dry_run": false
     },
     {
-      "name": "git-review",
-      "target_type": "shared",
-      "target": "skills-source/shared/git-review",
-      "canonical_source": "existing-skills-source",
+      "name": "cli-creator",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/cli-creator",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/cli-creator",
       "sources": [
-        "imports/skills-inbox/fake-pc/claude/git-review",
-        "imports/skills-inbox/fake-pc/codex/git-review"
+        "imports/skills-inbox/magina-laptop/codex/cli-creator"
       ],
       "supporting_files": [],
       "dry_run": false
     },
     {
-      "name": "paper-polish",
-      "target_type": "shared",
-      "target": "skills-source/shared/paper-polish",
-      "canonical_source": "existing-skills-source",
+      "name": "code-review",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/code-review",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/coderabbit-review",
       "sources": [
-        "imports/skills-inbox/fake-pc/claude/paper-polish"
+        "imports/skills-inbox/magina-laptop/codex/coderabbit-review"
       ],
       "supporting_files": [],
       "dry_run": false
     },
     {
-      "name": "path-risk",
-      "target_type": "shared",
-      "target": "skills-source/shared/path-risk",
-      "canonical_source": "existing-skills-source",
+      "name": "codex-cli-runtime",
+      "target_type": "claude-only",
+      "target": "skills-source/claude-only/codex-cli-runtime",
+      "canonical_source": "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime",
       "sources": [
-        "imports/skills-inbox/fake-pc/codex/path-risk"
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime",
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime-copy-1"
       ],
       "supporting_files": [],
       "dry_run": false
     },
     {
-      "name": "placeholder-ok",
-      "target_type": "shared",
-      "target": "skills-source/shared/placeholder-ok",
-      "canonical_source": "existing-skills-source",
+      "name": "codex-result-handling",
+      "target_type": "claude-only",
+      "target": "skills-source/claude-only/codex-result-handling",
+      "canonical_source": "imports/skills-inbox/magina-laptop/claude/codex-result-handling",
       "sources": [
-        "imports/skills-inbox/fake-pc/codex/placeholder-ok"
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling",
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling-copy-1"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "control-chrome",
+      "target_type": "shared",
+      "target": "skills-source/shared/control-chrome",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/control-chrome",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/control-chrome"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "control-in-app-browser",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/control-in-app-browser",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/control-in-app-browser",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/control-in-app-browser"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "define-goal",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/define-goal",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/define-goal",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/define-goal"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "google-drive-comments",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/google-drive-comments",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/google-drive-comments",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/google-drive-comments",
+        "imports/skills-inbox/magina-laptop/codex/google-drive-comments-copy-1"
+      ],
+      "supporting_files": [
+        "skills-source/codex-only/google-drive-comments/agents/openai.magina-laptop.yaml"
+      ],
+      "dry_run": false
+    },
+    {
+      "name": "gpt-5-4-prompting",
+      "target_type": "claude-only",
+      "target": "skills-source/claude-only/gpt-5-4-prompting",
+      "canonical_source": "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting",
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting-copy-1"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "latex-tectonic",
+      "target_type": "shared",
+      "target": "skills-source/shared/latex-tectonic",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/latex-tectonic",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/latex-tectonic"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "security-best-practices",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/security-best-practices",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/security-best-practices",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/security-best-practices"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "security-ownership-map",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/security-ownership-map",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/security-ownership-map",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/security-ownership-map"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "security-threat-model",
+      "target_type": "codex-only",
+      "target": "skills-source/codex-only/security-threat-model",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/security-threat-model",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/security-threat-model"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "systematic-debugging",
+      "target_type": "claude-only",
+      "target": "skills-source/claude-only/systematic-debugging",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/systematic-debugging",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/systematic-debugging"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "verification-before-completion",
+      "target_type": "shared",
+      "target": "skills-source/shared/verification-before-completion",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/verification-before-completion",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/verification-before-completion"
+      ],
+      "supporting_files": [],
+      "dry_run": false
+    },
+    {
+      "name": "writing-skills",
+      "target_type": "claude-only",
+      "target": "skills-source/claude-only/writing-skills",
+      "canonical_source": "imports/skills-inbox/magina-laptop/codex/writing-skills",
+      "sources": [
+        "imports/skills-inbox/magina-laptop/codex/writing-skills"
       ],
       "supporting_files": [],
       "dry_run": false
     }
   ],
   "final_skills_source_structure": [
+    "claude-only/codex-cli-runtime",
+    "claude-only/codex-result-handling",
+    "claude-only/gpt-5-4-prompting",
+    "claude-only/systematic-debugging",
+    "claude-only/writing-skills",
+    "codex-only/chatgpt-apps",
+    "codex-only/cli-creator",
+    "codex-only/code-review",
     "codex-only/codex-repo-maintainer",
+    "codex-only/control-in-app-browser",
+    "codex-only/define-goal",
+    "codex-only/google-drive-comments",
+    "codex-only/security-best-practices",
+    "codex-only/security-ownership-map",
+    "codex-only/security-threat-model",
+    "shared/control-chrome",
     "shared/git-review",
+    "shared/latex-tectonic",
     "shared/paper-polish",
     "shared/path-risk",
-    "shared/placeholder-ok"
+    "shared/placeholder-ok",
+    "shared/verification-before-completion"
   ],
-  "build_skills_result": "Built Claude skills: 4\nBuilt Codex skills: 5\nUpdated manifest: C:\\Repos\\ai-agent-dotfiles\\manifests\\managed-skills.txt",
-  "scan_secrets_result": "Running gitleaks from <gitleaks executable>\n\n    ○\n    │╲\n    │ ○\n    ○ ░\n    ░    gitleaks\n\n8:20AM INF scanned ~320874 bytes (320.87 KB) in 17.8ms\n8:20AM INF no leaks found\nWARN: Keyword hints found (non-blocking): 78\n\nFile                                   Line Pattern\n----                                   ---- -------\n.gitleaks.toml                            1 Keyword hint\n.gitleaks.toml                           25 Keyword hint\n.gitleaks.toml                           31 Keyword hint\n.gitleaks.toml                           36 Keyword hint\n.gitleaks.toml                           37 Keyword hint\n.gitleaks.toml                           48 Keyword hint\n.gitleaks.toml                           49 Keyword hint\n.gitleaks.toml                           50 Keyword hint\n.gitleaks.toml                           51 Keyword hint\n.gitleaks.toml                           54 Keyword hint\n.gitleaks.toml                           56 Keyword hint\n.gitleaks.toml                           57 Keyword hint\nREADME.md                                19 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md    7 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   11 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   72 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   77 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  191 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  201 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  268 Keyword hint\n\n\nWARN: 58 additional keyword hints suppressed.\nNo blocking secrets found."
+  "build_skills_result": "Built Claude skills: 12\nBuilt Codex skills: 17\nUpdated manifest: C:\\Repos\\ai-agent-dotfiles\\manifests\\managed-skills.txt",
+  "scan_secrets_result": "gitleaks was not found. Install it from https://github.com/gitleaks/gitleaks; running fallback scanner now.\nWARN: Keyword hints found (non-blocking): 3180\n\nFile                                   Line Pattern\n----                                   ---- -------\n.gitleaks.toml                            1 Keyword hint\n.gitleaks.toml                           25 Keyword hint\n.gitleaks.toml                           31 Keyword hint\n.gitleaks.toml                           36 Keyword hint\n.gitleaks.toml                           37 Keyword hint\n.gitleaks.toml                           48 Keyword hint\n.gitleaks.toml                           49 Keyword hint\n.gitleaks.toml                           50 Keyword hint\n.gitleaks.toml                           51 Keyword hint\n.gitleaks.toml                           54 Keyword hint\n.gitleaks.toml                           56 Keyword hint\n.gitleaks.toml                           57 Keyword hint\nREADME.md                                19 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md    7 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   11 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   72 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md   77 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  191 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  201 Keyword hint\ndocs\\ai-agent-dotfiles-sync-plan-v2.md  268 Keyword hint\n\n\nWARN: 3160 additional keyword hints suppressed.\nERROR: Possible secret found.\n\nFile\n----                                                                                                                    \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\api\\api.md                                        \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\pages\\configuration.md                            \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\r2-data-catalog\\api.md                            \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\r2-data-catalog\\configuration.md                  \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\r2-sql\\patterns.md                                \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\realtimekit\\README.md                             \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\spectrum\\api.md                                   \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\turn\\gotchas.md                                   \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\turnstile\\gotchas.md                              \nimports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy\\references\\wrangler\\auth.md                                  \nimports\\skills-inbox\\magina-laptop\\codex\\render-deploy\\SKILL.md                                                         \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\api\\api.md                   \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\pages\\configuration.md       \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\r2-data-catalog\\api.md       \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\r2-data-catalog\\configuratio…\nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\r2-sql\\patterns.md           \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\realtimekit\\README.md        \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\spectrum\\api.md              \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\turn\\gotchas.md              \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\turnstile\\gotchas.md         \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\cloudflare-deploy\\references\\wrangler\\auth.md             \nimports\\skills-quarantine\\possible-secret\\magina-laptop\\codex\\render-deploy\\SKILL.md                                    \n\n\nAction: remove it, replace it with an environment variable placeholder, or append \"# scan-ok\" only after manual review."
 }

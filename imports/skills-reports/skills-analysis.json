@@ -1,69 +1,201 @@
 {
-  "generated_at": "2026-06-12T08:16:32.2085446+08:00",
-  "total_skill_count": 7,
-  "claude_source_skill_count": 2,
-  "codex_source_skill_count": 4,
-  "current_skills_source_count": 1,
+  "generated_at": "2026-06-12T10:19:14.2433970+08:00",
+  "total_skill_count": 92,
+  "claude_source_skill_count": 6,
+  "codex_source_skill_count": 81,
+  "current_skills_source_count": 5,
   "records": [
     {
       "source_tool": "claude",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
       "collection": "inbox",
-      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\fake-pc\\claude\\git-review",
-      "repo_relative_path": "imports/skills-inbox/fake-pc/claude/git-review",
-      "skill_dir_name": "git-review",
-      "normalized_name": "git-review",
-      "frontmatter_name": "git-review",
-      "frontmatter_description": "Review git changes from Claude Code, summarize risks, and suggest tests before commits.",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\claude\\codex-cli-runtime",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime",
+      "skill_dir_name": "codex-cli-runtime",
+      "normalized_name": "codex-cli-runtime",
+      "frontmatter_name": "codex-cli-runtime",
+      "frontmatter_description": "Internal helper contract for calling the codex-companion runtime from Claude Code",
       "has_skill_md": true,
       "file_count": 1,
-      "total_size": 434,
-      "sha256_of_skill_md": "f056358e9f78a39ce7353b0735c0e03704b68d858ba80c3d10afca74464f6437",
-      "sha256_tree_hash": "abe66d3199bdb8c0ab8d2e02e6821b6b724e13fc978ec3bf6cbf9d782db52d8f",
-      "possible_platform_specific_features": [],
+      "total_size": 3140,
+      "sha256_of_skill_md": "61897f85be40353f777f4d984228f7ed6c02e56540bd3b9f2eb49891ce7c0618",
+      "sha256_tree_hash": "d90236e5f82d856ad6565169b81cbbf8123a81b3962c856b37759b4e3b059bb3",
+      "possible_platform_specific_features": [
+        "subagents",
+        "user-invocable"
+      ],
       "possible_secret_findings": [],
       "possible_local_path_findings": [],
       "possible_binary_findings": [],
-      "classification": "shared",
-      "quality_score": 95
+      "classification": "claude-only",
+      "quality_score": 80
     },
     {
       "source_tool": "claude",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
       "collection": "inbox",
-      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\fake-pc\\claude\\paper-polish",
-      "repo_relative_path": "imports/skills-inbox/fake-pc/claude/paper-polish",
-      "skill_dir_name": "paper-polish",
-      "normalized_name": "paper-polish",
-      "frontmatter_name": "paper-polish",
-      "frontmatter_description": "Improve academic writing for clarity, structure, tone, and concise argument flow.",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\claude\\codex-cli-runtime-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime-copy-1",
+      "skill_dir_name": "codex-cli-runtime-copy-1",
+      "normalized_name": "codex-cli-runtime",
+      "frontmatter_name": "codex-cli-runtime",
+      "frontmatter_description": "Internal helper contract for calling the codex-companion runtime from Claude Code",
       "has_skill_md": true,
       "file_count": 1,
-      "total_size": 353,
-      "sha256_of_skill_md": "48db29b81b11ca375f2b77b315bdef22322b79405f2927b645e4a31d5e83111e",
-      "sha256_tree_hash": "9fc64b4cd4de8ebc2b23adb03e456218bbbdd49537419fbf6f0a23c2cc98e296",
-      "possible_platform_specific_features": [],
+      "total_size": 3140,
+      "sha256_of_skill_md": "61897f85be40353f777f4d984228f7ed6c02e56540bd3b9f2eb49891ce7c0618",
+      "sha256_tree_hash": "d90236e5f82d856ad6565169b81cbbf8123a81b3962c856b37759b4e3b059bb3",
+      "possible_platform_specific_features": [
+        "subagents",
+        "user-invocable"
+      ],
       "possible_secret_findings": [],
       "possible_local_path_findings": [],
       "possible_binary_findings": [],
-      "classification": "shared",
-      "quality_score": 90
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\claude\\codex-result-handling",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/claude/codex-result-handling",
+      "skill_dir_name": "codex-result-handling",
+      "normalized_name": "codex-result-handling",
+      "frontmatter_name": "codex-result-handling",
+      "frontmatter_description": "Internal guidance for presenting Codex helper output back to the user",
+      "has_skill_md": true,
+      "file_count": 1,
+      "total_size": 1752,
+      "sha256_of_skill_md": "11681c95d001e402a79caaaec28d0d6d24ca00472b541c55182bc5693267ef23",
+      "sha256_tree_hash": "4e07fb6ebac705bd365bbbf9fdd5001d016afe882b5d93580657b2ab97131761",
+      "possible_platform_specific_features": [
+        "user-invocable"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\claude\\codex-result-handling-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/claude/codex-result-handling-copy-1",
+      "skill_dir_name": "codex-result-handling-copy-1",
+      "normalized_name": "codex-result-handling",
+      "frontmatter_name": "codex-result-handling",
+      "frontmatter_description": "Internal guidance for presenting Codex helper output back to the user",
+      "has_skill_md": true,
+      "file_count": 1,
+      "total_size": 1752,
+      "sha256_of_skill_md": "11681c95d001e402a79caaaec28d0d6d24ca00472b541c55182bc5693267ef23",
+      "sha256_tree_hash": "4e07fb6ebac705bd365bbbf9fdd5001d016afe882b5d93580657b2ab97131761",
+      "possible_platform_specific_features": [
+        "user-invocable"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\claude\\gpt-5-4-prompting",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting",
+      "skill_dir_name": "gpt-5-4-prompting",
+      "normalized_name": "gpt-5-4-prompting",
+      "frontmatter_name": "gpt-5-4-prompting",
+      "frontmatter_description": "Internal guidance for composing Codex and GPT-5.4 prompts for coding, review, diagnosis, and research tasks inside the Codex Claude Code plugin",
+      "has_skill_md": true,
+      "file_count": 4,
+      "total_size": 13945,
+      "sha256_of_skill_md": "318a6e0f804209d01c4dac4fe4e419de6b6d67f29880d040ddce1ad3a5a8ee0c",
+      "sha256_tree_hash": "b5645fb026556cf6991a30b080692c3aee0f02235760b5300a4c71fa1d18bbfe",
+      "possible_platform_specific_features": [
+        "user-invocable"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "claude-only",
+      "quality_score": 85
+    },
+    {
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\claude\\gpt-5-4-prompting-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting-copy-1",
+      "skill_dir_name": "gpt-5-4-prompting-copy-1",
+      "normalized_name": "gpt-5-4-prompting",
+      "frontmatter_name": "gpt-5-4-prompting",
+      "frontmatter_description": "Internal guidance for composing Codex and GPT-5.4 prompts for coding, review, diagnosis, and research tasks inside the Codex Claude Code plugin",
+      "has_skill_md": true,
+      "file_count": 4,
+      "total_size": 13945,
+      "sha256_of_skill_md": "318a6e0f804209d01c4dac4fe4e419de6b6d67f29880d040ddce1ad3a5a8ee0c",
+      "sha256_tree_hash": "b5645fb026556cf6991a30b080692c3aee0f02235760b5300a4c71fa1d18bbfe",
+      "possible_platform_specific_features": [
+        "user-invocable"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "claude-only",
+      "quality_score": 85
     },
     {
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
       "collection": "inbox",
-      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\fake-pc\\codex\\codex-repo-maintainer",
-      "repo_relative_path": "imports/skills-inbox/fake-pc/codex/codex-repo-maintainer",
-      "skill_dir_name": "codex-repo-maintainer",
-      "normalized_name": "codex-repo-maintainer",
-      "frontmatter_name": "codex-repo-maintainer",
-      "frontmatter_description": "Maintain Codex repositories by inspecting diffs, running checks, and preparing safe local changes.",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\aspnet-core",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/aspnet-core",
+      "skill_dir_name": "aspnet-core",
+      "normalized_name": "aspnet-core",
+      "frontmatter_name": "aspnet-core",
+      "frontmatter_description": "Build, review, refactor, or architect ASP.NET Core web applications using current official guidance for .NET web development. Use when working on Blazor Web Apps, Razor Pages, MVC, Minimal APIs, controller-based Web APIs, SignalR, gRPC, middleware, dependency injection, configuration, authentication, authorization, testing, performance, deployment, or ASP.NET Core upgrades.",
       "has_skill_md": true,
-      "file_count": 2,
-      "total_size": 413,
-      "sha256_of_skill_md": "6a86f4510246de8c48a1f6bd63a06c03190ec2e17d2ecf4ccc169d89530421b7",
-      "sha256_tree_hash": "5a6cff787bcb1571bd2f4010c7a67cbc4e42625d47235dc939fbe2eac0bf7b1b",
+      "file_count": 17,
+      "total_size": 54284,
+      "sha256_of_skill_md": "803979c258908f2e575196295c119001817673e3bbf9babf54f5c24a41ac3328",
+      "sha256_tree_hash": "920d1c28f8ebabd61b716d653ffbe4fd90b276f78e2612a6ee1c92c8a8bf0d37",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/aspnet-core/assets/dotnet-logo.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\chatgpt-apps",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/chatgpt-apps",
+      "skill_dir_name": "chatgpt-apps",
+      "normalized_name": "chatgpt-apps",
+      "frontmatter_name": "chatgpt-apps",
+      "frontmatter_description": "Build, scaffold, refactor, and troubleshoot ChatGPT Apps SDK applications that combine an MCP server and widget UI. Use when Codex needs to design tools, register UI resources, wire the MCP Apps bridge or ChatGPT compatibility APIs, apply Apps SDK metadata or CSP or domain settings, or produce a docs-aligned project scaffold. Prefer a docs-first workflow by invoking the openai-docs skill or OpenAI developer docs MCP tools before generating code.",
+      "has_skill_md": true,
+      "file_count": 11,
+      "total_size": 78522,
+      "sha256_of_skill_md": "928530dd05490d9cd38a8935c824049c5f562422a1bcaa2516ff3032d524ee44",
+      "sha256_tree_hash": "6e427c3e217d03d8e1f208861a67e72bdccf2b90b449611d15ec729c5cd80f1b",
       "possible_platform_specific_features": [
         "agents-openai-yaml"
       ],
@@ -75,75 +207,2354 @@
     },
     {
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
       "collection": "inbox",
-      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\fake-pc\\codex\\git-review",
-      "repo_relative_path": "imports/skills-inbox/fake-pc/codex/git-review",
-      "skill_dir_name": "git-review",
-      "normalized_name": "git-review",
-      "frontmatter_name": "git-review",
-      "frontmatter_description": "Inspect git diffs, find behavioral risks, and prepare a commit-ready review summary.",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\cli-creator",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/cli-creator",
+      "skill_dir_name": "cli-creator",
+      "normalized_name": "cli-creator",
+      "frontmatter_name": "cli-creator",
+      "frontmatter_description": "Build a composable CLI for Codex from API docs, an OpenAPI spec, existing curl examples, an SDK, a web app, an admin tool, or a local script. Use when the user wants Codex to create a command-line tool that can run from any repo, expose composable read/write commands, return stable JSON, manage auth, and pair with a companion skill.",
       "has_skill_md": true,
-      "file_count": 1,
-      "total_size": 462,
-      "sha256_of_skill_md": "90d07808c9d56356ea8acfdd2a36d6ca8467873cc8a45ade855d521b96fdacd3",
-      "sha256_tree_hash": "ecf177c2e79756edbbb0d9d47b2417b3fcfd0a48aa6b1fec89c8681c4ab13fb0",
-      "possible_platform_specific_features": [],
+      "file_count": 4,
+      "total_size": 27321,
+      "sha256_of_skill_md": "cadfb50f883f1214654875b00c03096449ed8c365afd9bcae26d66789c28cf9e",
+      "sha256_tree_hash": "d9bed9cdb65ec6ab1a3fda3e8c96198354f3edf5c183cb9479cf581bc976698f",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
       "possible_secret_findings": [],
       "possible_local_path_findings": [],
       "possible_binary_findings": [],
-      "classification": "shared",
-      "quality_score": 95
+      "classification": "codex-only",
+      "quality_score": 80
     },
     {
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
       "collection": "inbox",
-      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\fake-pc\\codex\\path-risk",
-      "repo_relative_path": "imports/skills-inbox/fake-pc/codex/path-risk",
-      "skill_dir_name": "path-risk",
-      "normalized_name": "path-risk",
-      "frontmatter_name": "path-risk",
-      "frontmatter_description": "Demonstrate local path rewriting during skill normalization.",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\cloudflare-deploy",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy",
+      "skill_dir_name": "cloudflare-deploy",
+      "normalized_name": "cloudflare-deploy",
+      "frontmatter_name": "cloudflare-deploy",
+      "frontmatter_description": "Deploy applications and infrastructure to Cloudflare using Workers, Pages, and related platform services. Use when the user asks to deploy, host, publish, or set up a project on Cloudflare.",
       "has_skill_md": true,
-      "file_count": 1,
-      "total_size": 278,
-      "sha256_of_skill_md": "2c594ca51d3ed64751dceb70b43c3a5c7a849f0996ca17da09f581b8db8e2fec",
-      "sha256_tree_hash": "b4fe0c64df72f3a401a9fb2bbf028b40eb13a07a4d88488b4976ff613f6f3c4d",
-      "possible_platform_specific_features": [],
-      "possible_secret_findings": [],
-      "possible_local_path_findings": [
+      "file_count": 312,
+      "total_size": 1395470,
+      "sha256_of_skill_md": "30d345ed3affdc61fcfc51cc5dbab977659bb4839f79363bc5f4869b674d4be4",
+      "sha256_tree_hash": "c752196f6d0dd08c60650b47d955e9f5af8329fb8398776ba71dbb4ea3940bd9",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "claude-hooks"
+      ],
+      "possible_secret_findings": [
         {
-          "File": "imports/skills-inbox/fake-pc/codex/path-risk/SKILL.md",
-          "Rule": "Windows user path",
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/api/api.md",
+          "Line": 47,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/pages/configuration.md",
+          "Line": 44,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/r2-data-catalog/api.md",
+          "Line": 53,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/r2-data-catalog/configuration.md",
+          "Line": 112,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/r2-sql/patterns.md",
+          "Line": 92,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/realtimekit/README.md",
+          "Line": 50,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/spectrum/api.md",
+          "Line": 103,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/turn/gotchas.md",
+          "Line": 102,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/turnstile/gotchas.md",
+          "Line": 171,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/references/wrangler/auth.md",
+          "Line": 36,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        }
+      ],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/cloudflare-deploy/assets/cloudflare.png",
+          "Rule": "unknown-or-binary-file",
           "Severity": "medium"
         }
       ],
+      "classification": "quarantine",
+      "quality_score": 25
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\coderabbit-review",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/coderabbit-review",
+      "skill_dir_name": "coderabbit-review",
+      "normalized_name": "code-review",
+      "frontmatter_name": "code-review",
+      "frontmatter_description": "Reviews code changes using CodeRabbit AI. Use when user asks for code review, PR feedback, code quality checks, security issues, or requests fix-review cycles.",
+      "has_skill_md": true,
+      "file_count": 2,
+      "total_size": 3855,
+      "sha256_of_skill_md": "412f292e682ca67d6453e3f1bdb9c2c59d5ac2bf8ac20bd8f6f0eb2a37edb987",
+      "sha256_tree_hash": "e1787035b800c0df59defde0128473f3530b1aeede839999e0cac1e2f7db55fc",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 85
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\control-chrome",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/control-chrome",
+      "skill_dir_name": "control-chrome",
+      "normalized_name": "control-chrome",
+      "frontmatter_name": "control-chrome",
+      "frontmatter_description": "Control the user's Chrome browser for tasks that depend on existing Chrome state: tabs, logged-in sessions, cookies, or extensions. Prefer purpose-built connectors, APIs, or CLIs when available.",
+      "has_skill_md": true,
+      "file_count": 1,
+      "total_size": 13076,
+      "sha256_of_skill_md": "bd96d819abf24d56862148df287999f42335abc965c9d7cbaf1f95bf6582704a",
+      "sha256_tree_hash": "4e2213ccb2ae8b0965e9c60a608056e850ff56cf19e6e8ec52f2271d884a3cb0",
+      "possible_platform_specific_features": [],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
       "possible_binary_findings": [],
       "classification": "shared",
       "quality_score": 75
     },
     {
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
       "collection": "inbox",
-      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\fake-pc\\codex\\placeholder-ok",
-      "repo_relative_path": "imports/skills-inbox/fake-pc/codex/placeholder-ok",
-      "skill_dir_name": "placeholder-ok",
-      "normalized_name": "placeholder-ok",
-      "frontmatter_name": "placeholder-ok",
-      "frontmatter_description": "Demonstrate safe environment variable placeholders for MCP authentication.",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\control-in-app-browser",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/control-in-app-browser",
+      "skill_dir_name": "control-in-app-browser",
+      "normalized_name": "control-in-app-browser",
+      "frontmatter_name": "control-in-app-browser",
+      "frontmatter_description": "Control the in-app Browser. Use to open, navigate, inspect, test, click, type, screenshot, or verify local targets such as localhost, 127.0.0.1, ::1, file://, the current in-app browser tab, and websites shown side by side inside Codex.",
+      "has_skill_md": true,
+      "file_count": 2,
+      "total_size": 11344,
+      "sha256_of_skill_md": "75ba4841a4c09effb8efcdc5cce7dc8654808d381a4881c6df09d37c405f8c50",
+      "sha256_tree_hash": "215a094dc1b988687c97eeacddc56e841868fa1816909d564fb7f3960affe7f9",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 75
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\define-goal",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/define-goal",
+      "skill_dir_name": "define-goal",
+      "normalized_name": "define-goal",
+      "frontmatter_name": "define-goal",
+      "frontmatter_description": "Help the user define a concrete, measurable goal before starting work, especially when they ask to use the goal tool, create a goal, set an objective, clarify success criteria, or turn a fuzzy intention into a quantitative outcome. Use this skill for goal creation and goal refinement only; it does not manage durable snapshots, decision logs, or long-running execution artifacts.",
+      "has_skill_md": true,
+      "file_count": 3,
+      "total_size": 16935,
+      "sha256_of_skill_md": "1fd133616107ced158475074de162d9fb80acac2f49b08cd6ad4c9570871c9fd",
+      "sha256_tree_hash": "7a89398659bdca48ed8b7fa2b06eb5d30fda18e4a824f90f74d8056172217fc2",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 75
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\documents",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/documents",
+      "skill_dir_name": "documents",
+      "normalized_name": "documents",
+      "frontmatter_name": "documents",
+      "frontmatter_description": "Create, edit, redline, and comment on `.docx`, Word, and Google Docs-targeted document artifacts inside the container, with a strict render-and-verify workflow. Use `render_docx.py` to generate page PNGs (and optional PDF) for visual QA, then iterate until layout is flawless before delivering the final document.",
+      "has_skill_md": true,
+      "file_count": 76,
+      "total_size": 417886,
+      "sha256_of_skill_md": "a0ecf8f4184ede9b20fa97be10cc1fc4094df8e16b31c6e0ed093b1eceb7fca2",
+      "sha256_tree_hash": "21a66a4d76211a4b6d50c06c573ddda050591b1562a644c77db698ebaeb287d6",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/documents/assets/file-document.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\figma",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/figma",
+      "skill_dir_name": "figma",
+      "normalized_name": "figma",
+      "frontmatter_name": "figma",
+      "frontmatter_description": "Use the Figma MCP server to fetch design context, screenshots, variables, and assets from Figma, and to translate Figma nodes into production code. Trigger when a task involves Figma URLs, node IDs, design-to-code implementation, or Figma MCP setup and troubleshooting.",
+      "has_skill_md": true,
+      "file_count": 8,
+      "total_size": 12877,
+      "sha256_of_skill_md": "132f90f8ebe18a1579ac3aa45b78f3bccb6b96ff3cd0942b50aec79edd6fb04d",
+      "sha256_tree_hash": "7f0b0ba611f020eb704aff17ccc70ace50eb1e359b3540ec6b0dfaf0e004873c",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/figma/assets/figma.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\figma-code-connect-components",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/figma-code-connect-components",
+      "skill_dir_name": "figma-code-connect-components",
+      "normalized_name": "figma-code-connect-components",
+      "frontmatter_name": "figma-code-connect-components",
+      "frontmatter_description": "Connects Figma design components to code components using Code Connect mapping tools. Use when user says \"code connect\", \"connect this component to code\", \"map this component\", \"link component to code\", \"create code connect mapping\", or wants to establish mappings between Figma designs and code implementations. For canvas writes via `use_figma`, use `figma-use`.",
+      "has_skill_md": true,
+      "file_count": 8,
+      "total_size": 22366,
+      "sha256_of_skill_md": "8b016c4e45247bbc02122a2827e303660d454f710cb2179732a3f54f6016ecf0",
+      "sha256_tree_hash": "a301d954f290822e450249561769ff6f69c246872f74d3df2b91d6e7b69e25b1",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/figma-code-connect-components/assets/figma.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\figma-create-design-system-rules",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/figma-create-design-system-rules",
+      "skill_dir_name": "figma-create-design-system-rules",
+      "normalized_name": "figma-create-design-system-rules",
+      "frontmatter_name": "figma-create-design-system-rules",
+      "frontmatter_description": "Generates custom design system rules for the user's codebase. Use when user says \"create design system rules\", \"generate rules for my project\", \"set up design rules\", \"customize design system guidelines\", or wants to establish project-specific conventions for Figma-to-code workflows. Requires Figma MCP server connection.",
+      "has_skill_md": true,
+      "file_count": 8,
+      "total_size": 23711,
+      "sha256_of_skill_md": "a4717512addcae1e869ed8f21c4dbcea8276570ace415496cda3d9549a8256ae",
+      "sha256_tree_hash": "879818fc0aa0cc605798995b6d89577e5086cb6f0996886591bf34f805c963b3",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/figma-create-design-system-rules/assets/figma.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\figma-create-new-file",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/figma-create-new-file",
+      "skill_dir_name": "figma-create-new-file",
+      "normalized_name": "figma-create-new-file",
+      "frontmatter_name": "figma-create-new-file",
+      "frontmatter_description": "Create a new blank Figma file. Use when the user wants to create a new Figma design or FigJam file, or when you need a new file before calling use_figma. Handles plan resolution via whoami if needed. Usage — /figma-create-new-file [editorType] [fileName] (e.g. /figma-create-new-file figjam My Whiteboard)",
+      "has_skill_md": true,
+      "file_count": 7,
+      "total_size": 7193,
+      "sha256_of_skill_md": "8fc3e90f05db3c028107279115005c660efa02d3cd7326d607cc1f808df78121",
+      "sha256_tree_hash": "41737e2003494af180f3d4fdfa77d1b8f4da05614edf8f6ed575391788d210a7",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/figma-create-new-file/assets/figma.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\figma-generate-design",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/figma-generate-design",
+      "skill_dir_name": "figma-generate-design",
+      "normalized_name": "figma-generate-design",
+      "frontmatter_name": "figma-generate-design",
+      "frontmatter_description": "Use this skill alongside figma-use when the task involves translating an application page, view, or multi-section layout into Figma. Triggers: 'write to Figma', 'create in Figma from code', 'push page to Figma', 'take this app/page and build it in Figma', 'create a screen', 'build a landing page in Figma', 'update the Figma screen to match code'. This is the preferred workflow skill whenever the user wants to build or update a full page, screen, or view in Figma from code or a description. Discovers design system components, variables, and styles via search_design_system, imports them, and assembles screens incrementally section-by-section using design system tokens instead of hardcoded values.",
+      "has_skill_md": true,
+      "file_count": 7,
+      "total_size": 24939,
+      "sha256_of_skill_md": "8820e9c330345e801549f0bf6d2a1274abba6e4322bae02b9242d634c00cca2f",
+      "sha256_tree_hash": "7a0a589847dd63d401243df090fde1ee49889bba471273a6dc38d34d6644c011",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/figma-generate-design/assets/figma.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\figma-generate-library",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/figma-generate-library",
+      "skill_dir_name": "figma-generate-library",
+      "normalized_name": "figma-generate-library",
+      "frontmatter_name": "figma-generate-library",
+      "frontmatter_description": "Build or update a professional-grade design system in Figma from a codebase. Use when the user wants to create variables/tokens, build component libraries, set up theming (light/dark modes), document foundations, or reconcile gaps between code and Figma. This skill teaches WHAT to build and in WHAT ORDER — it complements the `figma-use` skill which teaches HOW to call the Plugin API. Both skills should be loaded together.",
+      "has_skill_md": true,
+      "file_count": 23,
+      "total_size": 243278,
+      "sha256_of_skill_md": "365803356b14e83b1062157d471a28b69672874997fc2bf8fe12a918f042d58a",
+      "sha256_tree_hash": "51a30adc811213194ffe38c472307e0964fe42a98d4b610503c9246bff0e1254",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/figma-generate-library/assets/figma.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\figma-implement-design",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/figma-implement-design",
+      "skill_dir_name": "figma-implement-design",
+      "normalized_name": "figma-implement-design",
+      "frontmatter_name": "figma-implement-design",
+      "frontmatter_description": "Translates Figma designs into production-ready application code with 1:1 visual fidelity. Use when implementing UI code from Figma files, when user mentions \"implement design\", \"generate code\", \"implement component\", provides Figma URLs, or asks to build components matching Figma specs. For Figma canvas writes via `use_figma`, use `figma-use`.",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 16278,
+      "sha256_of_skill_md": "da1a3b54b179d975a14532d6b0b7def1a59f93984481203449516107e3713388",
+      "sha256_tree_hash": "c5477baf1af985bc4ca63bce45923cc5e429f4b6c4af6e97ababd2b62dec445d",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/figma-implement-design/assets/figma.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\figma-use",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/figma-use",
+      "skill_dir_name": "figma-use",
+      "normalized_name": "figma-use",
+      "frontmatter_name": "figma-use",
+      "frontmatter_description": "**MANDATORY prerequisite** — you MUST invoke this skill BEFORE every `use_figma` tool call. NEVER call `use_figma` directly without loading this skill first. Skipping it causes common, hard-to-debug failures. Trigger whenever the user wants to perform a write action or a unique read action that requires JavaScript execution in the Figma file context — e.g. create/edit/delete nodes, set up variables or tokens, build components and variants, modify auto-layout or fills, bind variables to properties, or inspect file structure programmatically.",
+      "has_skill_md": true,
+      "file_count": 29,
+      "total_size": 658212,
+      "sha256_of_skill_md": "504ade6e3c5dbdde720600bb4be8a041fc6c50e86883cb5a2638651cc723002e",
+      "sha256_tree_hash": "ea724aeecb4d0b4b341ba7a8bddfd0165308c8b8020f19888eb4f8bdcf341a0d",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/figma-use/assets/figma.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gh-address-comments",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gh-address-comments",
+      "skill_dir_name": "gh-address-comments",
+      "normalized_name": "gh-address-comments",
+      "frontmatter_name": "gh-address-comments",
+      "frontmatter_description": "Address actionable GitHub pull request review feedback. Use when the user wants to inspect unresolved review threads, requested changes, or inline review comments on a PR, then implement selected fixes. Use the GitHub app for PR metadata and flat comment reads, and use the bundled GraphQL script via `gh` whenever thread-level state, resolution status, or inline review context matters.",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 24937,
+      "sha256_of_skill_md": "b70f8c4a1c1e48c39848ffb8d3e5867bffca84f4f70c297b4221c66b780c24bc",
+      "sha256_tree_hash": "adb106f416e4cc7adde0466a24c22ffa3fb3483752c2074384cb3cd3c332566c",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gh-address-comments/assets/github.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gh-address-comments-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-1",
+      "skill_dir_name": "gh-address-comments-copy-1",
+      "normalized_name": "gh-address-comments",
+      "frontmatter_name": "gh-address-comments",
+      "frontmatter_description": "Address actionable GitHub pull request review feedback. Use when the user wants to inspect unresolved review threads, requested changes, or inline review comments on a PR, then implement selected fixes. Use the GitHub app for PR metadata and flat comment reads, and use the bundled GraphQL script via `gh` whenever thread-level state, resolution status, or inline review context matters.",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 24446,
+      "sha256_of_skill_md": "c1ebc337357402f7faabafe712e0c463981a65f736453efe52abd305bcb74769",
+      "sha256_tree_hash": "52016f08f6eeaca225a74bf3141902ed76cc13736e1e685e1865caaa27079d2e",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-1/assets/github.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gh-address-comments-copy-2",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-2",
+      "skill_dir_name": "gh-address-comments-copy-2",
+      "normalized_name": "gh-address-comments",
+      "frontmatter_name": "gh-address-comments",
+      "frontmatter_description": "Help address review/issue comments on the open GitHub PR for the current branch using gh CLI; verify gh auth first and prompt the user to authenticate if not logged in.",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 22638,
+      "sha256_of_skill_md": "947b0bcea8f1649d46b07dcdeeff6e0b294002093e7d2ce39aa026e05bb5add6",
+      "sha256_tree_hash": "5006ac55aa64f0a598f7ae4ff825151e102b19bf8370e070d945d513b3d7b314",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-2/assets/github.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gh-fix-ci",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci",
+      "skill_dir_name": "gh-fix-ci",
+      "normalized_name": "gh-fix-ci",
+      "frontmatter_name": "gh-fix-ci",
+      "frontmatter_description": "Use when a user asks to debug or fix failing GitHub PR checks that run in GitHub Actions. Use the GitHub app from this plugin for PR metadata and patch context, and use `gh` for Actions check and log inspection before implementing any approved fix.",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 34145,
+      "sha256_of_skill_md": "dabcc2a34dd5f1271e4ffded65b8c65ce53e84b98560b6e9ceaffcf1c50fc120",
+      "sha256_tree_hash": "1ac71b697f2a423b6da191e91cf3ffec59a0a6d66de2ddd24558775354b57638",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci/assets/github.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gh-fix-ci-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-1",
+      "skill_dir_name": "gh-fix-ci-copy-1",
+      "normalized_name": "gh-fix-ci",
+      "frontmatter_name": "gh-fix-ci",
+      "frontmatter_description": "Use when a user asks to debug or fix failing GitHub PR checks that run in GitHub Actions. Use the GitHub app from this plugin for PR metadata and patch context, and use `gh` for Actions check and log inspection before implementing any approved fix.",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 33345,
+      "sha256_of_skill_md": "7621a3560d788fb221d25f9753233fe0c393c5cfe63167c88b11f027c277b1f8",
+      "sha256_tree_hash": "2f666e6275fca794b7a2e6d0108c3520015cc43b9dcb055ee789de6d2845fffb",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-1/assets/github.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gh-fix-ci-copy-2",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-2",
+      "skill_dir_name": "gh-fix-ci-copy-2",
+      "normalized_name": "gh-fix-ci",
+      "frontmatter_name": "gh-fix-ci",
+      "frontmatter_description": "Use when a user asks to debug or fix failing GitHub PR checks that run in GitHub Actions; use `gh` to inspect checks and logs, summarize failure context, draft a fix plan, and implement only after explicit approval. Treat external providers (for example Buildkite) as out of scope and report only the details URL.",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 33430,
+      "sha256_of_skill_md": "2e45c71cdf8690b54639c1b7aa6e4401f5db557c45b283e213d4f793cc570661",
+      "sha256_tree_hash": "b4ab87d7c1593a136d402b9833bf5f37c8475ffa9bc2a854c254215e94538c0d",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-2/assets/github.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\github",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/github",
+      "skill_dir_name": "github",
+      "normalized_name": "github",
+      "frontmatter_name": "github",
+      "frontmatter_description": "Triage and orient GitHub repository, pull request, and issue work through the connected GitHub app. Use when the user asks for general GitHub help, wants PR or issue summaries, or needs repository context before choosing a more specific GitHub workflow.",
+      "has_skill_md": true,
+      "file_count": 4,
+      "total_size": 7448,
+      "sha256_of_skill_md": "380d663305eb74b44858f58d76bdb21173a4d4c63d5885299ad6005d6ffc80b9",
+      "sha256_tree_hash": "603d3d40abfe12c43cf8f4ee6217823688a23662da8c9bf6cc9cc45991f46528",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/github/assets/github.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\github-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/github-copy-1",
+      "skill_dir_name": "github-copy-1",
+      "normalized_name": "github",
+      "frontmatter_name": "github",
+      "frontmatter_description": "Triage and orient GitHub repository, pull request, and issue work through the connected GitHub app. Use when the user asks for general GitHub help, wants PR or issue summaries, or needs repository context before choosing a more specific GitHub workflow.",
+      "has_skill_md": true,
+      "file_count": 4,
+      "total_size": 7365,
+      "sha256_of_skill_md": "81dbdd90934fe86a79ddc4790fd211e5fca866302a74090ad153395f56f2bd42",
+      "sha256_tree_hash": "5d46122e470b00631028f0ebabb0115b02a0ada6bd8f3a2bfda7896627107423",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/github-copy-1/assets/github.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gmail",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gmail",
+      "skill_dir_name": "gmail",
+      "normalized_name": "gmail",
+      "frontmatter_name": "gmail",
+      "frontmatter_description": "Manage Gmail inbox triage, mailbox search, thread summaries, action extraction, reply drafting, and email forwarding through connected Gmail data. Use when the user wants to inspect a mailbox or thread, search email with Gmail query syntax, summarize messages, extract decisions and follow-ups, prepare replies or forwarded messages, or organize messages with explicit confirmation before send, archive, delete, or label actions.",
+      "has_skill_md": true,
+      "file_count": 10,
+      "total_size": 55889,
+      "sha256_of_skill_md": "ccd76cb35dbadd83b2dacbe902399578cc853df4858c496466304e1bc75c0484",
+      "sha256_tree_hash": "a36d89a3721ba418b7f6334d392dadea3680db536ebd3268b983ad44ced3b726",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gmail/assets/gmail.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gmail-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gmail-copy-1",
+      "skill_dir_name": "gmail-copy-1",
+      "normalized_name": "gmail",
+      "frontmatter_name": "gmail",
+      "frontmatter_description": "Manage Gmail inbox triage, mailbox search, thread summaries, action extraction, reply drafting, and email forwarding through connected Gmail data. Use when the user wants to inspect a mailbox or thread, search email with Gmail query syntax, summarize messages, extract decisions and follow-ups, prepare replies or forwarded messages, or organize messages with explicit confirmation before send, archive, delete, or label actions.",
+      "has_skill_md": true,
+      "file_count": 10,
+      "total_size": 55624,
+      "sha256_of_skill_md": "918127edc6855a1d076b8dc6de464a259dc2c0ba4fdad042e0f16e64f13319da",
+      "sha256_tree_hash": "897c1d15d25477dd4ebaae494edf6aa39d05ed2334a617d3204237a43c31f092",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gmail-copy-1/assets/gmail.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gmail-inbox-triage",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage",
+      "skill_dir_name": "gmail-inbox-triage",
+      "normalized_name": "gmail-inbox-triage",
+      "frontmatter_name": "gmail-inbox-triage",
+      "frontmatter_description": "Triage a Gmail inbox into actionable buckets such as urgent, needs reply soon, waiting, and FYI using connected Gmail data. Use when the user asks to triage the inbox, rank what needs attention, find what still needs a reply, or separate important mail from noise.",
+      "has_skill_md": true,
+      "file_count": 4,
+      "total_size": 37795,
+      "sha256_of_skill_md": "7784395f9070fb266835560f3bd8c048e7d0ca99eaab17e69c2fd1f114b6a54d",
+      "sha256_tree_hash": "352ef95558faf8760b29b8767b7261de0c782f07cbc8993ee77e8dc1f5b6806f",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage/assets/gmail.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\gmail-inbox-triage-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage-copy-1",
+      "skill_dir_name": "gmail-inbox-triage-copy-1",
+      "normalized_name": "gmail-inbox-triage",
+      "frontmatter_name": "gmail-inbox-triage",
+      "frontmatter_description": "Triage a Gmail inbox into actionable buckets such as urgent, needs reply soon, waiting, and FYI using connected Gmail data. Use when the user asks to triage the inbox, rank what needs attention, find what still needs a reply, or separate important mail from noise.",
+      "has_skill_md": true,
+      "file_count": 4,
+      "total_size": 37755,
+      "sha256_of_skill_md": "1ce1ef20bbe99da3e824818e397e50c33238666e528fed8e9ec46250585ec5cc",
+      "sha256_tree_hash": "79166b2b8a6bd9701552e7502ed7058e990c03d589cd63896a1e3f1cb31901df",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage-copy-1/assets/gmail.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-docs",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-docs",
+      "skill_dir_name": "google-docs",
+      "normalized_name": "google-docs",
+      "frontmatter_name": "google-docs",
+      "frontmatter_description": "Connector-first Google Docs creation and editing in local Codex plugin sessions, with direct native create and batchUpdate workflows for simple docs, DOCX-first import for polished deliverables, target-document checks, smart chip and building-block reconstruction, connector-readback verification, and reference routing for formatting, citations, tables, and write-safety.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 180539,
+      "sha256_of_skill_md": "8c06cd2a4dc7727e61862e2e2f71a3b4eedb44e0edd761644847d0e22f385f4f",
+      "sha256_tree_hash": "2a1ba2e941a2a4c72949d89c43dc1b2f72c344c084cee1074849dd3b430b6c14",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-docs/assets/google-docs.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-docs-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-docs-copy-1",
+      "skill_dir_name": "google-docs-copy-1",
+      "normalized_name": "google-docs",
+      "frontmatter_name": "google-docs",
+      "frontmatter_description": "Connector-first Google Docs creation and editing in local Codex plugin sessions, with direct native create and batchUpdate workflows for simple docs, DOCX-first import for polished deliverables, target-document checks, smart chip and building-block reconstruction, connector-readback verification, and reference routing for formatting, citations, tables, and write-safety.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 178945,
+      "sha256_of_skill_md": "69cf5d43a24eaef327bbfad44ee7d2e5629ee621b4ed2bbde4d78afd536f5fe5",
+      "sha256_tree_hash": "7e9c51c4149a6e97dde76854efda4ecb7da3e611d31068cfd7f5403556494ca8",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-docs-copy-1/assets/google-docs.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-drive",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-drive",
+      "skill_dir_name": "google-drive",
+      "normalized_name": "google-drive",
+      "frontmatter_name": "google-drive",
+      "frontmatter_description": "Use connected Google Drive as the single entrypoint for Drive, Docs, Sheets, and Slides work. Use when the user wants to find, fetch, organize, share, export, copy, or delete Drive files, or summarize and edit Google Docs, Google Sheets, and Google Slides through one unified Google Drive plugin.",
+      "has_skill_md": true,
+      "file_count": 10,
+      "total_size": 143646,
+      "sha256_of_skill_md": "e6c681a61fb5030d7cf3e7aeffb49bfb198b4369c25a2fa2074b8753d56bd2ce",
+      "sha256_tree_hash": "1cba07f0e95eb712c88f74585182fd7644656b150a4098df033709c17c647b7d",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-drive/assets/app-icon.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-drive/assets/google-drive.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-drive-comments",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-drive-comments",
+      "skill_dir_name": "google-drive-comments",
+      "normalized_name": "google-drive-comments",
+      "frontmatter_name": "google-drive-comments",
+      "frontmatter_description": "Write, reply to, and resolve Google Drive comments on Docs, Sheets, Slides, and Drive files with evidence-backed location context. Use when the user asks to leave comments, review a file with comments, respond to comment threads, or resolve Drive comments.",
+      "has_skill_md": true,
+      "file_count": 2,
+      "total_size": 4640,
+      "sha256_of_skill_md": "ca15dbcec6d56cb6ad73b32126ad8469af657960a599e36a435835bb383bbdaf",
+      "sha256_tree_hash": "7f5e55e67f4b20ba5401933740f9f558a686b4cc08d06d470f65da651fad8da5",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 75
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-drive-comments-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-drive-comments-copy-1",
+      "skill_dir_name": "google-drive-comments-copy-1",
+      "normalized_name": "google-drive-comments",
+      "frontmatter_name": "google-drive-comments",
+      "frontmatter_description": "Write, reply to, and resolve Google Drive comments on Docs, Sheets, Slides, and Drive files with evidence-backed location context. Use when the user asks to leave comments, review a file with comments, respond to comment threads, or resolve Drive comments.",
+      "has_skill_md": true,
+      "file_count": 2,
+      "total_size": 4590,
+      "sha256_of_skill_md": "a3077375a8f7558b9e052c98047747b8a4a1a90a9a90b552009c28fcdadfe94a",
+      "sha256_tree_hash": "abc2e65cc793f7fa7ccf0390d016150673ecf11721a8d1894cdb7062eb23ef61",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 75
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-drive-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-drive-copy-1",
+      "skill_dir_name": "google-drive-copy-1",
+      "normalized_name": "google-drive",
+      "frontmatter_name": "google-drive",
+      "frontmatter_description": "Use connected Google Drive as the single entrypoint for Drive, Docs, Sheets, and Slides work. Use when the user wants to find, fetch, organize, share, export, copy, or delete Drive files, or summarize and edit Google Docs, Google Sheets, and Google Slides through one unified Google Drive plugin.",
+      "has_skill_md": true,
+      "file_count": 10,
+      "total_size": 143361,
+      "sha256_of_skill_md": "4766e7fe25e6a5bf495028147f8108633bc5297d57f2a8864a2a76e5e78763ee",
+      "sha256_tree_hash": "585291315373610665d6ec3b4c520670302b549b2f77b227ec88bb77608ceaae",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-drive-copy-1/assets/app-icon.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        },
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-drive-copy-1/assets/google-drive.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-sheets",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-sheets",
+      "skill_dir_name": "google-sheets",
+      "normalized_name": "google-sheets",
+      "frontmatter_name": "google-sheets",
+      "frontmatter_description": "Analyze and edit connected Google Sheets with range precision. Use when the user wants to create Google Sheets, find a spreadsheet, inspect tabs or ranges, search rows, plan formulas, create or repair charts, clean or restructure tables, write concise summaries, or make explicit cell-range updates.",
+      "has_skill_md": true,
+      "file_count": 11,
+      "total_size": 118283,
+      "sha256_of_skill_md": "69a00eb7327a7453700c278257c630fb73451856605a204064526544d8c8ccf7",
+      "sha256_tree_hash": "d3c771159e12c9de5efec681c80f45654e7d96c6f7bd2cc6371184be30046438",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-sheets/assets/google-sheets.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-sheets-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-sheets-copy-1",
+      "skill_dir_name": "google-sheets-copy-1",
+      "normalized_name": "google-sheets",
+      "frontmatter_name": "google-sheets",
+      "frontmatter_description": "Analyze and edit connected Google Sheets with range precision. Use when the user wants to create Google Sheets, find a spreadsheet, inspect tabs or ranges, search rows, plan formulas, create or repair charts, clean or restructure tables, write concise summaries, or make explicit cell-range updates.",
+      "has_skill_md": true,
+      "file_count": 11,
+      "total_size": 117193,
+      "sha256_of_skill_md": "39aac7f189cd19a21cc895a48700ee4d973fda3bca86253345806227f75f8bb2",
+      "sha256_tree_hash": "bed3cc8e231979f2bf7cceb51f2cdd517e2776ae6cb3ec9f304c6dc7889517a7",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-sheets-copy-1/assets/google-sheets.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-slides",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-slides",
+      "skill_dir_name": "google-slides",
+      "normalized_name": "google-slides",
+      "frontmatter_name": "google-slides",
+      "frontmatter_description": "Google Slides work for finding, reading, summarizing, creating, importing, template following, visual cleanup, source-deck adaptation, structural repair, and content edits in native Slides decks.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 210847,
+      "sha256_of_skill_md": "327bdb81d61754612d02eb4c686dccde4438f52c13a2b69b7e8bc4f3a7a79142",
+      "sha256_tree_hash": "c71198b89dd4f2ae7156582486aa9b841fc3224c3601e465d29e945dc9a2baf6",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-slides/assets/google-slides.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\google-slides-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/google-slides-copy-1",
+      "skill_dir_name": "google-slides-copy-1",
+      "normalized_name": "google-slides",
+      "frontmatter_name": "google-slides",
+      "frontmatter_description": "Google Slides work for finding, reading, summarizing, creating, importing, template following, visual cleanup, source-deck adaptation, structural repair, and content edits in native Slides decks.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 208601,
+      "sha256_of_skill_md": "f1a7954fb87ffa5353e0ecb97ae4f484c4ade70fafede68ec392085b73ccc292",
+      "sha256_tree_hash": "bc781785e1cbf801bfc76292b2d5fda82f59ff7e2c90b2abee30ac0ddd46253f",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/google-slides-copy-1/assets/google-slides.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\hatch-pet",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/hatch-pet",
+      "skill_dir_name": "hatch-pet",
+      "normalized_name": "hatch-pet",
+      "frontmatter_name": "hatch-pet",
+      "frontmatter_description": "Create, repair, validate, preview, and package Codex-compatible animated pets and pet spritesheets from character art, screenshots, generated images, or visual references. Use when a user wants to hatch a Codex pet, create a custom animated pet, or build a built-in pet asset with an 8x9 atlas, transparent unused cells, row-by-row animation prompts, QA contact sheets, preview videos, and pet.json packaging. This skill composes the installed $imagegen system skill for visual generation and uses bundled scripts for deterministic spritesheet assembly.",
+      "has_skill_md": true,
+      "file_count": 21,
+      "total_size": 155904,
+      "sha256_of_skill_md": "f53553b41ee9d315d46b1290ed3f110b40c9bcb51fde506a9951d93d96f0cea8",
+      "sha256_tree_hash": "6b543989fa79fc1960ed127b9b25556acc449fa8a062e43f025a42890b8e42e7",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "quarantine",
+      "quality_score": 85
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\hatch-pet-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/hatch-pet-copy-1",
+      "skill_dir_name": "hatch-pet-copy-1",
+      "normalized_name": "hatch-pet",
+      "frontmatter_name": "hatch-pet",
+      "frontmatter_description": "Create, repair, validate, visually QA, and package Codex-compatible animated pets and pet spritesheets from character art, generated images, company or prospect brand cues, or visual references. Use when a user wants a lightweight-worker Codex pet workflow, a non-pixel custom pet style, a prospect or company mascot pet, or a full 8x9 animated pet atlas with transparent unused cells, QA contact sheets, and pet.json packaging. This skill composes the installed $imagegen system skill for visual generation and uses bundled scripts for deterministic spritesheet assembly.",
+      "has_skill_md": true,
+      "file_count": 14,
+      "total_size": 135670,
+      "sha256_of_skill_md": "a4ba304ec6370d4b4e73d0fdf2c20789bf1b477f84621f410842e0c4a714f8bb",
+      "sha256_tree_hash": "e016bec621f14b90bc7e68a5c94dc67670c57f7c6324288f159fee151a5ef7c3",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "quarantine",
+      "quality_score": 85
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\imagegen",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/imagegen",
+      "skill_dir_name": "imagegen",
+      "normalized_name": "imagegen",
+      "frontmatter_name": "imagegen",
+      "frontmatter_description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+      "has_skill_md": true,
+      "file_count": 12,
+      "total_size": 137861,
+      "sha256_of_skill_md": "613f892ba9259cbfcb44ee74e81587cc7ce288de86ae2f1eab5eacb190e34f58",
+      "sha256_tree_hash": "1e476432a1301d8fc7d6042a408b2719c55b99f99b02043716005da86a7e8aca",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/imagegen/assets/imagegen.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\jupyter-notebook",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/jupyter-notebook",
+      "skill_dir_name": "jupyter-notebook",
+      "normalized_name": "jupyter-notebook",
+      "frontmatter_name": "jupyter-notebook",
+      "frontmatter_description": "Use when the user asks to create, scaffold, or edit Jupyter notebooks (`.ipynb`) for experiments, explorations, or tutorials; prefer the bundled templates and run the helper script `new_notebook.py` to generate a clean starting notebook.",
+      "has_skill_md": true,
+      "file_count": 12,
+      "total_size": 31575,
+      "sha256_of_skill_md": "a2ed923c4af32d850eff94df5297a358654e966c8bcd526c6718d26921a87931",
+      "sha256_tree_hash": "48f6e8ef0e208ada9fcabec264bc8d50a092e8e1f96d3d204619f533d2eceda4",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/jupyter-notebook/assets/jupyter.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\latex-tectonic",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/latex-tectonic",
+      "skill_dir_name": "latex-tectonic",
+      "normalized_name": "latex-tectonic",
+      "frontmatter_name": "LaTeX Tectonic",
+      "frontmatter_description": "Compile LaTeX and TeX documents with the bundled Tectonic executable.",
       "has_skill_md": true,
       "file_count": 1,
-      "total_size": 294,
-      "sha256_of_skill_md": "45466acc2b420493cd54b8e8b4fe0570f0953b7076b8f6d9d857ba544399b21b",
-      "sha256_tree_hash": "61d3927ff6f2ab559caf84a88a327f92d31475393e30b9ae169775bba276a084",
+      "total_size": 960,
+      "sha256_of_skill_md": "1ac4904618319f9a037909fa5a6483f6646679e3a64ef43731596dcb6397889f",
+      "sha256_tree_hash": "a4b67016689a9518263b45b770b1f66536547e3871ee913964f4535d5c2b1abc",
       "possible_platform_specific_features": [],
       "possible_secret_findings": [],
       "possible_local_path_findings": [],
       "possible_binary_findings": [],
       "classification": "shared",
       "quality_score": 80
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\linear",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/linear",
+      "skill_dir_name": "linear",
+      "normalized_name": "linear",
+      "frontmatter_name": "linear",
+      "frontmatter_description": "Manage issues, projects & team workflows in Linear. Use when the user wants to read, create or updates tickets in Linear.",
+      "has_skill_md": true,
+      "file_count": 5,
+      "total_size": 25110,
+      "sha256_of_skill_md": "e73d867c380f011fa681f6a9cca66e550643c9b5e8d91c901e2fe8e6ab785967",
+      "sha256_tree_hash": "08c0365d7cfcab1cde9b239abd929eaafdbad1d13e455febd551d051775697d2",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/linear/assets/linear.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\migrate-to-codex",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/migrate-to-codex",
+      "skill_dir_name": "migrate-to-codex",
+      "normalized_name": "migrate-to-codex",
+      "frontmatter_name": "migrate-to-codex",
+      "frontmatter_description": "Migrate supported instruction files, skills, agents, and MCP config into Codex project and global files.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 138847,
+      "sha256_of_skill_md": "b41905a5b7f0bee55ac4fcd372fdd9c5f0641378e56731b34ad283e4d1bbf872",
+      "sha256_tree_hash": "2e73395ad02006755b49b27cdbd502444e5c7788ae895282ea0a081185f11b92",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "allowed-tools",
+        "claude-hooks",
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "quarantine",
+      "quality_score": 90
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\netlify-deploy",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/netlify-deploy",
+      "skill_dir_name": "netlify-deploy",
+      "normalized_name": "netlify-deploy",
+      "frontmatter_name": "netlify-deploy",
+      "frontmatter_description": "Deploy web projects to Netlify using the Netlify CLI (`npx netlify`). Use when the user asks to deploy, host, publish, or link a site/repo on Netlify, including preview and production deploys.",
+      "has_skill_md": true,
+      "file_count": 8,
+      "total_size": 34844,
+      "sha256_of_skill_md": "34ded49fb82fe5fc66f390947eba58e50436184d8b0584154612c1d021438f15",
+      "sha256_tree_hash": "298a31c47d40a7eb1990d2faca5868cc955655d42948af37338d67bf81f4e7f5",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/netlify-deploy/assets/netlify.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\notion-knowledge-capture",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture",
+      "skill_dir_name": "notion-knowledge-capture",
+      "normalized_name": "notion-knowledge-capture",
+      "frontmatter_name": "notion-knowledge-capture",
+      "frontmatter_description": "Capture conversations and decisions into structured Notion pages; use when turning chats/notes into wiki entries, how-tos, decisions, or FAQs with proper linking.",
+      "has_skill_md": true,
+      "file_count": 18,
+      "total_size": 74419,
+      "sha256_of_skill_md": "726c61b3f3484e2331929a2fc6536c731a92e4e20e3a500c45a70b82e9fe9c7a",
+      "sha256_tree_hash": "219b2c4280f295a94fa9e02e27468dbe51f423ae3cfc99a2044079157e34c488",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture/assets/notion.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\notion-knowledge-capture-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture-copy-1",
+      "skill_dir_name": "notion-knowledge-capture-copy-1",
+      "normalized_name": "notion-knowledge-capture",
+      "frontmatter_name": "notion-knowledge-capture",
+      "frontmatter_description": "Capture conversations and decisions into structured Notion pages; use when turning chats/notes into wiki entries, how-tos, decisions, or FAQs with proper linking.",
+      "has_skill_md": true,
+      "file_count": 18,
+      "total_size": 73890,
+      "sha256_of_skill_md": "8bdbd77915e79bcd6b7ffff5ad16fabfda3742fe3e67ece0b666d399e80116a8",
+      "sha256_tree_hash": "e7798892243ae51be405396134ac13c2914c4fc4e838cdbbd2df05dcd70b2e63",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture-copy-1/assets/notion.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\notion-meeting-intelligence",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence",
+      "skill_dir_name": "notion-meeting-intelligence",
+      "normalized_name": "notion-meeting-intelligence",
+      "frontmatter_name": "notion-meeting-intelligence",
+      "frontmatter_description": "Prepare meeting materials with Notion context and Codex research; use when gathering context, drafting agendas/pre-reads, and tailoring materials to attendees.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 73119,
+      "sha256_of_skill_md": "2fc9887fce2ef5076a3fe613172184d99e38c9e95c253900a2e16387614a9102",
+      "sha256_tree_hash": "c439f7ddaff0ea0b5abade507abf92183558a47650846ea3c596d33f5665d449",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence/assets/notion.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\notion-meeting-intelligence-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence-copy-1",
+      "skill_dir_name": "notion-meeting-intelligence-copy-1",
+      "normalized_name": "notion-meeting-intelligence",
+      "frontmatter_name": "notion-meeting-intelligence",
+      "frontmatter_description": "Prepare meeting materials with Notion context and Codex research; use when gathering context, drafting agendas/pre-reads, and tailoring materials to attendees.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 71485,
+      "sha256_of_skill_md": "e987b7afcd790dabeceebce945481408b325278f5e4626de4fe890231872f914",
+      "sha256_tree_hash": "da6b2ad9252fe4cdcf7d085f1f407fca0da620e199dc759dbb2591278a0863a1",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence-copy-1/assets/notion.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\notion-research-documentation",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/notion-research-documentation",
+      "skill_dir_name": "notion-research-documentation",
+      "normalized_name": "notion-research-documentation",
+      "frontmatter_name": "notion-research-documentation",
+      "frontmatter_description": "Research across Notion and synthesize into structured documentation; use when gathering info from multiple Notion sources to produce briefs, comparisons, or reports with citations.",
+      "has_skill_md": true,
+      "file_count": 23,
+      "total_size": 80085,
+      "sha256_of_skill_md": "aaad8a45a785924eba06f9f7cd3349c85f79f296dac8acab15845bef31b0b1ba",
+      "sha256_tree_hash": "f8986331e0cf6004f3cb038046d69a3b27624c827cf23ccbeb87c2bb40d50536",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/notion-research-documentation/assets/notion.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\notion-research-documentation-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/notion-research-documentation-copy-1",
+      "skill_dir_name": "notion-research-documentation-copy-1",
+      "normalized_name": "notion-research-documentation",
+      "frontmatter_name": "notion-research-documentation",
+      "frontmatter_description": "Research across Notion and synthesize into structured documentation; use when gathering info from multiple Notion sources to produce briefs, comparisons, or reports with citations.",
+      "has_skill_md": true,
+      "file_count": 23,
+      "total_size": 79043,
+      "sha256_of_skill_md": "c4d7466c789ad987151a292fce3e042581082fc8193bd1940ca4fdfe15f98e5e",
+      "sha256_tree_hash": "4935c8a485a6260cbda7865235aebf2368e13383e6431d806be7b1294705f97a",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/notion-research-documentation-copy-1/assets/notion.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\notion-spec-to-implementation",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation",
+      "skill_dir_name": "notion-spec-to-implementation",
+      "normalized_name": "notion-spec-to-implementation",
+      "frontmatter_name": "notion-spec-to-implementation",
+      "frontmatter_description": "Turn Notion specs into implementation plans, tasks, and progress tracking; use when implementing PRDs/feature specs and creating Notion plans + tasks from them.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 90219,
+      "sha256_of_skill_md": "8e33b4f40f8e403bb07bd674d8ebf1ec84664eb99ac33294cc48e33108e6d57c",
+      "sha256_tree_hash": "4645008e32fd9252f6124bb8ca57a288a7d7404a2387bb6ac68a36cad7eb0f10",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation/assets/notion.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\notion-spec-to-implementation-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation-copy-1",
+      "skill_dir_name": "notion-spec-to-implementation-copy-1",
+      "normalized_name": "notion-spec-to-implementation",
+      "frontmatter_name": "notion-spec-to-implementation",
+      "frontmatter_description": "Turn Notion specs into implementation plans, tasks, and progress tracking; use when implementing PRDs/feature specs and creating Notion plans + tasks from them.",
+      "has_skill_md": true,
+      "file_count": 19,
+      "total_size": 88071,
+      "sha256_of_skill_md": "491d631a76ac5279d9a6ed7b2c59b8bef4d283cee0c16248581fb6bf0c291cc5",
+      "sha256_tree_hash": "04f897d3526b0976874238ee5af75657f932336b53a77b71ae3a59a38113fac5",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation-copy-1/assets/notion.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\openai-docs",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/openai-docs",
+      "skill_dir_name": "openai-docs",
+      "normalized_name": "openai-docs",
+      "frontmatter_name": "openai-docs",
+      "frontmatter_description": "Use when the user asks how to build with OpenAI products or APIs, asks about Codex itself or choosing Codex surfaces, needs up-to-date official documentation with citations, help choosing the latest model for a use case, or model upgrade and prompt-upgrade guidance; use OpenAI docs MCP tools for non-Codex docs questions, use the Codex manual helper first for broad Codex self-knowledge, and restrict fallback browsing to official OpenAI domains.",
+      "has_skill_md": true,
+      "file_count": 10,
+      "total_size": 81363,
+      "sha256_of_skill_md": "23edb0ee401944da55c6d57a88e4ae00c77e2ff3e3f79ac31c2741234a858b59",
+      "sha256_tree_hash": "d342995b258d21385789e5f4a09f82c25a86d78d10398e740e1e2ba8765743e8",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/openai-docs/assets/openai.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\openai-docs-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/openai-docs-copy-1",
+      "skill_dir_name": "openai-docs-copy-1",
+      "normalized_name": "openai-docs",
+      "frontmatter_name": "openai-docs",
+      "frontmatter_description": "Use when the user asks how to build with OpenAI products or APIs, asks about Codex itself or choosing Codex surfaces, needs up-to-date official documentation with citations, help choosing the latest model for a use case, or model upgrade and prompt-upgrade guidance; use OpenAI docs MCP tools for non-Codex docs questions, use the Codex manual helper first for broad Codex self-knowledge, and restrict fallback browsing to official OpenAI domains.",
+      "has_skill_md": true,
+      "file_count": 10,
+      "total_size": 80912,
+      "sha256_of_skill_md": "8c8124c1f20b3735754680ab1789cfcc79e3744a2ed561e087687cbd46f711cc",
+      "sha256_tree_hash": "3a5c44d76138ae2e15b0f51fe77054c5f396ff2b484bf80c253d08ecd48efe61",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/openai-docs-copy-1/assets/openai.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\pdf",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/pdf",
+      "skill_dir_name": "pdf",
+      "normalized_name": "pdf",
+      "frontmatter_name": "pdf",
+      "frontmatter_description": "Use when tasks involve reading, creating, or reviewing PDF files where rendering and layout matter; prefer visual checks by rendering pages (Poppler) and use Python tools such as `reportlab`, `pdfplumber`, and `pypdf` for generation and extraction.",
+      "has_skill_md": true,
+      "file_count": 4,
+      "total_size": 15097,
+      "sha256_of_skill_md": "724b72c932053fd87133144405b00fbeec30285ee770168328c8f591ec89c134",
+      "sha256_tree_hash": "679a813b13312f48692c34dab68a4ee0c6437cbbee3af630c8b9b45191dc0c8f",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/pdf/assets/pdf.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\playwright",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/playwright",
+      "skill_dir_name": "playwright",
+      "normalized_name": "playwright",
+      "frontmatter_name": "playwright",
+      "frontmatter_description": "Use when the task requires automating a real browser from the terminal (navigation, form filling, snapshots, screenshots, data extraction, UI-flow debugging) via `playwright-cli` or the bundled wrapper script.",
+      "has_skill_md": true,
+      "file_count": 9,
+      "total_size": 23256,
+      "sha256_of_skill_md": "c52cc95125b720cdc3c9829b0294c2752d4ae9b85a5282aa153da8bba929af87",
+      "sha256_tree_hash": "bfe7f452d4ccf510ee335f67a1fbe78966559943ba8de683de8294629cc6994f",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/playwright/assets/playwright.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\playwright-interactive",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/playwright-interactive",
+      "skill_dir_name": "playwright-interactive",
+      "normalized_name": "playwright-interactive",
+      "frontmatter_name": "playwright-interactive",
+      "frontmatter_description": "Persistent browser and Electron interaction through `js_repl` for fast iterative UI debugging.",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 47429,
+      "sha256_of_skill_md": "5b143fbf51ac867d39708f1c99908bb08ac6e9e856c3e5d48329ee607331b014",
+      "sha256_tree_hash": "ae775179dbf6efe086622c8cbac2ea9181f73bc7551ea313de2d49216dcd5084",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/playwright-interactive/assets/playwright.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\plugin-creator",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/plugin-creator",
+      "skill_dir_name": "plugin-creator",
+      "normalized_name": "plugin-creator",
+      "frontmatter_name": "plugin-creator",
+      "frontmatter_description": "Create and scaffold plugin directories for Codex with a required `.codex-plugin/plugin.json`, optional plugin folders/files, valid manifest defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add optional plugin structure, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.",
+      "has_skill_md": true,
+      "file_count": 10,
+      "total_size": 65720,
+      "sha256_of_skill_md": "40354d99ca66f16a8bd92b0e6b315b4cd773ebcb8a6348a70398a4b787b86213",
+      "sha256_tree_hash": "33df58f9cd78fc241ec45728c7f36e40336cb8bba20c78e812b50f9bb16a92e8",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "codex-plugin-metadata"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/plugin-creator/assets/plugin-creator.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\presentations",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/presentations",
+      "skill_dir_name": "presentations",
+      "normalized_name": "presentations",
+      "frontmatter_name": "Presentations",
+      "frontmatter_description": "Build PowerPoint PPTX decks with artifact-tool presentation JSX",
+      "has_skill_md": true,
+      "file_count": 33,
+      "total_size": 259764,
+      "sha256_of_skill_md": "a8936346d12e53badf5544d07ea0d5db68a74199e9ef11f1928fde82a0cc7374",
+      "sha256_tree_hash": "7458dfdcba5730b70c137386aed31b9c1b81d49507b5ba948b8a1abb086b94b3",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/presentations/assets/file-presentation.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\render-deploy",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/render-deploy",
+      "skill_dir_name": "render-deploy",
+      "normalized_name": "render-deploy",
+      "frontmatter_name": "render-deploy",
+      "frontmatter_description": "Deploy applications to Render by analyzing codebases, generating render.yaml Blueprints, and providing Dashboard deeplinks. Use when the user wants to deploy, host, publish, or set up their application on Render's cloud platform.",
+      "has_skill_md": true,
+      "file_count": 21,
+      "total_size": 104224,
+      "sha256_of_skill_md": "e785be3b5ab4b418a1d51c19d8d9208830fa62d0dc19555e7a0b36248b345db4",
+      "sha256_tree_hash": "5a6ca2d976a014f91a1d8fbd7e3a12b3c59e792baca8d2fef3fde3d3ff047d27",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/render-deploy/SKILL.md",
+          "Line": 169,
+          "Rule": "Literal secret assignment",
+          "Severity": "high"
+        }
+      ],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/render-deploy/assets/render.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 25
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\screenshot",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/screenshot",
+      "skill_dir_name": "screenshot",
+      "normalized_name": "screenshot",
+      "frontmatter_name": "screenshot",
+      "frontmatter_description": "Use when the user explicitly asks for a desktop or system screenshot (full screen, specific app or window, or a pixel region), or when tool-specific capture capabilities are unavailable and an OS-level capture is needed.",
+      "has_skill_md": true,
+      "file_count": 11,
+      "total_size": 53465,
+      "sha256_of_skill_md": "2fb7b2d8010517699b1a44f1d587d028b9dad2e2770366d2052238d46c9a9e36",
+      "sha256_tree_hash": "0eda63ccc25b725466da1a27147885a0c2549eaada28fa2025199ba414ead70a",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/screenshot/assets/screenshot.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\security-best-practices",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/security-best-practices",
+      "skill_dir_name": "security-best-practices",
+      "normalized_name": "security-best-practices",
+      "frontmatter_name": "security-best-practices",
+      "frontmatter_description": "Perform language and framework specific security best-practice reviews and suggest improvements. Trigger only when the user explicitly requests security best practices guidance, a security review/report, or secure-by-default coding help. Trigger only for supported languages (python, javascript/typescript, go). Do not trigger for general code review, debugging, or non-security tasks.",
+      "has_skill_md": true,
+      "file_count": 13,
+      "total_size": 420995,
+      "sha256_of_skill_md": "7a889544c0ae67982a918a4b28569cc93f7426ae39306a0cb786603445714162",
+      "sha256_tree_hash": "e176bec801fbe04c99cea84f09114f803c904aec356fa18a7119d94841a4039d",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\security-ownership-map",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/security-ownership-map",
+      "skill_dir_name": "security-ownership-map",
+      "normalized_name": "security-ownership-map",
+      "frontmatter_name": "security-ownership-map",
+      "frontmatter_description": "Analyze git repositories to build a security ownership topology (people-to-file), compute bus factor and sensitive-code ownership, and export CSV/JSON for graph databases and visualization. Trigger only when the user explicitly wants a security-oriented ownership or bus-factor analysis grounded in git history (for example: orphaned sensitive code, security maintainers, CODEOWNERS reality checks for risk, sensitive hotspots, or ownership clusters). Do not trigger for general maintainer lists or non-security ownership questions.",
+      "has_skill_md": true,
+      "file_count": 8,
+      "total_size": 101180,
+      "sha256_of_skill_md": "f855af8ef91e173adf931c82b0fe21931d5e32b661eeb3d95fed18df46c0ef6e",
+      "sha256_tree_hash": "813afd7a59b7c0ea22a91649c6513398eea7355ab5a11e4b42e3f2dd56ce457b",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 90
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\security-threat-model",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/security-threat-model",
+      "skill_dir_name": "security-threat-model",
+      "normalized_name": "security-threat-model",
+      "frontmatter_name": "security-threat-model",
+      "frontmatter_description": "Repository-grounded threat modeling that enumerates trust boundaries, assets, attacker capabilities, abuse paths, and mitigations, and writes a concise Markdown threat model. Trigger only when the user explicitly asks to threat model a codebase or path, enumerate threats/abuse paths, or perform AppSec threat modeling. Do not trigger for general architecture summaries, code review, or non-security design work.",
+      "has_skill_md": true,
+      "file_count": 5,
+      "total_size": 31486,
+      "sha256_of_skill_md": "7718bb4d7d9855cdf2e90e920e0cbc489cb24ea55e2f9734fd041c53f1e04f68",
+      "sha256_tree_hash": "fcc4b343d13b94466cbf292165e3131f6101b3c3dabad098081339821b6a48ab",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\sentry",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/sentry",
+      "skill_dir_name": "sentry",
+      "normalized_name": "sentry",
+      "frontmatter_name": "sentry",
+      "frontmatter_description": "Use when the user asks to inspect Sentry issues or events, summarize recent production errors, or pull basic Sentry health data via the Sentry CLI; perform read-only queries using the `sentry` command.",
+      "has_skill_md": true,
+      "file_count": 5,
+      "total_size": 17891,
+      "sha256_of_skill_md": "020211a5c198ff0354e268f9d5ff75990c990acc24894ad56b9b12dc7b0a5d7e",
+      "sha256_tree_hash": "e44a0fc0698d6b060fb5c18b4149d92d43387b18b23718720e51c39f2c8a9d7d",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/sentry/assets/sentry.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\skill-creator",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/skill-creator",
+      "skill_dir_name": "skill-creator",
+      "normalized_name": "skill-creator",
+      "frontmatter_name": "skill-creator",
+      "frontmatter_description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Codex's capabilities with specialized knowledge, workflows, or tool integrations.",
+      "has_skill_md": true,
+      "file_count": 9,
+      "total_size": 64742,
+      "sha256_of_skill_md": "2940e08d49e5197453e58a4387d14cb07101b97911c992ef75c8289e0a1734c0",
+      "sha256_tree_hash": "314ccba3e1f645ce6b16629ffc57752184f10130f3a47f3826e5e3986fd373af",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml",
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/skill-creator/assets/skill-creator.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\skill-installer",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/skill-installer",
+      "skill_dir_name": "skill-installer",
+      "normalized_name": "skill-installer",
+      "frontmatter_name": "skill-installer",
+      "frontmatter_description": "Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).",
+      "has_skill_md": true,
+      "file_count": 8,
+      "total_size": 31380,
+      "sha256_of_skill_md": "2d3be2289274cbffb9eb632b25a1038aa7f369df6aaa0964077c77648547e01d",
+      "sha256_tree_hash": "1f82a929511f9a503c118b13ab46a5604add019abcb877a2c4e1d83ee08d40bc",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/skill-installer/assets/skill-installer.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\speech",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/speech",
+      "skill_dir_name": "speech",
+      "normalized_name": "speech",
+      "frontmatter_name": "speech",
+      "frontmatter_description": "Use when the user asks for text-to-speech narration or voiceover, accessibility reads, audio prompts, or batch speech generation via the OpenAI Audio API; run the bundled CLI (`scripts/text_to_speech.py`) with built-in voices and require `OPENAI_API_KEY` for live calls. Custom voice creation is out of scope.",
+      "has_skill_md": true,
+      "file_count": 16,
+      "total_size": 50101,
+      "sha256_of_skill_md": "e71cd464d98745e8d51a6cc3b59630a34dbd2553e9db9cdf8dc59247abc754f4",
+      "sha256_tree_hash": "d111554c0d0873ffc8c0f0391dcc9a292b9d0442feddc93c22351d8ec5888010",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/speech/assets/speech.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\spreadsheets",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/spreadsheets",
+      "skill_dir_name": "spreadsheets",
+      "normalized_name": "spreadsheets",
+      "frontmatter_name": "Spreadsheets",
+      "frontmatter_description": "Use this skill when a user requests to create, modify, analyze, visualize, or work with spreadsheet files (`.xlsx`, `.xls`, `.csv`, `.tsv`) or Google Sheets-targeted spreadsheet artifacts with formulas, formatting, charts, tables, and recalculation.",
+      "has_skill_md": true,
+      "file_count": 9,
+      "total_size": 90502,
+      "sha256_of_skill_md": "cdd0d8468e5b17678100f78269cf720ff64501e04659e49e35a08622d4b3b09f",
+      "sha256_tree_hash": "124e0a0997a9990b6a5914029c691f86fbfed9ac81f40d30008ac763d4b9e1cb",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/spreadsheets/assets/file-spreadsheet.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\systematic-debugging",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/systematic-debugging",
+      "skill_dir_name": "systematic-debugging",
+      "normalized_name": "systematic-debugging",
+      "frontmatter_name": "systematic-debugging",
+      "frontmatter_description": "Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes",
+      "has_skill_md": true,
+      "file_count": 11,
+      "total_size": 40733,
+      "sha256_of_skill_md": "4999cb851360485eca5074e727bbdd62ef20549c5d5b01216fcbf5831badb473",
+      "sha256_tree_hash": "04e9939566856a6619e16f1877c29832190fc85a00e8ac25255f8b0e92a8a0c1",
+      "possible_platform_specific_features": [
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\transcribe",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/transcribe",
+      "skill_dir_name": "transcribe",
+      "normalized_name": "transcribe",
+      "frontmatter_name": "transcribe",
+      "frontmatter_description": "Transcribe audio files to text with optional diarization and known-speaker hints. Use when a user asks to transcribe speech from audio/video, extract text from recordings, or label speakers in interviews or meetings.",
+      "has_skill_md": true,
+      "file_count": 7,
+      "total_size": 25778,
+      "sha256_of_skill_md": "2eaae81b9a63f877e4028e640b0066288c4b7c05c75f6b8e380570a81432ef47",
+      "sha256_tree_hash": "1687f3943c2dc208288df765d8175b77b208784fb4ee1b423e03d377ef0e6a2a",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/transcribe/assets/transcribe.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 75
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\vercel-deploy",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/vercel-deploy",
+      "skill_dir_name": "vercel-deploy",
+      "normalized_name": "vercel-deploy",
+      "frontmatter_name": "vercel-deploy",
+      "frontmatter_description": "Deploy applications and websites to Vercel. Use when the user requests deployment actions like \"deploy my app\", \"deploy and give me the link\", \"push this live\", or \"create a preview deployment\".",
+      "has_skill_md": true,
+      "file_count": 6,
+      "total_size": 14340,
+      "sha256_of_skill_md": "afac6b5b71952af08f8dcd19c01ec1d80a040240cc50929e3add8200b3fcd459",
+      "sha256_tree_hash": "b5f1bc89ef6890b42d7b6937e994e835e9699fc2591ddd2745f253ab0474fb8e",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/vercel-deploy/assets/vercel.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\verification-before-completion",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/verification-before-completion",
+      "skill_dir_name": "verification-before-completion",
+      "normalized_name": "verification-before-completion",
+      "frontmatter_name": "verification-before-completion",
+      "frontmatter_description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always",
+      "has_skill_md": true,
+      "file_count": 1,
+      "total_size": 4201,
+      "sha256_of_skill_md": "ea52d15aabaf72bc6b558efe2c126f161b53961090ddcd712000273bfe8c7b6c",
+      "sha256_tree_hash": "2b3bebc5d5683fd685c596503604cb47a6c507b7a1032259ac8cf9442eff2962",
+      "possible_platform_specific_features": [],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "shared",
+      "quality_score": 75
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\winui-app",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/winui-app",
+      "skill_dir_name": "winui-app",
+      "normalized_name": "winui-app",
+      "frontmatter_name": "winui-app",
+      "frontmatter_description": "Bootstrap, develop, and design modern WinUI 3 desktop applications with C# and the Windows App SDK using official Microsoft guidance, WinUI Gallery patterns, Windows App SDK samples, and CommunityToolkit components. Use when creating a brand new app, preparing a machine for WinUI, reviewing, refactoring, planning, troubleshooting, environment-checking, or setting up WinUI 3 XAML, controls, navigation, windowing, theming, accessibility, responsiveness, performance, deployment, or related Windows app design and development work.",
+      "has_skill_md": true,
+      "file_count": 21,
+      "total_size": 88154,
+      "sha256_of_skill_md": "69e4e697a60403b587b4eb36c8fa2d3699f4943ed66747bce268828a5ef9de4c",
+      "sha256_tree_hash": "09f708aa874bcc20dcad113d0529618ac4c50e7302abed7d510bf984906eb07e",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/winui-app/assets/winui.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\writing-skills",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/writing-skills",
+      "skill_dir_name": "writing-skills",
+      "normalized_name": "writing-skills",
+      "frontmatter_name": "writing-skills",
+      "frontmatter_description": "Use when creating new skills, editing existing skills, or verifying skills work before deployment",
+      "has_skill_md": true,
+      "file_count": 7,
+      "total_size": 103160,
+      "sha256_of_skill_md": "38ba648975ae6ba512d6695676f146163db61a496b867f716f4bdfb0ee3aca3e",
+      "sha256_tree_hash": "9fa74227e4468a7b8a7b6d3a1f4ee0d67fadc395088500109b9d841a1f2135c2",
+      "possible_platform_specific_features": [
+        "subagents"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\yeet",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/yeet",
+      "skill_dir_name": "yeet",
+      "normalized_name": "yeet",
+      "frontmatter_name": "yeet",
+      "frontmatter_description": "Publish local changes to GitHub by confirming scope, committing intentionally, pushing the branch, and opening a draft PR through the GitHub app from this plugin, with `gh` used only as a fallback where connector coverage is insufficient.",
+      "has_skill_md": true,
+      "file_count": 5,
+      "total_size": 17602,
+      "sha256_of_skill_md": "9d70c68282acbc7fbee678f142adbf84b4f1091890d6cb93b3106e5e629fc0cb",
+      "sha256_tree_hash": "360cb0787786a074dedad60c11a3724e943c86fefc8e6fff5a98b34e57229d4d",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/yeet/assets/yeet.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\yeet-copy-1",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/yeet-copy-1",
+      "skill_dir_name": "yeet-copy-1",
+      "normalized_name": "yeet",
+      "frontmatter_name": "yeet",
+      "frontmatter_description": "Publish local changes to GitHub by confirming scope, committing intentionally, pushing the branch, and opening a draft PR through the GitHub app from this plugin, with `gh` used only as a fallback where connector coverage is insufficient.",
+      "has_skill_md": true,
+      "file_count": 5,
+      "total_size": 17322,
+      "sha256_of_skill_md": "93a0bcbc834c9b3ad6a8965c1a273b237b6d226e870cd0c16e08e87bc8769814",
+      "sha256_tree_hash": "c8ea9a658f60da2d2d1d00fc01225855a0da4096e03c3624cb9a22c7b7838894",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/yeet-copy-1/assets/yeet.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "collection": "inbox",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\imports\\skills-inbox\\magina-laptop\\codex\\yeet-copy-2",
+      "repo_relative_path": "imports/skills-inbox/magina-laptop/codex/yeet-copy-2",
+      "skill_dir_name": "yeet-copy-2",
+      "normalized_name": "yeet",
+      "frontmatter_name": "yeet",
+      "frontmatter_description": "Use only when the user explicitly asks to stage, commit, push, and open a GitHub pull request in one flow using the GitHub CLI (`gh`).",
+      "has_skill_md": true,
+      "file_count": 5,
+      "total_size": 20572,
+      "sha256_of_skill_md": "14422e979fd275a18b14c173be7284123aebdcd092b5cc1acc001d757f720e62",
+      "sha256_tree_hash": "0c60c507f88ecc22cd3645e3fe2bb19e3b378c354837c89736542cbd96b77eb6",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [
+        {
+          "File": "imports/skills-inbox/magina-laptop/codex/yeet-copy-2/assets/yeet.png",
+          "Rule": "unknown-or-binary-file",
+          "Severity": "medium"
+        }
+      ],
+      "classification": "quarantine",
+      "quality_score": 65
     },
     {
       "source_tool": "shared",
@@ -156,66 +2567,522 @@
       "frontmatter_name": "git-review",
       "frontmatter_description": "Review git changes, summarize modifications, identify risks, and suggest commit messages. Use when asked to inspect diffs, review code changes, or prepare commits.",
       "has_skill_md": true,
-      "file_count": 1,
-      "total_size": 576,
+      "file_count": 2,
+      "total_size": 761,
       "sha256_of_skill_md": "51e0be61b204c6a4b71298c05c1da9fb65ecc71a6d3797bdb92a247e14536f53",
-      "sha256_tree_hash": "396f1a8a562771693b922d5053ed7d243e283d5f783c839567c44607b3a6d860",
+      "sha256_tree_hash": "5d27a1fbbb10fd2accb43eb803c620e2b8e1927457bcc51456410516e2d045ec",
       "possible_platform_specific_features": [],
       "possible_secret_findings": [],
       "possible_local_path_findings": [],
       "possible_binary_findings": [],
       "classification": "shared",
       "quality_score": 95
+    },
+    {
+      "source_tool": "shared",
+      "machine_id": "source",
+      "collection": "skills-source",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\skills-source\\shared\\paper-polish",
+      "repo_relative_path": "skills-source/shared/paper-polish",
+      "skill_dir_name": "paper-polish",
+      "normalized_name": "paper-polish",
+      "frontmatter_name": "paper-polish",
+      "frontmatter_description": "Improve academic writing for clarity, structure, tone, and concise argument flow.",
+      "has_skill_md": true,
+      "file_count": 2,
+      "total_size": 492,
+      "sha256_of_skill_md": "48db29b81b11ca375f2b77b315bdef22322b79405f2927b645e4a31d5e83111e",
+      "sha256_tree_hash": "338b0d596fdac481def4dd20aa537d7829ada578a6a27620544c1e9a94d18af4",
+      "possible_platform_specific_features": [],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "shared",
+      "quality_score": 90
+    },
+    {
+      "source_tool": "shared",
+      "machine_id": "source",
+      "collection": "skills-source",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\skills-source\\shared\\path-risk",
+      "repo_relative_path": "skills-source/shared/path-risk",
+      "skill_dir_name": "path-risk",
+      "normalized_name": "path-risk",
+      "frontmatter_name": "path-risk",
+      "frontmatter_description": "Demonstrate local path rewriting during skill normalization.",
+      "has_skill_md": true,
+      "file_count": 2,
+      "total_size": 404,
+      "sha256_of_skill_md": "f0a026e0f7ab1d403e51ae2d4d8be8b903604557d033ab64b0a59a1b05c20310",
+      "sha256_tree_hash": "9180d2b1349c9a3c31f6fe5f3140c357ac7091df7e26e3bce5e635d125390007",
+      "possible_platform_specific_features": [],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "shared",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "shared",
+      "machine_id": "source",
+      "collection": "skills-source",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\skills-source\\shared\\placeholder-ok",
+      "repo_relative_path": "skills-source/shared/placeholder-ok",
+      "skill_dir_name": "placeholder-ok",
+      "normalized_name": "placeholder-ok",
+      "frontmatter_name": "placeholder-ok",
+      "frontmatter_description": "Demonstrate safe environment variable placeholders for MCP authentication.",
+      "has_skill_md": true,
+      "file_count": 2,
+      "total_size": 434,
+      "sha256_of_skill_md": "45466acc2b420493cd54b8e8b4fe0570f0953b7076b8f6d9d857ba544399b21b",
+      "sha256_tree_hash": "d83422b834c257d605a1aaa7a603e9a0e1d431e30f96d77c996819a6bcec98f1",
+      "possible_platform_specific_features": [],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "shared",
+      "quality_score": 80
+    },
+    {
+      "source_tool": "codex-only",
+      "machine_id": "source",
+      "collection": "skills-source",
+      "source_path": "C:\\Repos\\ai-agent-dotfiles\\skills-source\\codex-only\\codex-repo-maintainer",
+      "repo_relative_path": "skills-source/codex-only/codex-repo-maintainer",
+      "skill_dir_name": "codex-repo-maintainer",
+      "normalized_name": "codex-repo-maintainer",
+      "frontmatter_name": "codex-repo-maintainer",
+      "frontmatter_description": "Maintain Codex repositories by inspecting diffs, running checks, and preparing safe local changes.",
+      "has_skill_md": true,
+      "file_count": 3,
+      "total_size": 564,
+      "sha256_of_skill_md": "6a86f4510246de8c48a1f6bd63a06c03190ec2e17d2ecf4ccc169d89530421b7",
+      "sha256_tree_hash": "b284b7e2077a8fd3bd191529e8cc12cec655c04ac6f2d10be124c5f591d64f80",
+      "possible_platform_specific_features": [
+        "agents-openai-yaml"
+      ],
+      "possible_secret_findings": [],
+      "possible_local_path_findings": [],
+      "possible_binary_findings": [],
+      "classification": "codex-only",
+      "quality_score": 90
     }
   ],
-  "exact_duplicate_groups": [],
-  "same_skill_md_groups": [],
+  "exact_duplicate_groups": [
+    {
+      "hash": "4e07fb6ebac705bd365bbbf9fdd5001d016afe882b5d93580657b2ab97131761",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling",
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling-copy-1"
+      ]
+    },
+    {
+      "hash": "b5645fb026556cf6991a30b080692c3aee0f02235760b5300a4c71fa1d18bbfe",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting",
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting-copy-1"
+      ]
+    },
+    {
+      "hash": "d90236e5f82d856ad6565169b81cbbf8123a81b3962c856b37759b4e3b059bb3",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime",
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime-copy-1"
+      ]
+    }
+  ],
+  "same_skill_md_groups": [
+    {
+      "hash": "11681c95d001e402a79caaaec28d0d6d24ca00472b541c55182bc5693267ef23",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling",
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling-copy-1"
+      ]
+    },
+    {
+      "hash": "318a6e0f804209d01c4dac4fe4e419de6b6d67f29880d040ddce1ad3a5a8ee0c",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting",
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting-copy-1"
+      ]
+    },
+    {
+      "hash": "61897f85be40353f777f4d984228f7ed6c02e56540bd3b9f2eb49891ce7c0618",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime",
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime-copy-1"
+      ]
+    }
+  ],
   "same_name_duplicate_groups": [
     {
-      "name": "git-review",
+      "name": "codex-cli-runtime",
       "skills": [
-        "imports/skills-inbox/fake-pc/claude/git-review",
-        "imports/skills-inbox/fake-pc/codex/git-review",
-        "skills-source/shared/git-review"
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime",
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime-copy-1"
+      ]
+    },
+    {
+      "name": "codex-result-handling",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling",
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling-copy-1"
+      ]
+    },
+    {
+      "name": "gh-address-comments",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/gh-address-comments",
+        "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-1",
+        "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-2"
+      ]
+    },
+    {
+      "name": "gh-fix-ci",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/gh-fix-ci",
+        "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-1",
+        "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-2"
+      ]
+    },
+    {
+      "name": "github",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/github",
+        "imports/skills-inbox/magina-laptop/codex/github-copy-1"
+      ]
+    },
+    {
+      "name": "gmail",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/gmail",
+        "imports/skills-inbox/magina-laptop/codex/gmail-copy-1"
+      ]
+    },
+    {
+      "name": "gmail-inbox-triage",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage",
+        "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage-copy-1"
+      ]
+    },
+    {
+      "name": "google-docs",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-docs",
+        "imports/skills-inbox/magina-laptop/codex/google-docs-copy-1"
+      ]
+    },
+    {
+      "name": "google-drive",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-drive",
+        "imports/skills-inbox/magina-laptop/codex/google-drive-copy-1"
+      ]
+    },
+    {
+      "name": "google-drive-comments",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-drive-comments",
+        "imports/skills-inbox/magina-laptop/codex/google-drive-comments-copy-1"
+      ]
+    },
+    {
+      "name": "google-sheets",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-sheets",
+        "imports/skills-inbox/magina-laptop/codex/google-sheets-copy-1"
+      ]
+    },
+    {
+      "name": "google-slides",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-slides",
+        "imports/skills-inbox/magina-laptop/codex/google-slides-copy-1"
+      ]
+    },
+    {
+      "name": "gpt-5-4-prompting",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting",
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting-copy-1"
+      ]
+    },
+    {
+      "name": "hatch-pet",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/hatch-pet",
+        "imports/skills-inbox/magina-laptop/codex/hatch-pet-copy-1"
+      ]
+    },
+    {
+      "name": "notion-knowledge-capture",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture",
+        "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture-copy-1"
+      ]
+    },
+    {
+      "name": "notion-meeting-intelligence",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence",
+        "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence-copy-1"
+      ]
+    },
+    {
+      "name": "notion-research-documentation",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/notion-research-documentation",
+        "imports/skills-inbox/magina-laptop/codex/notion-research-documentation-copy-1"
+      ]
+    },
+    {
+      "name": "notion-spec-to-implementation",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation",
+        "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation-copy-1"
+      ]
+    },
+    {
+      "name": "openai-docs",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/openai-docs",
+        "imports/skills-inbox/magina-laptop/codex/openai-docs-copy-1"
+      ]
+    },
+    {
+      "name": "yeet",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/yeet",
+        "imports/skills-inbox/magina-laptop/codex/yeet-copy-1",
+        "imports/skills-inbox/magina-laptop/codex/yeet-copy-2"
       ]
     }
   ],
   "similar_purpose_groups": [
     {
-      "purpose": "git-review",
+      "purpose": "codex-cli-runtime",
       "skills": [
-        "imports/skills-inbox/fake-pc/claude/git-review",
-        "imports/skills-inbox/fake-pc/codex/git-review",
-        "skills-source/shared/git-review"
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime",
+        "imports/skills-inbox/magina-laptop/claude/codex-cli-runtime-copy-1"
+      ]
+    },
+    {
+      "purpose": "codex-result-handling",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling",
+        "imports/skills-inbox/magina-laptop/claude/codex-result-handling-copy-1"
+      ]
+    },
+    {
+      "purpose": "gh-address-comments",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/gh-address-comments",
+        "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-1",
+        "imports/skills-inbox/magina-laptop/codex/gh-address-comments-copy-2"
+      ]
+    },
+    {
+      "purpose": "gh-fix-ci",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/gh-fix-ci",
+        "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-1",
+        "imports/skills-inbox/magina-laptop/codex/gh-fix-ci-copy-2"
+      ]
+    },
+    {
+      "purpose": "github",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/github",
+        "imports/skills-inbox/magina-laptop/codex/github-copy-1"
+      ]
+    },
+    {
+      "purpose": "gmail",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/gmail",
+        "imports/skills-inbox/magina-laptop/codex/gmail-copy-1"
+      ]
+    },
+    {
+      "purpose": "gmail-inbox-triage",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage",
+        "imports/skills-inbox/magina-laptop/codex/gmail-inbox-triage-copy-1"
+      ]
+    },
+    {
+      "purpose": "google-docs",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-docs",
+        "imports/skills-inbox/magina-laptop/codex/google-docs-copy-1"
+      ]
+    },
+    {
+      "purpose": "google-drive",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-drive",
+        "imports/skills-inbox/magina-laptop/codex/google-drive-copy-1"
+      ]
+    },
+    {
+      "purpose": "google-drive-comments",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-drive-comments",
+        "imports/skills-inbox/magina-laptop/codex/google-drive-comments-copy-1"
+      ]
+    },
+    {
+      "purpose": "google-sheets",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-sheets",
+        "imports/skills-inbox/magina-laptop/codex/google-sheets-copy-1"
+      ]
+    },
+    {
+      "purpose": "google-slides",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/google-slides",
+        "imports/skills-inbox/magina-laptop/codex/google-slides-copy-1"
+      ]
+    },
+    {
+      "purpose": "gpt-5-4-prompting",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting",
+        "imports/skills-inbox/magina-laptop/claude/gpt-5-4-prompting-copy-1"
+      ]
+    },
+    {
+      "purpose": "hatch-pet",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/hatch-pet",
+        "imports/skills-inbox/magina-laptop/codex/hatch-pet-copy-1"
+      ]
+    },
+    {
+      "purpose": "notion-knowledge-capture",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture",
+        "imports/skills-inbox/magina-laptop/codex/notion-knowledge-capture-copy-1"
+      ]
+    },
+    {
+      "purpose": "notion-meeting-intelligence",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence",
+        "imports/skills-inbox/magina-laptop/codex/notion-meeting-intelligence-copy-1"
+      ]
+    },
+    {
+      "purpose": "notion-research-documentation",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/notion-research-documentation",
+        "imports/skills-inbox/magina-laptop/codex/notion-research-documentation-copy-1"
+      ]
+    },
+    {
+      "purpose": "notion-spec-to-implementation",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation",
+        "imports/skills-inbox/magina-laptop/codex/notion-spec-to-implementation-copy-1"
+      ]
+    },
+    {
+      "purpose": "openai-docs",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/openai-docs",
+        "imports/skills-inbox/magina-laptop/codex/openai-docs-copy-1"
+      ]
+    },
+    {
+      "purpose": "yeet",
+      "skills": [
+        "imports/skills-inbox/magina-laptop/codex/yeet",
+        "imports/skills-inbox/magina-laptop/codex/yeet-copy-1",
+        "imports/skills-inbox/magina-laptop/codex/yeet-copy-2"
       ]
     }
   ],
   "suspected_shared_skills": [
+    "control-chrome",
     "git-review",
+    "latex-tectonic",
     "paper-polish",
     "path-risk",
-    "placeholder-ok"
+    "placeholder-ok",
+    "verification-before-completion"
   ],
-  "suspected_claude_only_skills": [],
+  "suspected_claude_only_skills": [
+    "codex-cli-runtime",
+    "codex-result-handling",
+    "gpt-5-4-prompting",
+    "systematic-debugging",
+    "writing-skills"
+  ],
   "suspected_codex_only_skills": [
-    "codex-repo-maintainer"
+    "chatgpt-apps",
+    "cli-creator",
+    "code-review",
+    "codex-repo-maintainer",
+    "control-in-app-browser",
+    "define-goal",
+    "google-drive-comments",
+    "security-best-practices",
+    "security-ownership-map",
+    "security-threat-model"
   ],
-  "suspected_risk_skills": [],
+  "suspected_risk_skills": [
+    "aspnet-core",
+    "cloudflare-deploy",
+    "documents",
+    "figma",
+    "figma-code-connect-components",
+    "figma-create-design-system-rules",
+    "figma-create-new-file",
+    "figma-generate-design",
+    "figma-generate-library",
+    "figma-implement-design",
+    "figma-use",
+    "gh-address-comments",
+    "gh-fix-ci",
+    "github",
+    "gmail",
+    "gmail-inbox-triage",
+    "google-docs",
+    "google-drive",
+    "google-sheets",
+    "google-slides",
+    "hatch-pet",
+    "imagegen",
+    "jupyter-notebook",
+    "linear",
+    "migrate-to-codex",
+    "netlify-deploy",
+    "notion-knowledge-capture",
+    "notion-meeting-intelligence",
+    "notion-research-documentation",
+    "notion-spec-to-implementation",
+    "openai-docs",
+    "pdf",
+    "playwright",
+    "playwright-interactive",
+    "plugin-creator",
+    "presentations",
+    "render-deploy",
+    "screenshot",
+    "sentry",
+    "skill-creator",
+    "skill-installer",
+    "speech",
+    "spreadsheets",
+    "transcribe",
+    "vercel-deploy",
+    "winui-app",
+    "yeet"
+  ],
   "quality_score_ranking": [
-    {
-      "normalized_name": "git-review",
-      "collection": "inbox",
-      "source_tool": "claude",
-      "machine_id": "fake-pc",
-      "quality_score": 95
-    },
-    {
-      "normalized_name": "git-review",
-      "collection": "inbox",
-      "source_tool": "codex",
-      "machine_id": "fake-pc",
-      "quality_score": 95
-    },
     {
       "normalized_name": "git-review",
       "collection": "skills-source",
@@ -224,76 +3091,1252 @@
       "quality_score": 95
     },
     {
-      "normalized_name": "paper-polish",
-      "collection": "inbox",
-      "source_tool": "claude",
-      "machine_id": "fake-pc",
+      "normalized_name": "codex-repo-maintainer",
+      "collection": "skills-source",
+      "source_tool": "codex-only",
+      "machine_id": "source",
       "quality_score": 90
     },
     {
-      "normalized_name": "codex-repo-maintainer",
+      "normalized_name": "paper-polish",
+      "collection": "skills-source",
+      "source_tool": "shared",
+      "machine_id": "source",
+      "quality_score": 90
+    },
+    {
+      "normalized_name": "security-ownership-map",
       "collection": "inbox",
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
       "quality_score": 90
+    },
+    {
+      "normalized_name": "migrate-to-codex",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 90
+    },
+    {
+      "normalized_name": "chatgpt-apps",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 90
+    },
+    {
+      "normalized_name": "hatch-pet",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "code-review",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "hatch-pet",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "gpt-5-4-prompting",
+      "collection": "inbox",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "gpt-5-4-prompting",
+      "collection": "inbox",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "codex-cli-runtime",
+      "collection": "inbox",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "security-threat-model",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "systematic-debugging",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
     },
     {
       "normalized_name": "placeholder-ok",
+      "collection": "skills-source",
+      "source_tool": "shared",
+      "machine_id": "source",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "codex-result-handling",
+      "collection": "inbox",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "writing-skills",
       "collection": "inbox",
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "latex-tectonic",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "security-best-practices",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "cli-creator",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
       "quality_score": 80
     },
     {
       "normalized_name": "path-risk",
+      "collection": "skills-source",
+      "source_tool": "shared",
+      "machine_id": "source",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "codex-cli-runtime",
+      "collection": "inbox",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "codex-result-handling",
+      "collection": "inbox",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "google-drive-comments",
       "collection": "inbox",
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
       "quality_score": 75
+    },
+    {
+      "normalized_name": "google-drive-comments",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "transcribe",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "control-chrome",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "define-goal",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "verification-before-completion",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "control-in-app-browser",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "openai-docs",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "playwright",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "plugin-creator",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "presentations",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "openai-docs",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "jupyter-notebook",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "imagegen",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "gmail",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "gmail",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "skill-creator",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "documents",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "speech",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "gh-address-comments",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "vercel-deploy",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "figma-code-connect-components",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "figma-generate-library",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "figma-create-design-system-rules",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "sentry",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-spec-to-implementation",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-spec-to-implementation",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "winui-app",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "screenshot",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "skill-installer",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "playwright-interactive",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-research-documentation",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "yeet",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-research-documentation",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "linear",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-meeting-intelligence",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "aspnet-core",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "figma",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "figma-use",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-address-comments",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-address-comments",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-fix-ci",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-fix-ci",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-fix-ci",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "github",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-meeting-intelligence",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gmail-inbox-triage",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gmail-inbox-triage",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "github",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-docs",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-knowledge-capture",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-knowledge-capture",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "netlify-deploy",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-docs",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-slides",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-slides",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-sheets",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-drive",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-drive",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-sheets",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "spreadsheets",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "pdf",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "figma-implement-design",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "yeet",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "yeet",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "figma-generate-design",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "figma-create-new-file",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "render-deploy",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 25
+    },
+    {
+      "normalized_name": "cloudflare-deploy",
+      "collection": "inbox",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "quality_score": 25
     }
   ],
   "recommended_merge_plan": [
     {
-      "normalized_name": "git-review",
+      "normalized_name": "codex-cli-runtime",
       "source_tool": "claude",
-      "machine_id": "fake-pc",
-      "classification": "shared",
-      "quality_score": 95
+      "machine_id": "magina-laptop",
+      "classification": "claude-only",
+      "quality_score": 80
     },
     {
-      "normalized_name": "paper-polish",
+      "normalized_name": "codex-cli-runtime",
       "source_tool": "claude",
-      "machine_id": "fake-pc",
-      "classification": "shared",
-      "quality_score": 90
+      "machine_id": "magina-laptop",
+      "classification": "claude-only",
+      "quality_score": 80
     },
     {
-      "normalized_name": "codex-repo-maintainer",
+      "normalized_name": "codex-result-handling",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "codex-result-handling",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "gpt-5-4-prompting",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "classification": "claude-only",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "gpt-5-4-prompting",
+      "source_tool": "claude",
+      "machine_id": "magina-laptop",
+      "classification": "claude-only",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "aspnet-core",
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "chatgpt-apps",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
       "classification": "codex-only",
       "quality_score": 90
     },
     {
-      "normalized_name": "git-review",
+      "normalized_name": "cli-creator",
       "source_tool": "codex",
-      "machine_id": "fake-pc",
-      "classification": "shared",
-      "quality_score": 95
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 80
     },
     {
-      "normalized_name": "path-risk",
+      "normalized_name": "cloudflare-deploy",
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 25
+    },
+    {
+      "normalized_name": "code-review",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "control-chrome",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
       "classification": "shared",
       "quality_score": 75
     },
     {
-      "normalized_name": "placeholder-ok",
+      "normalized_name": "control-in-app-browser",
       "source_tool": "codex",
-      "machine_id": "fake-pc",
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "define-goal",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "documents",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "figma",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "figma-code-connect-components",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "figma-create-design-system-rules",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "figma-create-new-file",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "figma-generate-design",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "figma-generate-library",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "figma-implement-design",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "figma-use",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-address-comments",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-address-comments",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-address-comments",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "gh-fix-ci",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-fix-ci",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gh-fix-ci",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "github",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "github",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gmail",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "gmail",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "gmail-inbox-triage",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "gmail-inbox-triage",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-docs",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-docs",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-drive",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-drive-comments",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "google-drive-comments",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "google-drive",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-sheets",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-sheets",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-slides",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "google-slides",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "hatch-pet",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "hatch-pet",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 85
+    },
+    {
+      "normalized_name": "imagegen",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "jupyter-notebook",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "latex-tectonic",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
       "classification": "shared",
       "quality_score": 80
+    },
+    {
+      "normalized_name": "linear",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "migrate-to-codex",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 90
+    },
+    {
+      "normalized_name": "netlify-deploy",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-knowledge-capture",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-knowledge-capture",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-meeting-intelligence",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-meeting-intelligence",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-research-documentation",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-research-documentation",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-spec-to-implementation",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "notion-spec-to-implementation",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "openai-docs",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "openai-docs",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "pdf",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "playwright",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "playwright-interactive",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "plugin-creator",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "presentations",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "render-deploy",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 25
+    },
+    {
+      "normalized_name": "screenshot",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "security-best-practices",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "security-ownership-map",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 90
+    },
+    {
+      "normalized_name": "security-threat-model",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "codex-only",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "sentry",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "skill-creator",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "skill-installer",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "speech",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "spreadsheets",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "systematic-debugging",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "transcribe",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "vercel-deploy",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 70
+    },
+    {
+      "normalized_name": "verification-before-completion",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "shared",
+      "quality_score": 75
+    },
+    {
+      "normalized_name": "winui-app",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
+    },
+    {
+      "normalized_name": "writing-skills",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "claude-only",
+      "quality_score": 80
+    },
+    {
+      "normalized_name": "yeet",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "yeet",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 60
+    },
+    {
+      "normalized_name": "yeet",
+      "source_tool": "codex",
+      "machine_id": "magina-laptop",
+      "classification": "quarantine",
+      "quality_score": 65
     }
   ]
 }
