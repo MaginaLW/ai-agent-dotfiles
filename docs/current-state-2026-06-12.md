@@ -85,7 +85,7 @@ are in `~/.codex/skills`, which is where Phase 3 deployed.
 | Item | Status |
 |---|---|
 | `scripts/sync.ps1` / `backup.ps1` | still phase-1/2 disabled placeholders (`throw`); only a TODO added. Real sync is a separate task. |
-| `docs/phase-2-6-post-push-status-2026-06-12.md` | untracked, pre-existing; **decision needed** — commit or remove. |
+| `docs/phase-2-6-post-push-status-2026-06-12.md` | resolved — committed as `205a937` (via GitHub) and now tracked. |
 | Status-doc sprawl | 9 docs under `docs/` with overlapping status reports; optional future consolidation (kept as-is to preserve provenance). |
 | 6 removed Codex user skills | live-removed, backup-preserved; **not** auto-reimported. To repo-manage: fresh inbox + Phase 2.6 merge. |
 
