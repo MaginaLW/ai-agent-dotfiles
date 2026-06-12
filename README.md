@@ -28,14 +28,12 @@ Implemented for phase 1 and phase 2:
 - Secret scanning wrapper with gitleaks first and a custom fallback scanner.
 - Skill build script from `skills-source/` to local generated targets.
 - Hook inspection script.
-- Placeholders for sync, backup, hook activation, and Claude MCP application.
+- Manifest-scoped skill sync (`scripts/sync.ps1`) and live backup (`scripts/backup.ps1`) — see
+  [Sync & Backup](#sync--backup). `sync.ps1` writes to live skill dirs only with `-Apply`.
 
-Not implemented in this stage:
+Not implemented yet:
 
-- Real push or pull sync.
-- Real writes to `$HOME/.claude`, `$HOME/.codex`, or `$HOME/.agents/skills`.
-- Hook activation.
-- GitHub remote creation or push.
+- Hook activation and Claude MCP application (still placeholders).
 
 ## Basic Checks
 
@@ -43,4 +41,21 @@ Not implemented in this stage:
 pwsh -NoProfile -File .\scripts\build-skills.ps1 -RepoRoot C:\Repos\ai-agent-dotfiles
 pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot C:\Repos\ai-agent-dotfiles
 pwsh -NoProfile -File .\scripts\check-hooks.ps1 -RepoRoot C:\Repos\ai-agent-dotfiles
+```
+
+## Sync & Backup
+
+`sync.ps1` deploys the generated output to the live skill dirs. It is **dry-run by default**
+and only mutates with `-Apply`; `-Apply` runs build + secret scan and takes a backup first.
+Sync is manifest-scoped (`manifests/managed-skills.txt`), operates one skill dir at a time
+(never a whole-dir mirror), and never touches Codex's `.system`.
+
+```powershell
+# Back up live skills (full copy incl. Codex .system) to %USERPROFILE%\.ai-agent-dotfiles-backups
+pwsh -NoProfile -File .\scripts\backup.ps1 -DryRun      # preview
+pwsh -NoProfile -File .\scripts\backup.ps1              # create backup
+
+# Preview a sync, then apply (apply auto-builds, scans, and backs up first)
+pwsh -NoProfile -File .\scripts\sync.ps1                # dry-run (default)
+pwsh -NoProfile -File .\scripts\sync.ps1 -Apply         # execute
 ```

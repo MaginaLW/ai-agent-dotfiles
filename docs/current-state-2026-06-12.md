@@ -75,8 +75,9 @@ The design plan (`ai-agent-dotfiles-sync-plan-v2.md`) repeatedly states Codex us
 are in `~/.codex/skills`, which is where Phase 3 deployed.
 
 - A correction note has been added to the plan (after the first `.agents/skills` claim).
-- **Action when implementing `sync.ps1`:** probe for the directory that actually exists rather than
-  assuming `~/.agents/skills`; treat `~/.codex/skills` as the live target on this environment.
+- **Done in `sync.ps1`/`backup.ps1`:** both probe `~/.codex/skills` first, then `~/.agents/skills`,
+  and otherwise default to `~/.codex/skills` (created only on `-Apply`); they never assume
+  `~/.agents/skills` exists.
 
 ---
 
@@ -84,7 +85,7 @@ are in `~/.codex/skills`, which is where Phase 3 deployed.
 
 | Item | Status |
 |---|---|
-| `scripts/sync.ps1` / `backup.ps1` | still phase-1/2 disabled placeholders (`throw`); only a TODO added. Real sync is a separate task. |
+| `scripts/sync.ps1` / `backup.ps1` | **implemented** (Q5) — manifest-scoped, dry-run by default, `.system` preserved. See §8 Q5. |
 | `docs/phase-2-6-post-push-status-2026-06-12.md` | resolved — committed as `205a937` (via GitHub) and now tracked. |
 | Status-doc sprawl | ~10 docs under `docs/` with overlapping status reports; see Q4 in §8. |
 | 6 removed Codex user skills | live-removed, backup-preserved; **not** auto-reimported. To repo-manage: fresh inbox + Phase 2.6 merge. |
@@ -118,7 +119,7 @@ None were security or correctness blockers.
 | Q2 | ✅ Resolved | **Redundant identical agent yaml.** `skills-source/codex-only/google-drive-comments/agents/openai.magina-laptop.yaml` was **byte-identical** to `openai.yaml` (leftover from the magina-laptop merge of a `-copy-1` duplicate). | Deleted from source; the skill's `MERGE_NOTES.md` updated to note the removal (rest of provenance kept). |
 | Q3 | ✅ Resolved | **Source↔live drift after the fix.** With redeploy disallowed, the Q1/Q2 fixes left stale internal files in the live dirs. | Removed via **targeted file delete** (31 files: 30 `MERGE_NOTES.md`/`CREATION-LOG.md` + 1 stray yaml) — no `robocopy /MIR`, `.system` untouched. Live now has file-level parity with generated output (Codex 59 files, Claude 30 files, excluding `.system`). |
 | Q4 | Info | **Status-doc sprawl.** ~10 docs under `docs/`, several overlapping status reports. | Optional future consolidation; kept as-is to preserve per-phase provenance. This snapshot is the canonical "current state." |
-| Q5 | Open | **Sync/backup scripts are placeholders.** `scripts/sync.ps1` and `backup.ps1` still `throw`; only a TODO was added. | Implement real, manifest-scoped sync honoring the `.system` rule and the `~/.codex/skills` path correction (see §5). Separate task — **not** done in this snapshot. |
+| Q5 | ✅ Resolved | **Sync/backup scripts were placeholders.** `scripts/sync.ps1` and `backup.ps1` used to `throw`. | Implemented real scripts (2026-06-12). `backup.ps1`: timestamped full backup of live Claude/Codex skills (incl. `.system`) outside the repo + `backup-manifest.json`; supports `-BackupRoot`/`-DryRun`. `sync.ps1`: **dry-run by default**, `-Apply` required to mutate; runs build + secret scan first; `-Apply` always takes a backup first; **manifest-scoped** (`managed-skills.txt`); operates **one skill dir at a time** (no `robocopy /MIR`); prune only removes repo-managed dirs absent from output; unknown live dirs reported, never deleted; Codex `.system` always preserved; Codex path probes `~/.codex/skills` → `~/.agents/skills`. **This round: implemented + dry-run verified only; no live-changing `-Apply` was run** (live already matches output). |
 
 ---
 
@@ -126,7 +127,7 @@ None were security or correctness blockers.
 
 Phase 3 office deployment is successful and fully documented; the repo is clean and in sync with
 origin; the `.system` preservation rule is formalized across README, plan, and the sync script; a
-verified backup and restore guide exist. Build-output hygiene (Q1–Q3) is now fixed: generated output
-and live dirs contain only runtime skill files (`SKILL.md` + assets), `.system` is preserved, and
-build/scan pass. The only outstanding item is the separate real manifest-scoped sync/backup script
-implementation (Q5) — it does not block current operation.
+verified backup and restore guide exist. Build-output hygiene (Q1–Q3) is fixed, and the real
+manifest-scoped sync/backup scripts (Q5) are now implemented (`sync.ps1` dry-run by default,
+`-Apply` takes a backup first and never mirrors or touches `.system`). All audit findings Q1–Q5 are
+resolved; the remaining items are informational (Q4 doc sprawl). Nothing blocks current operation.
