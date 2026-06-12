@@ -480,8 +480,10 @@ Review current repository changes and produce a concise risk-oriented summary.
 
 1. prune **只作用于 `manifests/managed-skills.txt` 名单内的条目**。
 2. 即：只删除"曾由本仓库托管、但现已从 skills-source 移除"的 skill。
-3. 永不触碰名单外的目录 —— `~/.agents/skills` 不是本仓库独占的，Codex 的 `$skill-installer` 和其他工具也会往里装东西，不能整目录对齐删除。
+3. 永不触碰名单外的目录 —— `~/.agents/skills` / `~/.codex/skills` 不是本仓库独占的，Codex 的 `$skill-installer` 和其他工具也会往里装东西，不能整目录对齐删除。
 4. 删除前列出清单并要求确认。
+5. **`~/.codex/skills/.system` 是 Codex CLI 平台托管目录（含 `.codex-system-skills.marker` 及 `imagegen`、`openai-docs`、`plugin-creator`、`skill-creator`、`skill-installer` 等内置 skill），属于名单外目录，任何 sync / prune / cleanup 都必须保留，绝不可当作过期 imported skill 删除。** 这是正式规则，不是临时 workaround。
+6. 严禁对 `~/.codex/skills` 使用裸 `robocopy /MIR` 或等价的整目录镜像，否则会删除 `.system` 等非托管内容。Phase 3（2026-06-12，机器 `DESKTOP-3GMDAB7`）即因裸 `/MIR` 误删 `.system`，已从备份恢复并据此固化本规则。
 
 ---
 

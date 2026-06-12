@@ -10,6 +10,15 @@ This repository is intentionally conservative:
 - Scripts are PowerShell 7+ only and must use explicit `-RepoRoot` and, when relevant, `-HomeRoot` parameters.
 - Stage 1/2 only provides local scaffolding, checks, build output, and fake-home testing. Real sync is intentionally not active yet.
 
+## Deployment Targets (live skills)
+
+When generated skills are deployed to a machine's live agent directories, these rules are authoritative:
+
+- **Claude:** `~/.claude/skills` must exactly match repo `claude/skills`.
+- **Codex (repo-managed):** the repo-managed skills under `~/.codex/skills` must exactly match repo `codex/skills`.
+- **Codex `.system` is protected:** `~/.codex/skills/.system` is the Codex CLI platform-managed skills directory (identified by `.codex-system-skills.marker`, containing built-ins such as `imagegen`, `openai-docs`, `plugin-creator`, `skill-creator`, `skill-installer`). It is **not** a repo-managed skill and **must always be preserved** during sync, cleanup, and prune. It must never be removed as if it were a stale imported skill.
+- **No blanket mirror:** deployment/prune must be scoped to entries in `manifests/managed-skills.txt`. Never run a bare `robocopy /MIR` (or equivalent whole-directory mirror) against `~/.codex/skills`, because it would delete `.system` and any other non-managed skills installed by Codex itself.
+
 ## Current Stage
 
 Implemented for phase 1 and phase 2:
