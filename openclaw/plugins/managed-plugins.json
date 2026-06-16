@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "codex",
+      "source": "@openclaw/codex",
+      "enabled": true,
+      "allowUninstall": true
+    },
+    {
+      "id": "openclaw-weixin",
+      "source": "@tencent-weixin/openclaw-weixin",
+      "enabled": true,
+      "allowUninstall": true
+    }
+  ]
+}

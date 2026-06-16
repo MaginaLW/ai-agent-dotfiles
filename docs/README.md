@@ -26,10 +26,13 @@
 - `skills-source/shared/*`（跨平台，Claude + Codex 都装）
 - `skills-source/claude-only/*`
 - `skills-source/codex-only/*`
-- 生成到 `claude/skills/` 和 `codex/skills/`（Git-ignored）
+- `skills-source/openclaw-only/*`
+- `openclaw/plugins/managed-plugins.json`（托管插件清单）
+- 生成到 `claude/skills/`、`codex/skills/` 和 `openclaw/skills/`（Git-ignored）
 - 部署到本机 live：
   - Claude：`~/.claude/skills`
   - Codex：`~/.codex/skills`；仅当它不存在时才 fallback 到 `~/.agents/skills`
+  - OpenClaw：`~/.openclaw/skills`
 
 ### 不会同步
 - Codex `~/.codex/skills/.system`（平台内置，永远保留）
@@ -40,6 +43,8 @@
 - 机器私有配置、API keys / tokens / secrets
 - 临时日志
 - quarantine 原始副本
+- OpenClaw identity、credentials、devices、sessions、caches、npm installs、node launchers、workspace memory
+- `~/.openclaw/plugins/installs.json`（机器私有状态，由 OpenClaw CLI 管理）
 
 ---
 
@@ -54,6 +59,8 @@
 | `skills-source/codex-only/` | 仅 Codex 的 skill（如 `hatch-pet`） |
 | `claude/skills/` | **生成物**，Git-ignored，勿手改 |
 | `codex/skills/` | **生成物**，Git-ignored，勿手改 |
+| `openclaw/skills/` | **生成物**，Git-ignored，勿手改 |
+| `openclaw/plugins/managed-plugins.json` | 托管 OpenClaw 插件清单（期望状态） |
 | `manifests/managed-skills.txt` | 本仓库托管的 skill 名单（sync 的 prune 只作用于名单内条目） |
 | `scripts/build-skills.ps1` | 从源生成 runtime output，并刷新 manifest |
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
@@ -145,6 +152,10 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 - 不要对 `~/.codex/skills` 用整目录 `robocopy /MIR`。
 - 不要 whitelist 或削弱 secret scan gate。
 - 不要把明文 key / token 写进 skill。
+- 不要手改 `openclaw/skills/`（它是生成物）。
+- 不要提交 `openclaw/skills/`。
+- `~/.openclaw/plugins/installs.json` 是机器管理的状态文件——禁止提交、禁止手改。
+- OpenClaw 插件的安装/卸载/启用/禁用必须通过 CLI 命令，禁止直接编辑 `installs.json`。
 
 ---
 
@@ -199,7 +210,30 @@ pwsh -NoProfile -File scripts/sync.ps1 -Apply
 
 ---
 
-## 11. 当前状态摘要
+## 11. OpenClaw 插件管理
+
+OpenClaw 插件通过 `openclaw/plugins/managed-plugins.json` 声明期望的插件状态。
+这是一个人工审核过的声明文件，不包含 secrets、本地绝对路径或机器私有数据。
+
+同步插件前，先运行 dry-run：
+```powershell
+pwsh -NoProfile -File scripts/sync-openclaw-plugins.ps1
+```
+
+确认无误后 apply：
+```powershell
+pwsh -NoProfile -File scripts/sync-openclaw-plugins.ps1 -Apply
+```
+
+规则：
+- 插件的安装、更新、启用、禁用、卸载必须通过 OpenClaw CLI（`openclaw plugins install` 等），禁止直接编辑 `~/.openclaw/plugins/installs.json`。
+- `installs.json` 是机器管理的状态文件，包含绝对路径和生成元数据，**绝不提交**。
+- Bundled（内置）插件只能管理 enablement，不能卸载。
+- 插件同步会在 `sync.ps1` 中自动调用（当 `managed-plugins.json` 存在时）。
+
+---
+
+## 12. 当前状态摘要
 
 - Previous baseline commit：`f2639a5`
 - Claude：15
@@ -209,7 +243,7 @@ pwsh -NoProfile -File scripts/sync.ps1 -Apply
 
 ---
 
-## 12. 常见问题
+## 13. 常见问题
 
 **Q：为什么 sync dry-run 显示一堆 `would update` 但没问题？**
 A：`update` 只表示该 skill 在源和 live 中都存在、会被受控重新同步到与源一致。若内容本就一致，结果是等效 no-op。关键看的是 `add` / `prune` / `unknown` 是否符合预期。

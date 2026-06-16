@@ -60,16 +60,30 @@
         )
     }
 
+    OpenClaw = @{
+        HomeRelativeRoot = '.openclaw'
+        RepoRelativeRoot = 'openclaw'
+        PushItems = @('plugins/managed-plugins.json')
+        PullItems = @('plugins/managed-plugins.json')
+        ExcludedItems = @('identity', 'credentials', 'devices', 'sessions', 'logs', 'cache', 'npm', 'plugins/installs.json', 'exec-approvals.json', 'node.json', 'auth-profiles.json')
+    }
+
     Skills = @{
         SourceRoot = 'skills-source'
         SharedSource = 'skills-source/shared'
         ClaudeOnlySource = 'skills-source/claude-only'
         CodexOnlySource = 'skills-source/codex-only'
+        OpenClawOnlySource = 'skills-source/openclaw-only'
         GeneratedClaude = 'claude/skills'
         GeneratedCodex = 'codex/skills'
+        GeneratedOpenClaw = 'openclaw/skills'
         InstallClaudeHomeRelative = '.claude/skills'
         InstallCodexHomeRelative = '.agents/skills'
+        InstallOpenClawHomeRelative = '.openclaw/skills'
         ManagedSkillsManifest = 'manifests/managed-skills.txt'
+        ManagedSkillsClaudeManifest = 'manifests/managed-skills.claude.txt'
+        ManagedSkillsCodexManifest = 'manifests/managed-skills.codex.txt'
+        ManagedSkillsOpenClawManifest = 'manifests/managed-skills.openclaw.txt'
     }
 
     CommonExcludedItems = @(

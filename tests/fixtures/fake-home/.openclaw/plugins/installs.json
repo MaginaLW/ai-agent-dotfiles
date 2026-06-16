@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "codex",
+      "enabled": true,
+      "source": "@openclaw/codex",
+      "origin": "global"
+    },
+    {
+      "id": "healthcheck",
+      "bundled": true,
+      "enabled": true,
+      "source": "bundled:healthcheck",
+      "origin": "bundled"
+    },
+    {
+      "id": "unknown-stranger-plugin",
+      "enabled": false,
+      "source": "npm:@scope/stranger",
+      "origin": "npm"
+    }
+  ]
+}

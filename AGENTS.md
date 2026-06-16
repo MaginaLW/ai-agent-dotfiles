@@ -6,12 +6,12 @@ Project instructions for Codex agents working in this repository.
 
 Apply the full skill-management workflow below only when the task involves any of:
 
-- installing, uninstalling, importing, exporting, promoting, merging, pruning, syncing, deploying, or repairing Claude/Codex skills
-- `skills-source/`, `claude/skills/`, `codex/skills/`
-- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`
+- installing, uninstalling, importing, exporting, promoting, merging, pruning, syncing, deploying, or repairing Claude/Codex/OpenClaw skills
+- `skills-source/`, `claude/skills/`, `codex/skills/`, `openclaw/skills/`, `openclaw/plugins/`
+- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`, `~/.openclaw/skills`
 - `imports/skills-inbox`, `imports/skills-archive`, `imports/skills-quarantine`
-- `manifests/managed-skills.txt`
-- `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`
+- `manifests/managed-skills.txt`, `manifests/managed-skills.openclaw.txt`
+- `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`, `scripts/sync-openclaw-plugins.ps1`
 - Codex `.system`
 
 For unrelated tasks (ordinary docs, ordinary code, ordinary Git operations), do not expand this workflow or read the full skill manual unless it becomes relevant.
@@ -26,13 +26,16 @@ When the scope trigger applies:
    - `skills-source/shared/<name>/`
    - `skills-source/claude-only/<name>/`
    - `skills-source/codex-only/<name>/`
+   - `skills-source/openclaw-only/<name>/`
 4. Never edit generated output directly:
    - `claude/skills/`
    - `codex/skills/`
+   - `openclaw/skills/`
 5. Never directly copy/delete live skills:
    - `~/.claude/skills`
    - `~/.codex/skills`
    - `~/.agents/skills`
+   - `~/.openclaw/skills`
 6. Run validation before live changes:
    ```powershell
    pwsh -NoProfile -File scripts/build-skills.ps1
@@ -55,4 +58,9 @@ When the scope trigger applies:
 - Never weaken, bypass, or whitelist `scripts/scan-secrets.ps1` without explicit user approval.
 - Never commit generated output, imports, backups, live home files, or machine-private files.
 - Never put plaintext secrets, API keys, tokens, passwords, account info, or machine-private paths in skills.
+- `skills-source/openclaw-only/` is the **only** hand-maintained OpenClaw-only skill source.
+- `openclaw/skills/` is generated output — never edit or commit it.
+- `openclaw/plugins/managed-plugins.json` is tracked desired plugin state.
+- `~/.openclaw/plugins/installs.json` is machine-managed — never commit or edit it directly.
+- OpenClaw identity, credentials, devices, approval state, sessions, caches, npm installs, node launchers, and workspace memory are never repo-managed.
 - Keep `AGENTS.md` tracked in Git so these instructions sync across machines.

@@ -72,29 +72,83 @@ function Copy-SkillDirectory {
     }
 }
 
-$sharedSource = Join-RepoPath 'skills-source/shared'
-$claudeOnlySource = Join-RepoPath 'skills-source/claude-only'
-$codexOnlySource = Join-RepoPath 'skills-source/codex-only'
-$claudeTarget = Join-RepoPath 'claude/skills'
-$codexTarget = Join-RepoPath 'codex/skills'
-$manifestPath = Join-RepoPath 'manifests/managed-skills.txt'
+function Write-ManifestFile {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string[]] $Names
+    )
 
-$sharedSkills = Get-SkillDirectories -Path $sharedSource
-$claudeOnlySkills = Get-SkillDirectories -Path $claudeOnlySource
-$codexOnlySkills = Get-SkillDirectories -Path $codexOnlySource
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    $sorted = @($Names | Sort-Object -Unique)
+    $content = if ($sorted.Count -gt 0) {
+        ($sorted -join "`n") + "`n"
+    }
+    else {
+        ''
+    }
+    [System.IO.File]::WriteAllText($Path, $content, [System.Text.UTF8Encoding]::new($false))
+}
 
-$sharedNames = @($sharedSkills | ForEach-Object Name)
-$claudeConflicts = @($claudeOnlySkills | Where-Object { $_.Name -in $sharedNames } | ForEach-Object Name)
-$codexConflicts = @($codexOnlySkills | Where-Object { $_.Name -in $sharedNames } | ForEach-Object Name)
-$conflicts = @($claudeConflicts + $codexConflicts | Sort-Object -Unique)
+# ── Source roots ──────────────────────────────────────────────
+$sharedSource       = Join-RepoPath 'skills-source/shared'
+$claudeOnlySource   = Join-RepoPath 'skills-source/claude-only'
+$codexOnlySource    = Join-RepoPath 'skills-source/codex-only'
+$openclawOnlySource = Join-RepoPath 'skills-source/openclaw-only'
 
-if ($conflicts.Count -gt 0) {
+# ── Generated target roots ────────────────────────────────────
+$claudeTarget   = Join-RepoPath 'claude/skills'
+$codexTarget    = Join-RepoPath 'codex/skills'
+$openclawTarget = Join-RepoPath 'openclaw/skills'
+
+# ── Read skill directories from each source ───────────────────
+$sharedSkills       = Get-SkillDirectories -Path $sharedSource
+$claudeOnlySkills   = Get-SkillDirectories -Path $claudeOnlySource
+$codexOnlySkills    = Get-SkillDirectories -Path $codexOnlySource
+$openclawOnlySkills = Get-SkillDirectories -Path $openclawOnlySource
+
+$sharedNames       = @($sharedSkills | ForEach-Object Name)
+$claudeOnlyNames   = @($claudeOnlySkills | ForEach-Object Name)
+$codexOnlyNames    = @($codexOnlySkills | ForEach-Object Name)
+$openclawOnlyNames = @($openclawOnlySkills | ForEach-Object Name)
+
+# ── Conflict checks ───────────────────────────────────────────
+
+# 1. Platform-only vs shared
+$claudeConflicts   = @($claudeOnlyNames | Where-Object { $_ -in $sharedNames })
+$codexConflicts    = @($codexOnlyNames  | Where-Object { $_ -in $sharedNames })
+$openclawConflicts = @($openclawOnlyNames | Where-Object { $_ -in $sharedNames })
+
+$sharedConflicts = @($claudeConflicts + $codexConflicts + $openclawConflicts | Sort-Object -Unique)
+if ($sharedConflicts.Count -gt 0) {
     Write-Host 'ERROR: Skill name conflict between shared and platform-only sources.'
-    $conflicts | ForEach-Object { Write-Host "Conflict: $_" }
+    $sharedConflicts | ForEach-Object { Write-Host "Conflict: $_ (in shared and platform-only)" }
     exit 1
 }
 
-foreach ($target in @($claudeTarget, $codexTarget)) {
+# 2. Same skill in more than one platform-only source
+$platformOnlyAll = @{}
+foreach ($n in $claudeOnlyNames)   { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n] = @() }; $platformOnlyAll[$n] += 'claude-only' }
+foreach ($n in $codexOnlyNames)    { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n] = @() }; $platformOnlyAll[$n] += 'codex-only' }
+foreach ($n in $openclawOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n] = @() }; $platformOnlyAll[$n] += 'openclaw-only' }
+
+$crossPlatformConflicts = @($platformOnlyAll.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
+if ($crossPlatformConflicts.Count -gt 0) {
+    Write-Host 'ERROR: Skill name appears in more than one platform-only source.'
+    $crossPlatformConflicts | ForEach-Object { Write-Host "Conflict: $($_.Key) in [$($_.Value -join ', ')]" }
+    exit 1
+}
+
+# ── Compute platform-specific name sets ───────────────────────
+$claudeSet   = @($sharedNames + $claudeOnlyNames   | Sort-Object -Unique)
+$codexSet    = @($sharedNames + $codexOnlyNames    | Sort-Object -Unique)
+$openclawSet = @($sharedNames + $openclawOnlyNames | Sort-Object -Unique)
+$unionSet    = @($claudeSet + $codexSet + $openclawSet | Sort-Object -Unique)
+
+# ── Recreate target directories ───────────────────────────────
+foreach ($target in @($claudeTarget, $codexTarget, $openclawTarget)) {
     Assert-UnderRepo -Path $target
     if (Test-Path -LiteralPath $target) {
         Remove-Item -LiteralPath $target -Recurse -Force
@@ -102,11 +156,14 @@ foreach ($target in @($claudeTarget, $codexTarget)) {
     New-Item -ItemType Directory -Force -Path $target | Out-Null
 }
 
+# ── Copy shared skills to all targets ─────────────────────────
 foreach ($skill in $sharedSkills) {
     Copy-SkillDirectory -Source $skill -DestinationRoot $claudeTarget
     Copy-SkillDirectory -Source $skill -DestinationRoot $codexTarget
+    Copy-SkillDirectory -Source $skill -DestinationRoot $openclawTarget
 }
 
+# ── Copy platform-only skills ─────────────────────────────────
 foreach ($skill in $claudeOnlySkills) {
     Copy-SkillDirectory -Source $skill -DestinationRoot $claudeTarget
 }
@@ -115,17 +172,28 @@ foreach ($skill in $codexOnlySkills) {
     Copy-SkillDirectory -Source $skill -DestinationRoot $codexTarget
 }
 
-$managedSkills = @($sharedNames + ($claudeOnlySkills | ForEach-Object Name) + ($codexOnlySkills | ForEach-Object Name) | Sort-Object -Unique)
-$manifestContent = if ($managedSkills.Count -gt 0) {
-    ($managedSkills -join "`n") + "`n"
+foreach ($skill in $openclawOnlySkills) {
+    Copy-SkillDirectory -Source $skill -DestinationRoot $openclawTarget
 }
-else {
-    ''
-}
-[System.IO.File]::WriteAllText($manifestPath, $manifestContent, [System.Text.UTF8Encoding]::new($false))
 
-$builtClaudeSkills = @(Get-SkillDirectories -Path $claudeTarget)
-$builtCodexSkills = @(Get-SkillDirectories -Path $codexTarget)
+# ── Write per-platform manifests + union ──────────────────────
+$manifestBase = Join-RepoPath 'manifests'
+
+Write-ManifestFile -Path (Join-Path $manifestBase 'managed-skills.claude.txt')   -Names $claudeSet
+Write-ManifestFile -Path (Join-Path $manifestBase 'managed-skills.codex.txt')    -Names $codexSet
+Write-ManifestFile -Path (Join-Path $manifestBase 'managed-skills.openclaw.txt') -Names $openclawSet
+Write-ManifestFile -Path (Join-Path $manifestBase 'managed-skills.txt')          -Names $unionSet
+
+# ── Output counts ─────────────────────────────────────────────
+$builtClaudeSkills   = @(Get-SkillDirectories -Path $claudeTarget)
+$builtCodexSkills    = @(Get-SkillDirectories -Path $codexTarget)
+$builtOpenclawSkills = @(Get-SkillDirectories -Path $openclawTarget)
+
 Write-Host "Built Claude skills: $($builtClaudeSkills.Count)"
 Write-Host "Built Codex skills: $($builtCodexSkills.Count)"
-Write-Host "Updated manifest: $manifestPath"
+Write-Host "Built OpenClaw skills: $($builtOpenclawSkills.Count)"
+Write-Host "Updated manifests:"
+Write-Host "  $manifestBase\managed-skills.claude.txt"
+Write-Host "  $manifestBase\managed-skills.codex.txt"
+Write-Host "  $manifestBase\managed-skills.openclaw.txt"
+Write-Host "  $manifestBase\managed-skills.txt"

@@ -61,3 +61,12 @@ imports/skills-archive/**
 !imports/skills-archive/README.md
 !imports/skills-reports/
 !imports/skills-reports/README.md
+
+# OpenClaw generated skills: build output, never committed.
+openclaw/skills/
+openclaw/**/*.local.json
+openclaw/state/
+openclaw/sessions/
+openclaw/logs/
+openclaw/cache/
+openclaw/npm/
