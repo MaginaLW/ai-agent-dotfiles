@@ -15,9 +15,11 @@ powerpoint-pptx-cn
 receiving-code-review
 requesting-code-review
 subagent-driven-development
+systematic-debugging
 test-driven-development
 using-git-worktrees
 using-superpowers
 verification-before-completion
 word-docx
 writing-plans
+writing-skills
