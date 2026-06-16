@@ -1,6 +1,6 @@
 # Current State
 
-Last verified: 2026-06-12
+Last verified: 2026-06-15
 
 ## Repository
 - Branch: `main`
@@ -24,6 +24,7 @@ Last verified: 2026-06-12
 
 ## Verified machines
 - `DESKTOP-3GMDAB7`
+- `MAGINA-LAPTOP`
 
 Current generated/live target:
 - Claude: 15
@@ -31,8 +32,9 @@ Current generated/live target:
 - unknown live dirs = 0
 - stale bookkeeping files = 0
 
-Other machines need `git pull --ff-only` followed by the standard build/scan/sync flow to
-receive this restored shared workflow set.
+Other machines should run `bootstrap.ps1` once after clone. It installs repo-local
+auto-sync hooks and immediately runs the safe apply path so the restored shared workflow
+set reaches live skill dirs on first bootstrap.
 
 ## Key rules
 - Do not edit generated output (`claude/skills/`, `codex/skills/`) directly — it is regenerated.
@@ -41,6 +43,9 @@ receive this restored shared workflow set.
 - `sync.ps1 -Apply` always runs build + secret scan + a backup before it changes anything.
 - Standard tools: `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`,
   `scripts/backup.ps1`, `scripts/sync.ps1`.
+- Auto-sync hooks are repo-local Git hooks installed by `scripts/apply-hooks.ps1`; they call
+  `scripts/auto-sync-after-git.ps1`, which delegates live changes to `sync.ps1 -Apply`.
+- New clone entrypoint: `bootstrap.ps1`.
 
 ## Pointers
 - Usage manual: [docs/README.md](README.md)

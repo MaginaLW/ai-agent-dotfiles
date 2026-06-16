@@ -3,7 +3,9 @@
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot,
-    [switch] $DryRun
+    [switch] $DryRun,
+    [switch] $InstallPreCommit,
+    [switch] $Force
 )
 
 Set-StrictMode -Version Latest
@@ -13,7 +15,27 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-$RepoRoot = (Resolve-Path $RepoRoot).Path
-Write-Host "apply-hooks.ps1 placeholder loaded for RepoRoot: $RepoRoot"
-Write-Host "DryRun: $DryRun; HomeRoot: $HomeRoot"
-throw 'Hook activation is intentionally disabled in phase 1/2. No hooks were activated.'
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+if ($HomeRoot) {
+    Write-Host "HomeRoot is accepted for compatibility but not used by Git hook installation: $HomeRoot"
+}
+
+if ($DryRun) {
+    Write-Host 'DryRun requested. Hooks that would be installed: post-merge, post-checkout, post-rewrite.'
+    if ($InstallPreCommit) {
+        Write-Host 'DryRun requested. Optional hook that would be installed: pre-commit.'
+    }
+    return
+}
+
+$setupScript = Join-Path $PSScriptRoot 'setup.ps1'
+$arguments = @('-RepoRoot', $RepoRoot, '-InstallAutoSync')
+if ($InstallPreCommit) {
+    $arguments += '-InstallPreCommit'
+}
+if ($Force) {
+    $arguments += '-Force'
+}
+
+& pwsh -NoProfile -ExecutionPolicy Bypass -File $setupScript @arguments
+exit $LASTEXITCODE

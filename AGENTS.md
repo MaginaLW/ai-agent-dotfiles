@@ -43,6 +43,10 @@ When the scope trigger applies:
    ```powershell
    pwsh -NoProfile -File scripts/sync.ps1 -Apply
    ```
+8. For a fresh clone, use the bootstrap entrypoint instead of hand-installing hooks:
+   ```powershell
+   pwsh -NoProfile -File .\bootstrap.ps1
+   ```
 
 ## Hard rules
 

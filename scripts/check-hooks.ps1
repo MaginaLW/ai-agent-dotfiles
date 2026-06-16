@@ -51,3 +51,29 @@ if (Test-Path -LiteralPath $codexConfig) {
 else {
     Write-Host 'Codex hooks: codex/config.toml not present.'
 }
+
+$autoSyncScript = Join-Path $RepoRoot 'scripts/auto-sync-after-git.ps1'
+$hooksDir = Join-Path $RepoRoot '.git/hooks'
+$expectedGitHooks = @('post-merge', 'post-checkout', 'post-rewrite')
+if (Test-Path -LiteralPath $autoSyncScript) {
+    Write-Host 'Auto-sync runner: present.'
+}
+else {
+    Write-Host 'Auto-sync runner: missing.'
+}
+
+foreach ($hookName in $expectedGitHooks) {
+    $hookPath = Join-Path $hooksDir $hookName
+    if (-not (Test-Path -LiteralPath $hookPath)) {
+        Write-Host "Git hook ${hookName}: not installed."
+        continue
+    }
+
+    $hasAutoSync = Select-String -LiteralPath $hookPath -Pattern 'auto-sync-after-git\.ps1' -Quiet
+    if ($hasAutoSync) {
+        Write-Host "Git hook ${hookName}: installed -> auto-sync enabled."
+    }
+    else {
+        Write-Host "Git hook ${hookName}: installed but does not call auto-sync-after-git.ps1."
+    }
+}

@@ -14,6 +14,7 @@
 - 用 `scripts/build-skills.ps1` 从源生成 Claude / Codex 的 runtime output。
 - 用 `scripts/sync.ps1` 安全地把生成结果部署到本机 live skills 目录。
 - 用 `scripts/backup.ps1` 在每次 Apply 前保留可恢复副本。
+- 用 repo-local Git hooks 在相关 `git pull` / rebase / branch checkout 后自动运行受控同步。
 
 设计原则：保守、可审计、默认 dry-run、绝不整目录覆盖、绝不碰平台内置目录。
 
@@ -46,6 +47,7 @@
 
 | 路径 | 说明 |
 |---|---|
+| `bootstrap.ps1` | 新 clone 的固定入口：安装 auto-sync hooks，并默认执行首次 live sync |
 | `skills-source/` | **唯一可信源**，手工维护的 skill 树 |
 | `skills-source/shared/` | 跨平台 skill（生成到 Claude 和 Codex 两边） |
 | `skills-source/claude-only/` | 仅 Claude 的 skill |
@@ -57,6 +59,8 @@
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
 | `scripts/backup.ps1` | 备份 live Claude/Codex skills（含 `.system`）到 repo 外 |
 | `scripts/sync.ps1` | manifest 限定的受控同步，默认 dry-run |
+| `scripts/auto-sync-after-git.ps1` | Git hook runner；相关路径变化后调用 `sync.ps1 -Apply` |
+| `scripts/apply-hooks.ps1` | 安装 repo-local Git auto-sync hooks |
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
 | `imports/skills-archive/` | 已处理的导入归档 |
 | `imports/skills-quarantine/` | 含 secret/异常、被隔离的 skill |
@@ -65,6 +69,19 @@
 ---
 
 ## 4. 日常同步流程
+
+Git 出于安全原因不会在 `git clone` 时执行仓库里的 hook。每个新 clone 的固定入口是：
+
+```powershell
+git clone <repo-url> C:\Repos\ai-agent-dotfiles
+cd C:\Repos\ai-agent-dotfiles
+pwsh -NoProfile -File .\bootstrap.ps1
+```
+
+`bootstrap.ps1` 会安装 repo-local auto-sync hooks，并立即通过 `auto-sync-after-git.ps1 -Force`
+执行一次 `sync.ps1 -Apply`，所以初次 clone 后不会再漏掉 live skills 同步。
+
+手动维护流程仍然可用：
 
 ```powershell
 cd C:\Repos\ai-agent-dotfiles
@@ -78,6 +95,16 @@ pwsh -NoProfile -File scripts/sync.ps1 -Apply      # 真实同步（自动先 bu
 
 `sync.ps1` 默认是 **dry-run**，只打印计划、不动 live；只有 `-Apply` 才会真正修改。
 
+如果只想安装 hooks、不执行首次 live 同步：
+
+```powershell
+pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
+```
+
+安装后，`post-merge`、`post-checkout`、`post-rewrite` 会在 skill 管理相关路径变化时自动调用
+`sync.ps1 -Apply`。自动同步仍然走 build、secret scan、backup、manifest-scoped sync 和 `.system`
+保护；日志写在 `.git/ai-agent-dotfiles/auto-sync.log`。
+
 ---
 
 ## 5. 修改已有 skill 的流程
@@ -89,7 +116,7 @@ pwsh -NoProfile -File scripts/sync.ps1 -Apply      # 真实同步（自动先 bu
 5. `scripts/sync.ps1 -Apply`
 6. 提交 source / manifest / docs 变更（**不要**提交 generated output）。
 7. `git push`
-8. 其它电脑 `git pull --ff-only` 后再 `sync.ps1 -Apply`。
+8. 其它电脑若已安装 auto-sync hooks，`git pull --ff-only` 后会自动同步；否则手动运行 `sync.ps1 -Apply`。
 
 ---
 
@@ -157,11 +184,17 @@ pwsh -NoProfile -File scripts/sync.ps1 -Apply      # 真实同步（自动先 bu
 
 ```powershell
 cd C:\Repos\ai-agent-dotfiles
-git pull --ff-only
+pwsh -NoProfile -File .\bootstrap.ps1                  # 每个 clone 运行一次；安装 hooks 并首次同步
+git pull --ff-only                                     # 后续相关更新会由 hooks 自动同步
+```
+
+如果没有安装 auto-sync hooks，仍可使用手动流程：
+
+```powershell
 pwsh -NoProfile -File scripts/build-skills.ps1
 pwsh -NoProfile -File scripts/scan-secrets.ps1
-pwsh -NoProfile -File scripts/sync.ps1            # dry-run 预览
-pwsh -NoProfile -File scripts/sync.ps1 -Apply     # 真实同步
+pwsh -NoProfile -File scripts/sync.ps1
+pwsh -NoProfile -File scripts/sync.ps1 -Apply
 ```
 
 ---
@@ -171,7 +204,7 @@ pwsh -NoProfile -File scripts/sync.ps1 -Apply     # 真实同步
 - Previous baseline commit：`f2639a5`
 - Claude：15
 - Codex：21 + `.system`
-- 已在 `DESKTOP-3GMDAB7` 验收通过；其它机器 `git pull --ff-only` 后按标准流程同步
+- 已在 `DESKTOP-3GMDAB7`、`MAGINA-LAPTOP` 验收通过；其它机器 clone 后运行 `bootstrap.ps1`
 - 详见 [CURRENT_STATE.md](CURRENT_STATE.md)
 
 ---
@@ -188,7 +221,7 @@ A：`.system` 是 Codex 平台自带目录，不由本仓库管理。live 校验
 A：`claude/skills/`、`codex/skills/` 是由 `build-skills.ps1` 从 `skills-source/` 生成的，属派生物，已 Git-ignored；提交它会造成源与产物双份维护和漂移。
 
 **Q：新电脑第一次部署怎么办？**
-A：`git clone` → `build-skills.ps1` → `scan-secrets.ps1` → `sync.ps1`（dry-run 确认无 unexpected prune、`.system` 正常）→ `sync.ps1 -Apply`。Claude live 目录不存在时会自动创建。
+A：`git clone` → `bootstrap.ps1`。bootstrap 会安装 auto-sync hooks，并立即走 `sync.ps1 -Apply` 的 build、secret scan、backup、manifest-scoped sync、`.system` 保护流程。之后相关 `git pull` / rebase / branch checkout 会自动同步。Claude live 目录不存在时会自动创建。
 
 **Q：scan-secrets 报 false positive 怎么办？**
 A：优先**改写源文档/示例措辞**让它不再像真实密钥——例如把"给 `secret` 键直接赋一个带引号的明文字符串"这类示例，改写成描述性文字（说明应从环境变量或密钥管理器读取）。**不要** whitelist，**不要**削弱 scan gate。改完重新 build + scan。
