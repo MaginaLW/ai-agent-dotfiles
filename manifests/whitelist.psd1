@@ -37,17 +37,20 @@
     Codex = @{
         HomeRelativeRoot = '.codex'
         RepoRelativeRoot = 'codex'
+        # config.toml is intentionally NOT synced: Codex co-mingles machine-private
+        # state into it ([projects.*] path history, [mcp_servers.*] absolute exe
+        # paths, [marketplaces.*] cache paths, notify path). It is unsafe to capture
+        # (leaks private paths) and unsafe to deploy (would clobber local state).
         PushItems = @(
-            'config.toml'
             'AGENTS.md'
             'prompts'
         )
         PullItems = @(
-            'config.toml'
             'AGENTS.md'
             'prompts'
         )
         ExcludedItems = @(
+            'config.toml'
             'auth.json'
             'sessions'
             'log'

@@ -50,8 +50,12 @@ Beyond skills, the repo now hardens and (phase 1) inspects the agent harness con
   credentials/sessions/caches structurally out of scope.
 - Config-sync roadmap: **phases 1 (status) + 2 (pull) + 3 (push) = done.** All three are
   whitelist-scoped and share the conservative posture: per-item copy, never whole-dir
-  mirror, never prune, secret-scan gated. Scope defaults to Claude + Codex; OpenClaw plugin
-  state stays owned by `sync-openclaw-plugins.ps1`.
+  mirror, never prune, secret-scan gated. Scope defaults to Claude + Codex; Codex
+  `config.toml` is **excluded** as machine-private state (it co-mingles `[projects]`,
+  `[mcp_servers]` absolute paths, cache paths), so only `AGENTS.md`/`prompts` sync for Codex.
+  OpenClaw plugin state stays owned by `sync-openclaw-plugins.ps1`. The secret scan blocks
+  tokens, not machine-private paths — captured config still warrants a human `git diff`
+  before committing.
 
 ## Verified machines
 - `DESKTOP-3GMDAB7`
