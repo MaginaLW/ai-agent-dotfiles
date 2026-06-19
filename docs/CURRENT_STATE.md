@@ -24,6 +24,25 @@ Last verified: 2026-06-16
   `skills-source/` only — the build strips them from generated output, so they never reach
   the live skill dirs.
 
+## Harness configuration
+
+Beyond skills, the repo now hardens and (phase 1) inspects the agent harness config:
+
+- `.claude/settings.json` (project-scoped, committed): turns the documented hard rules
+  into harness-enforced `permissions.deny` — blocks `Edit`/`Write` of generated output
+  (`claude/skills/**`, `codex/skills/**`, `openclaw/skills/**`) and of the Codex platform
+  dir (`**/.codex/skills/.system/**`), and blocks `robocopy` (no whole-dir mirror). It also
+  `allow`s the safe, no-side-effect validation commands (`build-skills.ps1`,
+  `scan-secrets.ps1`, `check-hooks.ps1`). `sync.ps1` is deliberately NOT allow-listed so the
+  `-Apply` path always stays gated.
+- `scripts/config-status.ps1`: **read-only** drift report (phase 1 of config-sync) and the
+  first real consumer of `manifests/whitelist.psd1`. Compares each managed config item
+  (settings.json, CLAUDE.md, commands, agents, output-styles / config.toml, AGENTS.md,
+  prompts) repo↔home, honoring ExcludedItems. It never writes; there is no `-Apply`.
+- Config-sync roadmap: **phase 1 (status) = done**. Phase 2 (pull repo→home) and phase 3
+  (push home→repo) are intentionally deferred and will reuse the existing
+  backup→scan→dry-run→`-Apply` safety model in separate gated scripts.
+
 ## Verified machines
 - `DESKTOP-3GMDAB7`
 - `MAGINA-LAPTOP`

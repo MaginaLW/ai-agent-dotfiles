@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "deny": [
+      "Edit(claude/skills/**)",
+      "Write(claude/skills/**)",
+      "Edit(codex/skills/**)",
+      "Write(codex/skills/**)",
+      "Edit(openclaw/skills/**)",
+      "Write(openclaw/skills/**)",
+      "Edit(**/.codex/skills/.system/**)",
+      "Write(**/.codex/skills/.system/**)",
+      "Bash(robocopy *)",
+      "PowerShell(robocopy *)"
+    ],
+    "allow": [
+      "PowerShell(pwsh -NoProfile -File scripts/build-skills.ps1*)",
+      "PowerShell(pwsh -NoProfile -File scripts/scan-secrets.ps1*)",
+      "PowerShell(pwsh -NoProfile -File scripts/check-hooks.ps1*)",
+      "Bash(pwsh -NoProfile -File scripts/build-skills.ps1*)",
+      "Bash(pwsh -NoProfile -File scripts/scan-secrets.ps1*)",
+      "Bash(pwsh -NoProfile -File scripts/check-hooks.ps1*)"
+    ]
+  }
+}
