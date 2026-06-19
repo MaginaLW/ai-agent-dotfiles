@@ -35,13 +35,17 @@ Beyond skills, the repo now hardens and (phase 1) inspects the agent harness con
   `allow`s the safe, no-side-effect validation commands (`build-skills.ps1`,
   `scan-secrets.ps1`, `check-hooks.ps1`). `sync.ps1` is deliberately NOT allow-listed so the
   `-Apply` path always stays gated.
-- `scripts/config-status.ps1`: **read-only** drift report (phase 1 of config-sync) and the
-  first real consumer of `manifests/whitelist.psd1`. Compares each managed config item
-  (settings.json, CLAUDE.md, commands, agents, output-styles / config.toml, AGENTS.md,
-  prompts) repo↔home, honoring ExcludedItems. It never writes; there is no `-Apply`.
-- Config-sync roadmap: **phase 1 (status) = done**. Phase 2 (pull repo→home) and phase 3
-  (push home→repo) are intentionally deferred and will reuse the existing
-  backup→scan→dry-run→`-Apply` safety model in separate gated scripts.
+- `scripts/config-status.ps1`: **read-only** drift report (phase 1) and the first real
+  consumer of `manifests/whitelist.psd1`. Compares each managed config item (settings.json,
+  CLAUDE.md, commands, agents, output-styles / config.toml, AGENTS.md, prompts) repo↔home,
+  honoring ExcludedItems. No `-Apply`.
+- `scripts/config-pull.ps1`: **deploy repo→home** (phase 2). Dry-run by default; `-Apply`
+  runs a secret scan, backs up every overwritten home file, then copies per-item. Never
+  whole-dir mirrors and never prunes (home-only files are left untouched). Scope defaults to
+  Claude + Codex; OpenClaw plugin state stays owned by `sync-openclaw-plugins.ps1`.
+- Config-sync roadmap: **phase 1 (status) + phase 2 (pull) = done**. Phase 3 (push
+  home→repo, to capture local config back into the repo behind the secret-scan gate) is
+  intentionally deferred.
 
 ## Verified machines
 - `DESKTOP-3GMDAB7`
