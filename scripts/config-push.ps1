@@ -24,6 +24,10 @@
         blocking secret, every captured file is REVERTED (updates restored from the
         stage, adds deleted) and the script aborts non-zero. Nothing secret-bearing
         is left in the tree.
+      * The captured files are then scanned for machine-private absolute paths
+        (drive-letter and UNC paths) that the secret scan does not catch. Any hit
+        reverts everything the same way. Use -SkipPathScan if such a path is
+        intentional.
       * On success the captured files are left UNCOMMITTED for human review; this
         script never commits.
 
@@ -56,6 +60,10 @@
 
 .PARAMETER SkipSecretScan
     Skip the secret scan after writing. NOT recommended; defeats the gate.
+
+.PARAMETER SkipPathScan
+    Skip the machine-private path scan. Use only when a captured absolute path is
+    intentional (e.g. a deliberately portable path).
 #>
 [CmdletBinding()]
 param(
@@ -65,7 +73,8 @@ param(
     [ValidateSet('Claude', 'Codex', 'OpenClaw')]
     [string[]] $Platform = @('Claude', 'Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
-    [switch] $SkipSecretScan
+    [switch] $SkipSecretScan,
+    [switch] $SkipPathScan
 )
 
 Set-StrictMode -Version Latest
@@ -107,6 +116,34 @@ function Test-Excluded {
 function Get-FileHashHex {
     param([Parameter(Mandatory)] [string] $Path)
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+}
+
+function Find-MachinePrivatePaths {
+    # Scan only the just-captured files (not the whole tree, which legitimately
+    # references repo-local example paths) for machine-private absolute paths the
+    # token-only secret scan does not catch. The drive-letter pattern uses a
+    # negative lookbehind so URL schemes like https:// are not mistaken for "s:/".
+    param([Parameter(Mandatory)] [System.Collections.IEnumerable] $Operations)
+    $patterns = @(
+        @{ Name = 'Drive-absolute path'; Regex = '(?<![A-Za-z])[A-Za-z]:[\\/]' },
+        @{ Name = 'UNC path'; Regex = '\\\\[A-Za-z0-9?.$_-]' }
+    )
+    $binaryExt = @('.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.7z', '.exe', '.dll', '.sqlite', '.db')
+    $findings = [System.Collections.Generic.List[object]]::new()
+    foreach ($op in $Operations) {
+        if (-not (Test-Path -LiteralPath $op.Dst -PathType Leaf)) { continue }
+        if ([System.IO.Path]::GetExtension($op.Dst).ToLowerInvariant() -in $binaryExt) { continue }
+        $lineNumber = 0
+        foreach ($line in [System.IO.File]::ReadLines($op.Dst)) {
+            $lineNumber++
+            foreach ($pattern in $patterns) {
+                if ($line -match $pattern.Regex) {
+                    $findings.Add([pscustomobject] @{ File = $op.Rel; Line = $lineNumber; Pattern = $pattern.Name })
+                }
+            }
+        }
+    }
+    return $findings
 }
 
 function Get-PlannedCopies {
@@ -241,6 +278,17 @@ if (-not $SkipSecretScan) {
     if ($LASTEXITCODE -ne 0) {
         Restore-Plan -Operations $plan
         throw 'Secret scan reported a blocking finding. Reverted all captured files; nothing secret-bearing was kept.'
+    }
+}
+
+if (-not $SkipPathScan) {
+    Write-Host 'Scanning captured files for machine-private paths...' -ForegroundColor Cyan
+    $pathFindings = Find-MachinePrivatePaths -Operations $plan
+    if ($pathFindings.Count -gt 0) {
+        Write-Host 'ERROR: machine-private absolute path(s) found in captured config:' -ForegroundColor Red
+        $pathFindings | Format-Table -AutoSize | Out-String | Write-Host
+        Restore-Plan -Operations $plan
+        throw 'Captured config contains machine-private paths. Reverted all captured files. Review the source, or re-run with -SkipPathScan if the paths are intentional.'
     }
 }
 

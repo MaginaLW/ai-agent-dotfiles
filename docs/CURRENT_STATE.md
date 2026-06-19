@@ -46,16 +46,18 @@ Beyond skills, the repo now hardens and (phase 1) inspects the agent harness con
 - `scripts/config-push.ps1`: **capture home→repo** (phase 3). Dry-run by default; `-Apply`
   stages originals, writes, then runs the secret scan over the tree and REVERTS every
   captured file if it reports a blocking secret — nothing secret-bearing is kept. Captures
-  are left uncommitted for review; never commits, never prunes. ExcludedItems keep
+  are left uncommitted for review; never commits, never prunes. It gates on BOTH the
+  secret scan and a machine-private path scan (drive-letter/UNC absolute paths the token
+  scan misses), reverting captures if either flags. ExcludedItems keep
   credentials/sessions/caches structurally out of scope.
 - Config-sync roadmap: **phases 1 (status) + 2 (pull) + 3 (push) = done.** All three are
   whitelist-scoped and share the conservative posture: per-item copy, never whole-dir
   mirror, never prune, secret-scan gated. Scope defaults to Claude + Codex; Codex
   `config.toml` is **excluded** as machine-private state (it co-mingles `[projects]`,
   `[mcp_servers]` absolute paths, cache paths), so only `AGENTS.md`/`prompts` sync for Codex.
-  OpenClaw plugin state stays owned by `sync-openclaw-plugins.ps1`. The secret scan blocks
-  tokens, not machine-private paths — captured config still warrants a human `git diff`
-  before committing.
+  OpenClaw plugin state stays owned by `sync-openclaw-plugins.ps1`. config-push gates on both
+  the secret scan and a machine-private path scan, but still review captured config with
+  `git diff` before committing.
 
 ## Verified machines
 - `DESKTOP-3GMDAB7`
