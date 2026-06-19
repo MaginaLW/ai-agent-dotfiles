@@ -43,9 +43,15 @@ Beyond skills, the repo now hardens and (phase 1) inspects the agent harness con
   runs a secret scan, backs up every overwritten home file, then copies per-item. Never
   whole-dir mirrors and never prunes (home-only files are left untouched). Scope defaults to
   Claude + Codex; OpenClaw plugin state stays owned by `sync-openclaw-plugins.ps1`.
-- Config-sync roadmap: **phase 1 (status) + phase 2 (pull) = done**. Phase 3 (push
-  home→repo, to capture local config back into the repo behind the secret-scan gate) is
-  intentionally deferred.
+- `scripts/config-push.ps1`: **capture home→repo** (phase 3). Dry-run by default; `-Apply`
+  stages originals, writes, then runs the secret scan over the tree and REVERTS every
+  captured file if it reports a blocking secret — nothing secret-bearing is kept. Captures
+  are left uncommitted for review; never commits, never prunes. ExcludedItems keep
+  credentials/sessions/caches structurally out of scope.
+- Config-sync roadmap: **phases 1 (status) + 2 (pull) + 3 (push) = done.** All three are
+  whitelist-scoped and share the conservative posture: per-item copy, never whole-dir
+  mirror, never prune, secret-scan gated. Scope defaults to Claude + Codex; OpenClaw plugin
+  state stays owned by `sync-openclaw-plugins.ps1`.
 
 ## Verified machines
 - `DESKTOP-3GMDAB7`
