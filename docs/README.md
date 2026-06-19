@@ -53,6 +53,7 @@
 | 路径 | 说明 |
 |---|---|
 | `bootstrap.ps1` | 新 clone 的固定入口：安装 auto-sync hooks，并默认执行首次 live sync |
+| `.claude/settings.json` | 项目级 harness 护栏（deny 编辑生成物/`.system`、禁 robocopy；allow 安全校验命令） |
 | `skills-source/` | **唯一可信源**，手工维护的 skill 树 |
 | `skills-source/shared/` | 跨平台 skill（生成到 Claude 和 Codex 两边） |
 | `skills-source/claude-only/` | 仅 Claude 的 skill |
@@ -66,6 +67,9 @@
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
 | `scripts/backup.ps1` | 备份 live Claude/Codex skills（含 `.system`）到 repo 外 |
 | `scripts/sync.ps1` | manifest 限定的受控同步，默认 dry-run |
+| `scripts/config-status.ps1` | 只读 config drift 报告（repo ↔ home），见 §14 |
+| `scripts/config-pull.ps1` | 部署 harness 配置 repo→home，默认 dry-run，`-Apply` gated |
+| `scripts/config-push.ps1` | 捕获 harness 配置 home→repo，双 gate（扫密 + 私有路径），默认 dry-run |
 | `scripts/auto-sync-after-git.ps1` | Git hook runner；相关路径变化后调用 `sync.ps1 -Apply` |
 | `scripts/apply-hooks.ps1` | 安装 repo-local Git auto-sync hooks |
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
@@ -259,3 +263,30 @@ A：`git clone` → `bootstrap.ps1`。bootstrap 会安装 auto-sync hooks，并�
 
 **Q：scan-secrets 报 false positive 怎么办？**
 A：优先**改写源文档/示例措辞**让它不再像真实密钥——例如把"给 `secret` 键直接赋一个带引号的明文字符串"这类示例，改写成描述性文字（说明应从环境变量或密钥管理器读取）。**不要** whitelist，**不要**削弱 scan gate。改完重新 build + scan。
+
+---
+
+## 14. Harness 配置同步（config-sync）
+
+除 skills 外，仓库还管理 agent harness 配置本身。源同样是 `manifests/whitelist.psd1`
+（per-platform 的 Push/Pull items 与 ExcludedItems）。
+
+- `.claude/settings.json`（项目级、已提交）：把硬规则变成 harness 强制 `permissions.deny`
+  （禁止 `Edit`/`Write` 生成物 `claude|codex|openclaw/skills/**` 与 Codex `.system`、禁止 robocopy
+  整目录 mirror），并 `allow` 安全的校验命令（build-skills / scan-secrets / check-hooks）。
+  `sync.ps1` **故意不在** allow 名单，保证 `-Apply` 始终走授权 gate。
+- `scripts/config-status.ps1`：只读 drift 报告（repo ↔ `~/.claude`/`~/.codex`），逐项报告
+  in-sync / differs / repo-only / home-only，遵守 ExcludedItems，**绝不写**。
+- `scripts/config-pull.ps1`：部署 repo→home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再复制；
+  **绝不整目录 mirror、绝不 prune**（home-only 文件原样保留）。
+- `scripts/config-push.ps1`：捕获 home→repo。默认 dry-run；`-Apply` 写入后**双 gate**——扫密 +
+  机器私有路径扫描（盘符/UNC 绝对路径），任一命中即**回滚全部捕获**；结果保持未提交供人审。
+  `-SkipPathScan` 仅在绝对路径确属有意时使用。
+
+规则：
+
+- pull/push 默认 dry-run，`-Apply` 才动，与 `sync.ps1` 同款保守姿态。
+- **config-push 捕获的内容必须人工 `git diff` 审查后再提交**——扫密只挡 token，挡不了机器私有路径。
+- Codex `config.toml` **不纳入** config-sync（混杂 `[projects]`/`[mcp_servers]` 等机器私有状态）；
+  Codex 侧只同步 `AGENTS.md`/`prompts`。OpenClaw 插件状态仍由 `sync-openclaw-plugins.ps1` 管理。
+- 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1`（覆盖三脚本 + 两个 gate、no-prune、幂等）。

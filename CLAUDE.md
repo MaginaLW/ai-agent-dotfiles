@@ -12,6 +12,7 @@ Apply the full skill-management workflow below only when the task involves any o
 - `imports/skills-inbox`, `imports/skills-archive`, `imports/skills-quarantine`
 - `manifests/managed-skills.txt`, `manifests/managed-skills.openclaw.txt`
 - `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`, `scripts/sync-openclaw-plugins.ps1`
+- `scripts/config-status.ps1`, `scripts/config-pull.ps1`, `scripts/config-push.ps1`, `.claude/settings.json` (harness config-sync)
 - Codex `.system`
 
 For unrelated tasks (ordinary docs, ordinary code, ordinary Git operations), do not expand this workflow or read the full skill manual unless it becomes relevant.
@@ -59,4 +60,5 @@ When the scope trigger applies:
 - `openclaw/plugins/managed-plugins.json` is tracked desired plugin state.
 - `~/.openclaw/plugins/installs.json` is machine-managed — never commit or edit it directly.
 - OpenClaw identity, credentials, devices, approval state, sessions, caches, npm installs, node launchers, and workspace memory are never repo-managed.
+- Harness config-sync (`config-pull`/`config-push`) is dry-run by default; `-Apply` is gated. Never commit a `config-push` capture without a human `git diff` review — the secret scan blocks tokens, not machine-private paths. Codex `config.toml` is excluded from config-sync (machine-private state). See `docs/README.md` §14.
 - Keep `CLAUDE.md` tracked in Git so these instructions sync across machines.
