@@ -1,0 +1,26 @@
+{
+  "extraKnownMarketplaces": {
+    "claude-code-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-code"
+      }
+    },
+    "openai-codex": {
+      "source": {
+        "source": "github",
+        "repo": "openai/codex-plugin-cc"
+      },
+      "autoUpdate": true
+    }
+  },
+  "env": {
+    "CLAUDE_CODE_USE_POWERSHELL_TOOL": "1"
+  },
+  "theme": "auto",
+  "enabledPlugins": {
+    "codex@openai-codex": true
+  },
+  "enableWorkflows": true,
+  "skipWorkflowUsageWarning": true
+}
