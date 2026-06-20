@@ -6,7 +6,7 @@
 
 **Approach:** Extend the current Claude/Codex skill pipeline in small, reviewable steps: first inventory OpenClaw state without copying secrets, then add OpenClaw-aware source/layout/manifest support, then add safe live sync, then add plugin convergence through the OpenClaw CLI. Treat OpenClaw bundled package content and machine-managed state as inputs for discovery only, not repo source.
 
-**Materials:** `docs/README.md`, `docs/CURRENT_STATE.md`, `AGENTS.md`, `.gitignore`, `manifests/whitelist.psd1`, `scripts/build-skills.ps1`, `scripts/sync.ps1`, `scripts/backup.ps1`, `scripts/auto-sync-after-git.ps1`, `scripts/skills-common.ps1`, OpenClaw docs for skills and plugins, and local OpenClaw state under `%USERPROFILE%\.openclaw`.
+**Materials:** `docs/README.md`, `STATUS.md`, `AGENTS.md`, `.gitignore`, `manifests/whitelist.psd1`, `scripts/build-skills.ps1`, `scripts/sync.ps1`, `scripts/backup.ps1`, `scripts/auto-sync-after-git.ps1`, `scripts/skills-common.ps1`, OpenClaw docs for skills and plugins, and local OpenClaw state under `%USERPROFILE%\.openclaw`.
 
 **Validation:** `build-skills.ps1`, `scan-secrets.ps1`, `sync.ps1` dry-run, fake-home apply tests, OpenClaw plugin dry-run reports, and post-apply parity checks must all pass before any live OpenClaw changes are considered complete.
 
@@ -152,7 +152,7 @@ Expected: no blocking secret findings. Keyword hints are acceptable only if they
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
 - Modify: `docs/README.md`
-- Modify: `docs/CURRENT_STATE.md`
+- Modify: `STATUS.md`
 - Modify: `.gitignore`
 - Modify: `manifests/whitelist.psd1`
 
@@ -572,7 +572,7 @@ Expected: real dry-run reports Claude, Codex, and OpenClaw plans. No live files 
 **Artifacts / Locations:**
 - Review: Git diff
 - Review: `docs/README.md`
-- Review: `docs/CURRENT_STATE.md`
+- Review: `STATUS.md`
 
 - [ ] **Step 1: Run required checks**
 
@@ -620,7 +620,7 @@ any file from %USERPROFILE%\.openclaw
 
 - [ ] **Step 3: Record current state**
 
-Update `docs/CURRENT_STATE.md` with:
+Update `STATUS.md` with:
 
 - OpenClaw managed skill count.
 - OpenClaw managed plugin count.

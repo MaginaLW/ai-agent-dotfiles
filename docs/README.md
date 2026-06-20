@@ -2,7 +2,7 @@
 
 面向"未来的我"和"接手的 Claude Code / Codex agent"。看完这份手册即可独立维护本项目。
 
-当前状态摘要见 [CURRENT_STATE.md](CURRENT_STATE.md)；恢复操作见 [RESTORE.md](RESTORE.md)；历史报告与计划见 [archive/](archive/)。
+全局状态见 [STATUS.md](../STATUS.md)；新电脑接入见 [ONBOARD_NEW_MACHINE.md](ONBOARD_NEW_MACHINE.md)；当前局部任务见 [status/active/](../status/active/)；历史状态见 [status/archived/](../status/archived/)；恢复操作见 [RESTORE.md](RESTORE.md)。
 
 ---
 
@@ -53,6 +53,9 @@
 | 路径 | 说明 |
 |---|---|
 | `bootstrap.ps1` | 新 clone 的固定入口：安装 auto-sync hooks，并默认执行首次 live sync |
+| `STATUS.md` | 唯一全局状态文件，直接更新，不重复新建总体状态报告 |
+| `status/active/` | 当前正在进行的局部任务状态 |
+| `status/archived/` | 已完成和历史局部任务状态 |
 | `.claude/settings.json` | 项目级 harness 护栏（deny 编辑生成物/`.system`、禁 robocopy；allow 安全校验命令） |
 | `skills-source/` | **唯一可信源**，手工维护的 skill 树 |
 | `skills-source/shared/` | 跨平台 skill（生成到 Claude 和 Codex 两边） |
@@ -75,7 +78,7 @@
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
 | `imports/skills-archive/` | 已处理的导入归档 |
 | `imports/skills-quarantine/` | 含 secret/异常、被隔离的 skill |
-| `docs/archive/` | 历史状态报告、部署报告、旧计划 |
+| `docs/archive/` | 历史计划与支持文档；历史状态报告已迁入 `status/archived/` |
 
 ---
 
@@ -237,13 +240,11 @@ pwsh -NoProfile -File scripts/sync-openclaw-plugins.ps1 -Apply
 
 ---
 
-## 12. 当前状态摘要
+## 12. 当前状态
 
-- Previous baseline commit：`f2639a5`
-- Claude：15
-- Codex：21 + `.system`
-- 已在 `DESKTOP-3GMDAB7`、`MAGINA-LAPTOP` 验收通过；其它机器 clone 后运行 `bootstrap.ps1`
-- 详见 [CURRENT_STATE.md](CURRENT_STATE.md)
+- 全局状态、当前阶段、managed counts、机器验证、风险和下一步统一维护在 [STATUS.md](../STATUS.md)。
+- 当前局部任务只放在 [status/active/](../status/active/)；任务完成后移动到 [status/archived/](../status/archived/)。
+- 不再为总体状态按日期重复新建文件。
 
 ---
 
@@ -252,8 +253,8 @@ pwsh -NoProfile -File scripts/sync-openclaw-plugins.ps1 -Apply
 **Q：为什么 sync dry-run 显示一堆 `would update` 但没问题？**
 A：`update` 只表示该 skill 在源和 live 中都存在、会被受控重新同步到与源一致。若内容本就一致，结果是等效 no-op。关键看的是 `add` / `prune` / `unknown` 是否符合预期。
 
-**Q：为什么 Codex 比 repo 多一个 `.system`？**
-A：`.system` 是 Codex 平台自带目录，不由本仓库管理。live 校验时排除它即可（`Codex 21 managed + .system`）。
+**Q：为什么 Codex 比 repo-managed 数量多一个 `.system`？**
+A：`.system` 是 Codex 平台自带目录，不由本仓库管理。live 校验时排除它即可；当前 managed 数量以 manifest 和 [STATUS.md](../STATUS.md) 为准。
 
 **Q：为什么 generated output 不提交？**
 A：`claude/skills/`、`codex/skills/` 是由 `build-skills.ps1` 从 `skills-source/` 生成的，属派生物，已 Git-ignored；提交它会造成源与产物双份维护和漂移。
