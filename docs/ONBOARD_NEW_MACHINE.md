@@ -23,6 +23,22 @@ Use these repository roles consistently:
 - `imports/skills-inbox/<computername>/`: untrusted, machine-specific import staging.
 - Live directories under the user profile: runtime state; never reverse-copy them over `skills-source/`.
 
+### Unified command entry point
+
+For routine repository operations, `scripts/agent-dotfiles.ps1` provides a thin entry point to the existing scripts. It forwards trailing arguments to the selected script and reports the target script path and exit result; it does not replace any underlying implementation.
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 doctor -SkipSecretsScan
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 scan
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 build
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 backup -DryRun
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync -DryRun
+```
+
+The supported subcommands are `doctor`, `build`, `scan`, `backup`, and `sync`. Parameters after the subcommand are passed through, so options such as `-RepoRoot`, `-HomeRoot`, and `-SkipSecretsScan` remain available when the corresponding underlying script supports them.
+
+`sync` requires exactly one explicit mode: `-DryRun` or `-Apply`. A call without either mode fails before `sync.ps1` is launched, and the entry point never adds `-Apply` automatically. Complete and review the dry-run and backup gates in this document before using the explicit apply form.
+
 ## 1. Verify prerequisites
 
 Open PowerShell and run:
