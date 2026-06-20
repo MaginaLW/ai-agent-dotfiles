@@ -23,6 +23,7 @@ Operations hardening and status consolidation. Skill build, backup, secret scann
 - `openclaw/plugins/managed-plugins.json` is tracked desired state. Machine-managed OpenClaw installation and identity state remain outside the repository.
 - Harness config pull/push is whitelist-scoped and dry-run by default. Codex `config.toml` remains excluded as machine-private state.
 - `STATUS.md` is the global status record. `status/active/` contains only current task records; completed task records move to `status/archived/`.
+- `reports/*.md` contains machine- and run-specific build/sync reports and is Git-ignored; only `reports/README.md` is tracked. Reports must contain metadata and skill names only, never backup contents or sensitive values.
 
 ## Machines
 
