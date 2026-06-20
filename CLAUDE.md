@@ -21,7 +21,7 @@ For unrelated tasks (ordinary docs, ordinary code, ordinary Git operations), do 
 
 When the scope trigger applies:
 
-1. Read `docs/README.md` and `docs/CURRENT_STATE.md`.
+1. Read `docs/README.md` and `STATUS.md`.
 2. Treat `skills-source/` as the only source of truth.
 3. Put new skills in exactly one place:
    - `skills-source/shared/<name>/`

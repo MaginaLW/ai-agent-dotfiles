@@ -13,9 +13,11 @@ This repository is intentionally conservative:
 ## Documentation
 
 - **Usage manual:** [docs/README.md](docs/README.md) — what this project is, what it syncs, how to operate it.
-- **Current state:** [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) — baseline commit, managed-skill counts, verified machines.
+- **Current state:** [STATUS.md](STATUS.md) — the single global status record, updated in place.
+- **Active task status:** [status/active/](status/active/) — current local-task status only.
+- **Status history:** [status/archived/](status/archived/) — completed and historical task status reports.
 - **Restore guide:** [docs/RESTORE.md](docs/RESTORE.md) — recover live skill dirs from a backup.
-- **History:** [docs/archive/](docs/archive/) — past status reports, deployment reports, and plans.
+- **Documentation history:** [docs/archive/](docs/archive/) — historical plans and supporting documents.
 
 ## New Clone Bootstrap
 
@@ -43,21 +45,9 @@ When generated skills are deployed to a machine's live agent directories, these 
 
 ## Current Stage
 
-Implemented for phase 1 and phase 2:
-
-- Repository skeleton and safe ignore rules.
-- Central whitelist manifest at `manifests/whitelist.psd1`.
-- Secret scanning wrapper with gitleaks first and a custom fallback scanner.
-- Skill build script from `skills-source/` to local generated targets.
-- Hook inspection and repo-local Git auto-sync installation scripts.
-- Manifest-scoped skill sync (`scripts/sync.ps1`) and live backup (`scripts/backup.ps1`) — see
-  [Sync & Backup](#sync--backup). `sync.ps1` writes to live skill dirs only with `-Apply`.
-- Repo-local Git hooks can run the same safe sync flow automatically after relevant pulls,
-  rebases, and branch switches.
-
-Not implemented yet:
-
-- Claude MCP application.
+See [STATUS.md](STATUS.md) for the current phase, managed counts, machine verification,
+known risks, and next actions. Keep changing operational facts there instead of adding new
+overall status reports to the documentation tree.
 
 ## Basic Checks
 
