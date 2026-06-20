@@ -1,0 +1,136 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate repository
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: pwsh
+        run: |
+          Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
+
+      - name: Run repository doctor
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\doctor.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            Write-Warning 'scripts/doctor.ps1 is missing; doctor check skipped.'
+            return
+          }
+
+          $isolatedHome = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-doctor-home'
+          New-Item -ItemType Directory -Path $isolatedHome -Force | Out-Null
+          $env:HOME = $isolatedHome
+          $env:USERPROFILE = $isolatedHome
+          Write-Host 'Doctor live-path probes are isolated to the runner temporary directory.'
+
+          & pwsh -NoProfile -File $scriptPath -SkipSecretsScan
+          if ($LASTEXITCODE -ne 0) {
+            throw "doctor.ps1 failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Scan for secrets
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\scan-secrets.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            Write-Warning 'scripts/scan-secrets.ps1 is missing; secrets scan skipped.'
+            return
+          }
+
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "scan-secrets.ps1 failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Build generated skills
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\build-skills.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            Write-Warning 'scripts/build-skills.ps1 is missing; build skipped.'
+            return
+          }
+
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "build-skills.ps1 failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Verify build leaves Git clean
+        shell: pwsh
+        run: |
+          git diff --quiet --exit-code -- .
+          if ($LASTEXITCODE -ne 0) {
+            git status --short
+            throw 'Build changed tracked files. Rebuild locally and commit the intended source or manifest changes.'
+          }
+
+          $untrackedFiles = @(git ls-files --others --exclude-standard)
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to inspect untracked files after build.'
+          }
+          if ($untrackedFiles.Count -gt 0) {
+            $untrackedFiles | ForEach-Object { Write-Error "Unexpected untracked file: $_" }
+            throw 'Build left unexpected untracked files.'
+          }
+
+          $trackedGenerated = @(git ls-files -- claude/skills codex/skills openclaw/skills generated)
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to inspect generated output tracking state.'
+          }
+          if ($trackedGenerated.Count -gt 0) {
+            $trackedGenerated | ForEach-Object { Write-Error "Tracked generated output: $_" }
+            throw 'Generated output must remain untracked.'
+          }
+
+          Write-Host 'Build validation passed: no tracked diff, unexpected untracked files, or tracked generated output.'
+
+      - name: Reject dangerous tracked files
+        shell: pwsh
+        run: |
+          $trackedFiles = @(git ls-files)
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to enumerate tracked files.'
+          }
+
+          $violations = foreach ($relativePath in $trackedFiles) {
+            $normalizedPath = $relativePath -replace '\\', '/'
+            $leafName = [System.IO.Path]::GetFileName($normalizedPath)
+            $isForbidden = (
+                $leafName -match '(?i)\.(pem|key|p12|pfx)$' -or
+                $leafName -match '(?i)^id_(rsa|ed25519)$' -or
+                $leafName -match '(?i)^\.env(?:\..+)?$' -or
+                $leafName -match '(?i)^\.?tokens?(?:\.(txt|json|ya?ml))?$' -or
+                $leafName -match '(?i)\.tokens?$' -or
+                $leafName -match '(?i)^(auth|\.credentials)\.json$' -or
+                $normalizedPath -match '(?i)(^|/)(backup|backups)(/|$)' -or
+                $normalizedPath -match '(?i)(^|/)\.ssh(/|$)'
+            )
+
+            if ($isForbidden) {
+              $relativePath
+            }
+          }
+
+          $violations = @($violations)
+          if ($violations.Count -gt 0) {
+            $violations | Sort-Object -Unique | ForEach-Object { Write-Error "Forbidden tracked file: $_" }
+            throw 'Dangerous files are tracked. Remove them from Git history and rotate exposed credentials if necessary.'
+          }
+
+          Write-Host 'Dangerous tracked-file check passed.'
