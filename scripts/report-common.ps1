@@ -28,6 +28,7 @@ function ConvertTo-ReportSafeText {
         $text = [regex]::Replace($text, $pattern, '[REDACTED]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     }
 
+    $text = $text.Replace('|', '\|')
     return ($text -replace '`', "'")
 }
 
