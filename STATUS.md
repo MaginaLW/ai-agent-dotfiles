@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 This is the single global status file for the repository. Update it in place instead of creating additional overall status reports. Current task-level work belongs in [`status/active/`](status/active/); completed task reports belong in [`status/archived/`](status/archived/).
 
@@ -10,7 +10,7 @@ Maintain one conservative, auditable source for Claude, Codex, and OpenClaw skil
 
 ## Current phase
 
-Operations hardening and status consolidation. Skill build, backup, secret scanning, manifest-scoped sync, OpenClaw plugin desired-state management, repo-local auto-sync hooks, and whitelist-scoped harness config status/pull/push are implemented. The current maintenance task is migrating status tracking to one global file plus active and archived task records.
+Operations hardening and status consolidation. Skill build, backup, secret scanning, manifest-scoped sync, OpenClaw plugin desired-state management, repo-local auto-sync hooks, whitelist-scoped harness config status/pull/push, and minimal Windows GitHub Actions validation are implemented. The current maintenance task is migrating status tracking to one global file plus active and archived task records.
 
 ## Current canonical decisions
 
@@ -35,6 +35,7 @@ Operations hardening and status consolidation. Skill build, backup, secret scann
 
 ## Build / scan status
 
+- `.github/workflows/validate.yml` validates pushes, pull requests, and manual runs on `windows-latest`: it runs doctor, secret scan, build reproducibility checks, and a tracked dangerous-file policy check without sync or live-skill changes.
 - Current manifests describe Claude **15**, Codex **23**, and OpenClaw **25** managed skills.
 - Repository-local generated output observed before this refactor: Claude **15**, Codex **21**, OpenClaw output directory absent.
 - Codex generated output is missing `systematic-debugging` and `writing-skills`; OpenClaw generated output needs regeneration.
