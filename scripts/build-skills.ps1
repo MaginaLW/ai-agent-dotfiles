@@ -12,6 +12,56 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 $RepoRoot = (Resolve-Path $RepoRoot).Path
+$reportHelper = Join-Path $PSScriptRoot 'report-common.ps1'
+if (Test-Path -LiteralPath $reportHelper) {
+    . $reportHelper
+}
+else {
+    Write-Warning "Report helper missing: $reportHelper"
+}
+
+function Write-BuildRunReport {
+    param(
+        [Parameter(Mandatory)] [ValidateSet('PASS', 'WARN', 'FAIL')] [string] $Result,
+        [Parameter(Mandatory)] [string] $NextAction,
+        [string[]] $Conflicts = @(),
+        [string[]] $ClaudeSkills = @(),
+        [string[]] $CodexSkills = @(),
+        [string[]] $OpenClawSkills = @()
+    )
+
+    if (-not (Get-Command Write-RunReport -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $summary = [ordered] @{
+        Added = 'Not available (build recreates output without a previous snapshot)'
+        Modified = 'Not available (build recreates output without a previous snapshot)'
+        Removed = 'Not available (build recreates output without a previous snapshot)'
+        Skipped = 'Not available'
+        Conflicts = $Conflicts.Count
+        Quarantined = 'Not available'
+        'Unknown live skills' = 'Not applicable'
+        '.system status' = 'preserved by exclusion; build does not manage .system'
+        'Secrets scan result' = 'Not run by build-skills.ps1'
+    }
+    $details = [ordered] @{
+        'Claude generated skill set' = @($ClaudeSkills | Sort-Object)
+        'Codex generated skill set' = @($CodexSkills | Sort-Object)
+        'OpenClaw generated skill set' = @($OpenClawSkills | Sort-Object)
+        'Conflicts' = @($Conflicts | Sort-Object)
+        'Removed items' = @('Not available; generated roots are recreated and no previous snapshot is compared.')
+        '.system' = @('PRESERVED: .system is not a build source or generated skill.')
+    }
+
+    try {
+        $reportPath = Write-RunReport -RepoRoot $RepoRoot -ReportKind 'build' -ScriptName 'scripts/build-skills.ps1' -Mode 'build' -Summary $summary -Details $details -Result $Result -NextAction $NextAction
+        Write-Host "Build report: $reportPath"
+    }
+    catch {
+        Write-Warning "Build completed its original flow, but report creation failed: $($_.Exception.Message)"
+    }
+}
 
 function Join-RepoPath {
     param(
@@ -125,6 +175,7 @@ $sharedConflicts = @($claudeConflicts + $codexConflicts + $openclawConflicts | S
 if ($sharedConflicts.Count -gt 0) {
     Write-Host 'ERROR: Skill name conflict between shared and platform-only sources.'
     $sharedConflicts | ForEach-Object { Write-Host "Conflict: $_ (in shared and platform-only)" }
+    Write-BuildRunReport -Result 'FAIL' -NextAction 'Resolve shared/platform-only name conflicts, then rerun the build.' -Conflicts $sharedConflicts
     exit 1
 }
 
@@ -138,6 +189,8 @@ $crossPlatformConflicts = @($platformOnlyAll.GetEnumerator() | Where-Object { $_
 if ($crossPlatformConflicts.Count -gt 0) {
     Write-Host 'ERROR: Skill name appears in more than one platform-only source.'
     $crossPlatformConflicts | ForEach-Object { Write-Host "Conflict: $($_.Key) in [$($_.Value -join ', ')]" }
+    $conflictNames = @($crossPlatformConflicts | ForEach-Object Key | Sort-Object)
+    Write-BuildRunReport -Result 'FAIL' -NextAction 'Resolve cross-platform-only name conflicts, then rerun the build.' -Conflicts $conflictNames
     exit 1
 }
 
@@ -197,3 +250,8 @@ Write-Host "  $manifestBase\managed-skills.claude.txt"
 Write-Host "  $manifestBase\managed-skills.codex.txt"
 Write-Host "  $manifestBase\managed-skills.openclaw.txt"
 Write-Host "  $manifestBase\managed-skills.txt"
+
+Write-BuildRunReport -Result 'PASS' -NextAction 'Run scripts/scan-secrets.ps1, then review scripts/sync.ps1 in dry-run mode.' `
+    -ClaudeSkills @($builtClaudeSkills | ForEach-Object Name) `
+    -CodexSkills @($builtCodexSkills | ForEach-Object Name) `
+    -OpenClawSkills @($builtOpenClawSkills | ForEach-Object Name)

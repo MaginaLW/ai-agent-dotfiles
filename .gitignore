@@ -46,6 +46,10 @@ tmp/
 *.bak
 *.tmp
 
+# Machine- and run-specific build/sync reports.
+reports/*.md
+!reports/README.md
+
 # Raw imported skills awaiting review.
 imports/skills-inbox/**
 imports/skills-quarantine/**

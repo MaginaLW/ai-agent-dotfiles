@@ -109,20 +109,18 @@ git status --short --branch --untracked-files=all
 
 The two-letter status area must be empty. Stop if tracked modifications or unexpected untracked files are present.
 
-Check the repository health entry point:
+Run the repository's read-only health check. It reports environment, structure, required scripts, live/generated paths, `.system` protection, Git state, and a secret scan without changing files:
 
 ```powershell
-$DoctorPath = Join-Path $RepoRoot 'doctor.ps1'
-if (Test-Path -LiteralPath $DoctorPath) {
-    pwsh -NoProfile -File $DoctorPath
-    if ($LASTEXITCODE -ne 0) { throw "doctor.ps1 failed with exit code $LASTEXITCODE" }
+$DoctorPath = Join-Path $RepoRoot 'scripts\doctor.ps1'
+if (-not (Test-Path -LiteralPath $DoctorPath -PathType Leaf)) {
+    throw 'scripts/doctor.ps1 is missing; stop onboarding.'
 }
-else {
-    Write-Warning 'doctor.ps1 is not present yet. Record this as a repository follow-up and continue with the explicit checks below.'
-}
+pwsh -NoProfile -File $DoctorPath -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { throw "doctor.ps1 failed with exit code $LASTEXITCODE" }
 ```
 
-As of this guide's creation, `doctor.ps1` does not exist. Its absence is not permission to skip the remaining checks.
+Warnings do not make doctor fail, but every warning must be understood before live sync. Use `-SkipSecretsScan` only when troubleshooting the scanner itself; the normal onboarding path must run doctor without that switch.
 
 Verify and run the secret scanner against the clone before importing local material:
 
@@ -416,7 +414,7 @@ If onboarding produces no tracked canonical, manifest, status, or documentation 
 - [ ] Prerequisites verified with Git and PowerShell 7.
 - [ ] Repository cloned and clean before local import.
 - [ ] `COMPUTERNAME` recorded and machine inbox path confirmed.
-- [ ] Doctor executed, or its current absence recorded for follow-up.
+- [ ] `scripts/doctor.ps1` completed with exit code 0 and all warnings were reviewed.
 - [ ] Baseline secret scan passed.
 - [ ] Live Codex and Claude/Claude Code skill/plugin state backed up outside the repository.
 - [ ] Local skills imported only into the machine inbox; `.system` excluded.
