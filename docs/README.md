@@ -73,6 +73,11 @@
 | `scripts/config-status.ps1` | 只读 config drift 报告（repo ↔ home），见 §14 |
 | `scripts/config-pull.ps1` | 部署 harness 配置 repo→home，默认 dry-run，`-Apply` gated |
 | `scripts/config-push.ps1` | 捕获 harness 配置 home→repo，双 gate（扫密 + 私有路径），默认 dry-run |
+| `harness-source/` | Project Harness Profiles 的 component/profile 源库，见 §15 |
+| `.agent-harness/generated/` | Project Harness Profiles 的项目本地生成物，默认 Git-ignored，可随时重建 |
+| `scripts/status-harness-profile.ps1` | 只读查看可用 profile/component 与项目生成状态，见 §15 |
+| `scripts/build-harness-profile.ps1` | 从 `harness-source/` 生成项目本地 harness output，见 §15 |
+| `scripts/apply-harness-profile.ps1` | 默认 dry-run；`-Apply` 仅写项目本地 allowlist，见 §15 |
 | `scripts/auto-sync-after-git.ps1` | Git hook runner；相关路径变化后调用 `sync.ps1 -Apply` |
 | `scripts/apply-hooks.ps1` | 安装 repo-local Git auto-sync hooks |
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
@@ -291,3 +296,43 @@ A：优先**改写源文档/示例措辞**让它不再像真实密钥——例�
 - Codex `config.toml` **不纳入** config-sync（混杂 `[projects]`/`[mcp_servers]` 等机器私有状态）；
   Codex 侧只同步 `AGENTS.md`/`prompts`。OpenClaw 插件状态仍由 `sync-openclaw-plugins.ps1` 管理。
 - 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1`（覆盖三脚本 + 两个 gate、no-prune、幂等）。
+
+---
+
+## 15. Project Harness Profiles
+
+Project Harness Profiles 是第一版项目级 harness 组装能力。它把可复用的 component/profile
+定义放在 `harness-source/`，然后为某个项目生成 `.agent-harness/generated/` 下的本地输出。
+这套能力只处理项目本地文件，不切换全局 home harness。
+
+常用命令：
+
+```powershell
+pwsh -NoProfile -File scripts/status-harness-profile.ps1 -ProjectRoot <project>
+pwsh -NoProfile -File scripts/build-harness-profile.ps1 -ProjectRoot <project>
+pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project>
+pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -Apply
+pwsh -NoProfile -File tests/harness-profile.tests.ps1
+```
+
+脚本职责：
+
+- `scripts/harness-profile-common.ps1`：共享解析、路径和校验 helper。
+- `scripts/status-harness-profile.ps1`：只读状态报告，不写文件。
+- `scripts/build-harness-profile.ps1`：只写目标项目的 `.agent-harness/generated/`。
+- `scripts/apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写项目本地 allowlist。
+
+安全规则：
+
+- `harness-source/` 是 profile/component 的源码；不要手改 `.agent-harness/generated/`。
+- `.agent-harness/generated/` 是 disposable generated output，默认 Git-ignored，可删除后重建。
+- 第一版 `apply-harness-profile.ps1` 不写 `~/.claude`、`~/.codex`、`~/.openclaw`，也不安装或同步 live skills。
+- 第一版不安装 project-local skills，不承诺自动切换全局 harness。
+- 变更 profile/component 后，先运行 status/build dry-run 和 `tests/harness-profile.tests.ps1`。
+
+非目标：
+
+- 不替代 `scripts/sync.ps1` 的 live skills 同步。
+- 不替代 §14 的 home-level harness config-sync。
+- 不管理 Codex `.system`、OpenClaw identity/credentials、MCP secrets、session/cache/state。
+- 不把项目本地 profile apply 扩展为全局机器配置切换。

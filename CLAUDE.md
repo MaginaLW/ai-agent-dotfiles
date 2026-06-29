@@ -13,6 +13,8 @@ Apply the full skill-management workflow below only when the task involves any o
 - `manifests/managed-skills.txt`, `manifests/managed-skills.openclaw.txt`
 - `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`, `scripts/sync-openclaw-plugins.ps1`
 - `scripts/config-status.ps1`, `scripts/config-pull.ps1`, `scripts/config-push.ps1`, `.claude/settings.json` (harness config-sync)
+- `harness-source/`, `.agent-harness/generated/`
+- `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, `tests/harness-profile.tests.ps1` (project harness profiles)
 - Codex `.system`
 
 For unrelated tasks (ordinary docs, ordinary code, ordinary Git operations), do not expand this workflow or read the full skill manual unless it becomes relevant.
@@ -61,4 +63,7 @@ When the scope trigger applies:
 - `~/.openclaw/plugins/installs.json` is machine-managed — never commit or edit it directly.
 - OpenClaw identity, credentials, devices, approval state, sessions, caches, npm installs, node launchers, and workspace memory are never repo-managed.
 - Harness config-sync (`config-pull`/`config-push`) is dry-run by default; `-Apply` is gated. Never commit a `config-push` capture without a human `git diff` review — the secret scan blocks tokens, not machine-private paths. Codex `config.toml` is excluded from config-sync (machine-private state). See `docs/README.md` §14.
+- Project Harness Profiles are project-local in the first version: `.agent-harness/generated/` is disposable generated output and must not be hand-edited or committed unless a future tracked-template decision explicitly says so.
+- `scripts/apply-harness-profile.ps1 -Apply` must not be treated as permission to write `~/.claude`, `~/.codex`, `~/.openclaw`, live skills roots, or Codex `.system`; first-version apply writes only project-local allowlist output.
+- Do not claim Project Harness Profiles install project-local skills or perform automatic global home harness switching.
 - Keep `CLAUDE.md` tracked in Git so these instructions sync across machines.
