@@ -320,6 +320,10 @@ $after = Get-FileSnapshot -Root $project
 Assert ($r.Code -eq 0 -and $r.Out -match 'noop\s+AGENTS.md' -and $r.Out -match 'noop\s+\.claude/settings.json') 'repeat dry-run: reports no-op for applied targets'
 Assert ($r.Out -notmatch '(?m)^\s+(add|update)\s+(AGENTS\.md|\.claude/settings\.json|\.claude/commands/harness-helper\.md)') 'repeat dry-run: no add/update for applied targets'
 Assert (@(Compare-FileSnapshot -Before $before -After $after).Count -eq 0) 'repeat dry-run: writes nothing'
+$r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project, '-Json')
+$status = $r.Out | ConvertFrom-Json
+$statusWritable = @($status.Targets | Where-Object { $_.Mode -ne 'GeneratedOnly' })
+Assert ($r.Code -eq 0 -and @($statusWritable | Where-Object { $_.Action -ne 'noop' }).Count -eq 0) 'status after apply: writable targets report no-op'
 
 # ===========================================================================
 Write-Host "`n[managed blocks and settings]" -ForegroundColor Cyan

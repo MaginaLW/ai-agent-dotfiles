@@ -494,6 +494,470 @@ function Get-HarnessFileHash {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
+function Get-HarnessRelativePath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [Parameter(Mandatory)] [string] $Path
+    )
+
+    return ([System.IO.Path]::GetRelativePath($Root, $Path) -replace '\\', '/')
+}
+
+function Get-HarnessComponentContentPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Component,
+        [Parameter(Mandatory)] [string] $FileName
+    )
+
+    $path = Join-Path $Component.Directory $FileName
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        return $path
+    }
+    return $null
+}
+
+function ConvertTo-HarnessPlainObject {
+    [CmdletBinding()]
+    param([AllowNull()] $Value)
+
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [System.Collections.IDictionary]) {
+        $result = [ordered] @{}
+        foreach ($key in $Value.Keys) {
+            $result[[string] $key] = ConvertTo-HarnessPlainObject -Value $Value[$key]
+        }
+        return $result
+    }
+    if ($Value -is [pscustomobject]) {
+        $result = [ordered] @{}
+        foreach ($property in $Value.PSObject.Properties) {
+            $result[$property.Name] = ConvertTo-HarnessPlainObject -Value $property.Value
+        }
+        return $result
+    }
+    if ($Value -is [array]) {
+        $items = [System.Collections.Generic.List[object]]::new()
+        foreach ($item in $Value) {
+            $items.Add((ConvertTo-HarnessPlainObject -Value $item))
+        }
+        return ,$items.ToArray()
+    }
+    return $Value
+}
+
+function Merge-HarnessJsonObject {
+    [CmdletBinding()]
+    param(
+        [AllowNull()] $Base,
+        [AllowNull()] $Overlay
+    )
+
+    if ($null -eq $Base) { return $Overlay }
+    if ($null -eq $Overlay) { return $Base }
+
+    if ($Base -is [System.Collections.IDictionary] -and $Overlay -is [System.Collections.IDictionary]) {
+        $merged = [ordered] @{}
+        foreach ($key in $Base.Keys) {
+            $merged[[string] $key] = $Base[$key]
+        }
+        foreach ($key in $Overlay.Keys) {
+            if ($merged.Contains($key)) {
+                $merged[[string] $key] = Merge-HarnessJsonObject -Base $merged[$key] -Overlay $Overlay[$key]
+            }
+            else {
+                $merged[[string] $key] = $Overlay[$key]
+            }
+        }
+        return $merged
+    }
+
+    if (($Base -is [array]) -or ($Overlay -is [array])) {
+        $items = @(Select-HarnessStableUnique -Values (@($Base) + @($Overlay)))
+        return ,$items
+    }
+
+    return $Overlay
+}
+
+function Write-HarnessJsonFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $InputObject,
+        [Parameter(Mandatory)] [string] $Path
+    )
+
+    $parent = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    $json = $InputObject | ConvertTo-Json -Depth 50
+    Set-Content -LiteralPath $Path -Value $json -Encoding UTF8
+}
+
+function Write-HarnessTextFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [AllowNull()] [string] $Content
+    )
+
+    $parent = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    Set-Content -LiteralPath $Path -Value ($Content ?? '') -Encoding UTF8
+}
+
+function Resolve-HarnessGeneratedDirectory {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $ProjectRoot)
+
+    $project = (Resolve-Path -LiteralPath $ProjectRoot).Path
+    $generated = Normalize-HarnessCandidatePath -Candidate '.agent-harness/generated' -AllowedRoot $project -AllowMissingLeaf
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+    if (-not $generated.StartsWith($project.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar, $comparison)) {
+        throw "Generated directory must resolve inside ProjectRoot: $generated"
+    }
+    return $generated
+}
+
+function Assert-HarnessGeneratedOutputPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $GeneratedRoot
+    )
+
+    $root = (Resolve-Path -LiteralPath $GeneratedRoot).Path
+    $resolved = if (Test-Path -LiteralPath $Path) {
+        (Resolve-Path -LiteralPath $Path).Path
+    }
+    else {
+        Normalize-HarnessCandidatePath -Candidate (Get-HarnessRelativePath -Root $root -Path $Path) -AllowedRoot $root -AllowMissingLeaf
+    }
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+    if (-not ($resolved.Equals($root, $comparison) -or $resolved.StartsWith($root.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar, $comparison))) {
+        throw "Build output path is outside generated directory: $Path"
+    }
+}
+
+function Invoke-HarnessSecretScan {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+
+    $scan = Join-Path $RepoRoot 'scripts/scan-secrets.ps1'
+    if (-not (Test-Path -LiteralPath $scan -PathType Leaf)) {
+        throw "Missing secret scan script: $scan"
+    }
+    & pwsh -NoProfile -ExecutionPolicy Bypass -File $scan -RepoRoot $RepoRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "scripts/scan-secrets.ps1 failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Assert-NoHarnessMachinePrivatePaths {
+    [CmdletBinding()]
+    param([AllowEmptyCollection()] [string[]] $Paths)
+
+    $findings = @(Find-HarnessMachinePrivatePaths -Paths $Paths)
+    if ($findings.Count -eq 0) { return }
+
+    $details = $findings | ForEach-Object { "$($_.File):$($_.Line) $($_.Pattern)" }
+    throw "Machine-private path scan failed: $($details -join '; ')"
+}
+
+function Get-HarnessText {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $null
+    }
+    return [System.IO.File]::ReadAllText($Path)
+}
+
+function Get-HarnessManagedBlockText {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $BlockId,
+        [AllowNull()] [string] $Content
+    )
+
+    $body = ($Content ?? '').TrimEnd()
+    return "<!-- BEGIN AGENT-HARNESS: $BlockId -->`n$body`n<!-- END AGENT-HARNESS: $BlockId -->"
+}
+
+function Get-HarnessJsonDenyList {
+    [CmdletBinding()]
+    param([AllowNull()] $Settings)
+
+    if ($null -eq $Settings -or -not ($Settings -is [System.Collections.IDictionary])) { return @() }
+    if (-not $Settings.Contains('permissions')) { return @() }
+    $permissions = $Settings['permissions']
+    if ($null -eq $permissions -or -not ($permissions -is [System.Collections.IDictionary])) { return @() }
+    if (-not $permissions.Contains('deny')) { return @() }
+    return @($permissions['deny'] | ForEach-Object { [string] $_ })
+}
+
+function Assert-HarnessDenyNotRemoved {
+    [CmdletBinding()]
+    param(
+        [AllowNull()] $Before,
+        [AllowNull()] $After,
+        [Parameter(Mandatory)] [string] $Target
+    )
+
+    $afterSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($entry in @(Get-HarnessJsonDenyList -Settings $After)) {
+        [void] $afterSet.Add($entry)
+    }
+    foreach ($entry in @(Get-HarnessJsonDenyList -Settings $Before)) {
+        if (-not $afterSet.Contains($entry)) {
+            throw "StructuredMerge would remove permissions.deny entry '$entry' from $Target."
+        }
+    }
+}
+
+function ConvertTo-HarnessJsonText {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $InputObject)
+
+    return (($InputObject | ConvertTo-Json -Depth 50) + "`n")
+}
+
+function New-HarnessManagedBlockChange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object[]] $Targets,
+        [Parameter(Mandatory)] [object[]] $Components,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $FullPath
+    )
+
+    if ($Target -notin @('AGENTS.md', 'CLAUDE.md')) {
+        throw "ManagedBlock apply is only supported for AGENTS.md and CLAUDE.md in the first version: $Target"
+    }
+
+    $existing = Get-HarnessText -Path $FullPath
+    $exists = $null -ne $existing
+    $content = if ($exists) { $existing } else { '' }
+    $blocks = [System.Collections.Generic.List[string]]::new()
+    $changedExistingBlock = $false
+    $missingBlocks = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($planTarget in $Targets) {
+        $component = $Components | Where-Object { $_.Id -eq $planTarget.ComponentId } | Select-Object -First 1
+        if (-not $component) {
+            throw "Unable to find component '$($planTarget.ComponentId)' for $Target."
+        }
+        $contentPath = Get-HarnessComponentContentPath -Component $component -FileName 'content.md'
+        $componentContent = if ($contentPath) { Get-Content -Raw -LiteralPath $contentPath } else { '' }
+        $blockId = if ($planTarget.Output.BlockId) { [string] $planTarget.Output.BlockId } else { [string] $planTarget.ComponentId }
+        $blockText = Get-HarnessManagedBlockText -BlockId $blockId -Content $componentContent
+
+        if (-not $exists) {
+            $blocks.Add($blockText)
+            continue
+        }
+
+        $pattern = '(?s)<!--\s*BEGIN AGENT-HARNESS:\s*' + [regex]::Escape($blockId) + '\s*-->.*?<!--\s*END AGENT-HARNESS:\s*' + [regex]::Escape($blockId) + '\s*-->'
+        if ([regex]::IsMatch($content, $pattern)) {
+            $content = [regex]::Replace($content, $pattern, [System.Text.RegularExpressions.MatchEvaluator] { param($m) $blockText }, 1)
+            $changedExistingBlock = $true
+        }
+        else {
+            $missingBlocks.Add($blockId)
+        }
+    }
+
+    if (-not $exists) {
+        $content = (($blocks.ToArray() -join "`n`n") + "`n")
+    }
+    elseif (-not $changedExistingBlock) {
+        return [pscustomobject] @{
+            Target = $Target; FullPath = $FullPath; Mode = 'ManagedBlock'; Action = 'skip'
+            Content = $null; Reason = 'existing file has no matching managed block marker'
+        }
+    }
+
+    if ($exists -and $content -eq $existing) {
+        $action = 'noop'
+    }
+    else {
+        $action = if ($exists) { 'update' } else { 'add' }
+    }
+    $reason = if ($missingBlocks.Count -gt 0) { "missing block(s) skipped: $($missingBlocks -join ', ')" } else { $null }
+    return [pscustomobject] @{
+        Target = $Target; FullPath = $FullPath; Mode = 'ManagedBlock'; Action = $action
+        Content = $content; Reason = $reason
+    }
+}
+
+function New-HarnessStructuredMergeChange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object[]] $Targets,
+        [Parameter(Mandatory)] [object[]] $Components,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $FullPath
+    )
+
+    if ($Target -ine '.claude/settings.json') {
+        throw "StructuredMerge apply is only supported for .claude/settings.json in the first version: $Target"
+    }
+
+    $exists = Test-Path -LiteralPath $FullPath -PathType Leaf
+    $existingText = if ($exists) { Get-Content -Raw -LiteralPath $FullPath } else { $null }
+    $existingObject = if ($exists) {
+        ConvertTo-HarnessPlainObject -Value ($existingText | ConvertFrom-Json)
+    }
+    else {
+        [ordered] @{}
+    }
+    $merged = $existingObject
+
+    foreach ($planTarget in $Targets) {
+        $component = $Components | Where-Object { $_.Id -eq $planTarget.ComponentId } | Select-Object -First 1
+        if (-not $component) {
+            throw "Unable to find component '$($planTarget.ComponentId)' for $Target."
+        }
+        $settingsPath = Get-HarnessComponentContentPath -Component $component -FileName 'settings.json'
+        if (-not $settingsPath) {
+            throw "StructuredMerge component '$($component.Id)' is missing settings.json."
+        }
+        $overlay = ConvertTo-HarnessPlainObject -Value (Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json)
+        $merged = Merge-HarnessJsonObject -Base $merged -Overlay $overlay
+    }
+
+    Assert-HarnessDenyNotRemoved -Before $existingObject -After $merged -Target $Target
+    $newText = ConvertTo-HarnessJsonText -InputObject $merged
+    $action = if (-not $exists) { 'add' } elseif ($newText -ne $existingText) { 'update' } else { 'noop' }
+
+    return [pscustomobject] @{
+        Target = $Target; FullPath = $FullPath; Mode = 'StructuredMerge'; Action = $action
+        Content = $newText; Reason = $null
+    }
+}
+
+function New-HarnessDirectoryFileChange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Target,
+        [Parameter(Mandatory)] [object[]] $Components
+    )
+
+    $component = $Components | Where-Object { $_.Id -eq $Target.ComponentId } | Select-Object -First 1
+    if (-not $component) {
+        throw "Unable to find component '$($Target.ComponentId)' for $($Target.Target)."
+    }
+    $sourceName = if (($Target.Output.PSObject.Properties.Name -contains 'Source') -and $Target.Output.Source) {
+        [string] $Target.Output.Source
+    }
+    else {
+        'content.md'
+    }
+    $contentPath = Get-HarnessComponentContentPath -Component $component -FileName $sourceName
+    if (-not $contentPath) {
+        throw "DirectoryFiles component '$($component.Id)' is missing $sourceName."
+    }
+
+    $exists = Test-Path -LiteralPath $Target.FullPath -PathType Leaf
+    $content = Get-Content -Raw -LiteralPath $contentPath
+    $existing = if ($exists) { Get-HarnessText -Path $Target.FullPath } else { $null }
+    $action = if (-not $exists) { 'add' } elseif ($content -ne $existing) { 'update' } else { 'noop' }
+    return [pscustomobject] @{
+        Target = $Target.Target; FullPath = $Target.FullPath; Mode = 'DirectoryFiles'; Action = $action
+        Content = $content; Reason = $null
+    }
+}
+
+function New-HarnessApplyChangePlan {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $Plan)
+
+    $changes = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($group in @($Plan.Targets | Where-Object { $_.Mode -eq 'ManagedBlock' } | Group-Object Target)) {
+        $first = @($group.Group)[0]
+        $changes.Add((New-HarnessManagedBlockChange -Targets @($group.Group) -Components $Plan.Components -Target $group.Name -FullPath $first.FullPath))
+    }
+
+    foreach ($group in @($Plan.Targets | Where-Object { $_.Mode -eq 'StructuredMerge' } | Group-Object Target)) {
+        $first = @($group.Group)[0]
+        $changes.Add((New-HarnessStructuredMergeChange -Targets @($group.Group) -Components $Plan.Components -Target $group.Name -FullPath $first.FullPath))
+    }
+
+    foreach ($target in @($Plan.Targets | Where-Object { $_.Mode -eq 'DirectoryFiles' })) {
+        $changes.Add((New-HarnessDirectoryFileChange -Target $target -Components $Plan.Components))
+    }
+
+    foreach ($target in @($Plan.Targets | Where-Object { $_.Mode -eq 'GeneratedOnly' })) {
+        $changes.Add([pscustomobject] @{
+                Target = $target.Target; FullPath = $target.FullPath; Mode = 'GeneratedOnly'; Action = 'skip'
+                Content = $null; Reason = 'generated-only target is produced by build-harness-profile.ps1'
+            })
+    }
+
+    return @($changes)
+}
+
+function Assert-NoHarnessHomeTarget {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Paths)
+
+    $homeRootPath = $env:USERPROFILE
+    if ([string]::IsNullOrWhiteSpace($homeRootPath) -or -not (Test-Path -LiteralPath $homeRootPath)) { return }
+    $resolvedHome = (Resolve-Path -LiteralPath $homeRootPath).Path
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+    foreach ($path in $Paths) {
+        if ([string]::IsNullOrWhiteSpace($path)) { continue }
+        $resolved = if (Test-Path -LiteralPath $path) {
+            (Resolve-Path -LiteralPath $path).Path
+        }
+        else {
+            $path
+        }
+        if ($resolved.Equals($resolvedHome, $comparison) -or $resolved.StartsWith($resolvedHome.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar, $comparison)) {
+            throw "Refusing to write inside the home directory: $resolved"
+        }
+    }
+}
+
+function Resolve-HarnessBackupRoot {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $BackupRoot,
+        [Parameter(Mandatory)] [string] $ProjectRoot
+    )
+
+    $project = (Resolve-Path -LiteralPath $ProjectRoot).Path
+    $candidate = if ([System.IO.Path]::IsPathFullyQualified($BackupRoot)) {
+        $BackupRoot
+    }
+    elseif (($BackupRoot -replace '\\', '/').StartsWith('.agent-harness/backups', [System.StringComparison]::OrdinalIgnoreCase)) {
+        Join-Path $project $BackupRoot
+    }
+    else {
+        Join-Path (Get-Location).Path $BackupRoot
+    }
+    $backup = Normalize-HarnessCandidatePath -Candidate (Get-HarnessRelativePath -Root $project -Path $candidate) -AllowedRoot $project -AllowMissingLeaf
+    $relative = Get-HarnessRelativePath -Root $project -Path $backup
+    if (-not $relative.StartsWith('.agent-harness/backups/', [System.StringComparison]::OrdinalIgnoreCase) -and
+        -not $relative.Equals('.agent-harness/backups', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'BackupRoot must resolve under .agent-harness/backups inside the project root.'
+    }
+    return $backup
+}
+
+function Assert-NoHarnessMachinePrivateText {
+    [CmdletBinding()]
+    param([AllowEmptyCollection()] [object[]] $Changes)
+
+    foreach ($change in $Changes) {
+        if ($change.Action -in @('add', 'update') -and (Test-HarnessMachinePrivatePathText -Text $change.Content)) {
+            throw "Machine-private path scan failed for planned target: $($change.Target)"
+        }
+    }
+}
+
 function Get-HarnessProfileComponentIds {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [hashtable] $Profile)

@@ -37,13 +37,13 @@ Operations hardening plus the first Project Harness Profiles MVP. Skill build, b
 
 ## Build / scan status
 
-- `.github/workflows/validate.yml` validates pushes, pull requests, and manual runs on `windows-latest`: it runs doctor, secret scan, build reproducibility checks, and a tracked dangerous-file policy check without sync or live-skill changes.
+- `.github/workflows/validate.yml` validates pushes, pull requests, and manual runs on `windows-latest`: it runs doctor, secret scan, build reproducibility checks, Project Harness Profile regression tests, and a tracked dangerous-file policy check without sync or live-skill changes.
 - Current manifests describe Claude **15**, Codex **23**, and OpenClaw **25** managed skills.
 - Repository-local generated output observed before this refactor: Claude **15**, Codex **21**, OpenClaw output directory absent.
 - Codex generated output is missing `systematic-debugging` and `writing-skills`; OpenClaw generated output needs regeneration.
 - Build was not run during this status-only change because generated output is explicitly out of scope.
 - Secret scan passed on 2026-06-20 with no blocking findings; keyword hints were non-blocking.
-- Project Harness Profile MVP scripts and tests are present: `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, and `tests/harness-profile.tests.ps1`.
+- Project Harness Profile MVP scripts and tests are present: `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, and `tests/harness-profile.tests.ps1`; the regression test is part of the Windows validation workflow.
 
 ## Sync status
 

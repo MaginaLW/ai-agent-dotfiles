@@ -17,180 +17,10 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 $GeneratorVersion = '1'
 
-function Get-RelativeHarnessPath {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [string] $Root,
-        [Parameter(Mandatory)] [string] $Path
-    )
-
-    return ([System.IO.Path]::GetRelativePath($Root, $Path) -replace '\\', '/')
-}
-
-function Resolve-GeneratedHarnessDirectory {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $ProjectRoot)
-
-    $project = (Resolve-Path -LiteralPath $ProjectRoot).Path
-    $generated = Normalize-HarnessCandidatePath -Candidate '.agent-harness/generated' -AllowedRoot $project -AllowMissingLeaf
-    $comparison = [System.StringComparison]::OrdinalIgnoreCase
-    if (-not $generated.StartsWith($project.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar, $comparison)) {
-        throw "Generated directory must resolve inside ProjectRoot: $generated"
-    }
-    return $generated
-}
-
-function Get-ComponentContentPath {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] $Component,
-        [Parameter(Mandatory)] [string] $FileName
-    )
-
-    $path = Join-Path $Component.Directory $FileName
-    if (Test-Path -LiteralPath $path -PathType Leaf) {
-        return $path
-    }
-    return $null
-}
-
-function ConvertTo-HarnessPlainObject {
-    [CmdletBinding()]
-    param([AllowNull()] $Value)
-
-    if ($null -eq $Value) { return $null }
-    if ($Value -is [System.Collections.IDictionary]) {
-        $result = [ordered] @{}
-        foreach ($key in $Value.Keys) {
-            $result[[string] $key] = ConvertTo-HarnessPlainObject -Value $Value[$key]
-        }
-        return $result
-    }
-    if ($Value -is [pscustomobject]) {
-        $result = [ordered] @{}
-        foreach ($property in $Value.PSObject.Properties) {
-            $result[$property.Name] = ConvertTo-HarnessPlainObject -Value $property.Value
-        }
-        return $result
-    }
-    if ($Value -is [array]) {
-        $items = [System.Collections.Generic.List[object]]::new()
-        foreach ($item in $Value) {
-            $items.Add((ConvertTo-HarnessPlainObject -Value $item))
-        }
-        return ,$items.ToArray()
-    }
-    return $Value
-}
-
-function Merge-HarnessJsonObject {
-    [CmdletBinding()]
-    param(
-        [AllowNull()] $Base,
-        [AllowNull()] $Overlay
-    )
-
-    if ($null -eq $Base) { return $Overlay }
-    if ($null -eq $Overlay) { return $Base }
-
-    if ($Base -is [System.Collections.IDictionary] -and $Overlay -is [System.Collections.IDictionary]) {
-        $merged = [ordered] @{}
-        foreach ($key in $Base.Keys) {
-            $merged[[string] $key] = $Base[$key]
-        }
-        foreach ($key in $Overlay.Keys) {
-            if ($merged.Contains($key)) {
-                $merged[[string] $key] = Merge-HarnessJsonObject -Base $merged[$key] -Overlay $Overlay[$key]
-            }
-            else {
-                $merged[[string] $key] = $Overlay[$key]
-            }
-        }
-        return $merged
-    }
-
-    if (($Base -is [array]) -or ($Overlay -is [array])) {
-        $items = @(Select-HarnessStableUnique -Values (@($Base) + @($Overlay)))
-        return ,$items
-    }
-
-    return $Overlay
-}
-
-function Write-HarnessJsonFile {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] $InputObject,
-        [Parameter(Mandatory)] [string] $Path
-    )
-
-    $parent = Split-Path -Parent $Path
-    New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    $json = $InputObject | ConvertTo-Json -Depth 50
-    Set-Content -LiteralPath $Path -Value $json -Encoding UTF8
-}
-
-function Write-HarnessTextFile {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [string] $Path,
-        [AllowNull()] [string] $Content
-    )
-
-    $parent = Split-Path -Parent $Path
-    New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    Set-Content -LiteralPath $Path -Value ($Content ?? '') -Encoding UTF8
-}
-
-function Assert-HarnessGeneratedOutputPath {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [string] $GeneratedRoot
-    )
-
-    $root = (Resolve-Path -LiteralPath $GeneratedRoot).Path
-    $resolved = if (Test-Path -LiteralPath $Path) {
-        (Resolve-Path -LiteralPath $Path).Path
-    }
-    else {
-        Normalize-HarnessCandidatePath -Candidate (Get-RelativeHarnessPath -Root $root -Path $Path) -AllowedRoot $root -AllowMissingLeaf
-    }
-    $comparison = [System.StringComparison]::OrdinalIgnoreCase
-    if (-not ($resolved.Equals($root, $comparison) -or $resolved.StartsWith($root.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar, $comparison))) {
-        throw "Build output path is outside generated directory: $Path"
-    }
-}
-
-function Invoke-HarnessSecretScan {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $RepoRoot)
-
-    $scan = Join-Path $RepoRoot 'scripts/scan-secrets.ps1'
-    if (-not (Test-Path -LiteralPath $scan -PathType Leaf)) {
-        throw "Missing secret scan script: $scan"
-    }
-    & $scan -RepoRoot $RepoRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw "scripts/scan-secrets.ps1 failed with exit code $LASTEXITCODE."
-    }
-}
-
-function Assert-NoHarnessMachinePrivatePaths {
-    [CmdletBinding()]
-    param([AllowEmptyCollection()] [string[]] $Paths)
-
-    $findings = @(Find-HarnessMachinePrivatePaths -Paths $Paths)
-    if ($findings.Count -eq 0) { return }
-
-    $details = $findings | ForEach-Object { "$($_.File):$($_.Line) $($_.Pattern)" }
-    throw "Machine-private path scan failed: $($details -join '; ')"
-}
-
 $plan = New-HarnessProfilePlan -RepoRoot $RepoRoot -ProjectRoot $ProjectRoot -Mode Build
 $repo = $plan.RepoRoot
 $project = $plan.ProjectRoot
-$generatedRoot = Resolve-GeneratedHarnessDirectory -ProjectRoot $project
+$generatedRoot = Resolve-HarnessGeneratedDirectory -ProjectRoot $project
 
 if ($Clean -and (Test-Path -LiteralPath $generatedRoot)) {
     $resolvedGenerated = (Resolve-Path -LiteralPath $generatedRoot).Path
@@ -221,7 +51,7 @@ foreach ($group in $managedBlockGroups) {
     $blocks = [System.Collections.Generic.List[string]]::new()
     foreach ($target in @($group.Group)) {
         $component = $plan.Components | Where-Object { $_.Id -eq $target.ComponentId } | Select-Object -First 1
-        $contentPath = Get-ComponentContentPath -Component $component -FileName 'content.md'
+        $contentPath = Get-HarnessComponentContentPath -Component $component -FileName 'content.md'
         $content = if ($contentPath) { (Get-Content -Raw -LiteralPath $contentPath).TrimEnd() } else { '' }
         $blockId = if ($target.Output.BlockId) { [string] $target.Output.BlockId } else { [string] $target.ComponentId }
         $blocks.Add("<!-- BEGIN AGENT-HARNESS: $blockId -->`n$content`n<!-- END AGENT-HARNESS: $blockId -->")
@@ -234,7 +64,7 @@ foreach ($group in $structuredGroups) {
     $merged = [ordered] @{}
     foreach ($target in @($group.Group)) {
         $component = $plan.Components | Where-Object { $_.Id -eq $target.ComponentId } | Select-Object -First 1
-        $settingsPath = Get-ComponentContentPath -Component $component -FileName 'settings.json'
+        $settingsPath = Get-HarnessComponentContentPath -Component $component -FileName 'settings.json'
         if (-not $settingsPath) {
             throw "StructuredMerge component '$($component.Id)' is missing settings.json."
         }
@@ -255,7 +85,7 @@ foreach ($group in $structuredGroups) {
 
 foreach ($target in @($plan.Targets | Where-Object { $_.Mode -eq 'GeneratedOnly' })) {
     $component = $plan.Components | Where-Object { $_.Id -eq $target.ComponentId } | Select-Object -First 1
-    $contentPath = Get-ComponentContentPath -Component $component -FileName 'content.md'
+    $contentPath = Get-HarnessComponentContentPath -Component $component -FileName 'content.md'
     if (-not $contentPath) {
         throw "GeneratedOnly component '$($component.Id)' is missing content.md."
     }
@@ -275,11 +105,11 @@ $plan = New-HarnessProfilePlan -RepoRoot $repo -ProjectRoot $project -Mode Build
 $generatedFilesBeforeMetadata = @(Get-ChildItem -LiteralPath $generatedRoot -File -Recurse -Force | Sort-Object FullName)
 $planSummary = [ordered] @{
     mode = $plan.Mode
-    profilePath = Get-RelativeHarnessPath -Root $project -Path $plan.ProfilePath
+    profilePath = Get-HarnessRelativePath -Root $project -Path $plan.ProfilePath
     resolvedProfiles = @($plan.ResolvedProfiles | ForEach-Object {
         [ordered] @{
             name = $_.Name
-            path = Get-RelativeHarnessPath -Root $repo -Path $_.Path
+            path = Get-HarnessRelativePath -Root $repo -Path $_.Path
         }
     })
     targetPlatforms = @($plan.TargetPlatforms)
@@ -288,7 +118,7 @@ $planSummary = [ordered] @{
         [ordered] @{
             id = $_.Id
             kind = $_.Kind
-            path = Get-RelativeHarnessPath -Root $repo -Path $_.Directory
+            path = Get-HarnessRelativePath -Root $repo -Path $_.Directory
             targetPlatforms = @($_.Data.TargetPlatforms)
         }
     })
@@ -307,7 +137,7 @@ $planSummary = [ordered] @{
             kind = $_.Kind
             componentId = if ($_.PSObject.Properties.Name -contains 'ComponentId') { $_.ComponentId } else { $null }
             name = if ($_.PSObject.Properties.Name -contains 'Name') { $_.Name } else { $null }
-            path = Get-RelativeHarnessPath -Root $root -Path $_.Path
+            path = Get-HarnessRelativePath -Root $root -Path $_.Path
             hash = $_.Hash
         }
     })
@@ -317,11 +147,11 @@ Write-HarnessJsonFile -InputObject $planSummary -Path (Join-Path $generatedRoot 
 
 $generatedFilesForManifest = @(Get-ChildItem -LiteralPath $generatedRoot -File -Recurse -Force | Sort-Object FullName)
 $manifest = [ordered] @{
-    profilePath = Get-RelativeHarnessPath -Root $project -Path $plan.ProfilePath
+    profilePath = Get-HarnessRelativePath -Root $project -Path $plan.ProfilePath
     resolvedProfiles = @($plan.ResolvedProfiles | ForEach-Object {
         [ordered] @{
             name = $_.Name
-            path = Get-RelativeHarnessPath -Root $repo -Path $_.Path
+            path = Get-HarnessRelativePath -Root $repo -Path $_.Path
         }
     })
     componentIds = @($plan.ComponentIds)
@@ -331,13 +161,13 @@ $manifest = [ordered] @{
             kind = $_.Kind
             componentId = if ($_.PSObject.Properties.Name -contains 'ComponentId') { $_.ComponentId } else { $null }
             name = if ($_.PSObject.Properties.Name -contains 'Name') { $_.Name } else { $null }
-            path = Get-RelativeHarnessPath -Root $root -Path $_.Path
+            path = Get-HarnessRelativePath -Root $root -Path $_.Path
             hash = $_.Hash
         }
     })
     generatedFiles = @($generatedFilesForManifest | ForEach-Object {
         [ordered] @{
-            path = Get-RelativeHarnessPath -Root $generatedRoot -Path $_.FullName
+            path = Get-HarnessRelativePath -Root $generatedRoot -Path $_.FullName
             hash = Get-HarnessFileHash -Path $_.FullName
         }
     })
