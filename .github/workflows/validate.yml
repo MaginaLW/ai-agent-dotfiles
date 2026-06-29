@@ -100,6 +100,20 @@ jobs:
 
           Write-Host 'Build validation passed: no tracked diff, unexpected untracked files, or tracked generated output.'
 
+      - name: Run harness profile tests
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\harness-profile.tests.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            Write-Warning 'tests/harness-profile.tests.ps1 is missing; harness profile tests skipped.'
+            return
+          }
+
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "harness-profile.tests.ps1 failed with exit code $LASTEXITCODE."
+          }
+
       - name: Reject dangerous tracked files
         shell: pwsh
         run: |

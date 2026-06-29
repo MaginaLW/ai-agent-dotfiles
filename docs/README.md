@@ -318,7 +318,7 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 脚本职责：
 
 - `scripts/harness-profile-common.ps1`：共享解析、路径和校验 helper。
-- `scripts/status-harness-profile.ps1`：只读状态报告，不写文件。
+- `scripts/status-harness-profile.ps1`：只读状态/漂移报告，不写文件。
 - `scripts/build-harness-profile.ps1`：只写目标项目的 `.agent-harness/generated/`。
 - `scripts/apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写项目本地 allowlist。
 

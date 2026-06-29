@@ -32,13 +32,13 @@ $components = @(
     }
 )
 $targets = @(
-    $plan.Targets | ForEach-Object {
+    New-HarnessApplyChangePlan -Plan $plan | ForEach-Object {
         [pscustomobject] @{
-            ComponentId = $_.ComponentId
             Target      = $_.Target
             FullPath    = $_.FullPath
             Mode        = $_.Mode
             Action      = $_.Action
+            Reason      = $_.Reason
         }
     }
 )
@@ -98,6 +98,7 @@ if ($summary.Targets.Count -eq 0) {
 }
 else {
     foreach ($target in $summary.Targets) {
-        Write-Output "  - $($target.Target) component=$($target.ComponentId) mode=$($target.Mode) action=$($target.Action)"
+        $suffix = if ($target.Reason) { " ($($target.Reason))" } else { '' }
+        Write-Output "  - $($target.Target) mode=$($target.Mode) action=$($target.Action)$suffix"
     }
 }
