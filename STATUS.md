@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 
 This is the single global status file for the repository. Update it in place instead of creating additional overall status reports. Current task-level work belongs in [`status/active/`](status/active/); completed task reports belong in [`status/archived/`](status/archived/).
 
@@ -10,7 +10,7 @@ Maintain one conservative, auditable source for Claude, Codex, and OpenClaw skil
 
 ## Current phase
 
-Operations hardening plus the first Project Harness Profiles MVP. Skill build, backup, secret scanning, manifest-scoped sync, OpenClaw plugin desired-state management, repo-local auto-sync hooks, whitelist-scoped harness config status/pull/push, minimal Windows GitHub Actions validation, and project-local harness profile generation/apply scripts are implemented. Project Harness Profiles are first-version and project-local only: they generate `.agent-harness/generated/` under a target project and `apply-harness-profile.ps1 -Apply` writes only project-local allowlist output.
+Operations hardening plus the first Project Harness Profiles MVP. Skill build, backup, secret scanning, manifest-scoped sync, OpenClaw plugin desired-state management, repo-local auto-sync hooks, whitelist-scoped harness config status/pull/push, minimal Windows GitHub Actions validation, and project-local harness profile generation/apply scripts are implemented. Project Harness Profiles are first-version and project-local only: they generate `.agent-harness/generated/` under a target project and `apply-harness-profile.ps1 -Apply` writes only project-local allowlist output. This repository now also has a project-local `.agent-harness/profile.psd1` for real-project dry-run validation.
 
 ## Current canonical decisions
 
@@ -31,7 +31,7 @@ Operations hardening plus the first Project Harness Profiles MVP. Skill build, b
 
 | Machine | Documented state |
 |---|---|
-| `DESKTOP-3GMDAB7` | Previously verified for the Claude/Codex baseline; not revalidated during the 2026-06-20 status refactor. |
+| `DESKTOP-3GMDAB7` | Revalidated with dry-runs only on 2026-06-30: skill sync reported Claude `+0 ~15 -0`, Codex `+2 ~21 -0` with `.system` preserved, OpenClaw `+25 ~0 -0`, and OpenClaw plugin sync would install 2 managed plugins. No `-Apply` was run. |
 | `MAGINA-LAPTOP` | Previously verified for the Claude/Codex baseline. The last documented OpenClaw check used dry-run and fake-home apply; no real OpenClaw live apply was recorded. |
 | Other machines | Run `bootstrap.ps1` once after cloning to install repo-local hooks and enter the guarded sync flow. |
 
@@ -39,23 +39,22 @@ Operations hardening plus the first Project Harness Profiles MVP. Skill build, b
 
 - `.github/workflows/validate.yml` validates pushes, pull requests, and manual runs on `windows-latest`: it runs doctor, secret scan, build reproducibility checks, Project Harness Profile regression tests, and a tracked dangerous-file policy check without sync or live-skill changes.
 - Current manifests describe Claude **15**, Codex **23**, and OpenClaw **25** managed skills.
-- Repository-local generated output observed before this refactor: Claude **15**, Codex **21**, OpenClaw output directory absent.
-- Codex generated output is missing `systematic-debugging` and `writing-skills`; OpenClaw generated output needs regeneration.
-- Build was not run during this status-only change because generated output is explicitly out of scope.
-- Secret scan passed on 2026-06-20 with no blocking findings; keyword hints were non-blocking.
+- Repository-local generated output was regenerated on 2026-06-30 with `scripts/build-skills.ps1`: Claude **15**, Codex **23**, and OpenClaw **25**.
+- Secret scan passed on 2026-06-30 with no blocking findings; keyword hints were non-blocking.
 - Project Harness Profile MVP scripts and tests are present: `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, and `tests/harness-profile.tests.ps1`; the regression test is part of the Windows validation workflow.
+- Project Harness Profile real-project dry-run was exercised on this repository on 2026-06-30: status resolved `base` and `coding`, build generated ignored `.agent-harness/generated/` output, apply dry-run reported `AGENTS.md` skipped due missing markers, `.claude/settings.json` would update, and generated-only prompt output skipped. `tests/harness-profile.tests.ps1` passed 33/33.
 
 ## Sync status
 
-- No sync command or live-skill operation was run during the 2026-06-20 status refactor.
-- The last documented live baseline predates the current Codex/OpenClaw manifest counts, so current live parity is not asserted here.
-- `scripts/sync.ps1` remains dry-run by default; `-Apply` was not used.
+- `scripts/sync.ps1` was run in default dry-run mode on 2026-06-30 after build and secret scan. It reported no prune actions and no unknown live skill directories for Claude, Codex, or OpenClaw.
+- The 2026-06-30 dry-run plan was: Claude `+0 ~15 -0`; Codex `+2 ~21 -0`, with `.system` present and preserved; OpenClaw `+25 ~0 -0`.
+- OpenClaw plugin dry-run reported 2 managed plugin installs pending and 90 unknown plugins ignored.
+- Live parity is still not asserted because `scripts/sync.ps1 -Apply` was not used.
 
 ## Known risks
 
-- Generated Codex and OpenClaw output is not currently aligned with the manifests.
 - Project Harness Profiles are an MVP and should be treated as project-local only until a separately reviewed task expands the model.
-- Live-machine parity has not been revalidated after the managed counts increased to 15/23/25.
+- Live-machine parity has not been applied after the managed counts increased to 15/23/25.
 - Historical machine verification describes earlier baselines and must not be treated as proof of current live state.
 - This checkout has a working pre-commit secret-scan hook, but the repo-local `post-merge`, `post-checkout`, and `post-rewrite` auto-sync hooks are not installed.
 - Claude MCP application remains documented as a placeholder.
@@ -63,9 +62,9 @@ Operations hardening plus the first Project Harness Profiles MVP. Skill build, b
 
 ## Next actions
 
-1. Review and commit the Project Harness Profiles documentation update.
+1. Review and commit the Project Harness Profiles real-project profile/status update.
 2. In a separate maintenance task, install or intentionally waive the missing repo-local auto-sync hooks without invoking an unreviewed live sync.
-3. In a separately reviewed skill-management task, run build, secret scan, and sync dry-run to reconcile generated output and inspect the live plan.
+3. Review the 2026-06-30 sync dry-run plan before any live apply.
 4. Apply sync only after the dry-run is reviewed and the mandatory backup path is confirmed.
 5. Revalidate each managed machine and update this file with evidence-backed results.
 6. Keep Project Harness Profiles project-local unless a future reviewed design explicitly adds global home switching or project-local skill installation.
