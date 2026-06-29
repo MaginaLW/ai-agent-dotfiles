@@ -45,6 +45,10 @@ backup/
 tmp/
 *.bak
 *.tmp
+.agent-harness/generated/
+.agent-harness/backups/
+**/.agent-harness/generated/
+**/.agent-harness/backups/
 
 # Machine- and run-specific build/sync reports.
 reports/*.md
