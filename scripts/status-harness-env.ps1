@@ -123,7 +123,16 @@ if ($null -eq $state) {
 }
 else {
     $activeName = [string] $state.Name
-    $suffix = if ($definitionByName.ContainsKey($activeName)) { '' } else { ' (definition missing)' }
+    $suffix = if (-not $definitionByName.ContainsKey($activeName)) {
+        ' (definition missing)'
+    }
+    elseif ($state.PSObject.Properties.Name -contains 'DefinitionHash' -and
+        [string] $state.DefinitionHash -ne (Get-HarnessEnvDefinitionHash -Path $definitionByName[$activeName])) {
+        ' (definition changed since activation — re-run env activate)'
+    }
+    else {
+        ''
+    }
     Write-Output "Active environment: $activeName$suffix"
 }
 

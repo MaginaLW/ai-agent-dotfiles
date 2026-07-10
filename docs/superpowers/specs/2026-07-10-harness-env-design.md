@@ -90,6 +90,13 @@ agent-dotfiles.ps1 env activate <n> [-Apply]   # 默认 dry-run
 - 写 home 的代码路径仍仅为现有 `sync.ps1` / `config-pull.ps1`；环境层只做编排。
 - 落地时同步修订 `CLAUDE.md` 与 `STATUS.md` canonical decisions：将"不做全局 home 切换"改为"仅经由 gated `env activate` 进行"。
 
+> **Implementation note (2026-07-10)**：Phase 2 已落地，范围为 **skills 子集切换 + 状态文件**。
+> config-pull 的 home 配置部署未接入：当前所有环境的 profile 组件只产出项目级文件，
+> 不存在环境差异化的 home 配置可部署，接入只会增加一条无差别写 home 路径。
+> 待出现 home 级差异化组件时单独评审接入。切换裁剪语义由"staging 携带全量 manifest
+> 副本 + skills 目录只含环境子集"驱动 `sync.ps1` 的既有 manifest-scoped prune 实现。
+> 落地过程中修复了 `sync.ps1` 两个由空受管集/未知目录触发的潜伏缺陷（见 STATUS.md）。
+
 ### Phase 3 —— 项目联动
 
 - 项目 `.agent-harness/profile.psd1` 增加可选字段 `RequiredEnv = '<name>'`。

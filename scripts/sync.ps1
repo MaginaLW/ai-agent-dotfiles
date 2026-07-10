@@ -218,7 +218,9 @@ function Read-ManagedNames {
             if ($t) { [void] $names.Add($t) }
         }
     }
-    return $names
+    # Comma keeps the HashSet intact: a bare return enumerates it, and an EMPTY
+    # set would unroll to automation-null, breaking .Count under StrictMode.
+    return , $names
 }
 
 function Get-DirNames {
@@ -232,7 +234,9 @@ function Get-SyncPlan {
         [Parameter(Mandatory)] [string] $Platform,
         [Parameter(Mandatory)] [string] $SourceRoot,
         [Parameter(Mandatory)] [string] $LiveRoot,
-        [Parameter(Mandatory)] [System.Collections.Generic.HashSet[string]] $ManagedNames
+        # AllowEmptyCollection: an env staging tree may legitimately manage zero
+        # skills for a platform (empty manifest -> plan no actions for it).
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $ManagedNames
     )
 
     $sourceNames = @(Get-DirNames -Path $SourceRoot)
@@ -582,8 +586,11 @@ function Test-Parity {
     return (-not (Compare-Object $src $live))
 }
 
-$claudeParity = Test-Parity -SourceRoot $claudeSource -LiveRoot $claudeLive -ExcludeSystem $false
-$codexParity = Test-Parity -SourceRoot $codexSource -LiveRoot $codexLive -ExcludeSystem $true
+# Parity is scoped to each platform's managed set (matching OpenClaw): unknown
+# live dirs are ignored-never-deleted by contract, so they must not fail the
+# post-apply check either.
+$claudeParity = Test-Parity -SourceRoot $claudeSource -LiveRoot $claudeLive -ExcludeSystem $false -ManagedNames $claudeManagedNames
+$codexParity = Test-Parity -SourceRoot $codexSource -LiveRoot $codexLive -ExcludeSystem $true -ManagedNames $codexManagedNames
 $openclawParity = Test-Parity -SourceRoot $openclawSource -LiveRoot $openclawLive -ExcludeSystem $false -ManagedNames $openclawManagedNames
 Write-Host "Claude   live-vs-repo: $(if ($claudeParity) { 'OK' } else { 'MISMATCH' })"
 Write-Host "Codex    live-vs-repo: $(if ($codexParity) { 'OK (excl .system)' } else { 'MISMATCH' })"

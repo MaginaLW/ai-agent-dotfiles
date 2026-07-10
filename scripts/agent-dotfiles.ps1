@@ -24,7 +24,9 @@
 .NOTES
     The sync subcommand requires exactly one explicit mode: -DryRun or -Apply.
     Apply is never selected or added by default.
-    The env subcommand requires a sub-action: list, status, or build.
+    The env subcommand requires a sub-action: list, status, build, or activate.
+    The env activate sub-action requires exactly one explicit mode: -DryRun or
+    -Apply, mirroring sync.
 #>
 param(
     [Parameter(Position = 0)]
@@ -42,7 +44,8 @@ function Write-Usage {
     Write-Host 'Commands: doctor, build, scan, backup, sync, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
-    Write-Host 'Env requires a sub-action (list, status, build): scripts/agent-dotfiles.ps1 env list'
+    Write-Host 'Env requires a sub-action (list, status, build, activate): scripts/agent-dotfiles.ps1 env list'
+    Write-Host 'Env activate requires exactly one explicit mode: -DryRun or -Apply.'
 }
 
 if ([string]::IsNullOrWhiteSpace($Command)) {
@@ -60,9 +63,10 @@ $commandMap = @{
 }
 
 $envCommandMap = @{
-    list   = 'list-harness-env.ps1'
-    status = 'status-harness-env.ps1'
-    build  = 'build-harness-env.ps1'
+    list     = 'list-harness-env.ps1'
+    status   = 'status-harness-env.ps1'
+    build    = 'build-harness-env.ps1'
+    activate = 'activate-harness-env.ps1'
 }
 
 $normalizedCommand = $Command.ToLowerInvariant()
@@ -75,7 +79,7 @@ if ($normalizedCommand -ne 'env' -and -not $commandMap.ContainsKey($normalizedCo
 $forwardedArguments = @($RemainingArguments)
 if ($normalizedCommand -eq 'env') {
     if ($forwardedArguments.Count -eq 0 -or $null -eq $forwardedArguments[0]) {
-        Write-Error 'The env command requires a sub-action: list, status, or build.' -ErrorAction Continue
+        Write-Error 'The env command requires a sub-action: list, status, build, or activate.' -ErrorAction Continue
         Write-Usage
         exit 1
     }
@@ -89,6 +93,20 @@ if ($normalizedCommand -eq 'env') {
 
     $targetScriptName = $envCommandMap[$envAction]
     $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
+
+    if ($envAction -eq 'activate') {
+        $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
+        $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
+
+        if (-not $hasDryRun -and -not $hasApply) {
+            Write-Error 'The env activate command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
+            exit 1
+        }
+        if ($hasDryRun -and $hasApply) {
+            Write-Error 'The env activate command accepts only one mode. Specify -DryRun or -Apply, not both.' -ErrorAction Continue
+            exit 1
+        }
+    }
 }
 else {
     $targetScriptName = $commandMap[$normalizedCommand]

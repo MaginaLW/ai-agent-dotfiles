@@ -84,6 +84,7 @@
 | `scripts/list-harness-env.ps1` | 只读枚举环境定义并标记激活环境，见 §16 |
 | `scripts/status-harness-env.ps1` | 只读环境状态/staging 新旧报告，见 §16 |
 | `scripts/build-harness-env.ps1` | 构建 `envs/<name>/` staging，只写该目录，见 §16 |
+| `scripts/activate-harness-env.ps1` | gated 环境切换，默认 dry-run，部署只经 `sync.ps1`，见 §16 |
 | `scripts/auto-sync-after-git.ps1` | Git hook runner；相关路径变化后调用 `sync.ps1 -Apply` |
 | `scripts/apply-hooks.ps1` | 安装 repo-local Git auto-sync hooks |
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
@@ -345,23 +346,35 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 
 ---
 
-## 16. Harness Environments（Phase 1，只读）
+## 16. Harness Environments
 
 Harness Environments 是 conda 式的命名环境层：每个环境声明一个 profile、
-各平台受管 skills 的子集和（未来的）MCP 模板，构建为可随时重建的 staging 目录。
+各平台受管 skills 的子集和（未来的）MCP 模板，构建为可随时重建的 staging 目录，
+并可经门控的 `env activate` 切换到 live home。
 设计见 `docs/superpowers/specs/2026-07-10-harness-env-design.md`。
 
-**Phase 1 只实现只读层**：`list` / `status` / `build` 三个动作全部不写 home。
-`activate`（gated 切换）属于 Phase 2，尚未实施，需按设计文档单独评审后落地。
+`list` / `status` / `build` 全部只读（不写 home）。`activate` 默认 dry-run，
+`-Apply` 才动 live，且**部署只经由现有 `sync.ps1`**（含其不可跳过的强制备份）。
+**Phase 2 范围收窄**：activate 只切换 skills 子集并写状态文件；home 级配置部署
+（config-pull 接入）因当前没有任何环境差异化的 home 配置组件而暂缓，接入需单独评审。
 
 常用命令：
 
 ```powershell
 pwsh -File scripts/agent-dotfiles.ps1 env list          # 枚举环境 + 标记激活
-pwsh -File scripts/agent-dotfiles.ps1 env status        # 定义有效性 + staging 新旧
+pwsh -File scripts/agent-dotfiles.ps1 env status        # 定义有效性 + staging 新旧 + 激活漂移
 pwsh -File scripts/agent-dotfiles.ps1 env build <name>  # 构建 envs/<name>/ staging
+pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -DryRun  # 预览切换计划
+pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -Apply   # 真实切换（gated）
 pwsh -NoProfile -File tests/harness-env.tests.ps1       # 回归测试（也在 CI 中运行）
 ```
+
+`env activate` 的 gate 链（任一步失败即止、不写状态文件）：
+build-skills → scan-secrets → staging 重建 → `sync.ps1`（`-Apply` 时强制备份）→
+成功后写 `state/current-env.json`。入口层强制显式 `-DryRun` 或 `-Apply`（与 sync 同款）。
+切换语义：staging 携带全量 manifest 副本而 skills 只含环境子集，sync 的
+manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 skills；
+未知 live 目录与 Codex `.system` 一如既往永不触碰。
 
 目录与文件：
 
@@ -370,21 +383,28 @@ pwsh -NoProfile -File tests/harness-env.tests.ps1       # 回归测试（也在 
   （引用 `harness-source/profiles/`，继承其 Extends 链）、`Skills.Claude`/`Skills.Codex`
   （必须是对应 `manifests/managed-skills.<platform>.txt` 的子集）、`McpTemplates`。
 - `envs/<name>/`：`env build` 的 staging 输出，Git-ignored，可删除重建。内容：
-  skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`（Phase 2 参数化
-  sync 的输入）、`profile/`（渲染的 profile 组件输出）、`env.lock.json`
+  skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`（环境子集，供人读）、
+  `manifests/managed-skills.<platform>.txt`（**全量**仓库 manifest 副本，驱动
+  sync 的切换裁剪语义）、空 `openclaw/skills/`（满足 sync 源检查，OpenClaw 零动作）、
+  `profile/`（渲染的 profile 组件输出）、`env.lock.json`
   （定义哈希 + 逐文件哈希，`env status` 靠它判定 built/stale）。
-- `state/current-env.json`：当前激活环境记录，机器私有，Git-ignored。
-  Phase 1 只读取（不存在时报告 "No environment activated."），没有任何代码会写它。
+- `state/current-env.json`：当前激活环境记录（名字、定义哈希、激活时间），机器私有、
+  Git-ignored。只有 `env activate -Apply` 成功后才写；`status` 用定义哈希检测
+  "激活后定义又变了"并提示重新 activate。
 
 安全规则：
 
 - `env build` 只写 `envs/<name>/`，删除重建前有前缀断言；`list`/`status` 不写任何文件。
-- Phase 1 不写 `~/.claude`、`~/.codex`、`~/.openclaw`，不动 live skills，不动 `state/`。
+- `env activate` 是唯一受批准的环境切换路径：默认 dry-run；`-Apply` 内部经由
+  `sync.ps1`，其强制备份无法跳过；home-only 文件（credentials、sessions、缓存、
+  Codex `.system`、Codex `config.toml`）永不随切换变动；拒绝 `HomeRoot` 位于仓库内。
+- 真机首次 `-Apply` 前必须人工审查 dry-run 计划（prune 列表尤其要过目）。
 - `envs/` 与 `state/` 永不提交；环境定义变更后先跑 `env status` 和回归测试。
-- 环境层永远只做编排：未来 Phase 2 的部署也只经由现有 `sync.ps1`/`config-pull.ps1`
-  这一条写 home 代码路径，不新增第二条。
+- 环境层永远只做编排：写 home 的代码路径只有现有 `sync.ps1`（未来接入 config 部署
+  时也只能复用 `config-pull.ps1`），不新增第二条。
 
-非目标（Phase 1）：
+非目标（当前）：
 
-- 不切换全局 home harness（Phase 2 的 gated `env activate` 落地前，此能力不存在）。
-- 不做 lockfile 跨机复现、环境回滚命令、OpenClaw 插件集、MCP secrets 管理。
+- 不部署 home 级配置（config-pull 接入 deferred，见上）。
+- 不做 lockfile 跨机复现、环境回滚命令（回滚 = activate 另一环境或从强制备份恢复）、
+  OpenClaw 插件集、MCP secrets 管理。

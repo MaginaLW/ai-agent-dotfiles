@@ -11,10 +11,20 @@
 
         claude/skills/<skill>/   copied from claude/skills/<skill>/
         codex/skills/<skill>/    copied from codex/skills/<skill>/
+        openclaw/skills/         empty (satisfies sync.ps1's source checks;
+                                 no OpenClaw manifest -> sync takes no action)
         manifest.claude.txt      env's Claude skill names, one per line, sorted
         manifest.codex.txt       env's Codex skill names, one per line, sorted
+        manifests/managed-skills.claude.txt   FULL repo manifest copy
+        manifests/managed-skills.codex.txt    FULL repo manifest copy
         profile/                 rendered profile component outputs
         env.lock.json            { Name, DefinitionHash, BuiltFiles }
+
+    The manifests/ copies are deliberately the FULL repo manifests, not the env
+    subset: when sync.ps1 runs with -RepoRoot pointed at this staging tree, its
+    manifest-scoped prune then removes live skills that are repo-managed but not
+    part of this env — that is what makes switching to a smaller env shed the
+    larger env's skills while unknown live dirs and Codex .system stay untouched.
 
     The profile/ tree is rendered directly from the env's resolved profile chain
     (Resolve-HarnessEnvDefinition), mirroring build-harness-profile.ps1's output
@@ -170,6 +180,20 @@ $plan.Add([pscustomobject] @{
         Content      = ($skillsByPlatform['Codex'] -join "`n")
     })
 
+# Full repo manifest copies: sync.ps1 reads <RepoRoot>/manifests/* and prunes
+# managed-but-absent skills, which implements env switching (see help above).
+foreach ($manifestName in @('managed-skills.claude.txt', 'managed-skills.codex.txt')) {
+    $manifestSource = Join-Path $repo "manifests/$manifestName"
+    if (-not (Test-Path -LiteralPath $manifestSource -PathType Leaf)) {
+        throw "Missing repo manifest required for staging: $manifestSource"
+    }
+    $plan.Add([pscustomobject] @{
+            Kind         = 'CopyFile'
+            RelativePath = "manifests/$manifestName"
+            Source       = $manifestSource
+        })
+}
+
 # profile/: same rendering rules as build-harness-profile.ps1.
 foreach ($group in @($componentOutputs | Where-Object { $_.Mode -eq 'ManagedBlock' } | Group-Object Target)) {
     $outputName = if ($group.Name -ieq 'AGENTS.md') {
@@ -283,6 +307,11 @@ foreach ($item in $plan) {
         }
     }
 }
+
+# Empty OpenClaw source dir: sync.ps1 requires all three platform sources to
+# exist; with no OpenClaw manifest in staging its managed set is empty, so sync
+# plans zero OpenClaw actions.
+New-Item -ItemType Directory -Path (Join-Path $stagingFull 'openclaw/skills') -Force | Out-Null
 
 # --- env.lock.json ------------------------------------------------------------
 $builtFiles = @(Get-ChildItem -LiteralPath $stagingFull -File -Recurse -Force)
