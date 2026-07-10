@@ -28,13 +28,20 @@
 .PARAMETER Name
     Optional env name (bare identifier). Default: report all envs.
 
+.PARAMETER ProjectRoot
+    Optional project directory. When given, reads the project's
+    .agent-harness/profile.psd1 and, if it declares RequiredEnv, reports
+    whether the active environment matches. Detection and reminder only —
+    this never activates anything.
+
 .OUTPUTS
     Human-readable status lines plus warnings for invalid definitions. Exit 0.
 #>
 [CmdletBinding()]
 param(
     [string] $RepoRoot = (Join-Path $PSScriptRoot '..'),
-    [string] $Name
+    [string] $Name,
+    [string] $ProjectRoot
 )
 
 Set-StrictMode -Version Latest
@@ -128,12 +135,52 @@ else {
     }
     elseif ($state.PSObject.Properties.Name -contains 'DefinitionHash' -and
         [string] $state.DefinitionHash -ne (Get-HarnessEnvDefinitionHash -Path $definitionByName[$activeName])) {
-        ' (definition changed since activation — re-run env activate)'
+        ' (definition changed since activation - re-run env activate)'
     }
     else {
         ''
     }
     Write-Output "Active environment: $activeName$suffix"
+}
+
+# Project linkage: detection and reminder only, never an automatic activate.
+if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
+    Write-Output ''
+    $projectProfilePath = Join-Path $ProjectRoot '.agent-harness/profile.psd1'
+    if (-not (Test-Path -LiteralPath $projectProfilePath -PathType Leaf)) {
+        Write-Output 'Project declares no RequiredEnv (no .agent-harness/profile.psd1).'
+    }
+    else {
+        $projectData = $null
+        try {
+            $projectData = (Get-HarnessProjectProfile -ProjectRoot $ProjectRoot).Data
+        }
+        catch {
+            Write-Warning "Project profile could not be read: $($_.Exception.Message)"
+        }
+        if ($null -eq $projectData -or
+            -not $projectData.ContainsKey('RequiredEnv') -or
+            [string]::IsNullOrWhiteSpace([string] $projectData.RequiredEnv)) {
+            if ($null -ne $projectData) {
+                Write-Output 'Project declares no RequiredEnv.'
+            }
+        }
+        else {
+            $requiredEnv = [string] $projectData.RequiredEnv
+            if (-not $definitionByName.ContainsKey($requiredEnv)) {
+                Write-Warning "Project requires env '$requiredEnv', which has no definition in harness-source/envs/."
+            }
+            elseif ($null -eq $state) {
+                Write-Output "Project requires env '$requiredEnv' - no environment activated. Run: agent-dotfiles.ps1 env activate $requiredEnv -DryRun"
+            }
+            elseif ($requiredEnv -ieq [string] $state.Name) {
+                Write-Output "Project requires env '$requiredEnv' - matches active."
+            }
+            else {
+                Write-Output "Project requires env '$requiredEnv' - does not match active '$([string] $state.Name)'. Run: agent-dotfiles.ps1 env activate $requiredEnv -DryRun"
+            }
+        }
+    }
 }
 
 exit 0

@@ -84,7 +84,8 @@ function Get-HarnessProjectProfile {
     $path = Join-Path $root '.agent-harness/profile.psd1'
     $profile = Import-HarnessDataFile -Path $path -Kind 'project profile' -RequiredKeys @('SchemaVersion', 'Name', 'TargetPlatforms')
     Test-HarnessKnownKeys -Data $profile -Kind 'project profile' -Path $path -AllowedKeys @(
-        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components', 'Future'
+        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components', 'Future',
+        'RequiredEnv'
     )
 
     return [pscustomobject] @{

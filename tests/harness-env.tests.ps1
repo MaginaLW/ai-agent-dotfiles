@@ -366,6 +366,61 @@ Assert ($result.Code -eq 1) 'entry point rejects activate without an explicit mo
 $result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'activate', 'good', '-DryRun', '-Apply')
 Assert ($result.Code -eq 1) 'entry point rejects activate with both modes'
 
+# --- 10. project linkage: RequiredEnv detection (never auto-activates) ---------
+Write-Host 'status: project RequiredEnv linkage'
+$fakeProject = Join-Path $work 'project'
+function Set-ProjectProfile {
+    param([AllowNull()] [string] $RequiredEnvLine)
+    Set-File -Path (Join-Path $fakeProject '.agent-harness/profile.psd1') -Content @"
+@{
+    SchemaVersion = 1
+    Name = 'fixture-project'
+    TargetPlatforms = @('Claude', 'Codex')
+$RequiredEnvLine
+}
+"@
+}
+function Invoke-ProjectStatus {
+    return Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo, '-ProjectRoot', $fakeProject)
+}
+
+Set-ProjectProfile -RequiredEnvLine "    RequiredEnv = 'small'"
+
+# no activation yet (group 9 ended with state/ removed)
+$result = Invoke-ProjectStatus
+Assert ($result.Code -eq 0) 'project status exits 0'
+Assert ($result.Out -match "requires env 'small' - no environment activated") 'reminds when nothing is activated'
+Assert ($result.Out -match 'env activate small -DryRun') 'reminder suggests the activate command'
+
+# activate the required env -> matches
+$result = Invoke-Activate -EnvName 'small' -Extra @('-Apply')
+Assert ($result.Code -eq 0) 'activating the required env succeeds'
+$result = Invoke-ProjectStatus
+Assert ($result.Out -match "requires env 'small' - matches active") 'reports a match after activation'
+
+# mismatch: switch active env away from the requirement
+$result = Invoke-Activate -EnvName 'good' -Extra @('-Apply')
+Assert ($result.Code -eq 0) 'switching to another env succeeds'
+$result = Invoke-ProjectStatus
+Assert ($result.Out -match "requires env 'small' - does not match active 'good'") 'reports the mismatch'
+Assert ($result.Out -match 'env activate small -DryRun') 'mismatch suggests the activate command'
+$state = Get-Content -Raw -LiteralPath (Join-Path $fakeRepo 'state/current-env.json') | ConvertFrom-Json
+Assert ([string] $state.Name -eq 'good') 'detection never auto-activates (state unchanged)'
+
+# declared env without a definition
+Set-ProjectProfile -RequiredEnvLine "    RequiredEnv = 'ghost'"
+$result = Invoke-ProjectStatus
+Assert ($result.Code -eq 0) 'missing-definition case still exits 0'
+Assert ($result.Out -match "requires env 'ghost', which has no definition") 'warns when the required env has no definition'
+
+# profile without RequiredEnv / project without profile
+Set-ProjectProfile -RequiredEnvLine ''
+$result = Invoke-ProjectStatus
+Assert ($result.Out -match 'declares no RequiredEnv') 'plain profile reports no declaration'
+Remove-Item -LiteralPath (Join-Path $fakeProject '.agent-harness') -Recurse -Force
+$result = Invoke-ProjectStatus
+Assert ($result.Code -eq 0 -and $result.Out -match 'declares no RequiredEnv') 'missing profile file reports no declaration without failing'
+
 # --- Summary --------------------------------------------------------------------
 Write-Host ''
 Write-Host ("harness-env tests: {0} passed, {1} failed" -f $script:pass, $script:fail)

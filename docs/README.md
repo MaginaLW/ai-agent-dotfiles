@@ -363,6 +363,7 @@ Harness Environments 是 conda 式的命名环境层：每个环境声明一个 
 ```powershell
 pwsh -File scripts/agent-dotfiles.ps1 env list          # 枚举环境 + 标记激活
 pwsh -File scripts/agent-dotfiles.ps1 env status        # 定义有效性 + staging 新旧 + 激活漂移
+pwsh -File scripts/agent-dotfiles.ps1 env status -ProjectRoot <p>  # 另检查项目 RequiredEnv 是否匹配
 pwsh -File scripts/agent-dotfiles.ps1 env build <name>  # 构建 envs/<name>/ staging
 pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -DryRun  # 预览切换计划
 pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -Apply   # 真实切换（gated）
@@ -403,8 +404,16 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 - 环境层永远只做编排：写 home 的代码路径只有现有 `sync.ps1`（未来接入 config 部署
   时也只能复用 `config-pull.ps1`），不新增第二条。
 
+项目联动（Phase 3）：
+
+- 项目 `.agent-harness/profile.psd1` 可声明可选字段 `RequiredEnv = '<name>'`。
+- `env status -ProjectRoot <p>` 报告当前激活环境是否匹配项目声明，不匹配时给出
+  建议命令（`env activate <name> -DryRun`）。**只检测提醒，绝不自动 activate。**
+- 本仓库自身声明 `RequiredEnv = 'work'` 作为示例。
+
 非目标（当前）：
 
 - 不部署 home 级配置（config-pull 接入 deferred，见上）。
+- 不自动切换环境（进入项目不触发任何写操作，联动仅为提醒）。
 - 不做 lockfile 跨机复现、环境回滚命令（回滚 = activate 另一环境或从强制备份恢复）、
   OpenClaw 插件集、MCP secrets 管理。
