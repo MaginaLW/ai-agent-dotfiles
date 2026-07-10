@@ -28,6 +28,8 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $listScript = Join-Path $RepoRoot 'scripts/list-harness-env.ps1'
 $statusScript = Join-Path $RepoRoot 'scripts/status-harness-env.ps1'
 $buildScript = Join-Path $RepoRoot 'scripts/build-harness-env.ps1'
+$activateScript = Join-Path $RepoRoot 'scripts/activate-harness-env.ps1'
+$entryScript = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
 
 $script:pass = 0
 $script:fail = 0
@@ -265,6 +267,104 @@ $snapshotAfter = Get-TreeSnapshot -Root $fakeRepo
 Assert ($snapshotBefore -eq $snapshotAfter) 'list and status change no file in the repo tree'
 Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'list and status never create state/'
 Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'envs'))) 'list and status never create envs/'
+
+# --- 9. activate: gated deploy against a fake home -----------------------------
+Write-Host 'activate: fake home apply'
+$fakeHome = Join-Path $work 'home'
+$fakeBackups = Join-Path $work 'backups'
+foreach ($dir in @('.claude/skills/unknown-local', '.codex/skills/.system', '.openclaw/skills')) {
+    New-Item -ItemType Directory -Path (Join-Path $fakeHome $dir) -Force | Out-Null
+}
+Set-File -Path (Join-Path $fakeHome '.claude/skills/unknown-local/SKILL.md') -Content '# unmanaged local skill'
+Set-File -Path (Join-Path $fakeHome '.codex/skills/.system/system.md') -Content '# platform-managed sentinel'
+Set-File -Path (Join-Path $fakeHome '.codex/skills/.system/.codex-system-skills.marker') -Content ''
+$systemSentinel = Join-Path $fakeHome '.codex/skills/.system/system.md'
+$unknownLocal = Join-Path $fakeHome '.claude/skills/unknown-local/SKILL.md'
+
+$smallDefinitionPath = Join-Path $envRoot 'small.psd1'
+Set-File -Path $smallDefinitionPath -Content (New-EnvDefinitionText -Name 'small' -ClaudeSkills @('fixture-a') -CodexSkills @('fixture-a'))
+
+function Invoke-Activate {
+    param([string] $EnvName, [string[]] $Extra = @())
+    # -SkipBuild: the fake repo has no skills-source; generated fixtures are the input.
+    # The secret scan is NOT skipped — the gate runs for real against the fake repo.
+    return Invoke-Script -Script $activateScript -ScriptArgs (@(
+            '-Name', $EnvName, '-RepoRoot', $fakeRepo, '-HomeRoot', $fakeHome,
+            '-BackupRoot', $fakeBackups, '-SkipBuild') + $Extra)
+}
+
+# 9.1 dry-run writes nothing
+$homeSnapshotBefore = Get-TreeSnapshot -Root $fakeHome
+$result = Invoke-Activate -EnvName 'good'
+Assert ($result.Code -eq 0) 'activate dry-run exits 0'
+Assert ($result.Out -match 'State file would be written') 'dry-run announces the state file without writing it'
+Assert ((Get-TreeSnapshot -Root $fakeHome) -eq $homeSnapshotBefore) 'dry-run changes nothing in the fake home'
+Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'dry-run creates no state/'
+
+# 9.2 apply installs skills, writes state, backs up, preserves sentinels
+$result = Invoke-Activate -EnvName 'good' -Extra @('-Apply')
+Assert ($result.Code -eq 0) 'activate apply exits 0'
+Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-a/SKILL.md')) 'apply installs claude fixture-a'
+Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-b/SKILL.md')) 'apply installs claude fixture-b'
+Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.codex/skills/fixture-a/SKILL.md')) 'apply installs codex fixture-a'
+$state = Get-Content -Raw -LiteralPath (Join-Path $fakeRepo 'state/current-env.json') | ConvertFrom-Json
+Assert ([string] $state.Name -eq 'good') 'state file records the activated env'
+Assert ($state.PSObject.Properties.Name -contains 'DefinitionHash') 'state file records the definition hash'
+Assert ($state.PSObject.Properties.Name -contains 'ActivatedAtUtc') 'state file records the activation time'
+Assert (@(Get-ChildItem -LiteralPath $fakeBackups -Directory -ErrorAction SilentlyContinue).Count -gt 0) 'mandatory backup ran before apply'
+Assert (Test-Path -LiteralPath $systemSentinel) 'codex .system sentinel untouched by apply'
+Assert (Test-Path -LiteralPath $unknownLocal) 'unmanaged live skill untouched by apply'
+
+# 9.3 status/list integration
+$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
+Assert ($result.Out -match 'Active environment: good') 'status reports the activated env'
+$result = Invoke-Script -Script $listScript -ScriptArgs @('-RepoRoot', $fakeRepo)
+Assert ($result.Out -match '\*\s*good') 'list marks the activated env'
+
+# 9.4 re-apply adds and prunes nothing and leaves content identical
+# (sync.ps1 always refreshes managed skills present on both sides, so the plan
+# shows updates; idempotence is asserted via adds/prunes and content hashes)
+$homeSnapshotBefore = Get-TreeSnapshot -Root $fakeHome
+$result = Invoke-Activate -EnvName 'good' -Extra @('-Apply')
+Assert ($result.Code -eq 0) 're-activate exits 0'
+Assert ($result.Out -match 'Claude\s*:\s*\+0 ~2 -0') 're-activate plans refresh-only for claude'
+Assert ($result.Out -match 'Codex\s*:\s*\+0 ~1 -0') 're-activate plans refresh-only for codex'
+Assert ((Get-TreeSnapshot -Root $fakeHome) -eq $homeSnapshotBefore) 're-activate leaves home content identical'
+
+# 9.5 switching to a smaller env prunes managed skills, preserves the rest
+$result = Invoke-Activate -EnvName 'small' -Extra @('-Apply')
+Assert ($result.Code -eq 0) 'activate small exits 0'
+Assert (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-b'))) 'switching prunes the managed skill not in the new env'
+Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-a/SKILL.md')) 'shared skill survives the switch'
+Assert (Test-Path -LiteralPath $systemSentinel) 'codex .system sentinel survives the switch'
+Assert (Test-Path -LiteralPath $unknownLocal) 'unmanaged live skill survives the switch'
+$state = Get-Content -Raw -LiteralPath (Join-Path $fakeRepo 'state/current-env.json') | ConvertFrom-Json
+Assert ([string] $state.Name -eq 'small') 'state file follows the switch'
+
+# 9.6 status flags definition drift after activation
+$originalSmall = [System.IO.File]::ReadAllBytes($smallDefinitionPath)
+Add-Content -LiteralPath $smallDefinitionPath -Value '# post-activation edit'
+$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
+Assert ($result.Out -match 'definition changed since activation') 'status flags definition drift after activation'
+[System.IO.File]::WriteAllBytes($smallDefinitionPath, $originalSmall)
+$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
+Assert ($result.Out -notmatch 'definition changed since activation') 'drift flag clears after restore'
+
+# 9.7 failures never write state
+Remove-Item -LiteralPath (Join-Path $fakeRepo 'state') -Recurse -Force
+$result = Invoke-Activate -EnvName 'ghost' -Extra @('-Apply')
+Assert ($result.Code -ne 0) 'activating an unknown env fails'
+Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'failed activation writes no state'
+$result = Invoke-Script -Script $activateScript -ScriptArgs @(
+    '-Name', 'good', '-RepoRoot', $fakeRepo, '-HomeRoot', $fakeRepo, '-SkipBuild', '-Apply')
+Assert ($result.Code -ne 0) 'activation refuses HomeRoot inside the repository'
+Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'refused activation writes no state'
+
+# 9.8 entry point requires an explicit mode
+$result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'activate', 'good')
+Assert ($result.Code -eq 1) 'entry point rejects activate without an explicit mode'
+$result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'activate', 'good', '-DryRun', '-Apply')
+Assert ($result.Code -eq 1) 'entry point rejects activate with both modes'
 
 # --- Summary --------------------------------------------------------------------
 Write-Host ''
