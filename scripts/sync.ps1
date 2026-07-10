@@ -580,7 +580,10 @@ function Test-Parity {
     param([string] $SourceRoot, [string] $LiveRoot, [bool] $ExcludeSystem, [System.Collections.Generic.HashSet[string]] $ManagedNames)
     $src = @(Get-DirNames -Path $SourceRoot | Sort-Object)
     $live = @(Get-DirNames -Path $LiveRoot | Where-Object { -not ($ExcludeSystem -and $_ -eq $CodexSystemDirName) } | Sort-Object)
-    if ($ManagedNames -and $ManagedNames.Count -gt 0) {
+    # Filter whenever a managed set is provided — including an EMPTY set, where
+    # the managed portion of live is trivially in sync (unknown dirs are
+    # ignored-never-deleted and must not fail parity).
+    if ($null -ne $ManagedNames) {
         $live = @($live | Where-Object { $ManagedNames.Contains($_) })
     }
     return (-not (Compare-Object $src $live))
