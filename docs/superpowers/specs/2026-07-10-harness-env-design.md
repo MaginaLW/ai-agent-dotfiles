@@ -103,6 +103,10 @@ agent-dotfiles.ps1 env activate <n> [-Apply]   # 默认 dry-run
 - `env status -ProjectRoot <p>` 增加检查：当前激活环境 ≠ 项目声明时输出提醒与建议命令。
 - 不做任何自动 activate。
 
+> **Implementation note (2026-07-10)**：Phase 3 已按上述范围落地。`RequiredEnv` 为
+> project profile 的合法可选键（library profile/component 键集不变），检测覆盖
+> 匹配/不匹配/未激活/声明的环境无定义/未声明/无 profile 六种情形，全部只读。
+
 ## 5. 非目标（本轮不做）
 
 - lockfile / `env export` 跨机复现。

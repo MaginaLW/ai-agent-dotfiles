@@ -5,6 +5,8 @@
 
     Extends = @('coding')
 
+    RequiredEnv = 'work'
+
     Components = @{
         Rules = @()
         Prompts = @()
