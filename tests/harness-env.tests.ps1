@@ -276,6 +276,9 @@ foreach ($dir in @('.claude/skills/unknown-local', '.codex/skills/.system', '.op
     New-Item -ItemType Directory -Path (Join-Path $fakeHome $dir) -Force | Out-Null
 }
 Set-File -Path (Join-Path $fakeHome '.claude/skills/unknown-local/SKILL.md') -Content '# unmanaged local skill'
+# Unknown OpenClaw dir: staging manages zero OpenClaw skills, so post-apply
+# parity must ignore this (regression for the empty-managed-set parity bug).
+Set-File -Path (Join-Path $fakeHome '.openclaw/skills/oc-unknown/SKILL.md') -Content '# unmanaged openclaw skill'
 Set-File -Path (Join-Path $fakeHome '.codex/skills/.system/system.md') -Content '# platform-managed sentinel'
 Set-File -Path (Join-Path $fakeHome '.codex/skills/.system/.codex-system-skills.marker') -Content ''
 $systemSentinel = Join-Path $fakeHome '.codex/skills/.system/system.md'
