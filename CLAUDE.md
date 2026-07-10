@@ -15,6 +15,8 @@ Apply the full skill-management workflow below only when the task involves any o
 - `scripts/config-status.ps1`, `scripts/config-pull.ps1`, `scripts/config-push.ps1`, `.claude/settings.json` (harness config-sync)
 - `harness-source/`, `.agent-harness/generated/`
 - `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, `tests/harness-profile.tests.ps1` (project harness profiles)
+- `harness-source/envs/`, `envs/` (repo-root staging), `state/current-env.json`
+- `scripts/harness-env-common.ps1`, `scripts/list-harness-env.ps1`, `scripts/status-harness-env.ps1`, `scripts/build-harness-env.ps1`, `tests/harness-env.tests.ps1` (harness environments)
 - Codex `.system`
 
 For unrelated tasks (ordinary docs, ordinary code, ordinary Git operations), do not expand this workflow or read the full skill manual unless it becomes relevant.
@@ -66,4 +68,6 @@ When the scope trigger applies:
 - Project Harness Profiles are project-local in the first version: `.agent-harness/generated/` is disposable generated output and must not be hand-edited or committed unless a future tracked-template decision explicitly says so.
 - `scripts/apply-harness-profile.ps1 -Apply` must not be treated as permission to write `~/.claude`, `~/.codex`, `~/.openclaw`, live skills roots, or Codex `.system`; first-version apply writes only project-local allowlist output.
 - Do not claim Project Harness Profiles install project-local skills or perform automatic global home harness switching.
+- `envs/` is generated Harness Environments staging — never hand-edit or commit it; rebuild with `scripts/build-harness-env.ps1`. `state/current-env.json` is machine-private and never committed.
+- Harness Environments Phase 1 is read-only toward home directories: `env list`/`env status`/`env build` must never write `~/.claude`, `~/.codex`, `~/.openclaw`, live skills roots, or `state/`. `env activate` does not exist yet; implementing it requires a separate review, and its deployment must reuse the existing `sync.ps1`/`config-pull.ps1` write paths only. See `docs/README.md` §16.
 - Keep `CLAUDE.md` tracked in Git so these instructions sync across machines.

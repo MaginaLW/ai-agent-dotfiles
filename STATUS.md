@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-06-30
+Last updated: 2026-07-10
 
 This is the single global status file for the repository. Update it in place instead of creating additional overall status reports. Current task-level work belongs in [`status/active/`](status/active/); completed task reports belong in [`status/archived/`](status/archived/).
 
@@ -11,6 +11,8 @@ Maintain one conservative, auditable source for Claude, Codex, and OpenClaw skil
 ## Current phase
 
 Operations hardening plus the first Project Harness Profiles MVP. Skill build, backup, secret scanning, manifest-scoped sync, OpenClaw plugin desired-state management, repo-local auto-sync hooks, whitelist-scoped harness config status/pull/push, minimal Windows GitHub Actions validation, and project-local harness profile generation/apply scripts are implemented. Project Harness Profiles are first-version and project-local only: they generate `.agent-harness/generated/` under a target project and `apply-harness-profile.ps1 -Apply` writes only project-local allowlist output. This repository now also has a project-local `.agent-harness/profile.psd1` for real-project dry-run validation.
+
+Harness Environments Phase 1 (read-only) landed on 2026-07-10 per `docs/superpowers/specs/2026-07-10-harness-env-design.md`: named env definitions in `harness-source/envs/`, `env list`/`env status`/`env build` subcommands under `scripts/agent-dotfiles.ps1`, staging output in Git-ignored `envs/<name>/`, and a read-only `state/current-env.json` activation report. Phase 1 writes nothing to home directories; `env activate` (gated switching) is Phase 2 and is not implemented.
 
 ## Current canonical decisions
 
@@ -24,6 +26,8 @@ Operations hardening plus the first Project Harness Profiles MVP. Skill build, b
 - Harness config pull/push is whitelist-scoped and dry-run by default. Codex `config.toml` remains excluded as machine-private state.
 - Project Harness Profiles use `harness-source/` as the component/profile library and generate disposable project-local `.agent-harness/generated/` output.
 - First-version Project Harness Profiles do not write `~/.claude`, `~/.codex`, or `~/.openclaw`, do not install project-local skills, and do not provide automatic global home harness switching.
+- Harness environment definitions live in `harness-source/envs/*.psd1` (tracked source of truth); `envs/` is disposable generated staging and `state/current-env.json` is machine-private activation state — neither is ever committed or hand-edited.
+- Harness Environments Phase 1 is read-only: no script writes home directories or `state/`; global switching requires the Phase 2 gated `env activate`, which must be separately reviewed before implementation and must deploy only through the existing `sync.ps1`/`config-pull.ps1` write paths.
 - `STATUS.md` is the global status record. `status/active/` contains only current task records; completed task records move to `status/archived/`.
 - `reports/*.md` contains machine- and run-specific build/sync reports and is Git-ignored; only `reports/README.md` is tracked. Reports must contain metadata and skill names only, never backup contents or sensitive values.
 
@@ -42,6 +46,7 @@ Operations hardening plus the first Project Harness Profiles MVP. Skill build, b
 - Repository-local generated output was regenerated on 2026-06-30 with `scripts/build-skills.ps1`: Claude **15**, Codex **23**, and OpenClaw **25**.
 - Secret scan passed on 2026-06-30 with no blocking findings; keyword hints were non-blocking.
 - Project Harness Profile MVP scripts and tests are present: `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, and `tests/harness-profile.tests.ps1`; the regression test is part of the Windows validation workflow.
+- Harness Environments Phase 1 scripts and tests are present: `scripts/harness-env-common.ps1`, `scripts/list-harness-env.ps1`, `scripts/status-harness-env.ps1`, `scripts/build-harness-env.ps1`, and `tests/harness-env.tests.ps1` (57/57 passed on 2026-07-10; `tests/harness-profile.tests.ps1` still 33/33). The env regression test runs in the Windows validation workflow.
 - Project Harness Profile real-project dry-run was exercised on this repository on 2026-06-30: status resolved `base` and `coding`, build generated ignored `.agent-harness/generated/` output, apply dry-run reported `AGENTS.md` skipped due missing markers, `.claude/settings.json` would update, and generated-only prompt output skipped. `tests/harness-profile.tests.ps1` passed 33/33.
 
 ## Sync status
@@ -68,3 +73,4 @@ Operations hardening plus the first Project Harness Profiles MVP. Skill build, b
 4. Apply sync only after the dry-run is reviewed and the mandatory backup path is confirmed.
 5. Revalidate each managed machine and update this file with evidence-backed results.
 6. Keep Project Harness Profiles project-local unless a future reviewed design explicitly adds global home switching or project-local skill installation.
+7. Review and commit Harness Environments Phase 1 (read-only env layer). Phase 2 (gated `env activate`) requires a separate review of `docs/superpowers/specs/2026-07-10-harness-env-design.md` §4.2 before any implementation.
