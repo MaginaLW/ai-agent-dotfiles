@@ -49,6 +49,8 @@ tmp/
 .agent-harness/backups/
 **/.agent-harness/generated/
 **/.agent-harness/backups/
+/envs/
+/state/
 
 # Machine- and run-specific build/sync reports.
 reports/*.md

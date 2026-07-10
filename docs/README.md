@@ -78,6 +78,12 @@
 | `scripts/status-harness-profile.ps1` | 只读查看可用 profile/component 与项目生成状态，见 §15 |
 | `scripts/build-harness-profile.ps1` | 从 `harness-source/` 生成项目本地 harness output，见 §15 |
 | `scripts/apply-harness-profile.ps1` | 默认 dry-run；`-Apply` 仅写项目本地 allowlist，见 §15 |
+| `harness-source/envs/` | Harness Environments 的环境定义（tracked 源），见 §16 |
+| `envs/` | 环境构建 staging，**生成物**，Git-ignored，勿手改，见 §16 |
+| `state/current-env.json` | 当前激活环境记录，机器私有，Git-ignored，见 §16 |
+| `scripts/list-harness-env.ps1` | 只读枚举环境定义并标记激活环境，见 §16 |
+| `scripts/status-harness-env.ps1` | 只读环境状态/staging 新旧报告，见 §16 |
+| `scripts/build-harness-env.ps1` | 构建 `envs/<name>/` staging，只写该目录，见 §16 |
 | `scripts/auto-sync-after-git.ps1` | Git hook runner；相关路径变化后调用 `sync.ps1 -Apply` |
 | `scripts/apply-hooks.ps1` | 安装 repo-local Git auto-sync hooks |
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
@@ -336,3 +342,49 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 - 不替代 §14 的 home-level harness config-sync。
 - 不管理 Codex `.system`、OpenClaw identity/credentials、MCP secrets、session/cache/state。
 - 不把项目本地 profile apply 扩展为全局机器配置切换。
+
+---
+
+## 16. Harness Environments（Phase 1，只读）
+
+Harness Environments 是 conda 式的命名环境层：每个环境声明一个 profile、
+各平台受管 skills 的子集和（未来的）MCP 模板，构建为可随时重建的 staging 目录。
+设计见 `docs/superpowers/specs/2026-07-10-harness-env-design.md`。
+
+**Phase 1 只实现只读层**：`list` / `status` / `build` 三个动作全部不写 home。
+`activate`（gated 切换）属于 Phase 2，尚未实施，需按设计文档单独评审后落地。
+
+常用命令：
+
+```powershell
+pwsh -File scripts/agent-dotfiles.ps1 env list          # 枚举环境 + 标记激活
+pwsh -File scripts/agent-dotfiles.ps1 env status        # 定义有效性 + staging 新旧
+pwsh -File scripts/agent-dotfiles.ps1 env build <name>  # 构建 envs/<name>/ staging
+pwsh -NoProfile -File tests/harness-env.tests.ps1       # 回归测试（也在 CI 中运行）
+```
+
+目录与文件：
+
+- `harness-source/envs/<name>.psd1`：环境定义（tracked 源真相）。字段：
+  `SchemaVersion`、`Name`（须与文件名一致）、`Description`、`Profile`
+  （引用 `harness-source/profiles/`，继承其 Extends 链）、`Skills.Claude`/`Skills.Codex`
+  （必须是对应 `manifests/managed-skills.<platform>.txt` 的子集）、`McpTemplates`。
+- `envs/<name>/`：`env build` 的 staging 输出，Git-ignored，可删除重建。内容：
+  skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`（Phase 2 参数化
+  sync 的输入）、`profile/`（渲染的 profile 组件输出）、`env.lock.json`
+  （定义哈希 + 逐文件哈希，`env status` 靠它判定 built/stale）。
+- `state/current-env.json`：当前激活环境记录，机器私有，Git-ignored。
+  Phase 1 只读取（不存在时报告 "No environment activated."），没有任何代码会写它。
+
+安全规则：
+
+- `env build` 只写 `envs/<name>/`，删除重建前有前缀断言；`list`/`status` 不写任何文件。
+- Phase 1 不写 `~/.claude`、`~/.codex`、`~/.openclaw`，不动 live skills，不动 `state/`。
+- `envs/` 与 `state/` 永不提交；环境定义变更后先跑 `env status` 和回归测试。
+- 环境层永远只做编排：未来 Phase 2 的部署也只经由现有 `sync.ps1`/`config-pull.ps1`
+  这一条写 home 代码路径，不新增第二条。
+
+非目标（Phase 1）：
+
+- 不切换全局 home harness（Phase 2 的 gated `env activate` 落地前，此能力不存在）。
+- 不做 lockfile 跨机复现、环境回滚命令、OpenClaw 插件集、MCP secrets 管理。

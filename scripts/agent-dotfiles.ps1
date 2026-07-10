@@ -10,7 +10,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, backup, or sync.
+    One of: doctor, build, scan, backup, sync, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -18,9 +18,13 @@
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 sync -DryRun
 
+.EXAMPLE
+    pwsh -File scripts/agent-dotfiles.ps1 env list
+
 .NOTES
     The sync subcommand requires exactly one explicit mode: -DryRun or -Apply.
     Apply is never selected or added by default.
+    The env subcommand requires a sub-action: list, status, or build.
 #>
 param(
     [Parameter(Position = 0)]
@@ -35,9 +39,10 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync'
+    Write-Host 'Commands: doctor, build, scan, backup, sync, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
+    Write-Host 'Env requires a sub-action (list, status, build): scripts/agent-dotfiles.ps1 env list'
 }
 
 if ([string]::IsNullOrWhiteSpace($Command)) {
@@ -54,14 +59,41 @@ $commandMap = @{
     sync   = 'sync.ps1'
 }
 
+$envCommandMap = @{
+    list   = 'list-harness-env.ps1'
+    status = 'status-harness-env.ps1'
+    build  = 'build-harness-env.ps1'
+}
+
 $normalizedCommand = $Command.ToLowerInvariant()
-if (-not $commandMap.ContainsKey($normalizedCommand)) {
+if ($normalizedCommand -ne 'env' -and -not $commandMap.ContainsKey($normalizedCommand)) {
     Write-Error "Unsupported command: $Command" -ErrorAction Continue
     Write-Usage
     exit 1
 }
 
 $forwardedArguments = @($RemainingArguments)
+if ($normalizedCommand -eq 'env') {
+    if ($forwardedArguments.Count -eq 0 -or $null -eq $forwardedArguments[0]) {
+        Write-Error 'The env command requires a sub-action: list, status, or build.' -ErrorAction Continue
+        Write-Usage
+        exit 1
+    }
+
+    $envAction = ([string]$forwardedArguments[0]).ToLowerInvariant()
+    if (-not $envCommandMap.ContainsKey($envAction)) {
+        Write-Error "Unsupported env sub-action: $($forwardedArguments[0])" -ErrorAction Continue
+        Write-Usage
+        exit 1
+    }
+
+    $targetScriptName = $envCommandMap[$envAction]
+    $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
+}
+else {
+    $targetScriptName = $commandMap[$normalizedCommand]
+}
+
 if ($normalizedCommand -eq 'sync') {
     $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
     $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
@@ -76,7 +108,7 @@ if ($normalizedCommand -eq 'sync') {
     }
 }
 
-$targetScript = Join-Path $PSScriptRoot $commandMap[$normalizedCommand]
+$targetScript = Join-Path $PSScriptRoot $targetScriptName
 if (-not (Test-Path -LiteralPath $targetScript -PathType Leaf)) {
     Write-Error "Target script is missing: $targetScript" -ErrorAction Continue
     exit 1

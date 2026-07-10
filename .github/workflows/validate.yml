@@ -114,6 +114,20 @@ jobs:
             throw "harness-profile.tests.ps1 failed with exit code $LASTEXITCODE."
           }
 
+      - name: Run harness env tests
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\harness-env.tests.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            Write-Warning 'tests/harness-env.tests.ps1 is missing; harness env tests skipped.'
+            return
+          }
+
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "harness-env.tests.ps1 failed with exit code $LASTEXITCODE."
+          }
+
       - name: Reject dangerous tracked files
         shell: pwsh
         run: |
