@@ -10,7 +10,8 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, backup, sync, or env.
+    One of: doctor, build, scan, backup, sync, inventory, analyze, merge,
+    plugin, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -41,7 +42,7 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync, env'
+    Write-Host 'Commands: doctor, build, scan, backup, sync, inventory, analyze, merge, plugin, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Env requires a sub-action (list, status, build, activate): scripts/agent-dotfiles.ps1 env list'
@@ -60,6 +61,10 @@ $commandMap = @{
     scan   = 'scan-secrets.ps1'
     backup = 'backup.ps1'
     sync   = 'sync.ps1'
+    inventory = 'inventory-skills.ps1'
+    analyze = 'analyze-skills.ps1'
+    merge = 'auto-merge-skills.ps1'
+    plugin = 'sync-openclaw-plugins.ps1'
 }
 
 $envCommandMap = @{

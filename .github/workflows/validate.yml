@@ -28,8 +28,7 @@ jobs:
         run: |
           $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\doctor.ps1'
           if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            Write-Warning 'scripts/doctor.ps1 is missing; doctor check skipped.'
-            return
+            throw 'scripts/doctor.ps1 is missing; repository doctor is a required validation entry point.'
           }
 
           $isolatedHome = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-doctor-home'
@@ -48,13 +47,20 @@ jobs:
         run: |
           $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\scan-secrets.ps1'
           if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            Write-Warning 'scripts/scan-secrets.ps1 is missing; secrets scan skipped.'
-            return
+            throw 'scripts/scan-secrets.ps1 is missing; the secret scan gate is required.'
           }
 
-          & pwsh -NoProfile -File $scriptPath
+          $scanJson = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-secret-scan.json'
+          & pwsh -NoProfile -File $scriptPath -JsonPath $scanJson
           if ($LASTEXITCODE -ne 0) {
             throw "scan-secrets.ps1 failed with exit code $LASTEXITCODE."
+          }
+          if (-not (Test-Path -LiteralPath $scanJson -PathType Leaf)) {
+            throw 'Secret scan did not produce its machine-readable JSON summary.'
+          }
+          $scanReport = Get-Content -Raw -LiteralPath $scanJson | ConvertFrom-Json
+          if ([int]$scanReport.SchemaVersion -ne 1 -or $scanReport.Result -ne 'PASS') {
+            throw 'Secret scan JSON summary is missing or reports a failure.'
           }
 
       - name: Build generated skills
@@ -62,8 +68,7 @@ jobs:
         run: |
           $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\build-skills.ps1'
           if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            Write-Warning 'scripts/build-skills.ps1 is missing; build skipped.'
-            return
+            throw 'scripts/build-skills.ps1 is missing; generated-output validation is required.'
           }
 
           & pwsh -NoProfile -File $scriptPath
@@ -100,13 +105,85 @@ jobs:
 
           Write-Host 'Build validation passed: no tracked diff, unexpected untracked files, or tracked generated output.'
 
+      - name: Validate machine-readable schemas and build evidence
+        shell: pwsh
+        run: |
+          $schemaPaths = @(
+            'schemas\sync-plan.schema.json',
+            'schemas\run-report.schema.json',
+            'schemas\doctor-report.schema.json',
+            'schemas\secret-scan.schema.json',
+            'schemas\harness-env-status.schema.json'
+          ) | ForEach-Object { Join-Path $env:GITHUB_WORKSPACE $_ }
+          foreach ($schemaPath in $schemaPaths) {
+            if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
+              throw "Required schema is missing: $schemaPath"
+            }
+            Get-Content -Raw -LiteralPath $schemaPath | ConvertFrom-Json | Out-Null
+          }
+
+          $buildReports = @(Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'reports') -Filter 'build-report-*.json' -File)
+          if ($buildReports.Count -eq 0) {
+            throw 'Build did not produce a machine-readable JSON sidecar.'
+          }
+          $latest = $buildReports | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          $report = Get-Content -Raw -LiteralPath $latest.FullName | ConvertFrom-Json
+          foreach ($required in @('SchemaVersion', 'ReportKind', 'GeneratedAtUtc', 'Summary', 'Details', 'Result', 'NextAction')) {
+            if (-not ($report.PSObject.Properties.Name -contains $required)) {
+              throw "Build JSON report is missing required field: $required"
+            }
+          }
+          if ([int]$report.SchemaVersion -ne 1 -or $report.ReportKind -ne 'build') {
+            throw 'Build JSON report has an unsupported schema or report kind.'
+          }
+
+          $envStatusJson = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-env-status.json'
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\status-harness-env.ps1') -RepoRoot $env:GITHUB_WORKSPACE -JsonPath $envStatusJson
+          if ($LASTEXITCODE -ne 0) { throw "status-harness-env.ps1 failed with exit code $LASTEXITCODE." }
+          $envStatus = Get-Content -Raw -LiteralPath $envStatusJson | ConvertFrom-Json
+          if ([int]$envStatus.SchemaVersion -ne 1 -or -not ($envStatus.PSObject.Properties.Name -contains 'Environments')) {
+            throw 'Harness environment JSON status summary is invalid.'
+          }
+          Write-Host "Machine-readable evidence validated: $latest"
+
+      - name: Run sync regression tests
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\sync.tests.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            throw 'tests/sync.tests.ps1 is missing; the transactional sync regression suite is required.'
+          }
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) { throw "sync.tests.ps1 failed with exit code $LASTEXITCODE." }
+
+      - name: Run import and merge regression tests
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\skills-import.tests.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            throw 'tests/skills-import.tests.ps1 is missing; the import/merge regression suite is required.'
+          }
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) { throw "skills-import.tests.ps1 failed with exit code $LASTEXITCODE." }
+
+      - name: Run plugin and doctor regression tests
+        shell: pwsh
+        run: |
+          foreach ($relative in @('tests\openclaw-plugin.tests.ps1', 'tests\doctor.tests.ps1')) {
+            $scriptPath = Join-Path $env:GITHUB_WORKSPACE $relative
+            if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+              throw "$relative is missing; the reliability regression suite is required."
+            }
+            & pwsh -NoProfile -File $scriptPath
+            if ($LASTEXITCODE -ne 0) { throw "$relative failed with exit code $LASTEXITCODE." }
+          }
+
       - name: Run harness profile tests
         shell: pwsh
         run: |
           $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\harness-profile.tests.ps1'
           if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            Write-Warning 'tests/harness-profile.tests.ps1 is missing; harness profile tests skipped.'
-            return
+            throw 'tests/harness-profile.tests.ps1 is missing; the harness profile regression suite is required.'
           }
 
           & pwsh -NoProfile -File $scriptPath
@@ -119,8 +196,7 @@ jobs:
         run: |
           $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\harness-env.tests.ps1'
           if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            Write-Warning 'tests/harness-env.tests.ps1 is missing; harness env tests skipped.'
-            return
+            throw 'tests/harness-env.tests.ps1 is missing; the harness environment regression suite is required.'
           }
 
           & pwsh -NoProfile -File $scriptPath

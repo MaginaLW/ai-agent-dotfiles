@@ -1,7 +1,8 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [string] $JsonPath
 )
 
 Set-StrictMode -Version Latest
@@ -101,6 +102,25 @@ $hintRegex = '(?i)\b(api_key|apikey|token|secret|password|passwd|credential|auth
 $findings = [System.Collections.Generic.List[object]]::new()
 $hints = [System.Collections.Generic.List[object]]::new()
 
+function Write-ScanJson {
+    param([Parameter(Mandatory)] [string] $Path, [ValidateSet('PASS', 'FAIL')] [string] $Result)
+
+    $parent = Split-Path -Parent $Path
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $document = [ordered]@{
+        SchemaVersion = 1
+        GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
+        Result = $Result
+        Scanner = if ($gitleaks) { 'gitleaks-and-fallback' } else { 'fallback' }
+        GitleaksAvailable = [bool] $gitleaks
+        GitleaksFailed = [bool] $gitleaksFailed
+        BlockingFindingCount = $findings.Count
+        HintCount = $hints.Count
+        Findings = @($findings)
+    }
+    [System.IO.File]::WriteAllText($Path, (ConvertTo-Json -InputObject $document -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
+}
+
 Get-ChildItem -LiteralPath $RepoRoot -File -Recurse -Force | ForEach-Object {
     $relativePath = [System.IO.Path]::GetRelativePath($RepoRoot, $_.FullName)
     if (Test-IsSkippedPath -RelativePath $relativePath) {
@@ -148,12 +168,15 @@ if ($findings.Count -gt 0) {
     Write-Host 'ERROR: Possible secret found.'
     $findings | Format-Table -AutoSize | Out-String | Write-Host
     Write-Host 'Action: remove it, replace it with an environment variable placeholder, or append "# scan-ok" only after manual review.'
+    if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'FAIL' }
     exit 1
 }
 
 if ($gitleaksFailed) {
     Write-Host 'ERROR: gitleaks reported one or more findings.'
+    if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'FAIL' }
     exit 1
 }
 
 Write-Host 'No blocking secrets found.'
+if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'PASS' }

@@ -225,13 +225,14 @@ Agent 在处理一个 import batch 时 **必须**按以下顺序执行：
 
 ## 12. 当前脚本能力与政策差距
 
-当前脚本已经提供 tree SHA-256、`SKILL.md` SHA-256、文件数、大小、平台信号、secret/binary/path 信号、quality score、分析报告、dry-run、manifest-scoped prune、unknown 报告和 `.system` 保护。
+当前脚本已经提供 tree SHA-256、`SKILL.md` SHA-256、文件数、大小、平台信号、secret/binary/path 信号、scan status、不可伪造的 modified-time 标记、quality score（仅用于报告）、分析报告、dry-run、manifest-scoped prune、unknown 报告和 `.system` 保护。Phase 1 的 inventory、analysis、merge、promote、normalize 已覆盖 Claude、Codex 和 OpenClaw；OpenClaw 只使用 skills 目录，不读取或修改 `~/.openclaw/plugins/installs.json`。
 
 以下限制 **必须**被 agent 明确处理：
 
-- 当前 `Get-SkillRecord` 不记录 modified time；报告必须写 `not-collected`，不得虚构时间证据。
+- 当前 `Get-SkillRecord` 明确记录 `modified_time_utc` / `modified_time_source` 为 `not-collected`；实现没有可靠来源时不得虚构时间证据。
 - Managed manifest 当前主要记录名称；它不能单独证明某个内容 fingerprint 是最近成功版本。
-- 当前 auto-merge 在没有 existing source 时可能按 quality score 选择候选。若同名候选 fingerprint 不同，本文要求优先输出 `CONFLICT`，不得仅凭 quality score Apply。
+- auto-merge 当前禁止用 quality score 选择不同 fingerprint 的 canonical；相同 tree hash 才能计为 `DEDUPLICATED`，已有有效 canonical 默认 `CANONICAL_RETAINED`，无 canonical 且只有一个有效 fingerprint 才能生成显式 `PROMOTE_CANDIDATE`，其它情况输出 `CONFLICT` 或 `QUARANTINED`。
+- inventory 的 Codex 探测与 sync 保持相同顺序：优先 `.codex/skills`，不存在时 fallback 到 `.agents/skills`；`.system` 永不进入候选。重复使用同一个 machine id 的 inventory batch 会拒绝覆盖已有 inbox 证据。
 - 当前自动 quarantine 已覆盖 missing `SKILL.md`、possible secret、binary/large file 和平台冲突，但 placeholder-only、cache/runtime state、机器私有路径及所有 unresolved-name-conflict 仍必须由 agent 补充检查。
 - 当前工具未输出本文所有统一报告字段时，agent 必须指出缺项；不得把“没有字段”解释为“没有风险”。
 

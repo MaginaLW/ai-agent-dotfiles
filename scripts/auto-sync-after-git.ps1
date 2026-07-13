@@ -135,14 +135,25 @@ function Invoke-AutoSync {
         throw "Missing sync script: $syncScript"
     }
 
-    Write-AutoSyncLog "Running sync.ps1 -Apply from $Trigger."
-    $output = & pwsh -NoProfile -ExecutionPolicy Bypass -File $syncScript -Apply -RepoRoot $RepoRoot 2>&1
+    $planPath = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-auto-sync-$([Guid]::NewGuid().ToString('N')).json"
+    Write-AutoSyncLog "Running sync.ps1 -DryRun with a bound plan from $Trigger."
+    $dryOutput = & pwsh -NoProfile -ExecutionPolicy Bypass -File $syncScript -DryRun -PlanPath $planPath -RepoRoot $RepoRoot 2>&1
+    $dryCode = $LASTEXITCODE
+    $dryOutput | ForEach-Object { Write-AutoSyncLog $_ }
+    if ($dryCode -ne 0) {
+        Write-AutoSyncLog "sync.ps1 -DryRun failed with exit code $dryCode; no apply attempted."
+        exit $dryCode
+    }
+
+    Write-AutoSyncLog 'Running sync.ps1 -Apply with the exact dry-run plan.'
+    $output = & pwsh -NoProfile -ExecutionPolicy Bypass -File $syncScript -Apply -PlanPath $planPath -RepoRoot $RepoRoot 2>&1
     $exitCode = $LASTEXITCODE
     $output | ForEach-Object { Write-AutoSyncLog $_ }
     if ($exitCode -ne 0) {
-        Write-AutoSyncLog "sync.ps1 -Apply failed with exit code $exitCode."
+        Write-AutoSyncLog "sync.ps1 -Apply failed with exit code $exitCode. Plan retained at $planPath."
         exit $exitCode
     }
+    Remove-Item -LiteralPath $planPath -Force -ErrorAction SilentlyContinue
     Write-AutoSyncLog 'sync.ps1 -Apply completed.'
 }
 

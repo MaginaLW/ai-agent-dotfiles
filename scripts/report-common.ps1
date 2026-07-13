@@ -91,6 +91,12 @@ function New-RunReportPath {
     return $path
 }
 
+function New-RunReportJsonPath {
+    param([Parameter(Mandatory)] [string] $MarkdownPath)
+
+    return [System.IO.Path]::ChangeExtension($MarkdownPath, '.json')
+}
+
 function Write-RunReport {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
@@ -153,5 +159,24 @@ function Write-RunReport {
     $lines.Add('')
 
     [System.IO.File]::WriteAllText($path, ($lines -join "`n"), [System.Text.UTF8Encoding]::new($false))
+
+    $jsonDocument = [ordered]@{
+        SchemaVersion = 1
+        ReportKind = $ReportKind
+        GeneratedAtUtc = $timestamp.ToUniversalTime().ToString('o')
+        Machine = ConvertTo-ReportSafeText -Value $computerName
+        Git = [ordered]@{
+            Branch = $gitMetadata.Branch
+            Commit = $gitMetadata.Commit
+        }
+        ScriptName = ConvertTo-ReportSafeText -Value $ScriptName
+        Mode = ConvertTo-ReportSafeText -Value $Mode
+        Summary = $Summary
+        Details = $Details
+        Result = $Result
+        NextAction = ConvertTo-ReportSafeText -Value $NextAction
+    }
+    $jsonPath = New-RunReportJsonPath -MarkdownPath $path
+    [System.IO.File]::WriteAllText($jsonPath, (ConvertTo-Json -InputObject $jsonDocument -Depth 30) + "`n", [System.Text.UTF8Encoding]::new($false))
     return $path
 }

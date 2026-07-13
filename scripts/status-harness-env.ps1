@@ -41,7 +41,8 @@
 param(
     [string] $RepoRoot = (Join-Path $PSScriptRoot '..'),
     [string] $Name,
-    [string] $ProjectRoot
+    [string] $ProjectRoot,
+    [string] $JsonPath
 )
 
 Set-StrictMode -Version Latest
@@ -54,6 +55,9 @@ $definitionFiles = @(Get-HarnessEnvDefinitionFiles -RepoRoot $repo)
 
 $envNames = [System.Collections.Generic.List[string]]::new()
 $definitionByName = @{}
+$statusRows = [System.Collections.Generic.List[object]]::new()
+$activeSummary = [ordered] @{ Name = $null; Status = 'none' }
+$projectLinkage = 'not-requested'
 foreach ($file in $definitionFiles) {
     $envName = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
     $envNames.Add($envName)
@@ -111,6 +115,11 @@ foreach ($envName in $envNames) {
         }
     }
 
+    $statusRows.Add([pscustomobject] [ordered] @{
+        Name = $envName
+        DefinitionStatus = if ($definitionStatus -eq 'valid') { 'valid' } else { 'invalid' }
+        StagingStatus = $stagingStatus
+    })
     Write-Output ('  {0} definition={1}  staging={2}' -f $envName.PadRight(12), $definitionStatus, $stagingStatus)
     if ($definitionStatus -ne 'valid') {
         Write-Warning "Env '$envName' $definitionStatus"
@@ -140,6 +149,7 @@ else {
     else {
         ''
     }
+    $activeSummary = [ordered] @{ Name = $activeName; Status = if ($suffix) { 'drift' } else { 'active' } }
     Write-Output "Active environment: $activeName$suffix"
 }
 
@@ -148,6 +158,7 @@ if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
     Write-Output ''
     $projectProfilePath = Join-Path $ProjectRoot '.agent-harness/profile.psd1'
     if (-not (Test-Path -LiteralPath $projectProfilePath -PathType Leaf)) {
+        $projectLinkage = 'no-profile'
         Write-Output 'Project declares no RequiredEnv (no .agent-harness/profile.psd1).'
     }
     else {
@@ -162,25 +173,43 @@ if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
             -not $projectData.ContainsKey('RequiredEnv') -or
             [string]::IsNullOrWhiteSpace([string] $projectData.RequiredEnv)) {
             if ($null -ne $projectData) {
+                $projectLinkage = 'no-required-env'
                 Write-Output 'Project declares no RequiredEnv.'
             }
         }
         else {
             $requiredEnv = [string] $projectData.RequiredEnv
             if (-not $definitionByName.ContainsKey($requiredEnv)) {
+                $projectLinkage = 'missing-definition'
                 Write-Warning "Project requires env '$requiredEnv', which has no definition in harness-source/envs/."
             }
             elseif ($null -eq $state) {
+                $projectLinkage = 'inactive'
                 Write-Output "Project requires env '$requiredEnv' - no environment activated. Run: agent-dotfiles.ps1 env activate $requiredEnv -DryRun"
             }
             elseif ($requiredEnv -ieq [string] $state.Name) {
+                $projectLinkage = 'matches-active'
                 Write-Output "Project requires env '$requiredEnv' - matches active."
             }
             else {
+                $projectLinkage = 'mismatch'
                 Write-Output "Project requires env '$requiredEnv' - does not match active '$([string] $state.Name)'. Run: agent-dotfiles.ps1 env activate $requiredEnv -DryRun"
             }
         }
     }
+}
+
+if ($JsonPath) {
+    $parent = Split-Path -Parent $JsonPath
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $document = [ordered]@{
+        SchemaVersion = 1
+        GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
+        Environments = @($statusRows)
+        Active = $activeSummary
+        ProjectLinkage = $projectLinkage
+    }
+    [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
 }
 
 exit 0

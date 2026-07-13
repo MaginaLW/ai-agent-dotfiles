@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/sync-plan.schema.json",
+  "title": "AI Agent Dotfiles Sync Plan",
+  "type": "object",
+  "required": ["SchemaVersion", "GeneratedAtUtc", "PlanHash", "Plans"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time" },
+    "PlanHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "Plans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Platform", "SourceRootExists", "LiveRootExists", "ManifestHash", "ManagedNames", "SourceCount", "Add", "AddEntries", "Update", "NoOp", "Prune", "PruneEntries", "Unknown", "UnknownEntries", "SystemPreserved"],
+        "properties": {
+          "Platform": { "enum": ["claude", "codex", "openclaw"] },
+          "SourceRootExists": { "type": "boolean" },
+          "LiveRootExists": { "type": "boolean" },
+          "ManifestHash": { "type": "string", "pattern": "^(missing|[0-9a-f]{64})$" },
+          "ManagedNames": { "type": "array", "items": { "type": "string" } },
+          "SourceCount": { "type": "integer", "minimum": 0 },
+          "Add": { "type": "array", "items": { "type": "string" } },
+          "AddEntries": { "$ref": "#/$defs/addEntries" },
+          "Update": { "$ref": "#/$defs/hashEntries" },
+          "NoOp": { "$ref": "#/$defs/hashEntries" },
+          "Prune": { "type": "array", "items": { "type": "string" } },
+          "PruneEntries": { "$ref": "#/$defs/pruneEntries" },
+          "Unknown": { "type": "array", "items": { "type": "string" } },
+          "UnknownEntries": { "$ref": "#/$defs/unknownEntries" },
+          "SystemPreserved": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "hashEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Name", "SourceHash", "LiveHash"],
+        "properties": {
+          "Name": { "type": "string" },
+          "SourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "LiveHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    }
+    ,"addEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Name", "SourceHash", "LiveHash"],
+        "properties": {
+          "Name": { "type": "string" },
+          "SourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "LiveHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pruneEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Name", "SourceHash", "LiveHash", "Managed"],
+        "properties": {
+          "Name": { "type": "string" },
+          "SourceHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+          "LiveHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+          "Managed": { "const": true }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unknownEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Name", "LiveHash", "Managed"],
+        "properties": {
+          "Name": { "type": "string" },
+          "LiveHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+          "Managed": { "const": false }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

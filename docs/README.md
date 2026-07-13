@@ -85,7 +85,7 @@
 | `scripts/status-harness-env.ps1` | 只读环境状态/staging 新旧报告，见 §16 |
 | `scripts/build-harness-env.ps1` | 构建 `envs/<name>/` staging，只写该目录，见 §16 |
 | `scripts/activate-harness-env.ps1` | gated 环境切换，默认 dry-run，部署只经 `sync.ps1`，见 §16 |
-| `scripts/auto-sync-after-git.ps1` | Git hook runner；相关路径变化后调用 `sync.ps1 -Apply` |
+| `scripts/auto-sync-after-git.ps1` | Git hook runner；先生成 fingerprint-bound dry-run，再调用 `sync.ps1 -Apply` |
 | `scripts/apply-hooks.ps1` | 安装 repo-local Git auto-sync hooks |
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
 | `imports/skills-archive/` | 已处理的导入归档 |
@@ -105,7 +105,7 @@ pwsh -NoProfile -File .\bootstrap.ps1
 ```
 
 `bootstrap.ps1` 会安装 repo-local auto-sync hooks，并立即通过 `auto-sync-after-git.ps1 -Force`
-执行一次 `sync.ps1 -Apply`，所以初次 clone 后不会再漏掉 live skills 同步。
+执行一次 fingerprint-bound `sync.ps1` dry-run/apply 流程，所以初次 clone 后不会再漏掉 live skills 同步。
 
 手动维护流程仍然可用：
 
@@ -115,11 +115,12 @@ git pull --ff-only
 
 pwsh -NoProfile -File scripts/build-skills.ps1     # 从源生成 runtime output
 pwsh -NoProfile -File scripts/scan-secrets.ps1     # 检查 secrets
-pwsh -NoProfile -File scripts/sync.ps1             # dry-run：预览会同步什么
-pwsh -NoProfile -File scripts/sync.ps1 -Apply      # 真实同步（自动先 build + scan + backup）
+$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
+pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan # 生成并审查计划
+pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan # 只应用同一计划
 ```
 
-`sync.ps1` 默认是 **dry-run**，只打印计划、不动 live；只有 `-Apply` 才会真正修改。
+`sync.ps1` 默认是 **dry-run**，只打印计划、不动 live；`-Apply` 必须带有先前 dry-run 生成的 `-PlanPath`，并重新验证 source、manifest 和 live fingerprint 后才会修改。
 
 如果只想安装 hooks、不执行首次 live 同步：
 
@@ -128,7 +129,7 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 ```
 
 安装后，`post-merge`、`post-checkout`、`post-rewrite` 会在 skill 管理相关路径变化时自动调用
-`sync.ps1 -Apply`。自动同步仍然走 build、secret scan、backup、manifest-scoped sync 和 `.system`
+绑定计划的 `sync.ps1 -Apply`。自动同步仍然走 build、secret scan、backup、manifest-scoped sync 和 `.system`
 保护；日志写在 `.git/ai-agent-dotfiles/auto-sync.log`。
 
 ---
@@ -138,11 +139,12 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 1. 只改 `skills-source/`（**不要**直接改 `claude/skills/` 或 `codex/skills/`）。
 2. `scripts/build-skills.ps1`
 3. `scripts/scan-secrets.ps1`
-4. `scripts/sync.ps1`（dry-run 预览）
-5. `scripts/sync.ps1 -Apply`
+4. `$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'`，再运行
+   `scripts/sync.ps1 -DryRun -PlanPath $plan` 并审查计划
+5. `scripts/sync.ps1 -Apply -PlanPath $plan`
 6. 提交 source / manifest / docs 变更（**不要**提交 generated output）。
 7. `git push`
-8. 其它电脑若已安装 auto-sync hooks，`git pull --ff-only` 后会自动同步；否则手动运行 `sync.ps1 -Apply`。
+8. 其它电脑若已安装 auto-sync hooks，`git pull --ff-only` 后会自动生成并绑定计划；否则手动运行同一 `-DryRun -PlanPath` / `-Apply -PlanPath` 流程。
 
 ---
 
@@ -223,8 +225,9 @@ git pull --ff-only                                     # 后续相关更新会�
 ```powershell
 pwsh -NoProfile -File scripts/build-skills.ps1
 pwsh -NoProfile -File scripts/scan-secrets.ps1
-pwsh -NoProfile -File scripts/sync.ps1
-pwsh -NoProfile -File scripts/sync.ps1 -Apply
+$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
+pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
+pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
 ```
 
 ---
@@ -399,7 +402,7 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 - `env activate` 是唯一受批准的环境切换路径：默认 dry-run；`-Apply` 内部经由
   `sync.ps1`，其强制备份无法跳过；home-only 文件（credentials、sessions、缓存、
   Codex `.system`、Codex `config.toml`）永不随切换变动；拒绝 `HomeRoot` 位于仓库内。
-- 真机首次 `-Apply` 前必须人工审查 dry-run 计划（prune 列表尤其要过目）。
+- 每台机器首次真实 `-Apply` 前必须人工审查 dry-run 计划（prune 列表尤其要过目）；已完成首次 activation 的机器在后续变更时仍应重复审查。
 - `envs/` 与 `state/` 永不提交；环境定义变更后先跑 `env status` 和回归测试。
 - 环境层永远只做编排：写 home 的代码路径只有现有 `sync.ps1`（未来接入 config 部署
   时也只能复用 `config-pull.ps1`），不新增第二条。

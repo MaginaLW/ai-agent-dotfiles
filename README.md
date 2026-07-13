@@ -75,9 +75,10 @@ Sync is manifest-scoped (`manifests/managed-skills.txt`), operates one skill dir
 pwsh -NoProfile -File .\scripts\backup.ps1 -DryRun      # preview
 pwsh -NoProfile -File .\scripts\backup.ps1              # create backup
 
-# Preview a sync, then apply (apply auto-builds, scans, and backs up first)
-pwsh -NoProfile -File .\scripts\sync.ps1                # dry-run (default)
-pwsh -NoProfile -File .\scripts\sync.ps1 -Apply         # execute
+# Generate a bound plan, review it, then apply the exact plan
+$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
+pwsh -NoProfile -File .\scripts\sync.ps1 -DryRun -PlanPath $plan
+pwsh -NoProfile -File .\scripts\sync.ps1 -Apply -PlanPath $plan
 ```
 
 ## Git Auto-Sync Hooks
@@ -85,7 +86,8 @@ pwsh -NoProfile -File .\scripts\sync.ps1 -Apply         # execute
 `scripts/apply-hooks.ps1 -Force` installs `.git/hooks/post-merge`,
 `.git/hooks/post-checkout`, and `.git/hooks/post-rewrite`. These hooks call
 `scripts/auto-sync-after-git.ps1`, which checks whether skill-management paths changed and
-then runs `scripts/sync.ps1 -Apply`. The apply path still builds, scans for secrets, creates
-a backup, syncs one skill directory at a time, and preserves Codex `.system`.
+then runs a bound dry-run plan followed by `scripts/sync.ps1 -Apply`. The apply path still
+builds, scans for secrets, creates a backup, syncs one skill directory at a time, and
+preserves Codex `.system`.
 
 The hook log is written outside Git tracking at `.git/ai-agent-dotfiles/auto-sync.log`.

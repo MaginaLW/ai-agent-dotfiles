@@ -325,13 +325,13 @@ $result = Invoke-Script -Script $listScript -ScriptArgs @('-RepoRoot', $fakeRepo
 Assert ($result.Out -match '\*\s*good') 'list marks the activated env'
 
 # 9.4 re-apply adds and prunes nothing and leaves content identical
-# (sync.ps1 always refreshes managed skills present on both sides, so the plan
-# shows updates; idempotence is asserted via adds/prunes and content hashes)
+# (content-aware sync reports identical managed skills as no-op; idempotence is
+# asserted through the no-op counts and unchanged content hashes)
 $homeSnapshotBefore = Get-TreeSnapshot -Root $fakeHome
 $result = Invoke-Activate -EnvName 'good' -Extra @('-Apply')
 Assert ($result.Code -eq 0) 're-activate exits 0'
-Assert ($result.Out -match 'Claude\s*:\s*\+0 ~2 -0') 're-activate plans refresh-only for claude'
-Assert ($result.Out -match 'Codex\s*:\s*\+0 ~1 -0') 're-activate plans refresh-only for codex'
+Assert ($result.Out -match 'Claude\s*:\s*\+0 ~0 =2 -0') 're-activate reports no-op for claude'
+Assert ($result.Out -match 'Codex\s*:\s*\+0 ~0 =1 -0') 're-activate reports no-op for codex'
 Assert ((Get-TreeSnapshot -Root $fakeHome) -eq $homeSnapshotBefore) 're-activate leaves home content identical'
 
 # 9.5 switching to a smaller env prunes managed skills, preserves the rest

@@ -54,6 +54,7 @@ tmp/
 
 # Machine- and run-specific build/sync reports.
 reports/*.md
+reports/*.json
 !reports/README.md
 
 # Raw imported skills awaiting review.

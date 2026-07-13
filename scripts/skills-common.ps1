@@ -12,6 +12,90 @@ function Resolve-RepoRoot {
     return (Resolve-Path -LiteralPath $RepoRoot).Path
 }
 
+function Get-CodexLiveSkillsInfo {
+    param(
+        [Parameter(Mandatory)] [string] $HomeRoot
+    )
+
+    $preferred = Join-Path $HomeRoot '.codex/skills'
+    $fallback = Join-Path $HomeRoot '.agents/skills'
+    if (Test-Path -LiteralPath $preferred) {
+        return [pscustomobject] @{
+            Path = $preferred
+            Selection = 'preferred'
+            RelativePath = '.codex/skills'
+        }
+    }
+    if (Test-Path -LiteralPath $fallback) {
+        return [pscustomobject] @{
+            Path = $fallback
+            Selection = 'fallback'
+            RelativePath = '.agents/skills'
+        }
+    }
+    return [pscustomobject] @{
+        Path = $preferred
+        Selection = 'preferred-missing'
+        RelativePath = '.codex/skills'
+    }
+}
+
+function Get-PlatformSkillSources {
+    param(
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [switch] $IncludeClaude,
+        [switch] $IncludeCodex,
+        [switch] $IncludeOpenClaw
+    )
+
+    $sources = [System.Collections.Generic.List[object]]::new()
+    if ($IncludeClaude) {
+        $sources.Add([pscustomobject] @{
+            Tool = 'claude'
+            PreferredPlatform = ''
+            Path = Join-Path $HomeRoot '.claude/skills'
+            Selection = 'fixed'
+            RelativePath = '.claude/skills'
+        })
+    }
+    if ($IncludeCodex) {
+        $codex = Get-CodexLiveSkillsInfo -HomeRoot $HomeRoot
+        $sources.Add([pscustomobject] @{
+            Tool = 'codex'
+            PreferredPlatform = ''
+            Path = $codex.Path
+            Selection = $codex.Selection
+            RelativePath = $codex.RelativePath
+        })
+    }
+    if ($IncludeOpenClaw) {
+        $sources.Add([pscustomobject] @{
+            Tool = 'openclaw'
+            PreferredPlatform = 'openclaw-only'
+            Path = Join-Path $HomeRoot '.openclaw/skills'
+            Selection = 'fixed'
+            RelativePath = '.openclaw/skills'
+        })
+    }
+    return @($sources)
+}
+
+function Get-SkillDirectories {
+    param(
+        [Parameter(Mandatory)] [string] $RootPath,
+        [string[]] $ExcludeNames = @('.system')
+    )
+
+    if (-not (Test-Path -LiteralPath $RootPath)) {
+        return @()
+    }
+    return @(Get-ChildItem -LiteralPath $RootPath -Directory -Force -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -notin $ExcludeNames -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'SKILL.md'))
+        } | Sort-Object Name)
+}
+
 function Join-RepoPath {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
@@ -212,6 +296,27 @@ function Get-RelativeDisplayPath {
     return ([System.IO.Path]::GetRelativePath($Root, $Path) -replace '\\', '/')
 }
 
+function Get-PortableSkillPath {
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $Path
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $fullRepo = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
+    $repoPrefix = $fullRepo + [System.IO.Path]::DirectorySeparatorChar
+    if ($fullPath.Equals($fullRepo, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $fullPath.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return Get-RelativeDisplayPath -Root $RepoRoot -Path $fullPath
+    }
+
+    $normalized = $fullPath -replace '\\', '/'
+    if ($normalized -match '(?i)(/\.claude/.*|/\.codex/.*|/\.agents/.*|/\.openclaw/.*)$') {
+        return '<HomeRoot>' + $Matches[1]
+    }
+    return '<external>/' + (Split-Path -Leaf $fullPath)
+}
+
 function Get-SkillSignals {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
@@ -220,6 +325,7 @@ function Get-SkillSignals {
 
     $claudeFeatures = [System.Collections.Generic.List[string]]::new()
     $codexFeatures = [System.Collections.Generic.List[string]]::new()
+    $openClawFeatures = [System.Collections.Generic.List[string]]::new()
     $localPaths = [System.Collections.Generic.List[object]]::new()
     $secretFindings = [System.Collections.Generic.List[object]]::new()
     $binaryFindings = [System.Collections.Generic.List[object]]::new()
@@ -238,6 +344,11 @@ function Get-SkillSignals {
         'codex-plugin-metadata' = '(?i)codex plugin metadata|\.codex-plugin'
         'codex-ui-metadata' = '(?i)codex ui metadata'
         'codex-tool-dependency' = '(?i)codex-specific tool dependencies'
+    }
+    $openClawPatterns = [ordered] @{
+        'openclaw-skill-root' = '(?i)[/\\]\.openclaw[/\\](?:workspace[/\\])?skills[/\\]'
+        'clawhub-metadata' = '(?i)[/\\]\.clawhub(?:[/\\]|$)|\bclawhub\b'
+        'openclaw-skill-reference' = '(?i)\bOpenClaw\b|\bOpenClaw skill\b'
     }
     $secretPatterns = [ordered] @{
         'Anthropic API key' = 'sk-ant-[A-Za-z0-9_-]{20,}'
@@ -277,6 +388,11 @@ function Get-SkillSignals {
         foreach ($entry in $codexPatterns.GetEnumerator()) {
             if (($text -match $entry.Value -or ($file.FullName -match $entry.Value)) -and -not $codexFeatures.Contains($entry.Key)) {
                 $codexFeatures.Add($entry.Key)
+            }
+        }
+        foreach ($entry in $openClawPatterns.GetEnumerator()) {
+            if (($text -match $entry.Value -or ($file.FullName -match $entry.Value)) -and -not $openClawFeatures.Contains($entry.Key)) {
+                $openClawFeatures.Add($entry.Key)
             }
         }
         foreach ($entry in $localPathPatterns.GetEnumerator()) {
@@ -320,6 +436,7 @@ function Get-SkillSignals {
     return [pscustomobject] @{
         ClaudeFeatures = @($claudeFeatures | Sort-Object -Unique)
         CodexFeatures = @($codexFeatures | Sort-Object -Unique)
+        OpenClawFeatures = @($openClawFeatures | Sort-Object -Unique)
         LocalPathFindings = @($localPaths)
         SecretFindings = @($secretFindings)
         BinaryFindings = @($binaryFindings)
@@ -332,7 +449,8 @@ function Get-SkillRecord {
         [Parameter(Mandatory)] [string] $SkillPath,
         [Parameter(Mandatory)] [string] $SourceTool,
         [Parameter(Mandatory)] [string] $MachineId,
-        [Parameter(Mandatory)] [string] $Collection
+        [Parameter(Mandatory)] [string] $Collection,
+        [string] $PreferredPlatform = ''
     )
 
     $frontMatter = Get-SkillFrontMatter -SkillPath $SkillPath
@@ -342,12 +460,20 @@ function Get-SkillRecord {
     $dirName = Split-Path -Leaf $SkillPath
     $skillName = Get-SkillName -SkillPath $SkillPath
     $qualityScore = Get-SkillQualityScore -SkillPath $SkillPath -Signals $signals
+    $classification = Get-SkillClassification -Signals $signals -PreferredPlatform $PreferredPlatform
+    $scanStatus = Get-SkillScanStatus -SkillPath $SkillPath -Signals $signals
+    $platformSignals = [pscustomobject] @{
+        claude = @($signals.ClaudeFeatures)
+        codex = @($signals.CodexFeatures)
+        openclaw = @($signals.OpenClawFeatures)
+    }
 
     return [pscustomobject] @{
         source_tool = $SourceTool
         machine_id = $MachineId
         collection = $Collection
-        source_path = $SkillPath
+        source_path = Get-PortableSkillPath -RepoRoot $RepoRoot -Path $SkillPath
+        resolved_source_path = $SkillPath
         repo_relative_path = Get-RelativeDisplayPath -Root $RepoRoot -Path $SkillPath
         skill_dir_name = $dirName
         normalized_name = $skillName
@@ -358,12 +484,74 @@ function Get-SkillRecord {
         total_size = [int64] (($files | Measure-Object -Property Length -Sum).Sum ?? 0)
         sha256_of_skill_md = Get-FileSha256 -Path $skillMd
         sha256_tree_hash = Get-TreeHash -Path $SkillPath
-        possible_platform_specific_features = @($signals.ClaudeFeatures + $signals.CodexFeatures | Sort-Object -Unique)
+        possible_platform_specific_features = @($signals.ClaudeFeatures + $signals.CodexFeatures + $signals.OpenClawFeatures | Sort-Object -Unique)
+        platform_signals = $platformSignals
         possible_secret_findings = @($signals.SecretFindings)
         possible_local_path_findings = @($signals.LocalPathFindings)
         possible_binary_findings = @($signals.BinaryFindings)
-        classification = Get-SkillClassification -Signals $signals
+        scan_status = $scanStatus
+        modified_time_utc = 'not-collected'
+        modified_time_source = 'not-collected'
+        classification = $classification
         quality_score = $qualityScore
+    }
+}
+
+function Get-SkillScanStatus {
+    param(
+        [Parameter(Mandatory)] [string] $SkillPath,
+        [Parameter(Mandatory)] [object] $Signals
+    )
+
+    $skillMd = Join-Path $SkillPath 'SKILL.md'
+    if (-not (Test-Path -LiteralPath $skillMd) -or (Get-Item -LiteralPath $skillMd).Length -eq 0) {
+        return 'failed-missing-entrypoint'
+    }
+    if (@($Signals.SecretFindings).Count -gt 0) {
+        return 'quarantine-secret'
+    }
+    if (@($Signals.BinaryFindings).Count -gt 0) {
+        return 'quarantine-binary-or-large-file'
+    }
+    if (@($Signals.LocalPathFindings).Count -gt 0) {
+        return 'review-required-path'
+    }
+    if (@($Signals.ClaudeFeatures).Count -gt 0 -and @($Signals.CodexFeatures).Count -gt 0) {
+        return 'quarantine-platform-conflict'
+    }
+    return 'passed'
+}
+
+function ConvertTo-SafeSkillRecord {
+    param(
+        [Parameter(Mandatory)] [object] $Record
+    )
+
+    return [pscustomobject] [ordered] @{
+        source_tool = $Record.source_tool
+        machine_id = $Record.machine_id
+        collection = $Record.collection
+        source_path = $Record.source_path
+        repo_relative_path = $Record.repo_relative_path
+        skill_dir_name = $Record.skill_dir_name
+        normalized_name = $Record.normalized_name
+        frontmatter_name = $Record.frontmatter_name
+        frontmatter_description = $Record.frontmatter_description
+        has_skill_md = $Record.has_skill_md
+        file_count = $Record.file_count
+        total_size = $Record.total_size
+        sha256_of_skill_md = $Record.sha256_of_skill_md
+        sha256_tree_hash = $Record.sha256_tree_hash
+        possible_platform_specific_features = @($Record.possible_platform_specific_features)
+        platform_signals = $Record.platform_signals
+        possible_secret_findings = @($Record.possible_secret_findings)
+        possible_local_path_findings = @($Record.possible_local_path_findings)
+        possible_binary_findings = @($Record.possible_binary_findings)
+        scan_status = $Record.scan_status
+        modified_time_utc = $Record.modified_time_utc
+        modified_time_source = $Record.modified_time_source
+        classification = $Record.classification
+        quality_score = $Record.quality_score
     }
 }
 
@@ -394,7 +582,8 @@ function Get-SkillQualityScore {
 
 function Get-SkillClassification {
     param(
-        [Parameter(Mandatory)] [object] $Signals
+        [Parameter(Mandatory)] [object] $Signals,
+        [string] $PreferredPlatform = ''
     )
 
     if (@($Signals.SecretFindings).Count -gt 0) {
@@ -406,7 +595,12 @@ function Get-SkillClassification {
 
     $hasClaude = @($Signals.ClaudeFeatures).Count -gt 0
     $hasCodex = @($Signals.CodexFeatures).Count -gt 0
+    $hasOpenClaw = @($Signals.OpenClawFeatures).Count -gt 0
     if ($hasClaude -and $hasCodex) {
+        return 'quarantine'
+    }
+    if (($hasOpenClaw -and ($hasClaude -or $hasCodex)) -or
+        ($PreferredPlatform -eq 'openclaw-only' -and ($hasClaude -or $hasCodex))) {
         return 'quarantine'
     }
     if ($hasClaude) {
@@ -414,6 +608,9 @@ function Get-SkillClassification {
     }
     if ($hasCodex) {
         return 'codex-only'
+    }
+    if ($hasOpenClaw -or $PreferredPlatform -eq 'openclaw-only') {
+        return 'openclaw-only'
     }
     return 'shared'
 }
@@ -450,7 +647,7 @@ function Normalize-SkillDirectory {
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $InputSkillPath,
         [Parameter(Mandatory)] [string] $OutputSkillPath,
-        [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only')] [string] $TargetType
+        [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'openclaw-only')] [string] $TargetType
     )
 
     Assert-PathUnderRoot -Root $RepoRoot -Path $OutputSkillPath
@@ -464,6 +661,21 @@ function Normalize-SkillDirectory {
     }
     if (@($signals.BinaryFindings).Count -gt 0) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'binary-or-large-file'; Rewrites = @() }
+    }
+    if (@($signals.ClaudeFeatures).Count -gt 0 -and @($signals.CodexFeatures).Count -gt 0) {
+        return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-conflict'; Rewrites = @() }
+    }
+    if ($TargetType -eq 'shared' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0 -or @($signals.OpenClawFeatures).Count -gt 0)) {
+        return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
+    }
+    if ($TargetType -eq 'claude-only' -and (@($signals.CodexFeatures).Count -gt 0 -or @($signals.OpenClawFeatures).Count -gt 0)) {
+        return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
+    }
+    if ($TargetType -eq 'codex-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.OpenClawFeatures).Count -gt 0)) {
+        return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
+    }
+    if ($TargetType -eq 'openclaw-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0)) {
+        return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
 
     if (Test-Path -LiteralPath $OutputSkillPath) {
