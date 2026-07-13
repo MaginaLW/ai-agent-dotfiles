@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/harness-env-lock.schema.json",
+  "title": "AI Agent Dotfiles Harness Environment Lock",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "Name",
+    "DefinitionHash",
+    "RepositoryCommit",
+    "ManifestHashes",
+    "SkillSourceEvidence",
+    "SkillSourceHashes",
+    "StagedSkillTreeHashes",
+    "ProfileSourceHash",
+    "ProfileOutputHash",
+    "ManagedPluginDeclaration",
+    "BuiltFiles"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": 2 },
+    "Name": { "type": "string", "minLength": 1 },
+    "DefinitionHash": { "type": "string", "minLength": 1 },
+    "RepositoryCommit": { "type": ["string", "null"] },
+    "ManifestHashes": {
+      "type": "object",
+      "required": ["Claude", "Codex", "OpenClaw"],
+      "properties": {
+        "Claude": { "type": ["string", "null"] },
+        "Codex": { "type": ["string", "null"] },
+        "OpenClaw": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "SkillSourceEvidence": { "enum": ["available", "not-collected"] },
+    "SkillSourceHashes": {
+      "type": "object",
+      "required": ["Claude", "Codex"],
+      "properties": {
+        "Claude": { "$ref": "#/$defs/hashMap" },
+        "Codex": { "$ref": "#/$defs/hashMap" }
+      },
+      "additionalProperties": false
+    },
+    "StagedSkillTreeHashes": {
+      "type": "object",
+      "required": ["Claude", "Codex"],
+      "properties": {
+        "Claude": { "$ref": "#/$defs/hashMap" },
+        "Codex": { "$ref": "#/$defs/hashMap" }
+      },
+      "additionalProperties": false
+    },
+    "ProfileSourceHash": { "type": ["string", "null"] },
+    "ProfileOutputHash": { "type": ["string", "null"] },
+    "ManagedPluginDeclaration": {
+      "type": "object",
+      "required": ["Included", "Hash", "Reason"],
+      "properties": {
+        "Included": { "type": "boolean" },
+        "Hash": { "type": ["string", "null"] },
+        "Reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "BuiltFiles": { "$ref": "#/$defs/hashMap" }
+  },
+  "$defs": {
+    "hashMap": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "null"] }
+    }
+  },
+  "additionalProperties": false
+}

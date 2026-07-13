@@ -260,21 +260,22 @@ Artifacts / Locations:
 - Modify: scripts/harness-env-common.ps1
 - Modify: scripts/status-harness-env.ps1
 - Modify: scripts/activate-harness-env.ps1
+- Create: schemas/harness-env-lock.schema.json
 - Extend: tests/harness-env.tests.ps1
 
-- [ ] Step 1: Record provenance
+- [x] Step 1: Record provenance
 
 在 env.lock.json 中记录 environment definition hash、repo commit、平台 manifest hash、每个 staged skill tree hash、profile output hash 和 managed plugin declaration hash（若纳入该环境）。
 
-- [ ] Step 2: Validate activation inputs
+- [x] Step 2: Validate activation inputs
 
 activate 只能使用 lock 与 staging 内容完全匹配的环境；定义变更、source 变更或 staging 文件缺失时必须先 rebuild。
 
-- [ ] Step 3: Add attestation output
+- [x] Step 3: Add attestation output
 
 env status --Json 报告 active env、lock validity、definition drift、live managed-set parity、.system 状态和 backup reference，不报告敏感内容。
 
-- [ ] Step 4: Verify the output
+- [x] Step 4: Verify the output
 
 fake repo/fake home 测试 source 变更、lock 损坏、staging 缺失、激活后 drift 和重建后的恢复路径。
 
@@ -286,15 +287,15 @@ Artifacts / Locations:
 - Modify: docs/RESTORE.md
 - Extend: tests/harness-env.tests.ps1
 
-- [ ] Step 1: Define rollback scope
+- [x] Step 1: Define rollback scope
 
 rollback 只恢复本仓库 managed skills 和对应状态；不修改 .system、unknown live dirs、credentials、sessions、cache、Codex config.toml 或 OpenClaw machine state。
 
-- [ ] Step 2: Require explicit selection
+- [x] Step 2: Require explicit selection
 
 rollback 必须指定 backup/run id，并先输出 dry-run 计划；Apply 前验证 backup manifest、target root 和 plan hash。
 
-- [ ] Step 3: Verify the output
+- [x] Step 3: Verify the output
 
 fake home 验证激活环境 A -> B -> rollback A，managed parity 恢复、unknown 和 .system 保持不变，状态文件只在成功后更新。
 
@@ -334,6 +335,6 @@ fake home 验证激活环境 A -> B -> rollback A，managed parity 恢复、unkn
 5. Phase 4：在稳定 sync 之上做 environment lock、attestation 和 rollback。
 6. Phase 5：根据实际需求从 Harness、MCP、OpenClaw 插件中选择一个单独立项。
 
-当前执行状态：Phase 0–3 已完成并通过本地回归验证；Phase 4（Environment lock / attestation / rollback）和 Phase 5（可选扩展）保持未启动，需另行评审和分阶段实施。
+当前执行状态：Phase 0–4 已完成并通过本地回归验证；Phase 5（可选扩展）保持未启动，需另行评审和分阶段实施。
 
-本次 Phase 0–3 的验证证据包括：config-sync 17/17、harness-profile 33/33、harness-env 104/104、skills import/merge 22/22、sync transactional tests 全部通过；真实仓库 build、fallback secret scan、dry-run sync 和 JSON schema 校验通过。未执行任何 live `-Apply`，未修改 Codex `.system`。
+本次 Phase 0–4 的验证证据包括：config-sync 17/17、harness-profile 33/33、harness-env 115/115、skills import/merge 22/22、OpenClaw plugin、doctor 和 unified CLI 11/11 全部通过；真实仓库 build、fallback secret scan、dry-run sync 和 harness-env/run-report JSON schema 校验通过。未执行任何 live `-Apply` 或 environment rollback，未修改 Codex `.system`。

@@ -113,7 +113,10 @@ jobs:
             'schemas\run-report.schema.json',
             'schemas\doctor-report.schema.json',
             'schemas\secret-scan.schema.json',
-            'schemas\harness-env-status.schema.json'
+            'schemas\harness-env-status.schema.json',
+            'schemas\harness-env-lock.schema.json',
+            'schemas\harness-env-list.schema.json',
+            'schemas\harness-env-build.schema.json'
           ) | ForEach-Object { Join-Path $env:GITHUB_WORKSPACE $_ }
           foreach ($schemaPath in $schemaPaths) {
             if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
@@ -137,12 +140,44 @@ jobs:
             throw 'Build JSON report has an unsupported schema or report kind.'
           }
 
+          $envBuildJson = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-env-build.json'
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\build-harness-env.ps1') -Name work -RepoRoot $env:GITHUB_WORKSPACE -JsonPath $envBuildJson
+          if ($LASTEXITCODE -ne 0) { throw "build-harness-env.ps1 failed with exit code $LASTEXITCODE." }
+          $envBuild = Get-Content -Raw -LiteralPath $envBuildJson | ConvertFrom-Json
+          foreach ($required in @('SchemaVersion', 'Name', 'Result', 'DefinitionHash', 'LockHash', 'SkillSourceEvidence', 'FileCount')) {
+            if (-not ($envBuild.PSObject.Properties.Name -contains $required)) {
+              throw "Harness environment build JSON is missing required field: $required"
+            }
+          }
+          if ([int]$envBuild.SchemaVersion -ne 1 -or $envBuild.Name -ne 'work' -or $envBuild.Result -ne 'PASS') {
+            throw 'Harness environment build JSON is invalid.'
+          }
+          $envLockPath = Join-Path $env:GITHUB_WORKSPACE 'envs\work\env.lock.json'
+          if (-not (Test-Path -LiteralPath $envLockPath -PathType Leaf)) { throw 'Harness environment lock was not generated.' }
+          $envLock = Get-Content -Raw -LiteralPath $envLockPath | ConvertFrom-Json
+          foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'ManifestHashes', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'ManagedPluginDeclaration', 'BuiltFiles')) {
+            if (-not ($envLock.PSObject.Properties.Name -contains $required)) {
+              throw "Harness environment lock is missing required field: $required"
+            }
+          }
+          if ([int]$envLock.SchemaVersion -ne 2 -or $envLock.Name -ne 'work') { throw 'Harness environment lock has an unsupported schema or name.' }
+
+          $envListJson = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-env-list.json'
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\list-harness-env.ps1') -RepoRoot $env:GITHUB_WORKSPACE -JsonPath $envListJson
+          if ($LASTEXITCODE -ne 0) { throw "list-harness-env.ps1 failed with exit code $LASTEXITCODE." }
+          $envList = Get-Content -Raw -LiteralPath $envListJson | ConvertFrom-Json
+          if ([int]$envList.SchemaVersion -ne 1 -or $null -eq $envList.Environments) { throw 'Harness environment list JSON is invalid.' }
+
           $envStatusJson = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-env-status.json'
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\status-harness-env.ps1') -RepoRoot $env:GITHUB_WORKSPACE -JsonPath $envStatusJson
           if ($LASTEXITCODE -ne 0) { throw "status-harness-env.ps1 failed with exit code $LASTEXITCODE." }
           $envStatus = Get-Content -Raw -LiteralPath $envStatusJson | ConvertFrom-Json
           if ([int]$envStatus.SchemaVersion -ne 1 -or -not ($envStatus.PSObject.Properties.Name -contains 'Environments')) {
             throw 'Harness environment JSON status summary is invalid.'
+          }
+          $workStatus = @($envStatus.Environments | Where-Object { $_.Name -eq 'work' })
+          if ($workStatus.Count -ne 1 -or $workStatus[0].StagingStatus -ne 'built' -or $workStatus[0].LockStatus -ne 'valid') {
+            throw 'Harness environment status did not attest the freshly built work environment.'
           }
           Write-Host "Machine-readable evidence validated: $latest"
 
@@ -202,6 +237,19 @@ jobs:
           & pwsh -NoProfile -File $scriptPath
           if ($LASTEXITCODE -ne 0) {
             throw "harness-env.tests.ps1 failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Run unified CLI tests
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\agent-dotfiles.tests.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            throw 'tests/agent-dotfiles.tests.ps1 is missing; the unified CLI smoke suite is required.'
+          }
+
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "agent-dotfiles.tests.ps1 failed with exit code $LASTEXITCODE."
           }
 
       - name: Reject dangerous tracked files

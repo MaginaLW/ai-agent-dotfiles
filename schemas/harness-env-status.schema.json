@@ -15,7 +15,9 @@
         "properties": {
           "Name": { "type": "string" },
           "DefinitionStatus": { "enum": ["valid", "invalid"] },
-          "StagingStatus": { "enum": ["missing", "stale", "built"] }
+          "StagingStatus": { "enum": ["missing", "stale", "built"] },
+          "LockStatus": { "enum": ["not-checked", "valid", "invalid"] },
+          "LockReasons": { "type": "array", "items": { "type": "string" } }
         },
         "additionalProperties": false
       }
@@ -25,7 +27,22 @@
       "required": ["Name", "Status"],
       "properties": {
         "Name": { "type": ["string", "null"] },
-        "Status": { "enum": ["none", "active", "drift"] }
+        "Status": { "enum": ["none", "active", "drift"] },
+        "LockValidity": { "enum": ["not-checked", "valid", "invalid"] },
+        "DefinitionDrift": { "type": "boolean" },
+        "LiveParity": {
+          "type": "object",
+          "required": ["Status", "Mismatches"],
+          "properties": {
+            "Status": { "enum": ["not-checked", "pass", "mismatch"] },
+            "Mismatches": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "SystemStatus": { "enum": ["not-checked", "not-present", "present-marker", "present-marker-missing"] },
+        "BackupReference": { "type": ["string", "null"] },
+        "LockHash": { "type": ["string", "null"] },
+        "LockReasons": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },

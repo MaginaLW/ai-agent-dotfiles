@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/harness-env-list.schema.json",
+  "title": "AI Agent Dotfiles Harness Environment List",
+  "type": "object",
+  "required": ["SchemaVersion", "GeneratedAtUtc", "Environments", "ActiveName", "Result"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time" },
+    "Environments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Name", "Description", "Profile", "ClaudeSkillCount", "CodexSkillCount", "Status", "StatusDetail", "Active"],
+        "properties": {
+          "Name": { "type": "string" },
+          "Description": { "type": "string" },
+          "Profile": { "type": "string" },
+          "ClaudeSkillCount": { "type": "integer", "minimum": 0 },
+          "CodexSkillCount": { "type": "integer", "minimum": 0 },
+          "Status": { "enum": ["ok", "invalid"] },
+          "StatusDetail": { "type": ["string", "null"] },
+          "Active": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "ActiveName": { "type": ["string", "null"] },
+    "Result": { "enum": ["PASS", "FAIL"] }
+  },
+  "additionalProperties": false
+}

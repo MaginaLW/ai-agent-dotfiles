@@ -10,8 +10,8 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, backup, sync, inventory, analyze, merge,
-    plugin, or env.
+    One of: doctor, build, scan, backup, sync, config, profile, skills,
+    inventory, analyze, merge, plugin, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -25,9 +25,10 @@
 .NOTES
     The sync subcommand requires exactly one explicit mode: -DryRun or -Apply.
     Apply is never selected or added by default.
-    The env subcommand requires a sub-action: list, status, build, or activate.
+    The env subcommand requires a sub-action: list, status, build, activate, or rollback.
     The env activate sub-action requires exactly one explicit mode: -DryRun or
-    -Apply, mirroring sync.
+    -Apply, mirroring sync. Rollback follows the same gate and also requires a
+    reviewed -PlanPath when applying.
 #>
 param(
     [Parameter(Position = 0)]
@@ -42,11 +43,14 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync, inventory, analyze, merge, plugin, env'
+    Write-Host 'Commands: doctor, build, scan, backup, sync, config, profile, skills, inventory, analyze, merge, plugin, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
-    Write-Host 'Env requires a sub-action (list, status, build, activate): scripts/agent-dotfiles.ps1 env list'
-    Write-Host 'Env activate requires exactly one explicit mode: -DryRun or -Apply.'
+    Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
+    Write-Host 'Skills actions: inventory, analyze, dedupe, merge, normalize, promote.'
+    Write-Host 'Env actions: list, status, build, activate, rollback.'
+    Write-Host 'Legacy inventory openclaw form is also supported: agent-dotfiles.ps1 inventory openclaw'
+    Write-Host 'Mutating actions require exactly one explicit mode: -DryRun or -Apply.'
 }
 
 if ([string]::IsNullOrWhiteSpace($Command)) {
@@ -72,49 +76,91 @@ $envCommandMap = @{
     status   = 'status-harness-env.ps1'
     build    = 'build-harness-env.ps1'
     activate = 'activate-harness-env.ps1'
+    rollback = 'rollback-harness-env.ps1'
+}
+
+$configCommandMap = @{
+    status = 'config-status.ps1'
+    pull   = 'config-pull.ps1'
+    push   = 'config-push.ps1'
+}
+
+$profileCommandMap = @{
+    status = 'status-harness-profile.ps1'
+    build  = 'build-harness-profile.ps1'
+    apply  = 'apply-harness-profile.ps1'
+}
+
+$skillsCommandMap = @{
+    inventory = 'inventory-skills.ps1'
+    analyze   = 'analyze-skills.ps1'
+    dedupe    = 'dedupe-skills.ps1'
+    merge     = 'auto-merge-skills.ps1'
+    normalize = 'normalize-skill.ps1'
+    promote   = 'promote-skill.ps1'
 }
 
 $normalizedCommand = $Command.ToLowerInvariant()
-if ($normalizedCommand -ne 'env' -and -not $commandMap.ContainsKey($normalizedCommand)) {
+if ($normalizedCommand -notin @('env', 'config', 'profile', 'skills') -and -not $commandMap.ContainsKey($normalizedCommand)) {
     Write-Error "Unsupported command: $Command" -ErrorAction Continue
     Write-Usage
     exit 1
 }
 
 $forwardedArguments = @($RemainingArguments)
-if ($normalizedCommand -eq 'env') {
+if ($normalizedCommand -in @('env', 'config', 'profile', 'skills')) {
     if ($forwardedArguments.Count -eq 0 -or $null -eq $forwardedArguments[0]) {
-        Write-Error 'The env command requires a sub-action: list, status, build, or activate.' -ErrorAction Continue
+        Write-Error "The $normalizedCommand command requires a sub-action." -ErrorAction Continue
         Write-Usage
         exit 1
     }
 
-    $envAction = ([string]$forwardedArguments[0]).ToLowerInvariant()
-    if (-not $envCommandMap.ContainsKey($envAction)) {
-        Write-Error "Unsupported env sub-action: $($forwardedArguments[0])" -ErrorAction Continue
+    $groupAction = ([string]$forwardedArguments[0]).ToLowerInvariant()
+    $actionMap = switch ($normalizedCommand) {
+        'env' { $envCommandMap }
+        'config' { $configCommandMap }
+        'profile' { $profileCommandMap }
+        'skills' { $skillsCommandMap }
+    }
+    if (-not $actionMap.ContainsKey($groupAction)) {
+        Write-Error "Unsupported $normalizedCommand sub-action: $($forwardedArguments[0])" -ErrorAction Continue
         Write-Usage
         exit 1
     }
 
-    $targetScriptName = $envCommandMap[$envAction]
+    $targetScriptName = $actionMap[$groupAction]
     $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
 
-    if ($envAction -eq 'activate') {
+    $requiresExplicitMode = ($normalizedCommand -eq 'env' -and $groupAction -in @('activate', 'rollback')) -or
+        ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
+        ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
+        ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'promote'))
+    if ($requiresExplicitMode) {
         $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
         $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
 
         if (-not $hasDryRun -and -not $hasApply) {
-            Write-Error 'The env activate command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
+            Write-Error "The $normalizedCommand $groupAction command requires an explicit -DryRun or -Apply mode. Run -DryRun first." -ErrorAction Continue
             exit 1
         }
         if ($hasDryRun -and $hasApply) {
-            Write-Error 'The env activate command accepts only one mode. Specify -DryRun or -Apply, not both.' -ErrorAction Continue
+            Write-Error "The $normalizedCommand $groupAction command accepts only one mode. Specify -DryRun or -Apply, not both." -ErrorAction Continue
             exit 1
+        }
+        # config/profile scripts are dry-run by default but intentionally do
+        # not expose a -DryRun switch; consume the unified CLI spelling here.
+        if ($hasDryRun -and $normalizedCommand -in @('config', 'profile')) {
+            $forwardedArguments = @($forwardedArguments | Where-Object { $_ -isnot [string] -or $_ -ine '-DryRun' })
         }
     }
 }
 else {
     $targetScriptName = $commandMap[$normalizedCommand]
+    if ($normalizedCommand -eq 'inventory' -and $forwardedArguments.Count -gt 0 -and
+        ([string] $forwardedArguments[0]).ToLowerInvariant() -eq 'openclaw') {
+        $targetScriptName = 'inventory-openclaw.ps1'
+        $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
+    }
 }
 
 if ($normalizedCommand -eq 'sync') {
@@ -144,15 +190,20 @@ if ($pwshCommands.Count -eq 0) {
 }
 $pwshPath = $pwshCommands[0].Source
 
-Write-Host "Invoking script: $targetScript"
+$jsonStdout = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0
+if (-not $jsonStdout) {
+    Write-Host "Invoking script: $targetScript"
+}
 & $pwshPath -NoProfile -File $targetScript @forwardedArguments
 $childExitCode = $LASTEXITCODE
 
-if ($childExitCode -eq 0) {
-    Write-Host "Command result: PASS (exit $childExitCode)"
-}
-else {
-    Write-Host "Command result: FAIL (exit $childExitCode)" -ForegroundColor Red
+if (-not $jsonStdout) {
+    if ($childExitCode -eq 0) {
+        Write-Host "Command result: PASS (exit $childExitCode)"
+    }
+    else {
+        Write-Host "Command result: FAIL (exit $childExitCode)" -ForegroundColor Red
+    }
 }
 
 exit $childExitCode
