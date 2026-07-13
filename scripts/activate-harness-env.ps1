@@ -157,11 +157,32 @@ $syncArguments = @(
     '-SkipBuild'
     '-SkipSecretScan'
 )
-$syncArguments += if ($Apply) { @('-Apply', '-BackupRoot', $BackupRoot) } else { @('-DryRun') }
-$code = Invoke-GateScript -ScriptName 'sync.ps1' -Arguments $syncArguments
-if ($code -ne 0) {
-    Write-Error "sync.ps1 failed (exit $code). State file not written." -ErrorAction Continue
-    exit $code
+$planPath = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-env-$Name-$([Guid]::NewGuid().ToString('N')).json"
+if ($Apply) {
+    Write-Host 'Gate 4/4a: generate and bind the dry-run plan'
+    $dryArguments = @($syncArguments + @('-DryRun', '-PlanPath', $planPath))
+    $code = Invoke-GateScript -ScriptName 'sync.ps1' -Arguments $dryArguments
+    if ($code -ne 0) {
+        Write-Error "sync.ps1 dry-run failed (exit $code). State file not written." -ErrorAction Continue
+        exit $code
+    }
+
+    Write-Host 'Gate 4/4b: apply the exact reviewed plan'
+    $applyArguments = @($syncArguments + @('-Apply', '-BackupRoot', $BackupRoot, '-PlanPath', $planPath))
+    $code = Invoke-GateScript -ScriptName 'sync.ps1' -Arguments $applyArguments
+    if ($code -ne 0) {
+        Write-Error "sync.ps1 apply failed (exit $code). State file not written. Plan retained at $planPath" -ErrorAction Continue
+        exit $code
+    }
+    Remove-Item -LiteralPath $planPath -Force -ErrorAction SilentlyContinue
+}
+else {
+    $dryArguments = @($syncArguments + @('-DryRun', '-PlanPath', $planPath))
+    $code = Invoke-GateScript -ScriptName 'sync.ps1' -Arguments $dryArguments
+    if ($code -ne 0) {
+        Write-Error "sync.ps1 failed (exit $code). State file not written." -ErrorAction Continue
+        exit $code
+    }
 }
 
 $statePath = Get-HarnessEnvStatePath -RepoRoot $repoFull

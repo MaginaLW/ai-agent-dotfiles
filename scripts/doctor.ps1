@@ -14,6 +14,10 @@
 .PARAMETER SkipSecretsScan
     Skips scripts/scan-secrets.ps1 and records a warning.
 
+.PARAMETER JsonPath
+    Optional path for a safe machine-readable summary. The JSON contains counts
+    and result status, but no live paths or diagnostic message contents.
+
 .NOTES
     Designed for PowerShell 7 and intentionally written with Windows PowerShell 5.1
     compatible syntax. The repository secret scanner itself requires PowerShell 7;
@@ -23,7 +27,8 @@
 [CmdletBinding()]
 param(
     [string] $RepoRoot,
-    [switch] $SkipSecretsScan
+    [switch] $SkipSecretsScan,
+    [string] $JsonPath
 )
 
 Set-StrictMode -Version 2.0
@@ -33,6 +38,27 @@ $script:PassCount = 0
 $script:WarnCount = 0
 $script:FailCount = 0
 $script:InfoCount = 0
+
+function Write-DoctorJson {
+    param([Parameter(Mandatory = $true)] [string] $Path)
+
+    $parent = Split-Path -Parent $Path
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $result = if ($script:FailCount -gt 0) { 'FAIL' } elseif ($script:WarnCount -gt 0) { 'WARN' } else { 'PASS' }
+    $document = [ordered]@{
+        SchemaVersion = 1
+        GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
+        Result = $result
+        Counts = [ordered]@{
+            Pass = $script:PassCount
+            Warn = $script:WarnCount
+            Fail = $script:FailCount
+            Info = $script:InfoCount
+        }
+        SecretsScanSkipped = [bool] $SkipSecretsScan
+    }
+    [System.IO.File]::WriteAllText($Path, (ConvertTo-Json -InputObject $document -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
+}
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -98,17 +124,6 @@ function Test-LivePath {
         Add-DoctorResult -Level 'WARN' -Message "$Label not found."
         Write-Verbose "$Label expected path: $Path"
     }
-}
-
-function Get-FirstExistingDirectory {
-    param([Parameter(Mandatory = $true)] [string[]] $Candidates)
-
-    foreach ($candidate in $Candidates) {
-        if (Test-Path -LiteralPath $candidate -PathType Container) {
-            return $candidate
-        }
-    }
-    return $null
 }
 
 try {
@@ -192,7 +207,6 @@ $requiredStructure = @(
     @{ Path = 'docs'; Type = 'Directory'; Missing = 'FAIL' },
     @{ Path = 'scripts'; Type = 'Directory'; Missing = 'FAIL' },
     @{ Path = 'skills-source'; Type = 'Directory'; Missing = 'FAIL' },
-    @{ Path = 'generated'; Type = 'Directory'; Missing = 'WARN' },
     @{ Path = 'imports'; Type = 'Directory'; Missing = 'FAIL' },
     @{ Path = 'status'; Type = 'Directory'; Missing = 'FAIL' },
     @{ Path = 'status\active'; Type = 'Directory'; Missing = 'FAIL' },
@@ -240,65 +254,28 @@ else {
 }
 
 Write-Section -Name 'Generated output'
-$generatedRoot = Join-Path $RepoRoot 'generated'
-if (Test-Path -LiteralPath $generatedRoot -PathType Container) {
-    Add-DoctorResult -Level 'PASS' -Message 'Top-level generated/ directory exists.'
-}
-else {
-    Add-DoctorResult -Level 'WARN' -Message 'Top-level generated/ directory is absent; this repository currently uses per-platform generated paths.'
-}
-
-$claudeGeneratedCandidates = @(
-    (Join-Path $RepoRoot 'claude\skills'),
-    (Join-Path $RepoRoot 'generated\claude\skills'),
-    (Join-Path $RepoRoot 'generated\claude')
+Add-DoctorResult -Level 'INFO' -Message 'Expected generated layout: claude/skills, codex/skills, openclaw/skills.'
+$generatedOutputs = @(
+    @{ Label = 'Claude'; RelativePath = 'claude\skills' },
+    @{ Label = 'Codex'; RelativePath = 'codex\skills' },
+    @{ Label = 'OpenClaw'; RelativePath = 'openclaw\skills' }
 )
-$codexGeneratedCandidates = @(
-    (Join-Path $RepoRoot 'codex\skills'),
-    (Join-Path $RepoRoot 'generated\codex\skills'),
-    (Join-Path $RepoRoot 'generated\codex')
-)
-$openclawGeneratedCandidates = @(
-    (Join-Path $RepoRoot 'openclaw\skills'),
-    (Join-Path $RepoRoot 'generated\openclaw\skills'),
-    (Join-Path $RepoRoot 'generated\openclaw')
-)
-
-$claudeGenerated = Get-FirstExistingDirectory -Candidates $claudeGeneratedCandidates
-$codexGenerated = Get-FirstExistingDirectory -Candidates $codexGeneratedCandidates
-$openclawGenerated = Get-FirstExistingDirectory -Candidates $openclawGeneratedCandidates
-
-if ($null -ne $claudeGenerated) {
-    Add-DoctorResult -Level 'PASS' -Message 'Claude generated output detected.'
-    Write-Verbose "Claude generated output: $claudeGenerated"
-}
-else {
-    Add-DoctorResult -Level 'WARN' -Message 'Claude generated output was not detected; inspect scripts/build-skills.ps1 before assuming the expected layout.'
-}
-
-if ($null -ne $codexGenerated) {
-    Add-DoctorResult -Level 'PASS' -Message 'Codex generated output detected.'
-    Write-Verbose "Codex generated output: $codexGenerated"
-}
-else {
-    Add-DoctorResult -Level 'WARN' -Message 'Codex generated output was not detected; inspect scripts/build-skills.ps1 before assuming the expected layout.'
-}
-
-if ($null -ne $openclawGenerated) {
-    Add-DoctorResult -Level 'PASS' -Message 'OpenClaw generated output detected.'
-    Write-Verbose "OpenClaw generated output: $openclawGenerated"
-}
-else {
-    Add-DoctorResult -Level 'WARN' -Message 'OpenClaw generated output was not detected; inspect scripts/build-skills.ps1 before assuming the expected layout.'
+foreach ($output in $generatedOutputs) {
+    $generatedPath = Join-Path $RepoRoot $output.RelativePath
+    if (Test-Path -LiteralPath $generatedPath -PathType Container) {
+        Add-DoctorResult -Level 'PASS' -Message "$($output.Label) generated output detected at $($output.RelativePath)."
+        Write-Verbose "$($output.Label) generated output: $generatedPath"
+    }
+    else {
+        Add-DoctorResult -Level 'WARN' -Message "$($output.Label) generated output is missing at $($output.RelativePath); run scripts/build-skills.ps1."
+    }
 }
 
 Write-Section -Name '.system protection'
 $systemCandidates = @(
     @{ Label = 'Live Codex preferred .system'; Path = if ($homeRoot) { Join-Path $homeRoot '.codex\skills\.system' } else { $null }; MarkerExpected = $true },
     @{ Label = 'Live Codex fallback .system'; Path = if ($homeRoot) { Join-Path $homeRoot '.agents\skills\.system' } else { $null }; MarkerExpected = $true },
-    @{ Label = 'Generated Codex .system'; Path = Join-Path $RepoRoot 'codex\skills\.system'; MarkerExpected = $false },
-    @{ Label = 'Top-level generated Codex .system'; Path = Join-Path $RepoRoot 'generated\codex\skills\.system'; MarkerExpected = $false },
-    @{ Label = 'Top-level generated .system'; Path = Join-Path $RepoRoot 'generated\.system'; MarkerExpected = $false }
+    @{ Label = 'Generated Codex .system'; Path = Join-Path $RepoRoot 'codex\skills\.system'; MarkerExpected = $false }
 )
 $systemFound = 0
 foreach ($candidate in $systemCandidates) {
@@ -371,6 +348,7 @@ Write-Section -Name 'Summary'
 Write-Host "PASS=$script:PassCount WARN=$script:WarnCount FAIL=$script:FailCount INFO=$script:InfoCount" -ForegroundColor White
 if ($script:FailCount -gt 0) {
     Write-Host 'Doctor result: FAIL' -ForegroundColor Red
+    if ($JsonPath) { Write-DoctorJson -Path $JsonPath }
     exit 1
 }
 
@@ -380,4 +358,5 @@ if ($script:WarnCount -gt 0) {
 else {
     Write-Host 'Doctor result: PASS' -ForegroundColor Green
 }
+if ($JsonPath) { Write-DoctorJson -Path $JsonPath }
 exit 0

@@ -3,7 +3,7 @@
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [Parameter(Mandatory)] [string] $InputSkillPath,
-    [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only')] [string] $TargetType,
+    [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'openclaw-only')] [string] $TargetType,
     [switch] $Apply,
     [switch] $DryRun
 )
@@ -25,6 +25,24 @@ if ($DryRun -or -not $Apply) {
     Write-Host "DRY-RUN: would promote $InputSkillPath -> $target"
     return
 }
+
+$existing = @()
+foreach ($type in @('shared', 'claude-only', 'codex-only', 'openclaw-only')) {
+    $existingPath = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "skills-source/$type/$name"
+    if (Test-Path -LiteralPath (Join-Path $existingPath 'SKILL.md')) {
+        $existing += $existingPath
+    }
+}
+if ($existing.Count -gt 0) {
+    [pscustomobject] [ordered] @{
+        Status = 'canonical-retained'
+        Reason = 'existing-canonical'
+        Name = $name
+        ExistingCanonical = @($existing | ForEach-Object { Get-PortableSkillPath -RepoRoot $RepoRoot -Path $_ })
+    } | ConvertTo-Json -Depth 10
+    exit 3
+}
+
 $result = Normalize-SkillDirectory -RepoRoot $RepoRoot -InputSkillPath $InputSkillPath -OutputSkillPath $target -TargetType $TargetType
 $result | ConvertTo-Json -Depth 10
 if ($result.Status -eq 'quarantine') {

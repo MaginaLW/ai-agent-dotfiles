@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-07-10
+Last updated: 2026-07-13
 
 This is the single global status file for the repository. Update it in place instead of creating additional overall status reports. Current task-level work belongs in [`status/active/`](status/active/); completed task reports belong in [`status/archived/`](status/archived/).
 
@@ -12,9 +12,19 @@ Maintain one conservative, auditable source for Claude, Codex, and OpenClaw skil
 
 Operations hardening plus the first Project Harness Profiles MVP. Skill build, backup, secret scanning, manifest-scoped sync, OpenClaw plugin desired-state management, repo-local auto-sync hooks, whitelist-scoped harness config status/pull/push, minimal Windows GitHub Actions validation, and project-local harness profile generation/apply scripts are implemented. Project Harness Profiles are first-version and project-local only: they generate `.agent-harness/generated/` under a target project and `apply-harness-profile.ps1 -Apply` writes only project-local allowlist output. This repository now also has a project-local `.agent-harness/profile.psd1` for real-project dry-run validation.
 
+Reliability-first roadmap Phase 0 (baseline and status calibration) was completed on 2026-07-13: status evidence now distinguishes dry-run, fake-home, and real apply; doctor checks the actual per-platform generated layout; and the Windows validation workflow fails closed when a core validation entry point is missing.
+
+Reliability-first roadmap Phases 1–3 were completed and locally verified on 2026-07-13. Inventory and merge now use platform-consistent fingerprints and fail closed on conflicts; sync uses content-aware add/update/no-op/prune plans, an external plan hash, same-volume staging, backup journal, and managed-skill rollback; core JSON evidence and regression suites are wired into Windows CI. This work did not run live `-Apply` and did not modify live skills, imports, backups, or Codex `.system`.
+
 Harness Environments Phases 1-3 landed on 2026-07-10 per `docs/superpowers/specs/2026-07-10-harness-env-design.md`: named env definitions in `harness-source/envs/`, `env list`/`env status`/`env build`/`env activate` subcommands under `scripts/agent-dotfiles.ps1`, staging output in Git-ignored `envs/<name>/`, and machine-private `state/current-env.json`. `env activate` is dry-run by default; `-Apply` deploys the env's skills subset exclusively through `sync.ps1` (mandatory backup, manifest-scoped prune, unknown dirs and Codex `.system` untouched) and only then writes the state file. Phase 2 scope is skills + state: home-level config deployment (config-pull integration) is deferred because no env-differentiated home config components exist yet. Phase 3 adds project linkage: a project's `.agent-harness/profile.psd1` may declare `RequiredEnv = '<name>'` and `env status -ProjectRoot <p>` reports whether the active environment matches — detection and reminder only, never an automatic activate. This repository declares `RequiredEnv = 'work'`.
 
-First real-home activation was performed on `MAGINA-LAPTOP` on 2026-07-10 with explicit user authorization: `env activate full -Apply` (the zero-prune baseline env) applied Claude `+0 ~15 -0`, Codex `+0 ~23 -0`, OpenClaw `+0 ~0 -0`, preserved the Codex `.system` marker, passed the managed-scope parity check, and wrote `state/current-env.json` (`Name=full`). Mandatory backups from the run: `sync-backup-20260710-135828` (first attempt, aborted by the parity false-positive below) and `sync-backup-20260710-140653` (successful run).
+Activation evidence is intentionally separated by execution mode:
+
+- Historical dry-run: `DESKTOP-3GMDAB7` was checked on 2026-06-30 with `sync.ps1` dry-runs only; no real-home `-Apply` was run there.
+- Fake-home validation: `tests/harness-env.tests.ps1` exercises apply, switch, prune, and parity behavior against test homes; those runs do not prove a real machine activation.
+- Real apply: with explicit user authorization, `MAGINA-LAPTOP` ran `env activate full -Apply` on 2026-07-10. The zero-prune baseline env applied Claude `+0 ~15 -0`, Codex `+0 ~23 -0`, OpenClaw `+0 ~0 -0`, preserved the Codex `.system` marker, passed the managed-scope parity check at that time, and wrote machine-private `state/current-env.json` (`Name=full`). Mandatory backups from the run were `sync-backup-20260710-135828` (first attempt, aborted by the parity false-positive below) and `sync-backup-20260710-140653` (successful run). A separate historical direct `sync.ps1 -Apply` report exists for `MAGINA-LAPTOP` on 2026-07-01; it is evidence of that run, not a current cross-machine attestation.
+
+The 2026-07-10 activation is therefore complete for `MAGINA-LAPTOP`; it must not be described as proof that every machine has been applied. The Phase 0 checks do not run live apply and do not create a new parity attestation.
 
 ## Current canonical decisions
 
@@ -40,7 +50,7 @@ First real-home activation was performed on `MAGINA-LAPTOP` on 2026-07-10 with e
 | Machine | Documented state |
 |---|---|
 | `DESKTOP-3GMDAB7` | Revalidated with dry-runs only on 2026-06-30: skill sync reported Claude `+0 ~15 -0`, Codex `+2 ~21 -0` with `.system` preserved, OpenClaw `+25 ~0 -0`, and OpenClaw plugin sync would install 2 managed plugins. No `-Apply` was run. |
-| `MAGINA-LAPTOP` | First harness-env activation applied on 2026-07-10: `env activate full -Apply` deployed Claude ~15, Codex ~23, OpenClaw untouched, `.system` preserved, parity OK, active env `full`. Earlier notes: Claude/Codex baseline verified; OpenClaw live apply still not recorded. |
+| `MAGINA-LAPTOP` | Real harness-env activation completed on 2026-07-10: `env activate full -Apply` deployed Claude ~15 and Codex ~23, left OpenClaw untouched, preserved `.system`, passed activation-time managed-scope parity, and recorded active env `full`. A 2026-07-13 read-only check still finds the expected live roots and state record; it is not a new apply or a portable attestation. |
 | Other machines | Run `bootstrap.ps1` once after cloning to install repo-local hooks and enter the guarded sync flow. |
 
 ## Build / scan status
@@ -60,12 +70,14 @@ First real-home activation was performed on `MAGINA-LAPTOP` on 2026-07-10 with e
 - `scripts/sync.ps1` was run in default dry-run mode on 2026-06-30 after build and secret scan. It reported no prune actions and no unknown live skill directories for Claude, Codex, or OpenClaw.
 - The 2026-06-30 dry-run plan was: Claude `+0 ~15 -0`; Codex `+2 ~21 -0`, with `.system` present and preserved; OpenClaw `+25 ~0 -0`.
 - OpenClaw plugin dry-run reported 2 managed plugin installs pending and 90 unknown plugins ignored.
-- Live parity is still not asserted because `scripts/sync.ps1 -Apply` was not used.
+- The 2026-07-10 `env activate full -Apply` did use the gated real apply path and passed managed-scope parity at that time. No live apply was run for Phase 0; a fresh post-activation parity attestation is not recorded here.
+- The 2026-07-13 reliability validation generated a fresh external sync plan: Claude `+0 ~0 =15 -0`, Codex `+0 ~1 =22 -0`, OpenClaw `+0 ~0 =25 -0`; Codex `.system` was reported preserved. The Codex `hatch-pet` content update remains unapplied pending explicit plan review and authorization.
 
 ## Known risks
 
 - Project Harness Profiles are an MVP and should be treated as project-local only until a separately reviewed task expands the model.
-- Live-machine parity has not been applied after the managed counts increased to 15/23/25.
+- `MAGINA-LAPTOP` has a recorded real activation for the current Claude/Codex managed scope; `DESKTOP-3GMDAB7` remains dry-run-only, and other machines remain unverified.
+- The active `full` environment intentionally leaves OpenClaw unchanged; OpenClaw's current live state must be evaluated separately from the environment activation record.
 - Historical machine verification describes earlier baselines and must not be treated as proof of current live state.
 - This checkout has a working pre-commit secret-scan hook, but the repo-local `post-merge`, `post-checkout`, and `post-rewrite` auto-sync hooks are not installed.
 - Claude MCP application remains documented as a placeholder.
@@ -79,5 +91,5 @@ First real-home activation was performed on `MAGINA-LAPTOP` on 2026-07-10 with e
 4. Apply sync only after the dry-run is reviewed and the mandatory backup path is confirmed.
 5. Revalidate each managed machine and update this file with evidence-backed results.
 6. Keep Project Harness Profiles project-local unless a future reviewed design explicitly adds global home switching or project-local skill installation.
-7. Before the first real-home `env activate <name> -Apply`, run the dry-run, review the plan (especially the prune list) by hand, and confirm the backup root. All apply-path verification so far used fake homes only.
+7. For each machine that has not completed a real activation, run `env activate <name> -DryRun`, review the plan (especially the prune list) by hand, and confirm the backup root before `-Apply`. `MAGINA-LAPTOP` has already completed this first real activation; future changes still require the same review.
 8. Integrating config deployment (config-pull) into `env activate` stays deferred until env-differentiated home config components exist; that integration needs its own review.

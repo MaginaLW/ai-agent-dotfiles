@@ -371,7 +371,10 @@ Apply only when all of these are true:
 Then run:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\sync.ps1 -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -Apply
+$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
+pwsh -NoProfile -File .\scripts\sync.ps1 -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -DryRun -PlanPath $plan
+# 人工审查计划后，应用同一份计划
+pwsh -NoProfile -File .\scripts\sync.ps1 -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -Apply -PlanPath $plan
 if ($LASTEXITCODE -ne 0) { throw "Sync apply failed with exit code $LASTEXITCODE; use the reported backup for recovery." }
 
 pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot $RepoRoot
@@ -380,7 +383,7 @@ if ($LASTEXITCODE -ne 0) { throw "Post-apply secret scan failed with exit code $
 git status --short --branch --untracked-files=all
 ```
 
-`sync.ps1 -Apply` performs its own build, secret scan, and mandatory backup before modifying live skills. The explicit post-apply scan and Git status are still required as final evidence.
+`sync.ps1 -Apply -PlanPath <plan>` rechecks the source, manifest, and live fingerprints before its own build, secret scan, and mandatory backup; drift rejects the apply. The explicit post-apply scan and Git status are still required as final evidence.
 
 ## 12. Review and commit the onboarding result
 

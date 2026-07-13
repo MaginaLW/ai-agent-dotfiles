@@ -49,15 +49,15 @@ Artifacts / Locations:
 - Review: tests/harness-profile.tests.ps1
 - Review: tests/harness-env.tests.ps1
 
-- [ ] Step 1: Gather the needed input
+- [x] Step 1: Gather the needed input
 
 运行：git status --short --branch；tests/config-sync.tests.ps1；tests/harness-profile.tests.ps1；tests/harness-env.tests.ps1。记录当前测试总数、managed skill 数量、doctor warnings、未安装的 hooks 和状态文档中的矛盾事实。
 
-- [ ] Step 2: Produce the task output
+- [x] Step 2: Produce the task output
 
 在本计划或对应阶段记录中固定基线，不把机器私有路径、token、backup 内容或 live 文件内容写入 Git。
 
-- [ ] Step 3: Verify the output
+- [x] Step 3: Verify the output
 
 Expected：三组现有回归测试全部通过，工作树只包含本计划文件或预期的已审阅变更。
 
@@ -69,19 +69,19 @@ Artifacts / Locations:
 - Modify: .github/workflows/validate.yml
 - Review: README.md、CLAUDE.md、docs/README.md
 
-- [ ] Step 1: Reconcile current facts
+- [x] Step 1: Reconcile current facts
 
 统一真实机器 activation、live parity、hooks 安装状态和下一步描述；删除已经完成事项的待办描述，保留历史证据但区分已完成和待重新验证。
 
-- [ ] Step 2: Correct repository structure checks
+- [x] Step 2: Correct repository structure checks
 
 让 doctor 以 claude/skills、codex/skills、openclaw/skills 为当前 generated layout 的事实来源，不再因为不存在的顶层 generated/ 产生误导性 warning。
 
-- [ ] Step 3: Make required CI checks fail closed
+- [x] Step 3: Make required CI checks fail closed
 
 对 doctor、scan、build 和三组核心测试文件的缺失改为失败；只有明确标记为 optional 的检查才允许 warning-and-skip。
 
-- [ ] Step 4: Verify the output
+- [x] Step 4: Verify the output
 
 运行：scripts/doctor.ps1 -RepoRoot . -SkipSecretsScan；scripts/scan-secrets.ps1 -RepoRoot .；git diff --check。Expected：doctor 不再报告错误的 generated layout warning；CI 核心入口缺失时返回非零；secret scan 和 diff check 通过。
 
@@ -98,19 +98,19 @@ Artifacts / Locations:
 - Review: scripts/sync.ps1
 - Create: tests/skills-import.tests.ps1
 
-- [ ] Step 1: Define the source contract
+- [x] Step 1: Define the source contract
 
 统一 Claude、Codex、OpenClaw 的 live probe 顺序；Codex 使用 .codex/skills 优先、.agents/skills fallback；inventory 明确排除 .system，并为 OpenClaw 提供显式 source tool / collection 字段。
 
-- [ ] Step 2: Preserve evidence
+- [x] Step 2: Preserve evidence
 
 让每个 record 至少包含 normalized name、source tool、machine id、collection、source path、file count、size、SKILL.md hash、tree hash、平台信号、secret/path/binary findings 和 scan status。modified time 未实现前必须记录为 not-collected，不得推断。
 
-- [ ] Step 3: Add focused tests
+- [x] Step 3: Add focused tests
 
 测试 fake home 中的 .codex/skills 优先级、.agents/skills fallback、.system 排除、OpenClaw inventory、重复运行不覆盖已有 inbox batch。
 
-- [ ] Step 4: Verify the output
+- [x] Step 4: Verify the output
 
 运行 tests/skills-import.tests.ps1 和 scripts/scan-secrets.ps1 -RepoRoot .。Expected：inventory 结果与 sync 的 live path 选择一致，.system 不进入候选，测试覆盖所有路径分支。
 
@@ -124,7 +124,7 @@ Artifacts / Locations:
 - Extend: tests/skills-import.tests.ps1
 - Review: docs/MERGE_POLICY.md
 
-- [ ] Step 1: Implement deterministic decisions
+- [x] Step 1: Implement deterministic decisions
 
 按以下顺序决策：
 
@@ -135,15 +135,15 @@ Artifacts / Locations:
 
 quality score 只能作为报告排序字段，不能决定 canonical。
 
-- [ ] Step 2: Complete OpenClaw support
+- [x] Step 2: Complete OpenClaw support
 
 使 analyze、auto-merge、promote、normalize 支持 openclaw-only，并验证 shared / Claude-only / Codex-only / OpenClaw-only 之间的名称冲突。
 
-- [ ] Step 3: Correct report accounting
+- [x] Step 3: Correct report accounting
 
 报告真实的 exact duplicate count、conflict groups、quarantine reason codes、canonical source、未采用候选和 source fingerprints；不写敏感值。
 
-- [ ] Step 4: Verify the output
+- [x] Step 4: Verify the output
 
 覆盖：完全重复、同名不同树、同名仅 SKILL.md 相同、已有 canonical、Claude/Codex 平台冲突、OpenClaw-only 晋升、secret quarantine、.system 排除。Expected：所有不同 fingerprint 的自动合并 Apply 都被阻止，除非存在明确且唯一的人工选择。
 
@@ -160,19 +160,19 @@ Artifacts / Locations:
 - Create: schemas/sync-plan.schema.json
 - Create or extend: tests/sync.tests.ps1
 
-- [ ] Step 1: Define plan data
+- [x] Step 1: Define plan data
 
 每个平台、每个 managed skill 记录 source tree hash、live tree hash、manifest membership、action、.system 状态、unknown/prune 状态和 backup requirement。
 
-- [ ] Step 2: Add plan binding
+- [x] Step 2: Add plan binding
 
 dry-run 输出稳定 JSON plan 和 plan hash；Apply 前重新计算 source、manifest、live target 的摘要。摘要变化时拒绝 Apply，并要求重新 dry-run。
 
-- [ ] Step 3: Separate action types
+- [x] Step 3: Separate action types
 
 把 add、content-update、no-op、prune、unknown-preserved 分开报告，避免把所有同名目录都显示为 update。
 
-- [ ] Step 4: Verify the output
+- [x] Step 4: Verify the output
 
 在 fake home 中验证完全相同内容是 no-op、单文件变化是 update、manifest 外 unknown 永不删除、managed stale 才能 prune、.system 永不进入计划。
 
@@ -184,19 +184,19 @@ Artifacts / Locations:
 - Extend: tests/sync.tests.ps1
 - Review: docs/RESTORE.md
 
-- [ ] Step 1: Stage each managed skill
+- [x] Step 1: Stage each managed skill
 
 在目标 live root 同一文件系统的临时目录完成复制和验证，再替换目标目录；OpenClaw .clawhub 保留逻辑必须在 staging 方案中保持不变。
 
-- [ ] Step 2: Record operations
+- [x] Step 2: Record operations
 
 在 repo 外记录 run id、plan hash、backup path、已完成操作和失败点；报告只包含 metadata 和 skill names，不包含文件内容。
 
-- [ ] Step 3: Add rollback behavior
+- [x] Step 3: Add rollback behavior
 
 任何 managed skill apply 失败都必须停止后续操作，并能依据 backup/journal 恢复已变更的 managed targets；unknown live 目录和 .system 不得被 rollback 代码触碰。
 
-- [ ] Step 4: Verify the output
+- [x] Step 4: Verify the output
 
 通过 fake home 注入复制失败、目标目录缺失、空 manifest、unknown 目录、.system 存在等场景，确认失败后 live managed set 可恢复且状态报告明确为 failed/partial。
 
@@ -213,19 +213,19 @@ Artifacts / Locations:
 - Create: tests/doctor.tests.ps1
 - Modify: .github/workflows/validate.yml
 
-- [ ] Step 1: Cover sync and backup
+- [x] Step 1: Cover sync and backup
 
 覆盖 dry-run no-op、add/update/prune、unknown preservation、.system preservation、backup-before-apply、custom HomeRoot rejection、plan drift rejection 和 rollback。
 
-- [ ] Step 2: Cover import and merge
+- [x] Step 2: Cover import and merge
 
 覆盖 fingerprint conflict、OpenClaw-only、Codex path fallback、quarantine、duplicate batch 和不覆盖 canonical。
 
-- [ ] Step 3: Cover plugin and doctor behavior
+- [x] Step 3: Cover plugin and doctor behavior
 
 使用 fake openclaw executable 或 CLI fixture，覆盖 desired-state plan、unknown plugin preservation、enable/disable、CLI unavailable fallback、parity failure；doctor 覆盖结构缺失和 warning/fail 规则。
 
-- [ ] Step 4: Verify the output
+- [x] Step 4: Verify the output
 
 CI 必须在 Windows runner 上执行全部核心测试；任何核心脚本缺失、测试缺失或 schema 校验失败都返回非零。
 
@@ -237,15 +237,15 @@ Artifacts / Locations:
 - Create: schemas/run-report.schema.json
 - Modify: reports/README.md
 
-- [ ] Step 1: Define stable JSON commands
+- [x] Step 1: Define stable JSON commands
 
 为 doctor、build、scan、sync、env status、inventory、merge 提供 JSON 输出或 JSON report path；人类输出仍保留，但不能作为唯一机器接口。
 
-- [ ] Step 2: Extend the dispatcher carefully
+- [x] Step 2: Extend the dispatcher carefully
 
 加入 config、profile、inventory、merge、plugin 子命令前，保持现有脚本作为唯一实现，不在 wrapper 中复制业务逻辑。所有会写 live 的命令继续要求显式 -DryRun 或 -Apply。
 
-- [ ] Step 3: Verify the output
+- [x] Step 3: Verify the output
 
 对每个 JSON 输出运行 schema validation，并确认报告不包含 secrets、完整私有路径、backup 内容、session/cache 内容或 .system 内容。
 
@@ -334,4 +334,6 @@ fake home 验证激活环境 A -> B -> rollback A，managed parity 恢复、unkn
 5. Phase 4：在稳定 sync 之上做 environment lock、attestation 和 rollback。
 6. Phase 5：根据实际需求从 Harness、MCP、OpenClaw 插件中选择一个单独立项。
 
-下一步应从 Phase 0 开始；完成 Phase 0 后再对 Phase 1 的具体文件变更做一次小范围设计评审。
+当前执行状态：Phase 0–3 已完成并通过本地回归验证；Phase 4（Environment lock / attestation / rollback）和 Phase 5（可选扩展）保持未启动，需另行评审和分阶段实施。
+
+本次 Phase 0–3 的验证证据包括：config-sync 17/17、harness-profile 33/33、harness-env 104/104、skills import/merge 22/22、sync transactional tests 全部通过；真实仓库 build、fallback secret scan、dry-run sync 和 JSON schema 校验通过。未执行任何 live `-Apply`，未修改 Codex `.system`。

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/doctor-report.schema.json",
+  "title": "AI Agent Dotfiles Doctor Summary",
+  "type": "object",
+  "required": ["SchemaVersion", "GeneratedAtUtc", "Result", "Counts", "SecretsScanSkipped"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time" },
+    "Result": { "enum": ["PASS", "WARN", "FAIL"] },
+    "Counts": {
+      "type": "object",
+      "required": ["Pass", "Warn", "Fail", "Info"],
+      "properties": {
+        "Pass": { "type": "integer", "minimum": 0 },
+        "Warn": { "type": "integer", "minimum": 0 },
+        "Fail": { "type": "integer", "minimum": 0 },
+        "Info": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "SecretsScanSkipped": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

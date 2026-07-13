@@ -49,7 +49,10 @@ When the scope trigger applies:
    ```
 7. Only after a safe dry-run, apply:
    ```powershell
-   pwsh -NoProfile -File scripts/sync.ps1 -Apply
+   $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
+   pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
+   # Review the plan, then apply the same fingerprint-bound plan.
+   pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
    ```
 
 ## Hard rules
@@ -70,5 +73,5 @@ When the scope trigger applies:
 - Do not claim Project Harness Profiles install project-local skills or perform automatic global home harness switching.
 - `envs/` is generated Harness Environments staging — never hand-edit or commit it; rebuild with `scripts/build-harness-env.ps1`. `state/current-env.json` is machine-private and never committed.
 - `env list`/`env status`/`env build` are read-only toward home directories and must never write `~/.claude`, `~/.codex`, `~/.openclaw`, live skills roots, or `state/`.
-- `env activate` is the only sanctioned global environment switch: dry-run by default, `-Apply` gated (the entry point demands an explicit mode), deployment exclusively through `sync.ps1` with its unskippable pre-change backup. Never hand-copy env staging into a home directory. Before the first real-home `-Apply`, a human must review the dry-run plan (prune list included). Config deployment via `config-pull.ps1` is NOT part of activation; adding it requires a separate review. See `docs/README.md` §16.
+- `env activate` is the only sanctioned global environment switch: dry-run by default, `-Apply` gated (the entry point demands an explicit mode), deployment exclusively through `sync.ps1` with its unskippable pre-change backup. Never hand-copy env staging into a home directory. Before the first real-home `-Apply` on each machine, a human must review the dry-run plan (prune list included); `MAGINA-LAPTOP` completed its first `full -Apply` on 2026-07-10, while other machines remain subject to this gate. Config deployment via `config-pull.ps1` is NOT part of activation; adding it requires a separate review. See `docs/README.md` §16.
 - Keep `CLAUDE.md` tracked in Git so these instructions sync across machines.

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/run-report.schema.json",
+  "title": "AI Agent Dotfiles Run Report",
+  "type": "object",
+  "required": ["SchemaVersion", "ReportKind", "GeneratedAtUtc", "Machine", "Git", "ScriptName", "Mode", "Summary", "Details", "Result", "NextAction"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ReportKind": { "enum": ["build", "sync"] },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time" },
+    "Machine": { "type": "string" },
+    "Git": {
+      "type": "object",
+      "required": ["Branch", "Commit"],
+      "properties": {
+        "Branch": { "type": "string" },
+        "Commit": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "ScriptName": { "type": "string" },
+    "Mode": { "type": "string" },
+    "Summary": { "type": "object", "additionalProperties": true },
+    "Details": { "type": "object", "additionalProperties": true },
+    "Result": { "enum": ["PASS", "WARN", "FAIL"] },
+    "NextAction": { "type": "string" }
+  },
+  "additionalProperties": false
+}

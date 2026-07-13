@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/harness-env-status.schema.json",
+  "title": "AI Agent Dotfiles Harness Environment Status",
+  "type": "object",
+  "required": ["SchemaVersion", "GeneratedAtUtc", "Environments", "Active", "ProjectLinkage"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time" },
+    "Environments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Name", "DefinitionStatus", "StagingStatus"],
+        "properties": {
+          "Name": { "type": "string" },
+          "DefinitionStatus": { "enum": ["valid", "invalid"] },
+          "StagingStatus": { "enum": ["missing", "stale", "built"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "Active": {
+      "type": "object",
+      "required": ["Name", "Status"],
+      "properties": {
+        "Name": { "type": ["string", "null"] },
+        "Status": { "enum": ["none", "active", "drift"] }
+      },
+      "additionalProperties": false
+    },
+    "ProjectLinkage": { "enum": ["not-requested", "no-profile", "no-required-env", "missing-definition", "inactive", "matches-active", "mismatch"] }
+  },
+  "additionalProperties": false
+}

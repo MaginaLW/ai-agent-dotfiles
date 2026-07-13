@@ -47,7 +47,10 @@ When the scope trigger applies:
    ```
 7. Only after a safe dry-run, apply:
    ```powershell
-   pwsh -NoProfile -File scripts/sync.ps1 -Apply
+   $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
+   pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
+   # Review the plan, then apply the same fingerprint-bound plan.
+   pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
    ```
 8. For a fresh clone, use the bootstrap entrypoint instead of hand-installing hooks:
    ```powershell
