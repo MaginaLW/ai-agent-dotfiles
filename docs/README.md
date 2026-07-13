@@ -99,25 +99,27 @@
 Git 出于安全原因不会在 `git clone` 时执行仓库里的 hook。每个新 clone 的固定入口是：
 
 ```powershell
-git clone <repo-url> C:\Repos\ai-agent-dotfiles
-cd C:\Repos\ai-agent-dotfiles
+$RepoRoot = '<repo-root>'
+git clone <repo-url> $RepoRoot
+Set-Location $RepoRoot
 pwsh -NoProfile -File .\bootstrap.ps1
 ```
 
-`bootstrap.ps1` 会安装 repo-local auto-sync hooks，并立即通过 `auto-sync-after-git.ps1 -Force`
-执行一次 fingerprint-bound `sync.ps1` dry-run/apply 流程，所以初次 clone 后不会再漏掉 live skills 同步。
+`bootstrap.ps1` 会安装 repo-local auto-sync hooks，并进入 fingerprint-bound 的受控 sync
+流程。新机器接入时应先使用 `-SkipInitialSync`，完成本文和
+[ONBOARD_NEW_MACHINE.md](ONBOARD_NEW_MACHINE.md) 的 dry-run 审查，再执行显式 apply。
 
 手动维护流程仍然可用：
 
 ```powershell
-cd C:\Repos\ai-agent-dotfiles
+Set-Location $RepoRoot
 git pull --ff-only
 
-pwsh -NoProfile -File scripts/build-skills.ps1     # 从源生成 runtime output
-pwsh -NoProfile -File scripts/scan-secrets.ps1     # 检查 secrets
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 build # 从源生成 runtime output
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 scan  # 检查 secrets
 $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan # 生成并审查计划
-pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan # 只应用同一计划
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -DryRun -PlanPath $plan # 生成并审查计划
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -Apply -PlanPath $plan # 只应用同一计划
 ```
 
 `sync.ps1` 默认是 **dry-run**，只打印计划、不动 live；`-Apply` 必须带有先前 dry-run 生成的 `-PlanPath`，并重新验证 source、manifest 和 live fingerprint 后才会修改。
@@ -215,7 +217,7 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 一台电脑修改并 push 后，另一台：
 
 ```powershell
-cd C:\Repos\ai-agent-dotfiles
+Set-Location $RepoRoot
 pwsh -NoProfile -File .\bootstrap.ps1                  # 每个 clone 运行一次；安装 hooks 并首次同步
 git pull --ff-only                                     # 后续相关更新会由 hooks 自动同步
 ```
@@ -223,11 +225,11 @@ git pull --ff-only                                     # 后续相关更新会�
 如果没有安装 auto-sync hooks，仍可使用手动流程：
 
 ```powershell
-pwsh -NoProfile -File scripts/build-skills.ps1
-pwsh -NoProfile -File scripts/scan-secrets.ps1
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 build
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 scan
 $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
-pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -DryRun -PlanPath $plan
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -Apply -PlanPath $plan
 ```
 
 ---
@@ -275,7 +277,7 @@ A：`.system` 是 Codex 平台自带目录，不由本仓库管理。live 校验
 A：`claude/skills/`、`codex/skills/` 是由 `build-skills.ps1` 从 `skills-source/` 生成的，属派生物，已 Git-ignored；提交它会造成源与产物双份维护和漂移。
 
 **Q：新电脑第一次部署怎么办？**
-A：`git clone` → `bootstrap.ps1`。bootstrap 会安装 auto-sync hooks，并立即走 `sync.ps1 -Apply` 的 build、secret scan、backup、manifest-scoped sync、`.system` 保护流程。之后相关 `git pull` / rebase / branch checkout 会自动同步。Claude live 目录不存在时会自动创建。
+A：`git clone` → `bootstrap.ps1 -SkipInitialSync` → 按 onboarding 文档完成 backup、build、scan、sync dry-run、计划审查，再执行同一计划的显式 apply。后续相关 `git pull` / rebase / branch checkout 才进入受控自动同步流程。Claude live 目录不存在时会自动创建。
 
 **Q：scan-secrets 报 false positive 怎么办？**
 A：优先**改写源文档/示例措辞**让它不再像真实密钥——例如把"给 `secret` 键直接赋一个带引号的明文字符串"这类示例，改写成描述性文字（说明应从环境变量或密钥管理器读取）。**不要** whitelist，**不要**削弱 scan gate。改完重新 build + scan。
@@ -356,8 +358,8 @@ Harness Environments 是 conda 式的命名环境层：每个环境声明一个 
 并可经门控的 `env activate` 切换到 live home。
 设计见 `docs/superpowers/specs/2026-07-10-harness-env-design.md`。
 
-`list` / `status` / `build` 全部只读（不写 home）。`activate` 默认 dry-run，
-`-Apply` 才动 live，且**部署只经由现有 `sync.ps1`**（含其不可跳过的强制备份）。
+`list` / `status` 只读；`build` 只写可删除、可重建的 `envs/<name>/` staging，不写 home。
+`activate` 默认 dry-run，`-Apply` 才动 live，且**部署只经由现有 `sync.ps1`**（含其不可跳过的强制备份）。
 **Phase 2 范围收窄**：activate 只切换 skills 子集并写状态文件；home 级配置部署
 （config-pull 接入）因当前没有任何环境差异化的 home 配置组件而暂缓，接入需单独评审。
 
@@ -370,12 +372,15 @@ pwsh -File scripts/agent-dotfiles.ps1 env status -ProjectRoot <p>  # 另检查�
 pwsh -File scripts/agent-dotfiles.ps1 env build <name>  # 构建 envs/<name>/ staging
 pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -DryRun  # 预览切换计划
 pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -Apply   # 真实切换（gated）
+pwsh -File scripts/agent-dotfiles.ps1 env rollback -RunId <run-id> -DryRun -PlanPath <external-plan.json>
+pwsh -File scripts/agent-dotfiles.ps1 env rollback -RunId <run-id> -Apply -PlanPath <external-plan.json>
 pwsh -NoProfile -File tests/harness-env.tests.ps1       # 回归测试（也在 CI 中运行）
 ```
 
 `env activate` 的 gate 链（任一步失败即止、不写状态文件）：
 build-skills → scan-secrets → staging 重建 → `sync.ps1`（`-Apply` 时强制备份）→
-成功后写 `state/current-env.json`。入口层强制显式 `-DryRun` 或 `-Apply`（与 sync 同款）。
+成功后写 `state/current-env.json`。入口层强制显式 `-DryRun` 或 `-Apply`（与 sync 同款）；
+`-Apply` 会先生成并绑定内部 dry-run 计划，再执行同一计划，不能把 apply 当作默认动作。
 切换语义：staging 携带全量 manifest 副本而 skills 只含环境子集，sync 的
 manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 skills；
 未知 live 目录与 Codex `.system` 一如既往永不触碰。
@@ -391,7 +396,8 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   `manifests/managed-skills.<platform>.txt`（**全量**仓库 manifest 副本，驱动
   sync 的切换裁剪语义）、空 `openclaw/skills/`（满足 sync 源检查，OpenClaw 零动作）、
   `profile/`（渲染的 profile 组件输出）、`env.lock.json`
-  （定义哈希 + 逐文件哈希，`env status` 靠它判定 built/stale）。
+  （可验证的定义、源/生成树、manifest、profile 和 staging 文件哈希；`env status`
+  用它判定 lock validity 和 built/stale，而不是只看文件是否存在）。
 - `state/current-env.json`：当前激活环境记录（名字、定义哈希、激活时间），机器私有、
   Git-ignored。只有 `env activate -Apply` 成功后才写；`status` 用定义哈希检测
   "激活后定义又变了"并提示重新 activate。
@@ -402,6 +408,12 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 - `env activate` 是唯一受批准的环境切换路径：默认 dry-run；`-Apply` 内部经由
   `sync.ps1`，其强制备份无法跳过；home-only 文件（credentials、sessions、缓存、
   Codex `.system`、Codex `config.toml`）永不随切换变动；拒绝 `HomeRoot` 位于仓库内。
+- `env status` 对当前环境报告 `lock validity`、`definition drift`、`live parity`、
+  Codex `.system` 状态和 `backup reference`；这些是状态证据，不是备份内容。
+- `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex manifest 管理的
+  skills 和环境状态。它永不触碰 unknown live 目录、Codex `.system`、credentials、
+  sessions、cache、Codex `config.toml` 或 OpenClaw machine state。dry-run 先生成外部
+  计划；`-Apply` 必须带同一 `-PlanPath`，并通过选定 activation backup 的元数据校验。
 - 每台机器首次真实 `-Apply` 前必须人工审查 dry-run 计划（prune 列表尤其要过目）；已完成首次 activation 的机器在后续变更时仍应重复审查。
 - `envs/` 与 `state/` 永不提交；环境定义变更后先跑 `env status` 和回归测试。
 - 环境层永远只做编排：写 home 的代码路径只有现有 `sync.ps1`（未来接入 config 部署
@@ -418,5 +430,41 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 
 - 不部署 home 级配置（config-pull 接入 deferred，见上）。
 - 不自动切换环境（进入项目不触发任何写操作，联动仅为提醒）。
-- 不做 lockfile 跨机复现、环境回滚命令（回滚 = activate 另一环境或从强制备份恢复）、
-  OpenClaw 插件集、MCP secrets 管理。
+- 不做 lockfile 跨机复现、OpenClaw 插件集或 MCP secrets 管理；`env.lock.json` 当前用于
+  本机 staging/activation 的可验证证据，不是跨机传输 credential 或 machine state 的载体。
+
+---
+
+## 17. 统一 CLI 与真实边界
+
+统一入口是 `scripts/agent-dotfiles.ps1`。它只负责路由和参数门控，不复制底层脚本的实现。
+当前支持的完整命令面如下：
+
+```text
+doctor
+build
+scan
+backup
+sync
+config status | pull | push
+profile status | build | apply
+skills inventory | analyze | dedupe | merge | normalize | promote
+env list | status | build | activate | rollback
+```
+
+读操作包括 `doctor`、`scan`、`config status`、`profile status`、`skills inventory`、
+`skills analyze`、`skills dedupe`、`env list` 和 `env status`。`build`、`profile build`
+和 `env build` 只生成可重建的派生/staging 输出；`backup` 只把运行时快照写到仓库外。
+它们都不把 live home 或 canonical source 当作任意写入目标。
+
+所有会改变 live、canonical source 或项目目标的动作都必须先走 dry-run；统一入口不会
+自动补 `-Apply`。对支持模式的写操作，必须明确选择且只能选择一个 `-DryRun` 或
+`-Apply`；省略模式会被拒绝，而不是隐式执行。`sync` 的 `-Apply` 还必须使用同一份
+经审查的 `-PlanPath`。`config pull/push`、`profile apply`、`skills merge/promote`
+也保持默认 dry-run/显式 apply 的保守边界。
+
+`env activate` 和 `env rollback` 的 apply 需要更严格的计划绑定：activate 在 apply
+内部生成并绑定 sync 计划，rollback 则要求外部 dry-run 生成的同一 `-PlanPath`，并在
+执行前重新验证环境状态、备份元数据和计划哈希。`config pull` 是独立的 home-level
+配置同步入口；the underlying `config-pull` is not part of `env activate`，环境切换当前
+只处理受 manifest 管理的 Claude/Codex skills 和环境状态。

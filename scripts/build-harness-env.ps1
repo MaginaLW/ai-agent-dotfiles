@@ -18,7 +18,7 @@
         manifests/managed-skills.claude.txt   FULL repo manifest copy
         manifests/managed-skills.codex.txt    FULL repo manifest copy
         profile/                 rendered profile component outputs
-        env.lock.json            { Name, DefinitionHash, BuiltFiles }
+        env.lock.json            { source provenance, staged hashes, BuiltFiles }
 
     The manifests/ copies are deliberately the FULL repo manifests, not the env
     subset: when sync.ps1 runs with -RepoRoot pointed at this staging tree, its
@@ -46,6 +46,10 @@
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of this script's directory.
 
+.PARAMETER JsonPath
+    Optional machine-readable build summary path. The summary contains hashes
+    and counts only; it never contains staged file contents or full paths.
+
 .OUTPUTS
     Summary lines (env name, file count, staging path). Non-zero exit on any
     validation or build failure.
@@ -53,7 +57,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Name,
-    [string] $RepoRoot = (Join-Path $PSScriptRoot '..')
+    [string] $RepoRoot = (Join-Path $PSScriptRoot '..'),
+    [string] $JsonPath
 )
 
 Set-StrictMode -Version Latest
@@ -314,6 +319,38 @@ foreach ($item in $plan) {
 New-Item -ItemType Directory -Path (Join-Path $stagingFull 'openclaw/skills') -Force | Out-Null
 
 # --- env.lock.json ------------------------------------------------------------
+# The lock contains both the materialized staging evidence and the source
+# evidence needed to reject activation after a source/definition drift.  A
+# fake repository used by regression tests may not contain skills-source or a
+# Git checkout; those fields are recorded as not-collected rather than guessed.
+$skillSourceEvidence = Get-HarnessSkillSourceEvidenceStatus -RepoRoot $repo
+$skillSourceHashes = [ordered]@{}
+foreach ($platform in @('Claude', 'Codex')) {
+    $platformHashes = [ordered]@{}
+    foreach ($skill in $skillsByPlatform[$platform]) {
+        $sourceHash = if ($skillSourceEvidence -eq 'available') {
+            Get-HarnessSkillSourceHash -RepoRoot $repo -Platform $platform -Name $skill
+        }
+        else {
+            $null
+        }
+        if ($skillSourceEvidence -eq 'available' -and $null -eq $sourceHash) {
+            throw "Env '$Name' cannot record source provenance for $platform skill '$skill'. Source directory is missing."
+        }
+        $platformHashes[$skill] = $sourceHash
+    }
+    $skillSourceHashes[$platform] = $platformHashes
+}
+
+$stagedSkillTreeHashes = [ordered]@{}
+foreach ($platform in @('Claude', 'Codex')) {
+    $platformHashes = [ordered]@{}
+    foreach ($skill in $skillsByPlatform[$platform]) {
+        $platformHashes[$skill] = Get-HarnessTreeHash -Path (Join-Path $stagingFull "$($generatedRoots[$platform])/$skill")
+    }
+    $stagedSkillTreeHashes[$platform] = $platformHashes
+}
+
 $builtFiles = @(Get-ChildItem -LiteralPath $stagingFull -File -Recurse -Force)
 $relativeToFull = @{}
 foreach ($file in $builtFiles) {
@@ -325,9 +362,22 @@ foreach ($relative in (Sort-HarnessOrdinal -Values @($relativeToFull.Keys))) {
 }
 
 $lock = [ordered] @{
-    Name           = $resolved.Name
-    DefinitionHash = Get-HarnessEnvDefinitionHash -Path $definitionPath
-    BuiltFiles     = $builtHashes
+    SchemaVersion             = 2
+    Name                      = $resolved.Name
+    DefinitionHash            = Get-HarnessEnvDefinitionHash -Path $definitionPath
+    RepositoryCommit          = Get-HarnessRepositoryCommit -RepoRoot $repo
+    ManifestHashes            = Get-HarnessManifestHashes -RepoRoot $repo
+    SkillSourceEvidence       = $skillSourceEvidence
+    SkillSourceHashes         = $skillSourceHashes
+    StagedSkillTreeHashes     = $stagedSkillTreeHashes
+    ProfileSourceHash         = Get-HarnessProfileSourceHash -RepoRoot $repo
+    ProfileOutputHash         = Get-HarnessTreeHash -Path (Join-Path $stagingFull 'profile')
+    ManagedPluginDeclaration  = [ordered]@{
+        Included = $false
+        Hash = $null
+        Reason = 'OpenClaw plugin state is not part of harness environments.'
+    }
+    BuiltFiles                = $builtHashes
 }
 Write-HarnessJsonFile -InputObject $lock -Path (Join-Path $stagingFull 'env.lock.json')
 
@@ -335,4 +385,20 @@ Write-Output 'Harness env build complete'
 Write-Output "Environment: $($resolved.Name)"
 Write-Output "Files: $($builtHashes.Count) (+ env.lock.json)"
 Write-Output "Staging: $stagingFull"
+if ($JsonPath) {
+    $parent = Split-Path -Parent $JsonPath
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $document = [ordered]@{
+        SchemaVersion = 1
+        GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
+        Name = $resolved.Name
+        Result = 'PASS'
+        DefinitionHash = $lock.DefinitionHash
+        LockHash = Get-HarnessFileHash -Path (Join-Path $stagingFull 'env.lock.json')
+        RepositoryCommit = $lock.RepositoryCommit
+        SkillSourceEvidence = $lock.SkillSourceEvidence
+        FileCount = $builtHashes.Count
+    }
+    [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
+}
 exit 0

@@ -121,6 +121,11 @@ foreach ($platform in @('claude', 'codex')) {
         Set-File -Path (Join-Path $fakeRepo "$platform/skills/$skill/SKILL.md") -Content "# $skill ($platform fixture)"
     }
 }
+# A small source-of-truth fixture lets the lock test source provenance without
+# copying the real repository's full skill library into the fake repo.
+foreach ($skill in @('fixture-a', 'fixture-b')) {
+    Set-File -Path (Join-Path $fakeRepo "skills-source/shared/$skill/SKILL.md") -Content "# $skill (source fixture)"
+}
 
 $envRoot = Join-Path $fakeRepo 'harness-source/envs'
 $goodDefinitionPath = Join-Path $envRoot 'good.psd1'
@@ -225,6 +230,14 @@ $result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRe
 Assert ($result.Out -match 'staging=stale') 'status reports stale for a corrupt lock'
 $result = Invoke-Script -Script $buildScript -ScriptArgs @('-Name', 'good', '-RepoRoot', $fakeRepo)
 Assert ($result.Code -eq 0) 'rebuild recovers from a corrupt lock'
+$sourceFixture = Join-Path $fakeRepo 'skills-source/shared/fixture-a/SKILL.md'
+$originalSourceFixture = [System.IO.File]::ReadAllBytes($sourceFixture)
+Add-Content -LiteralPath $sourceFixture -Value '# source drift'
+$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
+Assert ($result.Out -match 'staging=stale') 'status reports stale after a skill source changes'
+[System.IO.File]::WriteAllBytes($sourceFixture, $originalSourceFixture)
+$result = Invoke-Script -Script $buildScript -ScriptArgs @('-Name', 'good', '-RepoRoot', $fakeRepo)
+Assert ($result.Code -eq 0) 'rebuild recovers from skill source drift'
 
 Remove-Item -LiteralPath $goodStaging -Recurse -Force
 $result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
@@ -353,7 +366,29 @@ Assert ($result.Out -match 'definition changed since activation') 'status flags 
 $result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
 Assert ($result.Out -notmatch 'definition changed since activation') 'drift flag clears after restore'
 
-# 9.7 failures never write state
+# 9.7 rollback small -> good from the activation backup
+Write-Host 'rollback: restore the previous environment'
+$smallBackup = Get-ChildItem -LiteralPath $fakeBackups -Directory | Sort-Object LastWriteTimeUtc, Name -Descending | Select-Object -First 1
+$rollbackPlanPath = Join-Path $work 'rollback-plan.json'
+$rollbackJsonPath = Join-Path $work 'rollback.json'
+$homeSnapshotBeforeRollback = Get-TreeSnapshot -Root $fakeHome
+$result = Invoke-Script -Script (Join-Path $RepoRoot 'scripts/rollback-harness-env.ps1') -ScriptArgs @(
+    '-BackupPath', $smallBackup.FullName, '-RepoRoot', $fakeRepo, '-HomeRoot', $fakeHome,
+    '-PlanPath', $rollbackPlanPath, '-JsonPath', $rollbackJsonPath, '-DryRun')
+Assert ($result.Code -eq 0) 'rollback dry-run exits 0'
+Assert (Test-Path -LiteralPath $rollbackPlanPath) 'rollback dry-run writes an external plan'
+Assert ((Get-TreeSnapshot -Root $fakeHome) -eq $homeSnapshotBeforeRollback) 'rollback dry-run changes no live files'
+$result = Invoke-Script -Script (Join-Path $RepoRoot 'scripts/rollback-harness-env.ps1') -ScriptArgs @(
+    '-BackupPath', $smallBackup.FullName, '-RepoRoot', $fakeRepo, '-HomeRoot', $fakeHome,
+    '-PlanPath', $rollbackPlanPath, '-JsonPath', $rollbackJsonPath, '-Apply')
+Assert ($result.Code -eq 0) 'rollback apply exits 0'
+Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-b/SKILL.md')) 'rollback restores the previous managed skill'
+Assert (Test-Path -LiteralPath $systemSentinel) 'rollback preserves codex .system'
+Assert (Test-Path -LiteralPath $unknownLocal) 'rollback preserves unknown live skills'
+$state = Get-Content -Raw -LiteralPath (Join-Path $fakeRepo 'state/current-env.json') | ConvertFrom-Json
+Assert ([string] $state.Name -eq 'good') 'rollback restores the previous environment state'
+
+# 9.8 failures never write state
 Remove-Item -LiteralPath (Join-Path $fakeRepo 'state') -Recurse -Force
 $result = Invoke-Activate -EnvName 'ghost' -Extra @('-Apply')
 Assert ($result.Code -ne 0) 'activating an unknown env fails'
@@ -363,11 +398,13 @@ $result = Invoke-Script -Script $activateScript -ScriptArgs @(
 Assert ($result.Code -ne 0) 'activation refuses HomeRoot inside the repository'
 Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'refused activation writes no state'
 
-# 9.8 entry point requires an explicit mode
+# 9.9 entry point requires an explicit mode
 $result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'activate', 'good')
 Assert ($result.Code -eq 1) 'entry point rejects activate without an explicit mode'
 $result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'activate', 'good', '-DryRun', '-Apply')
 Assert ($result.Code -eq 1) 'entry point rejects activate with both modes'
+$result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'rollback', 'RunId', '-Apply')
+Assert ($result.Code -eq 1) 'entry point rejects rollback without a reviewed plan/valid selection'
 
 # --- 10. project linkage: RequiredEnv detection (never auto-activates) ---------
 Write-Host 'status: project RequiredEnv linkage'

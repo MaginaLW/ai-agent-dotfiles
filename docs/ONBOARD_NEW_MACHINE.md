@@ -14,7 +14,7 @@
 
 ## Safety model
 
-This is a controlled migration, not a blind bootstrap. During initial onboarding, **do not run `bootstrap.ps1` without `-SkipInitialSync`**: the default bootstrap path installs hooks and immediately enters `sync.ps1 -Apply`. Complete the backup, import review, build, scan, and sync dry-run gates in this document first.
+This is a controlled migration, not a blind bootstrap. During initial onboarding, **do not run `bootstrap.ps1` without `-SkipInitialSync`**: the default bootstrap path installs hooks and immediately enters the guarded sync flow. Complete the backup, import review, build, scan, and sync dry-run gates in this document first.
 
 Use these repository roles consistently:
 
@@ -27,17 +27,37 @@ Use these repository roles consistently:
 
 For routine repository operations, `scripts/agent-dotfiles.ps1` provides a thin entry point to the existing scripts. It forwards trailing arguments to the selected script and reports the target script path and exit result; it does not replace any underlying implementation.
 
-```powershell
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 doctor -SkipSecretsScan
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 scan
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 build
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 backup -DryRun
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync -DryRun
+The complete command surface is:
+
+```text
+doctor
+build
+scan
+backup
+sync
+config status | pull | push
+profile status | build | apply
+skills inventory | analyze | dedupe | merge | normalize | promote
+env list | status | build | activate | rollback
 ```
 
-The supported subcommands are `doctor`, `build`, `scan`, `backup`, and `sync`. Parameters after the subcommand are passed through, so options such as `-RepoRoot`, `-HomeRoot`, and `-SkipSecretsScan` remain available when the corresponding underlying script supports them.
+Read-only actions include `doctor`, `scan`, `config status`, `profile status`,
+`skills inventory`, `skills analyze`, `skills dedupe`, `env list`, and `env
+status`. `build`, `profile build`, and `env build` materialize disposable
+generated/staging output; `backup` writes an external snapshot. None of these
+actions writes arbitrary live-home state or changes `skills-source/` by
+reverse-copy.
 
-`sync` requires exactly one explicit mode: `-DryRun` or `-Apply`. A call without either mode fails before `sync.ps1` is launched, and the entry point never adds `-Apply` automatically. Complete and review the dry-run and backup gates in this document before using the explicit apply form.
+All live, canonical-source, and project-target writes start in dry-run mode.
+For actions that expose a mode, choose exactly one of `-DryRun` or `-Apply`;
+omitting the mode is rejected by the unified entry point rather than treated
+as implicit apply. The entry point never adds `-Apply` automatically. `sync`
+and `env rollback` require a reviewed plan path for apply. `env activate`
+creates and binds its internal sync plan during apply before writing the
+environment state.
+
+`config pull` is a separate home-level config deployment path. It is not part
+of `env activate` and must not be described as an environment component.
 
 ## 1. Verify prerequisites
 
@@ -64,19 +84,20 @@ Required conditions:
 - The user can authenticate to the private GitHub repository through SSH or Git Credential Manager. Never embed a personal access token in a clone URL, script, or document.
 - Codex and/or Claude Code is already installed, or its installation is planned before live sync. It is acceptable for one client command to be absent if that client is not yet being deployed, but record that limitation before continuing.
 
-## 2. Clone at the recommended fixed path
+## 2. Clone at the chosen repository root
 
-The recommended repository path is `C:\Repos\ai-agent-dotfiles`.
+Use a repository root that is outside the live home roots. Keep the actual
+machine path in a local variable; do not copy it into tracked docs or reports.
 
 ```powershell
-New-Item -ItemType Directory -Force -Path 'C:\Repos' | Out-Null
 $RepoUrl = Read-Host 'Paste the private repository SSH or HTTPS clone URL'
-git clone $RepoUrl 'C:\Repos\ai-agent-dotfiles'
-$RepoRoot = 'C:\Repos\ai-agent-dotfiles'
+$RepoRoot = '<repo-root>'
+git clone $RepoUrl $RepoRoot
 Set-Location $RepoRoot
 ```
 
-If the repository is cloned elsewhere, set `$RepoRoot` to that absolute path and use it in every later command. Do not copy commands containing `C:\Repos\ai-agent-dotfiles` unchanged when the actual clone is elsewhere.
+Use the same `$RepoRoot` variable in every later command. Never embed a
+personal access token in a clone URL, script, or document.
 
 Do not run the default `bootstrap.ps1` yet. If hooks must be installed before onboarding is complete, use only the non-syncing form after the initial checks:
 
@@ -151,7 +172,9 @@ if ($LASTEXITCODE -ne 0) { throw "Baseline secret scan failed with exit code $LA
 
 ## 5. Back up live skills before importing
 
-Never skip this step, even when the machine appears new. Preview the backup, then create it:
+Never skip this step, even when the machine appears new. Preview the backup,
+then create it outside the repository. Keep only a safe reference to the
+result in the onboarding record; do not copy backup contents into Git.
 
 ```powershell
 $BackupScript = Join-Path $RepoRoot 'scripts\backup.ps1'
@@ -162,26 +185,10 @@ pwsh -NoProfile -File $BackupScript -RepoRoot $RepoRoot -HomeRoot $env:USERPROFI
 if ($LASTEXITCODE -ne 0) { throw "Backup failed with exit code $LASTEXITCODE" }
 ```
 
-`backup.ps1` writes a timestamped backup outside the repository, under `%USERPROFILE%\.ai-agent-dotfiles-backups` by default. It covers:
-
-- Claude live skills under `~/.claude/skills`.
-- Codex live skills, preferring `~/.codex/skills` and falling back to `~/.agents/skills`.
-- The entire Codex live tree, including `.system`, for recovery purposes.
-- OpenClaw live skill locations and machine-managed plugin install state when present.
-
-If this machine uses Claude Code plugin directories that contain skills outside `~/.claude/skills`, take an additional repository-external backup:
-
-```powershell
-$ClaudePluginRoot = Join-Path $env:USERPROFILE '.claude\plugins'
-if (Test-Path -LiteralPath $ClaudePluginRoot) {
-    $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $ManualBackup = Join-Path $env:USERPROFILE ".ai-agent-dotfiles-backups\claude-plugins-$Stamp"
-    Copy-Item -LiteralPath $ClaudePluginRoot -Destination $ManualBackup -Recurse
-    "Claude plugin backup=$ManualBackup"
-}
-```
-
-Keep all backups outside the repository. Do not stage or commit them.
+`backup.ps1` owns the external backup format and scope. This onboarding guide
+does not reproduce its contents. In particular, credentials, sessions,
+caches, plugin state, and other machine-private data must stay outside the
+repository even when a backup contains them for recovery purposes.
 
 ## 6. Import existing local skills into the machine inbox
 
@@ -342,7 +349,9 @@ Only after reviewing that preview may an authorized maintainer rerun it with `-A
 Dry-run is mandatory:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\sync.ps1 -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync `
+  -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -DryRun `
+  -PlanPath (Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json')
 if ($LASTEXITCODE -ne 0) { throw "Sync dry-run failed with exit code $LASTEXITCODE" }
 ```
 
@@ -372,9 +381,9 @@ Then run:
 
 ```powershell
 $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-pwsh -NoProfile -File .\scripts\sync.ps1 -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -DryRun -PlanPath $plan
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -DryRun -PlanPath $plan
 # 人工审查计划后，应用同一份计划
-pwsh -NoProfile -File .\scripts\sync.ps1 -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -Apply -PlanPath $plan
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -Apply -PlanPath $plan
 if ($LASTEXITCODE -ne 0) { throw "Sync apply failed with exit code $LASTEXITCODE; use the reported backup for recovery." }
 
 pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot $RepoRoot
@@ -385,7 +394,43 @@ git status --short --branch --untracked-files=all
 
 `sync.ps1 -Apply -PlanPath <plan>` rechecks the source, manifest, and live fingerprints before its own build, secret scan, and mandatory backup; drift rejects the apply. The explicit post-apply scan and Git status are still required as final evidence.
 
-## 12. Review and commit the onboarding result
+## 12. Reproduce and verify a named environment
+
+If the repository defines a named Harness Environment, build its disposable
+staging output before activation:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env build '<env-name>'
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env status
+```
+
+`env.lock.json` in the staging output is a verifiable lock. It records the
+environment definition hash, repository/manifest evidence, skill source and
+staged tree hashes, profile evidence, and hashes for built files. It is not a
+portable container for credentials or machine state. `env status` validates
+the lock and reports, for the active environment, lock validity, definition
+drift, live parity, Codex `.system` status, and backup reference.
+
+Activation remains an explicit, reviewable operation:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env activate '<env-name>' -DryRun
+# Review the manifest-scoped plan, especially prune actions.
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env activate '<env-name>' -Apply
+```
+
+The apply path binds an internal sync dry-run plan before changing live
+managed skills and writes environment state only after a successful apply.
+`config pull` is not part of this process; home-level config synchronization
+must be reviewed and run separately.
+
+If an activation must be reverted, use the plan-bound rollback workflow in
+[`RESTORE.md`](RESTORE.md). Rollback restores only the current Claude/Codex
+manifest-managed skills and environment state. It never touches unknown live
+directories, Codex `.system`, credentials, sessions, caches, Codex
+`config.toml`, or OpenClaw machine state.
+
+## 13. Review and commit the onboarding result
 
 Use one separate commit per onboarded machine. Before staging:
 
@@ -413,7 +458,7 @@ onboarding(<computername>): reconcile managed skills
 
 If onboarding produces no tracked canonical, manifest, status, or documentation change, do not create an empty commit merely to mark the event.
 
-## 13. Prohibited actions
+## 14. Prohibited actions
 
 - Do not commit API keys, access tokens, passwords, cookies, credentials, or authentication state.
 - Do not commit SSH private keys or `.ssh` contents.
@@ -426,6 +471,8 @@ If onboarding produces no tracked canonical, manifest, status, or documentation 
 - Do not reverse-copy live skills over `skills-source/`.
 - Do not edit `claude/skills/`, `codex/skills/`, or `openclaw/skills/` to resolve source problems.
 - Do not run `sync.ps1 -Apply` before a reviewed dry-run.
+- Do not run `env activate -Apply` or `env rollback -Apply` without the required
+  explicit mode and plan-binding checks.
 - Do not weaken or bypass `scripts/scan-secrets.ps1` to make onboarding appear successful.
 
 ## Completion checklist
@@ -442,4 +489,7 @@ If onboarding produces no tracked canonical, manifest, status, or documentation 
 - [ ] Duplicate, empty-shell, quarantine, and unknown-live findings reviewed.
 - [ ] Sync dry-run reviewed, including `+`, `~`, `-`, unknown, and `.system` preservation.
 - [ ] Sync apply completed only after approval, followed by scan and Git status.
+- [ ] If a named environment is used, `env.lock.json` validates and `env status` evidence was reviewed for lock validity, definition drift, live parity, `.system`, and backup reference.
+- [ ] `config pull` remains a separately reviewed operation and is not treated as part of `env activate`.
+- [ ] Any rollback uses only current manifest-managed Claude/Codex skills and environment state; unknown, `.system`, credentials, sessions, caches, `config.toml`, and OpenClaw machine state remain untouched.
 - [ ] Reviewed tracked changes committed separately for this machine, or no empty commit created when nothing changed.

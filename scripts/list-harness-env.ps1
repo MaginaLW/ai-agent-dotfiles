@@ -19,13 +19,18 @@
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of this script's directory.
 
+.PARAMETER JsonPath
+    Optional machine-readable listing path. The JSON contains names, counts,
+    validation status, and active environment only.
+
 .OUTPUTS
     Human-readable listing. Exit code 0 when all definitions are valid, 1 when
     any definition is invalid.
 #>
 [CmdletBinding()]
 param(
-    [string] $RepoRoot = (Join-Path $PSScriptRoot '..')
+    [string] $RepoRoot = (Join-Path $PSScriptRoot '..'),
+    [string] $JsonPath
 )
 
 Set-StrictMode -Version Latest
@@ -41,6 +46,7 @@ $activeName = if ($null -ne $state) { [string] $state.Name } else { $null }
 Write-Output 'Harness environments (harness-source/envs):'
 
 $anyInvalid = $false
+$rows = [System.Collections.Generic.List[object]]::new()
 if ($definitionFiles.Count -eq 0) {
     Write-Output '  (none)'
 }
@@ -80,6 +86,16 @@ foreach ($file in $definitionFiles) {
         $line += "  $description"
     }
     Write-Output $line
+    $rows.Add([pscustomobject] [ordered]@{
+            Name = $name
+            Description = $description
+            Profile = $profileName
+            ClaudeSkillCount = $claudeCount
+            CodexSkillCount = $codexCount
+            Status = if ($status -eq 'ok') { 'ok' } else { 'invalid' }
+            StatusDetail = if ($status -eq 'ok') { $null } else { 'validation-failed' }
+            Active = ($null -ne $activeName -and $name -ieq $activeName)
+        })
 }
 
 if ($null -eq $state) {
@@ -92,6 +108,18 @@ else {
 }
 
 if ($anyInvalid) {
+    if ($JsonPath) {
+        $parent = Split-Path -Parent $JsonPath
+        if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+        $document = [ordered]@{ SchemaVersion = 1; GeneratedAtUtc = [DateTime]::UtcNow.ToString('o'); Environments = @($rows); ActiveName = $activeName; Result = 'FAIL' }
+        [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
+    }
     exit 1
+}
+if ($JsonPath) {
+    $parent = Split-Path -Parent $JsonPath
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $document = [ordered]@{ SchemaVersion = 1; GeneratedAtUtc = [DateTime]::UtcNow.ToString('o'); Environments = @($rows); ActiveName = $activeName; Result = 'PASS' }
+    [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
 }
 exit 0

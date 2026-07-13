@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/harness-env-build.schema.json",
+  "title": "AI Agent Dotfiles Harness Environment Build",
+  "type": "object",
+  "required": ["SchemaVersion", "GeneratedAtUtc", "Name", "Result", "DefinitionHash", "LockHash", "RepositoryCommit", "SkillSourceEvidence", "FileCount"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time" },
+    "Name": { "type": "string" },
+    "Result": { "const": "PASS" },
+    "DefinitionHash": { "type": "string" },
+    "LockHash": { "type": "string" },
+    "RepositoryCommit": { "type": ["string", "null"] },
+    "SkillSourceEvidence": { "enum": ["available", "not-collected"] },
+    "FileCount": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}
