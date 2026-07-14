@@ -111,9 +111,13 @@ try {
     $partialDry = Invoke-Fixture $script @('-TemplateId', 'github', '-RepoRoot', $fakeRepo, '-HomeRoot', $fakeHome, '-ClaudeCommand', $cli, '-DryRun', '-PlanPath', $partialPlan)
     $partial = Invoke-Fixture $script @('-TemplateId', 'github', '-RepoRoot', $fakeRepo, '-HomeRoot', $fakeHome, '-ClaudeCommand', $cli, '-Apply', '-PlanPath', $partialPlan)
     Assert ($partial.Code -ne 0) 'CLI failure returns non-zero'
-    Assert (@(Get-ChildItem -LiteralPath (Join-Path $fakeHome '.ai-agent-dotfiles-mcp-backups') -Recurse -Filter failure.json).Count -gt 0) 'CLI failure leaves partial-operation evidence'
-    $failureText = Get-Content -Raw -LiteralPath (@(Get-ChildItem -LiteralPath (Join-Path $fakeHome '.ai-agent-dotfiles-mcp-backups') -Recurse -Filter failure.json | Select-Object -Last 1).FullName)
-    Assert ($failureText -notmatch 'mcp-test-secret-value') 'failure evidence redacts environment values'
+    $failureFiles = @(Get-ChildItem -LiteralPath (Join-Path $fakeHome '.ai-agent-dotfiles-mcp-backups') -Recurse -Filter failure.json -File)
+    $hasFailureEvidence = $failureFiles.Count -gt 0
+    Assert $hasFailureEvidence 'CLI failure leaves partial-operation evidence'
+    if ($hasFailureEvidence) {
+        $failureText = Get-Content -Raw -LiteralPath $failureFiles[-1].FullName
+        Assert ($failureText -notmatch 'mcp-test-secret-value') 'failure evidence redacts environment values'
+    }
     [Environment]::SetEnvironmentVariable('MCP_FAKE_FAIL_ADD', $null)
 
     $missingPlan = Join-Path $work 'missing-plan.json'
