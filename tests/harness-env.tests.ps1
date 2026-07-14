@@ -74,6 +74,7 @@ function New-EnvDefinitionText {
         [string] $EnvProfile = 'coding',
         [string[]] $ClaudeSkills = @(),
         [string[]] $CodexSkills = @(),
+        [string[]] $McpTemplates = @(),
         [string] $ExtraLine = ''
     )
     function Join-Psd1Array([string[]] $Values) {
@@ -90,7 +91,7 @@ function New-EnvDefinitionText {
         Claude = $(Join-Psd1Array $ClaudeSkills)
         Codex = $(Join-Psd1Array $CodexSkills)
     }
-    McpTemplates = @()
+    McpTemplates = $(Join-Psd1Array $McpTemplates)
 $ExtraLine
 }
 "@
@@ -129,7 +130,7 @@ foreach ($skill in @('fixture-a', 'fixture-b')) {
 
 $envRoot = Join-Path $fakeRepo 'harness-source/envs'
 $goodDefinitionPath = Join-Path $envRoot 'good.psd1'
-Set-File -Path $goodDefinitionPath -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-b', 'fixture-a') -CodexSkills @('fixture-a'))
+Set-File -Path $goodDefinitionPath -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-b', 'fixture-a') -CodexSkills @('fixture-a') -McpTemplates @('github'))
 
 $goodStaging = Join-Path $fakeRepo 'envs/good'
 $statePath = Join-Path $fakeRepo 'state/current-env.json'
@@ -193,12 +194,14 @@ $agentsGenerated = Join-Path $goodStaging 'profile/AGENTS.generated.md'
 Assert (Test-Path -LiteralPath $agentsGenerated) 'profile/AGENTS.generated.md rendered'
 Assert ((Get-Content -Raw -LiteralPath $agentsGenerated) -match '<!-- BEGIN AGENT-HARNESS: ') 'managed block markers present'
 Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'profile/claude-settings.generated.json')) 'profile settings fragment rendered'
+Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'mcp/templates/github/template.psd1')) 'selected MCP template is staged'
 $lockPath = Join-Path $goodStaging 'env.lock.json'
 Assert (Test-Path -LiteralPath $lockPath) 'env.lock.json written'
 $lock = Get-Content -Raw -LiteralPath $lockPath | ConvertFrom-Json
 Assert ([string] $lock.Name -eq 'good') 'lock records the env name'
 $lockedFiles = @($lock.BuiltFiles.PSObject.Properties.Name)
 Assert ($lockedFiles.Count -gt 0 -and ($lockedFiles -notcontains 'env.lock.json')) 'lock covers built files but not itself'
+Assert ($lock.PSObject.Properties.Name -contains 'McpTemplateHashes' -and $lock.McpTemplateHashes.github) 'lock records MCP template hash'
 $stagedFiles = @(Get-ChildItem -LiteralPath $goodStaging -File -Recurse -Force |
         Where-Object { $_.Name -ne 'env.lock.json' })
 Assert ($lockedFiles.Count -eq $stagedFiles.Count) 'lock covers every staged file'

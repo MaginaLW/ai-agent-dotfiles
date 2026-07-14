@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/harness-platform-output.schema.json",
+  "title": "Project Harness Platform Output Types",
+  "oneOf": [
+    { "$ref": "#/$defs/claudeCommand" },
+    { "$ref": "#/$defs/claudeAgent" },
+    { "$ref": "#/$defs/codexPrompt" },
+    { "$ref": "#/$defs/codexAgent" },
+    { "$ref": "#/$defs/openClawConfig" }
+  ],
+  "$defs": {
+    "directoryFile": {
+      "type": "object",
+      "required": ["Target", "Mode"],
+      "properties": {
+        "Target": { "type": "string" },
+        "Mode": { "const": "DirectoryFiles" },
+        "Source": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "claudeCommand": {
+      "allOf": [
+        { "$ref": "#/$defs/directoryFile" },
+        { "properties": { "Target": { "pattern": "^\\.claude/commands/[^/]+$" } } }
+      ]
+    },
+    "claudeAgent": {
+      "allOf": [
+        { "$ref": "#/$defs/directoryFile" },
+        { "properties": { "Target": { "pattern": "^\\.claude/agents/[^/]+$" } } }
+      ]
+    },
+    "codexPrompt": {
+      "allOf": [
+        { "$ref": "#/$defs/directoryFile" },
+        { "properties": { "Target": { "pattern": "^\\.codex/prompts/[^/]+$" } } }
+      ]
+    },
+    "codexAgent": {
+      "allOf": [
+        { "$ref": "#/$defs/directoryFile" },
+        { "properties": { "Target": { "pattern": "^\\.codex/agents/[^/]+$" } } }
+      ]
+    },
+    "openClawConfig": {
+      "type": "object",
+      "required": ["Target", "Mode", "MergeStrategy"],
+      "properties": {
+        "Target": { "const": ".openclaw/project.json" },
+        "Mode": { "const": "StructuredMerge" },
+        "MergeStrategy": { "const": "JsonObject" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

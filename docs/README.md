@@ -79,6 +79,8 @@
 | `scripts/build-harness-profile.ps1` | 从 `harness-source/` 生成项目本地 harness output，见 §15 |
 | `scripts/apply-harness-profile.ps1` | 默认 dry-run；`-Apply` 仅写项目本地 allowlist，见 §15 |
 | `harness-source/envs/` | Harness Environments 的环境定义（tracked 源），见 §16 |
+| `harness-source/components/mcp-templates/` | MCP 模板源（只含占位符和环境变量声明），见 §18 |
+| `scripts/mcp-common.ps1` / `claude/mcp/apply-mcp.ps1` | MCP 模板验证、计划绑定和 Claude CLI 单服务器操作，见 §18 |
 | `envs/` | 环境构建 staging，**生成物**，Git-ignored，勿手改，见 §16 |
 | `state/current-env.json` | 当前激活环境记录，机器私有，Git-ignored，见 §16 |
 | `scripts/list-harness-env.ps1` | 只读枚举环境定义并标记激活环境，见 §16 |
@@ -334,6 +336,11 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 - `scripts/build-harness-profile.ps1`：只写目标项目的 `.agent-harness/generated/`。
 - `scripts/apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写项目本地 allowlist。
 
+当前受控输出类型包括 Claude `.claude/commands/` 与 `.claude/agents/`、Codex
+`.codex/prompts/` 与 `.codex/agents/`，以及只允许项目级键的 `.openclaw/project.json`。
+每种类型由 component `Kind` 和独立 output contract 校验；build 会把文件型输出复制到
+`.agent-harness/generated/files/`，apply 仍只写对应项目路径。
+
 安全规则：
 
 - `harness-source/` 是 profile/component 的源码；不要手改 `.agent-harness/generated/`。
@@ -341,6 +348,8 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 - 第一版 `apply-harness-profile.ps1` 不写 `~/.claude`、`~/.codex`、`~/.openclaw`，也不安装或同步 live skills。
 - 第一版不安装 project-local skills，不承诺自动切换全局 harness。
 - 变更 profile/component 后，先运行 status/build dry-run 和 `tests/harness-profile.tests.ps1`。
+- 多平台输出变更后还应运行 `tests/harness-multiplatform.tests.ps1`；OpenClaw project config
+  不是 OpenClaw machine config，也不包含 credentials、identity、sessions、cache 或 plugins。
 
 非目标：
 
@@ -354,7 +363,7 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 ## 16. Harness Environments
 
 Harness Environments 是 conda 式的命名环境层：每个环境声明一个 profile、
-各平台受管 skills 的子集和（未来的）MCP 模板，构建为可随时重建的 staging 目录，
+各平台受管 skills 的子集和可验证的 MCP 模板，构建为可随时重建的 staging 目录，
 并可经门控的 `env activate` 切换到 live home。
 设计见 `docs/superpowers/specs/2026-07-10-harness-env-design.md`。
 
@@ -450,6 +459,7 @@ config status | pull | push
 profile status | build | apply
 skills inventory | analyze | dedupe | merge | normalize | promote
 env list | status | build | activate | rollback
+mcp -TemplateId <id> -DryRun|-Apply [-Remove]
 ```
 
 读操作包括 `doctor`、`scan`、`config status`、`profile status`、`skills inventory`、
@@ -467,4 +477,25 @@ env list | status | build | activate | rollback
 内部生成并绑定 sync 计划，rollback 则要求外部 dry-run 生成的同一 `-PlanPath`，并在
 执行前重新验证环境状态、备份元数据和计划哈希。`config pull` 是独立的 home-level
 配置同步入口；the underlying `config-pull` is not part of `env activate`，环境切换当前
-只处理受 manifest 管理的 Claude/Codex skills 和环境状态。
+只处理受 manifest 管理的 Claude/Codex skills 和环境状态；staged MCP 模板仍需显式执行
+`mcp -TemplateId <id> -DryRun` / `-Apply`，不会因环境切换隐式注册服务器。
+
+## 18. MCP 模板安全边界
+
+MCP 模板位于 `harness-source/components/mcp-templates/<id>/template.psd1`，只记录
+服务器命令、参数、作用域和 `${ENV_VAR}` 占位符。模板、计划、报告和命令输出都不记录
+环境变量的值；Apply 只通过 Claude CLI 对单个服务器执行 add/update/remove，禁止整体覆盖
+`~/.claude.json`。
+
+使用示例（必须先审查 dry-run 计划）：
+
+```powershell
+$plan = Join-Path $env:TEMP 'mcp-github-plan.json'
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp -TemplateId github -DryRun -PlanPath $plan
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp -TemplateId github -Apply -PlanPath $plan
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp -TemplateId github -Remove -DryRun -PlanPath $plan
+```
+
+Apply 会把 CLI 状态快照和操作证据写到 home 下的仓库外备份根；失败时保留部分成功阶段和
+恢复证据，不把原始 CLI 状态写入仓库或报告。MCP 不管理 OpenClaw credentials、identity、
+sessions、cache、plugins，也不随 `env activate` 自动写入 home。

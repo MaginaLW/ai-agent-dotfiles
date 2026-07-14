@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/mcp-operation.schema.json",
+  "title": "Claude MCP Operation Summary",
+  "type": "object",
+  "required": ["SchemaVersion", "Result", "TemplateId", "Action"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "Result": { "enum": ["DRY-RUN", "PASS", "PARTIAL_OR_FAILED"] },
+    "TemplateId": { "type": "string" },
+    "Action": { "enum": ["add", "update", "remove", "noop"] },
+    "PlanHash": { "type": "string" },
+    "MissingEnvironmentVariables": { "type": "array", "items": { "type": "string" } },
+    "BackupReference": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

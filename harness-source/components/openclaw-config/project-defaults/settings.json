@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "agent-project"
+  },
+  "defaults": {
+    "reviewMode": "evidence-first"
+  },
+  "logging": {
+    "level": "normal"
+  }
+}

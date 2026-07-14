@@ -10,7 +10,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, backup, sync, config, profile, skills,
+    One of: doctor, build, scan, backup, sync, mcp, config, profile, skills,
     inventory, analyze, merge, plugin, or env.
 
 .EXAMPLE
@@ -43,7 +43,7 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync, config, profile, skills, inventory, analyze, merge, plugin, env'
+    Write-Host 'Commands: doctor, build, scan, backup, sync, mcp, config, profile, skills, inventory, analyze, merge, plugin, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
@@ -69,6 +69,7 @@ $commandMap = @{
     analyze = 'analyze-skills.ps1'
     merge = 'auto-merge-skills.ps1'
     plugin = 'sync-openclaw-plugins.ps1'
+    mcp = '..\claude\mcp\apply-mcp.ps1'
 }
 
 $envCommandMap = @{
@@ -163,16 +164,16 @@ else {
     }
 }
 
-if ($normalizedCommand -eq 'sync') {
+if ($normalizedCommand -in @('sync', 'mcp')) {
     $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
     $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
 
     if (-not $hasDryRun -and -not $hasApply) {
-        Write-Error 'The sync command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
+        Write-Error "The $normalizedCommand command requires an explicit -DryRun or -Apply mode. Run -DryRun first." -ErrorAction Continue
         exit 1
     }
     if ($hasDryRun -and $hasApply) {
-        Write-Error 'The sync command accepts only one mode. Specify -DryRun or -Apply, not both.' -ErrorAction Continue
+        Write-Error "The $normalizedCommand command accepts only one mode. Specify -DryRun or -Apply, not both." -ErrorAction Continue
         exit 1
     }
 }

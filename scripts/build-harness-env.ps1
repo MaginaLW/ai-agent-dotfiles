@@ -18,6 +18,7 @@
         manifests/managed-skills.claude.txt   FULL repo manifest copy
         manifests/managed-skills.codex.txt    FULL repo manifest copy
         profile/                 rendered profile component outputs
+        mcp/templates/<id>/      selected MCP templates (placeholders only)
         env.lock.json            { source provenance, staged hashes, BuiltFiles }
 
     The manifests/ copies are deliberately the FULL repo manifests, not the env
@@ -87,6 +88,7 @@ if (-not (Test-Path -LiteralPath $definitionPath -PathType Leaf)) {
 }
 $definition = Read-HarnessEnvDefinition -Path $definitionPath
 $resolved = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $definition
+$mcpTemplates = @($resolved.McpTemplates)
 
 # --- Collect skill lists (stable sorted, deduplicated) -----------------------
 $skillsByPlatform = @{}
@@ -196,6 +198,14 @@ foreach ($manifestName in @('managed-skills.claude.txt', 'managed-skills.codex.t
             Kind         = 'CopyFile'
             RelativePath = "manifests/$manifestName"
             Source       = $manifestSource
+        })
+}
+
+foreach ($template in $mcpTemplates) {
+    $plan.Add([pscustomobject] @{
+            Kind = 'CopyFile'
+            RelativePath = "mcp/templates/$($template.Id)/template.psd1"
+            Source = $template.Path
         })
 }
 
@@ -360,6 +370,10 @@ $builtHashes = [ordered] @{}
 foreach ($relative in (Sort-HarnessOrdinal -Values @($relativeToFull.Keys))) {
     $builtHashes[$relative] = Get-HarnessFileHash -Path $relativeToFull[$relative]
 }
+$mcpTemplateHashes = [ordered]@{}
+foreach ($template in $mcpTemplates) {
+    $mcpTemplateHashes[$template.Id] = $template.Hash
+}
 
 $lock = [ordered] @{
     SchemaVersion             = 2
@@ -368,6 +382,7 @@ $lock = [ordered] @{
     RepositoryCommit          = Get-HarnessRepositoryCommit -RepoRoot $repo
     ManifestHashes            = Get-HarnessManifestHashes -RepoRoot $repo
     SkillSourceEvidence       = $skillSourceEvidence
+    McpTemplateHashes         = $mcpTemplateHashes
     SkillSourceHashes         = $skillSourceHashes
     StagedSkillTreeHashes     = $stagedSkillTreeHashes
     ProfileSourceHash         = Get-HarnessProfileSourceHash -RepoRoot $repo
@@ -397,6 +412,7 @@ if ($JsonPath) {
         LockHash = Get-HarnessFileHash -Path (Join-Path $stagingFull 'env.lock.json')
         RepositoryCommit = $lock.RepositoryCommit
         SkillSourceEvidence = $lock.SkillSourceEvidence
+        McpTemplateCount = $mcpTemplates.Count
         FileCount = $builtHashes.Count
     }
     [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))

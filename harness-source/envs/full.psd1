@@ -49,5 +49,5 @@
         )
     }
 
-    McpTemplates = @()
+    McpTemplates = @('github')
 }
