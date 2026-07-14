@@ -346,4 +346,4 @@ fake home 验证激活环境 A -> B -> rollback A，managed parity 恢复、unkn
 
 当前执行状态：Phase 0–4 已完成并通过本地回归验证；Phase 5 的 Task 5.1（多平台 Harness）和 Task 5.2（MCP 模板）已完成并通过本地回归验证；Task 5.3（OpenClaw 插件版本治理）保持未启动，需另行评审。
 
-本次回归验证证据包括：config-sync 17/17、harness-profile 33/33、multi-platform Harness 20/20、MCP 22/22、harness-env 117/117、skills import/merge 22/22、unified CLI 12/12，以及 OpenClaw plugin、doctor、sync 测试全部通过；真实仓库 build、fallback secret scan、dry-run sync 和 env/plan/run-report JSON schema 校验通过。未执行任何本任务内的 live `-Apply`、MCP 注册或 environment rollback，未修改 Codex `.system`。
+本次回归验证证据包括：config-sync 17/17、harness-profile 33/33、multi-platform Harness 20/20、MCP 23/23、harness-env 117/117、skills import/merge 22/22、unified CLI 12/12，以及 OpenClaw plugin、doctor、sync 测试全部通过；真实仓库 build、fallback secret scan、dry-run sync 和 env/plan/run-report JSON schema 校验通过。未执行任何本任务内的 live `-Apply`、MCP 注册或 environment rollback，未修改 Codex `.system`。

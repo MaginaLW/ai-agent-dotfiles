@@ -121,7 +121,10 @@ function ConvertTo-McpPlanHash {
     param([Parameter(Mandatory)] $Plan)
     $copy = [ordered]@{}
     foreach ($property in $Plan.PSObject.Properties) {
-        if ($property.Name -ne 'PlanHash') { $copy[$property.Name] = $property.Value }
+        # GeneratedAtUtc is evidence metadata, not operation semantics. PowerShell
+        # may round-trip it as DateTime and trim trailing fractional-second zeros,
+        # which would otherwise make a valid reviewed plan drift between processes.
+        if ($property.Name -notin @('PlanHash', 'GeneratedAtUtc')) { $copy[$property.Name] = $property.Value }
     }
     $json = $copy | ConvertTo-Json -Depth 20 -Compress
     $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($json)
