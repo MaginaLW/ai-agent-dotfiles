@@ -12,6 +12,7 @@
 Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'harness-profile-common.ps1')
+. (Join-Path $PSScriptRoot 'mcp-common.ps1')
 
 function Get-HarnessEnvRoot {
     [CmdletBinding()]
@@ -48,6 +49,12 @@ function Read-HarnessEnvDefinition {
         throw "Env definition Skills must be a hashtable: $Path"
     }
     Test-HarnessKnownKeys -Data $data.Skills -Kind 'env definition Skills' -Path $Path -AllowedKeys @('Claude', 'Codex')
+
+    if ($data.ContainsKey('McpTemplates')) {
+        foreach ($templateId in @($data.McpTemplates)) {
+            Test-McpSafeId -Value ([string]$templateId) -Label 'McpTemplates entry'
+        }
+    }
 
     return $data
 }
@@ -97,20 +104,30 @@ function Resolve-HarnessEnvDefinition {
         }
     }
 
-    $mcpTemplates = if ($Definition.ContainsKey('McpTemplates')) { @($Definition.McpTemplates) } else { @() }
-    foreach ($templateId in $mcpTemplates) {
-        $templateDir = Join-Path $repo "harness-source/components/mcp-templates/$templateId"
-        if (-not (Test-Path -LiteralPath $templateDir -PathType Container)) {
-            throw "Env '$envName' references unknown McpTemplate '$templateId': expected $templateDir"
-        }
-    }
+    $mcpTemplates = @(Get-HarnessEnvMcpTemplates -RepoRoot $repo -Definition $Definition)
 
     return [pscustomobject] @{
         Name             = $envName
         Profile          = $profileName
         ResolvedProfiles = $resolvedProfiles
         Definition       = $Definition
+        McpTemplates     = $mcpTemplates
     }
+}
+
+function Get-HarnessEnvMcpTemplates {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [hashtable] $Definition
+    )
+
+    $ids = if ($Definition.ContainsKey('McpTemplates')) { @($Definition.McpTemplates | ForEach-Object { [string] $_ }) } else { @() }
+    $result = [System.Collections.Generic.List[object]]::new()
+    foreach ($id in $ids) {
+        $result.Add((Get-McpTemplate -RepoRoot $RepoRoot -TemplateId $id))
+    }
+    return @($result)
 }
 
 function Get-HarnessEnvStagingRoot {

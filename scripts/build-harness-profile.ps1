@@ -83,6 +83,20 @@ foreach ($group in $structuredGroups) {
     Write-HarnessJsonFile -InputObject $merged -Path $outputPath
 }
 
+foreach ($target in @($plan.Targets | Where-Object { $_.Mode -eq 'DirectoryFiles' })) {
+    $component = $plan.Components | Where-Object { $_.Id -eq $target.ComponentId } | Select-Object -First 1
+    $sourceName = if ($target.Output.ContainsKey('Source') -and $target.Output.Source) { [string] $target.Output.Source } else { 'content.md' }
+    $contentPath = Get-HarnessComponentContentPath -Component $component -FileName $sourceName
+    if (-not $contentPath) {
+        throw "DirectoryFiles component '$($component.Id)' is missing $sourceName."
+    }
+    $relativeTarget = ($target.Target -replace '\\', '/')
+    $outputPath = Join-Path $generatedRoot (Join-Path 'files' ($relativeTarget -replace '/', [System.IO.Path]::DirectorySeparatorChar))
+    Assert-HarnessGeneratedOutputPath -Path $outputPath -GeneratedRoot $generatedRoot
+    New-Item -ItemType Directory -Path (Split-Path -Parent $outputPath) -Force | Out-Null
+    Copy-Item -LiteralPath $contentPath -Destination $outputPath -Force
+}
+
 foreach ($target in @($plan.Targets | Where-Object { $_.Mode -eq 'GeneratedOnly' })) {
     $component = $plan.Components | Where-Object { $_.Id -eq $target.ComponentId } | Select-Object -First 1
     $contentPath = Get-HarnessComponentContentPath -Component $component -FileName 'content.md'

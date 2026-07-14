@@ -307,9 +307,18 @@ fake home 验证激活环境 A -> B -> rollback A，managed parity 恢复、unkn
 
 扩展 harness-source/components/ 和 harness-profile-common.ps1，实现 Claude commands/agents、Codex prompts/agents 或 OpenClaw 受控配置。每种输出类型都必须有独立 schema、目标 allowlist、dry-run、rollback 和回归测试；不能通过扩大 apply-harness-profile.ps1 的路径权限来实现。
 
+- [x] 新增 component output contract/schema，覆盖 Claude commands/agents、Codex prompts/agents、OpenClaw project config。
+- [x] build/apply/status 接入 DirectoryFiles 与 OpenClaw StructuredMerge；apply 保持项目级 allowlist、备份和事务性回滚。
+- [x] `tests/harness-multiplatform.tests.ps1` 覆盖成功、空/重复执行、非法路径、敏感字段和失败回滚。
+
 ### Task 5.2: MCP 模板安全落地
 
 把 claude/mcp/apply-mcp.ps1 从 placeholder 变成模板验证 + 环境变量检查 + CLI 注册流程。禁止整体覆盖 ~/.claude.json，禁止把 secret 写入模板、报告或命令日志；先设计 dry-run 和 removal/update 语义，再实现 apply。
+
+- [x] 新增模板 schema/validator、占位符与环境变量存在性/哈希 attestation。
+- [x] 实现 dry-run plan hash、单服务器 add/update/remove、repo 外备份和失败阶段证据。
+- [x] `env build` staging MCP templates；`env activate` 不隐式注册；统一 CLI 增加显式模式 gate。
+- [x] `tests/mcp.tests.ps1` 覆盖脱敏、缺失变量、路径边界、update/remove、plan drift、CLI 失败和重复执行。
 
 ### Task 5.3: OpenClaw 插件版本治理
 
@@ -335,6 +344,6 @@ fake home 验证激活环境 A -> B -> rollback A，managed parity 恢复、unkn
 5. Phase 4：在稳定 sync 之上做 environment lock、attestation 和 rollback。
 6. Phase 5：根据实际需求从 Harness、MCP、OpenClaw 插件中选择一个单独立项。
 
-当前执行状态：Phase 0–4 已完成并通过本地回归验证；Phase 5（可选扩展）保持未启动，需另行评审和分阶段实施。
+当前执行状态：Phase 0–4 已完成并通过本地回归验证；Phase 5 的 Task 5.1（多平台 Harness）和 Task 5.2（MCP 模板）已完成并通过本地回归验证；Task 5.3（OpenClaw 插件版本治理）保持未启动，需另行评审。
 
-本次 Phase 0–4 的验证证据包括：config-sync 17/17、harness-profile 33/33、harness-env 115/115、skills import/merge 22/22、OpenClaw plugin、doctor 和 unified CLI 11/11 全部通过；真实仓库 build、fallback secret scan、dry-run sync 和 harness-env/run-report JSON schema 校验通过。未执行任何 live `-Apply` 或 environment rollback，未修改 Codex `.system`。
+本次回归验证证据包括：config-sync 17/17、harness-profile 33/33、multi-platform Harness 20/20、MCP 22/22、harness-env 117/117、skills import/merge 22/22、unified CLI 12/12，以及 OpenClaw plugin、doctor、sync 测试全部通过；真实仓库 build、fallback secret scan、dry-run sync 和 env/plan/run-report JSON schema 校验通过。未执行任何本任务内的 live `-Apply`、MCP 注册或 environment rollback，未修改 Codex `.system`。

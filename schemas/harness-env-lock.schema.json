@@ -10,6 +10,7 @@
     "RepositoryCommit",
     "ManifestHashes",
     "SkillSourceEvidence",
+    "McpTemplateHashes",
     "SkillSourceHashes",
     "StagedSkillTreeHashes",
     "ProfileSourceHash",
@@ -33,6 +34,7 @@
       "additionalProperties": false
     },
     "SkillSourceEvidence": { "enum": ["available", "not-collected"] },
+    "McpTemplateHashes": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" } },
     "SkillSourceHashes": {
       "type": "object",
       "required": ["Claude", "Codex"],

@@ -116,7 +116,11 @@ jobs:
             'schemas\harness-env-status.schema.json',
             'schemas\harness-env-lock.schema.json',
             'schemas\harness-env-list.schema.json',
-            'schemas\harness-env-build.schema.json'
+            'schemas\harness-env-build.schema.json',
+            'schemas\harness-component.schema.json',
+            'schemas\harness-platform-output.schema.json',
+            'schemas\mcp-plan.schema.json',
+            'schemas\mcp-operation.schema.json'
           ) | ForEach-Object { Join-Path $env:GITHUB_WORKSPACE $_ }
           foreach ($schemaPath in $schemaPaths) {
             if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
@@ -144,7 +148,7 @@ jobs:
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\build-harness-env.ps1') -Name work -RepoRoot $env:GITHUB_WORKSPACE -JsonPath $envBuildJson
           if ($LASTEXITCODE -ne 0) { throw "build-harness-env.ps1 failed with exit code $LASTEXITCODE." }
           $envBuild = Get-Content -Raw -LiteralPath $envBuildJson | ConvertFrom-Json
-          foreach ($required in @('SchemaVersion', 'Name', 'Result', 'DefinitionHash', 'LockHash', 'SkillSourceEvidence', 'FileCount')) {
+          foreach ($required in @('SchemaVersion', 'Name', 'Result', 'DefinitionHash', 'LockHash', 'SkillSourceEvidence', 'McpTemplateCount', 'FileCount')) {
             if (-not ($envBuild.PSObject.Properties.Name -contains $required)) {
               throw "Harness environment build JSON is missing required field: $required"
             }
@@ -155,7 +159,7 @@ jobs:
           $envLockPath = Join-Path $env:GITHUB_WORKSPACE 'envs\work\env.lock.json'
           if (-not (Test-Path -LiteralPath $envLockPath -PathType Leaf)) { throw 'Harness environment lock was not generated.' }
           $envLock = Get-Content -Raw -LiteralPath $envLockPath | ConvertFrom-Json
-          foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'ManifestHashes', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'ManagedPluginDeclaration', 'BuiltFiles')) {
+          foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'ManifestHashes', 'SkillSourceEvidence', 'McpTemplateHashes', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'ManagedPluginDeclaration', 'BuiltFiles')) {
             if (-not ($envLock.PSObject.Properties.Name -contains $required)) {
               throw "Harness environment lock is missing required field: $required"
             }
@@ -225,6 +229,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "harness-profile.tests.ps1 failed with exit code $LASTEXITCODE."
           }
+
+      - name: Run multi-platform harness tests
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\harness-multiplatform.tests.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            throw 'tests/harness-multiplatform.tests.ps1 is missing; multi-platform harness coverage is required.'
+          }
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) { throw "harness-multiplatform.tests.ps1 failed with exit code $LASTEXITCODE." }
+
+      - name: Run MCP tests
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\mcp.tests.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            throw 'tests/mcp.tests.ps1 is missing; MCP template safety coverage is required.'
+          }
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) { throw "mcp.tests.ps1 failed with exit code $LASTEXITCODE." }
 
       - name: Run harness env tests
         shell: pwsh
