@@ -5,6 +5,7 @@ param([string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+. (Join-Path $RepoRoot 'scripts\mcp-common.ps1')
 $pass = 0
 $fail = 0
 function Assert([bool] $Condition, [string] $Message) {
@@ -72,6 +73,10 @@ try {
     Assert ($planDoc.SchemaVersion -eq 1 -and $planDoc.PlanKind -eq 'mcp-operation' -and $planDoc.PlanHash -match '^[A-Fa-f0-9]{64}$') 'MCP plan has the machine-readable contract'
     $summaryDoc = Get-Content -Raw -LiteralPath $summary | ConvertFrom-Json
     Assert ($summaryDoc.SchemaVersion -eq 1 -and $summaryDoc.Result -eq 'DRY-RUN') 'MCP summary has the machine-readable contract'
+    $timestampProbe = $planDoc | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+    $timestampProbe.GeneratedAtUtc = '2026-07-14T00:00:00.1234560Z'
+    $timestampRoundTrip = $timestampProbe | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+    Assert ((ConvertTo-McpPlanHash -Plan $timestampProbe) -eq (ConvertTo-McpPlanHash -Plan $timestampRoundTrip)) 'plan hash ignores timestamp serialization drift'
     Assert ($planText -notmatch 'mcp-test-secret-value') 'plan does not contain environment values'
     Assert ($dry.Out -notmatch 'mcp-test-secret-value') 'dry-run output redacts environment values'
 
