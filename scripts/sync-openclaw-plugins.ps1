@@ -34,13 +34,24 @@
 
 .PARAMETER DryRun
     Force dry-run mode (same as omitting -Apply). Provided for call-site symmetry.
+
+.PARAMETER OpenClawCommand
+    Optional OpenClaw executable or script used for the read-only list probe.
+    Intended for isolated tests and alternate installations.
+
+.PARAMETER CliProbeTimeoutSeconds
+    Maximum seconds to wait for `openclaw plugins list --json` before falling back
+    to sanitized local state. Defaults to 15 seconds.
 #>
 [CmdletBinding()]
 param(
     [switch] $Apply,
     [switch] $DryRun,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [string] $HomeRoot = $env:USERPROFILE
+    [string] $HomeRoot = $env:USERPROFILE,
+    [string] $OpenClawCommand,
+    [ValidateRange(1, 120)]
+    [int] $CliProbeTimeoutSeconds = 15
 )
 
 Set-StrictMode -Version Latest
@@ -61,11 +72,109 @@ $HomeRoot = if (Test-Path -LiteralPath $HomeRoot) {
 }
 $ManagedPluginsPath = Join-Path $RepoRoot 'openclaw\plugins\managed-plugins.json'
 $InstallsJsonPath = Join-Path $HomeRoot '.openclaw\plugins\installs.json'
+$OpenClawConfigPath = Join-Path $HomeRoot '.openclaw\openclaw.json'
 $DefaultHomeRoot = [System.IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\', '/')
 
 function Test-IsDefaultHomeRoot {
     $currentHomeRoot = [System.IO.Path]::GetFullPath($HomeRoot).TrimEnd('\', '/')
     return $currentHomeRoot -eq $DefaultHomeRoot
+}
+
+function New-OpenClawListProbeStartInfo {
+    $commandName = if ([string]::IsNullOrWhiteSpace($OpenClawCommand)) { 'openclaw' } else { $OpenClawCommand }
+    $commandInfo = Get-Command -Name $commandName -ErrorAction Stop | Select-Object -First 1
+    $commandPath = [string] $commandInfo.Path
+    if ([string]::IsNullOrWhiteSpace($commandPath)) {
+        $commandPath = [string] $commandInfo.Source
+    }
+    if ([string]::IsNullOrWhiteSpace($commandPath)) {
+        throw "Could not resolve OpenClaw command '$commandName'."
+    }
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $extension = [System.IO.Path]::GetExtension($commandPath).ToLowerInvariant()
+
+    if ($commandInfo.CommandType -eq 'ExternalScript' -or $extension -eq '.ps1') {
+        $pwshPath = (Get-Command pwsh -ErrorAction Stop | Select-Object -First 1).Source
+        $startInfo.FileName = $pwshPath
+        foreach ($argument in @('-NoProfile', '-File', $commandPath, 'plugins', 'list', '--json')) {
+            [void] $startInfo.ArgumentList.Add($argument)
+        }
+    }
+    elseif ($extension -in @('.cmd', '.bat')) {
+        $startInfo.FileName = $env:ComSpec
+        [void] $startInfo.ArgumentList.Add('/d')
+        [void] $startInfo.ArgumentList.Add('/s')
+        [void] $startInfo.ArgumentList.Add('/c')
+        [void] $startInfo.ArgumentList.Add(('"{0}" plugins list --json' -f $commandPath))
+    }
+    else {
+        $startInfo.FileName = $commandPath
+        foreach ($argument in @('plugins', 'list', '--json')) {
+            [void] $startInfo.ArgumentList.Add($argument)
+        }
+    }
+
+    return $startInfo
+}
+
+function Invoke-OpenClawListProbe {
+    $process = $null
+    try {
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = New-OpenClawListProbeStartInfo
+        if (-not $process.Start()) {
+            throw 'OpenClaw CLI process could not be started.'
+        }
+
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $completed = $process.WaitForExit($CliProbeTimeoutSeconds * 1000)
+        if (-not $completed) {
+            try {
+                $process.Kill($true)
+            }
+            catch {
+                try { $process.Kill() } catch { }
+            }
+            try { [void] $process.WaitForExit(2000) } catch { }
+            return [pscustomobject]@{
+                Succeeded = $false
+                TimedOut = $true
+                ExitCode = $null
+                Output = ''
+                Error = "OpenClaw CLI probe timed out after $CliProbeTimeoutSeconds seconds."
+            }
+        }
+
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        return [pscustomobject]@{
+            Succeeded = ($process.ExitCode -eq 0)
+            TimedOut = $false
+            ExitCode = $process.ExitCode
+            Output = $stdout
+            Error = $stderr
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Succeeded = $false
+            TimedOut = $false
+            ExitCode = $null
+            Output = ''
+            Error = $_.Exception.Message
+        }
+    }
+    finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+    }
 }
 
 function Get-ObjectPropertyValue {
@@ -183,16 +292,23 @@ function Get-LivePlugins {
     <#
         Returns a list of live plugin records:
         [pscustomobject]@{ id, source, enabled, origin, version }
-        Falls back to sanitized installs.json read when CLI is unavailable.
+        Falls back to sanitized installs.json or openclaw.json enablement state
+        when CLI is unavailable; fails closed if neither state surface exists.
     #>
 
-    if (Test-IsDefaultHomeRoot) {
+    $useCliProbe = (Test-IsDefaultHomeRoot) -or (-not [string]::IsNullOrWhiteSpace($OpenClawCommand))
+    $probeAttempted = $false
+    $probeFailed = $false
+    Write-Verbose "OpenClaw list probe enabled=$useCliProbe custom-command=$(-not [string]::IsNullOrWhiteSpace($OpenClawCommand)) default-home=$(Test-IsDefaultHomeRoot)"
+    if ($useCliProbe) {
+        $probeAttempted = $true
         try {
-            $result = & openclaw plugins list --json 2>&1
-            if ($LASTEXITCODE -eq 0 -and $result) {
-                $json = $result | Out-String | ConvertFrom-Json
-                $plugins = @(Get-ObjectPropertyValue -Object $json -Name 'plugins' -Default @())
-                if ($plugins.Count -gt 0) {
+            $probe = Invoke-OpenClawListProbe
+            if ($probe.Succeeded -and -not [string]::IsNullOrWhiteSpace($probe.Output)) {
+                $json = $probe.Output | ConvertFrom-Json
+                $pluginsProperty = $json.PSObject.Properties['plugins']
+                if ($null -ne $pluginsProperty) {
+                    $plugins = @($pluginsProperty.Value)
                     $live = @()
                     foreach ($p in $plugins) {
                         $id = Get-ObjectPropertyValue -Object $p -Name 'id' -Default (Get-ObjectPropertyValue -Object $p -Name 'pluginId')
@@ -206,17 +322,49 @@ function Get-LivePlugins {
                         }
                     }
                     Write-Verbose "Got $($live.Count) plugins from openclaw CLI."
-                    return ,$live
+                    return $live
                 }
             }
-            Write-Verbose "openclaw CLI returned empty or unexpected output. Falling back to installs.json."
+            if ($probe.TimedOut) {
+                $probeFailed = $true
+                Write-Warning "OpenClaw CLI probe timed out after $CliProbeTimeoutSeconds seconds. Falling back to sanitized local state."
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($probe.Error)) {
+                $probeFailed = $true
+                Write-Verbose "openclaw CLI probe failed: $($probe.Error). Falling back to sanitized local state."
+            }
+            else {
+                $probeFailed = $true
+                Write-Verbose "openclaw CLI returned empty, failed, or unexpected output. Falling back to sanitized local state."
+            }
         }
         catch {
-            Write-Verbose "openclaw CLI unavailable: $($_.Exception.Message). Falling back to installs.json."
+            $probeFailed = $true
+            Write-Verbose "openclaw CLI probe unavailable: $($_.Exception.Message). Falling back to sanitized local state."
         }
     }
 
-    return Get-LivePluginsFromInstallsJson
+    if (Test-Path -LiteralPath $InstallsJsonPath -PathType Leaf) {
+        try {
+            return Get-LivePluginsFromInstallsJson
+        }
+        catch {
+            $probeFailed = $true
+            Write-Warning "Failed to use installs.json as live plugin state: $($_.Exception.Message)"
+        }
+    }
+
+    $configLive = @(Get-LivePluginsFromConfig)
+    if ($configLive.Count -gt 0) {
+        Write-Warning 'Using plugin enablement from openclaw.json. Installation/source parity is not attestable.'
+        return $configLive
+    }
+
+    if ($probeAttempted -and $probeFailed) {
+        throw 'OpenClaw live plugin state is unavailable: the CLI probe failed and no sanitized fallback state exists; refusing to treat live state as empty.'
+    }
+
+    return @()
 }
 
 function Get-LivePluginsFromInstallsJson {
@@ -228,7 +376,11 @@ function Get-LivePluginsFromInstallsJson {
     try {
         $raw = Get-Content -LiteralPath $InstallsJsonPath -Raw -Encoding utf8 | ConvertFrom-Json
         $live = @()
-        $plugins = @(Get-ObjectPropertyValue -Object $raw -Name 'plugins' -Default @())
+        $pluginsProperty = $raw.PSObject.Properties['plugins']
+        if ($null -eq $pluginsProperty) {
+            throw "installs.json is missing the top-level 'plugins' field."
+        }
+        $plugins = @($pluginsProperty.Value)
         if ($plugins.Count -gt 0) {
             foreach ($p in $plugins) {
                 $id = Get-ObjectPropertyValue -Object $p -Name 'id' -Default (Get-ObjectPropertyValue -Object $p -Name 'pluginId')
@@ -243,12 +395,51 @@ function Get-LivePluginsFromInstallsJson {
             }
         }
         Write-Verbose "Got $($live.Count) plugins from installs.json."
-        return ,$live
+        return $live
     }
     catch {
-        Write-Warning "Failed to parse installs.json: $($_.Exception.Message)"
+        throw "Failed to parse installs.json: $($_.Exception.Message)"
+    }
+}
+
+function Get-LivePluginsFromConfig {
+    if (-not (Test-Path -LiteralPath $OpenClawConfigPath -PathType Leaf)) {
         return @()
     }
+
+    try {
+        $raw = Get-Content -LiteralPath $OpenClawConfigPath -Raw -Encoding utf8 | ConvertFrom-Json
+        $plugins = Get-ObjectPropertyValue -Object $raw -Name 'plugins' -Default $null
+        $entries = if ($null -ne $plugins) {
+            Get-ObjectPropertyValue -Object $plugins -Name 'entries' -Default $null
+        } else {
+            $null
+        }
+        if ($null -eq $entries) {
+            return @()
+        }
+
+        $live = @()
+        foreach ($property in @($entries.PSObject.Properties)) {
+            $entry = $property.Value
+            $live += [pscustomobject]@{
+                id      = $property.Name
+                source  = $null
+                enabled = [bool](Get-ObjectPropertyValue -Object $entry -Name 'enabled' -Default $false)
+                origin  = 'config'
+                version = $null
+            }
+        }
+        if ($live.Count -gt 0) {
+            Write-Verbose "Got $($live.Count) plugin enablement entries from openclaw.json."
+            return $live
+        }
+    }
+    catch {
+        Write-Verbose 'Failed to parse openclaw.json plugin entries. Falling back without exposing config values.'
+    }
+
+    return @()
 }
 
 # ---------------------------------------------------------------------------
