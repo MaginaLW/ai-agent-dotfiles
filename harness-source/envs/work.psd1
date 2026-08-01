@@ -10,9 +10,11 @@
             'systematic-debugging'
         )
         Codex = @(
+            'brainstorming',
             'git-review',
             'systematic-debugging',
-            'code-review'
+            'code-review',
+            'writing-plans'
         )
     }
 
