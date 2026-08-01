@@ -4,11 +4,11 @@
 
 **Goal:** Restore the local validation gate, make OpenClaw plugin inspection fail fast instead of hanging, repair stale generated environment staging, correct newer-CLI absolute-path source false positives, and prepare the current machine's managed skill state without silently switching the project between `full` and `work` environments.
 
-**Approach:** Repair the two stale, local raw-import examples using the already-correct canonical wording rather than weakening secret scanning. Add bounded OpenClaw read-only list/info probes with sanitized config fallback and regression tests, refresh the machine-private registry through the official CLI, rebuild the generated environment staging, then rebuild, scan, generate and review a fingerprint-bound sync plan. Leave live apply and the `full` versus `work` environment choice explicit because enabling a plugin changes real configuration and switching environments can prune managed skills.
+**Approach:** Repair the two stale, local raw-import examples using the already-correct canonical wording rather than weakening secret scanning. Add bounded OpenClaw read-only list/info probes with sanitized config fallback and regression tests, refresh the machine-private registry through the official CLI, rebuild the generated environment staging, review the fingerprint-bound plan, then perform the user-authorized `work` live apply and OpenClaw plugin enablement with backups and post-apply attestation.
 
 **Materials:** `skills-source/codex-only/security-best-practices/`, the two matching files under `imports/skills-inbox/` and `imports/skills-archive/`, `scripts/scan-secrets.ps1`, `scripts/sync-openclaw-plugins.ps1`, `tests/openclaw-plugin.tests.ps1`, `scripts/sync.ps1`, `scripts/status-harness-env.ps1`, and `STATUS.md`.
 
-**Validation:** `scan-secrets.ps1` exits 0 without a whitelist; the plugin regression suite proves a hung CLI falls back within the configured timeout and an absolute `plugins list` source is reconciled through canonical `plugins info` metadata; build and all regression suites pass; the sync dry-run contains only the known `codex/hatch-pet` update with no prune and `.system` preserved; final Git status is clean except for intentional tracked documentation/code changes.
+**Validation:** `scan-secrets.ps1` exits 0 without a whitelist; the plugin regression suite proves a hung CLI falls back within the configured timeout and an absolute `plugins list` source is reconciled through canonical `plugins info` metadata; build and all regression suites pass; the reviewed `work` apply preserves `.system` and unknown OpenClaw skills, records a mandatory backup, reaches live parity, and leaves the gateway connected with both managed plugins loaded.
 
 ---
 
@@ -73,13 +73,17 @@ Run `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, and a normal `script
 
 Require Claude `+0 ~0 -0`, OpenClaw `+0 ~0 -0`, Codex `+0 ~1 -0` for `hatch-pet`, no prune/unknown actions, and preserved `.system`.
 
-- [ ] **Step 3: Apply only the reviewed skill plan**
+- [x] **Step 3: Apply only the reviewed skill plan**
 
-Do not apply in this repair: `sync.ps1` also invokes OpenClaw plugin sync, and the current desired state would enable managed `codex` in the real OpenClaw profile. The skill plan is ready, but a separate explicit apply is required after the user confirms the plugin enablement and the `full` versus `work` environment target.
+With explicit user authorization, run `env activate work -Apply`. The apply pruned only the reviewed manifest-managed Claude/Codex skills (`13` and `20` respectively), preserved Codex `.system` and all 25 unknown OpenClaw skill dirs, passed managed parity, and recorded backup `sync-backup-20260801-161223`.
 
 - [x] **Step 4: Keep environment switching explicit**
 
-Do not run `env activate` automatically. The three environment stagings and locks were rebuilt and are valid; the remaining `active=full` versus project `RequiredEnv=work` decision is reported with a fresh dry-run recommendation. Switching to `work` is a separate, potentially pruning operation.
+Do not infer an environment switch from `RequiredEnv`; request an explicit target and review its prune plan. The user selected `work`, and final status reports active `work`, valid lock, live parity pass, and project linkage match.
+
+- [x] **Step 5: Reconcile staging runtime reports**
+
+`sync.ps1` writes run reports under a staging repo during activation. Lock attestation now ignores `envs/<name>/reports/`, with a regression test, so a successful activation does not immediately make its disposable staging lock stale.
 
 ### Task 4: Update evidence-backed repository status
 
@@ -89,8 +93,8 @@ Do not run `env activate` automatically. The three environment stagings and lock
 
 - [x] **Step 1: Update stale machine evidence**
 
-Record the current date, actual installed auto-sync hooks, the successful local validation counts, the resolved scan state, the observed `hatch-pet` dry-run result, and the remaining explicit environment/plugin limitations.
+Record the current date, actual installed auto-sync hooks, the successful local validation counts, the resolved scan state, the observed `hatch-pet` dry-run result, the authorized live `work` apply, plugin allowlist/enablement, gateway restart, and final attestation.
 
 - [x] **Step 2: Verify the repository handoff**
 
-Run the full regression suite, `git diff --check`, `git status --short --branch`, `check-hooks.ps1`, and fresh environment/profile status commands. Do not claim environment activation or plugin parity unless those live operations actually succeed.
+Run the full regression suite, `git diff --check`, `git status --short --branch`, `check-hooks.ps1`, and fresh environment/profile status commands. Claim environment activation and plugin parity only from the successful live apply and post-restart checks.
