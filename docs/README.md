@@ -413,9 +413,11 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`（环境子集，供人读）、
   `manifests/managed-skills.<platform>.txt`（**全量**仓库 manifest 副本，驱动
   sync 的切换裁剪语义）、空 `openclaw/skills/`（满足 sync 源检查，OpenClaw 零动作）、
-  `profile/`（渲染的 profile 组件输出）、`env.lock.json`
-  （可验证的定义、源/生成树、manifest、profile 和 staging 文件哈希；`env status`
-  用它判定 lock validity 和 built/stale，而不是只看文件是否存在）。
+   `profile/`（渲染的 profile 组件输出）、`env.lock.json`
+   （可验证的定义、源/生成树、manifest、profile 和 staging 文件哈希；`env status`
+   用它判定 lock validity 和 built/stale，而不是只看文件是否存在）。
+   `envs/<name>/reports/` 是 activation 期间 `sync.ps1` 写入的运行证据，不属于构建
+   产物，lock attestation 会忽略它。
 - `state/current-env.json`：当前激活环境记录（名字、定义哈希、激活时间），机器私有、
   Git-ignored。只有 `env activate -Apply` 成功后才写；`status` 用定义哈希检测
   "激活后定义又变了"并提示重新 activate。

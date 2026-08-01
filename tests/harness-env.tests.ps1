@@ -205,6 +205,10 @@ Assert ($lock.PSObject.Properties.Name -contains 'McpTemplateHashes' -and $lock.
 $stagedFiles = @(Get-ChildItem -LiteralPath $goodStaging -File -Recurse -Force |
         Where-Object { $_.Name -ne 'env.lock.json' })
 Assert ($lockedFiles.Count -eq $stagedFiles.Count) 'lock covers every staged file'
+$runtimeReport = Join-Path $goodStaging 'reports/sync-report-fixture.md'
+Set-File -Path $runtimeReport -Content '# runtime report'
+$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
+Assert ($result.Out -match 'good\s+definition=valid\s+staging=built') 'status ignores runtime reports written under staging'
 
 # --- 5. build idempotence -----------------------------------------------------
 Write-Host 'build: idempotence'

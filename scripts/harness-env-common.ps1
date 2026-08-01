@@ -438,9 +438,12 @@ function Test-HarnessEnvLock {
     if ([string] $lock.ProfileOutputHash -ne [string] $profileOutputHash) { $reasons.Add('staged profile output changed or is missing') }
 
     $savedFiles = @($lock.BuiltFiles.PSObject.Properties.Name | Sort-Object)
+    # sync.ps1 writes run reports under a staging repo during activation. Those
+    # reports are runtime evidence, not build artifacts covered by env.lock.json.
     $currentFiles = @(Get-ChildItem -LiteralPath $StagingPath -File -Recurse -Force |
         Where-Object { $_.FullName -ne $lockPath } |
         ForEach-Object { [System.IO.Path]::GetRelativePath($StagingPath, $_.FullName) -replace '\\', '/' } |
+        Where-Object { -not $_.StartsWith('reports/', [System.StringComparison]::OrdinalIgnoreCase) } |
         Sort-Object)
     if ((ConvertTo-Json $savedFiles -Compress) -ne (ConvertTo-Json $currentFiles -Compress)) {
         $reasons.Add('staging file set differs from env.lock.json')

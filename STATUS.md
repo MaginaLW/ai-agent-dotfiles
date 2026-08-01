@@ -33,16 +33,22 @@ OpenClaw registry was refreshed with the official `plugins registry --refresh` c
 `plugins list --json` returned 72 records; newer absolute-path output is now canonicalized
 through read-only `plugins info` package metadata before source comparison. The plugin
 regression suite covers timeout, canonical source resolution, config fallback,
-unknown-plugin preservation, and missing-state failure. No live skill or OpenClaw plugin
-lifecycle apply was run in this repair.
+unknown-plugin preservation, and missing-state failure. A user-authorized live apply then
+activated `work`: Claude applied `+0 ~0 =2 -13`, Codex `+0 ~0 =3 -20`, OpenClaw skills
+remained unchanged, and `.system` plus 25 unknown OpenClaw skill directories were
+preserved. The mandatory backup was `sync-backup-20260801-161223`. OpenClaw's restrictive
+allowlist was updated through its official config CLI, `codex` was enabled through the
+official plugin CLI, and the gateway was restarted; final managed plugin state is
+`codex` and `openclaw-weixin` enabled/loaded with no package updates.
 
 Activation evidence is intentionally separated by execution mode:
 
 - Historical dry-run: `DESKTOP-3GMDAB7` was checked on 2026-06-30 with `sync.ps1` dry-runs only; no real-home `-Apply` was run there.
 - Fake-home validation: `tests/harness-env.tests.ps1` exercises apply, switch, prune, and parity behavior against test homes; those runs do not prove a real machine activation.
 - Real apply: with explicit user authorization, `MAGINA-LAPTOP` ran `env activate full -Apply` on 2026-07-10. The zero-prune baseline env applied Claude `+0 ~15 -0`, Codex `+0 ~23 -0`, OpenClaw `+0 ~0 -0`, preserved the Codex `.system` marker, passed the managed-scope parity check at that time, and wrote machine-private `state/current-env.json` (`Name=full`). Mandatory backups from the run were `sync-backup-20260710-135828` (first attempt, aborted by the parity false-positive below) and `sync-backup-20260710-140653` (successful run). A separate historical direct `sync.ps1 -Apply` report exists for `MAGINA-LAPTOP` on 2026-07-01; it is evidence of that run, not a current cross-machine attestation.
+- Current real apply: with explicit user authorization on 2026-08-01, `MAGINA-LAPTOP` ran `env activate work -Apply`, then applied the managed OpenClaw plugin state. Final status is active `work`, lock valid, live parity pass, `.system` present, project `RequiredEnv=work` matched, gateway connectivity OK, and both managed plugins enabled/loaded.
 
-The 2026-07-10 activation is therefore complete for `MAGINA-LAPTOP`; it must not be described as proof that every machine has been applied. The Phase 0 checks do not run live apply and do not create a new parity attestation.
+These applies are evidence for `MAGINA-LAPTOP` only; they must not be described as proof that every machine has been applied. The Phase 0 checks do not run live apply and do not create a new parity attestation.
 
 ## Current canonical decisions
 
@@ -69,7 +75,7 @@ The 2026-07-10 activation is therefore complete for `MAGINA-LAPTOP`; it must not
 | Machine | Documented state |
 |---|---|
 | `DESKTOP-3GMDAB7` | Revalidated with dry-runs only on 2026-06-30: skill sync reported Claude `+0 ~15 -0`, Codex `+2 ~21 -0` with `.system` preserved, OpenClaw `+25 ~0 -0`, and OpenClaw plugin sync would install 2 managed plugins. No `-Apply` was run. |
-| `MAGINA-LAPTOP` | Real harness-env activation completed on 2026-07-10: `env activate full -Apply` deployed Claude ~15 and Codex ~23, left OpenClaw untouched, preserved `.system`, passed activation-time managed-scope parity, and recorded active env `full`. A 2026-08-01 read-only check finds all three env stagings and locks valid, but reports live parity mismatch and project `RequiredEnv=work` versus active `full`; it is not a new activation. |
+| `MAGINA-LAPTOP` | Current state after the 2026-08-01 authorized apply: active `work`; Claude has 2 and Codex 3 selected managed skills, `.system` is preserved, OpenClaw unknown skills are preserved, live parity and lock are valid, project `RequiredEnv=work` matches, and managed `codex`/`openclaw-weixin` plugins are enabled/loaded. Backup: `sync-backup-20260801-161223`. |
 | Other machines | Run `bootstrap.ps1` once after cloning to install repo-local hooks and enter the guarded sync flow. |
 
 ## Build / scan status
@@ -79,7 +85,7 @@ The 2026-07-10 activation is therefore complete for `MAGINA-LAPTOP`; it must not
 - Repository-local generated output was regenerated on 2026-08-01 with `scripts/build-skills.ps1`: Claude **15**, Codex **23**, and OpenClaw **25**.
 - Secret scan passed on 2026-08-01 with gitleaks and the fallback scanner reporting no blocking findings; 2088 keyword hints were non-blocking.
 - Project Harness Profile MVP scripts and tests are present: `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, and `tests/harness-profile.tests.ps1`; the regression test is part of the Windows validation workflow.
-- Harness Environments scripts and tests are present: `scripts/harness-env-common.ps1`, `scripts/list-harness-env.ps1`, `scripts/status-harness-env.ps1`, `scripts/build-harness-env.ps1`, `scripts/activate-harness-env.ps1`, `scripts/rollback-harness-env.ps1`, and `tests/harness-env.tests.ps1` (117/117 passed locally on 2026-08-01, including MCP template staging/lock hashes, lock/source drift, fake-home activate/switch/prune, A→B→rollback A, unknown/.system preservation, and RequiredEnv linkage; `tests/harness-profile.tests.ps1` remains 33/33).
+- Harness Environments scripts and tests are present: `scripts/harness-env-common.ps1`, `scripts/list-harness-env.ps1`, `scripts/status-harness-env.ps1`, `scripts/build-harness-env.ps1`, `scripts/activate-harness-env.ps1`, `scripts/rollback-harness-env.ps1`, and `tests/harness-env.tests.ps1` (118/118 passed locally on 2026-08-01, including MCP template staging/lock hashes, lock/source drift, runtime-report tolerance, fake-home activate/switch/prune, A→B→rollback A, unknown/.system preservation, and RequiredEnv linkage; `tests/harness-profile.tests.ps1` remains 33/33).
 - Multi-platform Harness coverage is in `tests/harness-multiplatform.tests.ps1` (20/20): generated output, Claude/Codex/OpenClaw target allowlists, dry-run, idempotence, project backup, transactional rollback, unsafe paths, and OpenClaw sensitive-field rejection.
 - MCP template coverage is in `tests/mcp.tests.ps1` (23/23): redacted dry-run/apply, environment checks, plan/template drift, timestamp round-trip stability, update/remove, fake CLI failure evidence, and unsafe template paths including repo-local home/backup roots. `scripts/agent-dotfiles.ps1 mcp` has an explicit mode gate, and the MCP/env schemas are wired into CI.
 - A third latent `sync.ps1` defect surfaced during the first real-home activation and is fixed with a regression sentinel: `Test-Parity` skipped its managed-set filter when the set was empty, so unknown (ignored-never-deleted) OpenClaw dirs failed post-apply parity; the filter now applies whenever a managed set is provided. The first apply attempt stopped at that false positive after deploying correctly; the re-run passed cleanly.
@@ -95,31 +101,27 @@ The 2026-07-10 activation is therefore complete for `MAGINA-LAPTOP`; it must not
 - OpenClaw plugin dry-run reported 2 managed plugin installs pending and 90 unknown plugins ignored.
 - The 2026-07-10 `env activate full -Apply` did use the gated real apply path and passed managed-scope parity at that time. No live apply was run for Phase 0; a fresh post-activation parity attestation is not recorded here.
 - The 2026-07-13 reliability validation generated a fresh external sync plan: Claude `+0 ~0 =15 -0`, Codex `+0 ~1 =22 -0`, OpenClaw `+0 ~0 =25 -0`; Codex `.system` was reported preserved. The Codex `hatch-pet` content update remains unapplied pending explicit plan review and authorization.
-- The 2026-08-01 external dry-run plan remains skill-clean after build/scan: Claude `+0 ~0 =15 -0`, Codex `+0 ~1 =22 -0`, OpenClaw `+0 ~0 =25 -0`; Codex `.system` is preserved and there are no prune/unknown skill actions. After the registry refresh and canonical source check, the managed plugin dry-run reports `update 0`, `enable codex 1`, and 70 unknown plugins ignored. No lifecycle apply was run because enabling `codex` changes real OpenClaw configuration and the active environment still needs an explicit `full` versus `work` decision.
+- The 2026-08-01 live plan was reviewed and applied: `work` selected Claude 2/Codex 3 skills and pruned only the remaining manifest-managed skills; `.system` and unknown OpenClaw skills were preserved. The plugin plan had `update 0`, `enable codex 1`, and 70 unknown plugins ignored; after adding `codex` to the existing restrictive allowlist through the official config CLI, plugin apply and post-restart verification passed.
 
 ## Known risks
 
 - Project Harness Profiles are an MVP and should be treated as project-local only until a separately reviewed task expands the model.
-- `MAGINA-LAPTOP` has a recorded real activation for the current Claude/Codex managed scope; `DESKTOP-3GMDAB7` remains dry-run-only, and other machines remain unverified.
-- The active `full` environment intentionally leaves OpenClaw unchanged; OpenClaw's current live state must be evaluated separately from the environment activation record.
+- `MAGINA-LAPTOP` has a current real activation for `work`; `DESKTOP-3GMDAB7` remains dry-run-only, and other machines remain unverified.
+- The `work` environment intentionally contains a smaller managed skill subset; restore `full` only through a newly reviewed `env activate full -DryRun`/`-Apply` cycle.
 - Historical machine verification describes earlier baselines and must not be treated as proof of current live state.
 - This checkout has a working pre-commit secret-scan hook and installed repo-local `post-merge`, `post-checkout`, and `post-rewrite` auto-sync hooks. `check-hooks.ps1` confirms the auto-sync runner is present; Claude/Codex home hook status is separate and not installed here.
-- The active environment is `full`, while this project requires `work`; current status reports live parity mismatch. Environment switching is intentionally not automatic because switching to a smaller environment can prune managed skills.
-- The OpenClaw CLI `plugins list --json` probe is usable after the registry refresh, but the managed `codex` enablement remains pending explicit authorization because it changes real OpenClaw configuration. A standalone `plugins registry --json` status probe is still slow on this machine; it is not used by the sync path.
+- Environment switching remains explicit because switching to a smaller environment can prune managed skills; the current authorized switch to `work` completed with a valid lock and parity pass.
+- The OpenClaw CLI `plugins list --json` probe is usable after the registry refresh and reports both managed plugins enabled/loaded. A standalone `plugins registry --json` status probe is still slow on this machine; it is not used by the sync path.
 - Read-only config drift remains: Claude `settings.json` differs, repo-only `CLAUDE.md` and OpenClaw managed-plugin state exist, and home-only Codex `AGENTS.md` exists. Pull/push remains gated and was not run.
 - MCP registration has not been executed against a real Claude CLI or live `~/.claude.json`; before any real apply, review the plan, confirm required environment variables, and verify the external backup root. The implementation never writes `~/.claude.json` directly.
 - Status can drift again if current facts are duplicated in README files instead of being maintained here.
 
 ## Next actions
 
-1. Review and commit the Project Harness Profiles real-project profile/status update.
-2. Review the current `full`/`work` environment dry-run and explicitly choose whether to activate `work`; do not infer that choice from `RequiredEnv`.
-3. Review the plugin dry-run and explicitly decide whether the desired `codex` enablement should be applied; source parity is now verified through `plugins info`, and no plugin package update is pending.
-4. Apply the reviewed skill plan only after the OpenClaw plugin apply path is independently safe; the pending skill change is Codex `hatch-pet` only.
-5. Revalidate each managed machine and update this file with evidence-backed results.
-6. Keep Project Harness Profiles project-local unless a future reviewed design explicitly adds global home switching or project-local skill installation.
-7. Integrating config deployment (config-pull) into `env activate` stays deferred until env-differentiated home config components exist; that integration needs its own review.
-8. Before any new real-home environment apply or rollback, review the generated lock/status/plan and confirm the external backup reference; the Phase 4 implementation was validated only with fake homes in this task.
-9. For MCP, run a dry-run against the intended Claude CLI with a reviewed `-PlanPath`, then apply the same plan only after confirming environment variables and the repo-external backup root. Do not automate MCP registration through `env activate`.
-10. Review the remaining config drift through the gated `config-pull`/`config-push` workflows; do not copy home-only files directly.
-11. Task 5.3 (OpenClaw plugin version governance) remains a separate future design and implementation task.
+1. If the larger skill set is needed again, review a fresh `env activate full -DryRun` before applying it; the current `work` pruning was intentional.
+2. Revalidate each managed machine and update this file with evidence-backed results.
+3. Keep Project Harness Profiles project-local unless a future reviewed design explicitly adds global home switching or project-local skill installation.
+4. Integrating config deployment (config-pull) into `env activate` stays deferred until env-differentiated home config components exist; that integration needs its own review.
+5. For MCP, run a dry-run against the intended Claude CLI with a reviewed `-PlanPath`, then apply the same plan only after confirming environment variables and the repo-external backup root. Do not automate MCP registration through `env activate`.
+6. Review the remaining config drift through the gated `config-pull`/`config-push` workflows; do not copy home-only files directly.
+7. Task 5.3 (OpenClaw plugin version governance) remains a separate future design and implementation task.
