@@ -47,6 +47,7 @@ Activation evidence is intentionally separated by execution mode:
 - Fake-home validation: `tests/harness-env.tests.ps1` exercises apply, switch, prune, and parity behavior against test homes; those runs do not prove a real machine activation.
 - Real apply: with explicit user authorization, `MAGINA-LAPTOP` ran `env activate full -Apply` on 2026-07-10. The zero-prune baseline env applied Claude `+0 ~15 -0`, Codex `+0 ~23 -0`, OpenClaw `+0 ~0 -0`, preserved the Codex `.system` marker, passed the managed-scope parity check at that time, and wrote machine-private `state/current-env.json` (`Name=full`). Mandatory backups from the run were `sync-backup-20260710-135828` (first attempt, aborted by the parity false-positive below) and `sync-backup-20260710-140653` (successful run). A separate historical direct `sync.ps1 -Apply` report exists for `MAGINA-LAPTOP` on 2026-07-01; it is evidence of that run, not a current cross-machine attestation.
 - Current real apply: with explicit user authorization on 2026-08-01, `MAGINA-LAPTOP` ran `env activate work -Apply`, then applied the managed OpenClaw plugin state. Final status is active `work`, lock valid, live parity pass, `.system` present, project `RequiredEnv=work` matched, gateway connectivity OK, and both managed plugins enabled/loaded.
+- Follow-up real apply: with explicit user authorization on 2026-08-01, `MAGINA-LAPTOP` updated the `work` Codex subset to include `brainstorming` and `writing-plans`. Codex applied `+2 ~0 -0`; Claude and OpenClaw were unchanged, `.system` and unknown OpenClaw skill directories were preserved, the exact plan binding passed, and the final lock/live parity attestation remained valid. Backup: `sync-backup-20260801-164702`.
 
 These applies are evidence for `MAGINA-LAPTOP` only; they must not be described as proof that every machine has been applied. The Phase 0 checks do not run live apply and do not create a new parity attestation.
 
@@ -75,7 +76,7 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
 | Machine | Documented state |
 |---|---|
 | `redacted-device` | Revalidated with dry-runs only on 2026-06-30: skill sync reported Claude `+0 ~15 -0`, Codex `+2 ~21 -0` with `.system` preserved, OpenClaw `+25 ~0 -0`, and OpenClaw plugin sync would install 2 managed plugins. No `-Apply` was run. |
-| `MAGINA-LAPTOP` | Current state after the 2026-08-01 authorized apply: active `work`; Claude has 2 and Codex 3 selected managed skills, `.system` is preserved, OpenClaw unknown skills are preserved, live parity and lock are valid, project `RequiredEnv=work` matches, and managed `codex`/`openclaw-weixin` plugins are enabled/loaded. Backup: `sync-backup-20260801-161223`. |
+| `MAGINA-LAPTOP` | Current state after the 2026-08-01 authorized applies: active `work`; Claude has 2 and Codex 5 selected managed skills, including `brainstorming` and `writing-plans`; `.system` is preserved, OpenClaw unknown skills are preserved, live parity and lock are valid, project `RequiredEnv=work` matches, and managed `codex`/`openclaw-weixin` plugins are enabled/loaded. Backup: `sync-backup-20260801-164702`. |
 | Other machines | Run `bootstrap.ps1` once after cloning to install repo-local hooks and enter the guarded sync flow. |
 
 ## Build / scan status
@@ -102,6 +103,7 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
 - The 2026-07-10 `env activate full -Apply` did use the gated real apply path and passed managed-scope parity at that time. No live apply was run for Phase 0; a fresh post-activation parity attestation is not recorded here.
 - The 2026-07-13 reliability validation generated a fresh external sync plan: Claude `+0 ~0 =15 -0`, Codex `+0 ~1 =22 -0`, OpenClaw `+0 ~0 =25 -0`; Codex `.system` was reported preserved. The Codex `hatch-pet` content update remains unapplied pending explicit plan review and authorization.
 - The 2026-08-01 live plan was reviewed and applied: `work` selected Claude 2/Codex 3 skills and pruned only the remaining manifest-managed skills; `.system` and unknown OpenClaw skills were preserved. The plugin plan had `update 0`, `enable codex 1`, and 70 unknown plugins ignored; after adding `codex` to the existing restrictive allowlist through the official config CLI, plugin apply and post-restart verification passed.
+- The follow-up `work` activation was reviewed and applied with an exact bound plan that added only Codex `brainstorming` and `writing-plans` (`+2 ~0 -0`); no prune or unrelated live changes occurred, and `env status` reported valid lock, live parity pass, and `.system` present.
 
 ## Known risks
 
