@@ -256,6 +256,12 @@ pwsh -NoProfile -File scripts/sync-openclaw-plugins.ps1 -Apply
 - `installs.json` 是机器管理的状态文件，包含绝对路径和生成元数据，**绝不提交**。
 - Bundled（内置）插件只能管理 enablement，不能卸载。
 - 插件同步会在 `sync.ps1` 中自动调用（当 `managed-plugins.json` 存在时）。
+- 只读的 `openclaw plugins list --json` 探测默认有 15 秒超时，可用
+  `-CliProbeTimeoutSeconds` 调整；超时后先读取经过字段筛选的 `installs.json`，再尝试
+  `~/.openclaw/openclaw.json` 的 `plugins.entries` enablement。
+- `openclaw.json` 回退只能证明插件配置中的启用状态，不能证明安装来源/版本与期望一致；
+  如果 CLI 和两个安全回退面都不可用，脚本会 fail closed，不把 live 状态当成空目录并规划安装。
+- 未纳入托管清单的 live 插件只报告、不安装、不启用、不禁用、不卸载。
 
 ---
 
