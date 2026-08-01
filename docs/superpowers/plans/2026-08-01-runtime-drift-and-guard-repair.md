@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Goal:** Restore the local validation gate, make OpenClaw plugin inspection fail fast instead of hanging, repair stale generated environment staging, and prepare the current machine's managed skill state without silently switching the project between `full` and `work` environments.
+**Goal:** Restore the local validation gate, make OpenClaw plugin inspection fail fast instead of hanging, repair stale generated environment staging, correct newer-CLI absolute-path source false positives, and prepare the current machine's managed skill state without silently switching the project between `full` and `work` environments.
 
-**Approach:** Repair the two stale, local raw-import examples using the already-correct canonical wording rather than weakening secret scanning. Add a bounded OpenClaw CLI probe with sanitized config fallback and regression tests, rebuild the generated environment staging, then rebuild, scan, generate and review a fingerprint-bound sync plan. Leave live apply and the `full` versus `work` environment choice explicit because the local OpenClaw CLI does not return and switching environments can prune managed skills.
+**Approach:** Repair the two stale, local raw-import examples using the already-correct canonical wording rather than weakening secret scanning. Add bounded OpenClaw read-only list/info probes with sanitized config fallback and regression tests, refresh the machine-private registry through the official CLI, rebuild the generated environment staging, then rebuild, scan, generate and review a fingerprint-bound sync plan. Leave live apply and the `full` versus `work` environment choice explicit because enabling a plugin changes real configuration and switching environments can prune managed skills.
 
 **Materials:** `skills-source/codex-only/security-best-practices/`, the two matching files under `imports/skills-inbox/` and `imports/skills-archive/`, `scripts/scan-secrets.ps1`, `scripts/sync-openclaw-plugins.ps1`, `tests/openclaw-plugin.tests.ps1`, `scripts/sync.ps1`, `scripts/status-harness-env.ps1`, and `STATUS.md`.
 
-**Validation:** `scan-secrets.ps1` exits 0 without a whitelist; the plugin regression suite proves a hung CLI falls back within the configured timeout; build and all regression suites pass; the sync dry-run contains only the known `codex/hatch-pet` update with no prune and `.system` preserved; final Git status is clean except for intentional tracked documentation/code changes.
+**Validation:** `scan-secrets.ps1` exits 0 without a whitelist; the plugin regression suite proves a hung CLI falls back within the configured timeout and an absolute `plugins list` source is reconciled through canonical `plugins info` metadata; build and all regression suites pass; the sync dry-run contains only the known `codex/hatch-pet` update with no prune and `.system` preserved; final Git status is clean except for intentional tracked documentation/code changes.
 
 ---
 
@@ -48,11 +48,15 @@ Extend the isolated fake-home test with a fake `openclaw` command that never ret
 
 - [x] **Step 2: Implement the smallest root-cause fix**
 
-Route only the read-only `plugins list --json` probe through a bounded process invocation. On timeout, terminate the child process tree, emit a redacted diagnostic, and use the existing sanitized `installs.json` fallback. Keep apply lifecycle commands unchanged and still CLI-only.
+Route read-only `plugins list --json` and managed-plugin `plugins info <id> --json` probes through bounded process invocations. On timeout, terminate the child process tree, emit a redacted diagnostic, and use the existing sanitized `installs.json` fallback. When newer CLI output reports an absolute install path, compare the managed source against `install.resolvedName`; keep apply lifecycle commands CLI-only.
 
 - [x] **Step 3: Verify plugin behavior**
 
-Run `pwsh -NoProfile -File tests/openclaw-plugin.tests.ps1` and verify the new timeout case plus existing managed/unknown plugin assertions pass.
+Run `pwsh -NoProfile -File tests/openclaw-plugin.tests.ps1` and verify the timeout, canonical-source, fallback, and existing managed/unknown plugin assertions pass.
+
+- [x] **Step 4: Repair the machine-private derived registry**
+
+Run the official `openclaw plugins registry --refresh` command with a bounded wrapper. Confirm that `plugins list --json` returns live records afterward; do not install, update, enable, disable, or uninstall any plugin.
 
 ### Task 3: Reconcile the observed managed skill drift
 
@@ -71,7 +75,7 @@ Require Claude `+0 ~0 -0`, OpenClaw `+0 ~0 -0`, Codex `+0 ~1 -0` for `hatch-pet`
 
 - [ ] **Step 3: Apply only the reviewed skill plan**
 
-Do not apply in this repair: `sync.ps1` also invokes OpenClaw plugin sync, while the CLI list probe times out and the config fallback cannot attest installation/source parity. The skill plan is ready, but a separate explicit apply is required after the OpenClaw CLI/live-state blocker is resolved.
+Do not apply in this repair: `sync.ps1` also invokes OpenClaw plugin sync, and the current desired state would enable managed `codex` in the real OpenClaw profile. The skill plan is ready, but a separate explicit apply is required after the user confirms the plugin enablement and the `full` versus `work` environment target.
 
 - [x] **Step 4: Keep environment switching explicit**
 

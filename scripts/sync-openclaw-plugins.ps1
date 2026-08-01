@@ -22,6 +22,10 @@
       * Unknown live plugins are reported but never touched.
       * Absolute-path plugin sources are rejected.
 
+    Newer OpenClaw versions report absolute install paths from `plugins list`.
+    For managed plugins, the read-only `plugins info` surface is used to
+    canonicalize the installed package name before source comparison.
+
 .PARAMETER RepoRoot
     Path to the ai-agent-dotfiles repository root.
 
@@ -40,7 +44,7 @@
     Intended for isolated tests and alternate installations.
 
 .PARAMETER CliProbeTimeoutSeconds
-    Maximum seconds to wait for `openclaw plugins list --json` before falling back
+    Maximum seconds to wait for each read-only OpenClaw CLI probe before falling back
     to sanitized local state. Defaults to 15 seconds.
 #>
 [CmdletBinding()]
@@ -80,7 +84,11 @@ function Test-IsDefaultHomeRoot {
     return $currentHomeRoot -eq $DefaultHomeRoot
 }
 
-function New-OpenClawListProbeStartInfo {
+function New-OpenClawProbeStartInfo {
+    param(
+        [Parameter(Mandatory)] [string[]] $Arguments
+    )
+
     $commandName = if ([string]::IsNullOrWhiteSpace($OpenClawCommand)) { 'openclaw' } else { $OpenClawCommand }
     $commandInfo = Get-Command -Name $commandName -ErrorAction Stop | Select-Object -First 1
     $commandPath = [string] $commandInfo.Path
@@ -101,7 +109,7 @@ function New-OpenClawListProbeStartInfo {
     if ($commandInfo.CommandType -eq 'ExternalScript' -or $extension -eq '.ps1') {
         $pwshPath = (Get-Command pwsh -ErrorAction Stop | Select-Object -First 1).Source
         $startInfo.FileName = $pwshPath
-        foreach ($argument in @('-NoProfile', '-File', $commandPath, 'plugins', 'list', '--json')) {
+        foreach ($argument in (@('-NoProfile', '-File', $commandPath) + @($Arguments))) {
             [void] $startInfo.ArgumentList.Add($argument)
         }
     }
@@ -110,11 +118,12 @@ function New-OpenClawListProbeStartInfo {
         [void] $startInfo.ArgumentList.Add('/d')
         [void] $startInfo.ArgumentList.Add('/s')
         [void] $startInfo.ArgumentList.Add('/c')
-        [void] $startInfo.ArgumentList.Add(('"{0}" plugins list --json' -f $commandPath))
+        $commandArguments = @($Arguments | ForEach-Object { '"{0}"' -f ([string] $_) }) -join ' '
+        [void] $startInfo.ArgumentList.Add(('"{0}" {1}' -f $commandPath, $commandArguments))
     }
     else {
         $startInfo.FileName = $commandPath
-        foreach ($argument in @('plugins', 'list', '--json')) {
+        foreach ($argument in $Arguments) {
             [void] $startInfo.ArgumentList.Add($argument)
         }
     }
@@ -122,11 +131,15 @@ function New-OpenClawListProbeStartInfo {
     return $startInfo
 }
 
-function Invoke-OpenClawListProbe {
+function Invoke-OpenClawProbe {
+    param(
+        [Parameter(Mandatory)] [string[]] $Arguments
+    )
+
     $process = $null
     try {
         $process = [System.Diagnostics.Process]::new()
-        $process.StartInfo = New-OpenClawListProbeStartInfo
+        $process.StartInfo = New-OpenClawProbeStartInfo -Arguments $Arguments
         if (-not $process.Start()) {
             throw 'OpenClaw CLI process could not be started.'
         }
@@ -177,6 +190,18 @@ function Invoke-OpenClawListProbe {
     }
 }
 
+function Invoke-OpenClawListProbe {
+    return Invoke-OpenClawProbe -Arguments @('plugins', 'list', '--json')
+}
+
+function Invoke-OpenClawInfoProbe {
+    param(
+        [Parameter(Mandatory)] [string] $PluginId
+    )
+
+    return Invoke-OpenClawProbe -Arguments @('plugins', 'info', $PluginId, '--json')
+}
+
 function Get-ObjectPropertyValue {
     param(
         [Parameter(Mandatory)] [object] $Object,
@@ -198,6 +223,87 @@ function Test-ObjectProperty {
     )
 
     return ($null -ne $Object.PSObject.Properties[$Name])
+}
+
+function Get-CanonicalPluginInstall {
+    param(
+        [Parameter(Mandatory)] [string] $PluginId
+    )
+
+    try {
+        $probe = Invoke-OpenClawInfoProbe -PluginId $PluginId
+        if (-not $probe.Succeeded -or [string]::IsNullOrWhiteSpace($probe.Output)) {
+            if ($probe.TimedOut) {
+                Write-Verbose "OpenClaw info probe for '$PluginId' timed out after $CliProbeTimeoutSeconds seconds."
+            }
+            else {
+                Write-Verbose "OpenClaw info probe for '$PluginId' failed or returned empty output."
+            }
+            return $null
+        }
+
+        $json = $probe.Output | ConvertFrom-Json
+        $install = Get-ObjectPropertyValue -Object $json -Name 'install'
+        if ($null -eq $install) {
+            Write-Verbose "OpenClaw info for '$PluginId' has no install metadata."
+            return $null
+        }
+
+        $resolvedName = Get-ObjectPropertyValue -Object $install -Name 'resolvedName'
+        if ([string]::IsNullOrWhiteSpace([string] $resolvedName)) {
+            Write-Verbose "OpenClaw info for '$PluginId' has no resolved package name."
+            return $null
+        }
+
+        return [pscustomobject]@{
+            Source  = [string] $resolvedName
+            Version = Get-ObjectPropertyValue -Object $install -Name 'resolvedVersion'
+        }
+    }
+    catch {
+        Write-Verbose "OpenClaw info probe for '$PluginId' was unavailable: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Resolve-CanonicalLivePluginSources {
+    param(
+        [AllowEmptyCollection()] [object[]] $Live,
+        [AllowEmptyCollection()] [object[]] $Managed
+    )
+
+    $managedById = @{}
+    foreach ($plugin in @($Managed)) {
+        $id = Get-ObjectPropertyValue -Object $plugin -Name 'id'
+        if (-not [string]::IsNullOrWhiteSpace([string] $id)) {
+            $managedById[([string] $id).ToLowerInvariant()] = $plugin
+        }
+    }
+
+    $resolved = @()
+    foreach ($plugin in @($Live)) {
+        $id = Get-ObjectPropertyValue -Object $plugin -Name 'id'
+        $source = Get-ObjectPropertyValue -Object $plugin -Name 'source'
+        if ([string]::IsNullOrWhiteSpace([string] $id) -or
+            -not $managedById.ContainsKey(([string] $id).ToLowerInvariant()) -or
+            [string]::IsNullOrWhiteSpace([string] $source) -or
+            -not [System.IO.Path]::IsPathRooted([string] $source)) {
+            $resolved += $plugin
+            continue
+        }
+
+        $install = Get-CanonicalPluginInstall -PluginId ([string] $id)
+        if ($null -ne $install) {
+            $plugin.source = $install.Source
+            if ($null -ne $install.Version -and -not [string]::IsNullOrWhiteSpace([string] $install.Version)) {
+                $plugin.version = $install.Version
+            }
+            Write-Verbose "Canonicalized live source for '$id' to '$($install.Source)'."
+        }
+        $resolved += $plugin
+    }
+
+    return @($resolved)
 }
 
 # ---------------------------------------------------------------------------
@@ -296,6 +402,10 @@ function Get-LivePlugins {
         when CLI is unavailable; fails closed if neither state surface exists.
     #>
 
+    param(
+        [AllowEmptyCollection()] [object[]] $ManagedPlugins = @()
+    )
+
     $useCliProbe = (Test-IsDefaultHomeRoot) -or (-not [string]::IsNullOrWhiteSpace($OpenClawCommand))
     $probeAttempted = $false
     $probeFailed = $false
@@ -322,7 +432,7 @@ function Get-LivePlugins {
                         }
                     }
                     Write-Verbose "Got $($live.Count) plugins from openclaw CLI."
-                    return $live
+                    return (Resolve-CanonicalLivePluginSources -Live $live -Managed $ManagedPlugins)
                 }
             }
             if ($probe.TimedOut) {
@@ -730,7 +840,7 @@ $managedPlugins = @($managedDoc.plugins)
 Write-Host "Managed plugin count: $($managedPlugins.Count)"
 
 # --- Get live plugins ---
-$liveResult = Get-LivePlugins
+$liveResult = Get-LivePlugins -ManagedPlugins $managedPlugins
 $livePlugins = @($liveResult)
 Write-Host "Live plugin count   : $($livePlugins.Count)"
 

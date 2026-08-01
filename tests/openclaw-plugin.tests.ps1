@@ -43,6 +43,36 @@ try {
     if ($output -notmatch 'unknown plugins.*unknown-plugin') { throw 'unknown live plugin was not reported' }
     if ($output -match 'installs\.json.*modified|writing installs') { throw 'dry-run appears to mutate plugin state' }
 
+    # Newer OpenClaw versions report an absolute install path from `plugins list`
+    # while `plugins info` exposes the canonical package name. The canonical
+    # package should prevent a false source-mismatch update plan.
+    $canonicalCli = Join-Path $work 'canonical-openclaw.ps1'
+    Set-File -Path $canonicalCli -Content @"
+param([Parameter(ValueFromRemainingArguments = `$true)][string[]] `$CliArguments)
+if (`$CliArguments -contains 'list') {
+    @'
+{"plugins":[{"id":"managed-plugin","source":"C:\\temp\\managed-plugin\\dist\\index.js","enabled":true,"origin":"global","version":"1.2.3"}]}
+'@ | Write-Output
+    exit 0
+}
+if (`$CliArguments -contains 'info') {
+    @'
+{"plugin":{"id":"managed-plugin","version":"1.2.3","source":"C:\\temp\\managed-plugin\\dist\\index.js","enabled":true},"install":{"source":"npm","spec":"@example/managed@1.2.3","installPath":"C:\\temp\\managed-plugin","version":"1.2.3","resolvedName":"@example/managed","resolvedVersion":"1.2.3"}}
+'@ | Write-Output
+    exit 0
+}
+throw 'unexpected fake OpenClaw command'
+"@
+    $canonicalHome = Join-Path $work 'canonical-home'
+    New-Item -ItemType Directory -Force -Path $canonicalHome | Out-Null
+    $canonicalOutput = & pwsh -NoProfile -File $scriptPath -RepoRoot $fakeRepo -HomeRoot $canonicalHome -OpenClawCommand $canonicalCli -CliProbeTimeoutSeconds 2 -DryRun 2>&1 | Out-String
+    $canonicalCode = $LASTEXITCODE
+    if ($canonicalCode -ne 0) { throw "canonical source probe dry-run failed: $canonicalOutput" }
+    if ($canonicalOutput -match 'would update.*managed-plugin' -or $canonicalOutput -match 'would install.*managed-plugin') {
+        throw "absolute list source was not canonicalized by plugins info: $canonicalOutput"
+    }
+    if ($canonicalOutput -notmatch 'no changes needed') { throw "canonical source probe did not converge: $canonicalOutput" }
+
     # A hung CLI probe must time out and fall back to the sanitized installs.json
     # path instead of blocking the whole dry-run indefinitely.
     $hungCli = Join-Path $work 'hung-openclaw.ps1'
