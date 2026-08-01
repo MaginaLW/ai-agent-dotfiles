@@ -142,6 +142,7 @@ function Protect-HarnessEnvStatusText {
 }
 
 $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
+$taskOverlayPath = Get-HarnessTaskSkillOverlayPath -RepoRoot $repo
 $definitionFiles = @(Get-HarnessEnvDefinitionFiles -RepoRoot $repo)
 
 $envNames = [System.Collections.Generic.List[string]]::new()
@@ -152,6 +153,7 @@ $activeSummary = [ordered] @{
     Status = 'none'
     LockValidity = 'not-checked'
     DefinitionDrift = $false
+    TaskOverlayDrift = $false
     LiveParity = [ordered] @{ Status = 'not-checked'; Mismatches = @() }
     SystemStatus = 'not-checked'
     BackupReference = $null
@@ -186,7 +188,9 @@ foreach ($envName in $envNames) {
         $definitionPath = $definitionByName[$envName]
         try {
             $definition = Read-HarnessEnvDefinition -Path $definitionPath
-            $null = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $definition
+            $taskOverlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $envName -Path $taskOverlayPath
+            $effectiveDefinition = Merge-HarnessTaskSkillOverlay -Definition $definition -Overlay $taskOverlay
+            $null = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $effectiveDefinition
         }
         catch {
             $firstLine = ([string] $_.Exception.Message -split "`r?`n")[0]
@@ -204,7 +208,7 @@ foreach ($envName in $envNames) {
         $stagingStatus = 'stale'
         if ($null -ne $definitionPath) {
             try {
-                $lockResult = Test-HarnessEnvLock -RepoRoot $repo -DefinitionPath $definitionPath -StagingPath $stagingPath
+                $lockResult = Test-HarnessEnvLock -RepoRoot $repo -DefinitionPath $definitionPath -StagingPath $stagingPath -TaskOverlayPath $taskOverlayPath
                 if ($lockResult.Valid) {
                     $stagingStatus = 'built'
                 }
@@ -249,6 +253,8 @@ if ($null -eq $state) {
 else {
     $activeName = [string] $state.Name
     $definitionDrift = $false
+    $taskOverlayDrift = $false
+    $activeOverlay = $null
     $activeLock = $null
     $activeParity = [pscustomobject]@{ Status = 'not-checked'; Mismatches = @(); SystemStatus = 'not-checked' }
     if (-not $definitionByName.ContainsKey($activeName)) {
@@ -257,16 +263,24 @@ else {
     else {
         $definitionDrift = $state.PSObject.Properties.Name -contains 'DefinitionHash' -and
             [string] $state.DefinitionHash -ne (Get-HarnessEnvDefinitionHash -Path $definitionByName[$activeName])
+        $activeOverlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $activeName -Path $taskOverlayPath
+        $taskOverlayDrift = $state.PSObject.Properties.Name -contains 'TaskOverlayHash' -and
+            [string] $state.TaskOverlayHash -ne [string] $activeOverlay.Hash
+        if ($state.PSObject.Properties.Name -notcontains 'TaskOverlayHash' -and $null -ne $activeOverlay.Hash) {
+            $taskOverlayDrift = $true
+        }
         $activeLock = $lockByName[$activeName]
         $activeStaging = Get-HarnessEnvStagingRoot -RepoRoot $repo -Name $activeName
         $activeParity = Get-HarnessEnvLiveParity -RepoRoot $repo -StagingPath $activeStaging -HomeRoot $HomeRoot
     }
     $lockValid = $null -ne $activeLock -and $activeLock.Valid
-    $activeStatus = if (-not $definitionDrift -and $lockValid -and $activeParity.Status -eq 'pass') { 'active' } else { 'drift' }
+    $activeStatus = if (-not $definitionDrift -and -not $taskOverlayDrift -and $lockValid -and $activeParity.Status -eq 'pass') { 'active' } else { 'drift' }
     $suffix = if (-not $definitionByName.ContainsKey($activeName)) {
         ' (definition missing)'
     } elseif ($definitionDrift) {
         ' (definition changed since activation - re-run env activate)'
+    } elseif ($taskOverlayDrift) {
+        ' (task skill overlay changed since activation - re-run env task sync)'
     } elseif ($activeStatus -eq 'drift') {
         ' (attestation drift - inspect env status)'
     } else { '' }
@@ -279,6 +293,8 @@ else {
         Status = $activeStatus
         LockValidity = if ($null -eq $activeLock) { 'not-checked' } elseif ($activeLock.Valid) { 'valid' } else { 'invalid' }
         DefinitionDrift = $definitionDrift
+        TaskOverlayDrift = $taskOverlayDrift
+        TaskOverlayHash = if ($null -eq $activeOverlay) { $null } else { $activeOverlay.Hash }
         LiveParity = [ordered] @{ Status = $activeParity.Status; Mismatches = @($activeParity.Mismatches) }
         SystemStatus = if ($activeParity.PSObject.Properties.Name -contains 'SystemStatus') { $activeParity.SystemStatus } else { 'not-checked' }
         BackupReference = if ($state.PSObject.Properties.Name -contains 'BackupReference') { [string] $state.BackupReference } else { $null }
@@ -286,7 +302,7 @@ else {
         LockReasons = $activeLockReasons
     }
     Write-Output "Active environment: $activeName$suffix"
-    Write-Output "  lock validity: $($activeSummary.LockValidity); live parity: $($activeSummary.LiveParity.Status); .system: $($activeSummary.SystemStatus)"
+    Write-Output "  lock validity: $($activeSummary.LockValidity); live parity: $($activeSummary.LiveParity.Status); .system: $($activeSummary.SystemStatus); task overlay: $(if ($activeSummary.TaskOverlayHash) { $activeSummary.TaskOverlayHash } else { 'empty' })"
     if ($activeSummary.BackupReference) { Write-Output "  backup reference: $($activeSummary.BackupReference)" }
 }
 

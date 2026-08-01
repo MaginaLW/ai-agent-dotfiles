@@ -14,6 +14,7 @@ Apply the full skill-management workflow below only when the task involves any o
 - `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`, `scripts/sync-openclaw-plugins.ps1`, `scripts/rollback-harness-env.ps1`
 - `scripts/config-status.ps1`, `scripts/config-pull.ps1`, `scripts/config-push.ps1`, `.claude/settings.json` (harness config-sync)
 - `harness-source/`, `.agent-harness/generated/`
+- `.agent-harness/task-skills.psd1`, `scripts/task-skills.ps1`, `scripts/auto-sync-after-git.ps1`, `tests/task-skills.tests.ps1`
 - `harness-source/components/mcp-templates/`, `scripts/mcp-common.ps1`, `claude/mcp/apply-mcp.ps1`
 - `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, `tests/harness-profile.tests.ps1` (project harness profiles)
 - Codex `.system`
@@ -57,6 +58,16 @@ When the scope trigger applies:
    ```powershell
    pwsh -NoProfile -File .\bootstrap.ps1
    ```
+
+9. For a task-specific managed skill, use the repository-shared overlay commands instead of editing
+   `work.psd1`, generated output, or live roots:
+   ```powershell
+   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task status
+   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task ensure-skill <name> -Platform Codex -DryRun
+   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task ensure-skill <name> -Platform Codex -Apply
+   ```
+   Commit `.agent-harness/task-skills.psd1` only when the task requirement should be shared with the
+   branch/worktree collaborators. Task close/removal always requires an explicit dry-run and apply.
 
 ## Hard rules
 

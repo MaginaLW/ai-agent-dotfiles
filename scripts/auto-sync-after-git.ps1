@@ -29,8 +29,14 @@ $relevantPathspecs = @(
     'scripts/sync-openclaw-plugins.ps1',
     'scripts/scan-secrets.ps1',
     'scripts/backup.ps1',
-    'scripts/auto-sync-after-git.ps1'
+    'scripts/auto-sync-after-git.ps1',
+    '.agent-harness/task-skills.psd1',
+    'scripts/task-skills.ps1',
+    'scripts/activate-harness-env.ps1',
+    'scripts/build-harness-env.ps1',
+    'scripts/harness-env-common.ps1'
 )
+$taskOverlayPathspec = '.agent-harness/task-skills.psd1'
 
 function Invoke-Git {
     param([Parameter(Mandatory)] [string[]] $Arguments)
@@ -82,6 +88,54 @@ function Test-RelevantDiff {
     }
 
     return @($changed | Where-Object { $_ }).Count -gt 0
+}
+
+function Test-TaskOverlayDiff {
+    param(
+        [Parameter(Mandatory)] [string] $FromRev,
+        [Parameter(Mandatory)] [string] $ToRev
+    )
+
+    if (-not $FromRev -or -not $ToRev -or $FromRev -eq $ToRev) {
+        return $false
+    }
+    $changed = Invoke-Git -Arguments @('diff', '--name-only', $FromRev, $ToRev, '--', $taskOverlayPathspec)
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+    return @($changed | Where-Object { ([string] $_).Trim() -eq $taskOverlayPathspec }).Count -gt 0
+}
+
+function Test-TaskOverlayChangedForTrigger {
+    if ($Force -or $Trigger -eq 'manual') {
+        return $false
+    }
+
+    switch ($Trigger) {
+        'post-checkout' {
+            if ($CheckoutFlag -ne '1') { return $false }
+            return Test-TaskOverlayDiff -FromRev $OldRev -ToRev $NewRev
+        }
+        'post-merge' {
+            $origHead = Invoke-Git -Arguments @('rev-parse', '--verify', 'ORIG_HEAD')
+            $origHeadCode = $LASTEXITCODE
+            $head = Invoke-Git -Arguments @('rev-parse', '--verify', 'HEAD')
+            $headCode = $LASTEXITCODE
+            if ($origHeadCode -ne 0 -or $headCode -ne 0 -or -not $origHead -or -not $head) { return $false }
+            return Test-TaskOverlayDiff -FromRev (($origHead | Select-Object -First 1).Trim()) -ToRev (($head | Select-Object -First 1).Trim())
+        }
+        'post-rewrite' {
+            if (-not $RevisionFile -or -not (Test-Path -LiteralPath $RevisionFile)) { return $false }
+            foreach ($line in [System.IO.File]::ReadLines($RevisionFile)) {
+                $parts = @($line -split '\s+' | Where-Object { $_ })
+                if ($parts.Count -ge 2 -and (Test-TaskOverlayDiff -FromRev $parts[0] -ToRev $parts[1])) {
+                    return $true
+                }
+            }
+            return $false
+        }
+    }
+    return $false
 }
 
 function Get-ShouldRunSync {
@@ -157,6 +211,23 @@ function Invoke-AutoSync {
     Write-AutoSyncLog 'sync.ps1 -Apply completed.'
 }
 
+function Invoke-TaskOverlayAutoSync {
+    $taskScript = Join-Path $RepoRoot 'scripts/task-skills.ps1'
+    if (-not (Test-Path -LiteralPath $taskScript -PathType Leaf)) {
+        throw "Missing task skill script: $taskScript"
+    }
+
+    Write-AutoSyncLog 'Task overlay changed; routing through addition-only env task sync.'
+    $output = & pwsh -NoProfile -ExecutionPolicy Bypass -File $taskScript -Action sync -Apply -Automatic -RepoRoot $RepoRoot 2>&1
+    $exitCode = $LASTEXITCODE
+    $output | ForEach-Object { Write-AutoSyncLog $_ }
+    if ($exitCode -ne 0) {
+        Write-AutoSyncLog "Addition-only task sync failed with exit code $exitCode. No fallback full-root apply attempted."
+        exit $exitCode
+    }
+    Write-AutoSyncLog 'Addition-only task sync completed or safely skipped.'
+}
+
 $lockStream = $null
 $acquiredLock = $false
 try {
@@ -182,7 +253,12 @@ try {
     }
 
     if (Get-ShouldRunSync) {
-        Invoke-AutoSync
+        if (Test-TaskOverlayChangedForTrigger) {
+            Invoke-TaskOverlayAutoSync
+        }
+        else {
+            Invoke-AutoSync
+        }
     }
     else {
         Write-AutoSyncLog 'No relevant skill-management changes detected; skipping auto-sync.'

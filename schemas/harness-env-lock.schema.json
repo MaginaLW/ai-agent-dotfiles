@@ -55,6 +55,16 @@
     },
     "ProfileSourceHash": { "type": ["string", "null"] },
     "ProfileOutputHash": { "type": ["string", "null"] },
+    "TaskOverlayHash": { "type": ["string", "null"] },
+    "TaskOverlaySkills": {
+      "type": "object",
+      "required": ["Claude", "Codex"],
+      "properties": {
+        "Claude": { "type": "array", "items": { "type": "string" } },
+        "Codex": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
     "ManagedPluginDeclaration": {
       "type": "object",
       "required": ["Included", "Hash", "Reason"],
