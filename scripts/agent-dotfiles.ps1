@@ -25,7 +25,8 @@
 .NOTES
     The sync subcommand requires exactly one explicit mode: -DryRun or -Apply.
     Apply is never selected or added by default.
-    The env subcommand requires a sub-action: list, status, build, activate, or rollback.
+    The env subcommand requires a sub-action: list, status, build, activate, rollback, or task.
+    The env task sub-action requires a task action: status, ensure-skill, sync, or close.
     The env activate sub-action requires exactly one explicit mode: -DryRun or
     -Apply, mirroring sync. Rollback follows the same gate and also requires a
     reviewed -PlanPath when applying.
@@ -48,7 +49,8 @@ function Write-Usage {
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: inventory, analyze, dedupe, merge, normalize, promote.'
-    Write-Host 'Env actions: list, status, build, activate, rollback.'
+    Write-Host 'Env actions: list, status, build, activate, rollback, task.'
+    Write-Host 'Env task actions: status, ensure-skill, sync, close.'
     Write-Host 'Legacy inventory openclaw form is also supported: agent-dotfiles.ps1 inventory openclaw'
     Write-Host 'Mutating actions require exactly one explicit mode: -DryRun or -Apply.'
 }
@@ -79,6 +81,7 @@ $envCommandMap = @{
     activate = 'activate-harness-env.ps1'
     rollback = 'rollback-harness-env.ps1'
 }
+$envTaskActions = @('status', 'ensure-skill', 'sync', 'close')
 
 $configCommandMap = @{
     status = 'config-status.ps1'
@@ -117,25 +120,44 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills')) {
     }
 
     $groupAction = ([string]$forwardedArguments[0]).ToLowerInvariant()
-    $actionMap = switch ($normalizedCommand) {
-        'env' { $envCommandMap }
-        'config' { $configCommandMap }
-        'profile' { $profileCommandMap }
-        'skills' { $skillsCommandMap }
+    $isEnvTask = $normalizedCommand -eq 'env' -and $groupAction -eq 'task'
+    if ($isEnvTask) {
+        if ($forwardedArguments.Count -lt 2 -or $null -eq $forwardedArguments[1]) {
+            Write-Error 'The env task command requires a task action: status, ensure-skill, sync, or close.' -ErrorAction Continue
+            Write-Usage
+            exit 1
+        }
+        $taskAction = ([string] $forwardedArguments[1]).ToLowerInvariant()
+        if ($taskAction -notin $envTaskActions) {
+            Write-Error "Unsupported env task action: $($forwardedArguments[1])" -ErrorAction Continue
+            Write-Usage
+            exit 1
+        }
+        $targetScriptName = 'task-skills.ps1'
+        $forwardedArguments = @('-Action', $taskAction) + @($forwardedArguments | Select-Object -Skip 2)
     }
-    if (-not $actionMap.ContainsKey($groupAction)) {
-        Write-Error "Unsupported $normalizedCommand sub-action: $($forwardedArguments[0])" -ErrorAction Continue
-        Write-Usage
-        exit 1
+    else {
+        $actionMap = switch ($normalizedCommand) {
+            'env' { $envCommandMap }
+            'config' { $configCommandMap }
+            'profile' { $profileCommandMap }
+            'skills' { $skillsCommandMap }
+        }
+        if (-not $actionMap.ContainsKey($groupAction)) {
+            Write-Error "Unsupported $normalizedCommand sub-action: $($forwardedArguments[0])" -ErrorAction Continue
+            Write-Usage
+            exit 1
+        }
+
+        $targetScriptName = $actionMap[$groupAction]
+        $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
     }
 
-    $targetScriptName = $actionMap[$groupAction]
-    $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
-
-    $requiresExplicitMode = ($normalizedCommand -eq 'env' -and $groupAction -in @('activate', 'rollback')) -or
+    $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -in @('activate', 'rollback')) -or
+        ($isEnvTask -and $taskAction -in @('ensure-skill', 'sync', 'close')) -or
         ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
-        ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'promote'))
+        ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'promote')))
     if ($requiresExplicitMode) {
         $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
         $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0

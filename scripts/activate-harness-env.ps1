@@ -60,6 +60,10 @@
     hashes, names, mode, and backup reference only; it never contains file
     contents or machine-private live state.
 
+.PARAMETER TaskOverlayPath
+    Optional task skill overlay path. Defaults to
+    .agent-harness/task-skills.psd1 under the repository.
+
 .OUTPUTS
     Streams the gate-chain and sync output. Exit 0 on success (dry-run or
     apply), non-zero on any gate failure.
@@ -74,7 +78,8 @@ param(
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipBuild,
     [switch] $SkipSecretScan,
-    [string] $JsonPath
+    [string] $JsonPath,
+    [string] $TaskOverlayPath
 )
 
 Set-StrictMode -Version Latest
@@ -94,7 +99,10 @@ if (-not (Test-Path -LiteralPath $definitionPath -PathType Leaf)) {
     exit 1
 }
 $definition = Read-HarnessEnvDefinition -Path $definitionPath
-$null = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $definition
+$taskOverlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $Name -Path $TaskOverlayPath
+$effectiveDefinition = Merge-HarnessTaskSkillOverlay -Definition $definition -Overlay $taskOverlay
+$null = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $effectiveDefinition
+$taskOverlayPathFull = $taskOverlay.Path
 
 $homeFull = [System.IO.Path]::GetFullPath($HomeRoot)
 $repoFull = [System.IO.Path]::GetFullPath($repo)
@@ -132,6 +140,7 @@ function Write-ActivationSummary {
         Result = $Result
         LockValidity = if ($null -eq $LockResult) { 'not-checked' } elseif ($LockResult.Valid) { 'valid' } else { 'invalid' }
         LockHash = if ($null -eq $LockResult) { $null } else { $LockResult.LockHash }
+        TaskOverlayHash = if ($null -eq $LockResult) { $null } else { $LockResult.Lock.TaskOverlayHash }
         LockReasons = $lockReasons
         BackupReference = $BackupReference
         StateWritten = ($Apply -and $Result -eq 'PASS')
@@ -206,14 +215,14 @@ else {
 
 Write-Host ''
 Write-Host 'Gate 3/4: rebuild env staging'
-$code = Invoke-GateScript -ScriptName 'build-harness-env.ps1' -Arguments @('-Name', $Name, '-RepoRoot', $repoFull)
+$code = Invoke-GateScript -ScriptName 'build-harness-env.ps1' -Arguments @('-Name', $Name, '-RepoRoot', $repoFull, '-TaskOverlayPath', $taskOverlayPathFull)
 if ($code -ne 0) {
     Write-Error "build-harness-env.ps1 failed (exit $code). Activation aborted." -ErrorAction Continue
     exit $code
 }
 $staging = Get-HarnessEnvStagingRoot -RepoRoot $repoFull -Name $Name
 
-$lockResult = Test-HarnessEnvLock -RepoRoot $repoFull -DefinitionPath $definitionPath -StagingPath $staging
+$lockResult = Test-HarnessEnvLock -RepoRoot $repoFull -DefinitionPath $definitionPath -StagingPath $staging -TaskOverlayPath $taskOverlayPathFull
 if (-not $lockResult.Valid) {
     Write-ActivationSummary -Result 'FAIL' -BackupReference $null -LockResult $lockResult
     Write-Error ("Environment lock is not valid; rebuild before activation: {0}" -f (@($lockResult.Reasons) -join '; ')) -ErrorAction Continue
@@ -292,6 +301,8 @@ Write-HarnessJsonFile -InputObject ([ordered] @{
         SchemaVersion  = 2
         Name           = $Name
         DefinitionHash = Get-HarnessEnvDefinitionHash -Path $definitionPath
+        TaskOverlayHash = $lockResult.Lock.TaskOverlayHash
+        TaskOverlaySkills = $lockResult.Lock.TaskOverlaySkills
         LockHash       = $lockResult.LockHash
         RepositoryCommit = $lockResult.Lock.RepositoryCommit
         ManifestHashes = $lockResult.Lock.ManifestHashes

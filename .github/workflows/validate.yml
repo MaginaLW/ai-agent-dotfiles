@@ -276,6 +276,19 @@ jobs:
             throw "agent-dotfiles.tests.ps1 failed with exit code $LASTEXITCODE."
           }
 
+      - name: Run task skill overlay tests
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\task-skills.tests.ps1'
+          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            throw 'tests/task-skills.tests.ps1 is missing; task overlay regression coverage is required.'
+          }
+
+          & pwsh -NoProfile -File $scriptPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "task-skills.tests.ps1 failed with exit code $LASTEXITCODE."
+          }
+
       - name: Reject dangerous tracked files
         shell: pwsh
         run: |

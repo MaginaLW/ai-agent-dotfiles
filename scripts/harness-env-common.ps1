@@ -59,6 +59,178 @@ function Read-HarnessEnvDefinition {
     return $data
 }
 
+function Get-HarnessTaskSkillOverlayPath {
+    [CmdletBinding()]
+    param([string] $RepoRoot)
+
+    return Join-Path (Resolve-HarnessRepoRoot -RepoRoot $RepoRoot) '.agent-harness/task-skills.psd1'
+}
+
+function New-HarnessEmptyTaskSkillOverlay {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $BaseEnvName)
+
+    return @{
+        SchemaVersion = 1
+        BaseEnv = $BaseEnvName
+        Skills = @{
+            Claude = @()
+            Codex = @()
+        }
+    }
+}
+
+function Read-HarnessTaskSkillOverlay {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [string] $Path,
+        [string] $BaseEnvName
+    )
+
+    $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
+    $overlayPath = if ([string]::IsNullOrWhiteSpace($Path)) {
+        Get-HarnessTaskSkillOverlayPath -RepoRoot $repo
+    }
+    else {
+        [System.IO.Path]::GetFullPath($Path)
+    }
+
+    if (-not (Test-Path -LiteralPath $overlayPath -PathType Leaf)) {
+        $empty = New-HarnessEmptyTaskSkillOverlay -BaseEnvName $(if ($BaseEnvName) { $BaseEnvName } else { 'work' })
+        return [pscustomobject]@{
+            Present = $false
+            Applicable = $true
+            Path = $overlayPath
+            Hash = $null
+            BaseEnv = [string] $empty.BaseEnv
+            Data = $empty
+            Skills = $empty.Skills
+        }
+    }
+
+    $data = Import-HarnessDataFile -Path $overlayPath -Kind 'task skill overlay' -RequiredKeys @('SchemaVersion', 'BaseEnv', 'Skills')
+    Test-HarnessKnownKeys -Data $data -Kind 'task skill overlay' -Path $overlayPath -AllowedKeys @('SchemaVersion', 'BaseEnv', 'Skills')
+
+    $overlayBaseEnv = [string] $data.BaseEnv
+    if ($overlayBaseEnv -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+        throw "Task skill overlay BaseEnv must be a bare identifier: $overlayPath"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($BaseEnvName) -and
+        -not [string]::Equals($overlayBaseEnv, $BaseEnvName, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Task skill overlay BaseEnv '$overlayBaseEnv' does not match requested environment '$BaseEnvName': $overlayPath"
+    }
+    if (-not ($data.Skills -is [hashtable])) {
+        throw "Task skill overlay Skills must be a hashtable: $overlayPath"
+    }
+    Test-HarnessKnownKeys -Data $data.Skills -Kind 'task skill overlay Skills' -Path $overlayPath -AllowedKeys @('Claude', 'Codex')
+
+    $manifests = @{
+        Claude = Join-Path $repo 'manifests/managed-skills.claude.txt'
+        Codex  = Join-Path $repo 'manifests/managed-skills.codex.txt'
+    }
+    $skills = @{}
+    foreach ($platform in @('Claude', 'Codex')) {
+        $values = if ($data.Skills.ContainsKey($platform)) { @($data.Skills[$platform]) } else { @() }
+        if ($data.Skills.ContainsKey($platform) -and -not ($data.Skills[$platform] -is [array])) {
+            throw "Task skill overlay $platform Skills must be an array: $overlayPath"
+        }
+        $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        if (-not (Test-Path -LiteralPath $manifests[$platform] -PathType Leaf)) {
+            throw "Task skill overlay cannot validate $platform skills; missing manifest: $($manifests[$platform])"
+        }
+        $managed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($line in (Get-Content -LiteralPath $manifests[$platform])) {
+            $managedName = ([string] $line).Trim()
+            if ($managedName) { [void] $managed.Add($managedName) }
+        }
+        foreach ($value in $values) {
+            $name = [string] $value
+            if ($name -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$' -or $name -ieq '.system') {
+                throw "Task skill overlay $platform skill name must be a safe bare identifier: $name"
+            }
+            if (-not $seen.Add($name)) {
+                throw "Task skill overlay contains duplicate $platform skill '$name': $overlayPath"
+            }
+            if (-not $managed.Contains($name)) {
+                throw "Task skill overlay references unmanaged $platform skill '$name'."
+            }
+        }
+        $skills[$platform] = @($values | ForEach-Object { [string] $_ })
+    }
+
+    return [pscustomobject]@{
+        Present = $true
+        Applicable = $true
+        Path = $overlayPath
+        Hash = Get-HarnessFileHash -Path $overlayPath
+        BaseEnv = $overlayBaseEnv
+        Data = $data
+        Skills = $skills
+    }
+}
+
+function Get-HarnessTaskSkillOverlayForEnvironment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $BaseEnvName,
+        [string] $Path
+    )
+
+    $overlay = Read-HarnessTaskSkillOverlay -RepoRoot $RepoRoot -Path $Path
+    if (-not $overlay.Present -or [string]::Equals($overlay.BaseEnv, $BaseEnvName, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $overlay.Applicable = $true
+        return $overlay
+    }
+
+    $empty = New-HarnessEmptyTaskSkillOverlay -BaseEnvName $BaseEnvName
+    return [pscustomobject]@{
+        Present = $false
+        Applicable = $false
+        Path = $overlay.Path
+        Hash = $null
+        BaseEnv = $overlay.BaseEnv
+        Data = $empty
+        Skills = $empty.Skills
+        IgnoredReason = "overlay BaseEnv '$($overlay.BaseEnv)' targets another environment"
+    }
+}
+
+function Merge-HarnessTaskSkillOverlay {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [hashtable] $Definition,
+        [Parameter(Mandatory)] $Overlay
+    )
+
+    $merged = @{}
+    foreach ($key in $Definition.Keys) {
+        if ($key -ne 'Skills') {
+            $merged[[string] $key] = $Definition[$key]
+        }
+    }
+
+    $mergedSkills = @{}
+    foreach ($platform in @('Claude', 'Codex')) {
+        $values = [System.Collections.Generic.List[string]]::new()
+        if ($Definition.Skills.ContainsKey($platform)) {
+            foreach ($value in @($Definition.Skills[$platform])) { $values.Add([string] $value) }
+        }
+        if ($null -ne $Overlay -and $Overlay.Data.Skills.ContainsKey($platform)) {
+            foreach ($value in @($Overlay.Data.Skills[$platform])) { $values.Add([string] $value) }
+        }
+        $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $unique = [System.Collections.Generic.List[string]]::new()
+        foreach ($value in $values) {
+            if ($seen.Add($value)) { $unique.Add($value) }
+        }
+        $mergedSkills[$platform] = @($unique.ToArray())
+    }
+    $merged.Skills = $mergedSkills
+    return $merged
+}
+
 function Resolve-HarnessEnvDefinition {
     [CmdletBinding()]
     param(
@@ -362,7 +534,8 @@ function Test-HarnessEnvLock {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $DefinitionPath,
-        [Parameter(Mandatory)] [string] $StagingPath
+        [Parameter(Mandatory)] [string] $StagingPath,
+        [string] $TaskOverlayPath
     )
 
     $reasons = [System.Collections.Generic.List[string]]::new()
@@ -388,6 +561,18 @@ function Test-HarnessEnvLock {
         if ([string] $lock.Name -ne [string] $definition.Name) { $reasons.Add('lock environment name does not match definition') }
         $definitionHash = Get-HarnessEnvDefinitionHash -Path $DefinitionPath
         if ([string] $lock.DefinitionHash -ne $definitionHash) { $reasons.Add('environment definition changed since build') }
+
+        try {
+            $taskOverlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $RepoRoot -BaseEnvName ([string] $definition.Name) -Path $TaskOverlayPath
+            $currentOverlayHash = [string] $taskOverlay.Hash
+            $savedOverlayHash = [string] (Get-HarnessJsonProperty -Object $lock -Name 'TaskOverlayHash')
+            if ($savedOverlayHash -ne $currentOverlayHash) {
+                $reasons.Add('task skill overlay changed since build')
+            }
+        }
+        catch {
+            $reasons.Add($_.Exception.Message)
+        }
     }
 
     $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot

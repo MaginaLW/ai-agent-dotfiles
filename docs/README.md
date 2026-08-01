@@ -79,6 +79,7 @@
 | `scripts/build-harness-profile.ps1` | 从 `harness-source/` 生成项目本地 harness output，见 §15 |
 | `scripts/apply-harness-profile.ps1` | 默认 dry-run；`-Apply` 仅写项目本地 allowlist，见 §15 |
 | `harness-source/envs/` | Harness Environments 的环境定义（tracked 源），见 §16 |
+| `.agent-harness/task-skills.psd1` | 当前分支/worktree 的共享 task skill overlay，见 §16 |
 | `harness-source/components/mcp-templates/` | MCP 模板源（只含占位符和环境变量声明），见 §18 |
 | `scripts/mcp-common.ps1` / `claude/mcp/apply-mcp.ps1` | MCP 模板验证、计划绑定和 Claude CLI 单服务器操作，见 §18 |
 | `envs/` | 环境构建 staging，**生成物**，Git-ignored，勿手改，见 §16 |
@@ -87,6 +88,7 @@
 | `scripts/status-harness-env.ps1` | 只读环境状态/staging 新旧报告，见 §16 |
 | `scripts/build-harness-env.ps1` | 构建 `envs/<name>/` staging，只写该目录，见 §16 |
 | `scripts/activate-harness-env.ps1` | gated 环境切换，默认 dry-run，部署只经 `sync.ps1`，见 §16 |
+| `scripts/task-skills.ps1` | task overlay 的校验、dry-run、addition-only 自动同步和显式 close，见 §16 |
 | `scripts/auto-sync-after-git.ps1` | Git hook runner；先生成 fingerprint-bound dry-run，再调用 `sync.ps1 -Apply` |
 | `scripts/apply-hooks.ps1` | 安装 repo-local Git auto-sync hooks |
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
@@ -133,8 +135,10 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 ```
 
 安装后，`post-merge`、`post-checkout`、`post-rewrite` 会在 skill 管理相关路径变化时自动调用
-绑定计划的 `sync.ps1 -Apply`。自动同步仍然走 build、secret scan、backup、manifest-scoped sync 和 `.system`
-保护；日志写在 `.git/ai-agent-dotfiles/auto-sync.log`。
+绑定计划的同步流程。普通源变更走 `sync.ps1 -Apply`；若检测到 task overlay 变更，则走
+`env task sync -Apply -Automatic`，只允许 addition-only，绝不因 Git checkout/pull 静默 prune。
+自动同步仍然走 build、secret scan、backup、manifest-scoped sync 和 `.system` 保护；日志写在
+`.git/ai-agent-dotfiles/auto-sync.log`。
 
 ---
 
@@ -376,6 +380,50 @@ Harness Environments 是 conda 式的命名环境层：每个环境声明一个 
 并可经门控的 `env activate` 切换到 live home。
 设计见 `docs/superpowers/specs/2026-07-10-harness-env-design.md`。
 
+### 16.1 Task skill overlay（按任务热插拔）
+
+`work.psd1` 是稳定的基础集合；任务临时需要的已管理 skill 不会被永久写回基础环境，
+而是记录在当前分支/worktree 的 `.agent-harness/task-skills.psd1`。它是 Git 可审查的请求，
+不是 generated output，也不是 live home 状态；默认空文件形状为：
+
+```powershell
+@{
+    SchemaVersion = 1
+    BaseEnv = 'work'
+    Skills = @{
+        Claude = @()
+        Codex = @()
+    }
+}
+```
+
+常用命令：
+
+```powershell
+pwsh -File scripts/agent-dotfiles.ps1 env task status
+pwsh -File scripts/agent-dotfiles.ps1 env task ensure-skill verification-before-completion -Platform Codex -DryRun
+pwsh -File scripts/agent-dotfiles.ps1 env task ensure-skill verification-before-completion -Platform Codex -Apply
+pwsh -File scripts/agent-dotfiles.ps1 env task sync -DryRun
+pwsh -File scripts/agent-dotfiles.ps1 env task sync -Apply
+pwsh -File scripts/agent-dotfiles.ps1 env task close -DryRun
+pwsh -File scripts/agent-dotfiles.ps1 env task close -Apply
+pwsh -NoProfile -File tests/task-skills.tests.ps1
+```
+
+行为边界：
+
+- `ensure-skill` 只接受对应平台 manifest、`skills-source/` 和 generated output 都存在的 skill；
+  未管理、隔离、路径型或扫密失败的内容会在 live 写入前拒绝。
+- 每次变更都先构造临时 overlay，运行 build → scan → 环境 staging → fingerprint-bound sync dry-run；
+  `-Apply` 才会原子更新 tracked overlay，并通过现有 `sync.ps1` 备份和事务部署。
+- `close` 会删除 overlay 并可能 prune 任务增加的 managed skill，因此始终需要显式 dry-run/apply。
+- Git hook 在其它电脑 checkout/pull 到 addition-only overlay 时可以自动重建并应用；检测到 removal、
+  stale lock、未知 skill 或其它 gate 失败时只记录并等待人工执行 `env task sync -DryRun` / `-Apply`。
+- 共享范围是提交该 overlay 的 branch/worktree；机器只根据 source + overlay 重建，不复制另一台机器的 home。
+  新 clone 仍需先运行 `bootstrap.ps1` 安装 hooks；Git 不会自动安装仓库内 hook。
+- Codex 应用已经缓存的 skill catalog 可能需要新 task/thread 才刷新。仓库可以热插拔文件、环境和状态，
+  但不能强制应用层未公开的 catalog reload。
+
 `list` / `status` 只读；`build` 只写可删除、可重建的 `envs/<name>/` staging，不写 home。
 `activate` 默认 dry-run，`-Apply` 才动 live，且**部署只经由现有 `sync.ps1`**（含其不可跳过的强制备份）。
 **Phase 2 范围收窄**：activate 只切换 skills 子集并写状态文件；home 级配置部署
@@ -419,8 +467,8 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
    `envs/<name>/reports/` 是 activation 期间 `sync.ps1` 写入的运行证据，不属于构建
    产物，lock attestation 会忽略它。
 - `state/current-env.json`：当前激活环境记录（名字、定义哈希、激活时间），机器私有、
-  Git-ignored。只有 `env activate -Apply` 成功后才写；`status` 用定义哈希检测
-  "激活后定义又变了"并提示重新 activate。
+  Git-ignored。只有 `env activate -Apply` 成功后才写；除定义哈希外还记录 task overlay
+  hash/skill attestation，`status` 用它们检测“激活后定义或任务 overlay 又变了”。
 
 安全规则：
 
@@ -435,6 +483,8 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   sessions、cache、Codex `config.toml` 或 OpenClaw machine state。dry-run 先生成外部
   计划；`-Apply` 必须带同一 `-PlanPath`，并通过选定 activation backup 的元数据校验。
 - 每台机器首次真实 `-Apply` 前必须人工审查 dry-run 计划（prune 列表尤其要过目）；已完成首次 activation 的机器在后续变更时仍应重复审查。
+- task overlay 的自动路径只允许 additions；任何 removal/prune 都必须由人执行 `env task close -DryRun` 或
+  `env task sync -DryRun` 后再显式 `-Apply`。
 - `envs/` 与 `state/` 永不提交；环境定义变更后先跑 `env status` 和回归测试。
 - 环境层永远只做编排：写 home 的代码路径只有现有 `sync.ps1`（未来接入 config 部署
   时也只能复用 `config-pull.ps1`），不新增第二条。
@@ -450,6 +500,8 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 
 - 不部署 home 级配置（config-pull 接入 deferred，见上）。
 - 不自动切换环境（进入项目不触发任何写操作，联动仅为提醒）。
+- 不把一个任务的 overlay 永久合并回 `harness-source/envs/work.psd1`；任务结束后应显式 close，
+  是否提交 overlay 由任务协作者按 branch/worktree 需求决定。
 - 不做 lockfile 跨机复现、OpenClaw 插件集或 MCP secrets 管理；`env.lock.json` 当前用于
   本机 staging/activation 的可验证证据，不是跨机传输 credential 或 machine state 的载体。
 
@@ -469,7 +521,7 @@ sync
 config status | pull | push
 profile status | build | apply
 skills inventory | analyze | dedupe | merge | normalize | promote
-env list | status | build | activate | rollback
+env list | status | build | activate | rollback | task status | task ensure-skill | task sync | task close
 mcp -TemplateId <id> -DryRun|-Apply [-Remove]
 ```
 

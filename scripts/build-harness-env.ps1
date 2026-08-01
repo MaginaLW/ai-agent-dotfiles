@@ -51,6 +51,11 @@
     Optional machine-readable build summary path. The summary contains hashes
     and counts only; it never contains staged file contents or full paths.
 
+.PARAMETER TaskOverlayPath
+    Optional task skill overlay path. Defaults to
+    .agent-harness/task-skills.psd1 under the repository. An overlay targeting a
+    different environment is ignored for this build.
+
 .OUTPUTS
     Summary lines (env name, file count, staging path). Non-zero exit on any
     validation or build failure.
@@ -59,7 +64,8 @@
 param(
     [Parameter(Mandatory)] [string] $Name,
     [string] $RepoRoot = (Join-Path $PSScriptRoot '..'),
-    [string] $JsonPath
+    [string] $JsonPath,
+    [string] $TaskOverlayPath
 )
 
 Set-StrictMode -Version Latest
@@ -87,15 +93,17 @@ if (-not (Test-Path -LiteralPath $definitionPath -PathType Leaf)) {
     throw "Unknown env '$Name': expected definition at $definitionPath"
 }
 $definition = Read-HarnessEnvDefinition -Path $definitionPath
-$resolved = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $definition
+$taskOverlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $Name -Path $TaskOverlayPath
+$effectiveDefinition = Merge-HarnessTaskSkillOverlay -Definition $definition -Overlay $taskOverlay
+$resolved = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $effectiveDefinition
 $mcpTemplates = @($resolved.McpTemplates)
 
 # --- Collect skill lists (stable sorted, deduplicated) -----------------------
 $skillsByPlatform = @{}
 foreach ($platform in @('Claude', 'Codex')) {
     $names = @()
-    if ($definition.Skills.ContainsKey($platform)) {
-        $names = @($definition.Skills[$platform] | ForEach-Object { [string] $_ })
+    if ($effectiveDefinition.Skills.ContainsKey($platform)) {
+        $names = @($effectiveDefinition.Skills[$platform] | ForEach-Object { [string] $_ })
     }
     foreach ($skill in $names) {
         if ($skill -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
@@ -379,6 +387,11 @@ $lock = [ordered] @{
     SchemaVersion             = 2
     Name                      = $resolved.Name
     DefinitionHash            = Get-HarnessEnvDefinitionHash -Path $definitionPath
+    TaskOverlayHash           = $taskOverlay.Hash
+    TaskOverlaySkills         = [ordered]@{
+        Claude = @($taskOverlay.Skills.Claude)
+        Codex = @($taskOverlay.Skills.Codex)
+    }
     RepositoryCommit          = Get-HarnessRepositoryCommit -RepoRoot $repo
     ManifestHashes            = Get-HarnessManifestHashes -RepoRoot $repo
     SkillSourceEvidence       = $skillSourceEvidence
@@ -398,6 +411,9 @@ Write-HarnessJsonFile -InputObject $lock -Path (Join-Path $stagingFull 'env.lock
 
 Write-Output 'Harness env build complete'
 Write-Output "Environment: $($resolved.Name)"
+if ($taskOverlay.Present) {
+    Write-Output "Task overlay: $($taskOverlay.Path) (+$(@($taskOverlay.Skills.Claude).Count) Claude, +$(@($taskOverlay.Skills.Codex).Count) Codex)"
+}
 Write-Output "Files: $($builtHashes.Count) (+ env.lock.json)"
 Write-Output "Staging: $stagingFull"
 if ($JsonPath) {
@@ -409,6 +425,8 @@ if ($JsonPath) {
         Name = $resolved.Name
         Result = 'PASS'
         DefinitionHash = $lock.DefinitionHash
+        TaskOverlayHash = $lock.TaskOverlayHash
+        TaskOverlaySkills = $lock.TaskOverlaySkills
         LockHash = Get-HarnessFileHash -Path (Join-Path $stagingFull 'env.lock.json')
         RepositoryCommit = $lock.RepositoryCommit
         SkillSourceEvidence = $lock.SkillSourceEvidence

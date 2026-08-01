@@ -42,6 +42,8 @@
         "SystemStatus": { "enum": ["not-checked", "not-present", "present-marker", "present-marker-missing"] },
         "BackupReference": { "type": ["string", "null"] },
         "LockHash": { "type": ["string", "null"] },
+        "TaskOverlayDrift": { "type": "boolean" },
+        "TaskOverlayHash": { "type": ["string", "null"] },
         "LockReasons": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
