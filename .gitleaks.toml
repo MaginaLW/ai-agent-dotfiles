@@ -2,6 +2,9 @@ title = "ai-agent-dotfiles secret scanning"
 
 [allowlist]
 description = "Documented placeholders and explicit false-positive acknowledgements."
+paths = [
+  '''(?i)(^|/)\.git/''',
+]
 regexes = [
   '''\$\{[A-Za-z_][A-Za-z0-9_]*\}''',
   '''(?i)\b\w+_env_var\s*=\s*["'][A-Za-z_][A-Za-z0-9_]*["']''',
