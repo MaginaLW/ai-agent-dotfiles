@@ -292,13 +292,13 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'envs'))) 'list and st
 Write-Host 'activate: fake home apply'
 $fakeHome = Join-Path $work 'home'
 $fakeBackups = Join-Path $work 'backups'
-foreach ($dir in @('.claude/skills/unknown-local', '.codex/skills/.system', '.openclaw/skills')) {
+foreach ($dir in @('.claude/skills/unknown-local', '.codex/skills/.system', '.opencode/skills')) {
     New-Item -ItemType Directory -Path (Join-Path $fakeHome $dir) -Force | Out-Null
 }
 Set-File -Path (Join-Path $fakeHome '.claude/skills/unknown-local/SKILL.md') -Content '# unmanaged local skill'
-# Unknown OpenClaw dir: staging manages zero OpenClaw skills, so post-apply
+# Unknown OpenCode dir: staging manages zero OpenCode skills, so post-apply
 # parity must ignore this (regression for the empty-managed-set parity bug).
-Set-File -Path (Join-Path $fakeHome '.openclaw/skills/oc-unknown/SKILL.md') -Content '# unmanaged openclaw skill'
+Set-File -Path (Join-Path $fakeHome '.opencode/skills/oc-unknown/SKILL.md') -Content '# unmanaged opencode skill'
 Set-File -Path (Join-Path $fakeHome '.codex/skills/.system/system.md') -Content '# platform-managed sentinel'
 Set-File -Path (Join-Path $fakeHome '.codex/skills/.system/.codex-system-skills.marker') -Content ''
 $systemSentinel = Join-Path $fakeHome '.codex/skills/.system/system.md'

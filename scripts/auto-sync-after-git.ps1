@@ -23,10 +23,9 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $relevantPathspecs = @(
     'skills-source',
     'manifests/managed-skills.txt',
-    'openclaw/plugins/managed-plugins.json',
+    'manifests/managed-skills.opencode.txt',
     'scripts/build-skills.ps1',
     'scripts/sync.ps1',
-    'scripts/sync-openclaw-plugins.ps1',
     'scripts/scan-secrets.ps1',
     'scripts/backup.ps1',
     'scripts/auto-sync-after-git.ps1',

@@ -48,7 +48,7 @@ function Read-HarnessEnvDefinition {
     if (-not ($data.Skills -is [hashtable])) {
         throw "Env definition Skills must be a hashtable: $Path"
     }
-    Test-HarnessKnownKeys -Data $data.Skills -Kind 'env definition Skills' -Path $Path -AllowedKeys @('Claude', 'Codex')
+    Test-HarnessKnownKeys -Data $data.Skills -Kind 'env definition Skills' -Path $Path -AllowedKeys @('Claude', 'Codex', 'OpenCode')
 
     if ($data.ContainsKey('McpTemplates')) {
         foreach ($templateId in @($data.McpTemplates)) {
@@ -76,6 +76,7 @@ function New-HarnessEmptyTaskSkillOverlay {
         Skills = @{
             Claude = @()
             Codex = @()
+            OpenCode = @()
         }
     }
 }
@@ -123,14 +124,15 @@ function Read-HarnessTaskSkillOverlay {
     if (-not ($data.Skills -is [hashtable])) {
         throw "Task skill overlay Skills must be a hashtable: $overlayPath"
     }
-    Test-HarnessKnownKeys -Data $data.Skills -Kind 'task skill overlay Skills' -Path $overlayPath -AllowedKeys @('Claude', 'Codex')
+    Test-HarnessKnownKeys -Data $data.Skills -Kind 'task skill overlay Skills' -Path $overlayPath -AllowedKeys @('Claude', 'Codex', 'OpenCode')
 
     $manifests = @{
         Claude = Join-Path $repo 'manifests/managed-skills.claude.txt'
         Codex  = Join-Path $repo 'manifests/managed-skills.codex.txt'
+        OpenCode = Join-Path $repo 'manifests/managed-skills.opencode.txt'
     }
     $skills = @{}
-    foreach ($platform in @('Claude', 'Codex')) {
+    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
         $values = if ($data.Skills.ContainsKey($platform)) { @($data.Skills[$platform]) } else { @() }
         if ($data.Skills.ContainsKey($platform) -and -not ($data.Skills[$platform] -is [array])) {
             throw "Task skill overlay $platform Skills must be an array: $overlayPath"
@@ -212,7 +214,7 @@ function Merge-HarnessTaskSkillOverlay {
     }
 
     $mergedSkills = @{}
-    foreach ($platform in @('Claude', 'Codex')) {
+    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
         $values = [System.Collections.Generic.List[string]]::new()
         if ($Definition.Skills.ContainsKey($platform)) {
             foreach ($value in @($Definition.Skills[$platform])) { $values.Add([string] $value) }
@@ -259,8 +261,9 @@ function Resolve-HarnessEnvDefinition {
     $manifests = @{
         Claude = Join-Path $repo 'manifests/managed-skills.claude.txt'
         Codex  = Join-Path $repo 'manifests/managed-skills.codex.txt'
+        OpenCode = Join-Path $repo 'manifests/managed-skills.opencode.txt'
     }
-    foreach ($platform in @('Claude', 'Codex')) {
+    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
         if (-not $skills.ContainsKey($platform)) { continue }
         $manifestPath = $manifests[$platform]
         if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -409,22 +412,15 @@ function Get-HarnessManifestHashes {
     return [ordered]@{
         Claude = Get-HarnessFileHash -Path (Join-Path $repo 'manifests/managed-skills.claude.txt')
         Codex = Get-HarnessFileHash -Path (Join-Path $repo 'manifests/managed-skills.codex.txt')
-        OpenClaw = Get-HarnessFileHash -Path (Join-Path $repo 'manifests/managed-skills.openclaw.txt')
+        OpenCode = Get-HarnessFileHash -Path (Join-Path $repo 'manifests/managed-skills.opencode.txt')
     }
-}
-
-function Get-HarnessManagedPluginDeclarationHash {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $RepoRoot)
-
-    return Get-HarnessFileHash -Path (Join-Path (Resolve-HarnessRepoRoot -RepoRoot $RepoRoot) 'openclaw/plugins/managed-plugins.json')
 }
 
 function Get-HarnessSkillSourceHash {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenClaw')] [string] $Platform,
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $Platform,
         [Parameter(Mandatory)] [string] $Name
     )
 
@@ -432,7 +428,7 @@ function Get-HarnessSkillSourceHash {
     $platformOnly = switch ($Platform) {
         'Claude' { 'claude-only' }
         'Codex' { 'codex-only' }
-        'OpenClaw' { 'openclaw-only' }
+        'OpenCode' { 'opencode-only' }
     }
     $candidatePaths = @(
         (Join-Path $repo "skills-source/shared/$Name"),
@@ -493,7 +489,7 @@ function Read-HarnessEnvLock {
     catch {
         throw "Corrupt environment lock: $path ($($_.Exception.Message))"
     }
-    foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'RepositoryCommit', 'ManifestHashes', 'SkillSourceEvidence', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'ManagedPluginDeclaration', 'BuiltFiles')) {
+    foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'RepositoryCommit', 'ManifestHashes', 'SkillSourceEvidence', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'BuiltFiles')) {
         if ($null -eq $lock -or $lock.PSObject.Properties.Name -notcontains $required) {
             throw "Environment lock is missing required key '$required': $path"
         }
@@ -582,7 +578,7 @@ function Test-HarnessEnvLock {
     }
 
     $manifestHashes = Get-HarnessManifestHashes -RepoRoot $repo
-    foreach ($platform in @('Claude', 'Codex', 'OpenClaw')) {
+    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
         $saved = [string] (Get-HarnessJsonProperty -Object $lock.ManifestHashes -Name $platform)
         $current = [string] (Get-HarnessJsonProperty -Object $manifestHashes -Name $platform)
         if ($saved -ne $current) { $reasons.Add("$platform managed-skills manifest changed since build") }
@@ -590,7 +586,7 @@ function Test-HarnessEnvLock {
 
     $sourceEvidence = [string] $lock.SkillSourceEvidence
     if ($sourceEvidence -eq 'available') {
-        foreach ($platform in @('Claude', 'Codex')) {
+        foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
             $platformManifest = Join-Path $StagingPath ("manifest.{0}.txt" -f $platform.ToLowerInvariant())
             $names = if (Test-Path -LiteralPath $platformManifest -PathType Leaf) {
                 @(Get-Content -LiteralPath $platformManifest | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -608,7 +604,7 @@ function Test-HarnessEnvLock {
         $reasons.Add('harness profile/component source changed since build')
     }
 
-    foreach ($platform in @('Claude', 'Codex')) {
+    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
         $stagedRoot = Join-Path $StagingPath "$($platform.ToLowerInvariant())/skills"
         $names = if (Test-Path -LiteralPath (Join-Path $StagingPath "manifest.$($platform.ToLowerInvariant()).txt") -PathType Leaf) {
             @(Get-Content -LiteralPath (Join-Path $StagingPath "manifest.$($platform.ToLowerInvariant()).txt") | ForEach-Object { $_.Trim() } | Where-Object { $_ })

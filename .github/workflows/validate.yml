@@ -205,10 +205,10 @@ jobs:
           & pwsh -NoProfile -File $scriptPath
           if ($LASTEXITCODE -ne 0) { throw "skills-import.tests.ps1 failed with exit code $LASTEXITCODE." }
 
-      - name: Run plugin and doctor regression tests
+      - name: Run doctor regression tests
         shell: pwsh
         run: |
-          foreach ($relative in @('tests\openclaw-plugin.tests.ps1', 'tests\doctor.tests.ps1')) {
+          foreach ($relative in @('tests\doctor.tests.ps1')) {
             $scriptPath = Join-Path $env:GITHUB_WORKSPACE $relative
             if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
               throw "$relative is missing; the reliability regression suite is required."

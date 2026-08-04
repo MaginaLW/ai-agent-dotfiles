@@ -57,10 +57,11 @@ $ErrorActionPreference = 'Stop'
 function Get-HarnessEnvLiveSkillRoot {
     param(
         [Parameter(Mandatory)] [string] $HomeRootValue,
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex')] [string] $Platform
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $Platform
     )
 
     if ($Platform -eq 'Claude') { return Join-Path $HomeRootValue '.claude/skills' }
+    if ($Platform -eq 'OpenCode') { return Join-Path $HomeRootValue '.config/opencode/skills' }
     $preferred = Join-Path $HomeRootValue '.codex/skills'
     $fallback = Join-Path $HomeRootValue '.agents/skills'
     if (Test-Path -LiteralPath $preferred -PathType Container) { return $preferred }
@@ -87,7 +88,7 @@ function Get-HarnessEnvLiveParity {
         return [pscustomobject]@{ Status = 'not-checked'; Mismatches = @('staging-missing') }
     }
 
-    foreach ($platform in @('Claude', 'Codex')) {
+    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
         $key = $platform.ToLowerInvariant()
         $stagedRoot = Join-Path $StagingPath "$key/skills"
             $liveRoot = Get-HarnessEnvLiveSkillRoot -HomeRootValue $HomeRoot -Platform $platform

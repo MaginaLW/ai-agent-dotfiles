@@ -6,17 +6,17 @@
 .DESCRIPTION
     Resolves the named env definition (harness-source/envs/<name>.psd1), verifies
     that every referenced skill already exists in the generated output roots
-    (claude/skills/, codex/skills/ — run scripts/build-skills.ps1 first), then
+     (claude/skills/, codex/skills/, opencode/skills/ — run scripts/build-skills.ps1 first), then
     materializes a disposable staging tree at envs/<name>/:
 
         claude/skills/<skill>/   copied from claude/skills/<skill>/
         codex/skills/<skill>/    copied from codex/skills/<skill>/
-        openclaw/skills/         empty (satisfies sync.ps1's source checks;
-                                 no OpenClaw manifest -> sync takes no action)
+         opencode/skills/<skill>/ copied from opencode/skills/<skill>/
         manifest.claude.txt      env's Claude skill names, one per line, sorted
         manifest.codex.txt       env's Codex skill names, one per line, sorted
         manifests/managed-skills.claude.txt   FULL repo manifest copy
         manifests/managed-skills.codex.txt    FULL repo manifest copy
+        manifests/managed-skills.opencode.txt FULL repo manifest copy
         profile/                 rendered profile component outputs
         mcp/templates/<id>/      selected MCP templates (placeholders only)
         env.lock.json            { source provenance, staged hashes, BuiltFiles }
@@ -100,7 +100,7 @@ $mcpTemplates = @($resolved.McpTemplates)
 
 # --- Collect skill lists (stable sorted, deduplicated) -----------------------
 $skillsByPlatform = @{}
-foreach ($platform in @('Claude', 'Codex')) {
+foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
     $names = @()
     if ($effectiveDefinition.Skills.ContainsKey($platform)) {
         $names = @($effectiveDefinition.Skills[$platform] | ForEach-Object { [string] $_ })
@@ -114,9 +114,9 @@ foreach ($platform in @('Claude', 'Codex')) {
 }
 
 # --- Precondition: generated skill output must already exist -----------------
-$generatedRoots = @{ Claude = 'claude/skills'; Codex = 'codex/skills' }
+$generatedRoots = @{ Claude = 'claude/skills'; Codex = 'codex/skills'; OpenCode = 'opencode/skills' }
 $missingSkills = [System.Collections.Generic.List[string]]::new()
-foreach ($platform in @('Claude', 'Codex')) {
+foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
     foreach ($skill in $skillsByPlatform[$platform]) {
         $skillDir = Join-Path $repo "$($generatedRoots[$platform])/$skill"
         if (-not (Test-Path -LiteralPath $skillDir -PathType Container)) {
@@ -174,7 +174,7 @@ foreach ($component in $selected) {
 # Entries: Kind = Text (Content) | Json (Object) | CopyFile (Source) | CopyDir (Source)
 $plan = [System.Collections.Generic.List[object]]::new()
 
-foreach ($platform in @('Claude', 'Codex')) {
+foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
     foreach ($skill in $skillsByPlatform[$platform]) {
         $plan.Add([pscustomobject] @{
                 Kind         = 'CopyDir'
@@ -197,7 +197,7 @@ $plan.Add([pscustomobject] @{
 
 # Full repo manifest copies: sync.ps1 reads <RepoRoot>/manifests/* and prunes
 # managed-but-absent skills, which implements env switching (see help above).
-foreach ($manifestName in @('managed-skills.claude.txt', 'managed-skills.codex.txt')) {
+foreach ($manifestName in @('managed-skills.claude.txt', 'managed-skills.codex.txt', 'managed-skills.opencode.txt')) {
     $manifestSource = Join-Path $repo "manifests/$manifestName"
     if (-not (Test-Path -LiteralPath $manifestSource -PathType Leaf)) {
         throw "Missing repo manifest required for staging: $manifestSource"
@@ -331,10 +331,9 @@ foreach ($item in $plan) {
     }
 }
 
-# Empty OpenClaw source dir: sync.ps1 requires all three platform sources to
-# exist; with no OpenClaw manifest in staging its managed set is empty, so sync
-# plans zero OpenClaw actions.
-New-Item -ItemType Directory -Path (Join-Path $stagingFull 'openclaw/skills') -Force | Out-Null
+# Keep all three platform roots present so the staging tree can be passed
+# directly to sync.ps1, including when an environment selects zero skills.
+New-Item -ItemType Directory -Path (Join-Path $stagingFull 'opencode/skills') -Force | Out-Null
 
 # --- env.lock.json ------------------------------------------------------------
 # The lock contains both the materialized staging evidence and the source
@@ -343,7 +342,7 @@ New-Item -ItemType Directory -Path (Join-Path $stagingFull 'openclaw/skills') -F
 # Git checkout; those fields are recorded as not-collected rather than guessed.
 $skillSourceEvidence = Get-HarnessSkillSourceEvidenceStatus -RepoRoot $repo
 $skillSourceHashes = [ordered]@{}
-foreach ($platform in @('Claude', 'Codex')) {
+foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
     $platformHashes = [ordered]@{}
     foreach ($skill in $skillsByPlatform[$platform]) {
         $sourceHash = if ($skillSourceEvidence -eq 'available') {
@@ -361,7 +360,7 @@ foreach ($platform in @('Claude', 'Codex')) {
 }
 
 $stagedSkillTreeHashes = [ordered]@{}
-foreach ($platform in @('Claude', 'Codex')) {
+foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
     $platformHashes = [ordered]@{}
     foreach ($skill in $skillsByPlatform[$platform]) {
         $platformHashes[$skill] = Get-HarnessTreeHash -Path (Join-Path $stagingFull "$($generatedRoots[$platform])/$skill")
@@ -391,6 +390,7 @@ $lock = [ordered] @{
     TaskOverlaySkills         = [ordered]@{
         Claude = @($taskOverlay.Skills.Claude)
         Codex = @($taskOverlay.Skills.Codex)
+        OpenCode = @($taskOverlay.Skills.OpenCode)
     }
     RepositoryCommit          = Get-HarnessRepositoryCommit -RepoRoot $repo
     ManifestHashes            = Get-HarnessManifestHashes -RepoRoot $repo
@@ -400,11 +400,6 @@ $lock = [ordered] @{
     StagedSkillTreeHashes     = $stagedSkillTreeHashes
     ProfileSourceHash         = Get-HarnessProfileSourceHash -RepoRoot $repo
     ProfileOutputHash         = Get-HarnessTreeHash -Path (Join-Path $stagingFull 'profile')
-    ManagedPluginDeclaration  = [ordered]@{
-        Included = $false
-        Hash = $null
-        Reason = 'OpenClaw plugin state is not part of harness environments.'
-    }
     BuiltFiles                = $builtHashes
 }
 Write-HarnessJsonFile -InputObject $lock -Path (Join-Path $stagingFull 'env.lock.json')
@@ -412,7 +407,7 @@ Write-HarnessJsonFile -InputObject $lock -Path (Join-Path $stagingFull 'env.lock
 Write-Output 'Harness env build complete'
 Write-Output "Environment: $($resolved.Name)"
 if ($taskOverlay.Present) {
-    Write-Output "Task overlay: $($taskOverlay.Path) (+$(@($taskOverlay.Skills.Claude).Count) Claude, +$(@($taskOverlay.Skills.Codex).Count) Codex)"
+    Write-Output "Task overlay: $($taskOverlay.Path) (+$(@($taskOverlay.Skills.Claude).Count) Claude, +$(@($taskOverlay.Skills.Codex).Count) Codex, +$(@($taskOverlay.Skills.OpenCode).Count) OpenCode)"
 }
 Write-Output "Files: $($builtHashes.Count) (+ env.lock.json)"
 Write-Output "Staging: $stagingFull"

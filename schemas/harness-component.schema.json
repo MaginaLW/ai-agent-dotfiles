@@ -8,11 +8,11 @@
     "SchemaVersion": { "const": 1 },
     "Id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
     "Kind": {
-      "enum": ["Rule", "Prompt", "Command", "ClaudeAgent", "CodexPrompt", "CodexAgent", "ClaudeSettings", "OpenClawConfig"]
+      "enum": ["Rule", "Prompt", "Command", "ClaudeAgent", "CodexPrompt", "CodexAgent", "ClaudeSettings", "OpenCodeCommand", "OpenCodeAgent"]
     },
     "TargetPlatforms": {
       "type": "array",
-      "items": { "enum": ["Claude", "Codex", "OpenClaw"] },
+      "items": { "enum": ["Claude", "Codex", "OpenCode"] },
       "minItems": 1,
       "uniqueItems": true
     },

@@ -1,13 +1,13 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Back up the live Claude, Codex, and OpenClaw skill directories to a timestamped
+    Back up the live Claude, Codex, and OpenCode skill directories to a timestamped
     folder outside the repository.
 
 .DESCRIPTION
     Creates <BackupRoot>\sync-backup-YYYYMMDD-HHMMSS\ containing claude-skills\,
     codex-skills\ (a FULL copy including Codex's platform-managed .system),
-    openclaw-skills\, openclaw-workspace-skills\, and openclaw-plugins-installs.json.
+    opencode-skills\ and the full Codex skill tree including .system.
     Missing live directories are recorded with a .MISSING.txt marker rather than
     failing. Uses robocopy /E (never /MIR) into a fresh folder.
 
@@ -105,18 +105,10 @@ $backupDir = Join-Path $BackupRoot "sync-backup-$timestamp"
 $claudeBackup = Join-Path $backupDir 'claude-skills'
 $codexBackup = Join-Path $backupDir 'codex-skills'
 
-# OpenClaw live paths
-$openclawSkillsLive = Join-Path $HomeRoot '.openclaw\skills'
-$openclawWorkspaceSkillsLive = Join-Path $HomeRoot '.openclaw\workspace\skills'
-$openclawPluginsLive = Join-Path $HomeRoot '.openclaw\plugins\installs.json'
-
-$openclawSkillsStats = Get-DirStats -Path $openclawSkillsLive
-$openclawWorkspaceSkillsStats = Get-DirStats -Path $openclawWorkspaceSkillsLive
-$openclawPluginsExists = Test-Path -LiteralPath $openclawPluginsLive -PathType Leaf
-
-$openclawSkillsBackup = Join-Path $backupDir 'openclaw-skills'
-$openclawWorkspaceSkillsBackup = Join-Path $backupDir 'openclaw-workspace-skills'
-$openclawPluginsBackup = Join-Path $backupDir 'openclaw-plugins-installs.json'
+# OpenCode live skills
+$opencodeSkillsLive = Join-Path $HomeRoot '.config\opencode\skills'
+$opencodeSkillsStats = Get-DirStats -Path $opencodeSkillsLive
+$opencodeSkillsBackup = Join-Path $backupDir 'opencode-skills'
 
 Write-Host '=== backup.ps1 ==='
 Write-Host "Mode            : $(if ($DryRun) { 'DRY-RUN (no changes)' } else { 'APPLY' })"
@@ -126,9 +118,7 @@ Write-Host "Backup dir      : $backupDir"
 Write-Host "Claude live     : $claudeLive (exists=$($claudeStats.Exists), skillDirs=$($claudeStats.SkillDirs), files=$($claudeStats.Files))"
 Write-Host "Codex live      : $codexLive (exists=$($codexStats.Exists), skillDirs=$($codexStats.SkillDirs), files=$($codexStats.Files))"
 Write-Host "Codex .system   : marker exists=$codexSystemMarkerExists (included in full backup)"
-Write-Host "OpenClaw skills : $openclawSkillsLive (exists=$($openclawSkillsStats.Exists), skillDirs=$($openclawSkillsStats.SkillDirs), files=$($openclawSkillsStats.Files))"
-Write-Host "OpenClaw wkspc  : $openclawWorkspaceSkillsLive (exists=$($openclawWorkspaceSkillsStats.Exists), skillDirs=$($openclawWorkspaceSkillsStats.SkillDirs), files=$($openclawWorkspaceSkillsStats.Files))"
-Write-Host "OpenClaw plugins: $openclawPluginsLive (exists=$openclawPluginsExists)"
+Write-Host "OpenCode live   : $opencodeSkillsLive (exists=$($opencodeSkillsStats.Exists), skillDirs=$($opencodeSkillsStats.SkillDirs), files=$($opencodeSkillsStats.Files))"
 
 # ---------------------------------------------------------------------------
 # Refuse to write a backup inside the repository
@@ -154,20 +144,10 @@ if ($DryRun) {
     } else {
         Write-Host "  would mark  $codexLive MISSING (codex-skills.MISSING.txt)"
     }
-    if ($openclawSkillsStats.Exists) {
-        Write-Host "  would copy  $openclawSkillsLive  ->  $openclawSkillsBackup"
+    if ($opencodeSkillsStats.Exists) {
+        Write-Host "  would copy  $opencodeSkillsLive  ->  $opencodeSkillsBackup"
     } else {
-        Write-Host "  would mark  $openclawSkillsLive MISSING (openclaw-skills.MISSING.txt)"
-    }
-    if ($openclawWorkspaceSkillsStats.Exists) {
-        Write-Host "  would copy  $openclawWorkspaceSkillsLive  ->  $openclawWorkspaceSkillsBackup"
-    } else {
-        Write-Host "  would mark  $openclawWorkspaceSkillsLive MISSING (openclaw-workspace-skills.MISSING.txt)"
-    }
-    if ($openclawPluginsExists) {
-        Write-Host "  would copy  $openclawPluginsLive  ->  $openclawPluginsBackup"
-    } else {
-        Write-Host "  would mark  $openclawPluginsLive MISSING (openclaw-plugins-installs.json.MISSING.txt)"
+        Write-Host "  would mark  $opencodeSkillsLive MISSING (opencode-skills.MISSING.txt)"
     }
     Write-Host "  would write $backupDir\backup-manifest.json"
     Write-Host ''
@@ -199,31 +179,13 @@ if ($codexStats.Exists) {
     Write-Host "Codex live skills dir MISSING (recorded)."
 }
 
-if ($openclawSkillsStats.Exists) {
-    Invoke-RobocopyTree -Source $openclawSkillsLive -Destination $openclawSkillsBackup | Out-Null
-    Write-Host "Backed up OpenClaw skills -> $openclawSkillsBackup"
+if ($opencodeSkillsStats.Exists) {
+    Invoke-RobocopyTree -Source $opencodeSkillsLive -Destination $opencodeSkillsBackup | Out-Null
+    Write-Host "Backed up OpenCode skills -> $opencodeSkillsBackup"
 } else {
-    $marker = Join-Path $backupDir 'openclaw-skills.MISSING.txt'
-    Set-Content -LiteralPath $marker -Value "$openclawSkillsLive did not exist at backup time ($timestamp)." -NoNewline
-    Write-Host "OpenClaw live skills dir MISSING (recorded)."
-}
-
-if ($openclawWorkspaceSkillsStats.Exists) {
-    Invoke-RobocopyTree -Source $openclawWorkspaceSkillsLive -Destination $openclawWorkspaceSkillsBackup | Out-Null
-    Write-Host "Backed up OpenClaw workspace skills -> $openclawWorkspaceSkillsBackup"
-} else {
-    $marker = Join-Path $backupDir 'openclaw-workspace-skills.MISSING.txt'
-    Set-Content -LiteralPath $marker -Value "$openclawWorkspaceSkillsLive did not exist at backup time ($timestamp)." -NoNewline
-    Write-Host "OpenClaw workspace skills dir MISSING (recorded)."
-}
-
-if ($openclawPluginsExists) {
-    Copy-Item -LiteralPath $openclawPluginsLive -Destination $openclawPluginsBackup -Force
-    Write-Host "Backed up OpenClaw plugin install state -> $openclawPluginsBackup"
-} else {
-    $marker = Join-Path $backupDir 'openclaw-plugins-installs.json.MISSING.txt'
-    Set-Content -LiteralPath $marker -Value "$openclawPluginsLive did not exist at backup time ($timestamp)." -NoNewline
-    Write-Host "OpenClaw plugin install state MISSING (recorded)."
+    $marker = Join-Path $backupDir 'opencode-skills.MISSING.txt'
+    Set-Content -LiteralPath $marker -Value "$opencodeSkillsLive did not exist at backup time ($timestamp)." -NoNewline
+    Write-Host "OpenCode live skills dir MISSING (recorded)."
 }
 
 $manifest = [ordered] @{
@@ -233,32 +195,24 @@ $manifest = [ordered] @{
     source_live_paths = [ordered] @{
         claude = $claudeLive
         codex = $codexLive
-        openclaw_skills = $openclawSkillsLive
-        openclaw_workspace_skills = $openclawWorkspaceSkillsLive
-        openclaw_plugins = $openclawPluginsLive
+        opencode_skills = $opencodeSkillsLive
     }
     backup_target_paths = [ordered] @{
         claude = $claudeBackup
         codex = $codexBackup
-        openclaw_skills = $openclawSkillsBackup
-        openclaw_workspace_skills = $openclawWorkspaceSkillsBackup
-        openclaw_plugins = $openclawPluginsBackup
+        opencode_skills = $opencodeSkillsBackup
     }
     claude_dir_existed = $claudeStats.Exists
     codex_dir_existed = $codexStats.Exists
     codex_system_marker_existed = $codexSystemMarkerExists
-    openclaw_skills_dir_existed = $openclawSkillsStats.Exists
-    openclaw_workspace_skills_dir_existed = $openclawWorkspaceSkillsStats.Exists
-    openclaw_plugins_state_existed = $openclawPluginsExists
+    opencode_skills_dir_existed = $opencodeSkillsStats.Exists
     counts = [ordered] @{
         claude_skill_dirs = $claudeStats.SkillDirs
         claude_files = $claudeStats.Files
         codex_skill_dirs = $codexStats.SkillDirs
         codex_files = $codexStats.Files
-        openclaw_skills_skill_dirs = $openclawSkillsStats.SkillDirs
-        openclaw_skills_files = $openclawSkillsStats.Files
-        openclaw_workspace_skills_skill_dirs = $openclawWorkspaceSkillsStats.SkillDirs
-        openclaw_workspace_skills_files = $openclawWorkspaceSkillsStats.Files
+        opencode_skills_skill_dirs = $opencodeSkillsStats.SkillDirs
+        opencode_skills_files = $opencodeSkillsStats.Files
     }
     dry_run = $false
 }

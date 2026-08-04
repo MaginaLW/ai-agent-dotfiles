@@ -7,7 +7,8 @@
     { "$ref": "#/$defs/claudeAgent" },
     { "$ref": "#/$defs/codexPrompt" },
     { "$ref": "#/$defs/codexAgent" },
-    { "$ref": "#/$defs/openClawConfig" }
+    { "$ref": "#/$defs/openCodeCommand" },
+    { "$ref": "#/$defs/openCodeAgent" }
   ],
   "$defs": {
     "directoryFile": {
@@ -44,15 +45,17 @@
         { "properties": { "Target": { "pattern": "^\\.codex/agents/[^/]+$" } } }
       ]
     },
-    "openClawConfig": {
-      "type": "object",
-      "required": ["Target", "Mode", "MergeStrategy"],
-      "properties": {
-        "Target": { "const": ".openclaw/project.json" },
-        "Mode": { "const": "StructuredMerge" },
-        "MergeStrategy": { "const": "JsonObject" }
-      },
-      "additionalProperties": false
+    "openCodeCommand": {
+      "allOf": [
+        { "$ref": "#/$defs/directoryFile" },
+        { "properties": { "Target": { "pattern": "^\\.opencode/commands/[^/]+$" } } }
+      ]
+    },
+    "openCodeAgent": {
+      "allOf": [
+        { "$ref": "#/$defs/directoryFile" },
+        { "properties": { "Target": { "pattern": "^\\.opencode/agents/[^/]+$" } } }
+      ]
     }
   }
 }

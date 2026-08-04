@@ -38,7 +38,7 @@ if (Test-Path -LiteralPath $inboxRoot) {
     foreach ($machine in @(Get-ChildItem -LiteralPath $inboxRoot -Directory -Force | Sort-Object Name)) {
         Add-RecordsFromRoot -Records $records -RootPath (Join-Path $machine.FullName 'claude') -SourceTool 'claude' -MachineId $machine.Name -Collection 'inbox' -PreferredPlatform 'claude-only'
         Add-RecordsFromRoot -Records $records -RootPath (Join-Path $machine.FullName 'codex') -SourceTool 'codex' -MachineId $machine.Name -Collection 'inbox' -PreferredPlatform 'codex-only'
-        Add-RecordsFromRoot -Records $records -RootPath (Join-Path $machine.FullName 'openclaw') -SourceTool 'openclaw' -MachineId $machine.Name -Collection 'inbox' -PreferredPlatform 'openclaw-only'
+        Add-RecordsFromRoot -Records $records -RootPath (Join-Path $machine.FullName 'opencode') -SourceTool 'opencode' -MachineId $machine.Name -Collection 'inbox' -PreferredPlatform 'opencode-only'
     }
 }
 
@@ -46,7 +46,7 @@ $sourceDefinitions = @(
     [pscustomobject] @{ Root = 'skills-source/shared'; Tool = 'shared'; Preferred = '' },
     [pscustomobject] @{ Root = 'skills-source/claude-only'; Tool = 'claude'; Preferred = 'claude-only' },
     [pscustomobject] @{ Root = 'skills-source/codex-only'; Tool = 'codex'; Preferred = 'codex-only' },
-    [pscustomobject] @{ Root = 'skills-source/openclaw-only'; Tool = 'openclaw'; Preferred = 'openclaw-only' }
+    [pscustomobject] @{ Root = 'skills-source/opencode-only'; Tool = 'opencode'; Preferred = 'opencode-only' }
 )
 foreach ($source in $sourceDefinitions) {
     Add-RecordsFromRoot -Records $records -RootPath (Join-RepoPath -RepoRoot $RepoRoot -RelativePath $source.Root) -SourceTool $source.Tool -MachineId 'source' -Collection 'skills-source' -PreferredPlatform $source.Preferred
@@ -89,7 +89,7 @@ $analysis = [pscustomobject] [ordered] @{
     total_skill_count = $records.Count
     claude_source_skill_count = @($records | Where-Object source_tool -eq 'claude').Count
     codex_source_skill_count = @($records | Where-Object source_tool -eq 'codex').Count
-    openclaw_source_skill_count = @($records | Where-Object source_tool -eq 'openclaw').Count
+    opencode_source_skill_count = @($records | Where-Object source_tool -eq 'opencode').Count
     current_skills_source_count = @($records | Where-Object collection -eq 'skills-source').Count
     exact_duplicate_count = $exactDuplicateCount
     exact_duplicate_group_count = @($exactGroups).Count
@@ -101,7 +101,7 @@ $analysis = [pscustomobject] [ordered] @{
     suspected_shared_skills = @($records | Where-Object classification -eq 'shared' | ForEach-Object normalized_name | Sort-Object -Unique)
     suspected_claude_only_skills = @($records | Where-Object classification -eq 'claude-only' | ForEach-Object normalized_name | Sort-Object -Unique)
     suspected_codex_only_skills = @($records | Where-Object classification -eq 'codex-only' | ForEach-Object normalized_name | Sort-Object -Unique)
-    suspected_openclaw_only_skills = @($records | Where-Object classification -eq 'openclaw-only' | ForEach-Object normalized_name | Sort-Object -Unique)
+    suspected_opencode_only_skills = @($records | Where-Object classification -eq 'opencode-only' | ForEach-Object normalized_name | Sort-Object -Unique)
     suspected_risk_skills = @($riskSkills | ForEach-Object normalized_name | Sort-Object -Unique)
     quality_score_ranking = @($records | Sort-Object @{ Expression = 'quality_score'; Descending = $true }, @{ Expression = 'normalized_name'; Descending = $false } | ForEach-Object {
         [pscustomobject] @{ normalized_name = $_.normalized_name; collection = $_.collection; source_tool = $_.source_tool; machine_id = $_.machine_id; quality_score = $_.quality_score }
@@ -129,7 +129,7 @@ $lines.Add('')
 $lines.Add("Total skills: $($analysis.total_skill_count)")
 $lines.Add("Claude source skills: $($analysis.claude_source_skill_count)")
 $lines.Add("Codex source skills: $($analysis.codex_source_skill_count)")
-$lines.Add("OpenClaw source skills: $($analysis.openclaw_source_skill_count)")
+$lines.Add("OpenCode source skills: $($analysis.opencode_source_skill_count)")
 $lines.Add("Current skills-source skills: $($analysis.current_skills_source_count)")
 $lines.Add("Exact duplicate groups: $($analysis.exact_duplicate_group_count) (duplicate copies: $($analysis.exact_duplicate_count))")
 $lines.Add("Same-name groups: $(@($analysis.same_name_duplicate_groups).Count)")

@@ -63,12 +63,14 @@
         )
     }
 
-    OpenClaw = @{
-        HomeRelativeRoot = '.openclaw'
-        RepoRelativeRoot = 'openclaw'
-        PushItems = @('plugins/managed-plugins.json')
-        PullItems = @('plugins/managed-plugins.json')
-        ExcludedItems = @('identity', 'credentials', 'devices', 'sessions', 'logs', 'cache', 'npm', 'plugins/installs.json', 'exec-approvals.json', 'node.json', 'auth-profiles.json')
+    OpenCode = @{
+        HomeRelativeRoot = '.config/opencode'
+        RepoRelativeRoot = 'opencode'
+        # The main opencode.json(c) may contain provider, MCP, file, or machine
+        # specific settings. Manage only portable instruction/command/agent files.
+        PushItems = @('AGENTS.md', 'commands', 'agents')
+        PullItems = @('AGENTS.md', 'commands', 'agents')
+        ExcludedItems = @('opencode.json', 'opencode.jsonc', 'auth.json', 'cache', 'log', 'storage', 'node_modules', 'plugins')
     }
 
     Skills = @{
@@ -76,17 +78,17 @@
         SharedSource = 'skills-source/shared'
         ClaudeOnlySource = 'skills-source/claude-only'
         CodexOnlySource = 'skills-source/codex-only'
-        OpenClawOnlySource = 'skills-source/openclaw-only'
+        OpenCodeOnlySource = 'skills-source/opencode-only'
         GeneratedClaude = 'claude/skills'
         GeneratedCodex = 'codex/skills'
-        GeneratedOpenClaw = 'openclaw/skills'
+        GeneratedOpenCode = 'opencode/skills'
         InstallClaudeHomeRelative = '.claude/skills'
         InstallCodexHomeRelative = '.agents/skills'
-        InstallOpenClawHomeRelative = '.openclaw/skills'
+        InstallOpenCodeHomeRelative = '.config/opencode/skills'
         ManagedSkillsManifest = 'manifests/managed-skills.txt'
         ManagedSkillsClaudeManifest = 'manifests/managed-skills.claude.txt'
         ManagedSkillsCodexManifest = 'manifests/managed-skills.codex.txt'
-        ManagedSkillsOpenClawManifest = 'manifests/managed-skills.openclaw.txt'
+        ManagedSkillsOpenCodeManifest = 'manifests/managed-skills.opencode.txt'
     }
 
     CommonExcludedItems = @(
