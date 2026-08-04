@@ -26,13 +26,13 @@
 - `skills-source/shared/*`（跨平台，Claude + Codex 都装）
 - `skills-source/claude-only/*`
 - `skills-source/codex-only/*`
-- `skills-source/openclaw-only/*`
-- `openclaw/plugins/managed-plugins.json`（托管插件清单）
-- 生成到 `claude/skills/`、`codex/skills/` 和 `openclaw/skills/`（Git-ignored）
+- `skills-source/opencode-only/*`
+- `opencode/AGENTS.md`、`opencode/commands/`、`opencode/agents/`（便携配置）
+- 生成到 `claude/skills/`、`codex/skills/` 和 `opencode/skills/`（Git-ignored）
 - 部署到本机 live：
   - Claude：`~/.claude/skills`
   - Codex：`~/.codex/skills`；仅当它不存在时才 fallback 到 `~/.agents/skills`
-  - OpenClaw：`~/.openclaw/skills`
+  - OpenCode：`~/.config/opencode/skills`
 
 ### 不会同步
 - Codex `~/.codex/skills/.system`（平台内置，永远保留）
@@ -43,8 +43,8 @@
 - 机器私有配置、API keys / tokens / secrets
 - 临时日志
 - quarantine 原始副本
-- OpenClaw identity、credentials、devices、sessions、caches、npm installs、node launchers、workspace memory
-- `~/.openclaw/plugins/installs.json`（机器私有状态，由 OpenClaw CLI 管理）
+- OpenCode `opencode.json(c)`（含 provider/MCP 等机器私有设置）
+- `~/.config/opencode/opencode.json(c)`（机器私有，不纳入仓库）
 
 ---
 
@@ -63,8 +63,8 @@
 | `skills-source/codex-only/` | 仅 Codex 的 skill（如 `hatch-pet`） |
 | `claude/skills/` | **生成物**，Git-ignored，勿手改 |
 | `codex/skills/` | **生成物**，Git-ignored，勿手改 |
-| `openclaw/skills/` | **生成物**，Git-ignored，勿手改 |
-| `openclaw/plugins/managed-plugins.json` | 托管 OpenClaw 插件清单（期望状态） |
+| `opencode/skills/` | **生成物**，Git-ignored，勿手改 |
+| `opencode/AGENTS.md` | OpenCode 便携项目指令（config-sync 管理） |
 | `manifests/managed-skills.txt` | 本仓库托管的 skill 名单（sync 的 prune 只作用于名单内条目） |
 | `scripts/build-skills.ps1` | 从源生成 runtime output，并刷新 manifest |
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
@@ -181,10 +181,10 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 - 不要对 `~/.codex/skills` 用整目录 `robocopy /MIR`。
 - 不要 whitelist 或削弱 secret scan gate。
 - 不要把明文 key / token 写进 skill。
-- 不要手改 `openclaw/skills/`（它是生成物）。
-- 不要提交 `openclaw/skills/`。
-- `~/.openclaw/plugins/installs.json` 是机器管理的状态文件——禁止提交、禁止手改。
-- OpenClaw 插件的安装/卸载/启用/禁用必须通过 CLI 命令，禁止直接编辑 `installs.json`。
+- 不要手改 `opencode/skills/`（它是生成物）。
+- 不要提交 `opencode/skills/`。
+- `~/.config/opencode/opencode.json(c)` 是机器私有配置——禁止提交。
+- OpenCode 的插件通过 `opencode.json` 的 `plugin` 数组声明，不纳入本仓库管理。
 
 ---
 

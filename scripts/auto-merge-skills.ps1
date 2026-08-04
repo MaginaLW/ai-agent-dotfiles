@@ -23,16 +23,16 @@ $quarantineRoot = Join-RepoPath -RepoRoot $RepoRoot -RelativePath 'imports/skill
 New-Item -ItemType Directory -Force -Path $reportsRoot | Out-Null
 if ($Apply) { New-Item -ItemType Directory -Force -Path $quarantineRoot | Out-Null }
 
-$sourceTypes = @('shared', 'claude-only', 'codex-only', 'openclaw-only')
+$sourceTypes = @('shared', 'claude-only', 'codex-only', 'opencode-only')
 
 function Get-InboxRecords {
     $records = [System.Collections.Generic.List[object]]::new()
     $inboxRoot = Join-RepoPath -RepoRoot $RepoRoot -RelativePath 'imports/skills-inbox'
     if (-not (Test-Path -LiteralPath $inboxRoot)) { return @() }
     foreach ($machine in @(Get-ChildItem -LiteralPath $inboxRoot -Directory -Force | Sort-Object Name)) {
-        foreach ($tool in @('claude', 'codex', 'openclaw')) {
+        foreach ($tool in @('claude', 'codex', 'opencode')) {
             $toolRoot = Join-Path $machine.FullName $tool
-            $preferred = if ($tool -eq 'openclaw') { 'openclaw-only' } else { '' }
+            $preferred = if ($tool -eq 'opencode') { 'opencode-only' } else { '' }
             foreach ($skill in @(Get-SkillDirectories -RootPath $toolRoot -ExcludeNames @('.system'))) {
                 $records.Add((Get-SkillRecord -RepoRoot $RepoRoot -SkillPath $skill.FullName -SourceTool $tool -MachineId $machine.Name -Collection 'inbox' -PreferredPlatform $preferred))
             }
@@ -48,7 +48,7 @@ function Get-CanonicalRecords {
     foreach ($type in $sourceTypes) {
         $root = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "skills-source/$type"
         foreach ($skill in @(Get-SkillDirectories -RootPath $root -ExcludeNames @('.system'))) {
-            $sourceTool = if ($type -eq 'openclaw-only') { 'openclaw' } else { $type }
+            $sourceTool = if ($type -eq 'opencode-only') { 'opencode' } else { $type }
             $record = Get-SkillRecord -RepoRoot $RepoRoot -SkillPath $skill.FullName -SourceTool $sourceTool -MachineId 'source' -Collection 'skills-source' -PreferredPlatform $type
             if ($record.normalized_name -eq $Name) { $records.Add([pscustomobject] @{ Type = $type; Record = $record }) }
         }
@@ -369,7 +369,7 @@ $report = [pscustomobject] [ordered] @{
     merged_shared = @($promoted | Where-Object target -like 'skills-source/shared/*' | ForEach-Object name)
     merged_claude_only = @($promoted | Where-Object target -like 'skills-source/claude-only/*' | ForEach-Object name)
     merged_codex_only = @($promoted | Where-Object target -like 'skills-source/codex-only/*' | ForEach-Object name)
-    merged_openclaw_only = @($promoted | Where-Object target -like 'skills-source/openclaw-only/*' | ForEach-Object name)
+        merged_opencode_only = @($promoted | Where-Object target -like 'skills-source/opencode-only/*' | ForEach-Object name)
     final_skills_source_structure = @($sourceStructure | Sort-Object)
     build_skills_result = $buildSkillsResult
     scan_secrets_result = $scanSecretsResult

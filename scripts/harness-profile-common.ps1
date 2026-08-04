@@ -235,7 +235,7 @@ function Test-HarnessTargetPlatforms {
         [switch] $RequireEveryComponentOnEveryPlatform
     )
 
-    $valid = @('Claude', 'Codex', 'OpenClaw')
+    $valid = @('Claude', 'Codex', 'OpenCode')
     foreach ($platform in @($TargetPlatforms)) {
         if ($platform -notin $valid) {
             throw "Unsupported TargetPlatform '$platform'. Valid values: $($valid -join ', ')"
@@ -457,6 +457,8 @@ function Resolve-HarnessTargetPath {
             '.claude/commands/',
             '.claude/agents/',
             '.codex/prompts/',
+            '.opencode/commands/',
+            '.opencode/agents/',
             '.agent-harness/generated/'
         )
     )
@@ -560,60 +562,26 @@ function Get-HarnessOutputContract {
                 RequiredFiles = @(); OutputKeys = @('Target', 'Mode', 'Source')
             }
         }
+        'OpenCodeCommand' {
+            return [pscustomobject] @{
+                Kind = 'OpenCodeCommand'; Mode = 'DirectoryFiles'; AllowedTargets = @('.opencode/commands/')
+                RequiredFiles = @(); OutputKeys = @('Target', 'Mode', 'Source')
+            }
+        }
+        'OpenCodeAgent' {
+            return [pscustomobject] @{
+                Kind = 'OpenCodeAgent'; Mode = 'DirectoryFiles'; AllowedTargets = @('.opencode/agents/')
+                RequiredFiles = @(); OutputKeys = @('Target', 'Mode', 'Source')
+            }
+        }
         'ClaudeSettings' {
             return [pscustomobject] @{
                 Kind = 'ClaudeSettings'; Mode = 'StructuredMerge'; AllowedTargets = @('.claude/settings.json')
                 RequiredFiles = @('settings.json'); OutputKeys = @('Target', 'Mode', 'MergeStrategy')
             }
         }
-        'OpenClawConfig' {
-            return [pscustomobject] @{
-                Kind = 'OpenClawConfig'; Mode = 'StructuredMerge'; AllowedTargets = @('.openclaw/project.json')
-                RequiredFiles = @('settings.json'); OutputKeys = @('Target', 'Mode', 'MergeStrategy')
-            }
-        }
         default {
             throw "Unsupported harness component Kind '$Kind'."
-        }
-    }
-}
-
-function Assert-HarnessOpenClawConfigSafe {
-    [CmdletBinding()]
-    param(
-        [AllowNull()] $Value,
-        [string] $Path = 'root'
-    )
-
-    $forbidden = @(
-        'credential', 'credentials', 'token', 'tokens', 'password', 'secret', 'secrets',
-        'apikey', 'apikeys', 'identity', 'identities', 'device', 'devices', 'session',
-        'sessions', 'cache', 'caches', 'plugin', 'plugins', 'install', 'installs'
-    )
-    $allowedRoot = @(
-        'schemaVersion', 'project', 'workspace', 'defaults', 'agents', 'commands',
-        'workflows', 'routing', 'tools', 'model', 'logging'
-    )
-
-    if ($Value -is [System.Collections.IDictionary]) {
-        foreach ($key in @($Value.Keys)) {
-            $name = [string] $key
-            $lower = $name.ToLowerInvariant()
-            if (($forbidden -contains $lower) -or $lower -match '(credential|token|password|secret|apikey|identity|device|session|cache|plugin|install)') {
-                throw "OpenClaw project config field '$Path.$name' is not allowed."
-            }
-            if ($Path -eq 'root' -and $name -notin $allowedRoot) {
-                throw "OpenClaw project config root field '$name' is not allowlisted."
-            }
-            Assert-HarnessOpenClawConfigSafe -Value $Value[$key] -Path "$Path.$name"
-        }
-        return
-    }
-    if ($Value -is [array]) {
-        $index = 0
-        foreach ($item in $Value) {
-            Assert-HarnessOpenClawConfigSafe -Value $item -Path "$Path[$index]"
-            $index++
         }
     }
 }
@@ -663,7 +631,7 @@ function Test-HarnessComponentOutputContract {
             throw "Component '$($Component.Id)' DirectoryFiles target must be a file: $($output.Target)"
         }
 
-        if ($kind -in @('Command', 'ClaudeAgent', 'CodexPrompt', 'CodexAgent')) {
+        if ($kind -in @('Command', 'ClaudeAgent', 'CodexPrompt', 'CodexAgent', 'OpenCodeCommand', 'OpenCodeAgent')) {
             $source = if ($output.ContainsKey('Source') -and -not [string]::IsNullOrWhiteSpace([string] $output.Source)) { [string] $output.Source } else { 'content.md' }
             if ($source -match '[\\/]' -or $source -in @('.', '..') -or [System.IO.Path]::IsPathFullyQualified($source)) {
                 throw "Component '$($Component.Id)' DirectoryFiles Source must be a single relative file name: $source"
@@ -673,7 +641,7 @@ function Test-HarnessComponentOutputContract {
                 throw "Component '$($Component.Id)' is missing DirectoryFiles source '$source'."
             }
         }
-        if ($kind -in @('ClaudeSettings', 'OpenClawConfig')) {
+        if ($kind -eq 'ClaudeSettings') {
             if ($output.ContainsKey('MergeStrategy') -and [string] $output.MergeStrategy -ne 'JsonObject') {
                 throw "Component '$($Component.Id)' StructuredMerge requires MergeStrategy 'JsonObject'."
             }
@@ -683,9 +651,6 @@ function Test-HarnessComponentOutputContract {
             }
             catch {
                 throw "Component '$($Component.Id)' settings.json is not valid JSON: $($_.Exception.Message)"
-            }
-            if ($kind -eq 'OpenClawConfig') {
-                Assert-HarnessOpenClawConfigSafe -Value $settings
             }
         }
     }
@@ -974,7 +939,7 @@ function New-HarnessStructuredMergeChange {
         [Parameter(Mandatory)] [string] $FullPath
     )
 
-    if ($Target -notin @('.claude/settings.json', '.openclaw/project.json')) {
+    if ($Target -notin @('.claude/settings.json')) {
         throw "StructuredMerge apply target is not allowlisted: $Target"
     }
 
@@ -987,10 +952,6 @@ function New-HarnessStructuredMergeChange {
         [ordered] @{}
     }
     $merged = $existingObject
-
-    if ($Target -ieq '.openclaw/project.json') {
-        Assert-HarnessOpenClawConfigSafe -Value $existingObject
-    }
 
     foreach ($planTarget in $Targets) {
         $component = $Components | Where-Object { $_.Id -eq $planTarget.ComponentId } | Select-Object -First 1
@@ -1006,9 +967,6 @@ function New-HarnessStructuredMergeChange {
     }
 
     Assert-HarnessDenyNotRemoved -Before $existingObject -After $merged -Target $Target
-    if ($Target -ieq '.openclaw/project.json') {
-        Assert-HarnessOpenClawConfigSafe -Value $merged
-    }
     $newText = ConvertTo-HarnessJsonText -InputObject $merged
     $action = if (-not $exists) { 'add' } elseif ($newText -ne $existingText) { 'update' } else { 'noop' }
 
@@ -1147,7 +1105,7 @@ function Get-HarnessProfileComponentIds {
     if (-not $Profile.ContainsKey('Components') -or $null -eq $Profile.Components) {
         return @()
     }
-    foreach ($bucket in @('Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents', 'McpTemplates', 'OpenClawConfigs')) {
+    foreach ($bucket in @('Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents', 'McpTemplates', 'OpenCodeCommands', 'OpenCodeAgents')) {
         foreach ($id in @($Profile.Components[$bucket])) {
             if (-not [string]::IsNullOrWhiteSpace($id)) {
                 $ids.Add([string] $id)

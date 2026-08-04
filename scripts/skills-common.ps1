@@ -45,7 +45,7 @@ function Get-PlatformSkillSources {
         [Parameter(Mandatory)] [string] $HomeRoot,
         [switch] $IncludeClaude,
         [switch] $IncludeCodex,
-        [switch] $IncludeOpenClaw
+        [switch] $IncludeOpenCode
     )
 
     $sources = [System.Collections.Generic.List[object]]::new()
@@ -68,13 +68,13 @@ function Get-PlatformSkillSources {
             RelativePath = $codex.RelativePath
         })
     }
-    if ($IncludeOpenClaw) {
+    if ($IncludeOpenCode) {
         $sources.Add([pscustomobject] @{
-            Tool = 'openclaw'
-            PreferredPlatform = 'openclaw-only'
-            Path = Join-Path $HomeRoot '.openclaw/skills'
+            Tool = 'opencode'
+            PreferredPlatform = 'opencode-only'
+            Path = Join-Path $HomeRoot '.config/opencode/skills'
             Selection = 'fixed'
-            RelativePath = '.openclaw/skills'
+            RelativePath = '.config/opencode/skills'
         })
     }
     return @($sources)
@@ -311,7 +311,7 @@ function Get-PortableSkillPath {
     }
 
     $normalized = $fullPath -replace '\\', '/'
-    if ($normalized -match '(?i)(/\.claude/.*|/\.codex/.*|/\.agents/.*|/\.openclaw/.*)$') {
+    if ($normalized -match '(?i)(/\.claude/.*|/\.codex/.*|/\.agents/.*|/\.config/opencode/.*)$') {
         return '<HomeRoot>' + $Matches[1]
     }
     return '<external>/' + (Split-Path -Leaf $fullPath)
@@ -325,7 +325,7 @@ function Get-SkillSignals {
 
     $claudeFeatures = [System.Collections.Generic.List[string]]::new()
     $codexFeatures = [System.Collections.Generic.List[string]]::new()
-    $openClawFeatures = [System.Collections.Generic.List[string]]::new()
+    $openCodeFeatures = [System.Collections.Generic.List[string]]::new()
     $localPaths = [System.Collections.Generic.List[object]]::new()
     $secretFindings = [System.Collections.Generic.List[object]]::new()
     $binaryFindings = [System.Collections.Generic.List[object]]::new()
@@ -345,10 +345,9 @@ function Get-SkillSignals {
         'codex-ui-metadata' = '(?i)codex ui metadata'
         'codex-tool-dependency' = '(?i)codex-specific tool dependencies'
     }
-    $openClawPatterns = [ordered] @{
-        'openclaw-skill-root' = '(?i)[/\\]\.openclaw[/\\](?:workspace[/\\])?skills[/\\]'
-        'clawhub-metadata' = '(?i)[/\\]\.clawhub(?:[/\\]|$)|\bclawhub\b'
-        'openclaw-skill-reference' = '(?i)\bOpenClaw\b|\bOpenClaw skill\b'
+    $openCodePatterns = [ordered] @{
+        'opencode-skill-root' = '(?i)[/\\](?:\.opencode|\.config[/\\]opencode)[/\\](?:skills[/\\])?'
+        'opencode-reference' = '(?i)\bOpenCode\b|\bOpenCode skill\b'
     }
     $secretPatterns = [ordered] @{
         'Anthropic API key' = 'sk-ant-[A-Za-z0-9_-]{20,}'
@@ -390,9 +389,9 @@ function Get-SkillSignals {
                 $codexFeatures.Add($entry.Key)
             }
         }
-        foreach ($entry in $openClawPatterns.GetEnumerator()) {
-            if (($text -match $entry.Value -or ($file.FullName -match $entry.Value)) -and -not $openClawFeatures.Contains($entry.Key)) {
-                $openClawFeatures.Add($entry.Key)
+        foreach ($entry in $openCodePatterns.GetEnumerator()) {
+            if (($text -match $entry.Value -or ($file.FullName -match $entry.Value)) -and -not $openCodeFeatures.Contains($entry.Key)) {
+                $openCodeFeatures.Add($entry.Key)
             }
         }
         foreach ($entry in $localPathPatterns.GetEnumerator()) {
@@ -436,7 +435,7 @@ function Get-SkillSignals {
     return [pscustomobject] @{
         ClaudeFeatures = @($claudeFeatures | Sort-Object -Unique)
         CodexFeatures = @($codexFeatures | Sort-Object -Unique)
-        OpenClawFeatures = @($openClawFeatures | Sort-Object -Unique)
+        OpenCodeFeatures = @($openCodeFeatures | Sort-Object -Unique)
         LocalPathFindings = @($localPaths)
         SecretFindings = @($secretFindings)
         BinaryFindings = @($binaryFindings)
@@ -465,7 +464,7 @@ function Get-SkillRecord {
     $platformSignals = [pscustomobject] @{
         claude = @($signals.ClaudeFeatures)
         codex = @($signals.CodexFeatures)
-        openclaw = @($signals.OpenClawFeatures)
+        opencode = @($signals.OpenCodeFeatures)
     }
 
     return [pscustomobject] @{
@@ -484,7 +483,7 @@ function Get-SkillRecord {
         total_size = [int64] (($files | Measure-Object -Property Length -Sum).Sum ?? 0)
         sha256_of_skill_md = Get-FileSha256 -Path $skillMd
         sha256_tree_hash = Get-TreeHash -Path $SkillPath
-        possible_platform_specific_features = @($signals.ClaudeFeatures + $signals.CodexFeatures + $signals.OpenClawFeatures | Sort-Object -Unique)
+        possible_platform_specific_features = @($signals.ClaudeFeatures + $signals.CodexFeatures + $signals.OpenCodeFeatures | Sort-Object -Unique)
         platform_signals = $platformSignals
         possible_secret_findings = @($signals.SecretFindings)
         possible_local_path_findings = @($signals.LocalPathFindings)
@@ -595,12 +594,12 @@ function Get-SkillClassification {
 
     $hasClaude = @($Signals.ClaudeFeatures).Count -gt 0
     $hasCodex = @($Signals.CodexFeatures).Count -gt 0
-    $hasOpenClaw = @($Signals.OpenClawFeatures).Count -gt 0
+    $hasOpenCode = @($Signals.OpenCodeFeatures).Count -gt 0
     if ($hasClaude -and $hasCodex) {
         return 'quarantine'
     }
-    if (($hasOpenClaw -and ($hasClaude -or $hasCodex)) -or
-        ($PreferredPlatform -eq 'openclaw-only' -and ($hasClaude -or $hasCodex))) {
+    if (($hasOpenCode -and ($hasClaude -or $hasCodex)) -or
+        ($PreferredPlatform -eq 'opencode-only' -and ($hasClaude -or $hasCodex))) {
         return 'quarantine'
     }
     if ($hasClaude) {
@@ -609,8 +608,8 @@ function Get-SkillClassification {
     if ($hasCodex) {
         return 'codex-only'
     }
-    if ($hasOpenClaw -or $PreferredPlatform -eq 'openclaw-only') {
-        return 'openclaw-only'
+    if ($hasOpenCode -or $PreferredPlatform -eq 'opencode-only') {
+        return 'opencode-only'
     }
     return 'shared'
 }
@@ -647,7 +646,7 @@ function Normalize-SkillDirectory {
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $InputSkillPath,
         [Parameter(Mandatory)] [string] $OutputSkillPath,
-        [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'openclaw-only')] [string] $TargetType
+        [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'opencode-only')] [string] $TargetType
     )
 
     Assert-PathUnderRoot -Root $RepoRoot -Path $OutputSkillPath
@@ -665,16 +664,16 @@ function Normalize-SkillDirectory {
     if (@($signals.ClaudeFeatures).Count -gt 0 -and @($signals.CodexFeatures).Count -gt 0) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-conflict'; Rewrites = @() }
     }
-    if ($TargetType -eq 'shared' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0 -or @($signals.OpenClawFeatures).Count -gt 0)) {
+    if ($TargetType -eq 'shared' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0 -or @($signals.OpenCodeFeatures).Count -gt 0)) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
-    if ($TargetType -eq 'claude-only' -and (@($signals.CodexFeatures).Count -gt 0 -or @($signals.OpenClawFeatures).Count -gt 0)) {
+    if ($TargetType -eq 'claude-only' -and (@($signals.CodexFeatures).Count -gt 0 -or @($signals.OpenCodeFeatures).Count -gt 0)) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
-    if ($TargetType -eq 'codex-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.OpenClawFeatures).Count -gt 0)) {
+    if ($TargetType -eq 'codex-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.OpenCodeFeatures).Count -gt 0)) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
-    if ($TargetType -eq 'openclaw-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0)) {
+    if ($TargetType -eq 'opencode-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0)) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
 

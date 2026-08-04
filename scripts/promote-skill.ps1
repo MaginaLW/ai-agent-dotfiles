@@ -3,7 +3,7 @@
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [Parameter(Mandatory)] [string] $InputSkillPath,
-    [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'openclaw-only')] [string] $TargetType,
+    [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'opencode-only')] [string] $TargetType,
     [switch] $Apply,
     [switch] $DryRun
 )
@@ -27,7 +27,7 @@ if ($DryRun -or -not $Apply) {
 }
 
 $existing = @()
-foreach ($type in @('shared', 'claude-only', 'codex-only', 'openclaw-only')) {
+foreach ($type in @('shared', 'claude-only', 'codex-only', 'opencode-only')) {
     $existingPath = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "skills-source/$type/$name"
     if (Test-Path -LiteralPath (Join-Path $existingPath 'SKILL.md')) {
         $existing += $existingPath

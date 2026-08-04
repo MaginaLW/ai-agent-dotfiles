@@ -15,7 +15,6 @@
     "StagedSkillTreeHashes",
     "ProfileSourceHash",
     "ProfileOutputHash",
-    "ManagedPluginDeclaration",
     "BuiltFiles"
   ],
   "properties": {
@@ -25,11 +24,11 @@
     "RepositoryCommit": { "type": ["string", "null"] },
     "ManifestHashes": {
       "type": "object",
-      "required": ["Claude", "Codex", "OpenClaw"],
+      "required": ["Claude", "Codex", "OpenCode"],
       "properties": {
         "Claude": { "type": ["string", "null"] },
         "Codex": { "type": ["string", "null"] },
-        "OpenClaw": { "type": ["string", "null"] }
+        "OpenCode": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     },
@@ -37,19 +36,21 @@
     "McpTemplateHashes": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" } },
     "SkillSourceHashes": {
       "type": "object",
-      "required": ["Claude", "Codex"],
+      "required": ["Claude", "Codex", "OpenCode"],
       "properties": {
         "Claude": { "$ref": "#/$defs/hashMap" },
-        "Codex": { "$ref": "#/$defs/hashMap" }
+        "Codex": { "$ref": "#/$defs/hashMap" },
+        "OpenCode": { "$ref": "#/$defs/hashMap" }
       },
       "additionalProperties": false
     },
     "StagedSkillTreeHashes": {
       "type": "object",
-      "required": ["Claude", "Codex"],
+      "required": ["Claude", "Codex", "OpenCode"],
       "properties": {
         "Claude": { "$ref": "#/$defs/hashMap" },
-        "Codex": { "$ref": "#/$defs/hashMap" }
+        "Codex": { "$ref": "#/$defs/hashMap" },
+        "OpenCode": { "$ref": "#/$defs/hashMap" }
       },
       "additionalProperties": false
     },
@@ -58,20 +59,11 @@
     "TaskOverlayHash": { "type": ["string", "null"] },
     "TaskOverlaySkills": {
       "type": "object",
-      "required": ["Claude", "Codex"],
+      "required": ["Claude", "Codex", "OpenCode"],
       "properties": {
         "Claude": { "type": "array", "items": { "type": "string" } },
-        "Codex": { "type": "array", "items": { "type": "string" } }
-      },
-      "additionalProperties": false
-    },
-    "ManagedPluginDeclaration": {
-      "type": "object",
-      "required": ["Included", "Hash", "Reason"],
-      "properties": {
-        "Included": { "type": "boolean" },
-        "Hash": { "type": ["string", "null"] },
-        "Reason": { "type": "string" }
+        "Codex": { "type": "array", "items": { "type": "string" } },
+        "OpenCode": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },

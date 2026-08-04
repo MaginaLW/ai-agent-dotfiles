@@ -1,14 +1,14 @@
 #requires -Version 7.0
 <#!
 .SYNOPSIS
-    Restore the managed Claude/Codex skills and previous environment state from
+    Restore the managed Claude/Codex/OpenCode skills and previous environment state from
     one explicitly selected harness activation backup.
 
 .DESCRIPTION
     This is an environment rollback, not a whole-home restore. It only touches
-    skill directories named by the current Claude/Codex managed manifests. Live
-    unknown directories, Codex .system, credentials, sessions, caches, config
-    files, and OpenClaw machine state are never touched.
+    skill directories named by the current platform manifests. Live unknown
+    directories, Codex .system, credentials, sessions, caches, and config files
+    are never touched.
 
     Dry-run is the default. Apply requires the exact plan produced by a prior
     dry-run. The backup must contain both backup-manifest.json and the
@@ -67,9 +67,10 @@ function Assert-SafeSkillName {
 function Get-LiveRoot {
     param(
         [Parameter(Mandatory)] [string] $HomeRootValue,
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex')] [string] $Platform
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $Platform
     )
     if ($Platform -eq 'Claude') { return Join-Path $HomeRootValue '.claude/skills' }
+    if ($Platform -eq 'OpenCode') { return Join-Path $HomeRootValue '.config/opencode/skills' }
     $preferred = Join-Path $HomeRootValue '.codex/skills'
     $fallback = Join-Path $HomeRootValue '.agents/skills'
     if (Test-Path -LiteralPath $preferred -PathType Container) { return $preferred }
@@ -108,7 +109,12 @@ function Read-ManagedNames {
 
 function Get-BackupSkillRoot {
     param([Parameter(Mandatory)] [string] $BackupPath, [Parameter(Mandatory)] [string] $Platform)
-    return Join-Path $BackupPath $(if ($Platform -eq 'Claude') { 'claude-skills' } else { 'codex-skills' })
+    $name = switch ($Platform) {
+        'Claude' { 'claude-skills' }
+        'Codex' { 'codex-skills' }
+        'OpenCode' { 'opencode-skills' }
+    }
+    return Join-Path $BackupPath $name
 }
 
 function Get-RollbackPlan {
@@ -141,7 +147,7 @@ function Get-RollbackPlan {
     }
 
     $actions = [System.Collections.Generic.List[object]]::new()
-    foreach ($platform in @('Claude', 'Codex')) {
+    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
         $manifestPath = Join-Path $Repo "manifests/managed-skills.$($platform.ToLowerInvariant()).txt"
         $managed = Read-ManagedNames -Path $manifestPath
         $backupRoot = Get-BackupSkillRoot -BackupPath $Backup -Platform $platform

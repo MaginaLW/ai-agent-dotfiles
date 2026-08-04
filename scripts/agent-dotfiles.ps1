@@ -11,7 +11,7 @@
 
 .PARAMETER Command
     One of: doctor, build, scan, backup, sync, mcp, config, profile, skills,
-    inventory, analyze, merge, plugin, or env.
+    inventory, analyze, merge, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -44,14 +44,13 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync, mcp, config, profile, skills, inventory, analyze, merge, plugin, env'
+    Write-Host 'Commands: doctor, build, scan, backup, sync, mcp, config, profile, skills, inventory, analyze, merge, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: inventory, analyze, dedupe, merge, normalize, promote.'
     Write-Host 'Env actions: list, status, build, activate, rollback, task.'
     Write-Host 'Env task actions: status, ensure-skill, sync, close.'
-    Write-Host 'Legacy inventory openclaw form is also supported: agent-dotfiles.ps1 inventory openclaw'
     Write-Host 'Mutating actions require exactly one explicit mode: -DryRun or -Apply.'
 }
 
@@ -70,7 +69,6 @@ $commandMap = @{
     inventory = 'inventory-skills.ps1'
     analyze = 'analyze-skills.ps1'
     merge = 'auto-merge-skills.ps1'
-    plugin = 'sync-openclaw-plugins.ps1'
     mcp = '..\claude\mcp\apply-mcp.ps1'
 }
 
@@ -179,11 +177,7 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills')) {
 }
 else {
     $targetScriptName = $commandMap[$normalizedCommand]
-    if ($normalizedCommand -eq 'inventory' -and $forwardedArguments.Count -gt 0 -and
-        ([string] $forwardedArguments[0]).ToLowerInvariant() -eq 'openclaw') {
-        $targetScriptName = 'inventory-openclaw.ps1'
-        $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
-    }
+    # Platform-specific inventory is now handled by the common inventory script.
 }
 
 if ($normalizedCommand -in @('sync', 'mcp')) {

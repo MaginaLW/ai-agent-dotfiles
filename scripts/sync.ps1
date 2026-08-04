@@ -2,11 +2,11 @@
 <#
 .SYNOPSIS
     Manifest-scoped sync of generated skill output into the live Claude / Codex /
-    OpenClaw skill directories. Safe by default (dry-run); only mutates with -Apply.
+    OpenCode skill directories. Safe by default (dry-run); only mutates with -Apply.
 
 .DESCRIPTION
     Source of truth is the build output: claude/skills, codex/skills, and
-    openclaw/skills. For each platform the script computes add / update / prune
+    opencode/skills. For each platform the script computes add / update / prune
     plans scoped to per-platform repo-managed skill manifests and operates ONE
     skill directory at a time.
 
@@ -17,8 +17,6 @@
         manifest AND no longer present in the generated output. Unknown live dirs
         are reported only.
       * -Apply always runs build + secret scan + a backup first; all must pass.
-      * For OpenClaw skill updates, any live .clawhub directories are preserved
-        unless the generated source already includes them.
 
 .PARAMETER Apply
     Actually perform the sync. Without it the script is a pure dry-run.
@@ -39,8 +37,8 @@
 .PARAMETER HomeRoot
     Home directory used to resolve live skill paths. Defaults to $env:USERPROFILE.
 
-.PARAMETER OpenClawLiveSkillsPath
-    Optional override for the OpenClaw live skills target directory.
+.PARAMETER OpenCodeLiveSkillsPath
+    Optional override for the OpenCode live skills target directory.
 
 .PARAMETER PlanPath
     Optional path for a machine-readable dry-run plan. When supplied on -DryRun,
@@ -57,7 +55,7 @@ param(
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [string] $OpenClawLiveSkillsPath,
+    [string] $OpenCodeLiveSkillsPath,
     [string] $PlanPath
 )
 
@@ -100,9 +98,9 @@ function Get-CodexLiveSkillsPath {
     return $codex  # conventional default; created on -Apply if needed
 }
 
-function Get-OpenClawLiveSkillsPath {
-    if ($OpenClawLiveSkillsPath) { return $OpenClawLiveSkillsPath }
-    return (Join-Path $HomeRoot '.openclaw\skills')
+function Get-OpenCodeLiveSkillsPath {
+    if ($OpenCodeLiveSkillsPath) { return $OpenCodeLiveSkillsPath }
+    return (Join-Path $HomeRoot '.config\opencode\skills')
 }
 
 # ---------------------------------------------------------------------------
@@ -145,8 +143,7 @@ function Sync-OneSkillDir-Transactional {
     param(
         [Parameter(Mandatory)] [string] $SourceSkillDir,
         [Parameter(Mandatory)] [string] $LiveRoot,
-        [Parameter(Mandatory)] [string] $Name,
-        [switch] $PreserveClawhub
+        [Parameter(Mandatory)] [string] $Name
     )
 
     $dest = Join-Path $LiveRoot $Name
@@ -159,27 +156,12 @@ function Sync-OneSkillDir-Transactional {
     $stageSkill = Join-Path $stageRoot $Name
     $movedOldTarget = $false
     $movedStageIntoPlace = $false
-    $preserve = $PreserveClawhub -and -not (Test-ContainsClawhubDirectory -Path $SourceSkillDir)
-
     try {
         New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
         Copy-Item -LiteralPath $SourceSkillDir -Destination $stageRoot -Recurse -Force
 
-        if ($preserve -and (Test-Path -LiteralPath $dest -PathType Container)) {
-            $destFull = [System.IO.Path]::GetFullPath($dest)
-            foreach ($dir in @(Get-ChildItem -LiteralPath $dest -Directory -Recurse -Force -ErrorAction SilentlyContinue |
-                    Where-Object Name -eq '.clawhub')) {
-                $relativePath = $dir.FullName.Substring($destFull.Length).TrimStart('\', '/')
-                $target = Join-Path $stageSkill $relativePath
-                if (-not (Test-Path -LiteralPath $target)) {
-                    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
-                    Copy-Item -LiteralPath $dir.FullName -Destination $target -Recurse -Force
-                }
-            }
-        }
-
-        $expectedHash = Get-SkillTreeHash -Path $SourceSkillDir -ExcludeClawhub:$preserve
-        $actualHash = Get-SkillTreeHash -Path $stageSkill -ExcludeClawhub:$preserve
+        $expectedHash = Get-SkillTreeHash -Path $SourceSkillDir
+        $actualHash = Get-SkillTreeHash -Path $stageSkill
         if ($expectedHash -ne $actualHash) {
             throw "Staging verification failed for $Name. Expected=$expectedHash Actual=$actualHash"
         }
@@ -227,18 +209,6 @@ function Sync-OneSkillDir {
     )
 
     Sync-OneSkillDir-Transactional -SourceSkillDir $SourceSkillDir -LiveRoot $LiveRoot -Name $Name
-}
-
-function Sync-OneSkillDir-WithClawhubPreservation {
-    # Same as Sync-OneSkillDir but preserves live .clawhub dirs that the
-    # generated source does not include (OpenClaw-specific).
-    param(
-        [Parameter(Mandatory)] [string] $SourceSkillDir,
-        [Parameter(Mandatory)] [string] $LiveRoot,
-        [Parameter(Mandatory)] [string] $Name
-    )
-
-    Sync-OneSkillDir-Transactional -SourceSkillDir $SourceSkillDir -LiveRoot $LiveRoot -Name $Name -PreserveClawhub
 }
 
 function Remove-OneSkillDir {
@@ -313,8 +283,7 @@ function Get-PathSha256 {
 
 function Get-SkillTreeHash {
     param(
-        [Parameter(Mandatory)] [string] $Path,
-        [switch] $ExcludeClawhub
+        [Parameter(Mandatory)] [string] $Path
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
@@ -324,24 +293,11 @@ function Get-SkillTreeHash {
     $rows = [System.Collections.Generic.List[string]]::new()
     foreach ($file in @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force)) {
         $relative = [System.IO.Path]::GetRelativePath($Path, $file.FullName) -replace '\\', '/'
-        if ($ExcludeClawhub -and (($relative -split '/') -contains '.clawhub')) {
-            continue
-        }
         $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         $rows.Add("$relative|$($file.Length)|$hash")
     }
 
     return Get-StringSha256 -Text ((@($rows | Sort-Object) -join "`n") + "`n")
-}
-
-function Test-ContainsClawhubDirectory {
-    param([Parameter(Mandatory)] [string] $Path)
-
-    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
-        return $false
-    }
-    return @(Get-ChildItem -LiteralPath $Path -Directory -Recurse -Force -ErrorAction SilentlyContinue |
-            Where-Object Name -eq '.clawhub').Count -gt 0
 }
 
 function Get-PlanFingerprintInput {
@@ -452,7 +408,6 @@ function Get-SyncPlan {
     }
     $liveNames = @($liveNames)
 
-    $sourceHasClawhub = Test-ContainsClawhubDirectory -Path $SourceRoot
     $sourceHashes = @{}
     foreach ($name in $sourceNames) {
         $sourceHashes[$name] = Get-SkillTreeHash -Path (Join-Path $SourceRoot $name)
@@ -460,9 +415,7 @@ function Get-SyncPlan {
 
     $liveHashes = @{}
     foreach ($name in @($sourceNames | Where-Object { $_ -in $liveNames })) {
-        $liveHashes[$name] = Get-SkillTreeHash `
-            -Path (Join-Path $LiveRoot $name) `
-            -ExcludeClawhub:($Platform -eq 'openclaw' -and -not $sourceHasClawhub)
+        $liveHashes[$name] = Get-SkillTreeHash -Path (Join-Path $LiveRoot $name)
     }
 
     $toAdd = @($sourceNames | Where-Object { $_ -notin $liveNames } | Sort-Object)
@@ -569,9 +522,9 @@ function Write-SyncRunReport {
     $modifiedValue = if (@($Plans).Count -gt 0) { $planModified } else { 'Not available' }
     $removedValue = if (@($Plans).Count -gt 0) { $planRemoved } else { 'Not available' }
     if ($Apply -and $null -ne $AppliedCounts) {
-        $addedValue = [int] $AppliedCounts.ClaudeAdded + [int] $AppliedCounts.CodexAdded + [int] $AppliedCounts.OpenClawAdded
-        $modifiedValue = [int] $AppliedCounts.ClaudeUpdated + [int] $AppliedCounts.CodexUpdated + [int] $AppliedCounts.OpenClawUpdated
-        $removedValue = [int] $AppliedCounts.ClaudePruned + [int] $AppliedCounts.CodexPruned + [int] $AppliedCounts.OpenClawPruned
+        $addedValue = [int] $AppliedCounts.ClaudeAdded + [int] $AppliedCounts.CodexAdded + [int] $AppliedCounts.OpenCodeAdded
+        $modifiedValue = [int] $AppliedCounts.ClaudeUpdated + [int] $AppliedCounts.CodexUpdated + [int] $AppliedCounts.OpenCodeUpdated
+        $removedValue = [int] $AppliedCounts.ClaudePruned + [int] $AppliedCounts.CodexPruned + [int] $AppliedCounts.OpenCodePruned
     }
 
     if ($SystemStatus -eq 'Not available') {
@@ -675,7 +628,7 @@ function Restore-CompletedManagedSkills {
         $backupRootName = switch ($entry.Platform) {
             'claude' { 'claude-skills' }
             'codex' { 'codex-skills' }
-            'openclaw' { 'openclaw-skills' }
+            'opencode' { 'opencode-skills' }
             default { $null }
         }
         if (-not $backupRootName) { $errors.Add("Unknown platform $($entry.Platform)"); continue }
@@ -721,20 +674,20 @@ if ($Apply -and [string]::IsNullOrWhiteSpace($PlanPath)) {
 
 $claudeSource = Join-Path $RepoRoot 'claude\skills'
 $codexSource = Join-Path $RepoRoot 'codex\skills'
-$openclawSource = Join-Path $RepoRoot 'openclaw\skills'
+$opencodeSource = Join-Path $RepoRoot 'opencode\skills'
 $claudeLive = Get-ClaudeLiveSkillsPath
 $codexLive = Get-CodexLiveSkillsPath
-$openclawLive = Get-OpenClawLiveSkillsPath
+$opencodeLive = Get-OpenCodeLiveSkillsPath
 
 Write-Host '=== sync.ps1 ==='
 Write-Host "Mode            : $(if ($Apply) { 'APPLY' } else { 'DRY-RUN (no changes)' })"
 Write-Host "Repo            : $RepoRoot"
 Write-Host "Claude source   : $claudeSource"
 Write-Host "Codex source    : $codexSource"
-Write-Host "OpenClaw source : $openclawSource"
+Write-Host "OpenCode source  : $opencodeSource"
 Write-Host "Claude live     : $claudeLive"
 Write-Host "Codex live      : $codexLive"
-Write-Host "OpenClaw live   : $openclawLive"
+Write-Host "OpenCode live    : $opencodeLive"
 
 # --- build ---
 if ($SkipBuild) {
@@ -770,7 +723,7 @@ if ($SkipSecretScan) {
     Write-Host 'Secret scan     : OK'
 }
 
-if (-not (Test-Path -LiteralPath $claudeSource) -or -not (Test-Path -LiteralPath $codexSource) -or -not (Test-Path -LiteralPath $openclawSource)) {
+if (-not (Test-Path -LiteralPath $claudeSource) -or -not (Test-Path -LiteralPath $codexSource) -or -not (Test-Path -LiteralPath $opencodeSource)) {
     Write-Host 'ERROR: generated output missing. Run build-skills.ps1 (do not pass -SkipBuild).'
     Write-SyncRunReport -Result 'FAIL' -NextAction 'Restore generated output by running build-skills.ps1, then rerun sync in dry-run mode.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
     exit 1
@@ -779,17 +732,17 @@ if (-not (Test-Path -LiteralPath $claudeSource) -or -not (Test-Path -LiteralPath
 # --- managed-skills manifests (per-platform) ---
 $claudeManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.claude.txt')
 $codexManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.codex.txt')
-$openclawManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.openclaw.txt')
+$opencodeManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.opencode.txt')
 $claudeManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.claude.txt')
 $codexManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.codex.txt')
-$openclawManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.openclaw.txt')
-Write-Host "Managed skills  : Claude=$($claudeManagedNames.Count)  Codex=$($codexManagedNames.Count)  OpenClaw=$($openclawManagedNames.Count)"
+$opencodeManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.opencode.txt')
+Write-Host "Managed skills  : Claude=$($claudeManagedNames.Count)  Codex=$($codexManagedNames.Count)  OpenCode=$($opencodeManagedNames.Count)"
 
 # --- plans ---
 $claudePlan = Get-SyncPlan -Platform 'claude' -SourceRoot $claudeSource -LiveRoot $claudeLive -ManagedNames $claudeManagedNames -ManifestHash $claudeManifestHash
 $codexPlan = Get-SyncPlan -Platform 'codex' -SourceRoot $codexSource -LiveRoot $codexLive -ManagedNames $codexManagedNames -ManifestHash $codexManifestHash
-$openclawPlan = Get-SyncPlan -Platform 'openclaw' -SourceRoot $openclawSource -LiveRoot $openclawLive -ManagedNames $openclawManagedNames -ManifestHash $openclawManifestHash
-$syncPlans = @($claudePlan, $codexPlan, $openclawPlan)
+$opencodePlan = Get-SyncPlan -Platform 'opencode' -SourceRoot $opencodeSource -LiveRoot $opencodeLive -ManagedNames $opencodeManagedNames -ManifestHash $opencodeManifestHash
+$syncPlans = @($claudePlan, $codexPlan, $opencodePlan)
 $planHash = Get-PlansHash -Plans $syncPlans
 
 Write-Host ''
@@ -797,7 +750,7 @@ Write-Host '----- PLAN -----'
 Write-Host "Backup before apply: $(if ($Apply) { "YES (mandatory) under $BackupRoot" } else { 'n/a (dry-run)' })"
 Write-PlanReport -Plan $claudePlan
 Write-PlanReport -Plan $codexPlan
-Write-PlanReport -Plan $openclawPlan
+Write-PlanReport -Plan $opencodePlan
 Write-Host "Plan hash       : $planHash"
 
 if (-not $Apply -and $PlanPath) {
@@ -809,35 +762,19 @@ elseif ($Apply -and $PlanPath) {
 
 $totalChanges = $claudePlan.Add.Count + $claudePlan.Update.Count + $claudePlan.Prune.Count +
                 $codexPlan.Add.Count + $codexPlan.Update.Count + $codexPlan.Prune.Count +
-                $openclawPlan.Add.Count + $openclawPlan.Update.Count + $openclawPlan.Prune.Count
+                $opencodePlan.Add.Count + $opencodePlan.Update.Count + $opencodePlan.Prune.Count
 
 Write-Host ''
 Write-Host '----- SUMMARY -----'
 Write-Host "Claude   : +$($claudePlan.Add.Count) ~$($claudePlan.Update.Count) =$($claudePlan.NoOp.Count) -$($claudePlan.Prune.Count)  (unknown ignored: $($claudePlan.Unknown.Count))"
 Write-Host "Codex    : +$($codexPlan.Add.Count) ~$($codexPlan.Update.Count) =$($codexPlan.NoOp.Count) -$($codexPlan.Prune.Count)  (unknown ignored: $($codexPlan.Unknown.Count); .system preserved: $($codexPlan.SystemPreserved))"
-Write-Host "OpenClaw : +$($openclawPlan.Add.Count) ~$($openclawPlan.Update.Count) =$($openclawPlan.NoOp.Count) -$($openclawPlan.Prune.Count)  (unknown ignored: $($openclawPlan.Unknown.Count))"
-
-# --- Plugin sync (dry-run) ---
-$pluginSyncScript = Join-Path $PSScriptRoot 'sync-openclaw-plugins.ps1'
-if (Test-Path -LiteralPath $pluginSyncScript) {
-    $managedPluginsPath = Join-Path $RepoRoot 'openclaw\plugins\managed-plugins.json'
-    if (Test-Path -LiteralPath $managedPluginsPath) {
-        Write-Host ''
-        Write-Host '----- PLUGIN SYNC (dry-run) -----'
-        $pluginCode = Invoke-ChildScript -ScriptName 'sync-openclaw-plugins.ps1' -Arguments @('-RepoRoot', $RepoRoot, '-HomeRoot', $HomeRoot)
-        if ($pluginCode -ne 0) {
-            Write-Host "ERROR: sync-openclaw-plugins.ps1 dry-run failed (exit $pluginCode)."
-            Write-SyncRunReport -Result 'FAIL' -NextAction 'Resolve the OpenClaw plugin dry-run failure, then rerun sync in dry-run mode.' -Plans $syncPlans -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
-            exit $pluginCode
-        }
-    }
-}
+Write-Host "OpenCode  : +$($opencodePlan.Add.Count) ~$($opencodePlan.Update.Count) =$($opencodePlan.NoOp.Count) -$($opencodePlan.Prune.Count)  (unknown ignored: $($opencodePlan.Unknown.Count))"
 
 if (-not $Apply) {
     Write-Host ''
     Write-Host 'DRY-RUN complete. No live files were changed. Re-run with -Apply to execute.'
-    $dryRunWarnings = $claudePlan.Prune.Count + $codexPlan.Prune.Count + $openclawPlan.Prune.Count +
-                      $claudePlan.Unknown.Count + $codexPlan.Unknown.Count + $openclawPlan.Unknown.Count
+    $dryRunWarnings = $claudePlan.Prune.Count + $codexPlan.Prune.Count + $opencodePlan.Prune.Count +
+                      $claudePlan.Unknown.Count + $codexPlan.Unknown.Count + $opencodePlan.Unknown.Count
     $dryRunResult = if ($dryRunWarnings -gt 0) { 'WARN' } else { 'PASS' }
     $dryRunNext = if ($dryRunWarnings -gt 0) {
         'Review every planned removal and unknown live skill; rerun dry-run after resolving unexpected items.'
@@ -863,7 +800,7 @@ $backupCode = $LASTEXITCODE
 $backupOut | ForEach-Object { Write-Host "  [backup] $_" }
 if ($backupCode -ne 0) {
     Write-Host "ERROR: backup failed (exit $backupCode). Aborting before any change."
-    $zeroApplied = [ordered] @{ ClaudeAdded = 0; ClaudeUpdated = 0; ClaudePruned = 0; CodexAdded = 0; CodexUpdated = 0; CodexPruned = 0; OpenClawAdded = 0; OpenClawUpdated = 0; OpenClawPruned = 0 }
+    $zeroApplied = [ordered] @{ ClaudeAdded = 0; ClaudeUpdated = 0; ClaudePruned = 0; CodexAdded = 0; CodexUpdated = 0; CodexPruned = 0; OpenCodeAdded = 0; OpenCodeUpdated = 0; OpenCodePruned = 0 }
     Write-SyncRunReport -Result 'FAIL' -NextAction 'Resolve the backup failure before any sync Apply.' -Plans $syncPlans -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult -AppliedCounts $zeroApplied
     exit 1
 }
@@ -878,39 +815,31 @@ if ($journalPath) {
 }
 
 # 2) Apply per-platform, one skill dir at a time.
-$applied = [ordered] @{ ClaudeAdded = 0; ClaudeUpdated = 0; ClaudePruned = 0; CodexAdded = 0; CodexUpdated = 0; CodexPruned = 0; OpenClawAdded = 0; OpenClawUpdated = 0; OpenClawPruned = 0 }
+$applied = [ordered] @{ ClaudeAdded = 0; ClaudeUpdated = 0; ClaudePruned = 0; CodexAdded = 0; CodexUpdated = 0; CodexPruned = 0; OpenCodeAdded = 0; OpenCodeUpdated = 0; OpenCodePruned = 0 }
 
 try {
-    foreach ($plan in @($claudePlan, $codexPlan, $openclawPlan)) {
+    foreach ($plan in @($claudePlan, $codexPlan, $opencodePlan)) {
         New-Item -ItemType Directory -Force -Path $plan.LiveRoot | Out-Null
         foreach ($name in $plan.Add) {
-            if ($plan.Platform -eq 'openclaw') {
-                Sync-OneSkillDir-WithClawhubPreservation -SourceSkillDir (Join-Path $plan.SourceRoot $name) -LiveRoot $plan.LiveRoot -Name $name
-            }
-            else {
-                Sync-OneSkillDir -SourceSkillDir (Join-Path $plan.SourceRoot $name) -LiveRoot $plan.LiveRoot -Name $name
-            }
+            Sync-OneSkillDir -SourceSkillDir (Join-Path $plan.SourceRoot $name) -LiveRoot $plan.LiveRoot -Name $name
             if ($plan.Platform -eq 'claude') { $applied.ClaudeAdded++ }
-            elseif ($plan.Platform -eq 'openclaw') { $applied.OpenClawAdded++ }
+            elseif ($plan.Platform -eq 'opencode') { $applied.OpenCodeAdded++ }
             else { $applied.CodexAdded++ }
             $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'add' })
             if ($journalPath) { Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations) }
         }
         foreach ($name in $plan.Update) {
-            if ($plan.Platform -eq 'openclaw') {
-                Sync-OneSkillDir-WithClawhubPreservation -SourceSkillDir (Join-Path $plan.SourceRoot $name) -LiveRoot $plan.LiveRoot -Name $name
-                $applied.OpenClawUpdated++
-            } else {
-                Sync-OneSkillDir -SourceSkillDir (Join-Path $plan.SourceRoot $name) -LiveRoot $plan.LiveRoot -Name $name
-                if ($plan.Platform -eq 'claude') { $applied.ClaudeUpdated++ } else { $applied.CodexUpdated++ }
-            }
+            Sync-OneSkillDir -SourceSkillDir (Join-Path $plan.SourceRoot $name) -LiveRoot $plan.LiveRoot -Name $name
+            if ($plan.Platform -eq 'claude') { $applied.ClaudeUpdated++ }
+            elseif ($plan.Platform -eq 'opencode') { $applied.OpenCodeUpdated++ }
+            else { $applied.CodexUpdated++ }
             $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'update' })
             if ($journalPath) { Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations) }
         }
         foreach ($name in $plan.Prune) {
             Remove-OneSkillDir -LiveRoot $plan.LiveRoot -Name $name
             if ($plan.Platform -eq 'claude') { $applied.ClaudePruned++ }
-            elseif ($plan.Platform -eq 'openclaw') { $applied.OpenClawPruned++ }
+            elseif ($plan.Platform -eq 'opencode') { $applied.OpenCodePruned++ }
             else { $applied.CodexPruned++ }
             $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'prune' })
             if ($journalPath) { Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations) }
@@ -950,7 +879,7 @@ if ($journalPath) {
 Write-Host ''
 Write-Host "Claude   applied: +$($applied.ClaudeAdded) ~$($applied.ClaudeUpdated) -$($applied.ClaudePruned)"
 Write-Host "Codex    applied: +$($applied.CodexAdded) ~$($applied.CodexUpdated) -$($applied.CodexPruned)"
-Write-Host "OpenClaw applied: +$($applied.OpenClawAdded) ~$($applied.OpenClawUpdated) -$($applied.OpenClawPruned)"
+Write-Host "OpenCode  applied: +$($applied.OpenCodeAdded) ~$($applied.OpenCodeUpdated) -$($applied.OpenCodePruned)"
 
 # 3) Verification.
 $codexMarker = Join-Path $codexLive '.system\.codex-system-skills.marker'
@@ -970,15 +899,15 @@ function Test-Parity {
     return (-not (Compare-Object $src $live))
 }
 
-# Parity is scoped to each platform's managed set (matching OpenClaw): unknown
+# Parity is scoped to each platform's managed set: unknown
 # live dirs are ignored-never-deleted by contract, so they must not fail the
 # post-apply check either.
 $claudeParity = Test-Parity -SourceRoot $claudeSource -LiveRoot $claudeLive -ExcludeSystem $false -ManagedNames $claudeManagedNames
 $codexParity = Test-Parity -SourceRoot $codexSource -LiveRoot $codexLive -ExcludeSystem $true -ManagedNames $codexManagedNames
-$openclawParity = Test-Parity -SourceRoot $openclawSource -LiveRoot $openclawLive -ExcludeSystem $false -ManagedNames $openclawManagedNames
+$opencodeParity = Test-Parity -SourceRoot $opencodeSource -LiveRoot $opencodeLive -ExcludeSystem $false -ManagedNames $opencodeManagedNames
 Write-Host "Claude   live-vs-repo: $(if ($claudeParity) { 'OK' } else { 'MISMATCH' })"
 Write-Host "Codex    live-vs-repo: $(if ($codexParity) { 'OK (excl .system)' } else { 'MISMATCH' })"
-Write-Host "OpenClaw live-vs-repo: $(if ($openclawParity) { 'OK (managed only)' } else { 'MISMATCH' })"
+Write-Host "OpenCode  live-vs-repo: $(if ($opencodeParity) { 'OK (managed only)' } else { 'MISMATCH' })"
 
 if (-not $systemOk -and (Get-DirNames -Path $codexLive) -contains $CodexSystemDirName) {
     Write-Host 'WARNING: .system dir present but marker missing — investigate.'
@@ -989,7 +918,7 @@ $systemReportStatus = if ((Get-DirNames -Path $codexLive) -contains $CodexSystem
 else {
     'Not present'
 }
-if (-not $claudeParity -or -not $codexParity -or -not $openclawParity) {
+if (-not $claudeParity -or -not $codexParity -or -not $opencodeParity) {
     Write-Host "ERROR: post-apply parity check failed. Backup is at: $backupDir"
     if ($journalPath) {
         Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'parity-failed' -BackupDir $backupDir -Completed @($completedOperations) -Failure 'Post-apply parity check failed.'
@@ -1020,41 +949,12 @@ if ($journalPath) {
     Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'skills-verified' -BackupDir $backupDir -Completed @($completedOperations)
 }
 
-# --- Plugin sync (apply) ---
-$pluginSyncScript = Join-Path $PSScriptRoot 'sync-openclaw-plugins.ps1'
-if (Test-Path -LiteralPath $pluginSyncScript) {
-    $managedPluginsPath = Join-Path $RepoRoot 'openclaw\plugins\managed-plugins.json'
-    if (Test-Path -LiteralPath $managedPluginsPath) {
-        $defaultHomeRoot = [System.IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\', '/')
-        $currentHomeRoot = [System.IO.Path]::GetFullPath($HomeRoot).TrimEnd('\', '/')
-        if ($currentHomeRoot -ne $defaultHomeRoot) {
-            Write-Host ''
-            Write-Host "Plugin sync apply skipped for custom HomeRoot: $HomeRoot"
-            Write-Host 'Plugin lifecycle commands target the real OpenClaw CLI profile; use the default HomeRoot for live plugin apply.'
-        } else {
-            Write-Host ''
-            Write-Host '----- PLUGIN SYNC (apply) -----'
-            $pluginResult = & pwsh -NoProfile -File $pluginSyncScript -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Apply 2>&1
-            $pluginCode = $LASTEXITCODE
-            $pluginResult | ForEach-Object { Write-Host $_ }
-            if ($pluginCode -ne 0) {
-                Write-Host "ERROR: sync-openclaw-plugins.ps1 -Apply failed (exit $pluginCode). Backup: $backupDir"
-                if ($journalPath) {
-                    Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'partial-plugin-failure' -BackupDir $backupDir -Completed @($completedOperations) -Failure "OpenClaw plugin sync failed (exit $pluginCode)."
-                }
-                Write-SyncRunReport -Result 'FAIL' -NextAction 'Inspect the OpenClaw plugin failure; managed skill sync already ran, so review current state before retrying.' -Plans $syncPlans -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult -AppliedCounts $applied -SystemStatus $systemReportStatus
-                exit $pluginCode
-            }
-        }
-    }
-}
-
 Write-Host ''
 Write-Host "APPLY complete. Backup: $backupDir"
 if ($journalPath) {
     Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'complete' -BackupDir $backupDir -Completed @($completedOperations)
 }
-$applyUnknown = $claudePlan.Unknown.Count + $codexPlan.Unknown.Count + $openclawPlan.Unknown.Count
+$applyUnknown = $claudePlan.Unknown.Count + $codexPlan.Unknown.Count + $opencodePlan.Unknown.Count
 $applyReportResult = if ($applyUnknown -gt 0 -or $systemReportStatus -like '*marker missing*') { 'WARN' } else { 'PASS' }
 $applyNextAction = if ($applyReportResult -eq 'WARN') {
     'Review preserved unknown skills and .system status, then run the secret scan and git status.'
