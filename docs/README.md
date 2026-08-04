@@ -240,35 +240,14 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -Apply -PlanPath $plan
 
 ---
 
-## 11. OpenClaw 插件管理
+## 11. OpenClaw 插件管理（已退役）
 
-OpenClaw 插件通过 `openclaw/plugins/managed-plugins.json` 声明期望的插件状态。
-这是一个人工审核过的声明文件，不包含 secrets、本地绝对路径或机器私有数据。
-
-同步插件前，先运行 dry-run：
-```powershell
-pwsh -NoProfile -File scripts/sync-openclaw-plugins.ps1
-```
-
-确认无误后 apply：
-```powershell
-pwsh -NoProfile -File scripts/sync-openclaw-plugins.ps1 -Apply
-```
-
-规则：
-- 插件的安装、更新、启用、禁用、卸载必须通过 OpenClaw CLI（`openclaw plugins install` 等），禁止直接编辑 `~/.openclaw/plugins/installs.json`。
-- `installs.json` 是机器管理的状态文件，包含绝对路径和生成元数据，**绝不提交**。
-- Bundled（内置）插件只能管理 enablement，不能卸载。
-- 插件同步会在 `sync.ps1` 中自动调用（当 `managed-plugins.json` 存在时）。
-- 只读的 `openclaw plugins list --json` 探测默认有 15 秒超时，可用
-  `-CliProbeTimeoutSeconds` 调整；超时后先读取经过字段筛选的 `installs.json`，再尝试
-  `~/.openclaw/openclaw.json` 的 `plugins.entries` enablement。
-- 新版 OpenClaw 的 `plugins list` 可能把已安装插件来源显示为绝对路径；对受管插件，
-  脚本会再通过只读的 `plugins info` 取得 `install.resolvedName`，再做 source 比对，
-  避免把正常的 npm 安装误判成 update。
-- `openclaw.json` 回退只能证明插件配置中的启用状态，不能证明安装来源/版本与期望一致；
-  如果 CLI 和两个安全回退面都不可用，脚本会 fail closed，不把 live 状态当成空目录并规划安装。
-- 未纳入托管清单的 live 插件只报告、不安装、不启用、不禁用、不卸载。
+OpenClaw 平台支持已退役并迁移到 OpenCode：`skills-source/openclaw-only/` 重命名为
+`skills-source/opencode-only/`，生成输出 `openclaw/skills/` 改为 `opencode/skills/`，
+live 目标改为 `~/.config/opencode/skills`。OpenClaw 插件管理工具
+（`scripts/sync-openclaw-plugins.ps1`、`scripts/inventory-openclaw.ps1`）及声明文件
+（`openclaw/plugins/managed-plugins.json`）已随退役一并移除，不再维护。OpenCode 平台
+不提供插件声明同步面。
 
 ---
 
@@ -305,7 +284,7 @@ A：优先**改写源文档/示例措辞**让它不再像真实密钥——例�
 （per-platform 的 Push/Pull items 与 ExcludedItems）。
 
 - `.claude/settings.json`（项目级、已提交）：把硬规则变成 harness 强制 `permissions.deny`
-  （禁止 `Edit`/`Write` 生成物 `claude|codex|openclaw/skills/**` 与 Codex `.system`、禁止 robocopy
+  （禁止 `Edit`/`Write` 生成物 `claude|codex|opencode/skills/**` 与 Codex `.system`、禁止 robocopy
   整目录 mirror），并 `allow` 安全的校验命令（build-skills / scan-secrets / check-hooks）。
   `sync.ps1` **故意不在** allow 名单，保证 `-Apply` 始终走授权 gate。
 - `scripts/config-status.ps1`：只读 drift 报告（repo ↔ `~/.claude`/`~/.codex`），逐项报告
@@ -321,7 +300,7 @@ A：优先**改写源文档/示例措辞**让它不再像真实密钥——例�
 - pull/push 默认 dry-run，`-Apply` 才动，与 `sync.ps1` 同款保守姿态。
 - **config-push 捕获的内容必须人工 `git diff` 审查后再提交**——扫密只挡 token，挡不了机器私有路径。
 - Codex `config.toml` **不纳入** config-sync（混杂 `[projects]`/`[mcp_servers]` 等机器私有状态）；
-  Codex 侧只同步 `AGENTS.md`/`prompts`。OpenClaw 插件状态仍由 `sync-openclaw-plugins.ps1` 管理。
+  Codex 侧只同步 `AGENTS.md`/`prompts`。
 - 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1`（覆盖三脚本 + 两个 gate、no-prune、幂等）。
 
 ---
@@ -350,7 +329,8 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 - `scripts/apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写项目本地 allowlist。
 
 当前受控输出类型包括 Claude `.claude/commands/` 与 `.claude/agents/`、Codex
-`.codex/prompts/` 与 `.codex/agents/`，以及只允许项目级键的 `.openclaw/project.json`。
+`.codex/prompts/` 与 `.codex/agents/`，以及 OpenCode `.opencode/commands/` 与
+`.opencode/agents/`。
 每种类型由 component `Kind` 和独立 output contract 校验；build 会把文件型输出复制到
 `.agent-harness/generated/files/`，apply 仍只写对应项目路径。
 
@@ -358,17 +338,17 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 
 - `harness-source/` 是 profile/component 的源码；不要手改 `.agent-harness/generated/`。
 - `.agent-harness/generated/` 是 disposable generated output，默认 Git-ignored，可删除后重建。
-- 第一版 `apply-harness-profile.ps1` 不写 `~/.claude`、`~/.codex`、`~/.openclaw`，也不安装或同步 live skills。
+- 第一版 `apply-harness-profile.ps1` 不写 `~/.claude`、`~/.codex`、`~/.config/opencode`，也不安装或同步 live skills。
 - 第一版不安装 project-local skills，不承诺自动切换全局 harness。
 - 变更 profile/component 后，先运行 status/build dry-run 和 `tests/harness-profile.tests.ps1`。
-- 多平台输出变更后还应运行 `tests/harness-multiplatform.tests.ps1`；OpenClaw project config
-  不是 OpenClaw machine config，也不包含 credentials、identity、sessions、cache 或 plugins。
+- 多平台输出变更后还应运行 `tests/harness-multiplatform.tests.ps1`；OpenCode 组件只含
+  命令/agent 内容，不携带 machine config（credentials、identity、sessions、cache）。
 
 非目标：
 
 - 不替代 `scripts/sync.ps1` 的 live skills 同步。
 - 不替代 §14 的 home-level harness config-sync。
-- 不管理 Codex `.system`、OpenClaw identity/credentials、MCP secrets、session/cache/state。
+- 不管理 Codex `.system`、`~/.config/opencode` 的 machine 状态（含 `opencode.json(c)`）、MCP secrets、session/cache/state。
 - 不把项目本地 profile apply 扩展为全局机器配置切换。
 
 ---
@@ -458,12 +438,11 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   （引用 `harness-source/profiles/`，继承其 Extends 链）、`Skills.Claude`/`Skills.Codex`
   （必须是对应 `manifests/managed-skills.<platform>.txt` 的子集）、`McpTemplates`。
 - `envs/<name>/`：`env build` 的 staging 输出，Git-ignored，可删除重建。内容：
-  skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`（环境子集，供人读）、
-  `manifests/managed-skills.<platform>.txt`（**全量**仓库 manifest 副本，驱动
-  sync 的切换裁剪语义）、空 `openclaw/skills/`（满足 sync 源检查，OpenClaw 零动作）、
-   `profile/`（渲染的 profile 组件输出）、`env.lock.json`
-   （可验证的定义、源/生成树、manifest、profile 和 staging 文件哈希；`env status`
-   用它判定 lock validity 和 built/stale，而不是只看文件是否存在）。
+  skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`/`manifest.opencode.txt`
+  （环境子集，供人读）、`manifests/managed-skills.<platform>.txt`（**全量**仓库 manifest
+  副本，驱动 sync 的切换裁剪语义）、`profile/`（渲染的 profile 组件输出）、`env.lock.json`
+  （可验证的定义、源/生成树、manifest、profile 和 staging 文件哈希；`env status`
+  用它判定 lock validity 和 built/stale，而不是只看文件是否存在）。
    `envs/<name>/reports/` 是 activation 期间 `sync.ps1` 写入的运行证据，不属于构建
    产物，lock attestation 会忽略它。
 - `state/current-env.json`：当前激活环境记录（名字、定义哈希、激活时间），机器私有、
@@ -478,10 +457,11 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   Codex `.system`、Codex `config.toml`）永不随切换变动；拒绝 `HomeRoot` 位于仓库内。
 - `env status` 对当前环境报告 `lock validity`、`definition drift`、`live parity`、
   Codex `.system` 状态和 `backup reference`；这些是状态证据，不是备份内容。
-- `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex manifest 管理的
-  skills 和环境状态。它永不触碰 unknown live 目录、Codex `.system`、credentials、
-  sessions、cache、Codex `config.toml` 或 OpenClaw machine state。dry-run 先生成外部
-  计划；`-Apply` 必须带同一 `-PlanPath`，并通过选定 activation backup 的元数据校验。
+- `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex/OpenCode manifest
+  管理的 skills 和环境状态。它永不触碰 unknown live 目录、Codex `.system`、
+  credentials、sessions、cache、Codex `config.toml` 或 OpenCode machine state。
+  dry-run 先生成外部计划；`-Apply` 必须带同一 `-PlanPath`，并通过选定 activation
+  backup 的元数据校验。
 - 每台机器首次真实 `-Apply` 前必须人工审查 dry-run 计划（prune 列表尤其要过目）；已完成首次 activation 的机器在后续变更时仍应重复审查。
 - task overlay 的自动路径只允许 additions；任何 removal/prune 都必须由人执行 `env task close -DryRun` 或
   `env task sync -DryRun` 后再显式 `-Apply`。
@@ -502,7 +482,7 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 - 不自动切换环境（进入项目不触发任何写操作，联动仅为提醒）。
 - 不把一个任务的 overlay 永久合并回 `harness-source/envs/work.psd1`；任务结束后应显式 close，
   是否提交 overlay 由任务协作者按 branch/worktree 需求决定。
-- 不做 lockfile 跨机复现、OpenClaw 插件集或 MCP secrets 管理；`env.lock.json` 当前用于
+- 不做 lockfile 跨机复现、OpenCode 插件集或 MCP secrets 管理；`env.lock.json` 当前用于
   本机 staging/activation 的可验证证据，不是跨机传输 credential 或 machine state 的载体。
 
 ---
@@ -540,7 +520,7 @@ mcp -TemplateId <id> -DryRun|-Apply [-Remove]
 内部生成并绑定 sync 计划，rollback 则要求外部 dry-run 生成的同一 `-PlanPath`，并在
 执行前重新验证环境状态、备份元数据和计划哈希。`config pull` 是独立的 home-level
 配置同步入口；the underlying `config-pull` is not part of `env activate`，环境切换当前
-只处理受 manifest 管理的 Claude/Codex skills 和环境状态；staged MCP 模板仍需显式执行
+只处理受 manifest 管理的 Claude/Codex/OpenCode skills 和环境状态；staged MCP 模板仍需显式执行
 `mcp -TemplateId <id> -DryRun` / `-Apply`，不会因环境切换隐式注册服务器。
 
 ## 18. MCP 模板安全边界
@@ -560,5 +540,5 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp -TemplateId github -Remove 
 ```
 
 Apply 会把 CLI 状态快照和操作证据写到 home 下的仓库外备份根；失败时保留部分成功阶段和
-恢复证据，不把原始 CLI 状态写入仓库或报告。MCP 不管理 OpenClaw credentials、identity、
-sessions、cache、plugins，也不随 `env activate` 自动写入 home。
+恢复证据，不把原始 CLI 状态写入仓库或报告。MCP 不管理 `~/.config/opencode` 的
+credentials、identity、sessions、cache、插件，也不随 `env activate` 自动写入 home。

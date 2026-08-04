@@ -64,18 +64,18 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
 ## Current canonical decisions
 
 - `skills-source/` is the only hand-maintained skill source of truth.
-- New skills belong in exactly one of `shared/`, `claude-only/`, `codex-only/`, or `openclaw-only/` under `skills-source/`.
-- `claude/skills/`, `codex/skills/`, and `openclaw/skills/` are generated, Git-ignored output and must not be edited or committed.
+- OpenClaw platform support was retired and replaced by OpenCode: skills source `skills-source/opencode-only/`, generated output `opencode/skills/`, live target `~/.config/opencode/skills`.
+- New skills belong in exactly one of `shared/`, `claude-only/`, `codex-only/`, or `opencode-only/` under `skills-source/`.
+- `claude/skills/`, `codex/skills/`, and `opencode/skills/` are generated, Git-ignored output and must not be edited or committed.
 - Live skill changes use `scripts/sync.ps1`; dry-run review precedes `-Apply`, and apply requires build, secret scan, and backup.
 - Codex `.system` is platform-managed and must never be modified, moved, overwritten, or pruned.
 - Sync and prune are manifest-scoped; unknown live directories are reported but not deleted.
-- `openclaw/plugins/managed-plugins.json` is tracked desired state. Machine-managed OpenClaw installation and identity state remain outside the repository.
 - Harness config pull/push is whitelist-scoped and dry-run by default. Codex `config.toml` remains excluded as machine-private state.
 - Project Harness Profiles use `harness-source/` as the component/profile library and generate disposable project-local `.agent-harness/generated/` output.
-- First-version Project Harness Profiles do not write `~/.claude`, `~/.codex`, or `~/.openclaw`, do not install project-local skills, and do not provide automatic global home harness switching.
+- First-version Project Harness Profiles do not write `~/.claude`, `~/.codex`, or `~/.config/opencode`, do not install project-local skills, and do not provide automatic global home harness switching.
 - Harness environment definitions live in `harness-source/envs/*.psd1` (tracked source of truth); `envs/` is disposable generated staging and `state/current-env.json` is machine-private activation state — neither is ever committed or hand-edited.
 - `env activate` is the only sanctioned global environment switch: dry-run by default, `-Apply` gated with an explicit-mode requirement at the entry point, deployment exclusively through `sync.ps1` (whose pre-change backup cannot be skipped), and the state file written only after a successful apply. Home-only files, Codex `.system`, and unknown live skill dirs never change on activation.
-- `env rollback` requires an explicit backup/run id and reviewed plan hash; its scope is current-manifest Claude/Codex skills plus the prior environment state. It never restores unknown dirs, `.system`, credentials, sessions, caches, Codex `config.toml`, or OpenClaw machine state.
+- `env rollback` requires an explicit backup/run id and reviewed plan hash; its scope is current-manifest Claude/Codex/OpenCode skills plus the prior environment state. It never restores unknown dirs, `.system`, credentials, sessions, caches, Codex `config.toml`, or OpenCode machine state.
 - Phase 2 covers skills + state only. Home-level config deployment via `config-pull.ps1` is deferred until env-differentiated home config components exist, and its integration requires a separate review.
 - `RequiredEnv` in a project profile is advisory only: `env status -ProjectRoot` detects and reminds, and nothing ever auto-activates an environment.
 - Task-specific managed skills belong in `.agent-harness/task-skills.psd1`, not in `work.psd1`.
@@ -98,8 +98,8 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
 ## Build / scan status
 
 - `.github/workflows/validate.yml` validates pushes, pull requests, and manual runs on `windows-latest`: it runs doctor, secret scan, build reproducibility checks, Project Harness Profile regression tests, and a tracked dangerous-file policy check without sync or live-skill changes.
-- Current manifests describe Claude **15**, Codex **23**, and OpenClaw **25** managed skills.
-- Repository-local generated output was regenerated on 2026-08-01 with `scripts/build-skills.ps1`: Claude **15**, Codex **23**, and OpenClaw **25**.
+- Current manifests describe Claude **15**, Codex **23**, and OpenCode **12** managed skills.
+- Repository-local generated output was regenerated on 2026-08-05 with `scripts/build-skills.ps1`: Claude **15**, Codex **23**, and OpenCode **12**.
 - Secret scan passed on 2026-08-01 with gitleaks and the fallback scanner reporting no blocking findings; 2088 keyword hints were non-blocking.
 - Project Harness Profile MVP scripts and tests are present: `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, and `tests/harness-profile.tests.ps1`; the regression test is part of the Windows validation workflow.
 - Harness Environments scripts and tests are present: `scripts/harness-env-common.ps1`, `scripts/list-harness-env.ps1`, `scripts/status-harness-env.ps1`, `scripts/build-harness-env.ps1`, `scripts/activate-harness-env.ps1`, `scripts/rollback-harness-env.ps1`, and `tests/harness-env.tests.ps1` (118/118 passed locally on 2026-08-01, including MCP template staging/lock hashes, lock/source drift, runtime-report tolerance, fake-home activate/switch/prune, A→B→rollback A, unknown/.system preservation, and RequiredEnv linkage; `tests/harness-profile.tests.ps1` remains 33/33).
@@ -109,7 +109,7 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
   and lock drift. The full serial local regression run remains green: sync, import, OpenClaw
   plugins, doctor, config-sync, harness-profile, harness-multiplatform, MCP, harness-env, task
   overlay, and unified CLI suites all exited 0.
-- Multi-platform Harness coverage is in `tests/harness-multiplatform.tests.ps1` (20/20): generated output, Claude/Codex/OpenClaw target allowlists, dry-run, idempotence, project backup, transactional rollback, unsafe paths, and OpenClaw sensitive-field rejection.
+- Multi-platform Harness coverage is in `tests/harness-multiplatform.tests.ps1` (19/19): generated output, Claude/Codex/OpenCode target allowlists, dry-run, idempotence, project backup, transactional rollback, unsafe paths, and OpenCode sensitive-field rejection.
 - MCP template coverage is in `tests/mcp.tests.ps1` (23/23): redacted dry-run/apply, environment checks, plan/template drift, timestamp round-trip stability, update/remove, fake CLI failure evidence, and unsafe template paths including repo-local home/backup roots. `scripts/agent-dotfiles.ps1 mcp` has an explicit mode gate, and the MCP/env schemas are wired into CI.
 - A third latent `sync.ps1` defect surfaced during the first real-home activation and is fixed with a regression sentinel: `Test-Parity` skipped its managed-set filter when the set was empty, so unknown (ignored-never-deleted) OpenClaw dirs failed post-apply parity; the filter now applies whenever a managed set is provided. The first apply attempt stopped at that false positive after deploying correctly; the re-run passed cleanly.
 - Two latent `sync.ps1` defects were fixed while wiring activation and are covered by the fake-home tests: an empty managed-skills manifest broke StrictMode (`Read-ManagedNames` now returns the HashSet intact; `Get-SyncPlan` allows an empty managed set), and the post-apply parity check now scopes Claude/Codex to their managed sets like OpenClaw, so ignored-never-deleted unknown live dirs no longer fail parity.

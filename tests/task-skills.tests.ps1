@@ -98,8 +98,9 @@ Copy-Item -LiteralPath (Join-Path $RepoRoot '.gitleaks.toml') -Destination (Join
 
 Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.claude.txt') -Content "fixture-a`nfixture-b`nfixture-c`n"
 Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.codex.txt') -Content "fixture-a`nfixture-b`nfixture-c`n"
-Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.openclaw.txt') -Content ''
+Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.opencode.txt') -Content ''
 Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.txt') -Content "fixture-a`nfixture-b`nfixture-c`n"
+New-Item -ItemType Directory -Path (Join-Path $fakeRepo 'opencode/skills') -Force | Out-Null
 foreach ($skill in @('fixture-a', 'fixture-b', 'fixture-c')) {
     Set-File -Path (Join-Path $fakeRepo "skills-source/shared/$skill/SKILL.md") -Content "# $skill source"
     Set-File -Path (Join-Path $fakeRepo "claude/skills/$skill/SKILL.md") -Content "# $skill claude"
@@ -123,7 +124,7 @@ Set-File -Path (Join-Path $fakeRepo '.agent-harness/task-skills.psd1') -Content 
 foreach ($homeDir in @($homeOne, $homeTwo)) {
     New-Item -ItemType Directory -Path (Join-Path $homeDir '.claude/skills') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $homeDir '.codex/skills/.system') -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $homeDir '.openclaw/skills') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $homeDir '.config/opencode/skills') -Force | Out-Null
     Set-File -Path (Join-Path $homeDir '.claude/skills/fixture-a/SKILL.md') -Content '# fixture-a claude'
     Set-File -Path (Join-Path $homeDir '.codex/skills/fixture-a/SKILL.md') -Content '# fixture-a codex'
     Set-File -Path (Join-Path $homeDir '.codex/skills/.system/.codex-system-skills.marker') -Content ''

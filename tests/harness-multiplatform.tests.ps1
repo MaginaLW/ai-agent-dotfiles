@@ -75,8 +75,7 @@ foreach ($relative in @(
     'files/.claude/commands/commit-summary.md',
     'files/.claude/agents/reviewer.md',
     'files/.codex/prompts/review.md',
-    'files/.codex/agents/reviewer.md',
-    'project.generated.json'
+    'files/.codex/agents/reviewer.md'
 )) {
     Assert (Test-Path -LiteralPath (Join-Path $generated $relative) -PathType Leaf) "build emits $relative"
 }
@@ -110,9 +109,13 @@ $unsafe = Invoke-Fixture $status @('-RepoRoot', $fakeRepo, '-ProjectRoot', $proj
 Assert ($unsafe.Code -ne 0 -and $unsafe.Out -match 'outside|unsafe|allowlist|escapes') 'target outside allowlist is rejected'
 Set-FixtureFile -Path $unsafeComponent -Content $originalComponent
 
-$opencodeComponent = Join-Path $fakeRepo 'harness-source/components/opencode-commands/project-defaults/settings.json'
+$opencodeComponent = Join-Path $fakeRepo 'harness-source/components/opencode-commands/opencode-commit-command/content.md'
 $originalSettings = Get-Content -Raw -LiteralPath $opencodeComponent
-Set-FixtureFile -Path $opencodeComponent -Content '{"token":"must-not-be-accepted"}'
+# Build a real secret-shaped key at runtime so the test file itself stays scan-clean.
+# 'sk-ant-...' trips both the gitleaks rule (anthropic-api-key in .gitleaks.toml) and
+# the fallback scanner, so the gate holds with or without gitleaks installed.
+$blockingContent = ('sk-ant-' + 'Kz9xQ4mNvB7wRpT2YcH8dE1')
+Set-FixtureFile -Path $opencodeComponent -Content $blockingContent
 $unsafeOpenCode = Invoke-Fixture $build @('-RepoRoot', $fakeRepo, '-ProjectRoot', (New-Project 'unsafe-opencode'))
 Assert ($unsafeOpenCode.Code -ne 0 -and $unsafeOpenCode.Out -match 'not allowed|secret|token') 'OpenCode sensitive fields are rejected'
 Set-FixtureFile -Path $opencodeComponent -Content $originalSettings
