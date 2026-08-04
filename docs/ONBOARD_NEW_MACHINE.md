@@ -19,7 +19,7 @@ This is a controlled migration, not a blind bootstrap. During initial onboarding
 Use these repository roles consistently:
 
 - `skills-source/`: the only canonical, hand-maintained skill source.
-- `claude/skills/`, `codex/skills/`, `openclaw/skills/`: generated output; never edit them directly.
+- `claude/skills/`, `codex/skills/`, `opencode/skills/`: generated output; never edit them directly.
 - `imports/skills-inbox/<computername>/`: untrusted, machine-specific import staging.
 - Live directories under the user profile: runtime state; never reverse-copy them over `skills-source/`.
 
@@ -272,7 +272,7 @@ Confirm the command reports expected counts for at least:
 - `Built Claude skills: <count>` and generated directories under `claude/skills/`.
 - `Built Codex skills: <count>` and generated directories under `codex/skills/`.
 
-The current build also produces OpenClaw output when its source exists. Generated output is disposable and Git-ignored; do not edit it to resolve an import conflict.
+The current build also produces OpenCode output when its source exists. Generated output is disposable and Git-ignored; do not edit it to resolve an import conflict.
 
 ## 8. Scan imported and generated material
 
@@ -363,7 +363,7 @@ Review every platform summary:
 - `unknown`: not in generated output or the managed manifest. It will be reported and preserved, but must be identified before apply.
 - Codex `.system`: output must explicitly show it as preserved/untouched when present. If `.system` is planned for deletion or is not protected, stop immediately.
 
-Also review any OpenClaw skill/plugin dry-run section if the managed plugin declaration is active on the machine. Do not edit machine-managed plugin installation state directly.
+Also review any OpenCode skill dry-run section for the machine. OpenCode has no managed plugin declaration surface; its plugin/state is machine-managed outside the repository.
 
 Record the add/update/prune/unknown counts and the `.system` result in the machine's onboarding task record. Apply is blocked until all changes are explainable.
 
@@ -428,7 +428,7 @@ If an activation must be reverted, use the plan-bound rollback workflow in
 [`RESTORE.md`](RESTORE.md). Rollback restores only the current Claude/Codex
 manifest-managed skills and environment state. It never touches unknown live
 directories, Codex `.system`, credentials, sessions, caches, Codex
-`config.toml`, or OpenClaw machine state.
+`config.toml`, or OpenCode machine state.
 
 ## 13. Review and commit the onboarding result
 
@@ -469,7 +469,7 @@ If onboarding produces no tracked canonical, manifest, status, or documentation 
 - Do not edit, move, overwrite, prune, or delete `~/.codex/skills/.system`.
 - Do not use `robocopy /MIR` or any whole-directory mirror against live skill roots.
 - Do not reverse-copy live skills over `skills-source/`.
-- Do not edit `claude/skills/`, `codex/skills/`, or `openclaw/skills/` to resolve source problems.
+- Do not edit `claude/skills/`, `codex/skills/`, or `opencode/skills/` to resolve source problems.
 - Do not run `sync.ps1 -Apply` before a reviewed dry-run.
 - Do not run `env activate -Apply` or `env rollback -Apply` without the required
   explicit mode and plan-binding checks.
@@ -491,5 +491,5 @@ If onboarding produces no tracked canonical, manifest, status, or documentation 
 - [ ] Sync apply completed only after approval, followed by scan and Git status.
 - [ ] If a named environment is used, `env.lock.json` validates and `env status` evidence was reviewed for lock validity, definition drift, live parity, `.system`, and backup reference.
 - [ ] `config pull` remains a separately reviewed operation and is not treated as part of `env activate`.
-- [ ] Any rollback uses only current manifest-managed Claude/Codex skills and environment state; unknown, `.system`, credentials, sessions, caches, `config.toml`, and OpenClaw machine state remain untouched.
+- [ ] Any rollback uses only current manifest-managed Claude/Codex skills and environment state; unknown, `.system`, credentials, sessions, caches, `config.toml`, and OpenCode machine state remain untouched.
 - [ ] Reviewed tracked changes committed separately for this machine, or no empty commit created when nothing changed.

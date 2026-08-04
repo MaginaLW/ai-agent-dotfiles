@@ -94,7 +94,7 @@ jobs:
             throw 'Build left unexpected untracked files.'
           }
 
-          $trackedGenerated = @(git ls-files -- claude/skills codex/skills openclaw/skills generated)
+          $trackedGenerated = @(git ls-files -- claude/skills codex/skills opencode/skills generated)
           if ($LASTEXITCODE -ne 0) {
             throw 'Unable to inspect generated output tracking state.'
           }
@@ -159,7 +159,7 @@ jobs:
           $envLockPath = Join-Path $env:GITHUB_WORKSPACE 'envs\work\env.lock.json'
           if (-not (Test-Path -LiteralPath $envLockPath -PathType Leaf)) { throw 'Harness environment lock was not generated.' }
           $envLock = Get-Content -Raw -LiteralPath $envLockPath | ConvertFrom-Json
-          foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'ManifestHashes', 'SkillSourceEvidence', 'McpTemplateHashes', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'ManagedPluginDeclaration', 'BuiltFiles')) {
+          foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'ManifestHashes', 'SkillSourceEvidence', 'McpTemplateHashes', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'BuiltFiles')) {
             if (-not ($envLock.PSObject.Properties.Name -contains $required)) {
               throw "Harness environment lock is missing required field: $required"
             }

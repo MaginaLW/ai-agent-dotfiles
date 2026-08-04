@@ -194,6 +194,11 @@ $plan.Add([pscustomobject] @{
         RelativePath = 'manifest.codex.txt'
         Content      = ($skillsByPlatform['Codex'] -join "`n")
     })
+$plan.Add([pscustomobject] @{
+        Kind         = 'Text'
+        RelativePath = 'manifest.opencode.txt'
+        Content      = ($skillsByPlatform['OpenCode'] -join "`n")
+    })
 
 # Full repo manifest copies: sync.ps1 reads <RepoRoot>/manifests/* and prunes
 # managed-but-absent skills, which implements env switching (see help above).
