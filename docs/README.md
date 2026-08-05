@@ -8,10 +8,10 @@
 
 ## 1. 项目目的
 
-统一管理多台电脑上的 Claude / Codex skills：
+统一管理多台电脑上的 Claude / Codex / OpenCode skills：
 
 - 用 Git 维护**唯一可信源** `skills-source/`。
-- 用 `scripts/build-skills.ps1` 从源生成 Claude / Codex 的 runtime output。
+- 用 `scripts/build-skills.ps1` 从源生成 Claude / Codex / OpenCode 的 runtime output。
 - 用 `scripts/sync.ps1` 安全地把生成结果部署到本机 live skills 目录。
 - 用 `scripts/backup.ps1` 在每次 Apply 前保留可恢复副本。
 - 用 repo-local Git hooks 在相关 `git pull` / rebase / branch checkout 后自动运行受控同步。
@@ -23,7 +23,7 @@
 ## 2. 当前管理范围
 
 ### 会同步
-- `skills-source/shared/*`（跨平台，Claude + Codex 都装）
+- `skills-source/shared/*`（跨平台，Claude + Codex + OpenCode 都装）
 - `skills-source/claude-only/*`
 - `skills-source/codex-only/*`
 - `skills-source/opencode-only/*`
@@ -240,14 +240,15 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -Apply -PlanPath $plan
 
 ---
 
-## 11. OpenClaw 插件管理（已退役）
+## 11. OpenCode 平台
 
-OpenClaw 平台支持已退役并迁移到 OpenCode：`skills-source/openclaw-only/` 重命名为
-`skills-source/opencode-only/`，生成输出 `openclaw/skills/` 改为 `opencode/skills/`，
-live 目标改为 `~/.config/opencode/skills`。OpenClaw 插件管理工具
-（`scripts/sync-openclaw-plugins.ps1`、`scripts/inventory-openclaw.ps1`）及声明文件
-（`openclaw/plugins/managed-plugins.json`）已随退役一并移除，不再维护。OpenCode 平台
-不提供插件声明同步面。
+OpenCode 平台继承自退役的 OpenClaw：生成输出 `openclaw/skills/` 改为 `opencode/skills/`，
+live 目标改为 `~/.config/opencode/skills`。`skills-source/openclaw-only/` 源目录及 OpenClaw 插件管理工具和声明文件
+已随退役一并移除，不再维护。OpenCode 平台不提供插件声明同步面。
+
+OpenCode 技能来源于 `skills-source/shared/`（跨平台）和 `skills-source/opencode-only/`（平台独占）。
+便携配置（`AGENTS.md`、`commands/`、`agents/`）通过 `opencode/` 下的 whitelist 管理。
+机器私有配置（`opencode.json(c)`）不纳入仓库。
 
 ---
 

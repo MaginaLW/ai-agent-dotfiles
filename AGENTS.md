@@ -8,7 +8,7 @@ Apply the full skill-management workflow below only when the task involves any o
 
 - installing, uninstalling, importing, exporting, promoting, merging, pruning, syncing, deploying, or repairing Claude/Codex/OpenCode skills
 - `skills-source/`, `claude/skills/`, `codex/skills/`, `opencode/skills/`
-- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`, `~/.config/opencode/skills`
+- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills` (Codex fallback), `~/.config/opencode/skills`
 - `imports/skills-inbox`, `imports/skills-archive`, `imports/skills-quarantine`
 - `manifests/managed-skills.txt`, `manifests/managed-skills.opencode.txt`
 - `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`, `scripts/rollback-harness-env.ps1`
@@ -39,7 +39,7 @@ When the scope trigger applies:
 5. Never directly copy/delete live skills:
    - `~/.claude/skills`
    - `~/.codex/skills`
-   - `~/.agents/skills`
+   - `~/.agents/skills` (Codex fallback, used when `~/.codex/skills` doesn't exist)
    - `~/.config/opencode/skills`
 6. Run validation before live changes:
    ```powershell
