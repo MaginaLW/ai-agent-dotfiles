@@ -1,16 +1,16 @@
 # Project Status
 
-Last updated: 2026-08-01
+Last updated: 2026-08-05
 
 This is the single global status file for the repository. Update it in place instead of creating additional overall status reports. Current task-level work belongs in [`status/active/`](status/active/); completed task reports belong in [`status/archived/`](status/archived/).
 
 ## Project purpose
 
-Maintain one conservative, auditable source for Claude, Codex, and OpenClaw skills and selected harness configuration across multiple machines. The repository builds platform-specific runtime output, scans for secrets, backs up live state before changes, and performs manifest-scoped synchronization without whole-directory mirroring.
+Maintain one conservative, auditable source for Claude, Codex, and OpenCode skills and selected harness configuration across multiple machines. The repository builds platform-specific runtime output, scans for secrets, backs up live state before changes, and performs manifest-scoped synchronization without whole-directory mirroring.
 
 ## Current phase
 
-Operations hardening plus the first Project Harness Profiles MVP. Skill build, backup, secret scanning, manifest-scoped sync, OpenClaw plugin desired-state management, repo-local auto-sync hooks, whitelist-scoped harness config status/pull/push, minimal Windows GitHub Actions validation, and project-local harness profile generation/apply scripts are implemented. Project Harness Profiles are first-version and project-local only: they generate `.agent-harness/generated/` under a target project and `apply-harness-profile.ps1 -Apply` writes only project-local allowlist output. This repository now also has a project-local `.agent-harness/profile.psd1` for real-project dry-run validation.
+Operations hardening plus the first Project Harness Profiles MVP. Skill build, backup, secret scanning, manifest-scoped sync, OpenCode platform support, repo-local auto-sync hooks, whitelist-scoped harness config status/pull/push, minimal Windows GitHub Actions validation, and project-local harness profile generation/apply scripts are implemented. Project Harness Profiles are first-version and project-local only: they generate `.agent-harness/generated/` under a target project and `apply-harness-profile.ps1 -Apply` writes only project-local allowlist output. This repository now also has a project-local `.agent-harness/profile.psd1` for real-project dry-run validation.
 
 Reliability-first roadmap Phase 0 (baseline and status calibration) was completed on 2026-07-13: status evidence now distinguishes dry-run, fake-home, and real apply; doctor checks the actual per-platform generated layout; and the Windows validation workflow fails closed when a core validation entry point is missing.
 
@@ -64,7 +64,7 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
 ## Current canonical decisions
 
 - `skills-source/` is the only hand-maintained skill source of truth.
-- OpenClaw platform support was retired and replaced by OpenCode: skills source `skills-source/opencode-only/`, generated output `opencode/skills/`, live target `~/.config/opencode/skills`.
+- OpenClaw platform support was retired and replaced by OpenCode: generated output `opencode/skills/`, live target `~/.config/opencode/skills`. The `skills-source/openclaw-only/` source directory was removed in 2026-08-05 cleanup.
 - New skills belong in exactly one of `shared/`, `claude-only/`, `codex-only/`, or `opencode-only/` under `skills-source/`.
 - `claude/skills/`, `codex/skills/`, and `opencode/skills/` are generated, Git-ignored output and must not be edited or committed.
 - Live skill changes use `scripts/sync.ps1`; dry-run review precedes `-Apply`, and apply requires build, secret scan, and backup.
@@ -92,7 +92,7 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
 | Machine | Documented state |
 |---|---|
 | `DESKTOP-3GMDAB7` | Revalidated with dry-runs only on 2026-06-30: skill sync reported Claude `+0 ~15 -0`, Codex `+2 ~21 -0` with `.system` preserved, OpenClaw `+25 ~0 -0`, and OpenClaw plugin sync would install 2 managed plugins. No `-Apply` was run. |
-| `MAGINA-LAPTOP` | Current state after the 2026-08-01 authorized applies: active `work`; Claude has 2 and Codex 5 selected managed skills, including `brainstorming` and `writing-plans`; `.system` is preserved, OpenClaw unknown skills are preserved, live parity and lock are valid, project `RequiredEnv=work` matches, and managed `codex`/`openclaw-weixin` plugins are enabled/loaded. Backup: `sync-backup-20260801-164702`. |
+| `MAGINA-LAPTOP` | Current state after the 2026-08-01 authorized applies: active `work`; Claude has 2 and Codex 5 selected managed skills, including `brainstorming` and `writing-plans`; `.system` is preserved, OpenClaw unknown skills are preserved, live parity and lock are valid, project `RequiredEnv=work` matches, and managed `codex`/`openclaw-weixin` plugins are enabled/loaded. Backup: `sync-backup-20260801-164702`. On 2026-08-05, arkcli skills were removed from Claude and OpenCode live directories, and a full sync apply deployed all 15/23/12 managed skills to Claude/Codex/OpenCode respectively. Backup: `sync-backup-20260805-225459`. |
 | Other machines | Run `bootstrap.ps1` once after cloning to install repo-local hooks and enter the guarded sync flow. |
 
 ## Build / scan status
@@ -126,6 +126,7 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
 - The 2026-07-13 reliability validation generated a fresh external sync plan: Claude `+0 ~0 =15 -0`, Codex `+0 ~1 =22 -0`, OpenClaw `+0 ~0 =25 -0`; Codex `.system` was reported preserved. The Codex `hatch-pet` content update remains unapplied pending explicit plan review and authorization.
 - The 2026-08-01 live plan was reviewed and applied: `work` selected Claude 2/Codex 3 skills and pruned only the remaining manifest-managed skills; `.system` and unknown OpenClaw skills were preserved. The plugin plan had `update 0`, `enable codex 1`, and 70 unknown plugins ignored; after adding `codex` to the existing restrictive allowlist through the official config CLI, plugin apply and post-restart verification passed.
 - The follow-up `work` activation was reviewed and applied with an exact bound plan that added only Codex `brainstorming` and `writing-plans` (`+2 ~0 -0`); no prune or unrelated live changes occurred, and `env status` reported valid lock, live parity pass, and `.system` present.
+- On 2026-08-05, a cleanup session deleted the `skills-source/openclaw-only/` zombie skill directory (already removed from Git), cleaned up remaining OpenClaw references in docs (`docs/README.md`, `docs/RESTORE.md`, `AGENTS.md`), removed 48 arkcli skill directories from live Claude and OpenCode roots, and applied the full manifest-scoped sync: Claude `+13 ~0 =2 -0`, Codex `+17 ~1 =5 -0`, OpenCode `+12 ~0 =0 -0`. All platforms passed post-apply parity. `.system` preserved. No unknown live dirs remain on Claude or OpenCode. Backup: `sync-backup-20260805-225459`.
 - The task overlay implementation passed `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`,
   `scripts/check-hooks.ps1`, PowerShell parser validation, and `git diff --check`. Current hook
   inspection confirms post-merge/post-checkout/post-rewrite auto-sync hooks are installed and call
@@ -135,7 +136,7 @@ These applies are evidence for `MAGINA-LAPTOP` only; they must not be described 
 ## Known risks
 
 - Project Harness Profiles are an MVP and should be treated as project-local only until a separately reviewed task expands the model.
-- `MAGINA-LAPTOP` has a current real activation for `work`; `DESKTOP-3GMDAB7` remains dry-run-only, and other machines remain unverified.
+- `MAGINA-LAPTOP` has a current real activation for `work`; however, the 2026-08-05 full sync apply deployed all 15/23/12 managed skills, which supersedes the `work` environment's smaller subset. `DESKTOP-3GMDAB7` remains dry-run-only, and other machines remain unverified.
 - The `work` environment intentionally contains a smaller managed skill subset; restore `full` only through a newly reviewed `env activate full -DryRun`/`-Apply` cycle.
 - Historical machine verification describes earlier baselines and must not be treated as proof of current live state.
 - This checkout has a working pre-commit secret-scan hook and installed repo-local `post-merge`, `post-checkout`, and `post-rewrite` auto-sync hooks. `check-hooks.ps1` confirms the auto-sync runner is present; Claude/Codex home hook status is separate and not installed here.
