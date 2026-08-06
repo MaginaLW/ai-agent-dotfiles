@@ -14,7 +14,7 @@
         "type": "object",
         "required": ["Platform", "SourceRootExists", "LiveRootExists", "ManifestHash", "ManagedNames", "SourceCount", "Add", "AddEntries", "Update", "NoOp", "Prune", "PruneEntries", "Unknown", "UnknownEntries", "SystemPreserved"],
         "properties": {
-          "Platform": { "enum": ["claude", "codex", "opencode"] },
+          "Platform": { "enum": ["claude", "codex", "reasonix"] },
           "SourceRootExists": { "type": "boolean" },
           "LiveRootExists": { "type": "boolean" },
           "ManifestHash": { "type": "string", "pattern": "^(missing|[0-9a-f]{64})$" },

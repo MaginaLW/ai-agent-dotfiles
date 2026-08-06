@@ -21,7 +21,7 @@ param(
     [Parameter(Position = 1)]
     [string] $SkillName,
 
-    [ValidateSet('Claude', 'Codex', 'OpenCode')]
+    [ValidateSet('Claude', 'Codex', 'Reasonix')]
     [string] $Platform = 'Codex',
 
     [string] $BaseEnv = 'work',
@@ -67,10 +67,10 @@ function ConvertTo-TaskSkillOverlayText {
 
     $claude = @(Sort-TaskSkillNames -Values @($Data.Skills.Claude))
     $codex = @(Sort-TaskSkillNames -Values @($Data.Skills.Codex))
-    $opencode = @(Sort-TaskSkillNames -Values @($Data.Skills.OpenCode))
+    $reasonix = @(Sort-TaskSkillNames -Values @($Data.Skills.Reasonix))
     $claudeText = if ($claude.Count -eq 0) { '@()' } else { '@(' + (($claude | ForEach-Object { Quote-TaskPsd1String -Value $_ }) -join ', ') + ')' }
     $codexText = if ($codex.Count -eq 0) { '@()' } else { '@(' + (($codex | ForEach-Object { Quote-TaskPsd1String -Value $_ }) -join ', ') + ')' }
-    $opencodeText = if ($opencode.Count -eq 0) { '@()' } else { '@(' + (($opencode | ForEach-Object { Quote-TaskPsd1String -Value $_ }) -join ', ') + ')' }
+    $reasonixText = if ($reasonix.Count -eq 0) { '@()' } else { '@(' + (($reasonix | ForEach-Object { Quote-TaskPsd1String -Value $_ }) -join ', ') + ')' }
     return @"
 @{
     SchemaVersion = 1
@@ -78,7 +78,7 @@ function ConvertTo-TaskSkillOverlayText {
     Skills = @{
         Claude = $claudeText
         Codex = $codexText
-        OpenCode = $opencodeText
+        Reasonix = $reasonixText
     }
 }
 "@
@@ -89,7 +89,7 @@ function New-TaskOverlayData {
         [Parameter(Mandatory)] [string] $BaseEnvName,
         [AllowEmptyCollection()] [object[]] $ClaudeSkills = @(),
         [AllowEmptyCollection()] [object[]] $CodexSkills = @(),
-        [AllowEmptyCollection()] [object[]] $OpenCodeSkills = @()
+        [AllowEmptyCollection()] [object[]] $ReasonixSkills = @()
     )
 
     return @{
@@ -98,7 +98,7 @@ function New-TaskOverlayData {
         Skills = @{
             Claude = @(Sort-TaskSkillNames -Values $ClaudeSkills)
             Codex = @(Sort-TaskSkillNames -Values $CodexSkills)
-            OpenCode = @(Sort-TaskSkillNames -Values $OpenCodeSkills)
+            Reasonix = @(Sort-TaskSkillNames -Values $ReasonixSkills)
         }
     }
 }
@@ -190,7 +190,7 @@ function Get-TaskContext {
 }
 
 function Get-TaskManagedSkillSet {
-    param([Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $TargetPlatform)
+    param([Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $TargetPlatform)
 
     $manifestPath = Join-Path $repo "manifests/managed-skills.$($TargetPlatform.ToLowerInvariant()).txt"
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -206,7 +206,7 @@ function Get-TaskManagedSkillSet {
 
 function Assert-TaskSkillAvailable {
     param(
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $TargetPlatform,
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $TargetPlatform,
         [Parameter(Mandatory)] [string] $Name
     )
 
@@ -224,7 +224,7 @@ function Assert-TaskSkillAvailable {
     $generatedRoot = switch ($TargetPlatform) {
         'Claude' { 'claude/skills' }
         'Codex' { 'codex/skills' }
-        'OpenCode' { 'opencode/skills' }
+        'Reasonix' { 'reasonix/skills' }
     }
     $generatedPath = Join-Path $repo "$generatedRoot/$Name"
     if (-not (Test-Path -LiteralPath $generatedPath -PathType Container)) {
@@ -261,17 +261,17 @@ function Invoke-TaskActivation {
 function Assert-TaskAdditionOnlyPlan {
     param(
         [Parameter(Mandatory)] [string] $Output,
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $TargetPlatform,
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $TargetPlatform,
         [Parameter(Mandatory)] [string] $Name
     )
 
-    if ($Output -match '(?m)^\s*(Claude|Codex|OpenCode)\s*:.*-[1-9][0-9]*\s*$') {
+    if ($Output -match '(?m)^\s*(Claude|Codex|Reasonix)\s*:.*-[1-9][0-9]*\s*$') {
         throw 'Task addition dry-run contains a prune action; no live change was attempted. Review env task sync explicitly.'
     }
     $totalAdds = 0
     $targetSummary = $null
     foreach ($line in ($Output -split "`r?`n")) {
-        $match = [regex]::Match($line, '^\s*(Claude|Codex|OpenCode)\s*:\s*\+([0-9]+)')
+        $match = [regex]::Match($line, '^\s*(Claude|Codex|Reasonix)\s*:\s*\+([0-9]+)')
         if (-not $match.Success) { continue }
         $count = [int] $match.Groups[2].Value
         $totalAdds += $count
@@ -293,10 +293,10 @@ function Invoke-TaskStatus {
     Write-Output "  overlay hash: $(if ($overlay.Hash) { $overlay.Hash } else { 'empty' })"
     Write-Output "  Claude additions: $(if (@($overlay.Skills.Claude).Count) { (@($overlay.Skills.Claude) -join ', ') } else { '(none)' })"
     Write-Output "  Codex additions: $(if (@($overlay.Skills.Codex).Count) { (@($overlay.Skills.Codex) -join ', ') } else { '(none)' })"
-    Write-Output "  OpenCode additions: $(if (@($overlay.Skills.OpenCode).Count) { (@($overlay.Skills.OpenCode) -join ', ') } else { '(none)' })"
+    Write-Output "  Reasonix additions: $(if (@($overlay.Skills.Reasonix).Count) { (@($overlay.Skills.Reasonix) -join ', ') } else { '(none)' })"
     Write-Output "  effective Claude skills: $(@($context.EffectiveDefinition.Skills.Claude) -join ', ')"
     Write-Output "  effective Codex skills: $(@($context.EffectiveDefinition.Skills.Codex) -join ', ')"
-    Write-Output "  effective OpenCode skills: $(@($context.EffectiveDefinition.Skills.OpenCode) -join ', ')"
+    Write-Output "  effective Reasonix skills: $(@($context.EffectiveDefinition.Skills.Reasonix) -join ', ')"
 
     $state = Read-HarnessEnvState -RepoRoot $repo
     if ($null -eq $state) {
@@ -334,11 +334,11 @@ function Invoke-TaskEnsureSkill {
 
     $claude = @($context.Overlay.Skills.Claude)
     $codex = @($context.Overlay.Skills.Codex)
-    $opencode = @($context.Overlay.Skills.OpenCode)
+    $reasonix = @($context.Overlay.Skills.Reasonix)
     if ($Platform -eq 'Claude') { $claude += $SkillName }
     elseif ($Platform -eq 'Codex') { $codex += $SkillName }
-    else { $opencode += $SkillName }
-    $candidateData = New-TaskOverlayData -BaseEnvName $BaseEnv -ClaudeSkills $claude -CodexSkills $codex -OpenCodeSkills $opencode
+    else { $reasonix += $SkillName }
+    $candidateData = New-TaskOverlayData -BaseEnvName $BaseEnv -ClaudeSkills $claude -CodexSkills $codex -ReasonixSkills $reasonix
     $candidatePath = New-TaskOverlayCandidate -Data $candidateData
     try {
         Write-Output "Dry-run candidate: add $Platform/$SkillName to '$BaseEnv'."
@@ -404,17 +404,20 @@ function Invoke-TaskSync {
         }
         $oldClaude = Get-StateOverlaySkills -State $state -TargetPlatform Claude
         $oldCodex = Get-StateOverlaySkills -State $state -TargetPlatform Codex
-        $oldOpenCode = Get-StateOverlaySkills -State $state -TargetPlatform OpenCode
-        if (-not $oldClaude.Present -or -not $oldCodex.Present -or -not $oldOpenCode.Present) {
+        # Reasonix is a newer platform: old activation states predate it, so a
+        # missing Reasonix baseline is tolerated (treated as empty) instead of
+        # blocking automatic sync; the two original platforms stay strict.
+        $oldReasonix = Get-StateOverlaySkills -State $state -TargetPlatform Reasonix
+        if (-not $oldClaude.Present -or -not $oldCodex.Present) {
             Write-Output 'Automatic task sync skipped: activation state has no task-overlay baseline; run env task sync -DryRun explicitly.'
             return
         }
         $currentClaude = @($context.Overlay.Skills.Claude)
         $currentCodex = @($context.Overlay.Skills.Codex)
-        $currentOpenCode = @($context.Overlay.Skills.OpenCode)
+        $currentReasonix = @($context.Overlay.Skills.Reasonix)
         $removed = @($oldClaude.Values | Where-Object { $_ -notin $currentClaude }) +
             @($oldCodex.Values | Where-Object { $_ -notin $currentCodex }) +
-            @($oldOpenCode.Values | Where-Object { $_ -notin $currentOpenCode })
+            @($oldReasonix.Values | Where-Object { $_ -notin $currentReasonix })
         if ($removed.Count -gt 0) {
             Write-Output "Automatic task sync skipped: removal requires explicit review ($($removed -join ', '))."
             Write-Output 'Run env task sync -DryRun, inspect the prune plan, then env task sync -Apply.'

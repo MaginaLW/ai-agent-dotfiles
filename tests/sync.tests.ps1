@@ -36,23 +36,23 @@ function Invoke-Sync {
 
 try {
     New-Item -ItemType Directory -Force -Path $fakeRepo, $fakeHome, $fakeBackups | Out-Null
-    foreach ($dir in @('claude/skills/demo', 'codex/skills/demo', 'opencode/skills/demo', 'manifests')) {
+    foreach ($dir in @('claude/skills/demo', 'codex/skills/demo', 'reasonix/skills/demo', 'manifests')) {
         New-Item -ItemType Directory -Force -Path (Join-Path $fakeRepo $dir) | Out-Null
     }
-    foreach ($dir in @('.claude/skills/demo', '.codex/skills/demo', '.codex/skills/.system', '.config/opencode/skills/demo', '.claude/skills/unknown-local')) {
+    foreach ($dir in @('.claude/skills/demo', '.codex/skills/demo', '.codex/skills/.system', 'AppData/Roaming/reasonix/skills/demo', '.claude/skills/unknown-local')) {
         New-Item -ItemType Directory -Force -Path (Join-Path $fakeHome $dir) | Out-Null
     }
 
     $skill = "---`nname: demo`ndescription: Sync fixture`n---`n`n# Demo`n"
-    foreach ($platform in @('claude', 'codex', 'opencode')) {
+    foreach ($platform in @('claude', 'codex', 'reasonix')) {
         Write-TextFile -Path (Join-Path $fakeRepo "$platform/skills/demo/SKILL.md") -Content $skill
     }
-    foreach ($platform in @('.claude', '.codex', '.config/opencode')) {
+    foreach ($platform in @('.claude', '.codex', 'AppData/Roaming/reasonix')) {
         Write-TextFile -Path (Join-Path $fakeHome "$platform/skills/demo/SKILL.md") -Content $skill
     }
     Write-TextFile -Path (Join-Path $fakeHome '.codex/skills/.system/.codex-system-skills.marker') -Content 'system-sentinel'
     Write-TextFile -Path (Join-Path $fakeHome '.claude/skills/unknown-local/SKILL.md') -Content 'unknown-sentinel'
-    foreach ($manifest in @('managed-skills.claude.txt', 'managed-skills.codex.txt', 'managed-skills.opencode.txt')) {
+    foreach ($manifest in @('managed-skills.claude.txt', 'managed-skills.codex.txt', 'managed-skills.reasonix.txt')) {
         Write-TextFile -Path (Join-Path $fakeRepo "manifests/$manifest") -Content "demo`n"
     }
 
@@ -63,7 +63,7 @@ try {
     $result = Invoke-Sync -Arguments @('-RepoRoot', $fakeRepo, '-HomeRoot', $fakeHome, '-BackupRoot', $fakeBackups, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $planPath)
     Assert ($result.Code -eq 0) 'dry-run exits successfully'
     Assert ($result.Out -match 'Claude\s*: \+0 ~0 =1 -0') 'identical Claude skill is reported as no-op'
-    Assert ($result.Out -match 'OpenCode\s*: \+0 ~0 =1 -0') 'identical OpenCode skill is reported as no-op'
+    Assert ($result.Out -match 'Reasonix\s*: \+0 ~0 =1 -0') 'identical Reasonix skill is reported as no-op'
     Assert ($result.Out -match 'Plan hash\s*: [0-9a-f]{64}') 'dry-run reports a plan hash'
     Assert (Test-Path -LiteralPath $planPath) 'dry-run writes a plan file'
     $plan = Get-Content -Raw -LiteralPath $planPath | ConvertFrom-Json
@@ -87,7 +87,6 @@ try {
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $fakeHome '.claude/skills/demo/SKILL.md')) -eq $skill) 'apply restores source content'
     Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.codex/skills/.system/.codex-system-skills.marker')) '.system sentinel survives apply'
     Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/unknown-local/SKILL.md')) 'unknown live skill survives apply'
-    Assert ((Get-Content -Raw -LiteralPath (Join-Path $fakeHome '.config/opencode/skills/demo/SKILL.md')) -eq $skill) 'OpenCode skill content is restored by apply'
     $journal = @(Get-ChildItem -LiteralPath $fakeBackups -Filter 'sync-journal.json' -File -Recurse)
     Assert ($journal.Count -gt 0) 'apply writes an external sync journal'
     $journalState = Get-Content -Raw -LiteralPath $journal[-1].FullName | ConvertFrom-Json

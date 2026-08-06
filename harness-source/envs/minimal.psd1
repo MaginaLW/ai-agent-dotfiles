@@ -11,6 +11,9 @@
         Codex = @(
             'brainstorming'
         )
+        Reasonix = @(
+            'brainstorming'
+        )
     }
 
     McpTemplates = @()

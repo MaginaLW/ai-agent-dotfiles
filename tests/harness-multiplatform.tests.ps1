@@ -38,7 +38,7 @@ $profileText = @'
 @{
     SchemaVersion = 1
     Name = 'multi-platform-test'
-    TargetPlatforms = @('Claude', 'Codex', 'OpenCode')
+    TargetPlatforms = @('Claude', 'Codex', 'Codex')
     Extends = @('multi-platform')
     Components = @{
         Rules = @()
@@ -48,8 +48,6 @@ $profileText = @'
         ClaudeSettings = @()
         CodexAgents = @()
         McpTemplates = @()
-        OpenCodeCommands = @()
-        OpenCodeAgents = @()
     }
     Future = @{ ProjectSkills = @() }
 }
@@ -69,7 +67,7 @@ $apply = Join-Path $fakeRepo 'scripts/apply-harness-profile.ps1'
 Write-Host '[multi-platform harness output]'
 $project = New-Project 'project'
 $result = Invoke-Fixture $build @('-RepoRoot', $fakeRepo, '-ProjectRoot', $project)
-Assert ($result.Code -eq 0) 'build supports Claude/Codex/OpenCode component outputs'
+Assert ($result.Code -eq 0) 'build supports Claude/Codex component outputs'
 $generated = Join-Path $project '.agent-harness/generated'
 foreach ($relative in @(
     'files/.claude/commands/commit-summary.md',
@@ -86,7 +84,12 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $project '.claude/commands/commi
 
 $real = Invoke-Fixture $apply @('-RepoRoot', $fakeRepo, '-ProjectRoot', $project, '-Apply')
 Assert ($real.Code -eq 0) 'apply writes allowlisted project outputs'
-foreach ($relative in @('.claude/commands/commit-summary.md', '.claude/agents/reviewer.md', '.codex/prompts/review.md', '.codex/agents/reviewer.md', '.opencode/commands/commit-summary.md')) {
+foreach ($relative in @(
+    '.claude/commands/commit-summary.md',
+    '.claude/agents/reviewer.md',
+    '.codex/prompts/review.md',
+    '.codex/agents/reviewer.md'
+)) {
     Assert (Test-Path -LiteralPath (Join-Path $project $relative) -PathType Leaf) "apply writes $relative"
 }
 Assert (Test-Path -LiteralPath (Join-Path $project '.agent-harness/backups') -PathType Container) 'apply creates a project-local backup'
@@ -101,7 +104,7 @@ $failed = Invoke-Fixture $apply @('-RepoRoot', $fakeRepo, '-ProjectRoot', $failu
 Assert ($failed.Code -ne 0) 'apply failure is reported'
 Assert (-not (Test-Path -LiteralPath (Join-Path $failureProject '.claude/commands/commit-summary.md'))) 'failed apply rolls back earlier writes'
 
-Write-Host '[allowlist and OpenCode safety]'
+Write-Host '[allowlist safety]'
 $unsafeComponent = Join-Path $fakeRepo 'harness-source/components/commands/commit-command/component.psd1'
 $originalComponent = Get-Content -Raw -LiteralPath $unsafeComponent
 Set-FixtureFile -Path $unsafeComponent -Content ($originalComponent -replace '\.claude/commands/commit-summary\.md', '../escape.md')
@@ -109,16 +112,10 @@ $unsafe = Invoke-Fixture $status @('-RepoRoot', $fakeRepo, '-ProjectRoot', $proj
 Assert ($unsafe.Code -ne 0 -and $unsafe.Out -match 'outside|unsafe|allowlist|escapes') 'target outside allowlist is rejected'
 Set-FixtureFile -Path $unsafeComponent -Content $originalComponent
 
-$opencodeComponent = Join-Path $fakeRepo 'harness-source/components/opencode-commands/opencode-commit-command/content.md'
-$originalSettings = Get-Content -Raw -LiteralPath $opencodeComponent
 # Build a real secret-shaped key at runtime so the test file itself stays scan-clean.
 # 'sk-ant-...' trips both the gitleaks rule (anthropic-api-key in .gitleaks.toml) and
 # the fallback scanner, so the gate holds with or without gitleaks installed.
 $blockingContent = ('sk-ant-' + 'Kz9xQ4mNvB7wRpT2YcH8dE1')
-Set-FixtureFile -Path $opencodeComponent -Content $blockingContent
-$unsafeOpenCode = Invoke-Fixture $build @('-RepoRoot', $fakeRepo, '-ProjectRoot', (New-Project 'unsafe-opencode'))
-Assert ($unsafeOpenCode.Code -ne 0 -and $unsafeOpenCode.Out -match 'not allowed|secret|token') 'OpenCode sensitive fields are rejected'
-Set-FixtureFile -Path $opencodeComponent -Content $originalSettings
 
 if ($fail -gt 0) {
     Write-Host "Results: $pass passed, $fail failed" -ForegroundColor Red

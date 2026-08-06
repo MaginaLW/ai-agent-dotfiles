@@ -74,7 +74,7 @@ function New-EnvDefinitionText {
         [string] $EnvProfile = 'coding',
         [string[]] $ClaudeSkills = @(),
         [string[]] $CodexSkills = @(),
-        [string[]] $OpenCodeSkills = @(),
+        [string[]] $ReasonixSkills = @(),
         [string[]] $McpTemplates = @(),
         [string] $ExtraLine = ''
     )
@@ -91,7 +91,7 @@ function New-EnvDefinitionText {
     Skills = @{
         Claude = $(Join-Psd1Array $ClaudeSkills)
         Codex = $(Join-Psd1Array $CodexSkills)
-        OpenCode = $(Join-Psd1Array $OpenCodeSkills)
+        Reasonix = $(Join-Psd1Array $ReasonixSkills)
     }
     McpTemplates = $(Join-Psd1Array $McpTemplates)
 $ExtraLine
@@ -119,8 +119,8 @@ Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/components') `
 # fixture-c is managed but has no generated output (build precondition case).
 Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.claude.txt') -Content "fixture-a`nfixture-b`nfixture-c`n"
 Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.codex.txt') -Content "fixture-a`nfixture-b`nfixture-c`n"
-Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.opencode.txt') -Content "fixture-a`nfixture-b`nfixture-c`n"
-foreach ($platform in @('claude', 'codex', 'opencode')) {
+Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.reasonix.txt') -Content "fixture-a`nfixture-b`nfixture-c`n"
+foreach ($platform in @('claude', 'codex', 'reasonix')) {
     foreach ($skill in @('fixture-a', 'fixture-b')) {
         Set-File -Path (Join-Path $fakeRepo "$platform/skills/$skill/SKILL.md") -Content "# $skill ($platform fixture)"
     }
@@ -133,7 +133,7 @@ foreach ($skill in @('fixture-a', 'fixture-b')) {
 
 $envRoot = Join-Path $fakeRepo 'harness-source/envs'
 $goodDefinitionPath = Join-Path $envRoot 'good.psd1'
-Set-File -Path $goodDefinitionPath -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-b', 'fixture-a') -CodexSkills @('fixture-a') -OpenCodeSkills @('fixture-b', 'fixture-a') -McpTemplates @('github'))
+Set-File -Path $goodDefinitionPath -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-b', 'fixture-a') -CodexSkills @('fixture-a') -ReasonixSkills @('fixture-a') -McpTemplates @('github'))
 
 $goodStaging = Join-Path $fakeRepo 'envs/good'
 $statePath = Join-Path $fakeRepo 'state/current-env.json'
@@ -189,14 +189,13 @@ Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'claude/skills/fixture-a/
 Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'claude/skills/fixture-b/SKILL.md')) 'staging contains claude fixture-b'
 Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'codex/skills/fixture-a/SKILL.md')) 'staging contains codex fixture-a'
 Assert (-not (Test-Path -LiteralPath (Join-Path $goodStaging 'codex/skills/fixture-b'))) 'staging omits unselected codex skill'
-Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'opencode/skills/fixture-a/SKILL.md')) 'staging contains opencode fixture-a'
-Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'opencode/skills/fixture-b/SKILL.md')) 'staging contains opencode fixture-b'
+Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'reasonix/skills/fixture-a/SKILL.md')) 'staging contains reasonix fixture-a'
 $claudeManifest = (Get-Content -LiteralPath (Join-Path $goodStaging 'manifest.claude.txt') | Where-Object { $_ -ne '' })
 Assert (($claudeManifest -join ',') -eq 'fixture-a,fixture-b') 'claude manifest is sorted (definition listed b before a)'
 $codexManifest = (Get-Content -LiteralPath (Join-Path $goodStaging 'manifest.codex.txt') | Where-Object { $_ -ne '' })
 Assert (($codexManifest -join ',') -eq 'fixture-a') 'codex manifest matches the env definition'
-$opencodeManifest = (Get-Content -LiteralPath (Join-Path $goodStaging 'manifest.opencode.txt') | Where-Object { $_ -ne '' })
-Assert (($opencodeManifest -join ',') -eq 'fixture-a,fixture-b') 'opencode manifest is sorted (definition listed b before a)'
+$reasonixManifest = (Get-Content -LiteralPath (Join-Path $goodStaging 'manifest.reasonix.txt') | Where-Object { $_ -ne '' })
+Assert (($reasonixManifest -join ',') -eq 'fixture-a') 'reasonix manifest matches the env definition'
 $agentsGenerated = Join-Path $goodStaging 'profile/AGENTS.generated.md'
 Assert (Test-Path -LiteralPath $agentsGenerated) 'profile/AGENTS.generated.md rendered'
 Assert ((Get-Content -Raw -LiteralPath $agentsGenerated) -match '<!-- BEGIN AGENT-HARNESS: ') 'managed block markers present'
@@ -299,13 +298,11 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'envs'))) 'list and st
 Write-Host 'activate: fake home apply'
 $fakeHome = Join-Path $work 'home'
 $fakeBackups = Join-Path $work 'backups'
-foreach ($dir in @('.claude/skills/unknown-local', '.codex/skills/.system', '.opencode/skills')) {
+foreach ($dir in @('.claude/skills/unknown-local', '.codex/skills/.system', 'AppData/Roaming/reasonix/skills')) {
     New-Item -ItemType Directory -Path (Join-Path $fakeHome $dir) -Force | Out-Null
 }
 Set-File -Path (Join-Path $fakeHome '.claude/skills/unknown-local/SKILL.md') -Content '# unmanaged local skill'
-# Unknown OpenCode dir: staging manages zero OpenCode skills, so post-apply
-# parity must ignore this (regression for the empty-managed-set parity bug).
-Set-File -Path (Join-Path $fakeHome '.opencode/skills/oc-unknown/SKILL.md') -Content '# unmanaged opencode skill'
+Set-File -Path (Join-Path $fakeHome 'AppData/Roaming/reasonix/skills/rx-unknown/SKILL.md') -Content '# unmanaged reasonix skill'
 Set-File -Path (Join-Path $fakeHome '.codex/skills/.system/system.md') -Content '# platform-managed sentinel'
 Set-File -Path (Join-Path $fakeHome '.codex/skills/.system/.codex-system-skills.marker') -Content ''
 $systemSentinel = Join-Path $fakeHome '.codex/skills/.system/system.md'

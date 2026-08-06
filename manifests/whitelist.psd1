@@ -63,14 +63,16 @@
         )
     }
 
-    OpenCode = @{
-        HomeRelativeRoot = '.config/opencode'
-        RepoRelativeRoot = 'opencode'
-        # The main opencode.json(c) may contain provider, MCP, file, or machine
-        # specific settings. Manage only portable instruction/command/agent files.
-        PushItems = @('AGENTS.md', 'commands', 'agents')
-        PullItems = @('AGENTS.md', 'commands', 'agents')
-        ExcludedItems = @('opencode.json', 'opencode.jsonc', 'auth.json', 'cache', 'log', 'storage', 'node_modules', 'plugins')
+    Reasonix = @{
+        HomeRelativeRoot = 'AppData/Roaming/reasonix'
+        RepoRelativeRoot = 'reasonix'
+        # config.toml / .env are machine-private (provider credentials, sessions,
+        # workspace state) and must never be captured or deployed. skills/ is
+        # managed by scripts/sync.ps1, not config-sync. commands/ can be added
+        # here once repo-managed reasonix commands exist.
+        PushItems = @('AGENTS.md', 'REASONIX.md')
+        PullItems = @('AGENTS.md', 'REASONIX.md')
+        ExcludedItems = @('config.toml', '.env', 'credentials', 'sessions', 'state', 'projects', 'stats', 'repair', 'crash-fatal', 'install-id', 'metrics-pending.json', 'desktop-*', 'global', 'global-workspace', 'commands', 'skills')
     }
 
     Skills = @{
@@ -78,17 +80,17 @@
         SharedSource = 'skills-source/shared'
         ClaudeOnlySource = 'skills-source/claude-only'
         CodexOnlySource = 'skills-source/codex-only'
-        OpenCodeOnlySource = 'skills-source/opencode-only'
+        ReasonixOnlySource = 'skills-source/reasonix-only'
         GeneratedClaude = 'claude/skills'
         GeneratedCodex = 'codex/skills'
-        GeneratedOpenCode = 'opencode/skills'
+        GeneratedReasonix = 'reasonix/skills'
         InstallClaudeHomeRelative = '.claude/skills'
         InstallCodexHomeRelative = '.agents/skills'
-        InstallOpenCodeHomeRelative = '.config/opencode/skills'
+        InstallReasonixHomeRelative = 'AppData/Roaming/reasonix/skills'
         ManagedSkillsManifest = 'manifests/managed-skills.txt'
         ManagedSkillsClaudeManifest = 'manifests/managed-skills.claude.txt'
         ManagedSkillsCodexManifest = 'manifests/managed-skills.codex.txt'
-        ManagedSkillsOpenCodeManifest = 'manifests/managed-skills.opencode.txt'
+        ManagedSkillsReasonixManifest = 'manifests/managed-skills.reasonix.txt'
     }
 
     CommonExcludedItems = @(

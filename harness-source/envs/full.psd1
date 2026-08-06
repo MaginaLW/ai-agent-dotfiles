@@ -47,6 +47,20 @@
             'writing-plans',
             'writing-skills'
         )
+        Reasonix = @(
+            'brainstorming',
+            'control-chrome',
+            'git-review',
+            'latex-tectonic',
+            'paper-polish',
+            'path-risk',
+            'placeholder-ok',
+            'subagent-driven-development',
+            'systematic-debugging',
+            'verification-before-completion',
+            'writing-plans',
+            'writing-skills'
+        )
     }
 
     McpTemplates = @('github')

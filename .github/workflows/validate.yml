@@ -94,7 +94,7 @@ jobs:
             throw 'Build left unexpected untracked files.'
           }
 
-          $trackedGenerated = @(git ls-files -- claude/skills codex/skills opencode/skills generated)
+          $trackedGenerated = @(git ls-files -- claude/skills codex/skills reasonix/skills generated)
           if ($LASTEXITCODE -ne 0) {
             throw 'Unable to inspect generated output tracking state.'
           }

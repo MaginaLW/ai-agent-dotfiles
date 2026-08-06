@@ -6,11 +6,11 @@ Project instructions for Claude Code working in this repository.
 
 Apply the full skill-management workflow below only when the task involves any of:
 
-- installing, uninstalling, importing, exporting, promoting, merging, pruning, syncing, deploying, or repairing Claude/Codex/OpenCode skills
-- `skills-source/`, `claude/skills/`, `codex/skills/`, `opencode/skills/`
-- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`, `~/.config/opencode/skills`
+- installing, uninstalling, importing, exporting, promoting, merging, pruning, syncing, deploying, or repairing Claude/Codex/Reasonix skills
+- `skills-source/`, `claude/skills/`, `codex/skills/`, `reasonix/skills/`
+- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`, `%APPDATA%\reasonix\skills`
 - `imports/skills-inbox`, `imports/skills-archive`, `imports/skills-quarantine`
-- `manifests/managed-skills.txt`, `manifests/managed-skills.opencode.txt`
+- `manifests/managed-skills.txt`, `manifests/managed-skills.reasonix.txt`
 - `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`
 - `scripts/config-status.ps1`, `scripts/config-pull.ps1`, `scripts/config-push.ps1`, `.claude/settings.json` (harness config-sync)
 - `harness-source/`, `.agent-harness/generated/`
@@ -31,16 +31,16 @@ When the scope trigger applies:
    - `skills-source/shared/<name>/`
    - `skills-source/claude-only/<name>/`
    - `skills-source/codex-only/<name>/`
-   - `skills-source/opencode-only/<name>/`
+   - `skills-source/reasonix-only/<name>/`
 4. Never edit generated output directly:
    - `claude/skills/`
    - `codex/skills/`
-   - `opencode/skills/`
+   - `reasonix/skills/`
 5. Never directly copy/delete live skills:
    - `~/.claude/skills`
    - `~/.codex/skills`
    - `~/.agents/skills`
-   - `~/.config/opencode/skills`
+   - `%APPDATA%\reasonix\skills`
 6. Run validation before live changes:
    ```powershell
    pwsh -NoProfile -File scripts/build-skills.ps1
@@ -62,17 +62,17 @@ When the scope trigger applies:
 - Never weaken, bypass, or whitelist `scripts/scan-secrets.ps1` without explicit user approval.
 - Never commit generated output, imports, backups, live home files, or machine-private files.
 - Never put plaintext secrets, API keys, tokens, passwords, account info, or machine-private paths in skills.
-- `skills-source/opencode-only/` is the hand-maintained OpenCode-only skill source.
-- `opencode/skills/` is generated output — never edit or commit it.
-- `~/.config/opencode/skills` is the live OpenCode skill target; `opencode.json(c)` is machine-private.
+- `skills-source/reasonix-only/` is the Reasonix-only source.
+- `reasonix/skills/` are generated output — never edit or commit them.
+- `%APPDATA%\reasonix\skills` is the live Reasonix skill target; `config.toml`/`.env` are machine-private and never synced.
 - Harness config-sync (`config-pull`/`config-push`) is dry-run by default; `-Apply` is gated. Never commit a `config-push` capture without a human `git diff` review — the secret scan blocks tokens, not machine-private paths. Codex `config.toml` is excluded from config-sync (machine-private state). See `docs/README.md` §14.
 - Project Harness Profiles are project-local in the first version: `.agent-harness/generated/` is disposable generated output and must not be hand-edited or committed unless a future tracked-template decision explicitly says so.
-- `scripts/apply-harness-profile.ps1 -Apply` must not be treated as permission to write `~/.claude`, `~/.codex`, `~/.config/opencode`, live skills roots, or Codex `.system`; first-version apply writes only project-local allowlist output.
+- `scripts/apply-harness-profile.ps1 -Apply` must not be treated as permission to write `~/.claude`, `~/.codex`, live skills roots, or Codex `.system`; first-version apply writes only project-local allowlist output.
 - Do not claim Project Harness Profiles install project-local skills or perform automatic global home harness switching.
-- Multi-platform Harness outputs are allowlist-bound project files: Claude commands/agents, Codex prompts/agents, and OpenCode commands/agents only. They are generated/reviewed through the profile scripts and never write global home state.
+- Multi-platform Harness outputs are allowlist-bound project files: Claude commands/agents, Codex prompts/agents only. They are generated/reviewed through the profile scripts and never write global home state.
 - MCP template operations use `claude/mcp/apply-mcp.ps1` with an explicit dry-run plan and single-server Claude CLI calls. Never overwrite `~/.claude.json` directly or put environment-variable values in templates, plans, reports, or logs; MCP backups remain outside the repository.
 - `envs/` is generated Harness Environments staging — never hand-edit or commit it; rebuild with `scripts/build-harness-env.ps1`. `state/current-env.json` is machine-private and never committed.
-- `env list`/`env status`/`env build` are read-only toward home directories and must never write `~/.claude`, `~/.codex`, `~/.config/opencode`, live skills roots, or `state/`.
+- `env list`/`env status`/`env build` are read-only toward home directories and must never write `~/.claude`, `~/.codex`, live skills roots, or `state/`.
 - `env activate` is the only sanctioned global environment switch: dry-run by default, `-Apply` gated (the entry point demands an explicit mode), deployment exclusively through `sync.ps1` with its unskippable pre-change backup. Never hand-copy env staging into a home directory. Before the first real-home `-Apply` on each machine, a human must review the dry-run plan (prune list included); `MAGINA-LAPTOP` completed its first `full -Apply` on 2026-07-10, while other machines remain subject to this gate. Config deployment via `config-pull.ps1` is NOT part of activation; adding it requires a separate review. See `docs/README.md` §16.
-- `env rollback` is the separate managed-scope recovery path: it requires an explicitly selected environment activation backup, a reviewed dry-run plan, and an exact plan hash on Apply. It restores only current-manifest Claude/Codex/OpenCode skills and the corresponding environment state; it never touches unknown live directories, Codex `.system`, credentials, sessions, caches, or Codex `config.toml`.
+- `env rollback` is the separate managed-scope recovery path: it requires an explicitly selected environment activation backup, a reviewed dry-run plan, and an exact plan hash on Apply. It restores only current-manifest Claude/Codex skills and the corresponding environment state; it never touches unknown live directories, Codex `.system`, credentials, sessions, caches, or Codex `config.toml`.
 - Keep `CLAUDE.md` tracked in Git so these instructions sync across machines.

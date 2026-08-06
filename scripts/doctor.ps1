@@ -241,22 +241,22 @@ else {
     $claudeRoot = Join-Path $homeRoot '.claude'
     $claudeSkills = Join-Path $homeRoot '.claude\skills'
     $claudePlugins = Join-Path $homeRoot '.claude\plugins'
-    $opencodeSkills = Join-Path $homeRoot '.config\opencode\skills'
+    $reasonixSkills = Join-Path $homeRoot 'AppData\Roaming\reasonix\skills'
 
     Test-LivePath -Label 'Codex preferred live skills (~/.codex/skills)' -Path $codexPreferred
     Test-LivePath -Label 'Codex fallback live skills (~/.agents/skills)' -Path $codexFallback
     Test-LivePath -Label 'Claude home (~/.claude)' -Path $claudeRoot
     Test-LivePath -Label 'Claude live skills (~/.claude/skills)' -Path $claudeSkills
     Test-LivePath -Label 'Claude plugins (~/.claude/plugins)' -Path $claudePlugins
-    Test-LivePath -Label 'OpenCode live skills (~/.config/opencode/skills)' -Path $opencodeSkills
+    Test-LivePath -Label 'Reasonix live skills (%APPDATA%\reasonix\skills)' -Path $reasonixSkills
 }
 
 Write-Section -Name 'Generated output'
-Add-DoctorResult -Level 'INFO' -Message 'Expected generated layout: claude/skills, codex/skills, opencode/skills.'
+Add-DoctorResult -Level 'INFO' -Message 'Expected generated layout: claude/skills, codex/skills, reasonix/skills.'
 $generatedOutputs = @(
     @{ Label = 'Claude'; RelativePath = 'claude\skills' },
     @{ Label = 'Codex'; RelativePath = 'codex\skills' },
-    @{ Label = 'OpenCode'; RelativePath = 'opencode\skills' }
+    @{ Label = 'Reasonix'; RelativePath = 'reasonix\skills' }
 )
 foreach ($output in $generatedOutputs) {
     $generatedPath = Join-Path $RepoRoot $output.RelativePath

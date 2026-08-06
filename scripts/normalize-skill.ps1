@@ -4,7 +4,7 @@ param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [Parameter(Mandatory)] [string] $InputSkillPath,
     [Parameter(Mandatory)] [string] $OutputSkillPath,
-    [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'opencode-only')] [string] $TargetType
+    [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'reasonix-only')] [string] $TargetType
 )
 
 Set-StrictMode -Version Latest

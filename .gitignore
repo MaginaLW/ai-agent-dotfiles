@@ -14,7 +14,7 @@ id_ed25519
 # Generated skills: build outputs, never committed.
 claude/skills/
 codex/skills/
-opencode/skills/
+reasonix/skills/
 
 # Claude runtime and machine-local files.
 claude/**/*.local.json
@@ -73,14 +73,6 @@ imports/skills-archive/**
 !imports/skills-archive/README.md
 !imports/skills-reports/
 !imports/skills-reports/README.md
-
-# OpenCode runtime-local files. Skills are generated separately above.
-opencode/**/*.local.json
-opencode/cache/
-opencode/log/
-opencode/storage/
-opencode/node_modules/
-
 package-lock.json
 package.json
 # Legacy manifest (OpenClaw retired)

@@ -48,7 +48,7 @@ function Read-HarnessEnvDefinition {
     if (-not ($data.Skills -is [hashtable])) {
         throw "Env definition Skills must be a hashtable: $Path"
     }
-    Test-HarnessKnownKeys -Data $data.Skills -Kind 'env definition Skills' -Path $Path -AllowedKeys @('Claude', 'Codex', 'OpenCode')
+    Test-HarnessKnownKeys -Data $data.Skills -Kind 'env definition Skills' -Path $Path -AllowedKeys @('Claude', 'Codex', 'Reasonix')
 
     if ($data.ContainsKey('McpTemplates')) {
         foreach ($templateId in @($data.McpTemplates)) {
@@ -76,7 +76,7 @@ function New-HarnessEmptyTaskSkillOverlay {
         Skills = @{
             Claude = @()
             Codex = @()
-            OpenCode = @()
+            Reasonix = @()
         }
     }
 }
@@ -124,15 +124,15 @@ function Read-HarnessTaskSkillOverlay {
     if (-not ($data.Skills -is [hashtable])) {
         throw "Task skill overlay Skills must be a hashtable: $overlayPath"
     }
-    Test-HarnessKnownKeys -Data $data.Skills -Kind 'task skill overlay Skills' -Path $overlayPath -AllowedKeys @('Claude', 'Codex', 'OpenCode')
+    Test-HarnessKnownKeys -Data $data.Skills -Kind 'task skill overlay Skills' -Path $overlayPath -AllowedKeys @('Claude', 'Codex', 'Reasonix')
 
     $manifests = @{
         Claude = Join-Path $repo 'manifests/managed-skills.claude.txt'
         Codex  = Join-Path $repo 'manifests/managed-skills.codex.txt'
-        OpenCode = Join-Path $repo 'manifests/managed-skills.opencode.txt'
+        Reasonix = Join-Path $repo 'manifests/managed-skills.reasonix.txt'
     }
     $skills = @{}
-    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
         $values = if ($data.Skills.ContainsKey($platform)) { @($data.Skills[$platform]) } else { @() }
         if ($data.Skills.ContainsKey($platform) -and -not ($data.Skills[$platform] -is [array])) {
             throw "Task skill overlay $platform Skills must be an array: $overlayPath"
@@ -214,7 +214,7 @@ function Merge-HarnessTaskSkillOverlay {
     }
 
     $mergedSkills = @{}
-    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
         $values = [System.Collections.Generic.List[string]]::new()
         if ($Definition.Skills.ContainsKey($platform)) {
             foreach ($value in @($Definition.Skills[$platform])) { $values.Add([string] $value) }
@@ -261,9 +261,9 @@ function Resolve-HarnessEnvDefinition {
     $manifests = @{
         Claude = Join-Path $repo 'manifests/managed-skills.claude.txt'
         Codex  = Join-Path $repo 'manifests/managed-skills.codex.txt'
-        OpenCode = Join-Path $repo 'manifests/managed-skills.opencode.txt'
+        Reasonix = Join-Path $repo 'manifests/managed-skills.reasonix.txt'
     }
-    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
         if (-not $skills.ContainsKey($platform)) { continue }
         $manifestPath = $manifests[$platform]
         if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -412,7 +412,7 @@ function Get-HarnessManifestHashes {
     return [ordered]@{
         Claude = Get-HarnessFileHash -Path (Join-Path $repo 'manifests/managed-skills.claude.txt')
         Codex = Get-HarnessFileHash -Path (Join-Path $repo 'manifests/managed-skills.codex.txt')
-        OpenCode = Get-HarnessFileHash -Path (Join-Path $repo 'manifests/managed-skills.opencode.txt')
+        Reasonix = Get-HarnessFileHash -Path (Join-Path $repo 'manifests/managed-skills.reasonix.txt')
     }
 }
 
@@ -420,7 +420,7 @@ function Get-HarnessSkillSourceHash {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $Platform,
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $Platform,
         [Parameter(Mandatory)] [string] $Name
     )
 
@@ -428,7 +428,7 @@ function Get-HarnessSkillSourceHash {
     $platformOnly = switch ($Platform) {
         'Claude' { 'claude-only' }
         'Codex' { 'codex-only' }
-        'OpenCode' { 'opencode-only' }
+        'Reasonix' { 'reasonix-only' }
     }
     $candidatePaths = @(
         (Join-Path $repo "skills-source/shared/$Name"),
@@ -578,7 +578,7 @@ function Test-HarnessEnvLock {
     }
 
     $manifestHashes = Get-HarnessManifestHashes -RepoRoot $repo
-    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
         $saved = [string] (Get-HarnessJsonProperty -Object $lock.ManifestHashes -Name $platform)
         $current = [string] (Get-HarnessJsonProperty -Object $manifestHashes -Name $platform)
         if ($saved -ne $current) { $reasons.Add("$platform managed-skills manifest changed since build") }
@@ -586,7 +586,7 @@ function Test-HarnessEnvLock {
 
     $sourceEvidence = [string] $lock.SkillSourceEvidence
     if ($sourceEvidence -eq 'available') {
-        foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
             $platformManifest = Join-Path $StagingPath ("manifest.{0}.txt" -f $platform.ToLowerInvariant())
             $names = if (Test-Path -LiteralPath $platformManifest -PathType Leaf) {
                 @(Get-Content -LiteralPath $platformManifest | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -604,7 +604,7 @@ function Test-HarnessEnvLock {
         $reasons.Add('harness profile/component source changed since build')
     }
 
-    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
         $stagedRoot = Join-Path $StagingPath "$($platform.ToLowerInvariant())/skills"
         $names = if (Test-Path -LiteralPath (Join-Path $StagingPath "manifest.$($platform.ToLowerInvariant()).txt") -PathType Leaf) {
             @(Get-Content -LiteralPath (Join-Path $StagingPath "manifest.$($platform.ToLowerInvariant()).txt") | ForEach-Object { $_.Trim() } | Where-Object { $_ })

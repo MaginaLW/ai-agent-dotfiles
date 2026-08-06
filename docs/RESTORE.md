@@ -50,7 +50,7 @@ does not touch:
 - Codex `.system`;
 - credentials, sessions, or caches;
 - Codex `config.toml`;
-- OpenCode machine state, identity, or workspace state.
+
 
 If the selected backup is not an environment activation backup, or if its
 metadata and plan do not validate, stop and select a different reviewed run.
