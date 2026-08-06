@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Read-only drift report for repo-managed agent harness config (Claude / Codex /
-    OpenCode). Phase 1 of config-sync: it NEVER writes to the repo or to home.
+    Reasonix). Phase 1 of config-sync: it NEVER writes to the repo or to home.
 
 .DESCRIPTION
     Source of truth for what counts as managed config is manifests/whitelist.psd1
@@ -30,7 +30,7 @@
     Override for tests (e.g. tests/fixtures/fake-home).
 
 .PARAMETER Platform
-    Optional filter: one or more of Claude, Codex, OpenCode. Defaults to all three.
+    Optional filter: one or more of Claude, Codex, Reasonix. Defaults to all three.
 
 .PARAMETER Json
     Emit the per-item results as JSON instead of the human-readable table.
@@ -42,7 +42,7 @@
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex', 'OpenCode')]
+    [ValidateSet('Claude', 'Codex', 'Reasonix')]
     [string[]] $Platform,
     [switch] $Json
 )
@@ -165,7 +165,7 @@ function Compare-ConfigItem {
 # Main
 # ---------------------------------------------------------------------------
 
-$platformsToScan = if ($Platform) { $Platform } else { @('Claude', 'Codex', 'OpenCode') }
+$platformsToScan = if ($Platform) { $Platform } else { @('Claude', 'Codex', 'Reasonix') }
 $results = [System.Collections.Generic.List[object]]::new()
 
 foreach ($name in $platformsToScan) {

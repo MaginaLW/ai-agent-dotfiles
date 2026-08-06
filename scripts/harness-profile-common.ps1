@@ -235,7 +235,7 @@ function Test-HarnessTargetPlatforms {
         [switch] $RequireEveryComponentOnEveryPlatform
     )
 
-    $valid = @('Claude', 'Codex', 'OpenCode')
+    $valid = @('Claude', 'Codex')
     foreach ($platform in @($TargetPlatforms)) {
         if ($platform -notin $valid) {
             throw "Unsupported TargetPlatform '$platform'. Valid values: $($valid -join ', ')"
@@ -457,8 +457,6 @@ function Resolve-HarnessTargetPath {
             '.claude/commands/',
             '.claude/agents/',
             '.codex/prompts/',
-            '.opencode/commands/',
-            '.opencode/agents/',
             '.agent-harness/generated/'
         )
     )
@@ -562,18 +560,6 @@ function Get-HarnessOutputContract {
                 RequiredFiles = @(); OutputKeys = @('Target', 'Mode', 'Source')
             }
         }
-        'OpenCodeCommand' {
-            return [pscustomobject] @{
-                Kind = 'OpenCodeCommand'; Mode = 'DirectoryFiles'; AllowedTargets = @('.opencode/commands/')
-                RequiredFiles = @(); OutputKeys = @('Target', 'Mode', 'Source')
-            }
-        }
-        'OpenCodeAgent' {
-            return [pscustomobject] @{
-                Kind = 'OpenCodeAgent'; Mode = 'DirectoryFiles'; AllowedTargets = @('.opencode/agents/')
-                RequiredFiles = @(); OutputKeys = @('Target', 'Mode', 'Source')
-            }
-        }
         'ClaudeSettings' {
             return [pscustomobject] @{
                 Kind = 'ClaudeSettings'; Mode = 'StructuredMerge'; AllowedTargets = @('.claude/settings.json')
@@ -631,7 +617,7 @@ function Test-HarnessComponentOutputContract {
             throw "Component '$($Component.Id)' DirectoryFiles target must be a file: $($output.Target)"
         }
 
-        if ($kind -in @('Command', 'ClaudeAgent', 'CodexPrompt', 'CodexAgent', 'OpenCodeCommand', 'OpenCodeAgent')) {
+        if ($kind -in @('Command', 'ClaudeAgent', 'CodexPrompt', 'CodexAgent')) {
             $source = if ($output.ContainsKey('Source') -and -not [string]::IsNullOrWhiteSpace([string] $output.Source)) { [string] $output.Source } else { 'content.md' }
             if ($source -match '[\\/]' -or $source -in @('.', '..') -or [System.IO.Path]::IsPathFullyQualified($source)) {
                 throw "Component '$($Component.Id)' DirectoryFiles Source must be a single relative file name: $source"
@@ -1105,7 +1091,7 @@ function Get-HarnessProfileComponentIds {
     if (-not $Profile.ContainsKey('Components') -or $null -eq $Profile.Components) {
         return @()
     }
-    foreach ($bucket in @('Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents', 'McpTemplates', 'OpenCodeCommands', 'OpenCodeAgents')) {
+    foreach ($bucket in @('Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents', 'McpTemplates')) {
         foreach ($id in @($Profile.Components[$bucket])) {
             if (-not [string]::IsNullOrWhiteSpace($id)) {
                 $ids.Add([string] $id)

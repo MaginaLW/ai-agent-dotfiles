@@ -2,11 +2,11 @@
 <#
 .SYNOPSIS
     Manifest-scoped sync of generated skill output into the live Claude / Codex /
-    OpenCode skill directories. Safe by default (dry-run); only mutates with -Apply.
+    Reasonix skill directories. Safe by default (dry-run); only mutates with -Apply.
 
 .DESCRIPTION
     Source of truth is the build output: claude/skills, codex/skills, and
-    opencode/skills. For each platform the script computes add / update / prune
+    reasonix/skills. For each platform the script computes add / update / prune
     plans scoped to per-platform repo-managed skill manifests and operates ONE
     skill directory at a time.
 
@@ -37,8 +37,8 @@
 .PARAMETER HomeRoot
     Home directory used to resolve live skill paths. Defaults to $env:USERPROFILE.
 
-.PARAMETER OpenCodeLiveSkillsPath
-    Optional override for the OpenCode live skills target directory.
+.PARAMETER ReasonixLiveSkillsPath
+    Optional override for the Reasonix live skills target directory.
 
 .PARAMETER PlanPath
     Optional path for a machine-readable dry-run plan. When supplied on -DryRun,
@@ -55,7 +55,7 @@ param(
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [string] $OpenCodeLiveSkillsPath,
+    [string] $ReasonixLiveSkillsPath,
     [string] $PlanPath
 )
 
@@ -98,9 +98,9 @@ function Get-CodexLiveSkillsPath {
     return $codex  # conventional default; created on -Apply if needed
 }
 
-function Get-OpenCodeLiveSkillsPath {
-    if ($OpenCodeLiveSkillsPath) { return $OpenCodeLiveSkillsPath }
-    return (Join-Path $HomeRoot '.config\opencode\skills')
+function Get-ReasonixLiveSkillsPath {
+    if ($ReasonixLiveSkillsPath) { return $ReasonixLiveSkillsPath }
+    return (Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills')
 }
 
 # ---------------------------------------------------------------------------
@@ -522,9 +522,9 @@ function Write-SyncRunReport {
     $modifiedValue = if (@($Plans).Count -gt 0) { $planModified } else { 'Not available' }
     $removedValue = if (@($Plans).Count -gt 0) { $planRemoved } else { 'Not available' }
     if ($Apply -and $null -ne $AppliedCounts) {
-        $addedValue = [int] $AppliedCounts.ClaudeAdded + [int] $AppliedCounts.CodexAdded + [int] $AppliedCounts.OpenCodeAdded
-        $modifiedValue = [int] $AppliedCounts.ClaudeUpdated + [int] $AppliedCounts.CodexUpdated + [int] $AppliedCounts.OpenCodeUpdated
-        $removedValue = [int] $AppliedCounts.ClaudePruned + [int] $AppliedCounts.CodexPruned + [int] $AppliedCounts.OpenCodePruned
+        $addedValue = [int] $AppliedCounts.ClaudeAdded + [int] $AppliedCounts.CodexAdded + [int] $AppliedCounts.ReasonixAdded
+        $modifiedValue = [int] $AppliedCounts.ClaudeUpdated + [int] $AppliedCounts.CodexUpdated + [int] $AppliedCounts.ReasonixUpdated
+        $removedValue = [int] $AppliedCounts.ClaudePruned + [int] $AppliedCounts.CodexPruned + [int] $AppliedCounts.ReasonixPruned
     }
 
     if ($SystemStatus -eq 'Not available') {
@@ -628,7 +628,7 @@ function Restore-CompletedManagedSkills {
         $backupRootName = switch ($entry.Platform) {
             'claude' { 'claude-skills' }
             'codex' { 'codex-skills' }
-            'opencode' { 'opencode-skills' }
+            'reasonix' { 'reasonix-skills' }
             default { $null }
         }
         if (-not $backupRootName) { $errors.Add("Unknown platform $($entry.Platform)"); continue }
@@ -674,20 +674,20 @@ if ($Apply -and [string]::IsNullOrWhiteSpace($PlanPath)) {
 
 $claudeSource = Join-Path $RepoRoot 'claude\skills'
 $codexSource = Join-Path $RepoRoot 'codex\skills'
-$opencodeSource = Join-Path $RepoRoot 'opencode\skills'
+$reasonixSource = Join-Path $RepoRoot 'reasonix\skills'
 $claudeLive = Get-ClaudeLiveSkillsPath
 $codexLive = Get-CodexLiveSkillsPath
-$opencodeLive = Get-OpenCodeLiveSkillsPath
+$reasonixLive = Get-ReasonixLiveSkillsPath
 
 Write-Host '=== sync.ps1 ==='
 Write-Host "Mode            : $(if ($Apply) { 'APPLY' } else { 'DRY-RUN (no changes)' })"
 Write-Host "Repo            : $RepoRoot"
 Write-Host "Claude source   : $claudeSource"
 Write-Host "Codex source    : $codexSource"
-Write-Host "OpenCode source  : $opencodeSource"
+Write-Host "Reasonix source  : $reasonixSource"
 Write-Host "Claude live     : $claudeLive"
 Write-Host "Codex live      : $codexLive"
-Write-Host "OpenCode live    : $opencodeLive"
+Write-Host "Reasonix live    : $reasonixLive"
 
 # --- build ---
 if ($SkipBuild) {
@@ -723,7 +723,7 @@ if ($SkipSecretScan) {
     Write-Host 'Secret scan     : OK'
 }
 
-if (-not (Test-Path -LiteralPath $claudeSource) -or -not (Test-Path -LiteralPath $codexSource) -or -not (Test-Path -LiteralPath $opencodeSource)) {
+if (-not (Test-Path -LiteralPath $claudeSource) -or -not (Test-Path -LiteralPath $codexSource) -or -not (Test-Path -LiteralPath $reasonixSource)) {
     Write-Host 'ERROR: generated output missing. Run build-skills.ps1 (do not pass -SkipBuild).'
     Write-SyncRunReport -Result 'FAIL' -NextAction 'Restore generated output by running build-skills.ps1, then rerun sync in dry-run mode.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
     exit 1
@@ -732,17 +732,17 @@ if (-not (Test-Path -LiteralPath $claudeSource) -or -not (Test-Path -LiteralPath
 # --- managed-skills manifests (per-platform) ---
 $claudeManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.claude.txt')
 $codexManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.codex.txt')
-$opencodeManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.opencode.txt')
+$reasonixManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.reasonix.txt')
 $claudeManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.claude.txt')
 $codexManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.codex.txt')
-$opencodeManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.opencode.txt')
-Write-Host "Managed skills  : Claude=$($claudeManagedNames.Count)  Codex=$($codexManagedNames.Count)  OpenCode=$($opencodeManagedNames.Count)"
+$reasonixManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.reasonix.txt')
+Write-Host "Managed skills  : Claude=$($claudeManagedNames.Count)  Codex=$($codexManagedNames.Count)  Reasonix=$($reasonixManagedNames.Count)"
 
 # --- plans ---
 $claudePlan = Get-SyncPlan -Platform 'claude' -SourceRoot $claudeSource -LiveRoot $claudeLive -ManagedNames $claudeManagedNames -ManifestHash $claudeManifestHash
 $codexPlan = Get-SyncPlan -Platform 'codex' -SourceRoot $codexSource -LiveRoot $codexLive -ManagedNames $codexManagedNames -ManifestHash $codexManifestHash
-$opencodePlan = Get-SyncPlan -Platform 'opencode' -SourceRoot $opencodeSource -LiveRoot $opencodeLive -ManagedNames $opencodeManagedNames -ManifestHash $opencodeManifestHash
-$syncPlans = @($claudePlan, $codexPlan, $opencodePlan)
+$reasonixPlan = Get-SyncPlan -Platform 'reasonix' -SourceRoot $reasonixSource -LiveRoot $reasonixLive -ManagedNames $reasonixManagedNames -ManifestHash $reasonixManifestHash
+$syncPlans = @($claudePlan, $codexPlan, $reasonixPlan)
 $planHash = Get-PlansHash -Plans $syncPlans
 
 Write-Host ''
@@ -750,7 +750,7 @@ Write-Host '----- PLAN -----'
 Write-Host "Backup before apply: $(if ($Apply) { "YES (mandatory) under $BackupRoot" } else { 'n/a (dry-run)' })"
 Write-PlanReport -Plan $claudePlan
 Write-PlanReport -Plan $codexPlan
-Write-PlanReport -Plan $opencodePlan
+Write-PlanReport -Plan $reasonixPlan
 Write-Host "Plan hash       : $planHash"
 
 if (-not $Apply -and $PlanPath) {
@@ -762,19 +762,19 @@ elseif ($Apply -and $PlanPath) {
 
 $totalChanges = $claudePlan.Add.Count + $claudePlan.Update.Count + $claudePlan.Prune.Count +
                 $codexPlan.Add.Count + $codexPlan.Update.Count + $codexPlan.Prune.Count +
-                $opencodePlan.Add.Count + $opencodePlan.Update.Count + $opencodePlan.Prune.Count
+                $reasonixPlan.Add.Count + $reasonixPlan.Update.Count + $reasonixPlan.Prune.Count
 
 Write-Host ''
 Write-Host '----- SUMMARY -----'
 Write-Host "Claude   : +$($claudePlan.Add.Count) ~$($claudePlan.Update.Count) =$($claudePlan.NoOp.Count) -$($claudePlan.Prune.Count)  (unknown ignored: $($claudePlan.Unknown.Count))"
 Write-Host "Codex    : +$($codexPlan.Add.Count) ~$($codexPlan.Update.Count) =$($codexPlan.NoOp.Count) -$($codexPlan.Prune.Count)  (unknown ignored: $($codexPlan.Unknown.Count); .system preserved: $($codexPlan.SystemPreserved))"
-Write-Host "OpenCode  : +$($opencodePlan.Add.Count) ~$($opencodePlan.Update.Count) =$($opencodePlan.NoOp.Count) -$($opencodePlan.Prune.Count)  (unknown ignored: $($opencodePlan.Unknown.Count))"
+Write-Host "Reasonix  : +$($reasonixPlan.Add.Count) ~$($reasonixPlan.Update.Count) =$($reasonixPlan.NoOp.Count) -$($reasonixPlan.Prune.Count)  (unknown ignored: $($reasonixPlan.Unknown.Count))"
 
 if (-not $Apply) {
     Write-Host ''
     Write-Host 'DRY-RUN complete. No live files were changed. Re-run with -Apply to execute.'
-    $dryRunWarnings = $claudePlan.Prune.Count + $codexPlan.Prune.Count + $opencodePlan.Prune.Count +
-                      $claudePlan.Unknown.Count + $codexPlan.Unknown.Count + $opencodePlan.Unknown.Count
+    $dryRunWarnings = $claudePlan.Prune.Count + $codexPlan.Prune.Count + $reasonixPlan.Prune.Count +
+                      $claudePlan.Unknown.Count + $codexPlan.Unknown.Count + $reasonixPlan.Unknown.Count
     $dryRunResult = if ($dryRunWarnings -gt 0) { 'WARN' } else { 'PASS' }
     $dryRunNext = if ($dryRunWarnings -gt 0) {
         'Review every planned removal and unknown live skill; rerun dry-run after resolving unexpected items.'
@@ -800,7 +800,7 @@ $backupCode = $LASTEXITCODE
 $backupOut | ForEach-Object { Write-Host "  [backup] $_" }
 if ($backupCode -ne 0) {
     Write-Host "ERROR: backup failed (exit $backupCode). Aborting before any change."
-    $zeroApplied = [ordered] @{ ClaudeAdded = 0; ClaudeUpdated = 0; ClaudePruned = 0; CodexAdded = 0; CodexUpdated = 0; CodexPruned = 0; OpenCodeAdded = 0; OpenCodeUpdated = 0; OpenCodePruned = 0 }
+    $zeroApplied = [ordered] @{ ClaudeAdded = 0; ClaudeUpdated = 0; ClaudePruned = 0; CodexAdded = 0; CodexUpdated = 0; CodexPruned = 0; ReasonixAdded = 0; ReasonixUpdated = 0; ReasonixPruned = 0 }
     Write-SyncRunReport -Result 'FAIL' -NextAction 'Resolve the backup failure before any sync Apply.' -Plans $syncPlans -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult -AppliedCounts $zeroApplied
     exit 1
 }
@@ -815,15 +815,15 @@ if ($journalPath) {
 }
 
 # 2) Apply per-platform, one skill dir at a time.
-$applied = [ordered] @{ ClaudeAdded = 0; ClaudeUpdated = 0; ClaudePruned = 0; CodexAdded = 0; CodexUpdated = 0; CodexPruned = 0; OpenCodeAdded = 0; OpenCodeUpdated = 0; OpenCodePruned = 0 }
+$applied = [ordered] @{ ClaudeAdded = 0; ClaudeUpdated = 0; ClaudePruned = 0; CodexAdded = 0; CodexUpdated = 0; CodexPruned = 0; ReasonixAdded = 0; ReasonixUpdated = 0; ReasonixPruned = 0 }
 
 try {
-    foreach ($plan in @($claudePlan, $codexPlan, $opencodePlan)) {
+    foreach ($plan in @($claudePlan, $codexPlan, $reasonixPlan)) {
         New-Item -ItemType Directory -Force -Path $plan.LiveRoot | Out-Null
         foreach ($name in $plan.Add) {
             Sync-OneSkillDir -SourceSkillDir (Join-Path $plan.SourceRoot $name) -LiveRoot $plan.LiveRoot -Name $name
             if ($plan.Platform -eq 'claude') { $applied.ClaudeAdded++ }
-            elseif ($plan.Platform -eq 'opencode') { $applied.OpenCodeAdded++ }
+            elseif ($plan.Platform -eq 'reasonix') { $applied.ReasonixAdded++ }
             else { $applied.CodexAdded++ }
             $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'add' })
             if ($journalPath) { Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations) }
@@ -831,7 +831,7 @@ try {
         foreach ($name in $plan.Update) {
             Sync-OneSkillDir -SourceSkillDir (Join-Path $plan.SourceRoot $name) -LiveRoot $plan.LiveRoot -Name $name
             if ($plan.Platform -eq 'claude') { $applied.ClaudeUpdated++ }
-            elseif ($plan.Platform -eq 'opencode') { $applied.OpenCodeUpdated++ }
+            elseif ($plan.Platform -eq 'reasonix') { $applied.ReasonixUpdated++ }
             else { $applied.CodexUpdated++ }
             $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'update' })
             if ($journalPath) { Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations) }
@@ -839,7 +839,7 @@ try {
         foreach ($name in $plan.Prune) {
             Remove-OneSkillDir -LiveRoot $plan.LiveRoot -Name $name
             if ($plan.Platform -eq 'claude') { $applied.ClaudePruned++ }
-            elseif ($plan.Platform -eq 'opencode') { $applied.OpenCodePruned++ }
+            elseif ($plan.Platform -eq 'reasonix') { $applied.ReasonixPruned++ }
             else { $applied.CodexPruned++ }
             $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'prune' })
             if ($journalPath) { Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations) }
@@ -879,7 +879,7 @@ if ($journalPath) {
 Write-Host ''
 Write-Host "Claude   applied: +$($applied.ClaudeAdded) ~$($applied.ClaudeUpdated) -$($applied.ClaudePruned)"
 Write-Host "Codex    applied: +$($applied.CodexAdded) ~$($applied.CodexUpdated) -$($applied.CodexPruned)"
-Write-Host "OpenCode  applied: +$($applied.OpenCodeAdded) ~$($applied.OpenCodeUpdated) -$($applied.OpenCodePruned)"
+Write-Host "Reasonix  applied: +$($applied.ReasonixAdded) ~$($applied.ReasonixUpdated) -$($applied.ReasonixPruned)"
 
 # 3) Verification.
 $codexMarker = Join-Path $codexLive '.system\.codex-system-skills.marker'
@@ -904,10 +904,10 @@ function Test-Parity {
 # post-apply check either.
 $claudeParity = Test-Parity -SourceRoot $claudeSource -LiveRoot $claudeLive -ExcludeSystem $false -ManagedNames $claudeManagedNames
 $codexParity = Test-Parity -SourceRoot $codexSource -LiveRoot $codexLive -ExcludeSystem $true -ManagedNames $codexManagedNames
-$opencodeParity = Test-Parity -SourceRoot $opencodeSource -LiveRoot $opencodeLive -ExcludeSystem $false -ManagedNames $opencodeManagedNames
+$reasonixParity = Test-Parity -SourceRoot $reasonixSource -LiveRoot $reasonixLive -ExcludeSystem $false -ManagedNames $reasonixManagedNames
 Write-Host "Claude   live-vs-repo: $(if ($claudeParity) { 'OK' } else { 'MISMATCH' })"
 Write-Host "Codex    live-vs-repo: $(if ($codexParity) { 'OK (excl .system)' } else { 'MISMATCH' })"
-Write-Host "OpenCode  live-vs-repo: $(if ($opencodeParity) { 'OK (managed only)' } else { 'MISMATCH' })"
+Write-Host "Reasonix  live-vs-repo: $(if ($reasonixParity) { 'OK (managed only)' } else { 'MISMATCH' })"
 
 if (-not $systemOk -and (Get-DirNames -Path $codexLive) -contains $CodexSystemDirName) {
     Write-Host 'WARNING: .system dir present but marker missing — investigate.'
@@ -918,7 +918,7 @@ $systemReportStatus = if ((Get-DirNames -Path $codexLive) -contains $CodexSystem
 else {
     'Not present'
 }
-if (-not $claudeParity -or -not $codexParity -or -not $opencodeParity) {
+if (-not $claudeParity -or -not $codexParity -or -not $reasonixParity) {
     Write-Host "ERROR: post-apply parity check failed. Backup is at: $backupDir"
     if ($journalPath) {
         Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'parity-failed' -BackupDir $backupDir -Completed @($completedOperations) -Failure 'Post-apply parity check failed.'
@@ -954,7 +954,7 @@ Write-Host "APPLY complete. Backup: $backupDir"
 if ($journalPath) {
     Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'complete' -BackupDir $backupDir -Completed @($completedOperations)
 }
-$applyUnknown = $claudePlan.Unknown.Count + $codexPlan.Unknown.Count + $opencodePlan.Unknown.Count
+$applyUnknown = $claudePlan.Unknown.Count + $codexPlan.Unknown.Count + $reasonixPlan.Unknown.Count
 $applyReportResult = if ($applyUnknown -gt 0 -or $systemReportStatus -like '*marker missing*') { 'WARN' } else { 'PASS' }
 $applyNextAction = if ($applyReportResult -eq 'WARN') {
     'Review preserved unknown skills and .system status, then run the secret scan and git status.'

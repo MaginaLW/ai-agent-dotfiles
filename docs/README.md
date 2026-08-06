@@ -8,10 +8,10 @@
 
 ## 1. 项目目的
 
-统一管理多台电脑上的 Claude / Codex / OpenCode skills：
+统一管理多台电脑上的 Claude / Codex / Reasonix skills：
 
 - 用 Git 维护**唯一可信源** `skills-source/`。
-- 用 `scripts/build-skills.ps1` 从源生成 Claude / Codex / OpenCode 的 runtime output。
+- 用 `scripts/build-skills.ps1` 从源生成 Claude / Codex / Reasonix 的 runtime output。
 - 用 `scripts/sync.ps1` 安全地把生成结果部署到本机 live skills 目录。
 - 用 `scripts/backup.ps1` 在每次 Apply 前保留可恢复副本。
 - 用 repo-local Git hooks 在相关 `git pull` / rebase / branch checkout 后自动运行受控同步。
@@ -23,16 +23,14 @@
 ## 2. 当前管理范围
 
 ### 会同步
-- `skills-source/shared/*`（跨平台，Claude + Codex + OpenCode 都装）
+- `skills-source/shared/*`（跨平台，Claude + Codex + Reasonix 都装）
 - `skills-source/claude-only/*`
 - `skills-source/codex-only/*`
-- `skills-source/opencode-only/*`
-- `opencode/AGENTS.md`、`opencode/commands/`、`opencode/agents/`（便携配置）
-- 生成到 `claude/skills/`、`codex/skills/` 和 `opencode/skills/`（Git-ignored）
+- 生成到 `claude/skills/`、`codex/skills/` 和 `reasonix/skills/`（Git-ignored）
 - 部署到本机 live：
   - Claude：`~/.claude/skills`
   - Codex：`~/.codex/skills`；仅当它不存在时才 fallback 到 `~/.agents/skills`
-  - OpenCode：`~/.config/opencode/skills`
+  - Reasonix：`%APPDATA%\reasonix\skills`（`config.toml`/`.env` 等机器私有状态永不纳入）
 
 ### 不会同步
 - Codex `~/.codex/skills/.system`（平台内置，永远保留）
@@ -43,8 +41,6 @@
 - 机器私有配置、API keys / tokens / secrets
 - 临时日志
 - quarantine 原始副本
-- OpenCode `opencode.json(c)`（含 provider/MCP 等机器私有设置）
-- `~/.config/opencode/opencode.json(c)`（机器私有，不纳入仓库）
 
 ---
 
@@ -63,8 +59,6 @@
 | `skills-source/codex-only/` | 仅 Codex 的 skill（如 `hatch-pet`） |
 | `claude/skills/` | **生成物**，Git-ignored，勿手改 |
 | `codex/skills/` | **生成物**，Git-ignored，勿手改 |
-| `opencode/skills/` | **生成物**，Git-ignored，勿手改 |
-| `opencode/AGENTS.md` | OpenCode 便携项目指令（config-sync 管理） |
 | `manifests/managed-skills.txt` | 本仓库托管的 skill 名单（sync 的 prune 只作用于名单内条目） |
 | `scripts/build-skills.ps1` | 从源生成 runtime output，并刷新 manifest |
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
@@ -181,10 +175,6 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 - 不要对 `~/.codex/skills` 用整目录 `robocopy /MIR`。
 - 不要 whitelist 或削弱 secret scan gate。
 - 不要把明文 key / token 写进 skill。
-- 不要手改 `opencode/skills/`（它是生成物）。
-- 不要提交 `opencode/skills/`。
-- `~/.config/opencode/opencode.json(c)` 是机器私有配置——禁止提交。
-- OpenCode 的插件通过 `opencode.json` 的 `plugin` 数组声明，不纳入本仓库管理。
 
 ---
 
@@ -240,19 +230,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -Apply -PlanPath $plan
 
 ---
 
-## 11. OpenCode 平台
-
-OpenCode 平台继承自退役的 OpenClaw：生成输出 `openclaw/skills/` 改为 `opencode/skills/`，
-live 目标改为 `~/.config/opencode/skills`。`skills-source/openclaw-only/` 源目录及 OpenClaw 插件管理工具和声明文件
-已随退役一并移除，不再维护。OpenCode 平台不提供插件声明同步面。
-
-OpenCode 技能来源于 `skills-source/shared/`（跨平台）和 `skills-source/opencode-only/`（平台独占）。
-便携配置（`AGENTS.md`、`commands/`、`agents/`）通过 `opencode/` 下的 whitelist 管理。
-机器私有配置（`opencode.json(c)`）不纳入仓库。
-
----
-
-## 12. 当前状态
+## 11. 当前状态
 
 - 全局状态、当前阶段、managed counts、机器验证、风险和下一步统一维护在 [STATUS.md](../STATUS.md)。
 - 当前局部任务只放在 [status/active/](../status/active/)；任务完成后移动到 [status/archived/](../status/archived/)。
@@ -285,7 +263,7 @@ A：优先**改写源文档/示例措辞**让它不再像真实密钥——例�
 （per-platform 的 Push/Pull items 与 ExcludedItems）。
 
 - `.claude/settings.json`（项目级、已提交）：把硬规则变成 harness 强制 `permissions.deny`
-  （禁止 `Edit`/`Write` 生成物 `claude|codex|opencode/skills/**` 与 Codex `.system`、禁止 robocopy
+  （禁止 `Edit`/`Write` 生成物 `claude|codex/skills/**` 与 Codex `.system`、禁止 robocopy
   整目录 mirror），并 `allow` 安全的校验命令（build-skills / scan-secrets / check-hooks）。
   `sync.ps1` **故意不在** allow 名单，保证 `-Apply` 始终走授权 gate。
 - `scripts/config-status.ps1`：只读 drift 报告（repo ↔ `~/.claude`/`~/.codex`），逐项报告
@@ -330,8 +308,7 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 - `scripts/apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写项目本地 allowlist。
 
 当前受控输出类型包括 Claude `.claude/commands/` 与 `.claude/agents/`、Codex
-`.codex/prompts/` 与 `.codex/agents/`，以及 OpenCode `.opencode/commands/` 与
-`.opencode/agents/`。
+`.codex/prompts/` 与 `.codex/agents/`。
 每种类型由 component `Kind` 和独立 output contract 校验；build 会把文件型输出复制到
 `.agent-harness/generated/files/`，apply 仍只写对应项目路径。
 
@@ -339,17 +316,16 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 
 - `harness-source/` 是 profile/component 的源码；不要手改 `.agent-harness/generated/`。
 - `.agent-harness/generated/` 是 disposable generated output，默认 Git-ignored，可删除后重建。
-- 第一版 `apply-harness-profile.ps1` 不写 `~/.claude`、`~/.codex`、`~/.config/opencode`，也不安装或同步 live skills。
+- 第一版 `apply-harness-profile.ps1` 不写 `~/.claude`、`~/.codex`，也不安装或同步 live skills。
 - 第一版不安装 project-local skills，不承诺自动切换全局 harness。
 - 变更 profile/component 后，先运行 status/build dry-run 和 `tests/harness-profile.tests.ps1`。
-- 多平台输出变更后还应运行 `tests/harness-multiplatform.tests.ps1`；OpenCode 组件只含
-  命令/agent 内容，不携带 machine config（credentials、identity、sessions、cache）。
+- 多平台输出变更后还应运行 `tests/harness-multiplatform.tests.ps1`。
 
 非目标：
 
 - 不替代 `scripts/sync.ps1` 的 live skills 同步。
 - 不替代 §14 的 home-level harness config-sync。
-- 不管理 Codex `.system`、`~/.config/opencode` 的 machine 状态（含 `opencode.json(c)`）、MCP secrets、session/cache/state。
+- 不管理 Codex `.system`、MCP secrets、session/cache/state。
 - 不把项目本地 profile apply 扩展为全局机器配置切换。
 
 ---
@@ -439,7 +415,7 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   （引用 `harness-source/profiles/`，继承其 Extends 链）、`Skills.Claude`/`Skills.Codex`
   （必须是对应 `manifests/managed-skills.<platform>.txt` 的子集）、`McpTemplates`。
 - `envs/<name>/`：`env build` 的 staging 输出，Git-ignored，可删除重建。内容：
-  skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`/`manifest.opencode.txt`
+  skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`
   （环境子集，供人读）、`manifests/managed-skills.<platform>.txt`（**全量**仓库 manifest
   副本，驱动 sync 的切换裁剪语义）、`profile/`（渲染的 profile 组件输出）、`env.lock.json`
   （可验证的定义、源/生成树、manifest、profile 和 staging 文件哈希；`env status`
@@ -458,9 +434,9 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   Codex `.system`、Codex `config.toml`）永不随切换变动；拒绝 `HomeRoot` 位于仓库内。
 - `env status` 对当前环境报告 `lock validity`、`definition drift`、`live parity`、
   Codex `.system` 状态和 `backup reference`；这些是状态证据，不是备份内容。
-- `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex/OpenCode manifest
+- `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex manifest
   管理的 skills 和环境状态。它永不触碰 unknown live 目录、Codex `.system`、
-  credentials、sessions、cache、Codex `config.toml` 或 OpenCode machine state。
+  credentials、sessions、cache、Codex `config.toml`。
   dry-run 先生成外部计划；`-Apply` 必须带同一 `-PlanPath`，并通过选定 activation
   backup 的元数据校验。
 - 每台机器首次真实 `-Apply` 前必须人工审查 dry-run 计划（prune 列表尤其要过目）；已完成首次 activation 的机器在后续变更时仍应重复审查。
@@ -483,7 +459,7 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 - 不自动切换环境（进入项目不触发任何写操作，联动仅为提醒）。
 - 不把一个任务的 overlay 永久合并回 `harness-source/envs/work.psd1`；任务结束后应显式 close，
   是否提交 overlay 由任务协作者按 branch/worktree 需求决定。
-- 不做 lockfile 跨机复现、OpenCode 插件集或 MCP secrets 管理；`env.lock.json` 当前用于
+- 不做 lockfile 跨机复现或 MCP secrets 管理；`env.lock.json` 当前用于
   本机 staging/activation 的可验证证据，不是跨机传输 credential 或 machine state 的载体。
 
 ---
@@ -521,7 +497,7 @@ mcp -TemplateId <id> -DryRun|-Apply [-Remove]
 内部生成并绑定 sync 计划，rollback 则要求外部 dry-run 生成的同一 `-PlanPath`，并在
 执行前重新验证环境状态、备份元数据和计划哈希。`config pull` 是独立的 home-level
 配置同步入口；the underlying `config-pull` is not part of `env activate`，环境切换当前
-只处理受 manifest 管理的 Claude/Codex/OpenCode skills 和环境状态；staged MCP 模板仍需显式执行
+只处理受 manifest 管理的 Claude/Codex skills 和环境状态；staged MCP 模板仍需显式执行
 `mcp -TemplateId <id> -DryRun` / `-Apply`，不会因环境切换隐式注册服务器。
 
 ## 18. MCP 模板安全边界
@@ -541,5 +517,5 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp -TemplateId github -Remove 
 ```
 
 Apply 会把 CLI 状态快照和操作证据写到 home 下的仓库外备份根；失败时保留部分成功阶段和
-恢复证据，不把原始 CLI 状态写入仓库或报告。MCP 不管理 `~/.config/opencode` 的
-credentials、identity、sessions、cache、插件，也不随 `env activate` 自动写入 home。
+恢复证据，不把原始 CLI 状态写入仓库或报告。MCP 不管理 machine credentials、
+identity、sessions、cache、插件，也不随 `env activate` 自动写入 home。

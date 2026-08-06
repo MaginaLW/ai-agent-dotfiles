@@ -1,7 +1,7 @@
 @{
     SchemaVersion = 1
     Name = 'multi-platform'
-    TargetPlatforms = @('Claude', 'Codex', 'OpenCode')
+    TargetPlatforms = @('Claude', 'Codex')
     Extends = @('base')
 
     Components = @{
@@ -12,8 +12,6 @@
         ClaudeSettings = @()
         CodexAgents = @('review-prompt', 'codex-reviewer')
         McpTemplates = @()
-        OpenCodeCommands = @('opencode-commit-command')
-        OpenCodeAgents = @('opencode-reviewer')
     }
 
     Future = @{

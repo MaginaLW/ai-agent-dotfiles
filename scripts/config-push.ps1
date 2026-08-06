@@ -37,9 +37,7 @@
       * Per-platform ExcludedItems + CommonExcludedItems are skipped, so credentials,
         sessions, caches, history and other machine-private files are never captured.
 
-    Scope defaults to Claude and Codex. OpenCode is a peer harness target and can be
-    selected explicitly; its main opencode.json(c) remains excluded because it may
-    contain provider, MCP, file, or machine-specific settings.
+    Scope defaults to Claude and Codex.
 
 .PARAMETER Apply
     Actually perform the capture. Without it the script is a pure dry-run.
@@ -51,7 +49,7 @@
     Home directory root for resolving live config paths. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, OpenCode. Defaults to Claude, Codex.
+    One or more of Claude, Codex. Defaults to Claude, Codex.
 
 .PARAMETER BackupRoot
     Root for the revert stage created by -Apply. Defaults to
@@ -70,7 +68,7 @@ param(
     [switch] $Apply,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex', 'OpenCode')]
+    [ValidateSet('Claude', 'Codex', 'Reasonix')]
     [string[]] $Platform = @('Claude', 'Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipSecretScan,

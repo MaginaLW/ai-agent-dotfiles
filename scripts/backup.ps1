@@ -1,13 +1,13 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Back up the live Claude, Codex, and OpenCode skill directories to a timestamped
+    Back up the live Claude and Codex skill directories to a timestamped
     folder outside the repository.
 
 .DESCRIPTION
     Creates <BackupRoot>\sync-backup-YYYYMMDD-HHMMSS\ containing claude-skills\,
     codex-skills\ (a FULL copy including Codex's platform-managed .system),
-    opencode-skills\ and the full Codex skill tree including .system.
+    the full Codex skill tree including .system.
     Missing live directories are recorded with a .MISSING.txt marker rather than
     failing. Uses robocopy /E (never /MIR) into a fresh folder.
 
@@ -105,10 +105,10 @@ $backupDir = Join-Path $BackupRoot "sync-backup-$timestamp"
 $claudeBackup = Join-Path $backupDir 'claude-skills'
 $codexBackup = Join-Path $backupDir 'codex-skills'
 
-# OpenCode live skills
-$opencodeSkillsLive = Join-Path $HomeRoot '.config\opencode\skills'
-$opencodeSkillsStats = Get-DirStats -Path $opencodeSkillsLive
-$opencodeSkillsBackup = Join-Path $backupDir 'opencode-skills'
+# Reasonix live skills
+$reasonixSkillsLive = Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills'
+$reasonixSkillsStats = Get-DirStats -Path $reasonixSkillsLive
+$reasonixSkillsBackup = Join-Path $backupDir 'reasonix-skills'
 
 Write-Host '=== backup.ps1 ==='
 Write-Host "Mode            : $(if ($DryRun) { 'DRY-RUN (no changes)' } else { 'APPLY' })"
@@ -118,7 +118,8 @@ Write-Host "Backup dir      : $backupDir"
 Write-Host "Claude live     : $claudeLive (exists=$($claudeStats.Exists), skillDirs=$($claudeStats.SkillDirs), files=$($claudeStats.Files))"
 Write-Host "Codex live      : $codexLive (exists=$($codexStats.Exists), skillDirs=$($codexStats.SkillDirs), files=$($codexStats.Files))"
 Write-Host "Codex .system   : marker exists=$codexSystemMarkerExists (included in full backup)"
-Write-Host "OpenCode live   : $opencodeSkillsLive (exists=$($opencodeSkillsStats.Exists), skillDirs=$($opencodeSkillsStats.SkillDirs), files=$($opencodeSkillsStats.Files))"
+
+Write-Host "Reasonix live   : $reasonixSkillsLive (exists=$($reasonixSkillsStats.Exists), skillDirs=$($reasonixSkillsStats.SkillDirs), files=$($reasonixSkillsStats.Files))"
 
 # ---------------------------------------------------------------------------
 # Refuse to write a backup inside the repository
@@ -144,10 +145,10 @@ if ($DryRun) {
     } else {
         Write-Host "  would mark  $codexLive MISSING (codex-skills.MISSING.txt)"
     }
-    if ($opencodeSkillsStats.Exists) {
-        Write-Host "  would copy  $opencodeSkillsLive  ->  $opencodeSkillsBackup"
+    if ($reasonixSkillsStats.Exists) {
+        Write-Host "  would copy  $reasonixSkillsLive  ->  $reasonixSkillsBackup"
     } else {
-        Write-Host "  would mark  $opencodeSkillsLive MISSING (opencode-skills.MISSING.txt)"
+        Write-Host "  would mark  $reasonixSkillsLive MISSING (reasonix-skills.MISSING.txt)"
     }
     Write-Host "  would write $backupDir\backup-manifest.json"
     Write-Host ''
@@ -179,13 +180,13 @@ if ($codexStats.Exists) {
     Write-Host "Codex live skills dir MISSING (recorded)."
 }
 
-if ($opencodeSkillsStats.Exists) {
-    Invoke-RobocopyTree -Source $opencodeSkillsLive -Destination $opencodeSkillsBackup | Out-Null
-    Write-Host "Backed up OpenCode skills -> $opencodeSkillsBackup"
+if ($reasonixSkillsStats.Exists) {
+    Invoke-RobocopyTree -Source $reasonixSkillsLive -Destination $reasonixSkillsBackup | Out-Null
+    Write-Host "Backed up Reasonix skills -> $reasonixSkillsBackup"
 } else {
-    $marker = Join-Path $backupDir 'opencode-skills.MISSING.txt'
-    Set-Content -LiteralPath $marker -Value "$opencodeSkillsLive did not exist at backup time ($timestamp)." -NoNewline
-    Write-Host "OpenCode live skills dir MISSING (recorded)."
+    $marker = Join-Path $backupDir 'reasonix-skills.MISSING.txt'
+    Set-Content -LiteralPath $marker -Value "$reasonixSkillsLive did not exist at backup time ($timestamp)." -NoNewline
+    Write-Host "Reasonix live skills dir MISSING (recorded)."
 }
 
 $manifest = [ordered] @{
@@ -195,24 +196,19 @@ $manifest = [ordered] @{
     source_live_paths = [ordered] @{
         claude = $claudeLive
         codex = $codexLive
-        opencode_skills = $opencodeSkillsLive
     }
     backup_target_paths = [ordered] @{
         claude = $claudeBackup
         codex = $codexBackup
-        opencode_skills = $opencodeSkillsBackup
     }
     claude_dir_existed = $claudeStats.Exists
     codex_dir_existed = $codexStats.Exists
     codex_system_marker_existed = $codexSystemMarkerExists
-    opencode_skills_dir_existed = $opencodeSkillsStats.Exists
     counts = [ordered] @{
         claude_skill_dirs = $claudeStats.SkillDirs
         claude_files = $claudeStats.Files
         codex_skill_dirs = $codexStats.SkillDirs
         codex_files = $codexStats.Files
-        opencode_skills_skill_dirs = $opencodeSkillsStats.SkillDirs
-        opencode_skills_files = $opencodeSkillsStats.Files
     }
     dry_run = $false
 }

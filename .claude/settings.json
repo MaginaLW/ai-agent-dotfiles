@@ -6,8 +6,6 @@
       "Write(claude/skills/**)",
       "Edit(codex/skills/**)",
       "Write(codex/skills/**)",
-      "Edit(opencode/skills/**)",
-      "Write(opencode/skills/**)",
       "Edit(**/.codex/skills/.system/**)",
       "Write(**/.codex/skills/.system/**)",
       "Bash(robocopy *)",

@@ -15,8 +15,8 @@
 |---|---|
 | **live skills** | 当前机器上被 Claude Code、Codex 或其它目标工具实际加载的 runtime skill 目录，例如 `~/.claude/skills`、`~/.codex/skills`、fallback `~/.agents/skills`。它们是部署目标，不是仓库真相来源。 |
 | **imports / skills inbox** | `imports/skills-inbox/<computername>/` 下按机器和工具暂存的原始导入副本。内容在扫描、分类、去重和合并前均视为不可信候选。 |
-| **skills-source** | `skills-source/shared/`、`claude-only/`、`codex-only/`、`opencode-only/` 的集合，是唯一允许手工维护和提交的 canonical source。 |
-| **generated output** | 由 `scripts/build-skills.ps1` 从 `skills-source/` 生成的 `claude/skills/`、`codex/skills/`、`opencode/skills/`。它们是可重建、Git-ignored 的派生物。 |
+| **skills-source** | `skills-source/shared/`、`claude-only/`、`codex-only/` 的集合，是唯一允许手工维护和提交的 canonical source。 |
+| **generated output** | 由 `scripts/build-skills.ps1` 从 `skills-source/` 生成的 `claude/skills/`、`codex/skills/`。它们是可重建、Git-ignored 的派生物。 |
 | **canonical version** | 某个规范化 skill 名称当前被接受的权威文件树。canonical 必须位于 `skills-source/`，通过 secret scan，并具有明确的平台归属。 |
 | **quarantine** | `imports/skills-quarantine/` 下的隔离区，用于保存不能安全自动采用的候选及其原因。隔离不是删除，也不是 canonical 候选的自动批准。 |
 | **unknown skill** | 存在于 live skills，但不在当前 generated output 且不在对应 managed manifest 中的目录。unknown 只报告和保留，不自动删除。 |
@@ -91,7 +91,7 @@
 - 最高优先级层只有一个不同 fingerprint，或该层所有候选 fingerprint 完全一致。
 - 所有必要入口文件存在且非空。
 - 不含 secret、私钥、机器状态、缓存、VPS/节点配置或未处理的绝对路径。
-- 平台分类为 shared、claude-only、codex-only 或 opencode-only 中唯一明确的一类。
+- 平台分类为 shared、claude-only 或 codex-only 中唯一明确的一类。
 - 没有同路径不同内容、未知二进制或无法解释的大文件。
 
 任何一项不满足时，结果 **必须**为 `CONFLICT` 或 `QUARANTINED`。
@@ -225,7 +225,7 @@ Agent 在处理一个 import batch 时 **必须**按以下顺序执行：
 
 ## 12. 当前脚本能力与政策差距
 
-当前脚本已经提供 tree SHA-256、`SKILL.md` SHA-256、文件数、大小、平台信号、secret/binary/path 信号、scan status、不可伪造的 modified-time 标记、quality score（仅用于报告）、分析报告、dry-run、manifest-scoped prune、unknown 报告和 `.system` 保护。Phase 1 的 inventory、analysis、merge、promote、normalize 已覆盖 Claude、Codex 和 OpenCode（skills 目录范围）。
+当前脚本已经提供 tree SHA-256、`SKILL.md` SHA-256、文件数、大小、平台信号、secret/binary/path 信号、scan status、不可伪造的 modified-time 标记、quality score（仅用于报告）、分析报告、dry-run、manifest-scoped prune、unknown 报告和 `.system` 保护。Phase 1 的 inventory、analysis、merge、promote、normalize 已覆盖 Claude 和 Codex（skills 目录范围）。
 
 以下限制 **必须**被 agent 明确处理：
 

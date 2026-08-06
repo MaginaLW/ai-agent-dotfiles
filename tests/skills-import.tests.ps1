@@ -62,7 +62,7 @@ function New-Skill {
 function New-Repo {
     param([string] $Name)
     $repo = Join-Path $work $Name
-    foreach ($relative in @('imports/skills-inbox','imports/skills-reports','skills-source/shared','skills-source/claude-only','skills-source/codex-only','skills-source/opencode-only')) {
+    foreach ($relative in @('imports/skills-inbox','imports/skills-reports','skills-source/shared','skills-source/claude-only','skills-source/codex-only','skills-source/reasonix-only')) {
         New-Item -ItemType Directory -Force -Path (Join-Path $repo $relative) | Out-Null
     }
     return $repo
@@ -88,7 +88,7 @@ try {
     New-Skill -Path (Join-Path $preferredHome '.codex/skills/preferred-skill')
     New-Skill -Path (Join-Path $preferredHome '.agents/skills/fallback-skill')
     New-Skill -Path (Join-Path $preferredHome '.codex/skills/.system') -Name 'system'
-    New-Skill -Path (Join-Path $preferredHome '.config/opencode/skills/opencode-skill')
+    New-Skill -Path (Join-Path $preferredHome 'AppData/Roaming/reasonix/skills/reasonix-skill')
 
     $r = Invoke-Script -Script $inventoryScript -Arguments @('-RepoRoot', $inventoryRepo, '-HomeRoot', $preferredHome, '-MachineId', 'test-machine')
     $inventory = Get-JsonReport -Path (Join-Path $inventoryRepo 'imports/skills-reports/test-machine-inventory.json')
@@ -96,10 +96,10 @@ try {
     Assert ($inventory.codex_selection.selection -eq 'preferred' -and $inventory.codex_selection.selected_path -eq '.codex/skills') 'inventory: Codex prefers .codex/skills'
     Assert (@($inventory.records | Where-Object { $_.normalized_name -eq 'fallback-skill' }).Count -eq 0) 'inventory: fallback is not scanned when preferred exists'
     Assert (@($inventory.records | Where-Object { $_.normalized_name -eq 'system' }).Count -eq 0) 'inventory: Codex .system is excluded'
-    $openRecord = @($inventory.records | Where-Object { $_.source_tool -eq 'opencode' })[0]
-    Assert ($null -ne $openRecord -and $openRecord.classification -eq 'opencode-only') 'inventory: OpenCode record is auditable and classified'
-    Assert ($null -ne $openRecord.scan_status -and $openRecord.modified_time_utc -eq 'not-collected' -and $openRecord.sha256_tree_hash) 'record: scan status, no fabricated mtime, and fingerprints are present'
-    Assert ($null -ne $openRecord.platform_signals -and $null -ne $openRecord.possible_binary_findings) 'record: platform and binary/path/secret finding fields are present'
+    $reasonixRecord = @($inventory.records | Where-Object { $_.source_tool -eq 'reasonix' })[0]
+    Assert ($null -ne $reasonixRecord -and $reasonixRecord.classification -eq 'reasonix-only') 'inventory: Reasonix record is auditable and classified'
+    Assert ($null -ne $reasonixRecord.scan_status -and $reasonixRecord.modified_time_utc -eq 'not-collected' -and $reasonixRecord.sha256_tree_hash) 'record: scan status, no fabricated mtime, and fingerprints are present'
+    Assert ($null -ne $reasonixRecord.platform_signals -and $null -ne $reasonixRecord.possible_binary_findings) 'record: platform and binary/path/secret finding fields are present'
 
     $fallbackRepo = New-Repo 'fallback-repo'
     $fallbackHome = Join-Path $work 'home-fallback'
@@ -115,7 +115,7 @@ try {
 
     $r = Invoke-Script -Script $analysisScript -Arguments @('-RepoRoot', $inventoryRepo)
     $analysis = Get-JsonReport -Path (Join-Path $inventoryRepo 'imports/skills-reports/skills-analysis.json')
-    Assert ($r.Code -eq 0 -and $analysis.opencode_source_skill_count -gt 0) 'analysis: OpenCode source is included'
+    Assert ($r.Code -eq 0 -and $analysis.reasonix_source_skill_count -gt 0) 'analysis: Reasonix source is included'
 
     Write-Host "`n[merge decisions]" -ForegroundColor Cyan
     $exactRepo = New-Repo 'exact-repo'
@@ -186,15 +186,13 @@ try {
     Assert ($r.Code -eq 0 -and $secretDecision.status -eq 'QUARANTINED' -and ($secretReport.quarantined[0].reason_codes -contains 'possible-secret')) 'merge: secret finding is quarantined with a reason code'
     Assert ($secretReportText -notmatch [regex]::Escape($fakeToken)) 'merge: secret value is absent from the report'
 
-    Write-Host "`n[OpenCode normalize/promote surface]" -ForegroundColor Cyan
-    $openRepo = New-Repo 'opencode-normalize-repo'
-    $openInput = Join-Path $work 'opencode-input'
-    New-Skill -Path $openInput -Body "## Steps`n`n- OpenCode workflow.`n"
-    $openOutput = Join-Path $openRepo 'skills-source/opencode-only/opencode-normalized'
-    $r = Invoke-Script -Script $normalizeScript -Arguments @('-RepoRoot', $openRepo, '-InputSkillPath', $openInput, '-OutputSkillPath', $openOutput, '-TargetType', 'opencode-only')
-    Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $openOutput 'SKILL.md'))) 'normalize: opencode-only target is supported'
-    $r = Invoke-Script -Script $promoteScript -Arguments @('-RepoRoot', $openRepo, '-InputSkillPath', $openInput, '-TargetType', 'opencode-only', '-DryRun')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'opencode-only') 'promote: opencode-only dry-run is supported'
+    $rxRepo = New-Repo 'reasonix-normalize-repo'
+    $rxInput = Join-Path $work 'reasonix-input'
+    New-Skill -Path $rxInput -Body "## Steps`n`n- Reasonix workflow.`n"
+    $rxOutput = Join-Path $rxRepo 'skills-source/reasonix-only/reasonix-normalized'
+    $r = Invoke-Script -Script $normalizeScript -Arguments @('-RepoRoot', $rxRepo, '-InputSkillPath', $rxInput, '-OutputSkillPath', $rxOutput, '-TargetType', 'reasonix-only')
+    Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $rxOutput 'SKILL.md'))) 'normalize: reasonix-only target is supported'
+
 }
 catch {
     $script:fail++

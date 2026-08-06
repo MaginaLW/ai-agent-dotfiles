@@ -57,11 +57,11 @@ $ErrorActionPreference = 'Stop'
 function Get-HarnessEnvLiveSkillRoot {
     param(
         [Parameter(Mandatory)] [string] $HomeRootValue,
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $Platform
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $Platform
     )
 
     if ($Platform -eq 'Claude') { return Join-Path $HomeRootValue '.claude/skills' }
-    if ($Platform -eq 'OpenCode') { return Join-Path $HomeRootValue '.config/opencode/skills' }
+    if ($Platform -eq 'Reasonix') { return Join-Path $HomeRootValue 'AppData/Roaming/reasonix/skills' }
     $preferred = Join-Path $HomeRootValue '.codex/skills'
     $fallback = Join-Path $HomeRootValue '.agents/skills'
     if (Test-Path -LiteralPath $preferred -PathType Container) { return $preferred }
@@ -88,7 +88,7 @@ function Get-HarnessEnvLiveParity {
         return [pscustomobject]@{ Status = 'not-checked'; Mismatches = @('staging-missing') }
     }
 
-    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
         $key = $platform.ToLowerInvariant()
         $stagedRoot = Join-Path $StagingPath "$key/skills"
             $liveRoot = Get-HarnessEnvLiveSkillRoot -HomeRootValue $HomeRoot -Platform $platform

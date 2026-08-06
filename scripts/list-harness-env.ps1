@@ -57,6 +57,7 @@ foreach ($file in $definitionFiles) {
     $profileName = ''
     $claudeCount = 0
     $codexCount = 0
+    $reasonixCount = 0
     $status = 'ok'
 
     try {
@@ -71,6 +72,9 @@ foreach ($file in $definitionFiles) {
         if ($definition.Skills.ContainsKey('Codex')) {
             $codexCount = @($definition.Skills.Codex).Count
         }
+        if ($definition.Skills.ContainsKey('Reasonix')) {
+            $reasonixCount = @($definition.Skills.Reasonix).Count
+        }
         $null = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $definition
     }
     catch {
@@ -80,8 +84,8 @@ foreach ($file in $definitionFiles) {
     }
 
     $marker = if ($null -ne $activeName -and $name -ieq $activeName) { '*' } else { ' ' }
-    $line = '{0} {1} profile={2} claude={3} codex={4}  {5}' -f `
-        $marker, $name.PadRight(12), $profileName.PadRight(10), $claudeCount, $codexCount, $status
+    $line = '{0} {1} profile={2} claude={3} codex={4} reasonix={5}  {6}' -f `
+        $marker, $name.PadRight(12), $profileName.PadRight(10), $claudeCount, $codexCount, $reasonixCount, $status
     if (-not [string]::IsNullOrWhiteSpace($description)) {
         $line += "  $description"
     }
@@ -92,6 +96,7 @@ foreach ($file in $definitionFiles) {
             Profile = $profileName
             ClaudeSkillCount = $claudeCount
             CodexSkillCount = $codexCount
+            ReasonixSkillCount = $reasonixCount
             Status = if ($status -eq 'ok') { 'ok' } else { 'invalid' }
             StatusDetail = if ($status -eq 'ok') { $null } else { 'validation-failed' }
             Active = ($null -ne $activeName -and $name -ieq $activeName)

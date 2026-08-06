@@ -16,6 +16,10 @@
             'code-review',
             'writing-plans'
         )
+        Reasonix = @(
+            'git-review',
+            'systematic-debugging'
+        )
     }
 
     McpTemplates = @('github')

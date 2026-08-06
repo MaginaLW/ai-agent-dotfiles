@@ -1,7 +1,7 @@
 #requires -Version 7.0
 <#!
 .SYNOPSIS
-    Restore the managed Claude/Codex/OpenCode skills and previous environment state from
+    Restore the managed Claude/Codex skills and previous environment state from
     one explicitly selected harness activation backup.
 
 .DESCRIPTION
@@ -67,10 +67,10 @@ function Assert-SafeSkillName {
 function Get-LiveRoot {
     param(
         [Parameter(Mandatory)] [string] $HomeRootValue,
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'OpenCode')] [string] $Platform
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $Platform
     )
     if ($Platform -eq 'Claude') { return Join-Path $HomeRootValue '.claude/skills' }
-    if ($Platform -eq 'OpenCode') { return Join-Path $HomeRootValue '.config/opencode/skills' }
+    if ($Platform -eq 'Reasonix') { return Join-Path $HomeRootValue 'AppData/Roaming/reasonix/skills' }
     $preferred = Join-Path $HomeRootValue '.codex/skills'
     $fallback = Join-Path $HomeRootValue '.agents/skills'
     if (Test-Path -LiteralPath $preferred -PathType Container) { return $preferred }
@@ -112,7 +112,7 @@ function Get-BackupSkillRoot {
     $name = switch ($Platform) {
         'Claude' { 'claude-skills' }
         'Codex' { 'codex-skills' }
-        'OpenCode' { 'opencode-skills' }
+        'Reasonix' { 'reasonix-skills' }
     }
     return Join-Path $BackupPath $name
 }
@@ -147,7 +147,7 @@ function Get-RollbackPlan {
     }
 
     $actions = [System.Collections.Generic.List[object]]::new()
-    foreach ($platform in @('Claude', 'Codex', 'OpenCode')) {
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
         $manifestPath = Join-Path $Repo "manifests/managed-skills.$($platform.ToLowerInvariant()).txt"
         $managed = Read-ManagedNames -Path $manifestPath
         $backupRoot = Get-BackupSkillRoot -BackupPath $Backup -Platform $platform

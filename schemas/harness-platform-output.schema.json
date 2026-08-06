@@ -6,9 +6,7 @@
     { "$ref": "#/$defs/claudeCommand" },
     { "$ref": "#/$defs/claudeAgent" },
     { "$ref": "#/$defs/codexPrompt" },
-    { "$ref": "#/$defs/codexAgent" },
-    { "$ref": "#/$defs/openCodeCommand" },
-    { "$ref": "#/$defs/openCodeAgent" }
+    { "$ref": "#/$defs/codexAgent" }
   ],
   "$defs": {
     "directoryFile": {
@@ -43,18 +41,6 @@
       "allOf": [
         { "$ref": "#/$defs/directoryFile" },
         { "properties": { "Target": { "pattern": "^\\.codex/agents/[^/]+$" } } }
-      ]
-    },
-    "openCodeCommand": {
-      "allOf": [
-        { "$ref": "#/$defs/directoryFile" },
-        { "properties": { "Target": { "pattern": "^\\.opencode/commands/[^/]+$" } } }
-      ]
-    },
-    "openCodeAgent": {
-      "allOf": [
-        { "$ref": "#/$defs/directoryFile" },
-        { "properties": { "Target": { "pattern": "^\\.opencode/agents/[^/]+$" } } }
       ]
     }
   }

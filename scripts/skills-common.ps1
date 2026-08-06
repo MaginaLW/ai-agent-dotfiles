@@ -45,7 +45,7 @@ function Get-PlatformSkillSources {
         [Parameter(Mandatory)] [string] $HomeRoot,
         [switch] $IncludeClaude,
         [switch] $IncludeCodex,
-        [switch] $IncludeOpenCode
+        [switch] $IncludeReasonix
     )
 
     $sources = [System.Collections.Generic.List[object]]::new()
@@ -68,13 +68,13 @@ function Get-PlatformSkillSources {
             RelativePath = $codex.RelativePath
         })
     }
-    if ($IncludeOpenCode) {
+    if ($IncludeReasonix) {
         $sources.Add([pscustomobject] @{
-            Tool = 'opencode'
-            PreferredPlatform = 'opencode-only'
-            Path = Join-Path $HomeRoot '.config/opencode/skills'
+            Tool = 'reasonix'
+            PreferredPlatform = 'reasonix-only'
+            Path = Join-Path $HomeRoot 'AppData/Roaming/reasonix/skills'
             Selection = 'fixed'
-            RelativePath = '.config/opencode/skills'
+            RelativePath = 'AppData/Roaming/reasonix/skills'
         })
     }
     return @($sources)
@@ -311,7 +311,7 @@ function Get-PortableSkillPath {
     }
 
     $normalized = $fullPath -replace '\\', '/'
-    if ($normalized -match '(?i)(/\.claude/.*|/\.codex/.*|/\.agents/.*|/\.config/opencode/.*)$') {
+    if ($normalized -match '(?i)(/\.claude/.*|/\.codex/.*|/\.agents/.*|/AppData/Roaming/reasonix/.*)$') {
         return '<HomeRoot>' + $Matches[1]
     }
     return '<external>/' + (Split-Path -Leaf $fullPath)
@@ -325,7 +325,7 @@ function Get-SkillSignals {
 
     $claudeFeatures = [System.Collections.Generic.List[string]]::new()
     $codexFeatures = [System.Collections.Generic.List[string]]::new()
-    $openCodeFeatures = [System.Collections.Generic.List[string]]::new()
+    $reasonixFeatures = [System.Collections.Generic.List[string]]::new()
     $localPaths = [System.Collections.Generic.List[object]]::new()
     $secretFindings = [System.Collections.Generic.List[object]]::new()
     $binaryFindings = [System.Collections.Generic.List[object]]::new()
@@ -345,9 +345,9 @@ function Get-SkillSignals {
         'codex-ui-metadata' = '(?i)codex ui metadata'
         'codex-tool-dependency' = '(?i)codex-specific tool dependencies'
     }
-    $openCodePatterns = [ordered] @{
-        'opencode-skill-root' = '(?i)[/\\](?:\.opencode|\.config[/\\]opencode)[/\\](?:skills[/\\])?'
-        'opencode-reference' = '(?i)\bOpenCode\b|\bOpenCode skill\b'
+    $reasonixPatterns = [ordered] @{
+        'reasonix-skill-root' = '(?i)[/\\](?:AppData[/\\]Roaming[/\\]reasonix|\.reasonix)[/\\](?:skills[/\\])?'
+        'reasonix-reference' = '(?i)\bReasonix\b|\breasonix\b'
     }
     $secretPatterns = [ordered] @{
         'Anthropic API key' = 'sk-ant-[A-Za-z0-9_-]{20,}'
@@ -389,9 +389,9 @@ function Get-SkillSignals {
                 $codexFeatures.Add($entry.Key)
             }
         }
-        foreach ($entry in $openCodePatterns.GetEnumerator()) {
-            if (($text -match $entry.Value -or ($file.FullName -match $entry.Value)) -and -not $openCodeFeatures.Contains($entry.Key)) {
-                $openCodeFeatures.Add($entry.Key)
+        foreach ($entry in $reasonixPatterns.GetEnumerator()) {
+            if (($text -match $entry.Value -or ($file.FullName -match $entry.Value)) -and -not $reasonixFeatures.Contains($entry.Key)) {
+                $reasonixFeatures.Add($entry.Key)
             }
         }
         foreach ($entry in $localPathPatterns.GetEnumerator()) {
@@ -435,7 +435,7 @@ function Get-SkillSignals {
     return [pscustomobject] @{
         ClaudeFeatures = @($claudeFeatures | Sort-Object -Unique)
         CodexFeatures = @($codexFeatures | Sort-Object -Unique)
-        OpenCodeFeatures = @($openCodeFeatures | Sort-Object -Unique)
+        ReasonixFeatures = @($reasonixFeatures | Sort-Object -Unique)
         LocalPathFindings = @($localPaths)
         SecretFindings = @($secretFindings)
         BinaryFindings = @($binaryFindings)
@@ -464,7 +464,6 @@ function Get-SkillRecord {
     $platformSignals = [pscustomobject] @{
         claude = @($signals.ClaudeFeatures)
         codex = @($signals.CodexFeatures)
-        opencode = @($signals.OpenCodeFeatures)
     }
 
     return [pscustomobject] @{
@@ -483,7 +482,7 @@ function Get-SkillRecord {
         total_size = [int64] (($files | Measure-Object -Property Length -Sum).Sum ?? 0)
         sha256_of_skill_md = Get-FileSha256 -Path $skillMd
         sha256_tree_hash = Get-TreeHash -Path $SkillPath
-        possible_platform_specific_features = @($signals.ClaudeFeatures + $signals.CodexFeatures + $signals.OpenCodeFeatures | Sort-Object -Unique)
+        possible_platform_specific_features = @($signals.ClaudeFeatures + $signals.CodexFeatures + $signals.ReasonixFeatures | Sort-Object -Unique)
         platform_signals = $platformSignals
         possible_secret_findings = @($signals.SecretFindings)
         possible_local_path_findings = @($signals.LocalPathFindings)
@@ -594,12 +593,12 @@ function Get-SkillClassification {
 
     $hasClaude = @($Signals.ClaudeFeatures).Count -gt 0
     $hasCodex = @($Signals.CodexFeatures).Count -gt 0
-    $hasOpenCode = @($Signals.OpenCodeFeatures).Count -gt 0
+    $hasReasonix = @($Signals.ReasonixFeatures).Count -gt 0
     if ($hasClaude -and $hasCodex) {
         return 'quarantine'
     }
-    if (($hasOpenCode -and ($hasClaude -or $hasCodex)) -or
-        ($PreferredPlatform -eq 'opencode-only' -and ($hasClaude -or $hasCodex))) {
+    if (($hasReasonix -and ($hasClaude -or $hasCodex)) -or
+        ($PreferredPlatform -eq 'reasonix-only' -and ($hasClaude -or $hasCodex))) {
         return 'quarantine'
     }
     if ($hasClaude) {
@@ -608,8 +607,8 @@ function Get-SkillClassification {
     if ($hasCodex) {
         return 'codex-only'
     }
-    if ($hasOpenCode -or $PreferredPlatform -eq 'opencode-only') {
-        return 'opencode-only'
+    if ($hasReasonix) {
+        return 'reasonix-only'
     }
     return 'shared'
 }
@@ -646,7 +645,7 @@ function Normalize-SkillDirectory {
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $InputSkillPath,
         [Parameter(Mandatory)] [string] $OutputSkillPath,
-        [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'opencode-only')] [string] $TargetType
+        [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'reasonix-only')] [string] $TargetType
     )
 
     Assert-PathUnderRoot -Root $RepoRoot -Path $OutputSkillPath
@@ -664,20 +663,16 @@ function Normalize-SkillDirectory {
     if (@($signals.ClaudeFeatures).Count -gt 0 -and @($signals.CodexFeatures).Count -gt 0) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-conflict'; Rewrites = @() }
     }
-    if ($TargetType -eq 'shared' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0 -or @($signals.OpenCodeFeatures).Count -gt 0)) {
+    if ($TargetType -eq 'shared' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0)) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
-    if ($TargetType -eq 'claude-only' -and (@($signals.CodexFeatures).Count -gt 0 -or @($signals.OpenCodeFeatures).Count -gt 0)) {
+    if ($TargetType -eq 'claude-only' -and (@($signals.CodexFeatures).Count -gt 0)) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
-    if ($TargetType -eq 'codex-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.OpenCodeFeatures).Count -gt 0)) {
+    if ($TargetType -eq 'codex-only' -and (@($signals.ClaudeFeatures).Count -gt 0)) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
-    if ($TargetType -eq 'opencode-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0)) {
-        return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
-    }
-
-    if (Test-Path -LiteralPath $OutputSkillPath) {
+    if ($TargetType -eq 'reasonix-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0)) {
         Remove-Item -LiteralPath $OutputSkillPath -Recurse -Force
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $OutputSkillPath) | Out-Null

@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory)] [string] $MachineId,
     [switch] $IncludeClaude,
     [switch] $IncludeCodex,
-    [switch] $IncludeOpenCode,
+    [switch] $IncludeReasonix,
     [switch] $DryRun
 )
 
@@ -22,10 +22,10 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 $RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
 $HomeRoot = [System.IO.Path]::GetFullPath($HomeRoot)
 $safeMachineId = ConvertTo-KebabName -Name $MachineId
-if (-not $IncludeClaude -and -not $IncludeCodex -and -not $IncludeOpenCode) {
+if (-not $IncludeClaude -and -not $IncludeCodex -and -not $IncludeReasonix) {
     $IncludeClaude = $true
     $IncludeCodex = $true
-    $IncludeOpenCode = $true
+    $IncludeReasonix = $true
 }
 
 $inboxMachineRoot = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "imports/skills-inbox/$safeMachineId"
@@ -44,7 +44,7 @@ if (-not $DryRun) {
     New-Item -ItemType Directory -Force -Path $inboxMachineRoot | Out-Null
 }
 
-$sources = @(Get-PlatformSkillSources -HomeRoot $HomeRoot -IncludeClaude:$IncludeClaude -IncludeCodex:$IncludeCodex -IncludeOpenCode:$IncludeOpenCode)
+$sources = @(Get-PlatformSkillSources -HomeRoot $HomeRoot -IncludeClaude:$IncludeClaude -IncludeCodex:$IncludeCodex -IncludeReasonix:$IncludeReasonix)
 $records = [System.Collections.Generic.List[object]]::new()
 $sourceSummary = [System.Collections.Generic.List[object]]::new()
 

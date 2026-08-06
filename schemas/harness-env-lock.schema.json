@@ -24,11 +24,11 @@
     "RepositoryCommit": { "type": ["string", "null"] },
     "ManifestHashes": {
       "type": "object",
-      "required": ["Claude", "Codex", "OpenCode"],
+      "required": ["Claude", "Codex", "Reasonix"],
       "properties": {
         "Claude": { "type": ["string", "null"] },
         "Codex": { "type": ["string", "null"] },
-        "OpenCode": { "type": ["string", "null"] }
+        "Reasonix": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     },
@@ -36,21 +36,21 @@
     "McpTemplateHashes": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" } },
     "SkillSourceHashes": {
       "type": "object",
-      "required": ["Claude", "Codex", "OpenCode"],
+      "required": ["Claude", "Codex", "Reasonix"],
       "properties": {
         "Claude": { "$ref": "#/$defs/hashMap" },
         "Codex": { "$ref": "#/$defs/hashMap" },
-        "OpenCode": { "$ref": "#/$defs/hashMap" }
+        "Reasonix": { "$ref": "#/$defs/hashMap" }
       },
       "additionalProperties": false
     },
     "StagedSkillTreeHashes": {
       "type": "object",
-      "required": ["Claude", "Codex", "OpenCode"],
+      "required": ["Claude", "Codex", "Reasonix"],
       "properties": {
         "Claude": { "$ref": "#/$defs/hashMap" },
         "Codex": { "$ref": "#/$defs/hashMap" },
-        "OpenCode": { "$ref": "#/$defs/hashMap" }
+        "Reasonix": { "$ref": "#/$defs/hashMap" }
       },
       "additionalProperties": false
     },
@@ -59,11 +59,11 @@
     "TaskOverlayHash": { "type": ["string", "null"] },
     "TaskOverlaySkills": {
       "type": "object",
-      "required": ["Claude", "Codex", "OpenCode"],
+      "required": ["Claude", "Codex", "Reasonix"],
       "properties": {
         "Claude": { "type": "array", "items": { "type": "string" } },
         "Codex": { "type": "array", "items": { "type": "string" } },
-        "OpenCode": { "type": "array", "items": { "type": "string" } }
+        "Reasonix": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },

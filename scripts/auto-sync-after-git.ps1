@@ -23,7 +23,7 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $relevantPathspecs = @(
     'skills-source',
     'manifests/managed-skills.txt',
-    'manifests/managed-skills.opencode.txt',
+    'manifests/managed-skills.reasonix.txt',
     'scripts/build-skills.ps1',
     'scripts/sync.ps1',
     'scripts/scan-secrets.ps1',
