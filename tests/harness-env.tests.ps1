@@ -75,7 +75,6 @@ function New-EnvDefinitionText {
         [string[]] $ClaudeSkills = @(),
         [string[]] $CodexSkills = @(),
         [string[]] $ReasonixSkills = @(),
-        [string[]] $McpTemplates = @(),
         [string] $ExtraLine = ''
     )
     function Join-Psd1Array([string[]] $Values) {
@@ -93,7 +92,6 @@ function New-EnvDefinitionText {
         Codex = $(Join-Psd1Array $CodexSkills)
         Reasonix = $(Join-Psd1Array $ReasonixSkills)
     }
-    McpTemplates = $(Join-Psd1Array $McpTemplates)
 $ExtraLine
 }
 "@
@@ -133,7 +131,7 @@ foreach ($skill in @('fixture-a', 'fixture-b')) {
 
 $envRoot = Join-Path $fakeRepo 'harness-source/envs'
 $goodDefinitionPath = Join-Path $envRoot 'good.psd1'
-Set-File -Path $goodDefinitionPath -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-b', 'fixture-a') -CodexSkills @('fixture-a') -ReasonixSkills @('fixture-a') -McpTemplates @('github'))
+Set-File -Path $goodDefinitionPath -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-b', 'fixture-a') -CodexSkills @('fixture-a') -ReasonixSkills @('fixture-a'))
 
 $goodStaging = Join-Path $fakeRepo 'envs/good'
 $statePath = Join-Path $fakeRepo 'state/current-env.json'
@@ -154,6 +152,7 @@ $badCases = @(
     @{ Label = 'name/filename mismatch'; File = 'wrongname.psd1'; Text = (New-EnvDefinitionText -Name 'other' -ClaudeSkills @('fixture-a')) }
     @{ Label = 'unknown profile'; File = 'badprofile.psd1'; Text = (New-EnvDefinitionText -Name 'badprofile' -EnvProfile 'no-such-profile' -ClaudeSkills @('fixture-a')) }
     @{ Label = 'unmanaged skill'; File = 'badskill.psd1'; Text = (New-EnvDefinitionText -Name 'badskill' -ClaudeSkills @('not-managed')) }
+    @{ Label = 'retired MCP template field'; File = 'badmcp.psd1'; Text = (New-EnvDefinitionText -Name 'badmcp' -ClaudeSkills @('fixture-a') -ExtraLine '    McpTemplates = @()') }
     @{ Label = 'unsupported SchemaVersion'; File = 'badschema.psd1'; Text = (New-EnvDefinitionText -Name 'badschema' -SchemaVersion '2' -ClaudeSkills @('fixture-a')) }
 )
 foreach ($case in $badCases) {
@@ -181,6 +180,20 @@ $result = Invoke-Script -Script $buildScript -ScriptArgs @('-Name', 'ghost', '-R
 Assert ($result.Code -ne 0) 'build fails for an unknown env'
 Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'envs/ghost'))) 'unknown env build writes no staging'
 
+# Exercise all three task-overlay arrays in the lock contract. The overlay
+# targets only the good environment and is ignored by later small-env builds.
+Set-File -Path (Join-Path $fakeRepo '.agent-harness/task-skills.psd1') -Content @"
+@{
+    SchemaVersion = 1
+    BaseEnv = 'good'
+    Skills = @{
+        Claude = @()
+        Codex = @()
+        Reasonix = @('fixture-b')
+    }
+}
+"@
+
 # --- 4. build success ---------------------------------------------------------
 Write-Host 'build: success'
 $result = Invoke-Script -Script $buildScript -ScriptArgs @('-Name', 'good', '-RepoRoot', $fakeRepo)
@@ -190,24 +203,30 @@ Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'claude/skills/fixture-b/
 Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'codex/skills/fixture-a/SKILL.md')) 'staging contains codex fixture-a'
 Assert (-not (Test-Path -LiteralPath (Join-Path $goodStaging 'codex/skills/fixture-b'))) 'staging omits unselected codex skill'
 Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'reasonix/skills/fixture-a/SKILL.md')) 'staging contains reasonix fixture-a'
+Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'reasonix/skills/fixture-b/SKILL.md')) 'staging contains the Reasonix task-overlay skill'
 $claudeManifest = (Get-Content -LiteralPath (Join-Path $goodStaging 'manifest.claude.txt') | Where-Object { $_ -ne '' })
 Assert (($claudeManifest -join ',') -eq 'fixture-a,fixture-b') 'claude manifest is sorted (definition listed b before a)'
 $codexManifest = (Get-Content -LiteralPath (Join-Path $goodStaging 'manifest.codex.txt') | Where-Object { $_ -ne '' })
 Assert (($codexManifest -join ',') -eq 'fixture-a') 'codex manifest matches the env definition'
 $reasonixManifest = (Get-Content -LiteralPath (Join-Path $goodStaging 'manifest.reasonix.txt') | Where-Object { $_ -ne '' })
-Assert (($reasonixManifest -join ',') -eq 'fixture-a') 'reasonix manifest matches the env definition'
+Assert (($reasonixManifest -join ',') -eq 'fixture-a,fixture-b') 'reasonix manifest includes the task overlay and remains sorted'
 $agentsGenerated = Join-Path $goodStaging 'profile/AGENTS.generated.md'
 Assert (Test-Path -LiteralPath $agentsGenerated) 'profile/AGENTS.generated.md rendered'
 Assert ((Get-Content -Raw -LiteralPath $agentsGenerated) -match '<!-- BEGIN AGENT-HARNESS: ') 'managed block markers present'
 Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'profile/claude-settings.generated.json')) 'profile settings fragment rendered'
-Assert (Test-Path -LiteralPath (Join-Path $goodStaging 'mcp/templates/github/template.psd1')) 'selected MCP template is staged'
 $lockPath = Join-Path $goodStaging 'env.lock.json'
 Assert (Test-Path -LiteralPath $lockPath) 'env.lock.json written'
 $lock = Get-Content -Raw -LiteralPath $lockPath | ConvertFrom-Json
 Assert ([string] $lock.Name -eq 'good') 'lock records the env name'
+Assert ([int] $lock.SchemaVersion -eq 3) 'lock uses schema version 3'
+Assert ($lock.PSObject.Properties.Name -contains 'TaskOverlayHash') 'lock records the task overlay hash contract'
+Assert ($lock.PSObject.Properties.Name -contains 'TaskOverlaySkills' -and
+    $lock.TaskOverlaySkills.PSObject.Properties.Name -contains 'Claude' -and
+    $lock.TaskOverlaySkills.PSObject.Properties.Name -contains 'Codex' -and
+    $lock.TaskOverlaySkills.PSObject.Properties.Name -contains 'Reasonix') 'lock records task overlay arrays for every platform'
+Assert (@($lock.TaskOverlaySkills.Reasonix) -contains 'fixture-b') 'lock records the actual Reasonix task overlay'
 $lockedFiles = @($lock.BuiltFiles.PSObject.Properties.Name)
 Assert ($lockedFiles.Count -gt 0 -and ($lockedFiles -notcontains 'env.lock.json')) 'lock covers built files but not itself'
-Assert ($lock.PSObject.Properties.Name -contains 'McpTemplateHashes' -and $lock.McpTemplateHashes.github) 'lock records MCP template hash'
 $stagedFiles = @(Get-ChildItem -LiteralPath $goodStaging -File -Recurse -Force |
         Where-Object { $_.Name -ne 'env.lock.json' })
 Assert ($lockedFiles.Count -eq $stagedFiles.Count) 'lock covers every staged file'

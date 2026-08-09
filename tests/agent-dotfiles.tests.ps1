@@ -58,8 +58,7 @@ foreach ($commandArgs in @(
     @('config', 'push', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome),
     @('profile', 'apply', '-RepoRoot', $RepoRoot, '-ProjectRoot', $RepoRoot),
     @('env', 'activate', 'work'),
-    @('env', 'rollback', '-RunId', 'missing'),
-    @('mcp', '-TemplateId', 'github')
+    @('env', 'rollback', '-RunId', 'missing')
 )) {
     $result = Invoke-Entry -Arguments $commandArgs
     Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') "rejects implicit apply: $($commandArgs[0]) $($commandArgs[1])"

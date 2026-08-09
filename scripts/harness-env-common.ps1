@@ -12,7 +12,6 @@
 Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'harness-profile-common.ps1')
-. (Join-Path $PSScriptRoot 'mcp-common.ps1')
 
 function Get-HarnessEnvRoot {
     [CmdletBinding()]
@@ -38,7 +37,7 @@ function Read-HarnessEnvDefinition {
 
     $data = Import-HarnessDataFile -Path $Path -Kind 'env definition' -RequiredKeys @('SchemaVersion', 'Name', 'Profile', 'Skills')
     Test-HarnessKnownKeys -Data $data -Kind 'env definition' -Path $Path -AllowedKeys @(
-        'SchemaVersion', 'Name', 'Description', 'Profile', 'Skills', 'McpTemplates'
+        'SchemaVersion', 'Name', 'Description', 'Profile', 'Skills'
     )
 
     $expectedName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
@@ -49,12 +48,6 @@ function Read-HarnessEnvDefinition {
         throw "Env definition Skills must be a hashtable: $Path"
     }
     Test-HarnessKnownKeys -Data $data.Skills -Kind 'env definition Skills' -Path $Path -AllowedKeys @('Claude', 'Codex', 'Reasonix')
-
-    if ($data.ContainsKey('McpTemplates')) {
-        foreach ($templateId in @($data.McpTemplates)) {
-            Test-McpSafeId -Value ([string]$templateId) -Label 'McpTemplates entry'
-        }
-    }
 
     return $data
 }
@@ -279,30 +272,12 @@ function Resolve-HarnessEnvDefinition {
         }
     }
 
-    $mcpTemplates = @(Get-HarnessEnvMcpTemplates -RepoRoot $repo -Definition $Definition)
-
     return [pscustomobject] @{
         Name             = $envName
         Profile          = $profileName
         ResolvedProfiles = $resolvedProfiles
         Definition       = $Definition
-        McpTemplates     = $mcpTemplates
     }
-}
-
-function Get-HarnessEnvMcpTemplates {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [string] $RepoRoot,
-        [Parameter(Mandatory)] [hashtable] $Definition
-    )
-
-    $ids = if ($Definition.ContainsKey('McpTemplates')) { @($Definition.McpTemplates | ForEach-Object { [string] $_ }) } else { @() }
-    $result = [System.Collections.Generic.List[object]]::new()
-    foreach ($id in $ids) {
-        $result.Add((Get-McpTemplate -RepoRoot $RepoRoot -TemplateId $id))
-    }
-    return @($result)
 }
 
 function Get-HarnessEnvStagingRoot {
@@ -489,12 +464,12 @@ function Read-HarnessEnvLock {
     catch {
         throw "Corrupt environment lock: $path ($($_.Exception.Message))"
     }
-    foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'RepositoryCommit', 'ManifestHashes', 'SkillSourceEvidence', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'BuiltFiles')) {
+    foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'TaskOverlayHash', 'TaskOverlaySkills', 'RepositoryCommit', 'ManifestHashes', 'SkillSourceEvidence', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'BuiltFiles')) {
         if ($null -eq $lock -or $lock.PSObject.Properties.Name -notcontains $required) {
             throw "Environment lock is missing required key '$required': $path"
         }
     }
-    if ([int] $lock.SchemaVersion -ne 2) {
+    if ([int] $lock.SchemaVersion -ne 3) {
         throw "Unsupported environment lock schema $($lock.SchemaVersion): $path"
     }
     return $lock

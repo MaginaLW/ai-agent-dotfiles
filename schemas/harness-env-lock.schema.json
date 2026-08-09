@@ -7,10 +7,11 @@
     "SchemaVersion",
     "Name",
     "DefinitionHash",
+    "TaskOverlayHash",
+    "TaskOverlaySkills",
     "RepositoryCommit",
     "ManifestHashes",
     "SkillSourceEvidence",
-    "McpTemplateHashes",
     "SkillSourceHashes",
     "StagedSkillTreeHashes",
     "ProfileSourceHash",
@@ -18,7 +19,7 @@
     "BuiltFiles"
   ],
   "properties": {
-    "SchemaVersion": { "const": 2 },
+    "SchemaVersion": { "const": 3 },
     "Name": { "type": "string", "minLength": 1 },
     "DefinitionHash": { "type": "string", "minLength": 1 },
     "RepositoryCommit": { "type": ["string", "null"] },
@@ -33,7 +34,6 @@
       "additionalProperties": false
     },
     "SkillSourceEvidence": { "enum": ["available", "not-collected"] },
-    "McpTemplateHashes": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" } },
     "SkillSourceHashes": {
       "type": "object",
       "required": ["Claude", "Codex", "Reasonix"],

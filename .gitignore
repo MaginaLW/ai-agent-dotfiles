@@ -73,7 +73,3 @@ imports/skills-archive/**
 !imports/skills-archive/README.md
 !imports/skills-reports/
 !imports/skills-reports/README.md
-package-lock.json
-package.json
-# Legacy manifest (OpenClaw retired)
-manifests/managed-skills.openclaw.txt

@@ -12,7 +12,6 @@
         Agents = @()
         ClaudeSettings = @()
         CodexAgents = @()
-        McpTemplates = @()
     }
 
     Future = @{

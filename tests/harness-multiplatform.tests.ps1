@@ -47,7 +47,6 @@ $profileText = @'
         Agents = @()
         ClaudeSettings = @()
         CodexAgents = @()
-        McpTemplates = @()
     }
     Future = @{ ProjectSkills = @() }
 }

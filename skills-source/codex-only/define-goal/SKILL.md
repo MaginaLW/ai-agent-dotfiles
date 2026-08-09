@@ -1,6 +1,6 @@
 ---
 name: define-goal
-description: Help the user define a concrete, measurable goal before starting work, especially when they ask to use the goal tool, create a goal, set an objective, clarify success criteria,...
+description: Use when the user explicitly asks to create or refine a measurable goal, set an objective, clarify success criteria, or use the goal tool.
 ---
 
 # Define Goal

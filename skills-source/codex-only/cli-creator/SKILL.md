@@ -1,6 +1,6 @@
 ---
 name: cli-creator
-description: Build a composable CLI for Codex from API docs, an OpenAPI spec, existing curl examples, an SDK, a web app, an admin tool, or a local script. Use when the user wants Codex to cr...
+description: Build a composable CLI from API docs, OpenAPI specs, curl examples, SDKs, web apps, admin tools, or local scripts. Use when Codex should create a reusable command-line interface.
 ---
 
 # CLI Creator

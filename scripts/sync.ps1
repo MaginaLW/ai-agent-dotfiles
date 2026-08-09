@@ -14,8 +14,9 @@
       * Never whole-dir mirror (no robocopy /MIR) against a live skills root.
       * Never touch Codex's platform-managed .system directory.
       * Prune only removes skill dirs whose name is in the platform's managed-skills
-        manifest AND no longer present in the generated output. Unknown live dirs
-        are reported only.
+        manifest, or is explicitly authorized by a reviewed one-shot retirement
+        manifest, AND is no longer present in the generated output. Other unknown
+        live dirs are reported only.
       * -Apply always runs build + secret scan + a backup first; all must pass.
 
 .PARAMETER Apply
@@ -45,6 +46,14 @@
     the plan and its SHA-256 fingerprint are written to this path. When supplied
     on -Apply, the current plan must match the saved fingerprint before any live
     changes are made.
+
+.PARAMETER RetireManifestPath
+    Optional path to a one-shot JSON retirement manifest. This is the explicit
+    deletion authority for reviewed skills that were removed from both generated
+    output and the current managed manifests. Its exact bytes and per-platform
+    names are bound into the dry-run plan fingerprint, so the same unchanged file
+    must be supplied again on -Apply. It never grants authority over .system or a
+    skill that is still present in generated output/current manifests.
 #>
 [CmdletBinding()]
 param(
@@ -56,7 +65,8 @@ param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
     [string] $ReasonixLiveSkillsPath,
-    [string] $PlanPath
+    [string] $PlanPath,
+    [string] $RetireManifestPath
 )
 
 Set-StrictMode -Version Latest
@@ -99,7 +109,12 @@ function Get-CodexLiveSkillsPath {
 }
 
 function Get-ReasonixLiveSkillsPath {
-    if ($ReasonixLiveSkillsPath) { return $ReasonixLiveSkillsPath }
+    if ($ReasonixLiveSkillsPath) {
+        if (Test-Path -LiteralPath $ReasonixLiveSkillsPath) {
+            return (Resolve-Path -LiteralPath $ReasonixLiveSkillsPath).Path
+        }
+        return [System.IO.Path]::GetFullPath($ReasonixLiveSkillsPath)
+    }
     return (Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills')
 }
 
@@ -215,16 +230,28 @@ function Remove-OneSkillDir {
     # Remove a single stale repo-managed skill dir from a live root.
     param(
         [Parameter(Mandatory)] [string] $LiveRoot,
-        [Parameter(Mandatory)] [string] $Name
+        [Parameter(Mandatory)] [string] $Name,
+        [AllowNull()] [string] $ExpectedHash
     )
 
     $dest = Join-Path $LiveRoot $Name
     Assert-SafeLiveSkillTarget -LiveRoot $LiveRoot -Path $dest
-    if (-not (Test-Path -LiteralPath $dest -PathType Container)) { return }
+    if (-not (Test-Path -LiteralPath $dest -PathType Container)) {
+        if ($ExpectedHash) {
+            throw "Refusing to prune missing or non-directory skill '$Name'. Reviewed=$ExpectedHash"
+        }
+        return
+    }
 
     $rollback = Join-Path $LiveRoot ".ai-agent-dotfiles-prune-$([Guid]::NewGuid().ToString('N'))"
     try {
         Move-Item -LiteralPath $dest -Destination $rollback
+        if ($ExpectedHash) {
+            $movedHash = Get-SkillTreeHash -Path $rollback
+            if ($movedHash -ne $ExpectedHash) {
+                throw "Refusing to prune changed skill '$Name'. Reviewed=$ExpectedHash Current=$movedHash"
+            }
+        }
         Remove-Item -LiteralPath $rollback -Recurse -Force
     }
     catch {
@@ -238,6 +265,11 @@ function Remove-OneSkillDir {
 # ---------------------------------------------------------------------------
 # Plan computation
 # ---------------------------------------------------------------------------
+
+function New-CaseInsensitiveNameSet {
+    $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    return , $set
+}
 
 function Read-ManagedNames {
     param([Parameter(Mandatory)] [string] $Path)
@@ -253,6 +285,183 @@ function Read-ManagedNames {
     return , $names
 }
 
+function Read-ExplicitRetirementManifest {
+    param([AllowNull()] [string] $Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return [pscustomobject]@{
+            Path = $null
+            Hash = $null
+            Claude = New-CaseInsensitiveNameSet
+            Codex = New-CaseInsensitiveNameSet
+            Reasonix = New-CaseInsensitiveNameSet
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Retirement manifest does not exist: $Path"
+    }
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+    $bytes = [System.IO.File]::ReadAllBytes($resolvedPath)
+    if ($bytes.Length -gt 65536) {
+        throw "Retirement manifest is unexpectedly large (>64 KiB): $resolvedPath"
+    }
+
+    try {
+        $json = [System.Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+    }
+    catch {
+        throw "Retirement manifest must be valid UTF-8: $resolvedPath ($($_.Exception.Message))"
+    }
+
+    try {
+        $document = [System.Text.Json.JsonDocument]::Parse($json)
+    }
+    catch {
+        throw "Retirement manifest is not valid JSON: $resolvedPath ($($_.Exception.Message))"
+    }
+
+    try {
+        $root = $document.RootElement
+        if ($root.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) {
+            throw 'Retirement manifest root must be a JSON object.'
+        }
+
+        $requiredProperties = @('SchemaVersion', 'Claude', 'Codex', 'Reasonix')
+        $allowedProperties = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($required in $requiredProperties) { [void] $allowedProperties.Add($required) }
+        $seenProperties = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        $properties = @($root.EnumerateObject())
+        foreach ($property in $properties) {
+            if (-not $allowedProperties.Contains($property.Name)) {
+                throw "Retirement manifest contains unsupported property '$($property.Name)'."
+            }
+            if (-not $seenProperties.Add($property.Name)) {
+                throw "Retirement manifest contains duplicate property '$($property.Name)'."
+            }
+        }
+        foreach ($required in $requiredProperties) {
+            if (-not $seenProperties.Contains($required)) {
+                throw "Retirement manifest is missing required property '$required'."
+            }
+        }
+
+        $schemaVersion = 0
+        $schemaElement = $root.GetProperty('SchemaVersion')
+        if ($schemaElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Number -or
+            -not $schemaElement.TryGetInt32([ref] $schemaVersion) -or
+            $schemaVersion -ne 1) {
+            throw 'Retirement manifest SchemaVersion must be the integer 1.'
+        }
+
+        $sets = [ordered]@{}
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $set = New-CaseInsensitiveNameSet
+            $platformElement = $root.GetProperty($platform)
+            if ($platformElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Array) {
+                throw "Retirement manifest property '$platform' must be an array."
+            }
+            foreach ($item in $platformElement.EnumerateArray()) {
+                if ($item.ValueKind -ne [System.Text.Json.JsonValueKind]::String) {
+                    throw "Retirement manifest property '$platform' may contain only strings."
+                }
+                $name = $item.GetString()
+                if ($name -ieq $CodexSystemDirName) {
+                    throw 'Retirement manifest must never contain Codex .system.'
+                }
+                if ([string]::IsNullOrWhiteSpace($name) -or $name.Length -gt 128 -or
+                    $name -cnotmatch '^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$') {
+                    throw "Retirement manifest $platform skill name must be a lowercase safe bare identifier: '$name'."
+                }
+                if (-not $set.Add($name)) {
+                    throw "Retirement manifest contains duplicate $platform skill '$name'."
+                }
+            }
+            $sets[$platform] = $set
+        }
+
+        $retirementCount = $sets.Claude.Count + $sets.Codex.Count + $sets.Reasonix.Count
+        if ($retirementCount -eq 0) {
+            throw 'Retirement manifest must authorize at least one skill name.'
+        }
+
+        return [pscustomobject]@{
+            Path = $resolvedPath
+            Hash = Get-BytesSha256 -Bytes $bytes
+            Claude = $sets.Claude
+            Codex = $sets.Codex
+            Reasonix = $sets.Reasonix
+        }
+    }
+    finally {
+        $document.Dispose()
+    }
+}
+
+function Assert-RetirementNamesAreStale {
+    param(
+        [Parameter(Mandatory)] [string] $Platform,
+        [Parameter(Mandatory)] [string] $SourceRoot,
+        [Parameter(Mandatory)] [string] $LiveRoot,
+        [Parameter(Mandatory)] [string[]] $CanonicalRoots,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $ManagedNames,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $RetiredNames
+    )
+
+    $evidenceRows = [System.Collections.Generic.List[string]]::new()
+    $sourceNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @(Get-DirNames -Path $SourceRoot)) { [void] $sourceNames.Add($name) }
+    foreach ($canonicalRoot in @($CanonicalRoots | Sort-Object -Unique)) {
+        $evidenceRows.Add("$Platform|root|$([System.IO.Path]::GetFullPath($canonicalRoot))")
+    }
+    foreach ($name in $RetiredNames) {
+        if ($sourceNames.Contains($name)) {
+            throw "Retirement manifest cannot authorize active $Platform source skill '$name'."
+        }
+        foreach ($canonicalRoot in @($CanonicalRoots | Sort-Object -Unique)) {
+            $canonicalPath = Join-Path $canonicalRoot $name
+            $canonicalState = if (Test-Path -LiteralPath $canonicalPath -PathType Container) { 'directory' }
+                elseif (Test-Path -LiteralPath $canonicalPath -PathType Leaf) { 'file' }
+                else { 'missing' }
+            $evidenceRows.Add("$Platform|$name|$([System.IO.Path]::GetFullPath($canonicalPath))|$canonicalState")
+            if ($canonicalState -ne 'missing') {
+                throw "Retirement manifest cannot authorize canonical $Platform skill '$name'."
+            }
+        }
+        if ($ManagedNames.Contains($name)) {
+            throw "Retirement manifest cannot authorize current $Platform managed skill '$name'."
+        }
+
+        $target = Join-Path $LiveRoot $name
+        Assert-SafeLiveSkillTarget -LiveRoot $LiveRoot -Path $target
+        if (-not (Test-Path -LiteralPath $target -PathType Container)) {
+            throw "Retirement manifest $Platform skill '$name' must identify an existing unknown live skill directory."
+        }
+        $targetItem = Get-Item -LiteralPath $target -Force
+        if (($targetItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Retirement manifest must not authorize a reparse-point skill directory: $Platform/$name"
+        }
+    }
+
+    return Get-StringSha256 -Text ((@($evidenceRows | Sort-Object) -join "`n") + "`n")
+}
+
+function Assert-RetirementManifestIsExternal {
+    param(
+        [Parameter(Mandatory)] [string] $ManifestPath,
+        [Parameter(Mandatory)] [string[]] $ProtectedRoots
+    )
+
+    $manifestFull = [System.IO.Path]::GetFullPath($ManifestPath)
+    foreach ($root in $ProtectedRoots) {
+        $rootFull = [System.IO.Path]::GetFullPath($root).TrimEnd('\', '/')
+        $prefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+        if ($manifestFull -eq $rootFull -or $manifestFull.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Retirement manifest must be external to the repository and live skill roots: $manifestFull"
+        }
+    }
+}
+
 function Get-DirNames {
     param([Parameter(Mandatory)] [string] $Path)
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
@@ -266,6 +475,18 @@ function Get-StringSha256 {
     try {
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
         return ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-BytesSha256 {
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [byte[]] $Bytes)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($sha.ComputeHash($Bytes)) -replace '-', '').ToLowerInvariant()
     }
     finally {
         $sha.Dispose()
@@ -306,11 +527,18 @@ function Get-PlanFingerprintInput {
     return @($Plans | ForEach-Object {
         [ordered]@{
             Platform = $_.Platform
+            SourceRoot = [System.IO.Path]::GetFullPath($_.SourceRoot)
+            LiveRoot = [System.IO.Path]::GetFullPath($_.LiveRoot)
             SourceCount = $_.SourceCount
             SourceRootExists = [bool] $_.SourceRootExists
             LiveRootExists = [bool] $_.LiveRootExists
             ManifestHash = $_.ManifestHash
             ManagedNames = @($_.ManagedNames | Sort-Object)
+            CanonicalAuthorityRoot = $_.CanonicalAuthorityRoot
+            CanonicalRetirementEvidenceHash = $_.CanonicalRetirementEvidenceHash
+            RetirementManifestPath = $_.RetirementManifestPath
+            RetirementManifestHash = $_.RetirementManifestHash
+            RetiredNames = @($_.RetiredNames | Sort-Object)
             Add = @($_.Add | Sort-Object)
             AddEntries = @($_.AddEntries | Sort-Object Name | ForEach-Object {
                 [ordered]@{ Name = $_.Name; SourceHash = $_.SourceHash; LiveHash = $_.LiveHash }
@@ -323,7 +551,7 @@ function Get-PlanFingerprintInput {
             })
             Prune = @($_.Prune | Sort-Object)
             PruneEntries = @($_.PruneEntries | Sort-Object Name | ForEach-Object {
-                [ordered]@{ Name = $_.Name; SourceHash = $_.SourceHash; LiveHash = $_.LiveHash; Managed = [bool] $_.Managed }
+                [ordered]@{ Name = $_.Name; SourceHash = $_.SourceHash; LiveHash = $_.LiveHash; Managed = [bool] $_.Managed; Authority = $_.Authority }
             })
             Unknown = @($_.Unknown | Sort-Object)
             UnknownEntries = @($_.UnknownEntries | Sort-Object Name | ForEach-Object {
@@ -341,6 +569,13 @@ function Get-PlansHash {
     return Get-StringSha256 -Text $json
 }
 
+function Get-SavedPlansHash {
+    param([Parameter(Mandatory)] [object[]] $Plans)
+
+    $json = ConvertTo-Json -InputObject @($Plans) -Depth 20 -Compress
+    return Get-StringSha256 -Text $json
+}
+
 function Write-SyncPlanFile {
     param(
         [Parameter(Mandatory)] [string] $Path,
@@ -351,7 +586,7 @@ function Write-SyncPlanFile {
     $parent = Split-Path -Parent $Path
     if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     $document = [ordered]@{
-        SchemaVersion = 1
+        SchemaVersion = 2
         GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
         PlanHash = $PlanHash
         Plans = Get-PlanFingerprintInput -Plans $Plans
@@ -376,8 +611,12 @@ function Assert-SyncPlanFileMatches {
     catch {
         throw "Plan file is not valid JSON: $Path ($($_.Exception.Message))"
     }
-    if ([int] $saved.SchemaVersion -ne 1) {
+    if ([int] $saved.SchemaVersion -ne 2) {
         throw "Unsupported sync plan schema: $($saved.SchemaVersion)"
+    }
+    $savedPlansHash = Get-SavedPlansHash -Plans @($saved.Plans)
+    if ([string] $saved.PlanHash -ne $savedPlansHash) {
+        throw "Sync plan self-check failed. Saved contents do not match PlanHash=$($saved.PlanHash). Rerun dry-run and review a fresh plan."
     }
     if ([string] $saved.PlanHash -ne $CurrentPlanHash) {
         throw "Sync plan drift detected. Saved=$($saved.PlanHash) Current=$CurrentPlanHash. Rerun dry-run and review the new plan."
@@ -393,7 +632,12 @@ function Get-SyncPlan {
         # AllowEmptyCollection: an env staging tree may legitimately manage zero
         # skills for a platform (empty manifest -> plan no actions for it).
         [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $ManagedNames,
-        [Parameter(Mandatory)] [string] $ManifestHash
+        [Parameter(Mandatory)] [string] $ManifestHash,
+        [Parameter(Mandatory)] [string] $CanonicalAuthorityRoot,
+        [Parameter(Mandatory)] [string] $CanonicalRetirementEvidenceHash,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $RetiredNames,
+        [AllowNull()] [string] $RetirementManifestPath,
+        [AllowNull()] [string] $RetirementManifestHash
     )
 
     $sourceRootExists = Test-Path -LiteralPath $SourceRoot -PathType Container
@@ -425,10 +669,16 @@ function Get-SyncPlan {
     $toNoOp = @($sourceNames | Where-Object {
         $_ -in $liveNames -and $sourceHashes[$_] -eq $liveHashes[$_]
     } | Sort-Object)
-    # Prune: in live, NOT in source, but IS repo-managed (in manifest).
-    $toPrune = @($liveNames | Where-Object { $_ -notin $sourceNames -and $ManagedNames.Contains($_) } | Sort-Object)
-    # Unknown: in live, NOT in source, NOT repo-managed -> report only, never delete.
-    $unknown = @($liveNames | Where-Object { $_ -notin $sourceNames -and -not $ManagedNames.Contains($_) } | Sort-Object)
+    # Prune: in live, NOT in source, and authorized either by the current managed
+    # manifest or by the explicit one-shot retirement manifest.
+    $toPrune = @($liveNames | Where-Object {
+        $_ -notin $sourceNames -and ($ManagedNames.Contains($_) -or $RetiredNames.Contains($_))
+    } | Sort-Object)
+    # Unknown: in live, NOT in source, and covered by neither authority -> report
+    # only, never delete.
+    $unknown = @($liveNames | Where-Object {
+        $_ -notin $sourceNames -and -not $ManagedNames.Contains($_) -and -not $RetiredNames.Contains($_)
+    } | Sort-Object)
 
     return [pscustomobject] @{
         Platform = $Platform
@@ -438,6 +688,11 @@ function Get-SyncPlan {
         LiveRootExists = $liveRootExists
         ManifestHash = $ManifestHash
         ManagedNames = @($ManagedNames | Sort-Object)
+        CanonicalAuthorityRoot = [System.IO.Path]::GetFullPath($CanonicalAuthorityRoot)
+        CanonicalRetirementEvidenceHash = $CanonicalRetirementEvidenceHash
+        RetirementManifestPath = $RetirementManifestPath
+        RetirementManifestHash = $RetirementManifestHash
+        RetiredNames = @($RetiredNames | Sort-Object)
         SourceCount = $sourceNames.Count
         Add = $toAdd
         AddEntries = @($toAdd | ForEach-Object {
@@ -453,7 +708,14 @@ function Get-SyncPlan {
         })
         Prune = $toPrune
         PruneEntries = @($toPrune | ForEach-Object {
-            [pscustomobject]@{ Name = $_; SourceHash = $null; LiveHash = Get-SkillTreeHash -Path (Join-Path $LiveRoot $_); Managed = $true }
+            $isManaged = $ManagedNames.Contains($_)
+            [pscustomobject]@{
+                Name = $_
+                SourceHash = $null
+                LiveHash = Get-SkillTreeHash -Path (Join-Path $LiveRoot $_)
+                Managed = $isManaged
+                Authority = if ($isManaged) { 'managed-manifest' } else { 'explicit-retirement' }
+            }
         })
         Unknown = $unknown
         UnknownEntries = @($unknown | ForEach-Object {
@@ -473,7 +735,11 @@ function Write-PlanReport {
     Write-Host "  would add    ($($Plan.Add.Count))    : $([string]::Join(', ', $Plan.Add))"
     Write-Host "  would update ($($Plan.Update.Count)) : $([string]::Join(', ', $Plan.Update))"
     Write-Host "  no-op        ($($Plan.NoOp.Count)) : $([string]::Join(', ', $Plan.NoOp))"
-    Write-Host "  would prune  ($($Plan.Prune.Count))  : $([string]::Join(', ', $Plan.Prune))   (repo-managed & removed from output)"
+    Write-Host "  would prune  ($($Plan.Prune.Count))  : $([string]::Join(', ', $Plan.Prune))"
+    $retiredPrune = @($Plan.PruneEntries | Where-Object Authority -eq 'explicit-retirement' | ForEach-Object Name)
+    if ($retiredPrune.Count -gt 0) {
+        Write-Host "  retirement-authorized ($($retiredPrune.Count)): $([string]::Join(', ', $retiredPrune))"
+    }
     Write-Host "  unknown dirs ($($Plan.Unknown.Count)) (ignored, never deleted): $([string]::Join(', ', $Plan.Unknown))"
     if ($Plan.Platform -eq 'codex') {
         Write-Host "  .system: $(if ($Plan.SystemPreserved) { 'present -> PRESERVED (untouched)' } else { 'not present' })"
@@ -513,7 +779,7 @@ function Write-SyncRunReport {
         $planNoOp += @($plan.NoOp).Count
         foreach ($name in @($plan.Add)) { $addedDetails.Add("ADD: $($plan.Platform)/$name") }
         foreach ($name in @($plan.Update)) { $modifiedDetails.Add("MODIFY: $($plan.Platform)/$name") }
-        foreach ($name in @($plan.Prune)) { $removedDetails.Add("REMOVE: $($plan.Platform)/$name") }
+        foreach ($entry in @($plan.PruneEntries)) { $removedDetails.Add("REMOVE [$($entry.Authority)]: $($plan.Platform)/$($entry.Name)") }
         foreach ($name in @($plan.Unknown)) { $unknownDetails.Add("SKIPPED UNKNOWN (preserved): $($plan.Platform)/$name") }
         foreach ($name in @($plan.NoOp)) { $noOpDetails.Add("NO-OP: $($plan.Platform)/$name") }
     }
@@ -605,7 +871,12 @@ function Write-SyncJournal {
         Status = $Status
         BackupDir = $BackupDir
         Completed = @($Completed | ForEach-Object {
-            [ordered]@{ Platform = $_.Platform; Name = $_.Name; Action = $_.Action }
+            [ordered]@{
+                Platform = $_.Platform
+                Name = $_.Name
+                Action = $_.Action
+                Authority = if ($_.PSObject.Properties.Name -contains 'Authority') { $_.Authority } else { $null }
+            }
         })
         Failure = if ($Failure) { $Failure } else { $null }
     }
@@ -738,11 +1009,52 @@ $codexManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\manage
 $reasonixManifestHash = Get-PathSha256 -Path (Join-Path $RepoRoot 'manifests\managed-skills.reasonix.txt')
 Write-Host "Managed skills  : Claude=$($claudeManagedNames.Count)  Codex=$($codexManagedNames.Count)  Reasonix=$($reasonixManagedNames.Count)"
 
+# --- optional explicit one-shot retirement authority ---
+$canonicalAuthorityRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$retirement = Read-ExplicitRetirementManifest -Path $RetireManifestPath
+if ($retirement.Path) {
+    Assert-RetirementManifestIsExternal -ManifestPath $retirement.Path -ProtectedRoots @($canonicalAuthorityRoot, $RepoRoot, $claudeLive, $codexLive, $reasonixLive)
+    if ($PlanPath) {
+        $planPathFull = [System.IO.Path]::GetFullPath($PlanPath)
+        if ($planPathFull -eq $retirement.Path) {
+            throw 'Retirement manifest path and sync plan path must be different files.'
+        }
+    }
+    $repoSharedCanonical = Join-Path $RepoRoot 'skills-source\shared'
+    $authoritySharedCanonical = Join-Path $canonicalAuthorityRoot 'skills-source\shared'
+    $claudeCanonicalEvidenceHash = Assert-RetirementNamesAreStale -Platform 'Claude' -SourceRoot $claudeSource -LiveRoot $claudeLive -CanonicalRoots @($repoSharedCanonical, (Join-Path $RepoRoot 'skills-source\claude-only'), $authoritySharedCanonical, (Join-Path $canonicalAuthorityRoot 'skills-source\claude-only')) -ManagedNames $claudeManagedNames -RetiredNames $retirement.Claude
+    $codexCanonicalEvidenceHash = Assert-RetirementNamesAreStale -Platform 'Codex' -SourceRoot $codexSource -LiveRoot $codexLive -CanonicalRoots @($repoSharedCanonical, (Join-Path $RepoRoot 'skills-source\codex-only'), $authoritySharedCanonical, (Join-Path $canonicalAuthorityRoot 'skills-source\codex-only')) -ManagedNames $codexManagedNames -RetiredNames $retirement.Codex
+    $reasonixCanonicalEvidenceHash = Assert-RetirementNamesAreStale -Platform 'Reasonix' -SourceRoot $reasonixSource -LiveRoot $reasonixLive -CanonicalRoots @($repoSharedCanonical, (Join-Path $RepoRoot 'skills-source\reasonix-only'), $authoritySharedCanonical, (Join-Path $canonicalAuthorityRoot 'skills-source\reasonix-only')) -ManagedNames $reasonixManagedNames -RetiredNames $retirement.Reasonix
+    Write-Host "Retire manifest : $($retirement.Path)"
+    Write-Host "Retire hash     : $($retirement.Hash)"
+    Write-Host "Retired names   : Claude=$($retirement.Claude.Count)  Codex=$($retirement.Codex.Count)  Reasonix=$($retirement.Reasonix.Count)"
+}
+else {
+    $claudeCanonicalEvidenceHash = Get-StringSha256 -Text "Claude|no-explicit-retirement`n"
+    $codexCanonicalEvidenceHash = Get-StringSha256 -Text "Codex|no-explicit-retirement`n"
+    $reasonixCanonicalEvidenceHash = Get-StringSha256 -Text "Reasonix|no-explicit-retirement`n"
+    Write-Host 'Retire manifest : none (unknown live skills remain preserved)'
+}
+
 # --- plans ---
-$claudePlan = Get-SyncPlan -Platform 'claude' -SourceRoot $claudeSource -LiveRoot $claudeLive -ManagedNames $claudeManagedNames -ManifestHash $claudeManifestHash
-$codexPlan = Get-SyncPlan -Platform 'codex' -SourceRoot $codexSource -LiveRoot $codexLive -ManagedNames $codexManagedNames -ManifestHash $codexManifestHash
-$reasonixPlan = Get-SyncPlan -Platform 'reasonix' -SourceRoot $reasonixSource -LiveRoot $reasonixLive -ManagedNames $reasonixManagedNames -ManifestHash $reasonixManifestHash
+$claudePlan = Get-SyncPlan -Platform 'claude' -SourceRoot $claudeSource -LiveRoot $claudeLive -ManagedNames $claudeManagedNames -ManifestHash $claudeManifestHash -CanonicalAuthorityRoot $canonicalAuthorityRoot -CanonicalRetirementEvidenceHash $claudeCanonicalEvidenceHash -RetiredNames $retirement.Claude -RetirementManifestPath $retirement.Path -RetirementManifestHash $retirement.Hash
+$codexPlan = Get-SyncPlan -Platform 'codex' -SourceRoot $codexSource -LiveRoot $codexLive -ManagedNames $codexManagedNames -ManifestHash $codexManifestHash -CanonicalAuthorityRoot $canonicalAuthorityRoot -CanonicalRetirementEvidenceHash $codexCanonicalEvidenceHash -RetiredNames $retirement.Codex -RetirementManifestPath $retirement.Path -RetirementManifestHash $retirement.Hash
+$reasonixPlan = Get-SyncPlan -Platform 'reasonix' -SourceRoot $reasonixSource -LiveRoot $reasonixLive -ManagedNames $reasonixManagedNames -ManifestHash $reasonixManifestHash -CanonicalAuthorityRoot $canonicalAuthorityRoot -CanonicalRetirementEvidenceHash $reasonixCanonicalEvidenceHash -RetiredNames $retirement.Reasonix -RetirementManifestPath $retirement.Path -RetirementManifestHash $retirement.Hash
 $syncPlans = @($claudePlan, $codexPlan, $reasonixPlan)
+foreach ($plan in $syncPlans) {
+    $explicitPruneNames = New-CaseInsensitiveNameSet
+    foreach ($entry in @($plan.PruneEntries | Where-Object Authority -eq 'explicit-retirement')) {
+        [void] $explicitPruneNames.Add($entry.Name)
+    }
+    if ($explicitPruneNames.Count -ne $plan.RetiredNames.Count) {
+        throw "Retirement target set changed while planning $($plan.Platform); rerun dry-run."
+    }
+    foreach ($retiredName in $plan.RetiredNames) {
+        if (-not $explicitPruneNames.Contains($retiredName)) {
+            throw "Retirement target '$($plan.Platform)/$retiredName' was not planned exactly; rerun dry-run."
+        }
+    }
+}
 $planHash = Get-PlansHash -Plans $syncPlans
 
 Write-Host ''
@@ -795,7 +1107,11 @@ Write-Host '----- APPLY -----'
 
 # 1) Mandatory backup first.
 Write-Host 'Creating mandatory pre-change backup ...'
-$backupOut = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'backup.ps1') -BackupRoot $BackupRoot -RepoRoot $RepoRoot -HomeRoot $HomeRoot 2>&1
+$backupArguments = @('-BackupRoot', $BackupRoot, '-RepoRoot', $RepoRoot, '-HomeRoot', $HomeRoot)
+if ($ReasonixLiveSkillsPath) {
+    $backupArguments += @('-ReasonixLiveSkillsPath', $reasonixLive)
+}
+$backupOut = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'backup.ps1') @backupArguments 2>&1
 $backupCode = $LASTEXITCODE
 $backupOut | ForEach-Object { Write-Host "  [backup] $_" }
 if ($backupCode -ne 0) {
@@ -836,12 +1152,13 @@ try {
             $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'update' })
             if ($journalPath) { Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations) }
         }
-        foreach ($name in $plan.Prune) {
-            Remove-OneSkillDir -LiveRoot $plan.LiveRoot -Name $name
+        foreach ($entry in $plan.PruneEntries) {
+            $name = $entry.Name
+            Remove-OneSkillDir -LiveRoot $plan.LiveRoot -Name $name -ExpectedHash $entry.LiveHash
             if ($plan.Platform -eq 'claude') { $applied.ClaudePruned++ }
             elseif ($plan.Platform -eq 'reasonix') { $applied.ReasonixPruned++ }
             else { $applied.CodexPruned++ }
-            $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'prune' })
+            $completedOperations.Add([pscustomobject]@{ Platform = $plan.Platform; Name = $name; Action = 'prune'; Authority = $entry.Authority })
             if ($journalPath) { Write-SyncJournal -Path $journalPath -PlanHash $planHash -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations) }
         }
     }

@@ -1,6 +1,6 @@
 ---
 name: security-best-practices
-description: Perform language and framework specific security best-practice reviews and suggest improvements. Trigger only when the user explicitly requests security best practices guidance,...
+description: Use only when the user explicitly requests secure-by-default guidance or a security best-practices review for supported Python, JavaScript/TypeScript, or Go code.
 ---
 
 # Security Best Practices

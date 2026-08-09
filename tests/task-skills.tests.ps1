@@ -66,7 +66,7 @@ function Get-TreeSnapshot {
 }
 
 function New-OverlayText {
-    param([string[]] $Claude = @(), [string[]] $Codex = @(), [string] $Base = 'work')
+    param([string[]] $Claude = @(), [string[]] $Codex = @(), [string[]] $Reasonix = @(), [string] $Base = 'work')
     function Format-Names([string[]] $Names) {
         if ($Names.Count -eq 0) { return '@()' }
         return '@(' + ((($Names | Sort-Object) | ForEach-Object { "'$_'" }) -join ', ') + ')'
@@ -78,6 +78,7 @@ function New-OverlayText {
     Skills = @{
         Claude = $(Format-Names $Claude)
         Codex = $(Format-Names $Codex)
+        Reasonix = $(Format-Names $Reasonix)
     }
 }
 "@
@@ -115,8 +116,8 @@ Set-File -Path (Join-Path $fakeRepo 'harness-source/envs/work.psd1') -Content @"
     Skills = @{
         Claude = @('fixture-a')
         Codex = @('fixture-a')
+        Reasonix = @()
     }
-    McpTemplates = @()
 }
 "@
 Set-File -Path (Join-Path $fakeRepo '.agent-harness/task-skills.psd1') -Content (New-OverlayText)

@@ -17,7 +17,6 @@
             'project-guards'
         )
         CodexAgents = @()
-        McpTemplates = @()
     }
 
     Future = @{

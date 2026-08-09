@@ -1,13 +1,13 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Back up the live Claude and Codex skill directories to a timestamped
-    folder outside the repository.
+    Back up the live Claude, Codex, and Reasonix skill directories to a
+    timestamped folder outside the repository.
 
 .DESCRIPTION
     Creates <BackupRoot>\sync-backup-YYYYMMDD-HHMMSS\ containing claude-skills\,
-    codex-skills\ (a FULL copy including Codex's platform-managed .system),
-    the full Codex skill tree including .system.
+    codex-skills\ (a FULL copy including Codex's platform-managed .system), and
+    reasonix-skills\.
     Missing live directories are recorded with a .MISSING.txt marker rather than
     failing. Uses robocopy /E (never /MIR) into a fresh folder.
 
@@ -18,6 +18,11 @@
 .PARAMETER BackupRoot
     Root directory for backups. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.
     Must be outside the repository.
+
+.PARAMETER ReasonixLiveSkillsPath
+    Optional override for the Reasonix live skills directory. Sync passes its
+    resolved override here so the mandatory backup covers the exact deployment
+    target.
 
 .PARAMETER DryRun
     Print what would be backed up without copying anything or creating folders.
@@ -31,6 +36,7 @@ param(
     [string] $HomeRoot = $env:USERPROFILE,
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [string] $ReasonixLiveSkillsPath,
     [switch] $DryRun
 )
 
@@ -106,7 +112,17 @@ $claudeBackup = Join-Path $backupDir 'claude-skills'
 $codexBackup = Join-Path $backupDir 'codex-skills'
 
 # Reasonix live skills
-$reasonixSkillsLive = Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills'
+$reasonixSkillsLive = if ($ReasonixLiveSkillsPath) {
+    if (Test-Path -LiteralPath $ReasonixLiveSkillsPath) {
+        (Resolve-Path -LiteralPath $ReasonixLiveSkillsPath).Path
+    }
+    else {
+        [System.IO.Path]::GetFullPath($ReasonixLiveSkillsPath)
+    }
+}
+else {
+    Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills'
+}
 $reasonixSkillsStats = Get-DirStats -Path $reasonixSkillsLive
 $reasonixSkillsBackup = Join-Path $backupDir 'reasonix-skills'
 
@@ -196,10 +212,12 @@ $manifest = [ordered] @{
     source_live_paths = [ordered] @{
         claude = $claudeLive
         codex = $codexLive
+        reasonix = $reasonixSkillsLive
     }
     backup_target_paths = [ordered] @{
         claude = $claudeBackup
         codex = $codexBackup
+        reasonix = $reasonixSkillsBackup
     }
     claude_dir_existed = $claudeStats.Exists
     codex_dir_existed = $codexStats.Exists
@@ -209,6 +227,8 @@ $manifest = [ordered] @{
         claude_files = $claudeStats.Files
         codex_skill_dirs = $codexStats.SkillDirs
         codex_files = $codexStats.Files
+        reasonix_skill_dirs = $reasonixSkillsStats.SkillDirs
+        reasonix_files = $reasonixSkillsStats.Files
     }
     dry_run = $false
 }

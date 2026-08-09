@@ -76,6 +76,23 @@ function Test-HarnessKnownKeys {
     }
 }
 
+function Test-HarnessProfileComponents {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [hashtable] $Profile,
+        [Parameter(Mandatory)] [string] $Kind,
+        [Parameter(Mandatory)] [string] $Path
+    )
+
+    if (-not $Profile.ContainsKey('Components')) { return }
+    if (-not ($Profile.Components -is [hashtable])) {
+        throw "$Kind Components must be a hashtable: $Path"
+    }
+    Test-HarnessKnownKeys -Data $Profile.Components -Kind "$Kind Components" -Path $Path -AllowedKeys @(
+        'Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents'
+    )
+}
+
 function Get-HarnessProjectProfile {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $ProjectRoot)
@@ -87,6 +104,7 @@ function Get-HarnessProjectProfile {
         'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components', 'Future',
         'RequiredEnv'
     )
+    Test-HarnessProfileComponents -Profile $profile -Kind 'project profile' -Path $path
 
     return [pscustomobject] @{
         Path        = $path
@@ -130,6 +148,7 @@ function Resolve-HarnessProfileExtends {
         Test-HarnessKnownKeys -Data $data -Kind 'library profile' -Path $profilePath -AllowedKeys @(
             'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components', 'Future'
         )
+        Test-HarnessProfileComponents -Profile $data -Kind 'library profile' -Path $profilePath
         foreach ($parent in @($data.Extends)) {
             Resolve-OneHarnessProfile -Name $parent -Resolved $Resolved -Visiting $Visiting -Visited $Visited -ProfilesRoot $ProfilesRoot
         }
@@ -1091,7 +1110,7 @@ function Get-HarnessProfileComponentIds {
     if (-not $Profile.ContainsKey('Components') -or $null -eq $Profile.Components) {
         return @()
     }
-    foreach ($bucket in @('Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents', 'McpTemplates')) {
+    foreach ($bucket in @('Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents')) {
         foreach ($id in @($Profile.Components[$bucket])) {
             if (-not [string]::IsNullOrWhiteSpace($id)) {
                 $ids.Add([string] $id)
