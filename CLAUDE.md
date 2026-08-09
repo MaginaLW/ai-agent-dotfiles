@@ -54,6 +54,12 @@ When the scope trigger applies:
    # Review the plan, then apply the same fingerprint-bound plan.
    pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
    ```
+   When a reviewed canonical deletion has already removed the old name from the current manifests,
+   use an external one-shot JSON retirement manifest and pass the same file to both commands with
+   `-RetireManifestPath`. The retirement file, its resolved path, live/source roots, and target tree
+   hashes are plan-bound; it must never contain `.system` or an active/canonical skill. Do not commit
+   retirement manifests, do not expect auto-sync hooks to consume them, and delete the external plan
+   and retirement JSON after a successful Apply to prevent later replay.
 
 ## Hard rules
 
@@ -70,9 +76,8 @@ When the scope trigger applies:
 - `scripts/apply-harness-profile.ps1 -Apply` must not be treated as permission to write `~/.claude`, `~/.codex`, live skills roots, or Codex `.system`; first-version apply writes only project-local allowlist output.
 - Do not claim Project Harness Profiles install project-local skills or perform automatic global home harness switching.
 - Multi-platform Harness outputs are allowlist-bound project files: Claude commands/agents, Codex prompts/agents only. They are generated/reviewed through the profile scripts and never write global home state.
-- MCP template operations use `claude/mcp/apply-mcp.ps1` with an explicit dry-run plan and single-server Claude CLI calls. Never overwrite `~/.claude.json` directly or put environment-variable values in templates, plans, reports, or logs; MCP backups remain outside the repository.
 - `envs/` is generated Harness Environments staging — never hand-edit or commit it; rebuild with `scripts/build-harness-env.ps1`. `state/current-env.json` is machine-private and never committed.
 - `env list`/`env status`/`env build` are read-only toward home directories and must never write `~/.claude`, `~/.codex`, live skills roots, or `state/`.
 - `env activate` is the only sanctioned global environment switch: dry-run by default, `-Apply` gated (the entry point demands an explicit mode), deployment exclusively through `sync.ps1` with its unskippable pre-change backup. Never hand-copy env staging into a home directory. Before the first real-home `-Apply` on each machine, a human must review the dry-run plan (prune list included); `MAGINA-LAPTOP` completed its first `full -Apply` on 2026-07-10, while other machines remain subject to this gate. Config deployment via `config-pull.ps1` is NOT part of activation; adding it requires a separate review. See `docs/README.md` §16.
-- `env rollback` is the separate managed-scope recovery path: it requires an explicitly selected environment activation backup, a reviewed dry-run plan, and an exact plan hash on Apply. It restores only current-manifest Claude/Codex skills and the corresponding environment state; it never touches unknown live directories, Codex `.system`, credentials, sessions, caches, or Codex `config.toml`.
+- `env rollback` is the separate managed-scope recovery path: it requires an explicitly selected environment activation backup, a reviewed dry-run plan, and an exact plan hash on Apply. It restores only current-manifest Claude/Codex/Reasonix skills and the corresponding environment state; it never touches unknown live directories, Codex `.system`, credentials, sessions, caches, or Codex `config.toml`.
 - Keep `CLAUDE.md` tracked in Git so these instructions sync across machines.

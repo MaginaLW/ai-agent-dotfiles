@@ -1,5 +1,7 @@
 # MCP 与多平台 Project Harness 扩展设计
 
+> **Retired historical design:** 本文仅保留为历史证据。OpenClaw/OpenCode 支持和仓库内 MCP 模板注册子系统均已退役；这里描述的接口、命令与平台范围不再代表当前配置。
+
 ## 目标
 
 在现有“源文件 → disposable staging/generated → dry-run → gated apply”模型上，补齐两条独立能力：

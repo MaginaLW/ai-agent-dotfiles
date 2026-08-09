@@ -5,20 +5,27 @@
   "type": "object",
   "required": ["SchemaVersion", "GeneratedAtUtc", "PlanHash", "Plans"],
   "properties": {
-    "SchemaVersion": { "const": 1 },
+    "SchemaVersion": { "const": 2 },
     "GeneratedAtUtc": { "type": "string", "format": "date-time" },
     "PlanHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "Plans": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["Platform", "SourceRootExists", "LiveRootExists", "ManifestHash", "ManagedNames", "SourceCount", "Add", "AddEntries", "Update", "NoOp", "Prune", "PruneEntries", "Unknown", "UnknownEntries", "SystemPreserved"],
+        "required": ["Platform", "SourceRoot", "LiveRoot", "SourceRootExists", "LiveRootExists", "ManifestHash", "ManagedNames", "CanonicalAuthorityRoot", "CanonicalRetirementEvidenceHash", "RetirementManifestPath", "RetirementManifestHash", "RetiredNames", "SourceCount", "Add", "AddEntries", "Update", "NoOp", "Prune", "PruneEntries", "Unknown", "UnknownEntries", "SystemPreserved"],
         "properties": {
           "Platform": { "enum": ["claude", "codex", "reasonix"] },
+          "SourceRoot": { "type": "string", "minLength": 1 },
+          "LiveRoot": { "type": "string", "minLength": 1 },
           "SourceRootExists": { "type": "boolean" },
           "LiveRootExists": { "type": "boolean" },
           "ManifestHash": { "type": "string", "pattern": "^(missing|[0-9a-f]{64})$" },
-          "ManagedNames": { "type": "array", "items": { "type": "string" } },
+          "ManagedNames": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "CanonicalAuthorityRoot": { "type": "string", "minLength": 1 },
+          "CanonicalRetirementEvidenceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "RetirementManifestPath": { "type": ["string", "null"] },
+          "RetirementManifestHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+          "RetiredNames": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$", "maxLength": 128 }, "uniqueItems": true },
           "SourceCount": { "type": "integer", "minimum": 0 },
           "Add": { "type": "array", "items": { "type": "string" } },
           "AddEntries": { "$ref": "#/$defs/addEntries" },
@@ -65,12 +72,13 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["Name", "SourceHash", "LiveHash", "Managed"],
+        "required": ["Name", "SourceHash", "LiveHash", "Managed", "Authority"],
         "properties": {
           "Name": { "type": "string" },
           "SourceHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
           "LiveHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-          "Managed": { "const": true }
+          "Managed": { "type": "boolean" },
+          "Authority": { "enum": ["managed-manifest", "explicit-retirement"] }
         },
         "additionalProperties": false
       }

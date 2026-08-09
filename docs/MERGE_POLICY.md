@@ -19,9 +19,10 @@
 | **generated output** | 由 `scripts/build-skills.ps1` 从 `skills-source/` 生成的 `claude/skills/`、`codex/skills/`。它们是可重建、Git-ignored 的派生物。 |
 | **canonical version** | 某个规范化 skill 名称当前被接受的权威文件树。canonical 必须位于 `skills-source/`，通过 secret scan，并具有明确的平台归属。 |
 | **quarantine** | `imports/skills-quarantine/` 下的隔离区，用于保存不能安全自动采用的候选及其原因。隔离不是删除，也不是 canonical 候选的自动批准。 |
-| **unknown skill** | 存在于 live skills，但不在当前 generated output 且不在对应 managed manifest 中的目录。unknown 只报告和保留，不自动删除。 |
+| **unknown skill** | 存在于 live skills，但不在当前 generated output 且不在对应 managed manifest 中的目录。unknown 默认只报告和保留；只有当前人工审查显式列入一次性 retirement manifest 的精确目录才获得本次计划的删除授权。 |
 | **`.system`** | Codex 平台管理的内置 skill 目录。它不属于 repo-managed skills，不进入 canonical、import merge 或 prune 决策。 |
-| **manifest-scoped sync** | 只对 per-platform managed manifest 中的名称执行受控 add/update/prune；不对整个 live 根目录做 mirror，也不删除 unknown。 |
+| **manifest-scoped sync** | 默认只对 per-platform managed manifest 中的名称执行受控 add/update/prune；不对整个 live 根目录做 mirror，也不猜测性删除 unknown。 |
+| **explicit retirement** | 当前 manifest 已不再包含旧名称时，由人工逐项审查后通过 repo/live roots 外的一次性 JSON 授权本次 prune。授权文件路径、bytes、名称、source/live roots、脚本主仓 canonical authority/缺失证据与 live tree hash 全部绑定到 dry-run plan；它不写回长期 managed 状态，也不会被 auto-sync hook 自动采用。成功后必须销毁外部 plan/manifest，因为当前实现没有 replay-consumption ledger。 |
 | **fingerprint** | skill 文件树的确定性内容指纹。当前实现使用相对路径、文件大小和逐文件 SHA-256 组合得到 `sha256_tree_hash`，并单独记录 `SKILL.md` 的 SHA-256。 |
 
 ## 2. 不可违反的总体原则
@@ -50,7 +51,7 @@
 | `CONFLICT` | 同名内容不同，或证据不足以确定安全合并。 | 只生成报告并保持所有输入；禁止覆盖 canonical。 |
 | `QUARANTINED` | 候选触发隔离条件。 | 复制/移动候选到 quarantine 的原因目录并记录来源；禁止自动晋升。 |
 | `UNKNOWN_REPORTED` | live 中存在 unknown skill。 | 报告并保留 live；可在 backup 后选择性复制到该机器 inbox。 |
-| `PRUNE_PLANNED` | 旧 live 项目属于 managed manifest，但已从 generated/source 移除。 | 只进入 dry-run 删除计划；满足删除门禁后才可 Apply。 |
+| `PRUNE_PLANNED` | 旧 live 项目仍属于 managed manifest，或已由本次 explicit retirement 精确授权，并且已从 generated/source 移除。 | 只进入 dry-run 删除计划；满足删除门禁后才可 Apply。 |
 
 ## 4. 同名 skill 决策矩阵
 
@@ -128,16 +129,20 @@ Quarantine 操作 **必须**：
 3. 在需要评估时，可以在完成 backup 后将其复制到 `imports/skills-inbox/<computername>/<tool>/`；复制时必须排除 `.system` 和机器状态目录。
 4. 进入 inbox 后，必须执行 scan、fingerprint、平台分类、同名比较和 quarantine 检查。
 5. 只有满足第 5 节自动晋升条件或经过明确审查后，unknown 候选才可进入 `skills-source/`。
-6. Unknown 未被采用时，live 中仍必须保留；sync 的 prune 逻辑不得把它当作 managed stale skill。
+6. Unknown 未被采用或未被当前 explicit retirement 精确授权时，live 中仍必须保留；sync 的 prune 逻辑不得把它当作 managed stale skill。
 
 ## 8. 删除与 prune 策略
 
 - **禁止直接删除 live skills。** 所有删除必须通过 manifest-scoped sync 的受控路径。
-- 只有名称曾属于对应 managed manifest、当前不在 generated output，并且目标是 live 根目录的直接 skill 子目录时，才可产生 `PRUNE_PLANNED`。
+- 普通 prune 只允许当前 managed manifest 中、已不在 generated output 的名称。
+- canonical 删除已使旧名称从当前 manifest 消失时，只有人工确认其为本次退役目标、把精确平台/名称写入外部 one-shot retirement manifest，且脚本确认它不在 canonical/generated/current manifest、当前确为普通 live 直接子目录（非 reparse point）后，才可产生 `PRUNE_PLANNED`。
 - 删除前 **必须**成功创建 repo 外 backup，并在报告中记录 backup 标识或路径。
 - 删除前 **必须**由 dry-run 明确显示平台、名称和 `-` / prune 数量。
-- Dry-run 后 source、manifest、generated、live 或 scan 结果发生变化时，原批准失效，必须重新 dry-run。
-- Unknown live skill **禁止**进入 prune 列表。
+- Dry-run plan 必须绑定 source/live roots；保存的计划内容必须与自身 `PlanHash` 一致。
+- `-RepoRoot` 指向 staging/fixture 时仍必须检查脚本所在主仓 canonical authority；调用方不得通过替换 staging root 绕过 canonical 保护。
+- Dry-run 后 source、manifest、generated、live、scan 结果、retirement 文件路径或原始 bytes 发生变化时，原批准失效，必须重新 dry-run。
+- 删除动作必须在把目标移动到同卷 rollback 路径后复算 tree hash；与 dry-run 不一致时恢复原目录并失败。
+- 未获得当前 explicit retirement 授权的 Unknown live skill **禁止**进入 prune 列表。
 - Codex `.system` 以及其任何子路径 **永远禁止**进入删除、更新、移动或 prune 列表。
 - 禁止对 live 根目录使用 `robocopy /MIR` 或任何 whole-directory mirror。
 
@@ -220,12 +225,12 @@ Agent 在处理一个 import batch 时 **必须**按以下顺序执行：
 - 用 quality score 单独覆盖不同 fingerprint。
 - 把 generated 或 live 整树反向覆盖 `skills-source/`。
 - 合并同路径不同内容而不生成 conflict。
-- 删除 unknown 或 `.system`。
+- 删除未获得当前 explicit retirement 授权的 unknown，或删除 `.system`。
 - 在 scan、backup 或 dry-run 失败后继续 Apply。
 
 ## 12. 当前脚本能力与政策差距
 
-当前脚本已经提供 tree SHA-256、`SKILL.md` SHA-256、文件数、大小、平台信号、secret/binary/path 信号、scan status、不可伪造的 modified-time 标记、quality score（仅用于报告）、分析报告、dry-run、manifest-scoped prune、unknown 报告和 `.system` 保护。Phase 1 的 inventory、analysis、merge、promote、normalize 已覆盖 Claude 和 Codex（skills 目录范围）。
+当前脚本已经提供 tree SHA-256、`SKILL.md` SHA-256、文件数、大小、平台信号、secret/binary/path 信号、scan status、不可伪造的 modified-time 标记、quality score（仅用于报告）、分析报告、dry-run、manifest-scoped prune、plan 自校验、one-shot explicit retirement、unknown 报告和 `.system` 保护。Phase 1 的 inventory、analysis、merge、promote、normalize 已覆盖 Claude 和 Codex（skills 目录范围）。
 
 以下限制 **必须**被 agent 明确处理：
 
@@ -257,8 +262,8 @@ Agent 在处理一个 import batch 时 **必须**按以下顺序执行：
 - 每个候选都有来源、fingerprint、scan 状态和确定性决策。
 - 所有同名不同内容都有 conflict 或 quarantine 记录，没有静默覆盖。
 - Canonical 只存在于 `skills-source/`，generated 可由它重建。
-- Unknown live skills 被报告且未删除。
-- 所有 prune 都是 manifest-scoped、已 backup、已 dry-run。
+- 未获得本次 explicit retirement 授权的 Unknown live skills 被报告且未删除。
+- 所有 prune 都有当前 manifest 或 plan-bound explicit retirement 权限，并已 backup、已 dry-run。
 - `.system preserved` 明确为成功；任何不确定结果都阻断完成。
 - Secrets scan 通过且报告不含敏感值。
 - 多电脑来源可追踪，并使用独立、经过审查的 commit 记录 canonical 变化。

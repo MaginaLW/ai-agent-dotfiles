@@ -7,61 +7,38 @@
     Skills = @{
         Claude = @(
             'brainstorming',
-            'codex-cli-runtime',
-            'codex-result-handling',
-            'control-chrome',
             'git-review',
-            'gpt-5-4-prompting',
-            'latex-tectonic',
             'paper-polish',
-            'path-risk',
-            'placeholder-ok',
             'subagent-driven-development',
             'systematic-debugging',
             'verification-before-completion',
-            'writing-plans',
-            'writing-skills'
+            'writing-plans'
         )
         Codex = @(
             'brainstorming',
             'chatgpt-apps',
             'cli-creator',
-            'code-review',
-            'codex-repo-maintainer',
-            'control-chrome',
-            'control-in-app-browser',
+            'coderabbit-review',
             'define-goal',
             'git-review',
-            'google-drive-comments',
             'hatch-pet',
-            'latex-tectonic',
             'paper-polish',
-            'path-risk',
-            'placeholder-ok',
             'security-best-practices',
             'security-ownership-map',
             'security-threat-model',
             'subagent-driven-development',
             'systematic-debugging',
             'verification-before-completion',
-            'writing-plans',
-            'writing-skills'
+            'writing-plans'
         )
         Reasonix = @(
             'brainstorming',
-            'control-chrome',
             'git-review',
-            'latex-tectonic',
             'paper-polish',
-            'path-risk',
-            'placeholder-ok',
             'subagent-driven-development',
             'systematic-debugging',
             'verification-before-completion',
-            'writing-plans',
-            'writing-skills'
+            'writing-plans'
         )
     }
-
-    McpTemplates = @('github')
 }

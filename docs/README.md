@@ -59,11 +59,11 @@
 | `skills-source/codex-only/` | 仅 Codex 的 skill（如 `hatch-pet`） |
 | `claude/skills/` | **生成物**，Git-ignored，勿手改 |
 | `codex/skills/` | **生成物**，Git-ignored，勿手改 |
-| `manifests/managed-skills.txt` | 本仓库托管的 skill 名单（sync 的 prune 只作用于名单内条目） |
+| `manifests/managed-skills.txt` | 本仓库当前托管的 skill 名单；已从名单移除的旧 live 目录默认按 unknown 保留 |
 | `scripts/build-skills.ps1` | 从源生成 runtime output，并刷新 manifest |
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
-| `scripts/backup.ps1` | 备份 live Claude/Codex skills（含 `.system`）到 repo 外 |
-| `scripts/sync.ps1` | manifest 限定的受控同步，默认 dry-run |
+| `scripts/backup.ps1` | 备份 live Claude/Codex/Reasonix skills（含 `.system`）到 repo 外 |
+| `scripts/sync.ps1` | manifest 限定的受控同步；支持显式、一次性的外部 retirement 授权，默认 dry-run |
 | `scripts/config-status.ps1` | 只读 config drift 报告（repo ↔ home），见 §14 |
 | `scripts/config-pull.ps1` | 部署 harness 配置 repo→home，默认 dry-run，`-Apply` gated |
 | `scripts/config-push.ps1` | 捕获 harness 配置 home→repo，双 gate（扫密 + 私有路径），默认 dry-run |
@@ -74,8 +74,6 @@
 | `scripts/apply-harness-profile.ps1` | 默认 dry-run；`-Apply` 仅写项目本地 allowlist，见 §15 |
 | `harness-source/envs/` | Harness Environments 的环境定义（tracked 源），见 §16 |
 | `.agent-harness/task-skills.psd1` | 当前分支/worktree 的共享 task skill overlay，见 §16 |
-| `harness-source/components/mcp-templates/` | MCP 模板源（只含占位符和环境变量声明），见 §18 |
-| `scripts/mcp-common.ps1` / `claude/mcp/apply-mcp.ps1` | MCP 模板验证、计划绑定和 Claude CLI 单服务器操作，见 §18 |
 | `envs/` | 环境构建 staging，**生成物**，Git-ignored，勿手改，见 §16 |
 | `state/current-env.json` | 当前激活环境记录，机器私有，Git-ignored，见 §16 |
 | `scripts/list-harness-env.ps1` | 只读枚举环境定义并标记激活环境，见 §16 |
@@ -120,7 +118,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -DryRun -PlanPath $plan # 
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -Apply -PlanPath $plan # 只应用同一计划
 ```
 
-`sync.ps1` 默认是 **dry-run**，只打印计划、不动 live；`-Apply` 必须带有先前 dry-run 生成的 `-PlanPath`，并重新验证 source、manifest 和 live fingerprint 后才会修改。
+`sync.ps1` 默认是 **dry-run**，只打印计划、不动 live；`-Apply` 必须带有先前 dry-run 生成的 `-PlanPath`，并重新验证 source、manifest、source/live 根路径和 live fingerprint 后才会修改。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
 
 如果只想安装 hooks、不执行首次 live 同步：
 
@@ -147,6 +145,42 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 6. 提交 source / manifest / docs 变更（**不要**提交 generated output）。
 7. `git push`
 8. 其它电脑若已安装 auto-sync hooks，`git pull --ff-only` 后会自动生成并绑定计划；否则手动运行同一 `-DryRun -PlanPath` / `-Apply -PlanPath` 流程。
+
+如果这次修改是**删除 canonical skill**，build 会同时从 generated output 和当前 manifest
+移除名称；旧 live 目录因此会按 unknown 保留，不会被普通 sync 猜测性删除。完成逐项审查后，
+为当前机器在 repo 和 live roots 之外创建一次性 JSON（不要提交）：
+
+```json
+{
+  "SchemaVersion": 1,
+  "Claude": ["retired-skill"],
+  "Codex": ["retired-skill"],
+  "Reasonix": []
+}
+```
+
+然后把同一个文件传给 dry-run 和 apply：
+
+```powershell
+$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-retire-plan.json'
+$retire = Join-Path $env:TEMP 'ai-agent-dotfiles-retire-skills.json'
+pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan -RetireManifestPath $retire
+# 逐平台审查 retirement-authorized prune、unknown 和 .system 状态
+pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan -RetireManifestPath $retire
+```
+
+retirement manifest 必须严格列出三个平台、至少一个小写安全名称；`.system`、仍在
+canonical/generated/current manifest 的名称、缺失的 live 目录以及 junction/symlink 都会被拒绝。
+即使 `-RepoRoot` 指向 env staging 或测试 fixture，脚本仍会把自身所在主仓作为不可替换的 canonical
+authority。retirement 文件的规范化绝对路径、原始 bytes hash、平台名称、source/live roots、
+canonical authority/逐名称缺失证据与每个目标 tree hash 都进入计划指纹；apply 前漂移会在 backup
+前失败，backup 后发生的内容漂移也会在实际删除前失败并恢复原目录。
+
+这里的“一次性”表示授权不会写入长期 managed 状态，且当前目标删除后立即复用会失败；它不是带
+consumption ledger 的密码学防重放协议。如果将来在完全相同路径重建完全相同 tree bytes，同时还
+保留原 plan/manifest，旧授权理论上可再次匹配。因此成功后必须删除外部 plan 与 retirement JSON，
+以 backup journal/运行报告保留审计证据。auto-sync hook 不会自动读取或创建 retirement manifest；
+其它机器若也有这批旧目录，必须各自执行人工审查的同一流程。
 
 ---
 
@@ -325,15 +359,15 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 
 - 不替代 `scripts/sync.ps1` 的 live skills 同步。
 - 不替代 §14 的 home-level harness config-sync。
-- 不管理 Codex `.system`、MCP secrets、session/cache/state。
+- 不管理 Codex `.system`、secrets、session/cache/state。
 - 不把项目本地 profile apply 扩展为全局机器配置切换。
 
 ---
 
 ## 16. Harness Environments
 
-Harness Environments 是 conda 式的命名环境层：每个环境声明一个 profile、
-各平台受管 skills 的子集和可验证的 MCP 模板，构建为可随时重建的 staging 目录，
+Harness Environments 是 conda 式的命名环境层：每个环境声明一个 profile 和
+各平台受管 skills 的子集，构建为可随时重建的 staging 目录，
 并可经门控的 `env activate` 切换到 live home。
 设计见 `docs/superpowers/specs/2026-07-10-harness-env-design.md`。
 
@@ -350,6 +384,7 @@ Harness Environments 是 conda 式的命名环境层：每个环境声明一个 
     Skills = @{
         Claude = @()
         Codex = @()
+        Reasonix = @()
     }
 }
 ```
@@ -412,8 +447,8 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 
 - `harness-source/envs/<name>.psd1`：环境定义（tracked 源真相）。字段：
   `SchemaVersion`、`Name`（须与文件名一致）、`Description`、`Profile`
-  （引用 `harness-source/profiles/`，继承其 Extends 链）、`Skills.Claude`/`Skills.Codex`
-  （必须是对应 `manifests/managed-skills.<platform>.txt` 的子集）、`McpTemplates`。
+  （引用 `harness-source/profiles/`，继承其 Extends 链）、`Skills.Claude`/`Skills.Codex`/`Skills.Reasonix`
+  （必须是对应 `manifests/managed-skills.<platform>.txt` 的子集）。
 - `envs/<name>/`：`env build` 的 staging 输出，Git-ignored，可删除重建。内容：
   skills 子集副本、`manifest.claude.txt`/`manifest.codex.txt`
   （环境子集，供人读）、`manifests/managed-skills.<platform>.txt`（**全量**仓库 manifest
@@ -434,7 +469,7 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   Codex `.system`、Codex `config.toml`）永不随切换变动；拒绝 `HomeRoot` 位于仓库内。
 - `env status` 对当前环境报告 `lock validity`、`definition drift`、`live parity`、
   Codex `.system` 状态和 `backup reference`；这些是状态证据，不是备份内容。
-- `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex manifest
+- `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex/Reasonix manifest
   管理的 skills 和环境状态。它永不触碰 unknown live 目录、Codex `.system`、
   credentials、sessions、cache、Codex `config.toml`。
   dry-run 先生成外部计划；`-Apply` 必须带同一 `-PlanPath`，并通过选定 activation
@@ -459,7 +494,7 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 - 不自动切换环境（进入项目不触发任何写操作，联动仅为提醒）。
 - 不把一个任务的 overlay 永久合并回 `harness-source/envs/work.psd1`；任务结束后应显式 close，
   是否提交 overlay 由任务协作者按 branch/worktree 需求决定。
-- 不做 lockfile 跨机复现或 MCP secrets 管理；`env.lock.json` 当前用于
+- 不做 lockfile 跨机复现或 secrets 管理；`env.lock.json` 当前用于
   本机 staging/activation 的可验证证据，不是跨机传输 credential 或 machine state 的载体。
 
 ---
@@ -479,7 +514,6 @@ config status | pull | push
 profile status | build | apply
 skills inventory | analyze | dedupe | merge | normalize | promote
 env list | status | build | activate | rollback | task status | task ensure-skill | task sync | task close
-mcp -TemplateId <id> -DryRun|-Apply [-Remove]
 ```
 
 读操作包括 `doctor`、`scan`、`config status`、`profile status`、`skills inventory`、
@@ -497,25 +531,4 @@ mcp -TemplateId <id> -DryRun|-Apply [-Remove]
 内部生成并绑定 sync 计划，rollback 则要求外部 dry-run 生成的同一 `-PlanPath`，并在
 执行前重新验证环境状态、备份元数据和计划哈希。`config pull` 是独立的 home-level
 配置同步入口；the underlying `config-pull` is not part of `env activate`，环境切换当前
-只处理受 manifest 管理的 Claude/Codex skills 和环境状态；staged MCP 模板仍需显式执行
-`mcp -TemplateId <id> -DryRun` / `-Apply`，不会因环境切换隐式注册服务器。
-
-## 18. MCP 模板安全边界
-
-MCP 模板位于 `harness-source/components/mcp-templates/<id>/template.psd1`，只记录
-服务器命令、参数、作用域和 `${ENV_VAR}` 占位符。模板、计划、报告和命令输出都不记录
-环境变量的值；Apply 只通过 Claude CLI 对单个服务器执行 add/update/remove，禁止整体覆盖
-`~/.claude.json`。
-
-使用示例（必须先审查 dry-run 计划）：
-
-```powershell
-$plan = Join-Path $env:TEMP 'mcp-github-plan.json'
-pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp -TemplateId github -DryRun -PlanPath $plan
-pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp -TemplateId github -Apply -PlanPath $plan
-pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp -TemplateId github -Remove -DryRun -PlanPath $plan
-```
-
-Apply 会把 CLI 状态快照和操作证据写到 home 下的仓库外备份根；失败时保留部分成功阶段和
-恢复证据，不把原始 CLI 状态写入仓库或报告。MCP 不管理 machine credentials、
-identity、sessions、cache、插件，也不随 `env activate` 自动写入 home。
+只处理受 manifest 管理的 Claude/Codex/Reasonix skills 和环境状态。

@@ -14,5 +14,5 @@ embed its file contents or source material.
 
 Use placeholders such as `<repo-root>`, `<home-root>`, `<external-plan.json>`,
 and `<run-id>` in documentation and examples. Never record real machine paths,
-secrets, credentials, sessions, caches, `config.toml`, or OpenClaw machine
-state in a report.
+secrets, credentials, sessions, caches, `config.toml`, or other machine state
+in a report.

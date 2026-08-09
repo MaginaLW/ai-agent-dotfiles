@@ -1,6 +1,6 @@
 ---
 name: security-threat-model
-description: Repository-grounded threat modeling that enumerates trust boundaries, assets, attacker capabilities, abuse paths, and mitigations, and writes a concise Markdown threat model. Tr...
+description: Use only when the user explicitly asks to threat-model a repository or path, enumerate abuse paths, trust boundaries, assets, or AppSec mitigations.
 ---
 
 # Threat Model Source Code Repo

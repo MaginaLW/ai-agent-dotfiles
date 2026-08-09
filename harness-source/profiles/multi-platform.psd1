@@ -11,7 +11,6 @@
         Agents = @('claude-reviewer')
         ClaudeSettings = @()
         CodexAgents = @('review-prompt', 'codex-reviewer')
-        McpTemplates = @()
     }
 
     Future = @{

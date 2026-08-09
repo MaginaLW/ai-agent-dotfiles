@@ -1,6 +1,6 @@
 # Merge Notes
 
-Target type: claude-only
+Target type: shared
 Canonical source: imports/skills-inbox/magina-laptop/codex/systematic-debugging
 
 ## Sources

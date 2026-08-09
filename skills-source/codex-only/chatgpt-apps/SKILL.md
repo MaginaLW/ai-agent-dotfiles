@@ -1,6 +1,6 @@
 ---
 name: chatgpt-apps
-description: Build, scaffold, refactor, and troubleshoot ChatGPT Apps SDK applications that combine an MCP server and widget UI. Use when Codex needs to design tools, register UI resources,...
+description: Build, scaffold, refactor, or troubleshoot ChatGPT Apps SDK projects. Use for MCP tools, widget UI, Apps SDK metadata, CSP, and project scaffolds.
 ---
 
 # ChatGPT Apps

@@ -1,7 +1,7 @@
 # Project Harness Profiles Design
 
 Date: 2026-06-29
-Status: proposed design
+Status: implemented historical design; current contracts are documented in `docs/README.md`
 
 ## Goal
 
@@ -20,8 +20,7 @@ the repository.
 
 ## Non-Goals
 
-- Do not switch or rewrite `~/.claude`, `~/.codex`, or `~/.openclaw` in the
-  first version.
+- Do not switch or rewrite global agent home directories in the first version.
 - Do not support project-local skills in the first version.
 - Do not allow arbitrary external component paths, URLs, UNC paths, or home
   directory references.
@@ -59,7 +58,6 @@ harness-source/
     agents/
     claude-settings/
     codex-agents/
-    mcp-templates/
   profiles/
     base.psd1
     coding.psd1
@@ -131,7 +129,6 @@ Example project profile:
         CodexAgents = @(
             'default-codex-project'
         )
-        McpTemplates = @()
     }
 
     Future = @{
@@ -143,8 +140,7 @@ Example project profile:
 Rules:
 
 - `SchemaVersion` is required.
-- `TargetPlatforms` is required and may include `Claude`, `Codex`, and
-  `OpenClaw`.
+- `TargetPlatforms` is required and may include `Claude` and `Codex`.
 - `Extends` is optional and resolves against `harness-source/profiles/`.
 - Component names resolve only inside `harness-source/components/` or the
   current project's `.agent-harness/overlays/`.

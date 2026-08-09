@@ -1,15 +1,7 @@
 brainstorming
-codex-cli-runtime
-codex-result-handling
-control-chrome
 git-review
-gpt-5-4-prompting
-latex-tectonic
 paper-polish
-path-risk
-placeholder-ok
 subagent-driven-development
 systematic-debugging
 verification-before-completion
 writing-plans
-writing-skills

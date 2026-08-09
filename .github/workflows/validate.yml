@@ -118,9 +118,7 @@ jobs:
             'schemas\harness-env-list.schema.json',
             'schemas\harness-env-build.schema.json',
             'schemas\harness-component.schema.json',
-            'schemas\harness-platform-output.schema.json',
-            'schemas\mcp-plan.schema.json',
-            'schemas\mcp-operation.schema.json'
+            'schemas\harness-platform-output.schema.json'
           ) | ForEach-Object { Join-Path $env:GITHUB_WORKSPACE $_ }
           foreach ($schemaPath in $schemaPaths) {
             if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
@@ -148,23 +146,23 @@ jobs:
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\build-harness-env.ps1') -Name work -RepoRoot $env:GITHUB_WORKSPACE -JsonPath $envBuildJson
           if ($LASTEXITCODE -ne 0) { throw "build-harness-env.ps1 failed with exit code $LASTEXITCODE." }
           $envBuild = Get-Content -Raw -LiteralPath $envBuildJson | ConvertFrom-Json
-          foreach ($required in @('SchemaVersion', 'Name', 'Result', 'DefinitionHash', 'LockHash', 'SkillSourceEvidence', 'McpTemplateCount', 'FileCount')) {
+          foreach ($required in @('SchemaVersion', 'GeneratedAtUtc', 'Name', 'Result', 'DefinitionHash', 'TaskOverlayHash', 'TaskOverlaySkills', 'LockHash', 'RepositoryCommit', 'SkillSourceEvidence', 'FileCount')) {
             if (-not ($envBuild.PSObject.Properties.Name -contains $required)) {
               throw "Harness environment build JSON is missing required field: $required"
             }
           }
-          if ([int]$envBuild.SchemaVersion -ne 1 -or $envBuild.Name -ne 'work' -or $envBuild.Result -ne 'PASS') {
+          if ([int]$envBuild.SchemaVersion -ne 2 -or $envBuild.Name -ne 'work' -or $envBuild.Result -ne 'PASS') {
             throw 'Harness environment build JSON is invalid.'
           }
           $envLockPath = Join-Path $env:GITHUB_WORKSPACE 'envs\work\env.lock.json'
           if (-not (Test-Path -LiteralPath $envLockPath -PathType Leaf)) { throw 'Harness environment lock was not generated.' }
           $envLock = Get-Content -Raw -LiteralPath $envLockPath | ConvertFrom-Json
-          foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'ManifestHashes', 'SkillSourceEvidence', 'McpTemplateHashes', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'BuiltFiles')) {
+          foreach ($required in @('SchemaVersion', 'Name', 'DefinitionHash', 'TaskOverlayHash', 'TaskOverlaySkills', 'RepositoryCommit', 'ManifestHashes', 'SkillSourceEvidence', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'ProfileSourceHash', 'ProfileOutputHash', 'BuiltFiles')) {
             if (-not ($envLock.PSObject.Properties.Name -contains $required)) {
               throw "Harness environment lock is missing required field: $required"
             }
           }
-          if ([int]$envLock.SchemaVersion -ne 2 -or $envLock.Name -ne 'work') { throw 'Harness environment lock has an unsupported schema or name.' }
+          if ([int]$envLock.SchemaVersion -ne 3 -or $envLock.Name -ne 'work') { throw 'Harness environment lock has an unsupported schema or name.' }
 
           $envListJson = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-env-list.json'
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\list-harness-env.ps1') -RepoRoot $env:GITHUB_WORKSPACE -JsonPath $envListJson
@@ -239,16 +237,6 @@ jobs:
           }
           & pwsh -NoProfile -File $scriptPath
           if ($LASTEXITCODE -ne 0) { throw "harness-multiplatform.tests.ps1 failed with exit code $LASTEXITCODE." }
-
-      - name: Run MCP tests
-        shell: pwsh
-        run: |
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\mcp.tests.ps1'
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            throw 'tests/mcp.tests.ps1 is missing; MCP template safety coverage is required.'
-          }
-          & pwsh -NoProfile -File $scriptPath
-          if ($LASTEXITCODE -ne 0) { throw "mcp.tests.ps1 failed with exit code $LASTEXITCODE." }
 
       - name: Run harness env tests
         shell: pwsh

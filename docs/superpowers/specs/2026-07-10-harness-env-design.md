@@ -19,7 +19,7 @@
 | 决策点 | 结论 |
 |---|---|
 | 作用域 | 两层：全局命名环境可切换 + 项目声明所需环境，分阶段实施 |
-| 环境内容 | skills 子集 + harness 配置（settings/AGENTS.md 规则块/prompts/permissions）+ MCP 模板（仅占位符）；OpenClaw 插件集不纳入 |
+| 环境内容 | skills 子集 + harness 配置（settings/AGENTS.md 规则块/prompts/permissions） |
 | 切换机制 | 环境目录 + 受控部署：每环境构建到 `envs/<name>/`，activate 复用现有 `sync.ps1`/`config-pull.ps1` gated 机制；机器私有状态永不随环境切换 |
 | 项目联动 | 只检测提醒，手动切换；不做自动 activate |
 | 实现方向 | 方案 C：薄环境层（定义 + 状态文件），部署始终走现有单一写 home 路径 |
@@ -39,8 +39,8 @@
     Skills        = @{
         Claude = @('git-review', 'systematic-debugging')   # manifests 管理名单的子集
         Codex  = @('...')
+        Reasonix = @('...')
     }
-    McpTemplates  = @('...')          # 引用 components/mcp-templates/，只含占位符
 }
 ```
 
@@ -52,7 +52,7 @@
 
 ### 3.2 环境构建产物（Git-ignored，disposable）
 
-仓库根新增 `envs/<name>/`。`env build` 将环境定义解析后完整构建到此：skills 子集、harness 配置文件、MCP 模板。目录布局刻意对齐 `sync.ps1` / `config-pull.ps1` 期望的源布局，使部署阶段只是"把现有脚本的源指向 staging"，不新增写 home 代码。
+仓库根新增 `envs/<name>/`。`env build` 将环境定义解析后完整构建到此：skills 子集和 harness 配置文件。目录布局刻意对齐 `sync.ps1` / `config-pull.ps1` 期望的源布局，使部署阶段只是"把现有脚本的源指向 staging"，不新增写 home 代码。
 
 ### 3.3 当前环境状态（机器私有，Git-ignored）
 
@@ -111,8 +111,7 @@ agent-dotfiles.ps1 env activate <n> [-Apply]   # 默认 dry-run
 
 - lockfile / `env export` 跨机复现。
 - 环境回滚命令（回滚 = activate 另一环境，或从强制备份恢复）。
-- OpenClaw 插件集入环境。
-- MCP secrets 管理（模板仅占位符）。
+- MCP server 注册、配置或凭据管理。
 - 会话级环境变量隔离（CLAUDE_CONFIG_DIR 等路线已评估并否决）。
 - home 目录 junction/链接改造（已评估并否决：home 混杂机器私有状态，指针切换风险过高）。
 

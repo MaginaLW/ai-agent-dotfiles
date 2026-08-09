@@ -1,0 +1,5 @@
+interface:
+  display_name: "CodeRabbit Review"
+  short_description: "Run an explicitly requested CodeRabbit review"
+  brand_color: "#FF570A"
+  default_prompt: "Use $coderabbit-review to run CodeRabbit against the current diff, summarize its issues, and suggest concrete follow-up fixes."

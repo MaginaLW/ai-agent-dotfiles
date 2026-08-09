@@ -4,5 +4,6 @@
     Skills = @{
         Claude = @()
         Codex = @()
+        Reasonix = @()
     }
 }

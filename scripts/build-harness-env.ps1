@@ -19,7 +19,6 @@
         manifests/managed-skills.codex.txt    FULL repo manifest copy
         manifests/managed-skills.reasonix.txt FULL repo manifest copy
         profile/                 rendered profile component outputs
-        mcp/templates/<id>/      selected MCP templates (placeholders only)
         env.lock.json            { source provenance, staged hashes, BuiltFiles }
 
     The manifests/ copies are deliberately the FULL repo manifests, not the env
@@ -97,7 +96,6 @@ $definition = Read-HarnessEnvDefinition -Path $definitionPath
 $taskOverlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $Name -Path $TaskOverlayPath
 $effectiveDefinition = Merge-HarnessTaskSkillOverlay -Definition $definition -Overlay $taskOverlay
 $resolved = Resolve-HarnessEnvDefinition -RepoRoot $repo -Definition $effectiveDefinition
-$mcpTemplates = @($resolved.McpTemplates)
 
 # --- Collect skill lists (stable sorted, deduplicated) -----------------------
 $skillsByPlatform = @{}
@@ -212,14 +210,6 @@ foreach ($manifestName in @('managed-skills.claude.txt', 'managed-skills.codex.t
             Kind         = 'CopyFile'
             RelativePath = "manifests/$manifestName"
             Source       = $manifestSource
-        })
-}
-
-foreach ($template in $mcpTemplates) {
-    $plan.Add([pscustomobject] @{
-            Kind = 'CopyFile'
-            RelativePath = "mcp/templates/$($template.Id)/template.psd1"
-            Source = $template.Path
         })
 }
 
@@ -383,24 +373,19 @@ $builtHashes = [ordered] @{}
 foreach ($relative in (Sort-HarnessOrdinal -Values @($relativeToFull.Keys))) {
     $builtHashes[$relative] = Get-HarnessFileHash -Path $relativeToFull[$relative]
 }
-$mcpTemplateHashes = [ordered]@{}
-foreach ($template in $mcpTemplates) {
-    $mcpTemplateHashes[$template.Id] = $template.Hash
-}
-
 $lock = [ordered] @{
-    SchemaVersion             = 2
+    SchemaVersion             = 3
     Name                      = $resolved.Name
     DefinitionHash            = Get-HarnessEnvDefinitionHash -Path $definitionPath
     TaskOverlayHash           = $taskOverlay.Hash
     TaskOverlaySkills         = [ordered]@{
         Claude = @($taskOverlay.Skills.Claude)
         Codex = @($taskOverlay.Skills.Codex)
+        Reasonix = @($taskOverlay.Skills.Reasonix)
     }
     RepositoryCommit          = Get-HarnessRepositoryCommit -RepoRoot $repo
     ManifestHashes            = Get-HarnessManifestHashes -RepoRoot $repo
     SkillSourceEvidence       = $skillSourceEvidence
-    McpTemplateHashes         = $mcpTemplateHashes
     SkillSourceHashes         = $skillSourceHashes
     StagedSkillTreeHashes     = $stagedSkillTreeHashes
     ProfileSourceHash         = Get-HarnessProfileSourceHash -RepoRoot $repo
@@ -412,7 +397,7 @@ Write-HarnessJsonFile -InputObject $lock -Path (Join-Path $stagingFull 'env.lock
 Write-Output 'Harness env build complete'
 Write-Output "Environment: $($resolved.Name)"
 if ($taskOverlay.Present) {
-    Write-Output "Task overlay: $($taskOverlay.Path) (+$(@($taskOverlay.Skills.Claude).Count) Claude, +$(@($taskOverlay.Skills.Codex).Count) Codex)"
+    Write-Output "Task overlay: $($taskOverlay.Path) (+$(@($taskOverlay.Skills.Claude).Count) Claude, +$(@($taskOverlay.Skills.Codex).Count) Codex, +$(@($taskOverlay.Skills.Reasonix).Count) Reasonix)"
 }
 Write-Output "Files: $($builtHashes.Count) (+ env.lock.json)"
 Write-Output "Staging: $stagingFull"
@@ -420,7 +405,7 @@ if ($JsonPath) {
     $parent = Split-Path -Parent $JsonPath
     if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     $document = [ordered]@{
-        SchemaVersion = 1
+        SchemaVersion = 2
         GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
         Name = $resolved.Name
         Result = 'PASS'
@@ -430,7 +415,6 @@ if ($JsonPath) {
         LockHash = Get-HarnessFileHash -Path (Join-Path $stagingFull 'env.lock.json')
         RepositoryCommit = $lock.RepositoryCommit
         SkillSourceEvidence = $lock.SkillSourceEvidence
-        McpTemplateCount = $mcpTemplates.Count
         FileCount = $builtHashes.Count
     }
     [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))

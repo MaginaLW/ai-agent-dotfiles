@@ -15,7 +15,6 @@ Apply the full skill-management workflow below only when the task involves any o
 - `scripts/config-status.ps1`, `scripts/config-pull.ps1`, `scripts/config-push.ps1`, `.claude/settings.json` (harness config-sync)
 - `harness-source/`, `.agent-harness/generated/`
 - `.agent-harness/task-skills.psd1`, `scripts/task-skills.ps1`, `scripts/auto-sync-after-git.ps1`, `tests/task-skills.tests.ps1`
-- `harness-source/components/mcp-templates/`, `scripts/mcp-common.ps1`, `claude/mcp/apply-mcp.ps1`
 - `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, `tests/harness-profile.tests.ps1` (project harness profiles)
 - Codex `.system`
 
@@ -51,6 +50,12 @@ When the scope trigger applies:
    # Review the plan, then apply the same fingerprint-bound plan.
    pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
    ```
+   When a reviewed canonical deletion has already removed the old name from the current manifests,
+   use an external one-shot JSON retirement manifest and pass the same file to both commands with
+   `-RetireManifestPath`. The retirement file, its resolved path, live/source roots, and target tree
+   hashes are plan-bound; it must never contain `.system` or an active/canonical skill. Do not commit
+   retirement manifests, do not expect auto-sync hooks to consume them, and delete the external plan
+   and retirement JSON after a successful Apply to prevent later replay.
 8. For a fresh clone, use the bootstrap entrypoint instead of hand-installing hooks:
    ```powershell
    pwsh -NoProfile -File .\bootstrap.ps1
@@ -77,5 +82,4 @@ When the scope trigger applies:
 - Project Harness Profiles are project-local in the first version: `.agent-harness/generated/` is disposable generated output and must not be hand-edited or committed unless a future tracked-template decision explicitly says so.
 - `scripts/apply-harness-profile.ps1 -Apply` must not be treated as permission to write `~/.claude`, `~/.codex`, live skills roots, or Codex `.system`; first-version apply writes only project-local allowlist output.
 - Do not claim Project Harness Profiles install project-local skills or perform automatic global home harness switching.
-- MCP templates may contain only safe command metadata and exact environment-variable placeholders; use `claude/mcp/apply-mcp.ps1` through a reviewed dry-run plan for single-server add/update/remove. Never overwrite `~/.claude.json` directly, and never write environment-variable values to templates, plans, reports, or command logs.
 - Keep `AGENTS.md` tracked in Git so these instructions sync across machines.

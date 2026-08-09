@@ -10,7 +10,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, backup, sync, mcp, config, profile, skills,
+    One of: doctor, build, scan, backup, sync, config, profile, skills,
     inventory, analyze, merge, or env.
 
 .EXAMPLE
@@ -44,7 +44,7 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync, mcp, config, profile, skills, inventory, analyze, merge, env'
+    Write-Host 'Commands: doctor, build, scan, backup, sync, config, profile, skills, inventory, analyze, merge, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
@@ -69,7 +69,6 @@ $commandMap = @{
     inventory = 'inventory-skills.ps1'
     analyze = 'analyze-skills.ps1'
     merge = 'auto-merge-skills.ps1'
-    mcp = '..\claude\mcp\apply-mcp.ps1'
 }
 
 $envCommandMap = @{
@@ -180,7 +179,7 @@ else {
     # Platform-specific inventory is now handled by the common inventory script.
 }
 
-if ($normalizedCommand -in @('sync', 'mcp')) {
+if ($normalizedCommand -eq 'sync') {
     $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
     $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
 

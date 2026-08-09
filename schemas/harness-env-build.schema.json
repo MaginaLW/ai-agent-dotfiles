@@ -3,17 +3,27 @@
   "$id": "https://ai-agent-dotfiles.invalid/schemas/harness-env-build.schema.json",
   "title": "AI Agent Dotfiles Harness Environment Build",
   "type": "object",
-  "required": ["SchemaVersion", "GeneratedAtUtc", "Name", "Result", "DefinitionHash", "LockHash", "RepositoryCommit", "SkillSourceEvidence", "McpTemplateCount", "FileCount"],
+  "required": ["SchemaVersion", "GeneratedAtUtc", "Name", "Result", "DefinitionHash", "TaskOverlayHash", "TaskOverlaySkills", "LockHash", "RepositoryCommit", "SkillSourceEvidence", "FileCount"],
   "properties": {
-    "SchemaVersion": { "const": 1 },
+    "SchemaVersion": { "const": 2 },
     "GeneratedAtUtc": { "type": "string", "format": "date-time" },
     "Name": { "type": "string" },
     "Result": { "const": "PASS" },
     "DefinitionHash": { "type": "string" },
+    "TaskOverlayHash": { "type": ["string", "null"] },
+    "TaskOverlaySkills": {
+      "type": "object",
+      "required": ["Claude", "Codex", "Reasonix"],
+      "properties": {
+        "Claude": { "type": "array", "items": { "type": "string" } },
+        "Codex": { "type": "array", "items": { "type": "string" } },
+        "Reasonix": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
     "LockHash": { "type": "string" },
     "RepositoryCommit": { "type": ["string", "null"] },
     "SkillSourceEvidence": { "enum": ["available", "not-collected"] },
-    "McpTemplateCount": { "type": "integer", "minimum": 0 },
     "FileCount": { "type": "integer", "minimum": 0 }
   },
   "additionalProperties": false

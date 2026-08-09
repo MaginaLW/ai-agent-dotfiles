@@ -74,7 +74,8 @@ function New-ProjectProfileText {
         [string[]] $Rules = @(),
         [string[]] $Prompts = @(),
         [string[]] $Commands = @(),
-        [string[]] $ClaudeSettings = @()
+        [string[]] $ClaudeSettings = @(),
+        [string] $ExtraComponentLine = ''
     )
 
     function Join-Psd1Array([string[]] $Values) {
@@ -95,7 +96,7 @@ function New-ProjectProfileText {
         Agents = @()
         ClaudeSettings = $(Join-Psd1Array $ClaudeSettings)
         CodexAgents = @()
-        McpTemplates = @()
+$ExtraComponentLine
     }
     Future = @{
         ProjectSkills = @()
@@ -405,6 +406,9 @@ Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot
 
 $project = New-TestProject -Name 'platform-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Plan9') -Rules @('safe-file-edits'))
 Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern 'Unsupported TargetPlatform' -Message 'validation: unsupported target platform is reported'
+
+$project = New-TestProject -Name 'retired-mcp-bucket-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits') -ExtraComponentLine '        McpTemplates = @()')
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key 'McpTemplates'" -Message 'validation: retired MCP template bucket is rejected'
 
 $invalidTargets = @(
     @{ Name = 'dotdot'; Target = '../outside.md'; Pattern = 'Path escapes' },
