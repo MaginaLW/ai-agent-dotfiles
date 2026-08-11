@@ -13,7 +13,7 @@ function Assert([bool] $Condition, [string] $Message) {
     else { $script:fail++; Write-Host "  FAIL  $Message" -ForegroundColor Red }
 }
 
-$work = Join-Path $RepoRoot 'tmp/harness-multiplatform-tests'
+$work = Join-Path (Split-Path -Parent $RepoRoot) ".ai-agent-dotfiles-harness-multiplatform-$([Guid]::NewGuid().ToString('N'))"
 if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
@@ -29,16 +29,20 @@ function Invoke-Fixture([string] $Script, [string[]] $ScriptArguments = @()) {
 $fakeRepo = Join-Path $work 'repo'
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source') -Destination (Join-Path $fakeRepo 'harness-source') -Recurse -Force
 New-Item -ItemType Directory -Path (Join-Path $fakeRepo 'scripts') -Force | Out-Null
-foreach ($name in @('harness-profile-common.ps1', 'build-harness-profile.ps1', 'apply-harness-profile.ps1', 'status-harness-profile.ps1', 'scan-secrets.ps1')) {
+foreach ($name in @('harness-profile-common.ps1', 'build-harness-profile.ps1', 'apply-harness-profile.ps1', 'status-harness-profile.ps1', 'scan-secrets.ps1', 'scan-input-common.ps1', 'json-artifact-common.ps1', 'semantic-json.ps1')) {
     Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $fakeRepo "scripts/$name") -Force
 }
+New-Item -ItemType Directory -Path (Join-Path $fakeRepo 'tools/gitleaks') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $fakeRepo 'tools/gitleaks/gitleaks.lock.json') -Force
 if (Test-Path -LiteralPath (Join-Path $RepoRoot '.gitleaks.toml')) { Copy-Item -LiteralPath (Join-Path $RepoRoot '.gitleaks.toml') -Destination $fakeRepo -Force }
+& git -C $fakeRepo init --quiet
+if ($LASTEXITCODE -ne 0) { throw "Unable to initialize multi-platform fixture repository: $fakeRepo" }
 
 $profileText = @'
 @{
     SchemaVersion = 1
     Name = 'multi-platform-test'
-    TargetPlatforms = @('Claude', 'Codex', 'Codex')
+    TargetPlatforms = @('Claude', 'Codex')
     Extends = @('multi-platform')
     Components = @{
         Rules = @()

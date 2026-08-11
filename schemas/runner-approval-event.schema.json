@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/runner-approval-event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "ArtifactKind", "ApprovedCommit", "ToolchainPolicyHash", "RunnerTreeHash", "ValidatorIdentityHash", "ScannerIdentityHash", "ToolCacheRoot", "GitCommonDirHash", "WorktreeNamespace", "PointerGeneration"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "runner-approval-event" },
+    "ApprovedCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+    "ToolchainPolicyHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "RunnerTreeHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ValidatorIdentityHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ScannerIdentityHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ToolCacheRoot": { "type": "string", "minLength": 3 },
+    "GitCommonDirHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "WorktreeNamespace": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "PointerGeneration": { "type": "integer", "minimum": 1 }
+  }
+}

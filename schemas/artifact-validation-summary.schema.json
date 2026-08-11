@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/artifact-validation-summary.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "ArtifactKind", "GeneratedAtUtc", "Mode", "RegistryHash", "Counts", "Failures", "Result"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "artifact-validation-summary" },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+    "Mode": { "enum": ["All", "Manifest"] },
+    "RegistryHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "Counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Contracts", "PositivePassed", "NegativePassed", "ArtifactsValidated", "Failed"],
+      "properties": {
+        "Contracts": { "type": "integer", "minimum": 0 },
+        "PositivePassed": { "type": "integer", "minimum": 0 },
+        "NegativePassed": { "type": "integer", "minimum": 0 },
+        "ArtifactsValidated": { "type": "integer", "minimum": 0 },
+        "Failed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Failures": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "Result": { "enum": ["PASS", "FAIL"] }
+  }
+}

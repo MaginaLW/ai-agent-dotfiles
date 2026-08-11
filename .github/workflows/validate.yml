@@ -12,7 +12,7 @@ jobs:
   validate:
     name: Validate repository
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -22,6 +22,29 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
+
+      - name: Install and verify pinned JSON Schema validator
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator install failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator verification failed with exit code $LASTEXITCODE." }
+
+      - name: Install and verify pinned gitleaks
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
+
+      - name: Validate registered JSON artifacts
+        shell: pwsh
+        run: |
+          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-artifact-validation.json'
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\validate-json-artifacts.ps1') -All -JsonSummaryPath $summaryPath
+          if ($LASTEXITCODE -ne 0) { throw "Registered artifact validation failed with exit code $LASTEXITCODE." }
 
       - name: Run repository doctor
         shell: pwsh
@@ -37,7 +60,7 @@ jobs:
           $env:USERPROFILE = $isolatedHome
           Write-Host 'Doctor live-path probes are isolated to the runner temporary directory.'
 
-          & pwsh -NoProfile -File $scriptPath -SkipSecretsScan
+          & pwsh -NoProfile -File $scriptPath -HomeRoot $isolatedHome -SkipSecretsScan
           if ($LASTEXITCODE -ne 0) {
             throw "doctor.ps1 failed with exit code $LASTEXITCODE."
           }
@@ -79,13 +102,20 @@ jobs:
       - name: Verify build leaves Git clean
         shell: pwsh
         run: |
-          git diff --quiet --exit-code -- .
+          $policyPaths = @(
+            '.',
+            ':(exclude).reasonix/desktop-topic-auto-title-meta.json',
+            ':(exclude).reasonix/desktop-topic-created-at.json',
+            ':(exclude).reasonix/desktop-topic-title-sources.json',
+            ':(exclude).reasonix/desktop-topic-titles.json'
+          )
+          git diff --quiet --exit-code -- $policyPaths
           if ($LASTEXITCODE -ne 0) {
-            git status --short
+            git status --short -- $policyPaths
             throw 'Build changed tracked files. Rebuild locally and commit the intended source or manifest changes.'
           }
 
-          $untrackedFiles = @(git ls-files --others --exclude-standard)
+          $untrackedFiles = @(git ls-files --others --exclude-standard -- $policyPaths)
           if ($LASTEXITCODE -ne 0) {
             throw 'Unable to inspect untracked files after build.'
           }
@@ -183,99 +213,18 @@ jobs:
           }
           Write-Host "Machine-readable evidence validated: $latest"
 
-      - name: Run sync regression tests
+      - name: Parse every current-worktree PowerShell file
         shell: pwsh
         run: |
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\sync.tests.ps1'
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            throw 'tests/sync.tests.ps1 is missing; the transactional sync regression suite is required.'
-          }
-          & pwsh -NoProfile -File $scriptPath
-          if ($LASTEXITCODE -ne 0) { throw "sync.tests.ps1 failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\check-powershell-syntax.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "PowerShell syntax validation failed with exit code $LASTEXITCODE." }
 
-      - name: Run import and merge regression tests
+      - name: Run every root regression suite exactly once
         shell: pwsh
         run: |
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\skills-import.tests.ps1'
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            throw 'tests/skills-import.tests.ps1 is missing; the import/merge regression suite is required.'
-          }
-          & pwsh -NoProfile -File $scriptPath
-          if ($LASTEXITCODE -ne 0) { throw "skills-import.tests.ps1 failed with exit code $LASTEXITCODE." }
-
-      - name: Run doctor regression tests
-        shell: pwsh
-        run: |
-          foreach ($relative in @('tests\doctor.tests.ps1')) {
-            $scriptPath = Join-Path $env:GITHUB_WORKSPACE $relative
-            if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-              throw "$relative is missing; the reliability regression suite is required."
-            }
-            & pwsh -NoProfile -File $scriptPath
-            if ($LASTEXITCODE -ne 0) { throw "$relative failed with exit code $LASTEXITCODE." }
-          }
-
-      - name: Run harness profile tests
-        shell: pwsh
-        run: |
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\harness-profile.tests.ps1'
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            throw 'tests/harness-profile.tests.ps1 is missing; the harness profile regression suite is required.'
-          }
-
-          & pwsh -NoProfile -File $scriptPath
-          if ($LASTEXITCODE -ne 0) {
-            throw "harness-profile.tests.ps1 failed with exit code $LASTEXITCODE."
-          }
-
-      - name: Run multi-platform harness tests
-        shell: pwsh
-        run: |
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\harness-multiplatform.tests.ps1'
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            throw 'tests/harness-multiplatform.tests.ps1 is missing; multi-platform harness coverage is required.'
-          }
-          & pwsh -NoProfile -File $scriptPath
-          if ($LASTEXITCODE -ne 0) { throw "harness-multiplatform.tests.ps1 failed with exit code $LASTEXITCODE." }
-
-      - name: Run harness env tests
-        shell: pwsh
-        run: |
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\harness-env.tests.ps1'
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            throw 'tests/harness-env.tests.ps1 is missing; the harness environment regression suite is required.'
-          }
-
-          & pwsh -NoProfile -File $scriptPath
-          if ($LASTEXITCODE -ne 0) {
-            throw "harness-env.tests.ps1 failed with exit code $LASTEXITCODE."
-          }
-
-      - name: Run unified CLI tests
-        shell: pwsh
-        run: |
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\agent-dotfiles.tests.ps1'
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            throw 'tests/agent-dotfiles.tests.ps1 is missing; the unified CLI smoke suite is required.'
-          }
-
-          & pwsh -NoProfile -File $scriptPath
-          if ($LASTEXITCODE -ne 0) {
-            throw "agent-dotfiles.tests.ps1 failed with exit code $LASTEXITCODE."
-          }
-
-      - name: Run task skill overlay tests
-        shell: pwsh
-        run: |
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'tests\task-skills.tests.ps1'
-          if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-            throw 'tests/task-skills.tests.ps1 is missing; task overlay regression coverage is required.'
-          }
-
-          & pwsh -NoProfile -File $scriptPath
-          if ($LASTEXITCODE -ne 0) {
-            throw "task-skills.tests.ps1 failed with exit code $LASTEXITCODE."
-          }
+          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-summary.json'
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath
+          if ($LASTEXITCODE -ne 0) { throw "Unified test runner failed with exit code $LASTEXITCODE." }
 
       - name: Reject dangerous tracked files
         shell: pwsh

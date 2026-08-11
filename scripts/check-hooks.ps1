@@ -52,15 +52,23 @@ else {
     Write-Host 'Codex hooks: codex/config.toml not present.'
 }
 
-$autoSyncScript = Join-Path $RepoRoot 'scripts/auto-sync-after-git.ps1'
-$hooksDir = Join-Path $RepoRoot '.git/hooks'
+$policy = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'scripts/live-safety-policy.psd1')
+Write-Host "Live safety protocol: version $($policy.ProtocolVersion), release state $($policy.ReleaseState)."
+. (Join-Path $PSScriptRoot 'approved-runner-common.ps1')
+$runnerContext = Get-RunnerStorageContext -RepoRoot $RepoRoot
+$hooksDir = ((& git -C $RepoRoot rev-parse --path-format=absolute --git-path hooks) | Select-Object -First 1).Trim()
 $expectedGitHooks = @('post-merge', 'post-checkout', 'post-rewrite')
-if (Test-Path -LiteralPath $autoSyncScript) {
-    Write-Host 'Auto-sync runner: present.'
+if (Test-Path -LiteralPath $runnerContext.ApprovedStatePath -PathType Leaf) {
+    try {
+        $runnerState = Get-ApprovedRunnerState -RepoRoot $RepoRoot
+        Write-Host "Approved runner hash: $($runnerState.ToolchainPolicyHash)"
+    }
+    catch { Write-Host 'runner-review-required: approved runner state is invalid.' }
 }
 else {
-    Write-Host 'Auto-sync runner: missing.'
+    Write-Host 'runner-review-required: approved runner state is missing.'
 }
+Write-Host "Pending preview namespace: $($runnerContext.PendingEventsRoot)"
 
 foreach ($hookName in $expectedGitHooks) {
     $hookPath = Join-Path $hooksDir $hookName
@@ -69,11 +77,14 @@ foreach ($hookName in $expectedGitHooks) {
         continue
     }
 
-    $hasAutoSync = Select-String -LiteralPath $hookPath -Pattern 'auto-sync-after-git\.ps1' -Quiet
-    if ($hasAutoSync) {
-        Write-Host "Git hook ${hookName}: installed -> auto-sync enabled."
+    $content = Get-Content -LiteralPath $hookPath -Raw
+    if ($content -match 'scripts/auto-sync-after-git\.ps1') {
+        Write-Host "Git hook ${hookName}: runner-review-required (executes checkout code)."
+    }
+    elseif ($content -match 'approved-hook-entry\.ps1') {
+        Write-Host "Git hook ${hookName}: installed -> approved preview-only runner."
     }
     else {
-        Write-Host "Git hook ${hookName}: installed but does not call auto-sync-after-git.ps1."
+        Write-Host "Git hook ${hookName}: installed but not recognized."
     }
 }

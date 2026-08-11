@@ -4,7 +4,7 @@
 
 **Goal:** Safely connect a second or later Windows computer to this repository without losing local skills, overwriting the canonical source, exposing private data, or damaging Codex `.system`.
 
-**Approach:** Clone first, identify the machine, verify a clean baseline, and back up live state before importing anything. Import local skills only into the machine-specific inbox, then build, scan, review merge risks, run sync in dry-run mode, and apply only after every gate is understood.
+**Approach:** Clone first, identify the machine, verify a clean baseline, and keep live mutation interlocked. Import local skills only into the machine-specific inbox, then build, scan, and review dry-run evidence. Production backup/apply/rollback/retirement remains unavailable during Phase 0.
 
 **Materials:** Git, PowerShell 7, access to the private GitHub repository, this repository's `STATUS.md` and `docs/README.md`, and the scripts under `scripts/`.
 
@@ -14,7 +14,10 @@
 
 ## Safety model
 
-This is a controlled migration, not a blind bootstrap. During initial onboarding, **do not run `bootstrap.ps1` without `-SkipInitialSync`**: the default bootstrap path installs hooks and immediately enters the guarded sync flow. Complete the backup, import review, build, scan, and sync dry-run gates in this document first.
+This is a controlled migration, not a blind bootstrap. Bare `bootstrap.ps1` installs only inert or
+approved wrappers and checks the pinned validator, scanner, and runner in order. Follow the one exact
+command it prints, then invoke bootstrap again. It never applies live changes; Phase 0 ends with
+`safety-protocol-upgrade-required` after approval.
 
 Use these repository roles consistently:
 
@@ -44,11 +47,12 @@ env list | status | build | activate | rollback
 Read-only actions include `doctor`, `scan`, `config status`, `profile status`,
 `skills inventory`, `skills analyze`, `skills dedupe`, `env list`, and `env
 status`. `build`, `profile build`, and `env build` materialize disposable
-generated/staging output; `backup` writes an external snapshot. None of these
+generated/staging output; standalone `backup` is interlocked in Phase 0. None of these
 actions writes arbitrary live-home state or changes `skills-source/` by
 reverse-copy.
 
-All live, canonical-source, and project-target writes start in dry-run mode.
+All live, canonical-source, and project-target writes start in dry-run mode; Phase 0 rejects
+production Apply before traversal, backup, or mutation.
 For actions that expose a mode, choose exactly one of `-DryRun` or `-Apply`;
 omitting the mode is rejected by the unified entry point rather than treated
 as implicit apply. The entry point never adds `-Apply` automatically. `sync`
@@ -99,10 +103,11 @@ Set-Location $RepoRoot
 Use the same `$RepoRoot` variable in every later command. Never embed a
 personal access token in a clone URL, script, or document.
 
-Do not run the default `bootstrap.ps1` yet. If hooks must be installed before onboarding is complete, use only the non-syncing form after the initial checks:
+Run bootstrap to receive the next dependency/approval instruction. To skip the optional initial
+preview diagnostic after approval, use:
 
 ```powershell
-pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
+pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialPlan
 ```
 
 ## 3. Record the local machine identity
@@ -342,7 +347,7 @@ $TargetType = Read-Host 'Enter exactly one target: shared, claude-only, or codex
 pwsh -NoProfile -File .\scripts\promote-skill.ps1 -RepoRoot $RepoRoot -InputSkillPath $SkillPath -TargetType $TargetType -DryRun
 ```
 
-Only after reviewing that preview may an authorized maintainer rerun it with `-Apply`. Any source promotion requires a fresh build and secret scan before proceeding. Never run `auto-merge-skills.ps1 -Apply` as an unreviewed shortcut.
+During Phase 0, stop after reviewing that preview; `-Apply` remains interlocked. Any future released source promotion still requires a fresh build and secret scan. Never run `auto-merge-skills.ps1 -Apply` as an unreviewed shortcut.
 
 ## 10. Run sync in dry-run mode
 
@@ -392,7 +397,7 @@ if ($LASTEXITCODE -ne 0) { throw "Post-apply secret scan failed with exit code $
 git status --short --branch --untracked-files=all
 ```
 
-`sync.ps1 -Apply -PlanPath <plan>` rechecks the source, manifest, and live fingerprints before its own build, secret scan, and mandatory backup; drift rejects the apply. The explicit post-apply scan and Git status are still required as final evidence.
+The future released `sync.ps1 -Apply -PlanPath <plan>` contract rechecks source, manifest, live fingerprints, build, scan, and backup. Phase 0 stops before that step with `safety-protocol-upgrade-required`.
 
 ## 12. Reproduce and verify a named environment
 
@@ -470,7 +475,7 @@ If onboarding produces no tracked canonical, manifest, status, or documentation 
 - Do not use `robocopy /MIR` or any whole-directory mirror against live skill roots.
 - Do not reverse-copy live skills over `skills-source/`.
 - Do not edit `claude/skills/`, `codex/skills/` to resolve source problems.
-- Do not run `sync.ps1 -Apply` before a reviewed dry-run.
+- Do not run `sync.ps1 -Apply` during Phase 0; after release it still requires a reviewed dry-run.
 - Do not run `env activate -Apply` or `env rollback -Apply` without the required
   explicit mode and plan-binding checks.
 - Do not weaken or bypass `scripts/scan-secrets.ps1` to make onboarding appear successful.
@@ -491,5 +496,5 @@ If onboarding produces no tracked canonical, manifest, status, or documentation 
 - [ ] Sync apply completed only after approval, followed by scan and Git status.
 - [ ] If a named environment is used, `env.lock.json` validates and `env status` evidence was reviewed for lock validity, definition drift, live parity, `.system`, and backup reference.
 - [ ] `config pull` remains a separately reviewed operation and is not treated as part of `env activate`.
-- [ ] Any rollback uses only current manifest-managed Claude/Codex skills and environment state; unknown, `.system`, credentials, sessions, caches, and `config.toml` remain untouched.
+- [ ] Any future rollback uses only current manifest-managed Claude/Codex/Reasonix skills and environment state; unknown, `.system`, credentials, sessions, caches, and `config.toml` remain untouched.
 - [ ] Reviewed tracked changes committed separately for this machine, or no empty commit created when nothing changed.

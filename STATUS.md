@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-09
+Last updated: 2026-08-11
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -14,9 +14,11 @@ runtime output is rebuilt, scanned for secrets, backed up, and deployed one skil
 a time. Whole-root mirroring is forbidden, unknown live skills are preserved by default, and
 Codex `.system` is outside repository ownership.
 
-The current phase is deletion-first simplification plus reliability hardening. The 2026-08-09
-review removed duplicate, fixture-only, dependency-incomplete, and retired-platform features;
-it also repaired the safe lifecycle for canonical skill deletion.
+The current implementation phase is live-safety hardening Phase 0. Tracked policy remains
+`ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
+and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
+Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
+non-consumable preview/events plus an explicit external DryRun command. They never Apply.
 
 ## Current skill inventory
 
@@ -36,7 +38,9 @@ Current canonical names:
   `security-best-practices`, `security-ownership-map`, `security-threat-model`.
 
 Harness environment subsets are `minimal` 1/1/1, `work` 2/4/2, and `full` 7/15/7 for
-Claude/Codex/Reasonix. All three definitions are valid and their current staging locks are valid.
+Claude/Codex/Reasonix. All three definitions are valid; their commit-bound staging locks are stale
+after the cleanup commit and must be rebuilt before future environment planning. Verified live state
+remains the 2/4/2 `work` selection from the last pre-interlock activation.
 
 ## 2026-08-09 cleanup decisions
 
@@ -107,12 +111,11 @@ The retirement path is fail-closed:
 This mechanism does not maintain a replay-consumption ledger. Successful runs must delete their
 external plan and retirement JSON after the backup journal has recorded the result.
 
-## Current machine evidence
+## Historical machine evidence (redacted)
 
-On `MAGINA-LAPTOP`, reviewed plan
+On the previously verified current machine, reviewed plan
 `7883fbbc52bd4c259d455475d7e932a5097e59932d6d1d582eb7116bf61fd2a3` was applied on
-2026-08-09. Backup:
-`C:\Users\Magina\.ai-agent-dotfiles-backups\sync-backup-20260809-160759`.
+2026-08-09. Backup basename: `sync-backup-20260809-160759` (parent path intentionally redacted).
 
 Results:
 
@@ -122,16 +125,16 @@ Results:
 - All 22 explicit retirement targets are absent live, present in backup, and recorded once in the
   completed journal with `explicit-retirement` authority.
 - Unknown live skills: 0 on all three platforms.
-- Codex `.system`: marker present; its SHA-256 remained
-  `48BC5A9203F5630594588311EB6DAB7CBE75A2636E5B41F01E11CAB7F35DC7B6`; six system skills remain.
+- Codex `.system`: root marker remained present; child count/content hashes are intentionally not
+  tracked in repository status.
 - The external retirement JSON and reviewed plan were destroyed after verification.
 - A subsequent ordinary sync dry-run (without retirement authority) reported Claude
   `+0 ~0 =7 -0`, Codex `+0 ~0 =15 -0`, and Reasonix `+0 ~0 =7 -0`, with zero unknowns.
 
 After the cleanup verification, the user selected the smaller stock `work` environment. Reviewed
 plan `6962e66c35c9380b7da746af478d6164c3ba165a32950e52c09928e6c61dace3` was applied through
-`env activate work` at 2026-08-09 16:29 local time. Backup:
-`C:\Users\Magina\.ai-agent-dotfiles-backups\sync-backup-20260809-162935`.
+`env activate work` at 2026-08-09 16:29 local time. Backup basename:
+`sync-backup-20260809-162935` (parent path intentionally redacted).
 
 - Claude applied `+0 ~0 =2 -5`; final live set is `git-review` and `systematic-debugging`.
 - Codex applied `+0 ~0 =4 -11`; final live set is `brainstorming`, `git-review`,
@@ -140,7 +143,7 @@ plan `6962e66c35c9380b7da746af478d6164c3ba165a32950e52c09928e6c61dace3` was appl
   `systematic-debugging`.
 - Task overlay additions remain empty for all three platforms. Environment lock and live parity
   pass, project `RequiredEnv=work` matches, unknown live skills are zero, and Codex `.system`
-  remains present with the same marker SHA-256.
+  remains present; no child content hash is recorded.
 
 During pre-commit validation, adding a detached worktree for an exact staged-snapshot scan triggered
 the repository's existing `post-checkout` hook and unexpectedly ran a full-manifest sync. The hook
@@ -149,11 +152,11 @@ lost. The machine was immediately restored through a hooks-disabled, fully scann
 `env activate work` plan (`f08378a60b6efa7dfdcd06179124be4f21d0bc402078344c18c64ffac7c4019f`).
 Recovery backup: `sync-backup-20260809-165216`. Immediately after recovery, main-repository status
 again reported stock `work`, valid lock, live parity pass, zero task additions, zero unknowns, and
-the unchanged `.system` marker hash. The temporary worktree was removed. Creating the cleanup commit
+the `.system` root marker still present. The temporary worktree was removed. Creating the cleanup commit
 then correctly made the commit-bound staging locks stale; live remains the exact 2/4/2 `work` set and
 live parity still passes.
 
-This evidence applies only to `MAGINA-LAPTOP`. Other machines require their own reviewed dry-run;
+This evidence applied only to that machine snapshot. Other machines require their own reviewed dry-run;
 auto-sync hooks never create or consume retirement authority.
 
 ## Validation status

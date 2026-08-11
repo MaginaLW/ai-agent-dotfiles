@@ -1,0 +1,14 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "scan-input-manifest",
+  "GeneratedAtUtc": "2026-08-11T00:00:00Z",
+  "SourcePolicyHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "SourceRoot": "C:/fixture/source",
+  "DestinationRoot": "C:/fixture/destination",
+  "ExcludedProtectedPaths": [
+    ".reasonix/desktop-topic-auto-title-meta.json",
+    ".reasonix/desktop-topic-created-at.json",
+    ".reasonix/desktop-topic-title-sources.json"
+  ],
+  "Files": []
+}

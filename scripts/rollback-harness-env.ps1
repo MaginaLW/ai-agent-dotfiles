@@ -30,6 +30,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+if ($Apply -and $DryRun) { throw 'Specify -DryRun or -Apply, not both.' }
+if ($Apply) {
+    $selectedBackupRoot = if ([string]::IsNullOrWhiteSpace($BackupPath)) { $BackupRoot } else { $null }
+    Assert-LiveSafetyMutationAllowed -Operation 'environment-rollback' -Paths @(
+        $RepoRoot, $HomeRoot, $selectedBackupRoot, $BackupPath, $PlanPath, $JsonPath
+    )
+}
 . (Join-Path $PSScriptRoot 'harness-env-common.ps1')
 
 function Write-RollbackSummary {
@@ -322,7 +330,7 @@ if ($null -eq $currentState -or [string] $currentState.Name -ne [string] $activa
     throw 'Current environment state does not match the selected activation backup; refusing rollback.'
 }
 
-$rollbackRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-env-rollback-$([Guid]::NewGuid().ToString('N'))"
+$rollbackRoot = Join-Path (Get-LiveSafetyTemporaryRoot) "ai-agent-dotfiles-env-rollback-$([Guid]::NewGuid().ToString('N'))"
 $completed = [System.Collections.Generic.List[object]]::new()
 try {
     foreach ($action in @($plan.Actions | Where-Object { $_.Action -ne 'no-op' })) {

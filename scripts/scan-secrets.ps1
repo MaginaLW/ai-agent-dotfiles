@@ -15,6 +15,19 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 $RepoRoot = (Resolve-Path $RepoRoot).Path
 $configPath = Join-Path $RepoRoot '.gitleaks.toml'
 $gitleaksFailed = $false
+$jsonArtifactCommon = Join-Path $PSScriptRoot 'json-artifact-common.ps1'
+if (-not (Test-Path -LiteralPath $jsonArtifactCommon -PathType Leaf)) {
+    throw "Missing JSON artifact and pinned-tool helper: $jsonArtifactCommon"
+}
+. $jsonArtifactCommon
+$toolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$gitleaksTool = Assert-PinnedToolInstalled -LockPath (Join-Path $toolchainRoot 'tools/gitleaks/gitleaks.lock.json')
+$gitleaks = $gitleaksTool.Paths.Executable
+$scanWorkspace = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-scan-$([Guid]::NewGuid().ToString('N'))"
+$scanRoot = Join-Path $scanWorkspace 'input'
+$scanManifestPath = Join-Path $scanWorkspace 'scan-input-manifest.json'
+$scanManifest = New-FilteredScanInput -RepoRoot $RepoRoot -DestinationRoot $scanRoot
+Write-ScanInputManifest -Manifest $scanManifest -Path $scanManifestPath
 
 function Test-IsSkippedPath {
     param(
@@ -71,21 +84,16 @@ function Test-IsAllowedPlaceholderLine {
     return $false
 }
 
-$gitleaks = Get-Command gitleaks -ErrorAction SilentlyContinue
-if ($gitleaks) {
-    Write-Host "Running gitleaks from $($gitleaks.Source)"
-    $arguments = @('detect', '--no-git', '--source', $RepoRoot, '--redact')
+try {
+    Write-Host "Running pinned gitleaks from $gitleaks against a filtered no-follow input."
+    $arguments = @('detect', '--no-git', '--source', $scanRoot, '--redact')
     if (Test-Path -LiteralPath $configPath) {
         $arguments += @('--config', $configPath)
     }
-    & $gitleaks.Source @arguments
+    & $gitleaks @arguments
     if ($LASTEXITCODE -ne 0) {
         $gitleaksFailed = $true
     }
-}
-else {
-    Write-Host 'gitleaks was not found. Install it from https://github.com/gitleaks/gitleaks; running fallback scanner now.'
-}
 
 $blockingPatterns = @(
     @{ Name = 'Anthropic API key'; Regex = 'sk-ant-[A-Za-z0-9_-]{20,}' },
@@ -111,8 +119,8 @@ function Write-ScanJson {
         SchemaVersion = 1
         GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
         Result = $Result
-        Scanner = if ($gitleaks) { 'gitleaks-and-fallback' } else { 'fallback' }
-        GitleaksAvailable = [bool] $gitleaks
+        Scanner = 'pinned-gitleaks-and-fallback'
+        GitleaksAvailable = $true
         GitleaksFailed = [bool] $gitleaksFailed
         BlockingFindingCount = $findings.Count
         HintCount = $hints.Count
@@ -121,8 +129,8 @@ function Write-ScanJson {
     [System.IO.File]::WriteAllText($Path, (ConvertTo-Json -InputObject $document -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
 }
 
-Get-ChildItem -LiteralPath $RepoRoot -File -Recurse -Force | ForEach-Object {
-    $relativePath = [System.IO.Path]::GetRelativePath($RepoRoot, $_.FullName)
+Get-ChildItem -LiteralPath $scanRoot -File -Recurse -Force | ForEach-Object {
+    $relativePath = [System.IO.Path]::GetRelativePath($scanRoot, $_.FullName)
     if (Test-IsSkippedPath -RelativePath $relativePath) {
         return
     }
@@ -180,3 +188,9 @@ if ($gitleaksFailed) {
 
 Write-Host 'No blocking secrets found.'
 if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'PASS' }
+}
+finally {
+    if (Test-Path -LiteralPath $scanWorkspace -PathType Container) {
+        Remove-Item -LiteralPath $scanWorkspace -Recurse -Force
+    }
+}

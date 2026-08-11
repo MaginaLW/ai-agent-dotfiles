@@ -1,0 +1,12 @@
+{
+  "SchemaVersion": 1,
+  "ReportKind": "test-run",
+  "GeneratedAtUtc": "2026-08-11T00:00:00Z",
+  "DiscoveryHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "SetupAndNonSuiteBudgetSeconds": 1,
+  "MarginSeconds": 1,
+  "RequiredJobTimeoutSeconds": 2,
+  "Suites": [],
+  "Counts": { "Discovered": 0, "Started": 0, "Completed": 0, "Passed": 0, "Failed": 0, "TimedOut": 0, "Duplicate": 0, "Missing": 0, "TreeKillFailed": 0 },
+  "Result": "PASS"
+}

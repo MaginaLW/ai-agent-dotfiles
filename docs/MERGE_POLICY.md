@@ -1,6 +1,10 @@
 # Skills Import and Merge Policy
 
-本文定义 Claude Code、Codex 和仓库已支持的其它 skill 目标在多电脑场景下的导入、去重、合并、隔离、canonical 选择和删除规则。它是 agent 与自动化脚本的规范性决策依据；若脚本行为比本文更宽松，agent **必须**采用本文的更保守规则并输出冲突报告。
+> **Phase 0 interlock:** production merge/promote/live Apply, rollback, backup, and explicit retirement
+> remain unavailable where they reach managed live state. Bootstrap/hooks are preview/event-only and
+> cannot create or consume actionable plans. Expect `safety-protocol-upgrade-required` before mutation.
+
+本文定义 Claude Code、Codex、Reasonix 和仓库已支持的其它 skill 目标在多电脑场景下的导入、去重、合并、隔离、canonical 选择和删除规则。它是 agent 与自动化脚本的规范性决策依据；若脚本行为比本文更宽松，agent **必须**采用本文的更保守规则并输出冲突报告。
 
 ## 规范用语
 

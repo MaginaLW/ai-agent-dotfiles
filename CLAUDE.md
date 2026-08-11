@@ -47,7 +47,9 @@ When the scope trigger applies:
    pwsh -NoProfile -File scripts/scan-secrets.ps1
    pwsh -NoProfile -File scripts/sync.ps1
    ```
-7. Only after a safe dry-run, apply:
+7. Phase 0 safety interlock: production Apply/rollback/retirement currently returns
+   `safety-protocol-upgrade-required` before backup or mutation. The following Apply command is the
+   reviewed future contract only and must not be attempted until tracked policy is released:
    ```powershell
    $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
    pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
@@ -78,6 +80,6 @@ When the scope trigger applies:
 - Multi-platform Harness outputs are allowlist-bound project files: Claude commands/agents, Codex prompts/agents only. They are generated/reviewed through the profile scripts and never write global home state.
 - `envs/` is generated Harness Environments staging — never hand-edit or commit it; rebuild with `scripts/build-harness-env.ps1`. `state/current-env.json` is machine-private and never committed.
 - `env list`/`env status`/`env build` are read-only toward home directories and must never write `~/.claude`, `~/.codex`, live skills roots, or `state/`.
-- `env activate` is the only sanctioned global environment switch: dry-run by default, `-Apply` gated (the entry point demands an explicit mode), deployment exclusively through `sync.ps1` with its unskippable pre-change backup. Never hand-copy env staging into a home directory. Before the first real-home `-Apply` on each machine, a human must review the dry-run plan (prune list included); `MAGINA-LAPTOP` completed its first `full -Apply` on 2026-07-10, while other machines remain subject to this gate. Config deployment via `config-pull.ps1` is NOT part of activation; adding it requires a separate review. See `docs/README.md` §16.
+- `env activate` is the future sanctioned global environment switch, but Phase 0 production Apply is interlocked with `safety-protocol-upgrade-required`. Never hand-copy env staging into a home directory. DryRun review remains machine-local; tracked docs must not record machine names or private home paths. Config deployment via `config-pull.ps1` is NOT part of activation; adding it requires a separate review. See `docs/README.md` §16.
 - `env rollback` is the separate managed-scope recovery path: it requires an explicitly selected environment activation backup, a reviewed dry-run plan, and an exact plan hash on Apply. It restores only current-manifest Claude/Codex/Reasonix skills and the corresponding environment state; it never touches unknown live directories, Codex `.system`, credentials, sessions, caches, or Codex `config.toml`.
 - Keep `CLAUDE.md` tracked in Git so these instructions sync across machines.

@@ -29,13 +29,11 @@ if ($DryRun) {
 }
 
 $setupScript = Join-Path $PSScriptRoot 'setup.ps1'
-$arguments = @('-RepoRoot', $RepoRoot, '-InstallAutoSync')
+$arguments = @('-RepoRoot', $RepoRoot, '-ApproveRunner', '-InstallAutoSync')
 if ($InstallPreCommit) {
     $arguments += '-InstallPreCommit'
 }
-if ($Force) {
-    $arguments += '-Force'
-}
+if ($Force) { Write-Warning '-Force is retained for compatibility; explicit -ApproveRunner is the approval boundary.' }
 
 & pwsh -NoProfile -ExecutionPolicy Bypass -File $setupScript @arguments
 exit $LASTEXITCODE

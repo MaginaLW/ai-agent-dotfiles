@@ -30,9 +30,12 @@ cd C:\Repos\ai-agent-dotfiles
 pwsh -NoProfile -File .\bootstrap.ps1
 ```
 
-The bootstrap installs repo-local auto-sync hooks and immediately runs the same safe apply
-path (`scripts/sync.ps1 -Apply` through `scripts/auto-sync-after-git.ps1`). Future relevant
-pulls, rebases, and branch switches then sync automatically.
+Bootstrap installs inert/approved Git-private wrappers and checks dependencies in this order:
+the pinned JSON Schema validator, pinned gitleaks scanner, then explicit runner approval. If a
+dependency or approval is missing, run the exact absolute command bootstrap prints and invoke
+bootstrap again. During Phase 0 the final invocation stops with
+`safety-protocol-upgrade-required`; hooks produce only non-consumable preview/events and an
+explicit external DryRun command. They never create an actionable plan or Apply live changes.
 
 ## Deployment Targets (live skills)
 
@@ -58,16 +61,17 @@ pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot C:\Repos\ai-agent-dot
 pwsh -NoProfile -File .\scripts\check-hooks.ps1 -RepoRoot C:\Repos\ai-agent-dotfiles
 ```
 
-Install repo-local auto-sync hooks without running the initial sync:
+Skip the optional initial preview diagnostic (the old switch is only a warning alias):
 
 ```powershell
-pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
+pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialPlan
 ```
 
 ## Sync & Backup
 
-`sync.ps1` deploys the generated output to the live skill dirs. It is **dry-run by default**
-and only mutates with `-Apply`; `-Apply` runs build + secret scan and takes a backup first.
+`sync.ps1` describes deployment to the live skill dirs. Phase 0 currently interlocks every
+production `-Apply`, rollback, retirement, and standalone backup before traversal or mutation;
+they return `safety-protocol-upgrade-required`. DryRun/status remain available for review.
 Sync is manifest-scoped (`manifests/managed-skills.txt`), operates one skill dir at a time
 (never a whole-dir mirror), and never touches Codex's `.system`.
 If a reviewed deletion has already disappeared from the current manifest, the old live
@@ -76,14 +80,9 @@ directory remains unknown by default. It can only be removed with an external, o
 never grant that extra deletion authority.
 
 ```powershell
-# Back up live skills (full copy incl. Codex .system) to %USERPROFILE%\.ai-agent-dotfiles-backups
-pwsh -NoProfile -File .\scripts\backup.ps1 -DryRun      # preview
-pwsh -NoProfile -File .\scripts\backup.ps1              # create backup
-
-# Generate a bound plan, review it, then apply the exact plan
+# Generate and review an external plan. Apply remains interlocked in Phase 0.
 $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
 pwsh -NoProfile -File .\scripts\sync.ps1 -DryRun -PlanPath $plan
-pwsh -NoProfile -File .\scripts\sync.ps1 -Apply -PlanPath $plan
 ```
 
 The retirement JSON format and deletion workflow are documented in
@@ -94,11 +93,8 @@ apply; the repository does not maintain a replay-consumption ledger.
 
 ## Git Auto-Sync Hooks
 
-`scripts/apply-hooks.ps1 -Force` installs `.git/hooks/post-merge`,
-`.git/hooks/post-checkout`, and `.git/hooks/post-rewrite`. These hooks call
-`scripts/auto-sync-after-git.ps1`, which checks whether skill-management paths changed and
-then runs a bound dry-run plan followed by `scripts/sync.ps1 -Apply`. The apply path still
-builds, scans for secrets, creates a backup, syncs one skill directory at a time, and
-preserves Codex `.system`.
-
-The hook log is written outside Git tracking at `.git/ai-agent-dotfiles/auto-sync.log`.
+Explicit `scripts/setup.ps1 -ApproveRunner -InstallAutoSync` copies only a clean, committed,
+policy-allowlisted runner into Git-private versioned storage and installs wrappers that invoke
+that approved copy—not checkout scripts. Toolchain drift yields `runner-review-required`.
+Data-only changes may create a validated, non-consumable Git-private preview event and print the
+external DryRun command. Internal preview paths are never valid public `-PlanPath` values.

@@ -19,7 +19,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$work = Join-Path $RepoRoot 'tmp/task-skills-tests'
+. (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
+$work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-task-skills-$([Guid]::NewGuid().ToString('N'))"
 $script:pass = 0
 $script:fail = 0
 
@@ -36,7 +37,7 @@ function Assert {
 }
 
 function Remove-Work {
-    if (($work -like '*tmp*task-skills-tests*') -and (Test-Path -LiteralPath $work)) {
+    if (($work -like '*ai-agent-dotfiles-task-skills-*') -and (Test-Path -LiteralPath $work)) {
         Remove-Item -LiteralPath $work -Recurse -Force
     }
 }
@@ -52,6 +53,10 @@ function Set-File {
 
 function Invoke-Script {
     param([Parameter(Mandatory)] [string] $Script, [string[]] $Arguments = @())
+    if ($Arguments -contains '-Apply') {
+        $result = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $Script -Arguments $Arguments -AuthorityRepoRoot $RepoRoot
+        return @{ Code = $result.Code; Out = $result.Out }
+    }
     $output = & pwsh -NoProfile -File $Script @Arguments 2>&1 | Out-String
     return @{ Code = $LASTEXITCODE; Out = $output }
 }
@@ -91,6 +96,8 @@ $homeOne = Join-Path $work 'home-one'
 $homeTwo = Join-Path $work 'home-two'
 $backupRoot = Join-Path $work 'backups'
 New-Item -ItemType Directory -Path $fakeRepo -Force | Out-Null
+& git -C $fakeRepo init --quiet
+if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize the external task fixture repository.' }
 
 # Copy the implementation and profile sources, but use tiny fixture skill trees.
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts') -Destination (Join-Path $fakeRepo 'scripts') -Recurse -Force

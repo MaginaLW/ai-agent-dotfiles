@@ -76,6 +76,14 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
+. (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+if ($Apply -and $DryRun) { throw 'Specify -DryRun or -Apply, not both.' }
+if ($Apply) {
+    Assert-LiveSafetyMutationAllowed -Operation $(if ($RetireManifestPath) { 'retirement-sync' } else { 'sync' }) -Paths @(
+        $RepoRoot, $HomeRoot, $BackupRoot, $ReasonixLiveSkillsPath, $PlanPath, $RetireManifestPath
+    )
+}
+
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $reportHelper = Join-Path $PSScriptRoot 'report-common.ps1'
 if (Test-Path -LiteralPath $reportHelper) {
