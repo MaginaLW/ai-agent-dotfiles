@@ -5,8 +5,10 @@
 
 .DESCRIPTION
     No Pester dependency. Runs the real harness profile scripts against isolated
-    project and harness-source trees under <repo>/tmp/harness-profile-tests
-    (gitignored). The workspace is removed on success and kept on failure.
+    project and harness-source trees under an isolated sibling of the checkout.
+    This keeps project targets outside both the repository and the user home,
+    matching the production harness-profile boundary. The workspace is removed
+    on success and kept on failure.
 #>
 [CmdletBinding()]
 param(
@@ -40,9 +42,9 @@ function Assert {
     }
 }
 
-$work = Join-Path $RepoRoot 'tmp/harness-profile-tests'
+$work = Join-Path (Split-Path -Parent $RepoRoot) ".ai-agent-dotfiles-harness-profile-$([Guid]::NewGuid().ToString('N'))"
 function Remove-Work {
-    if (($work -like '*tmp*harness-profile-tests*') -and (Test-Path -LiteralPath $work)) {
+    if (($work -like '*.ai-agent-dotfiles-harness-profile-*') -and (Test-Path -LiteralPath $work)) {
         Remove-Item -LiteralPath $work -Recurse -Force
     }
 }
@@ -166,9 +168,15 @@ function New-TestHarnessRepo {
     $repo = Join-Path $work $Name
     New-Item -ItemType Directory -Path (Join-Path $repo 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $repo 'harness-source/profiles') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/scan-secrets.ps1') -Destination (Join-Path $repo 'scripts/scan-secrets.ps1') -Force
+    foreach ($name in @('scan-secrets.ps1', 'scan-input-common.ps1', 'json-artifact-common.ps1', 'semantic-json.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $repo "scripts/$name") -Force
+    }
+    New-Item -ItemType Directory -Path (Join-Path $repo 'tools/gitleaks') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $repo 'tools/gitleaks/gitleaks.lock.json') -Force
     $gitleaks = Join-Path $RepoRoot '.gitleaks.toml'
     if (Test-Path -LiteralPath $gitleaks) { Copy-Item -LiteralPath $gitleaks -Destination $repo -Force }
+    & git -C $repo init --quiet
+    if ($LASTEXITCODE -ne 0) { throw "Unable to initialize harness fixture repository: $repo" }
 
     Set-File -Path (Join-Path $repo 'harness-source/profiles/base.psd1') -Content (New-ProjectProfileText -TargetPlatforms @('Claude', 'Codex'))
     Add-Component -HarnessRepo $repo -Path 'rules/safe-file-edits' -Id 'safe-file-edits' -Kind 'Rule' -Target 'AGENTS.md' -Mode 'ManagedBlock' -BlockId 'safe-file-edits' -Content "Safe file edit rule.`n"

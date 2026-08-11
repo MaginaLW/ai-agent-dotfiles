@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/approved-runner-state.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "ArtifactKind", "ApprovedCommit", "ToolchainPolicyHash", "RunnerTreeHash", "RunnerRoot", "RunnerEntryPath", "RunnerFiles", "ApprovalEventPath", "ApprovalEventHash", "ValidatorIdentityHash", "ScannerIdentityHash", "ToolCacheRoot", "GitCommonDirHash", "PointerGeneration"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "approved-runner-state" },
+    "ApprovedCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+    "ToolchainPolicyHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "RunnerTreeHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "RunnerRoot": { "type": "string", "minLength": 3 },
+    "RunnerEntryPath": { "type": "string", "minLength": 3 },
+    "RunnerFiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["RelativePath", "Length", "Sha256"],
+        "properties": {
+          "RelativePath": { "type": "string", "minLength": 1 },
+          "Length": { "type": "integer", "minimum": 0 },
+          "Sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "ApprovalEventPath": { "type": "string", "minLength": 3 },
+    "ApprovalEventHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ValidatorIdentityHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ScannerIdentityHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "ToolCacheRoot": { "type": "string", "minLength": 3 },
+    "GitCommonDirHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "PointerGeneration": { "type": "integer", "minimum": 1 }
+  }
+}

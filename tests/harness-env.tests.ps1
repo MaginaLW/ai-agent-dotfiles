@@ -25,6 +25,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+. (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
 $listScript = Join-Path $RepoRoot 'scripts/list-harness-env.ps1'
 $statusScript = Join-Path $RepoRoot 'scripts/status-harness-env.ps1'
 $buildScript = Join-Path $RepoRoot 'scripts/build-harness-env.ps1'
@@ -45,9 +46,9 @@ function Assert {
     }
 }
 
-$work = Join-Path $RepoRoot 'tmp/harness-env-tests'
+$work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-harness-env-$([Guid]::NewGuid().ToString('N'))"
 function Remove-Work {
-    if (($work -like '*tmp*harness-env-tests*') -and (Test-Path -LiteralPath $work)) {
+    if (($work -like '*ai-agent-dotfiles-harness-env-*') -and (Test-Path -LiteralPath $work)) {
         Remove-Item -LiteralPath $work -Recurse -Force
     }
 }
@@ -63,6 +64,10 @@ function Set-File {
 
 function Invoke-Script {
     param([Parameter(Mandatory)] [string] $Script, [string[]] $ScriptArgs = @())
+    if ($ScriptArgs -contains '-Apply') {
+        $result = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $Script -Arguments $ScriptArgs -AuthorityRepoRoot $RepoRoot
+        return @{ Out = $result.Out; Code = $result.Code }
+    }
     $out = & pwsh -NoProfile -File $Script @ScriptArgs 2>&1 | Out-String
     return @{ Out = $out; Code = $LASTEXITCODE }
 }
@@ -108,6 +113,8 @@ function Get-TreeSnapshot {
 # --- Fake repository ----------------------------------------------------------
 $fakeRepo = Join-Path $work 'repo'
 New-Item -ItemType Directory -Path $fakeRepo -Force | Out-Null
+& git -C $fakeRepo init --quiet
+if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize the external harness fixture repository.' }
 
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/profiles') `
     -Destination (Join-Path $fakeRepo 'harness-source/profiles') -Recurse -Force

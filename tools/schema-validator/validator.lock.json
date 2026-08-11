@@ -1,0 +1,16 @@
+{
+  "SchemaVersion": 1,
+  "ToolKind": "json-schema-validator",
+  "Version": "15.6.3",
+  "AssetName": "jsonschema-15.6.3-windows-x86_64.zip",
+  "AssetUrl": "https://github.com/sourcemeta/jsonschema/releases/download/v15.6.3/jsonschema-15.6.3-windows-x86_64.zip",
+  "ReleaseUrl": "https://github.com/sourcemeta/jsonschema/releases/tag/v15.6.3",
+  "AssetSha256": "f9322c678ad15374763ac9539ad9b6fc8839ef520293e5bc6aa923bcb543fbd3",
+  "ChecksumAssetName": "CHECKSUMS.txt",
+  "ChecksumAssetSha256": "38fa621bd3965e40216ed9357f2f5b70226bb7949d80242b9ae5bdb81cd05ee7",
+  "ExecutableName": "jsonschema.exe",
+  "VersionArguments": ["version"],
+  "ExpectedVersionPattern": "(^|[^0-9])15\\.6\\.3([^0-9]|$)",
+  "LicenseIdentifier": "AGPL-3.0-only",
+  "LicenseUrl": "https://github.com/sourcemeta/jsonschema/blob/v15.6.3/LICENSE"
+}

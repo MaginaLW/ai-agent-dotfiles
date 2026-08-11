@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/committed-data-snapshot-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "ArtifactKind", "SourceCommit", "DataPolicyHash", "Pathspecs", "DestinationRoot", "Files"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "committed-data-snapshot-manifest" },
+    "SourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+    "DataPolicyHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "Pathspecs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "DestinationRoot": { "type": "string", "minLength": 3 },
+    "Files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["RelativePath", "GitMode", "GitOid", "Length", "Sha256", "IdentityHash", "LinkCount", "NamedStreamCount"],
+        "properties": {
+          "RelativePath": { "type": "string", "minLength": 1 },
+          "GitMode": { "enum": ["100644", "100755"] },
+          "GitOid": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+          "Length": { "type": "integer", "minimum": 0 },
+          "Sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "IdentityHash": { "type": "string", "minLength": 3 },
+          "LinkCount": { "const": 1 },
+          "NamedStreamCount": { "const": 0 }
+        }
+      }
+    }
+  }
+}

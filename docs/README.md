@@ -1,5 +1,8 @@
 # ai-agent-dotfiles 使用说明
 
+> **Phase 0:** production Apply/backup/rollback/retirement is interlocked. DryRun/status and
+> preview-only hooks remain available; expect `safety-protocol-upgrade-required` before mutation.
+
 面向"未来的我"和"接手的 Claude Code / Codex agent"。看完这份手册即可独立维护本项目。
 
 全局状态见 [STATUS.md](../STATUS.md)；新电脑接入见 [ONBOARD_NEW_MACHINE.md](ONBOARD_NEW_MACHINE.md)；skills 合并规则见 [MERGE_POLICY.md](MERGE_POLICY.md)；当前局部任务见 [status/active/](../status/active/)；历史状态见 [status/archived/](../status/archived/)；恢复操作见 [RESTORE.md](RESTORE.md)。
@@ -48,18 +51,20 @@
 
 | 路径 | 说明 |
 |---|---|
-| `bootstrap.ps1` | 新 clone 的固定入口：安装 auto-sync hooks，并默认执行首次 live sync |
+| `bootstrap.ps1` | 新 clone 的固定入口：安装 inert wrapper，依次检查 validator/scanner/runner；只输出 preview/diagnostic，不 Apply |
 | `STATUS.md` | 唯一全局状态文件，直接更新，不重复新建总体状态报告 |
 | `status/active/` | 当前正在进行的局部任务状态 |
 | `status/archived/` | 已完成和历史局部任务状态 |
 | `.claude/settings.json` | 项目级 harness 护栏（deny 编辑生成物/`.system`、禁 robocopy；allow 安全校验命令） |
 | `skills-source/` | **唯一可信源**，手工维护的 skill 树 |
-| `skills-source/shared/` | 跨平台 skill（生成到 Claude 和 Codex 两边） |
+| `skills-source/shared/` | 跨平台 skill（生成到 Claude、Codex、Reasonix） |
 | `skills-source/claude-only/` | 仅 Claude 的 skill |
 | `skills-source/codex-only/` | 仅 Codex 的 skill（如 `hatch-pet`） |
+| `skills-source/reasonix-only/` | 仅 Reasonix 的 skill |
 | `claude/skills/` | **生成物**，Git-ignored，勿手改 |
 | `codex/skills/` | **生成物**，Git-ignored，勿手改 |
-| `manifests/managed-skills.txt` | 本仓库当前托管的 skill 名单；已从名单移除的旧 live 目录默认按 unknown 保留 |
+| `reasonix/skills/` | **生成物**，Git-ignored，勿手改 |
+| `manifests/managed-skills.txt` | 三平台 union inventory；实际 prune authority 使用各平台 manifest，旧 live 名称默认按 unknown 保留 |
 | `scripts/build-skills.ps1` | 从源生成 runtime output，并刷新 manifest |
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
 | `scripts/backup.ps1` | 备份 live Claude/Codex/Reasonix skills（含 `.system`）到 repo 外 |
@@ -81,8 +86,8 @@
 | `scripts/build-harness-env.ps1` | 构建 `envs/<name>/` staging，只写该目录，见 §16 |
 | `scripts/activate-harness-env.ps1` | gated 环境切换，默认 dry-run，部署只经 `sync.ps1`，见 §16 |
 | `scripts/task-skills.ps1` | task overlay 的校验、dry-run、addition-only 自动同步和显式 close，见 §16 |
-| `scripts/auto-sync-after-git.ps1` | Git hook runner；先生成 fingerprint-bound dry-run，再调用 `sync.ps1 -Apply` |
-| `scripts/apply-hooks.ps1` | 安装 repo-local Git auto-sync hooks |
+| `scripts/auto-sync-after-git.ps1` | Git-private approved runner；只写 non-consumable preview/event 和外部 DryRun 命令 |
+| `scripts/apply-hooks.ps1` | 显式批准 runner 后安装 preview-only hooks |
 | `imports/skills-inbox/` | 待审计的原始导入 skill |
 | `imports/skills-archive/` | 已处理的导入归档 |
 | `imports/skills-quarantine/` | 含 secret/异常、被隔离的 skill |
@@ -101,9 +106,10 @@ Set-Location $RepoRoot
 pwsh -NoProfile -File .\bootstrap.ps1
 ```
 
-`bootstrap.ps1` 会安装 repo-local auto-sync hooks，并进入 fingerprint-bound 的受控 sync
-流程。新机器接入时应先使用 `-SkipInitialSync`，完成本文和
-[ONBOARD_NEW_MACHINE.md](ONBOARD_NEW_MACHINE.md) 的 dry-run 审查，再执行显式 apply。
+`bootstrap.ps1` 先安装 inert wrappers，然后依次检查 pinned validator、pinned gitleaks 和
+Git-private approved runner。缺失时只输出一个固定 token 和一条绝对安装/批准命令；执行该命令
+后再次运行 bootstrap。Phase 0 最终只返回 `safety-protocol-upgrade-required`，不会生成可消费
+plan，更不会 Apply。Git hooks 也只能写 non-consumable preview/event，并打印显式外部 DryRun 命令。
 
 手动维护流程仍然可用：
 
@@ -115,22 +121,21 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 build # 从源生成 runtime ou
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 scan  # 检查 secrets
 $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -DryRun -PlanPath $plan # 生成并审查计划
-pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -Apply -PlanPath $plan # 只应用同一计划
+# Phase 0 到此停止；production Apply 仍被 safety-protocol-upgrade-required 拦截
 ```
 
 `sync.ps1` 默认是 **dry-run**，只打印计划、不动 live；`-Apply` 必须带有先前 dry-run 生成的 `-PlanPath`，并重新验证 source、manifest、source/live 根路径和 live fingerprint 后才会修改。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
 
-如果只想安装 hooks、不执行首次 live 同步：
+如果只想跳过初始 preview diagnostic：
 
 ```powershell
-pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
+pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialPlan
 ```
 
-安装后，`post-merge`、`post-checkout`、`post-rewrite` 会在 skill 管理相关路径变化时自动调用
-绑定计划的同步流程。普通源变更走 `sync.ps1 -Apply`；若检测到 task overlay 变更，则走
-`env task sync -Apply -Automatic`，只允许 addition-only，绝不因 Git checkout/pull 静默 prune。
-自动同步仍然走 build、secret scan、backup、manifest-scoped sync 和 `.system` 保护；日志写在
-`.git/ai-agent-dotfiles/auto-sync.log`。
+安装后，`post-merge`、`post-checkout`、`post-rewrite` 只调用已批准的 Git-private runner。
+toolchain 漂移返回 `runner-review-required`；data-only 变化最多产生不可作为 `-PlanPath` 的
+Git-private preview/event。用户必须另行把明确的 `-DryRun -PlanPath <external>` 命令写到 repo/Git
+私有目录之外，才会得到未来可审查的 actionable plan。hook 永不自动 backup/apply/prune/rollback。
 
 ---
 
@@ -141,10 +146,10 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialSync
 3. `scripts/scan-secrets.ps1`
 4. `$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'`，再运行
    `scripts/sync.ps1 -DryRun -PlanPath $plan` 并审查计划
-5. `scripts/sync.ps1 -Apply -PlanPath $plan`
+5. Phase 0：停止；`scripts/sync.ps1 -Apply` 当前必定返回 `safety-protocol-upgrade-required`
 6. 提交 source / manifest / docs 变更（**不要**提交 generated output）。
 7. `git push`
-8. 其它电脑若已安装 auto-sync hooks，`git pull --ff-only` 后会自动生成并绑定计划；否则手动运行同一 `-DryRun -PlanPath` / `-Apply -PlanPath` 流程。
+8. 其它电脑的 hook 只生成 non-consumable preview/event；每台机器都必须显式生成外部 DryRun 计划，Phase 0 不允许 Apply。
 
 如果这次修改是**删除 canonical skill**，build 会同时从 generated output 和当前 manifest
 移除名称；旧 live 目录因此会按 unknown 保留，不会被普通 sync 猜测性删除。完成逐项审查后，
@@ -166,7 +171,8 @@ $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-retire-plan.json'
 $retire = Join-Path $env:TEMP 'ai-agent-dotfiles-retire-skills.json'
 pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan -RetireManifestPath $retire
 # 逐平台审查 retirement-authorized prune、unknown 和 .system 状态
-pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan -RetireManifestPath $retire
+# Future released contract only; do not run during Phase 0:
+# pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan -RetireManifestPath $retire
 ```
 
 retirement manifest 必须严格列出三个平台、至少一个小写安全名称；`.system`、仍在
@@ -225,7 +231,7 @@ consumption ledger 的密码学防重放协议。如果将来在完全相同路�
 
 ## 9. backup / restore
 
-- `sync.ps1 -Apply` 会**自动 backup**（在改动前）。
+- Future released `sync.ps1 -Apply` contract includes a pre-change backup; Phase 0 interlocks it first.
 - 手动备份：
   ```powershell
   pwsh -NoProfile -File scripts/backup.ps1
@@ -284,7 +290,7 @@ A：`.system` 是 Codex 平台自带目录，不由本仓库管理。live 校验
 A：`claude/skills/`、`codex/skills/` 是由 `build-skills.ps1` 从 `skills-source/` 生成的，属派生物，已 Git-ignored；提交它会造成源与产物双份维护和漂移。
 
 **Q：新电脑第一次部署怎么办？**
-A：`git clone` → `bootstrap.ps1 -SkipInitialSync` → 按 onboarding 文档完成 backup、build、scan、sync dry-run、计划审查，再执行同一计划的显式 apply。后续相关 `git pull` / rebase / branch checkout 才进入受控自动同步流程。Claude live 目录不存在时会自动创建。
+A：`git clone` → `bootstrap.ps1` → 按输出依次安装 validator/scanner、显式批准 runner → 再次 bootstrap 得到 Phase 0 interlock。`-SkipInitialSync` 仅为 `-SkipInitialPlan` 的弃用警告别名。hook 只生成 preview/event；显式外部 DryRun 可审查，但当前不 Apply。
 
 **Q：scan-secrets 报 false positive 怎么办？**
 A：优先**改写源文档/示例措辞**让它不再像真实密钥——例如把"给 `secret` 键直接赋一个带引号的明文字符串"这类示例，改写成描述性文字（说明应从环境变量或密钥管理器读取）。**不要** whitelist，**不要**削弱 scan gate。改完重新 build + scan。

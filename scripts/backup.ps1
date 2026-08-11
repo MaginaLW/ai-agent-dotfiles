@@ -47,6 +47,11 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
+. (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+if (-not $DryRun) {
+    Assert-LiveSafetyMutationAllowed -Operation 'standalone-backup' -Paths @($RepoRoot, $HomeRoot, $BackupRoot, $ReasonixLiveSkillsPath)
+}
+
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
 # ---------------------------------------------------------------------------

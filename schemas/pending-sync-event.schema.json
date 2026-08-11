@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/pending-sync-event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "ArtifactKind", "EventKind", "WorktreeNamespace", "Trigger", "ApprovedToolchainHash", "CurrentToolchainHash", "Commit", "ContextHash", "PreviewStatus", "RedactedContext", "ContentHashes", "ExternalDryRunCommand"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "pending-sync-event" },
+    "EventKind": { "enum": ["preview", "diagnostic", "stale", "superseded", "retired"] },
+    "WorktreeNamespace": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "Trigger": { "type": "string", "minLength": 1 },
+    "ApprovedToolchainHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "CurrentToolchainHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "Commit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+    "ContextHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "PreviewStatus": { "enum": ["non-consumable", "diagnostic-only", "retired"] },
+    "RedactedContext": { "type": "string", "minLength": 1 },
+    "ContentHashes": { "type": "array", "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "uniqueItems": true },
+    "ExternalDryRunCommand": { "type": "string", "minLength": 1 }
+  }
+}

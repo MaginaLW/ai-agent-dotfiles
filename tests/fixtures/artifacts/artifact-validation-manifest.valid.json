@@ -1,0 +1,13 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "artifact-validation-manifest",
+  "GeneratedAtUtc": "2026-08-11T00:00:00Z",
+  "Artifacts": [
+    {
+      "ArtifactKind": "fixture-target",
+      "SchemaVersion": 1,
+      "Path": "tests/fixtures/artifacts/manifest-target.json",
+      "Sha256": "4a4edf98d69ac700d1720147c8656fd34960af2461a952e0e37bf1f85888df15"
+    }
+  ]
+}

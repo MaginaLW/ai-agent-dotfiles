@@ -11,7 +11,7 @@
 
 .PARAMETER Command
     One of: doctor, build, scan, backup, sync, config, profile, skills,
-    inventory, analyze, merge, or env.
+    inventory, analyze, merge, plans, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -44,7 +44,7 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync, config, profile, skills, inventory, analyze, merge, env'
+    Write-Host 'Commands: doctor, build, scan, backup, sync, config, profile, skills, inventory, analyze, merge, plans, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
@@ -69,6 +69,7 @@ $commandMap = @{
     inventory = 'inventory-skills.ps1'
     analyze = 'analyze-skills.ps1'
     merge = 'auto-merge-skills.ps1'
+    plans = 'plans.ps1'
 }
 
 $envCommandMap = @{

@@ -1,0 +1,10 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "artifact-validation-summary",
+  "GeneratedAtUtc": "2026-08-11T00:00:00Z",
+  "Mode": "All",
+  "RegistryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "Counts": { "Contracts": 0, "PositivePassed": 0, "NegativePassed": 0, "ArtifactsValidated": 0, "Failed": 0 },
+  "Failures": [],
+  "Result": "PASS"
+}

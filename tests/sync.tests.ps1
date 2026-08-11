@@ -14,6 +14,7 @@ $fakeRepo = Join-Path $work 'repo'
 $fakeHome = Join-Path $work 'home'
 $fakeBackups = Join-Path $work 'backups'
 $planPath = Join-Path $work 'sync-plan.json'
+. (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
 
 function Assert {
     param([Parameter(Mandatory)] [bool] $Condition, [Parameter(Mandatory)] [string] $Message)
@@ -46,8 +47,7 @@ function Write-RetirementManifest {
 
 function Invoke-Sync {
     param([string[]] $Arguments)
-    $output = @(& pwsh -NoProfile -File $syncScript @Arguments 2>&1)
-    [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($output -join "`n") }
+    return Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $syncScript -Arguments $Arguments -AuthorityRepoRoot $RepoRoot
 }
 
 try {

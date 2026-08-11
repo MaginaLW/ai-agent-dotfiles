@@ -1,4 +1,4 @@
-#requires -Version 5.1
+#requires -Version 7.0
 <#
 .SYNOPSIS
     Performs read-only health checks for the ai-agent-dotfiles repository.
@@ -27,6 +27,7 @@
 [CmdletBinding()]
 param(
     [string] $RepoRoot,
+    [string] $HomeRoot,
     [switch] $SkipSecretsScan,
     [string] $JsonPath
 )
@@ -184,7 +185,14 @@ else {
             Add-DoctorResult -Level 'INFO' -Message "Current Git branch: $(($branch -join '').Trim())"
         }
 
-        $statusLines = @(& $gitCommand.Source -C $RepoRoot status --porcelain --untracked-files=all 2>$null)
+        $statusPaths = @(
+            '.',
+            ':(exclude).reasonix/desktop-topic-auto-title-meta.json',
+            ':(exclude).reasonix/desktop-topic-created-at.json',
+            ':(exclude).reasonix/desktop-topic-title-sources.json',
+            ':(exclude).reasonix/desktop-topic-titles.json'
+        )
+        $statusLines = @(& $gitCommand.Source -C $RepoRoot status --porcelain --untracked-files=all -- @statusPaths 2>$null)
         $statusExit = $LASTEXITCODE
         if ($statusExit -ne 0) {
             Add-DoctorResult -Level 'FAIL' -Message 'Git status could not be read.'
@@ -227,21 +235,18 @@ foreach ($scriptPath in @(
 }
 
 Write-Section -Name 'Live skills path detection'
-$homeRoot = $HOME
-if ([string]::IsNullOrWhiteSpace($homeRoot)) {
-    $homeRoot = $env:USERPROFILE
-}
-if ([string]::IsNullOrWhiteSpace($homeRoot)) {
+if ([string]::IsNullOrWhiteSpace($HomeRoot)) { $HomeRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile) }
+if ([string]::IsNullOrWhiteSpace($HomeRoot)) {
     Add-DoctorResult -Level 'FAIL' -Message 'User home directory could not be determined.'
 }
 else {
     Add-DoctorResult -Level 'INFO' -Message 'Live path probing uses the current user home directory.'
-    $codexPreferred = Join-Path $homeRoot '.codex\skills'
-    $codexFallback = Join-Path $homeRoot '.agents\skills'
-    $claudeRoot = Join-Path $homeRoot '.claude'
-    $claudeSkills = Join-Path $homeRoot '.claude\skills'
-    $claudePlugins = Join-Path $homeRoot '.claude\plugins'
-    $reasonixSkills = Join-Path $homeRoot 'AppData\Roaming\reasonix\skills'
+    $codexPreferred = Join-Path $HomeRoot '.codex\skills'
+    $codexFallback = Join-Path $HomeRoot '.agents\skills'
+    $claudeRoot = Join-Path $HomeRoot '.claude'
+    $claudeSkills = Join-Path $HomeRoot '.claude\skills'
+    $claudePlugins = Join-Path $HomeRoot '.claude\plugins'
+    $reasonixSkills = Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills'
 
     Test-LivePath -Label 'Codex preferred live skills (~/.codex/skills)' -Path $codexPreferred
     Test-LivePath -Label 'Codex fallback live skills (~/.agents/skills)' -Path $codexFallback
@@ -271,28 +276,30 @@ foreach ($output in $generatedOutputs) {
 
 Write-Section -Name '.system protection'
 $systemCandidates = @(
-    @{ Label = 'Live Codex preferred .system'; Path = if ($homeRoot) { Join-Path $homeRoot '.codex\skills\.system' } else { $null }; MarkerExpected = $true },
-    @{ Label = 'Live Codex fallback .system'; Path = if ($homeRoot) { Join-Path $homeRoot '.agents\skills\.system' } else { $null }; MarkerExpected = $true },
-    @{ Label = 'Generated Codex .system'; Path = Join-Path $RepoRoot 'codex\skills\.system'; MarkerExpected = $false }
+    @{ Label = 'Live Codex preferred .system'; Path = if ($HomeRoot) { Join-Path $HomeRoot '.codex\skills\.system' } else { $null }; Live = $true },
+    @{ Label = 'Live Codex fallback .system'; Path = if ($HomeRoot) { Join-Path $HomeRoot '.agents\skills\.system' } else { $null }; Live = $true },
+    @{ Label = 'Generated Codex .system'; Path = Join-Path $RepoRoot 'codex\skills\.system'; Live = $false }
 )
 $systemFound = 0
+. (Join-Path $PSScriptRoot 'scan-input-common.ps1')
 foreach ($candidate in $systemCandidates) {
     if ([string]::IsNullOrWhiteSpace($candidate.Path)) {
         continue
     }
-    if (Test-Path -LiteralPath $candidate.Path -PathType Container) {
-        $systemFound++
-        Add-DoctorResult -Level 'PASS' -Message "$($candidate.Label) detected: preserved-required; doctor did not modify it."
-        if ($candidate.MarkerExpected) {
-            $marker = Join-Path $candidate.Path '.codex-system-skills.marker'
-            if (Test-Path -LiteralPath $marker -PathType Leaf) {
-                Add-DoctorResult -Level 'PASS' -Message "$($candidate.Label) marker is present."
-            }
-            else {
-                Add-DoctorResult -Level 'WARN' -Message "$($candidate.Label) exists but its platform marker is missing; preserved-required still applies."
-            }
+    $entry = $null
+    try { $entry = [AiAgentDotfiles.NoFollowFile]::Inspect([string]$candidate.Path) } catch { continue }
+    if ($null -ne $entry) {
+        if ($entry.IsReparsePoint) {
+            Add-DoctorResult -Level 'WARN' -Message "$($candidate.Label) root entry is a reparse point; preserved-required and manual review apply."
+            continue
         }
-        else {
+        if (-not $entry.IsDirectory) {
+            Add-DoctorResult -Level 'WARN' -Message "$($candidate.Label) root entry is not a directory; preserved-required and manual review apply."
+            continue
+        }
+        $systemFound++
+        Add-DoctorResult -Level 'PASS' -Message "$($candidate.Label) root entry detected with no content traversal: preserved-required."
+        if (-not $candidate.Live) {
             Add-DoctorResult -Level 'WARN' -Message "$($candidate.Label) appears inside generated output; inspect the build layout, but do not remove it with doctor."
         }
     }
@@ -300,6 +307,38 @@ foreach ($candidate in $systemCandidates) {
 if ($systemFound -eq 0) {
     Add-DoctorResult -Level 'INFO' -Message 'No .system directory was detected in expected generated or live locations.'
 }
+
+Write-Section -Name 'Live safety protocol'
+$policyPath = Join-Path $RepoRoot 'scripts/live-safety-policy.psd1'
+if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) {
+    Add-DoctorResult -Level 'FAIL' -Message 'Live safety policy is missing.'
+}
+else {
+    $safetyPolicy = Import-PowerShellDataFile -LiteralPath $policyPath
+    Add-DoctorResult -Level 'INFO' -Message "Live safety protocol: version $($safetyPolicy.ProtocolVersion), release state $($safetyPolicy.ReleaseState)."
+    if ([string]$safetyPolicy.ReleaseState -eq 'interlocked') { Add-DoctorResult -Level 'WARN' -Message 'safety-protocol-upgrade-required: production Apply remains interlocked.' }
+}
+try {
+    . (Join-Path $PSScriptRoot 'approved-runner-common.ps1')
+    $runnerContext = Get-RunnerStorageContext -RepoRoot $RepoRoot
+    Add-DoctorResult -Level 'INFO' -Message "Pending preview namespace: $($runnerContext.PendingEventsRoot)"
+    $pendingCount = if (Test-Path -LiteralPath $runnerContext.PendingEventsRoot -PathType Container) { @(Get-ChildItem -LiteralPath $runnerContext.PendingEventsRoot -File).Count } else { 0 }
+    Add-DoctorResult -Level 'INFO' -Message "Pending registered events: $pendingCount"
+    if (Test-Path -LiteralPath $runnerContext.ApprovedStatePath -PathType Leaf) {
+        $runnerState = Get-ApprovedRunnerState -RepoRoot $RepoRoot
+        Add-DoctorResult -Level 'PASS' -Message "Approved runner hash: $($runnerState.ToolchainPolicyHash)"
+        $probe = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-doctor-runner-$([Guid]::NewGuid().ToString('N'))"
+        try {
+            $checkout = Get-RunnerPolicySnapshot -RepoRoot $RepoRoot -DestinationRoot $probe -BindingCommit ([string]$runnerState.ApprovedCommit) -ToolCacheRoot ([string]$runnerState.ToolCacheRoot)
+            if ([string]$checkout.ToolchainPolicyHash -ceq [string]$runnerState.ToolchainPolicyHash) { Add-DoctorResult -Level 'PASS' -Message "Checkout runner hash matches approval: $($checkout.ToolchainPolicyHash)" }
+            else { Add-DoctorResult -Level 'WARN' -Message 'runner-review-required: checkout toolchain differs from approved runner.' }
+        }
+        catch { Add-DoctorResult -Level 'WARN' -Message 'runner-review-required: checkout runner hash could not be validated.' }
+        finally { if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Recurse -Force } }
+    }
+    else { Add-DoctorResult -Level 'WARN' -Message 'runner-review-required: no approved runner state exists.' }
+}
+catch { Add-DoctorResult -Level 'WARN' -Message 'runner-review-required: approved runner metadata is invalid or unavailable.' }
 
 Write-Section -Name 'Secrets scan'
 $scanScript = Join-Path $RepoRoot 'scripts\scan-secrets.ps1'

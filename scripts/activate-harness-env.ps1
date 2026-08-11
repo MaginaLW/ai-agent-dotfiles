@@ -85,12 +85,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-. (Join-Path $PSScriptRoot 'harness-env-common.ps1')
-
 if ($Apply -and $DryRun) {
     Write-Error 'Specify -DryRun or -Apply, not both.' -ErrorAction Continue
     exit 1
 }
+
+. (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+if ($Apply) {
+    Assert-LiveSafetyMutationAllowed -Operation 'environment-activate' -Paths @(
+        $RepoRoot, $HomeRoot, $BackupRoot, $JsonPath, $TaskOverlayPath
+    )
+}
+. (Join-Path $PSScriptRoot 'harness-env-common.ps1')
 
 $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
 $definitionPath = Join-Path (Get-HarnessEnvRoot -RepoRoot $repo) "$Name.psd1"
@@ -238,7 +244,7 @@ $syncArguments = @(
     '-SkipBuild'
     '-SkipSecretScan'
 )
-$planPath = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-env-$Name-$([Guid]::NewGuid().ToString('N')).json"
+$planPath = Join-Path (Get-LiveSafetyTemporaryRoot) "ai-agent-dotfiles-env-$Name-$([Guid]::NewGuid().ToString('N')).json"
 if ($Apply) {
     Write-Host 'Gate 4/4a: generate and bind the dry-run plan'
     $dryArguments = @($syncArguments + @('-DryRun', '-PlanPath', $planPath))

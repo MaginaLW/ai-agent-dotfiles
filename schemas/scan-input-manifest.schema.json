@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/scan-input-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "ArtifactKind",
+    "GeneratedAtUtc",
+    "SourcePolicyHash",
+    "SourceRoot",
+    "DestinationRoot",
+    "ExcludedProtectedPaths",
+    "Files"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "scan-input-manifest" },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time" },
+    "SourcePolicyHash": { "$ref": "#/$defs/sha256" },
+    "SourceRoot": { "type": "string", "minLength": 1 },
+    "DestinationRoot": { "type": "string", "minLength": 1 },
+    "ExcludedProtectedPaths": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^\\.reasonix/desktop-topic-[a-z-]+\\.json$" }
+    },
+    "Files": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/file" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["RelativePath", "Length", "Sha256", "IdentityHash", "LinkCount", "NamedStreamCount"],
+      "properties": {
+        "RelativePath": { "type": "string", "minLength": 1 },
+        "Length": { "type": "integer", "minimum": 0 },
+        "Sha256": { "$ref": "#/$defs/sha256" },
+        "IdentityHash": { "type": "string", "pattern": "^[0-9a-f]{8}:[0-9a-f]{16}$" },
+        "LinkCount": { "const": 1 },
+        "NamedStreamCount": { "const": 0 }
+      }
+    }
+  }
+}

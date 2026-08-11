@@ -43,6 +43,12 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
+. (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+if ($Apply -and $Action -ne 'status') {
+    Assert-LiveSafetyMutationAllowed -Operation "task-$Action" -Paths @(
+        $RepoRoot, $HomeRoot, $BackupRoot, $TaskOverlayPath
+    )
+}
 . (Join-Path $PSScriptRoot 'harness-env-common.ps1')
 
 $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
@@ -162,7 +168,7 @@ function Restore-TaskOverlaySnapshot {
 function New-TaskOverlayCandidate {
     param([Parameter(Mandatory)] [hashtable] $Data)
 
-    $candidate = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-task-overlay-$([Guid]::NewGuid().ToString('N')).psd1"
+    $candidate = Join-Path (Get-LiveSafetyTemporaryRoot) "ai-agent-dotfiles-task-overlay-$([Guid]::NewGuid().ToString('N')).psd1"
     $encoding = [System.Text.UTF8Encoding]::new($false)
     [System.IO.File]::WriteAllText($candidate, (ConvertTo-TaskSkillOverlayText -Data $Data), $encoding)
     return $candidate
@@ -442,7 +448,7 @@ function Invoke-TaskSync {
 
 function Invoke-TaskClose {
     $context = Get-TaskContext
-    $candidatePath = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-task-overlay-closed-$([Guid]::NewGuid().ToString('N')).psd1"
+    $candidatePath = Join-Path (Get-LiveSafetyTemporaryRoot) "ai-agent-dotfiles-task-overlay-closed-$([Guid]::NewGuid().ToString('N')).psd1"
     $snapshot = Get-TaskOverlaySnapshot
     $quarantinePath = Join-Path (Split-Path -Parent $overlayPath) ".task-skills-close-$([Guid]::NewGuid().ToString('N')).bak"
     try {

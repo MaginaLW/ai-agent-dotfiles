@@ -7,10 +7,10 @@ Project instructions for Codex agents working in this repository.
 Apply the full skill-management workflow below only when the task involves any of:
 
 - installing, uninstalling, importing, exporting, promoting, merging, pruning, syncing, deploying, or repairing Claude/Codex skills
-- `skills-source/`, `claude/skills/`, `codex/skills/`
-- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills` (Codex fallback)
+- `skills-source/`, `claude/skills/`, `codex/skills/`, `reasonix/skills/`
+- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills` (Codex fallback), `%APPDATA%\reasonix\skills`
 - `imports/skills-inbox`, `imports/skills-archive`, `imports/skills-quarantine`
-- `manifests/managed-skills.txt`
+- `manifests/managed-skills.txt`, `manifests/managed-skills.reasonix.txt`
 - `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`, `scripts/rollback-harness-env.ps1`
 - `scripts/config-status.ps1`, `scripts/config-pull.ps1`, `scripts/config-push.ps1`, `.claude/settings.json` (harness config-sync)
 - `harness-source/`, `.agent-harness/generated/`
@@ -30,20 +30,25 @@ When the scope trigger applies:
    - `skills-source/shared/<name>/`
    - `skills-source/claude-only/<name>/`
    - `skills-source/codex-only/<name>/`
+   - `skills-source/reasonix-only/<name>/`
 4. Never edit generated output directly:
    - `claude/skills/`
    - `codex/skills/`
+   - `reasonix/skills/`
 5. Never directly copy/delete live skills:
    - `~/.claude/skills`
    - `~/.codex/skills`
    - `~/.agents/skills` (Codex fallback, used when `~/.codex/skills` doesn't exist)
+   - `%APPDATA%\reasonix\skills`
 6. Run validation before live changes:
    ```powershell
    pwsh -NoProfile -File scripts/build-skills.ps1
    pwsh -NoProfile -File scripts/scan-secrets.ps1
    pwsh -NoProfile -File scripts/sync.ps1
    ```
-7. Only after a safe dry-run, apply:
+7. Phase 0 safety interlock: production Apply/rollback/retirement is currently unavailable and
+   returns `safety-protocol-upgrade-required` before backup or mutation. The commands below describe
+   the reviewed future contract only; do not attempt the Apply command until tracked policy is released:
    ```powershell
    $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
    pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
@@ -56,7 +61,9 @@ When the scope trigger applies:
    hashes are plan-bound; it must never contain `.system` or an active/canonical skill. Do not commit
    retirement manifests, do not expect auto-sync hooks to consume them, and delete the external plan
    and retirement JSON after a successful Apply to prevent later replay.
-8. For a fresh clone, use the bootstrap entrypoint instead of hand-installing hooks:
+8. For a fresh clone, use the bootstrap entrypoint instead of hand-installing hooks. Bootstrap verifies
+   the pinned schema validator, pinned gitleaks cache, and Git-private approved runner in order. Follow
+   the exact installer/approval command it prints; hooks remain preview/event-only and never Apply:
    ```powershell
    pwsh -NoProfile -File .\bootstrap.ps1
    ```

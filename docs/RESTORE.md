@@ -1,8 +1,12 @@
 # Restore and Environment Rollback
 
+> **Phase 0 interlock:** `safety-protocol-upgrade-required` is the only valid production rollback
+> result at present. Do not run the Apply examples below; they document the future reviewed contract.
+> Hooks and bootstrap never perform rollback or retirement.
+
 Environment rollback and whole-home recovery are different operations. The
 repository-managed rollback is intentionally narrow: it restores only the
-current Claude/Codex managed skill set and the previous environment state.
+current Claude/Codex/Reasonix managed skill set and the previous environment state.
 It does not restore arbitrary home files or machine state.
 
 Backups are created outside the repository. Keep the backup root and its

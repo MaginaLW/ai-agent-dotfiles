@@ -5,10 +5,10 @@
     (config-status.ps1, config-pull.ps1, config-push.ps1).
 
 .DESCRIPTION
-    No Pester dependency. Runs each real script against isolated temp repo/home
-    trees under <repo>/tmp/config-sync-tests (gitignored) and asserts behavior,
-    with emphasis on the two config-push gates (secret scan + machine-private
-    path scan) and the never-prune / dry-run-default posture.
+    No Pester dependency. Runs each real script against isolated repo/home
+    trees in a checkout sibling and asserts behavior, with emphasis on the two
+    config-push gates (secret scan + machine-private path scan) and the
+    never-prune / dry-run-default posture.
 
     Exit code 0 = all passed, 1 = one or more failures.
 
@@ -46,9 +46,9 @@ function Assert {
     }
 }
 
-$work = Join-Path $RepoRoot 'tmp/config-sync-tests'
+$work = Join-Path (Split-Path -Parent $RepoRoot) ".ai-agent-dotfiles-config-sync-$([Guid]::NewGuid().ToString('N'))"
 function Remove-Work {
-    if (($work -like '*tmp*config-sync-tests*') -and (Test-Path -LiteralPath $work)) {
+    if (($work -like '*.ai-agent-dotfiles-config-sync-*') -and (Test-Path -LiteralPath $work)) {
         Remove-Item -LiteralPath $work -Recurse -Force
     }
 }
@@ -62,9 +62,15 @@ function New-TempRepo {
     New-Item -ItemType Directory -Path (Join-Path $tr 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $tr 'claude') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $tr 'manifests') -Force
-    Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/scan-secrets.ps1') -Destination (Join-Path $tr 'scripts') -Force
+    foreach ($name in @('scan-secrets.ps1', 'scan-input-common.ps1', 'json-artifact-common.ps1', 'semantic-json.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $tr 'scripts') -Force
+    }
+    New-Item -ItemType Directory -Path (Join-Path $tr 'tools/gitleaks') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $tr 'tools/gitleaks/gitleaks.lock.json') -Force
     $gitleaks = Join-Path $RepoRoot '.gitleaks.toml'
     if (Test-Path -LiteralPath $gitleaks) { Copy-Item -LiteralPath $gitleaks -Destination $tr -Force }
+    & git -C $tr init --quiet
+    if ($LASTEXITCODE -ne 0) { throw "Unable to initialize config-sync fixture repository: $tr" }
     return $tr
 }
 
