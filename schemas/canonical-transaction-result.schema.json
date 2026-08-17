@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/canonical-transaction-result.schema.json",
+  "title": "Canonical Transaction Result",
+  "type": "object",
+  "required": ["SchemaVersion", "ArtifactKind", "ResultScope", "Result"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "canonical-transaction-result" },
+    "ResultScope": { "enum": ["command", "transaction"] },
+    "Result": { "enum": ["PASS", "WARN", "FAIL"] },
+    "CommandKind": { "enum": ["canonical-status", "canonical-setup", "canonical-normalize", "canonical-promote", "canonical-merge", "canonical-recover-status", "canonical-recover-abandon", "canonical-recover-rollback", "canonical-recover-finalize"] },
+    "LifecycleKind": { "enum": ["no-transaction", "unfinished", "terminal-reference"] },
+    "MessageToken": { "type": "string", "minLength": 1 },
+    "TransactionId": { "type": "string", "minLength": 1 },
+    "DerivedJournalHeadHash": { "$ref": "#/$defs/hash" },
+    "ResultHash": { "$ref": "#/$defs/hash" },
+    "CanonicalOperationKind": { "enum": ["setup", "normalize", "promote", "merge"] },
+    "OriginalOperationKind": { "enum": ["setup", "normalize", "promote", "merge"] },
+    "OriginalDocumentHash": { "$ref": "#/$defs/hash" },
+    "ResultBaseHeadHash": { "$ref": "#/$defs/hash" },
+    "Outcome": { "enum": ["committed", "abandoned", "rolled-back", "failed-restored"] },
+    "PlanHash": { "$ref": "#/$defs/hash" },
+    "PostconditionsHash": { "$ref": "#/$defs/hash" },
+    "RestorationHash": { "$ref": "#/$defs/hash" },
+    "FinalStateHash": { "$ref": "#/$defs/hash" },
+    "ArtifactStates": { "type": "array", "items": { "$ref": "#/$defs/artifactState" } }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifactState": {
+      "oneOf": [
+        { "type": "object", "required": ["Name", "Status"], "properties": { "Name": { "type": "string" }, "Status": { "enum": ["MISSING", "PARTIAL"] } }, "additionalProperties": false },
+        { "type": "object", "required": ["Name", "Status", "Hash"], "properties": { "Name": { "type": "string" }, "Status": { "const": "COMPLETE" }, "Hash": { "$ref": "#/$defs/hash" } }, "additionalProperties": false }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["CommandKind", "LifecycleKind", "MessageToken"],
+      "properties": { "ResultScope": { "const": "command" }, "LifecycleKind": { "const": "no-transaction" } },
+      "not": { "anyOf": [{ "required": ["CanonicalOperationKind"] }, { "required": ["Outcome"] }, { "required": ["ResultHash"] }] }
+    },
+    {
+      "required": ["CommandKind", "LifecycleKind", "TransactionId", "DerivedJournalHeadHash", "OriginalOperationKind"],
+      "properties": { "ResultScope": { "const": "command" }, "LifecycleKind": { "const": "unfinished" } },
+      "not": { "anyOf": [{ "required": ["Outcome"] }, { "required": ["ResultHash"] }] }
+    },
+    {
+      "required": ["CommandKind", "LifecycleKind", "TransactionId", "ResultHash", "Outcome"],
+      "properties": { "ResultScope": { "const": "command" }, "LifecycleKind": { "const": "terminal-reference" } }
+    },
+    {
+      "required": ["TransactionId", "CanonicalOperationKind", "OriginalDocumentHash", "ResultBaseHeadHash", "Outcome", "ArtifactStates"],
+      "properties": { "ResultScope": { "const": "transaction" }, "Outcome": { "const": "abandoned" } },
+      "not": { "anyOf": [{ "required": ["CommandKind"] }, { "required": ["LifecycleKind"] }, { "required": ["PlanHash"] }, { "required": ["PostconditionsHash"] }, { "required": ["RestorationHash"] }] }
+    },
+    {
+      "required": ["TransactionId", "CanonicalOperationKind", "OriginalDocumentHash", "ResultBaseHeadHash", "Outcome", "PlanHash", "PostconditionsHash", "ArtifactStates"],
+      "properties": { "ResultScope": { "const": "transaction" }, "Outcome": { "const": "committed" } },
+      "not": { "anyOf": [{ "required": ["CommandKind"] }, { "required": ["LifecycleKind"] }, { "required": ["RestorationHash"] }] }
+    },
+    {
+      "required": ["TransactionId", "CanonicalOperationKind", "OriginalDocumentHash", "ResultBaseHeadHash", "Outcome", "RestorationHash", "FinalStateHash", "ArtifactStates"],
+      "properties": { "ResultScope": { "const": "transaction" }, "Outcome": { "enum": ["rolled-back", "failed-restored"] } },
+      "not": { "anyOf": [{ "required": ["CommandKind"] }, { "required": ["LifecycleKind"] }, { "required": ["PostconditionsHash"] }] }
+    }
+  ],
+  "additionalProperties": false
+}

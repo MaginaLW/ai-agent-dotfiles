@@ -3,6 +3,7 @@
 Set-StrictMode -Version Latest
 
 $script:ApprovedRunnerAuthorityRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$script:ApprovedRunnerMaximumFileBytes = [long] [int]::MaxValue
 . (Join-Path $PSScriptRoot 'semantic-json.ps1')
 . (Join-Path $PSScriptRoot 'scan-input-common.ps1')
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
@@ -110,10 +111,10 @@ function Get-ArtifactSchemaPath {
 
 function Assert-RunnerArtifactValid {
     param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string] $ArtifactKind)
-    Invoke-FixedJsonSchemaValidation -SchemaPath (Get-ArtifactSchemaPath -ArtifactKind $ArtifactKind) -InstancePath $Path | Out-Null
+    return Invoke-FixedJsonSchemaValidation -SchemaPath (Get-ArtifactSchemaPath -ArtifactKind $ArtifactKind) -InstancePath $Path
 }
 
-function Write-ImmutableRunnerArtifact {
+function Write-ImmutableRunnerArtifactCapture {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Directory,
@@ -138,9 +139,25 @@ function Write-ImmutableRunnerArtifact {
         $stream.Flush($true)
     }
     finally { $stream.Dispose() }
-    try { Assert-RunnerArtifactValid -Path $path -ArtifactKind ([string] $Document.ArtifactKind) }
+    try {
+        $validation = Assert-RunnerArtifactValid -Path $path -ArtifactKind ([string] $Document.ArtifactKind)
+        return Assert-ExactJsonArtifactCapture -Capture $validation.ArtifactCapture
+    }
     catch { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue; throw }
-    return $path
+}
+
+function Write-ImmutableRunnerArtifact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Directory,
+        [Parameter(Mandatory)] [string] $Prefix,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document,
+        [DateTimeOffset] $TimestampUtc = [DateTimeOffset]::UtcNow,
+        [string] $ArtifactId = ([Guid]::NewGuid().ToString('N'))
+    )
+
+    $capture = Write-ImmutableRunnerArtifactCapture -Directory $Directory -Prefix $Prefix -Document $Document -TimestampUtc $TimestampUtc -ArtifactId $ArtifactId
+    return [string] $capture.FullPath
 }
 
 function Get-PendingRegistrySnapshotHash {
@@ -188,15 +205,16 @@ function New-PendingPrunePlan {
     $stream = [System.IO.File]::Open([System.IO.Path]::GetFullPath($PlanPath), [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
     try { $bytes = ConvertTo-SemanticJsonBytes -InputObject $document; $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
     finally { $stream.Dispose() }
-    Assert-RunnerArtifactValid -Path $PlanPath -ArtifactKind 'pending-prune-plan'
+    $null = Assert-RunnerArtifactValid -Path $PlanPath -ArtifactKind 'pending-prune-plan'
     return [pscustomobject]$document
 }
 
 function Read-PendingPrunePlan {
     param([Parameter(Mandatory)] [string] $PlanPath, [Parameter(Mandatory)] $StorageContext)
     Resolve-PrivateArtifactPath -Path $PlanPath -Role ExternalUserArtifact -RepoRoot $StorageContext.RepoRoot -ForbiddenRoots @($StorageContext.CommonPrivateRoot, $StorageContext.WorktreePrivateRoot) | Out-Null
-    Assert-RunnerArtifactValid -Path $PlanPath -ArtifactKind 'pending-prune-plan'
-    $document = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($PlanPath, [System.Text.UTF8Encoding]::new($false, $true)))
+    $validation = Assert-RunnerArtifactValid -Path $PlanPath -ArtifactKind 'pending-prune-plan'
+    $capture = Assert-ExactJsonArtifactCapture -Capture $validation.ArtifactCapture
+    $document = $capture.Document
     if ([string] $document.PlanHash -cne (Get-PlanHash -PlanPayload $document.PlanPayload)) { throw 'Pending prune PlanHash mismatch.' }
     if ([string] $document.DocumentHash -cne (Get-DocumentHash -Document $document)) { throw 'Pending prune DocumentHash mismatch.' }
     if ([string] $document.PlanPayload.WorktreeNamespace -cne $StorageContext.WorktreeId) { throw 'Pending prune plan belongs to another worktree namespace.' }
@@ -234,8 +252,9 @@ function Write-DeduplicatedPendingEvent {
         if (Test-Path -LiteralPath $StorageContext.PendingEventsRoot -PathType Container) {
             foreach ($file in @(Get-ChildItem -LiteralPath $StorageContext.PendingEventsRoot -File | Sort-Object FullName)) {
                 try {
-                    Assert-RunnerArtifactValid -Path $file.FullName -ArtifactKind 'pending-sync-event'
-                    $existing = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($file.FullName, [System.Text.UTF8Encoding]::new($false, $true)))
+                    $validation = Assert-RunnerArtifactValid -Path $file.FullName -ArtifactKind 'pending-sync-event'
+                    $capture = Assert-ExactJsonArtifactCapture -Capture $validation.ArtifactCapture
+                    $existing = $capture.Document
                     if ([string]$existing.ContextHash -ceq [string]$Document.ContextHash -and [string]$existing.EventKind -ceq [string]$Document.EventKind) { return $file.FullName }
                 }
                 catch { throw "Pending namespace contains an invalid registered event: $($file.FullName)" }
@@ -245,15 +264,264 @@ function Write-DeduplicatedPendingEvent {
     }
 }
 
+function Open-ApprovedRunnerHeldFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [long] $MaximumBytes = $script:ApprovedRunnerMaximumFileBytes
+    )
+
+    if ($MaximumBytes -lt 0) { throw 'Approved runner file maximum byte length must be non-negative.' }
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $parent = [System.IO.Path]::GetDirectoryName($full)
+    $leaf = [System.IO.Path]::GetFileName($full)
+    if ([string]::IsNullOrWhiteSpace($parent) -or [string]::IsNullOrWhiteSpace($leaf)) { throw "Approved runner file path is invalid: $full" }
+    $parentHandles = $null
+    $fileHandle = $null
+    try {
+        $parentHandles = Open-SafeDirectoryContainmentChain -Path $parent
+        $fileHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($parentHandles[$parentHandles.Count - 1], $leaf)
+        $bytes = [AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($fileHandle, $MaximumBytes)
+        return [pscustomobject][ordered]@{
+            FullPath = $full
+            Bytes = [byte[]] $bytes
+            Sha256 = [string] $fileHandle.ReadResult.Sha256
+            Identity = [string] $fileHandle.ReadResult.Identity
+            Length = [long] $fileHandle.ReadResult.Length
+            ParentHandles = $parentHandles
+            FileHandle = $fileHandle
+        }
+    }
+    catch {
+        if ($null -ne $fileHandle) { $fileHandle.Dispose() }
+        if ($null -ne $parentHandles) { Close-SafeDirectoryContainmentChain -Handles $parentHandles }
+        throw
+    }
+}
+
+function Close-ApprovedRunnerHeldFile {
+    param([Parameter(Mandatory)] $Capture)
+    try {
+        if ($null -ne $Capture.FileHandle) { $Capture.FileHandle.Dispose() }
+    }
+    finally {
+        if ($null -ne $Capture.ParentHandles) { Close-SafeDirectoryContainmentChain -Handles $Capture.ParentHandles }
+    }
+}
+
+function New-ApprovedRunnerDestinationTree {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $DestinationRoot)
+
+    $destination = [System.IO.Path]::GetFullPath($DestinationRoot)
+    $existingAncestor = $null
+    $handles = Open-SafeExistingDirectoryContainmentChain -Path $destination -ExistingPath ([ref] $existingAncestor)
+    try {
+        $existingKey = [System.IO.Path]::GetFullPath($existingAncestor).TrimEnd([char]92, [char]47)
+        $destinationKey = $destination.TrimEnd([char]92, [char]47)
+        if ($existingKey.Equals($destinationKey, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Runner materialization must be create-new: $destination"
+        }
+        $parentHandle = $handles[$handles.Count - 1]
+        foreach ($segment in @([System.IO.Path]::GetRelativePath($existingAncestor, $destination) -split '[\\/]')) {
+            if ($segment -in @('', '.', '..')) { throw "Unsafe runner materialization path segment: $destination" }
+            $childHandle = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectory($parentHandle, $segment)
+            $handles.Add($childHandle)
+            $parentHandle = $childHandle
+        }
+        $directoryHandles = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $directoryHandles.Add('', $parentHandle)
+        return [pscustomobject][ordered]@{
+            Root = $destination
+            Handles = $handles
+            DirectoryHandlesByRelativePath = $directoryHandles
+        }
+    }
+    catch {
+        Close-SafeDirectoryContainmentChain -Handles $handles
+        throw
+    }
+}
+
+function Close-ApprovedRunnerDestinationTree {
+    param([Parameter(Mandatory)] $DestinationTree)
+    Close-SafeDirectoryContainmentChain -Handles $DestinationTree.Handles
+}
+
+function Get-ApprovedRunnerDestinationDirectoryHandle {
+    param(
+        [Parameter(Mandatory)] $DestinationTree,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $RelativeDirectory
+    )
+
+    $relative = ConvertTo-SafeRelativePath -Path $RelativeDirectory
+    if ($DestinationTree.DirectoryHandlesByRelativePath.ContainsKey($relative)) {
+        return $DestinationTree.DirectoryHandlesByRelativePath[$relative]
+    }
+    $cursor = ''
+    $parentHandle = $DestinationTree.DirectoryHandlesByRelativePath['']
+    foreach ($segment in @($relative -split '/')) {
+        $next = if ($cursor) { "$cursor/$segment" } else { $segment }
+        if ($DestinationTree.DirectoryHandlesByRelativePath.ContainsKey($next)) {
+            $parentHandle = $DestinationTree.DirectoryHandlesByRelativePath[$next]
+        }
+        else {
+            $childHandle = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectory($parentHandle, $segment)
+            $DestinationTree.Handles.Add($childHandle)
+            $DestinationTree.DirectoryHandlesByRelativePath.Add($next, $childHandle)
+            $parentHandle = $childHandle
+        }
+        $cursor = $next
+    }
+    return $parentHandle
+}
+
+function Copy-ApprovedRunnerHeldFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $SourceCapture,
+        [Parameter(Mandatory)] $DestinationTree,
+        [Parameter(Mandatory)] [string] $RelativePath
+    )
+
+    $relative = ConvertTo-SafeRelativePath -Path $RelativePath
+    if ([string]::IsNullOrWhiteSpace($relative)) { throw 'Approved runner destination file path must not be empty.' }
+    $parentRelative = ConvertTo-SafeRelativePath -Path ([System.IO.Path]::GetDirectoryName($relative))
+    $leaf = [System.IO.Path]::GetFileName($relative)
+    $destinationParent = Get-ApprovedRunnerDestinationDirectoryHandle -DestinationTree $DestinationTree -RelativeDirectory $parentRelative
+    $copy = [AiAgentDotfiles.NoFollowFile]::CopyHeldRegularFile($SourceCapture.FileHandle, $destinationParent, $leaf)
+    if ([string] $copy.Identity -cne [string] $SourceCapture.Identity -or
+        [long] $copy.Length -ne [long] $SourceCapture.Length -or
+        [string] $copy.Sha256 -cne [string] $SourceCapture.Sha256) {
+        throw "Approved runner held source changed during copy: $relative"
+    }
+    return $copy
+}
+
+function ConvertFrom-RunnerPolicyBytes {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [byte[]] $Bytes)
+
+    try { $text = [System.Text.UTF8Encoding]::new($false, $true).GetString($Bytes) }
+    catch { throw 'runner-review-required: runner policy is not strict UTF-8.' }
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref] $tokens, [ref] $parseErrors)
+    if (@($parseErrors).Count -ne 0 -or $null -eq $ast.EndBlock -or @($ast.EndBlock.Statements).Count -ne 1) {
+        throw 'runner-review-required: runner policy is not one literal data hashtable.'
+    }
+    $statement = $ast.EndBlock.Statements[0]
+    if ($statement -isnot [System.Management.Automation.Language.PipelineAst] -or
+        @($statement.PipelineElements).Count -ne 1 -or
+        $statement.PipelineElements[0] -isnot [System.Management.Automation.Language.CommandExpressionAst] -or
+        $statement.PipelineElements[0].Expression -isnot [System.Management.Automation.Language.HashtableAst]) {
+        throw 'runner-review-required: runner policy is not one literal data hashtable.'
+    }
+    try { $policy = $statement.PipelineElements[0].Expression.SafeGetValue() }
+    catch { throw 'runner-review-required: runner policy contains a non-literal expression.' }
+    if ($policy -isnot [System.Collections.IDictionary]) { throw 'runner-review-required: runner policy root must be a hashtable.' }
+    if ([long] $policy.SchemaVersion -ne 1) { throw 'runner-review-required: unsupported runner policy version.' }
+    foreach ($field in @('DataPathspecs', 'ToolchainPaths')) {
+        if (-not $policy.Contains($field)) { throw "runner-review-required: policy is missing $field." }
+    }
+    $policySelf = @($policy.ToolchainPaths | ForEach-Object { Normalize-ScanRelativePath -RelativePath ([string] $_) } | Where-Object { $_ -ceq 'scripts/runner-policy.psd1' })
+    if ($policySelf.Count -ne 1) { throw 'runner-review-required: runner policy must bind scripts/runner-policy.psd1 exactly once.' }
+    return $policy
+}
+
+function Open-RunnerPolicyCapture {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+
+    $repo = [System.IO.Path]::GetFullPath($RepoRoot)
+    $held = Open-ApprovedRunnerHeldFile -Path (Join-Path $repo 'scripts/runner-policy.psd1')
+    try {
+        $policy = ConvertFrom-RunnerPolicyBytes -Bytes $held.Bytes
+        return [pscustomobject][ordered]@{ RepoRoot=$repo; Policy=$policy; HeldFile=$held }
+    }
+    catch {
+        Close-ApprovedRunnerHeldFile -Capture $held
+        throw
+    }
+}
+
+function Close-RunnerPolicyCapture {
+    param([Parameter(Mandatory)] $Capture)
+    Close-ApprovedRunnerHeldFile -Capture $Capture.HeldFile
+}
+
+function Get-GitBlobOidFromBytes {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $RelativePath,
+        [Parameter(Mandatory)] [byte[]] $Bytes,
+        [int] $TimeoutMilliseconds = 30000,
+        [int] $ReapTimeoutMilliseconds = 5000
+    )
+
+    $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    if ($null -eq $gitCommand -or [string]::IsNullOrWhiteSpace([string] $gitCommand.Source)) { throw 'runner-review-required: Git executable is unavailable.' }
+    $relative = Normalize-ScanRelativePath -RelativePath $RelativePath
+    $start = [System.Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = [string] $gitCommand.Source
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardInput = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.ArgumentList.Add('-C')
+    $start.ArgumentList.Add([System.IO.Path]::GetFullPath($RepoRoot))
+    $start.ArgumentList.Add('hash-object')
+    $start.ArgumentList.Add("--path=$relative")
+    $start.ArgumentList.Add('--stdin')
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    $started = $false
+    $stdoutTask = $null
+    $stderrTask = $null
+    $failure = $null
+    $oid = $null
+    try {
+        if (-not $process.Start()) { throw 'Unable to start Git hash-object.' }
+        $started = $true
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.StandardInput.BaseStream.Write($Bytes, 0, $Bytes.Length)
+        $process.StandardInput.BaseStream.Flush()
+        $process.StandardInput.Close()
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) { throw 'Git hash-object timed out.' }
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult().Trim()
+        $stderr = $stderrTask.GetAwaiter().GetResult().Trim()
+        if ($process.ExitCode -ne 0 -or $stdout -cnotmatch '^[0-9a-f]{40,64}$') {
+            throw "Git hash-object failed for $relative`: $stderr"
+        }
+        $oid = $stdout
+    }
+    catch {
+        $failure = $_
+        if ($started) {
+            try { $process.StandardInput.Close() } catch {}
+            try { if (-not $process.HasExited) { $process.Kill($true) } } catch {}
+            try { $null = $process.WaitForExit($ReapTimeoutMilliseconds) } catch {}
+            foreach ($task in @($stdoutTask, $stderrTask)) {
+                if ($null -eq $task) { continue }
+                try { if ($task.Wait($ReapTimeoutMilliseconds)) { $null = $task.GetAwaiter().GetResult() } } catch {}
+            }
+        }
+    }
+    finally { $process.Dispose() }
+    if ($null -ne $failure) { throw $failure }
+    return $oid
+}
+
 function Get-RunnerPolicy {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $RepoRoot)
-    $path = Join-Path ([System.IO.Path]::GetFullPath($RepoRoot)) 'scripts/runner-policy.psd1'
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'runner-review-required: runner policy is missing.' }
-    $policy = Import-PowerShellDataFile -LiteralPath $path
-    if ([long] $policy.SchemaVersion -ne 1) { throw 'runner-review-required: unsupported runner policy version.' }
-    foreach ($field in @('DataPathspecs', 'ToolchainPaths')) { if (-not $policy.ContainsKey($field)) { throw "runner-review-required: policy is missing $field." } }
-    return $policy
+    $capture = Open-RunnerPolicyCapture -RepoRoot $RepoRoot
+    try { return $capture.Policy }
+    finally { Close-RunnerPolicyCapture -Capture $capture }
 }
 
 function Assert-RunnerRelevantTreeClean {
@@ -288,39 +556,46 @@ function Get-RunnerPolicySnapshot {
     )
 
     $repo = (Resolve-Path -LiteralPath $RepoRoot).Path
-    $policy = Get-RunnerPolicy -RepoRoot $repo
-    Assert-RunnerRelevantTreeClean -RepoRoot $repo -Policy $policy -IncludeData:$RequireCleanData
-    $commit = ((& git -C $repo rev-parse HEAD 2>$null) | Select-Object -First 1).Trim()
-    if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '^[0-9a-f]{40,64}$') { throw 'runner-review-required: selected commit is unavailable.' }
-    if ([string]::IsNullOrWhiteSpace($BindingCommit)) { $BindingCommit = $commit }
-    if ($BindingCommit -cnotmatch '^[0-9a-f]{40,64}$') { throw 'runner-review-required: invalid approval commit binding.' }
-    if (Test-Path -LiteralPath $DestinationRoot) { throw "Runner materialization must be create-new: $DestinationRoot" }
-    [System.IO.Directory]::CreateDirectory($DestinationRoot) | Out-Null
-
-    $rows = [System.Collections.Generic.List[object]]::new()
+    $destination = [System.IO.Path]::GetFullPath($DestinationRoot)
+    $policyCapture = $null
+    $destinationTree = $null
+    $succeeded = $false
     try {
+        $policyCapture = Open-RunnerPolicyCapture -RepoRoot $repo
+        $policy = $policyCapture.Policy
+        Assert-RunnerRelevantTreeClean -RepoRoot $repo -Policy $policy -IncludeData:$RequireCleanData
+        $commit = ((& git -C $repo rev-parse HEAD 2>$null) | Select-Object -First 1).Trim()
+        if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '^[0-9a-f]{40,64}$') { throw 'runner-review-required: selected commit is unavailable.' }
+        if ([string]::IsNullOrWhiteSpace($BindingCommit)) { $BindingCommit = $commit }
+        if ($BindingCommit -cnotmatch '^[0-9a-f]{40,64}$') { throw 'runner-review-required: invalid approval commit binding.' }
+        $destinationTree = New-ApprovedRunnerDestinationTree -DestinationRoot $destination
+
+        $rows = [System.Collections.Generic.List[object]]::new()
+        $seenPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($relative in @($policy.ToolchainPaths | Sort-Object -Unique)) {
             $normalized = Normalize-ScanRelativePath -RelativePath ([string] $relative)
-            if ($normalized -in (Get-ProtectedReasonixRelativePaths)) { throw 'runner-review-required: policy selects a protected Reasonix path.' }
+            if (-not $seenPaths.Add($normalized)) { throw "runner-review-required: policy selects one toolchain path more than once: $normalized" }
+            if ($normalized -in (Get-ProtectedReasonixRelativePaths) -or $normalized.StartsWith('.reasonix/', [StringComparison]::OrdinalIgnoreCase)) { throw 'runner-review-required: policy selects a protected Reasonix path.' }
             $tree = @(& git -C $repo ls-tree $commit -- $normalized)
             if ($LASTEXITCODE -ne 0 -or $tree.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string] $tree[0])) { throw "runner-review-required: policy path is not one committed blob: $normalized" }
             $match = [regex]::Match([string] $tree[0], '^(?<mode>[0-9]{6}) blob (?<oid>[0-9a-f]{40,64})\t(?<path>.+)$')
             if (-not $match.Success -or $match.Groups['mode'].Value -notin @('100644', '100755') -or $match.Groups['path'].Value -cne $normalized) {
                 throw "runner-review-required: policy path is a symlink, gitlink, directory, or unexpected entry: $normalized"
             }
-            $source = Join-Path $repo $normalized
-            Assert-NoFollowDirectoryChain -RepoRoot $repo -FilePath $source
-            $before = [AiAgentDotfiles.NoFollowFile]::Inspect($source)
-            if ($before.IsDirectory -or $before.IsReparsePoint -or $before.LinkCount -ne 1) { throw "runner-review-required: policy source is not a unique regular file: $normalized" }
-            if (@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($source)).Count -ne 0) { throw "runner-review-required: policy source has named streams: $normalized" }
-            $destination = Join-Path $DestinationRoot $normalized
-            [System.IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
-            $copy = [AiAgentDotfiles.NoFollowFile]::CopyRegularFile($source, $destination)
-            $after = [AiAgentDotfiles.NoFollowFile]::Inspect($source)
-            if ($after.Identity -cne $before.Identity -or $after.Length -ne $before.Length -or $copy.Identity -cne $before.Identity) { throw "runner-review-required: policy source changed during copy: $normalized" }
-            $oid = ((& git -C $repo hash-object "--path=$normalized" -- $destination 2>$null) | Select-Object -First 1).Trim()
-            if ($LASTEXITCODE -ne 0 -or $oid -cne $match.Groups['oid'].Value) { throw "working-tree-review-required: policy bytes do not match the selected commit: $normalized" }
-            $rows.Add([ordered]@{ RelativePath = $normalized; GitMode = $match.Groups['mode'].Value; GitOid = $oid; Length = [long] $copy.Length; Sha256 = [string] $copy.Sha256 })
+            $sourceCapture = $null
+            $closeSourceCapture = $false
+            try {
+                if ($normalized -ceq 'scripts/runner-policy.psd1') { $sourceCapture = $policyCapture.HeldFile }
+                else {
+                    $sourceCapture = Open-ApprovedRunnerHeldFile -Path (Join-Path $repo $normalized)
+                    $closeSourceCapture = $true
+                }
+                $oid = Get-GitBlobOidFromBytes -RepoRoot $repo -RelativePath $normalized -Bytes $sourceCapture.Bytes
+                if ($oid -cne $match.Groups['oid'].Value) { throw "working-tree-review-required: policy bytes do not match the selected commit: $normalized" }
+                $copy = Copy-ApprovedRunnerHeldFile -SourceCapture $sourceCapture -DestinationTree $destinationTree -RelativePath $normalized
+                $rows.Add([ordered]@{ RelativePath = $normalized; GitMode = $match.Groups['mode'].Value; GitOid = $oid; Length = [long] $copy.Length; Sha256 = [string] $copy.Sha256 })
+            }
+            finally { if ($closeSourceCapture -and $null -ne $sourceCapture) { Close-ApprovedRunnerHeldFile -Capture $sourceCapture } }
         }
         $tools = Get-PinnedRunnerToolIdentities -ToolCacheRoot $ToolCacheRoot
         $runnerTreeHash = Get-SemanticJsonHash -InputObject @($rows)
@@ -332,7 +607,7 @@ function Get-RunnerPolicySnapshot {
             ValidatorIdentityHash = $tools.ValidatorIdentityHash
             ScannerIdentityHash = $tools.ScannerIdentityHash
         })
-        return [pscustomobject][ordered]@{
+        $result = [pscustomobject][ordered]@{
             CurrentCommit = $commit
             BindingCommit = $BindingCommit
             ToolchainPolicyHash = $policyHash
@@ -342,12 +617,15 @@ function Get-RunnerPolicySnapshot {
             ScannerIdentityHash = $tools.ScannerIdentityHash
             ToolCacheRoot = $tools.ToolCacheRoot
             DataPathspecs = @($policy.DataPathspecs | Sort-Object -Unique)
-            MaterializationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
+            MaterializationRoot = $destination
         }
+        $succeeded = $true
+        return $result
     }
-    catch {
-        if (Test-Path -LiteralPath $DestinationRoot) { Remove-Item -LiteralPath $DestinationRoot -Recurse -Force }
-        throw
+    finally {
+        if ($null -ne $destinationTree) { Close-ApprovedRunnerDestinationTree -DestinationTree $destinationTree }
+        if ($null -ne $policyCapture) { Close-RunnerPolicyCapture -Capture $policyCapture }
+        if (-not $succeeded -and (Test-Path -LiteralPath $destination)) { Remove-Item -LiteralPath $destination -Recurse -Force }
     }
 }
 
@@ -357,12 +635,14 @@ function Get-ApprovedRunnerState {
     $context = Get-RunnerStorageContext -RepoRoot $RepoRoot
     if (-not (Test-Path -LiteralPath $context.ApprovedStatePath -PathType Leaf)) { throw 'runner-review-required: approved runner state is missing.' }
     Resolve-PrivateArtifactPath -Path $context.ApprovedStatePath -Role InternalContractPath -RepoRoot $context.RepoRoot -InternalRoot $context.CommonPrivateRoot | Out-Null
-    Assert-RunnerArtifactValid -Path $context.ApprovedStatePath -ArtifactKind 'approved-runner-state'
-    $state = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($context.ApprovedStatePath, [System.Text.UTF8Encoding]::new($false, $true)))
+    $stateValidation = Assert-RunnerArtifactValid -Path $context.ApprovedStatePath -ArtifactKind 'approved-runner-state'
+    $stateCapture = Assert-ExactJsonArtifactCapture -Capture $stateValidation.ArtifactCapture
+    $state = $stateCapture.Document
     Resolve-PrivateArtifactPath -Path ([string]$state.ApprovalEventPath) -Role InternalContractPath -RepoRoot $context.RepoRoot -InternalRoot $context.ApprovalEventsRoot | Out-Null
-    if ((Get-LowerSha256File -Path ([string]$state.ApprovalEventPath)) -cne [string]$state.ApprovalEventHash) { throw 'runner-review-required: approval event hash mismatch.' }
-    Assert-RunnerArtifactValid -Path ([string]$state.ApprovalEventPath) -ArtifactKind 'runner-approval-event'
-    $event = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText([string]$state.ApprovalEventPath, [System.Text.UTF8Encoding]::new($false, $true)))
+    $eventValidation = Assert-RunnerArtifactValid -Path ([string]$state.ApprovalEventPath) -ArtifactKind 'runner-approval-event'
+    $eventCapture = Assert-ExactJsonArtifactCapture -Capture $eventValidation.ArtifactCapture
+    if ([string]$eventCapture.Sha256 -cne [string]$state.ApprovalEventHash) { throw 'runner-review-required: approval event hash mismatch.' }
+    $event = $eventCapture.Document
     foreach ($field in @('ApprovedCommit','ToolchainPolicyHash','RunnerTreeHash','ValidatorIdentityHash','ScannerIdentityHash','ToolCacheRoot','GitCommonDirHash','PointerGeneration')) {
         if ([string]$event[$field] -cne [string]$state[$field]) { throw "runner-review-required: approval event/state mismatch for $field." }
     }
@@ -377,7 +657,7 @@ function Write-AtomicRunnerState {
     try { $bytes = ConvertTo-SemanticJsonBytes -InputObject $Document; $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
     finally { $stream.Dispose() }
     try {
-        Assert-RunnerArtifactValid -Path $temp -ArtifactKind 'approved-runner-state'
+        $null = Assert-RunnerArtifactValid -Path $temp -ArtifactKind 'approved-runner-state'
         [System.IO.File]::Move($temp, $StorageContext.ApprovedStatePath, $true)
     }
     finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
@@ -411,7 +691,8 @@ function Approve-RunnerSnapshot {
         WorktreeNamespace = $context.WorktreeId
         PointerGeneration = $generation
     }
-    $eventPath = Write-ImmutableRunnerArtifact -Directory $context.ApprovalEventsRoot -Prefix 'runner-approval' -Document $event
+    $eventCapture = Write-ImmutableRunnerArtifactCapture -Directory $context.ApprovalEventsRoot -Prefix 'runner-approval' -Document $event
+    $eventPath = [string] $eventCapture.FullPath
     $state = [ordered]@{
         SchemaVersion = 1
         ArtifactKind = 'approved-runner-state'
@@ -422,7 +703,7 @@ function Approve-RunnerSnapshot {
         RunnerEntryPath = Join-Path $runnerRoot 'scripts/auto-sync-after-git.ps1'
         RunnerFiles = @($snapshot.RunnerFiles | ForEach-Object { [ordered]@{ RelativePath = $_.RelativePath; Length = $_.Length; Sha256 = $_.Sha256 } })
         ApprovalEventPath = $eventPath
-        ApprovalEventHash = Get-LowerSha256File -Path $eventPath
+        ApprovalEventHash = [string] $eventCapture.Sha256
         ValidatorIdentityHash = $snapshot.ValidatorIdentityHash
         ScannerIdentityHash = $snapshot.ScannerIdentityHash
         ToolCacheRoot = $snapshot.ToolCacheRoot
@@ -439,10 +720,30 @@ function Publish-ApprovedHookEntry {
     $context = Get-RunnerStorageContext -RepoRoot $RepoRoot -EnsureDirectories
     $source = Join-Path ([string] $State.RunnerRoot) 'scripts/approved-hook-entry.ps1'
     $row = @($State.RunnerFiles | Where-Object { [string] $_.RelativePath -ceq 'scripts/approved-hook-entry.ps1' })
-    if ($row.Count -ne 1 -or (Get-LowerSha256File -Path $source) -cne [string] $row[0].Sha256) { throw 'runner-review-required: approved hook entry is not bound by state.' }
+    if ($row.Count -ne 1) { throw 'runner-review-required: approved hook entry is not bound by state.' }
     $temp = Join-Path $context.CommonPrivateRoot "approved-hook-entry.$([Guid]::NewGuid().ToString('N')).tmp"
-    [System.IO.File]::Copy($source, $temp, $false)
-    try { [System.IO.File]::Move($temp, $context.ApprovedHookEntryPath, $true) }
+    try {
+        $sourceCapture = $null
+        $destinationHandles = $null
+        try {
+            $sourceCapture = Open-ApprovedRunnerHeldFile -Path $source
+            if ([string] $sourceCapture.Sha256 -cne [string] $row[0].Sha256 -or [long] $sourceCapture.Length -ne [long] $row[0].Length) {
+                throw 'runner-review-required: approved hook entry is not bound by state.'
+            }
+            $destinationHandles = Open-SafeDirectoryContainmentChain -Path $context.CommonPrivateRoot
+            $copy = [AiAgentDotfiles.NoFollowFile]::CopyHeldRegularFile($sourceCapture.FileHandle, $destinationHandles[$destinationHandles.Count - 1], [System.IO.Path]::GetFileName($temp))
+            if ([string] $copy.Identity -cne [string] $sourceCapture.Identity -or
+                [long] $copy.Length -ne [long] $sourceCapture.Length -or
+                [string] $copy.Sha256 -cne [string] $sourceCapture.Sha256) {
+                throw 'runner-review-required: approved hook entry changed during held copy.'
+            }
+        }
+        finally {
+            if ($null -ne $destinationHandles) { Close-SafeDirectoryContainmentChain -Handles $destinationHandles }
+            if ($null -ne $sourceCapture) { Close-ApprovedRunnerHeldFile -Capture $sourceCapture }
+        }
+        [System.IO.File]::Move($temp, $context.ApprovedHookEntryPath, $true)
+    }
     finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
     return $context.ApprovedHookEntryPath
 }
@@ -465,13 +766,15 @@ function New-CommittedDataSnapshot {
     $pathspecs = @($policy.DataPathspecs | Sort-Object -Unique)
     $treeLines = @(& git -C $repo ls-tree -r "--format=%(objectmode) %(objecttype) %(objectname) %(path)" $Commit -- @pathspecs)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate the committed data allowlist.' }
-    $expected = [ordered]@{}
+    $expected = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+    $expectedCaseFold = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($line in $treeLines) {
         $match = [regex]::Match([string]$line, '^(?<mode>[0-9]{6}) (?<type>\S+) (?<oid>[0-9a-f]{40,64}) (?<path>.+)$')
         if (-not $match.Success -or $match.Groups['type'].Value -cne 'blob' -or $match.Groups['mode'].Value -notin @('100644','100755')) { throw 'Committed data contains a symlink, gitlink, or unsupported mode.' }
         $relative = Normalize-ScanRelativePath -RelativePath $match.Groups['path'].Value
         if ($relative -in (Get-ProtectedReasonixRelativePaths) -or $relative.StartsWith('.reasonix/', [StringComparison]::OrdinalIgnoreCase)) { throw 'Committed data allowlist reached Reasonix private state.' }
-        $expected[$relative] = [pscustomobject]@{ Mode=$match.Groups['mode'].Value; Oid=$match.Groups['oid'].Value }
+        if (-not $expectedCaseFold.Add($relative) -or $expected.ContainsKey($relative)) { throw "Committed data contains a case-colliding or duplicate path: $relative" }
+        $expected.Add($relative, [pscustomobject]@{ Mode=$match.Groups['mode'].Value; Oid=$match.Groups['oid'].Value })
     }
     $archivePathspecs = @($pathspecs | Where-Object {
         $candidate = ([string]$_).TrimEnd('/')
@@ -488,26 +791,49 @@ function New-CommittedDataSnapshot {
             Expand-Archive -LiteralPath $archive -DestinationPath $extracted
         }
         else { [System.IO.Directory]::CreateDirectory($extracted) | Out-Null }
-        [System.IO.Directory]::CreateDirectory($DestinationRoot) | Out-Null
         $rows = [System.Collections.Generic.List[object]]::new()
         $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-        $queue = [System.Collections.Generic.Queue[string]]::new(); $queue.Enqueue($extracted)
-        while ($queue.Count -gt 0) {
-            $directory = $queue.Dequeue()
-            foreach ($entry in [System.IO.Directory]::EnumerateFileSystemEntries($directory)) {
-                $relative = Normalize-ScanRelativePath -RelativePath ([System.IO.Path]::GetRelativePath($extracted, $entry))
-                $info = [AiAgentDotfiles.NoFollowFile]::Inspect($entry)
-                if ($info.IsReparsePoint) { throw "Extracted snapshot contains a reparse entry: $relative" }
-                if ($info.IsDirectory) { $queue.Enqueue($entry); continue }
-                if (-not $expected.Contains($relative)) { throw "Archive produced an unapproved path: $relative" }
-                if ($info.LinkCount -ne 1 -or @([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($entry)).Count -ne 0) { throw "Extracted snapshot file has unsafe identity metadata: $relative" }
-                $destination = Join-Path $DestinationRoot $relative
-                [System.IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
-                $copy = [AiAgentDotfiles.NoFollowFile]::CopyRegularFile($entry, $destination)
-                $after = [AiAgentDotfiles.NoFollowFile]::Inspect($entry)
-                if ($after.Identity -cne $info.Identity -or $copy.Identity -cne $info.Identity) { throw "Extracted snapshot file drifted during copy: $relative" }
-                $rows.Add([ordered]@{ RelativePath=$relative; GitMode=$expected[$relative].Mode; GitOid=$expected[$relative].Oid; Length=[long]$copy.Length; Sha256=$copy.Sha256; IdentityHash=$info.Identity; LinkCount=1; NamedStreamCount=0 })
-                $null = $seen.Add($relative)
+        $sourceTraversal = $null
+        $destinationTree = $null
+        try {
+            $sourceTraversal = Get-SafeTreeSnapshotInternal -Root $extracted -RetainContainmentHandles
+            $destinationTree = New-ApprovedRunnerDestinationTree -DestinationRoot $DestinationRoot
+            $evidenceByPath = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+            foreach ($evidence in @($sourceTraversal.Snapshot.TraversalIdentityEvidence | Where-Object Type -eq 'File')) {
+                $evidenceByPath.Add([string] $evidence.RelativePath, $evidence)
+            }
+            foreach ($fileRow in @($sourceTraversal.Snapshot.ContentTreeRows | Where-Object Type -eq 'File' | Sort-Object RelativePath)) {
+                $relative = Normalize-ScanRelativePath -RelativePath ([string] $fileRow.RelativePath)
+                if (-not $expected.ContainsKey($relative)) { throw "Archive produced an unapproved path: $relative" }
+                if (-not $sourceTraversal.FileHandlesByRelativePath.ContainsKey($relative)) { throw "Extracted snapshot held file is missing: $relative" }
+                if (-not $evidenceByPath.ContainsKey($relative)) { throw "Extracted snapshot identity evidence is missing: $relative" }
+                $fileHandle = $sourceTraversal.FileHandlesByRelativePath[$relative]
+                $read = $fileHandle.ReadResult
+                $bytes = [AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($fileHandle, $script:ApprovedRunnerMaximumFileBytes)
+                $oid = Get-GitBlobOidFromBytes -RepoRoot $repo -RelativePath $relative -Bytes $bytes
+                if ($oid -cne [string] $expected[$relative].Oid) { throw "working-tree-review-required: snapshot bytes do not match the selected commit: $relative" }
+                $sourceCapture = [pscustomobject][ordered]@{
+                    FullPath = Join-Path $extracted $relative
+                    Bytes = [byte[]] $bytes
+                    Sha256 = [string] $read.Sha256
+                    Identity = [string] $read.Identity
+                    Length = [long] $read.Length
+                    FileHandle = $fileHandle
+                }
+                $copy = Copy-ApprovedRunnerHeldFile -SourceCapture $sourceCapture -DestinationTree $destinationTree -RelativePath $relative
+                $evidence = $evidenceByPath[$relative]
+                if ([string] $evidence.Identity -cne [string] $read.Identity -or [long] $evidence.LinkCount -ne 1 -or [long] $evidence.NamedStreamCount -ne 0) {
+                    throw "Extracted snapshot identity evidence changed before copy: $relative"
+                }
+                $rows.Add([ordered]@{ RelativePath=$relative; GitMode=$expected[$relative].Mode; GitOid=$oid; Length=[long]$copy.Length; Sha256=[string]$copy.Sha256; IdentityHash=[string]$read.Identity; LinkCount=1; NamedStreamCount=0 })
+                if (-not $seen.Add($relative)) { throw "Archive produced a duplicate path: $relative" }
+            }
+        }
+        finally {
+            if ($null -ne $destinationTree) { Close-ApprovedRunnerDestinationTree -DestinationTree $destinationTree }
+            if ($null -ne $sourceTraversal) {
+                foreach ($heldFile in $sourceTraversal.FileHandlesByRelativePath.Values) { $heldFile.Dispose() }
+                Close-SafeDirectoryContainmentChain -Handles $sourceTraversal.ContainmentHandles
             }
         }
         if ($seen.Count -ne $expected.Count) { throw 'Committed-data snapshot is incomplete.' }
@@ -515,7 +841,7 @@ function New-CommittedDataSnapshot {
         $parent = Split-Path -Parent ([System.IO.Path]::GetFullPath($ManifestPath)); [System.IO.Directory]::CreateDirectory($parent) | Out-Null
         $stream = [System.IO.File]::Open([System.IO.Path]::GetFullPath($ManifestPath), [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
         try { $bytes=ConvertTo-SemanticJsonBytes -InputObject $manifest; $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
-        Assert-RunnerArtifactValid -Path $ManifestPath -ArtifactKind 'committed-data-snapshot-manifest'
+        $null = Assert-RunnerArtifactValid -Path $ManifestPath -ArtifactKind 'committed-data-snapshot-manifest'
         return [pscustomobject]$manifest
     }
     catch {

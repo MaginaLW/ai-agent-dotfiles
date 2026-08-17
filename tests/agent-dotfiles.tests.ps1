@@ -64,6 +64,20 @@ foreach ($commandArgs in @(
     Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') "rejects implicit apply: $($commandArgs[0]) $($commandArgs[1])"
 }
 
+foreach ($commandArgs in @(
+    @('skills', 'normalize'),
+    @('skills', 'promote'),
+    @('skills', 'merge'),
+    @('merge')
+)) {
+    $result = Invoke-Entry -Arguments $commandArgs
+    Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') "rejects implicit canonical mutation: $($commandArgs -join ' ')"
+}
+
+$dispatcherText = Get-Content -Raw -LiteralPath $entry
+$mergeAdapterCount = ([regex]::Matches($dispatcherText, "merge\s*=\s*'auto-merge-skills\.ps1'")).Count
+Assert ($mergeAdapterCount -eq 2) 'top-level merge and skills merge aliases route to the same fixed merge adapter'
+
 Write-Host ''
 Write-Host ("agent-dotfiles CLI tests: {0} passed, {1} failed" -f $pass, $fail)
 if ($fail -gt 0) { exit 1 }

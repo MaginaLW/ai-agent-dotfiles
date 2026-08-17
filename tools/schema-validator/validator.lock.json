@@ -9,6 +9,7 @@
   "ChecksumAssetName": "CHECKSUMS.txt",
   "ChecksumAssetSha256": "38fa621bd3965e40216ed9357f2f5b70226bb7949d80242b9ae5bdb81cd05ee7",
   "ExecutableName": "jsonschema.exe",
+  "ExecutableSha256": "859a92a328e3cc41ddb49ef6bc30ea907fca45db0e23cb8c43d7ca91214585e0",
   "VersionArguments": ["version"],
   "ExpectedVersionPattern": "(^|[^0-9])15\\.6\\.3([^0-9]|$)",
   "LicenseIdentifier": "AGPL-3.0-only",

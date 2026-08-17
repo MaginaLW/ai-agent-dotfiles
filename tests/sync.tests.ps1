@@ -15,6 +15,7 @@ $fakeHome = Join-Path $work 'home'
 $fakeBackups = Join-Path $work 'backups'
 $planPath = Join-Path $work 'sync-plan.json'
 . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
+. (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
 
 function Assert {
     param([Parameter(Mandatory)] [bool] $Condition, [Parameter(Mandatory)] [string] $Message)
@@ -86,6 +87,21 @@ try {
     Assert ([int] $plan.SchemaVersion -eq 2) 'plan schema version is 2'
     Assert ([string] $plan.PlanHash -match '^[0-9a-f]{64}$') 'plan contains a SHA-256 fingerprint'
     Assert (@($plan.Plans[0].NoOp).Count -eq 1) 'plan records unchanged skill hashes'
+    $planJson = [System.Text.Json.JsonDocument]::Parse([System.IO.File]::ReadAllText($planPath))
+    try {
+        $planElements = @($planJson.RootElement.GetProperty('Plans').EnumerateArray())
+        Assert (
+            @($planElements | Where-Object {
+                $_.GetProperty('RetirementManifestPath').ValueKind -ne [System.Text.Json.JsonValueKind]::Null -or
+                $_.GetProperty('RetirementManifestHash').ValueKind -ne [System.Text.Json.JsonValueKind]::Null
+            }).Count -eq 0
+        ) 'plan without retirement authority emits JSON null retirement bindings'
+    }
+    finally {
+        $planJson.Dispose()
+    }
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/sync-plan.schema.json') -InstancePath $planPath
+    Assert $true 'plan without retirement authority passes the pinned sync-plan schema'
 
     Write-TextFile -Path (Join-Path $fakeHome '.claude/skills/demo/SKILL.md') -Content ($skill + "changed`n")
     $changedPlan = Join-Path $work 'changed-plan.json'
@@ -183,7 +199,15 @@ try {
     $retirementPlanDocument = Get-Content -Raw -LiteralPath $retirementPlan | ConvertFrom-Json
     Assert ([int] $retirementPlanDocument.SchemaVersion -eq 2) 'retirement plan uses schema version 2'
     $claudeRetirementPlan = @($retirementPlanDocument.Plans | Where-Object Platform -eq 'claude')[0]
-    Assert ([string] $claudeRetirementPlan.RetirementManifestHash -match '^[0-9a-f]{64}$') 'plan binds retirement manifest bytes by SHA-256'
+    $expectedRetirementManifestHash = (Get-FileHash -LiteralPath $retirementManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert (
+        @($retirementPlanDocument.Plans | Where-Object {
+            [string] $_.RetirementManifestHash -cne $expectedRetirementManifestHash -or
+            [string] $_.RetirementManifestHash -cnotmatch '^[0-9a-f]{64}$'
+        }).Count -eq 0
+    ) 'every platform plan binds the exact retirement manifest bytes by SHA-256'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/sync-plan.schema.json') -InstancePath $retirementPlan
+    Assert $true 'retirement-authorized plan passes the pinned sync-plan schema'
     Assert (@($claudeRetirementPlan.RetiredNames) -contains 'retired-claude') 'plan records platform retirement names'
     Assert ($claudeRetirementPlan.PruneEntries[0].Authority -eq 'explicit-retirement' -and -not [bool] $claudeRetirementPlan.PruneEntries[0].Managed) 'plan distinguishes explicit retirement from current manifest authority'
     Assert ([string] $claudeRetirementPlan.SourceRoot -match 'claude[\\/]skills$' -and [string] $claudeRetirementPlan.LiveRoot -match '\.claude[\\/]skills$') 'plan binds resolved source and live roots'

@@ -1,6 +1,7 @@
 #requires -Version 7.0
 
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'safe-tree-walker.ps1')
 
 if (-not $IsWindows) {
     throw 'The Phase 0 no-follow scan walker currently supports Windows only.'
@@ -184,20 +185,64 @@ function Get-ProtectedReasonixRelativePaths {
     )
 }
 
+function Get-NormalizedScanPolicyPaths {
+    [CmdletBinding()]
+    param(
+        [AllowEmptyCollection()] [string[]] $Paths = @(),
+        [switch] $Prefix
+    )
+
+    $normalized = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in @($Paths)) {
+        if ([string]::IsNullOrWhiteSpace($path)) { throw 'Scan policy paths must not be empty.' }
+        $candidate = $path -replace '\\', '/'
+        if ($Prefix) { $candidate = $candidate.TrimEnd('/') }
+        $relative = (Normalize-ScanRelativePath -RelativePath $candidate).ToLowerInvariant()
+        if ($Prefix) { $relative += '/' }
+        $null = $normalized.Add($relative)
+    }
+    $ordered = [string[]] @($normalized)
+    [Array]::Sort($ordered, [System.StringComparer]::Ordinal)
+    return $ordered
+}
+
+function Get-NormalizedScanSourcePolicy {
+    [CmdletBinding()]
+    param(
+        [AllowEmptyCollection()] [string[]] $ExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/'),
+        [AllowEmptyCollection()] [string[]] $ExactExcludedRelativePaths = @(),
+        [switch] $SkipGitIgnore
+    )
+
+    $normalizedPrefixes = @(Get-NormalizedScanPolicyPaths -Paths $ExcludedPrefixes -Prefix)
+    $normalizedExactPaths = @(Get-NormalizedScanPolicyPaths -Paths $ExactExcludedRelativePaths)
+    $policyDocument = [ordered]@{
+        PolicyVersion = 2
+        ExcludedPrefixes = $normalizedPrefixes
+        ExactExcludedRelativePaths = $normalizedExactPaths
+        SkipGitIgnore = [bool] $SkipGitIgnore
+    }
+    $hash = Get-SemanticJsonHash -InputObject $policyDocument
+    return [pscustomobject][ordered]@{
+        ExcludedPrefixes = $normalizedPrefixes
+        ExactExcludedRelativePaths = $normalizedExactPaths
+        SkipGitIgnore = [bool] $SkipGitIgnore
+        SourcePolicyHash = $hash
+    }
+}
+
 function Get-ScanSourcePolicyHash {
-    $policy = @(
-        'phase0-scan-input-v1',
-        'include=git-ls-files-tracked-plus-nonignored',
-        'exclude-prefix=claude/skills/',
-        'exclude-prefix=codex/skills/',
-        'exclude-prefix=reasonix/skills/',
-        'exclude-prefix=envs/',
-        'exclude-prefix=reports/',
-        'exclude-prefix=tmp/',
-        'exclude-prefix=imports/'
-    ) + @(Get-ProtectedReasonixRelativePaths | ForEach-Object { "protected=$_" })
-    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes(($policy -join "`n") + "`n")
-    return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+    [CmdletBinding()]
+    param(
+        [AllowEmptyCollection()] [string[]] $ExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/'),
+        [AllowEmptyCollection()] [string[]] $ExactExcludedRelativePaths = @(Get-ProtectedReasonixRelativePaths),
+        [switch] $SkipGitIgnore
+    )
+
+    return (Get-NormalizedScanSourcePolicy `
+        -ExcludedPrefixes $ExcludedPrefixes `
+        -ExactExcludedRelativePaths $ExactExcludedRelativePaths `
+        -SkipGitIgnore:$SkipGitIgnore).SourcePolicyHash
 }
 
 function Test-PathInsideRoot {
@@ -243,7 +288,9 @@ function New-FilteredScanInput {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
-        [Parameter(Mandatory)] [string] $DestinationRoot
+        [Parameter(Mandatory)] [string] $DestinationRoot,
+        [string[]] $ExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/'),
+        [switch] $SkipGitIgnore
     )
 
     $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
@@ -253,108 +300,53 @@ function New-FilteredScanInput {
         throw 'DestinationRoot and RepoRoot must be disjoint.'
     }
 
-    $protected = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($relative in Get-ProtectedReasonixRelativePaths) { $null = $protected.Add($relative) }
-    $protectedIdentities = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($relative in Get-ProtectedReasonixRelativePaths) {
-        $full = Join-Path $RepoRoot $relative
-        if (Test-Path -LiteralPath $full) {
-            $metadata = [AiAgentDotfiles.NoFollowFile]::Inspect($full)
-            $null = $protectedIdentities.Add($metadata.Identity)
+    $exactExcludedRelativePaths = @(Get-ProtectedReasonixRelativePaths)
+    $sourcePolicy = Get-NormalizedScanSourcePolicy `
+        -ExcludedPrefixes $ExcludedPrefixes `
+        -ExactExcludedRelativePaths $exactExcludedRelativePaths `
+        -SkipGitIgnore:$SkipGitIgnore
+
+    $ignorePredicate = if ($sourcePolicy.SkipGitIgnore) {
+        { param([string] $RelativePath) return $false }
+    }
+    else {
+        {
+            param([string] $RelativePath)
+            & git -C $RepoRoot check-ignore --quiet -- $RelativePath
+            $code = $LASTEXITCODE
+            if ($code -eq 0) { return $true }
+            if ($code -eq 1) { return $false }
+            throw "git check-ignore failed for scan input: $RelativePath"
         }
     }
-
-    $excludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/')
-    $fileEntries = [System.Collections.Generic.List[object]]::new()
-    $pendingDirectories = [System.Collections.Generic.Queue[string]]::new()
-    $pendingDirectories.Enqueue($RepoRoot)
-    while ($pendingDirectories.Count -gt 0) {
-        $directory = $pendingDirectories.Dequeue()
-        foreach ($entry in [System.IO.Directory]::EnumerateFileSystemEntries($directory)) {
-            $relative = Normalize-ScanRelativePath -RelativePath ([System.IO.Path]::GetRelativePath($RepoRoot, $entry))
-            if ($protected.Contains($relative)) { continue }
-            $excluded = @($excludedPrefixes | Where-Object {
-                $prefixRoot = $_.TrimEnd('/')
-                $relative.Equals($prefixRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
-                    $relative.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase)
-            }).Count -gt 0
-            if ($excluded) { continue }
-            $full = [System.IO.Path]::GetFullPath($entry)
-            if (-not (Test-PathInsideRoot -Path $full -Root $RepoRoot)) { throw "Scan input escaped RepoRoot: $relative" }
-            $info = [AiAgentDotfiles.NoFollowFile]::Inspect($full)
-            if ($info.IsReparsePoint) { throw "Repository scan tree contains a reparse entry: $relative" }
-            if ($info.IsDirectory) {
-                & git -C $RepoRoot check-ignore --quiet -- $relative
-                $ignoreCode = $LASTEXITCODE
-                if ($ignoreCode -eq 0) { continue }
-                if ($ignoreCode -ne 1) { throw "git check-ignore failed for directory: $relative" }
-                $pendingDirectories.Enqueue($full)
-            }
-            else {
-                $fileEntries.Add([pscustomobject]@{ RelativePath = $relative; FullPath = $full; Metadata = $info })
-            }
-        }
+    $copy = Copy-SafeTree -SourceRoot $RepoRoot -DestinationRoot $DestinationRoot `
+        -ExcludeRelativePaths $sourcePolicy.ExactExcludedRelativePaths -ExcludePrefixes $sourcePolicy.ExcludedPrefixes `
+        -ShouldSkipEntry $ignorePredicate
+    $identityByPath = @{}
+    foreach ($item in $copy.SourceSnapshot.TraversalIdentityEvidence) {
+        if ($item.Type -eq 'File') { $identityByPath[[string]$item.RelativePath] = $item }
     }
-
-    $ignoredFiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    if ($fileEntries.Count -gt 0) {
-        $ignoredOutput = @($fileEntries.RelativePath | & git -C $RepoRoot check-ignore --stdin)
-        $ignoreCode = $LASTEXITCODE
-        if ($ignoreCode -notin @(0, 1)) { throw 'git check-ignore failed for file inputs.' }
-        foreach ($ignored in $ignoredOutput) { $null = $ignoredFiles.Add((Normalize-ScanRelativePath -RelativePath ([string]$ignored))) }
-    }
-    $seenIdentities = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $candidates = [System.Collections.Generic.List[object]]::new()
-    foreach ($entry in @($fileEntries | Sort-Object RelativePath)) {
-        $relative = $entry.RelativePath
-        if ($ignoredFiles.Contains($relative)) { continue }
-        $full = $entry.FullPath
-        Assert-NoFollowDirectoryChain -RepoRoot $RepoRoot -FilePath $full
-        $info = $entry.Metadata
-        if ($info.IsDirectory -or $info.IsReparsePoint) { throw "Scan input is not a regular file: $relative" }
-        if ($info.LinkCount -ne 1) { throw "Scan input has multiple hard links: $relative" }
-        $streams = @([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($full))
-        if ($streams.Count -gt 0) { throw "Scan input has a named alternate data stream: $relative" }
-        if ($protectedIdentities.Contains($info.Identity)) { throw "Scan input aliases a protected Reasonix file: $relative" }
-        if (-not $seenIdentities.Add($info.Identity)) { throw "Duplicate file identity in scan input: $relative" }
-        $candidates.Add([pscustomobject]@{ RelativePath = $relative; FullPath = $full; Identity = $info.Identity; Length = [long]$info.Length })
-    }
-
-    [System.IO.Directory]::CreateDirectory($DestinationRoot) | Out-Null
     $rows = [System.Collections.Generic.List[object]]::new()
-    try {
-        foreach ($candidate in @($candidates | Sort-Object RelativePath)) {
-            $destination = Join-Path $DestinationRoot $candidate.RelativePath
-            $parent = Split-Path -Parent $destination
-            if (-not (Test-Path -LiteralPath $parent -PathType Container)) { [System.IO.Directory]::CreateDirectory($parent) | Out-Null }
-            $copy = [AiAgentDotfiles.NoFollowFile]::CopyRegularFile($candidate.FullPath, $destination)
-            $after = [AiAgentDotfiles.NoFollowFile]::Inspect($candidate.FullPath)
-            if ($copy.Identity -ne $candidate.Identity -or $after.Identity -ne $candidate.Identity -or $copy.Length -ne $candidate.Length -or $after.Length -ne $candidate.Length -or $after.LinkCount -ne 1 -or $after.IsReparsePoint) {
-                throw "Scan input identity or content metadata drifted during copy: $($candidate.RelativePath)"
-            }
-            $rows.Add([ordered]@{
-                RelativePath = $candidate.RelativePath
-                Length = [long] $copy.Length
-                Sha256 = $copy.Sha256
-                IdentityHash = $candidate.Identity
-                LinkCount = 1
-                NamedStreamCount = 0
-            })
-        }
-    }
-    catch {
-        if (Test-Path -LiteralPath $DestinationRoot -PathType Container) { Remove-Item -LiteralPath $DestinationRoot -Recurse -Force }
-        throw
+    foreach ($file in @($copy.SourceSnapshot.ContentTreeRows | Where-Object Type -eq 'File' | Sort-Object RelativePath)) {
+        $identity = $identityByPath[[string]$file.RelativePath]
+        $rows.Add([ordered]@{
+            RelativePath = [string]$file.RelativePath
+            Length = [long]$file.Length
+            Sha256 = [string]$file.Sha256
+            IdentityHash = [string]$identity.Identity
+            LinkCount = 1
+            NamedStreamCount = 0
+        })
     }
 
     return [pscustomobject][ordered]@{
         SchemaVersion = 1
         ArtifactKind = 'scan-input-manifest'
         GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
-        SourcePolicyHash = Get-ScanSourcePolicyHash
+        SourcePolicyHash = $sourcePolicy.SourcePolicyHash
         SourceRoot = $RepoRoot
         DestinationRoot = $DestinationRoot
-        ExcludedProtectedPaths = @(Get-ProtectedReasonixRelativePaths)
+        ExcludedProtectedPaths = @($sourcePolicy.ExactExcludedRelativePaths)
         Files = @($rows)
     }
 }

@@ -3,6 +3,7 @@
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
+. (Join-Path $PSScriptRoot 'safe-tree-walker.ps1')
 
 function Resolve-RepoRoot {
     param(
@@ -640,17 +641,30 @@ function Convert-LocalPathsToPortable {
     }
 }
 
-function Normalize-SkillDirectory {
+function New-NormalizedSkillCandidate {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $InputSkillPath,
-        [Parameter(Mandatory)] [string] $OutputSkillPath,
+        [Parameter(Mandatory)] [string] $CandidateWorkspace,
         [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'reasonix-only')] [string] $TargetType
     )
 
-    Assert-PathUnderRoot -Root $RepoRoot -Path $OutputSkillPath
+    $RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
+    $InputSkillPath = (Resolve-Path -LiteralPath $InputSkillPath).Path
+    $CandidateWorkspace = (Resolve-Path -LiteralPath $CandidateWorkspace).Path
+    try { Get-SafeTreeSnapshot -Root $InputSkillPath | Out-Null }
+    catch { return [pscustomobject] @{ Status = 'quarantine'; Reason = 'unsafe-tree'; Rewrites = @(); Detail = $_.Exception.Message } }
     if (-not (Test-Path -LiteralPath (Join-Path $InputSkillPath 'SKILL.md'))) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'missing-skill-md'; Rewrites = @() }
+    }
+
+    $name = Get-SkillName -SkillPath $InputSkillPath
+    if ($name -cnotmatch '^[a-z0-9]+(?:-[a-z0-9]+)*$') { return [pscustomobject] @{ Status='quarantine'; Reason='invalid-skill-name'; Rewrites=@() } }
+    $canonicalTarget = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "skills-source/$TargetType/$name"
+    foreach ($class in @('shared','claude-only','codex-only','reasonix-only')) {
+        if ($class -eq $TargetType) { continue }
+        $other = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "skills-source/$class/$name"
+        if (Test-Path -LiteralPath $other) { return [pscustomobject] @{ Status='quarantine'; Reason='canonical-class-conflict'; Rewrites=@(); ExistingCanonical=$other } }
     }
 
     $signals = Get-SkillSignals -RepoRoot $RepoRoot -SkillPath $InputSkillPath
@@ -673,13 +687,16 @@ function Normalize-SkillDirectory {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
     if ($TargetType -eq 'reasonix-only' -and (@($signals.ClaudeFeatures).Count -gt 0 -or @($signals.CodexFeatures).Count -gt 0)) {
-        Remove-Item -LiteralPath $OutputSkillPath -Recurse -Force
+        return [pscustomobject] @{ Status = 'quarantine'; Reason = 'platform-incompatible'; Rewrites = @() }
     }
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $OutputSkillPath) | Out-Null
-    Copy-Item -LiteralPath $InputSkillPath -Destination $OutputSkillPath -Recurse
+    $candidatePath = Join-Path $CandidateWorkspace (Join-Path 'canonical' (Join-Path $TargetType $name))
+    Assert-PathUnderRoot -Root $CandidateWorkspace -Path $candidatePath
+    if (Test-Path -LiteralPath $candidatePath) { throw "Candidate target must be create-new: $candidatePath" }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $candidatePath) | Out-Null
+    Copy-SafeTree -SourceRoot $InputSkillPath -DestinationRoot $candidatePath | Out-Null
 
     $allRewrites = [System.Collections.Generic.List[object]]::new()
-    $files = @(Get-ChildItem -LiteralPath $OutputSkillPath -File -Recurse -Force)
+    $files = @(Get-ChildItem -LiteralPath $candidatePath -File -Recurse -Force)
     foreach ($file in $files) {
         if (Test-LikelyBinaryFile -File $file) {
             continue
@@ -690,7 +707,7 @@ function Normalize-SkillDirectory {
             Write-Utf8NoBomFile -Path $file.FullName -Content $rewriteResult.Text
             foreach ($rewrite in $rewriteResult.Rewrites) {
                 $allRewrites.Add([pscustomobject] @{
-                    File = Get-RelativeDisplayPath -Root $RepoRoot -Path $file.FullName
+                    File = Get-RelativeDisplayPath -Root $CandidateWorkspace -Path $file.FullName
                     Rule = $rewrite.Rule
                     Replacement = $rewrite.Replacement
                 })
@@ -698,9 +715,9 @@ function Normalize-SkillDirectory {
         }
     }
 
-    $skillMd = Join-Path $OutputSkillPath 'SKILL.md'
-    $frontMatter = Get-SkillFrontMatter -SkillPath $OutputSkillPath
-    $name = ConvertTo-KebabName -Name (Split-Path -Leaf $OutputSkillPath)
+    $skillMd = Join-Path $candidatePath 'SKILL.md'
+    $frontMatter = Get-SkillFrontMatter -SkillPath $candidatePath
+    $name = ConvertTo-KebabName -Name (Split-Path -Leaf $candidatePath)
     $description = $frontMatter.Description
     if ([string]::IsNullOrWhiteSpace($description)) {
         $description = "Use for $name workflows."
@@ -732,22 +749,13 @@ function Normalize-SkillDirectory {
     $newSkillMd = ($frontMatterLines -join "`n") + "`n`n" + $body.TrimEnd() + "`n"
     Write-Utf8NoBomFile -Path $skillMd -Content $newSkillMd
 
-    return [pscustomobject] @{ Status = 'merged'; Reason = ''; Rewrites = @($allRewrites) }
-}
-
-function Copy-SkillToArchive {
-    param(
-        [Parameter(Mandatory)] [string] $RepoRoot,
-        [Parameter(Mandatory)] [string] $SourcePath,
-        [Parameter(Mandatory)] [string] $ArchiveRelativePath
-    )
-
-    $target = Join-RepoPath -RepoRoot $RepoRoot -RelativePath $ArchiveRelativePath
-    Assert-PathUnderRoot -Root $RepoRoot -Path $target
-    if (Test-Path -LiteralPath $target) {
-        Remove-Item -LiteralPath $target -Recurse -Force
+    return [pscustomobject] @{
+        Status = 'candidate'
+        Reason = ''
+        Name = $name
+        TargetType = $TargetType
+        CandidatePath = $candidatePath
+        CanonicalTargetPath = $canonicalTarget
+        Rewrites = @($allRewrites)
     }
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
-    Copy-Item -LiteralPath $SourcePath -Destination $target -Recurse
-    return $target
 }

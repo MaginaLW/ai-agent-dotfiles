@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/canonical-journal-header.schema.json",
+  "title": "Canonical Transaction Journal Header",
+  "type": "object",
+  "required": ["SchemaVersion", "ArtifactKind", "TransactionId", "CanonicalOperationKind", "OriginalDocumentHash", "OriginalPlanHash", "RepoId", "GitCommonDirHash", "WorktreeId", "TransactionNamespace", "RecoveryTransactionRoot", "ExpectedPostconditionsHash", "Targets"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "canonical-journal-header" },
+    "TransactionId": { "$ref": "#/$defs/uuid" },
+    "CanonicalOperationKind": { "enum": ["setup", "normalize", "promote", "merge"] },
+    "OriginalDocumentHash": { "$ref": "#/$defs/hash" },
+    "OriginalPlanHash": { "$ref": "#/$defs/hash" },
+    "RepoId": { "$ref": "#/$defs/hash" },
+    "GitCommonDirHash": { "$ref": "#/$defs/hash" },
+    "WorktreeId": { "$ref": "#/$defs/hash" },
+    "TransactionNamespace": { "type": "string", "minLength": 3 },
+    "RecoveryTransactionRoot": { "type": "string", "minLength": 3 },
+    "ExpectedPostconditionsHash": { "$ref": "#/$defs/hash" },
+    "Targets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/target" }
+    },
+    "SetupRecovery": { "$ref": "#/$defs/setupRecovery" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "state": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        { "type": "object", "required": ["State", "Hash"], "properties": { "State": { "const": "PRESENT" }, "Hash": { "$ref": "#/$defs/hash" } }, "additionalProperties": false }
+      ]
+    },
+    "target": {
+      "type": "object",
+      "required": ["TargetId", "Order", "TargetKind", "Role", "TargetPath", "PreimagePath", "SwapOldPath", "StagedPath", "Current", "Candidate", "TargetContextHash"],
+      "properties": {
+        "TargetId": { "$ref": "#/$defs/hash" },
+        "Order": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "TargetKind": { "enum": ["directory", "file", "parent-directory"] },
+        "Role": { "enum": ["canonical", "generated", "manifest", "parent", "setup-claim", "setup-state"] },
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix", "Union"] },
+        "TargetPath": { "type": "string", "minLength": 3 },
+        "PreimagePath": { "type": "string", "minLength": 3 },
+        "SwapOldPath": { "type": "string", "minLength": 3 },
+        "StagedPath": { "type": ["string", "null"] },
+        "Current": { "$ref": "#/$defs/state" },
+        "Candidate": { "$ref": "#/$defs/state" },
+        "TargetContextHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "setupRecovery": {
+      "type": "object",
+      "required": ["ClaimPath", "StatePath", "ExpectedClaim", "ExpectedClaimHash", "ExpectedStateProjection", "ExpectedStateProjectionHash"],
+      "properties": {
+        "ClaimPath": { "type": "string", "minLength": 3 },
+        "StatePath": { "type": "string", "minLength": 3 },
+        "ExpectedClaim": { "type": "object" },
+        "ExpectedClaimHash": { "$ref": "#/$defs/hash" },
+        "ExpectedStateProjection": { "type": "object" },
+        "ExpectedStateProjectionHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "CanonicalOperationKind": { "const": "setup" } }, "required": ["CanonicalOperationKind"] },
+      "then": { "required": ["SetupRecovery"], "properties": { "Targets": { "maxItems": 0 } } },
+      "else": { "not": { "required": ["SetupRecovery"] } }
+    }
+  ],
+  "additionalProperties": false
+}

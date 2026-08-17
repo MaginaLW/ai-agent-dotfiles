@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/canonical-recovery-plan.schema.json",
+  "title": "Canonical Reviewed Recovery Plan",
+  "type": "object",
+  "required": ["SchemaVersion", "ArtifactKind", "Metadata", "PlanPayload", "PlanHash", "DocumentHash"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "canonical-recovery-plan" },
+    "Metadata": {
+      "type": "object",
+      "required": ["CreatedAtUtc", "Generator", "RepositoryCommit"],
+      "properties": {
+        "CreatedAtUtc": { "type": "string", "format": "date-time" },
+        "Generator": { "const": "scripts/recover-canonical-transaction.ps1" },
+        "RepositoryCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" }
+      },
+      "additionalProperties": false
+    },
+    "PlanPayload": { "$ref": "#/$defs/payload" },
+    "PlanHash": { "$ref": "#/$defs/hash" },
+    "DocumentHash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "observed": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        {
+          "type": "object",
+          "required": ["State", "Type", "Hash", "Identity"],
+          "properties": {
+            "State": { "const": "PRESENT" },
+            "Type": { "enum": ["File", "Directory"] },
+            "Hash": { "$ref": "#/$defs/hash" },
+            "Identity": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "pending": {
+      "type": "object",
+      "required": ["Name", "Path", "Length", "Sha256", "Identity"],
+      "properties": {
+        "Name": { "type": "string", "pattern": "^(?:header-[0-9a-f]{32}|record-[0-9]{6}-[0-9a-f]{32}|result-[0-9a-f]{32}|setup-(?:claim|state)-[0-9a-f]{32})\\.tmp$" },
+        "Path": { "type": "string", "minLength": 3 },
+        "Length": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "Sha256": { "$ref": "#/$defs/hash" },
+        "Identity": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "tuple": {
+      "type": "object",
+      "required": ["Target", "Preimage", "SwapOld", "Staged"],
+      "properties": {
+        "Target": { "$ref": "#/$defs/observed" },
+        "Preimage": { "$ref": "#/$defs/observed" },
+        "SwapOld": { "$ref": "#/$defs/observed" },
+        "Staged": { "$ref": "#/$defs/observed" }
+      },
+      "additionalProperties": false
+    },
+    "targetEvidence": {
+      "type": "object",
+      "required": ["TargetId", "TargetKind", "TargetPath", "PreimagePath", "SwapOldPath", "StagedPath", "ReconciledState", "PrimitiveOccurred", "Tuple"],
+      "properties": {
+        "TargetId": { "$ref": "#/$defs/hash" },
+        "TargetKind": { "enum": ["directory", "file", "parent-directory"] },
+        "TargetPath": { "type": "string", "minLength": 3 },
+        "PreimagePath": { "type": "string", "minLength": 3 },
+        "SwapOldPath": { "type": "string", "minLength": 3 },
+        "StagedPath": { "type": ["string", "null"] },
+        "ReconciledState": { "enum": ["UNPREPARED", "PRE_PRIMITIVE", "PARENT_CREATED", "OLD_MOVED", "NEW_INSTALLED"] },
+        "PrimitiveOccurred": { "type": "boolean" },
+        "Tuple": { "$ref": "#/$defs/tuple" }
+      },
+      "additionalProperties": false
+    },
+    "workspaceEvidence": {
+      "type": "object",
+      "required": ["WorkspaceRole", "WorkspacePath", "ReconciledState", "ObservedState"],
+      "properties": {
+        "WorkspaceRole": { "enum": ["preimage", "swap-old"] },
+        "WorkspacePath": { "type": "string", "minLength": 3 },
+        "ReconciledState": { "enum": ["UNPREPARED", "INTENT_NO_CREATE", "CREATED_UNRECORDED", "READY"] },
+        "ObservedState": { "$ref": "#/$defs/observed" }
+      },
+      "additionalProperties": false
+    },
+    "resultState": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        {
+          "type": "object",
+          "required": ["State", "Hash", "Outcome"],
+          "properties": { "State": { "const": "PRESENT" }, "Hash": { "$ref": "#/$defs/hash" }, "Outcome": { "enum": ["committed", "abandoned", "rolled-back", "failed-restored"] } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "projection": { "type": "object", "minProperties": 1 },
+    "payload": {
+      "type": "object",
+      "required": [
+        "SchemaVersion", "PlanKind", "PlannedAction", "RepoRoot", "GitCommonDirHash", "RepositoryCommit", "ToolchainPolicyHash",
+        "TransactionId", "SourceWorktreeId", "TransactionNamespace", "CanonicalOperationKind", "OriginalDocumentHash", "OriginalPlanHash",
+        "HeaderHash", "DerivedJournalHeadHash", "RecordChainHash", "PendingInventory", "WorkspaceInventory", "ResultState", "Targets", "ConsumedDocumentHashes",
+        "CurrentContextHash", "ExpectedOutcome", "ExpectedTerminalProjection", "ExpectedTerminalProjectionHash"
+      ],
+      "properties": {
+        "SchemaVersion": { "const": 1 },
+        "PlanKind": { "enum": ["canonical-recover-abandon", "canonical-recover-rollback", "canonical-recover-finalize"] },
+        "PlannedAction": { "enum": ["abandon", "rollback", "finalize"] },
+        "RepoRoot": { "type": "string", "minLength": 3 },
+        "GitCommonDirHash": { "$ref": "#/$defs/hash" },
+        "RepositoryCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+        "ToolchainPolicyHash": { "$ref": "#/$defs/hash" },
+        "TransactionId": { "$ref": "#/$defs/uuid" },
+        "SourceWorktreeId": { "$ref": "#/$defs/hash" },
+        "TransactionNamespace": { "type": "string", "minLength": 3 },
+        "CanonicalOperationKind": { "enum": ["setup", "normalize", "promote", "merge"] },
+        "OriginalDocumentHash": { "$ref": "#/$defs/hash" },
+        "OriginalPlanHash": { "$ref": "#/$defs/hash" },
+        "HeaderHash": { "$ref": "#/$defs/hash" },
+        "DerivedJournalHeadHash": { "$ref": "#/$defs/hash" },
+        "RecordChainHash": { "$ref": "#/$defs/hash" },
+        "PendingInventory": { "type": "array", "items": { "$ref": "#/$defs/pending" } },
+        "WorkspaceInventory": { "type": "array", "items": { "$ref": "#/$defs/workspaceEvidence" } },
+        "ResultState": { "$ref": "#/$defs/resultState" },
+        "Targets": { "type": "array", "items": { "$ref": "#/$defs/targetEvidence" } },
+        "ConsumedDocumentHashes": { "type": "array", "items": { "$ref": "#/$defs/hash" }, "uniqueItems": true },
+        "CurrentContextHash": { "$ref": "#/$defs/hash" },
+        "ExpectedOutcome": { "enum": ["committed", "abandoned", "rolled-back", "failed-restored"] },
+        "ExpectedTerminalProjection": { "$ref": "#/$defs/projection" },
+        "ExpectedTerminalProjectionHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

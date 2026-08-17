@@ -71,15 +71,57 @@ try {
     $null = Invoke-FixedJsonSchemaValidation -SchemaPath $compatibilitySchema -InstancePath $compatibilityValid
     Assert-Throws { Invoke-FixedJsonSchemaValidation -SchemaPath $compatibilitySchema -InstancePath $compatibilityExtra } 'validation failed' 'unevaluatedProperties is enforced'
     Assert-Throws { Invoke-FixedJsonSchemaValidation -SchemaPath $compatibilitySchema -InstancePath $compatibilityDuplicate } 'validation failed' 'duplicate-sensitive uniqueItems is enforced'
-    $pinnedValidator = Assert-PinnedToolInstalled -LockPath (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json')
-    & $pinnedValidator.Paths.Executable metaschema $compatibilitySchema 2>$null | Out-Null
-    Assert ($LASTEXITCODE -eq 0) 'Draft 2020-12 metaschema sentinel passes'
+    $validatorLease = $null
+    try {
+        $validatorLease = Open-PinnedToolLease -LockPath (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json')
+        $metaschemaResult = Invoke-PinnedToolProcess `
+            -ToolLease $validatorLease `
+            -Arguments @('metaschema', $compatibilitySchema) `
+            -Operation 'Draft 2020-12 metaschema sentinel'
+        Assert (
+            $metaschemaResult.ExitCode -eq 0 -and
+            [string]$metaschemaResult.Stdout -ceq '' -and
+            [string]$metaschemaResult.Stderr -ceq '' -and
+            [string]$metaschemaResult.Output -ceq ''
+        ) 'Draft 2020-12 metaschema sentinel passes with exact empty output'
+    }
+    finally { Close-PinnedToolLease -ToolLease $validatorLease }
+
+    Write-Host '[pinned tool attestation cache boundary]'
+    $validatorLockPath = Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json'
+    $validatorLockForCache = Get-PinnedToolLock -Path $validatorLockPath
+    $validatorPathsForCache = Get-PinnedToolPaths -Lock $validatorLockForCache
+    $forgedExecutable = Join-Path $work 'forged-validator.cmd'
+    $forgedMarker = Join-Path $work 'forged-validator-ran.txt'
+    [System.IO.File]::WriteAllText(
+        $forgedExecutable,
+        "@echo off`r`necho forged>`"$forgedMarker`"`r`nexit /b 0`r`n",
+        [System.Text.ASCIIEncoding]::new()
+    )
+    $forgedCacheKey = "$( $validatorPathsForCache.Root)|$((Get-Item -LiteralPath $validatorPathsForCache.Archive).LastWriteTimeUtc.Ticks)|$((Get-Item -LiteralPath $validatorPathsForCache.Executable).LastWriteTimeUtc.Ticks)"
+    $exposedToolCache = Get-Variable -Name PinnedToolValidationCache -Scope Script -ErrorAction SilentlyContinue
+    if ($exposedToolCache) {
+        $exposedToolCache.Value[$forgedCacheKey] = [pscustomobject]@{
+            Lock = $validatorLockForCache
+            Paths = [pscustomobject]@{ Root=$validatorPathsForCache.Root;Archive=$validatorPathsForCache.Archive;Executable=$forgedExecutable }
+            ExecutableSha256 = ('0' * 64)
+            VersionOutput = 'forged'
+        }
+    }
+    $forgedCacheAccepted = $false
+    try {
+        Invoke-FixedJsonSchemaValidation -SchemaPath $compatibilitySchema -InstancePath $compatibilityExtra | Out-Null
+        $forgedCacheAccepted = $true
+    }
+    catch {}
+    finally { if ($exposedToolCache) { $null = $exposedToolCache.Value.Remove($forgedCacheKey) } }
+    Assert ($null -eq $exposedToolCache -and -not $forgedCacheAccepted -and -not (Test-Path -LiteralPath $forgedMarker)) 'caller-forged pinned-tool cache entries cannot bypass schema validation'
 
     Write-Host '[tool locks and registry]'
     $validatorLock = Get-PinnedToolLock -Path (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json')
     $gitleaksLock = Get-PinnedToolLock -Path (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json')
-    Assert ($validatorLock.Version -eq '15.6.3' -and $validatorLock.AssetSha256 -match '^[0-9a-f]{64}$') 'schema-validator lock pins version and publisher asset hash'
-    Assert ($gitleaksLock.Version -eq '8.30.0' -and $gitleaksLock.AssetSha256 -match '^[0-9a-f]{64}$') 'gitleaks lock avoids the known-bad 8.30.1 and pins publisher asset hash'
+    Assert ($validatorLock.Version -eq '15.6.3' -and $validatorLock.AssetSha256 -match '^[0-9a-f]{64}$' -and $validatorLock.ExecutableSha256 -match '^[0-9a-f]{64}$') 'schema-validator lock pins version, publisher asset hash, and extracted executable hash'
+    Assert ($gitleaksLock.Version -eq '8.30.0' -and $gitleaksLock.AssetSha256 -match '^[0-9a-f]{64}$' -and $gitleaksLock.ExecutableSha256 -match '^[0-9a-f]{64}$') 'gitleaks lock avoids the known-bad 8.30.1 and pins publisher asset and executable hashes'
 
     $missingCache = Join-Path $work 'missing-cache'
     Assert-Throws { Assert-PinnedToolInstalled -LockPath (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json') -CacheRoot $missingCache } 'not installed' 'missing pinned validator fails closed without installation'
@@ -94,28 +136,165 @@ try {
     try { $tamperStream.WriteByte(0); $tamperStream.Flush($true) } finally { $tamperStream.Dispose() }
     Assert-Throws { Assert-PinnedToolInstalled -LockPath (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json') -CacheRoot $tamperCache } 'differs|mismatch' 'tampered pinned executable fails closed'
 
+    $sameTimeCache = Join-Path $work 'same-time-cache'
+    $sameTimePaths = Get-PinnedToolPaths -Lock $validatorLock -CacheRoot $sameTimeCache
+    New-Item -ItemType Directory -Path (Split-Path -Parent $sameTimePaths.Root) -Force | Out-Null
+    Copy-Item -LiteralPath $sourcePaths.Root -Destination $sameTimePaths.Root -Recurse
+    $sameTimeStamp = (Get-Item -LiteralPath $sameTimePaths.Executable).LastWriteTimeUtc
+    $sameTimeBytes = [System.IO.File]::ReadAllBytes($sameTimePaths.Executable)
+    $sameTimeBytes[0] = $sameTimeBytes[0] -bxor 1
+    [System.IO.File]::WriteAllBytes($sameTimePaths.Executable, $sameTimeBytes)
+    [System.IO.File]::SetLastWriteTimeUtc($sameTimePaths.Executable, $sameTimeStamp)
+    Assert-Throws { Assert-PinnedToolInstalled -LockPath (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json') -CacheRoot $sameTimeCache } 'hash mismatch' 'same-length same-mtime pinned executable tampering fails closed'
+
+    $lease = Open-PinnedToolLease -LockPath (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json')
+    $leaseMoveBlocked = $false
+    $leaseMovedPath = [string]$lease.Paths.Executable + '.moved'
+    try {
+        try { [System.IO.File]::Move([string]$lease.Paths.Executable, $leaseMovedPath) }
+        catch [System.IO.IOException] { $leaseMoveBlocked = $true }
+        Assert ($leaseMoveBlocked -and -not (Test-Path -LiteralPath $leaseMovedPath)) 'pinned tool lease blocks executable replacement through process exit'
+    }
+    finally { Close-PinnedToolLease -ToolLease $lease }
+    [System.IO.File]::Move($sourcePaths.Executable, $leaseMovedPath)
+    [System.IO.File]::Move($leaseMovedPath, $sourcePaths.Executable)
+    Close-PinnedToolLease -ToolLease $lease
+    Assert (Test-Path -LiteralPath $sourcePaths.Executable -PathType Leaf) 'pinned tool lease close is idempotent and releases executable replacement sharing'
+
+    Write-Host '[pinned tool inherited-pipe process cleanup]'
+    $processStateRoot = Join-Path $work 'pinned-tool-process-state'
+    $processOutcomePath = Join-Path $work 'pinned-tool-process-outcome.txt'
+    New-Item -ItemType Directory -Path $processStateRoot | Out-Null
+    $processProbe = $null
+    $processDescendantId = $null
+    $processProbeExited = $false
+    $processDescendantPublished = $false
+    $processDescendantReaped = $false
+    $processElapsed = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $processStart = [System.Diagnostics.ProcessStartInfo]::new()
+        $processStart.FileName = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
+        $processStart.UseShellExecute = $false
+        $processStart.CreateNoWindow = $true
+        foreach ($argument in @(
+            '-NoProfile',
+            '-File',
+            (Join-Path $PSScriptRoot 'helpers/pinned-tool-process-probe.ps1'),
+            '-RepoRoot',
+            $RepoRoot,
+            '-StateRoot',
+            $processStateRoot,
+            '-OutcomePath',
+            $processOutcomePath
+        )) {
+            $null = $processStart.ArgumentList.Add([string] $argument)
+        }
+
+        $processProbe = [System.Diagnostics.Process]::Start($processStart)
+        if ($null -eq $processProbe) { throw 'Unable to start the isolated pinned-tool process probe.' }
+        $processProbeExited = $processProbe.WaitForExit(18000)
+        $processElapsed.Stop()
+
+        $descendantPidPath = Join-Path $processStateRoot 'descendant.pid'
+        $processDescendantPublished = Test-Path -LiteralPath $descendantPidPath -PathType Leaf
+        if ($processDescendantPublished) {
+            $processDescendantId = [int] (Get-Content -Raw -LiteralPath $descendantPidPath)
+            $cleanupDeadline = [DateTime]::UtcNow.AddSeconds(2)
+            while ($null -ne (Get-Process -Id $processDescendantId -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $cleanupDeadline) {
+                Start-Sleep -Milliseconds 25
+            }
+            $processDescendantReaped = $null -eq (Get-Process -Id $processDescendantId -ErrorAction SilentlyContinue)
+        }
+    }
+    finally {
+        if ($processProbe) {
+            if (-not $processProbe.HasExited) {
+                try { $processProbe.Kill($true) } catch {}
+                try { $null = $processProbe.WaitForExit(5000) } catch {}
+            }
+            $processProbe.Dispose()
+        }
+        if ($null -ne $processDescendantId) {
+            $processSurvivor = Get-Process -Id $processDescendantId -ErrorAction SilentlyContinue
+            if ($processSurvivor) {
+                try { $processSurvivor.Kill($true) } catch {}
+                try { $null = $processSurvivor.WaitForExit(5000) } catch {}
+                $processSurvivor.Dispose()
+            }
+        }
+    }
+    Assert $processProbeExited 'the isolated production wrapper returns or fail-fasts within the hard bound'
+    Assert ($processElapsed.ElapsedMilliseconds -le 18000) 'the inherited-pipe case respects the hard wall-clock bound'
+    Assert $processDescendantPublished 'the target parent exits after publishing its inherited-pipe descendant PID'
+    Assert $processDescendantReaped 'production process lifecycle cleanup reaps the inherited-pipe descendant before held resources can be released'
+
     $shadow = Join-Path $work 'shadow'
     New-Item -ItemType Directory -Path $shadow | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $shadow 'gitleaks.cmd'), '@exit /b 0', [System.Text.Encoding]::ASCII)
-    $originalPath = $env:PATH
-    try {
-        $env:PATH = "$shadow;$originalPath"
-        $pinnedGitleaks = Assert-PinnedToolInstalled -LockPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json')
-        Assert (-not $pinnedGitleaks.Paths.Executable.StartsWith($shadow, [System.StringComparison]::OrdinalIgnoreCase)) 'malicious PATH shadow is ignored'
-    }
-    finally { $env:PATH = $originalPath }
-
     $sentinel = Join-Path $work 'gitleaks-sentinel'
     New-Item -ItemType Directory -Path $sentinel | Out-Null
     $prefix = ([string][char]103) + [char]104 + [char]112 + [char]95
-    [System.IO.File]::WriteAllText((Join-Path $sentinel 'sentinel.txt'), ($prefix + ('A' * 36)), [System.Text.UTF8Encoding]::new($false))
-    & $pinnedGitleaks.Paths.Executable detect --no-git --source $sentinel --config (Join-Path $RepoRoot '.gitleaks.toml') --redact --no-banner 2>$null | Out-Null
-    Assert ($LASTEXITCODE -ne 0) 'pinned gitleaks detects the planted sentinel'
+    $sentinelValue = $prefix + ('A' * 36)
+    [System.IO.File]::WriteAllText((Join-Path $sentinel 'sentinel.txt'), $sentinelValue, [System.Text.UTF8Encoding]::new($false))
+    $originalPath = $env:PATH
+    $gitleaksLease = $null
+    try {
+        $env:PATH = "$shadow;$originalPath"
+        $gitleaksLease = Open-PinnedToolLease -LockPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json')
+        Assert (-not $gitleaksLease.Paths.Executable.StartsWith($shadow, [System.StringComparison]::OrdinalIgnoreCase)) 'malicious PATH shadow is ignored'
+        $gitleaksResult = Invoke-PinnedToolProcess `
+            -ToolLease $gitleaksLease `
+            -Arguments @('detect', '--no-git', '--source', $sentinel, '--config', (Join-Path $RepoRoot '.gitleaks.toml'), '--redact', '--no-banner') `
+            -Operation 'Pinned gitleaks sentinel scan'
+        $normalizedGitleaksOutput = [regex]::Replace([string]$gitleaksResult.Output, '\x1b\[[0-9;]*m', '')
+        $gitleaksOutputLines = @($normalizedGitleaksOutput -split '\r?\n')
+        Assert (
+            $gitleaksResult.ExitCode -eq 1 -and
+            [string]$gitleaksResult.Stdout -ceq '' -and
+            ([string]$gitleaksResult.Stderr).Trim() -ceq [string]$gitleaksResult.Output -and
+            $gitleaksOutputLines.Count -eq 2 -and
+            $gitleaksOutputLines[0] -cmatch '^\S+ INF scanned ~40 bytes \(40 bytes\) in \S+$' -and
+            $gitleaksOutputLines[1] -cmatch '^\S+ WRN leaks found: 1$' -and
+            [string]$gitleaksResult.Output -notmatch [regex]::Escape($sentinelValue)
+        ) 'pinned gitleaks reports exactly one redacted planted sentinel finding with exit code 1'
+    }
+    finally {
+        $env:PATH = $originalPath
+        Close-PinnedToolLease -ToolLease $gitleaksLease
+    }
 
     $contracts = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'schemas/artifact-contracts.psd1')
     Assert ($contracts.Contracts.ContainsKey('scan-input-manifest')) 'registry includes scan-input-manifest v1'
     Assert ($contracts.Contracts.ContainsKey('test-run-summary')) 'registry includes test-run-summary v1'
     Assert ($contracts.Contracts.ContainsKey('artifact-validation-manifest')) 'registry bootstraps the artifact manifest'
+
+    Write-Host '[manifest semantic dispatch]'
+    $tamperedPlanPath = Join-Path $RepoRoot 'tests/fixtures/artifacts/canonical-transaction-plan.plan-hash.invalid.json'
+    $tamperedManifestPath = Join-Path $work 'tampered-plan-manifest.json'
+    $tamperedSummaryPath = Join-Path $work 'tampered-plan-summary.json'
+    $tamperedManifest = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'artifact-validation-manifest'
+        GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
+        Artifacts = @([ordered]@{
+            ArtifactKind = 'canonical-transaction-plan'
+            SchemaVersion = 1
+            Path = [System.IO.Path]::GetFullPath($tamperedPlanPath)
+            Sha256 = (Get-FileHash -LiteralPath $tamperedPlanPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        })
+    }
+    [System.IO.File]::WriteAllText($tamperedManifestPath, (ConvertTo-Json -InputObject $tamperedManifest -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
+    $validatorOutput = & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts/validate-json-artifacts.ps1') -ArtifactManifestPath $tamperedManifestPath -JsonSummaryPath $tamperedSummaryPath 2>&1 | Out-String
+    $validatorExitCode = $LASTEXITCODE
+    $tamperedSummary = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($tamperedSummaryPath, [System.Text.UTF8Encoding]::new($false, $true)))
+    Assert (
+        $validatorExitCode -ne 0 -and
+        [string]$tamperedSummary.Mode -ceq 'Manifest' -and
+        [string]$tamperedSummary.Result -ceq 'FAIL' -and
+        [long]$tamperedSummary.Counts.ArtifactsValidated -eq 0 -and
+        [long]$tamperedSummary.Counts.Failed -eq 1 -and
+        @($tamperedSummary.Failures | Where-Object { [string]$_ -match 'canonical-transaction-plan PlanHash' }).Count -eq 1
+    ) 'manifest mode dispatches canonical plan artifacts through the same named semantic hash validator'
 
     Write-Host 'schema validation tests: PASS'
 }

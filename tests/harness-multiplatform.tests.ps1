@@ -29,7 +29,7 @@ function Invoke-Fixture([string] $Script, [string[]] $ScriptArguments = @()) {
 $fakeRepo = Join-Path $work 'repo'
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source') -Destination (Join-Path $fakeRepo 'harness-source') -Recurse -Force
 New-Item -ItemType Directory -Path (Join-Path $fakeRepo 'scripts') -Force | Out-Null
-foreach ($name in @('harness-profile-common.ps1', 'build-harness-profile.ps1', 'apply-harness-profile.ps1', 'status-harness-profile.ps1', 'scan-secrets.ps1', 'scan-input-common.ps1', 'json-artifact-common.ps1', 'semantic-json.ps1')) {
+foreach ($name in @('harness-profile-common.ps1', 'build-harness-profile.ps1', 'apply-harness-profile.ps1', 'status-harness-profile.ps1', 'scan-secrets.ps1', 'canonical-preflight-common.ps1', 'scan-input-common.ps1', 'safe-tree-walker.ps1', 'json-artifact-common.ps1', 'semantic-json.ps1')) {
     Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $fakeRepo "scripts/$name") -Force
 }
 New-Item -ItemType Directory -Path (Join-Path $fakeRepo 'tools/gitleaks') -Force | Out-Null

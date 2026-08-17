@@ -12,10 +12,31 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
+. (Join-Path $PSScriptRoot 'transaction-journal-common.ps1')
 
-function Read-SemanticJsonFile {
-    param([Parameter(Mandatory)] [string] $Path)
-    return ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path).Path, [System.Text.UTF8Encoding]::new($false, $true)))
+function Test-CanonicalPlanDocumentHashSemantics {
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document,
+        [Parameter(Mandatory)] [string] $ArtifactKind
+    )
+    $expectedPlanHash = Get-PlanHash -PlanPayload $Document.PlanPayload
+    if ([string] $Document.PlanHash -cne $expectedPlanHash) {
+        throw "$ArtifactKind PlanHash does not match the complete PlanPayload."
+    }
+    $expectedDocumentHash = Get-DocumentHash -Document $Document
+    if ([string] $Document.DocumentHash -cne $expectedDocumentHash) {
+        throw "$ArtifactKind DocumentHash does not match the complete document excluding only DocumentHash."
+    }
+}
+
+function Test-CanonicalTransactionPlanSemantics {
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    Test-CanonicalPlanDocumentHashSemantics -Document $Document -ArtifactKind 'canonical-transaction-plan'
+}
+
+function Test-CanonicalRecoveryPlanSemantics {
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    Test-CanonicalPlanDocumentHashSemantics -Document $Document -ArtifactKind 'canonical-recovery-plan'
 }
 
 function Resolve-RepositoryPath {
@@ -25,23 +46,21 @@ function Resolve-RepositoryPath {
 }
 
 function Test-ScanInputManifestSemantics {
-    param([Parameter(Mandatory)] [string] $Path)
-    $document = Read-SemanticJsonFile -Path $Path
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
     $expected = @(Get-ProtectedReasonixRelativePaths | Sort-Object)
-    $actual = @($document.ExcludedProtectedPaths | Sort-Object)
+    $actual = @($Document.ExcludedProtectedPaths | Sort-Object)
     if (@(Compare-Object $expected $actual -CaseSensitive).Count -ne 0) { throw 'scan-input-manifest must bind exactly the four protected Reasonix paths.' }
-    $paths = @($document.Files | ForEach-Object { [string] $_.RelativePath })
+    $paths = @($Document.Files | ForEach-Object { [string] $_.RelativePath })
     if (@($paths | Sort-Object -Unique).Count -ne $paths.Count) { throw 'scan-input-manifest file paths must be unique.' }
     if (@(Compare-Object $paths @($paths | Sort-Object) -SyncWindow 0).Count -ne 0) { throw 'scan-input-manifest file paths must be sorted.' }
 }
 
 function Test-TestRunSummarySemantics {
-    param([Parameter(Mandatory)] [string] $Path)
-    $document = Read-SemanticJsonFile -Path $Path
-    $counts = $document.Counts
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    $counts = $Document.Counts
     if ([long] $counts.Started -ne ([long] $counts.Passed + [long] $counts.Failed + [long] $counts.TimedOut)) { throw 'test-run-summary Started count is inconsistent.' }
     if ([long] $counts.Completed -ne ([long] $counts.Passed + [long] $counts.Failed)) { throw 'test-run-summary Completed count is inconsistent.' }
-    if ([string] $document.Result -eq 'PASS') {
+    if ([string] $Document.Result -eq 'PASS') {
         foreach ($name in @('Failed', 'TimedOut', 'Duplicate', 'Missing', 'TreeKillFailed')) {
             if ([long] $counts[$name] -ne 0) { throw "PASS test-run-summary has nonzero $name." }
         }
@@ -52,44 +71,49 @@ function Test-TestRunSummarySemantics {
 }
 
 function Test-ArtifactManifestSemantics {
-    param([Parameter(Mandatory)] [string] $Path)
-    $document = Read-SemanticJsonFile -Path $Path
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document,
+        [switch] $SkipChildHashValidation
+    )
     $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($artifact in $document.Artifacts) {
+    foreach ($artifact in $Document.Artifacts) {
         $artifactPath = Resolve-RepositoryPath -Path ([string] $artifact.Path)
         if (-not $seen.Add($artifactPath)) { throw "Artifact manifest contains duplicate path: $artifactPath" }
-        $evidenceRoot = Split-Path -Parent $artifactPath
-        $null = Resolve-PrivateArtifactPath -Path $artifactPath -Role EvidenceInputPath -RepoRoot $RepoRoot -EvidenceRoots @($evidenceRoot)
-        $actualHash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actualHash -cne [string] $artifact.Sha256) { throw "Artifact content hash mismatch: $artifactPath" }
+        if (-not $SkipChildHashValidation) {
+            $evidenceRoot = Split-Path -Parent $artifactPath
+            $capture = Read-ExactJsonArtifactCapture -Path $artifactPath -Role EvidenceInputPath -RepoRoot $RepoRoot -EvidenceRoots @($evidenceRoot)
+            if ([string] $capture.Sha256 -cne [string] $artifact.Sha256) { throw "Artifact content hash mismatch: $artifactPath" }
+        }
     }
 }
 
 function Test-ArtifactValidationSummarySemantics {
-    param([Parameter(Mandatory)] [string] $Path)
-    $document = Read-SemanticJsonFile -Path $Path
-    if ([long] $document.Counts.Failed -ne @($document.Failures).Count) { throw 'artifact-validation-summary failure count is inconsistent.' }
-    if ([string] $document.Result -eq 'PASS' -and ([long] $document.Counts.Failed -ne 0 -or @($document.Failures).Count -ne 0)) { throw 'PASS artifact-validation-summary contains failures.' }
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    if ([long] $Document.Counts.Failed -ne @($Document.Failures).Count) { throw 'artifact-validation-summary failure count is inconsistent.' }
+    if ([string] $Document.Result -eq 'PASS' -and ([long] $Document.Counts.Failed -ne 0 -or @($Document.Failures).Count -ne 0)) { throw 'PASS artifact-validation-summary contains failures.' }
 }
 
 function Invoke-ContractSemanticValidator {
-    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Contract, [Parameter(Mandatory)] [string] $Path)
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Contract, [Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
     if (-not $Contract.ContainsKey('SemanticValidator') -or [string]::IsNullOrWhiteSpace([string] $Contract.SemanticValidator)) { return }
     $command = Get-Command -Name ([string] $Contract.SemanticValidator) -CommandType Function -ErrorAction Stop
-    & $command -Path $Path
+    & $command -Document $Document
 }
 
 function Invoke-ContractValidation {
     param(
         [Parameter(Mandatory)] [string] $ArtifactKind,
         [Parameter(Mandatory)] [System.Collections.IDictionary] $Contract,
-        [Parameter(Mandatory)] [string] $Path
+        [Parameter(Mandatory)] [string] $Path,
+        [string] $ExpectedSha256
     )
     $schemaPath = Resolve-RepositoryPath -Path ([string] $Contract.SchemaPath)
-    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $Path -ValidatorCacheRoot $ValidatorCacheRoot
-    $document = Read-SemanticJsonFile -Path $Path
+    $validation = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $Path -ValidatorCacheRoot $ValidatorCacheRoot
+    $capture = Assert-ExactJsonArtifactCapture -Capture $validation.ArtifactCapture
+    if ($ExpectedSha256 -and [string] $capture.Sha256 -cne $ExpectedSha256) { throw "Artifact content hash mismatch: $($capture.FullPath)" }
+    $document = $capture.Document
     if (-not $document.Contains('SchemaVersion') -or [long] $document.SchemaVersion -ne [long] $Contract.SchemaVersion) { throw "$ArtifactKind has an unsupported SchemaVersion." }
-    Invoke-ContractSemanticValidator -Contract $Contract -Path $Path
+    Invoke-ContractSemanticValidator -Contract $Contract -Document $document
 }
 
 function Write-CreateNewJson {
@@ -131,11 +155,11 @@ try {
                 $failedAt = $null
                 try {
                     $schemaPath = Resolve-RepositoryPath -Path ([string] $contract.SchemaPath)
-                    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $negativePath -ValidatorCacheRoot $ValidatorCacheRoot
+                    $negativeValidation = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $negativePath -ValidatorCacheRoot $ValidatorCacheRoot
                 }
                 catch { $failedAt = 'Schema' }
                 if (-not $failedAt) {
-                    try { Invoke-ContractSemanticValidator -Contract $contract -Path $negativePath }
+                    try { Invoke-ContractSemanticValidator -Contract $contract -Document $negativeValidation.ArtifactCapture.Document }
                     catch { $failedAt = 'Semantic' }
                 }
                 if ($failedAt -ceq [string] $negative.FailureLayer) { $counts.NegativePassed++ }
@@ -145,15 +169,15 @@ try {
     }
     else {
         $manifestSchema = Join-Path $RepoRoot 'schemas/artifact-validation-manifest.schema.json'
-        $null = Invoke-FixedJsonSchemaValidation -SchemaPath $manifestSchema -InstancePath $ArtifactManifestPath -ValidatorCacheRoot $ValidatorCacheRoot
-        Test-ArtifactManifestSemantics -Path $ArtifactManifestPath
-        $manifest = Read-SemanticJsonFile -Path $ArtifactManifestPath
+        $manifestValidation = Invoke-FixedJsonSchemaValidation -SchemaPath $manifestSchema -InstancePath $ArtifactManifestPath -ValidatorCacheRoot $ValidatorCacheRoot
+        $manifest = $manifestValidation.ArtifactCapture.Document
+        Test-ArtifactManifestSemantics -Document $manifest -SkipChildHashValidation
         foreach ($artifact in $manifest.Artifacts) {
             $kind = [string] $artifact.ArtifactKind
             if (-not $registry.Contracts.ContainsKey($kind)) { throw "Unknown ArtifactKind: $kind" }
             $contract = $registry.Contracts[$kind]
             if ([long] $artifact.SchemaVersion -ne [long] $contract.SchemaVersion) { throw "Unsupported SchemaVersion for $kind." }
-            Invoke-ContractValidation -ArtifactKind $kind -Contract $contract -Path (Resolve-RepositoryPath -Path ([string] $artifact.Path))
+            Invoke-ContractValidation -ArtifactKind $kind -Contract $contract -Path (Resolve-RepositoryPath -Path ([string] $artifact.Path)) -ExpectedSha256 ([string] $artifact.Sha256)
             $counts.ArtifactsValidated++
         }
     }
@@ -176,8 +200,8 @@ $summary = [ordered]@{
 }
 if ($JsonSummaryPath) {
     Write-CreateNewJson -Path $JsonSummaryPath -Document $summary
-    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/artifact-validation-summary.schema.json') -InstancePath $JsonSummaryPath -ValidatorCacheRoot $ValidatorCacheRoot
-    Test-ArtifactValidationSummarySemantics -Path $JsonSummaryPath
+    $summaryValidation = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/artifact-validation-summary.schema.json') -InstancePath $JsonSummaryPath -ValidatorCacheRoot $ValidatorCacheRoot
+    Test-ArtifactValidationSummarySemantics -Document $summaryValidation.ArtifactCapture.Document
 }
 $summary | ConvertTo-Json -Depth 10
 if ($result -ne 'PASS') { exit 1 }
