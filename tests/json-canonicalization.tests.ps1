@@ -42,6 +42,14 @@ $originalDocumentHash = $document.DocumentHash
 $document.PlanHash = ('0' * 64)
 Assert ($originalDocumentHash -ne (Get-DocumentHash -Document $document)) 'DocumentHash includes PlanHash and excludes only DocumentHash itself'
 
+Write-Host '[registered plan artifact hash fixtures]'
+foreach ($fixtureName in @('canonical-transaction-plan.valid.json','canonical-recovery-plan.valid.json')) {
+    $planArtifactPath = Join-Path $RepoRoot (Join-Path 'tests/fixtures/artifacts' $fixtureName)
+    $planArtifact = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planArtifactPath, [System.Text.UTF8Encoding]::new($false, $true)))
+    Assert ([string]$planArtifact.PlanHash -ceq (Get-PlanHash -PlanPayload $planArtifact.PlanPayload)) "$fixtureName PlanHash is the exact semantic PlanPayload hash"
+    Assert ([string]$planArtifact.DocumentHash -ceq (Get-DocumentHash -Document $planArtifact)) "$fixtureName DocumentHash covers the exact document excluding only DocumentHash"
+}
+
 Write-Host '[negative numeric and parser vectors]'
 Assert-Throws { ConvertFrom-SemanticJson -Json '{"a":1,"a":2}' } 'duplicate' 'duplicate object properties fail closed'
 Assert-Throws { ConvertFrom-SemanticJson -Json '{"n":1.0}' } 'integer|fraction|number' 'fractional spellings fail closed'

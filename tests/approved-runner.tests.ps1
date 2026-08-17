@@ -33,6 +33,34 @@ function Initialize-PolicyFixtureRepo {
     return $fixturePolicy
 }
 
+function Set-ApprovedFixtureCurrentUserOnlyAcl {
+    param([Parameter(Mandatory)][string]$Path)
+    $template=Get-CanonicalCurrentUserOnlySecurityTemplate;$sid=[System.Security.Principal.SecurityIdentifier]::new([string]$template.OwnerSid)
+    $security=[System.Security.AccessControl.DirectorySecurity]::new();$security.SetOwner($sid);$security.SetAccessRuleProtection($true,$false)
+    $inherit=[System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+    $security.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,$inherit,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow))
+    Set-Acl -LiteralPath $Path -AclObject $security
+}
+
+function Initialize-CanonicalReadyFixture {
+    param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$Name)
+    $git=Get-CanonicalGitContext -RepoRoot $Path
+    $slot=Join-Path $work ("canonical-ready-$Name")
+    $recovery=Join-Path $slot 'recovery';$control=Join-Path $slot 'control';$backup=Join-Path $slot 'backups';$probe=Join-Path $slot 'probe'
+    foreach($directory in @($recovery,$control,$backup,$probe)){[System.IO.Directory]::CreateDirectory($directory)|Out-Null}
+    foreach($directory in @($recovery,$control,$backup)){Set-ApprovedFixtureCurrentUserOnlyAcl -Path $directory}
+    [System.IO.Directory]::CreateDirectory((Join-Path $control 'canonical-roots'))|Out-Null
+    $payload=New-CanonicalSetupPlanPayload -RepoRoot $Path -CanonicalRecoveryRoot $recovery -ControlBase $control -BackupRoot $backup -ProbeRoot $probe -ToolchainRoot $RepoRoot
+    $finalState=New-CanonicalFinalSetupState -PlanPayload $payload -RepoRoot $Path
+    $paths=Get-CanonicalTransactionContractPaths -GitContext $git
+    $lock=Enter-CanonicalRepoLock -LockPath $paths.LockPath -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $lock
+    [System.IO.File]::WriteAllBytes($paths.SetupStatePath,(ConvertTo-SemanticJsonBytes -InputObject $finalState))
+    $claimPath=Join-Path $control (Join-Path 'canonical-roots' ($payload.ExpectedSetupStateProjection.RepoId+'.json'))
+    [System.IO.File]::WriteAllBytes($claimPath,(ConvertTo-SemanticJsonBytes -InputObject $payload.ExpectedRootClaim))
+    if((Get-CanonicalSetupStatus -RepoRoot $Path -ToolchainRoot $RepoRoot) -cne 'canonical-ready'){throw 'Unable to establish isolated canonical-ready fixture.'}
+}
+
 try {
     & git -C $repo init -q
     & git -C $repo config user.email 'tests@example.invalid'
@@ -44,6 +72,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create linked-worktree fixture.' }
 
     . (Join-Path $RepoRoot 'scripts/approved-runner-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
 
     $primary = Get-RunnerStorageContext -RepoRoot $repo -EnsureDirectories
     $secondary = Get-RunnerStorageContext -RepoRoot $linked -EnsureDirectories
@@ -134,8 +163,11 @@ try {
     }
     $pendingBeforeBootstrap = @(Get-ChildItem -LiteralPath $approvedContext.PendingEventsRoot -File).Count
     $approvedBootstrap = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/bootstrap-clone.ps1') -Arguments @('-RepoRoot',$approvalRepo)
-    Assert-TestCondition ($approvedBootstrap.Code -eq 73 -and $approvedBootstrap.Out -match 'safety-protocol-upgrade-required') 'approved Phase 0 bootstrap remains interlocked and preview-only'
-    Assert-TestCondition (@(Get-ChildItem -LiteralPath $approvedContext.PendingEventsRoot -File).Count -eq $pendingBeforeBootstrap) 'approved Phase 0 bootstrap creates no initial or live plan event'
+    Assert-TestCondition ($approvedBootstrap.Code -eq 76 -and $approvedBootstrap.Out -match 'canonical-setup-required' -and $approvedBootstrap.Out -match 'canonical setup.*-DryRun.*-PlanPath') 'approved bootstrap invokes canonical status and prints only the external setup DryRun route when setup is missing'
+    Assert-TestCondition (@(Get-ChildItem -LiteralPath $approvedContext.PendingEventsRoot -File).Count -eq $pendingBeforeBootstrap) 'setup-required bootstrap creates no initial, build, or preview event'
+    Initialize-CanonicalReadyFixture -Path $approvalRepo -Name 'approval'
+    $readyManual=Invoke-TestProcess -ScriptPath $approvedContext.ApprovedHookEntryPath -Arguments @('-RepoRoot',$approvalRepo,'-Trigger','manual')
+    Assert-TestCondition ($readyManual.Code -eq 73 -and $readyManual.Out -match 'safety-protocol-upgrade-required') 'canonical-ready approved manual route remains Phase 1 production-interlocked'
 
     $marker = Join-Path $work 'checkout-runner-marker.txt'
     [System.IO.File]::AppendAllText((Join-Path $approvalRepo 'scripts/auto-sync-after-git.ps1'), "`n[System.IO.File]::WriteAllText('$($marker.Replace("'","''"))','unsafe')`n", [System.Text.UTF8Encoding]::new($false))
@@ -172,6 +204,7 @@ try {
     $cacheState = Approve-RunnerSnapshot -RepoRoot $cacheRepo -ToolCacheRoot $customCache
     $cacheContext = Get-RunnerStorageContext -RepoRoot $cacheRepo
     Publish-ApprovedHookEntry -RepoRoot $cacheRepo -State $cacheState | Out-Null
+    Initialize-CanonicalReadyFixture -Path $cacheRepo -Name 'cache'
     $cacheCommit = ((& git -C $cacheRepo rev-parse HEAD) | Select-Object -First 1).Trim()
     $shadowRoot = Join-Path $work 'path-shadow'; [System.IO.Directory]::CreateDirectory($shadowRoot) | Out-Null
     $shadowMarker = Join-Path $work 'path-shadow-marker.txt'

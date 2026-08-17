@@ -1,0 +1,1 @@
+{"SchemaVersion":1,"ArtifactKind":"canonical-transaction-result","ResultScope":"command","Result":"FAIL","CommandKind":"canonical-normalize","LifecycleKind":"no-transaction","MessageToken":"canonical-apply-interlocked"}

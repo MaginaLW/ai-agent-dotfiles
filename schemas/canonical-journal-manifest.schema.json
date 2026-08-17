@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/canonical-journal-manifest.schema.json",
+  "title": "Canonical Journal Chain Manifest",
+  "type": "object",
+  "required": ["SchemaVersion", "ArtifactKind", "Header", "Records", "Results"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "canonical-journal-manifest" },
+    "Header": { "type": "object", "required": ["ArtifactKind"], "properties": { "ArtifactKind": { "const": "canonical-journal-header" } } },
+    "Records": { "type": "array", "items": { "type": "object", "required": ["ArtifactKind"], "properties": { "ArtifactKind": { "const": "canonical-journal-record" } } } },
+    "Results": { "type": "array", "maxItems": 1, "items": { "type": "object", "required": ["ArtifactKind"], "properties": { "ArtifactKind": { "const": "canonical-transaction-result" } } } }
+  },
+  "additionalProperties": false
+}

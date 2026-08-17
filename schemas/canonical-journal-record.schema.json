@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/canonical-journal-record.schema.json",
+  "title": "Canonical Transaction Journal Record",
+  "type": "object",
+  "required": ["SchemaVersion", "ArtifactKind", "TransactionId", "Sequence", "PreviousHash", "Phase", "Data"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "canonical-journal-record" },
+    "TransactionId": { "$ref": "#/$defs/uuid" },
+    "Sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "PreviousHash": { "$ref": "#/$defs/hash" },
+    "Phase": {
+      "enum": [
+        "WORKSPACE_CREATE_INTENT", "WORKSPACE_CREATED", "PREIMAGE_COPY_INTENT",
+        "PREPARED", "FILE_PREPARED", "DIR_CREATE_INTENT", "DIR_CREATED",
+        "MOVE_OLD_INTENT", "OLD_MOVED", "MOVE_NEW_INTENT", "NEW_INSTALLED",
+        "FILE_REPLACE_INTENT", "FILE_REPLACED", "SETUP_CLAIM_INTENT",
+        "SETUP_CLAIM_PUBLISHED", "SETUP_STATE_INTENT", "SETUP_STATE_PUBLISHED",
+        "POSTCONDITIONS_OK", "RECOVERY_ACTION_INTENT", "RECOVERY_ACTION_APPLIED", "COMPLETE"
+      ]
+    },
+    "Data": { "$ref": "#/$defs/data" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "observed": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        {
+          "type": "object",
+          "required": ["State", "Type", "Hash", "Identity"],
+          "properties": {
+            "State": { "const": "PRESENT" },
+            "Type": { "enum": ["File", "Directory"] },
+            "Hash": { "$ref": "#/$defs/hash" },
+            "Identity": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "TargetId": { "$ref": "#/$defs/hash" },
+        "TargetKind": { "enum": ["directory", "file", "parent-directory"] },
+        "TargetPath": { "type": "string", "minLength": 3 },
+        "PreimagePath": { "type": "string", "minLength": 3 },
+        "SwapOldPath": { "type": "string", "minLength": 3 },
+        "StagedPath": { "type": ["string", "null"] },
+        "TargetState": { "$ref": "#/$defs/observed" },
+        "PreimageState": { "$ref": "#/$defs/observed" },
+        "SwapOldState": { "$ref": "#/$defs/observed" },
+        "StagedState": { "$ref": "#/$defs/observed" },
+        "CreatedIdentity": { "type": "string", "minLength": 1 },
+        "WorkspacePath": { "type": "string", "minLength": 3 },
+        "WorkspaceRole": { "enum": ["preimage", "swap-old"] },
+        "WorkspaceState": { "$ref": "#/$defs/observed" },
+        "ClaimHash": { "$ref": "#/$defs/hash" },
+        "StateHash": { "$ref": "#/$defs/hash" },
+        "PostconditionsHash": { "$ref": "#/$defs/hash" },
+        "PlanKind": { "enum": ["canonical-recover-abandon", "canonical-recover-rollback", "canonical-recover-finalize"] },
+        "DocumentHash": { "$ref": "#/$defs/hash" },
+        "PriorHeadHash": { "$ref": "#/$defs/hash" },
+        "ExpectedTerminalProjectionHash": { "$ref": "#/$defs/hash" },
+        "ExpectedOutcome": { "enum": ["committed", "abandoned", "rolled-back", "failed-restored"] },
+        "Action": { "enum": ["abandon", "rollback", "finalize"] },
+        "ResultHash": { "$ref": "#/$defs/hash" },
+        "OriginalDocumentHash": { "$ref": "#/$defs/hash" },
+        "Outcome": { "enum": ["committed", "abandoned", "rolled-back", "failed-restored"] },
+        "ClosingKind": { "enum": ["original", "recovery"] },
+        "ClosingDocumentHash": { "$ref": "#/$defs/hash" },
+        "ClosingPlanKind": { "enum": ["canonical-recover-abandon", "canonical-recover-rollback", "canonical-recover-finalize"] },
+        "RestorationHash": { "$ref": "#/$defs/hash" },
+        "FinalStateHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

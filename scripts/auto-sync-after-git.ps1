@@ -22,6 +22,16 @@ function Exit-Diagnostic {
     exit $Code
 }
 
+function Assert-CanonicalAutomationReady {
+    param([Parameter(Mandatory)][string]$ExecutingRoot)
+    . (Join-Path $ExecutingRoot 'scripts/canonical-transaction-common.ps1')
+    $status=Get-CanonicalSetupStatus -RepoRoot $RepoRoot -ToolchainRoot $ExecutingRoot
+    if($status -ceq 'canonical-ready'){return}
+    $setupCommand="pwsh -NoProfile -File `"$(Join-Path $ExecutingRoot 'scripts/agent-dotfiles.ps1')`" canonical setup -RepoRoot `"$RepoRoot`" -DryRun -PlanPath <external-user-artifact>"
+    Write-Host "External canonical setup DryRun: $setupCommand"
+    Exit-Diagnostic -Token $status -Detail 'canonical setup/recovery status is diagnostic-only; approved automation did not build or create a preview.' -Code 76
+}
+
 function Get-RelevantChanges {
     param([Parameter(Mandatory)] $Policy)
     $pathspecs = @($Policy.DataPathspecs) + @($Policy.ToolchainPaths)
@@ -49,7 +59,7 @@ function Get-RelevantChanges {
 }
 
 try {
-    $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+    $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
     $context = Get-RunnerStorageContext -RepoRoot $RepoRoot -EnsureDirectories
     $state = Get-ApprovedRunnerState -RepoRoot $RepoRoot
     $executingRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -61,6 +71,8 @@ try {
     if ([string]$current.ToolchainPolicyHash -cne [string]$state.ToolchainPolicyHash -or [string]$current.RunnerTreeHash -cne [string]$state.RunnerTreeHash -or [string]$current.ValidatorIdentityHash -cne [string]$state.ValidatorIdentityHash -or [string]$current.ScannerIdentityHash -cne [string]$state.ScannerIdentityHash) {
         Exit-Diagnostic -Token 'runner-review-required' -Detail 'checkout toolchain differs from the explicitly approved runner.'
     }
+
+    Assert-CanonicalAutomationReady -ExecutingRoot $executingRoot
 
     if ($Trigger -eq 'pre-commit') {
         & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $executingRoot 'scripts/scan-secrets.ps1') -RepoRoot $RepoRoot

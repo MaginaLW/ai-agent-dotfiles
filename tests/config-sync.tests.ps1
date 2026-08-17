@@ -62,7 +62,14 @@ function New-TempRepo {
     New-Item -ItemType Directory -Path (Join-Path $tr 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $tr 'claude') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $tr 'manifests') -Force
-    foreach ($name in @('scan-secrets.ps1', 'scan-input-common.ps1', 'json-artifact-common.ps1', 'semantic-json.ps1')) {
+    foreach ($name in @(
+        'scan-secrets.ps1'
+        'canonical-preflight-common.ps1'
+        'json-artifact-common.ps1'
+        'semantic-json.ps1'
+        'scan-input-common.ps1'
+        'safe-tree-walker.ps1'
+    )) {
         Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $tr 'scripts') -Force
     }
     New-Item -ItemType Directory -Path (Join-Path $tr 'tools/gitleaks') -Force | Out-Null

@@ -9,6 +9,7 @@
   "ChecksumAssetName": "gitleaks_8.30.0_checksums.txt",
   "ChecksumAssetSha256": "78e53de2429bde6500a6f22793546babe6ae75634a0c250c37e3a07703856a90",
   "ExecutableName": "gitleaks.exe",
+  "ExecutableSha256": "9d08e3f5cfb35a98f230b97bcda24f8d3fc66363c91868ffc98dac0afebdcb72",
   "VersionArguments": ["version"],
   "ExpectedVersionPattern": "(^|[^0-9])8\\.30\\.0([^0-9]|$)",
   "LicenseIdentifier": "MIT",

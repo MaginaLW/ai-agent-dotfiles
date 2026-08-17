@@ -2,7 +2,12 @@
 [CmdletBinding()]
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [string] $JsonPath
+    [string] $JsonPath,
+    [switch] $CanonicalPreflight,
+    [string] $SourceRoot,
+    [string] $CanonicalPreflightOutputRoot,
+    [string] $ScannerConfigPath,
+    [string] $ValidatorCacheRoot
 )
 
 Set-StrictMode -Version Latest
@@ -12,21 +17,54 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-$RepoRoot = (Resolve-Path $RepoRoot).Path
-$configPath = Join-Path $RepoRoot '.gitleaks.toml'
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+$trustedConfigPath = Join-Path $RepoRoot '.gitleaks.toml'
+$configPath = $trustedConfigPath
 $gitleaksFailed = $false
-$jsonArtifactCommon = Join-Path $PSScriptRoot 'json-artifact-common.ps1'
-if (-not (Test-Path -LiteralPath $jsonArtifactCommon -PathType Leaf)) {
-    throw "Missing JSON artifact and pinned-tool helper: $jsonArtifactCommon"
+$preflightCommon = Join-Path $PSScriptRoot 'canonical-preflight-common.ps1'
+if (-not (Test-Path -LiteralPath $preflightCommon -PathType Leaf)) {
+    throw "Missing canonical preflight helper: $preflightCommon"
 }
-. $jsonArtifactCommon
+. $preflightCommon
+
+if (-not $CanonicalPreflight) {
+    foreach ($name in @('SourceRoot','CanonicalPreflightOutputRoot','ScannerConfigPath','ValidatorCacheRoot')) {
+        if ($PSBoundParameters.ContainsKey($name)) { throw "$name is internal to -CanonicalPreflight." }
+    }
+    $SourceRoot = $RepoRoot
+}
+else {
+    foreach ($name in @('SourceRoot','CanonicalPreflightOutputRoot','ScannerConfigPath','JsonPath')) {
+        if (-not $PSBoundParameters.ContainsKey($name) -or [string]::IsNullOrWhiteSpace([string](Get-Variable -Name $name -ValueOnly))) {
+            throw "-CanonicalPreflight requires -$name."
+        }
+    }
+    $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
+    $CanonicalPreflightOutputRoot = [System.IO.Path]::GetFullPath($CanonicalPreflightOutputRoot)
+    $JsonPath = [System.IO.Path]::GetFullPath($JsonPath)
+    $ScannerConfigPath = (Resolve-Path -LiteralPath $ScannerConfigPath).Path
+    if ($ScannerConfigPath -cne (Resolve-Path -LiteralPath $trustedConfigPath).Path) {
+        throw 'Canonical preflight scanner configuration must come from the approved toolchain.'
+    }
+    $configPath = $ScannerConfigPath
+    if ((Test-PathInsideRoot -Path $CanonicalPreflightOutputRoot -Root $SourceRoot) -or (Test-PathInsideRoot -Path $SourceRoot -Root $CanonicalPreflightOutputRoot)) {
+        throw 'CanonicalPreflightOutputRoot and scan SourceRoot must be disjoint.'
+    }
+    $null = Resolve-CanonicalPreflightArtifactPath -Path $JsonPath -CanonicalPreflightOutputRoot $CanonicalPreflightOutputRoot -RepoRoot $RepoRoot -ForbiddenRoots @($SourceRoot) -AllowMissingLeaf
+    $null = Get-SafeTreeSnapshot -Root $SourceRoot -ExcludeRelativePaths @(Get-ProtectedReasonixRelativePaths)
+}
+
 $toolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$gitleaksTool = Assert-PinnedToolInstalled -LockPath (Join-Path $toolchainRoot 'tools/gitleaks/gitleaks.lock.json')
-$gitleaks = $gitleaksTool.Paths.Executable
+$gitleaksLockPath = Join-Path $toolchainRoot 'tools/gitleaks/gitleaks.lock.json'
 $scanWorkspace = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-scan-$([Guid]::NewGuid().ToString('N'))"
 $scanRoot = Join-Path $scanWorkspace 'input'
 $scanManifestPath = Join-Path $scanWorkspace 'scan-input-manifest.json'
-$scanManifest = New-FilteredScanInput -RepoRoot $RepoRoot -DestinationRoot $scanRoot
+$scanManifest = if ($CanonicalPreflight) {
+    New-FilteredScanInput -RepoRoot $SourceRoot -DestinationRoot $scanRoot -ExcludedPrefixes @() -SkipGitIgnore
+}
+else {
+    New-FilteredScanInput -RepoRoot $SourceRoot -DestinationRoot $scanRoot
+}
 Write-ScanInputManifest -Manifest $scanManifest -Path $scanManifestPath
 
 function Test-IsSkippedPath {
@@ -85,14 +123,30 @@ function Test-IsAllowedPlaceholderLine {
 }
 
 try {
-    Write-Host "Running pinned gitleaks from $gitleaks against a filtered no-follow input."
     $arguments = @('detect', '--no-git', '--source', $scanRoot, '--redact')
     if (Test-Path -LiteralPath $configPath) {
         $arguments += @('--config', $configPath)
     }
-    & $gitleaks @arguments
-    if ($LASTEXITCODE -ne 0) {
-        $gitleaksFailed = $true
+    $gitleaksLease = $null
+    try {
+        $gitleaksLease = Open-PinnedToolLease -LockPath $gitleaksLockPath
+        Write-Host "Running pinned gitleaks from $($gitleaksLease.Paths.Executable) against a filtered no-follow input."
+        $gitleaksResult = Invoke-PinnedToolProcess `
+            -ToolLease $gitleaksLease `
+            -Arguments $arguments `
+            -Operation 'Pinned gitleaks secret scan' `
+            -TimeoutMilliseconds 120000 `
+            -ReapTimeoutMilliseconds 5000 `
+            -MaximumCombinedOutputBytes 1048576
+        if (-not [string]::IsNullOrWhiteSpace([string]$gitleaksResult.Output)) {
+            Write-Host ([string]$gitleaksResult.Output).TrimEnd()
+        }
+        if ($gitleaksResult.ExitCode -ne 0) {
+            $gitleaksFailed = $true
+        }
+    }
+    finally {
+        if ($null -ne $gitleaksLease) { Close-PinnedToolLease -ToolLease $gitleaksLease }
     }
 
 $blockingPatterns = @(
@@ -113,8 +167,6 @@ $hints = [System.Collections.Generic.List[object]]::new()
 function Write-ScanJson {
     param([Parameter(Mandatory)] [string] $Path, [ValidateSet('PASS', 'FAIL')] [string] $Result)
 
-    $parent = Split-Path -Parent $Path
-    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     $document = [ordered]@{
         SchemaVersion = 1
         GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
@@ -126,6 +178,12 @@ function Write-ScanJson {
         HintCount = $hints.Count
         Findings = @($findings)
     }
+    if ($CanonicalPreflight) {
+        $null = Publish-ValidatedPreflightJson -Document $document -Path $Path -SchemaPath (Join-Path $RepoRoot 'schemas/secret-scan.schema.json') -ValidatorCacheRoot $ValidatorCacheRoot
+        return
+    }
+    $parent = Split-Path -Parent $Path
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     [System.IO.File]::WriteAllText($Path, (ConvertTo-Json -InputObject $document -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
 }
 

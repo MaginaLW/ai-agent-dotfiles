@@ -698,8 +698,8 @@ function Get-SyncPlan {
         ManagedNames = @($ManagedNames | Sort-Object)
         CanonicalAuthorityRoot = [System.IO.Path]::GetFullPath($CanonicalAuthorityRoot)
         CanonicalRetirementEvidenceHash = $CanonicalRetirementEvidenceHash
-        RetirementManifestPath = $RetirementManifestPath
-        RetirementManifestHash = $RetirementManifestHash
+        RetirementManifestPath = if ([string]::IsNullOrEmpty($RetirementManifestPath)) { $null } else { $RetirementManifestPath }
+        RetirementManifestHash = if ([string]::IsNullOrEmpty($RetirementManifestHash)) { $null } else { $RetirementManifestHash }
         RetiredNames = @($RetiredNames | Sort-Object)
         SourceCount = $sourceNames.Count
         Add = $toAdd

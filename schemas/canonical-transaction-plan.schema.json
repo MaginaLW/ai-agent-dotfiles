@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/canonical-transaction-plan.schema.json",
+  "title": "Canonical Transaction Plan",
+  "type": "object",
+  "required": ["SchemaVersion", "ArtifactKind", "Metadata", "PlanPayload", "PlanHash", "DocumentHash"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "canonical-transaction-plan" },
+    "Metadata": {
+      "type": "object",
+      "required": ["CreatedAtUtc", "Generator", "RepositoryCommit"],
+      "properties": {
+        "CreatedAtUtc": { "type": "string", "format": "date-time" },
+        "Generator": { "const": "scripts/canonical-transaction.ps1" },
+        "RepositoryCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40,64}|UNAVAILABLE)$" }
+      },
+      "additionalProperties": false
+    },
+    "PlanPayload": { "$ref": "#/$defs/planPayload" },
+    "PlanHash": { "$ref": "#/$defs/hash" },
+    "DocumentHash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sid": { "type": "string", "pattern": "^S-[0-9]+(?:-[0-9]+)+$" },
+    "rootContext": {
+      "type": "object",
+      "required": ["ResolverVersion", "TargetStatus", "LocationKey", "RequestedPath", "VolumeId", "DeepestExistingParentPath", "DeepestExistingParentIdentity", "DeepestExistingParentOwnerSid", "DeepestExistingParentDaclHash", "MissingRemainder", "ExpectedFinalOwnerSid", "ExpectedFinalDaclTemplateHash", "FinalDirectoryIdentity", "FinalOwnerSid", "FinalDaclHash"],
+      "properties": {
+        "ResolverVersion": { "const": "windows-token-sid-current-user-only-v1" },
+        "TargetStatus": { "enum": ["MISSING", "EXISTS"] },
+        "LocationKey": { "type": "string", "minLength": 3 },
+        "RequestedPath": { "type": "string", "minLength": 3 },
+        "VolumeId": { "type": "string", "minLength": 1 },
+        "DeepestExistingParentPath": { "type": "string", "minLength": 3 },
+        "DeepestExistingParentIdentity": { "type": "string", "minLength": 1 },
+        "DeepestExistingParentOwnerSid": { "$ref": "#/$defs/sid" },
+        "DeepestExistingParentDaclHash": { "$ref": "#/$defs/hash" },
+        "MissingRemainder": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "ExpectedFinalOwnerSid": { "$ref": "#/$defs/sid" },
+        "ExpectedFinalDaclTemplateHash": { "$ref": "#/$defs/hash" },
+        "FinalDirectoryIdentity": { "type": ["string", "null"] },
+        "FinalOwnerSid": { "oneOf": [{ "$ref": "#/$defs/sid" }, { "type": "null" }] },
+        "FinalDaclHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        { "properties": { "TargetStatus": { "const": "MISSING" }, "MissingRemainder": { "minItems": 1 }, "FinalDirectoryIdentity": { "type": "null" }, "FinalOwnerSid": { "type": "null" }, "FinalDaclHash": { "type": "null" } } },
+        { "properties": { "TargetStatus": { "const": "EXISTS" }, "MissingRemainder": { "maxItems": 0 }, "FinalDirectoryIdentity": { "type": "string", "minLength": 1 }, "FinalOwnerSid": { "$ref": "#/$defs/sid" }, "FinalDaclHash": { "$ref": "#/$defs/hash" } } }
+      ],
+      "additionalProperties": false
+    },
+    "stateHash": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        { "type": "object", "required": ["State", "Hash"], "properties": { "State": { "const": "PRESENT" }, "Hash": { "$ref": "#/$defs/hash" } }, "additionalProperties": false }
+      ]
+    },
+    "target": {
+      "type": "object",
+      "required": ["Order", "TargetKind", "Role", "RelativePath", "TargetPath", "CandidatePath", "Current", "Candidate", "TargetContextHash"],
+      "properties": {
+        "Order": { "type": "integer", "minimum": 0 },
+        "TargetKind": { "enum": ["directory", "file", "parent-directory"] },
+        "Role": { "enum": ["canonical", "generated", "manifest", "parent"] },
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix", "Union"] },
+        "RelativePath": { "type": "string", "minLength": 1 },
+        "TargetPath": { "type": "string", "minLength": 3 },
+        "CandidatePath": { "type": ["string", "null"] },
+        "Current": { "$ref": "#/$defs/stateHash" },
+        "Candidate": { "$ref": "#/$defs/stateHash" },
+        "TargetContextHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "unknown": {
+      "type": "object",
+      "required": ["Platform", "Name", "EntryType", "Identity"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Name": { "type": "string", "minLength": 1 },
+        "EntryType": { "enum": ["File", "Directory", "ReparsePoint"] },
+        "Identity": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "setupStateProjection": {
+      "type": "object",
+      "required": ["SchemaVersion", "ArtifactKind", "RepoId", "ClaimId", "GitCommonDirHash", "OwnerSid", "SecurityResolverVersion", "SecurityTemplateHash", "CanonicalRecoveryRoot", "CanonicalRecoveryRootIntent", "CanonicalRecoveryRootIntentHash", "FilesystemCapabilityHash", "ControlBase", "ControlBaseIntent", "ControlBaseIntentHash", "BackupRoot", "BackupRootIntent", "BackupRootIntentHash", "SetupIntentHash"],
+      "properties": {
+        "SchemaVersion": { "const": 1 },
+        "ArtifactKind": { "const": "canonical-setup-state-projection" },
+        "RepoId": { "$ref": "#/$defs/hash" },
+        "ClaimId": { "$ref": "#/$defs/hash" },
+        "GitCommonDirHash": { "$ref": "#/$defs/hash" },
+        "OwnerSid": { "$ref": "#/$defs/sid" },
+        "SecurityResolverVersion": { "const": "windows-token-sid-current-user-only-v1" },
+        "SecurityTemplateHash": { "$ref": "#/$defs/hash" },
+        "CanonicalRecoveryRoot": { "type": "string", "minLength": 3 },
+        "CanonicalRecoveryRootIntent": { "$ref": "#/$defs/rootContext" },
+        "CanonicalRecoveryRootIntentHash": { "$ref": "#/$defs/hash" },
+        "FilesystemCapabilityHash": { "$ref": "#/$defs/hash" },
+        "ControlBase": { "type": "string", "minLength": 3 },
+        "ControlBaseIntent": { "$ref": "#/$defs/rootContext" },
+        "ControlBaseIntentHash": { "$ref": "#/$defs/hash" },
+        "BackupRoot": { "type": "string", "minLength": 3 },
+        "BackupRootIntent": { "$ref": "#/$defs/rootContext" },
+        "BackupRootIntentHash": { "$ref": "#/$defs/hash" },
+        "SetupIntentHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "common": {
+      "type": "object",
+      "required": ["OperationKind", "RepoRoot", "GitCommonDirHash", "WorktreeId", "RepositoryCommit", "ToolchainPolicyHash", "FilesystemCapabilityHash", "UnknownGeneratedInventory", "ExpectedPostconditionsHash"],
+      "properties": {
+        "OperationKind": { "enum": ["setup", "normalize", "promote", "merge"] },
+        "RepoRoot": { "type": "string", "minLength": 3 },
+        "GitCommonDirHash": { "$ref": "#/$defs/hash" },
+        "WorktreeId": { "$ref": "#/$defs/hash" },
+        "RepositoryCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+        "ToolchainPolicyHash": { "$ref": "#/$defs/hash" },
+        "FilesystemCapabilityHash": { "$ref": "#/$defs/hash" },
+        "UnknownGeneratedInventory": { "type": "array", "items": { "$ref": "#/$defs/unknown" } },
+        "ExpectedPostconditionsHash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "skillPayload": {
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "required": ["CandidateWorkspace", "CandidateSourceRoot", "CanonicalPreflightOutputRoot", "BuildResultPath", "BuildResultHash", "ScanResultPath", "ScanResultHash", "ArtifactManifestPath", "ArtifactManifestHash", "ArtifactValidationSummaryPath", "ArtifactValidationSummaryHash", "Input", "RewriteList", "Targets"],
+          "properties": {
+            "OperationKind": { "enum": ["normalize", "promote", "merge"] },
+            "CandidateWorkspace": { "type": "string", "minLength": 3 },
+            "CandidateSourceRoot": { "type": "string", "minLength": 3 },
+            "CanonicalPreflightOutputRoot": { "type": "string", "minLength": 3 },
+            "BuildResultPath": { "type": "string", "minLength": 3 },
+            "BuildResultHash": { "$ref": "#/$defs/hash" },
+            "ScanResultPath": { "type": "string", "minLength": 3 },
+            "ScanResultHash": { "$ref": "#/$defs/hash" },
+            "ArtifactManifestPath": { "type": "string", "minLength": 3 },
+            "ArtifactManifestHash": { "$ref": "#/$defs/hash" },
+            "ArtifactValidationSummaryPath": { "type": "string", "minLength": 3 },
+            "ArtifactValidationSummaryHash": { "$ref": "#/$defs/hash" },
+            "Input": {
+              "type": "object",
+              "required": ["Path", "Kind", "Hash"],
+              "properties": { "Path": { "type": "string", "minLength": 3 }, "Kind": { "enum": ["file", "directory"] }, "Hash": { "$ref": "#/$defs/hash" } },
+              "additionalProperties": false
+            },
+            "RewriteList": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "Targets": { "type": "array", "items": { "$ref": "#/$defs/target" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "setupPayload": {
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "required": ["PrivateRootBootstrapIntent", "SetupIntentHash", "ExpectedRootClaim", "ExpectedRootClaimHash", "ExpectedSetupStateProjection", "ExpectedSetupStateProjectionHash"],
+          "properties": {
+            "OperationKind": { "const": "setup" },
+            "PrivateRootBootstrapIntent": {
+              "type": "object",
+              "required": ["OwnerSid", "SecurityResolverVersion", "SecurityTemplateHash", "CanonicalRecoveryRootIntent", "CanonicalRecoveryRootIntentHash", "ControlBaseIntent", "ControlBaseIntentHash", "BackupRootIntent", "BackupRootIntentHash"],
+              "properties": {
+                "OwnerSid": { "$ref": "#/$defs/sid" },
+                "SecurityResolverVersion": { "const": "windows-token-sid-current-user-only-v1" },
+                "SecurityTemplateHash": { "$ref": "#/$defs/hash" },
+                "CanonicalRecoveryRootIntent": { "$ref": "#/$defs/rootContext" },
+                "ControlBaseIntentHash": { "$ref": "#/$defs/hash" },
+                "ControlBaseIntent": { "$ref": "#/$defs/rootContext" },
+                "BackupRootIntentHash": { "$ref": "#/$defs/hash" },
+                "BackupRootIntent": { "$ref": "#/$defs/rootContext" },
+                "CanonicalRecoveryRootIntentHash": { "$ref": "#/$defs/hash" }
+              },
+              "additionalProperties": false
+            },
+            "SetupIntentHash": { "$ref": "#/$defs/hash" },
+            "ExpectedRootClaim": { "type": "object" },
+            "ExpectedRootClaimHash": { "$ref": "#/$defs/hash" },
+            "ExpectedSetupStateProjection": { "$ref": "#/$defs/setupStateProjection" },
+            "ExpectedSetupStateProjectionHash": { "$ref": "#/$defs/hash" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "planPayload": { "oneOf": [{ "$ref": "#/$defs/skillPayload" }, { "$ref": "#/$defs/setupPayload" }] }
+  },
+  "additionalProperties": false
+}

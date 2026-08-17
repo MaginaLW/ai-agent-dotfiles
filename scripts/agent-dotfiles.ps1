@@ -10,8 +10,8 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, backup, sync, config, profile, skills,
-    inventory, analyze, merge, plans, or env.
+    One of: doctor, build, scan, backup, sync, canonical, config, profile,
+    skills, inventory, analyze, merge, plans, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -44,11 +44,12 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync, config, profile, skills, inventory, analyze, merge, plans, env'
+    Write-Host 'Commands: doctor, build, scan, backup, sync, canonical, config, profile, skills, inventory, analyze, merge, plans, env'
     Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: inventory, analyze, dedupe, merge, normalize, promote.'
+    Write-Host 'Canonical actions: status, setup, recover status|abandon|rollback|finalize.'
     Write-Host 'Env actions: list, status, build, activate, rollback, task.'
     Write-Host 'Env task actions: status, ensure-skill, sync, close.'
     Write-Host 'Mutating actions require exactly one explicit mode: -DryRun or -Apply.'
@@ -102,15 +103,21 @@ $skillsCommandMap = @{
     promote   = 'promote-skill.ps1'
 }
 
+$canonicalCommandMap = @{
+    status = 'setup-canonical-transaction.ps1'
+    setup  = 'setup-canonical-transaction.ps1'
+    recover = 'recover-canonical-transaction.ps1'
+}
+
 $normalizedCommand = $Command.ToLowerInvariant()
-if ($normalizedCommand -notin @('env', 'config', 'profile', 'skills') -and -not $commandMap.ContainsKey($normalizedCommand)) {
+if ($normalizedCommand -notin @('env', 'config', 'profile', 'skills', 'canonical') -and -not $commandMap.ContainsKey($normalizedCommand)) {
     Write-Error "Unsupported command: $Command" -ErrorAction Continue
     Write-Usage
     exit 1
 }
 
 $forwardedArguments = @($RemainingArguments)
-if ($normalizedCommand -in @('env', 'config', 'profile', 'skills')) {
+if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical')) {
     if ($forwardedArguments.Count -eq 0 -or $null -eq $forwardedArguments[0]) {
         Write-Error "The $normalizedCommand command requires a sub-action." -ErrorAction Continue
         Write-Usage
@@ -140,6 +147,7 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills')) {
             'config' { $configCommandMap }
             'profile' { $profileCommandMap }
             'skills' { $skillsCommandMap }
+            'canonical' { $canonicalCommandMap }
         }
         if (-not $actionMap.ContainsKey($groupAction)) {
             Write-Error "Unsupported $normalizedCommand sub-action: $($forwardedArguments[0])" -ErrorAction Continue
@@ -149,13 +157,22 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills')) {
 
         $targetScriptName = $actionMap[$groupAction]
         $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
+        if($normalizedCommand -eq 'canonical' -and $groupAction -eq 'status'){$forwardedArguments=@('-Status')+@($forwardedArguments)}
+        if($normalizedCommand -eq 'canonical' -and $groupAction -eq 'recover'){
+            if($forwardedArguments.Count -eq 0){Write-Error 'canonical recover requires status, abandon, rollback, or finalize.' -ErrorAction Continue;exit 1}
+            $recoverAction=([string]$forwardedArguments[0]).ToLowerInvariant()
+            if($recoverAction -notin @('status','abandon','rollback','finalize')){Write-Error "Unsupported canonical recover action: $recoverAction" -ErrorAction Continue;exit 1}
+            $forwardedArguments=@($forwardedArguments|Select-Object -Skip 1)
+            if($recoverAction -eq 'status'){$forwardedArguments=@('-Status')+@($forwardedArguments)}else{$forwardedArguments=@('-Action',$recoverAction)+@($forwardedArguments)}
+        }
     }
 
     $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -in @('activate', 'rollback')) -or
         ($isEnvTask -and $taskAction -in @('ensure-skill', 'sync', 'close')) -or
         ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
-        ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'promote')))
+        ($normalizedCommand -eq 'canonical' -and ($groupAction -eq 'setup' -or ($groupAction -eq 'recover' -and $recoverAction -ne 'status'))) -or
+        ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'normalize', 'promote')))
     if ($requiresExplicitMode) {
         $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
         $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
@@ -194,6 +211,19 @@ if ($normalizedCommand -eq 'sync') {
     }
 }
 
+if ($normalizedCommand -eq 'merge') {
+    $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
+    $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
+    if (-not $hasDryRun -and -not $hasApply) {
+        Write-Error 'The merge command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
+        exit 1
+    }
+    if ($hasDryRun -and $hasApply) {
+        Write-Error 'The merge command accepts only one mode. Specify -DryRun or -Apply, not both.' -ErrorAction Continue
+        exit 1
+    }
+}
+
 $targetScript = Join-Path $PSScriptRoot $targetScriptName
 if (-not (Test-Path -LiteralPath $targetScript -PathType Leaf)) {
     Write-Error "Target script is missing: $targetScript" -ErrorAction Continue
@@ -207,7 +237,11 @@ if ($pwshCommands.Count -eq 0) {
 }
 $pwshPath = $pwshCommands[0].Source
 
-$jsonStdout = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0
+$canonicalMachineStdout = (
+    $normalizedCommand -in @('canonical', 'merge') -or
+    ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'normalize', 'promote'))
+)
+$jsonStdout = $canonicalMachineStdout -or @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0
 if (-not $jsonStdout) {
     Write-Host "Invoking script: $targetScript"
 }

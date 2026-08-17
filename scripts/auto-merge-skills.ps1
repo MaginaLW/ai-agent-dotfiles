@@ -1,9 +1,10 @@
 #requires -Version 7.0
-[CmdletBinding(DefaultParameterSetName = 'DryRun')]
+[CmdletBinding()]
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [Parameter(ParameterSetName = 'Apply')] [switch] $Apply,
-    [Parameter(ParameterSetName = 'DryRun')] [switch] $DryRun
+    [string] $PlanPath,
+    [switch] $Apply,
+    [switch] $DryRun
 )
 
 Set-StrictMode -Version Latest
@@ -13,15 +14,33 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-. (Join-Path $PSScriptRoot 'skills-common.ps1')
+. (Join-Path $PSScriptRoot 'canonical-skill-adapter-common.ps1')
+$ToolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+. (Join-Path $PSScriptRoot 'canonical-command-result.ps1')
+$failureMessageId = 'canonical-command-failed'
 
-$RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
-if (-not $Apply) { $DryRun = $true }
+try {
+    $RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
+    if ([bool]$DryRun -eq [bool]$Apply) { throw 'Specify exactly one of -DryRun or -Apply.' }
+    if ([string]::IsNullOrWhiteSpace($PlanPath)) { throw 'Auto-merge requires -PlanPath; interactive parameter prompting is disabled.' }
+    if ($Apply) { $failureMessageId = 'canonical-plan-not-found' }
+    Resolve-PrivateArtifactPath -Path $PlanPath -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf:$DryRun | Out-Null
+    if ($DryRun -and (Test-Path -LiteralPath $PlanPath)) { throw 'DryRun PlanPath must be create-new.' }
+    if ($Apply -and -not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) { throw 'Apply requires an existing reviewed PlanPath.' }
+    $failureMessageId = 'canonical-command-failed'
 
-$reportsRoot = Join-RepoPath -RepoRoot $RepoRoot -RelativePath 'imports/skills-reports'
-$quarantineRoot = Join-RepoPath -RepoRoot $RepoRoot -RelativePath 'imports/skills-quarantine'
-New-Item -ItemType Directory -Force -Path $reportsRoot | Out-Null
-if ($Apply) { New-Item -ItemType Directory -Force -Path $quarantineRoot | Out-Null }
+if ($Apply) {
+    $child = Invoke-CanonicalTransactionChild -RepoRoot $RepoRoot -OperationKind merge -Mode Apply -PlanPath $PlanPath
+    Write-CanonicalTransactionChildOutput -Child $child
+    exit $child.ExitCode
+}
+
+$reportsRoot = [IO.Path]::GetFullPath($PlanPath + '.reports')
+if (Test-Path -LiteralPath $reportsRoot) { throw 'Auto-merge report root must be create-new.' }
+$null = Resolve-PrivateArtifactPath -Path $reportsRoot -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf
+[IO.Directory]::CreateDirectory($reportsRoot) | Out-Null
+$reportProbe = Join-Path $reportsRoot 'auto-merge-report.json'
+$null = Resolve-PrivateArtifactPath -Path $reportProbe -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf
 
 $sourceTypes = @('shared', 'claude-only', 'codex-only', 'reasonix-only')
 
@@ -108,9 +127,6 @@ function Add-QuarantineRecord {
 
     $reason = if ($Reasons.Count -gt 0) { $Reasons[0] } else { 'unresolved-name-conflict' }
     $targetRelative = "imports/skills-quarantine/$reason/$($Record.machine_id)/$($Record.source_tool)/$Name"
-    if ($Apply) {
-        Copy-SkillToArchive -RepoRoot $RepoRoot -SourcePath $Record.resolved_source_path -ArchiveRelativePath $targetRelative | Out-Null
-    }
     return [pscustomobject] [ordered] @{
         name = $Name
         reason = $reason
@@ -142,6 +158,7 @@ $quarantined = [System.Collections.Generic.List[object]]::new()
 $promoted = [System.Collections.Generic.List[object]]::new()
 $skipped = [System.Collections.Generic.List[object]]::new()
 $exactDuplicateGroups = [System.Collections.Generic.List[object]]::new()
+$proposals = [System.Collections.Generic.List[object]]::new()
 $exactDuplicateCount = 0
 
 foreach ($group in @($inboxRecords | Group-Object normalized_name | Sort-Object Name)) {
@@ -285,20 +302,9 @@ foreach ($group in @($inboxRecords | Group-Object normalized_name | Sort-Object 
                 $skipped.Add([pscustomobject] @{ name = $name; reason = 'deduplicated-not-adopted'; source = $candidate.source_path })
             }
         }
-        if ($Apply) {
-            $targetType = $adopted.classification
-            if ($targetType -notin $sourceTypes) { $targetType = 'shared' }
-            $targetPath = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "skills-source/$targetType/$name"
-            $normalizeResult = Normalize-SkillDirectory -RepoRoot $RepoRoot -InputSkillPath $adopted.resolved_source_path -OutputSkillPath $targetPath -TargetType $targetType
-            if ($normalizeResult.Status -eq 'quarantine') {
-                $status = 'QUARANTINED'
-                $reasonCodes.Add($normalizeResult.Reason)
-                $quarantined.Add((Add-QuarantineRecord -Record $adopted -Name $name -Reasons @($normalizeResult.Reason)))
-            }
-            else {
-                $promoted.Add([pscustomobject] @{ name = $name; target = "skills-source/$targetType/$name"; source = $adopted.source_path; status = 'PROMOTED' })
-            }
-        }
+        $targetType = $adopted.classification
+        if ($targetType -notin $sourceTypes) { $targetType = 'shared' }
+        $proposals.Add([ordered]@{InputSkillPath=[string]$adopted.resolved_source_path;TargetType=$targetType;Name=$name;Source=[string]$adopted.source_path})
     }
     else {
         $status = 'CONFLICT'
@@ -332,26 +338,40 @@ foreach ($group in @($inboxRecords | Group-Object normalized_name | Sort-Object 
     })
 }
 
+$failureMessageId = 'canonical-candidate-failed'
+$workspace = New-CanonicalAdapterWorkspace -RepoRoot $RepoRoot
+$batch = New-CanonicalBatchCandidateWorkspace -RepoRoot $RepoRoot -CandidateWorkspace $workspace -Proposals @($proposals)
+if ([string]$batch.Status -cne 'candidate') { throw "Auto-merge candidate construction failed at index $($batch.FailedIndex): $($batch.Reason)" }
+$failureMessageId = 'canonical-command-failed'
+foreach ($result in @($batch.Results)) {
+    $proposal = @($proposals | Where-Object { [string]$_.Name -ceq [string]$result.Name })[0]
+    $promoted.Add([pscustomobject] @{ name=[string]$result.Name;target="skills-source/$([string]$result.TargetType)/$([string]$result.Name)";source=[string]$proposal.Source;status='PLANNED' })
+}
+$preflightRoot = [IO.Path]::GetFullPath($PlanPath + '.preflight')
+$inboxRoot = Join-Path $RepoRoot 'imports/skills-inbox'
+$child = $null
+$preflightFailure = ''
+try {
+    $child = Invoke-CanonicalTransactionChild -RepoRoot $RepoRoot -OperationKind merge -Mode DryRun -PlanPath $PlanPath `
+        -CandidateWorkspace $workspace -InputPath $inboxRoot -RewriteList @($batch.RewriteList) -CanonicalPreflightOutputRoot $preflightRoot
+    if ($child.ExitCode -ne 0 -or [string]$child.Result.Result -cne 'PASS') { $preflightFailure = [string]$child.Stderr }
+}
+catch { $preflightFailure = $_.Exception.Message }
+
 $sourceStructure = [System.Collections.Generic.List[string]]::new()
 foreach ($type in $sourceTypes) {
-    $root = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "skills-source/$type"
+    $root = Join-Path ([string]$batch.CandidateSourceRoot) $type
     foreach ($skill in @(Get-SkillDirectories -RootPath $root -ExcludeNames @('.system'))) {
         $sourceStructure.Add("$type/$($skill.Name)")
     }
 }
 
-$buildSkillsResult = 'not-run-in-dry-run'
-$scanSecretsResult = 'not-run-in-dry-run'
-if ($Apply -and $promoted.Count -gt 0) {
-    $buildOutput = & (Join-Path $PSScriptRoot 'build-skills.ps1') -RepoRoot $RepoRoot *>&1 | Out-String
-    $buildSkillsResult = $buildOutput.Trim()
-    $scanOutput = & (Join-Path $PSScriptRoot 'scan-secrets.ps1') -RepoRoot $RepoRoot *>&1 | Out-String
-    $scanSecretsResult = $scanOutput.Trim()
-}
+$buildSkillsResult = if ([string]::IsNullOrWhiteSpace($preflightFailure)) { 'PASS' } else { 'FAIL' }
+$scanSecretsResult = if ([string]::IsNullOrWhiteSpace($preflightFailure)) { 'PASS' } else { 'FAIL' }
 
 $report = [pscustomobject] [ordered] @{
     generated_at = (Get-Date).ToString('o')
-    mode = if ($Apply) { 'apply' } else { 'dry-run' }
+    mode = 'dry-run'
     scanned_skill_count = $inboxRecords.Count
     exact_duplicate_count = $exactDuplicateCount
     exact_duplicate_group_count = $exactDuplicateGroups.Count
@@ -411,10 +431,17 @@ $lines.Add("Build: $($report.build_skills_result)")
 $lines.Add("Secret scan: $($report.scan_secrets_result)")
 Write-Utf8NoBomFile -Path $mdPath -Content (($lines -join "`n") + "`n")
 
-Write-Host "Auto-merge mode: $($report.mode)"
-Write-Host "Scanned skills: $($report.scanned_skill_count)"
-Write-Host "Exact duplicate copies: $($report.exact_duplicate_count)"
-Write-Host "Conflict groups: $($report.conflict_group_count)"
-Write-Host "Quarantined: $($report.quarantine_count)"
-Write-Host "Auto-merge JSON: $jsonPath"
-Write-Host "Auto-merge report: $mdPath"
+if (-not [string]::IsNullOrWhiteSpace($preflightFailure)) {
+    $messageId = 'canonical-merge-preflight-failed'
+    $resultDocument = New-CanonicalPublicCommandResult -Result FAIL -CommandKind canonical-merge -MessageToken $messageId
+    Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
+    [Console]::Error.WriteLine($messageId)
+    exit 1
+}
+Write-CanonicalTransactionChildOutput -Child $child
+exit $child.ExitCode
+}
+catch {
+    $failure = Write-CanonicalPublicCommandFailure -Exception $_.Exception -CommandKind canonical-merge -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath -FallbackMessageToken $failureMessageId
+    exit ([int] $failure.ExitCode)
+}

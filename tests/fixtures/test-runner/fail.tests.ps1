@@ -1,3 +1,4 @@
 #requires -Version 7.0
-Write-Error 'fixture failure' -ErrorAction Continue
+Write-Output 'fixture failure stdout'
+[Console]::Error.WriteLine('fixture failure stderr')
 exit 7

@@ -4,12 +4,6 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 
-$processTreeHelper = Join-Path (Split-Path -Parent $PSScriptRoot) 'tests/helpers/process-tree.ps1'
-if (-not (Test-Path -LiteralPath $processTreeHelper -PathType Leaf)) {
-    throw "Missing process-tree helper: $processTreeHelper"
-}
-. $processTreeHelper
-
 function Get-Utf8Sha256 {
     param([Parameter(Mandatory)] [string] $Text)
     $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Text)
@@ -93,49 +87,82 @@ function Invoke-OneTestSuite {
     )
 
     $pwsh = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $pwsh
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $null = $startInfo.ArgumentList.Add('-NoProfile')
-    $null = $startInfo.ArgumentList.Add('-File')
-    $null = $startInfo.ArgumentList.Add($SuitePath)
+    if ($TimeoutSeconds -gt [Math]::Floor([int]::MaxValue / 1000)) {
+        throw "Timeout for $SuiteId exceeds the native runner limit."
+    }
+    $arguments = [string[]] @('-NoProfile', '-File', $SuitePath)
+    $environmentEntries = [System.Collections.Generic.List[object]]::new()
+    $environmentNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($key in @($Environment.Keys | Sort-Object)) {
-        $startInfo.Environment[[string] $key] = [string] $Environment[$key]
+        $name = [string] $key
+        if ([string]::IsNullOrWhiteSpace($name) -or $name.Contains('=') -or $name.Contains([char] 0)) {
+            throw "Invalid suite environment variable name: $name"
+        }
+        if (-not $environmentNames.Add($name)) {
+            throw "Duplicate suite environment variable name: $name"
+        }
+        $environmentEntries.Add([pscustomobject]@{ Name = $name; Value = [string] $Environment[$key] })
     }
 
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    $startedAt = [DateTime]::UtcNow
-    if (-not $process.Start()) { throw "Unable to start suite: $SuiteId" }
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    $timedOut = -not $process.WaitForExit($TimeoutSeconds * 1000)
-    $treeKillFailed = $false
-    if ($timedOut) {
-        $treeKillFailed = -not (Stop-ProcessTree -Process $process)
-        if (-not $process.HasExited) { $null = $process.WaitForExit(5000) }
+    $savedEnvironment = [ordered]@{}
+    $nativeResult = $null
+    $timedOut = $false
+    $processFailed = $false
+    $failureMarker = ''
+    try {
+        foreach ($entry in $environmentEntries) {
+            $name = [string] $entry.Name
+            $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, [EnvironmentVariableTarget]::Process)
+            [Environment]::SetEnvironmentVariable($name, [string] $entry.Value, [EnvironmentVariableTarget]::Process)
+        }
+        $startedAt = [DateTime]::UtcNow
+        try {
+            $nativeResult = [AiAgentDotfiles.PinnedToolProcessRunner]::Run(
+                $pwsh,
+                $arguments,
+                $null,
+                $false,
+                $TimeoutSeconds * 1000,
+                5000,
+                67108864
+            )
+        }
+        catch [System.TimeoutException] {
+            $timedOut = $true
+            $failureMarker = 'test-runner-suite-timeout' # scan-ok
+        }
+        catch [System.InvalidOperationException] {
+            # The sealed native runner returns from this controlled failure path
+            # only after terminating its Job and proving ActiveProcesses == 0
+            # plus settled pipes. Keep the mapping independent of exception text.
+            $processFailed = $true
+            $failureMarker = 'test-runner-suite-process-failed' # scan-ok
+        }
     }
-    else {
-        $process.WaitForExit()
+    finally {
+        foreach ($name in @($savedEnvironment.Keys)) {
+            [Environment]::SetEnvironmentVariable(
+                [string] $name,
+                $savedEnvironment[$name],
+                [EnvironmentVariableTarget]::Process
+            )
+        }
     }
-    $stdout = $stdoutTask.GetAwaiter().GetResult()
-    $stderr = $stderrTask.GetAwaiter().GetResult()
     $endedAt = [DateTime]::UtcNow
-    $exitCode = if ($timedOut -or -not $process.HasExited) { -1 } else { $process.ExitCode }
-    $process.Dispose()
+    $runnerFailed = $timedOut -or $processFailed
+    $exitCode = if ($runnerFailed) { -1 } else { [int] $nativeResult.ExitCode }
+    $stdout = if ($runnerFailed) { '' } else { [string] $nativeResult.Stdout }
+    $stderr = if ($runnerFailed) { $failureMarker } else { [string] $nativeResult.Stderr }
 
     return [ordered]@{
         SuiteId = $SuiteId
         Path = [System.IO.Path]::GetFullPath($SuitePath)
-        State = if ($timedOut) { 'timed-out' } elseif ($exitCode -eq 0) { 'passed' } else { 'failed' }
+        State = if ($timedOut) { 'timed-out' } elseif ($processFailed -or $exitCode -ne 0) { 'failed' } else { 'passed' }
         Started = $true
         Completed = -not $timedOut
         TimedOut = $timedOut
-        TreeKilled = if ($timedOut) { -not $treeKillFailed } else { $false }
-        TreeKillFailed = $treeKillFailed
+        TreeKilled = $timedOut -or $processFailed
+        TreeKillFailed = $false
         ExitCode = $exitCode
         TimeoutSeconds = $TimeoutSeconds
         DurationMilliseconds = [long] [Math]::Ceiling(($endedAt - $startedAt).TotalMilliseconds)
