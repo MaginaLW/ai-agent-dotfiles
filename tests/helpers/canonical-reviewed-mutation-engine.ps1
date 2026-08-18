@@ -76,6 +76,22 @@ namespace AiAgentDotfilesTests
         {
             return Interlocked.CompareExchange(ref MatchState, 1, 0) == 0;
         }
+
+        public static SealedMutationStageSelector ParseCanonicalWire(string selectorJson, string selectorSha256)
+        {
+            if (string.IsNullOrWhiteSpace(selectorJson)) { throw new InvalidOperationException("ParseCanonicalWire: selector wire is empty"); }
+            if (string.IsNullOrWhiteSpace(selectorSha256)) { throw new InvalidOperationException("ParseCanonicalWire: selector digest is empty"); }
+            string actual = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(selectorJson)), 0, 32).ToLowerInvariant();
+            if (!string.Equals(actual, selectorSha256, System.StringComparison.Ordinal)) { throw new InvalidOperationException("ParseCanonicalWire: selector digest mismatch"); }
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(selectorJson))
+            {
+                System.Text.Json.JsonElement root = document.RootElement;
+                SealedMutationCheckpoint checkpoint = (SealedMutationCheckpoint)Enum.Parse(typeof(SealedMutationCheckpoint), root.GetProperty("Checkpoint").GetString(), true);
+                SealedMutationPrimitiveVariant variant = (SealedMutationPrimitiveVariant)Enum.Parse(typeof(SealedMutationPrimitiveVariant), root.GetProperty("DeclaredVariant").GetString(), true);
+                return new SealedMutationStageSelector(checkpoint, variant, selectorJson, selectorSha256,
+                    root.GetProperty("IntentRawSha256").GetString(), root.GetProperty("TailRawSha256").GetString(), root.GetProperty("DerivedJournalHeadHash").GetString());
+            }
+        }
     }
 
     public sealed class SealedMutationPublicationTicket
@@ -202,6 +218,16 @@ namespace AiAgentDotfilesTests
             Coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
             StageRootLease = stageRootLease ?? throw new ArgumentNullException(nameof(stageRootLease));
             Deadline = deadline ?? throw new ArgumentNullException(nameof(deadline));
+        }
+
+        public static SealedMutationInvocationContext Open(SealedMutationStageSelector stageSelector)
+        {
+            if (stageSelector == null) { throw new ArgumentNullException(nameof(stageSelector)); }
+            long qpc = SealedStageNativeBridge.GetQpcTicks();
+            SealedStageRootLease stageRootLease = new SealedStageRootLease(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ai-agent-dotfiles-sealed-stage-" + Guid.NewGuid().ToString("N")));
+            System.IO.Directory.CreateDirectory(stageRootLease.StageRootPath);
+            SealedJobQpcDeadlines deadlines = new SealedJobQpcDeadlines(qpc, qpc + 54000000000L, qpc + 54000000000L, 0);
+            return new SealedMutationInvocationContext(new SealedMutationStageCoordinator(stageSelector), stageRootLease, deadlines);
         }
 
         public void Dispose()
