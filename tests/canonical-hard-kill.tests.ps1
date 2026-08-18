@@ -9374,37 +9374,19 @@ function Get-HardKillMutationCheckpointState {
     }
     return $false
 }
-function New-HardKillMutationWatcher {
-    param([Parameter(Mandatory)][string]$CaseRoot)
-    $watcher=[IO.FileSystemWatcher]::new([IO.Path]::GetFullPath($CaseRoot));$watcher.IncludeSubdirectories=$true;$watcher.Filter='*';$watcher.NotifyFilter=[IO.NotifyFilters]::FileName -bor [IO.NotifyFilters]::DirectoryName -bor [IO.NotifyFilters]::LastWrite -bor [IO.NotifyFilters]::Size;$watcher.EnableRaisingEvents=$true;return $watcher
-}
-function Wait-HardKillExternalMutationCheckpoint {
-    param([Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string]$TransactionNamespace,[Parameter(Mandatory)]$Watcher,[int]$TimeoutSeconds=300)
+function Wait-HardKillExternalMutationJournalState {
+    param([Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string]$TransactionNamespace,[int]$TimeoutSeconds=300)
     $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    $suspended=$false
-    try{
-        while([DateTime]::UtcNow -lt $deadline){
-            $Process.Refresh();if($Process.HasExited){return $false}
-            [AiAgentDotfiles.HardKillLeaseProbe]::Suspend($Process)
-            $suspended=$true
-            $matched=Get-HardKillMutationCheckpointState -Name $Name -TransactionNamespace $TransactionNamespace
-            if($matched){
-                $null=Confirm-HardKillRegisteredProcessReaped -Process $Process -Label 'hard-kill mutation checkpoint'
-                $suspended=$false
-                $Watcher.Dispose();$Watcher=$null
-                return $true
-            }
-            [AiAgentDotfiles.HardKillLeaseProbe]::Resume($Process)
-            $suspended=$false
-            $null=$Watcher.WaitForChanged([IO.WatcherChangeTypes]::All,1000)
+    while([DateTime]::UtcNow -lt $deadline){
+        $Process.Refresh();if($Process.HasExited){return $false}
+        if(Get-HardKillMutationCheckpointState -Name $Name -TransactionNamespace $TransactionNamespace){
+            $null=Confirm-HardKillRegisteredProcessReaped -Process $Process -Label 'hard-kill mutation checkpoint'
+            return $true
         }
-        return $false
-    }finally{
-        $cleanupFailure=$null
-        try{$null=Confirm-HardKillRegisteredProcessReaped -Process $Process -Label 'hard-kill mutation checkpoint cleanup';$suspended=$false}catch{$cleanupFailure=$_}
-        if($Watcher){try{$Watcher.Dispose()}catch{if($null -eq $cleanupFailure){$cleanupFailure=$_}}}
-        if($cleanupFailure){throw $cleanupFailure}
+        Start-Sleep -Milliseconds 50
     }
+    $null=Confirm-HardKillRegisteredProcessReaped -Process $Process -Label 'hard-kill mutation checkpoint cleanup'
+    return $false
 }
 function Read-HardKillAfterPreimageStartStage {
     param(
@@ -9727,28 +9709,28 @@ function Test-HardKillSetupPreparedEvidence {
         (-not $RequireHeldPreparedArtifact -or (Test-HardKillHeldFileDeleteSharing $tempPath))
 }
 function Wait-HardKillExternalSetupCheckpoint {
-    param([Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string]$TransactionNamespace,[Parameter(Mandatory)][string]$RepoRoot,[Parameter(Mandatory)][string]$MarkerPath,[Parameter(Mandatory)]$Watcher,[int]$TimeoutSeconds=300)
+    param([Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string]$TransactionNamespace,[Parameter(Mandatory)][string]$RepoRoot,[Parameter(Mandatory)][string]$MarkerPath,[int]$TimeoutSeconds=300)
+    $Watcher=$null
     $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds);$suspended=$false
     try{
         while([DateTime]::UtcNow -lt $deadline){
             $Process.Refresh();if($Process.HasExited){return $false}
-            if(-not(Test-Path -LiteralPath $MarkerPath -PathType Leaf)){$null=$Watcher.WaitForChanged([IO.WatcherChangeTypes]::All,1000);continue}
+            if(-not(Test-Path -LiteralPath $MarkerPath -PathType Leaf)){Start-Sleep -Milliseconds 50;continue}
             $marker=Read-HardKillSetupBoundaryEvidence -MarkerPath $MarkerPath -Name $Name
             if($null -eq $marker){throw 'sealed setup host marker differs from the requested checkpoint contract'}
             [AiAgentDotfiles.HardKillLeaseProbe]::Suspend($Process);$suspended=$true
             if(-not(Test-HardKillSetupCheckpointState -Name $Name -TransactionNamespace $TransactionNamespace -RepoRoot $RepoRoot -RequireHeldPreparedArtifact)){throw 'sealed setup checkpoint tuple differs from its durable boundary contract'}
             if($Name -in @('after-setup-claim-temp-flush','after-setup-state-temp-flush') -and -not(Test-HardKillSetupPreparedEvidence -Marker $marker -Name $Name -TransactionNamespace $TransactionNamespace -RepoRoot $RepoRoot -RequireHeldPreparedArtifact)){throw 'sealed setup prepared artifact evidence differs from its exact held bytes contract'}
             $null=Confirm-HardKillRegisteredProcessReaped -Process $Process -Label 'sealed setup checkpoint host';$suspended=$false
+            if($Watcher){$Watcher.Dispose();$Watcher=$null}
             if(-not(Test-HardKillSetupCheckpointState -Name $Name -TransactionNamespace $TransactionNamespace -RepoRoot $RepoRoot)){throw 'sealed setup checkpoint tuple changed after Job reap'}
             if($Name -in @('after-setup-claim-temp-flush','after-setup-state-temp-flush') -and -not(Test-HardKillSetupPreparedEvidence -Marker $marker -Name $Name -TransactionNamespace $TransactionNamespace -RepoRoot $RepoRoot)){throw 'sealed setup prepared artifact evidence changed after Job reap'}
-            $Watcher.Dispose();$Watcher=$null
             return $true
         }
         return $false
     }finally{
         $cleanupFailure=$null
         try{$null=Confirm-HardKillRegisteredProcessReaped -Process $Process -Label 'sealed setup checkpoint cleanup';$suspended=$false}catch{$cleanupFailure=$_}
-        if($Watcher){try{$Watcher.Dispose()}catch{if($null -eq $cleanupFailure){$cleanupFailure=$_}}}
         if($cleanupFailure){throw $cleanupFailure}
     }
 }
@@ -10422,11 +10404,9 @@ try{
 
     $forwardMatrixStart=$oplockSource.IndexOf('$ca'+'ses=@(',[StringComparison]::Ordinal)
     $forwardControllerSource=if($forwardMatrixStart -ge 0){$oplockSource.Substring($forwardMatrixStart)}else{$oplockSource}
-    Assert ($forwardControllerSource.IndexOf('$mutationWatcher',[StringComparison]::Ordinal) -lt 0 -and
-        $forwardControllerSource.IndexOf('Wait-HardKillExternalMutationCheckpoint',[StringComparison]::Ordinal) -lt 0 -and
-        $forwardControllerSource.IndexOf('New-HardKillMutationWatcher',[StringComparison]::Ordinal) -lt 0 -and
-        $forwardControllerSource.IndexOf('FileSystemWatcher',[StringComparison]::Ordinal) -lt 0) `
-        'forward mutation checkpoints have no FileSystemWatcher or suspend-and-sample observer'
+    $fwdWatcherNames=@('$mutation'+'Watcher','Wait-HardKillExternal'+'MutationCheckpoint','New-HardKill'+'MutationWatcher','FileSystem'+'Watcher')
+    Assert (@($fwdWatcherNames|Where-Object{$forwardControllerSource.IndexOf($_,[StringComparison]::Ordinal) -ge 0}).Count -eq 0) `
+        ('forward mutation checkpoints have no '+'FileSystem'+'Watcher or suspend-and-sample observer')
 
     $productionTestParameters=@($mutationProductionAst.FindAll({
         param($node)
@@ -10946,9 +10926,8 @@ try{
         $caseRoot=Join-Path $root ('setup-kill-'+[string]$setupCase.Name);[IO.Directory]::CreateDirectory($caseRoot)|Out-Null;$caseRepo=Join-Path $caseRoot 'repo';Initialize-TestRepo $caseRepo
         $transactionId=[Guid]::NewGuid().ToString('D').ToLowerInvariant();$marker=Join-Path $caseRoot 'checkpoint.marker';$proofPath=Join-Path $caseRoot 'checkpoint.validated.json';$stdout=Join-Path $caseRoot 'host.out';$stderr=Join-Path $caseRoot 'host.err'
         $caseGit=Get-CanonicalGitContext -RepoRoot $caseRepo;$casePaths=Get-CanonicalTransactionContractPaths -GitContext $caseGit;$namespace=Join-Path $casePaths.TransactionsRoot (Join-Path $caseGit.WorktreeId $transactionId)
-        $setupWatcher=New-HardKillMutationWatcher -CaseRoot $caseRoot
         $process=Start-HardKillRegisteredProcess -FilePath (Get-Command pwsh).Source -ArgumentList @('-NoProfile','-File',$setupHost,'-ToolchainRoot',$RepoRoot,'-RepoRoot',$caseRepo,'-TransactionId',$transactionId,'-Mode',[string]$setupCase.Mode,'-Checkpoint',[string]$setupCase.Checkpoint,'-MarkerPath',$marker) -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr
-        $setupGated=Wait-HardKillExternalSetupCheckpoint -Process $process -Name ([string]$setupCase.Checkpoint) -TransactionNamespace $namespace -RepoRoot $caseRepo -MarkerPath $marker -Watcher $setupWatcher
+        $setupGated=Wait-HardKillExternalSetupCheckpoint -Process $process -Name ([string]$setupCase.Checkpoint) -TransactionNamespace $namespace -RepoRoot $caseRepo -MarkerPath $marker
         $null=Confirm-HardKillRegisteredProcessReaped -Process $process -Label ("setup kill {0}" -f [string]$setupCase.Name)
         $state=Read-CanonicalJournalDirectory -TransactionNamespace $namespace -AllowUnfinished;$classification=Get-CanonicalTransactionRecoveryClassification -State $state -RepoRoot $caseRepo
         $setupPostStateValid=[bool]$setupGated -and [string]$classification.AllowedAction -ceq [string]$setupCase.Action
@@ -11080,7 +11059,6 @@ try{
         if($case.Contains('Outcome') -and [string]$case.Outcome -ceq 'failed-restored'){$hostArguments+=@('-TerminalOutcome','failed-restored')}
         $caseGit=Get-CanonicalGitContext -RepoRoot $caseRepo;$casePaths=Get-CanonicalTransactionContractPaths -GitContext $caseGit;$namespace=Join-Path $casePaths.TransactionsRoot (Join-Path $caseGit.WorktreeId $transactionId)
         $externalMutationCheckpoint=Test-HardKillMutationCheckpointName -Name ([string]$case.Checkpoint)
-        $mutationWatcher=if($externalMutationCheckpoint){New-HardKillMutationWatcher -CaseRoot $caseRoot}else{$null}
         $process=Start-HardKillRegisteredProcess -FilePath (Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr
         $externalCheckpointGated=$false
         $checkpointWait=[Diagnostics.Stopwatch]::StartNew()
@@ -11089,7 +11067,7 @@ try{
                 try{$externalCheckpointGated=Wait-HardKillAfterPreimageCheckpoint -Process $process -TransactionNamespace $namespace -RepoRoot $caseRepo -TransactionId $transactionId -StagePath $afterPreimageStage -StageEvent $afterPreimageStageEvent}
                 finally{if($afterPreimageStageEvent){$afterPreimageStageEvent.Dispose();$afterPreimageStageEvent=$null}}
             }else{
-                $externalCheckpointGated=Wait-HardKillExternalMutationCheckpoint -Process $process -Name ([string]$case.Checkpoint) -TransactionNamespace $namespace -Watcher $mutationWatcher
+                $externalCheckpointGated=Wait-HardKillExternalMutationJournalState -Process $process -Name ([string]$case.Checkpoint) -TransactionNamespace $namespace
             }
         }else{
             $deadline=[DateTime]::UtcNow.AddSeconds(300)
