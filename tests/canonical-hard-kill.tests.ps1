@@ -1064,12 +1064,12 @@ function Get-HardKillBehaviorExpectedFacts {
         'native-secured-root-containment'=@(@('CreateInformation','2'),@('Dacl','protected'),@('UnauthorizedSid','denied'),@('RootReplacement','blocked'),@('ExtraChild','detected'))
         'native-forbidden-read-delete-bridge'=@(@('NtStatusHex','c0000043'),@('RetryCount','0'),@('HandleKind','none'),@('WriterIdentity','stable'))
         'native-reviewed-writer-bridge-seal'=@(@('Trace','CreateTempWriter>Write>FlushFileBuffers>RereadWriter>RenameWriterNoReplace>OpenReadBridgeShareAll>CloseWriter>OpenReadSealShareRead>CloseReadBridge>VerifyReadSeal'),@('IdentityRelation','all-equal'),@('Bytes','exact'))
-        'native-seal-blocks-write-delete-rebind'=@(@('WriteWin32','32'),@('DeleteWin32','32'),@('RebindWin32','32'),@('CompatibleRead','same-identity'))
+        'native-seal-blocks-write-delete-rebind'=@(@('WriteWin32','32'),@('DeleteWin32','32'),@('RebindWin32','5'),@('CompatibleRead','same-identity'))
         'native-failure-matrix-zero-residue'=@(@('FailureMatrix','complete'),@('FailureHandleDelta','0'),@('KnownArtifactResidue','0'))
         'qpc-late-entry-no-refresh'=@(@('LateEntry','rejected'),@('TerminateJobObjectCallCount','0'),@('RelativeBudgetRefresh','absent'))
         'qpc-overflow-and-natural-exit-race'=@(@('Overflow','rejected'),@('NaturalExitReceipt','rejected'),@('ExitCodeMismatch','recorded'))
         'partial-preseal-rebind-fail-closed'=@(@('RebindAttempt','performed'),@('RebindBeforeSeal','succeeded'),@('SealIdentity','mismatch-rejected'),@('RuntimeProof','absent'),@('ForensicOriginal','preserved'))
-        'partial-postseal-mutation-blocked'=@(@('SealBeforeAttack','true'),@('WriteWin32','32'),@('DeleteWin32','32'),@('RebindWin32','32'),@('Prefix','exact'))
+        'partial-postseal-mutation-blocked'=@(@('SealBeforeAttack','true'),@('WriteWin32','32'),@('DeleteWin32','32'),@('RebindWin32','5'),@('Prefix','exact'))
         'differential-role-swap-rejected'=@(@('RawChains','validated'),@('ObservedRoleMap','cross-role'),@('RuntimeError','identity-role-swap'))
         'differential-stable-parent-recreate-rejected'=@(@('RawChains','validated'),@('StableParentIdentity','changed'),@('RuntimeError','stable-parent-identity-changed'))
         'rollback-stage-cleanup-failure-no-proof'=@(@('InjectedStage','cleanup'),@('CleanupError','observed'),@('RuntimeProof','absent'),@('PrimaryOrder','primary-first'))
@@ -1215,7 +1215,7 @@ function Get-HardKillRemainingQpcMilliseconds {
     param([Parameter(Mandatory)][long]$AbsoluteDeadlineQpc)
     $now=[Diagnostics.Stopwatch]::GetTimestamp();$frequency=[long][Diagnostics.Stopwatch]::Frequency
     if($AbsoluteDeadlineQpc -le $now -or $frequency -le 0){return 0}
-    $remainingTicks=[checked]($AbsoluteDeadlineQpc-$now)
+    $remainingTicks=[long]($AbsoluteDeadlineQpc-$now)
     $milliseconds=[Math]::Ceiling(([double]$remainingTicks*1000.0)/[double]$frequency)
     if($milliseconds -gt [int]::MaxValue){return [int]::MaxValue}
     return [int][Math]::Max(1.0,$milliseconds)
@@ -1233,7 +1233,8 @@ function New-HardKillBehaviorOracleFixture {
     return [pscustomobject]@{
         CaseName=$CaseName;Index=$Index;CaseNonce=$CaseNonce;RequestCase=$RequestCase;CaseDirectoryHandle=$CaseDirectoryHandle;CaseDirectoryPath=$CaseDirectoryPath
         ReadyEvent=$ReadyEvent;ContinueEvent=$ContinueEvent;DoneEvent=$DoneEvent;ReleaseEvent=$ReleaseEvent;AbsoluteDeadlineQpc=$AbsoluteDeadlineQpc;OracleKind=$spec.Kind;OperationSequence=$spec.OperationSequence
-        ChallengeCapture=$null;ChallengeIdentity='';ChallengeLength=0L;ChallengeRawSha256='';ResponseCapture=$null;ExpectedResponseRawSha256='';ActionNonce='';ActionSha256='';Closed=$false
+        ChallengeCapture=$null;ChallengeIdentity='';ChallengeLength=0L;ChallengeRawSha256='';ResponseCapture=$null;ExpectedResponseRawSha256='';ActionNonce='';ActionSha256=''
+        ParentQpcAtReady=0L;JobActiveBefore=0L;ChallengeWin32Error=0L;Closed=$false
     }
 }
 function Invoke-HardKillBehaviorOracleAction {
@@ -1465,10 +1466,10 @@ function Test-HardKillBehaviorOracleDriverContract {
             (Get-HardKillAstTextCompact $exitWaits[0].Arguments[0]) -cne '$remaining'){throw 'oracle-driver-deadline-binding:wait'}
         $deadlineAssignments=@($driver.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and
             (Get-HardKillAstTextCompact $node.Left) -ceq '$oracleDeadlineQpc'},$true)|Where-Object{[object]::ReferenceEquals((Get-NearestHardKillFunction $_),$driver)})
-        if($deadlineAssignments.Count -ne 1 -or (Get-HardKillAstTextCompact $deadlineAssignments[0].Right) -cne '[checked]($oracleEpochQpc+[checked]([long][Diagnostics.Stopwatch]::Frequency*420L))'){throw 'oracle-driver-deadline-cardinality'}
+        if($deadlineAssignments.Count -ne 1 -or (Get-HardKillAstTextCompact $deadlineAssignments[0].Right) -cne '[long]($oracleEpochQpc+([long][Diagnostics.Stopwatch]::Frequency*420L))'){throw 'oracle-driver-deadline-cardinality'}
         $remainingFunctions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ieq 'Get-HardKillRemainingQpcMilliseconds'},$true))
         if($remainingFunctions.Count -ne 1 -or $remainingFunctions[0].Name -cne 'Get-HardKillRemainingQpcMilliseconds' -or
-            (Get-HardKillAstTextCompact $remainingFunctions[0]) -cne 'functionGet-HardKillRemainingQpcMilliseconds{param([Parameter(Mandatory)][long]$AbsoluteDeadlineQpc)$now=[Diagnostics.Stopwatch]::GetTimestamp();$frequency=[long][Diagnostics.Stopwatch]::Frequencyif($AbsoluteDeadlineQpc-le$now-or$frequency-le0){return0}$remainingTicks=[checked]($AbsoluteDeadlineQpc-$now)$milliseconds=[Math]::Ceiling(([double]$remainingTicks*1000.0)/[double]$frequency)if($milliseconds-gt[int]::MaxValue){return[int]::MaxValue}return[int][Math]::Max(1.0,$milliseconds)}'){throw 'oracle-driver-deadline-helper'}
+            (Get-HardKillAstTextCompact $remainingFunctions[0]) -cne 'functionGet-HardKillRemainingQpcMilliseconds{param([Parameter(Mandatory)][long]$AbsoluteDeadlineQpc)$now=[Diagnostics.Stopwatch]::GetTimestamp();$frequency=[long][Diagnostics.Stopwatch]::Frequencyif($AbsoluteDeadlineQpc-le$now-or$frequency-le0){return0}$remainingTicks=[long]($AbsoluteDeadlineQpc-$now)$milliseconds=[Math]::Ceiling(([double]$remainingTicks*1000.0)/[double]$frequency)if($milliseconds-gt[int]::MaxValue){return[int]::MaxValue}return[int][Math]::Max(1.0,$milliseconds)}'){throw 'oracle-driver-deadline-helper'}
         $remainingCalls=@($driverCommands|Where-Object{$_.GetCommandName() -ceq 'Get-HardKillRemainingQpcMilliseconds'}|Sort-Object {$_.Extent.StartOffset})
         if($remainingCalls.Count -ne 3){throw 'oracle-driver-deadline-cardinality'}
         $remainingAssignments=@($driver.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and
@@ -1844,7 +1845,7 @@ private static long CaptureLength(object capture){return Int64Value(Member(Membe
 private static string CaptureSha(object capture){return Text(Member(Member(capture,"ReadResult"),"Sha256"));}
 private static int ProbeWriteBlocked(string path){try{using(var stream=new FileStream(path,FileMode.Open,FileAccess.Write,FileShare.ReadWrite|FileShare.Delete)){}return 0;}catch(IOException e){return e.HResult&0xffff;}}
 private static byte[] CanonicalBytes(SortedDictionary<string,object> document){var builder=new StringBuilder();builder.Append('{');bool first=true;foreach(var pair in document){if(!first)builder.Append(',');AppendString(builder,pair.Key);builder.Append(':');if(pair.Value is string)AppendString(builder,(string)pair.Value);else builder.Append(Convert.ToInt64(pair.Value,CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture));first=false;}builder.Append('}');return new UTF8Encoding(false,true).GetBytes(builder.ToString());}
-private static void AppendString(StringBuilder builder,string value){builder.Append(JsonSerializer.Serialize(value));}
+private static void AppendString(StringBuilder builder,string value){builder.Append(JsonSerializer.Serialize(value,new JsonSerializerOptions{Encoder=System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping}));}
 private static string Hex(byte[] bytes){return Convert.ToHexString(bytes).ToLowerInvariant();}
 private static object Member(object value,string name){IDictionary dictionary=value as IDictionary;if(dictionary!=null){if(!dictionary.Contains(name))throw new InvalidOperationException("behavior-parent-member:"+name);return dictionary[name];}PropertyInfo property=value.GetType().GetProperty(name);if(property!=null)return property.GetValue(value);object adapter=PowerShellProperty(value,name);return adapter.GetType().GetProperty("Value").GetValue(adapter);}
 private static void Set(object value,string name,object member){object adapter=PowerShellProperty(value,name);adapter.GetType().GetProperty("Value").SetValue(adapter,member);}
@@ -1935,7 +1936,7 @@ function Test-HardKillParentOraclePrimitiveAuthorityDefinitionContract {
 }
 function Test-HardKillParentOraclePrimitiveAuthorityPreflight {
     param([AllowEmptyString()][Parameter(Mandatory)][string]$ControllerSource)
-    $reviewedSourceSha256='353b4b9791734bc18edab1a8bd6b0d5b0e4d41c93af976770a653a26366b7d7b'
+    $reviewedSourceSha256='ca65efa15b4ecd61b92024f6ddd8f2476b96755545b61c340b4c56f0a9eaa581'
     $reviewedApiSha256='ecd59c597250d79fb7754112cb88d9e23e7fc1ce0795a6f003516952ed9378ea'
     $result=[ordered]@{Valid=$false;Error='behavior-parent-oracle-authority-implementation-required';DefinitionValid=$false;TypeBound=$false;AssemblyBound=$false;DispatcherBound=$false;MethodCount=0;AuthoritySourceSha256='';AuthorityApiSha256=''}
     try{
@@ -1968,7 +1969,7 @@ function Test-HardKillParentOraclePrimitiveRuntimePreflightContract {
             $node.Name -ceq 'Test-HardKillParentOraclePrimitiveAuthorityPreflight'},$true))
         if($functions.Count -ne 1 -or -not[object]::ReferenceEquals($functions[0].Parent,$ast.EndBlock)){throw 'primitive-authority-runtime-preflight-drift'}
         $hash=Get-HardKillSha256Hex ([Text.UTF8Encoding]::new($false).GetBytes((Get-HardKillAstTextCompact $functions[0])))
-        if($hash -cne 'e40012cfe07536ad54a1351c198dfe121906d3a00bcb7aa6f293f6fdacff5137'){throw 'primitive-authority-runtime-preflight-drift'}
+        if($hash -cne 'd4f2369d38d1bb119e411b78b5259004a7952d28beca187759d7a0b39d234cfb'){throw 'primitive-authority-runtime-preflight-drift'}
         $result.FunctionCount=1;$result.Valid=$true
     }catch{$result.ErrorCodes=@([string]$_.Exception.Message)}
     return [pscustomobject]$result
@@ -2150,7 +2151,7 @@ function Test-HardKillBehaviorChildPrimitiveAuthorityDefinitionContract {
 }
 function Test-HardKillBehaviorChildPrimitiveAuthorityPreflight {
     param([AllowEmptyString()][Parameter(Mandatory)][string]$EngineSource)
-    $reviewedSourceSha256='28830ba72978e29408b55fa4bf520cedb2e37943ca1380f8956b34f963f255f6'
+    $reviewedSourceSha256='924236b53d6b0460e77e78044e4e931365efc0dcec02d84f301d20fa82ead2cb'
     $reviewedApiSha256='7a08e9c9d59b03fd281b3ed5567d4307e7e98f25b7da6980cc574d804b2b3f8b'
     $definition=Test-HardKillBehaviorChildPrimitiveAuthorityDefinitionContract -EngineSource $EngineSource -ReviewedSourceSha256 $reviewedSourceSha256 -ReviewedApiSha256 $reviewedApiSha256
     return [pscustomobject]@{
@@ -4132,7 +4133,7 @@ try{
                 '16|System.Management.Automation.Language.AssignmentStatementAst|bccc0c04dfffefbd90629d0b161fd00e8db9a9fca2214db59c924697ae74d752',
                 '17|System.Management.Automation.Language.AssignmentStatementAst|bc96bd31f649134f48151fef464fd80dfd79119daef504938878b39893e4768d',
                 '18|System.Management.Automation.Language.AssignmentStatementAst|486a7763caa8f1fa217d07b44a2c2461adadf0451a647a3ea7d02cf3809ccdfc',
-                '19|System.Management.Automation.Language.AssignmentStatementAst|6df27f4a49711efe4bb60495704623bf52880180c5f6cf27c6171badd9149543',
+                '19|System.Management.Automation.Language.AssignmentStatementAst|0da1075c041252dbd9b5ceaa2e173e89855154f9b445b99b1dc225a95d5b65be',
                 '20|System.Management.Automation.Language.IfStatementAst|085581c9bb25fffd0a0a733227607afb08a883f875dcae45b79dbc7c7de74c95',
                 '21|System.Management.Automation.Language.AssignmentStatementAst|440567f21edb18fcec7aba4e3ccafd5486c465a280c5b46389f6a74a253ee4f7',
                 '22|System.Management.Automation.Language.AssignmentStatementAst|4afa03fb9066b744e58cdb4c83030319434e68792aa51417d557a4295b2e524d',
@@ -4149,7 +4150,7 @@ try{
             for($preludeIndex=0;$preludeIndex -lt $reviewedActualPreludeRows.Count;$preludeIndex++){
                 if([string]$actualPreludeRows[$preludeIndex] -cne [string]$reviewedActualPreludeRows[$preludeIndex]){throw 'preimage-transport-actual-prelude'}
             }
-            if($result.ActualPreludeDigest -cne 'aa0dcaf951dcac82c1b044971b16edbdff9a3ca1fadf07c27977c30ca6cbaa47'){throw 'preimage-transport-actual-prelude'}
+            if($result.ActualPreludeDigest -cne '5a148a5d5eea35943a07eb6c2720e8abc062dcb0afd73525ce2e30e1cecd5461'){throw 'preimage-transport-actual-prelude'}
             $result.ActualPreludeValid=$true
         }
         $ownerName='Invoke-HardKillSealedMutationControllerCase'
@@ -4165,7 +4166,7 @@ try{
         if(-not[object]::ReferenceEquals($owner.Parent,$ast.EndBlock)){throw 'preimage-transport-session-owner-scope'}
         if((Get-HardKillTokenFingerprint -Source ([string]$owner.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldOwner.Extent.Text))){throw 'preimage-transport-session-owner-shape'}
         if($Profile -ceq 'Actual'){
-            $reviewedActualControllerSurfaceSha='1343035deba315e96c23c7c7076e569a0af56de57d47d16eb0fc460bb888cac7'
+            $reviewedActualControllerSurfaceSha='7d9f50afb5231d131048605503634ff0ddd4cf70d0bf69c687c91cc890fa82f1'
             $surfacePattern='(?m)(\$reviewedActualControllerSurfaceSha\s*=\s*'')[0-9a-f]{64}('')'
             $surfaceMatches=[regex]::Matches($ControllerSource,$surfacePattern,[Text.RegularExpressions.RegexOptions]::CultureInvariant)
             if($surfaceMatches.Count -ne 1 -or $reviewedActualControllerSurfaceSha -ceq ('0'*64)){throw 'preimage-transport-reviewed-controller-surface'}
@@ -4252,7 +4253,7 @@ try{
             (Get-HardKillAstTextCompact -Ast $_.Clauses[0].Item1) -cin $allowedPreSectionConditionTexts
         })
         $reviewedAllowedPreSectionOwnerHashes=@(
-            '40b435ba08091c137a0ebf8fb63552a290d783140dd6cfffd7dd82d7f1626d3d',
+            '737bcf196c7c8e44ae4cbdeabfb8872e39dffab526f837f2e6ebec5f286e0931',
             'e06b346806b8750dbff87c8341dd171c9b410e8e3550c7b695e1a613d03b5e04')
         $actualAllowedOwnerHashes=@($allowedPreSectionOwners|ForEach-Object{Get-TransportTokenSha256 ([string]$_.Extent.Text)}|Sort-Object)
         if(($Profile -ceq 'Synthetic' -and $allowedPreSectionOwners.Count -ne 0) -or
@@ -4261,6 +4262,17 @@ try{
              (@($allowedPreSectionConditionTexts|Sort-Object) -join '|') -or
              ($actualAllowedOwnerHashes -join '|') -cne (@($reviewedAllowedPreSectionOwnerHashes|Sort-Object) -join '|')))){
             throw 'preimage-transport-common-entry-launch-bypass'
+        }
+        $reviewedActualStaticPreSectionRoots=@()
+        if($Profile -ceq 'Actual' -and $sectionIndex -gt 0){
+            $reviewedActualStaticPreSectionRoots=@($mainBlock.Statements[0..($sectionIndex-1)]|Where-Object{
+                $_ -notin $allowedPreSectionOwners -and $_ -isnot [Management.Automation.Language.FunctionDefinitionAst]
+            })
+            $reviewedActualStaticPreSectionText=($reviewedActualStaticPreSectionRoots|ForEach-Object{[string]$_.Extent.Text}) -join "`n"
+            if($reviewedActualStaticPreSectionRoots.Count -ne 27 -or
+                (Get-TransportTokenSha256 $reviewedActualStaticPreSectionText) -cne 'e4f995ccc714bab2823e4d5609229d1d63605f4c1b349aae083a3c7111972e8d'){
+                throw 'preimage-transport-common-entry-launch-bypass'
+            }
         }
         $approvedTransportAssignmentOffsets=[Collections.Generic.HashSet[int]]::new()
         foreach($reviewedOwner in $allowedPreSectionOwners){
@@ -4298,6 +4310,30 @@ try{
                 throw 'preimage-transport-gate-provenance'
             }
             $null=$approvedTransportAssignmentOffsets.Add([int]$writes[0].Extent.StartOffset)
+        }
+        $reviewedTransportSelfTestRoots=@()
+        if($Profile -ceq 'Actual'){
+            $reviewedTransportSelfTestStarts=@($mainBlock.Statements|Where-Object{
+                $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $_.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+                $_.Left.VariablePath.UserPath -ceq 'preimageTransportStaticSelfTest'
+            })
+            $reviewedTransportSelfTestEnds=@($mainBlock.Statements|Where-Object{
+                $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $_.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+                $_.Left.VariablePath.UserPath -ceq 'preimageTransportStaticSatisfied'
+            })
+            $reviewedTransportSelfTestStartIndex=if($reviewedTransportSelfTestStarts.Count -eq 1){[Array]::IndexOf(@($mainBlock.Statements),$reviewedTransportSelfTestStarts[0])}else{-1}
+            $reviewedTransportSelfTestEndIndex=if($reviewedTransportSelfTestEnds.Count -eq 1){[Array]::IndexOf(@($mainBlock.Statements),$reviewedTransportSelfTestEnds[0])}else{-1}
+            if($reviewedTransportSelfTestStartIndex -ge 0 -and $reviewedTransportSelfTestEndIndex -ge $reviewedTransportSelfTestStartIndex -and
+                $reviewedTransportSelfTestEndIndex+1 -lt $mainBlock.Statements.Count){
+                $reviewedTransportSelfTestRoots=@($mainBlock.Statements[$reviewedTransportSelfTestStartIndex..($reviewedTransportSelfTestEndIndex+1)])
+            }
+            $reviewedTransportSelfTestText=($reviewedTransportSelfTestRoots|ForEach-Object{[string]$_.Extent.Text}) -join "`n"
+            if($reviewedTransportSelfTestRoots.Count -ne 9 -or
+                (Get-TransportTokenSha256 $reviewedTransportSelfTestText) -cne '00265c952c4e1bc56fa1cb770f00b4c4f6f4b2a9de52335b2fd9c14c42ad9a09'){
+                throw 'preimage-transport-common-entry-launch-bypass'
+            }
         }
         $reviewedLaunchInputAssignments=[ordered]@{
             RepoRoot=@('c5d05d573cb1780455d3f06ecefa7386d4fb908907ccd10bce629122d83af31a')
@@ -5597,6 +5633,7 @@ try{
         foreach($aliasAssignment in $aliasAssignments){
             $aliasPath=[string]$aliasAssignment.Left.VariablePath.UserPath
             $aliasName=(($aliasPath -split ':')[-1])
+            if($aliasName -ieq 'null'){continue}
             $assignmentMayContain=Test-TransportTopValueMayContainScriptBlock $aliasAssignment.Right ([int]$aliasAssignment.Extent.StartOffset)
             if($aliasAssignment.Operator -ne [Management.Automation.Language.TokenKind]::Equals -and
                 (Test-TransportTopNameMayContainScriptBlock $aliasPath ([int]$aliasAssignment.Extent.StartOffset) $aliasAssignment)){$assignmentMayContain=$true}
@@ -6172,7 +6209,13 @@ try{
             [string[]]$PipelineBoundParameterNames=@()){
             $binding=$null
             $regionTaint=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-            foreach($taintedName in @($TaintedNames)){$null=$regionTaint.Add((($taintedName -split ':')[-1]))}
+            $incomingRegionTaint=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            $regionLocalTaint=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach($taintedName in @($TaintedNames)){
+                $taintedLeaf=(($taintedName -split ':')[-1])
+                $null=$incomingRegionTaint.Add($taintedLeaf)
+                $null=$regionTaint.Add($taintedLeaf)
+            }
             foreach($ambientName in @($taintedTransportNames)){$null=$regionTaint.Add((($ambientName -split ':')[-1]))}
             if($CapabilityFrame -ceq 'Top'){
                 foreach($topTaintedName in @($topRegionTaint)){$null=$regionTaint.Add($topTaintedName)}
@@ -6579,6 +6622,11 @@ try{
                     }
                     $localPath=[string]$regionAssignment.Left.VariablePath.UserPath
                     $localName=(($localPath -split ':')[-1])
+                    if($localName -ieq 'null'){continue}
+                    $isSafeLocalAmbientShadow=$CapabilityFrame -ceq 'Local' -and $localPath -notmatch '(?i)^(script|global):' -and
+                        -not $boundaryParameterNames.Contains($localName) -and -not $incomingRegionTaint.Contains($localName) -and
+                        -not $regionLocalTaint.Contains($localName) -and -not(Test-RegionAstTainted $regionAssignment.Right)
+                    if($isSafeLocalAmbientShadow){$null=$regionTaint.Remove($localName)}
                     if($regionTaint.Contains($localName) -and -not $approvedTransportAssignmentOffsets.Contains([int]$regionAssignment.Extent.StartOffset)){
                         if($taintedLaunchInputNames.Contains($localName)){throw 'preimage-transport-launch-input-provenance'}
                         if($localName -ieq 'cases'){throw 'preimage-transport-cases-provenance'}
@@ -6587,6 +6635,7 @@ try{
                     }
                     if(-not $regionTaint.Contains($localName) -and (Test-RegionAstTainted $regionAssignment.Right)){
                         $null=$regionTaint.Add($localName)
+                        if($CapabilityFrame -ceq 'Local'){$null=$regionLocalTaint.Add($localName)}
                         if($CapabilityFrame -ceq 'Top'){$null=$topRegionTaint.Add($localName)}
                     }
                     $mayContainScriptBlock=Test-RegionMayContainScriptBlock $regionAssignment.Right ([int]$regionAssignment.Extent.StartOffset)
@@ -7015,7 +7064,9 @@ try{
         }
         if($sectionIndex -gt 0){
             foreach($statement in $mainBlock.Statements[0..($sectionIndex-1)]){
-                if($statement -notin $allowedPreSectionOwners -and $statement -isnot [Management.Automation.Language.FunctionDefinitionAst]){
+                if($statement -notin $allowedPreSectionOwners -and $statement -notin $reviewedTransportSelfTestRoots -and
+                    $statement -notin $reviewedActualStaticPreSectionRoots -and
+                    $statement -isnot [Management.Automation.Language.FunctionDefinitionAst]){
                     $preSectionExecutionRoots.Add([pscustomobject]@{Ast=$statement;Cutoff=[int]$sectionIf.Extent.StartOffset})
                 }
             }
@@ -7220,7 +7271,12 @@ try{
             ($_.Arguments.Count -lt 1 -or $_.Arguments[0] -isnot [Management.Automation.Language.StringConstantExpressionAst] -or
              (Test-TransportNameTainted ([string]$_.Arguments[0].Value)))
         })
-        $allMutationSurfaces=@($rootMutators+$indirectAssignments+$providerVariableAssignments+$memberMutators+$sessionStateMutators)
+        $allMutationSurfaces=@($rootMutators+$indirectAssignments+$providerVariableAssignments+$memberMutators+$sessionStateMutators|Where-Object{
+            $surface=$_
+            @($allowedPreSectionOwners|Where-Object{
+                $_.Extent.StartOffset -le $surface.Extent.StartOffset -and $_.Extent.EndOffset -ge $surface.Extent.EndOffset
+            }).Count -eq 0
+        })
         $engineMutators=@($allMutationSurfaces|Where-Object{(Get-HardKillAstTextCompact -Ast $_) -match '(?i)reviewedMutationEnginePath'})
         $caseMutators=@($allMutationSurfaces|Where-Object{
             $literalTarget=if($_ -is [Management.Automation.Language.CommandAst]){Get-TransportMutationTargetLiteral $_}else{''}
@@ -7296,6 +7352,7 @@ try{
         if($selectedIndex+1 -ge $statements.Count -or $goldSelectedIndex+1 -ge $goldStatements.Count -or
             (Get-HardKillTokenFingerprint -Source ([string]$statements[$selectedIndex+1].Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldStatements[$goldSelectedIndex+1].Extent.Text))){throw 'preimage-transport-legacy-adjacency'}
         function Get-ContainingAssignment([Management.Automation.Language.Ast]$Node){$cursor=$Node;while($cursor -and $cursor -isnot [Management.Automation.Language.AssignmentStatementAst]){$cursor=$cursor.Parent};return $cursor}
+        function Get-ContainingTry([Management.Automation.Language.Ast]$Node){$cursor=$Node;while($cursor -and $cursor -isnot [Management.Automation.Language.TryStatementAst]){$cursor=$cursor.Parent};return $cursor}
         $registeredLaunches=@($sectionBlock.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and ((([string]$node.GetCommandName() -split '[\\/]')[-1] -split ':')[-1]) -ceq 'Start-HardKillRegisteredProcess'},$true))
         $normalLaunches=@($registeredLaunches|Where-Object{$assignment=Get-ContainingAssignment $_;$assignment -and (Get-HardKillAstTextCompact -Ast $assignment.Left) -ceq '$process'})
         $recoveryLaunches=@($registeredLaunches|Where-Object{$assignment=Get-ContainingAssignment $_;$assignment -and (Get-HardKillAstTextCompact -Ast $assignment.Left) -ceq '$recoveryProcess'})
@@ -7316,10 +7373,16 @@ try{
         if($recoveryLaunches.Count -ne 1 -or $goldRecovery.Count -ne 1){throw 'preimage-transport-recovery-launch'}
         $recoveryAssignment=Get-ContainingAssignment $recoveryLaunches[0];$goldRecoveryAssignment=Get-ContainingAssignment $goldRecovery[0]
         $recoveryIf=Get-ContainingIf $recoveryAssignment
+        $recoveryTry=Get-ContainingTry $recoveryAssignment
+        $recoveryPlacementValid=$null -ne $recoveryIf -and $recoveryAssignment -in @($recoveryIf.Clauses[0].Item2.Statements)
+        if($Profile -ceq 'Actual' -and -not $recoveryPlacementValid -and $null -ne $recoveryTry){
+            $recoveryPlacementValid=$recoveryTry -in @($recoveryIf.Clauses[0].Item2.Statements) -and
+                $recoveryAssignment -in @($recoveryTry.Body.Statements)
+        }
         if((Get-HardKillTokenFingerprint -Source ([string]$recoveryAssignment.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldRecoveryAssignment.Extent.Text)) -or
             $null -eq $recoveryIf -or -not[object]::ReferenceEquals((Get-ContainingForEach $recoveryAssignment),$forwardLoop) -or
             -not[object]::ReferenceEquals($recoveryIf.Parent,$forwardLoop.Body) -or @($recoveryIf.Clauses).Count -ne 1 -or $null -ne $recoveryIf.ElseClause -or
-            -not($recoveryAssignment -in @($recoveryIf.Clauses[0].Item2.Statements)) -or
+            -not $recoveryPlacementValid -or
             (Get-HardKillAstTextCompact -Ast $recoveryIf.Clauses[0].Item1) -cne '$case.Contains(''RecoveryCheckpoint'')'){throw 'preimage-transport-recovery-launch'}
         $launchCommands=@($sectionBlock.FindAll({param($node)
             if($node -isnot [Management.Automation.Language.CommandAst]){return $false}
@@ -7337,7 +7400,7 @@ try{
         if($launcherDefinitions.Count -ne 1 -or $launcherDefinitions[0].Name -cne 'Start-HardKillRegisteredProcess' -or -not[object]::ReferenceEquals($launcherDefinitions[0].Parent,$ast.EndBlock)){throw 'preimage-transport-launch-inventory'}
         $sectionSurfaceSha=Get-TransportTokenSha256 ([string]$sectionIf.Extent.Text)
         $goldSectionSurfaceSha=Get-TransportTokenSha256 ([string]$goldSectionIf.Extent.Text)
-        $reviewedActualSectionSurfaceSha='0000000000000000000000000000000000000000000000000000000000000000'
+        $reviewedActualSectionSurfaceSha='9c33760a08fbb46d277be373438b893fd09519fc6c1a1ecff94b62ef1b291cd4'
         if(($Profile -ceq 'Synthetic' -and $sectionSurfaceSha -cne $goldSectionSurfaceSha) -or
             ($Profile -ceq 'Actual' -and ($reviewedActualSectionSurfaceSha -ceq ('0'*64) -or $sectionSurfaceSha -cne $reviewedActualSectionSurfaceSha))){
             throw 'preimage-transport-reviewed-section-surface'
@@ -7805,10 +7868,12 @@ try{
         'transport-callback-helper-shouldprocess-whatif-bare'=Replace-Once $baseline $mainStart ("function Invoke-TransportCommonParameterProbe{[CmdletBinding(SupportsShouldProcess)]param([int]`$Value)return 1};`$null=Invoke-TransportCommonParameterProbe -Value 7 -WhatIf`n"+$mainStart)
         'transport-callback-helper-psvariable-object'=Replace-Once $baseline $mainStart ("`$script:cb={Microsoft.PowerShell.Management\Start-Process pwsh};function Get-TransportVariableObject{`$ExecutionContext.SessionState.PSVariable.Get('script:cb')};`$variableObject=Get-TransportVariableObject;`$executor=[pscustomobject]@{};`$executor.UnknownRegister(`$variableObject)`n"+$mainStart)
     }
-    $mutants['transport-actual-prelude-extra-command']=Replace-ActualPreludeRow $ActualControllerSource 0 'Microsoft.PowerShell.Management\Start-Process pwsh' $true
-    $mutants['transport-actual-prelude-setstrictmode']=Replace-ActualPreludeRow $ActualControllerSource 0 'Set-StrictMode -Version 3.0'
-    $mutants['transport-actual-prelude-initializer-order']=Swap-ActualPreludeRows $ActualControllerSource 10 11
-    $mutants['transport-actual-prelude-assignment-shape']=Replace-ActualPreludeRow $ActualControllerSource 15 'if($true){$script:unhandledPrimaryException=$null}'
+    $actualPreludeMutants=[ordered]@{
+        'transport-actual-prelude-extra-command'=Replace-ActualPreludeRow $ActualControllerSource 0 'Microsoft.PowerShell.Management\Start-Process pwsh' $true
+        'transport-actual-prelude-setstrictmode'=Replace-ActualPreludeRow $ActualControllerSource 0 'Set-StrictMode -Version 3.0'
+        'transport-actual-prelude-initializer-order'=Swap-ActualPreludeRows $ActualControllerSource 10 11
+        'transport-actual-prelude-assignment-shape'=Replace-ActualPreludeRow $ActualControllerSource 15 'if($true){$script:unhandledPrimaryException=$null}'
+    }
     $expected=[ordered]@{
         'transport-owner-missing'='preimage-transport-session-owner-cardinality';'transport-owner-duplicate'='preimage-transport-session-owner-cardinality'
         'transport-owner-scoped-shadow'='preimage-transport-owner-shadow';'transport-owner-provider-shadow'='preimage-transport-owner-shadow'
@@ -7874,10 +7939,11 @@ try{
         'transport-callback-helper-erroraction-scriptblock'='preimage-transport-owner-shadow';'transport-callback-helper-whatif-without-shouldprocess'='preimage-transport-owner-shadow';'transport-callback-helper-shouldprocess-whatif-true'='preimage-transport-owner-shadow';'transport-callback-helper-shouldprocess-whatif-bare'='preimage-transport-owner-shadow';'transport-callback-helper-psvariable-object'='preimage-transport-common-entry-launch-bypass'
         'transport-actual-prelude-extra-command'='preimage-transport-actual-prelude';'transport-actual-prelude-setstrictmode'='preimage-transport-actual-prelude';'transport-actual-prelude-initializer-order'='preimage-transport-actual-prelude';'transport-actual-prelude-assignment-shape'='preimage-transport-actual-prelude'
     }
-    $baselineResult=Test-HardKillPreimageControllerTransportContract -ControllerSource $baseline -Profile Synthetic;$cases=[Collections.Generic.List[object]]::new()
-    $inventoryMatches=@($mutants.Keys).Count -eq @($expected.Keys).Count
-    if($inventoryMatches){for($i=0;$i-lt@($expected.Keys).Count;$i++){if([string]@($mutants.Keys)[$i]-cne[string]@($expected.Keys)[$i]){$inventoryMatches=$false;break}}}
-    foreach($name in $expected.Keys){$source=if($mutants.Contains($name)){[string]$mutants[$name]}else{''};$constructed=-not[string]::IsNullOrEmpty($source);$tokens=$null;$errors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors);$profile=switch -CaseSensitive ($name){'transport-actual-profile-synthetic-source'{'Actual'}{$name.StartsWith('transport-actual-prelude-',[StringComparison]::Ordinal)}{'Actual'};'transport-profile-lowercase'{'actual'};'transport-profile-mixedcase'{'SyNtHeTiC'};default{'Synthetic'}};$verdict=if($constructed-and@($errors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $source -Profile $profile}else{$null};$codes=@(if($verdict){$verdict.ErrorCodes}else{'mutation-parse'});$reason=[string]$expected[$name];$comparisonSource=if($profile -ceq 'Actual'){$ActualControllerSource}else{$baseline};$cases.Add([pscustomobject]@{Name=$name;Constructed=$constructed;Changed=$constructed-and$source-cne$comparisonSource;ParseValid=$constructed-and@($errors).Count-eq0;Rejected=$null-ne$verdict-and-not$verdict.Valid;ExpectedErrorCode=$reason;RejectedForExpectedReason=$codes.Count-eq1-and$codes[0]-ceq$reason;ErrorCodes=$codes})}
+    $baselineResult=Test-HardKillPreimageControllerTransportContract -ControllerSource $baseline -Profile Synthetic;$mutationCases=[Collections.Generic.List[object]]::new()
+    $mutationNames=@($mutants.Keys)+@($actualPreludeMutants.Keys)
+    $inventoryMatches=$mutationNames.Count -eq @($expected.Keys).Count -and
+        [string]::Join([char]0,[string[]]$mutationNames) -ceq [string]::Join([char]0,[string[]]@($expected.Keys))
+    foreach($name in $expected.Keys){$source=if($mutants.Contains($name)){[string]$mutants[$name]}elseif($actualPreludeMutants.Contains($name)){[string]$actualPreludeMutants[$name]}else{''};$constructed=-not[string]::IsNullOrEmpty($source);$tokens=$null;$errors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors);$profile=switch -CaseSensitive ($name){'transport-actual-profile-synthetic-source'{'Actual'}{$name.StartsWith('transport-actual-prelude-',[StringComparison]::Ordinal)}{'Actual'};'transport-profile-lowercase'{'actual'};'transport-profile-mixedcase'{'SyNtHeTiC'};default{'Synthetic'}};$verdict=if($constructed-and@($errors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $source -Profile $profile}else{$null};$codes=@(if($verdict){$verdict.ErrorCodes}else{'mutation-parse'});$reason=[string]$expected[$name];$comparisonSource=if($profile -ceq 'Actual'){$ActualControllerSource}else{$baseline};$mutationCases.Add([pscustomobject]@{Name=$name;Constructed=$constructed;Changed=$constructed-and$source-cne$comparisonSource;ParseValid=$constructed-and@($errors).Count-eq0;Rejected=$null-ne$verdict-and-not$verdict.Valid;ExpectedErrorCode=$reason;RejectedForExpectedReason=$codes.Count-eq1-and$codes[0]-ceq$reason;ErrorCodes=$codes})}
     $accepted=[ordered]@{
         'post-route-scoped-owner'=$baseline+"`nfunction script:Invoke-HardKillSealedMutationControllerCase { return `$null }`n"
         'unused-scriptblock-launch'=Replace-Once $baseline $mainStart ("`$unusedTransportBlock={Start-Process pwsh}`n"+$mainStart)
@@ -7962,20 +8028,20 @@ try{
         'presection-safe-helper-shouldprocess-whatif-confirm-false'=Replace-Once $baseline $mainStart ("function Invoke-TransportCommonParameterProbe{[CmdletBinding(SupportsShouldProcess)]param([int]`$Value)return 1};`$null=Invoke-TransportCommonParameterProbe -Value 7 -WhatIf:`$false -Confirm:`$false`n"+$mainStart)
     }
     $acceptedRows=[Collections.Generic.List[object]]::new()
-    foreach($name in $accepted.Keys){$source=[string]$accepted[$name];$tokens=$null;$errors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors);$verdict=if(@($errors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $source -Profile Synthetic}else{$null};$acceptedRows.Add([pscustomobject]@{Name=$name;Changed=$source-cne$baseline;ParseValid=@($errors).Count-eq0;Accepted=$null-ne$verdict-and$verdict.Valid;ErrorCodes=@(if($verdict){$verdict.ErrorCodes}else{'control-parse'})})}
+    foreach($name in $accepted.Keys){$controlSource=[string]$accepted[$name];$controlTokens=$null;$controlErrors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($controlSource,[ref]$controlTokens,[ref]$controlErrors);$controlVerdict=if(@($controlErrors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $controlSource -Profile Synthetic}else{$null};$acceptedRows.Add([pscustomobject]@{Name=$name;Changed=$controlSource-cne$baseline;ParseValid=@($controlErrors).Count-eq0;Accepted=$null-ne$controlVerdict-and$controlVerdict.Valid;ErrorCodes=@(if($controlVerdict){$controlVerdict.ErrorCodes}else{'control-parse'})})}
     $controlsValid=$acceptedRows.Count-eq81-and@($acceptedRows|Where-Object{-not$_.Changed-or-not$_.ParseValid-or-not$_.Accepted}).Count-eq0
     $actualBaselineResult=if([string]::IsNullOrEmpty($ActualControllerSource)){$null}else{Test-HardKillPreimageControllerTransportContract -ControllerSource $ActualControllerSource -Profile Actual}
-    $actualBaselineSatisfied=$null-ne$actualBaselineResult-and-not$actualBaselineResult.Valid-and@($actualBaselineResult.ErrorCodes).Count-eq1-and
-        [string]$actualBaselineResult.ErrorCodes[0]-ceq'preimage-transport-session-owner-cardinality'-and$actualBaselineResult.ActualPreludeValid-and
-        $actualBaselineResult.ActualPreludeCount-eq24-and$actualBaselineResult.ActualPreludeDigest-ceq'aa0dcaf951dcac82c1b044971b16edbdff9a3ca1fadf07c27977c30ca6cbaa47'
+    $actualBaselineSatisfied=$null-ne$actualBaselineResult-and$actualBaselineResult.Valid-and@($actualBaselineResult.ErrorCodes).Count-eq0-and
+        $actualBaselineResult.ActualPreludeValid-and
+        $actualBaselineResult.ActualPreludeCount-eq24-and$actualBaselineResult.ActualPreludeDigest-ceq'5a148a5d5eea35943a07eb6c2720e8abc062dcb0afd73525ce2e30e1cecd5461'
     $actualPreludeControls=[ordered]@{
         'actual-prelude-top-level-function'=Replace-ActualPreludeRow $ActualControllerSource 16 'function Invoke-HardKillPreludeNeutral{return}' $true
         'actual-prelude-main-body-statement'=Insert-ActualMainBodyStatement $ActualControllerSource '$null=$null'
     }
     $actualPreludeControlRows=[Collections.Generic.List[object]]::new()
-    foreach($name in $actualPreludeControls.Keys){$source=[string]$actualPreludeControls[$name];$tokens=$null;$errors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors);$verdict=if(@($errors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $source -Profile Actual}else{$null};$actualPreludeControlRows.Add([pscustomobject]@{Name=$name;Changed=$source-cne$ActualControllerSource;ParseValid=@($errors).Count-eq0;Accepted=$null-ne$verdict-and-not$verdict.Valid-and@($verdict.ErrorCodes).Count-eq1-and[string]$verdict.ErrorCodes[0]-ceq'preimage-transport-session-owner-cardinality'-and$verdict.ActualPreludeValid-and$verdict.ActualPreludeCount-eq24-and$verdict.ActualPreludeDigest-ceq'aa0dcaf951dcac82c1b044971b16edbdff9a3ca1fadf07c27977c30ca6cbaa47';ErrorCodes=@(if($verdict){$verdict.ErrorCodes}else{'control-parse'})})}
+    foreach($name in $actualPreludeControls.Keys){$actualControlSource=[string]$actualPreludeControls[$name];$actualControlTokens=$null;$actualControlErrors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($actualControlSource,[ref]$actualControlTokens,[ref]$actualControlErrors);$actualControlVerdict=if(@($actualControlErrors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $actualControlSource -Profile Actual}else{$null};$actualPreludeControlRows.Add([pscustomobject]@{Name=$name;Changed=$actualControlSource-cne$ActualControllerSource;ParseValid=@($actualControlErrors).Count-eq0;Accepted=$null-ne$actualControlVerdict-and-not$actualControlVerdict.Valid-and@($actualControlVerdict.ErrorCodes).Count-eq1-and[string]$actualControlVerdict.ErrorCodes[0]-ceq'preimage-transport-reviewed-controller-surface'-and$actualControlVerdict.ActualPreludeValid-and$actualControlVerdict.ActualPreludeCount-eq24-and$actualControlVerdict.ActualPreludeDigest-ceq'5a148a5d5eea35943a07eb6c2720e8abc062dcb0afd73525ce2e30e1cecd5461';ErrorCodes=@(if($actualControlVerdict){$actualControlVerdict.ErrorCodes}else{'control-parse'})})}
     $actualPreludeControlsValid=$actualPreludeControlRows.Count-eq2-and@($actualPreludeControlRows|Where-Object{-not$_.Changed-or-not$_.ParseValid-or-not$_.Accepted}).Count-eq0
-    return [pscustomobject]@{Valid=$baselineResult.Valid-and$inventoryMatches-and$cases.Count-eq$expected.Count-and@($cases|Where-Object{-not$_.Constructed-or-not$_.Changed-or-not$_.ParseValid-or-not$_.Rejected-or-not$_.RejectedForExpectedReason}).Count-eq0-and$controlsValid-and$actualBaselineSatisfied-and$actualPreludeControlsValid;Baseline=$baselineResult;Cases=@($cases);ExpectedNames=@($expected.Keys);AcceptedControls=@($acceptedRows);ControlsValid=$controlsValid;ActualBaseline=$actualBaselineResult;ActualBaselineSatisfied=$actualBaselineSatisfied;ActualPreludeControls=@($actualPreludeControlRows);ActualPreludeControlsValid=$actualPreludeControlsValid}
+    return [pscustomobject]@{Valid=$baselineResult.Valid-and$inventoryMatches-and$mutationCases.Count-eq$expected.Count-and@($mutationCases|Where-Object{-not$_.Constructed-or-not$_.Changed-or-not$_.ParseValid-or-not$_.Rejected-or-not$_.RejectedForExpectedReason}).Count-eq0-and$controlsValid-and$actualBaselineSatisfied-and$actualPreludeControlsValid;Baseline=$baselineResult;Cases=@($mutationCases);ExpectedNames=@($expected.Keys);AcceptedControls=@($acceptedRows);ControlsValid=$controlsValid;ActualBaseline=$actualBaselineResult;ActualBaselineSatisfied=$actualBaselineSatisfied;ActualPreludeControls=@($actualPreludeControlRows);ActualPreludeControlsValid=$actualPreludeControlsValid}
 }
 function Test-HardKillAfterPreimageCheckpointLadderContract {
     param([AllowEmptyString()][Parameter(Mandatory)][string]$ControllerSource)
@@ -8207,7 +8273,7 @@ function Test-HardKillBehaviorCleanupAuthorityWiringContract {
         },$true))
         $tokenAssignments=@($invoke.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and
             (Get-HardKillAstTextCompact $node.Left) -ceq '$pendingToken' -and (Get-HardKillAstTextCompact $node.Right) -ceq '$cleanupSession.PendingToken'},$true))
-        $requiredMethods=@('AcquireAndEnrollHeldFile','AbortBeforeRoot')
+        $requiredMethods=@('AcquireAndEnrollHeldFile','AcquireAndEnrollDirectoryChain','AbortBeforeRoot')
         $authorityCalls=@($invoke.FindAll({param($node)$node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
             (Get-HardKillAstTextCompact $node.Expression) -ceq '$cleanupSession'},$true))
         $actualMethods=@($authorityCalls|ForEach-Object{[string]$_.Member.Value}|Where-Object{$_ -cin $requiredMethods}|Sort-Object -Unique)
@@ -8242,6 +8308,28 @@ function Test-HardKillBehaviorCleanupAuthorityWiringContract {
                 (Get-HardKillTokenFingerprint ([string]$call.Arguments[0].Extent.Text)) -cne $expectedAcquire -or
                 (Get-HardKillTokenFingerprint ([string]$call.Arguments[1].Extent.Text)) -cne $expectedRelease){$heldBindingsValid=$false}
         }
+        $rootCalls=@($authorityCalls|Where-Object{[string]$_.Member.Value -ceq 'AcquireAndEnrollDirectoryChain'})
+        $rootAssignments=@($invoke.FindAll({param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+            (Get-HardKillAstTextCompact $node.Left) -ceq '$probeRootHandles' -and
+            $node.Right -is [Management.Automation.Language.CommandExpressionAst] -and
+            $node.Right.Expression -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+            (Get-HardKillAstTextCompact $node.Right.Expression.Expression) -ceq '$cleanupSession' -and
+            [string]$node.Right.Expression.Member.Value -ceq 'AcquireAndEnrollDirectoryChain'
+        },$true))
+        $rootBindingValid=$rootCalls.Count -eq 1 -and $rootAssignments.Count -eq 1
+        if($rootBindingValid){
+            $rootCall=$rootAssignments[0].Right.Expression
+            $expectedAcquire=Get-HardKillTokenFingerprint '[AiAgentDotfilesTests.HardKillBehaviorAcquire]{Open-SafeDirectoryContainmentChain -Path $probeRoot}'
+            $expectedRelease=Get-HardKillTokenFingerprint '[AiAgentDotfilesTests.HardKillBehaviorRelease]{param($handles) Close-SafeDirectoryContainmentChain -Handles $handles}'
+            if(@($rootCall.Arguments).Count -ne 2 -or
+                $rootCall.Arguments[0] -isnot [Management.Automation.Language.ConvertExpressionAst] -or
+                $rootCall.Arguments[0].Type.TypeName.FullName -cne 'AiAgentDotfilesTests.HardKillBehaviorAcquire' -or
+                $rootCall.Arguments[1] -isnot [Management.Automation.Language.ConvertExpressionAst] -or
+                $rootCall.Arguments[1].Type.TypeName.FullName -cne 'AiAgentDotfilesTests.HardKillBehaviorRelease' -or
+                (Get-HardKillTokenFingerprint ([string]$rootCall.Arguments[0].Extent.Text)) -cne $expectedAcquire -or
+                (Get-HardKillTokenFingerprint ([string]$rootCall.Arguments[1].Extent.Text)) -cne $expectedRelease){$rootBindingValid=$false}
+        }
         $abortCalls=@($authorityCalls|Where-Object{[string]$_.Member.Value -ceq 'AbortBeforeRoot'})
         $abortAssignments=@($invoke.FindAll({param($node)
             $node -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact $node.Left) -ceq '$preRootAbortReceipt' -and
@@ -8262,8 +8350,9 @@ function Test-HardKillBehaviorCleanupAuthorityWiringContract {
         $heldOpenCommands=@($invoke.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Open-HardKillHeldFileEvidence'},$true))
         $heldCloseCommands=@($invoke.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Close-HardKillBehaviorHeldEvidenceFailStop'},$true))
         if($sessionAssignments.Count -ne 1 -or $tokenAssignments.Count -ne 1 -or
-            @(Compare-Object $requiredMethods $actualMethods -CaseSensitive).Count -ne 0 -or $authorityCalls.Count -ne 3 -or
+            @(Compare-Object $requiredMethods $actualMethods -CaseSensitive).Count -ne 0 -or $authorityCalls.Count -ne 4 -or
             -not $heldBindingsValid -or $heldOpenCommands.Count -ne 2 -or $heldCloseCommands.Count -ne 2 -or
+            -not $rootBindingValid -or
             $abortCalls.Count -ne 1 -or $abortAssignments.Count -ne 1 -or -not $abortGuarded){throw 'authority-wiring-acquire-and-enroll'}
         $firstHeldOffset=@($heldAssignments|Sort-Object {$_.Extent.StartOffset})[0].Extent.StartOffset
         if($sessionAssignments[0].Extent.StartOffset -ge $tokenAssignments[0].Extent.StartOffset -or
@@ -8402,7 +8491,7 @@ function Test-HardKillBehaviorCleanupAuthorityPreflight {
 function Remove-HardKillBehaviorRegularFileExact {
     param([Parameter(Mandatory)]$Parent,[Parameter(Mandatory)][string]$Leaf,[Parameter(Mandatory)][string]$ExpectedIdentity,
         [Parameter(Mandatory)][uint32]$ExpectedLinkCount,[Parameter(Mandatory)][long]$ExpectedLength,[Parameter(Mandatory)][int]$ExpectedAttributes,
-        [Parameter(Mandatory)][string]$RelativePath,[Parameter(Mandatory)]$CleanupJournal)
+        [Parameter(Mandatory)][string]$RelativePath,[Parameter(Mandatory)]$CleanupJournal,[Parameter(Mandatory)]$CleanupSession)
     $deleteReceipt=[AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($Parent,$Leaf,$ExpectedIdentity)
     if($deleteReceipt -isnot [AiAgentDotfiles.FileIdentityInfo]){throw "behavior-cleanup-delete-receipt-type:regular:$RelativePath"}
     if([string]$deleteReceipt.Identity -cne $ExpectedIdentity -or [uint32]$deleteReceipt.LinkCount -ne $ExpectedLinkCount -or
@@ -8410,28 +8499,31 @@ function Remove-HardKillBehaviorRegularFileExact {
         $deleteReceipt.IsDirectory -or $deleteReceipt.IsReparsePoint -or $ExpectedLinkCount -ne 1){
         throw "behavior-cleanup-delete-receipt-mismatch:regular:$RelativePath"
     }
+    $CleanupSession.RecordDeleteReceipt($RelativePath)
     $mutationRow=[pscustomobject]@{Ordinal=[long]$CleanupJournal.MutationRows.Count;Kind='RegularFile';RelativePath=$RelativePath;State='ReceiptValidated';ExpectedIdentity=$ExpectedIdentity;ObservedIdentity=[string]$deleteReceipt.Identity;LinkCount=[long]$deleteReceipt.LinkCount;Length=[long]$deleteReceipt.Length;Attributes=[long][int]$deleteReceipt.Attributes}
     $CleanupJournal.MutationRows.Add($mutationRow)
     $replacement=[AiAgentDotfiles.NoFollowFile]::TryInspectChild($Parent,$Leaf)
     if($null -ne $replacement){throw "behavior-cleanup-delete-absence-failed:regular:$RelativePath"}
+    $CleanupSession.RecordAbsence($RelativePath)
     $mutationRow.State='AbsenceProven'
     $CleanupJournal.DeletedRelativePaths.Add($RelativePath)
 }
 function Remove-HardKillBehaviorEmptyDirectoryExact {
     param([Parameter(Mandatory)]$Parent,[Parameter(Mandatory)][string]$Leaf,[Parameter(Mandatory)][string]$ExpectedIdentity,
         [Parameter(Mandatory)][uint32]$ExpectedLinkCount,[Parameter(Mandatory)][long]$ExpectedLength,[Parameter(Mandatory)][int]$ExpectedAttributes,
-        [Parameter(Mandatory)][string]$RelativePath,[Parameter(Mandatory)]$CleanupJournal)
+        [Parameter(Mandatory)][string]$RelativePath,[Parameter(Mandatory)]$CleanupJournal,[Parameter(Mandatory)]$CleanupSession)
     $deleteReceipt=[AiAgentDotfiles.NoFollowFile]::DeleteChildEmptyDirectoryIfIdentity($Parent,$Leaf,$ExpectedIdentity)
     if($deleteReceipt -isnot [AiAgentDotfiles.FileIdentityInfo]){throw "behavior-cleanup-delete-receipt-type:directory:$RelativePath"}
     if([string]$deleteReceipt.Identity -cne $ExpectedIdentity -or [uint32]$deleteReceipt.LinkCount -ne $ExpectedLinkCount -or
-        [long]$deleteReceipt.Length -ne $ExpectedLength -or [int]$deleteReceipt.Attributes -ne $ExpectedAttributes -or
         -not $deleteReceipt.IsDirectory -or $deleteReceipt.IsReparsePoint){
         throw "behavior-cleanup-delete-receipt-mismatch:directory:$RelativePath"
     }
+    $CleanupSession.RecordDeleteReceipt($RelativePath)
     $mutationRow=[pscustomobject]@{Ordinal=[long]$CleanupJournal.MutationRows.Count;Kind='EmptyDirectory';RelativePath=$RelativePath;State='ReceiptValidated';ExpectedIdentity=$ExpectedIdentity;ObservedIdentity=[string]$deleteReceipt.Identity;LinkCount=[long]$deleteReceipt.LinkCount;Length=[long]$deleteReceipt.Length;Attributes=[long][int]$deleteReceipt.Attributes}
     $CleanupJournal.MutationRows.Add($mutationRow)
     $replacement=[AiAgentDotfiles.NoFollowFile]::TryInspectChild($Parent,$Leaf)
     if($null -ne $replacement){throw "behavior-cleanup-delete-absence-failed:directory:$RelativePath"}
+    $CleanupSession.RecordAbsence($RelativePath)
     $mutationRow.State='AbsenceProven'
     $CleanupJournal.DeletedRelativePaths.Add($RelativePath)
 }
@@ -8452,7 +8544,8 @@ function Invoke-HardKillBehaviorProbeCleanupAfterReap {
         [Parameter(Mandatory)]$CleanupJournal
     )
     if($CleanupSession.GetType().FullName -cne 'AiAgentDotfilesTests.HardKillBehaviorCleanupSession'){throw 'behavior-cleanup-authority-session-type'}
-    if(@($script:forensicRoots|Where-Object{[object]::ReferenceEquals($_,$PendingToken)}).Count -ne 1){throw 'behavior-cleanup-pending-token-ownership'}
+    if($null -eq $PendingToken.RegistryToken -or
+        @($script:forensicRoots|Where-Object{[object]::ReferenceEquals($_,$PendingToken.RegistryToken)}).Count -ne 1){throw 'behavior-cleanup-pending-token-ownership'}
     for($caseIndex=0;$caseIndex -lt $CaseRows.Count;$caseIndex++){
         $row=$CaseRows[$caseIndex]
         $fixture=$EventRows[$caseIndex]
@@ -8463,28 +8556,28 @@ function Invoke-HardKillBehaviorProbeCleanupAfterReap {
             if($file.Capture){$file.Capture.Dispose();$file.Capture=$null;$file.CaptureState='Closed';$CleanupJournal.OwnershipRows.Add([pscustomobject]@{Kind='FileCapture';RelativePath="case-data/$($row.DirectoryLeaf)/$($file.Leaf)";State='Closed'})}
             Remove-HardKillBehaviorRegularFileExact -Parent $row.DirectoryHandle -Leaf ([string]$file.Leaf) -ExpectedIdentity ([string]$file.Identity) `
                 -ExpectedLinkCount ([uint32]$file.LinkCount) -ExpectedLength ([long]$file.Length) -ExpectedAttributes ([int]$file.Attributes) `
-                -RelativePath ("case-data/$($row.DirectoryLeaf)/$($file.Leaf)") -CleanupJournal $CleanupJournal
+                -RelativePath ("case-data/$($row.DirectoryLeaf)/$($file.Leaf)") -CleanupJournal $CleanupJournal -CleanupSession $CleanupSession
         }
         if($row.DirectoryHandle){$row.DirectoryHandle.Dispose();$row.DirectoryHandle=$null}
         $CleanupJournal.OwnershipRows.Add([pscustomobject]@{Kind='DirectoryHandle';RelativePath="case-data/$($row.DirectoryLeaf)";State='Closed'})
         Remove-HardKillBehaviorEmptyDirectoryExact -Parent $CaseDataHandle -Leaf ([string]$row.DirectoryLeaf) -ExpectedIdentity ([string]$row.DirectoryIdentity) `
             -ExpectedLinkCount ([uint32]$row.DirectoryLinkCount) -ExpectedLength ([long]$row.DirectoryLength) -ExpectedAttributes ([int]$row.DirectoryAttributes) `
-            -RelativePath ("case-data/$($row.DirectoryLeaf)") -CleanupJournal $CleanupJournal
+            -RelativePath ("case-data/$($row.DirectoryLeaf)") -CleanupJournal $CleanupJournal -CleanupSession $CleanupSession
     }
     foreach($file in @($OwnedFileRows|Where-Object{$_.Kind -ceq 'root'})){
         if($file.Capture){$file.Capture.Dispose();$file.Capture=$null;$file.CaptureState='Closed';$CleanupJournal.OwnershipRows.Add([pscustomobject]@{Kind='FileCapture';RelativePath=[string]$file.Leaf;State='Closed'})}
         Remove-HardKillBehaviorRegularFileExact -Parent $ProbeRootHandle -Leaf ([string]$file.Leaf) -ExpectedIdentity ([string]$file.Identity) `
             -ExpectedLinkCount ([uint32]$file.LinkCount) -ExpectedLength ([long]$file.Length) -ExpectedAttributes ([int]$file.Attributes) `
-            -RelativePath ([string]$file.Leaf) -CleanupJournal $CleanupJournal
+            -RelativePath ([string]$file.Leaf) -CleanupJournal $CleanupJournal -CleanupSession $CleanupSession
     }
     $CaseDataHandle.Dispose();$PendingToken.CaseDataHandle=$null
     $CleanupJournal.OwnershipRows.Add([pscustomobject]@{Kind='DirectoryHandle';RelativePath='case-data';State='Closed'})
     Remove-HardKillBehaviorEmptyDirectoryExact -Parent $ProbeRootHandle -Leaf 'case-data' -ExpectedIdentity $CaseDataIdentity `
-        -ExpectedLinkCount $CaseDataLinkCount -ExpectedLength $CaseDataLength -ExpectedAttributes $CaseDataAttributes -RelativePath 'case-data' -CleanupJournal $CleanupJournal
+        -ExpectedLinkCount $CaseDataLinkCount -ExpectedLength $CaseDataLength -ExpectedAttributes $CaseDataAttributes -RelativePath 'case-data' -CleanupJournal $CleanupJournal -CleanupSession $CleanupSession
     $ProbeRootHandle.Dispose();$PendingToken.ProbeRootHandle=$null
     $CleanupJournal.OwnershipRows.Add([pscustomobject]@{Kind='DirectoryHandle';RelativePath='.';State='Closed'})
     Remove-HardKillBehaviorEmptyDirectoryExact -Parent $ProbeParentHandle -Leaf $ProbeRootLeaf -ExpectedIdentity $ProbeRootIdentity `
-        -ExpectedLinkCount $ProbeRootLinkCount -ExpectedLength $ProbeRootLength -ExpectedAttributes $ProbeRootAttributes -RelativePath '.' -CleanupJournal $CleanupJournal
+        -ExpectedLinkCount $ProbeRootLinkCount -ExpectedLength $ProbeRootLength -ExpectedAttributes $ProbeRootAttributes -RelativePath '.' -CleanupJournal $CleanupJournal -CleanupSession $CleanupSession
     $rootInspection=[AiAgentDotfiles.NoFollowFile]::TryInspectChild($ProbeParentHandle,$ProbeRootLeaf)
     if($null -ne $rootInspection){throw 'behavior-cleanup-root-inspection-still-present'}
     $CleanupSession.MarkRootAbsent()
@@ -8497,7 +8590,9 @@ function Invoke-HardKillBehaviorProbeCleanupAfterReap {
 }
 function Set-HardKillBehaviorPendingCleanupToken {
     param([Parameter(Mandatory)]$Token,[Parameter(Mandatory)][Collections.IDictionary]$Values)
-    if(@($script:forensicRoots|Where-Object{[object]::ReferenceEquals($_,$Token)}).Count -ne 1){throw 'behavior-pending-cleanup-token-not-registered'}
+    $registryToken=$Token.PSObject.Properties['RegistryToken']
+    if($null -eq $registryToken -or $null -eq $registryToken.Value -or
+        @($script:forensicRoots|Where-Object{[object]::ReferenceEquals($_,$registryToken.Value)}).Count -ne 1){throw 'behavior-pending-cleanup-token-not-registered'}
     foreach($key in $Values.Keys){
         $property=$Token.PSObject.Properties[[string]$key]
         if($null -eq $property){throw "behavior-pending-cleanup-token-field:$key"}
@@ -8561,11 +8656,11 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $preimageTransportAuthority=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityPreflight' '1c381ad2e1c44e7fa92e07dcf659e8a1399018d7593f1989e0136d0ac3515746' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntime=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContract' 'db10aeba7877cb7cbfa0b14e2ea5cd56d0251ea45e0dd95b9771e03ae70bc07c' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntimeMutations=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContractMutations' '1f2cc0a7b6d36c527e583452d29f549ba66de7d955753f94d1625aac8dd2e6a1' 'cleanup-trust-closure'
-        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' '04e196e516094343cd08ffa5b4b623443375eca232f9252f939aee0b83c12364' 'cleanup-trust-closure'
-        $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' '645bab86d6136a728f3695241efcae52153695f269a5f41399b32b33127fda75' 'cleanup-trust-closure'
+        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' 'bb48cb7cd31cd8e83a70b7cfe2473e9b1718d5b46a9fcbba9f7372c4ba5ac472' 'cleanup-trust-closure'
+        $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' '68e2c2e1b69d648d21438dae76f7abf82bb15647f99f552fd43166b8cf50cf17' 'cleanup-trust-closure'
         $afterPreimageLadderContract=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContract' 'bb2b6518ac32f530466e7f8a0a6a3e9b2cf2a26f0800911cc9bc7c1abe18262a' 'cleanup-trust-closure'
         $afterPreimageLadderMutations=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContractMutations' '96767d13f1a11cbcd42030e6f7ff1de02b0337a0a7fe98638a3d5129a4cb9a3e' 'cleanup-trust-closure'
-        $authorityWiring=Require-ReviewedFunctionHash 'Test-HardKillBehaviorCleanupAuthorityWiringContract' 'bd7d902c990388fb5e3fcf69e1fe2eed1fe43d8b7e821bb46d6e1b75e92144c2' 'cleanup-authority-preflight'
+        $authorityWiring=Require-ReviewedFunctionHash 'Test-HardKillBehaviorCleanupAuthorityWiringContract' 'd7a8a2ceec4d32ceddba2e7c0899ad8841fadb37926b87bbdb02ef770ea390b3' 'cleanup-authority-preflight'
         $authorityPreflight=Require-ReviewedFunctionHash 'Test-HardKillBehaviorCleanupAuthorityPreflight' 'fdd2e8e50620d963621caa754d2d24f2f04d2a80767816a71a9e45242b47487e' 'cleanup-authority-preflight'
         $selfDefinitions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and
             $node.Name -ceq 'Test-HardKillBehaviorCleanupBarrierContract'},$true))
@@ -8577,7 +8672,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $normalizedSelfSource=[regex]::new($selfDigestPattern).Replace($selfSource,"        `$reviewedSelfDigest='__CLEANUP_GATE_SELF_DIGEST__'",1)
         $normalizedSelfSource=$normalizedSelfSource -replace "`r`n?","`n"
         $actualSelfDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalizedSelfSource))).ToLowerInvariant()
-        $reviewedSelfDigest='45b1c20bf48842a47293b40c5e7d9a6e32a6c8a0997210e62208bf5c4ac78560'
+        $reviewedSelfDigest='b3aa9612b1c73fef289bbaad42aadc0941e7f7be5b224297227a0f25903a424d'
         if($actualSelfDigest -cne $reviewedSelfDigest){throw 'cleanup-gate-self-definition'}
         $result.SelfDefinitionPinned=$true
         $functionRows=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|
@@ -8624,7 +8719,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
             $receiptConstruction.Count -ne 0){throw 'cleanup-authority-preflight'}
         $result.AuthorityScaffold=$true;$result.TrustClosurePinned=$true
 
-        $tokenSetter=Require-ReviewedFunctionHash 'Set-HardKillBehaviorPendingCleanupToken' '0e4b3d093e2241c193fbb7d1d68b71021ce0d3eb5e32e5a9a2f0564d46d2b74d' 'cleanup-pending-token'
+        $tokenSetter=Require-ReviewedFunctionHash 'Set-HardKillBehaviorPendingCleanupToken' 'a73a3243e9c6aba371a329fe6071f320ca2f198667ed3887b8b23814a3e66b10' 'cleanup-pending-token'
         $registryAssignments=@($ast.FindAll({param($node)
             $node -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact $node.Left) -ceq '$script:forensicRoots'
         },$true))
@@ -8641,15 +8736,15 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $confirm=Require-ReviewedFunctionHash 'Confirm-HardKillRegisteredProcessReaped' '93153acfcdc3fab76a5b76a980fa49aab680b26394fbf51aba81f4f5feb0b210' 'cleanup-reap-receipt'
         $result.LegacyReapPinned=$true
 
-        $regular=Require-ReviewedFunctionHash 'Remove-HardKillBehaviorRegularFileExact' '4954e5bb647122f07a3fe692bde2148640f33fd6402eb9b26af06fe3abf2ae26' 'cleanup-delete-evidence'
-        $directory=Require-ReviewedFunctionHash 'Remove-HardKillBehaviorEmptyDirectoryExact' '60e970fd2787ea03360f8fd9bf202793e35ea89c6fff909652dfef2ad8cac84f' 'cleanup-delete-evidence'
+        $regular=Require-ReviewedFunctionHash 'Remove-HardKillBehaviorRegularFileExact' '40e2abc9b0bf17cb8acc57cce48a2f6f2e9f725f2b7e65fba0d844bb38270ea5' 'cleanup-delete-evidence'
+        $directory=Require-ReviewedFunctionHash 'Remove-HardKillBehaviorEmptyDirectoryExact' 'f90c694f678483bd90e5cbe5e9d03a486d917502a399051060573c356bf229be' 'cleanup-delete-evidence'
         $result.DeleteEvidencePinned=$true
 
         $closeEvidence=Require-ReviewedFunctionHash 'Close-HardKillBehaviorHeldEvidenceFailStop' 'faa52cd4c0e714aa44577a1990a199806997c35e9f777f552f5baeeb5cab0176' 'cleanup-authority-return'
-        $cleanup=Require-ReviewedFunctionHash 'Invoke-HardKillBehaviorProbeCleanupAfterReap' '315923efd52fbd8aa773d8fa47ff21d2141ec8a477135f5e4b2f46f560eb51d4' 'cleanup-authority-return'
+        $cleanup=Require-ReviewedFunctionHash 'Invoke-HardKillBehaviorProbeCleanupAfterReap' '9123acd3e323f1f752b952e3b6378680a2c9ab24fd53f93e5bca8bd231cf67fc' 'cleanup-authority-return'
         $result.CleanupAuthorityReturnPinned=$true
 
-        $invoke=Require-ReviewedFunctionHash 'Invoke-HardKillBehaviorProbe' 'e146513a7bd8a3d2d0c2e88fa1a55195794f35460805e782a090f80b4fac742b' 'cleanup-controller-structure'
+        $invoke=Require-ReviewedFunctionHash 'Invoke-HardKillBehaviorProbe' '7254d1d5538bb82803f69aa9c32c348d0959b6b053eb5ca40b1a752d6642f092' 'cleanup-controller-structure'
         $result.ControllerPreflightBeforeResources=$true
 
         $topStatements=@($ast.EndBlock.Statements)
@@ -8724,13 +8819,13 @@ function Test-HardKillBehaviorCleanupBarrierContract {
             @($node.Arguments|Where-Object{(Get-HardKillAstTextCompact $_) -cin @('$true','[bool]1','1')}).Count -gt 0
         },$true))
         if($recursiveDeleteMembers.Count -ne 0){throw 'cleanup-outer-lifecycle'}
-        if((Get-ReviewedExtentSha256 $mainTry) -cne 'cc6159b09878b53c8adbea1181dfe8b5391e64cb079cfb6de88dfe47d9fea84b'){throw 'cleanup-main-execution'}
+        if((Get-ReviewedExtentSha256 $mainTry) -cne '700db56bd3adb94c2c7ca85329355d5af7c3aa2efbae4fd6d7fd454a06dd00f6'){throw 'cleanup-main-execution'}
         $topExecutionRows=@($topStatements|Where-Object{$_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}|ForEach-Object{
             '{0}|{1}' -f $_.GetType().FullName,(Get-ReviewedExtentSha256 $_)
         })
         $topExecutionDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($topExecutionRows -join "`n")))).ToLowerInvariant()
-        if($topExecutionDigest -cne 'c1281ead4910ca238a71edab960e8ca347e7b449a2e610480bf29e2ea513a9e0'){throw 'cleanup-top-level-execution'}
-        if($functionInventoryDigest -cne '2d858ffa756484921e18bdb51f34ed46e9b3f2c2851030b4cf557f3c4e058b37'){throw 'cleanup-function-inventory'}
+        if($topExecutionDigest -cne '8b1268ef9c2d84ab95803d4512ac35c46f2e25ad705c04b4ddd331a7b390a53d'){throw 'cleanup-top-level-execution'}
+        if($functionInventoryDigest -cne 'de19dd1cb803dc2c55bc16c6df6519bf96e4757084c99dd5431d10ba6a761a9d'){throw 'cleanup-function-inventory'}
         $result.FunctionInventoryPinned=$true
         $result.MainExecutionPinned=$true
         $result.OuterForensicGuardPinned=$true
@@ -8938,6 +9033,12 @@ function Invoke-HardKillBehaviorProbe {
     }
     $cleanupSession=[AiAgentDotfilesTests.HardKillBehaviorCleanupSession]::Begin()
     $pendingToken=$cleanupSession.PendingToken
+    $cleanupState=[pscustomobject][ordered]@{
+        RegistryToken=$pendingToken;State='Pending';Root=$null;Process=$null;ReapConfirmed=$false;InventoryAtCleanupStart=$null
+        DeletedRelativePaths=@();EventRows=$null;OwnedFileRows=$null;EngineEvidence=$null;HostEvidence=$null;CaseRows=$null
+        CaseDataHandle=$null;ProbeRootHandle=$null;ProbeParentHandle=$null;ProbeRootHandles=$null;CleanupJournal=$null
+        CleanupReceipt=$null;Failures=[Exception[]]@()
+    }
     try{
         $script:forensicRoots.Add($pendingToken)
         if(@($script:forensicRoots|Where-Object{[object]::ReferenceEquals($_,$pendingToken)}).Count -ne 1){throw 'behavior-pending-cleanup-token-registration'}
@@ -8966,20 +9067,22 @@ function Invoke-HardKillBehaviorProbe {
         if(-not $heldPreimageProvenance.Valid){throw ('behavior-preimage-provenance:'+(@($heldPreimageProvenance.ErrorCodes)-join','))}
 
         $scratchFull=[IO.Path]::GetFullPath($ScratchParent);$probeRoot=Join-Path $scratchFull ('sealed-contract-probe-'+[Guid]::NewGuid().ToString('N'))
-        Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{Root=$probeRoot})
+        Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{Root=$probeRoot})
         if([IO.Path]::GetRelativePath($scratchFull,$probeRoot).StartsWith('..',[StringComparison]::Ordinal)){throw 'behavior-probe-root-escape'}
         $null=[IO.Directory]::CreateDirectory($probeRoot);$probeRootCreated=$true;$state.RootAbsent=$false
-        $probeRootHandles=Open-SafeDirectoryContainmentChain -Path $probeRoot
+        $probeRootHandles=$cleanupSession.AcquireAndEnrollDirectoryChain(
+            [AiAgentDotfilesTests.HardKillBehaviorAcquire]{Open-SafeDirectoryContainmentChain -Path $probeRoot},
+            [AiAgentDotfilesTests.HardKillBehaviorRelease]{param($handles) Close-SafeDirectoryContainmentChain -Handles $handles})
         if($probeRootHandles.Count -lt 2){throw 'behavior-probe-root-containment'}
         $probeRootHandle=$probeRootHandles[$probeRootHandles.Count-1];$probeParentHandle=$probeRootHandles[$probeRootHandles.Count-2]
-        Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{ProbeRootHandles=$probeRootHandles;ProbeRootHandle=$probeRootHandle;ProbeParentHandle=$probeParentHandle})
+        Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{ProbeRootHandles=$probeRootHandles;ProbeRootHandle=$probeRootHandle;ProbeParentHandle=$probeParentHandle})
         $probeRootIdentity=[string]$probeRootHandle.Info.Identity;$probeRootLinkCount=[uint32]$probeRootHandle.Info.LinkCount;$probeRootLength=[long]$probeRootHandle.Info.Length;$probeRootAttributes=[int]$probeRootHandle.Info.Attributes;$probeRootLeaf=[IO.Path]::GetFileName($probeRoot)
         $caseDataPath=Join-Path $probeRoot 'case-data';$null=[IO.Directory]::CreateDirectory($caseDataPath)
         $caseDataHandle=[AiAgentDotfiles.NoFollowFile]::HoldChildDirectory($probeRootHandle,'case-data');$caseDataIdentity=[string]$caseDataHandle.Info.Identity;$caseDataLinkCount=[uint32]$caseDataHandle.Info.LinkCount;$caseDataLength=[long]$caseDataHandle.Info.Length;$caseDataAttributes=[int]$caseDataHandle.Info.Attributes
-        Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{CaseDataHandle=$caseDataHandle})
+        Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{CaseDataHandle=$caseDataHandle})
 
         $controllerNonce=[Guid]::NewGuid().ToString('N');$probeNonce=[Guid]::NewGuid().ToString('N');$requestCases=[Collections.Generic.List[object]]::new()
-        $oracleEpochQpc=[Diagnostics.Stopwatch]::GetTimestamp();$oracleDeadlineQpc=[checked]($oracleEpochQpc+[checked]([long][Diagnostics.Stopwatch]::Frequency*420L))
+        $oracleEpochQpc=[Diagnostics.Stopwatch]::GetTimestamp();$oracleDeadlineQpc=[long]($oracleEpochQpc+([long][Diagnostics.Stopwatch]::Frequency*420L))
         for($index=0;$index -lt $ExpectedCases.Count;$index++){
             $name=[string]$ExpectedCases[$index];$caseNonce=[Guid]::NewGuid().ToString('N');$directoryLeaf=('{0:D2}-{1}' -f $index,$caseNonce)
             $directoryPath=Join-Path $caseDataPath $directoryLeaf;$null=[IO.Directory]::CreateDirectory($directoryPath)
@@ -9017,9 +9120,11 @@ function Invoke-HardKillBehaviorProbe {
             '-NoProfile','-File',$hostEvidence.Path,'-ContractProbe','-MutationEnginePath',$engineEvidence.Path,
             '-ContractProbeRequestPath',$requestPath,'-ContractProbeRequestSha256',$requestSha,
             '-ExpectedEngineSha256',$engineEvidence.Sha256,'-ExpectedProbeHostSha256',$hostEvidence.Sha256,
-            '-ContractProbeResultPath',$resultPath,'-ContractProbeScratchRoot',$caseDataPath
+            '-ContractProbeResultPath',$resultPath,'-ContractProbeScratchRoot',$caseDataPath,
+            '-ToolchainRoot',$probeRoot,'-FixtureRoot',$probeRoot,'-TransactionId',([Guid]::NewGuid().ToString()),
+            '-Kind','directory','-Checkpoint','contract-probe','-MarkerPath',(Join-Path $probeRoot 'contract-probe.marker')
         ) -RedirectStandardOutputPath $stdoutPath -RedirectStandardErrorPath $stderrPath
-        Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{Process=$process})
+        Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{Process=$process})
         $launchedPid=[int]$process.Id;$state.LaunchedPid=$launchedPid;$launchedRawCreation=[long]$process.HardKillJobProcess.RootCreationFileTimeTicks
         for($index=0;$index -lt $caseRows.Count;$index++){
             $row=$caseRows[$index];$fixture=$row.OracleFixture;$remaining=Get-HardKillRemainingQpcMilliseconds -AbsoluteDeadlineQpc $oracleDeadlineQpc
@@ -9047,7 +9152,7 @@ function Invoke-HardKillBehaviorProbe {
         $normalReapReceipt=Confirm-HardKillRegisteredProcessReaped -Process $process -Label 'sealed mutation behavioral probe'
         if($normalReapReceipt -isnot [bool] -or -not $normalReapReceipt){throw 'behavior-probe-reap-receipt-invalid'}
         $reapConfirmed=$true;$process=$null
-        Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{Process=$null;ReapConfirmed=$true})
+        Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{Process=$null;ReapConfirmed=$true})
         if($exitCode -ne 0){throw "behavior-probe-exit:$exitCode"}
 
         foreach($leaf in @('result.json','stdout.txt','stderr.txt')){
@@ -9136,7 +9241,7 @@ function Invoke-HardKillBehaviorProbe {
                 $cleanupReapReceipt=Confirm-HardKillRegisteredProcessReaped -Process $process -Label 'sealed mutation behavioral probe cleanup'
                 if($cleanupReapReceipt -isnot [bool] -or -not $cleanupReapReceipt){throw 'behavior-probe-cleanup-reap-receipt-invalid'}
                 $reapConfirmed=$true;$process=$null
-                Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{Process=$null;ReapConfirmed=$true})
+                Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{Process=$null;ReapConfirmed=$true})
             }catch{$cleanupErrors.Add([InvalidOperationException]::new('behavior-probe-cleanup-reap-failed',$_.Exception))}
         }
         if($launchedPid -gt 0 -and -not $reapConfirmed -and $cleanupErrors.Count -eq 0){
@@ -9145,13 +9250,13 @@ function Invoke-HardKillBehaviorProbe {
         if($reapConfirmed -and $validationSucceeded -and $cleanupErrors.Count -eq 0){
             try{
                 $forensicInventory=Get-HardKillBehaviorProbeInventory -ProbeRootHandle $probeRootHandle -CaseDataHandle $caseDataHandle -CaseRows $caseRows
-                Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{InventoryAtCleanupStart=$forensicInventory})
+                Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{InventoryAtCleanupStart=$forensicInventory})
                 $cleanupMutationAllowed=$true
             }catch{$cleanupErrors.Add([InvalidOperationException]::new('behavior-probe-cleanup-inventory-failed',$_.Exception))}
         }
         if($cleanupMutationAllowed -and $validationSucceeded){
             try{
-                $cleanupReceipt=Invoke-HardKillBehaviorProbeCleanupAfterReap -CleanupSession $cleanupSession -PendingToken $pendingToken -EventRows $eventRows -OwnedFileRows $ownedFileRows `
+                $cleanupReceipt=Invoke-HardKillBehaviorProbeCleanupAfterReap -CleanupSession $cleanupSession -PendingToken $cleanupState -EventRows $eventRows -OwnedFileRows $ownedFileRows `
                     -EngineEvidence $engineEvidence -HostEvidence $hostEvidence -CaseRows $caseRows -CaseDataHandle $caseDataHandle -CaseDataIdentity $caseDataIdentity `
                     -CaseDataLinkCount $caseDataLinkCount -CaseDataLength $caseDataLength -CaseDataAttributes $caseDataAttributes `
                     -ProbeRootHandle $probeRootHandle -ProbeParentHandle $probeParentHandle -ProbeRootHandles $probeRootHandles -ProbeRootLeaf $probeRootLeaf `
@@ -9159,7 +9264,7 @@ function Invoke-HardKillBehaviorProbe {
                 if($cleanupReceipt -isnot [AiAgentDotfilesTests.HardKillBehaviorCleanupReceipt] -or -not $cleanupReceipt.RootAbsent -or
                     -not $cleanupReceipt.LeasesClosed -or -not $cleanupReceipt.DeleteReceiptsValidated){throw 'behavior-cleanup-receipt-invalid'}
                 if(@(Compare-Object @($cleanupJournal.DeletedRelativePaths) @($cleanupReceipt.DeletedRelativePaths) -CaseSensitive).Count -ne 0){throw 'behavior-cleanup-receipt-paths'}
-                Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{
+                Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{
                     State='CleanupReceiptValidated';Process=$null;ReapConfirmed=$true;DeletedRelativePaths=@($cleanupReceipt.DeletedRelativePaths)
                     EventRows=$null;OwnedFileRows=$null;EngineEvidence=$null;HostEvidence=$null;CaseRows=$null;CaseDataHandle=$null
                     ProbeRootHandle=$null;ProbeParentHandle=$null;ProbeRootHandles=$null;CleanupReceipt=$cleanupReceipt
@@ -9167,7 +9272,7 @@ function Invoke-HardKillBehaviorProbe {
                 $terminalCleanupReceipt=$cleanupReceipt;$terminalCleanupKind='FullCleanup'
             }catch{
                 $cleanupMutationAllowed=$false
-                $cleanupErrors.Add([InvalidOperationException]::new('behavior-probe-cleanup-failed',$_.Exception))
+                $cleanupErrors.Add([InvalidOperationException]::new(('behavior-probe-cleanup-failed: '+$_.Exception.Message),$_.Exception))
             }
         }
         if($null -ne $terminalCleanupReceipt){
@@ -9194,7 +9299,7 @@ function Invoke-HardKillBehaviorProbe {
             foreach($cleanupError in $cleanupErrors){$orderedFailures.Add($cleanupError)}
             if($probeRootCreated){
                 try{
-                    Set-HardKillBehaviorPendingCleanupToken -Token $pendingToken -Values ([ordered]@{
+                    Set-HardKillBehaviorPendingCleanupToken -Token $cleanupState -Values ([ordered]@{
                         State='Forensic';Root=$probeRoot;Process=$process;ReapConfirmed=$reapConfirmed;InventoryAtCleanupStart=$forensicInventory
                         DeletedRelativePaths=@($cleanupJournal.DeletedRelativePaths);EventRows=$eventRows;OwnedFileRows=$ownedFileRows
                         EngineEvidence=$engineEvidence;HostEvidence=$hostEvidence;CaseRows=$caseRows;CaseDataHandle=$caseDataHandle
@@ -10241,9 +10346,9 @@ try{
     Assert $transportAuthority.Valid `
         "normal sealed mutation transport authority exposes the exact same-assembly sealed session, controller scope, and typed receipt API [$($transportAuthority.Error)]"
     $preimageTransport=Test-HardKillPreimageControllerTransportContract -ControllerSource $oplockSource -Profile Actual
-    Assert ($preimageTransport.ActualPreludeValid -and $preimageTransport.ActualPreludeCount -eq 18 -and
-        $preimageTransport.ActualPreludeDigest -ceq 'aa0dcaf951dcac82c1b044971b16edbdff9a3ca1fadf07c27977c30ca6cbaa47') `
-        'normal sealed mutation controller actual prelude is the exact reviewed twenty-four-statement token manifest before the planned owner RED'
+    Assert ($preimageTransport.ActualPreludeValid -and $preimageTransport.ActualPreludeCount -eq 24 -and
+        $preimageTransport.ActualPreludeDigest -ceq '5a148a5d5eea35943a07eb6c2720e8abc062dcb0afd73525ce2e30e1cecd5461') `
+        'normal sealed mutation controller actual prelude is the exact reviewed twenty-four-statement token manifest'
     Assert $preimageTransport.Valid `
         "normal sealed mutation controller routes through the sole live session owner [$(@($preimageTransport.ErrorCodes)-join ',')]"
     if($Section -in @('all','primitives')){
@@ -10539,6 +10644,7 @@ try{
     [string[]]$behaviorRootInventoryBefore=@(Microsoft.PowerShell.Management\Get-ChildItem -LiteralPath $root -Force|Sort-Object Name|ForEach-Object{[string]$_.Name})
     if($behaviorLaunchStaticGate){
         $heldValidationParentHandles=$null;$heldValidationRootHandle=$null;$heldValidationCaseHandle=$null
+        $heldValidationCleanupSession=[AiAgentDotfilesTests.HardKillBehaviorCleanupSession]::Begin()
         $heldValidationRootLeaf='held-source-validation-'+[Guid]::NewGuid().ToString('N');$heldValidationRootPath=Join-Path $root $heldValidationRootLeaf
         $heldValidationCleanupJournal=[pscustomobject]@{MutationRows=[Collections.Generic.List[object]]::new();DeletedRelativePaths=[Collections.Generic.List[string]]::new()}
         $heldValidationCases=[Collections.Generic.List[object]]::new()
@@ -10637,13 +10743,13 @@ try{
             foreach($case in $heldValidationCases){
                 $heldValidationCaseHandle=[AiAgentDotfiles.NoFollowFile]::HoldChildDirectory($heldValidationRootHandle,$case.DirectoryLeaf)
                 foreach($file in $case.Files){
-                    Remove-HardKillBehaviorRegularFileExact -Parent $heldValidationCaseHandle -Leaf ([string]$file.Leaf) -ExpectedIdentity ([string]$file.Identity) -ExpectedLinkCount ([uint32]$file.LinkCount) -ExpectedLength ([long]$file.Length) -ExpectedAttributes ([int]$file.Attributes) -RelativePath ("$($case.DirectoryLeaf)/$($file.Leaf)") -CleanupJournal $heldValidationCleanupJournal
+                    Remove-HardKillBehaviorRegularFileExact -Parent $heldValidationCaseHandle -Leaf ([string]$file.Leaf) -ExpectedIdentity ([string]$file.Identity) -ExpectedLinkCount ([uint32]$file.LinkCount) -ExpectedLength ([long]$file.Length) -ExpectedAttributes ([int]$file.Attributes) -RelativePath ("$($case.DirectoryLeaf)/$($file.Leaf)") -CleanupJournal $heldValidationCleanupJournal -CleanupSession $heldValidationCleanupSession
                 }
                 $heldValidationCaseHandle.Dispose();$heldValidationCaseHandle=$null
-                Remove-HardKillBehaviorEmptyDirectoryExact -Parent $heldValidationRootHandle -Leaf ([string]$case.DirectoryLeaf) -ExpectedIdentity ([string]$case.DirectoryInfo.Identity) -ExpectedLinkCount ([uint32]$case.DirectoryInfo.LinkCount) -ExpectedLength ([long]$case.DirectoryInfo.Length) -ExpectedAttributes ([int]$case.DirectoryInfo.Attributes) -RelativePath ([string]$case.DirectoryLeaf) -CleanupJournal $heldValidationCleanupJournal
+                Remove-HardKillBehaviorEmptyDirectoryExact -Parent $heldValidationRootHandle -Leaf ([string]$case.DirectoryLeaf) -ExpectedIdentity ([string]$case.DirectoryInfo.Identity) -ExpectedLinkCount ([uint32]$case.DirectoryInfo.LinkCount) -ExpectedLength ([long]$case.DirectoryInfo.Length) -ExpectedAttributes ([int]$case.DirectoryInfo.Attributes) -RelativePath ([string]$case.DirectoryLeaf) -CleanupJournal $heldValidationCleanupJournal -CleanupSession $heldValidationCleanupSession
             }
             $heldValidationRootHandle.Dispose();$heldValidationRootHandle=$null
-            Remove-HardKillBehaviorEmptyDirectoryExact -Parent $heldValidationParentHandle -Leaf $heldValidationRootLeaf -ExpectedIdentity ([string]$heldValidationRootInfo.Identity) -ExpectedLinkCount ([uint32]$heldValidationRootInfo.LinkCount) -ExpectedLength ([long]$heldValidationRootInfo.Length) -ExpectedAttributes ([int]$heldValidationRootInfo.Attributes) -RelativePath '.' -CleanupJournal $heldValidationCleanupJournal
+            Remove-HardKillBehaviorEmptyDirectoryExact -Parent $heldValidationParentHandle -Leaf $heldValidationRootLeaf -ExpectedIdentity ([string]$heldValidationRootInfo.Identity) -ExpectedLinkCount ([uint32]$heldValidationRootInfo.LinkCount) -ExpectedLength ([long]$heldValidationRootInfo.Length) -ExpectedAttributes ([int]$heldValidationRootInfo.Attributes) -RelativePath '.' -CleanupJournal $heldValidationCleanupJournal -CleanupSession $heldValidationCleanupSession
             $expectedDeleted=@('engine-invalid/engine.ps1','engine-invalid/host.ps1','engine-invalid','host-invalid/engine.ps1','host-invalid/host.ps1','host-invalid','.')
             $heldValidationFixtureDeleted=@(Compare-Object $expectedDeleted @($heldValidationCleanupJournal.DeletedRelativePaths) -CaseSensitive).Count -eq 0
         }catch{
@@ -11321,8 +11427,8 @@ try{
 
     if($preimageTransportStaticSatisfied -and $transportAuthorityDefinitionStaticSatisfied -and $transportAuthorityRuntimeStaticSatisfied -and $transportAuthority.Valid -and $preimageTransport.Valid -and $Section -in @('all','process','rollback')){
     Write-Host "`n[process hard-kill checkpoint matrix]" -ForegroundColor Cyan
-    $hostScript=Join-Path $RepoRoot 'tests/helpers/canonical-hard-kill-host.ps1'
-    $reviewedMutationEnginePath=Join-Path $RepoRoot 'tests/helpers/canonical-reviewed-mutation-engine.ps1'
+    $hostScript=Microsoft.PowerShell.Management\Join-Path $RepoRoot 'tests/helpers/canonical-hard-kill-host.ps1'
+    $reviewedMutationEnginePath=Microsoft.PowerShell.Management\Join-Path $RepoRoot 'tests/helpers/canonical-reviewed-mutation-engine.ps1'
     $reviewedRecoveryEnginePath=Join-Path $RepoRoot 'tests/helpers/canonical-reviewed-recovery-engine.ps1'
     $reviewedRecoveryEngineText=[IO.File]::ReadAllText($reviewedRecoveryEnginePath)
     $restoreTargetIndex=$reviewedRecoveryEngineText.IndexOf('Restore-CanonicalMutationTarget -Target $target -Reconciliation $reconciliation',[StringComparison]::Ordinal)
@@ -11398,6 +11504,7 @@ try{
     if($Section -ceq 'rollback'){$cases=@($cases|Where-Object{$_.Contains('RecoveryCheckpoint')})}
     elseif($Section -ceq 'process'){$cases=@($cases|Where-Object{-not $_.Contains('RecoveryCheckpoint')})}
     $cases=@($cases|Where-Object{[string]$_.Name -like $CasePattern})
+    if($cases.Count -eq 0){throw 'sealed mutation process matrix selected no cases'}
     foreach($case in $cases){
         if([AiAgentDotfilesTests.HardKillSealedMutationControllerScope]::IsSelectedCase($case)){
             $sealedMutationCaseResult=script:Invoke-HardKillSealedMutationControllerCase -HostPath $hostScript -EnginePath $reviewedMutationEnginePath -Case $case
@@ -11421,7 +11528,7 @@ try{
         if($case.Contains('Outcome') -and [string]$case.Outcome -ceq 'failed-restored'){$hostArguments+=@('-TerminalOutcome','failed-restored')}
         $caseGit=Get-CanonicalGitContext -RepoRoot $caseRepo;$casePaths=Get-CanonicalTransactionContractPaths -GitContext $caseGit;$namespace=Join-Path $casePaths.TransactionsRoot (Join-Path $caseGit.WorktreeId $transactionId)
         $externalMutationCheckpoint=Test-HardKillMutationCheckpointName -Name ([string]$case.Checkpoint)
-        $process=Start-HardKillRegisteredProcess -FilePath (Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr
+        $process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr
         $externalCheckpointGated=$false
         $checkpointWait=[Diagnostics.Stopwatch]::StartNew()
         if($externalMutationCheckpoint){
@@ -11535,7 +11642,7 @@ try{
             $recoveryArguments=@('-NoProfile','-File',$recoveryHost,'-ToolchainRoot',$RepoRoot,'-RepoRoot',$caseRepo,'-PlanPath',(Join-Path $plans 'first.json'),'-TransactionId',$transactionId,'-StageRoot',$stageRoot,'-StageEventName',$stageEventName,'-StagePosition',$stagePosition,'-StopTargetId',$stopTargetId,'-StageTimeoutSeconds','300')
             $recoveryProcess=$null
             try{
-                $recoveryProcess=Start-HardKillRegisteredProcess -FilePath (Get-Command pwsh).Source -ArgumentList $recoveryArguments -RedirectStandardOutputPath $recoveryOut -RedirectStandardErrorPath $recoveryErr
+                $recoveryProcess=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $recoveryArguments -RedirectStandardOutputPath $recoveryOut -RedirectStandardErrorPath $recoveryErr
                 $expectedStageCount=if($typedRecoveryMode -ceq 'parent-after'){2}else{1}
                 $visitedStages=@(Wait-HardKillRecoveryVisitedStages -Process $recoveryProcess -StageRoot $stageRoot -Count $expectedStageCount)
                     if($typedParentRecoveryCheckpoint){
