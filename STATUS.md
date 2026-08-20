@@ -186,10 +186,11 @@ The 2026-08-20 repair validation is:
 - `canonical-transaction.tests.ps1`: 45 passed;
 - `doctor.tests.ps1`: PASS;
 - `canonical-hard-kill.tests.ps1`: 100 passed, 22 planned Phase 1 RED failures remain;
-- follow-up `canonical-hard-kill.tests.ps1 -Section primitives`: 75 passed, 20 planned RED
+- follow-up `canonical-hard-kill.tests.ps1 -Section primitives`: 76 passed, 19 planned RED
   failures remain after implementing the closed 20-case child dispatcher, its twenty unique typed
-  handler leaves, and the hash-held 20-case behavior-probe host route; the reviewed child primitive
-  authority intentionally remains RED until its native behavior is implemented;
+  handler leaves, the hash-held 20-case behavior-probe host route, and the closed 8/8 parent-oracle
+  dispatcher with sixteen unique typed leaves; the reviewed child and parent primitive authorities
+  intentionally remain RED until their native behavior is implemented;
 - sync dry-run: PASS, no prune or unknown directories, Codex `.system` preserved; no live write or
   Apply was performed.
 
@@ -215,7 +216,7 @@ Production Apply remains interlocked while those gates are incomplete.
 
 ## Next actions
 
-1. Complete the deterministic hard-kill checkpoint implementation until the remaining 20 RED gates
+1. Complete the deterministic hard-kill checkpoint implementation until the remaining 19 RED gates
    pass; do not replace them with temporary helper APIs or weaker assertions.
 2. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
