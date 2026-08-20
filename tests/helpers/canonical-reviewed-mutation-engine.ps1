@@ -321,6 +321,50 @@ namespace AiAgentDotfilesTests
 '@ -Language CSharp -PassThru:$false | Out-Null
 }
 
+function Invoke-SealedMutationBehaviorCase { param($Fixture,$Request,$Action) switch -CaseSensitive -Exact ($Request.Name) {
+'selector-nonmatch-no-io' { return Invoke-SealedMutationBehaviorHandlerSelectorNonmatchNoIo -Fixture $Fixture -Request $Request -Action $Action }
+'selector-first-match-single-use-ticket' { return Invoke-SealedMutationBehaviorHandlerSelectorFirstMatchSingleUseTicket -Fixture $Fixture -Request $Request -Action $Action }
+'selector-prehandoff-failure-ownership' { return Invoke-SealedMutationBehaviorHandlerSelectorPrehandoffFailureOwnership -Fixture $Fixture -Request $Request -Action $Action }
+'selector-posthandoff-timeout-ownership' { return Invoke-SealedMutationBehaviorHandlerSelectorPosthandoffTimeoutOwnership -Fixture $Fixture -Request $Request -Action $Action }
+'context-sealed-call-failure-cleanup' { return Invoke-SealedMutationBehaviorHandlerContextSealedCallFailureCleanup -Fixture $Fixture -Request $Request -Action $Action }
+'context-match-assertion-failure-cleanup' { return Invoke-SealedMutationBehaviorHandlerContextMatchAssertionFailureCleanup -Fixture $Fixture -Request $Request -Action $Action }
+'native-layout-x86-x64' { return Invoke-SealedMutationBehaviorHandlerNativeLayoutX86X64 -Fixture $Fixture -Request $Request -Action $Action }
+'native-secured-root-containment' { return Invoke-SealedMutationBehaviorHandlerNativeSecuredRootContainment -Fixture $Fixture -Request $Request -Action $Action }
+'native-forbidden-read-delete-bridge' { return Invoke-SealedMutationBehaviorHandlerNativeForbiddenReadDeleteBridge -Fixture $Fixture -Request $Request -Action $Action }
+'native-reviewed-writer-bridge-seal' { return Invoke-SealedMutationBehaviorHandlerNativeReviewedWriterBridgeSeal -Fixture $Fixture -Request $Request -Action $Action }
+'native-seal-blocks-write-delete-rebind' { return Invoke-SealedMutationBehaviorHandlerNativeSealBlocksWriteDeleteRebind -Fixture $Fixture -Request $Request -Action $Action }
+'native-failure-matrix-zero-residue' { return Invoke-SealedMutationBehaviorHandlerNativeFailureMatrixZeroResidue -Fixture $Fixture -Request $Request -Action $Action }
+'qpc-late-entry-no-refresh' { return Invoke-SealedMutationBehaviorHandlerQpcLateEntryNoRefresh -Fixture $Fixture -Request $Request -Action $Action }
+'qpc-overflow-and-natural-exit-race' { return Invoke-SealedMutationBehaviorHandlerQpcOverflowAndNaturalExitRace -Fixture $Fixture -Request $Request -Action $Action }
+'partial-preseal-rebind-fail-closed' { return Invoke-SealedMutationBehaviorHandlerPartialPresealRebindFailClosed -Fixture $Fixture -Request $Request -Action $Action }
+'partial-postseal-mutation-blocked' { return Invoke-SealedMutationBehaviorHandlerPartialPostsealMutationBlocked -Fixture $Fixture -Request $Request -Action $Action }
+'differential-role-swap-rejected' { return Invoke-SealedMutationBehaviorHandlerDifferentialRoleSwapRejected -Fixture $Fixture -Request $Request -Action $Action }
+'differential-stable-parent-recreate-rejected' { return Invoke-SealedMutationBehaviorHandlerDifferentialStableParentRecreateRejected -Fixture $Fixture -Request $Request -Action $Action }
+'rollback-stage-cleanup-failure-no-proof' { return Invoke-SealedMutationBehaviorHandlerRollbackStageCleanupFailureNoProof -Fixture $Fixture -Request $Request -Action $Action }
+'preimage-stage-cleanup-failure-no-proof' { return Invoke-SealedMutationBehaviorHandlerPreimageStageCleanupFailureNoProof -Fixture $Fixture -Request $Request -Action $Action }
+default { throw 'behavior-case-name' }
+}}
+function Invoke-SealedMutationBehaviorHandlerSelectorNonmatchNoIo { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteSelectorNonmatchNoIo($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerSelectorFirstMatchSingleUseTicket { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteSelectorFirstMatchSingleUseTicket($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerSelectorPrehandoffFailureOwnership { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteSelectorPrehandoffFailureOwnership($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerSelectorPosthandoffTimeoutOwnership { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteSelectorPosthandoffTimeoutOwnership($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerContextSealedCallFailureCleanup { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteContextSealedCallFailureCleanup($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerContextMatchAssertionFailureCleanup { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteContextMatchAssertionFailureCleanup($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerNativeLayoutX86X64 { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteNativeLayoutX86X64($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerNativeSecuredRootContainment { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteNativeSecuredRootContainment($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerNativeForbiddenReadDeleteBridge { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteNativeForbiddenReadDeleteBridge($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerNativeReviewedWriterBridgeSeal { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteNativeReviewedWriterBridgeSeal($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerNativeSealBlocksWriteDeleteRebind { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteNativeSealBlocksWriteDeleteRebind($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerNativeFailureMatrixZeroResidue { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteNativeFailureMatrixZeroResidue($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerQpcLateEntryNoRefresh { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteQpcLateEntryNoRefresh($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerQpcOverflowAndNaturalExitRace { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteQpcOverflowAndNaturalExitRace($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerPartialPresealRebindFailClosed { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecutePartialPresealRebindFailClosed($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerPartialPostsealMutationBlocked { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecutePartialPostsealMutationBlocked($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerDifferentialRoleSwapRejected { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteDifferentialRoleSwapRejected($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerDifferentialStableParentRecreateRejected { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteDifferentialStableParentRecreateRejected($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerRollbackStageCleanupFailureNoProof { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecuteRollbackStageCleanupFailureNoProof($Fixture,$Request,$Action) }
+function Invoke-SealedMutationBehaviorHandlerPreimageStageCleanupFailureNoProof { param($Fixture,$Request,$Action) return [AiAgentDotfilesTests.SealedMutationBehaviorCasePrimitives]::ExecutePreimageStageCleanupFailureNoProof($Fixture,$Request,$Action) }
+
 function Invoke-SealedMutationReach {
     [CmdletBinding()]
     param(

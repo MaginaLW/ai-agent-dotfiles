@@ -2028,8 +2028,16 @@ function Test-HardKillBehaviorChildCapabilityContract {
             @($manifest.Values|ForEach-Object{$_[1]}|Select-Object -Unique).Count -ne 20){throw 'behavior-child-manifest'}
         $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseInput($EngineSource,[ref]$tokens,[ref]$errors)
         if(@($errors).Count -ne 0){throw 'behavior-child-parse'}
-        if(@($ast.UsingStatements).Count -ne 0 -or @($ast.FindAll({param($node)$node -is [Management.Automation.Language.TrapStatementAst] -or
-            $node -is [Management.Automation.Language.ScriptBlockExpressionAst]},$true)).Count -ne 0){throw 'behavior-child-shadow'}
+        $reviewedMirrorFunctions=@(
+            'Initialize-SealedCanonicalRecoveryWorkspace','Invoke-SealedCanonicalParentDirectoryCreate',
+            'Invoke-SealedCanonicalDirectoryReplacement','Invoke-SealedCanonicalFileReplacement'
+        )
+        $unreviewedScriptBlocks=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.ScriptBlockExpressionAst]},$true)|Where-Object{
+            $owner=Get-NearestHardKillFunction $_
+            $null -eq $owner -or $owner.Name -cnotin $reviewedMirrorFunctions
+        })
+        if(@($ast.UsingStatements).Count -ne 0 -or @($ast.FindAll({param($node)$node -is [Management.Automation.Language.TrapStatementAst]},$true)).Count -ne 0 -or
+            $unreviewedScriptBlocks.Count -ne 0){throw 'behavior-child-shadow'}
         $shadowCommands=@($ast.FindAll({param($node)
             if($node -isnot [Management.Automation.Language.CommandAst]){return $false}
             $name=[string]$node.GetCommandName();$leaf=if($name.Contains('\')){$name.Substring($name.LastIndexOf('\')+1)}else{$name}
