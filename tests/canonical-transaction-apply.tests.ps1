@@ -52,7 +52,7 @@ function Assert-StagingReservation {
 }
 
 $work=Join-Path $RepoRoot 'tmp/canonical-transaction-apply-tests'
-$external=Join-Path ([IO.Path]::GetTempPath()) ('canonical-transaction-apply-'+[Guid]::NewGuid().ToString('N'))
+$external=Join-Path (Split-Path -Parent $RepoRoot) ('.ai-agent-dotfiles-canonical-transaction-apply-'+[Guid]::NewGuid().ToString('N'))
 if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force}
 if(Test-Path -LiteralPath $external){Remove-Item -LiteralPath $external -Recurse -Force}
 [IO.Directory]::CreateDirectory($work)|Out-Null;[IO.Directory]::CreateDirectory($external)|Out-Null

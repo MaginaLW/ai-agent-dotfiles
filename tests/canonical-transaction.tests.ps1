@@ -14,6 +14,12 @@ function Set-File { param([string]$Path,[string]$Content) $parent=Split-Path -Pa
 function New-Skill { param([string]$Path,[string]$Name=(Split-Path -Leaf $Path),[string]$Text='work') Set-File -Path (Join-Path $Path 'SKILL.md') -Content "---`nname: $Name`ndescription: test $Name`n---`n`n## Steps`n`n- $Text`n" }
 function Invoke-Script { param([string]$Script,[string[]]$Arguments) $out=& pwsh -NoProfile -File $Script @Arguments 2>&1|Out-String;[pscustomobject]@{Code=$LASTEXITCODE;Out=$out} }
 function Write-Json { param([string]$Path,$Document) Set-File -Path $Path -Content ((ConvertTo-Json -InputObject $Document -Depth 40)+"`n") }
+function Set-CurrentUserOnlyAcl([string]$Path){
+    $template=Get-CanonicalCurrentUserOnlySecurityTemplate;$sid=[Security.Principal.SecurityIdentifier]::new([string]$template.OwnerSid)
+    $security=[Security.AccessControl.DirectorySecurity]::new();$security.SetOwner($sid);$security.SetAccessRuleProtection($true,$false)
+    $inherit=[Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+    $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::FullControl,$inherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow));Set-Acl -LiteralPath $Path -AclObject $security
+}
 function Copy-PlanWithMutation {
     param([string]$Source,[string]$Destination,[scriptblock]$Mutation,[switch]$Rehash)
     $doc=ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($Source)); & $Mutation $doc
@@ -22,7 +28,7 @@ function Copy-PlanWithMutation {
 }
 
 $work=Join-Path $RepoRoot 'tmp/canonical-transaction-tests'
-$external=Join-Path ([IO.Path]::GetTempPath()) ('ai-agent-dotfiles-canonical-plan-'+[Guid]::NewGuid().ToString('N'))
+$external=Join-Path (Split-Path -Parent $RepoRoot) ('.ai-agent-dotfiles-canonical-plan-'+[Guid]::NewGuid().ToString('N'))
 if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force}
 if(Test-Path -LiteralPath $external){Remove-Item -LiteralPath $external -Recurse -Force}
 [IO.Directory]::CreateDirectory($work)|Out-Null;[IO.Directory]::CreateDirectory($external)|Out-Null
@@ -193,7 +199,7 @@ try {
     Assert-Throws {Read-CanonicalTransactionPlan -PlanPath (Join-Path $junction 'plan.json') -RepoRoot $fixture} 'path: reparse-ancestor PlanPath is rejected'
 
     Write-Host "`n[setup shape and result oneOf]" -ForegroundColor Cyan
-    $setupRoot=Join-Path $external 'setup-roots';$probe=Join-Path $external 'setup-probe';[IO.Directory]::CreateDirectory($probe)|Out-Null
+    $setupRoot=Join-Path $external 'setup-roots';$probe=Join-Path $external 'setup-probe';[IO.Directory]::CreateDirectory($setupRoot)|Out-Null;Set-CurrentUserOnlyAcl $setupRoot;[IO.Directory]::CreateDirectory($probe)|Out-Null
     $setupPayload=New-CanonicalSetupPlanPayload -RepoRoot $fixture -CanonicalRecoveryRoot (Join-Path $setupRoot 'recovery') -ControlBase (Join-Path $setupRoot 'control') -BackupRoot (Join-Path $setupRoot 'backups') -ProbeRoot $probe
     Assert ([string]$setupPayload.ExpectedRootClaimHash -ceq (Get-SemanticJsonHash -InputObject $setupPayload.ExpectedRootClaim) -and [string]$setupPayload.ExpectedSetupStateProjectionHash -ceq (Get-SemanticJsonHash -InputObject $setupPayload.ExpectedSetupStateProjection) -and [string]$setupPayload.SetupIntentHash -ceq (Get-SemanticJsonHash -InputObject $setupPayload.PrivateRootBootstrapIntent)) 'setup: exact root claim, stable setup intent, and deterministic state projection are hash-bound'
     $setupPlan=Join-Path $external 'setup-plan.json';$setupDoc=Write-CanonicalTransactionPlan -PlanPayload $setupPayload -PlanPath $setupPlan -RepoRoot $fixture

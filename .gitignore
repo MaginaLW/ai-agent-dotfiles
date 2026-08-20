@@ -44,6 +44,7 @@ codex/volumes/
 # Generated, backup, and temporary files.
 backup/
 tmp/
+/.tmp-*
 *.bak
 *.tmp
 .agent-harness/generated/
@@ -52,6 +53,9 @@ tmp/
 **/.agent-harness/backups/
 /envs/
 /state/
+
+# Reasonix machine-local task state.
+/.reasonix/tasks/
 
 # Machine- and run-specific build/sync reports.
 reports/*.md
