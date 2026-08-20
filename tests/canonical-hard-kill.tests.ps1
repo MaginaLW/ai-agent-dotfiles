@@ -1077,44 +1077,48 @@ function New-HardKillBehaviorOracleFixture {
 }
 function Invoke-HardKillBehaviorOracleAction {
     param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce)
-    $now=[Diagnostics.Stopwatch]::GetTimestamp();if($now -le 0 -or $now -ge [long]$Fixture.AbsoluteDeadlineQpc){throw 'behavior-oracle-action-deadline'}
-    $Process.Refresh();$active=[long]$Process.HardKillJobProcess.ActiveProcesses
-    if(-not $Fixture.ReadyEvent.WaitOne(0) -or $Fixture.ContinueEvent.WaitOne(0) -or $Fixture.DoneEvent.WaitOne(0) -or
-        $Fixture.ReleaseEvent.WaitOne(0) -or $Process.HasExited -or $active -le 0){throw 'behavior-oracle-action-lifecycle'}
-    $challengePath=Join-Path ([string]$Fixture.CaseDirectoryPath) 'challenge.bin'
-    $error=[AiAgentDotfiles.HardKillLeaseProbe]::ProbeWriteDeleteOpenError($challengePath)
-    $capture=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($Fixture.CaseDirectoryHandle,'challenge.bin')
-    $Fixture.ChallengeCapture=$capture;$Fixture.ChallengeIdentity=[string]$capture.ReadResult.Identity;$Fixture.ChallengeLength=[long]$capture.ReadResult.Length;$Fixture.ChallengeRawSha256=[string]$capture.ReadResult.Sha256
-    $responseChallenge=[ordered]@{SchemaVersion=1;ArtifactKind='sealed-mutation-controller-response-challenge';CaseNonce=[string]$Fixture.CaseNonce;ActionNonce=$ActionNonce;ChallengeRawSha256=$Fixture.ChallengeRawSha256}
-    $Fixture.ExpectedResponseRawSha256=Get-HardKillSha256Hex (ConvertTo-SemanticJsonBytes -InputObject $responseChallenge)
-    $action=[ordered]@{
-        SchemaVersion=1;ArtifactKind='sealed-mutation-controller-action';Index=[long]$Fixture.Index;CaseNonce=[string]$Fixture.CaseNonce;ActionNonce=$ActionNonce
-        OracleKind=[string]$Fixture.OracleKind;OperationSequence=[string]$Fixture.OperationSequence;ChallengeIdentity=$Fixture.ChallengeIdentity;ChallengeLength=$Fixture.ChallengeLength
-        ChallengeRawSha256=$Fixture.ChallengeRawSha256;ChallengeWin32Error=[long]$error;ParentQpcTicks=$now;StopwatchFrequency=[long][Diagnostics.Stopwatch]::Frequency
+    switch -CaseSensitive -Exact ($Fixture.OracleKind) {
+        'managed-token' { return Invoke-HardKillManagedTokenOracleAction -Fixture $Fixture -Process $Process -ActionNonce $ActionNonce }
+        'native-resource' { return Invoke-HardKillNativeResourceOracleAction -Fixture $Fixture -Process $Process -ActionNonce $ActionNonce }
+        'native-live-handle' { return Invoke-HardKillNativeLiveHandleOracleAction -Fixture $Fixture -Process $Process -ActionNonce $ActionNonce }
+        'qpc-live-job' { return Invoke-HardKillQpcLiveJobOracleAction -Fixture $Fixture -Process $Process -ActionNonce $ActionNonce }
+        'partial-preseal-rebind' { return Invoke-HardKillPartialPresealOracleAction -Fixture $Fixture -Process $Process -ActionNonce $ActionNonce }
+        'partial-sealed-handle' { return Invoke-HardKillPartialSealedHandleOracleAction -Fixture $Fixture -Process $Process -ActionNonce $ActionNonce }
+        'differential-held-artifacts' { return Invoke-HardKillDifferentialOracleAction -Fixture $Fixture -Process $Process -ActionNonce $ActionNonce }
+        'cleanup-held-blocker' { return Invoke-HardKillCleanupBlockerOracleAction -Fixture $Fixture -Process $Process -ActionNonce $ActionNonce }
+        default { throw 'behavior-oracle-kind' }
     }
-    $bytes=ConvertTo-SemanticJsonBytes -InputObject $action;$Fixture.ActionNonce=$ActionNonce;$Fixture.ActionSha256=Get-HardKillSha256Hex $bytes
-    return [pscustomobject]@{Bytes=$bytes;Sha256=$Fixture.ActionSha256;ChallengeWin32Error=[long]$error;ParentQpcAtReady=$now;JobActiveBefore=$active}
 }
 function Complete-HardKillBehaviorOracleObservation {
     param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc)
-    $now=[Diagnostics.Stopwatch]::GetTimestamp()
-    if($DeadlineQpc -ne [long]$Fixture.AbsoluteDeadlineQpc -or $now -le 0 -or $now -ge $DeadlineQpc -or
-        -not $Fixture.DoneEvent.WaitOne(0) -or $Fixture.ReleaseEvent.WaitOne(0)){throw 'behavior-oracle-complete-lifecycle'}
-    $Process.Refresh();$active=[long]$JobProcess.ActiveProcesses
-    if($Process.HasExited -or $active -le 0){throw 'behavior-oracle-complete-job'}
-    $response=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($Fixture.CaseDirectoryHandle,'response.json')
-    try{
-        return [pscustomobject]@{
-            Index=[long]$Fixture.Index;CaseNonce=[string]$Fixture.CaseNonce;OracleKind=[string]$Fixture.OracleKind;OperationSequence=[string]$Fixture.OperationSequence;AbsoluteDeadlineQpc=$DeadlineQpc.ToString([Globalization.CultureInfo]::InvariantCulture)
-            ReadyObserved=$true;RootProcessAlive=$true;JobActiveBefore=$active;ParentQpcAtReady=[long]$Fixture.ParentQpcAtReady;ParentQpcAtContinue=$now;StopwatchFrequency=[long][Diagnostics.Stopwatch]::Frequency
-            ActionNonce=[string]$Fixture.ActionNonce;ActionSha256=[string]$Fixture.ActionSha256;ChallengeAttempted=$true;ChallengeWin32Error=[long]$Fixture.ChallengeWin32Error
-            ChallengeIdentity=[string]$Fixture.ChallengeIdentity;ChallengeLength=[long]$Fixture.ChallengeLength;ChallengeRawSha256=[string]$Fixture.ChallengeRawSha256
-            ResponseObserved=$true;ResponseIdentity=[string]$response.ReadResult.Identity;ResponseLength=[long]$response.ReadResult.Length;ResponseRawSha256=[string]$response.ReadResult.Sha256;ExpectedResponseRawSha256=[string]$Fixture.ExpectedResponseRawSha256
-            PresealRebindAttempted=$false;PresealOriginalIdentity='';PresealReplacementIdentity='';DifferentialArtifactsObserved=$false;DifferentialIdentityRelation=''
-            ForensicObserved=$false;ProofAbsentObserved=$false;ForensicIdentity='';ForensicLength=0L;ForensicRawSha256='';CleanupBlockerHeld=$false
-        }
-    }finally{$Fixture.ResponseCapture=$response}
+    switch -CaseSensitive -Exact ($Fixture.OracleKind) {
+        'managed-token' { return Complete-HardKillManagedTokenOracleObservation -Fixture $Fixture -Process $Process -JobProcess $JobProcess -DeadlineQpc $DeadlineQpc }
+        'native-resource' { return Complete-HardKillNativeResourceOracleObservation -Fixture $Fixture -Process $Process -JobProcess $JobProcess -DeadlineQpc $DeadlineQpc }
+        'native-live-handle' { return Complete-HardKillNativeLiveHandleOracleObservation -Fixture $Fixture -Process $Process -JobProcess $JobProcess -DeadlineQpc $DeadlineQpc }
+        'qpc-live-job' { return Complete-HardKillQpcLiveJobOracleObservation -Fixture $Fixture -Process $Process -JobProcess $JobProcess -DeadlineQpc $DeadlineQpc }
+        'partial-preseal-rebind' { return Complete-HardKillPartialPresealOracleObservation -Fixture $Fixture -Process $Process -JobProcess $JobProcess -DeadlineQpc $DeadlineQpc }
+        'partial-sealed-handle' { return Complete-HardKillPartialSealedHandleOracleObservation -Fixture $Fixture -Process $Process -JobProcess $JobProcess -DeadlineQpc $DeadlineQpc }
+        'differential-held-artifacts' { return Complete-HardKillDifferentialOracleObservation -Fixture $Fixture -Process $Process -JobProcess $JobProcess -DeadlineQpc $DeadlineQpc }
+        'cleanup-held-blocker' { return Complete-HardKillCleanupBlockerOracleObservation -Fixture $Fixture -Process $Process -JobProcess $JobProcess -DeadlineQpc $DeadlineQpc }
+        default { throw 'behavior-oracle-kind' }
+    }
 }
+function Invoke-HardKillManagedTokenOracleAction { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::PrepareManagedTokenAction($Fixture,$Process,$ActionNonce) }
+function Invoke-HardKillNativeResourceOracleAction { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::PrepareNativeResourceAction($Fixture,$Process,$ActionNonce) }
+function Invoke-HardKillNativeLiveHandleOracleAction { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::PrepareNativeLiveHandleAction($Fixture,$Process,$ActionNonce) }
+function Invoke-HardKillQpcLiveJobOracleAction { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::PrepareQpcLiveJobAction($Fixture,$Process,$ActionNonce) }
+function Invoke-HardKillPartialPresealOracleAction { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::PreparePartialPresealRebindAction($Fixture,$Process,$ActionNonce) }
+function Invoke-HardKillPartialSealedHandleOracleAction { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::PreparePartialSealedHandleAction($Fixture,$Process,$ActionNonce) }
+function Invoke-HardKillDifferentialOracleAction { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::PrepareDifferentialHeldArtifactsAction($Fixture,$Process,$ActionNonce) }
+function Invoke-HardKillCleanupBlockerOracleAction { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)][string]$ActionNonce) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::PrepareCleanupHeldBlockerAction($Fixture,$Process,$ActionNonce) }
+function Complete-HardKillManagedTokenOracleObservation { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::CompleteManagedTokenObservation($Fixture,$Process,$JobProcess,$DeadlineQpc) }
+function Complete-HardKillNativeResourceOracleObservation { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::CompleteNativeResourceObservation($Fixture,$Process,$JobProcess,$DeadlineQpc) }
+function Complete-HardKillNativeLiveHandleOracleObservation { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::CompleteNativeLiveHandleObservation($Fixture,$Process,$JobProcess,$DeadlineQpc) }
+function Complete-HardKillQpcLiveJobOracleObservation { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::CompleteQpcLiveJobObservation($Fixture,$Process,$JobProcess,$DeadlineQpc) }
+function Complete-HardKillPartialPresealOracleObservation { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::CompletePartialPresealRebindObservation($Fixture,$Process,$JobProcess,$DeadlineQpc) }
+function Complete-HardKillPartialSealedHandleOracleObservation { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::CompletePartialSealedHandleObservation($Fixture,$Process,$JobProcess,$DeadlineQpc) }
+function Complete-HardKillDifferentialOracleObservation { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::CompleteDifferentialHeldArtifactsObservation($Fixture,$Process,$JobProcess,$DeadlineQpc) }
+function Complete-HardKillCleanupBlockerOracleObservation { param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Process,[Parameter(Mandatory)]$JobProcess,[Parameter(Mandatory)][long]$DeadlineQpc) return [AiAgentDotfilesTests.HardKillParentOraclePrimitives]::CompleteCleanupHeldBlockerObservation($Fixture,$Process,$JobProcess,$DeadlineQpc) }
 function Test-HardKillBehaviorOracleObservation {
     param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)]$Observation)
     $spec=Get-HardKillParentOracleSpec -CaseName ([string]$Fixture.CaseName)
@@ -1177,12 +1181,10 @@ function Test-HardKillBehaviorOracleDriverContract {
         $completeParameters=@($apis['Complete-HardKillBehaviorOracleObservation'].Body.ParamBlock.Parameters|ForEach-Object{$_.Name.VariablePath.UserPath})
         if(@(Compare-Object @('Fixture','Process','ActionNonce') $actionParameters -CaseSensitive).Count -ne 0){throw 'oracle-action-api'}
         if(@(Compare-Object @('Fixture','Process','JobProcess','DeadlineQpc') $completeParameters -CaseSensitive).Count -ne 0){throw 'oracle-complete-api'}
-        $actionAssignments=@($apis['Invoke-HardKillBehaviorOracleAction'].FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact $node.Left) -ceq '$action'},$true))
-        $actionExpression=if($actionAssignments.Count -eq 1 -and $actionAssignments[0].Right -is [Management.Automation.Language.CommandExpressionAst]){$actionAssignments[0].Right.Expression}else{$null}
-        $actionTable=if($actionExpression -is [Management.Automation.Language.ConvertExpressionAst] -and $actionExpression.Type.TypeName.FullName -ceq 'ordered' -and $actionExpression.Child -is [Management.Automation.Language.HashtableAst]){$actionExpression.Child}else{$null}
-        if($actionAssignments.Count -ne 1 -or $actionTable -isnot [Management.Automation.Language.HashtableAst]){throw 'oracle-action-document'}
-        $actionKeys=@($actionTable.KeyValuePairs|ForEach-Object{if($_.Item1 -is [Management.Automation.Language.StringConstantExpressionAst]){[string]$_.Item1.Value}else{''}})
-        if(@($actionKeys|Where-Object{$_ -match '(?i)expected|verdict|outcome|passed|valid|proof'}).Count -ne 0){throw 'oracle-action-verdict-leak'}
+        $dispatcherContract=Test-HardKillBehaviorOracleImplementationDispatcherContract -ControllerSource $ControllerSource
+        if(-not $dispatcherContract.Valid -or $dispatcherContract.ActionBranchCount -ne 8 -or
+            $dispatcherContract.CompletionBranchCount -ne 8 -or $dispatcherContract.HelperDefinitionCount -ne 16 -or
+            $dispatcherContract.PrimitiveLeafCount -ne 16){throw 'oracle-dispatcher-contract'}
 
         $specFunctions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-HardKillParentOracleSpec'},$true))
         if($specFunctions.Count -ne 1){throw 'oracle-spec-function'}
@@ -8217,8 +8219,8 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $preimageTransportAuthority=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityPreflight' 'ea99352764bf44d465e3927e028e6cdff4a88cf725fa95d1603e8c9f1673d4e0' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntime=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContract' 'c7528c785a0d6e8e16fe6d565c1a03eb11f3a16155605f31ca43d44abdaad15f' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntimeMutations=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContractMutations' '164981a01acf01b55be0d8db10ff02300923ca13494091a8245f8601f4c9974f' 'cleanup-trust-closure'
-        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' 'cb5e3c3d3258ff1c03162d3f71f0ba9e7f10a7e0aa80509e668372a42a5e054e' 'cleanup-trust-closure'
-        $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' '1575c4dedb1b137854f63e1e98c92440bdaab6065f65b0332ecdd8c5fdf44f8c' 'cleanup-trust-closure'
+        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' 'fc152eb4a982df083a23cb92f98a49c36c4552a2cab527e816e5c60f3a3f33ba' 'cleanup-trust-closure'
+        $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' '79916d255ebdfe0826ec0c89e243016fddd51e4b306281430b5a153092c1adac' 'cleanup-trust-closure'
         $afterPreimageLadderContract=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContract' 'bb2b6518ac32f530466e7f8a0a6a3e9b2cf2a26f0800911cc9bc7c1abe18262a' 'cleanup-trust-closure'
         $afterPreimageLadderMutations=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContractMutations' '96767d13f1a11cbcd42030e6f7ff1de02b0337a0a7fe98638a3d5129a4cb9a3e' 'cleanup-trust-closure'
         $authorityWiring=Require-ReviewedFunctionHash 'Test-HardKillBehaviorCleanupAuthorityWiringContract' 'c6d90d0dd9612197eaea48f2f51803e5823079dd226360ae6c8e9d9fd2951a51' 'cleanup-authority-preflight'
@@ -8233,7 +8235,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $normalizedSelfSource=[regex]::new($selfDigestPattern).Replace($selfSource,"        `$reviewedSelfDigest='__CLEANUP_GATE_SELF_DIGEST__'",1)
         $normalizedSelfSource=$normalizedSelfSource -replace "`r`n?","`n"
         $actualSelfDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalizedSelfSource))).ToLowerInvariant()
-        $reviewedSelfDigest='f324237129afdf53b703fe532d7b659b3630b384df37a55b5e6c9b14b80686d0'
+        $reviewedSelfDigest='9b4304aebcee8096a5afc9db906fcb74dab664a6bbeee1554c74f4e09c7aadee'
         if($actualSelfDigest -cne $reviewedSelfDigest){throw 'cleanup-gate-self-definition'}
         $result.SelfDefinitionPinned=$true
         $functionRows=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|
@@ -8386,7 +8388,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         })
         $topExecutionDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($topExecutionRows -join "`n")))).ToLowerInvariant()
         if($topExecutionDigest -cne '4f544ae0a196fab40c8b12ee267f850cd35e9710c0a0231a4f29640d7a214ecf'){throw 'cleanup-top-level-execution'}
-        if($functionInventoryDigest -cne '9ca5bce66b6d501c0e652b86d8cb25dc8208f857df9511d610f360fb63d0eebb'){throw 'cleanup-function-inventory'}
+        if($functionInventoryDigest -cne '58bc61d598c6cd26e93496d3e55532ff2a11a4292abcd696b84f959fc9ada28e'){throw 'cleanup-function-inventory'}
         $result.FunctionInventoryPinned=$true
         $result.MainExecutionPinned=$true
         $result.OuterForensicGuardPinned=$true
