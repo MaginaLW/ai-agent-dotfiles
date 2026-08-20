@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-11
+Last updated: 2026-08-20
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -159,49 +159,61 @@ live parity still passes.
 This evidence applied only to that machine snapshot. Other machines require their own reviewed dry-run;
 auto-sync hooks never create or consume retirement authority.
 
+## 2026-08-20 repository repair
+
+The accidental `24f6bc8` work-in-progress commit tracked 156 Reasonix task-state files, twelve
+root-level diagnostic scripts, and incomplete hard-kill host/engine changes. The machine-state and
+diagnostic files were removed and are now ignored at their exact repository-root locations. The two
+incomplete helper changes were restored to the preceding reviewed bytes; this repaired the reviewed
+load hash boundary and reduced `canonical-hard-kill.tests.ps1` from 97 passed / 25 failed to
+100 passed / 22 failed without weakening any assertion.
+
+Two canonical transaction tests assumed that the repository and system TEMP directory shared a
+volume. Their external recovery fixtures now use random working-tree-external siblings on the
+repository volume, and the setup-only root is explicitly current-user-only. This preserves the
+production cross-volume and broad-ACL rejection gates. `status/active/README.md` now keeps the
+doctor-required active-status directory present in fresh clones.
+
 ## Validation status
 
-The final local validation baseline is:
+The 2026-08-20 repair validation is:
 
+- PowerShell syntax: 146 files passed;
 - build: Claude 7, Codex 15, Reasonix 7;
-- exact cleanup-commit snapshot secret scan: no blocking findings; gitleaks found no leaks;
-- `harness-env.tests.ps1`: 126 passed;
-- `harness-profile.tests.ps1`: 34 passed;
-- `harness-multiplatform.tests.ps1`: 17 passed;
-- `task-skills.tests.ps1`: 23 passed;
-- `agent-dotfiles.tests.ps1`: 11 passed;
-- `skills-import.tests.ps1`: 21 passed;
-- `config-sync.tests.ps1`: 17 passed;
-- `sync.tests.ps1` and `doctor.tests.ps1`: PASS.
+- secret scan: PASS; pinned gitleaks 8.30.0 found no leaks;
+- unified runner: 30 suites discovered, zero timeouts; after targeted repairs, 29 suites pass;
+- `canonical-transaction-apply.tests.ps1`: 21 passed;
+- `canonical-transaction.tests.ps1`: 45 passed;
+- `doctor.tests.ps1`: PASS;
+- `canonical-hard-kill.tests.ps1`: 100 passed, 22 planned Phase 1 RED failures remain;
+- sync dry-run: PASS, no prune or unknown directories, Codex `.system` preserved; no live write or
+  Apply was performed.
 
-Independent reviews approved both the skill deletion/merge decisions and the MCP/retirement
-implementation after their findings were fixed.
+The remaining hard-kill failures are implementation gates from
+`docs/superpowers/plans/2026-08-14-deterministic-hard-kill-checkpoints.md`, including the sealed
+transport session, parent oracle/cleanup authorities, behavior host, and native/QPC lifecycle.
+Production Apply remains interlocked while those gates are incomplete.
 
 ## Current boundaries and known state
 
-- Machine-private `state/current-env.json` attests stock `work` with an empty task overlay. After the
-  cleanup commit changed the repository commit identity, `env status` correctly reports all staging
-  locks stale/invalid and activation attestation drift, while live parity still passes, `.system`
-  remains present, and project `RequiredEnv=work` matches. Full-only canonical skills remain
-  available for explicit task-overlay hot-plug; they are not part of the current live baseline.
+- Historical machine-private `state/current-env.json` evidence attested stock `work`; it is not a
+  repository-portable current-machine claim. The 2026-08-20 sync dry-run on this machine reports all
+  7/15/7 generated skills as additions, with zero prune/unknown targets and Codex `.system` present.
+  No live files were changed.
 - Project Harness Profiles remain project-local. They do not write global homes, install
   project-local skills, or switch global environments automatically.
 - Codex `config.toml`, credentials, sessions, caches, and unrelated home configuration are outside
   this repository's sync scope.
 - The MCP subsystem removal did not alter any live MCP registration.
-- User-owned `.reasonix/desktop-topic-*.json` changes and the concurrent
-  `docs/superpowers/specs/2026-08-09-live-safety-hardening-design.md` plus
-  `docs/superpowers/plans/2026-08-09-live-safety-*.md` planning stream were not modified or included
-  by this task. The main dirty-worktree scan currently flags a false positive where one excluded
-  plan spells the tracked `task-skill-hotplug` filename; the exact cleanup-commit snapshot passes
-  the unchanged scanner.
+- User-owned `.reasonix/desktop-topic-*.json` files and the live-safety planning stream remain
+  outside this repair. The current filtered working-tree scan passes without blocking findings.
 - Git publishing is outside this cleanup task: no push or pull request has been performed.
 
 ## Next actions
 
-1. After the concurrent planning stream rewrites its false-positive path reference, run a reviewed
-   `env activate work -DryRun` / `-Apply` from the main repository to refresh commit-bound staging
-   and activation attestation; live is already the correct stock `work` set.
-2. Revalidate other managed machines independently. For retired skills still present elsewhere,
+1. Complete the deterministic hard-kill checkpoint implementation until the remaining 22 RED gates
+   pass; do not replace them with temporary helper APIs or weaker assertions.
+2. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+   machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.

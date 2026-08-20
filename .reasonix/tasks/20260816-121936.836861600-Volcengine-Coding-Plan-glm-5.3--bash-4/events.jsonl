@@ -1,2 +1,0 @@
-{"sequence":1,"timestamp":"2026-08-16T20:27:42.7871439+08:00","event_type":"state_change","task_id":"20260816-121936.836861600-Volcengine-Coding-Plan-glm-5.3--bash-4","session_id":"20260816-121936.836861600-Volcengine-Coding-Plan-glm-5.3","state":"running","runtime_state":"alive"}
-{"sequence":2,"timestamp":"2026-08-16T20:32:11.2585986+08:00","event_type":"state_change","task_id":"20260816-121936.836861600-Volcengine-Coding-Plan-glm-5.3--bash-4","session_id":"20260816-121936.836861600-Volcengine-Coding-Plan-glm-5.3","state":"succeeded","runtime_state":"exited"}
