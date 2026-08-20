@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -186,16 +186,16 @@ The 2026-08-20 repair validation is:
 - `canonical-transaction.tests.ps1`: 45 passed;
 - `doctor.tests.ps1`: PASS;
 - `canonical-hard-kill.tests.ps1`: 100 passed, 22 planned Phase 1 RED failures remain;
-- follow-up `canonical-hard-kill.tests.ps1 -Section primitives`: 74 passed, 21 planned RED
-  failures remain after implementing the closed 20-case child dispatcher and its twenty unique typed
-  handler leaves; the reviewed child primitive authority intentionally remains RED until its native
-  behavior is implemented;
+- follow-up `canonical-hard-kill.tests.ps1 -Section primitives`: 75 passed, 20 planned RED
+  failures remain after implementing the closed 20-case child dispatcher, its twenty unique typed
+  handler leaves, and the hash-held 20-case behavior-probe host route; the reviewed child primitive
+  authority intentionally remains RED until its native behavior is implemented;
 - sync dry-run: PASS, no prune or unknown directories, Codex `.system` preserved; no live write or
   Apply was performed.
 
 The remaining hard-kill failures are implementation gates from
 `docs/superpowers/plans/2026-08-14-deterministic-hard-kill-checkpoints.md`, including the sealed
-transport session, parent oracle/cleanup authorities, behavior host, and native/QPC lifecycle.
+transport session, parent oracle/cleanup authorities, child behavior primitives, and native/QPC lifecycle.
 Production Apply remains interlocked while those gates are incomplete.
 
 ## Current boundaries and known state
@@ -215,7 +215,7 @@ Production Apply remains interlocked while those gates are incomplete.
 
 ## Next actions
 
-1. Complete the deterministic hard-kill checkpoint implementation until the remaining 21 RED gates
+1. Complete the deterministic hard-kill checkpoint implementation until the remaining 20 RED gates
    pass; do not replace them with temporary helper APIs or weaker assertions.
 2. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,

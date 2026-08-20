@@ -1,6 +1,16 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
+    [switch]$ContractProbe,
+    [string]$ContractProbeRequestPath,
+    [string]$ContractProbeRequestSha256,
+    [string]$MutationEnginePath,
+    [string]$ExpectedEngineSha256,
+    [string]$SealedInvocationFixturePath,
+    [string]$SealedInvocationFixtureSha256,
+    [string]$ExpectedProbeHostSha256,
+    [string]$ContractProbeResultPath,
+    [string]$ContractProbeScratchRoot,
     [Parameter(Mandatory)][string]$ToolchainRoot,
     [Parameter(Mandatory)][string]$FixtureRoot,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f-]{36}$')][string]$TransactionId,
@@ -11,6 +21,70 @@ param(
     [ValidatePattern('^AiAgentDotfilesTests-AfterPreimage-[0-9a-f]{32}$')][string]$AfterPreimageStageEventName,
     [ValidateSet('committed','failed-restored')][string]$TerminalOutcome='committed'
 )
+function Invoke-SealedMutationContractProbe {
+    param($ContractProbeRequestPath,$ContractProbeRequestSha256,$MutationEnginePath,$ExpectedEngineSha256,$ExpectedProbeHostSha256,$ContractProbeResultPath,$ContractProbeScratchRoot)
+    $hostPath=[IO.Path]::GetFullPath($PSCommandPath)
+    $hostBytes=[IO.File]::ReadAllBytes($hostPath)
+    $hostHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($hostBytes)).ToLowerInvariant()
+    if($hostHash -cne $ExpectedProbeHostSha256){throw 'behavior-host-hash-mismatch'}
+    $enginePath=[IO.Path]::GetFullPath($MutationEnginePath)
+    $engineBytes=[IO.File]::ReadAllBytes($enginePath)
+    $engineHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($engineBytes)).ToLowerInvariant()
+    if($engineHash -cne $ExpectedEngineSha256){throw 'behavior-engine-hash-mismatch'}
+    . $enginePath
+    Assert-SealedMutationBehaviorChildPrimitiveAuthority
+    $request=ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($ContractProbeRequestPath))
+    $requestCases=@($request.Cases)
+    if($requestCases.Count -ne 20){throw 'behavior-request-case-count'}
+    $rows=[Collections.Generic.List[object]]::new()
+    $inventoryRows=[Collections.Generic.List[object]]::new()
+    $priorRowSha256=('0'*64)
+    $hostIdentity=$null
+    foreach($requestCase in $requestCases){
+        $fixture=$null
+        $casePrimary=$null
+        try{
+            $absoluteDeadlineQpc=[long]$requestCase.AbsoluteDeadlineQpc
+            $fixture=New-SealedMutationBehaviorFixture -Request $requestCase -ScratchRoot $ContractProbeScratchRoot -AbsoluteDeadlineQpc $absoluteDeadlineQpc
+            $action=Read-SealedMutationBehaviorControllerAction -Fixture $fixture -Request $requestCase -AbsoluteDeadlineQpc $absoluteDeadlineQpc
+            $rawCase=Invoke-SealedMutationBehaviorCase -Fixture $fixture -Request $requestCase -Action $action
+            $responseDocument=[ordered]@{SchemaVersion=[long]1;ArtifactKind='sealed-mutation-controller-response-challenge';CaseNonce=[string]$requestCase.CaseNonce;ActionNonce=[string]$action.ActionNonce;ChallengeRawSha256=[string]$action.ChallengeRawSha256}
+            $responseBytes=Get-SealedMutationBehaviorResponseBytes -Document $responseDocument -Request $requestCase -Action $action
+            $responseReceipt=Write-SealedMutationBehaviorResponse -Fixture $fixture -Bytes $responseBytes -Request $requestCase
+            $responseArtifact=$responseReceipt.Artifact
+            $responseIdentity=$responseReceipt.HostIdentity
+            if($null -eq $responseIdentity -or $responseIdentity.Pid -isnot [long] -or $responseIdentity.RootCreationFileTimeTicks -isnot [string]){throw 'behavior-response-host-identity-invalid'}
+            if($null -eq $hostIdentity){$hostIdentity=$responseIdentity}elseif([long]$hostIdentity.Pid -ne [long]$responseIdentity.Pid -or [string]$hostIdentity.RootCreationFileTimeTicks -cne [string]$responseIdentity.RootCreationFileTimeTicks){throw 'behavior-response-host-identity-drift'}
+            $artifacts=@($rawCase.Artifacts)+@($responseArtifact)
+            $rowDocument=[ordered]@{Index=[long]$requestCase.Index;Name=[string]$requestCase.Name;CaseNonce=[string]$requestCase.CaseNonce;InputSha256=[string]$requestCase.InputSha256;ActionSha256=[string]$action.Sha256;PriorRowSha256=$priorRowSha256;RawRows=@($rawCase.RawRows);Artifacts=@($artifacts);RawFailure=$rawCase.RawFailure}
+            $rowSha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData((ConvertTo-SemanticJsonBytes -InputObject $rowDocument))).ToLowerInvariant()
+            $row=[ordered]@{Index=$rowDocument.Index;Name=$rowDocument.Name;CaseNonce=$rowDocument.CaseNonce;InputSha256=$rowDocument.InputSha256;ActionSha256=$rowDocument.ActionSha256;PriorRowSha256=$rowDocument.PriorRowSha256;RawRows=@($rowDocument.RawRows);Artifacts=@($rowDocument.Artifacts);RawFailure=$rowDocument.RawFailure;RowSha256=$rowSha256}
+            $rows.Add($row)
+            $inventoryRows.Add([ordered]@{Index=[long]$row.Index;Name=[string]$row.Name;Artifacts=@($row.Artifacts)})
+            $priorRowSha256=$rowSha256
+        }catch{
+            $casePrimary=$_.Exception
+        }finally{
+            $closeFailure=$null
+            if($null -ne $fixture){
+                try{Close-SealedMutationBehaviorFixture -Fixture $fixture}catch{$closeFailure=$_.Exception}
+                $fixture=$null
+            }
+            if($null -ne $casePrimary){
+                if($null -ne $closeFailure){throw [AggregateException]::new('behavior-case-primary-and-cleanup',[Exception[]]@($casePrimary,$closeFailure))}
+                throw $casePrimary
+            }
+            if($null -ne $closeFailure){throw $closeFailure}
+        }
+    }
+    $inventorySha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData((ConvertTo-SemanticJsonBytes -InputObject @($inventoryRows)))).ToLowerInvariant()
+    $document=[ordered]@{SchemaVersion=[long]1;ArtifactKind='sealed-mutation-contract-raw-evidence';RequestSha256=$ContractProbeRequestSha256;EngineRawSha256=$ExpectedEngineSha256;ProbeHostRawSha256=$ExpectedProbeHostSha256;HostIdentity=$hostIdentity;Cases=@($rows);EvidenceInventorySha256=$inventorySha256;HashChainTailSha256=$priorRowSha256;RawFailure=$null}
+    [IO.File]::WriteAllBytes($ContractProbeResultPath,(ConvertTo-SemanticJsonBytes -InputObject $document))
+}
+if($ContractProbe){
+    Invoke-SealedMutationContractProbe -ContractProbeRequestPath $ContractProbeRequestPath -ContractProbeRequestSha256 $ContractProbeRequestSha256 -MutationEnginePath $MutationEnginePath -ExpectedEngineSha256 $ExpectedEngineSha256 -ExpectedProbeHostSha256 $ExpectedProbeHostSha256 -ContractProbeResultPath $ContractProbeResultPath -ContractProbeScratchRoot $ContractProbeScratchRoot
+    return
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
