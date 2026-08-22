@@ -99,7 +99,7 @@ function Invoke-HardKillRealPreimageCheckpoint {
         [string]$swapOldWorkspaceRecords[1].Phase -cne 'WORKSPACE_CREATED' -or -not [string]$swapOldWorkspaceRecords[1].Data.CreatedIdentity){throw 'real preimage durable workspace tail is incomplete'}
     $sourceState=Get-CanonicalObservedPathState -Path ([string]$Target.TargetPath) -ExpectedKind file
     if([string]$sourceState.State -cne 'PRESENT' -or -not(Test-CanonicalObservedMatchesContractState -Actual $sourceState -Contract $Target.Current)){throw 'real preimage source differs from the target tuple'}
-    Invoke-SealedMutationReach -InvocationContext $InvocationContext -TransactionNamespace $TransactionNamespace -Checkpoint PreimageReady -DeclaredVariant RealPreimageFile -ActualBranchState $sourceState.State -Evidence ([ordered]@{EvidenceKind='RealPreimageReady';Target=$Target;PreimageWorkspaceIntent=$preimageWorkspaceRecords[0];PreimageWorkspaceCreated=$preimageWorkspaceRecords[1];SwapOldWorkspaceIntent=$swapOldWorkspaceRecords[0];SwapOldWorkspaceCreated=$swapOldWorkspaceRecords[1];SourceState=$sourceState})
+    Invoke-SealedMutationReach -InvocationContext $InvocationContext -TransactionNamespace $TransactionNamespace -Checkpoint PreimageReady -DeclaredVariant RealPreimageFile -ActualBranchState $sourceState.State -SelectorArm ([ordered]@{TargetId=$Target.TargetId;TargetOrder=$Target.Order}) -ObservedRecordData ([ordered]@{EvidenceKind='RealPreimageReady';Target=$Target;PreimageWorkspaceIntent=$preimageWorkspaceRecords[0];PreimageWorkspaceCreated=$preimageWorkspaceRecords[1];SwapOldWorkspaceIntent=$swapOldWorkspaceRecords[0];SwapOldWorkspaceCreated=$swapOldWorkspaceRecords[1];SourceState=$sourceState})
     $null=Initialize-CanonicalTransactionPreimages -TransactionNamespace $TransactionNamespace
 }
 function Invoke-HardKillRetainedPartialPreimageFixture {
@@ -155,7 +155,7 @@ function Invoke-HardKillRetainedPartialPreimageFixture {
         $partialCapture=[AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFile($workspaceHandle,$partialLeaf,$payload)
         if([long]$partialCapture.ReadResult.Length -ne [long]$payload.LongLength -or [string]$partialCapture.ReadResult.Sha256 -cne $prefixSha256){throw 'retained partial preimage bytes differ from the strict source prefix'}
         $partialEvidence=[ordered]@{EvidenceKind='SyntheticDirectRetainedPartialPreimage';Target=$Target;PreimagePath=$partialPath;PreimageWorkspaceIntent=$preimageWorkspaceRecords[0];PreimageWorkspaceCreated=$preimageWorkspaceRecords[1];SwapOldWorkspaceIntent=$swapOldWorkspaceRecords[0];SwapOldWorkspaceCreated=$swapOldWorkspaceRecords[1];PartialIdentity=[string]$partialCapture.Info.Identity;PartialLength=[long]$partialCapture.ReadResult.Length;PartialRawSha256=[string]$partialCapture.ReadResult.Sha256;SourceIdentity=[string]$sourceCapture.Info.Identity;SourceLength=[long]$sourceCapture.ReadResult.Length;SourceRawSha256=[string]$sourceCapture.ReadResult.Sha256}
-        Invoke-SealedMutationReach -InvocationContext $InvocationContext -TransactionNamespace $TransactionNamespace -Checkpoint RetainedPartialPreimage -DeclaredVariant RetainedPartialPreimageFile -ActualBranchState $targetState.State -Evidence $partialEvidence
+        Invoke-SealedMutationReach -InvocationContext $InvocationContext -TransactionNamespace $TransactionNamespace -Checkpoint RetainedPartialPreimage -DeclaredVariant RetainedPartialPreimageFile -ActualBranchState $targetState.State -SelectorArm ([ordered]@{TargetId=$Target.TargetId;TargetOrder=$Target.Order}) -ObservedRecordData $partialEvidence
     }catch{
         $partialPrimary=$_.Exception
     }finally{
@@ -277,31 +277,40 @@ $header=[ordered]@{
     RecoveryTransactionRoot=[IO.Path]::GetFullPath($recovery);ExpectedPostconditionsHash=('6'*64);Targets=@($targets)
 }
 $null=New-CanonicalJournalHeader -Document $header -TransactionNamespace $namespace
+$sealedWorkspaceSelected=@(
+    'before-workspace-mkdir:preimage',
+    'after-workspace-mkdir:preimage',
+    'before-workspace-mkdir:swap-old',
+    'after-workspace-mkdir:swap-old'
+) -ccontains $Checkpoint
 $sealedPreimageSelected=$Checkpoint -ceq 'before-preimage-copy' -or $Checkpoint -ceq 'after-preimage-copy' -or $Checkpoint -ceq 'during-preimage-copy'
+$sealedMutationStageSelected=$sealedWorkspaceSelected -or $sealedPreimageSelected
 $sealedStageArguments=@($MutationEnginePath,$ExpectedEngineSha256,$SealedInvocationFixturePath,$SealedInvocationFixtureSha256)
 $sealedStageArgumentCount=[int](-not[string]::IsNullOrWhiteSpace([string]$MutationEnginePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$ExpectedEngineSha256))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixturePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixtureSha256))
-if(($sealedPreimageSelected -and $sealedStageArgumentCount -ne 4) -or (-not $sealedPreimageSelected -and $sealedStageArgumentCount -ne 0)){throw 'sealed preimage stage arguments must be all present or all absent'}
-if($sealedPreimageSelected){
+if(($sealedMutationStageSelected -and $sealedStageArgumentCount -ne 4) -or (-not $sealedMutationStageSelected -and $sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}
+if($sealedMutationStageSelected){
     $normalEnginePath=[IO.Path]::GetFullPath($MutationEnginePath)
     $normalEngineBytes=[IO.File]::ReadAllBytes($normalEnginePath)
     $normalEngineSha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($normalEngineBytes)).ToLowerInvariant()
-    if($normalEngineSha256 -cne $ExpectedEngineSha256){throw 'sealed preimage engine hash mismatch'}
+    if($normalEngineSha256 -cne $ExpectedEngineSha256){throw 'sealed mutation engine hash mismatch'}
     . $normalEnginePath
     Assert-SealedMutationBehaviorChildPrimitiveAuthority
     $normalFixturePath=[IO.Path]::GetFullPath($SealedInvocationFixturePath)
     $normalFixtureBytes=[IO.File]::ReadAllBytes($normalFixturePath)
     $normalFixtureSha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($normalFixtureBytes)).ToLowerInvariant()
-    if($normalFixtureSha256 -cne $SealedInvocationFixtureSha256){throw 'sealed preimage invocation fixture hash mismatch'}
+    if($normalFixtureSha256 -cne $SealedInvocationFixtureSha256){throw 'sealed mutation invocation fixture hash mismatch'}
     $normalFixtureText=[Text.UTF8Encoding]::new($false,$true).GetString($normalFixtureBytes)
     $sealedInvocationFixture=ConvertFrom-SemanticJson -Json $normalFixtureText
-    if([string]$sealedInvocationFixture.HostRawSha256 -cne $ExpectedProbeHostSha256 -or [string]$sealedInvocationFixture.EngineProvenance.RawSha256 -cne $ExpectedEngineSha256){throw 'sealed preimage invocation fixture provenance mismatch'}
+    if([string]$sealedInvocationFixture.HostRawSha256 -cne $ExpectedProbeHostSha256 -or [string]$sealedInvocationFixture.EngineProvenance.RawSha256 -cne $ExpectedEngineSha256){throw 'sealed mutation invocation fixture provenance mismatch'}
     $stageSelector=[AiAgentDotfilesTests.SealedMutationStageSelector]::ParseCanonicalWire($sealedInvocationFixture.Selector,$sealedInvocationFixture.SelectorSha256)
     $InvocationContext=$null
     $contextPrimary=$null
     $contextCleanupErrors=[Collections.Generic.List[Exception]]::new()
     try{
         $InvocationContext=[AiAgentDotfilesTests.SealedMutationInvocationContext]::Open($stageSelector)
-        if($Checkpoint -ceq 'before-preimage-copy' -or $Checkpoint -ceq 'after-preimage-copy'){
+        if($sealedWorkspaceSelected){
+            Initialize-SealedCanonicalRecoveryWorkspace -TransactionNamespace $namespace -InvocationContext $InvocationContext
+        }elseif($Checkpoint -ceq 'before-preimage-copy' -or $Checkpoint -ceq 'after-preimage-copy'){
             Invoke-HardKillRealPreimageCheckpoint -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
         }elseif($Checkpoint -ceq 'during-preimage-copy'){
             Invoke-HardKillRetainedPartialPreimageFixture -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
@@ -317,7 +326,7 @@ if($sealedPreimageSelected){
         if($null -ne $contextPrimary){$null=$contextFailures.Add($contextPrimary)}
         foreach($cleanupError in $contextCleanupErrors){$null=$contextFailures.Add($cleanupError)}
         if($contextFailures.Count -eq 1){throw $contextFailures[0]}
-        throw [AggregateException]::new('sealed-preimage-context-primary-and-cleanup',[Exception[]]$contextFailures.ToArray())
+        throw [AggregateException]::new('sealed-mutation-context-primary-and-cleanup',[Exception[]]$contextFailures.ToArray())
     }
     exit 0
 }

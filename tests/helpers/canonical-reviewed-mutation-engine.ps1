@@ -12,9 +12,20 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 
 namespace AiAgentDotfilesTests
 {
@@ -52,90 +63,411 @@ namespace AiAgentDotfilesTests
 
     public sealed class SealedMutationStageSelector
     {
+        private const int ReviewedControllerObservationMilliseconds = 300000;
+        private const int ReviewedJobReapMilliseconds = 30000;
+        private const int ReviewedCleanupMilliseconds = 30000;
+        private const int ReviewedWorkerWaitMilliseconds = 420000;
+        private static readonly Regex CanonicalPositiveInt64 = new Regex("^[1-9][0-9]{0,18}$", RegexOptions.CultureInvariant);
+        private static readonly Regex LowerSha256 = new Regex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
+        private static readonly JsonSerializerOptions CanonicalJsonOptions = CreateCanonicalJsonOptions();
+        private static readonly string[] ExactWireKeys = new string[] {
+            "SchemaVersion", "ArtifactKind", "ControllerNonce", "CaseNonce",
+            "StageReadyEventName", "StageReadyEventNonce", "ContinueEventName", "ContinueEventNonce",
+            "TransactionId", "TransactionNamespace", "Checkpoint", "DeclaredVariant",
+            "ExpectedIntentPhase", "ExpectedIntentSequence", "ExpectedTailPhase", "ExpectedTailSequence",
+            "SelectorArm", "StageRootPath", "StageRootIdentity", "StageTempLeaf", "StageFinalLeaf",
+            "ControllerObservationMilliseconds", "JobReapMilliseconds", "CleanupMilliseconds", "WorkerWaitMilliseconds",
+            "ControllerQpcTicks", "StopwatchFrequency", "ControllerObservationDeadlineQpc",
+            "HardKillCumulativeReapDeadlineQpc", "WorkerDeadlineQpc", "NaturalReleaseCumulativeReapDeadlineQpc",
+            "HardKillCumulativeCleanupDeadlineQpc", "NaturalReleaseCumulativeCleanupDeadlineQpc"
+        };
+
+        public string ControllerNonce { get; }
+        public string CaseNonce { get; }
+        public string StageReadyEventName { get; }
+        public string StageReadyEventNonce { get; }
+        public string ContinueEventName { get; }
+        public string ContinueEventNonce { get; }
+        public string TransactionId { get; }
+        public string TransactionNamespace { get; }
         public SealedMutationCheckpoint Checkpoint { get; }
         public SealedMutationPrimitiveVariant DeclaredVariant { get; }
         public string SelectorArmJson { get; }
-        public string StageArtifactIdentity { get; }
-        public string IntentRawSha256 { get; }
-        public string TailRawSha256 { get; }
-        public string DerivedJournalHeadHash { get; }
-        internal int MatchState;
+        public string WorkspaceRole { get; }
+        public string TargetId { get; }
+        public long TargetOrder { get; }
+        public string ExpectedIntentPhase { get; }
+        public long ExpectedIntentSequence { get; }
+        public string ExpectedTailPhase { get; }
+        public long ExpectedTailSequence { get; }
+        public string StageRootPath { get; }
+        public string StageRootIdentity { get; }
+        public string StageTempLeaf { get; }
+        public string StageFinalLeaf { get; }
+        public int ControllerObservationMilliseconds { get; }
+        public int JobReapMilliseconds { get; }
+        public int CleanupMilliseconds { get; }
+        public int WorkerWaitMilliseconds { get; }
+        public long ControllerQpcTicks { get; }
+        public long StopwatchFrequency { get; }
+        public long ControllerObservationDeadlineQpc { get; }
+        public long HardKillCumulativeReapDeadlineQpc { get; }
+        public long WorkerDeadlineQpc { get; }
+        public long NaturalReleaseCumulativeReapDeadlineQpc { get; }
+        public long HardKillCumulativeCleanupDeadlineQpc { get; }
+        public long NaturalReleaseCumulativeCleanupDeadlineQpc { get; }
+        public string SelectorSha256 { get; }
+        public SealedJobQpcDeadlines Deadlines { get; }
 
-        public SealedMutationStageSelector(SealedMutationCheckpoint checkpoint, SealedMutationPrimitiveVariant declaredVariant, string selectorArmJson, string stageArtifactIdentity, string intentRawSha256, string tailRawSha256, string derivedJournalHeadHash)
+        private SealedMutationStageSelector(IDictionary wire, string selectorSha256)
         {
-            Checkpoint = checkpoint;
-            DeclaredVariant = declaredVariant;
-            SelectorArmJson = selectorArmJson ?? string.Empty;
-            StageArtifactIdentity = stageArtifactIdentity ?? string.Empty;
-            IntentRawSha256 = intentRawSha256 ?? string.Empty;
-            TailRawSha256 = tailRawSha256 ?? string.Empty;
-            DerivedJournalHeadHash = derivedJournalHeadHash ?? string.Empty;
-            MatchState = 0;
+            ControllerNonce = RequiredNonce(wire, "ControllerNonce");
+            CaseNonce = RequiredNonce(wire, "CaseNonce");
+            StageReadyEventName = RequiredEventName(wire, "StageReadyEventName");
+            StageReadyEventNonce = RequiredNonce(wire, "StageReadyEventNonce");
+            ContinueEventName = RequiredEventName(wire, "ContinueEventName");
+            ContinueEventNonce = RequiredNonce(wire, "ContinueEventNonce");
+            if (String.Equals(StageReadyEventName, ContinueEventName, StringComparison.Ordinal) ||
+                String.Equals(StageReadyEventNonce, ContinueEventNonce, StringComparison.Ordinal))
+                throw new ArgumentException("selector event identities are not distinct");
+            TransactionId = RequiredString(wire, "TransactionId");
+            Guid transactionGuid;
+            if (!Guid.TryParseExact(TransactionId, "D", out transactionGuid) ||
+                !String.Equals(transactionGuid.ToString("D"), TransactionId, StringComparison.Ordinal))
+                throw new ArgumentException("selector transaction id is not canonical");
+            TransactionNamespace = RequiredCanonicalPath(wire, "TransactionNamespace");
+            Checkpoint = RequiredEnum<SealedMutationCheckpoint>(wire, "Checkpoint");
+            DeclaredVariant = RequiredEnum<SealedMutationPrimitiveVariant>(wire, "DeclaredVariant");
+            ExpectedIntentPhase = RequiredPhase(wire, "ExpectedIntentPhase");
+            ExpectedIntentSequence = RequiredPositiveJsonInt64(wire, "ExpectedIntentSequence");
+            ExpectedTailPhase = RequiredPhase(wire, "ExpectedTailPhase");
+            ExpectedTailSequence = RequiredPositiveJsonInt64(wire, "ExpectedTailSequence");
+            if (ExpectedTailSequence < ExpectedIntentSequence)
+                throw new ArgumentException("selector durable tail precedes intent");
+
+            IDictionary arm = RequiredDictionary(wire, "SelectorArm");
+            SelectorArmJson = CanonicalJson(arm);
+            if (HasExactKeys(arm, new string[] { "WorkspaceRole" })) {
+                WorkspaceRole = RequiredString(arm, "WorkspaceRole");
+                if (WorkspaceRole != "preimage" && WorkspaceRole != "swap-old")
+                    throw new ArgumentException("selector workspace role is invalid");
+                TargetId = null;
+                TargetOrder = -1L;
+            } else if (HasExactKeys(arm, new string[] { "TargetId", "TargetOrder" })) {
+                WorkspaceRole = null;
+                TargetId = RequiredString(arm, "TargetId");
+                TargetOrder = RequiredNonnegativeJsonInt64(arm, "TargetOrder");
+            } else {
+                throw new ArgumentException("selector arm is not exactly one reviewed arm");
+            }
+            ValidateArmAndVariant();
+            ValidateDurablePhaseContract();
+
+            StageRootPath = RequiredCanonicalPath(wire, "StageRootPath");
+            StageRootIdentity = RequiredIdentity(wire, "StageRootIdentity");
+            StageTempLeaf = RequiredLeaf(wire, "StageTempLeaf");
+            StageFinalLeaf = RequiredLeaf(wire, "StageFinalLeaf");
+            if (String.Equals(StageTempLeaf, StageFinalLeaf, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("selector stage leaves are not distinct");
+
+            ControllerObservationMilliseconds = RequiredExactBudget(wire, "ControllerObservationMilliseconds", ReviewedControllerObservationMilliseconds);
+            JobReapMilliseconds = RequiredExactBudget(wire, "JobReapMilliseconds", ReviewedJobReapMilliseconds);
+            CleanupMilliseconds = RequiredExactBudget(wire, "CleanupMilliseconds", ReviewedCleanupMilliseconds);
+            WorkerWaitMilliseconds = RequiredExactBudget(wire, "WorkerWaitMilliseconds", ReviewedWorkerWaitMilliseconds);
+            if (checked(ControllerObservationMilliseconds + JobReapMilliseconds + CleanupMilliseconds + 30000) >= WorkerWaitMilliseconds ||
+                WorkerWaitMilliseconds >= 480000 || 480000 >= 5400000)
+                throw new ArgumentException("selector reviewed budget inequality failed");
+
+            ControllerQpcTicks = RequiredCanonicalWireInt64(wire, "ControllerQpcTicks");
+            StopwatchFrequency = RequiredCanonicalWireInt64(wire, "StopwatchFrequency");
+            if (StopwatchFrequency != Stopwatch.Frequency)
+                throw new ArgumentException("selector stopwatch frequency differs from this process");
+            ControllerObservationDeadlineQpc = RequiredCanonicalWireInt64(wire, "ControllerObservationDeadlineQpc");
+            HardKillCumulativeReapDeadlineQpc = RequiredCanonicalWireInt64(wire, "HardKillCumulativeReapDeadlineQpc");
+            WorkerDeadlineQpc = RequiredCanonicalWireInt64(wire, "WorkerDeadlineQpc");
+            NaturalReleaseCumulativeReapDeadlineQpc = RequiredCanonicalWireInt64(wire, "NaturalReleaseCumulativeReapDeadlineQpc");
+            HardKillCumulativeCleanupDeadlineQpc = RequiredCanonicalWireInt64(wire, "HardKillCumulativeCleanupDeadlineQpc");
+            NaturalReleaseCumulativeCleanupDeadlineQpc = RequiredCanonicalWireInt64(wire, "NaturalReleaseCumulativeCleanupDeadlineQpc");
+            RequireDeadline(ControllerObservationDeadlineQpc, AddMilliseconds(ControllerQpcTicks, ControllerObservationMilliseconds, StopwatchFrequency), "controller observation");
+            RequireDeadline(HardKillCumulativeReapDeadlineQpc, AddMilliseconds(ControllerObservationDeadlineQpc, JobReapMilliseconds, StopwatchFrequency), "hard-kill reap");
+            RequireDeadline(WorkerDeadlineQpc, AddMilliseconds(ControllerQpcTicks, WorkerWaitMilliseconds, StopwatchFrequency), "worker");
+            RequireDeadline(NaturalReleaseCumulativeReapDeadlineQpc, AddMilliseconds(WorkerDeadlineQpc, JobReapMilliseconds, StopwatchFrequency), "natural-release reap");
+            RequireDeadline(HardKillCumulativeCleanupDeadlineQpc, AddMilliseconds(HardKillCumulativeReapDeadlineQpc, CleanupMilliseconds, StopwatchFrequency), "hard-kill cleanup");
+            RequireDeadline(NaturalReleaseCumulativeCleanupDeadlineQpc, AddMilliseconds(NaturalReleaseCumulativeReapDeadlineQpc, CleanupMilliseconds, StopwatchFrequency), "natural-release cleanup");
+
+            SelectorSha256 = selectorSha256;
+            Deadlines = new SealedJobQpcDeadlines(WorkerWaitMilliseconds, ControllerObservationMilliseconds,
+                JobReapMilliseconds, CleanupMilliseconds, StopwatchFrequency, ControllerQpcTicks, WorkerDeadlineQpc,
+                ControllerObservationDeadlineQpc, HardKillCumulativeReapDeadlineQpc,
+                HardKillCumulativeCleanupDeadlineQpc, NaturalReleaseCumulativeReapDeadlineQpc,
+                NaturalReleaseCumulativeCleanupDeadlineQpc, SelectorSha256);
         }
 
-        public bool TryAcceptMatch()
+        public static SealedMutationStageSelector ParseCanonicalWire(object canonicalWire, string expectedSha256)
         {
-            return Interlocked.CompareExchange(ref MatchState, 1, 0) == 0;
+            IDictionary wire = canonicalWire as IDictionary;
+            if (wire == null) throw new ArgumentException("selector wire must be a dictionary", nameof(canonicalWire));
+            if (!HasExactKeys(wire, ExactWireKeys)) throw new ArgumentException("selector wire has unknown or missing keys", nameof(canonicalWire));
+            if (RequiredPositiveJsonInt64(wire, "SchemaVersion") != 1L || RequiredString(wire, "ArtifactKind") != "sealed-mutation-stage-selector")
+                throw new ArgumentException("selector wire header is invalid", nameof(canonicalWire));
+            if (String.IsNullOrEmpty(expectedSha256) || !LowerSha256.IsMatch(expectedSha256))
+                throw new ArgumentException("selector hash is not canonical", nameof(expectedSha256));
+            string actual = Hex(SHA256.HashData(new UTF8Encoding(false, true).GetBytes(CanonicalJson(wire))));
+            if (!String.Equals(actual, expectedSha256, StringComparison.Ordinal))
+                throw new ArgumentException("selector semantic hash mismatch", nameof(expectedSha256));
+            return new SealedMutationStageSelector(wire, actual);
         }
+
+        internal bool MatchesArm(string selectorArmJson)
+        {
+            return String.Equals(SelectorArmJson, selectorArmJson, StringComparison.Ordinal);
+        }
+
+        internal bool VariantIsCompatible(SealedMutationCheckpoint checkpoint, SealedMutationPrimitiveVariant declaredVariant, string actualBranchState)
+        {
+            SealedMutationPrimitiveVariant derived;
+            switch (checkpoint) {
+                case SealedMutationCheckpoint.BeforeWorkspaceCreate:
+                case SealedMutationCheckpoint.AfterWorkspaceCreate:
+                    if (actualBranchState == "preimage") derived = SealedMutationPrimitiveVariant.WorkspacePreimageCreate;
+                    else if (actualBranchState == "swap-old") derived = SealedMutationPrimitiveVariant.WorkspaceSwapOldCreate;
+                    else return false;
+                    break;
+                case SealedMutationCheckpoint.BeforeParentCreate:
+                case SealedMutationCheckpoint.AfterParentCreate:
+                    if (actualBranchState != "MISSING") return false;
+                    derived = SealedMutationPrimitiveVariant.ParentCreate;
+                    break;
+                case SealedMutationCheckpoint.BeforeDirectoryOldMove:
+                case SealedMutationCheckpoint.AfterDirectoryOldMove:
+                    if (actualBranchState != "PRESENT") return false;
+                    derived = SealedMutationPrimitiveVariant.DirectoryOldMovePresent;
+                    break;
+                case SealedMutationCheckpoint.BeforeDirectoryNewMove:
+                case SealedMutationCheckpoint.AfterDirectoryNewMove:
+                    if (actualBranchState != "PRESENT") return false;
+                    derived = SealedMutationPrimitiveVariant.DirectoryNewMovePresent;
+                    break;
+                case SealedMutationCheckpoint.BeforeDirectoryDeletionRecord:
+                case SealedMutationCheckpoint.AfterDirectoryDeletionRecord:
+                    if (actualBranchState != "MISSING") return false;
+                    derived = SealedMutationPrimitiveVariant.DirectoryDeletionRecordMissing;
+                    break;
+                case SealedMutationCheckpoint.BeforeFileReplaceMove:
+                case SealedMutationCheckpoint.AfterFileReplaceMove:
+                    if (actualBranchState == "PRESENT") derived = SealedMutationPrimitiveVariant.FileReplacePresent;
+                    else if (actualBranchState == "MISSING") derived = SealedMutationPrimitiveVariant.FileMoveMissing;
+                    else return false;
+                    break;
+                case SealedMutationCheckpoint.PreimageReady:
+                    if (actualBranchState != "PRESENT") return false;
+                    derived = SealedMutationPrimitiveVariant.RealPreimageFile;
+                    break;
+                case SealedMutationCheckpoint.RetainedPartialPreimage:
+                    if (actualBranchState != "PRESENT") return false;
+                    derived = SealedMutationPrimitiveVariant.RetainedPartialPreimageFile;
+                    break;
+                default: return false;
+            }
+            return derived == declaredVariant && derived == DeclaredVariant;
+        }
+
+        internal static string CanonicalJson(object value)
+        {
+            StringBuilder builder = new StringBuilder();
+            WriteCanonicalJson(value, builder);
+            return builder.ToString();
+        }
+
+        private void ValidateArmAndVariant()
+        {
+            bool workspace = WorkspaceRole != null;
+            bool workspaceCheckpoint = Checkpoint == SealedMutationCheckpoint.BeforeWorkspaceCreate || Checkpoint == SealedMutationCheckpoint.AfterWorkspaceCreate;
+            if (workspace != workspaceCheckpoint) throw new ArgumentException("selector arm is incompatible with checkpoint");
+            string actual = workspace ? WorkspaceRole : DerivedSelectorState(Checkpoint, DeclaredVariant);
+            if (!VariantIsCompatible(Checkpoint, DeclaredVariant, actual))
+                throw new ArgumentException("selector variant is incompatible with checkpoint and arm");
+        }
+
+        private void ValidateDurablePhaseContract()
+        {
+            string intent;
+            string tail;
+            bool adjacent = false;
+            switch (Checkpoint) {
+                case SealedMutationCheckpoint.BeforeWorkspaceCreate:
+                case SealedMutationCheckpoint.AfterWorkspaceCreate:
+                    intent = "WORKSPACE_CREATE_INTENT"; tail = intent; break;
+                case SealedMutationCheckpoint.BeforeParentCreate:
+                case SealedMutationCheckpoint.AfterParentCreate:
+                    intent = "DIR_CREATE_INTENT"; tail = intent; break;
+                case SealedMutationCheckpoint.BeforeDirectoryOldMove:
+                case SealedMutationCheckpoint.AfterDirectoryOldMove:
+                    intent = "MOVE_OLD_INTENT"; tail = intent; break;
+                case SealedMutationCheckpoint.BeforeDirectoryNewMove:
+                case SealedMutationCheckpoint.AfterDirectoryNewMove:
+                case SealedMutationCheckpoint.BeforeDirectoryDeletionRecord:
+                    intent = "MOVE_NEW_INTENT"; tail = intent; break;
+                case SealedMutationCheckpoint.AfterDirectoryDeletionRecord:
+                    intent = "MOVE_NEW_INTENT"; tail = "NEW_INSTALLED"; adjacent = true; break;
+                case SealedMutationCheckpoint.BeforeFileReplaceMove:
+                case SealedMutationCheckpoint.AfterFileReplaceMove:
+                    intent = "FILE_REPLACE_INTENT"; tail = intent; break;
+                case SealedMutationCheckpoint.PreimageReady:
+                    intent = "WORKSPACE_CREATE_INTENT"; tail = "WORKSPACE_CREATED"; adjacent = true; break;
+                case SealedMutationCheckpoint.RetainedPartialPreimage:
+                    intent = "PREIMAGE_COPY_INTENT"; tail = intent; break;
+                default: throw new ArgumentException("selector checkpoint has no durable phase contract");
+            }
+            if (!String.Equals(ExpectedIntentPhase, intent, StringComparison.Ordinal) ||
+                !String.Equals(ExpectedTailPhase, tail, StringComparison.Ordinal))
+                throw new ArgumentException("selector durable phases are incompatible with its checkpoint");
+            long expectedTailSequence = adjacent ? checked(ExpectedIntentSequence + 1L) : ExpectedIntentSequence;
+            if (ExpectedTailSequence != expectedTailSequence)
+                throw new ArgumentException("selector durable phase sequences are incompatible with its checkpoint");
+        }
+
+        private static string DerivedSelectorState(SealedMutationCheckpoint checkpoint, SealedMutationPrimitiveVariant variant)
+        {
+            if (checkpoint == SealedMutationCheckpoint.BeforeParentCreate || checkpoint == SealedMutationCheckpoint.AfterParentCreate ||
+                checkpoint == SealedMutationCheckpoint.BeforeDirectoryDeletionRecord || checkpoint == SealedMutationCheckpoint.AfterDirectoryDeletionRecord ||
+                variant == SealedMutationPrimitiveVariant.FileMoveMissing) return "MISSING";
+            return "PRESENT";
+        }
+
+        private static void WriteCanonicalJson(object value, StringBuilder builder)
+        {
+            if (value == null) { builder.Append("null"); return; }
+            if (value is string || value is char) { builder.Append(JsonSerializer.Serialize(Convert.ToString(value, CultureInfo.InvariantCulture), CanonicalJsonOptions)); return; }
+            if (value is bool) { builder.Append((bool)value ? "true" : "false"); return; }
+            Type type = value.GetType();
+            if (type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort) ||
+                type == typeof(int) || type == typeof(uint) || type == typeof(long)) {
+                builder.Append(Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)); return;
+            }
+            IDictionary dictionary = value as IDictionary;
+            if (dictionary != null) {
+                List<string> keys = new List<string>();
+                foreach (object key in dictionary.Keys) { if (!(key is string)) throw new ArgumentException("selector JSON key is not a string"); keys.Add((string)key); }
+                keys.Sort(StringComparer.Ordinal);
+                builder.Append('{');
+                for (int index = 0; index < keys.Count; index++) {
+                    if (index != 0) builder.Append(',');
+                    WriteCanonicalJson(keys[index], builder); builder.Append(':'); WriteCanonicalJson(dictionary[keys[index]], builder);
+                }
+                builder.Append('}'); return;
+            }
+            IEnumerable values = value as IEnumerable;
+            if (values != null) {
+                builder.Append('['); bool first = true;
+                foreach (object item in values) { if (!first) builder.Append(','); WriteCanonicalJson(item, builder); first = false; }
+                builder.Append(']'); return;
+            }
+            throw new ArgumentException("selector JSON contains an unsupported value type: " + type.FullName);
+        }
+
+        private static bool HasExactKeys(IDictionary dictionary, string[] expected)
+        {
+            HashSet<string> actual = new HashSet<string>(StringComparer.Ordinal);
+            foreach (object key in dictionary.Keys) { string name = key as string; if (name == null || !actual.Add(name)) return false; }
+            return actual.SetEquals(expected);
+        }
+        private static JsonSerializerOptions CreateCanonicalJsonOptions() { JsonSerializerOptions options = new JsonSerializerOptions(); options.Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping; return options; }
+        private static object Required(IDictionary source, string name) { if (!source.Contains(name)) throw new ArgumentException("selector field is missing: " + name); return source[name]; }
+        private static IDictionary RequiredDictionary(IDictionary source, string name) { IDictionary value = Required(source, name) as IDictionary; if (value == null) throw new ArgumentException("selector field is not a dictionary: " + name); return value; }
+        private static string RequiredString(IDictionary source, string name) { object raw = Required(source, name); string value = raw as string; if (String.IsNullOrWhiteSpace(value)) throw new ArgumentException("selector string is invalid: " + name); return value; }
+        private static string RequiredNonce(IDictionary source, string name) { string value = RequiredString(source, name); if (!Regex.IsMatch(value, "^[0-9a-f]{32}$", RegexOptions.CultureInvariant)) throw new ArgumentException("selector nonce is invalid: " + name); return value; }
+        private static string RequiredEventName(IDictionary source, string name) { string value = RequiredString(source, name); if (value.Length > 240 || value.IndexOf('\\') >= 0 || value.IndexOf('/') >= 0) throw new ArgumentException("selector event name is invalid: " + name); return value; }
+        private static string RequiredCanonicalPath(IDictionary source, string name) { string value = RequiredString(source, name); string full = Path.GetFullPath(value); if (!Path.IsPathFullyQualified(value) || !String.Equals(full, value, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("selector path is not canonical: " + name); return full; }
+        private static string RequiredIdentity(IDictionary source, string name) { string value = RequiredString(source, name); if (!Regex.IsMatch(value, "^[0-9a-f]{8}:[0-9a-f]{16}$", RegexOptions.CultureInvariant)) throw new ArgumentException("selector identity is invalid: " + name); return value; }
+        private static string RequiredLeaf(IDictionary source, string name) { string value = RequiredString(source, name); if (value == "." || value == ".." || value.Length > 128 || value.IndexOfAny(new char[] {'\\','/',':'}) >= 0 || !Regex.IsMatch(value, "^[A-Za-z0-9][A-Za-z0-9._-]*$", RegexOptions.CultureInvariant)) throw new ArgumentException("selector leaf is invalid: " + name); return value; }
+        private static string RequiredPhase(IDictionary source, string name) { string value = RequiredString(source, name); if (!Regex.IsMatch(value, "^[A-Z][A-Z0-9_]{0,63}$", RegexOptions.CultureInvariant)) throw new ArgumentException("selector phase is invalid: " + name); return value; }
+        private static long RequiredPositiveJsonInt64(IDictionary source, string name) { object raw = Required(source, name); if (!(raw is long) || (long)raw <= 0L) throw new ArgumentException("selector JSON integer is invalid: " + name); return (long)raw; }
+        private static long RequiredNonnegativeJsonInt64(IDictionary source, string name) { object raw = Required(source, name); if (!(raw is long) || (long)raw < 0L) throw new ArgumentException("selector JSON integer is invalid: " + name); return (long)raw; }
+        private static int RequiredExactBudget(IDictionary source, string name, int expected) { long value = RequiredPositiveJsonInt64(source, name); if (value != expected) throw new ArgumentException("selector reviewed budget differs: " + name); return checked((int)value); }
+        private static long RequiredCanonicalWireInt64(IDictionary source, string name) { string value = RequiredString(source, name); long parsed; if (!CanonicalPositiveInt64.IsMatch(value) || !Int64.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out parsed) || parsed <= 0L || parsed.ToString(CultureInfo.InvariantCulture) != value) throw new ArgumentException("selector Int64 wire is not canonical: " + name); return parsed; }
+        private static T RequiredEnum<T>(IDictionary source, string name) where T : struct { string value = RequiredString(source, name); T parsed; if (!Enum.TryParse<T>(value, false, out parsed) || !Enum.IsDefined(typeof(T), parsed) || parsed.ToString() != value) throw new ArgumentException("selector enum is invalid: " + name); return parsed; }
+        private static long AddMilliseconds(long start, int milliseconds, long frequency) { long seconds = milliseconds / 1000L; long remainder = milliseconds % 1000L; long delta = checked(checked(seconds * frequency) + checked(checked(remainder * frequency + 999L) / 1000L)); return checked(start + delta); }
+        private static void RequireDeadline(long actual, long expected, string name) { if (actual != expected) throw new ArgumentException("selector " + name + " deadline differs"); }
+        private static string Hex(byte[] bytes) { return Convert.ToHexString(bytes).ToLowerInvariant(); }
     }
 
     public sealed class SealedMutationPublicationTicket
     {
-        internal int UsesRemaining;
-        public SealedMutationPublicationTicket(){ UsesRemaining = 1; }
-        internal bool TryConsume(){ return Interlocked.Exchange(ref UsesRemaining, 0) == 1; }
+        internal readonly string OwnerToken;
+        internal readonly string SelectorSha256;
+        private int usesRemaining;
+        internal SealedMutationPublicationTicket(string ownerToken, string selectorSha256) { OwnerToken = ownerToken; SelectorSha256 = selectorSha256; usesRemaining = 1; }
+        internal bool TryConsume(string ownerToken, string selectorSha256) { return String.Equals(OwnerToken, ownerToken, StringComparison.Ordinal) && String.Equals(SelectorSha256, selectorSha256, StringComparison.Ordinal) && Interlocked.Exchange(ref usesRemaining, 0) == 1; }
     }
 
     public sealed class SealedMutationStageCoordinator : IDisposable
     {
-        private readonly ManualResetEventSlim _stageReady = new ManualResetEventSlim(false);
-        private readonly ManualResetEventSlim _continue = new ManualResetEventSlim(false);
+        private readonly EventWaitHandle _stageReady;
+        private readonly EventWaitHandle _continue;
+        private readonly string _ownerToken = Guid.NewGuid().ToString("N");
+        private int _state;
         private int _matchCount;
-        private int _publicationFailed;
-        private int _waitFailed;
         private int _disposed;
 
         public SealedMutationStageSelector Selector { get; }
 
-        public SealedMutationStageCoordinator(SealedMutationStageSelector selector)
+        internal SealedMutationStageCoordinator(SealedMutationStageSelector selector)
         {
             Selector = selector ?? throw new ArgumentNullException(nameof(selector));
+            _stageReady = EventWaitHandle.OpenExisting(selector.StageReadyEventName);
+            try { _continue = EventWaitHandle.OpenExisting(selector.ContinueEventName); }
+            catch { _stageReady.Dispose(); throw; }
+            if (_stageReady.WaitOne(0) || _continue.WaitOne(0)) {
+                _continue.Dispose(); _stageReady.Dispose();
+                throw new InvalidOperationException("selector event initial signal state is invalid");
+            }
         }
 
-        public WaitHandle StageReady { get { return _stageReady.WaitHandle; } }
-        public WaitHandle ContinueEvent { get { return _continue.WaitHandle; } }
-
-        public void MarkPublicationFailed()
+        public SealedMutationPublicationTicket TryAcceptMatch(string transactionNamespace, SealedMutationCheckpoint checkpoint,
+            SealedMutationPrimitiveVariant declaredVariant, string actualBranchState, string selectorArmJson)
         {
             if (_disposed != 0) { throw new ObjectDisposedException(nameof(SealedMutationStageCoordinator)); }
-            if (Interlocked.Exchange(ref _publicationFailed, 1) != 0) { throw new InvalidOperationException("PublishingToFailed: publication failure already recorded"); }
+            string normalized = Path.GetFullPath(transactionNamespace ?? String.Empty);
+            if (!String.Equals(normalized, Selector.TransactionNamespace, StringComparison.OrdinalIgnoreCase) || checkpoint != Selector.Checkpoint ||
+                declaredVariant != Selector.DeclaredVariant || !Selector.MatchesArm(selectorArmJson) ||
+                !Selector.VariantIsCompatible(checkpoint, declaredVariant, actualBranchState)) return null;
+            if (Interlocked.CompareExchange(ref _state, 1, 0) != 0) throw new InvalidOperationException("duplicate-match");
+            if (Interlocked.Increment(ref _matchCount) != 1) { Interlocked.Exchange(ref _state, 4); throw new InvalidOperationException("duplicate-match"); }
+            return new SealedMutationPublicationTicket(_ownerToken, Selector.SelectorSha256);
         }
 
-        public void MarkPublishedSignalReadyAndWait(CancellationToken cancellation)
+        public void MarkPublicationFailed(SealedMutationPublicationTicket ticket)
         {
             if (_disposed != 0) { throw new ObjectDisposedException(nameof(SealedMutationStageCoordinator)); }
-            if (Interlocked.Exchange(ref _publicationFailed, 1) != 0) { throw new InvalidOperationException("PostHandoffTicketReuseRejected: publication already terminal"); }
-            if (Interlocked.Increment(ref _matchCount) != 1) { throw new InvalidOperationException("AssertMatchedExactlyOnce: selector matched more than once"); }
-            _stageReady.Set();
+            if (ticket == null || !ticket.TryConsume(_ownerToken, Selector.SelectorSha256)) throw new InvalidOperationException("foreign-ticket-or-ticket-consumed");
+            if (Interlocked.CompareExchange(ref _state, 4, 1) != 1) throw new InvalidOperationException("PublishingToFailed: invalid predecessor");
+        }
+
+        public void MarkPublishedSignalReadyAndWait(SealedMutationPublicationTicket ticket)
+        {
+            if (_disposed != 0) { throw new ObjectDisposedException(nameof(SealedMutationStageCoordinator)); }
+            if (ticket == null || !ticket.TryConsume(_ownerToken, Selector.SelectorSha256)) throw new InvalidOperationException("PostHandoffTicketReuseRejected: foreign-ticket-or-ticket-consumed");
+            if (Interlocked.CompareExchange(ref _state, 2, 1) != 1) throw new InvalidOperationException("PostHandoffTicketReuseRejected: publication is not in Publishing");
             try
             {
-                if (!_continue.Wait(Timeout.Infinite)) { throw new InvalidOperationException("WaitingToFailed: continue wait failed"); }
+                if (!_stageReady.Set()) throw new InvalidOperationException("WaitingToFailed: StageReady signal failed");
+                int remaining = SealedMutationBehaviorTransport.RemainingMilliseconds(Selector.WorkerDeadlineQpc);
+                if (remaining <= 0 || !_continue.WaitOne(remaining)) throw new TimeoutException("WaitingToFailed: Continue deadline expired");
+                if (SealedStageNativeBridge.GetQpcTicks() > Selector.WorkerDeadlineQpc)
+                    throw new TimeoutException("WaitingToFailed: Continue was observed after the immutable worker deadline");
+                if (Interlocked.CompareExchange(ref _state, 3, 2) != 2) throw new InvalidOperationException("WaitingToFailed: invalid release predecessor");
             }
             catch (Exception)
             {
-                Interlocked.Exchange(ref _waitFailed, 1);
+                Interlocked.CompareExchange(ref _state, 4, 2);
                 throw;
             }
         }
 
-        public void WaitingToFailed()
-        {
-            if (Interlocked.Exchange(ref _waitFailed, 1) != 0) { throw new InvalidOperationException("WaitingToFailed: wait failure already recorded"); }
-        }
-
         public void AssertMatchedExactlyOnce()
         {
-            if (Volatile.Read(ref _matchCount) != 1) { throw new InvalidOperationException("AssertMatchedExactlyOnce: selector match count is not exactly one"); }
+            if (Volatile.Read(ref _matchCount) != 1 || Volatile.Read(ref _state) != 3) { throw new InvalidOperationException("AssertMatchedExactlyOnce: selector did not reach Released exactly once"); }
         }
 
         public void Dispose()
@@ -148,34 +480,147 @@ namespace AiAgentDotfilesTests
 
     public sealed class SealedStageRootLease : IDisposable
     {
-        public string StageRootPath { get; }
+        private readonly SafeFileHandle _root;
+        private readonly string _tempLeaf;
+        private readonly string _finalLeaf;
+        private readonly string _identity;
+        private string _tempIdentity;
+        private string _finalIdentity;
         private int _disposed;
-        internal SealedStageRootLease(string stageRootPath){ StageRootPath = stageRootPath; }
-        public void Dispose(){ Interlocked.Exchange(ref _disposed, 1); }
+        internal SealedStageRootLease(SafeFileHandle root, string identity, string tempLeaf, string finalLeaf) { _root = root; _identity = identity; _tempLeaf = tempLeaf; _finalLeaf = finalLeaf; }
+        public string Identity { get { return _identity; } }
+        public SealedStageFileLease BeginCreateStageTemp()
+        {
+            if (_disposed != 0) throw new ObjectDisposedException(nameof(SealedStageRootLease));
+            if (_tempIdentity != null || _finalIdentity != null) throw new InvalidOperationException("stage publication was already started");
+            SealedStageNativeBridge.RequireExactInventory(_root, Array.Empty<string>());
+            SafeFileHandle writer = null;
+            try {
+                writer = SealedStageNativeBridge.OpenRelative(_root, _tempLeaf, true,
+                    SealedStageNativeBridge.StageWriterAccess, SealedStageNativeBridge.ShareRead);
+                string identity = SealedStageNativeBridge.GetIdentity(writer);
+                _tempIdentity = identity;
+                SealedStageNativeBridge.RequireRegularNoReparseSingleLinkNoStreams(writer);
+                SealedStageNativeBridge.RequireExactInventory(_root, new string[] { _tempLeaf });
+                SealedStageFileLease result = SealedStageFileLease.CreateWriter(this, writer, identity);
+                writer = null;
+                return result;
+            } finally { if (writer != null) writer.Dispose(); }
+        }
+        internal SealedStageFileLease FinishPublication(SafeFileHandle writer, string expectedIdentity, byte[] bytes)
+        {
+            if (!String.Equals(_tempIdentity, expectedIdentity, StringComparison.Ordinal) || _finalIdentity != null)
+                throw new InvalidOperationException("stage temp publication identity is not owned by this root lease");
+            SealedStageNativeBridge.WriteFlushAndVerify(writer, bytes);
+            SealedStageNativeBridge.RenameRelativeNoReplace(writer, _root, _finalLeaf);
+            _finalIdentity = expectedIdentity;
+            _tempIdentity = null;
+            SealedStageNativeBridge.RequireExactInventory(_root, new string[] { _finalLeaf });
+            SafeFileHandle bridge = null;
+            try {
+                bridge = SealedStageNativeBridge.OpenRelative(_root, _finalLeaf, false, SealedStageNativeBridge.StageReadAccess, SealedStageNativeBridge.ShareAll);
+                if (!String.Equals(expectedIdentity, SealedStageNativeBridge.GetIdentity(bridge), StringComparison.Ordinal)) throw new InvalidOperationException("stage bridge identity drift");
+                SealedStageNativeBridge.RequireRegularNoReparseSingleLinkNoStreams(bridge);
+                writer.Dispose();
+                SafeFileHandle seal = SealedStageNativeBridge.OpenRelative(_root, _finalLeaf, false, SealedStageNativeBridge.StageReadAccess, SealedStageNativeBridge.ShareRead);
+                try {
+                    SealedStageNativeBridge.VerifyExact(seal, expectedIdentity, bytes);
+                    return SealedStageFileLease.CreateSeal(seal, expectedIdentity, bytes.LongLength, SealedStageNativeBridge.Hash(bytes));
+                } catch { seal.Dispose(); throw; }
+            } finally { if (bridge != null) bridge.Dispose(); }
+        }
+        internal void CleanupArtifacts()
+        {
+            if (_disposed != 0) throw new ObjectDisposedException(nameof(SealedStageRootLease));
+            if (_tempIdentity != null && _finalIdentity != null) throw new InvalidOperationException("stage cleanup has two simultaneously owned artifact identities");
+            if (_finalIdentity != null) {
+                SealedStageNativeBridge.RequireExactInventory(_root, new string[] { _finalLeaf });
+                SealedStageNativeBridge.DeleteRelativeIfIdentity(_root, _finalLeaf, _finalIdentity);
+                _finalIdentity = null;
+            } else if (_tempIdentity != null) {
+                SealedStageNativeBridge.RequireExactInventory(_root, new string[] { _tempLeaf });
+                SealedStageNativeBridge.DeleteRelativeIfIdentity(_root, _tempLeaf, _tempIdentity);
+                _tempIdentity = null;
+            } else {
+                SealedStageNativeBridge.RequireExactInventory(_root, Array.Empty<string>());
+            }
+            SealedStageNativeBridge.RequireExactInventory(_root, Array.Empty<string>());
+        }
+        internal static SealedStageRootLease Open(SealedMutationStageSelector selector)
+        {
+            SafeFileHandle root = SealedStageNativeBridge.OpenRoot(selector.StageRootPath);
+            try {
+                string identity = SealedStageNativeBridge.GetIdentity(root);
+                if (!String.Equals(identity, selector.StageRootIdentity, StringComparison.Ordinal)) throw new InvalidOperationException("stage root identity differs from selector");
+                SealedStageNativeBridge.RequireDirectoryNoReparse(root);
+                SealedStageNativeBridge.RequireProtectedCurrentUserOnly(root);
+                SealedStageNativeBridge.RequireNoNamedStreams(root);
+                SealedStageNativeBridge.RequireExactInventory(root, Array.Empty<string>());
+                return new SealedStageRootLease(root, identity, selector.StageTempLeaf, selector.StageFinalLeaf);
+            } catch { root.Dispose(); throw; }
+        }
+        public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) _root.Dispose(); }
     }
 
     public sealed class SealedStageFileLease : IDisposable
     {
-        public FileStream Stream { get; }
+        private readonly SealedStageRootLease _root;
+        private SafeFileHandle _handle;
+        private readonly bool _writer;
+        public string Identity { get; }
+        public long Length { get; }
+        public string RawSha256 { get; }
         private int _disposed;
-        internal SealedStageFileLease(FileStream stream){ Stream = stream; }
-        public void Dispose(){ if (Interlocked.Exchange(ref _disposed, 1) == 0) { Stream.Dispose(); } }
+        private SealedStageFileLease(SealedStageRootLease root, SafeFileHandle handle, bool writer, string identity, long length, string rawSha256) { _root = root; _handle = handle; _writer = writer; Identity = identity; Length = length; RawSha256 = rawSha256; }
+        internal static SealedStageFileLease CreateWriter(SealedStageRootLease root, SafeFileHandle handle, string identity) { return new SealedStageFileLease(root, handle, true, identity, 0L, null); }
+        internal static SealedStageFileLease CreateSeal(SafeFileHandle handle, string identity, long length, string rawSha256) { return new SealedStageFileLease(null, handle, false, identity, length, rawSha256); }
+        public SealedStageFileLease WriteFlushRenameAndSealFinal(byte[] bytes)
+        {
+            if (!_writer || _root == null) throw new InvalidOperationException("stage lease is not a temp publication writer");
+            if (bytes == null || bytes.Length == 0) throw new ArgumentException("stage artifact bytes are empty", nameof(bytes));
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) throw new ObjectDisposedException(nameof(SealedStageFileLease));
+            SafeFileHandle writer = _handle; _handle = null;
+            try { return _root.FinishPublication(writer, Identity, bytes); }
+            finally { if (writer != null && !writer.IsClosed) writer.Dispose(); }
+        }
+        public void Dispose(){ if (Interlocked.Exchange(ref _disposed, 1) == 0 && _handle != null) { _handle.Dispose(); _handle = null; } }
     }
 
     public sealed class SealedJobQpcDeadlines
     {
+        public int WorkerWaitMilliseconds { get; }
+        public int ControllerObservationMilliseconds { get; }
+        public int JobReapMilliseconds { get; }
+        public int CleanupMilliseconds { get; }
+        public long StopwatchFrequency { get; }
         public long ControllerQpcTicks { get; }
+        public long WorkerDeadlineQpc { get; }
+        public long ControllerObservationDeadlineQpc { get; }
         public long HardKillCumulativeReapDeadlineQpc { get; }
+        public long HardKillCumulativeCleanupDeadlineQpc { get; }
         public long NaturalReleaseCumulativeReapDeadlineQpc { get; }
-        public long RootCreationFileTimeTicks { get; }
+        public long NaturalReleaseCumulativeCleanupDeadlineQpc { get; }
+        public string SelectorHash { get; }
         public const int HardKillTerminationExitCode = unchecked((int)0xC000042D);
 
-        public SealedJobQpcDeadlines(long controllerQpcTicks, long hardKillCumulativeReapDeadlineQpc, long naturalReleaseCumulativeReapDeadlineQpc, long rootCreationFileTimeTicks)
+        internal SealedJobQpcDeadlines(int workerWait, int observationWait, int jobReap, int cleanup,
+            long frequency, long controllerTicks, long workerDeadline, long observationDeadline,
+            long hardReapDeadline, long hardCleanupDeadline, long naturalReapDeadline, long naturalCleanupDeadline,
+            string selectorHash)
         {
-            ControllerQpcTicks = controllerQpcTicks;
-            HardKillCumulativeReapDeadlineQpc = hardKillCumulativeReapDeadlineQpc;
-            NaturalReleaseCumulativeReapDeadlineQpc = naturalReleaseCumulativeReapDeadlineQpc;
-            RootCreationFileTimeTicks = rootCreationFileTimeTicks;
+            WorkerWaitMilliseconds = workerWait;
+            ControllerObservationMilliseconds = observationWait;
+            JobReapMilliseconds = jobReap;
+            CleanupMilliseconds = cleanup;
+            StopwatchFrequency = frequency;
+            ControllerQpcTicks = controllerTicks;
+            WorkerDeadlineQpc = workerDeadline;
+            ControllerObservationDeadlineQpc = observationDeadline;
+            HardKillCumulativeReapDeadlineQpc = hardReapDeadline;
+            HardKillCumulativeCleanupDeadlineQpc = hardCleanupDeadline;
+            NaturalReleaseCumulativeReapDeadlineQpc = naturalReapDeadline;
+            NaturalReleaseCumulativeCleanupDeadlineQpc = naturalCleanupDeadline;
+            SelectorHash = selectorHash;
         }
 
         // The reap boundary itself lives in the parent-owned Job-process API
@@ -198,18 +643,39 @@ namespace AiAgentDotfilesTests
         public bool AncestorReplacementBlocked { get; internal set; }
         private int _disposed;
 
-        public SealedMutationInvocationContext(SealedMutationStageCoordinator coordinator, SealedStageRootLease stageRootLease, SealedJobQpcDeadlines deadline)
+        private SealedMutationInvocationContext(SealedMutationStageCoordinator coordinator, SealedStageRootLease stageRootLease, SealedJobQpcDeadlines deadline)
         {
             Coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
             StageRootLease = stageRootLease ?? throw new ArgumentNullException(nameof(stageRootLease));
             Deadline = deadline ?? throw new ArgumentNullException(nameof(deadline));
         }
 
+        public static SealedMutationInvocationContext Open(SealedMutationStageSelector selector)
+        {
+            if (selector == null) throw new ArgumentNullException(nameof(selector));
+            SealedMutationStageCoordinator coordinator = null;
+            SealedStageRootLease root = null;
+            try {
+                coordinator = new SealedMutationStageCoordinator(selector);
+                root = SealedStageRootLease.Open(selector);
+                return new SealedMutationInvocationContext(coordinator, root, selector.Deadlines);
+            } catch {
+                if (root != null) root.Dispose();
+                if (coordinator != null) coordinator.Dispose();
+                throw;
+            }
+        }
+
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) { return; }
             InvocationContextDisposeCount++;
-            Coordinator.Dispose();
+            List<Exception> errors = new List<Exception>();
+            try { Coordinator.Dispose(); } catch (Exception error) { errors.Add(error); }
+            try { StageRootLease.CleanupArtifacts(); } catch (Exception error) { errors.Add(error); }
+            try { StageRootLease.Dispose(); } catch (Exception error) { errors.Add(error); }
+            if (errors.Count == 1) throw errors[0];
+            if (errors.Count > 1) throw new AggregateException("invocation context cleanup failed", errors);
         }
     }
 
@@ -232,15 +698,368 @@ namespace AiAgentDotfilesTests
         [DllImport("kernel32.dll")]
         private static extern bool QueryPerformanceCounter(out long performanceCount);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out BY_HANDLE_FILE_INFORMATION information);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool WriteFile(SafeFileHandle handle, byte[] buffer, uint bytesToWrite, out uint bytesWritten, IntPtr overlapped);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ReadFile(SafeFileHandle handle, byte[] buffer, uint bytesToRead, out uint bytesRead, IntPtr overlapped);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetFilePointerEx(SafeFileHandle handle, long distance, out long newPosition, uint moveMethod);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetFileInformationByHandle(SafeFileHandle handle, int informationClass, IntPtr information, uint bufferSize);
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr LocalFree(IntPtr memory);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern uint GetSecurityInfo(IntPtr handle, int objectType, uint securityInformation,
+            out IntPtr owner, out IntPtr group, out IntPtr dacl, out IntPtr sacl, out IntPtr securityDescriptor);
+
+        [DllImport("advapi32.dll")]
+        private static extern uint GetSecurityDescriptorLength(IntPtr securityDescriptor);
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtCreateFile(out IntPtr fileHandle, uint desiredAccess, ref OBJECT_ATTRIBUTES objectAttributes,
+            out IO_STATUS_BLOCK ioStatusBlock, IntPtr allocationSize, uint fileAttributes, uint shareAccess,
+            uint createDisposition, uint createOptions, IntPtr eaBuffer, uint eaLength);
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtSetInformationFile(SafeFileHandle fileHandle, out IO_STATUS_BLOCK ioStatusBlock,
+            IntPtr fileInformation, uint length, int fileInformationClass);
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtQueryDirectoryFile(SafeFileHandle fileHandle, IntPtr eventHandle, IntPtr apcRoutine,
+            IntPtr apcContext, out IO_STATUS_BLOCK ioStatusBlock, IntPtr fileInformation, uint length,
+            int fileInformationClass, [MarshalAs(UnmanagedType.U1)] bool returnSingleEntry, IntPtr fileName,
+            [MarshalAs(UnmanagedType.U1)] bool restartScan);
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtQueryInformationFile(SafeFileHandle fileHandle, out IO_STATUS_BLOCK ioStatusBlock,
+            IntPtr fileInformation, uint length, int fileInformationClass);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct UNICODE_STRING { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct OBJECT_ATTRIBUTES { public int Length; public IntPtr RootDirectory; public IntPtr ObjectName; public uint Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IO_STATUS_BLOCK { public IntPtr Status; public UIntPtr Information; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BY_HANDLE_FILE_INFORMATION {
+            public uint FileAttributes;
+            public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+            public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+            public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+            public uint VolumeSerialNumber; public uint FileSizeHigh; public uint FileSizeLow; public uint NumberOfLinks; public uint FileIndexHigh; public uint FileIndexLow;
+        }
+
         private const uint GENERIC_READ = 0x80000000;
         private const uint GENERIC_WRITE = 0x40000000;
         private const uint DELETE_ = 0x00010000;
+        private const uint READ_CONTROL = 0x00020000;
         private const uint FILE_SHARE_READ = 0x00000001;
         private const uint FILE_SHARE_WRITE = 0x00000002;
         private const uint FILE_SHARE_DELETE = 0x00000004;
         private const uint CREATE_NEW = 1;
         private const uint OPEN_EXISTING = 3;
         private const uint STATUS_SHARING_VIOLATION = 0x80070020;
+        private const uint FILE_READ_DATA = 0x00000001;
+        private const uint FILE_WRITE_DATA = 0x00000002;
+        private const uint FILE_READ_ATTRIBUTES = 0x00000080;
+        private const uint SYNCHRONIZE = 0x00100000;
+        private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
+        private const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400;
+        private const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
+        private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+        private const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
+        private const uint FILE_CREATE = 2;
+        private const uint FILE_OPEN = 1;
+        private const uint FILE_WRITE_THROUGH = 0x00000002;
+        private const uint FILE_SYNCHRONOUS_IO_NONALERT = 0x00000020;
+        private const uint FILE_NON_DIRECTORY_FILE = 0x00000040;
+        private const uint FILE_OPEN_REPARSE_POINT = 0x00200000;
+        private const uint OBJ_CASE_INSENSITIVE = 0x00000040;
+        private const int FileRenameInfo = 3;
+        private const int FileDispositionInfo = 4;
+        private const int NativeFileRenameInformation = 10;
+        private const int NativeFileNamesInformation = 12;
+        private const int NativeFileStreamInformation = 22;
+        private const int STATUS_NO_MORE_FILES = unchecked((int)0x80000006);
+        private const int STATUS_BUFFER_OVERFLOW = unchecked((int)0x80000005);
+        private const int STATUS_INFO_LENGTH_MISMATCH = unchecked((int)0xC0000004);
+        private const int STATUS_BUFFER_TOO_SMALL = unchecked((int)0xC0000023);
+        private const ulong NativeFileCreatedInformation = 2UL;
+        private const int SE_FILE_OBJECT = 1;
+        private const uint OWNER_SECURITY_INFORMATION = 0x00000001;
+        private const uint DACL_SECURITY_INFORMATION = 0x00000004;
+        private const uint FILE_BEGIN = 0;
+        private const int ERROR_FILE_NOT_FOUND = 2;
+        private const int ERROR_PATH_NOT_FOUND = 3;
+        private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+        internal const uint StageWriterAccess = FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES | DELETE_ | SYNCHRONIZE;
+        internal const uint StageReadAccess = FILE_READ_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE;
+        internal const uint ShareRead = FILE_SHARE_READ;
+        internal const uint ShareAll = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+
+        internal static SafeFileHandle OpenRoot(string path)
+        {
+            IntPtr raw = CreateFileW(path, FILE_READ_DATA | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, IntPtr.Zero, OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, IntPtr.Zero);
+            if (raw == InvalidHandleValue) throw new Win32Exception(Marshal.GetLastWin32Error(), "opening held stage root failed");
+            return new SafeFileHandle(raw, true);
+        }
+
+        internal static void RequireDirectoryNoReparse(SafeFileHandle handle)
+        {
+            BY_HANDLE_FILE_INFORMATION information;
+            if (!GetFileInformationByHandle(handle, out information)) throw new Win32Exception(Marshal.GetLastWin32Error(), "reading stage root information failed");
+            if ((information.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 || (information.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || information.NumberOfLinks != 1U)
+                throw new InvalidOperationException("stage root is not one ordinary held directory identity");
+        }
+
+        internal static void RequireProtectedCurrentUserOnly(SafeFileHandle handle)
+        {
+            IntPtr owner, group, dacl, sacl, descriptor;
+            uint result = GetSecurityInfo(handle.DangerousGetHandle(), SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, out owner, out group, out dacl, out sacl, out descriptor);
+            if (result != 0U) throw new Win32Exception(checked((int)result), "reading held stage root security failed");
+            try {
+                uint length = GetSecurityDescriptorLength(descriptor);
+                if (length == 0U || length > 65536U) throw new InvalidOperationException("stage root security descriptor length is invalid");
+                byte[] bytes = new byte[length];
+                Marshal.Copy(descriptor, bytes, 0, checked((int)length));
+                RawSecurityDescriptor security = new RawSecurityDescriptor(bytes, 0);
+                SecurityIdentifier current;
+                using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) { current = identity.User; }
+                if (current == null || security.Owner == null || !security.Owner.Equals(current) ||
+                    (security.ControlFlags & ControlFlags.DiscretionaryAclProtected) == 0 || security.DiscretionaryAcl == null ||
+                    security.DiscretionaryAcl.Count == 0)
+                    throw new InvalidOperationException("stage root is not owned by the current user with one protected DACL");
+                foreach (GenericAce ace in security.DiscretionaryAcl) {
+                    QualifiedAce qualified = ace as QualifiedAce;
+                    if (qualified == null || qualified.AceQualifier != AceQualifier.AccessAllowed ||
+                        qualified.SecurityIdentifier == null || !qualified.SecurityIdentifier.Equals(current) ||
+                        (qualified.AceFlags & AceFlags.Inherited) != 0)
+                        throw new InvalidOperationException("stage root DACL is not current-user-only and explicit");
+                }
+            } finally { if (descriptor != IntPtr.Zero) LocalFree(descriptor); }
+        }
+
+        private static string[] GetChildNames(SafeFileHandle root)
+        {
+            List<string> names = new List<string>();
+            const int capacity = 65536;
+            IntPtr buffer = Marshal.AllocHGlobal(capacity);
+            try {
+                bool restart = true;
+                while (true) {
+                    IO_STATUS_BLOCK io;
+                    int status = NtQueryDirectoryFile(root, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out io, buffer,
+                        capacity, NativeFileNamesInformation, false, IntPtr.Zero, restart);
+                    restart = false;
+                    if (status == STATUS_NO_MORE_FILES) break;
+                    if (status < 0 && status != STATUS_BUFFER_OVERFLOW)
+                        throw new Win32Exception(RtlNtStatusToDosError(status), "enumerating held stage root failed");
+                    ulong availableValue = io.Information.ToUInt64();
+                    if (availableValue == 0UL || availableValue > capacity) throw new InvalidOperationException("stage root inventory returned invalid bounds");
+                    int available = checked((int)availableValue);
+                    int offset = 0;
+                    while (true) {
+                        if (offset < 0 || offset + 12 > available) throw new InvalidOperationException("stage root inventory entry is out of bounds");
+                        int next = Marshal.ReadInt32(buffer, offset);
+                        int nameLength = Marshal.ReadInt32(buffer, offset + 8);
+                        if (nameLength < 0 || (nameLength & 1) != 0 || offset + 12L + nameLength > available)
+                            throw new InvalidOperationException("stage root inventory name is out of bounds");
+                        string name = Marshal.PtrToStringUni(IntPtr.Add(buffer, offset + 12), nameLength / 2);
+                        if (name != "." && name != "..") names.Add(name);
+                        if (next == 0) break;
+                        if (next < 12) throw new InvalidOperationException("stage root inventory offset is invalid");
+                        offset = checked(offset + next);
+                    }
+                }
+                return names.ToArray();
+            } finally { Marshal.FreeHGlobal(buffer); }
+        }
+
+        internal static void RequireExactInventory(SafeFileHandle root, string[] expected)
+        {
+            if (expected == null) throw new ArgumentNullException(nameof(expected));
+            string[] actual = GetChildNames(root);
+            string[] reviewed = (string[])expected.Clone();
+            Array.Sort(actual, StringComparer.OrdinalIgnoreCase);
+            Array.Sort(reviewed, StringComparer.OrdinalIgnoreCase);
+            if (actual.Length != reviewed.Length) throw new InvalidOperationException("stage root inventory contains an unknown or missing child");
+            for (int index = 0; index < actual.Length; index++)
+                if (!String.Equals(actual[index], reviewed[index], StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("stage root inventory contains an unknown or missing child");
+        }
+
+        private static string[] GetNamedStreams(SafeFileHandle handle)
+        {
+            int capacity = 4096;
+            while (capacity <= 16777216) {
+                IntPtr buffer = Marshal.AllocHGlobal(capacity);
+                try {
+                    IO_STATUS_BLOCK io;
+                    int status = NtQueryInformationFile(handle, out io, buffer, checked((uint)capacity), NativeFileStreamInformation);
+                    if (status == STATUS_BUFFER_OVERFLOW || status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_TOO_SMALL) {
+                        capacity = checked(capacity * 2); continue;
+                    }
+                    if (status < 0) throw new Win32Exception(RtlNtStatusToDosError(status), "enumerating held stage streams failed");
+                    ulong availableValue = io.Information.ToUInt64();
+                    if (availableValue == 0UL) return Array.Empty<string>();
+                    if (availableValue < 24UL || availableValue > checked((ulong)capacity)) throw new InvalidOperationException("stage stream inventory returned invalid bounds");
+                    int available = checked((int)availableValue);
+                    List<string> streams = new List<string>();
+                    int offset = 0;
+                    while (true) {
+                        if (offset < 0 || offset + 24 > available) throw new InvalidOperationException("stage stream entry is out of bounds");
+                        int next = Marshal.ReadInt32(buffer, offset);
+                        int nameLength = Marshal.ReadInt32(buffer, offset + 4);
+                        if (nameLength < 0 || (nameLength & 1) != 0 || offset + 24L + nameLength > available)
+                            throw new InvalidOperationException("stage stream name is out of bounds");
+                        string name = Marshal.PtrToStringUni(IntPtr.Add(buffer, offset + 24), nameLength / 2);
+                        if (!String.Equals(name, "::$DATA", StringComparison.OrdinalIgnoreCase)) streams.Add(name);
+                        if (next == 0) break;
+                        if (next < 24) throw new InvalidOperationException("stage stream offset is invalid");
+                        offset = checked(offset + next);
+                    }
+                    return streams.ToArray();
+                } finally { Marshal.FreeHGlobal(buffer); }
+            }
+            throw new InvalidOperationException("stage stream inventory exceeded the safety bound");
+        }
+
+        internal static void RequireNoNamedStreams(SafeFileHandle handle)
+        {
+            if (GetNamedStreams(handle).Length != 0) throw new InvalidOperationException("stage object has a named alternate stream");
+        }
+
+        internal static void RequireRegularNoReparseSingleLinkNoStreams(SafeFileHandle handle)
+        {
+            BY_HANDLE_FILE_INFORMATION information;
+            if (!GetFileInformationByHandle(handle, out information)) throw new Win32Exception(Marshal.GetLastWin32Error(), "reading stage artifact information failed");
+            if ((information.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0 || information.NumberOfLinks != 1U)
+                throw new InvalidOperationException("stage artifact is not one ordinary regular-file identity");
+            RequireNoNamedStreams(handle);
+        }
+
+        internal static string GetIdentity(SafeFileHandle handle)
+        {
+            BY_HANDLE_FILE_INFORMATION information;
+            if (!GetFileInformationByHandle(handle, out information)) throw new Win32Exception(Marshal.GetLastWin32Error(), "reading stage identity failed");
+            ulong index = ((ulong)information.FileIndexHigh << 32) | information.FileIndexLow;
+            return information.VolumeSerialNumber.ToString("x8", CultureInfo.InvariantCulture) + ":" + index.ToString("x16", CultureInfo.InvariantCulture);
+        }
+
+        internal static SafeFileHandle OpenRelative(SafeFileHandle root, string leaf, bool createNew, uint desiredAccess, uint shareAccess)
+        {
+            IntPtr nameBuffer = IntPtr.Zero; IntPtr unicodeBuffer = IntPtr.Zero; bool rootRef = false;
+            try {
+                nameBuffer = Marshal.StringToHGlobalUni(leaf);
+                UNICODE_STRING unicode = new UNICODE_STRING { Length = checked((ushort)(leaf.Length * 2)), MaximumLength = checked((ushort)((leaf.Length + 1) * 2)), Buffer = nameBuffer };
+                unicodeBuffer = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(UNICODE_STRING)));
+                Marshal.StructureToPtr(unicode, unicodeBuffer, false);
+                root.DangerousAddRef(ref rootRef);
+                OBJECT_ATTRIBUTES attributes = new OBJECT_ATTRIBUTES { Length = Marshal.SizeOf(typeof(OBJECT_ATTRIBUTES)), RootDirectory = root.DangerousGetHandle(), ObjectName = unicodeBuffer, Attributes = OBJ_CASE_INSENSITIVE };
+                IO_STATUS_BLOCK status; IntPtr raw;
+                int result = NtCreateFile(out raw, desiredAccess, ref attributes, out status, IntPtr.Zero, FILE_ATTRIBUTE_NORMAL,
+                    shareAccess, createNew ? FILE_CREATE : FILE_OPEN,
+                    FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT | (createNew ? FILE_WRITE_THROUGH : 0U), IntPtr.Zero, 0U);
+                if (result < 0) {
+                    int win32 = RtlNtStatusToDosError(result);
+                    throw new Win32Exception(win32, (createNew ? "creating" : "opening") + " relative stage leaf failed");
+                }
+                if (createNew && status.Information.ToUInt64() != NativeFileCreatedInformation) {
+                    CloseHandle(raw);
+                    throw new InvalidOperationException("relative stage create did not return FILE_CREATED");
+                }
+                return new SafeFileHandle(raw, true);
+            } finally {
+                if (rootRef) root.DangerousRelease();
+                if (unicodeBuffer != IntPtr.Zero) Marshal.FreeHGlobal(unicodeBuffer);
+                if (nameBuffer != IntPtr.Zero) Marshal.FreeHGlobal(nameBuffer);
+            }
+        }
+
+        [DllImport("ntdll.dll")]
+        private static extern int RtlNtStatusToDosError(int status);
+
+        internal static void RenameRelativeNoReplace(SafeFileHandle writer, SafeFileHandle root, string finalLeaf)
+        {
+            byte[] nameBytes = Encoding.Unicode.GetBytes(finalLeaf);
+            int rootOffset = IntPtr.Size == 8 ? 8 : 4;
+            int lengthOffset = rootOffset + IntPtr.Size;
+            int nameOffset = lengthOffset + 4;
+            IntPtr buffer = Marshal.AllocHGlobal(checked(nameOffset + nameBytes.Length)); bool rootRef = false;
+            try {
+                for (int index = 0; index < nameOffset + nameBytes.Length; index++) Marshal.WriteByte(buffer, index, 0);
+                Marshal.WriteInt32(buffer, 0, 0);
+                root.DangerousAddRef(ref rootRef);
+                Marshal.WriteIntPtr(buffer, rootOffset, root.DangerousGetHandle());
+                Marshal.WriteInt32(buffer, lengthOffset, nameBytes.Length);
+                Marshal.Copy(nameBytes, 0, IntPtr.Add(buffer, nameOffset), nameBytes.Length);
+                IO_STATUS_BLOCK ioStatus;
+                int status = NtSetInformationFile(writer, out ioStatus, buffer, checked((uint)(nameOffset + nameBytes.Length)), NativeFileRenameInformation);
+                if (status < 0) {
+                    int error = RtlNtStatusToDosError(status);
+                    throw new Win32Exception(error, "relative no-replace stage rename failed (" + error.ToString(CultureInfo.InvariantCulture) + ")");
+                }
+            } finally { if (rootRef) root.DangerousRelease(); Marshal.FreeHGlobal(buffer); }
+        }
+
+        internal static void DeleteRelativeIfIdentity(SafeFileHandle root, string leaf, string expectedIdentity)
+        {
+            SafeFileHandle handle = null;
+            handle = OpenRelative(root, leaf, false, DELETE_ | FILE_READ_ATTRIBUTES | SYNCHRONIZE, ShareAll);
+            try {
+                if (!String.Equals(GetIdentity(handle), expectedIdentity, StringComparison.Ordinal))
+                    throw new InvalidOperationException("stage cleanup refused a rebound artifact identity");
+                RequireRegularNoReparseSingleLinkNoStreams(handle);
+                IntPtr disposition = Marshal.AllocHGlobal(1);
+                try { Marshal.WriteByte(disposition, 1); if (!SetFileInformationByHandle(handle, FileDispositionInfo, disposition, 1U)) throw new Win32Exception(Marshal.GetLastWin32Error(), "relative stage cleanup failed"); }
+                finally { Marshal.FreeHGlobal(disposition); }
+            } finally { handle.Dispose(); }
+        }
+
+        internal static void WriteFlushAndVerify(SafeFileHandle handle, byte[] bytes)
+        {
+            RequireRegularNoReparseSingleLinkNoStreams(handle);
+            long ignored; if (!SetFilePointerEx(handle, 0L, out ignored, FILE_BEGIN)) throw new Win32Exception(Marshal.GetLastWin32Error(), "stage writer seek failed");
+            uint written; if (!WriteFile(handle, bytes, checked((uint)bytes.Length), out written, IntPtr.Zero) || written != bytes.Length) throw new Win32Exception(Marshal.GetLastWin32Error(), "stage writer write failed");
+            if (!FlushFileBuffers(handle.DangerousGetHandle())) throw new Win32Exception(Marshal.GetLastWin32Error(), "stage writer flush failed");
+            VerifyExact(handle, GetIdentity(handle), bytes);
+        }
+
+        internal static void VerifyExact(SafeFileHandle handle, string expectedIdentity, byte[] bytes)
+        {
+            if (!String.Equals(GetIdentity(handle), expectedIdentity, StringComparison.Ordinal)) throw new InvalidOperationException("stage artifact identity drift");
+            RequireRegularNoReparseSingleLinkNoStreams(handle);
+            long ignored; if (!SetFilePointerEx(handle, 0L, out ignored, FILE_BEGIN)) throw new Win32Exception(Marshal.GetLastWin32Error(), "stage reader seek failed");
+            byte[] actual = new byte[bytes.Length]; uint read; if (!ReadFile(handle, actual, checked((uint)actual.Length), out read, IntPtr.Zero) || read != actual.Length) throw new Win32Exception(Marshal.GetLastWin32Error(), "stage reader read failed");
+            if (!CryptographicOperations.FixedTimeEquals(actual, bytes)) throw new InvalidOperationException("stage artifact exact bytes differ");
+            byte[] extra = new byte[1]; if (!ReadFile(handle, extra, 1U, out read, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error(), "stage reader terminal read failed");
+            if (read != 0U) throw new InvalidOperationException("stage artifact has trailing bytes");
+            RequireRegularNoReparseSingleLinkNoStreams(handle);
+        }
+
+        internal static string Hash(byte[] bytes) { return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(); }
+
+        public static long GetCurrentProcessCreationFileTimeTicks()
+        {
+            long creation, exit, kernel, user;
+            if (!GetProcessTimes(Process.GetCurrentProcess().Handle, out creation, out exit, out kernel, out user)) throw new Win32Exception(Marshal.GetLastWin32Error(), "GetProcessTimes failed");
+            if (creation <= 0L) throw new InvalidOperationException("current process creation FILETIME is invalid");
+            return creation;
+        }
 
         public static long GetQpcTicks()
         {
@@ -249,74 +1068,18 @@ namespace AiAgentDotfilesTests
             return value;
         }
 
-        // Stage publication ladder: RenameWriterNoReplace -> OpenReadBridgeShareAll -> CloseWriter -> OpenReadSealShareRead
-        public static void RenameWriterNoReplace(string sourcePath, string destinationPath)
-        {
-            if (!MoveFileExW(sourcePath, destinationPath, MOVEFILE_REPLACE_EXISTING_NONE))
-            {
-                throw new IOException("RenameWriterNoReplace failed", Marshal.GetLastWin32Error());
-            }
-        }
-
-        private const uint MOVEFILE_REPLACE_EXISTING_NONE = 0x00000000;
-
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern bool MoveFileExW(string existingFileName, string newFileName, uint flags);
-
-        public static IntPtr OpenReadBridgeShareAll(string path)
-        {
-            IntPtr handle = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
-            if (handle == new IntPtr(-1))
-            {
-                int error = Marshal.GetLastWin32Error();
-                if ((uint)error == STATUS_SHARING_VIOLATION) { throw new IOException("STATUS_SHARING_VIOLATION on read bridge", error); }
-                throw new IOException("OpenReadBridgeShareAll failed", error);
-            }
-            return handle;
-        }
-
-        public static void CloseWriter(IntPtr handle)
-        {
-            if (!CloseHandle(handle)) { throw new IOException("CloseWriter failed", Marshal.GetLastWin32Error()); }
-        }
-
-        public static IntPtr OpenReadSealShareRead(string path)
-        {
-            IntPtr handle = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
-            if (handle == new IntPtr(-1))
-            {
-                int error = Marshal.GetLastWin32Error();
-                if ((uint)error == STATUS_SHARING_VIOLATION) { throw new IOException("STATUS_SHARING_VIOLATION on read seal", error); }
-                throw new IOException("OpenReadSealShareRead failed", error);
-            }
-            return handle;
-        }
-
-        public static void FlushStageArtifact(IntPtr handle)
-        {
-            if (!FlushFileBuffers(handle)) { throw new IOException("FlushFileBuffers failed", Marshal.GetLastWin32Error()); }
-        }
+        // Reviewed ladder names remain explicit, but every leaf operation is rooted
+        // in the already-held directory identity rather than an absolute-path reopen.
+        public static void RenameWriterNoReplace(SafeFileHandle writer, SafeFileHandle root, string finalLeaf) { RenameRelativeNoReplace(writer, root, finalLeaf); }
+        public static SafeFileHandle OpenReadBridgeShareAll(SafeFileHandle root, string leaf) { return OpenRelative(root, leaf, false, StageReadAccess, ShareAll); }
+        public static void CloseWriter(SafeFileHandle handle) { if (handle == null) throw new ArgumentNullException(nameof(handle)); handle.Dispose(); }
+        public static SafeFileHandle OpenReadSealShareRead(SafeFileHandle root, string leaf) { return OpenRelative(root, leaf, false, StageReadAccess, ShareRead); }
+        public static void FlushStageArtifact(SafeFileHandle handle) { if (!FlushFileBuffers(handle.DangerousGetHandle())) throw new Win32Exception(Marshal.GetLastWin32Error(), "FlushFileBuffers failed"); }
     }
 
     public static class SealedMutationNativeStage
     {
-        public static string StageArtifactIdentity(string path)
-        {
-            IntPtr handle = SealedStageNativeBridge.OpenReadSealShareRead(path);
-            try
-            {
-                long length = 0;
-                if (!GetFileSizeEx(handle, out length)) { throw new IOException("GetFileSizeEx failed", Marshal.GetLastWin32Error()); }
-                return path + ":" + length.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-            finally
-            {
-                SealedStageNativeBridge.CloseWriter(handle);
-            }
-        }
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool GetFileSizeEx(IntPtr hFile, out long lpFileSize);
+        public static string StageArtifactIdentity(SafeFileHandle heldStageFile) { return SealedStageNativeBridge.GetIdentity(heldStageFile); }
     }
 
     public static class SealedMutationBehaviorTransport
@@ -354,9 +1117,11 @@ namespace AiAgentDotfilesTests
             long frequency = System.Diagnostics.Stopwatch.Frequency;
             if (absoluteDeadlineQpc <= now || frequency <= 0) { return 0; }
             long remaining = checked(absoluteDeadlineQpc - now);
-            double milliseconds = Math.Ceiling(((double)remaining * 1000.0) / (double)frequency);
+            long seconds = remaining / frequency;
+            long remainder = remaining % frequency;
+            long milliseconds = checked(checked(seconds * 1000L) + checked(checked(remainder * 1000L + frequency - 1L) / frequency));
             if (milliseconds > Int32.MaxValue) { return Int32.MaxValue; }
-            return Math.Max(1, (int)milliseconds);
+            return checked((int)Math.Max(1L, milliseconds));
         }
 
     }
@@ -612,13 +1377,151 @@ function Invoke-SealedMutationReach {
         [Parameter(Mandatory)][AiAgentDotfilesTests.SealedMutationCheckpoint]$Checkpoint,
         [Parameter(Mandatory)]$DeclaredVariant,
         [Parameter(Mandatory)]$ActualBranchState,
-        [Parameter(Mandatory)]$SelectorArm,
-        [Parameter(Mandatory)]$ObservedRecordData
+        $SelectorArm,
+        [Parameter(Mandatory)][Alias('Evidence')]$ObservedRecordData
     )
     $declared=[AiAgentDotfilesTests.SealedMutationPrimitiveVariant]$DeclaredVariant
-    if($InvocationContext.Coordinator.Selector.Checkpoint -ne $Checkpoint){return}
-    if($InvocationContext.Coordinator.Selector.DeclaredVariant -ne $declared){return}
-    $InvocationContext.Coordinator.MarkPublishedSignalReadyAndWait([Threading.CancellationToken]::None)
+    $selector=$InvocationContext.Coordinator.Selector
+    $normalizedNamespace=[IO.Path]::GetFullPath($TransactionNamespace)
+    $resolvedArm=$SelectorArm
+    if($null -eq $resolvedArm){
+        $evidenceTarget=$ObservedRecordData.Target
+        if($null -eq $evidenceTarget -or [string]::IsNullOrWhiteSpace([string]$evidenceTarget.TargetId)){
+            throw 'sealed mutation reach requires its explicit selector arm'
+        }
+        $resolvedArm=[ordered]@{TargetId=[string]$evidenceTarget.TargetId;TargetOrder=[long]$evidenceTarget.Order}
+    }
+    $selectorArmJson=[Text.UTF8Encoding]::new($false,$true).GetString((ConvertTo-SemanticJsonBytes -InputObject $resolvedArm))
+    $ticket=$InvocationContext.Coordinator.TryAcceptMatch($normalizedNamespace,$Checkpoint,$declared,[string]$ActualBranchState,$selectorArmJson)
+    if($null -eq $ticket){return}
+
+    $snapshot=$null;$intentLease=$null;$tailLease=$null;$tempLease=$null;$finalSeal=$null
+    $sharedRecordLease=$false;$handoff=$false;$reachPrimary=$null
+    $reachCleanupErrors=[Collections.Generic.List[Exception]]::new()
+    try{
+        $snapshot=Open-CanonicalJournalSnapshot -TransactionNamespace $normalizedNamespace -AllowUnfinished
+        Assert-CanonicalJournalSnapshotInventory -Snapshot $snapshot
+        if(@($snapshot.State.PendingEntries).Count -ne 0){throw 'sealed mutation reach requires zero pending journal entries'}
+        if([string]$snapshot.State.TransactionNamespace -cne $selector.TransactionNamespace -or
+            [string]$snapshot.State.Header.TransactionId -cne $selector.TransactionId){throw 'sealed mutation reach journal identity differs from selector'}
+        $intentRecords=@();$tailRecords=@()
+        foreach($journalRecord in @($snapshot.State.Records)){
+            if([long]$journalRecord.Sequence -eq $selector.ExpectedIntentSequence -and [string]$journalRecord.Phase -ceq $selector.ExpectedIntentPhase){
+                $intentRecords=@($intentRecords)+@($journalRecord)
+            }
+            if([long]$journalRecord.Sequence -eq $selector.ExpectedTailSequence -and [string]$journalRecord.Phase -ceq $selector.ExpectedTailPhase){
+                $tailRecords=@($tailRecords)+@($journalRecord)
+            }
+        }
+        if($intentRecords.Count -ne 1 -or $tailRecords.Count -ne 1 -or
+            [long]$snapshot.State.Records[-1].Sequence -ne $selector.ExpectedTailSequence){throw 'sealed mutation reach durable intent or actual tail is ambiguous'}
+        $intentRecord=$intentRecords[0];$tailRecord=$tailRecords[0]
+        if($null -ne $selector.WorkspaceRole){
+            foreach($record in @($intentRecord,$tailRecord)){
+                if(-not $record.Data.Contains('WorkspaceRole') -or [string]$record.Data.WorkspaceRole -cne [string]$selector.WorkspaceRole){
+                    throw 'sealed mutation reach workspace durable record belongs to a different selector arm'
+                }
+            }
+        }else{
+            $armTargets=@()
+            foreach($headerTarget in @($snapshot.State.Header.Targets)){
+                if([string]$headerTarget.TargetId -ceq [string]$selector.TargetId -and [long]$headerTarget.Order -eq [long]$selector.TargetOrder){
+                    $armTargets=@($armTargets)+@($headerTarget)
+                }
+            }
+            if($armTargets.Count -ne 1){throw 'sealed mutation reach selector target/order is not one exact journal-header arm'}
+            if($Checkpoint -eq [AiAgentDotfilesTests.SealedMutationCheckpoint]::PreimageReady){
+                foreach($record in @($intentRecord,$tailRecord)){
+                    if(-not $record.Data.Contains('WorkspaceRole') -or [string]$record.Data.WorkspaceRole -cne 'swap-old'){
+                        throw 'sealed mutation reach preimage-ready causality is not the second durable workspace arm'
+                    }
+                }
+            }else{
+                foreach($record in @($intentRecord,$tailRecord)){
+                    if(-not $record.Data.Contains('TargetId') -or [string]$record.Data.TargetId -cne [string]$selector.TargetId){
+                        throw 'sealed mutation reach durable target record belongs to a different selector arm'
+                    }
+                }
+            }
+        }
+        $intentName=('{0:d6}.json' -f [long]$selector.ExpectedIntentSequence)
+        $tailName=('{0:d6}.json' -f [long]$selector.ExpectedTailSequence)
+        $intentLease=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($snapshot.NamespaceHandle,$intentName)
+        if($selector.ExpectedTailSequence -eq $selector.ExpectedIntentSequence){$tailLease=$intentLease;$sharedRecordLease=$true}
+        else{$tailLease=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($snapshot.NamespaceHandle,$tailName)}
+        $intentBytes=[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($intentLease,[long]$intentLease.ReadResult.Length)
+        $tailBytes=if($sharedRecordLease){$intentBytes}else{[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($tailLease,[long]$tailLease.ReadResult.Length)}
+        $intentRawSha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($intentBytes)).ToLowerInvariant()
+        $tailRawSha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($tailBytes)).ToLowerInvariant()
+        if($intentRawSha256 -cne [string]$intentLease.ReadResult.Sha256 -or $tailRawSha256 -cne [string]$tailLease.ReadResult.Sha256){throw 'sealed mutation reach held journal bytes changed'}
+        $intentSemanticHash=Get-SemanticJsonHash -InputObject $intentRecord
+        $tailSemanticHash=Get-SemanticJsonHash -InputObject $tailRecord
+        $derivedJournalHeadHash=[string]$snapshot.State.DerivedJournalHeadHash
+        if($derivedJournalHeadHash -cne $tailSemanticHash){throw 'sealed mutation reach actual tail does not derive the journal head'}
+        Close-CanonicalJournalSnapshot -Snapshot $snapshot;$snapshot=$null
+
+        $evidenceTupleHash=Get-SemanticJsonHash -InputObject ([ordered]@{
+            TransactionNamespace=$normalizedNamespace;Checkpoint=$Checkpoint.ToString();DeclaredVariant=$declared.ToString()
+            ActualBranchDiscriminator=[string]$ActualBranchState;SelectorArm=$resolvedArm;ObservedRecordData=$ObservedRecordData
+            IntentSequence=[long]$selector.ExpectedIntentSequence;IntentSemanticHash=$intentSemanticHash
+            TailSequence=[long]$selector.ExpectedTailSequence;TailSemanticHash=$tailSemanticHash;DerivedJournalHeadHash=$derivedJournalHeadHash
+        })
+        $tempLease=$InvocationContext.StageRootLease.BeginCreateStageTemp()
+        $stageDocument=[ordered]@{
+            SchemaVersion=[long]1;ArtifactKind='sealed-mutation-held-stage'
+            ControllerNonce=$selector.ControllerNonce;CaseNonce=$selector.CaseNonce
+            StageReadyEventName=$selector.StageReadyEventName;StageReadyEventNonce=$selector.StageReadyEventNonce
+            ContinueEventName=$selector.ContinueEventName;ContinueEventNonce=$selector.ContinueEventNonce
+            Pid=[long][Diagnostics.Process]::GetCurrentProcess().Id
+            RootCreationFileTimeTicks=[AiAgentDotfilesTests.SealedStageNativeBridge]::GetCurrentProcessCreationFileTimeTicks().ToString([Globalization.CultureInfo]::InvariantCulture)
+            TransactionId=$selector.TransactionId;TransactionNamespace=$selector.TransactionNamespace
+            Checkpoint=$selector.Checkpoint.ToString();DeclaredPrimitiveVariant=$selector.DeclaredVariant.ToString()
+            ActualBranchDiscriminator=[string]$ActualBranchState;SelectorArm=$resolvedArm
+            IntentPhase=[string]$intentRecord.Phase;IntentSequence=[long]$intentRecord.Sequence;IntentSemanticHash=$intentSemanticHash
+            IntentArtifactIdentity=[string]$intentLease.Info.Identity;IntentArtifactLength=[long]$intentLease.ReadResult.Length;IntentArtifactRawSha256=$intentRawSha256
+            TailPhase=[string]$tailRecord.Phase;TailSequence=[long]$tailRecord.Sequence;TailSemanticHash=$tailSemanticHash
+            TailArtifactIdentity=[string]$tailLease.Info.Identity;TailArtifactLength=[long]$tailLease.ReadResult.Length;TailArtifactRawSha256=$tailRawSha256
+            DerivedJournalHeadHash=$derivedJournalHeadHash;EvidenceTupleHash=$evidenceTupleHash
+            StageRootIdentity=$selector.StageRootIdentity;StageTempLeaf=$selector.StageTempLeaf;StageFinalLeaf=$selector.StageFinalLeaf
+            StageArtifactIdentity=$tempLease.Identity
+            ControllerObservationMilliseconds=[long]$selector.ControllerObservationMilliseconds;JobReapMilliseconds=[long]$selector.JobReapMilliseconds
+            CleanupMilliseconds=[long]$selector.CleanupMilliseconds;WorkerWaitMilliseconds=[long]$selector.WorkerWaitMilliseconds
+            ControllerQpcTicks=$selector.ControllerQpcTicks.ToString([Globalization.CultureInfo]::InvariantCulture)
+            StopwatchFrequency=$selector.StopwatchFrequency.ToString([Globalization.CultureInfo]::InvariantCulture)
+            ControllerObservationDeadlineQpc=$selector.ControllerObservationDeadlineQpc.ToString([Globalization.CultureInfo]::InvariantCulture)
+            HardKillCumulativeReapDeadlineQpc=$selector.HardKillCumulativeReapDeadlineQpc.ToString([Globalization.CultureInfo]::InvariantCulture)
+            WorkerDeadlineQpc=$selector.WorkerDeadlineQpc.ToString([Globalization.CultureInfo]::InvariantCulture)
+            NaturalReleaseCumulativeReapDeadlineQpc=$selector.NaturalReleaseCumulativeReapDeadlineQpc.ToString([Globalization.CultureInfo]::InvariantCulture)
+            HardKillCumulativeCleanupDeadlineQpc=$selector.HardKillCumulativeCleanupDeadlineQpc.ToString([Globalization.CultureInfo]::InvariantCulture)
+            NaturalReleaseCumulativeCleanupDeadlineQpc=$selector.NaturalReleaseCumulativeCleanupDeadlineQpc.ToString([Globalization.CultureInfo]::InvariantCulture)
+            SelectorSha256=$selector.SelectorSha256
+        }
+        $stageBytes=ConvertTo-SemanticJsonBytes -InputObject $stageDocument
+        $finalSeal=$tempLease.WriteFlushRenameAndSealFinal($stageBytes);$tempLease=$null
+        if($finalSeal.Identity -cne [string]$stageDocument.StageArtifactIdentity -or
+            $finalSeal.Length -ne $stageBytes.LongLength -or
+            $finalSeal.RawSha256 -cne [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stageBytes)).ToLowerInvariant()){
+            throw 'sealed mutation stage final seal differs from publication bytes'
+        }
+        $handoff=$true
+        $InvocationContext.Coordinator.MarkPublishedSignalReadyAndWait($ticket)
+    }catch{
+        $reachPrimary=$_.Exception
+    }finally{
+        if($finalSeal){try{$finalSeal.Dispose()}catch{$null=$reachCleanupErrors.Add($_.Exception)}}
+        if($tempLease){try{$tempLease.Dispose()}catch{$null=$reachCleanupErrors.Add($_.Exception)}}
+        if($tailLease -and -not $sharedRecordLease){try{$tailLease.Dispose()}catch{$null=$reachCleanupErrors.Add($_.Exception)}}
+        if($intentLease){try{$intentLease.Dispose()}catch{$null=$reachCleanupErrors.Add($_.Exception)}}
+        if($snapshot){try{Close-CanonicalJournalSnapshot -Snapshot $snapshot}catch{$null=$reachCleanupErrors.Add($_.Exception)}}
+        if($null -ne $reachPrimary -and -not $handoff){try{$InvocationContext.Coordinator.MarkPublicationFailed($ticket)}catch{$null=$reachCleanupErrors.Add($_.Exception)}}
+    }
+    if($null -ne $reachPrimary -or $reachCleanupErrors.Count -ne 0){
+        $reachFailures=[Collections.Generic.List[Exception]]::new()
+        if($null -ne $reachPrimary){$null=$reachFailures.Add($reachPrimary)}
+        foreach($cleanupError in $reachCleanupErrors){$null=$reachFailures.Add($cleanupError)}
+        if($reachFailures.Count -eq 1){throw $reachFailures[0]}
+        throw [AggregateException]::new('sealed-mutation-reach-primary-and-cleanup',[Exception[]]$reachFailures.ToArray())
+    }
 }
 
 function Initialize-SealedCanonicalRecoveryWorkspace {

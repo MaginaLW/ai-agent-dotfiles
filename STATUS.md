@@ -199,37 +199,63 @@ The unified runner does not include the separate PowerShell parse, canonical bui
 scan gates. Their earlier 2026-08-20 evidence remains historical rather than being restated as a fresh
 2026-08-22 result. No live sync, backup, retirement, rollback, or Apply was performed.
 
-The remaining known blocker is the Phase 1 sealed forward-mutation runtime from
-`docs/superpowers/plans/2026-08-14-deterministic-hard-kill-checkpoints.md`. The four sealed mirrors and
-their static gates exist, but the real workspace cases are not selected for typed transport; canonical
-selector parsing, cross-process events, held stage evidence, controller verification, atomic Job receipt,
-and identity-bound cleanup are not yet a complete runtime path. Production Apply remains interlocked.
+The 2026-08-23 Phase 1 workspace vertical slice now routes all four preimage/swap-old before/after
+workspace cases through the sealed typed transport instead of legacy journal polling. The runtime has
+canonical selector parsing, protected cross-process events, root-relative held stage evidence, a suspended
+process assigned atomically to one retained Job, same-epoch typed reap receipts, controller-side journal and
+post-state verification, and identity-bound cleanup. Observation is single-use and bound by exact object
+identity; pre-session abort and receipt-following failures release all reachable native/event/stage resources
+before preserving the primary error. Hard-kill and natural-release nominal cleanup both enforce the same
+immutable absolute QPC deadline through root disposition, handle release, and a completion post-check, so
+an over-deadline cleanup falls back without publishing proof. Natural release consumes the held final lease
+before Continue, requires the selected `WORKSPACE_CREATED` on a validated successor chain, and accepts only
+the case-bound recovery classification after the child exits with code zero. The controller route is the first
+loop branch and exits that case after publishing a complete proof or natural-release differential; the legacy
+launcher remains a single separate path.
+
+Fresh focused validation on 2026-08-23 produced:
+
+- `canonical-hard-kill.tests.ps1 -Section primitives`: 95 passed / 0 failed, including the exact
+  289-rejection / 81-acceptance transport matrix, the twenty-case behavior probe, held-invalid source
+  validation, Job/oplock primitives, recursive parity, differential evidence, and failure cleanup;
+- `canonical-hard-kill.tests.ps1 -Section process -CasePattern '*workspace'`: two independent focused
+  executions each reached 10 passed / 0 failed, with all four selected workspace cases completing both
+  hard-kill and natural-release through the typed controller (eight real child-process executions). A separate
+  focused diagnostic execution also completed all four natural-release selectors with exact
+  `natural-release-differential` results and empty stderr;
+- `canonical-production-seams.tests.ps1`: 13 passed / 0 failed across every `scripts/**/*.ps1` file and
+  the reviewed production closure;
+- `build-skills.ps1`: Claude 7, Codex 15, Reasonix 7; `scan-secrets.ps1`: no blocking findings (744
+  non-blocking keyword hints); and `sync.ps1`: dry-run only, plan
+  `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, with no live mutation and
+  Codex `.system` preserved.
+
+This is focused Phase 1 evidence, not a fresh 30-suite claim. The complete hard-kill process/rollback
+matrix and the unified runner still remain to be completed.
+Production Apply remains interlocked.
 
 ## Current boundaries and known state
 
 - Historical machine-private `state/current-env.json` evidence attested stock `work`; it is not a
-  repository-portable current-machine claim. The 2026-08-20 sync dry-run on this machine reports all
-  7/15/7 generated skills as additions, with zero prune/unknown targets and Codex `.system` present.
-  No live files were changed.
+  repository-portable current-machine claim. The 2026-08-23 sync dry-run on this machine reports all
+  7/15/7 generated skills as additions, with zero update/prune/unknown targets and Codex `.system`
+  present. No live files were changed.
 - Project Harness Profiles remain project-local. They do not write global homes, install
   project-local skills, or switch global environments automatically.
 - Codex `config.toml`, credentials, sessions, caches, and unrelated home configuration are outside
   this repository's sync scope.
 - The MCP subsystem removal did not alter any live MCP registration.
 - User-owned `.reasonix/desktop-topic-*.json` files and the live-safety planning stream remain
-  outside this repair. The 2026-08-20 filtered working-tree scan passed without blocking findings;
-  no fresh scan is claimed by the 2026-08-22 unified-runner evidence.
+  outside this repair. The fresh 2026-08-23 filtered working-tree scan passed without blocking findings
+  (744 non-blocking keyword hints).
 - Git publishing is outside this cleanup task: no push or pull request has been performed.
 
 ## Next actions
 
-1. Implement the first complete Phase 1 workspace vertical slice: freeze selected workspace REDs,
-   complete the typed selector/stage and atomic Job receipt lifecycle, route all four
-   preimage/swap-old before/after workspace cases away from legacy polling, and run each hard-kill and
-   normal-release differential twice. Do not substitute retries, sleeps, temporary helper APIs, or
-   weaker assertions.
-2. After the focused workspace and full hard-kill suite are green, run a fresh unified 30-suite
-   summary before claiming 30/30.
+1. Complete the remaining Phase 1 verification contract by running the complete hard-kill process/rollback
+   matrix. Do not substitute retries, sleeps, temporary helper APIs, or weaker assertions.
+2. After the complete hard-kill suite is green, run a fresh unified 30-suite summary before claiming
+   30/30.
 3. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
