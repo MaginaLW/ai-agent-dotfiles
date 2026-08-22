@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -176,28 +176,34 @@ doctor-required active-status directory present in fresh clones.
 
 ## Validation status
 
-The 2026-08-20 repair validation is:
+The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
+summary. Its summary SHA-256 is
+`cc2bf3443dddb0fb218f11f16c42a226b79322e0c6437f6e9e9451f95ebfdad5`:
 
-- PowerShell syntax: 146 files passed;
-- build: Claude 7, Codex 15, Reasonix 7;
-- secret scan: PASS; pinned gitleaks 8.30.0 found no leaks;
-- unified runner: 30 suites discovered, zero timeouts; after targeted repairs, 29 suites pass;
-- `canonical-transaction-apply.tests.ps1`: 21 passed;
-- `canonical-transaction.tests.ps1`: 45 passed;
-- `doctor.tests.ps1`: PASS;
-- `canonical-hard-kill.tests.ps1`: 100 passed, 22 planned Phase 1 RED failures remain;
-- follow-up `canonical-hard-kill.tests.ps1 -Section primitives`: 76 passed, 19 planned RED
-  failures remain after implementing the closed 20-case child dispatcher, its twenty unique typed
-  handler leaves, the hash-held 20-case behavior-probe host route, and the closed 8/8 parent-oracle
-  dispatcher with sixteen unique typed leaves; the reviewed child and parent primitive authorities
-  intentionally remain RED until their native behavior is implemented;
-- sync dry-run: PASS, no prune or unknown directories, Codex `.system` preserved; no live write or
-  Apply was performed.
+- 30 suites were discovered, started, and completed;
+- 28 suites passed and 2 failed; there were zero timeouts, duplicates, missing suites, or tree-kill
+  failures;
+- `canonical-hard-kill.tests.ps1` reached 126 passed / 1 failed. The failure was
+  `before-workspace`: the actual process matrix still routes through timing-dependent journal polling,
+  so the controller can miss `WORKSPACE_CREATE_INTENT -> CreateDirectoryNoOverwrite` before
+  `WORKSPACE_CREATED`;
+- `canonical-mutation-parent-lease.tests.ps1` initially reached 10 passed / 2 failed. Production
+  leases had blocked the first rename probe, but the test helper issued a second rename after lease
+  release and overwrote that evidence. The helper now treats the first blocked probe as the attack;
+  two focused reruns each reached 12 passed / 0 failed;
+- the latest focused `canonical-hard-kill.tests.ps1 -Section primitives` run reached 95 passed / 0
+  failed. This does not cover the default process matrix and is not evidence that the complete suite
+  is green.
 
-The remaining hard-kill failures are implementation gates from
-`docs/superpowers/plans/2026-08-14-deterministic-hard-kill-checkpoints.md`, including the sealed
-transport session, parent oracle/cleanup authorities, child behavior primitives, and native/QPC lifecycle.
-Production Apply remains interlocked while those gates are incomplete.
+The unified runner does not include the separate PowerShell parse, canonical build, or filtered secret
+scan gates. Their earlier 2026-08-20 evidence remains historical rather than being restated as a fresh
+2026-08-22 result. No live sync, backup, retirement, rollback, or Apply was performed.
+
+The remaining known blocker is the Phase 1 sealed forward-mutation runtime from
+`docs/superpowers/plans/2026-08-14-deterministic-hard-kill-checkpoints.md`. The four sealed mirrors and
+their static gates exist, but the real workspace cases are not selected for typed transport; canonical
+selector parsing, cross-process events, held stage evidence, controller verification, atomic Job receipt,
+and identity-bound cleanup are not yet a complete runtime path. Production Apply remains interlocked.
 
 ## Current boundaries and known state
 
@@ -211,14 +217,20 @@ Production Apply remains interlocked while those gates are incomplete.
   this repository's sync scope.
 - The MCP subsystem removal did not alter any live MCP registration.
 - User-owned `.reasonix/desktop-topic-*.json` files and the live-safety planning stream remain
-  outside this repair. The current filtered working-tree scan passes without blocking findings.
+  outside this repair. The 2026-08-20 filtered working-tree scan passed without blocking findings;
+  no fresh scan is claimed by the 2026-08-22 unified-runner evidence.
 - Git publishing is outside this cleanup task: no push or pull request has been performed.
 
 ## Next actions
 
-1. Complete the deterministic hard-kill checkpoint implementation until the remaining 19 RED gates
-   pass; do not replace them with temporary helper APIs or weaker assertions.
-2. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+1. Implement the first complete Phase 1 workspace vertical slice: freeze selected workspace REDs,
+   complete the typed selector/stage and atomic Job receipt lifecycle, route all four
+   preimage/swap-old before/after workspace cases away from legacy polling, and run each hard-kill and
+   normal-release differential twice. Do not substitute retries, sleeps, temporary helper APIs, or
+   weaker assertions.
+2. After the focused workspace and full hard-kill suite are green, run a fresh unified 30-suite
+   summary before claiming 30/30.
+3. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.

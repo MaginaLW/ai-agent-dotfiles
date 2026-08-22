@@ -47,10 +47,15 @@ function Test-Trigger {
             $probe=[IO.Path]::GetFullPath($ProbePath)
             try{
                 [IO.Directory]::Move([IO.Path]::GetFullPath($Ancestor),$probe)
-                [IO.Directory]::Move($probe,[IO.Path]::GetFullPath($Ancestor))
-                return $false
             }
-            catch{return $true}
+            catch{
+                $result.Attempted=$true
+                $result.Blocked=$true
+                $result.Error=$_.Exception.GetBaseException().Message
+                return $true
+            }
+            [IO.Directory]::Move($probe,[IO.Path]::GetFullPath($Ancestor))
+            return $false
         }
     }
 }
@@ -67,13 +72,15 @@ try{
     while([DateTime]::UtcNow -lt $deadline){
         if($StopPhase -and (Get-JournalPhaseMatch -ExpectedPhase $StopPhase)){$result.Missed=$true;break}
         if(Test-Trigger){
-            $result.Attempted=$true
-            try{
-                [IO.Directory]::Move([IO.Path]::GetFullPath($Ancestor),[IO.Path]::GetFullPath($Moved))
-                $result.Moved=$true
-                [IO.Directory]::CreateDirectory([IO.Path]::GetFullPath($Ancestor))|Out-Null
+            if(-not $result.Attempted){
+                $result.Attempted=$true
+                try{
+                    [IO.Directory]::Move([IO.Path]::GetFullPath($Ancestor),[IO.Path]::GetFullPath($Moved))
+                    $result.Moved=$true
+                    [IO.Directory]::CreateDirectory([IO.Path]::GetFullPath($Ancestor))|Out-Null
+                }
+                catch{$result.Blocked=$true;$result.Error=$_.Exception.GetBaseException().Message}
             }
-            catch{$result.Blocked=$true;$result.Error=$_.Exception.GetBaseException().Message}
             break
         }
         $null=$watcher.WaitForChanged([IO.WatcherChangeTypes]::All,1000)
