@@ -233,6 +233,19 @@ The `before-parent` differential explicitly distinguishes hard-kill `abandon/aba
 completed natural path's `rollback/rolled-back`; `after-parent` remains rollback-classified in both
 modes.
 
+The Phase 1 directory-old slice now removes timing-dependent polling from `before-directory-old`
+and `after-directory-old`. Both checkpoints use the sealed typed transport around the real
+directory old-to-swap move. The controller independently binds the unique order-zero
+directory/canonical target, sequence-7 `MOVE_OLD_INTENT`, matching unique `PREPARED` data, and the
+`PRESENT` branch discriminator. Before the primitive it requires target/preimage=current,
+swap-old=missing, and staged=candidate; after the primitive it requires target=missing,
+preimage/swap-old=current, and staged=candidate, including the moved directory identity. Natural
+release accepts only the exact hash-linked sequence-8 `OLD_MOVED`, sequence-9 `MOVE_NEW_INTENT`, and
+sequence-10 `NEW_INSTALLED` successors plus the final target=candidate, preimage/swap-old=current,
+staged=missing tuple. `before-directory-old` distinguishes hard-kill `abandon/abandoned` from the
+completed natural path's `rollback/rolled-back`; `after-directory-old` remains rollback-classified
+in both modes.
+
 Fresh focused validation on 2026-08-23 produced:
 
 - `canonical-hard-kill.tests.ps1 -Section primitives`: 95 passed / 0 failed, including the exact
@@ -251,6 +264,11 @@ Fresh focused validation on 2026-08-23 produced:
   `after-parent` focused run each reached 10 passed / 0 failed. Both cases completed hard-kill and
   natural-release through the sealed controller, with sequence-7 intent observation and the exact
   sequence-8 natural successor;
+- `canonical-hard-kill.tests.ps1 -Section process -CasePattern '*directory-old*'`: 10 passed / 0
+  failed. `before-directory-old` and `after-directory-old` each completed hard-kill and
+  natural-release through the sealed controller, with the exact sequence-7 intent boundary,
+  independently reconstructed before/after move tuples, and sequence-8 through sequence-10 natural
+  successor chain;
 - `canonical-production-seams.tests.ps1`: 13 passed / 0 failed across every `scripts/**/*.ps1` file and
   the reviewed production closure;
 - `build-skills.ps1`: Claude 7, Codex 15, Reasonix 7; `scan-secrets.ps1`: no blocking findings (744
