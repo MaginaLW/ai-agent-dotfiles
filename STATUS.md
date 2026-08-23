@@ -246,6 +246,18 @@ staged=missing tuple. `before-directory-old` distinguishes hard-kill `abandon/ab
 completed natural path's `rollback/rolled-back`; `after-directory-old` remains rollback-classified
 in both modes.
 
+The Phase 1 directory-new slice now removes timing-dependent polling from `before-directory-new`
+and `after-directory-new`. Both checkpoints use the sealed typed transport around the real staged-to-target
+directory move, while the host selector is explicitly bound to `Kind=directory` so the colliding
+`directory-add-new` checkpoint names remain on their legacy zero-argument path and reject sealed arguments.
+The controller binds the unique order-zero directory/canonical target and sequence-9
+`MOVE_NEW_INTENT` to the hash-linked sequence-8 `OLD_MOVED` record. Before the primitive it requires
+target=missing, preimage/swap-old=current, and staged=candidate; after the primitive it requires
+target=candidate, preimage/swap-old=current, and staged=missing, including exact moved identity and
+record-data reconstruction. Natural release accepts only the unique hash-linked sequence-10
+`NEW_INSTALLED` successor and the same final tuple. Both checkpoints remain
+`rollback/rolled-back` in hard-kill and natural-release modes.
+
 Fresh focused validation on 2026-08-23 produced:
 
 - `canonical-hard-kill.tests.ps1 -Section primitives`: 95 passed / 0 failed, including the exact
@@ -269,6 +281,11 @@ Fresh focused validation on 2026-08-23 produced:
   natural-release through the sealed controller, with the exact sequence-7 intent boundary,
   independently reconstructed before/after move tuples, and sequence-8 through sequence-10 natural
   successor chain;
+- `canonical-hard-kill.tests.ps1 -Section process -CasePattern '*directory-new*'`: 10 passed / 0
+  failed. `before-directory-new` and `after-directory-new` each completed hard-kill and
+  natural-release through the sealed controller, with the exact sequence-9 intent boundary,
+  independently reconstructed pre/post staged-to-target tuples, and the unique sequence-10 natural
+  successor;
 - `canonical-production-seams.tests.ps1`: 13 passed / 0 failed across every `scripts/**/*.ps1` file and
   the reviewed production closure;
 - `build-skills.ps1`: Claude 7, Codex 15, Reasonix 7; `scan-secrets.ps1`: no blocking findings (744

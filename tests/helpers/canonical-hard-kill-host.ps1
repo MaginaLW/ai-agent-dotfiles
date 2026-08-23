@@ -285,11 +285,11 @@ $sealedWorkspaceSelected=@(
 ) -ccontains $Checkpoint
 $sealedPreimageSelected=$Checkpoint -ceq 'before-preimage-copy' -or $Checkpoint -ceq 'after-preimage-copy' -or $Checkpoint -ceq 'during-preimage-copy'
 $sealedParentSelected=$Checkpoint -ceq 'before-parent-mkdir' -or $Checkpoint -ceq 'after-parent-mkdir'
-$sealedDirectoryOldSelected=$Checkpoint -ceq 'before-directory-move-old' -or $Checkpoint -ceq 'after-directory-move-old'
+$sealedDirectorySelected=$Kind -ceq 'directory' -and $Checkpoint -cin @('before-directory-move-old','after-directory-move-old','before-directory-move-new','after-directory-move-new')
 $sealedStageArguments=@($MutationEnginePath,$ExpectedEngineSha256,$SealedInvocationFixturePath,$SealedInvocationFixtureSha256)
 $sealedStageArgumentCount=[int](-not[string]::IsNullOrWhiteSpace([string]$MutationEnginePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$ExpectedEngineSha256))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixturePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixtureSha256))
-$sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectoryOldSelected) -and $sealedStageArgumentCount -eq 4)
-if($sealedStageArgumentCount -notin @(0,4) -or ($sealedWorkspaceSelected -and $sealedStageArgumentCount -ne 4) -or (-not $sealedWorkspaceSelected -and -not $sealedPreimageSelected -and -not $sealedParentSelected -and -not $sealedDirectoryOldSelected -and $sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}
+$sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectorySelected) -and $sealedStageArgumentCount -eq 4)
+if($sealedStageArgumentCount -notin @(0,4) -or ($sealedWorkspaceSelected -and $sealedStageArgumentCount -ne 4) -or (-not $sealedWorkspaceSelected -and -not $sealedPreimageSelected -and -not $sealedParentSelected -and -not $sealedDirectorySelected -and $sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}
 if($sealedMutationStageSelected){
     $normalEnginePath=[IO.Path]::GetFullPath($MutationEnginePath)
     $normalEngineBytes=[IO.File]::ReadAllBytes($normalEnginePath)
@@ -319,7 +319,7 @@ if($sealedMutationStageSelected){
         }elseif($sealedParentSelected){
             $null=Initialize-CanonicalTransactionPreimages -TransactionNamespace $namespace
             $null=Invoke-SealedCanonicalParentDirectoryCreate -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
-        }elseif($sealedDirectoryOldSelected){
+        }elseif($sealedDirectorySelected){
             $null=Invoke-SealedCanonicalDirectoryReplacement -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
         }
         $InvocationContext.Coordinator.AssertMatchedExactlyOnce()
