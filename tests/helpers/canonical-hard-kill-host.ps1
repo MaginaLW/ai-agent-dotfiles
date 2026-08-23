@@ -152,7 +152,7 @@ function Invoke-HardKillRetainedPartialPreimageFixture {
         $null=Add-CanonicalJournalRecord -TransactionNamespace $TransactionNamespace -Phase PREIMAGE_COPY_INTENT -Data $intentData
         $postIntentState=Get-CanonicalJournalStateForAppend -TransactionNamespace $TransactionNamespace
         if(@($postIntentState.PendingEntries).Count -ne 0){throw 'retained partial preimage pending inventory changed after intent publication'}
-        $partialCapture=[AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFile($workspaceHandle,$partialLeaf,$payload)
+        $partialCapture=[AiAgentDotfiles.NoFollowFile]::CreateAndSealChildRegularFile($workspaceHandle,$partialLeaf,$payload)
         if([long]$partialCapture.ReadResult.Length -ne [long]$payload.LongLength -or [string]$partialCapture.ReadResult.Sha256 -cne $prefixSha256){throw 'retained partial preimage bytes differ from the strict source prefix'}
         $partialEvidence=[ordered]@{EvidenceKind='SyntheticDirectRetainedPartialPreimage';Target=$Target;PreimagePath=$partialPath;PreimageWorkspaceIntent=$preimageWorkspaceRecords[0];PreimageWorkspaceCreated=$preimageWorkspaceRecords[1];SwapOldWorkspaceIntent=$swapOldWorkspaceRecords[0];SwapOldWorkspaceCreated=$swapOldWorkspaceRecords[1];PartialIdentity=[string]$partialCapture.Info.Identity;PartialLength=[long]$partialCapture.ReadResult.Length;PartialRawSha256=[string]$partialCapture.ReadResult.Sha256;SourceIdentity=[string]$sourceCapture.Info.Identity;SourceLength=[long]$sourceCapture.ReadResult.Length;SourceRawSha256=[string]$sourceCapture.ReadResult.Sha256}
         Invoke-SealedMutationReach -InvocationContext $InvocationContext -TransactionNamespace $TransactionNamespace -Checkpoint RetainedPartialPreimage -DeclaredVariant RetainedPartialPreimageFile -ActualBranchState $targetState.State -SelectorArm ([ordered]@{TargetId=$Target.TargetId;TargetOrder=$Target.Order}) -ObservedRecordData $partialEvidence
@@ -284,10 +284,10 @@ $sealedWorkspaceSelected=@(
     'after-workspace-mkdir:swap-old'
 ) -ccontains $Checkpoint
 $sealedPreimageSelected=$Checkpoint -ceq 'before-preimage-copy' -or $Checkpoint -ceq 'after-preimage-copy' -or $Checkpoint -ceq 'during-preimage-copy'
-$sealedMutationStageSelected=$sealedWorkspaceSelected -or $sealedPreimageSelected
 $sealedStageArguments=@($MutationEnginePath,$ExpectedEngineSha256,$SealedInvocationFixturePath,$SealedInvocationFixtureSha256)
 $sealedStageArgumentCount=[int](-not[string]::IsNullOrWhiteSpace([string]$MutationEnginePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$ExpectedEngineSha256))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixturePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixtureSha256))
-if(($sealedMutationStageSelected -and $sealedStageArgumentCount -ne 4) -or (-not $sealedMutationStageSelected -and $sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}
+$sealedMutationStageSelected=$sealedWorkspaceSelected -or ($sealedPreimageSelected -and $sealedStageArgumentCount -eq 4)
+if($sealedStageArgumentCount -notin @(0,4) -or ($sealedWorkspaceSelected -and $sealedStageArgumentCount -ne 4) -or (-not $sealedWorkspaceSelected -and -not $sealedPreimageSelected -and $sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}
 if($sealedMutationStageSelected){
     $normalEnginePath=[IO.Path]::GetFullPath($MutationEnginePath)
     $normalEngineBytes=[IO.File]::ReadAllBytes($normalEnginePath)
@@ -330,7 +330,6 @@ if($sealedMutationStageSelected){
     }
     exit 0
 }
-$null=Initialize-CanonicalTransactionPreimages -TransactionNamespace $namespace
 if($Checkpoint -ceq 'after-preimage-copy'){
     $stageSource=Get-CanonicalObservedPathState -Path ([string]$script:target.TargetPath) -ExpectedKind file
     if([string]$stageSource.Hash -cne [string]$script:target.Current.Hash){throw 'after-preimage stage source differs from the journal header Current contract'}
@@ -340,6 +339,7 @@ if($Checkpoint -ceq 'after-preimage-copy'){
         TargetIdentity=[string]$stageSource.Identity;TargetHash=[string]$stageSource.Hash
     })
 }
+$null=Initialize-CanonicalTransactionPreimages -TransactionNamespace $namespace
 if($baseKind -eq 'parent'){$null=Invoke-CanonicalParentDirectoryCreate -TransactionNamespace $namespace -Target $script:target;exit 0}
 if($baseKind -eq 'directory'){$null=Invoke-CanonicalDirectoryReplacement -TransactionNamespace $namespace -Target $script:target;exit 0}
 $null=Invoke-CanonicalFileReplacement -TransactionNamespace $namespace -Target $script:target

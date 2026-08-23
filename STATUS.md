@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -213,6 +213,17 @@ the case-bound recovery classification after the child exits with code zero. The
 loop branch and exits that case after publishing a complete proof or natural-release differential; the legacy
 launcher remains a single separate path.
 
+The Phase 1 preimage slice now also removes timing-dependent polling from `before-preimage` and
+`partial-preimage`. Both checkpoints use the same sealed selector/stage transport, with independent
+controller reconstruction of the exact workspace record chain, held source identity/hash, and target
+arm. The retained-partial fixture converts its durable writer into a read-only sealed handle so the
+controller can acquire a second read witness while writes and deletion remain blocked; the controller
+requires the exact `source.Length - 1` prefix, the durable preimage workspace identity, and reconstructed
+`PREIMAGE_COPY_INTENT` data. Post-state classification is independently recomputed from the reread
+journal, including the canonical `manual/""/""` wire form. The legacy `after-preimage` R/W oplock ladder
+remains in place, but its typed start stage is now published before real preimage initialization so its
+source/header/source-copy/intent gates observe the intended intent-to-prepared boundary.
+
 Fresh focused validation on 2026-08-23 produced:
 
 - `canonical-hard-kill.tests.ps1 -Section primitives`: 95 passed / 0 failed, including the exact
@@ -223,6 +234,10 @@ Fresh focused validation on 2026-08-23 produced:
   hard-kill and natural-release through the typed controller (eight real child-process executions). A separate
   focused diagnostic execution also completed all four natural-release selectors with exact
   `natural-release-differential` results and empty stderr;
+- `canonical-hard-kill.tests.ps1 -Section process -CasePattern '*preimage*'`: the final aggregate run
+  reached 16 passed / 0 failed. `before-preimage` and `partial-preimage` each completed hard-kill and
+  natural-release through the sealed controller, and `after-preimage` completed its exact four-gate oplock,
+  Job reap, unfinished-journal, consumed-attempt, and unique-recovery assertions;
 - `canonical-production-seams.tests.ps1`: 13 passed / 0 failed across every `scripts/**/*.ps1` file and
   the reviewed production closure;
 - `build-skills.ps1`: Claude 7, Codex 15, Reasonix 7; `scan-secrets.ps1`: no blocking findings (744
