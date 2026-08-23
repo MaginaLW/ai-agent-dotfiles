@@ -271,11 +271,36 @@ hash-linked sequence-10 `NEW_INSTALLED` successor. `before-directory-add-new` di
 `abandon/abandoned` from natural `rollback/rolled-back`; `after-directory-add-new` is
 `rollback/rolled-back` in both modes.
 
+The Phase 1 directory-delete installed-record slice now removes timing-dependent polling from
+`directory-delete-before-installed-record` and `directory-delete-after-installed-record`. Both
+cases use the sealed typed transport around the exact sequence-10 `NEW_INSTALLED` append with
+`Current=PRESENT` and `Candidate=MISSING`. The controller binds the exact `Kind=directory-delete`
+host selector, raw before/after checkpoint, typed `BeforeDirectoryDeletionRecord` /
+`AfterDirectoryDeletionRecord`, unique order-zero directory/canonical arm, sequence-8 `OLD_MOVED`,
+and hash-linked sequence-9 `MOVE_NEW_INTENT`. Both observations require target/staged=missing and
+preimage/swap-old=current with exact identities and reconstructed record data. Natural release
+accepts one exact sequence-10 successor before publication and zero delta after publication;
+hard-kill and natural release both remain `rollback/rolled-back`.
+
+The prelaunch wire is now also bound to held path provenance instead of trusting the case dictionary
+alone. The exact twelve-token base host arguments bind `ToolchainRoot`, `FixtureRoot`,
+`TransactionId`, `Kind`, `Checkpoint`, and `MarkerPath`; the controller derives the common repository
+root from the exact reviewed host and engine locations, derives the fixture root from the scope-owned
+invocation fixture, and requires the marker to be its canonical `checkpoint.marker` child. The
+provenance validator treats every host script parameter as a protected root input and rejects direct,
+foreach/unary, `[ref]`, and `SessionState.PSVariable` rebinding. It also pins the four local setup/stage
+helpers, forbids relied-on external or cmdlet shadows, and scans root Function/Alias provider writes.
+Actual-host and synthetic baselines validate, and the exact 62-mutant inventory rejects the protected
+input, callee-authority, selector, frozen after-preimage stage, loader, owner, and partial-to-production
+mutations.
+
 Fresh focused validation on 2026-08-23 produced:
 
 - `canonical-hard-kill.tests.ps1 -Section primitives`: 95 passed / 0 failed, including the exact
-  289-rejection / 81-acceptance transport matrix, the twenty-case behavior probe, held-invalid source
-  validation, Job/oplock primitives, recursive parity, differential evidence, and failure cleanup;
+  292-rejection / 81-acceptance transport matrix, valid actual-host and synthetic provenance
+  baselines, all 62 protected-input/callee-authority provenance mutations, the twenty-case behavior
+  probe, held-invalid source validation, Job/oplock primitives, recursive parity, differential
+  evidence, and failure cleanup;
 - `canonical-hard-kill.tests.ps1 -Section process -CasePattern '*workspace'`: two independent focused
   executions each reached 10 passed / 0 failed, with all four selected workspace cases completing both
   hard-kill and natural-release through the typed controller (eight real child-process executions). A separate
@@ -304,9 +329,17 @@ Fresh focused validation on 2026-08-23 produced:
   natural-release through the sealed controller with `Current=MISSING`, exact Kind/header binding,
   independently reconstructed add-before/add-after tuples, and the unique sequence-10 natural
   successor;
+- `canonical-hard-kill.tests.ps1 -Section process -CasePattern '*directory-delete*'`: 10 passed / 0
+  failed. Both installed-record cases completed hard-kill and natural-release through the sealed
+  controller with exact host-wire and raw/typed checkpoint binding, the sequence-8/9 durable prefix,
+  the sequence-10 before/after differential, and the final missing-target tuple;
+- `canonical-hard-kill.tests.ps1 -Section process -CasePattern '*directory*new*'`: 10 passed / 0
+  failed. The four replacement-new and directory-add-new cases completed eight real child-process
+  executions, confirming that the new directory-delete selector does not capture either colliding
+  staged-to-target route;
 - `canonical-production-seams.tests.ps1`: 13 passed / 0 failed across every `scripts/**/*.ps1` file and
   the reviewed production closure;
-- `build-skills.ps1`: Claude 7, Codex 15, Reasonix 7; `scan-secrets.ps1`: no blocking findings (744
+- `build-skills.ps1`: Claude 7, Codex 15, Reasonix 7; `scan-secrets.ps1`: no blocking findings (745
   non-blocking keyword hints); and `sync.ps1`: dry-run only, plan
   `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, with no live mutation and
   Codex `.system` preserved.
@@ -328,7 +361,7 @@ Production Apply remains interlocked.
 - The MCP subsystem removal did not alter any live MCP registration.
 - User-owned `.reasonix/desktop-topic-*.json` files and the live-safety planning stream remain
   outside this repair. The fresh 2026-08-23 filtered working-tree scan passed without blocking findings
-  (744 non-blocking keyword hints).
+  (745 non-blocking keyword hints).
 - Git publishing is outside this cleanup task: no push or pull request has been performed.
 
 ## Next actions
