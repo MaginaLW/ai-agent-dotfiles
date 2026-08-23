@@ -258,6 +258,19 @@ record-data reconstruction. Natural release accepts only the unique hash-linked 
 `NEW_INSTALLED` successor and the same final tuple. Both checkpoints remain
 `rollback/rolled-back` in hard-kill and natural-release modes.
 
+The Phase 1 directory-add-new slice now removes timing-dependent polling from
+`before-directory-add-new` and `after-directory-add-new`. It reuses the reviewed staged-to-target
+directory primitive with `Current=MISSING`, while the host's exact two-arm selector permits
+directory replacement old/new checkpoints and directory-add new checkpoints without exposing
+directory-add old or directory-delete routes. Because replacement and add share the same TargetId and
+typed checkpoint, the controller independently binds case Kind to the header contract:
+`directory` requires `Current=PRESENT`, and `directory-add` requires `Current=MISSING`. Before the
+primitive, target/preimage/swap-old are missing and staged is the candidate; after it, target is the
+candidate and preimage/swap-old/staged are missing. Natural release accepts only the unique
+hash-linked sequence-10 `NEW_INSTALLED` successor. `before-directory-add-new` distinguishes hard-kill
+`abandon/abandoned` from natural `rollback/rolled-back`; `after-directory-add-new` is
+`rollback/rolled-back` in both modes.
+
 Fresh focused validation on 2026-08-23 produced:
 
 - `canonical-hard-kill.tests.ps1 -Section primitives`: 95 passed / 0 failed, including the exact
@@ -285,6 +298,11 @@ Fresh focused validation on 2026-08-23 produced:
   failed. `before-directory-new` and `after-directory-new` each completed hard-kill and
   natural-release through the sealed controller, with the exact sequence-9 intent boundary,
   independently reconstructed pre/post staged-to-target tuples, and the unique sequence-10 natural
+  successor;
+- `canonical-hard-kill.tests.ps1 -Section process -CasePattern '*directory-add-new*'`: 10 passed / 0
+  failed. `before-directory-add-new` and `after-directory-add-new` each completed hard-kill and
+  natural-release through the sealed controller with `Current=MISSING`, exact Kind/header binding,
+  independently reconstructed add-before/add-after tuples, and the unique sequence-10 natural
   successor;
 - `canonical-production-seams.tests.ps1`: 13 passed / 0 failed across every `scripts/**/*.ps1` file and
   the reviewed production closure;

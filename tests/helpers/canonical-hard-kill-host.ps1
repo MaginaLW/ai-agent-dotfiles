@@ -285,7 +285,7 @@ $sealedWorkspaceSelected=@(
 ) -ccontains $Checkpoint
 $sealedPreimageSelected=$Checkpoint -ceq 'before-preimage-copy' -or $Checkpoint -ceq 'after-preimage-copy' -or $Checkpoint -ceq 'during-preimage-copy'
 $sealedParentSelected=$Checkpoint -ceq 'before-parent-mkdir' -or $Checkpoint -ceq 'after-parent-mkdir'
-$sealedDirectorySelected=$Kind -ceq 'directory' -and $Checkpoint -cin @('before-directory-move-old','after-directory-move-old','before-directory-move-new','after-directory-move-new')
+$sealedDirectorySelected=($Kind -ceq 'directory' -and $Checkpoint -cin @('before-directory-move-old','after-directory-move-old','before-directory-move-new','after-directory-move-new')) -or ($Kind -ceq 'directory-add' -and $Checkpoint -cin @('before-directory-move-new','after-directory-move-new'))
 $sealedStageArguments=@($MutationEnginePath,$ExpectedEngineSha256,$SealedInvocationFixturePath,$SealedInvocationFixtureSha256)
 $sealedStageArgumentCount=[int](-not[string]::IsNullOrWhiteSpace([string]$MutationEnginePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$ExpectedEngineSha256))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixturePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixtureSha256))
 $sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectorySelected) -and $sealedStageArgumentCount -eq 4)
