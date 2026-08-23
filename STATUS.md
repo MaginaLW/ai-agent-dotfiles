@@ -224,6 +224,15 @@ journal, including the canonical `manual/""/""` wire form. The legacy `after-pre
 remains in place, but its typed start stage is now published before real preimage initialization so its
 source/header/source-copy/intent gates observe the intended intent-to-prepared boundary.
 
+The Phase 1 parent-directory slice now removes timing-dependent polling from `before-parent` and
+`after-parent`. Both checkpoints use the sealed selector/stage transport around the real
+`CreateDirectoryNoOverwrite` primitive, with the controller independently binding the exact parent
+target arm, sequence-7 `DIR_CREATE_INTENT`, missing branch discriminator, candidate empty-directory
+state, and created identity. Natural release requires the unique sequence-8 `DIR_CREATED` successor.
+The `before-parent` differential explicitly distinguishes hard-kill `abandon/abandoned` from the
+completed natural path's `rollback/rolled-back`; `after-parent` remains rollback-classified in both
+modes.
+
 Fresh focused validation on 2026-08-23 produced:
 
 - `canonical-hard-kill.tests.ps1 -Section primitives`: 95 passed / 0 failed, including the exact
@@ -238,6 +247,10 @@ Fresh focused validation on 2026-08-23 produced:
   reached 16 passed / 0 failed. `before-preimage` and `partial-preimage` each completed hard-kill and
   natural-release through the sealed controller, and `after-preimage` completed its exact four-gate oplock,
   Job reap, unfinished-journal, consumed-attempt, and unique-recovery assertions;
+- `canonical-hard-kill.tests.ps1 -Section process -CasePattern before-parent` and the corresponding
+  `after-parent` focused run each reached 10 passed / 0 failed. Both cases completed hard-kill and
+  natural-release through the sealed controller, with sequence-7 intent observation and the exact
+  sequence-8 natural successor;
 - `canonical-production-seams.tests.ps1`: 13 passed / 0 failed across every `scripts/**/*.ps1` file and
   the reviewed production closure;
 - `build-skills.ps1`: Claude 7, Codex 15, Reasonix 7; `scan-secrets.ps1`: no blocking findings (744
