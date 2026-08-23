@@ -306,7 +306,7 @@ $script:hardKillReviewedLoadManifest=[ordered]@{
     'scripts/semantic-json.ps1'='1f67414095a7d026d9dcb857f6824b1899944ca3fb788b260248c1155b4f373f'
     'scripts/scan-input-common.ps1'='10b0c2cc9f3a16eaaef2e709883dc6d9700a0ab2c34d6317d1ab719515aa90e1'
     'scripts/safe-tree-walker.ps1'='1a1060109ce4fc236c0f07af6cab07ec971b442782b4f26d8d8b64f00fbe3851'
-    'tests/helpers/canonical-hard-kill-host.ps1'='5a16d843fb80c95f9076433a45eb36d0102e984ab9610f38b97cce10d4aa3549'
+    'tests/helpers/canonical-hard-kill-host.ps1'='b68b50b49fbdba39d0e5c2d3f9c710b96084c1c163c031e71be222f1617af745'
 }
 $script:hardKillReviewedLoadLease=$null
 try{
@@ -2933,7 +2933,7 @@ function Publish-AfterPreimageStartStage {
             'ConvertTo-SemanticJsonBytes','Get-CanonicalGitContext','Get-CanonicalTransactionContractPaths','New-CanonicalSetupPlanPayload',
             'New-CanonicalFinalSetupState','Enter-CanonicalRepoLock','Exit-CanonicalRepoLock','Get-CanonicalJournalTargetId','Get-SafeTreeSnapshot',
             'Get-CanonicalRepoIdentity','New-CanonicalJournalHeader','Initialize-SealedCanonicalRecoveryWorkspace',
-            'Invoke-SealedCanonicalParentDirectoryCreate','Invoke-SealedCanonicalDirectoryReplacement'
+            'Invoke-SealedCanonicalParentDirectoryCreate','Invoke-SealedCanonicalDirectoryReplacement','Invoke-SealedCanonicalFileReplacement'
         )
         $trustedCmdletNames=@('Set-StrictMode','Join-Path','Split-Path','Test-Path','Out-Null','Set-Acl','ConvertTo-Json')
         if(@($definitions|Where-Object{(([string]$_.Name -split ':')[-1]) -cin @($trustedExternalNames+$trustedCmdletNames)}).Count -ne 0){throw 'preimage-provenance-command-shadow'}
@@ -3064,9 +3064,11 @@ if($sealedWorkspaceSelected){
 }elseif($sealedParentSelected){
     $null=Initialize-CanonicalTransactionPreimages -TransactionNamespace $namespace
     $null=Invoke-SealedCanonicalParentDirectoryCreate -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
-}elseif($sealedDirectorySelected){
-    $null=Invoke-SealedCanonicalDirectoryReplacement -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
-}
+        }elseif($sealedDirectorySelected){
+            $null=Invoke-SealedCanonicalDirectoryReplacement -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
+        }elseif($sealedFileSelected){
+            $null=Invoke-SealedCanonicalFileReplacement -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
+        }
 '@
         $probeRouteSource=@'
 if($ContractProbe){
@@ -3096,10 +3098,11 @@ $sealedWorkspaceSelected=@(
         $sealedSelectedSource='$sealedPreimageSelected=$Checkpoint -ceq ''before-preimage-copy'' -or $Checkpoint -ceq ''after-preimage-copy'' -or $Checkpoint -ceq ''during-preimage-copy'''
         $sealedParentSelectedSource='$sealedParentSelected=$Checkpoint -ceq ''before-parent-mkdir'' -or $Checkpoint -ceq ''after-parent-mkdir'''
         $sealedDirectorySelectedSource='$sealedDirectorySelected=($Kind -ceq ''directory'' -and $Checkpoint -cin @(''before-directory-move-old'',''after-directory-move-old'',''before-directory-move-new'',''after-directory-move-new'')) -or ($Kind -ceq ''directory-add'' -and $Checkpoint -cin @(''before-directory-move-new'',''after-directory-move-new'')) -or ($Kind -ceq ''directory-delete'' -and $Checkpoint -cin @(''before-directory-new-installed-record'',''after-directory-new-installed-record''))'
+        $sealedFileSelectedSource='$sealedFileSelected=$Kind -cin @(''file'',''file-add'') -and $Checkpoint -cin @(''before-file-replace'',''after-file-replace'')'
         $sealedArgumentsSource='$sealedStageArguments=@($MutationEnginePath,$ExpectedEngineSha256,$SealedInvocationFixturePath,$SealedInvocationFixtureSha256)'
         $sealedArgumentCountSource='$sealedStageArgumentCount=[int](-not[string]::IsNullOrWhiteSpace([string]$MutationEnginePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$ExpectedEngineSha256))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixturePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixtureSha256))'
-        $sealedMutationSelectedSource='$sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectorySelected) -and $sealedStageArgumentCount -eq 4)'
-        $sealedArgumentGuardSource="if(`$sealedStageArgumentCount -notin @(0,4) -or (`$sealedWorkspaceSelected -and `$sealedStageArgumentCount -ne 4) -or (-not `$sealedWorkspaceSelected -and -not `$sealedPreimageSelected -and -not `$sealedParentSelected -and -not `$sealedDirectorySelected -and `$sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}"
+        $sealedMutationSelectedSource='$sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectorySelected -or $sealedFileSelected) -and $sealedStageArgumentCount -eq 4)'
+        $sealedArgumentGuardSource="if(`$sealedStageArgumentCount -notin @(0,4) -or (`$sealedWorkspaceSelected -and `$sealedStageArgumentCount -ne 4) -or (-not `$sealedWorkspaceSelected -and -not `$sealedPreimageSelected -and -not `$sealedParentSelected -and -not `$sealedDirectorySelected -and -not `$sealedFileSelected -and `$sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}"
         $selectedOwnerSource=@'
 if($sealedMutationStageSelected){
     $normalEnginePath=[IO.Path]::GetFullPath($MutationEnginePath)
@@ -3132,6 +3135,8 @@ if($sealedMutationStageSelected){
             $null=Invoke-SealedCanonicalParentDirectoryCreate -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
         }elseif($sealedDirectorySelected){
             $null=Invoke-SealedCanonicalDirectoryReplacement -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
+        }elseif($sealedFileSelected){
+            $null=Invoke-SealedCanonicalFileReplacement -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
         }
         $InvocationContext.Coordinator.AssertMatchedExactlyOnce()
     }catch{
@@ -3226,19 +3231,20 @@ if($Checkpoint -ceq 'after-preimage-copy'){
         $selectedStatements=@($interstitialStatements|Where-Object{(Get-HardKillTokenFingerprint -Source ([string]$_.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $sealedSelectedSource)})
         $parentSelectedStatements=@($interstitialStatements|Where-Object{(Get-HardKillTokenFingerprint -Source ([string]$_.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $sealedParentSelectedSource)})
         $directorySelectedStatements=@($interstitialStatements|Where-Object{(Get-HardKillTokenFingerprint -Source ([string]$_.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $sealedDirectorySelectedSource)})
+        $fileSelectedStatements=@($interstitialStatements|Where-Object{(Get-HardKillTokenFingerprint -Source ([string]$_.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $sealedFileSelectedSource)})
         $mutationSelectedStatements=@($interstitialStatements|Where-Object{(Get-HardKillTokenFingerprint -Source ([string]$_.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $sealedMutationSelectedSource)})
         $argumentStatements=@($interstitialStatements|Where-Object{(Get-HardKillTokenFingerprint -Source ([string]$_.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $sealedArgumentsSource)})
         $argumentCountStatements=@($interstitialStatements|Where-Object{(Get-HardKillTokenFingerprint -Source ([string]$_.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $sealedArgumentCountSource)})
         $argumentGuardStatements=@($interstitialStatements|Where-Object{(Get-HardKillTokenFingerprint -Source ([string]$_.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $sealedArgumentGuardSource)})
         if($loaderStatements.Count -ne 1){throw 'preimage-provenance-normal-loader'}
         $result.ProductionLoaderCount=1
-        $setupBindings=@($normalSetupPathsStatements+$normalSetupGuardStatements+$namespaceStatements+$targetIdStatements+$targetStatements+$workspaceSelectedStatements+$selectedStatements+$parentSelectedStatements+$directorySelectedStatements+$mutationSelectedStatements+$argumentStatements+$argumentCountStatements)
-        $setupLeftNames=@('$normalSetupPaths','$namespace','$targetId','$script:target','$sealedWorkspaceSelected','$sealedPreimageSelected','$sealedParentSelected','$sealedDirectorySelected','$sealedMutationStageSelected','$sealedStageArguments','$sealedStageArgumentCount')
+        $setupBindings=@($normalSetupPathsStatements+$normalSetupGuardStatements+$namespaceStatements+$targetIdStatements+$targetStatements+$workspaceSelectedStatements+$selectedStatements+$parentSelectedStatements+$directorySelectedStatements+$fileSelectedStatements+$mutationSelectedStatements+$argumentStatements+$argumentCountStatements)
+        $setupLeftNames=@('$normalSetupPaths','$namespace','$targetId','$script:target','$sealedWorkspaceSelected','$sealedPreimageSelected','$sealedParentSelected','$sealedDirectorySelected','$sealedFileSelected','$sealedMutationStageSelected','$sealedStageArguments','$sealedStageArgumentCount')
         $rootSetupWrites=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst]},$true)|Where-Object{
             $null -eq (Get-NearestHardKillFunction $_) -and $_.Extent.StartOffset -lt $selectedOwners[0].Extent.StartOffset -and
             (Get-HardKillAstTextCompact $_.Left) -cin $setupLeftNames
         })
-        if($setupBindings.Count -ne 12 -or $argumentGuardStatements.Count -ne 1 -or $rootSetupWrites.Count -ne 11 -or
+        if($setupBindings.Count -ne 13 -or $argumentGuardStatements.Count -ne 1 -or $rootSetupWrites.Count -ne 12 -or
             $loaderStatements[0].Extent.StartOffset -ge $normalSetupPathsStatements[0].Extent.StartOffset -or
             $normalSetupPathsStatements[0].Extent.StartOffset -ge $normalSetupGuardStatements[0].Extent.StartOffset -or
             $normalSetupGuardStatements[0].Extent.StartOffset -ge $namespaceStatements[0].Extent.StartOffset -or
@@ -3248,12 +3254,13 @@ if($Checkpoint -ceq 'after-preimage-copy'){
             $workspaceSelectedStatements[0].Extent.StartOffset -ge $selectedStatements[0].Extent.StartOffset -or
             $selectedStatements[0].Extent.StartOffset -ge $parentSelectedStatements[0].Extent.StartOffset -or
             $parentSelectedStatements[0].Extent.StartOffset -ge $directorySelectedStatements[0].Extent.StartOffset -or
-            $directorySelectedStatements[0].Extent.StartOffset -ge $argumentStatements[0].Extent.StartOffset -or
+            $directorySelectedStatements[0].Extent.StartOffset -ge $fileSelectedStatements[0].Extent.StartOffset -or
+            $fileSelectedStatements[0].Extent.StartOffset -ge $argumentStatements[0].Extent.StartOffset -or
             $argumentStatements[0].Extent.StartOffset -ge $argumentCountStatements[0].Extent.StartOffset -or
             $argumentCountStatements[0].Extent.StartOffset -ge $mutationSelectedStatements[0].Extent.StartOffset -or
             $mutationSelectedStatements[0].Extent.StartOffset -ge $argumentGuardStatements[0].Extent.StartOffset -or
             $argumentGuardStatements[0].Extent.EndOffset -ge $selectedOwners[0].Extent.StartOffset){throw 'preimage-provenance-dispatcher-input-binding'}
-        $result.NormalSetupBindingCount=12
+        $result.NormalSetupBindingCount=13
         $normalEngineLoaders=@($selectedOwners[0].FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and
             $node.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Dot -and
             (Get-HardKillTokenFingerprint -Source ([string]$node.Parent.Extent.Text)) -ceq (Get-HardKillTokenFingerprint -Source $normalEngineLoaderSource)},$true))
@@ -3563,10 +3570,11 @@ $sealedWorkspaceSelected=@(
 $sealedPreimageSelected=$Checkpoint -ceq 'before-preimage-copy' -or $Checkpoint -ceq 'after-preimage-copy' -or $Checkpoint -ceq 'during-preimage-copy'
 $sealedParentSelected=$Checkpoint -ceq 'before-parent-mkdir' -or $Checkpoint -ceq 'after-parent-mkdir'
 $sealedDirectorySelected=($Kind -ceq 'directory' -and $Checkpoint -cin @('before-directory-move-old','after-directory-move-old','before-directory-move-new','after-directory-move-new')) -or ($Kind -ceq 'directory-add' -and $Checkpoint -cin @('before-directory-move-new','after-directory-move-new')) -or ($Kind -ceq 'directory-delete' -and $Checkpoint -cin @('before-directory-new-installed-record','after-directory-new-installed-record'))
+$sealedFileSelected=$Kind -cin @('file','file-add') -and $Checkpoint -cin @('before-file-replace','after-file-replace')
 $sealedStageArguments=@($MutationEnginePath,$ExpectedEngineSha256,$SealedInvocationFixturePath,$SealedInvocationFixtureSha256)
 $sealedStageArgumentCount=[int](-not[string]::IsNullOrWhiteSpace([string]$MutationEnginePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$ExpectedEngineSha256))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixturePath))+[int](-not[string]::IsNullOrWhiteSpace([string]$SealedInvocationFixtureSha256))
-$sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectorySelected) -and $sealedStageArgumentCount -eq 4)
-if($sealedStageArgumentCount -notin @(0,4) -or ($sealedWorkspaceSelected -and $sealedStageArgumentCount -ne 4) -or (-not $sealedWorkspaceSelected -and -not $sealedPreimageSelected -and -not $sealedParentSelected -and -not $sealedDirectorySelected -and $sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}
+$sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectorySelected -or $sealedFileSelected) -and $sealedStageArgumentCount -eq 4)
+if($sealedStageArgumentCount -notin @(0,4) -or ($sealedWorkspaceSelected -and $sealedStageArgumentCount -ne 4) -or (-not $sealedWorkspaceSelected -and -not $sealedPreimageSelected -and -not $sealedParentSelected -and -not $sealedDirectorySelected -and -not $sealedFileSelected -and $sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}
 if($sealedMutationStageSelected){
     $normalEnginePath=[IO.Path]::GetFullPath($MutationEnginePath)
     $normalEngineBytes=[IO.File]::ReadAllBytes($normalEnginePath)
@@ -3598,6 +3606,8 @@ if($sealedMutationStageSelected){
             $null=Invoke-SealedCanonicalParentDirectoryCreate -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
         }elseif($sealedDirectorySelected){
             $null=Invoke-SealedCanonicalDirectoryReplacement -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
+        }elseif($sealedFileSelected){
+            $null=Invoke-SealedCanonicalFileReplacement -TransactionNamespace $namespace -Target $script:target -InvocationContext $InvocationContext
         }
         $InvocationContext.Coordinator.AssertMatchedExactlyOnce()
     }catch{
@@ -3634,8 +3644,9 @@ $null=Initialize-CanonicalTransactionPreimages -TransactionNamespace $namespace
     $normalTargetId='$targetId=Get-CanonicalJournalTargetId -Order 0 -TargetKind $targetKind -Role $role -Platform $platform -TargetPath $targetPath'
     $sealedSelected='$sealedPreimageSelected=$Checkpoint -ceq ''before-preimage-copy'' -or $Checkpoint -ceq ''after-preimage-copy'' -or $Checkpoint -ceq ''during-preimage-copy'''
     $sealedDirectorySelected='$sealedDirectorySelected=($Kind -ceq ''directory'' -and $Checkpoint -cin @(''before-directory-move-old'',''after-directory-move-old'',''before-directory-move-new'',''after-directory-move-new'')) -or ($Kind -ceq ''directory-add'' -and $Checkpoint -cin @(''before-directory-move-new'',''after-directory-move-new'')) -or ($Kind -ceq ''directory-delete'' -and $Checkpoint -cin @(''before-directory-new-installed-record'',''after-directory-new-installed-record''))'
-    $sealedMutationSelected='$sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectorySelected) -and $sealedStageArgumentCount -eq 4)'
-    $sealedArgumentGuard="if(`$sealedStageArgumentCount -notin @(0,4) -or (`$sealedWorkspaceSelected -and `$sealedStageArgumentCount -ne 4) -or (-not `$sealedWorkspaceSelected -and -not `$sealedPreimageSelected -and -not `$sealedParentSelected -and -not `$sealedDirectorySelected -and `$sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}"
+    $sealedFileSelected='$sealedFileSelected=$Kind -cin @(''file'',''file-add'') -and $Checkpoint -cin @(''before-file-replace'',''after-file-replace'')'
+    $sealedMutationSelected='$sealedMutationStageSelected=$sealedWorkspaceSelected -or (($sealedPreimageSelected -or $sealedParentSelected -or $sealedDirectorySelected -or $sealedFileSelected) -and $sealedStageArgumentCount -eq 4)'
+    $sealedArgumentGuard="if(`$sealedStageArgumentCount -notin @(0,4) -or (`$sealedWorkspaceSelected -and `$sealedStageArgumentCount -ne 4) -or (-not `$sealedWorkspaceSelected -and -not `$sealedPreimageSelected -and -not `$sealedParentSelected -and -not `$sealedDirectorySelected -and -not `$sealedFileSelected -and `$sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}"
     $normalEngineLoader='. $normalEnginePath'
     $normalEngineHashGuard="if(`$normalEngineSha256 -cne `$ExpectedEngineSha256){throw 'sealed mutation engine hash mismatch'}"
     $normalFixtureHashGuard="if(`$normalFixtureSha256 -cne `$SealedInvocationFixtureSha256){throw 'sealed mutation invocation fixture hash mismatch'}"
@@ -3714,6 +3725,7 @@ if($Checkpoint -ceq 'after-preimage-copy'){
         'normal-target-id-canned'=Replace-Once $baseline $normalTargetId '$targetId=''canned'''
         'normal-target-canned'=Replace-Once $baseline 'TargetId=$targetId;Order=0;TargetKind=$targetKind' 'TargetId=''canned'';Order=0;TargetKind=$targetKind'
         'directory-delete-selector-removed'=Replace-Once $baseline $sealedDirectorySelected '$sealedDirectorySelected=($Kind -ceq ''directory'' -and $Checkpoint -cin @(''before-directory-move-old'',''after-directory-move-old'',''before-directory-move-new'',''after-directory-move-new'')) -or ($Kind -ceq ''directory-add'' -and $Checkpoint -cin @(''before-directory-move-new'',''after-directory-move-new''))'
+        'file-selector-removed'=Replace-Once $baseline $sealedFileSelected '$sealedFileSelected=$false'
         'workspace-zero-fallback'=Replace-Once $baseline $sealedMutationSelected '$sealedMutationStageSelected=$sealedWorkspaceSelected -or $sealedPreimageSelected'
         'preimage-zero-forbidden'=Replace-Once $baseline $sealedArgumentGuard "if(`$sealedStageArgumentCount -notin @(0,4) -or (`$sealedWorkspaceSelected -and `$sealedStageArgumentCount -ne 4) -or (`$sealedPreimageSelected -and `$sealedStageArgumentCount -ne 4) -or (-not `$sealedWorkspaceSelected -and -not `$sealedPreimageSelected -and `$sealedStageArgumentCount -ne 0)){throw 'sealed mutation stage arguments must be all present or all absent'}"
         'preimage-four-forbidden'=Replace-Once $baseline $sealedMutationSelected '$sealedMutationStageSelected=$sealedWorkspaceSelected'
@@ -3784,6 +3796,7 @@ if($Checkpoint -ceq 'after-preimage-copy'){
         'normal-target-id-canned'='preimage-provenance-dispatcher-input-binding'
         'normal-target-canned'='preimage-provenance-dispatcher-input-binding'
         'directory-delete-selector-removed'='preimage-provenance-dispatcher-input-binding'
+        'file-selector-removed'='preimage-provenance-dispatcher-input-binding'
         'workspace-zero-fallback'='preimage-provenance-dispatcher-input-binding'
         'preimage-zero-forbidden'='preimage-provenance-dispatcher-input-binding'
         'preimage-four-forbidden'='preimage-provenance-dispatcher-input-binding'
@@ -3814,7 +3827,7 @@ if($Checkpoint -ceq 'after-preimage-copy'){
         $codes=@(if($verdict){$verdict.ErrorCodes}else{'mutation-parse'});$reason=[string]$expected[$name]
         $cases.Add([pscustomobject]@{Name=$name;Constructed=$constructed;Changed=$constructed -and $source -cne $baseline;ParseValid=$constructed -and @($errors).Count -eq 0;Rejected=$null -ne $verdict -and -not $verdict.Valid;ExpectedErrorCode=$reason;RejectedForExpectedReason=$codes.Count -eq 1 -and $codes[0] -ceq $reason;ErrorCodes=$codes})
     }
-    return [pscustomobject]@{Valid=$baselineResult.Valid -and $inventoryMatches -and $cases.Count -eq 62 -and @($cases|Where-Object{-not $_.Constructed -or -not $_.Changed -or -not $_.ParseValid -or -not $_.Rejected -or -not $_.RejectedForExpectedReason}).Count -eq 0;Baseline=$baselineResult;Cases=@($cases);ExpectedNames=$expectedNames}
+    return [pscustomobject]@{Valid=$baselineResult.Valid -and $inventoryMatches -and $cases.Count -eq 63 -and @($cases|Where-Object{-not $_.Constructed -or -not $_.Changed -or -not $_.ParseValid -or -not $_.Rejected -or -not $_.RejectedForExpectedReason}).Count -eq 0;Baseline=$baselineResult;Cases=@($cases);ExpectedNames=$expectedNames}
 }
 function Test-HardKillSealedMutationTransportAuthorityDefinitionContract {
     param(
@@ -4159,6 +4172,7 @@ function Test-HardKillSealedMutationTransportAuthorityRuntimeContractMutations {
 function Open-HardKillSealedMutationJournalObservation {
     param($CaseDefinition,$StageObservation,$Session)
     $snapshot=$null;$intentLease=$null;$tailLease=$null;$sourceEvidence=$null;$partialEvidence=$null;$shared=$false
+    $fileEvidence=[Collections.Generic.List[object]]::new()
     try{
         $stageBytes=[byte[]]$StageObservation['Bytes']
         $stageRawSha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stageBytes)).ToLowerInvariant()
@@ -4320,6 +4334,68 @@ function Open-HardKillSealedMutationJournalObservation {
                 $observedRecordDataHash -cne (Get-SemanticJsonHash -InputObject $tailRecord.Data)){
                 throw 'sealed mutation controller directory-delete tuple differs from the durable old-moved, intent, or installed record'
             }
+        }elseif([string]$stage.Checkpoint -cin @('BeforeFileReplaceMove','AfterFileReplaceMove')){
+            $expectedFileBinding=switch -CaseSensitive ([string]$CaseDefinition.Name){
+                'before-file-replace'{[ordered]@{Kind='file';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                'after-file-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                'before-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                'after-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                'rollback-file-before-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                'rollback-file-after-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                'rollback-file-add-before-new-to-staged'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                'rollback-file-add-after-new-to-staged'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                default{throw 'sealed mutation controller file case name is invalid'}
+            }
+            $armTargets=@($snapshot.State.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$selector.SelectorArm.TargetOrder})
+            $preparedRecords=@($snapshot.State.Records|Where-Object{[string]$_.Phase -ceq 'FILE_PREPARED' -and [string]$_.Data.TargetId -ceq [string]$selector.SelectorArm.TargetId})
+            if([string]$CaseDefinition.Kind -cne [string]$expectedFileBinding.Kind -or [string]$CaseDefinition.Checkpoint -cne [string]$expectedFileBinding.RawCheckpoint -or
+                [string]$stage.Checkpoint -cne [string]$expectedFileBinding.Checkpoint -or [string]$stage.DeclaredPrimitiveVariant -cne [string]$expectedFileBinding.Variant -or
+                [string]$stage.ActualBranchDiscriminator -cne [string]$expectedFileBinding.CurrentState -or
+                $armTargets.Count -ne 1 -or [string]$armTargets[0].TargetKind -cne 'file' -or [string]$armTargets[0].Role -cne 'manifest' -or [string]$armTargets[0].Platform -cne 'Union' -or
+                [string]$armTargets[0].Current.State -cne [string]$expectedFileBinding.CurrentState -or [string]$armTargets[0].Candidate.State -cne 'PRESENT' -or
+                [string]$intentRecord.Data.TargetId -cne [string]$selector.SelectorArm.TargetId -or $preparedRecords.Count -ne 1 -or
+                [long]$preparedRecords[0].Sequence -ne ([long]$selector.ExpectedIntentSequence-1) -or [string]$intentRecord.PreviousHash -cne (Get-SemanticJsonHash -InputObject $preparedRecords[0]) -or
+                (Get-SemanticJsonHash -InputObject $intentRecord.Data) -cne (Get-SemanticJsonHash -InputObject $preparedRecords[0].Data)){
+                throw 'sealed mutation controller file selector arm, case binding, or prepared intent is invalid'
+            }
+            $target=$armTargets[0];$missing=[ordered]@{State='MISSING'}
+            $targetState=Get-CanonicalObservedPathState -Path ([string]$target.TargetPath) -ExpectedKind file
+            $preimageState=Get-CanonicalObservedPathState -Path ([string]$target.PreimagePath) -ExpectedKind file
+            $swapState=Get-CanonicalObservedPathState -Path ([string]$target.SwapOldPath) -ExpectedKind file
+            $stagedState=Get-CanonicalObservedPathState -Path ([string]$target.StagedPath) -ExpectedKind file
+            if([string]$stage.Checkpoint -ceq 'BeforeFileReplaceMove'){
+                if(-not(Test-CanonicalObservedMatchesContractState -Actual $targetState -Contract $target.Current) -or
+                    -not(Test-CanonicalObservedMatchesContractState -Actual $preimageState -Contract $target.Current) -or [string]$swapState.State -cne 'MISSING' -or
+                    -not(Test-CanonicalObservedMatchesContractState -Actual $stagedState -Contract $target.Candidate) -or
+                    ([string]$target.Current.State -ceq 'PRESENT' -and ([string]::IsNullOrWhiteSpace([string]$targetState.Identity) -or [string]::IsNullOrWhiteSpace([string]$preimageState.Identity))) -or
+                    [string]::IsNullOrWhiteSpace([string]$stagedState.Identity)){
+                    throw 'sealed mutation before-file observation did not precede the exact replace or move primitive'
+                }
+                $observedRecordData=New-CanonicalTargetRecordData -Target $target -TargetState $targetState -PreimageState $preimageState -SwapOldState $missing -StagedState $stagedState
+                if((Get-SemanticJsonHash -InputObject $observedRecordData) -cne (Get-SemanticJsonHash -InputObject $intentRecord.Data)){throw 'sealed mutation before-file tuple differs from the durable intent'}
+            }else{
+                if(-not(Test-CanonicalObservedMatchesContractState -Actual $targetState -Contract $target.Candidate) -or
+                    -not(Test-CanonicalObservedMatchesContractState -Actual $preimageState -Contract $target.Current) -or [string]$stagedState.State -cne 'MISSING' -or
+                    ([string]$target.Current.State -ceq 'PRESENT' -and (-not(Test-CanonicalObservedMatchesContractState -Actual $swapState -Contract $target.Current) -or
+                        [string]::IsNullOrWhiteSpace([string]$preimageState.Identity) -or [string]::IsNullOrWhiteSpace([string]$swapState.Identity))) -or
+                    ([string]$target.Current.State -ceq 'MISSING' -and [string]$swapState.State -cne 'MISSING') -or [string]::IsNullOrWhiteSpace([string]$targetState.Identity)){
+                    throw 'sealed mutation after-file observation did not follow the exact replace or move primitive'
+                }
+                $observedRecordData=New-CanonicalTargetRecordData -Target $target -TargetState $targetState -PreimageState $preimageState -SwapOldState $swapState -StagedState $missing
+            }
+            foreach($heldFileTuple in @(
+                [ordered]@{Path=[string]$target.TargetPath;State=$targetState},
+                [ordered]@{Path=[string]$target.PreimagePath;State=$preimageState},
+                [ordered]@{Path=[string]$target.SwapOldPath;State=$swapState},
+                [ordered]@{Path=[string]$target.StagedPath;State=$stagedState}
+            )){
+                if([string]$heldFileTuple.State.State -cne 'PRESENT'){continue}
+                $heldFile=Open-HardKillHeldFileEvidence -Path ([string]$heldFileTuple.Path)
+                $null=$fileEvidence.Add($heldFile)
+                if([string]$heldFile.Identity -cne [string]$heldFileTuple.State.Identity -or [string]$heldFile.Sha256 -cne [string]$heldFileTuple.State.Hash){
+                    throw 'sealed mutation file evidence differs from the independently observed tuple'
+                }
+            }
         }else{
             $armTargets=@($snapshot.State.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$selector.SelectorArm.TargetOrder})
             if($armTargets.Count -ne 1 -or [string]$stage.ActualBranchDiscriminator -cne 'PRESENT'){throw 'sealed mutation controller preimage selector arm is not one exact present target'}
@@ -4371,9 +4447,10 @@ function Open-HardKillSealedMutationJournalObservation {
             [string]$stage.TailSemanticHash -cne (Get-SemanticJsonHash -InputObject $tailRecord) -or [string]$stage.TailArtifactIdentity -cne [string]$tailLease.Info.Identity -or
             [long]$stage.TailArtifactLength -ne [long]$tailLease.ReadResult.Length -or [string]$stage.TailArtifactRawSha256 -cne [string]$tailLease.ReadResult.Sha256){throw 'sealed mutation controller stage record evidence differs from independent held journal captures'}
         Close-CanonicalJournalSnapshot -Snapshot $snapshot;$snapshot=$null
-        return [pscustomobject]@{Stage=$stage;IntentLease=$intentLease;TailLease=$tailLease;SourceEvidence=$sourceEvidence;PartialEvidence=$partialEvidence;SharedLease=$shared;Closed=$false}
+        return [pscustomobject]@{Stage=$stage;IntentLease=$intentLease;TailLease=$tailLease;SourceEvidence=$sourceEvidence;PartialEvidence=$partialEvidence;FileEvidence=@($fileEvidence);SharedLease=$shared;Closed=$false}
     }catch{
         if($snapshot){try{Close-CanonicalJournalSnapshot -Snapshot $snapshot}catch{}}
+        foreach($heldFileEvidence in @($fileEvidence)){try{Close-HardKillHeldFileEvidence -Evidence $heldFileEvidence}catch{}}
         if($partialEvidence){try{Close-HardKillHeldFileEvidence -Evidence $partialEvidence}catch{}}
         if($sourceEvidence){try{Close-HardKillHeldFileEvidence -Evidence $sourceEvidence}catch{}}
         if($tailLease -and -not $shared){try{$tailLease.Dispose()}catch{}}
@@ -4385,6 +4462,7 @@ function Close-HardKillSealedMutationJournalObservation {
     param($Observation)
     if($null -eq $Observation -or $Observation.Closed){return}
     $failures=[Collections.Generic.List[Exception]]::new()
+    foreach($heldFileEvidence in @($Observation.FileEvidence)){try{Close-HardKillHeldFileEvidence -Evidence $heldFileEvidence}catch{$null=$failures.Add($_.Exception)}}
     if($Observation.PartialEvidence){try{Close-HardKillHeldFileEvidence -Evidence $Observation.PartialEvidence}catch{$null=$failures.Add($_.Exception)}}
     if($Observation.SourceEvidence){try{Close-HardKillHeldFileEvidence -Evidence $Observation.SourceEvidence}catch{$null=$failures.Add($_.Exception)}}
     if($Observation.TailLease -and -not $Observation.SharedLease){try{$Observation.TailLease.Dispose()}catch{$null=$failures.Add($_.Exception)}}
@@ -4453,6 +4531,23 @@ function Invoke-HardKillSealedMutationControllerCase {
             if([string]$caseDefinition.Selector.Checkpoint -cne $expectedDirectoryDeletionSelectorCheckpoint -or
                 [string]$caseDefinition.Name -cne $expectedDirectoryDeletionCaseName){throw 'sealed mutation directory-delete host wire, typed checkpoint, or case name differs'}
         }
+        if([string]$caseDefinition.Selector.Checkpoint -cin @('BeforeFileReplaceMove','AfterFileReplaceMove')){
+            $expectedFileWireBinding=switch -CaseSensitive ([string]$caseDefinition.Name){
+                'before-file-replace'{[ordered]@{Kind='file';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileReplacePresent'};break}
+                'after-file-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'before-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileMoveMissing'};break}
+                'after-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                'rollback-file-before-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'rollback-file-after-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'rollback-file-add-before-new-to-staged'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                'rollback-file-add-after-new-to-staged'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                default{throw 'sealed mutation file host wire case name is invalid'}
+            }
+            if([string]$caseDefinition.Kind -cne [string]$expectedFileWireBinding.Kind -or [string]$caseDefinition.Checkpoint -cne [string]$expectedFileWireBinding.RawCheckpoint -or
+                [string]$caseDefinition.Selector.Checkpoint -cne [string]$expectedFileWireBinding.Checkpoint -or [string]$caseDefinition.DeclaredVariant -cne [string]$expectedFileWireBinding.Variant){
+                throw 'sealed mutation file host wire, typed checkpoint, variant, or case name differs'
+            }
+        }
         $failureCleanupAbsoluteCapQpcTicks=[long]$controllerScope.FailureCleanupAbsoluteCapQpcTicks
         $session=[AiAgentDotfilesTests.HardKillSealedMutationHostSession]::Acquire($HostPath,$EnginePath,$controllerScope)
         if($session.IsResumed){throw 'sealed mutation session was resumed before the controller acquired ownership'}
@@ -4491,7 +4586,41 @@ function Invoke-HardKillSealedMutationControllerCase {
         $naturalDeltaRecords=@(if($observedHeadIndex -ge 0 -and $observedHeadIndex -lt ($postRecords.Count-1)){$postRecords[($observedHeadIndex+1)..($postRecords.Count-1)]})
         $naturalProgressValid=switch([string]$caseDefinition.Selector.Checkpoint){
             {$_ -cin @('BeforeWorkspaceCreate','AfterWorkspaceCreate')}{
-                $naturalDeltaRecords.Count -eq 1 -and [string]$naturalDeltaRecords[0].Phase -ceq 'WORKSPACE_CREATED' -and [string]$naturalDeltaRecords[0].Data.WorkspaceRole -ceq [string]$caseDefinition.Selector.SelectorArm.WorkspaceRole;break
+                $naturalWorkspaceRoot=[IO.Path]::GetFullPath([string]$postJournalState.Header.RecoveryTransactionRoot)
+                $naturalPreimagePath=[IO.Path]::GetFullPath((Join-Path $naturalWorkspaceRoot 'preimage'))
+                $naturalSwapOldPath=[IO.Path]::GetFullPath((Join-Path $naturalWorkspaceRoot 'swap-old'))
+                $naturalPreimageState=Get-CanonicalObservedPathState -Path $naturalPreimagePath -ExpectedKind directory
+                $naturalSwapOldState=Get-CanonicalObservedPathState -Path $naturalSwapOldPath -ExpectedKind directory
+                $naturalWorkspaceMissing=[ordered]@{State='MISSING'}
+                $naturalPreimageIntentData=[ordered]@{WorkspacePath=$naturalPreimagePath;WorkspaceRole='preimage';WorkspaceState=$naturalWorkspaceMissing}
+                $naturalPreimageCreatedData=[ordered]@{WorkspacePath=$naturalPreimagePath;WorkspaceRole='preimage';WorkspaceState=$naturalPreimageState;CreatedIdentity=[string]$naturalPreimageState['Identity']}
+                $naturalSwapOldIntentData=[ordered]@{WorkspacePath=$naturalSwapOldPath;WorkspaceRole='swap-old';WorkspaceState=$naturalWorkspaceMissing}
+                $naturalSwapOldCreatedData=[ordered]@{WorkspacePath=$naturalSwapOldPath;WorkspaceRole='swap-old';WorkspaceState=$naturalSwapOldState;CreatedIdentity=[string]$naturalSwapOldState['Identity']}
+                $naturalSelectedWorkspaceRole=[string]$caseDefinition.Selector.SelectorArm.WorkspaceRole
+                $naturalSelectedHeadIndex=if($naturalSelectedWorkspaceRole -ceq 'preimage'){0}elseif($naturalSelectedWorkspaceRole -ceq 'swap-old'){2}else{-1}
+                $naturalSelectedDeltaCount=if($naturalSelectedWorkspaceRole -ceq 'preimage'){3}elseif($naturalSelectedWorkspaceRole -ceq 'swap-old'){1}else{-1}
+                $naturalWorkspaceReconciliation=@(Get-CanonicalRecoveryWorkspaceReconciliation -State $postJournalState)
+                $naturalPreimageReconciliation=@($naturalWorkspaceReconciliation|Where-Object{[string]$_.WorkspaceRole -ceq 'preimage'})
+                $naturalSwapOldReconciliation=@($naturalWorkspaceReconciliation|Where-Object{[string]$_.WorkspaceRole -ceq 'swap-old'})
+                $postRecords.Count -eq 4 -and $observedHeadIndex -eq $naturalSelectedHeadIndex -and $naturalDeltaRecords.Count -eq $naturalSelectedDeltaCount -and
+                    [long]$postRecords[0].Sequence -eq 1 -and [long]$postRecords[1].Sequence -eq 2 -and [long]$postRecords[2].Sequence -eq 3 -and [long]$postRecords[3].Sequence -eq 4 -and
+                    [string]$postRecords[0].Phase -ceq 'WORKSPACE_CREATE_INTENT' -and [string]$postRecords[1].Phase -ceq 'WORKSPACE_CREATED' -and
+                    [string]$postRecords[2].Phase -ceq 'WORKSPACE_CREATE_INTENT' -and [string]$postRecords[3].Phase -ceq 'WORKSPACE_CREATED' -and
+                    [string]$postRecords[0].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postJournalState.Header) -and
+                    [string]$postRecords[1].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[0]) -and
+                    [string]$postRecords[2].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[1]) -and
+                    [string]$postRecords[3].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[2]) -and [string]$postJournalState.DerivedJournalHeadHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[3]) -and
+                    [string]$naturalPreimageState.State -ceq 'PRESENT' -and [string]$naturalPreimageState.Type -ceq 'Directory' -and
+                    [string]$naturalSwapOldState.State -ceq 'PRESENT' -and [string]$naturalSwapOldState.Type -ceq 'Directory' -and
+                    -not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapOldState.Identity) -and
+                    [string]$naturalPreimageState.Identity -cne [string]$naturalSwapOldState.Identity -and
+                    $naturalWorkspaceReconciliation.Count -eq 2 -and $naturalPreimageReconciliation.Count -eq 1 -and $naturalSwapOldReconciliation.Count -eq 1 -and
+                    [string]$naturalPreimageReconciliation[0].ReconciledState -ceq 'READY' -and [string]$naturalSwapOldReconciliation[0].ReconciledState -ceq 'READY' -and
+                    @((Get-SafeTreeSnapshot -Root $naturalPreimagePath).ContentTreeRows).Count -eq 1 -and @((Get-SafeTreeSnapshot -Root $naturalSwapOldPath).ContentTreeRows).Count -eq 1 -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[0].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalPreimageIntentData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[1].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalPreimageCreatedData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[2].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalSwapOldIntentData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[3].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalSwapOldCreatedData);break
             }
             {$_ -cin @('BeforeParentCreate','AfterParentCreate')}{
                 $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
@@ -4542,6 +4671,39 @@ function Invoke-HardKillSealedMutationControllerCase {
                     ([string]$naturalTarget[0].Current.State -cne 'PRESENT' -or (-not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapState.Identity))) -and
                     (Get-SemanticJsonHash -InputObject $naturalDeltaRecords[0].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalInstalled);break
             }
+            {$_ -cin @('BeforeFileReplaceMove','AfterFileReplaceMove')} {
+                $naturalFileBinding=switch -CaseSensitive ([string]$caseDefinition.Name){
+                    'before-file-replace'{[ordered]@{Kind='file';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                    'after-file-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                    'before-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                    'after-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                    default{$null}
+                }
+                $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
+                $naturalTargetState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].TargetPath) -ExpectedKind file}else{$null}
+                $naturalPreimageState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].PreimagePath) -ExpectedKind file}else{$null}
+                $naturalSwapState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].SwapOldPath) -ExpectedKind file}else{$null}
+                $naturalStagedState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].StagedPath) -ExpectedKind file}else{$null}
+                $naturalFileData=if($naturalTarget.Count -eq 1){New-CanonicalTargetRecordData -Target $naturalTarget[0] -TargetState $naturalTargetState -PreimageState $naturalPreimageState -SwapOldState $naturalSwapState -StagedState $naturalStagedState}else{$null}
+                $naturalFileDelta=if($naturalDeltaRecords.Count -eq 1){$naturalDeltaRecords[0]}else{$null}
+                $naturalCurrentTupleValid=$naturalTarget.Count -eq 1 -and (Test-CanonicalObservedMatchesContractState -Actual $naturalPreimageState -Contract $naturalTarget[0].Current) -and
+                    (([string]$naturalTarget[0].Current.State -ceq 'PRESENT' -and (Test-CanonicalObservedMatchesContractState -Actual $naturalSwapState -Contract $naturalTarget[0].Current) -and
+                        -not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapState.Identity) -and
+                        [string]$naturalPreimageState.Identity -cne [string]$naturalSwapState.Identity) -or
+                     ([string]$naturalTarget[0].Current.State -ceq 'MISSING' -and [string]$naturalPreimageState.State -ceq 'MISSING' -and [string]$naturalSwapState.State -ceq 'MISSING'))
+                $null -ne $naturalFileBinding -and [string]$caseDefinition.Kind -ceq [string]$naturalFileBinding.Kind -and
+                    [string]$caseDefinition.Checkpoint -ceq [string]$naturalFileBinding.RawCheckpoint -and [string]$caseDefinition.Selector.Checkpoint -ceq [string]$naturalFileBinding.Checkpoint -and
+                    [string]$caseDefinition.DeclaredVariant -ceq [string]$naturalFileBinding.Variant -and $naturalTarget.Count -eq 1 -and
+                    [string]$naturalTarget[0].TargetKind -ceq 'file' -and [string]$naturalTarget[0].Role -ceq 'manifest' -and [string]$naturalTarget[0].Platform -ceq 'Union' -and
+                    [string]$naturalTarget[0].Current.State -ceq [string]$naturalFileBinding.CurrentState -and [string]$naturalTarget[0].Candidate.State -ceq 'PRESENT' -and
+                    $postRecords.Count -eq 8 -and $observedHeadIndex -eq 6 -and $naturalDeltaRecords.Count -eq 1 -and $null -ne $naturalFileDelta -and
+                    [long]$naturalFileDelta.Sequence -eq 8 -and [string]$naturalFileDelta.Phase -ceq 'FILE_REPLACED' -and [string]$naturalFileDelta.PreviousHash -ceq $observedJournalHeadHash -and
+                    [string]$naturalFileDelta.Data.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and
+                    [string]$postJournalState.DerivedJournalHeadHash -ceq (Get-SemanticJsonHash -InputObject $naturalFileDelta) -and
+                    (Test-CanonicalObservedMatchesContractState -Actual $naturalTargetState -Contract $naturalTarget[0].Candidate) -and
+                    -not[string]::IsNullOrWhiteSpace([string]$naturalTargetState.Identity) -and [string]$naturalStagedState.State -ceq 'MISSING' -and
+                    $naturalCurrentTupleValid -and (Get-SemanticJsonHash -InputObject $naturalFileDelta.Data) -ceq (Get-SemanticJsonHash -InputObject $naturalFileData);break
+            }
             {$_ -cin @('BeforeDirectoryDeletionRecord','AfterDirectoryDeletionRecord')} {
                 $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
                 $naturalTargetState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].TargetPath) -ExpectedKind directory}else{$null}
@@ -4587,8 +4749,18 @@ function Invoke-HardKillSealedMutationControllerCase {
         $classificationDocumentValid=[string]$postStateDocument.ClassificationStatus -ceq [string]$postClassification.Status -and
             [string]$postStateDocument.AllowedAction -ceq [string]$postClassification.AllowedAction -and
             [string]$postStateDocument.ClassificationExpectedOutcome -ceq [string]$postClassification.ExpectedOutcome
-        $expectedClassificationAction=if($reapMode -ceq 'natural-release' -and $caseDefinition.ContainsKey('NaturalAction')){[string]$caseDefinition.NaturalAction}else{[string]$caseDefinition.Action}
-        $expectedClassificationOutcome=if($reapMode -ceq 'natural-release' -and $caseDefinition.ContainsKey('NaturalOutcome')){[string]$caseDefinition.NaturalOutcome}else{[string]$caseDefinition.Outcome}
+        $hasBaseOutcome=$caseDefinition.ContainsKey('Outcome')
+        $hasNaturalAction=$caseDefinition.ContainsKey('NaturalAction')
+        $hasNaturalOutcome=$caseDefinition.ContainsKey('NaturalOutcome')
+        if($hasNaturalAction -ne $hasNaturalOutcome){throw 'sealed mutation natural classification override is incomplete'}
+        $useNaturalClassification=$reapMode -ceq 'natural-release' -and $hasNaturalAction
+        $expectedClassificationAction=if($useNaturalClassification){[string]$caseDefinition.NaturalAction}else{[string]$caseDefinition.Action}
+        $expectedClassificationOutcome=if($useNaturalClassification){[string]$caseDefinition.NaturalOutcome}elseif($hasBaseOutcome){[string]$caseDefinition.Outcome}else{''}
+        if($expectedClassificationAction -ceq 'manual'){
+            if($expectedClassificationOutcome -cne ''){throw 'sealed mutation manual classification must not declare an outcome'}
+        }elseif([string]::IsNullOrWhiteSpace($expectedClassificationOutcome)){
+            throw 'sealed mutation non-manual classification has no expected outcome'
+        }
         $classificationModeValid=if($expectedClassificationAction -ceq 'manual'){
             [string]$postStateDocument.ClassificationStatus -ceq 'manual' -and [string]$postStateDocument.AllowedAction -ceq '' -and [string]$postStateDocument.ClassificationExpectedOutcome -ceq ''
         }else{
@@ -4667,7 +4839,7 @@ function Test-HardKillPreimageControllerTransportContract {
     param(
         [AllowEmptyString()][Parameter(Mandatory)][string]$ControllerSource,
         [Parameter(Mandatory)][ValidateSet('Synthetic','Actual')][string]$Profile)
-    $result=[ordered]@{Valid=$false;ErrorCodes=@();ActualPreludeValid=$false;ActualPreludeCount=0;ActualPreludeDigest='';OwnerCount=0;RouteCount=0;SelectedBranchCount=0;ForwardLoopCount=0;SectionGuardCount=0;RuntimeGateCount=0;CaseSourceCount=0;HostEngineProducerCount=0;NormalLaunchCount=0;RecoveryLaunchCount=0;LaunchInventoryCount=0;TypedAcquireCount=0;ResumeCount=0;NominalReapCount=0;FailureReapCount=0;ReceiptRegistrationCount=0;ControllerCleanupCount=0;SessionCloseCount=0;ScopeCloseCount=0;ProofCount=0;DifferentialResultCount=0}
+    $result=[ordered]@{Valid=$false;ErrorCodes=@();ActualPreludeValid=$false;ActualPreludeCount=0;ActualPreludeDigest='';OwnerCount=0;RouteCount=0;SelectedBranchCount=0;RecoverySeedPartitionCount=0;ConditionalContinueCount=0;LegacyElseCount=0;ForwardLoopCount=0;SectionGuardCount=0;RuntimeGateCount=0;CaseSourceCount=0;HostEngineProducerCount=0;NormalLaunchCount=0;RecoveryLaunchCount=0;LaunchInventoryCount=0;TypedAcquireCount=0;ResumeCount=0;NominalReapCount=0;FailureReapCount=0;ReceiptRegistrationCount=0;ControllerCleanupCount=0;SessionCloseCount=0;ScopeCloseCount=0;ProofCount=0;DifferentialResultCount=0}
     try{
         if($Profile -cnotin @('Synthetic','Actual')){throw 'preimage-transport-profile'}
         $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseInput($ControllerSource,[ref]$tokens,[ref]$errors)
@@ -4725,6 +4897,23 @@ function Invoke-HardKillSealedMutationControllerCase {
             if([string]$caseDefinition.Selector.Checkpoint -cne $expectedDirectoryDeletionSelectorCheckpoint -or
                 [string]$caseDefinition.Name -cne $expectedDirectoryDeletionCaseName){throw 'sealed mutation directory-delete host wire, typed checkpoint, or case name differs'}
         }
+        if([string]$caseDefinition.Selector.Checkpoint -cin @('BeforeFileReplaceMove','AfterFileReplaceMove')){
+            $expectedFileWireBinding=switch -CaseSensitive ([string]$caseDefinition.Name){
+                'before-file-replace'{[ordered]@{Kind='file';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileReplacePresent'};break}
+                'after-file-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'before-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileMoveMissing'};break}
+                'after-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                'rollback-file-before-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'rollback-file-after-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'rollback-file-add-before-new-to-staged'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                'rollback-file-add-after-new-to-staged'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                default{throw 'sealed mutation file host wire case name is invalid'}
+            }
+            if([string]$caseDefinition.Kind -cne [string]$expectedFileWireBinding.Kind -or [string]$caseDefinition.Checkpoint -cne [string]$expectedFileWireBinding.RawCheckpoint -or
+                [string]$caseDefinition.Selector.Checkpoint -cne [string]$expectedFileWireBinding.Checkpoint -or [string]$caseDefinition.DeclaredVariant -cne [string]$expectedFileWireBinding.Variant){
+                throw 'sealed mutation file host wire, typed checkpoint, variant, or case name differs'
+            }
+        }
         $failureCleanupAbsoluteCapQpcTicks=[long]$controllerScope.FailureCleanupAbsoluteCapQpcTicks
         $session=[AiAgentDotfilesTests.HardKillSealedMutationHostSession]::Acquire($HostPath,$EnginePath,$controllerScope)
         if($session.IsResumed){throw 'sealed mutation session was resumed before the controller acquired ownership'}
@@ -4763,7 +4952,41 @@ function Invoke-HardKillSealedMutationControllerCase {
         $naturalDeltaRecords=@(if($observedHeadIndex -ge 0 -and $observedHeadIndex -lt ($postRecords.Count-1)){$postRecords[($observedHeadIndex+1)..($postRecords.Count-1)]})
         $naturalProgressValid=switch([string]$caseDefinition.Selector.Checkpoint){
             {$_ -cin @('BeforeWorkspaceCreate','AfterWorkspaceCreate')}{
-                $naturalDeltaRecords.Count -eq 1 -and [string]$naturalDeltaRecords[0].Phase -ceq 'WORKSPACE_CREATED' -and [string]$naturalDeltaRecords[0].Data.WorkspaceRole -ceq [string]$caseDefinition.Selector.SelectorArm.WorkspaceRole;break
+                $naturalWorkspaceRoot=[IO.Path]::GetFullPath([string]$postJournalState.Header.RecoveryTransactionRoot)
+                $naturalPreimagePath=[IO.Path]::GetFullPath((Join-Path $naturalWorkspaceRoot 'preimage'))
+                $naturalSwapOldPath=[IO.Path]::GetFullPath((Join-Path $naturalWorkspaceRoot 'swap-old'))
+                $naturalPreimageState=Get-CanonicalObservedPathState -Path $naturalPreimagePath -ExpectedKind directory
+                $naturalSwapOldState=Get-CanonicalObservedPathState -Path $naturalSwapOldPath -ExpectedKind directory
+                $naturalWorkspaceMissing=[ordered]@{State='MISSING'}
+                $naturalPreimageIntentData=[ordered]@{WorkspacePath=$naturalPreimagePath;WorkspaceRole='preimage';WorkspaceState=$naturalWorkspaceMissing}
+                $naturalPreimageCreatedData=[ordered]@{WorkspacePath=$naturalPreimagePath;WorkspaceRole='preimage';WorkspaceState=$naturalPreimageState;CreatedIdentity=[string]$naturalPreimageState['Identity']}
+                $naturalSwapOldIntentData=[ordered]@{WorkspacePath=$naturalSwapOldPath;WorkspaceRole='swap-old';WorkspaceState=$naturalWorkspaceMissing}
+                $naturalSwapOldCreatedData=[ordered]@{WorkspacePath=$naturalSwapOldPath;WorkspaceRole='swap-old';WorkspaceState=$naturalSwapOldState;CreatedIdentity=[string]$naturalSwapOldState['Identity']}
+                $naturalSelectedWorkspaceRole=[string]$caseDefinition.Selector.SelectorArm.WorkspaceRole
+                $naturalSelectedHeadIndex=if($naturalSelectedWorkspaceRole -ceq 'preimage'){0}elseif($naturalSelectedWorkspaceRole -ceq 'swap-old'){2}else{-1}
+                $naturalSelectedDeltaCount=if($naturalSelectedWorkspaceRole -ceq 'preimage'){3}elseif($naturalSelectedWorkspaceRole -ceq 'swap-old'){1}else{-1}
+                $naturalWorkspaceReconciliation=@(Get-CanonicalRecoveryWorkspaceReconciliation -State $postJournalState)
+                $naturalPreimageReconciliation=@($naturalWorkspaceReconciliation|Where-Object{[string]$_.WorkspaceRole -ceq 'preimage'})
+                $naturalSwapOldReconciliation=@($naturalWorkspaceReconciliation|Where-Object{[string]$_.WorkspaceRole -ceq 'swap-old'})
+                $postRecords.Count -eq 4 -and $observedHeadIndex -eq $naturalSelectedHeadIndex -and $naturalDeltaRecords.Count -eq $naturalSelectedDeltaCount -and
+                    [long]$postRecords[0].Sequence -eq 1 -and [long]$postRecords[1].Sequence -eq 2 -and [long]$postRecords[2].Sequence -eq 3 -and [long]$postRecords[3].Sequence -eq 4 -and
+                    [string]$postRecords[0].Phase -ceq 'WORKSPACE_CREATE_INTENT' -and [string]$postRecords[1].Phase -ceq 'WORKSPACE_CREATED' -and
+                    [string]$postRecords[2].Phase -ceq 'WORKSPACE_CREATE_INTENT' -and [string]$postRecords[3].Phase -ceq 'WORKSPACE_CREATED' -and
+                    [string]$postRecords[0].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postJournalState.Header) -and
+                    [string]$postRecords[1].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[0]) -and
+                    [string]$postRecords[2].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[1]) -and
+                    [string]$postRecords[3].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[2]) -and [string]$postJournalState.DerivedJournalHeadHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[3]) -and
+                    [string]$naturalPreimageState.State -ceq 'PRESENT' -and [string]$naturalPreimageState.Type -ceq 'Directory' -and
+                    [string]$naturalSwapOldState.State -ceq 'PRESENT' -and [string]$naturalSwapOldState.Type -ceq 'Directory' -and
+                    -not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapOldState.Identity) -and
+                    [string]$naturalPreimageState.Identity -cne [string]$naturalSwapOldState.Identity -and
+                    $naturalWorkspaceReconciliation.Count -eq 2 -and $naturalPreimageReconciliation.Count -eq 1 -and $naturalSwapOldReconciliation.Count -eq 1 -and
+                    [string]$naturalPreimageReconciliation[0].ReconciledState -ceq 'READY' -and [string]$naturalSwapOldReconciliation[0].ReconciledState -ceq 'READY' -and
+                    @((Get-SafeTreeSnapshot -Root $naturalPreimagePath).ContentTreeRows).Count -eq 1 -and @((Get-SafeTreeSnapshot -Root $naturalSwapOldPath).ContentTreeRows).Count -eq 1 -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[0].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalPreimageIntentData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[1].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalPreimageCreatedData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[2].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalSwapOldIntentData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[3].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalSwapOldCreatedData);break
             }
             {$_ -cin @('BeforeParentCreate','AfterParentCreate')}{
                 $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
@@ -4814,6 +5037,39 @@ function Invoke-HardKillSealedMutationControllerCase {
                     ([string]$naturalTarget[0].Current.State -cne 'PRESENT' -or (-not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapState.Identity))) -and
                     (Get-SemanticJsonHash -InputObject $naturalDeltaRecords[0].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalInstalled);break
             }
+            {$_ -cin @('BeforeFileReplaceMove','AfterFileReplaceMove')} {
+                $naturalFileBinding=switch -CaseSensitive ([string]$caseDefinition.Name){
+                    'before-file-replace'{[ordered]@{Kind='file';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                    'after-file-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                    'before-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                    'after-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                    default{$null}
+                }
+                $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
+                $naturalTargetState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].TargetPath) -ExpectedKind file}else{$null}
+                $naturalPreimageState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].PreimagePath) -ExpectedKind file}else{$null}
+                $naturalSwapState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].SwapOldPath) -ExpectedKind file}else{$null}
+                $naturalStagedState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].StagedPath) -ExpectedKind file}else{$null}
+                $naturalFileData=if($naturalTarget.Count -eq 1){New-CanonicalTargetRecordData -Target $naturalTarget[0] -TargetState $naturalTargetState -PreimageState $naturalPreimageState -SwapOldState $naturalSwapState -StagedState $naturalStagedState}else{$null}
+                $naturalFileDelta=if($naturalDeltaRecords.Count -eq 1){$naturalDeltaRecords[0]}else{$null}
+                $naturalCurrentTupleValid=$naturalTarget.Count -eq 1 -and (Test-CanonicalObservedMatchesContractState -Actual $naturalPreimageState -Contract $naturalTarget[0].Current) -and
+                    (([string]$naturalTarget[0].Current.State -ceq 'PRESENT' -and (Test-CanonicalObservedMatchesContractState -Actual $naturalSwapState -Contract $naturalTarget[0].Current) -and
+                        -not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapState.Identity) -and
+                        [string]$naturalPreimageState.Identity -cne [string]$naturalSwapState.Identity) -or
+                     ([string]$naturalTarget[0].Current.State -ceq 'MISSING' -and [string]$naturalPreimageState.State -ceq 'MISSING' -and [string]$naturalSwapState.State -ceq 'MISSING'))
+                $null -ne $naturalFileBinding -and [string]$caseDefinition.Kind -ceq [string]$naturalFileBinding.Kind -and
+                    [string]$caseDefinition.Checkpoint -ceq [string]$naturalFileBinding.RawCheckpoint -and [string]$caseDefinition.Selector.Checkpoint -ceq [string]$naturalFileBinding.Checkpoint -and
+                    [string]$caseDefinition.DeclaredVariant -ceq [string]$naturalFileBinding.Variant -and $naturalTarget.Count -eq 1 -and
+                    [string]$naturalTarget[0].TargetKind -ceq 'file' -and [string]$naturalTarget[0].Role -ceq 'manifest' -and [string]$naturalTarget[0].Platform -ceq 'Union' -and
+                    [string]$naturalTarget[0].Current.State -ceq [string]$naturalFileBinding.CurrentState -and [string]$naturalTarget[0].Candidate.State -ceq 'PRESENT' -and
+                    $postRecords.Count -eq 8 -and $observedHeadIndex -eq 6 -and $naturalDeltaRecords.Count -eq 1 -and $null -ne $naturalFileDelta -and
+                    [long]$naturalFileDelta.Sequence -eq 8 -and [string]$naturalFileDelta.Phase -ceq 'FILE_REPLACED' -and [string]$naturalFileDelta.PreviousHash -ceq $observedJournalHeadHash -and
+                    [string]$naturalFileDelta.Data.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and
+                    [string]$postJournalState.DerivedJournalHeadHash -ceq (Get-SemanticJsonHash -InputObject $naturalFileDelta) -and
+                    (Test-CanonicalObservedMatchesContractState -Actual $naturalTargetState -Contract $naturalTarget[0].Candidate) -and
+                    -not[string]::IsNullOrWhiteSpace([string]$naturalTargetState.Identity) -and [string]$naturalStagedState.State -ceq 'MISSING' -and
+                    $naturalCurrentTupleValid -and (Get-SemanticJsonHash -InputObject $naturalFileDelta.Data) -ceq (Get-SemanticJsonHash -InputObject $naturalFileData);break
+            }
             {$_ -cin @('BeforeDirectoryDeletionRecord','AfterDirectoryDeletionRecord')} {
                 $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
                 $naturalTargetState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].TargetPath) -ExpectedKind directory}else{$null}
@@ -4859,8 +5115,18 @@ function Invoke-HardKillSealedMutationControllerCase {
         $classificationDocumentValid=[string]$postStateDocument.ClassificationStatus -ceq [string]$postClassification.Status -and
             [string]$postStateDocument.AllowedAction -ceq [string]$postClassification.AllowedAction -and
             [string]$postStateDocument.ClassificationExpectedOutcome -ceq [string]$postClassification.ExpectedOutcome
-        $expectedClassificationAction=if($reapMode -ceq 'natural-release' -and $caseDefinition.ContainsKey('NaturalAction')){[string]$caseDefinition.NaturalAction}else{[string]$caseDefinition.Action}
-        $expectedClassificationOutcome=if($reapMode -ceq 'natural-release' -and $caseDefinition.ContainsKey('NaturalOutcome')){[string]$caseDefinition.NaturalOutcome}else{[string]$caseDefinition.Outcome}
+        $hasBaseOutcome=$caseDefinition.ContainsKey('Outcome')
+        $hasNaturalAction=$caseDefinition.ContainsKey('NaturalAction')
+        $hasNaturalOutcome=$caseDefinition.ContainsKey('NaturalOutcome')
+        if($hasNaturalAction -ne $hasNaturalOutcome){throw 'sealed mutation natural classification override is incomplete'}
+        $useNaturalClassification=$reapMode -ceq 'natural-release' -and $hasNaturalAction
+        $expectedClassificationAction=if($useNaturalClassification){[string]$caseDefinition.NaturalAction}else{[string]$caseDefinition.Action}
+        $expectedClassificationOutcome=if($useNaturalClassification){[string]$caseDefinition.NaturalOutcome}elseif($hasBaseOutcome){[string]$caseDefinition.Outcome}else{''}
+        if($expectedClassificationAction -ceq 'manual'){
+            if($expectedClassificationOutcome -cne ''){throw 'sealed mutation manual classification must not declare an outcome'}
+        }elseif([string]::IsNullOrWhiteSpace($expectedClassificationOutcome)){
+            throw 'sealed mutation non-manual classification has no expected outcome'
+        }
         $classificationModeValid=if($expectedClassificationAction -ceq 'manual'){
             [string]$postStateDocument.ClassificationStatus -ceq 'manual' -and [string]$postStateDocument.AllowedAction -ceq '' -and [string]$postStateDocument.ClassificationExpectedOutcome -ceq ''
         }else{
@@ -4954,12 +5220,30 @@ try{
         if($cases.Count -eq 0){throw 'sealed mutation process matrix selected no cases'}
         foreach($case in $cases){
             if([AiAgentDotfilesTests.HardKillSealedMutationControllerScope]::IsSelectedCase($case)){
-                $sealedMutationCaseResult=script:Invoke-HardKillSealedMutationControllerCase -HostPath $hostScript -EnginePath $reviewedMutationEnginePath -Case $case
-                if($null -eq $sealedMutationCaseResult){throw 'sealed mutation controller case returned no typed result'}
-                continue
+                $sealedMutationRecoverySeed=$case.Contains('RecoveryCheckpoint')
+                $sealedMutationReapModes=[string[]]$(if($sealedMutationRecoverySeed){@('hard-kill')}else{@('hard-kill','natural-release')})
+                if(($sealedMutationRecoverySeed -and (@($sealedMutationReapModes).Count -ne 1 -or [string]$sealedMutationReapModes[0] -cne 'hard-kill')) -or
+                    (-not $sealedMutationRecoverySeed -and (@($sealedMutationReapModes).Count -ne 2 -or [string]$sealedMutationReapModes[0] -cne 'hard-kill' -or [string]$sealedMutationReapModes[1] -cne 'natural-release'))){
+                    throw 'sealed mutation reap-mode partition is invalid'
+                }
+                foreach($sealedMutationReapMode in $sealedMutationReapModes){
+                    $sealedMutationCaseResult=script:Invoke-HardKillSealedMutationControllerCase -HostPath $hostScript -EnginePath $reviewedMutationEnginePath -Case $case
+                    if($null -eq $sealedMutationCaseResult){throw 'sealed mutation controller case returned no typed result'}
+                }
+                if(-not $sealedMutationRecoverySeed){continue}
+                if([string]$sealedMutationCaseResult.Kind -cne 'hard-kill-proof' -or
+                    $sealedMutationCaseResult.ReapReceipt -isnot [AiAgentDotfilesTests.HardKillLiveTerminationReceipt] -or
+                    [string]$sealedMutationSeedPostState.DerivedJournalHeadHash -cnotmatch '^[0-9a-f]{64}$'){
+                    throw 'sealed mutation recovery seed proof is invalid'
+                }
+                $sealedMutationSeedHeadHash=[string]$sealedMutationSeedPostState.DerivedJournalHeadHash
+                $initialReached=$true
+            }else{
+                $sealedMutationRecoverySeed=$false
+                Set-TestProgress ("process:{0}" -f [string]$case.Name)
+                $process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr
             }
-            Set-TestProgress ("process:{0}" -f [string]$case.Name)
-            $process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr
+            if(-not $initialReached){throw ("sealed mutation host did not reach checkpoint for {0}" -f $case.Name)}
             if($case.Contains('RecoveryCheckpoint')){
                 $recoveryProcess=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $recoveryArguments -RedirectStandardOutputPath $recoveryOut -RedirectStandardErrorPath $recoveryErr
             }
@@ -5024,7 +5308,7 @@ try{
                 '6|System.Management.Automation.Language.IfStatementAst|171c4f97363d1ed8db7845731c6a8403d595a66aa6481adae89b62189b7c97e4',
                 '7|System.Management.Automation.Language.AssignmentStatementAst|f1c1c5a033cef5059052fd514d5676b65bed09c46c1b0780d0f4d4c0da98c97c',
                 '8|System.Management.Automation.Language.IfStatementAst|13a138103e09c8f27e5337df3c1841fbd2fcd0823487c967b5a3c5ad6948f471',
-                '9|System.Management.Automation.Language.AssignmentStatementAst|9f0a991ff4108e7465f46e051d884190b6f0e51c1e6ff3dc0a1231bf76608ff3',
+                '9|System.Management.Automation.Language.AssignmentStatementAst|59a28fa0c8d9337cd0903245c42ff0bca0a340e272f336c928e639ed7ed28b88',
                 '10|System.Management.Automation.Language.AssignmentStatementAst|90b0b8267ad63527fbade9063b2dcff15dc30e762d7e7d5febe4a56a870127e1',
                 '11|System.Management.Automation.Language.TryStatementAst|af4dccd038a93d1f907b29267646f292d7ddf23081d10eeb7229a3c4ae84e39d',
                 '12|System.Management.Automation.Language.IfStatementAst|cb73689f95adaa31e4b72768cda83ed9b496b8bcefbc9158bc725a84d3bf8053',
@@ -5051,7 +5335,7 @@ try{
             for($preludeIndex=0;$preludeIndex -lt $reviewedActualPreludeRows.Count;$preludeIndex++){
                 if([string]$actualPreludeRows[$preludeIndex] -cne [string]$reviewedActualPreludeRows[$preludeIndex]){throw 'preimage-transport-actual-prelude'}
             }
-            if($result.ActualPreludeDigest -cne '4878e73e41446061e6bcd75e6293d95f14fb285b13743582ab05a43e04a2d466'){throw 'preimage-transport-actual-prelude'}
+            if($result.ActualPreludeDigest -cne '7f0b8223826071f46e273633d4a0102cad3ed31d4275b1c555c2daa70eb922fa'){throw 'preimage-transport-actual-prelude'}
             $result.ActualPreludeValid=$true
         }
         $ownerName='Invoke-HardKillSealedMutationControllerCase'
@@ -5067,7 +5351,7 @@ try{
         if(-not[object]::ReferenceEquals($owner.Parent,$ast.EndBlock)){throw 'preimage-transport-session-owner-scope'}
         if((Get-HardKillTokenFingerprint -Source ([string]$owner.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldOwner.Extent.Text))){throw 'preimage-transport-session-owner-shape'}
         if($Profile -ceq 'Actual'){
-            $reviewedActualControllerSurfaceSha='4fc541ead1da7ca3aef3f9010b90c3f7260ffe1f8a0ab24000bf2e57dd788611'
+            $reviewedActualControllerSurfaceSha='78f7d3165abcf942edc7c18053d9825ac3aef3b88d42042f6c2cf60a83a3ebb4'
             $surfacePattern='(?m)(\$reviewedActualControllerSurfaceSha\s*=\s*'')[0-9a-f]{64}('')'
             $surfaceMatches=[regex]::Matches($ControllerSource,$surfacePattern,[Text.RegularExpressions.RegexOptions]::CultureInvariant)
             if($surfaceMatches.Count -ne 1 -or $reviewedActualControllerSurfaceSha -ceq ('0'*64)){throw 'preimage-transport-reviewed-controller-surface'}
@@ -5101,9 +5385,47 @@ try{
         $goldSelectedRouteSha=if($null -ne $goldSelectedIf){Get-TransportTokenSha256 ([string]$goldSelectedIf.Extent.Text)}else{''}
         if($null -eq $selectedIf -or $null -eq $goldSelectedIf -or
             ($Profile -ceq 'Synthetic' -and $selectedRouteSha -cne $goldSelectedRouteSha) -or
-            ($Profile -ceq 'Actual' -and $selectedRouteSha -cne '801650b6083407ddffe6f2319bcd36e0394e1149dfe83638f94179f4048b0cf9')){
+            ($Profile -ceq 'Actual' -and $selectedRouteSha -cne '9e33f7cf7b84ca57b7a08da5780c36eae26a6ce7d4630430354106696cc304d9')){
             throw 'preimage-transport-selected-route'
         }
+        $selectedBody=$selectedIf.Clauses[0].Item2;$goldSelectedBody=$goldSelectedIf.Clauses[0].Item2
+        $seedAssignments=@($selectedBody.Statements|Where-Object{$_ -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact -Ast $_.Left) -ceq '$sealedMutationRecoverySeed'})
+        $goldSeedAssignments=@($goldSelectedBody.Statements|Where-Object{$_ -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact -Ast $_.Left) -ceq '$sealedMutationRecoverySeed'})
+        $modeAssignments=@($selectedBody.Statements|Where-Object{$_ -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact -Ast $_.Left) -ceq '$sealedMutationReapModes'})
+        $goldModeAssignments=@($goldSelectedBody.Statements|Where-Object{$_ -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact -Ast $_.Left) -ceq '$sealedMutationReapModes'})
+        $routeModeLoop=Get-ContainingForEach $routes[0];$goldRouteModeLoop=Get-ContainingForEach $goldRoutes[0]
+        if($seedAssignments.Count -ne 1 -or $goldSeedAssignments.Count -ne 1 -or $modeAssignments.Count -ne 1 -or $goldModeAssignments.Count -ne 1 -or
+            (Get-HardKillTokenFingerprint -Source ([string]$seedAssignments[0].Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldSeedAssignments[0].Extent.Text)) -or
+            (Get-HardKillTokenFingerprint -Source ([string]$modeAssignments[0].Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldModeAssignments[0].Extent.Text)) -or
+            $null -eq $routeModeLoop -or $null -eq $goldRouteModeLoop -or -not[object]::ReferenceEquals($routeModeLoop.Parent,$selectedBody) -or
+            -not[object]::ReferenceEquals($goldRouteModeLoop.Parent,$goldSelectedBody) -or $routeModeLoop.Variable.VariablePath.UserPath -cne 'sealedMutationReapMode' -or
+            (Get-HardKillAstTextCompact -Ast $routeModeLoop.Condition) -cne '$sealedMutationReapModes'){
+            throw 'preimage-transport-recovery-seed-partition'
+        }
+        $result.RecoverySeedPartitionCount=1
+        $selectedContinues=@($selectedBody.FindAll({param($node)$node -is [Management.Automation.Language.ContinueStatementAst]},$true))
+        $goldSelectedContinues=@($goldSelectedBody.FindAll({param($node)$node -is [Management.Automation.Language.ContinueStatementAst]},$true))
+        $continueIf=if($selectedContinues.Count -eq 1){Get-ContainingIf $selectedContinues[0]}else{$null}
+        $goldContinueIf=if($goldSelectedContinues.Count -eq 1){Get-ContainingIf $goldSelectedContinues[0]}else{$null}
+        if($selectedContinues.Count -ne 1 -or $goldSelectedContinues.Count -ne 1 -or $null -eq $continueIf -or $null -eq $goldContinueIf -or
+            -not[object]::ReferenceEquals($continueIf.Parent,$selectedBody) -or -not[object]::ReferenceEquals($goldContinueIf.Parent,$goldSelectedBody) -or
+            @($continueIf.Clauses).Count -ne 1 -or $null -ne $continueIf.ElseClause -or
+            (Get-HardKillAstTextCompact -Ast $continueIf.Clauses[0].Item1) -cne '-not$sealedMutationRecoverySeed' -or
+            (Get-HardKillTokenFingerprint -Source ([string]$continueIf.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldContinueIf.Extent.Text))){
+            throw 'preimage-transport-recovery-seed-continue'
+        }
+        $result.ConditionalContinueCount=1
+        if($null -eq $selectedIf.ElseClause -or $null -eq $goldSelectedIf.ElseClause){throw 'preimage-transport-legacy-else'}
+        $legacyResetAssignments=@($selectedIf.ElseClause.Statements|Where-Object{$_ -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact -Ast $_.Left) -ceq '$sealedMutationRecoverySeed'})
+        $goldLegacyResetAssignments=@($goldSelectedIf.ElseClause.Statements|Where-Object{$_ -is [Management.Automation.Language.AssignmentStatementAst] -and (Get-HardKillAstTextCompact -Ast $_.Left) -ceq '$sealedMutationRecoverySeed'})
+        if($legacyResetAssignments.Count -ne 1 -or $goldLegacyResetAssignments.Count -ne 1 -or
+            -not[object]::ReferenceEquals($selectedIf.ElseClause.Statements[0],$legacyResetAssignments[0]) -or
+            -not[object]::ReferenceEquals($goldSelectedIf.ElseClause.Statements[0],$goldLegacyResetAssignments[0]) -or
+            (Get-HardKillAstTextCompact -Ast $legacyResetAssignments[0].Right) -cne '$false' -or
+            (Get-HardKillTokenFingerprint -Source ([string]$legacyResetAssignments[0].Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldLegacyResetAssignments[0].Extent.Text))){
+            throw 'preimage-transport-legacy-else'
+        }
+        $result.LegacyElseCount=1
         $forwardLoop=Get-ContainingForEach $selectedIf;$goldForwardLoop=Get-ContainingForEach $goldSelectedIf
         $result.ForwardLoopCount=@($forwardLoop).Count
         if($null -eq $forwardLoop -or $null -eq $goldForwardLoop -or $forwardLoop.Variable.VariablePath.UserPath -cne 'case' -or (Get-HardKillAstTextCompact -Ast $forwardLoop.Condition) -cne '$cases'){throw 'preimage-transport-forward-loop'}
@@ -5160,7 +5482,7 @@ try{
             (Get-HardKillAstTextCompact -Ast $_.Clauses[0].Item1) -cin $allowedPreSectionConditionTexts
         })
         $reviewedAllowedPreSectionOwnerHashes=@(
-            '014252c1bcbdd2918039253fb8c1cc5f609f398e9cbe43d815a542c9412a20b6',
+            '43811abcef4982d8fcac736f9d9f54430682e8bd13cfa39fa3b377e99d40b01e',
             'e06b346806b8750dbff87c8341dd171c9b410e8e3550c7b695e1a613d03b5e04')
         $actualAllowedOwnerHashes=@($allowedPreSectionOwners|ForEach-Object{Get-TransportTokenSha256 ([string]$_.Extent.Text)}|Sort-Object)
         if(($Profile -ceq 'Synthetic' -and $allowedPreSectionOwners.Count -ne 0) -or
@@ -5177,7 +5499,7 @@ try{
             })
             $reviewedActualStaticPreSectionText=($reviewedActualStaticPreSectionRoots|ForEach-Object{[string]$_.Extent.Text}) -join "`n"
             if($reviewedActualStaticPreSectionRoots.Count -ne 27 -or
-                (Get-TransportTokenSha256 $reviewedActualStaticPreSectionText) -cne '09320165f817db4b647df0bfc3f8e04809ef351af2588aafa6ece0e812b4eb59'){
+                (Get-TransportTokenSha256 $reviewedActualStaticPreSectionText) -cne '829bbfe474de7ed11fcd1f743e5879d2b72fb65d11c9fe46d422f264327ba7fe'){
                 throw 'preimage-transport-common-entry-launch-bypass'
             }
         }
@@ -5195,7 +5517,7 @@ try{
             }
         }
         $protectedAssignments=[ordered]@{
-            preimageTransportStaticSatisfied='02bd852ef495deea1ca8d61c733c82aa87fd87f9e6cd8cb7a3c8ee224f6969ea'
+            preimageTransportStaticSatisfied='bbdc7d21c19ca6c497ff4c230794126143418bbbe3fa1382aa0947ff1304c3df'
             transportAuthorityDefinitionStaticSatisfied='1b0af87068d6132984f0cd075982208ab8eebc7968dbd810ea86339a4794a40f'
             transportAuthorityRuntimeStaticSatisfied='39f37d42052880ef72cbea3447ca41467b5ebf91d076f29638ebb719f6c5ea69'
             transportAuthority='a24497844de4f54b65d6afc47563b330487606cd80417e88b751d4758c0e9e57'
@@ -5238,7 +5560,7 @@ try{
             }
             $reviewedTransportSelfTestText=($reviewedTransportSelfTestRoots|ForEach-Object{[string]$_.Extent.Text}) -join "`n"
             if($reviewedTransportSelfTestRoots.Count -ne 9 -or
-                (Get-TransportTokenSha256 $reviewedTransportSelfTestText) -cne '22ce0eccf96cede8178ea435f1884f8f879a76f31d9686ec12a9e288d897d3fa'){
+                (Get-TransportTokenSha256 $reviewedTransportSelfTestText) -cne '6b423eed96a9f1fef8e84ba0b74d542194b78d41fae460b41b461a23d68bbc01'){
                 throw 'preimage-transport-common-entry-launch-bypass'
             }
         }
@@ -8257,7 +8579,7 @@ try{
         $statements=@($forwardLoop.Body.Statements);$goldStatements=@($goldForwardLoop.Body.Statements);$selectedIndex=[Array]::IndexOf($statements,$selectedIf);$goldSelectedIndex=[Array]::IndexOf($goldStatements,$goldSelectedIf)
         if($selectedIndex -ne 0 -or $goldSelectedIndex -ne 0){throw 'preimage-transport-selected-route'}
         if($selectedIndex+1 -ge $statements.Count -or $goldSelectedIndex+1 -ge $goldStatements.Count -or
-            (Get-HardKillTokenFingerprint -Source ([string]$statements[$selectedIndex+1].Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldStatements[$goldSelectedIndex+1].Extent.Text))){throw 'preimage-transport-legacy-adjacency'}
+            (Get-HardKillTokenFingerprint -Source ([string]$statements[$selectedIndex+1].Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldStatements[$goldSelectedIndex+1].Extent.Text))){throw 'preimage-transport-common-recovery-fallthrough'}
         function Get-ContainingAssignment([Management.Automation.Language.Ast]$Node){$cursor=$Node;while($cursor -and $cursor -isnot [Management.Automation.Language.AssignmentStatementAst]){$cursor=$cursor.Parent};return $cursor}
         function Get-ContainingTry([Management.Automation.Language.Ast]$Node){$cursor=$Node;while($cursor -and $cursor -isnot [Management.Automation.Language.TryStatementAst]){$cursor=$cursor.Parent};return $cursor}
         $registeredLaunches=@($sectionBlock.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and ((([string]$node.GetCommandName() -split '[\\/]')[-1] -split ':')[-1]) -ceq 'Start-HardKillRegisteredProcess'},$true))
@@ -8269,14 +8591,16 @@ try{
         $goldRecovery=@($goldRegistered|Where-Object{$assignment=Get-ContainingAssignment $_;$assignment -and (Get-HardKillAstTextCompact -Ast $assignment.Left) -ceq '$recoveryProcess'})
         if($normalLaunches.Count -ne 1 -or $goldNormal.Count -ne 1){throw 'preimage-transport-normal-launch'}
         $normalAssignment=Get-ContainingAssignment $normalLaunches[0];$goldNormalAssignment=Get-ContainingAssignment $goldNormal[0]
-        if(-not($normalAssignment -in @($forwardLoop.Body.Statements)) -or (Get-HardKillTokenFingerprint -Source ([string]$normalAssignment.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldNormalAssignment.Extent.Text))){throw 'preimage-transport-normal-launch'}
-        $normalIndex=[Array]::IndexOf(@($forwardLoop.Body.Statements),$normalAssignment)
+        $normalStatements=@($selectedIf.ElseClause.Statements);$goldNormalStatements=@($goldSelectedIf.ElseClause.Statements)
+        if(-not($normalAssignment -in $normalStatements) -or -not($goldNormalAssignment -in $goldNormalStatements) -or
+            (Get-HardKillTokenFingerprint -Source ([string]$normalAssignment.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldNormalAssignment.Extent.Text))){throw 'preimage-transport-normal-launch'}
+        $normalIndex=[Array]::IndexOf($normalStatements,$normalAssignment)
         $normalBypass=@()
-        if($normalIndex -gt 1){$normalBypass=@($forwardLoop.Body.Statements[1..($normalIndex-1)]|ForEach-Object{$_.FindAll({param($node)
+        if($normalIndex -gt 0){$normalBypass=@($normalStatements[0..($normalIndex-1)]|ForEach-Object{$_.FindAll({param($node)
             ($node -is [Management.Automation.Language.ReturnStatementAst] -or $node -is [Management.Automation.Language.ExitStatementAst] -or $node -is [Management.Automation.Language.BreakStatementAst] -or $node -is [Management.Automation.Language.ContinueStatementAst]) -and
             [object]::ReferenceEquals((Get-NearestTransportScriptBlock $node),$ast)
         },$true)})}
-        if($normalIndex -lt 2 -or $normalBypass.Count -ne 0){throw 'preimage-transport-normal-launch'}
+        if($normalIndex -lt 0 -or $normalBypass.Count -ne 0){throw 'preimage-transport-normal-launch'}
         if($recoveryLaunches.Count -ne 1 -or $goldRecovery.Count -ne 1){throw 'preimage-transport-recovery-launch'}
         $recoveryAssignment=Get-ContainingAssignment $recoveryLaunches[0];$goldRecoveryAssignment=Get-ContainingAssignment $goldRecovery[0]
         $recoveryIf=Get-ContainingIf $recoveryAssignment
@@ -8307,7 +8631,7 @@ try{
         if($launcherDefinitions.Count -ne 1 -or $launcherDefinitions[0].Name -cne 'Start-HardKillRegisteredProcess' -or -not[object]::ReferenceEquals($launcherDefinitions[0].Parent,$ast.EndBlock)){throw 'preimage-transport-launch-inventory'}
         $sectionSurfaceSha=Get-TransportTokenSha256 ([string]$sectionIf.Extent.Text)
         $goldSectionSurfaceSha=Get-TransportTokenSha256 ([string]$goldSectionIf.Extent.Text)
-        $reviewedActualSectionSurfaceSha='63c772f0e8a62a0d63aff0453f2944f1d3d8c4da4eff4c1d73d9bba90390e1a2'
+        $reviewedActualSectionSurfaceSha='ceb2b812ab53b8ec9396ebf5998c62b23179a09677132a2483859102f6bcb94a'
         if(($Profile -ceq 'Synthetic' -and $sectionSurfaceSha -cne $goldSectionSurfaceSha) -or
             ($Profile -ceq 'Actual' -and ($reviewedActualSectionSurfaceSha -ceq ('0'*64) -or $sectionSurfaceSha -cne $reviewedActualSectionSurfaceSha))){
             throw 'preimage-transport-reviewed-section-surface'
@@ -8370,6 +8694,23 @@ function Invoke-HardKillSealedMutationControllerCase {
             if([string]$caseDefinition.Selector.Checkpoint -cne $expectedDirectoryDeletionSelectorCheckpoint -or
                 [string]$caseDefinition.Name -cne $expectedDirectoryDeletionCaseName){throw 'sealed mutation directory-delete host wire, typed checkpoint, or case name differs'}
         }
+        if([string]$caseDefinition.Selector.Checkpoint -cin @('BeforeFileReplaceMove','AfterFileReplaceMove')){
+            $expectedFileWireBinding=switch -CaseSensitive ([string]$caseDefinition.Name){
+                'before-file-replace'{[ordered]@{Kind='file';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileReplacePresent'};break}
+                'after-file-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'before-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileMoveMissing'};break}
+                'after-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                'rollback-file-before-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'rollback-file-after-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent'};break}
+                'rollback-file-add-before-new-to-staged'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                'rollback-file-add-after-new-to-staged'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing'};break}
+                default{throw 'sealed mutation file host wire case name is invalid'}
+            }
+            if([string]$caseDefinition.Kind -cne [string]$expectedFileWireBinding.Kind -or [string]$caseDefinition.Checkpoint -cne [string]$expectedFileWireBinding.RawCheckpoint -or
+                [string]$caseDefinition.Selector.Checkpoint -cne [string]$expectedFileWireBinding.Checkpoint -or [string]$caseDefinition.DeclaredVariant -cne [string]$expectedFileWireBinding.Variant){
+                throw 'sealed mutation file host wire, typed checkpoint, variant, or case name differs'
+            }
+        }
         $failureCleanupAbsoluteCapQpcTicks=[long]$controllerScope.FailureCleanupAbsoluteCapQpcTicks
         $session=[AiAgentDotfilesTests.HardKillSealedMutationHostSession]::Acquire($HostPath,$EnginePath,$controllerScope)
         if($session.IsResumed){throw 'sealed mutation session was resumed before the controller acquired ownership'}
@@ -8408,7 +8749,41 @@ function Invoke-HardKillSealedMutationControllerCase {
         $naturalDeltaRecords=@(if($observedHeadIndex -ge 0 -and $observedHeadIndex -lt ($postRecords.Count-1)){$postRecords[($observedHeadIndex+1)..($postRecords.Count-1)]})
         $naturalProgressValid=switch([string]$caseDefinition.Selector.Checkpoint){
             {$_ -cin @('BeforeWorkspaceCreate','AfterWorkspaceCreate')}{
-                $naturalDeltaRecords.Count -eq 1 -and [string]$naturalDeltaRecords[0].Phase -ceq 'WORKSPACE_CREATED' -and [string]$naturalDeltaRecords[0].Data.WorkspaceRole -ceq [string]$caseDefinition.Selector.SelectorArm.WorkspaceRole;break
+                $naturalWorkspaceRoot=[IO.Path]::GetFullPath([string]$postJournalState.Header.RecoveryTransactionRoot)
+                $naturalPreimagePath=[IO.Path]::GetFullPath((Join-Path $naturalWorkspaceRoot 'preimage'))
+                $naturalSwapOldPath=[IO.Path]::GetFullPath((Join-Path $naturalWorkspaceRoot 'swap-old'))
+                $naturalPreimageState=Get-CanonicalObservedPathState -Path $naturalPreimagePath -ExpectedKind directory
+                $naturalSwapOldState=Get-CanonicalObservedPathState -Path $naturalSwapOldPath -ExpectedKind directory
+                $naturalWorkspaceMissing=[ordered]@{State='MISSING'}
+                $naturalPreimageIntentData=[ordered]@{WorkspacePath=$naturalPreimagePath;WorkspaceRole='preimage';WorkspaceState=$naturalWorkspaceMissing}
+                $naturalPreimageCreatedData=[ordered]@{WorkspacePath=$naturalPreimagePath;WorkspaceRole='preimage';WorkspaceState=$naturalPreimageState;CreatedIdentity=[string]$naturalPreimageState['Identity']}
+                $naturalSwapOldIntentData=[ordered]@{WorkspacePath=$naturalSwapOldPath;WorkspaceRole='swap-old';WorkspaceState=$naturalWorkspaceMissing}
+                $naturalSwapOldCreatedData=[ordered]@{WorkspacePath=$naturalSwapOldPath;WorkspaceRole='swap-old';WorkspaceState=$naturalSwapOldState;CreatedIdentity=[string]$naturalSwapOldState['Identity']}
+                $naturalSelectedWorkspaceRole=[string]$caseDefinition.Selector.SelectorArm.WorkspaceRole
+                $naturalSelectedHeadIndex=if($naturalSelectedWorkspaceRole -ceq 'preimage'){0}elseif($naturalSelectedWorkspaceRole -ceq 'swap-old'){2}else{-1}
+                $naturalSelectedDeltaCount=if($naturalSelectedWorkspaceRole -ceq 'preimage'){3}elseif($naturalSelectedWorkspaceRole -ceq 'swap-old'){1}else{-1}
+                $naturalWorkspaceReconciliation=@(Get-CanonicalRecoveryWorkspaceReconciliation -State $postJournalState)
+                $naturalPreimageReconciliation=@($naturalWorkspaceReconciliation|Where-Object{[string]$_.WorkspaceRole -ceq 'preimage'})
+                $naturalSwapOldReconciliation=@($naturalWorkspaceReconciliation|Where-Object{[string]$_.WorkspaceRole -ceq 'swap-old'})
+                $postRecords.Count -eq 4 -and $observedHeadIndex -eq $naturalSelectedHeadIndex -and $naturalDeltaRecords.Count -eq $naturalSelectedDeltaCount -and
+                    [long]$postRecords[0].Sequence -eq 1 -and [long]$postRecords[1].Sequence -eq 2 -and [long]$postRecords[2].Sequence -eq 3 -and [long]$postRecords[3].Sequence -eq 4 -and
+                    [string]$postRecords[0].Phase -ceq 'WORKSPACE_CREATE_INTENT' -and [string]$postRecords[1].Phase -ceq 'WORKSPACE_CREATED' -and
+                    [string]$postRecords[2].Phase -ceq 'WORKSPACE_CREATE_INTENT' -and [string]$postRecords[3].Phase -ceq 'WORKSPACE_CREATED' -and
+                    [string]$postRecords[0].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postJournalState.Header) -and
+                    [string]$postRecords[1].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[0]) -and
+                    [string]$postRecords[2].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[1]) -and
+                    [string]$postRecords[3].PreviousHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[2]) -and [string]$postJournalState.DerivedJournalHeadHash -ceq (Get-SemanticJsonHash -InputObject $postRecords[3]) -and
+                    [string]$naturalPreimageState.State -ceq 'PRESENT' -and [string]$naturalPreimageState.Type -ceq 'Directory' -and
+                    [string]$naturalSwapOldState.State -ceq 'PRESENT' -and [string]$naturalSwapOldState.Type -ceq 'Directory' -and
+                    -not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapOldState.Identity) -and
+                    [string]$naturalPreimageState.Identity -cne [string]$naturalSwapOldState.Identity -and
+                    $naturalWorkspaceReconciliation.Count -eq 2 -and $naturalPreimageReconciliation.Count -eq 1 -and $naturalSwapOldReconciliation.Count -eq 1 -and
+                    [string]$naturalPreimageReconciliation[0].ReconciledState -ceq 'READY' -and [string]$naturalSwapOldReconciliation[0].ReconciledState -ceq 'READY' -and
+                    @((Get-SafeTreeSnapshot -Root $naturalPreimagePath).ContentTreeRows).Count -eq 1 -and @((Get-SafeTreeSnapshot -Root $naturalSwapOldPath).ContentTreeRows).Count -eq 1 -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[0].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalPreimageIntentData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[1].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalPreimageCreatedData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[2].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalSwapOldIntentData) -and
+                    (Get-SemanticJsonHash -InputObject $postRecords[3].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalSwapOldCreatedData);break
             }
             {$_ -cin @('BeforeParentCreate','AfterParentCreate')}{
                 $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
@@ -8459,6 +8834,39 @@ function Invoke-HardKillSealedMutationControllerCase {
                     ([string]$naturalTarget[0].Current.State -cne 'PRESENT' -or (-not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapState.Identity))) -and
                     (Get-SemanticJsonHash -InputObject $naturalDeltaRecords[0].Data) -ceq (Get-SemanticJsonHash -InputObject $naturalInstalled);break
             }
+            {$_ -cin @('BeforeFileReplaceMove','AfterFileReplaceMove')} {
+                $naturalFileBinding=switch -CaseSensitive ([string]$caseDefinition.Name){
+                    'before-file-replace'{[ordered]@{Kind='file';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                    'after-file-replace'{[ordered]@{Kind='file';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileReplacePresent';CurrentState='PRESENT'};break}
+                    'before-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='before-file-replace';Checkpoint='BeforeFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                    'after-file-add-move'{[ordered]@{Kind='file-add';RawCheckpoint='after-file-replace';Checkpoint='AfterFileReplaceMove';Variant='FileMoveMissing';CurrentState='MISSING'};break}
+                    default{$null}
+                }
+                $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
+                $naturalTargetState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].TargetPath) -ExpectedKind file}else{$null}
+                $naturalPreimageState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].PreimagePath) -ExpectedKind file}else{$null}
+                $naturalSwapState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].SwapOldPath) -ExpectedKind file}else{$null}
+                $naturalStagedState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].StagedPath) -ExpectedKind file}else{$null}
+                $naturalFileData=if($naturalTarget.Count -eq 1){New-CanonicalTargetRecordData -Target $naturalTarget[0] -TargetState $naturalTargetState -PreimageState $naturalPreimageState -SwapOldState $naturalSwapState -StagedState $naturalStagedState}else{$null}
+                $naturalFileDelta=if($naturalDeltaRecords.Count -eq 1){$naturalDeltaRecords[0]}else{$null}
+                $naturalCurrentTupleValid=$naturalTarget.Count -eq 1 -and (Test-CanonicalObservedMatchesContractState -Actual $naturalPreimageState -Contract $naturalTarget[0].Current) -and
+                    (([string]$naturalTarget[0].Current.State -ceq 'PRESENT' -and (Test-CanonicalObservedMatchesContractState -Actual $naturalSwapState -Contract $naturalTarget[0].Current) -and
+                        -not[string]::IsNullOrWhiteSpace([string]$naturalPreimageState.Identity) -and -not[string]::IsNullOrWhiteSpace([string]$naturalSwapState.Identity) -and
+                        [string]$naturalPreimageState.Identity -cne [string]$naturalSwapState.Identity) -or
+                     ([string]$naturalTarget[0].Current.State -ceq 'MISSING' -and [string]$naturalPreimageState.State -ceq 'MISSING' -and [string]$naturalSwapState.State -ceq 'MISSING'))
+                $null -ne $naturalFileBinding -and [string]$caseDefinition.Kind -ceq [string]$naturalFileBinding.Kind -and
+                    [string]$caseDefinition.Checkpoint -ceq [string]$naturalFileBinding.RawCheckpoint -and [string]$caseDefinition.Selector.Checkpoint -ceq [string]$naturalFileBinding.Checkpoint -and
+                    [string]$caseDefinition.DeclaredVariant -ceq [string]$naturalFileBinding.Variant -and $naturalTarget.Count -eq 1 -and
+                    [string]$naturalTarget[0].TargetKind -ceq 'file' -and [string]$naturalTarget[0].Role -ceq 'manifest' -and [string]$naturalTarget[0].Platform -ceq 'Union' -and
+                    [string]$naturalTarget[0].Current.State -ceq [string]$naturalFileBinding.CurrentState -and [string]$naturalTarget[0].Candidate.State -ceq 'PRESENT' -and
+                    $postRecords.Count -eq 8 -and $observedHeadIndex -eq 6 -and $naturalDeltaRecords.Count -eq 1 -and $null -ne $naturalFileDelta -and
+                    [long]$naturalFileDelta.Sequence -eq 8 -and [string]$naturalFileDelta.Phase -ceq 'FILE_REPLACED' -and [string]$naturalFileDelta.PreviousHash -ceq $observedJournalHeadHash -and
+                    [string]$naturalFileDelta.Data.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and
+                    [string]$postJournalState.DerivedJournalHeadHash -ceq (Get-SemanticJsonHash -InputObject $naturalFileDelta) -and
+                    (Test-CanonicalObservedMatchesContractState -Actual $naturalTargetState -Contract $naturalTarget[0].Candidate) -and
+                    -not[string]::IsNullOrWhiteSpace([string]$naturalTargetState.Identity) -and [string]$naturalStagedState.State -ceq 'MISSING' -and
+                    $naturalCurrentTupleValid -and (Get-SemanticJsonHash -InputObject $naturalFileDelta.Data) -ceq (Get-SemanticJsonHash -InputObject $naturalFileData);break
+            }
             {$_ -cin @('BeforeDirectoryDeletionRecord','AfterDirectoryDeletionRecord')} {
                 $naturalTarget=@($postJournalState.Header.Targets|Where-Object{[string]$_.TargetId -ceq [string]$caseDefinition.Selector.SelectorArm.TargetId -and [long]$_.Order -eq [long]$caseDefinition.Selector.SelectorArm.TargetOrder})
                 $naturalTargetState=if($naturalTarget.Count -eq 1){Get-CanonicalObservedPathState -Path ([string]$naturalTarget[0].TargetPath) -ExpectedKind directory}else{$null}
@@ -8504,8 +8912,18 @@ function Invoke-HardKillSealedMutationControllerCase {
         $classificationDocumentValid=[string]$postStateDocument.ClassificationStatus -ceq [string]$postClassification.Status -and
             [string]$postStateDocument.AllowedAction -ceq [string]$postClassification.AllowedAction -and
             [string]$postStateDocument.ClassificationExpectedOutcome -ceq [string]$postClassification.ExpectedOutcome
-        $expectedClassificationAction=if($reapMode -ceq 'natural-release' -and $caseDefinition.ContainsKey('NaturalAction')){[string]$caseDefinition.NaturalAction}else{[string]$caseDefinition.Action}
-        $expectedClassificationOutcome=if($reapMode -ceq 'natural-release' -and $caseDefinition.ContainsKey('NaturalOutcome')){[string]$caseDefinition.NaturalOutcome}else{[string]$caseDefinition.Outcome}
+        $hasBaseOutcome=$caseDefinition.ContainsKey('Outcome')
+        $hasNaturalAction=$caseDefinition.ContainsKey('NaturalAction')
+        $hasNaturalOutcome=$caseDefinition.ContainsKey('NaturalOutcome')
+        if($hasNaturalAction -ne $hasNaturalOutcome){throw 'sealed mutation natural classification override is incomplete'}
+        $useNaturalClassification=$reapMode -ceq 'natural-release' -and $hasNaturalAction
+        $expectedClassificationAction=if($useNaturalClassification){[string]$caseDefinition.NaturalAction}else{[string]$caseDefinition.Action}
+        $expectedClassificationOutcome=if($useNaturalClassification){[string]$caseDefinition.NaturalOutcome}elseif($hasBaseOutcome){[string]$caseDefinition.Outcome}else{''}
+        if($expectedClassificationAction -ceq 'manual'){
+            if($expectedClassificationOutcome -cne ''){throw 'sealed mutation manual classification must not declare an outcome'}
+        }elseif([string]::IsNullOrWhiteSpace($expectedClassificationOutcome)){
+            throw 'sealed mutation non-manual classification has no expected outcome'
+        }
         $classificationModeValid=if($expectedClassificationAction -ceq 'manual'){
             [string]$postStateDocument.ClassificationStatus -ceq 'manual' -and [string]$postStateDocument.AllowedAction -ceq '' -and [string]$postStateDocument.ClassificationExpectedOutcome -ceq ''
         }else{
@@ -8599,12 +9017,30 @@ try{
         if($cases.Count -eq 0){throw 'sealed mutation process matrix selected no cases'}
         foreach($case in $cases){
             if([AiAgentDotfilesTests.HardKillSealedMutationControllerScope]::IsSelectedCase($case)){
-                $sealedMutationCaseResult=script:Invoke-HardKillSealedMutationControllerCase -HostPath $hostScript -EnginePath $reviewedMutationEnginePath -Case $case
-                if($null -eq $sealedMutationCaseResult){throw 'sealed mutation controller case returned no typed result'}
-                continue
+                $sealedMutationRecoverySeed=$case.Contains('RecoveryCheckpoint')
+                $sealedMutationReapModes=[string[]]$(if($sealedMutationRecoverySeed){@('hard-kill')}else{@('hard-kill','natural-release')})
+                if(($sealedMutationRecoverySeed -and (@($sealedMutationReapModes).Count -ne 1 -or [string]$sealedMutationReapModes[0] -cne 'hard-kill')) -or
+                    (-not $sealedMutationRecoverySeed -and (@($sealedMutationReapModes).Count -ne 2 -or [string]$sealedMutationReapModes[0] -cne 'hard-kill' -or [string]$sealedMutationReapModes[1] -cne 'natural-release'))){
+                    throw 'sealed mutation reap-mode partition is invalid'
+                }
+                foreach($sealedMutationReapMode in $sealedMutationReapModes){
+                    $sealedMutationCaseResult=script:Invoke-HardKillSealedMutationControllerCase -HostPath $hostScript -EnginePath $reviewedMutationEnginePath -Case $case
+                    if($null -eq $sealedMutationCaseResult){throw 'sealed mutation controller case returned no typed result'}
+                }
+                if(-not $sealedMutationRecoverySeed){continue}
+                if([string]$sealedMutationCaseResult.Kind -cne 'hard-kill-proof' -or
+                    $sealedMutationCaseResult.ReapReceipt -isnot [AiAgentDotfilesTests.HardKillLiveTerminationReceipt] -or
+                    [string]$sealedMutationSeedPostState.DerivedJournalHeadHash -cnotmatch '^[0-9a-f]{64}$'){
+                    throw 'sealed mutation recovery seed proof is invalid'
+                }
+                $sealedMutationSeedHeadHash=[string]$sealedMutationSeedPostState.DerivedJournalHeadHash
+                $initialReached=$true
+            }else{
+                $sealedMutationRecoverySeed=$false
+                Set-TestProgress ("process:{0}" -f [string]$case.Name)
+                $process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr
             }
-            Set-TestProgress ("process:{0}" -f [string]$case.Name)
-            $process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr
+            if(-not $initialReached){throw ("sealed mutation host did not reach checkpoint for {0}" -f $case.Name)}
             if($case.Contains('RecoveryCheckpoint')){
                 $recoveryProcess=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $recoveryArguments -RedirectStandardOutputPath $recoveryOut -RedirectStandardErrorPath $recoveryErr
             }
@@ -8723,13 +9159,20 @@ try{
         'transport-engine-provider-rebound'=Replace-Once $baseline "        `$reviewedMutationEnginePath=Microsoft.PowerShell.Management\Join-Path `$RepoRoot 'tests/helpers/canonical-reviewed-mutation-engine.ps1'`n" "        `$reviewedMutationEnginePath=Microsoft.PowerShell.Management\Join-Path `$RepoRoot 'tests/helpers/canonical-reviewed-mutation-engine.ps1'`n        Microsoft.PowerShell.Utility\Set-Variable -Name reviewedMutationEnginePath -Value `$hostScript`n"
         'transport-route-missing'=Replace-Once $baseline $route '$sealedMutationCaseResult=$false'
         'transport-route-dead'=Replace-Once $baseline 'if([AiAgentDotfilesTests.HardKillSealedMutationControllerScope]::IsSelectedCase($case)){' 'if($false){'
-        'transport-route-continue-removed'=Replace-Once $baseline "        continue`n" ''
+        'transport-route-continue-removed'=Replace-Once $baseline "                if(-not `$sealedMutationRecoverySeed){continue}`n" ''
         'transport-route-wrong-engine'=Replace-Once $baseline '-EnginePath $reviewedMutationEnginePath' '-EnginePath $hostScript'
         'transport-route-result-discarded'=Replace-Once $baseline '$sealedMutationCaseResult=script:Invoke-HardKillSealedMutationControllerCase' '$null=script:Invoke-HardKillSealedMutationControllerCase'
-        'transport-route-result-check-removed'=Replace-Once $baseline "        if(`$null -eq `$sealedMutationCaseResult){throw 'sealed mutation controller case returned no typed result'}`n" ''
+        'transport-route-result-check-removed'=Replace-Once $baseline "                    if(`$null -eq `$sealedMutationCaseResult){throw 'sealed mutation controller case returned no typed result'}`n" ''
         'transport-pre-route-case-rebound'=Replace-Once $baseline 'foreach($case in $cases){' "foreach(`$case in `$cases){`n    `$case=`$null"
         'transport-pre-route-early-continue'=Replace-Once $baseline 'foreach($case in $cases){' "foreach(`$case in `$cases){`n    if(`$true){continue}"
-        'transport-route-falls-through'=Replace-Once $baseline "        continue`n" "        `$process=Start-HardKillRegisteredProcess -FilePath pwsh -ArgumentList `$hostArguments`n        continue`n"
+        'transport-route-falls-through'=Replace-Once $baseline 'if(-not $sealedMutationRecoverySeed){continue}' 'if($true){continue}'
+        'transport-recovery-seed-natural-mode'=Replace-Once $baseline '$sealedMutationReapModes=[string[]]$(if($sealedMutationRecoverySeed){@(''hard-kill'')}else{@(''hard-kill'',''natural-release'')})' '$sealedMutationReapModes=[string[]]$(if($sealedMutationRecoverySeed){@(''natural-release'')}else{@(''hard-kill'',''natural-release'')})'
+        'transport-recovery-seed-double-mode'=Replace-Once $baseline '$sealedMutationReapModes=[string[]]$(if($sealedMutationRecoverySeed){@(''hard-kill'')}else{@(''hard-kill'',''natural-release'')})' '$sealedMutationReapModes=[string[]]$(if($sealedMutationRecoverySeed){@(''hard-kill'',''natural-release'')}else{@(''hard-kill'',''natural-release'')})'
+        'transport-recovery-seed-legacy-else-detached'=Replace-Once $baseline "                `$initialReached=`$true`n            }else{`n                `$sealedMutationRecoverySeed=`$false`n                Set-TestProgress" "                `$initialReached=`$true`n                `$sealedMutationRecoverySeed=`$false`n                Set-TestProgress"
+        'transport-recovery-seed-proof-kind-removed'=Replace-Once $baseline '[string]$sealedMutationCaseResult.Kind -cne ''hard-kill-proof''' '$false'
+        'transport-recovery-seed-receipt-type-removed'=Replace-Once $baseline '$sealedMutationCaseResult.ReapReceipt -isnot [AiAgentDotfilesTests.HardKillLiveTerminationReceipt]' '$false'
+        'transport-recovery-seed-head-unbound'=Replace-Once $baseline '$sealedMutationSeedHeadHash=[string]$sealedMutationSeedPostState.DerivedJournalHeadHash' '$sealedMutationSeedHeadHash=(''0''*64)'
+        'transport-recovery-seed-legacy-reset-removed'=Replace-Once $baseline "                `$sealedMutationRecoverySeed=`$false`n" ''
         'transport-normal-launch-missing'=Replace-Once $baseline '$process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr' '$process=$null'
         'transport-normal-launch-raw'=Replace-Once $baseline '$process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr' '$process=[Diagnostics.Process]::Start(''pwsh'')'
         'transport-normal-launch-extra'=Replace-Once $baseline '$process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList $hostArguments -RedirectStandardOutputPath $stdout -RedirectStandardErrorPath $stderr' "`$process=script:Start-HardKillRegisteredProcess -FilePath (Microsoft.PowerShell.Core\Get-Command pwsh).Source -ArgumentList `$hostArguments -RedirectStandardOutputPath `$stdout -RedirectStandardErrorPath `$stderr`n            `$extraNormal=script:Start-HardKillRegisteredProcess -FilePath pwsh -ArgumentList @()"
@@ -8980,13 +9423,13 @@ try{
         'transport-owner-scoped-shadow'='preimage-transport-owner-shadow';'transport-owner-provider-shadow'='preimage-transport-owner-shadow'
         'transport-owner-bare-process'='preimage-transport-session-owner-shape';'transport-acquire-scope-omitted'='preimage-transport-session-owner-shape';'transport-host-toolchain-root-unchecked'='preimage-transport-session-owner-shape';'transport-host-fixture-root-unchecked'='preimage-transport-session-owner-shape';'transport-host-marker-path-unchecked'='preimage-transport-session-owner-shape';'transport-resume-missing'='preimage-transport-session-owner-shape';'transport-resume-before-acquire'='preimage-transport-session-owner-shape';'transport-resume-state-unchecked'='preimage-transport-session-owner-shape';'transport-acquire-resumed-state-unchecked'='preimage-transport-session-owner-shape';'transport-deadline-reference-unchecked'='preimage-transport-session-owner-shape';'transport-mode-binding-unchecked'='preimage-transport-session-owner-shape';'transport-failure-cap-binding-unchecked'='preimage-transport-session-owner-shape';'transport-observation-canned'='preimage-transport-session-owner-shape';'transport-live-wrong-pid'='preimage-transport-session-owner-shape';'transport-live-fresh-deadline'='preimage-transport-session-owner-shape';'transport-nominal-receipt-direct-write'='preimage-transport-session-owner-shape';'transport-failure-reap-canned'='preimage-transport-session-owner-shape';'transport-failure-fresh-deadline'='preimage-transport-session-owner-shape';'transport-failure-cap-omitted'='preimage-transport-session-owner-shape';'transport-failure-wrong-mode-cap'='preimage-transport-session-owner-shape';'transport-failure-failstop-removed'='preimage-transport-session-owner-shape';'transport-cleanup-after-session-close'='preimage-transport-session-owner-shape';'transport-primary-reversed'='preimage-transport-session-owner-shape';'transport-natural-publishes-proof'='preimage-transport-session-owner-shape';'transport-proof-uses-raw-case'='preimage-transport-session-owner-shape';'transport-extra-typed-acquire'='preimage-transport-session-owner-shape'
         'transport-inline-gate-canned'='preimage-transport-section-guard';'transport-inline-gate-operand-canned'='preimage-transport-section-guard';'transport-section-gate-omitted'='preimage-transport-section-guard';'transport-section-dead'='preimage-transport-section-guard';'transport-common-entry-dead-main'='preimage-transport-common-entry-reachability';'transport-section-pre-loop-return'='preimage-transport-section-guard';'transport-extra-forward-loop'='preimage-transport-forward-loop-cardinality';'transport-cases-emptied'='preimage-transport-cases-provenance';'transport-owner-computed-alias-shadow'='preimage-transport-owner-shadow';'transport-engine-producer-rebound'='preimage-transport-engine-provenance';'transport-engine-provider-rebound'='preimage-transport-engine-provenance'
-        'transport-route-missing'='preimage-transport-route';'transport-route-dead'='preimage-transport-selected-route';'transport-route-continue-removed'='preimage-transport-selected-route';'transport-route-wrong-engine'='preimage-transport-selected-route';'transport-route-result-discarded'='preimage-transport-selected-route';'transport-route-result-check-removed'='preimage-transport-selected-route';'transport-pre-route-case-rebound'='preimage-transport-selected-route';'transport-pre-route-early-continue'='preimage-transport-selected-route';'transport-route-falls-through'='preimage-transport-selected-route'
-        'transport-normal-launch-missing'='preimage-transport-normal-launch';'transport-normal-launch-raw'='preimage-transport-normal-launch';'transport-normal-launch-extra'='preimage-transport-launch-inventory';'transport-recovery-launch-missing'='preimage-transport-recovery-launch';'transport-recovery-launch-raw'='preimage-transport-recovery-launch';'transport-recovery-launch-extra'='preimage-transport-launch-inventory';'transport-extra-raw-process'='preimage-transport-launch-inventory';'transport-launcher-scoped-shadow'='preimage-transport-launch-inventory'
+        'transport-route-missing'='preimage-transport-route';'transport-route-dead'='preimage-transport-selected-route';'transport-route-continue-removed'='preimage-transport-selected-route';'transport-route-wrong-engine'='preimage-transport-selected-route';'transport-route-result-discarded'='preimage-transport-selected-route';'transport-route-result-check-removed'='preimage-transport-selected-route';'transport-pre-route-case-rebound'='preimage-transport-selected-route';'transport-pre-route-early-continue'='preimage-transport-selected-route';'transport-route-falls-through'='preimage-transport-selected-route';'transport-recovery-seed-natural-mode'='preimage-transport-selected-route';'transport-recovery-seed-double-mode'='preimage-transport-selected-route';'transport-recovery-seed-legacy-else-detached'='preimage-transport-selected-route';'transport-recovery-seed-proof-kind-removed'='preimage-transport-selected-route';'transport-recovery-seed-receipt-type-removed'='preimage-transport-selected-route';'transport-recovery-seed-head-unbound'='preimage-transport-selected-route';'transport-recovery-seed-legacy-reset-removed'='preimage-transport-selected-route'
+        'transport-normal-launch-missing'='preimage-transport-selected-route';'transport-normal-launch-raw'='preimage-transport-selected-route';'transport-normal-launch-extra'='preimage-transport-selected-route';'transport-recovery-launch-missing'='preimage-transport-recovery-launch';'transport-recovery-launch-raw'='preimage-transport-recovery-launch';'transport-recovery-launch-extra'='preimage-transport-launch-inventory';'transport-extra-raw-process'='preimage-transport-selected-route';'transport-launcher-scoped-shadow'='preimage-transport-launch-inventory'
         'transport-param-casepattern-restrictive'='preimage-transport-common-entry-parameters';'transport-main-pre-section-return'='preimage-transport-common-entry-reachability';'transport-main-catch-swallowed'='preimage-transport-common-entry-failure-propagation';'transport-main-finally-exit'='preimage-transport-common-entry-failure-propagation'
         'transport-gate-producer-rebound'='preimage-transport-gate-provenance';'transport-gate-provider-rebound'='preimage-transport-owner-shadow';'transport-casepattern-ref-rebound'='preimage-transport-owner-shadow'
         'transport-cases-pipeline-source'='preimage-transport-cases-provenance';'transport-cases-provider-emptied'='preimage-transport-cases-provenance';'transport-cases-empty-guard-removed'='preimage-transport-cases-provenance';'transport-cases-duplicate-name'='preimage-transport-cases-provenance'
         'transport-owner-iex-shadow'='preimage-transport-common-entry-launch-bypass';'transport-owner-short-setitem-shadow'='preimage-transport-owner-shadow';'transport-owner-module-iex-shadow'='preimage-transport-common-entry-launch-bypass';'transport-engine-sessionstate-rebound'='preimage-transport-engine-provenance'
-        'transport-normal-prelaunch-continue'='preimage-transport-normal-launch';'transport-recovery-dead-ancestor'='preimage-transport-recovery-launch';'transport-script-extra-launcher'='preimage-transport-launch-inventory';'transport-bare-native-launch'='preimage-transport-reviewed-section-surface';'transport-launcher-provider-shadow'='preimage-transport-owner-shadow'
+        'transport-normal-prelaunch-continue'='preimage-transport-selected-route';'transport-recovery-dead-ancestor'='preimage-transport-recovery-launch';'transport-script-extra-launcher'='preimage-transport-selected-route';'transport-bare-native-launch'='preimage-transport-selected-route';'transport-launcher-provider-shadow'='preimage-transport-owner-shadow'
         'transport-param-extra-mandatory'='preimage-transport-common-entry-parameters';'transport-requires-module'='preimage-transport-common-entry-requirements'
         'transport-gate-member-rebound'='preimage-transport-owner-shadow';'transport-gate-sessionstate-get-rebound'='preimage-transport-owner-shadow';'transport-section-sessionstate-get-rebound'='preimage-transport-owner-shadow';'transport-gate-invokecommand-rebound'='preimage-transport-common-entry-launch-bypass';'transport-gate-outvariable-rebound'='preimage-transport-owner-shadow'
         'transport-progress-function-shadow'='preimage-transport-owner-shadow';'transport-where-function-shadow'='preimage-transport-owner-shadow';'transport-owner-function-drive-shadow'='preimage-transport-owner-shadow';'transport-launcher-function-drive-shadow'='preimage-transport-owner-shadow';'transport-progress-alias-newitem'='preimage-transport-owner-shadow'
@@ -9134,13 +9577,13 @@ try{
     $actualBaselineResult=if([string]::IsNullOrEmpty($ActualControllerSource)){$null}else{Test-HardKillPreimageControllerTransportContract -ControllerSource $ActualControllerSource -Profile Actual}
     $actualBaselineSatisfied=$null-ne$actualBaselineResult-and$actualBaselineResult.Valid-and@($actualBaselineResult.ErrorCodes).Count-eq0-and
         $actualBaselineResult.ActualPreludeValid-and
-        $actualBaselineResult.ActualPreludeCount-eq24-and$actualBaselineResult.ActualPreludeDigest-ceq'4878e73e41446061e6bcd75e6293d95f14fb285b13743582ab05a43e04a2d466'
+        $actualBaselineResult.ActualPreludeCount-eq24-and$actualBaselineResult.ActualPreludeDigest-ceq'7f0b8223826071f46e273633d4a0102cad3ed31d4275b1c555c2daa70eb922fa'
     $actualPreludeControls=[ordered]@{
         'actual-prelude-top-level-function'=Replace-ActualPreludeRow $ActualControllerSource 16 'function Invoke-HardKillPreludeNeutral{return}' $true
         'actual-prelude-main-body-statement'=Insert-ActualMainBodyStatement $ActualControllerSource '$null=$null'
     }
     $actualPreludeControlRows=[Collections.Generic.List[object]]::new()
-    foreach($name in $actualPreludeControls.Keys){$actualControlSource=[string]$actualPreludeControls[$name];$actualControlTokens=$null;$actualControlErrors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($actualControlSource,[ref]$actualControlTokens,[ref]$actualControlErrors);$actualControlVerdict=if(@($actualControlErrors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $actualControlSource -Profile Actual}else{$null};$actualPreludeControlRows.Add([pscustomobject]@{Name=$name;Changed=$actualControlSource-cne$ActualControllerSource;ParseValid=@($actualControlErrors).Count-eq0;Accepted=$null-ne$actualControlVerdict-and-not$actualControlVerdict.Valid-and@($actualControlVerdict.ErrorCodes).Count-eq1-and[string]$actualControlVerdict.ErrorCodes[0]-ceq'preimage-transport-reviewed-controller-surface'-and$actualControlVerdict.ActualPreludeValid-and$actualControlVerdict.ActualPreludeCount-eq24-and$actualControlVerdict.ActualPreludeDigest-ceq'4878e73e41446061e6bcd75e6293d95f14fb285b13743582ab05a43e04a2d466';ErrorCodes=@(if($actualControlVerdict){$actualControlVerdict.ErrorCodes}else{'control-parse'})})}
+    foreach($name in $actualPreludeControls.Keys){$actualControlSource=[string]$actualPreludeControls[$name];$actualControlTokens=$null;$actualControlErrors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($actualControlSource,[ref]$actualControlTokens,[ref]$actualControlErrors);$actualControlVerdict=if(@($actualControlErrors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $actualControlSource -Profile Actual}else{$null};$actualPreludeControlRows.Add([pscustomobject]@{Name=$name;Changed=$actualControlSource-cne$ActualControllerSource;ParseValid=@($actualControlErrors).Count-eq0;Accepted=$null-ne$actualControlVerdict-and-not$actualControlVerdict.Valid-and@($actualControlVerdict.ErrorCodes).Count-eq1-and[string]$actualControlVerdict.ErrorCodes[0]-ceq'preimage-transport-reviewed-controller-surface'-and$actualControlVerdict.ActualPreludeValid-and$actualControlVerdict.ActualPreludeCount-eq24-and$actualControlVerdict.ActualPreludeDigest-ceq'7f0b8223826071f46e273633d4a0102cad3ed31d4275b1c555c2daa70eb922fa';ErrorCodes=@(if($actualControlVerdict){$actualControlVerdict.ErrorCodes}else{'control-parse'})})}
     $actualPreludeControlsValid=$actualPreludeControlRows.Count-eq2-and@($actualPreludeControlRows|Where-Object{-not$_.Changed-or-not$_.ParseValid-or-not$_.Accepted}).Count-eq0
     return [pscustomobject]@{Valid=$baselineResult.Valid-and$inventoryMatches-and$mutationCases.Count-eq$expected.Count-and@($mutationCases|Where-Object{-not$_.Constructed-or-not$_.Changed-or-not$_.ParseValid-or-not$_.Rejected-or-not$_.RejectedForExpectedReason}).Count-eq0-and$controlsValid-and$actualBaselineSatisfied-and$actualPreludeControlsValid;Baseline=$baselineResult;Cases=@($mutationCases);ExpectedNames=@($expected.Keys);AcceptedControls=@($acceptedRows);ControlsValid=$controlsValid;ActualBaseline=$actualBaselineResult;ActualBaselineSatisfied=$actualBaselineSatisfied;ActualPreludeControls=@($actualPreludeControlRows);ActualPreludeControlsValid=$actualPreludeControlsValid}
 }
@@ -9750,15 +10193,15 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $inventoryHelper=Require-ReviewedFunctionHash 'Get-HardKillBehaviorProbeInventory' 'd8889de2b4e20b84300e044c2e7394649e9ce494f7b5272c387ce165d82cacb5' 'cleanup-trust-closure'
         $probeValidatorMutations=Require-ReviewedFunctionHash 'Test-HardKillBehaviorProbeValidatorMutations' 'f11012e05fc5bf58593611016afff3c2674b0582bbcf71344c969854783fb2c1' 'cleanup-trust-closure'
         $cleanupContractMutations=Require-ReviewedFunctionHash 'Test-HardKillBehaviorCleanupBarrierContractMutations' 'aee255cd4ba8e9869d7c3d574d65e23d0baa3e56eac425fd3e02ba1aa3c2c70d' 'cleanup-trust-closure'
-        $preimageProvenanceContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageProvenanceContract' 'b43786e51ab3fa9d539319f92dbcd910152cb0cf031a564103e71b0902375cb4' 'cleanup-trust-closure'
-        $preimageProvenanceMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageProvenanceContractMutations' '61be243648bb1da14d58b275ff02644d69ba56c1fb8cc8089ed74ee5f551c8ae' 'cleanup-trust-closure'
+        $preimageProvenanceContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageProvenanceContract' '9124f34cce8170699d0338beaa78411321b85e83ac8771793f336fab1b4e3e0e' 'cleanup-trust-closure'
+        $preimageProvenanceMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageProvenanceContractMutations' 'a81e0d8036209e5a76d0a5e4fc161d8d2381fae20cb4d758301890d73fdd904e' 'cleanup-trust-closure'
         $preimageTransportAuthorityDefinition=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityDefinitionContract' '53d278221aa96505af9ddf0fdd169ec9910b3b1b562aa2b8f3e64f63f8599d03' 'cleanup-trust-closure'
         $preimageTransportAuthorityDefinitionMutations=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityDefinitionContractMutations' '8fb55e7cd7ec86adf5b84b032607c30d68c3499f3c657450f78d7f497c2e8b32' 'cleanup-trust-closure'
         $preimageTransportAuthority=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityPreflight' '48068cd061357887915afa25f3401444d3911f8d6b4d868b979c49327723daac' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntime=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContract' 'a9d60629ad25e1ae94d62cd840afa2611dd6d08a5c86df4e406679f9a71f2270' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntimeMutations=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContractMutations' 'a1b489d9fb3ca189f578c96b74d2804803bdef86bd32b4f9d9418006910c5e17' 'cleanup-trust-closure'
-        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' 'e7968f5f14005773c6e9ac6ffdba5ce7668bf8f3a7163553a1af77be3f4a0682' 'cleanup-trust-closure'
-        $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' 'c0871c18f480d9840571065bb02e3ebdb2f90817426b624f257d5861eadda9a6' 'cleanup-trust-closure'
+        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' '3de1ca6993c4727e17142e8f192e6fb6772ef73c9d0cc85ef276c3c36be9ac7c' 'cleanup-trust-closure'
+        $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' '46125120207453717e3715f3ef1c0bf797b859a43e4db4a023303943bdaf424e' 'cleanup-trust-closure'
         $afterPreimageLadderContract=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContract' 'bb2b6518ac32f530466e7f8a0a6a3e9b2cf2a26f0800911cc9bc7c1abe18262a' 'cleanup-trust-closure'
         $afterPreimageLadderMutations=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContractMutations' '96767d13f1a11cbcd42030e6f7ff1de02b0337a0a7fe98638a3d5129a4cb9a3e' 'cleanup-trust-closure'
         $authorityWiring=Require-ReviewedFunctionHash 'Test-HardKillBehaviorCleanupAuthorityWiringContract' 'd7a8a2ceec4d32ceddba2e7c0899ad8841fadb37926b87bbdb02ef770ea390b3' 'cleanup-authority-preflight'
@@ -9773,7 +10216,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $normalizedSelfSource=[regex]::new($selfDigestPattern).Replace($selfSource,"        `$reviewedSelfDigest='__CLEANUP_GATE_SELF_DIGEST__'",1)
         $normalizedSelfSource=$normalizedSelfSource -replace "`r`n?","`n"
         $actualSelfDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalizedSelfSource))).ToLowerInvariant()
-        $reviewedSelfDigest='7ff3b063f462d02809487fda86e308afe5c5e66da56cc5761b83abb69df600d6'
+        $reviewedSelfDigest='50d3274a16b67845433c924021a8c88fdb47381b0726d8b93d6c048019fe452e'
         if($actualSelfDigest -cne $reviewedSelfDigest){throw 'cleanup-gate-self-definition'}
         $result.SelfDefinitionPinned=$true
         $functionRows=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|
@@ -9921,13 +10364,13 @@ function Test-HardKillBehaviorCleanupBarrierContract {
             @($node.Arguments|Where-Object{(Get-HardKillAstTextCompact $_) -cin @('$true','[bool]1','1')}).Count -gt 0
         },$true))
         if($recursiveDeleteMembers.Count -ne 0){throw 'cleanup-outer-lifecycle'}
-        if((Get-ReviewedExtentSha256 $mainTry) -cne '707fed07d9cb0ce392f7a97b14fa33aa7663cb24e80c7ce46fec3367917fd0a9'){throw 'cleanup-main-execution'}
+        if((Get-ReviewedExtentSha256 $mainTry) -cne 'e6d1ff534caf159fae37ff1994ad6d33f64507f69da1cecb18fb09ee3263cf24'){throw 'cleanup-main-execution'}
         $topExecutionRows=@($topStatements|Where-Object{$_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}|ForEach-Object{
             '{0}|{1}' -f $_.GetType().FullName,(Get-ReviewedExtentSha256 $_)
         })
         $topExecutionDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($topExecutionRows -join "`n")))).ToLowerInvariant()
-        if($topExecutionDigest -cne '624dec1c84451fd7c435bbfd80c312560b684fc4b54f42b3623716280c3ce0f5'){throw 'cleanup-top-level-execution'}
-        if($functionInventoryDigest -cne '3e9e15711a40056dbacba8f24ef4520e90e7ef7269c13f40f5a3aa62832ca2e2'){throw 'cleanup-function-inventory'}
+        if($topExecutionDigest -cne '0ad247cfff72f730962e990eb495399a57ff7403932d1280629a4fda38601d37'){throw 'cleanup-top-level-execution'}
+        if($functionInventoryDigest -cne 'e717dfde48c143d86b0f438dd394e8e3d8094a3bcfb9f41a4be6e9419c4d5f90'){throw 'cleanup-function-inventory'}
         $result.FunctionInventoryPinned=$true
         $result.MainExecutionPinned=$true
         $result.OuterForensicGuardPinned=$true
@@ -11310,7 +11753,8 @@ try{
         'transport-extra-forward-loop','transport-cases-emptied','transport-owner-computed-alias-shadow','transport-engine-producer-rebound','transport-engine-provider-rebound',
         'transport-route-missing','transport-route-dead','transport-route-continue-removed','transport-route-wrong-engine',
         'transport-route-result-discarded','transport-route-result-check-removed','transport-pre-route-case-rebound','transport-pre-route-early-continue',
-        'transport-route-falls-through','transport-normal-launch-missing','transport-normal-launch-raw','transport-normal-launch-extra','transport-recovery-launch-missing','transport-recovery-launch-raw','transport-recovery-launch-extra','transport-extra-raw-process','transport-launcher-scoped-shadow'
+        'transport-route-falls-through','transport-recovery-seed-natural-mode','transport-recovery-seed-double-mode','transport-recovery-seed-legacy-else-detached','transport-recovery-seed-proof-kind-removed','transport-recovery-seed-receipt-type-removed','transport-recovery-seed-head-unbound','transport-recovery-seed-legacy-reset-removed',
+        'transport-normal-launch-missing','transport-normal-launch-raw','transport-normal-launch-extra','transport-recovery-launch-missing','transport-recovery-launch-raw','transport-recovery-launch-extra','transport-extra-raw-process','transport-launcher-scoped-shadow'
         'transport-param-casepattern-restrictive','transport-main-pre-section-return','transport-main-catch-swallowed','transport-main-finally-exit',
         'transport-gate-producer-rebound','transport-gate-provider-rebound','transport-casepattern-ref-rebound','transport-cases-pipeline-source','transport-cases-provider-emptied','transport-cases-empty-guard-removed','transport-cases-duplicate-name',
         'transport-owner-iex-shadow','transport-owner-short-setitem-shadow','transport-owner-module-iex-shadow','transport-engine-sessionstate-rebound','transport-normal-prelaunch-continue','transport-recovery-dead-ancestor','transport-script-extra-launcher','transport-bare-native-launch','transport-launcher-provider-shadow',
@@ -11391,7 +11835,9 @@ try{
     $preimageTransportActualPreludeControls=@($preimageTransportStaticSelfTest.ActualPreludeControls)
     $preimageTransportStaticSatisfied=$preimageTransportStaticSelfTest.Valid -and $preimageTransportStaticSelfTest.Baseline.Valid -and
         $preimageTransportStaticSelfTest.Baseline.OwnerCount -eq 1 -and $preimageTransportStaticSelfTest.Baseline.RouteCount -eq 1 -and
-        $preimageTransportStaticSelfTest.Baseline.SelectedBranchCount -eq 1 -and $preimageTransportStaticSelfTest.Baseline.ForwardLoopCount -eq 1 -and
+        $preimageTransportStaticSelfTest.Baseline.SelectedBranchCount -eq 1 -and $preimageTransportStaticSelfTest.Baseline.RecoverySeedPartitionCount -eq 1 -and
+        $preimageTransportStaticSelfTest.Baseline.ConditionalContinueCount -eq 1 -and $preimageTransportStaticSelfTest.Baseline.LegacyElseCount -eq 1 -and
+        $preimageTransportStaticSelfTest.Baseline.ForwardLoopCount -eq 1 -and
         $preimageTransportStaticSelfTest.Baseline.SectionGuardCount -eq 1 -and $preimageTransportStaticSelfTest.Baseline.RuntimeGateCount -eq 1 -and
         $preimageTransportStaticSelfTest.Baseline.CaseSourceCount -eq 4 -and $preimageTransportStaticSelfTest.Baseline.HostEngineProducerCount -eq 2 -and
         $preimageTransportStaticSelfTest.Baseline.NormalLaunchCount -eq 1 -and $preimageTransportStaticSelfTest.Baseline.RecoveryLaunchCount -eq 1 -and
@@ -11402,7 +11848,7 @@ try{
         $preimageTransportStaticSelfTest.Baseline.ReceiptRegistrationCount -eq 2 -and $preimageTransportStaticSelfTest.Baseline.ControllerCleanupCount -eq 1 -and
         $preimageTransportStaticSelfTest.Baseline.SessionCloseCount -eq 1 -and $preimageTransportStaticSelfTest.Baseline.ScopeCloseCount -eq 1 -and
         $preimageTransportStaticSelfTest.Baseline.ProofCount -eq 1 -and $preimageTransportStaticSelfTest.Baseline.DifferentialResultCount -eq 1 -and
-        $preimageTransportMutationCases.Count -eq 292 -and
+        $preimageTransportMutationCases.Count -eq 299 -and
         @(Compare-Object $preimageTransportMutationNames @($preimageTransportMutationCases.Name) -CaseSensitive).Count -eq 0 -and
         @($preimageTransportMutationCases|Where-Object{-not $_.Constructed -or -not $_.Changed -or -not $_.ParseValid -or -not $_.Rejected -or -not $_.RejectedForExpectedReason}).Count -eq 0 -and
         $preimageTransportStaticSelfTest.ControlsValid -and $preimageTransportAcceptedControls.Count -eq 81 -and
@@ -11413,7 +11859,7 @@ try{
         @(Compare-Object $preimageTransportActualPreludeControlNames @($preimageTransportActualPreludeControls.Name) -CaseSensitive).Count -eq 0 -and
         @($preimageTransportActualPreludeControls|Where-Object{-not $_.Changed -or -not $_.ParseValid -or -not $_.Accepted}).Count -eq 0
     Assert $preimageTransportStaticSatisfied `
-        'normal sealed mutation transport static boundary rejects the exact two hundred ninety-two typed-owner, acquire/resume, held path-wire, immutable identity/deadline, receipt, cleanup, mode, common-entry, parameter, requirements, producer, route, command-resolution, callback, provider, reflection, actual-prelude, case-inventory, and launch mutations while accepting eighty-one synthetic and two actual-prelude controls'
+        'normal sealed mutation transport static boundary rejects the exact two hundred ninety-nine typed-owner, acquire/resume, held path-wire, immutable identity/deadline, receipt, cleanup, mode, recovery-seed, common-entry, parameter, requirements, producer, route, command-resolution, callback, provider, reflection, actual-prelude, case-inventory, and launch mutations while accepting eighty-one synthetic and two actual-prelude controls'
     $transportAuthorityDefinitionStaticSelfTest=Test-HardKillSealedMutationTransportAuthorityDefinitionContractMutations
     $transportAuthorityDefinitionMutationNames=@(
         'source-missing','source-duplicate','source-not-literal','preload-guard-missing','preload-guard-after-add-type','preload-guard-name-omitted',
@@ -11449,7 +11895,7 @@ try{
         "normal sealed mutation transport authority exposes the exact same-assembly sealed session, controller scope, and typed receipt API [$($transportAuthority.Error)]"
     $preimageTransport=Test-HardKillPreimageControllerTransportContract -ControllerSource $oplockSource -Profile Actual
     Assert ($preimageTransport.ActualPreludeValid -and $preimageTransport.ActualPreludeCount -eq 24 -and
-        $preimageTransport.ActualPreludeDigest -ceq '4878e73e41446061e6bcd75e6293d95f14fb285b13743582ab05a43e04a2d466') `
+        $preimageTransport.ActualPreludeDigest -ceq '7f0b8223826071f46e273633d4a0102cad3ed31d4275b1c555c2daa70eb922fa') `
         'normal sealed mutation controller actual prelude is the exact reviewed twenty-four-statement token manifest'
     Assert $preimageTransport.Valid `
         "normal sealed mutation controller routes through the sole live session owner [$(@($preimageTransport.ErrorCodes)-join ',')]"
@@ -11577,7 +12023,7 @@ try{
         'partial-intent-noncanonical-data','partial-prefix-canned-bytes','partial-absolute-open','partial-workspace-identity-unbound',
         'dispatcher-interstitial-call','after-preimage-stage-removed','trusted-leaf-dot-source','real-workspace-tail-unbound','real-source-discriminator-canned',
         'partial-swap-workspace-unbound','partial-source-discriminator-canned','partial-direct-label-removed',
-        'normal-production-loader-removed','normal-namespace-canned','normal-target-id-canned','normal-target-canned','directory-delete-selector-removed',
+        'normal-production-loader-removed','normal-namespace-canned','normal-target-id-canned','normal-target-canned','directory-delete-selector-removed','file-selector-removed',
         'workspace-zero-fallback','preimage-zero-forbidden','preimage-four-forbidden','partial-arguments-accepted','other-four-accepted','selected-before-complete',
         'normal-context-canned',
         'normal-engine-loader-removed','normal-engine-hash-guard-removed','normal-fixture-hash-guard-removed','normal-fixture-provenance-removed',
@@ -11589,15 +12035,15 @@ try{
         $preimageProvenanceStaticSelfTest.Baseline.RealHelperCount -eq 1 -and $preimageProvenanceStaticSelfTest.Baseline.PartialHelperCount -eq 1 -and
         $preimageProvenanceStaticSelfTest.Baseline.DispatcherCount -eq 1 -and $preimageProvenanceStaticSelfTest.Baseline.ProductionLoaderCount -eq 1 -and
         $preimageProvenanceStaticSelfTest.Baseline.EngineLoaderCount -eq 1 -and $preimageProvenanceStaticSelfTest.Baseline.FixtureBindingCount -eq 1 -and
-        $preimageProvenanceStaticSelfTest.Baseline.ContextOwnerCount -eq 1 -and $preimageProvenanceStaticSelfTest.Baseline.NormalSetupBindingCount -eq 12 -and
+        $preimageProvenanceStaticSelfTest.Baseline.ContextOwnerCount -eq 1 -and $preimageProvenanceStaticSelfTest.Baseline.NormalSetupBindingCount -eq 13 -and
         $preimageProvenanceStaticSelfTest.Baseline.RealReachCount -eq 1 -and
         $preimageProvenanceStaticSelfTest.Baseline.PartialReachCount -eq 1 -and $preimageProvenanceStaticSelfTest.Baseline.RealProductionInitCount -eq 1 -and
         $preimageProvenanceStaticSelfTest.Baseline.PartialForbiddenReachableCount -eq 0 -and $preimageProvenanceStaticSelfTest.Valid -and
-        $preimageProvenanceMutationCases.Count -eq 62 -and
+        $preimageProvenanceMutationCases.Count -eq 63 -and
         @(Compare-Object $preimageProvenanceMutationNames @($preimageProvenanceMutationCases.Name) -CaseSensitive).Count -eq 0 -and
         @($preimageProvenanceMutationCases|Where-Object{-not $_.Constructed -or -not $_.Changed -or -not $_.ParseValid -or -not $_.Rejected -or -not $_.RejectedForExpectedReason}).Count -eq 0
     Assert $preimageProvenanceStaticSatisfied `
-        'preimage provenance validator rejects exact sixty-two normal-loader, engine/fixture/context-owner, protected-input write, local-helper and cmdlet shadow, stage-argument gate, setup-binding, directory-delete selector, after-preimage stage, direct, indirect, dead, non-fallthrough, rebound, provider-write, wrong-path, noncanonical-intent, canned-prefix, unheld-workspace, cleanup-order, discriminator, and stage-swapped partial-to-production mutations'
+        'preimage provenance validator rejects exact sixty-three normal-loader, engine/fixture/context-owner, protected-input write, local-helper and cmdlet shadow, stage-argument gate, setup-binding, directory-delete/file selectors, after-preimage stage, direct, indirect, dead, non-fallthrough, rebound, provider-write, wrong-path, noncanonical-intent, canned-prefix, unheld-workspace, cleanup-order, discriminator, and stage-swapped partial-to-production mutations'
     $afterPreimageLadder=Test-HardKillAfterPreimageCheckpointLadderContract -ControllerSource $oplockSource
     $afterPreimageLadderStaticSelfTest=Test-HardKillAfterPreimageCheckpointLadderContractMutations -ControllerSource $oplockSource
     $afterPreimageLadderMutationNames=@(
@@ -12581,10 +13027,10 @@ try{
         [ordered]@{Name='after-directory-new';Kind='directory';Checkpoint='after-directory-move-new';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
         [ordered]@{Name='before-directory-add-new';Kind='directory-add';Checkpoint='before-directory-move-new';Action='abandon';Outcome='abandoned';NaturalAction='rollback';NaturalOutcome='rolled-back';SealedMutationTransport=$true}
         [ordered]@{Name='after-directory-add-new';Kind='directory-add';Checkpoint='after-directory-move-new';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
-        [ordered]@{Name='before-file-replace';Kind='file';Checkpoint='before-file-replace';Action='abandon';Outcome='abandoned'}
-        [ordered]@{Name='after-file-replace';Kind='file';Checkpoint='after-file-replace';Action='rollback';Outcome='rolled-back'}
-        [ordered]@{Name='before-file-add-move';Kind='file-add';Checkpoint='before-file-replace';Action='abandon';Outcome='abandoned'}
-        [ordered]@{Name='after-file-add-move';Kind='file-add';Checkpoint='after-file-replace';Action='rollback';Outcome='rolled-back'}
+        [ordered]@{Name='before-file-replace';Kind='file';Checkpoint='before-file-replace';Action='abandon';Outcome='abandoned';NaturalAction='rollback';NaturalOutcome='rolled-back';SealedMutationTransport=$true}
+        [ordered]@{Name='after-file-replace';Kind='file';Checkpoint='after-file-replace';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
+        [ordered]@{Name='before-file-add-move';Kind='file-add';Checkpoint='before-file-replace';Action='abandon';Outcome='abandoned';NaturalAction='rollback';NaturalOutcome='rolled-back';SealedMutationTransport=$true}
+        [ordered]@{Name='after-file-add-move';Kind='file-add';Checkpoint='after-file-replace';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
         [ordered]@{Name='directory-delete-before-installed-record';Kind='directory-delete';Checkpoint='before-directory-new-installed-record';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
         [ordered]@{Name='directory-delete-after-installed-record';Kind='directory-delete';Checkpoint='after-directory-new-installed-record';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
         [ordered]@{Name='before-postconditions';Kind='file';Checkpoint='before-postconditions';Action='rollback';Outcome='rolled-back'}
@@ -12602,10 +13048,10 @@ try{
         [ordered]@{Name='rollback-directory-add-after-new-to-staged';Kind='directory-add';Checkpoint='after-directory-move-new';RecoveryCheckpoint='after-rollback-directory-new-to-staged';Action='rollback';Outcome='rolled-back'}
         [ordered]@{Name='rollback-directory-before-old-to-target';Kind='directory';Checkpoint='after-directory-move-new';RecoveryCheckpoint='before-rollback-directory-old-to-target';Action='rollback';Outcome='rolled-back'}
         [ordered]@{Name='rollback-directory-after-old-to-target';Kind='directory';Checkpoint='after-directory-move-new';RecoveryCheckpoint='after-rollback-directory-old-to-target';Action='rollback';Outcome='rolled-back'}
-        [ordered]@{Name='rollback-file-before-replace';Kind='file';Checkpoint='after-file-replace';RecoveryCheckpoint='before-rollback-file-replace';Action='rollback';Outcome='rolled-back'}
-        [ordered]@{Name='rollback-file-after-replace';Kind='file';Checkpoint='after-file-replace';RecoveryCheckpoint='after-rollback-file-replace';Action='rollback';Outcome='rolled-back'}
-        [ordered]@{Name='rollback-file-add-before-new-to-staged';Kind='file-add';Checkpoint='after-file-replace';RecoveryCheckpoint='before-rollback-file-new-to-staged';Action='rollback';Outcome='rolled-back'}
-        [ordered]@{Name='rollback-file-add-after-new-to-staged';Kind='file-add';Checkpoint='after-file-replace';RecoveryCheckpoint='after-rollback-file-new-to-staged';Action='rollback';Outcome='rolled-back'}
+        [ordered]@{Name='rollback-file-before-replace';Kind='file';Checkpoint='after-file-replace';RecoveryCheckpoint='before-rollback-file-replace';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
+        [ordered]@{Name='rollback-file-after-replace';Kind='file';Checkpoint='after-file-replace';RecoveryCheckpoint='after-rollback-file-replace';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
+        [ordered]@{Name='rollback-file-add-before-new-to-staged';Kind='file-add';Checkpoint='after-file-replace';RecoveryCheckpoint='before-rollback-file-new-to-staged';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
+        [ordered]@{Name='rollback-file-add-after-new-to-staged';Kind='file-add';Checkpoint='after-file-replace';RecoveryCheckpoint='after-rollback-file-new-to-staged';Action='rollback';Outcome='rolled-back';SealedMutationTransport=$true}
     )
     if($Section -ceq 'rollback'){$cases=@($cases|Where-Object{$_.Contains('RecoveryCheckpoint')})}
     elseif($Section -ceq 'process'){$cases=@($cases|Where-Object{-not $_.Contains('RecoveryCheckpoint')})}
@@ -12613,7 +13059,13 @@ try{
     if($cases.Count -eq 0){throw 'sealed mutation process matrix selected no cases'}
     foreach($case in $cases){
         if([AiAgentDotfilesTests.HardKillSealedMutationControllerScope]::IsSelectedCase($case)){
-            foreach($sealedMutationReapMode in @('hard-kill','natural-release')){
+            $sealedMutationRecoverySeed=$case.Contains('RecoveryCheckpoint')
+            $sealedMutationReapModes=[string[]]$(if($sealedMutationRecoverySeed){@('hard-kill')}else{@('hard-kill','natural-release')})
+            if(($sealedMutationRecoverySeed -and (@($sealedMutationReapModes).Count -ne 1 -or [string]$sealedMutationReapModes[0] -cne 'hard-kill')) -or
+                (-not $sealedMutationRecoverySeed -and (@($sealedMutationReapModes).Count -ne 2 -or [string]$sealedMutationReapModes[0] -cne 'hard-kill' -or [string]$sealedMutationReapModes[1] -cne 'natural-release'))){
+                throw 'sealed mutation recovery seed reap-mode partition is invalid'
+            }
+            foreach($sealedMutationReapMode in $sealedMutationReapModes){
             Set-TestProgress ("process:{0}:{1}" -f [string]$case.Name,$sealedMutationReapMode)
             $caseRoot=Join-Path $root ("{0}-{1}" -f $sealedMutationReapMode,[string]$case.Name);[IO.Directory]::CreateDirectory($caseRoot)|Out-Null
             $caseRepo=Join-Path $caseRoot 'repo';Initialize-TestRepo $caseRepo
@@ -12623,6 +13075,7 @@ try{
             $sealedPreimageCase=[string]$case.Name -cin @('before-preimage','partial-preimage')
             $sealedParentCase=[string]$case.Name -cin @('before-parent','after-parent')
             $sealedDirectoryCase=[string]$case.Name -cin @('before-directory-old','after-directory-old','before-directory-new','after-directory-new','before-directory-add-new','after-directory-add-new','directory-delete-before-installed-record','directory-delete-after-installed-record')
+            $sealedFileCase=[string]$case.Name -cin @('before-file-replace','after-file-replace','before-file-add-move','after-file-add-move','rollback-file-before-replace','rollback-file-after-replace','rollback-file-add-before-new-to-staged','rollback-file-add-after-new-to-staged')
             if($sealedDirectoryCase){
                 $selectorTargetPath=Join-Path $caseRepo 'skills-source/shared/hardkill-target'
                 $selectorTargetId=Get-CanonicalJournalTargetId -Order 0 -TargetKind directory -Role canonical -TargetPath $selectorTargetPath
@@ -12640,6 +13093,14 @@ try{
                     $selectorIntentSequence=if($directoryOldSelector){[long]7}else{[long]9}
                     $selectorTailPhase=$selectorIntentPhase;$selectorTailSequence=$selectorIntentSequence
                 }
+                $selectorArm=[ordered]@{TargetId=$selectorTargetId;TargetOrder=[long]0}
+            }elseif($sealedFileCase){
+                $selectorTargetPath=Join-Path $caseRepo 'manifests/managed-skills.txt'
+                $selectorTargetId=Get-CanonicalJournalTargetId -Order 0 -TargetKind file -Role manifest -Platform Union -TargetPath $selectorTargetPath
+                $selectorCheckpoint=if([string]$case.Checkpoint -ceq 'before-file-replace'){'BeforeFileReplaceMove'}else{'AfterFileReplaceMove'}
+                $selectorVariant=if([string]$case.Kind -ceq 'file'){'FileReplacePresent'}else{'FileMoveMissing'}
+                $selectorIntentPhase='FILE_REPLACE_INTENT';$selectorIntentSequence=[long]7
+                $selectorTailPhase='FILE_REPLACE_INTENT';$selectorTailSequence=[long]7
                 $selectorArm=[ordered]@{TargetId=$selectorTargetId;TargetOrder=[long]0}
             }elseif($sealedParentCase){
                 $selectorTargetPath=Join-Path $caseRepo 'skills-source/shared'
@@ -12692,8 +13153,28 @@ try{
             $expectedSealedMutationResultKind=if($sealedMutationReapMode -ceq 'hard-kill'){'hard-kill-proof'}else{'natural-release-differential'}
             if($null -eq $sealedMutationCaseResult -or [string]$sealedMutationCaseResult.Kind -cne $expectedSealedMutationResultKind){throw "sealed mutation controller case returned no exact $expectedSealedMutationResultKind"}
             }
-            continue
-        }
+            if(-not $sealedMutationRecoverySeed){continue}
+            $sealedMutationSeedDefinition=$sealedMutationCaseResult.CaseDefinition
+            $sealedMutationSeedReceipt=$sealedMutationCaseResult.ReapReceipt
+            $sealedMutationSeedPostStateBytes=[byte[]]$sealedMutationCaseResult.PostState['Bytes']
+            $sealedMutationSeedPostState=ConvertFrom-SemanticJson -Json ([Text.UTF8Encoding]::new($false,$true).GetString($sealedMutationSeedPostStateBytes))
+            if([string]$sealedMutationCaseResult.Kind -cne 'hard-kill-proof' -or [string]$sealedMutationSeedDefinition.ReapMode -cne 'hard-kill' -or
+                [string]$sealedMutationSeedDefinition.Name -cne [string]$case.Name -or [string]$sealedMutationSeedDefinition.Kind -cne [string]$case.Kind -or
+                [string]$sealedMutationSeedDefinition.TransactionId -cne $transactionId -or [string]$sealedMutationSeedDefinition.Selector.TransactionNamespace -cne [IO.Path]::GetFullPath($namespace) -or
+                $sealedMutationSeedReceipt -isnot [AiAgentDotfilesTests.HardKillLiveTerminationReceipt] -or -not[bool]$sealedMutationSeedReceipt.TerminationIssued -or
+                -not[bool]$sealedMutationSeedReceipt.RootAliveBefore -or [long]$sealedMutationSeedReceipt.ActiveAfter -ne 0 -or
+                -not[bool]$sealedMutationSeedReceipt.JobHandleClosed -or -not[bool]$sealedMutationSeedReceipt.IdentityGone -or
+                -not[System.Linq.Enumerable]::SequenceEqual[byte]($sealedMutationSeedPostStateBytes,[byte[]](ConvertTo-SemanticJsonBytes -InputObject $sealedMutationSeedPostState)) -or
+                [string]$sealedMutationSeedPostState.DerivedJournalHeadHash -cnotmatch '^[0-9a-f]{64}$' -or [long]$sealedMutationSeedPostState.PendingCount -ne 0 -or
+                [string]$sealedMutationSeedPostState.ClassificationStatus -cne 'recovery' -or [string]$sealedMutationSeedPostState.AllowedAction -cne 'rollback' -or
+                [string]$sealedMutationSeedPostState.ClassificationExpectedOutcome -cne 'rolled-back'){
+                throw 'sealed mutation recovery seed proof, receipt, post-state, or classification is invalid'
+            }
+            $sealedMutationSeedHeadHash=[string]$sealedMutationSeedPostState.DerivedJournalHeadHash
+            $externalMutationCheckpoint=$false;$process=$null;$processState='job-reaped';$initialReached=$true
+            $checkpointWait=[Diagnostics.Stopwatch]::StartNew();$checkpointWait.Stop()
+        }else{
+        $sealedMutationRecoverySeed=$false
         Set-TestProgress ("process:{0}" -f [string]$case.Name)
         $caseRoot=Join-Path $root ("kill-"+[string]$case.Name);[IO.Directory]::CreateDirectory($caseRoot)|Out-Null
         $caseRepo=Join-Path $caseRoot 'repo';Initialize-TestRepo $caseRepo
@@ -12730,6 +13211,7 @@ try{
         if($externalMutationCheckpoint){$processState='job-reaped';$initialReached=[bool]$externalCheckpointGated}
         else{$process.Refresh();$processState=if($process.HasExited){'exited'}else{'running'};$initialReached=(Test-Path -LiteralPath $marker -PathType Leaf) -and -not $process.HasExited}
         if($null -ne $process){$null=Confirm-HardKillRegisteredProcessReaped -Process $process -Label ("hard-kill {0} mutation host" -f [string]$case.Name)}
+        }
         if(-not $initialReached){throw ("sealed mutation host did not reach checkpoint for {0}" -f $case.Name)}
         $state=Read-CanonicalJournalDirectory -TransactionNamespace $namespace -AllowUnfinished
         $postReapTupleValid=$true
@@ -12756,6 +13238,11 @@ try{
                 ("hard-kill {0}: created parent is the same exact empty directory before descending recovery" -f $case.Name)
         }
         $classification=Get-CanonicalTransactionRecoveryClassification -State $state -RepoRoot $caseRepo
+        if($sealedMutationRecoverySeed -and ([string]$state.DerivedJournalHeadHash -cne $sealedMutationSeedHeadHash -or @($state.PendingEntries).Count -ne 0 -or
+            $state.IsTerminal -or [string]$classification.Status -cne 'recovery' -or [string]$classification.AllowedAction -cne 'rollback' -or
+            [string]$classification.ExpectedOutcome -cne 'rolled-back')){
+            throw 'sealed mutation recovery seed journal head or recomputed classification differs from its proof'
+        }
         $checkpointClassificationValid=if([string]$case.Action -ceq 'terminal'){
             $state.IsTerminal -and [string]$classification.Status -ceq 'terminal' -and [string]$state.Outcome -ceq [string]$case.Outcome
         }elseif([string]$case.Action -ceq 'manual'){

@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -282,6 +282,26 @@ preimage/swap-old=current with exact identities and reconstructed record data. N
 accepts one exact sequence-10 successor before publication and zero delta after publication;
 hard-kill and natural release both remain `rollback/rolled-back`.
 
+The Phase 1 file/file-add slice now removes timing-dependent polling from
+`before-file-replace`, `after-file-replace`, `before-file-add-move`, and
+`after-file-add-move`. All four cases use the sealed typed transport around the real file
+replace/move primitive. The controller binds `file`/`file-add`, the exact raw/typed checkpoint,
+the `PRESENT`/`MISSING` branch discriminator, sequence-6 `FILE_PREPARED`, sequence-7
+`FILE_REPLACE_INTENT`, held file identities, and the independently reconstructed before/after
+tuple. Natural release accepts only the hash-linked sequence-8 `FILE_REPLACED` successor and
+the candidate final tuple. The two before cases distinguish hard-kill `abandon/abandoned` from
+natural `rollback/rolled-back`; both after cases remain `rollback/rolled-back` in both modes.
+
+The four file rollback cases now obtain their unfinished recovery seed through the same typed
+controller instead of the legacy initial launcher. This seed path is deliberately hard-kill-only:
+it validates the case and definition identity, typed live reap receipt, transaction namespace,
+post-state bytes and journal head, empty pending inventory, and the independently recomputed
+`recovery/rollback/rolled-back` classification before falling through to the existing rollback
+checkpoint host. Natural release is excluded from recovery seeding, while non-file rollback cases
+retain their legacy initial path. The controller static boundary now rejects the exact 299
+mutations, including seven recovery-seed partition/proof/fallthrough mutations, while accepting
+81 synthetic and two actual-prelude controls.
+
 The prelaunch wire is now also bound to held path provenance instead of trusting the case dictionary
 alone. The exact twelve-token base host arguments bind `ToolchainRoot`, `FixtureRoot`,
 `TransactionId`, `Kind`, `Checkpoint`, and `MarkerPath`; the controller derives the common repository
@@ -290,7 +310,7 @@ invocation fixture, and requires the marker to be its canonical `checkpoint.mark
 provenance validator treats every host script parameter as a protected root input and rejects direct,
 foreach/unary, `[ref]`, and `SessionState.PSVariable` rebinding. It also pins the four local setup/stage
 helpers, forbids relied-on external or cmdlet shadows, and scans root Function/Alias provider writes.
-Actual-host and synthetic baselines validate, and the exact 62-mutant inventory rejects the protected
+Actual-host and synthetic baselines validate, and the exact 63-mutant inventory rejects the protected
 input, callee-authority, selector, frozen after-preimage stage, loader, owner, and partial-to-production
 mutations.
 
@@ -344,14 +364,32 @@ Fresh focused validation on 2026-08-23 produced:
   `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, with no live mutation and
   Codex `.system` preserved.
 
-This is focused Phase 1 evidence, not a fresh 30-suite claim. The complete hard-kill process/rollback
-matrix and the unified runner still remain to be completed.
+Fresh closure validation on 2026-08-24 produced:
+
+- `canonical-hard-kill.tests.ps1 -Section rollback -CasePattern 'rollback-file*'`: 54 passed / 0
+  failed across all four typed file/file-add recovery seeds;
+- `canonical-hard-kill.tests.ps1 -Section process`: 60 passed / 0 failed across all 28 logical
+  process cases; the four file/file-add cases each completed hard-kill and natural-release through
+  the typed controller;
+- `canonical-hard-kill.tests.ps1 -Section rollback`: 151 passed / 0 failed across all 12 logical
+  rollback cases; the four file/file-add cases used typed hard-kill-only recovery seeds before the
+  existing recovery checkpoint path;
+- both complete matrices revalidated the exact 299-rejection / 81-acceptance controller boundary,
+  the two actual-prelude controls, and the 63-mutant host provenance inventory;
+- both changed PowerShell files passed parser validation and `git diff --check`; `build-skills.ps1`
+  rebuilt Claude 7, Codex 15, and Reasonix 7; `scan-secrets.ps1` found no blocking secrets (745
+  non-blocking keyword hints); and `sync.ps1` completed dry-run plan
+  `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e` with no live changes and
+  Codex `.system` preserved.
+
+This closes the complete hard-kill process/rollback matrix. It is not a fresh 30-suite claim; the
+unified runner still remains to be completed.
 Production Apply remains interlocked.
 
 ## Current boundaries and known state
 
 - Historical machine-private `state/current-env.json` evidence attested stock `work`; it is not a
-  repository-portable current-machine claim. The 2026-08-23 sync dry-run on this machine reports all
+  repository-portable current-machine claim. The 2026-08-24 sync dry-run on this machine reports all
   7/15/7 generated skills as additions, with zero update/prune/unknown targets and Codex `.system`
   present. No live files were changed.
 - Project Harness Profiles remain project-local. They do not write global homes, install
@@ -360,17 +398,14 @@ Production Apply remains interlocked.
   this repository's sync scope.
 - The MCP subsystem removal did not alter any live MCP registration.
 - User-owned `.reasonix/desktop-topic-*.json` files and the live-safety planning stream remain
-  outside this repair. The fresh 2026-08-23 filtered working-tree scan passed without blocking findings
+  outside this repair. The fresh 2026-08-24 filtered working-tree scan passed without blocking findings
   (745 non-blocking keyword hints).
 - Git publishing is outside this cleanup task: no push or pull request has been performed.
 
 ## Next actions
 
-1. Complete the remaining Phase 1 verification contract by running the complete hard-kill process/rollback
-   matrix. Do not substitute retries, sleeps, temporary helper APIs, or weaker assertions.
-2. After the complete hard-kill suite is green, run a fresh unified 30-suite summary before claiming
-   30/30.
-3. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+1. Run a fresh unified 30-suite summary before claiming 30/30.
+2. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.
