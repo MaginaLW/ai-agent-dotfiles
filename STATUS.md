@@ -377,13 +377,27 @@ Fresh closure validation on 2026-08-24 produced:
 - both complete matrices revalidated the exact 299-rejection / 81-acceptance controller boundary,
   the two actual-prelude controls, and the 63-mutant host provenance inventory;
 - both changed PowerShell files passed parser validation and `git diff --check`; `build-skills.ps1`
-  rebuilt Claude 7, Codex 15, and Reasonix 7; `scan-secrets.ps1` found no blocking secrets (745
+  rebuilt Claude 7, Codex 15, and Reasonix 7; `scan-secrets.ps1` found no blocking secrets (746
   non-blocking keyword hints); and `sync.ps1` completed dry-run plan
   `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e` with no live changes and
   Codex `.system` preserved.
 
-This closes the complete hard-kill process/rollback matrix. It is not a fresh 30-suite claim; the
-unified runner still remains to be completed.
+Fresh unified validation on 2026-08-24 used `scripts/run-tests.ps1 -All` and an external
+create-new JSON summary. The summary's raw SHA-256 is
+`2a4b1ca6946c062d3b39b6b19c7d535aa3fd2ff7d5f94a9701cbb964358aec25`, and its discovery SHA-256 is
+`fcff1de8746c0633a478667df5817c2a36fa5a0416cd8492c59533fc8f99993b`:
+
+- all 30 suites were discovered, started, completed, and passed exactly once;
+- failures, timeouts, duplicates, missing suites, and tree-kill failures were all zero;
+- `canonical-hard-kill.tests.ps1` reached 317 passed / 0 failed inside the unified run;
+- the summary passed its registered schema and semantic consistency validation.
+
+This supersedes the 2026-08-22 28/30 result as the current repository validation state while
+retaining that older run as historical evidence. The unified runner does not include the separate
+PowerShell parse, canonical build, filtered secret scan, or sync dry-run gates; their fresh same-day
+evidence above remains independently recorded.
+
+This closes the complete hard-kill process/rollback matrix and the fresh unified 30-suite runner.
 Production Apply remains interlocked.
 
 ## Current boundaries and known state
@@ -399,13 +413,12 @@ Production Apply remains interlocked.
 - The MCP subsystem removal did not alter any live MCP registration.
 - User-owned `.reasonix/desktop-topic-*.json` files and the live-safety planning stream remain
   outside this repair. The fresh 2026-08-24 filtered working-tree scan passed without blocking findings
-  (745 non-blocking keyword hints).
+  (746 non-blocking keyword hints).
 - Git publishing is outside this cleanup task: no push or pull request has been performed.
 
 ## Next actions
 
-1. Run a fresh unified 30-suite summary before claiming 30/30.
-2. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+1. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.
