@@ -56,6 +56,10 @@ tmp/
 
 # Reasonix machine-local task state.
 /.reasonix/tasks/
+/.reasonix/desktop-topic-auto-title-meta.json
+/.reasonix/desktop-topic-created-at.json
+/.reasonix/desktop-topic-title-sources.json
+/.reasonix/desktop-topic-titles.json
 
 # Machine- and run-specific build/sync reports.
 reports/*.md
