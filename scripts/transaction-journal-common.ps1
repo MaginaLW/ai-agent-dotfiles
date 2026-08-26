@@ -4,6 +4,122 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'canonical-preflight-common.ps1')
 
+if (-not ('AiAgentDotfiles.SafeLockResourceOwner' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Threading;
+
+namespace AiAgentDotfiles {
+    public sealed class SafeLockResourceOwner {
+        private static readonly ConditionalWeakTable<object, SafeLockResourceOwner> Owners = new ConditionalWeakTable<object, SafeLockResourceOwner>();
+        private readonly object wrapper;
+        private readonly object held;
+        private readonly object[] parents;
+        private readonly object info;
+        private readonly object stream;
+        private readonly string path;
+        private readonly string securitySddl;
+        private readonly string securityHash;
+        private readonly long ordinal;
+        private readonly string identity;
+        private readonly uint linkCount;
+        private readonly long length;
+        private readonly string[] parentIdentities;
+        private readonly uint[] parentLinkCounts;
+        private int releaseState;
+
+        private SafeLockResourceOwner(object wrapperValue, object heldValue, object[] parentValues, object infoValue,
+            object streamValue, string pathValue, string securitySddlValue, string securityHashValue, long ordinalValue,
+            string identityValue, uint linkCountValue, long lengthValue, string[] parentIdentityValues, uint[] parentLinkCountValues) {
+            wrapper = wrapperValue;
+            held = heldValue;
+            parents = (object[])parentValues.Clone();
+            info = infoValue;
+            stream = streamValue;
+            path = Path.GetFullPath(pathValue);
+            securitySddl = securitySddlValue;
+            securityHash = securityHashValue;
+            ordinal = ordinalValue;
+            identity = identityValue;
+            linkCount = linkCountValue;
+            length = lengthValue;
+            parentIdentities = (string[])parentIdentityValues.Clone();
+            parentLinkCounts = (uint[])parentLinkCountValues.Clone();
+        }
+
+        private static SafeLockResourceOwner Require(SafeLockResourceOwner value) {
+            if (value == null) throw new InvalidOperationException("lock-resource-owner-required");
+            return value;
+        }
+        public static SafeLockResourceOwner BindExact(object wrapperValue, object heldValue, object[] parentValues,
+            object infoValue, object streamValue, string pathValue, string securitySddlValue, string securityHashValue,
+            long ordinalValue, string identityValue, uint linkCountValue, long lengthValue,
+            string[] parentIdentityValues, uint[] parentLinkCountValues) {
+            if (wrapperValue == null || heldValue == null || parentValues == null || parentValues.Length == 0 ||
+                infoValue == null || streamValue == null || String.IsNullOrWhiteSpace(pathValue) || ordinalValue <= 0 ||
+                String.IsNullOrWhiteSpace(identityValue) || parentIdentityValues == null || parentLinkCountValues == null ||
+                parentIdentityValues.Length != parentValues.Length || parentLinkCountValues.Length != parentValues.Length)
+                throw new InvalidOperationException("lock-resource-owner-required");
+            for (int index = 0; index < parentValues.Length; index++)
+                if (parentValues[index] == null || String.IsNullOrWhiteSpace(parentIdentityValues[index])) throw new InvalidOperationException("lock-resource-owner-required");
+            SafeLockResourceOwner value = new SafeLockResourceOwner(wrapperValue, heldValue, parentValues, infoValue, streamValue,
+                pathValue, securitySddlValue, securityHashValue, ordinalValue, identityValue, linkCountValue, lengthValue,
+                parentIdentityValues, parentLinkCountValues);
+            Owners.Add(wrapperValue, value);
+            return value;
+        }
+        public static SafeLockResourceOwner GetForWrapperExact(object wrapperValue) {
+            if (wrapperValue == null) return null;
+            SafeLockResourceOwner value;
+            return Owners.TryGetValue(wrapperValue, out value) ? value : null;
+        }
+        public static bool IsExactForWrapper(SafeLockResourceOwner value, object wrapperValue) {
+            if (value == null || wrapperValue == null || !Object.ReferenceEquals(value.wrapper, wrapperValue)) return false;
+            SafeLockResourceOwner registered;
+            return Owners.TryGetValue(wrapperValue, out registered) && Object.ReferenceEquals(value, registered);
+        }
+        public static object GetHeldLockExact(SafeLockResourceOwner value) { return Require(value).held; }
+        public static object[] GetParentHandlesExact(SafeLockResourceOwner value) { return (object[])Require(value).parents.Clone(); }
+        public static object GetInfoExact(SafeLockResourceOwner value) { return Require(value).info; }
+        public static object GetStreamViewExact(SafeLockResourceOwner value) { return Require(value).stream; }
+        public static string GetPathExact(SafeLockResourceOwner value) { return Require(value).path; }
+        public static string GetSecuritySddlExact(SafeLockResourceOwner value) { return Require(value).securitySddl; }
+        public static string GetSecurityHashExact(SafeLockResourceOwner value) { return Require(value).securityHash; }
+        public static long GetAcquisitionOrdinalExact(SafeLockResourceOwner value) { return Require(value).ordinal; }
+        public static string GetAcquiredIdentityExact(SafeLockResourceOwner value) { return Require(value).identity; }
+        public static uint GetAcquiredLinkCountExact(SafeLockResourceOwner value) { return Require(value).linkCount; }
+        public static long GetAcquiredLengthExact(SafeLockResourceOwner value) { return Require(value).length; }
+        public static string GetParentIdentityExact(SafeLockResourceOwner value, int index) { return Require(value).parentIdentities[index]; }
+        public static uint GetParentLinkCountExact(SafeLockResourceOwner value, int index) { return Require(value).parentLinkCounts[index]; }
+        public static bool GetIsReleasedExact(SafeLockResourceOwner value) { return value != null && Volatile.Read(ref value.releaseState) == 2; }
+        public static bool MatchesAcquiredEvidenceExact(SafeLockResourceOwner value) {
+            return value != null && Volatile.Read(ref value.releaseState) == 0 && value.held != null && value.info != null &&
+                value.stream != null && value.parents.Length > 0 && value.ordinal > 0 && !String.IsNullOrWhiteSpace(value.identity);
+        }
+        public static void ReleaseExact(SafeLockResourceOwner value) {
+            SafeLockResourceOwner owner = Require(value);
+            int prior = Interlocked.CompareExchange(ref owner.releaseState, 1, 0);
+            if (prior == 2) return;
+            if (prior != 0) throw new InvalidOperationException("lock-resource-owner-release-active");
+            try { ((IDisposable)owner.held).Dispose(); }
+            catch { Volatile.Write(ref owner.releaseState, 0); throw; }
+            Exception first = null;
+            for (int index = owner.parents.Length - 1; index >= 0; index--) {
+                try { ((IDisposable)owner.parents[index]).Dispose(); }
+                catch (Exception error) { if (first == null) first = error; }
+            }
+            SafeLockResourceOwner registered;
+            if (Owners.TryGetValue(owner.wrapper, out registered) && Object.ReferenceEquals(owner, registered)) Owners.Remove(owner.wrapper);
+            Volatile.Write(ref owner.releaseState, 2);
+            if (first != null) throw first;
+        }
+    }
+}
+'@
+}
+
 $script:CanonicalJournalSchemaRoot = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..')).Path 'schemas'
 
 function Get-CanonicalJournalTargetId {
@@ -83,6 +199,162 @@ function Open-CanonicalDirectoryContainmentChain {
     }
 }
 
+function Get-CanonicalRepoLockSecurityEvidence {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AiAgentDotfiles.SafeLockFileHandle]$HeldLock)
+
+    $snapshot = [AiAgentDotfiles.NoFollowFile]::GetLockFileSecuritySnapshot($HeldLock)
+    return [ordered]@{
+        Identity = [string]$snapshot.Identity
+        LinkCount = [long]$snapshot.LinkCount
+        Sddl = [string]$snapshot.Sddl
+    }
+}
+
+function Register-CanonicalRepoLockResourceOwner {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$LockHandle,
+        [Parameter(Mandatory)][AiAgentDotfiles.SafeLockFileHandle]$HeldLock,
+        [Parameter(Mandatory)][object[]]$ParentHandles,
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$SecuritySddl,
+        [Parameter(Mandatory)][string]$SecurityHash
+    )
+
+    if (-not [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($HeldLock) -or @($ParentHandles).Count -lt 1) { throw 'canonical-witness-required' }
+    $parentIdentities = [Collections.Generic.List[string]]::new()
+    $parentLinkCounts = [Collections.Generic.List[uint32]]::new()
+    foreach ($parent in @($ParentHandles)) {
+        if ($parent -isnot [AiAgentDotfiles.SafeDirectoryHandle] -or -not [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($parent)) { throw 'canonical-witness-required' }
+        $parentIdentities.Add([AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($parent))
+        $parentLinkCounts.Add([AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredLinkCountExact($parent))
+    }
+    return [AiAgentDotfiles.SafeLockResourceOwner]::BindExact(
+        $LockHandle,
+        $HeldLock,
+        [object[]]@($ParentHandles),
+        [AiAgentDotfiles.SafeLockFileHandle]::GetInfoExact($HeldLock),
+        [AiAgentDotfiles.SafeLockFileHandle]::GetStreamViewExact($HeldLock),
+        [IO.Path]::GetFullPath($Path),
+        $SecuritySddl,
+        $SecurityHash,
+        [AiAgentDotfiles.SafeLockFileHandle]::GetAcquisitionOrdinalExact($HeldLock),
+        [AiAgentDotfiles.SafeLockFileHandle]::GetAcquiredIdentityExact($HeldLock),
+        [AiAgentDotfiles.SafeLockFileHandle]::GetAcquiredLinkCountExact($HeldLock),
+        [AiAgentDotfiles.SafeLockFileHandle]::GetAcquiredLengthExact($HeldLock),
+        [string[]]$parentIdentities.ToArray(),
+        [uint32[]]$parentLinkCounts.ToArray())
+}
+
+function Close-CanonicalRepoLockResourceOwner {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AiAgentDotfiles.SafeLockResourceOwner]$Owner)
+    [AiAgentDotfiles.SafeLockResourceOwner]::ReleaseExact($Owner)
+}
+
+function Assert-CanonicalRepoLockHandle {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$LockHandle,
+        [Parameter(Mandatory)][string]$ExpectedLockPath
+    )
+
+    try {
+        if ($null -eq $LockHandle -or 'AiAgentDotfiles.CanonicalRepoLockHandle' -cnotin @($LockHandle.PSObject.TypeNames)) { throw 'wrong canonical lock type' }
+        $owner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($LockHandle)
+        if ($owner -isnot [AiAgentDotfiles.SafeLockResourceOwner] -or -not [AiAgentDotfiles.SafeLockResourceOwner]::IsExactForWrapper($owner,$LockHandle) -or
+            -not [AiAgentDotfiles.SafeLockResourceOwner]::MatchesAcquiredEvidenceExact($owner)) { throw 'canonical lock has no exact acquisition owner' }
+
+        $display = [ordered]@{}
+        foreach ($name in @('Path','Stream','Info','HeldLock','ParentHandles','SecuritySddl','SecurityHash')) {
+            $property = $LockHandle.PSObject.Properties[$name]
+            if ($null -eq $property) { throw "canonical lock is missing $name" }
+            $display[$name] = $property.Value
+            if ($null -eq $display[$name]) { throw "canonical lock is missing $name" }
+        }
+
+        $held = [AiAgentDotfiles.SafeLockResourceOwner]::GetHeldLockExact($owner)
+        $parents = @([AiAgentDotfiles.SafeLockResourceOwner]::GetParentHandlesExact($owner))
+        $info = [AiAgentDotfiles.SafeLockResourceOwner]::GetInfoExact($owner)
+        $stream = [AiAgentDotfiles.SafeLockResourceOwner]::GetStreamViewExact($owner)
+        $ownerPath = [AiAgentDotfiles.SafeLockResourceOwner]::GetPathExact($owner)
+        $expected = [System.IO.Path]::GetFullPath($ExpectedLockPath)
+        $displayPath = [System.IO.Path]::GetFullPath([string]$display.Path)
+        if (-not $ownerPath.Equals($expected,[System.StringComparison]::OrdinalIgnoreCase) -or
+            -not $displayPath.Equals($ownerPath,[System.StringComparison]::OrdinalIgnoreCase)) { throw 'canonical lock path mismatch' }
+        if (-not [object]::ReferenceEquals($display.HeldLock,$held) -or -not [object]::ReferenceEquals($display.Stream,$stream) -or
+            -not [object]::ReferenceEquals($display.Info,$info) -or [string]$display.SecuritySddl -cne [AiAgentDotfiles.SafeLockResourceOwner]::GetSecuritySddlExact($owner) -or
+            [string]$display.SecurityHash -cne [AiAgentDotfiles.SafeLockResourceOwner]::GetSecurityHashExact($owner)) { throw 'canonical lock display was substituted' }
+        $displayParents = @($display.ParentHandles)
+        if ($displayParents.Count -ne $parents.Count) { throw 'canonical lock parent display was substituted' }
+        for ($index=0; $index -lt $parents.Count; $index++) {
+            if (-not [object]::ReferenceEquals($displayParents[$index],$parents[$index])) { throw 'canonical lock parent display was substituted' }
+        }
+
+        $acquiredIdentity = [AiAgentDotfiles.SafeLockResourceOwner]::GetAcquiredIdentityExact($owner)
+        $acquiredLinkCount = [long][AiAgentDotfiles.SafeLockResourceOwner]::GetAcquiredLinkCountExact($owner)
+        $acquiredLength = [long][AiAgentDotfiles.SafeLockResourceOwner]::GetAcquiredLengthExact($owner)
+        if (-not [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($held) -or
+            [long][AiAgentDotfiles.SafeLockFileHandle]::GetAcquisitionOrdinalExact($held) -ne [long][AiAgentDotfiles.SafeLockResourceOwner]::GetAcquisitionOrdinalExact($owner) -or
+            [string][AiAgentDotfiles.SafeLockFileHandle]::GetAcquiredIdentityExact($held) -cne $acquiredIdentity -or
+            [long][AiAgentDotfiles.SafeLockFileHandle]::GetAcquiredLinkCountExact($held) -ne $acquiredLinkCount -or
+            [long][AiAgentDotfiles.SafeLockFileHandle]::GetAcquiredLengthExact($held) -ne $acquiredLength -or
+            $acquiredLinkCount -ne 1 -or $acquiredLength -ne 0 -or -not $stream.CanRead -or -not $stream.CanWrite) {
+            throw 'canonical lock immutable acquisition evidence mismatch'
+        }
+        if ([string]$info.Identity -cne $acquiredIdentity -or [long]$info.LinkCount -ne $acquiredLinkCount -or [long]$info.Length -ne $acquiredLength) {
+            throw 'canonical lock identity display drift'
+        }
+        if ($parents.Count -lt 1) { throw 'canonical lock parent chain is missing' }
+        for ($index=0; $index -lt $parents.Count; $index++) {
+            $parentEntry = $parents[$index]
+            if ($parentEntry -isnot [AiAgentDotfiles.SafeDirectoryHandle] -or -not [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($parentEntry) -or
+                [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($parentEntry) -cne [AiAgentDotfiles.SafeLockResourceOwner]::GetParentIdentityExact($owner,$index) -or
+                [long][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredLinkCountExact($parentEntry) -ne [long][AiAgentDotfiles.SafeLockResourceOwner]::GetParentLinkCountExact($owner,$index)) {
+                throw 'canonical lock parent chain has invalid acquired evidence'
+            }
+        }
+        $heldParent = $parents[$parents.Count - 1]
+        $freshParents = $null
+        try {
+            $freshParents = Open-SafeDirectoryContainmentChain -Path ([System.IO.Path]::GetDirectoryName($expected))
+            if ($freshParents.Count -ne $parents.Count) { throw 'canonical lock parent chain cardinality mismatch' }
+            for ($index=0; $index -lt $parents.Count; $index++) {
+                if ([string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($freshParents[$index]) -cne [AiAgentDotfiles.SafeLockResourceOwner]::GetParentIdentityExact($owner,$index) -or
+                    [long][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredLinkCountExact($freshParents[$index]) -ne [long][AiAgentDotfiles.SafeLockResourceOwner]::GetParentLinkCountExact($owner,$index)) {
+                    throw 'canonical lock parent identity mismatch'
+                }
+            }
+            $relative = [AiAgentDotfiles.NoFollowFile]::InspectChild($heldParent,[System.IO.Path]::GetFileName($expected))
+            $pathMarker = Get-NoFollowRootEntryMarker -Path $expected
+            foreach ($currentInfo in @($relative,$info)) {
+                if ($null -eq $currentInfo -or [string]$currentInfo.Identity -cne $acquiredIdentity -or [long]$currentInfo.LinkCount -ne $acquiredLinkCount -or [long]$currentInfo.Length -ne $acquiredLength) {
+                    throw 'canonical lock identity, link count, or length mismatch'
+                }
+                if ($currentInfo.PSObject.Properties['IsDirectory'] -and [bool]$currentInfo.IsDirectory) { throw 'canonical lock is a directory' }
+                if ($currentInfo.PSObject.Properties['IsReparsePoint'] -and [bool]$currentInfo.IsReparsePoint) { throw 'canonical lock is a reparse point' }
+            }
+            if ([string]$pathMarker.EntryType -cne 'File' -or [string]$pathMarker.Identity -cne $acquiredIdentity -or [long]$pathMarker.LinkCount -ne $acquiredLinkCount) {
+                throw 'canonical lock path marker mismatch'
+            }
+        }
+        finally { if ($null -ne $freshParents) { Close-SafeDirectoryContainmentChain -Handles $freshParents } }
+
+        if (@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($held)).Count -ne 0) { throw 'canonical lock has named streams' }
+        $security = Get-CanonicalRepoLockSecurityEvidence -HeldLock $held
+        $securityHash = Get-SemanticJsonHash -InputObject $security
+        if ([string]$security.Identity -cne $acquiredIdentity -or [long]$security.LinkCount -ne $acquiredLinkCount -or
+            [string]$security.Sddl -cne [AiAgentDotfiles.SafeLockResourceOwner]::GetSecuritySddlExact($owner) -or
+            $securityHash -cne [AiAgentDotfiles.SafeLockResourceOwner]::GetSecurityHashExact($owner)) {
+            throw 'canonical lock security snapshot drift'
+        }
+        if (@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($held)).Count -ne 0) { throw 'canonical lock acquired named streams' }
+        return $true
+    }
+    catch { throw 'canonical-witness-required' }
+}
+
 function Enter-CanonicalRepoLock {
     [CmdletBinding()]
     param(
@@ -94,6 +366,7 @@ function Enter-CanonicalRepoLock {
     $parent = Split-Path -Parent $full
     $parentHandles = $null
     $heldLock = $null
+    $resourceOwner = $null
     try {
         try {
             $parentHandles = Open-CanonicalDirectoryContainmentChain -Path $parent -CreateMissing:$AllowCreate
@@ -116,22 +389,38 @@ function Enter-CanonicalRepoLock {
             if ($_.Exception.NativeErrorCode -in @(32,33)) { throw 'operation-lock-busy' }
             throw
         }
-        return [pscustomobject][ordered]@{
+        if ([long]$heldLock.Info.LinkCount -ne 1 -or [long]$heldLock.Info.Length -ne 0) { throw 'canonical-witness-required' }
+        if (@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($heldLock)).Count -ne 0) { throw 'canonical-witness-required' }
+        $security = Get-CanonicalRepoLockSecurityEvidence -HeldLock $heldLock
+        $securityHash = Get-SemanticJsonHash -InputObject $security
+        $result = [pscustomobject][ordered]@{
             Path = $full
             Stream = $heldLock.Stream
             Info = $heldLock.Info
             HeldLock = $heldLock
             ParentHandles = $parentHandles
+            SecuritySddl = [string]$security.Sddl
+            SecurityHash = $securityHash
         }
+        $result.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.CanonicalRepoLockHandle')
+        $resourceOwner = Register-CanonicalRepoLockResourceOwner -LockHandle $result -HeldLock $heldLock -ParentHandles @($parentHandles) -Path $full -SecuritySddl ([string]$security.Sddl) -SecurityHash $securityHash
+        $null = Assert-CanonicalRepoLockHandle -LockHandle $result -ExpectedLockPath $full
+        return $result
     }
     catch [System.IO.IOException] {
-        if ($heldLock) { $heldLock.Dispose() }
-        if ($parentHandles) { Close-SafeDirectoryContainmentChain -Handles $parentHandles }
+        if ($null -ne $resourceOwner) { try { Close-CanonicalRepoLockResourceOwner -Owner $resourceOwner } catch {} }
+        else {
+            if ($heldLock) { [AiAgentDotfiles.SafeLockFileHandle]::DisposeExact($heldLock) }
+            if ($parentHandles) { Close-SafeDirectoryContainmentChain -Handles $parentHandles }
+        }
         throw 'operation-lock-busy'
     }
     catch {
-        if ($heldLock) { $heldLock.Dispose() }
-        if ($parentHandles) { Close-SafeDirectoryContainmentChain -Handles $parentHandles }
+        if ($null -ne $resourceOwner) { try { Close-CanonicalRepoLockResourceOwner -Owner $resourceOwner } catch {} }
+        else {
+            if ($heldLock) { [AiAgentDotfiles.SafeLockFileHandle]::DisposeExact($heldLock) }
+            if ($parentHandles) { Close-SafeDirectoryContainmentChain -Handles $parentHandles }
+        }
         throw
     }
 }
@@ -139,9 +428,16 @@ function Enter-CanonicalRepoLock {
 function Exit-CanonicalRepoLock {
     [CmdletBinding()]
     param([Parameter(Mandatory)] $LockHandle)
-    if ($null -ne $LockHandle.HeldLock) { $LockHandle.HeldLock.Dispose() }
-    elseif ($null -ne $LockHandle.Stream) { $LockHandle.Stream.Dispose() }
-    if ($null -ne $LockHandle.ParentHandles) { Close-SafeDirectoryContainmentChain -Handles $LockHandle.ParentHandles }
+    $owner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($LockHandle)
+    if ($owner -isnot [AiAgentDotfiles.SafeLockResourceOwner] -or -not [AiAgentDotfiles.SafeLockResourceOwner]::IsExactForWrapper($owner,$LockHandle)) { throw 'canonical-witness-required' }
+    $displayValid = $false
+    try {
+        $null = Assert-CanonicalRepoLockHandle -LockHandle $LockHandle -ExpectedLockPath ([AiAgentDotfiles.SafeLockResourceOwner]::GetPathExact($owner))
+        $displayValid = $true
+    }
+    catch { $displayValid = $false }
+    Close-CanonicalRepoLockResourceOwner -Owner $owner
+    if (-not $displayValid) { throw 'canonical-witness-required' }
 }
 
 function Read-CanonicalJsonContractFile {

@@ -150,8 +150,19 @@ try{
 
     $rollbackAddAncestor=Join-Path $root 'file-add-rollback/ancestor';$rollbackAddParent=Join-Path $rollbackAddAncestor 'base';$rollbackAddMoved=Join-Path $root 'file-add-rollback/ancestor-moved';$rollbackAddTarget=Join-Path $rollbackAddParent 'target.txt'
     [IO.Directory]::CreateDirectory($rollbackAddParent)|Out-Null;Write-Utf8 (Join-Path $rollbackAddParent 'sentinel.txt') 'original';$rollbackAddRecovery=Join-Path $root 'file-add-rollback/recovery';$rollbackAddStaged=Join-Path $rollbackAddRecovery 'staged/candidate.txt';Write-Utf8 $rollbackAddStaged 'new';$rollbackAddCandidate=Get-ContractState $rollbackAddStaged file;$rollbackAddRow=New-TestTarget -RecoveryRoot $rollbackAddRecovery -Kind file -TargetPath $rollbackAddTarget -StagedPath $rollbackAddStaged -Current $missing -Candidate $rollbackAddCandidate;$rollbackAddNamespace=Join-Path $root ('file-add-rollback/'+[Guid]::NewGuid().ToString('D').ToLowerInvariant());New-TestJournal $rollbackAddNamespace $rollbackAddRecovery @($rollbackAddRow);$null=Invoke-CanonicalFileReplacement $rollbackAddNamespace $rollbackAddRow
-    $rollbackAddRecon=Get-Reconciliation $rollbackAddRow $rollbackAddNamespace;$rollbackAddController=Start-ExternalParentAttack -Name file-add-rollback -TriggerKind LeaseHeld -WatchRoot (Split-Path -Parent $rollbackAddAncestor) -Ancestor $rollbackAddAncestor -Moved $rollbackAddMoved -ProbePath ($rollbackAddMoved+'.probe');$rollbackAddError=$null
-    try{Restore-CanonicalMutationTarget -Target $rollbackAddRow -Reconciliation $rollbackAddRecon}catch{$rollbackAddError=$_.Exception.Message};$rollbackAddAttack=Complete-ExternalParentAttack $rollbackAddController
+    $rollbackAddRecon=Get-Reconciliation $rollbackAddRow $rollbackAddNamespace;$rollbackAddLeaseMarker=Join-Path $root 'file-add-rollback.lease-held';$rollbackAddController=Start-ExternalParentAttack -Name file-add-rollback -TriggerKind PathPresent -WatchRoot $root -Ancestor $rollbackAddAncestor -Moved $rollbackAddMoved -TriggerPath $rollbackAddLeaseMarker;$rollbackAddError=$null
+    $script:parentLeaseOriginal=${function:Open-CanonicalMutationParentLease};$script:parentLeaseMarker=$rollbackAddLeaseMarker;$script:parentLeaseAttackResult=[string]$rollbackAddController.ResultPath
+    function Open-CanonicalMutationParentLease {
+        [CmdletBinding()]param([Parameter(Mandatory)][string[]]$LeafPaths,[switch]$RequireLeafParentsExist)
+        $lease=& $script:parentLeaseOriginal -LeafPaths $LeafPaths -RequireLeafParentsExist:$RequireLeafParentsExist
+        try{
+            [IO.File]::WriteAllText([IO.Path]::GetFullPath($script:parentLeaseMarker),'held',[Text.UTF8Encoding]::new($false))
+            if(-not(Wait-TestPath -Path $script:parentLeaseAttackResult -TimeoutMilliseconds 30000)){throw 'external parent attack did not acknowledge the held lease'}
+            return $lease
+        }catch{Close-CanonicalMutationParentLease -Lease $lease;throw}
+    }
+    try{Restore-CanonicalMutationTarget -Target $rollbackAddRow -Reconciliation $rollbackAddRecon}catch{$rollbackAddError=$_.Exception.Message}finally{Set-Item -LiteralPath Function:\Open-CanonicalMutationParentLease -Value $script:parentLeaseOriginal}
+    $rollbackAddAttack=Complete-ExternalParentAttack $rollbackAddController
     Assert (-not $rollbackAddError -and $rollbackAddAttack.Blocked -and -not $rollbackAddAttack.Moved -and [string](Get-CanonicalObservedPathState $rollbackAddTarget).State -ceq 'MISSING' -and [string](Get-ContractState $rollbackAddStaged file).Hash -ceq [string]$rollbackAddCandidate.Hash -and [IO.File]::ReadAllText((Join-Path $rollbackAddParent 'sentinel.txt')) -ceq 'original') 'rollback file add: lease keeps the inverse no-overwrite move on the reviewed parent'
 
     $leaseCommand=Get-Command Open-CanonicalMutationParentLease -ErrorAction SilentlyContinue

@@ -6,6 +6,7 @@
         'agent-dotfiles.tests.ps1' = 150
         'approved-runner.tests.ps1' = 900
         'canonical-hard-kill.tests.ps1' = 5400
+        'canonical-hard-kill-reap-semantics.tests.ps1' = 15
         'canonical-command-result.tests.ps1' = 420
         'canonical-mutation-blockers.tests.ps1' = 600
         'canonical-mutation-parent-lease.tests.ps1' = 180
@@ -14,6 +15,9 @@
         'canonical-transaction.tests.ps1' = 360
         'config-sync.tests.ps1' = 90
         'doctor.tests.ps1' = 60
+        'home-authority.tests.ps1' = 180
+        'live-concurrency.tests.ps1' = 300
+        'root-claims-registry.tests.ps1' = 300
         'harness-env.tests.ps1' = 180
         'harness-multiplatform.tests.ps1' = 210
         'harness-profile.tests.ps1' = 90

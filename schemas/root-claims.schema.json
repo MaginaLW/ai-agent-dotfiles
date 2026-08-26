@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/root-claims.schema.json",
+  "title": "Immutable Home Authority Root Claims",
+  "type": "object",
+  "required": [
+    "SchemaVersion", "ArtifactKind", "HomeAuthorityKey", "TokenSid",
+    "ResolverVersion", "HomeRootLocationKey", "LiveRootClaims"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "root-claims" },
+    "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+    "TokenSid": { "$ref": "#/$defs/sid" },
+    "ResolverVersion": { "const": "windows-token-sid-known-folder-v1" },
+    "HomeRootLocationKey": { "$ref": "#/$defs/locationKey" },
+    "LiveRootClaims": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sid": { "type": "string", "pattern": "^S-[0-9]+(?:-[0-9]+)+$" },
+    "locationKey": { "type": "string", "minLength": 4, "pattern": "^[a-z]:/[^/]" },
+    "volumeId": { "type": "string", "minLength": 8, "maxLength": 8, "pattern": "^[0-9a-f]{8}$" },
+    "directoryIdentity": { "type": "string", "minLength": 25, "maxLength": 25, "pattern": "^[0-9a-f]{8}:[0-9a-f]{16}$" },
+    "liveRootClaim": {
+      "type": "object",
+      "required": [
+        "Platform", "LocationKey", "RequestedPath", "InitialState", "VolumeId",
+        "DeepestExistingParentPath", "DeepestExistingParentIdentity", "MissingRemainder",
+        "InitialDirectoryIdentity", "ExpectedPostState"
+      ],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "LocationKey": { "$ref": "#/$defs/locationKey" },
+        "RequestedPath": { "type": "string", "minLength": 4, "pattern": "^[A-Za-z]:\\\\" },
+        "InitialState": { "enum": ["ABSENT", "EXISTS"] },
+        "VolumeId": { "$ref": "#/$defs/volumeId" },
+        "DeepestExistingParentPath": { "type": "string", "minLength": 3, "pattern": "^[A-Za-z]:\\\\" },
+        "DeepestExistingParentIdentity": { "$ref": "#/$defs/directoryIdentity" },
+        "MissingRemainder": { "type": "array", "items": { "type": "string", "minLength": 1, "pattern": "^[^\\\\/:]+$" } },
+        "InitialDirectoryIdentity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] },
+        "ExpectedPostState": { "const": "EXISTS" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "InitialState": { "const": "ABSENT" },
+            "MissingRemainder": { "minItems": 1 },
+            "InitialDirectoryIdentity": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "InitialState": { "const": "EXISTS" },
+            "MissingRemainder": { "maxItems": 0 },
+            "InitialDirectoryIdentity": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -10,10 +10,12 @@ if (-not ('AiAgentDotfiles.NoFollowFile' -as [type])) {
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
 namespace AiAgentDotfiles {
@@ -44,10 +46,35 @@ namespace AiAgentDotfiles {
     }
     public sealed class SafeDirectoryHandle : IDisposable {
         private SafeFileHandle handle;
-        internal SafeDirectoryHandle(SafeFileHandle value, FileIdentityInfo info) { handle = value; Info = info; }
+        private readonly object syncRoot = new object();
+        private readonly string acquiredIdentity;
+        private readonly uint acquiredLinkCount;
+        internal SafeDirectoryHandle(SafeFileHandle value, FileIdentityInfo info) {
+            if (value == null) throw new ArgumentNullException("value");
+            if (info == null) throw new ArgumentNullException("info");
+            handle = value;
+            acquiredIdentity = info.Identity;
+            acquiredLinkCount = info.LinkCount;
+            Info = info;
+        }
         public FileIdentityInfo Info { get; private set; }
-        internal SafeFileHandle Handle { get { return handle; } }
-        public void Dispose() { if (handle != null) { handle.Dispose(); handle = null; } }
+        public string AcquiredIdentity { get { return acquiredIdentity; } }
+        public uint AcquiredLinkCount { get { return acquiredLinkCount; } }
+        public bool IsOpen { get { lock (syncRoot) { return handle != null && !handle.IsClosed && !handle.IsInvalid; } } }
+        public static bool IsOpenExact(SafeDirectoryHandle value) { return value != null && value.IsOpenExactCore(); }
+        public static string GetAcquiredIdentityExact(SafeDirectoryHandle value) { return value == null ? null : value.acquiredIdentity; }
+        public static uint GetAcquiredLinkCountExact(SafeDirectoryHandle value) { return value == null ? 0U : value.acquiredLinkCount; }
+        public static FileIdentityInfo GetInfoExact(SafeDirectoryHandle value) { return value == null ? null : value.Info; }
+        public static void DisposeExact(SafeDirectoryHandle value) { if (value != null) value.Dispose(); }
+        internal object SyncRoot { get { return syncRoot; } }
+        internal bool IsOpenUnsafe { get { return handle != null && !handle.IsClosed && !handle.IsInvalid; } }
+        internal SafeFileHandle Handle { get { lock (syncRoot) { return handle; } } }
+        private bool IsOpenExactCore() { lock (syncRoot) { return IsOpenUnsafe; } }
+        public void Dispose() {
+            SafeFileHandle current = null;
+            lock (syncRoot) { current = handle; handle = null; }
+            if (current != null) current.Dispose();
+        }
     }
     public sealed class SafeRegularFileHandle : IDisposable {
         private FileStream stream;
@@ -67,28 +94,363 @@ namespace AiAgentDotfiles {
         public FileIdentityInfo Info { get; private set; }
         public FileReadResult ReadResult { get; private set; }
         internal FileStream Stream { get { return stream; } }
-        internal SafeFileHandle Handle { get { return stream.SafeFileHandle; } }
+        internal SafeFileHandle Handle { get { return stream == null ? null : stream.SafeFileHandle; } }
         internal string ExpectedIdentity { get { return expectedIdentity; } }
         internal uint ExpectedLinkCount { get { return expectedLinkCount; } }
         internal long ExpectedLength { get { return expectedLength; } }
         internal string ExpectedSha256 { get { return expectedSha256; } }
         public void Dispose() { if (stream != null) { stream.Dispose(); stream = null; } }
     }
-    public sealed class SafeLockFileHandle : IDisposable {
-        private FileStream stream;
-        internal SafeLockFileHandle(FileStream value, FileIdentityInfo info) {
-            stream = value;
-            Info = new FileIdentityInfo { Identity=info.Identity, LinkCount=info.LinkCount, Length=info.Length, Attributes=info.Attributes };
+    public sealed class SafeLockFileStreamView : Stream {
+        private readonly SafeLockFileHandle owner;
+        internal SafeLockFileStreamView(SafeLockFileHandle ownerValue) { owner = ownerValue; }
+        public override bool CanRead { get { return owner.ViewCanRead; } }
+        public override bool CanSeek { get { return owner.ViewCanSeek; } }
+        public override bool CanWrite { get { return owner.ViewCanWrite; } }
+        public override long Length { get { return owner.ViewLength; } }
+        public override long Position { get { return owner.ViewPosition; } set { owner.ViewPosition = value; } }
+        public override void Flush() { owner.ViewFlush(false); }
+        public void Flush(bool flushToDisk) { owner.ViewFlush(flushToDisk); }
+        public override int Read(byte[] buffer, int offset, int count) { return owner.ViewRead(buffer, offset, count); }
+        public override long Seek(long offset, SeekOrigin origin) { return owner.ViewSeek(offset, origin); }
+        public override void SetLength(long value) { owner.ViewSetLength(value); }
+        public override void Write(byte[] buffer, int offset, int count) { owner.ViewWrite(buffer, offset, count); }
+        public override void Close() { }
+        protected override void Dispose(bool disposing) { }
+    }
+
+    public sealed class SafeLockOrderBinding {
+        private static readonly ConditionalWeakTable<object, SafeLockOrderBinding> wrapperBindings =
+            new ConditionalWeakTable<object, SafeLockOrderBinding>();
+        private readonly SafeLockFileHandle prerequisite;
+        private readonly SafeLockFileHandle current;
+        private readonly SafeDirectoryHandle currentParent;
+        private readonly object prerequisiteWitness;
+        private readonly object authorityContext;
+        private readonly object currentWrapper;
+        private readonly long prerequisiteAcquisitionOrdinal;
+        private readonly long currentAcquisitionOrdinal;
+        private readonly string prerequisiteIdentity;
+        private readonly uint prerequisiteLinkCount;
+        private readonly long prerequisiteLength;
+        private readonly string currentIdentity;
+        private readonly uint currentLinkCount;
+        private readonly long currentLength;
+        private readonly string currentParentIdentity;
+        private readonly uint currentParentLinkCount;
+        private readonly string bindingHash;
+
+        internal SafeLockOrderBinding(SafeLockFileHandle prerequisiteValue, SafeLockFileHandle currentValue,
+            SafeDirectoryHandle currentParentValue, object prerequisiteWitnessValue, object authorityContextValue,
+            object currentWrapperValue, string bindingHashValue) {
+            prerequisite = prerequisiteValue;
+            current = currentValue;
+            currentParent = currentParentValue;
+            prerequisiteWitness = prerequisiteWitnessValue;
+            authorityContext = authorityContextValue;
+            currentWrapper = currentWrapperValue;
+            prerequisiteAcquisitionOrdinal = prerequisiteValue.AcquisitionOrdinal;
+            currentAcquisitionOrdinal = currentValue.AcquisitionOrdinal;
+            prerequisiteIdentity = prerequisiteValue.AcquiredIdentity;
+            prerequisiteLinkCount = prerequisiteValue.AcquiredLinkCount;
+            prerequisiteLength = prerequisiteValue.AcquiredLength;
+            currentIdentity = currentValue.AcquiredIdentity;
+            currentLinkCount = currentValue.AcquiredLinkCount;
+            currentLength = currentValue.AcquiredLength;
+            currentParentIdentity = currentParentValue.AcquiredIdentity;
+            currentParentLinkCount = currentParentValue.AcquiredLinkCount;
+            bindingHash = bindingHashValue;
         }
+
+        public SafeLockFileHandle Prerequisite { get { return prerequisite; } }
+        public SafeLockFileHandle Current { get { return current; } }
+        public SafeDirectoryHandle CurrentParent { get { return currentParent; } }
+        public object PrerequisiteWitness { get { return prerequisiteWitness; } }
+        public object AuthorityContext { get { return authorityContext; } }
+        public object CurrentWrapper { get { return currentWrapper; } }
+        public long PrerequisiteAcquisitionOrdinal { get { return prerequisiteAcquisitionOrdinal; } }
+        public long CurrentAcquisitionOrdinal { get { return currentAcquisitionOrdinal; } }
+        public string PrerequisiteIdentity { get { return prerequisiteIdentity; } }
+        public uint PrerequisiteLinkCount { get { return prerequisiteLinkCount; } }
+        public long PrerequisiteLength { get { return prerequisiteLength; } }
+        public string CurrentIdentity { get { return currentIdentity; } }
+        public uint CurrentLinkCount { get { return currentLinkCount; } }
+        public long CurrentLength { get { return currentLength; } }
+        public string CurrentParentIdentity { get { return currentParentIdentity; } }
+        public uint CurrentParentLinkCount { get { return currentParentLinkCount; } }
+        public string BindingHash { get { return bindingHash; } }
+
+        public static SafeLockOrderBinding GetForCurrent(SafeLockFileHandle currentValue) {
+            return currentValue == null ? null : currentValue.GetOrderBindingExact();
+        }
+        public static SafeLockOrderBinding GetForWrapperExact(object wrapper) {
+            if (wrapper == null) return null;
+            SafeLockOrderBinding binding;
+            return wrapperBindings.TryGetValue(wrapper, out binding) ? binding : null;
+        }
+        public static SafeLockFileHandle GetPrerequisiteExact(SafeLockOrderBinding binding) { return binding == null ? null : binding.prerequisite; }
+        public static SafeLockFileHandle GetCurrentExact(SafeLockOrderBinding binding) { return binding == null ? null : binding.current; }
+        public static SafeDirectoryHandle GetCurrentParentExact(SafeLockOrderBinding binding) { return binding == null ? null : binding.currentParent; }
+        public static object GetPrerequisiteWitnessExact(SafeLockOrderBinding binding) { return binding == null ? null : binding.prerequisiteWitness; }
+        public static object GetAuthorityContextExact(SafeLockOrderBinding binding) { return binding == null ? null : binding.authorityContext; }
+        public static object GetCurrentWrapperExact(SafeLockOrderBinding binding) { return binding == null ? null : binding.currentWrapper; }
+        public static string GetBindingHashExact(SafeLockOrderBinding binding) { return binding == null ? null : binding.bindingHash; }
+        public static bool IsExactForWrapper(SafeLockOrderBinding binding, object wrapper) {
+            return binding != null && Object.ReferenceEquals(binding.currentWrapper, wrapper) &&
+                binding.current != null && Object.ReferenceEquals(binding.current.GetOrderBindingExact(), binding);
+        }
+        public static bool MatchesExact(SafeLockOrderBinding binding, SafeLockFileHandle prerequisiteValue,
+            SafeLockFileHandle currentValue, SafeDirectoryHandle currentParentValue, object prerequisiteWitnessValue,
+            object authorityContextValue, object currentWrapperValue, string bindingHashValue) {
+            return binding != null && binding.current != null && binding.current.MatchesOrderBindingState(binding,
+                prerequisiteValue, currentValue, currentParentValue, prerequisiteWitnessValue, authorityContextValue,
+                currentWrapperValue, bindingHashValue);
+        }
+        public static bool ReleaseExact(SafeLockOrderBinding binding) {
+            return binding != null && binding.current != null && binding.current.ReleaseBoundCurrentAndReportPrerequisiteOpen(binding);
+        }
+        public static SafeLockOrderBinding BindExact(SafeLockFileHandle currentValue, SafeLockFileHandle prerequisiteValue,
+            SafeDirectoryHandle currentParentValue, object prerequisiteWitnessValue, object authorityContextValue,
+            object currentWrapperValue, string bindingHashValue) {
+            if (currentValue == null) throw new ArgumentNullException("currentValue");
+            return currentValue.BindAcquiredAfter(prerequisiteValue, currentParentValue, prerequisiteWitnessValue,
+                authorityContextValue, currentWrapperValue, bindingHashValue);
+        }
+
+        internal static void RegisterWrapperExact(object wrapper, SafeLockOrderBinding binding) {
+            wrapperBindings.Add(wrapper, binding);
+        }
+        internal static void UnregisterWrapperExact(object wrapper, SafeLockOrderBinding binding) {
+            if (wrapper == null || binding == null) return;
+            SafeLockOrderBinding existing;
+            if (wrapperBindings.TryGetValue(wrapper, out existing) && Object.ReferenceEquals(existing, binding))
+                wrapperBindings.Remove(wrapper);
+        }
+
+        public bool Matches(SafeLockFileHandle prerequisiteValue, SafeLockFileHandle currentValue,
+            SafeDirectoryHandle currentParentValue, object prerequisiteWitnessValue, object authorityContextValue,
+            object currentWrapperValue, string bindingHashValue) {
+            return current != null && current.MatchesOrderBindingState(this, prerequisiteValue, currentValue,
+                currentParentValue, prerequisiteWitnessValue, authorityContextValue, currentWrapperValue, bindingHashValue);
+        }
+
+        public bool ReleaseCurrentAndReportPrerequisiteOpen() {
+            return current != null && current.ReleaseBoundCurrentAndReportPrerequisiteOpen(this);
+        }
+    }
+
+    public sealed class SafeLockFileHandle : IDisposable {
+        private static long nextAcquisitionOrdinal;
+        private FileStream stream;
+        private readonly SafeLockFileStreamView streamView;
+        private readonly object syncRoot = new object();
+        private readonly long acquisitionOrdinal;
+        private readonly string acquiredIdentity;
+        private readonly uint acquiredLinkCount;
+        private readonly long acquiredLength;
+        private SafeLockOrderBinding orderBinding;
+        private SafeLockFileHandle dependentCurrent;
+
+        internal SafeLockFileHandle(FileStream value, FileIdentityInfo info) {
+            if (value == null) throw new ArgumentNullException("value");
+            if (info == null) throw new ArgumentNullException("info");
+            stream = value;
+            acquisitionOrdinal = Interlocked.Increment(ref nextAcquisitionOrdinal);
+            if (acquisitionOrdinal <= 0) throw new InvalidOperationException("Safe lock acquisition ordinal overflowed.");
+            acquiredIdentity = info.Identity;
+            acquiredLinkCount = info.LinkCount;
+            acquiredLength = info.Length;
+            Info = new FileIdentityInfo { Identity=info.Identity, LinkCount=info.LinkCount, Length=info.Length, Attributes=info.Attributes };
+            streamView = new SafeLockFileStreamView(this);
+        }
+
         public FileIdentityInfo Info { get; private set; }
-        public FileStream Stream {
+        public long AcquisitionOrdinal { get { return acquisitionOrdinal; } }
+        public string AcquiredIdentity { get { return acquiredIdentity; } }
+        public uint AcquiredLinkCount { get { return acquiredLinkCount; } }
+        public long AcquiredLength { get { return acquiredLength; } }
+        public bool IsOpen { get { lock (syncRoot) { return IsOpenUnsafe; } } }
+        public SafeLockOrderBinding OrderBinding { get { return Volatile.Read(ref orderBinding); } }
+        public static bool IsOpenExact(SafeLockFileHandle value) { return value != null && value.IsOpenExactCore(); }
+        public static long GetAcquisitionOrdinalExact(SafeLockFileHandle value) { return value == null ? 0L : value.acquisitionOrdinal; }
+        public static string GetAcquiredIdentityExact(SafeLockFileHandle value) { return value == null ? null : value.acquiredIdentity; }
+        public static uint GetAcquiredLinkCountExact(SafeLockFileHandle value) { return value == null ? 0U : value.acquiredLinkCount; }
+        public static long GetAcquiredLengthExact(SafeLockFileHandle value) { return value == null ? 0L : value.acquiredLength; }
+        public static FileIdentityInfo GetInfoExact(SafeLockFileHandle value) { return value == null ? null : value.Info; }
+        public static Stream GetStreamViewExact(SafeLockFileHandle value) { return value == null ? null : value.streamView; }
+        public static void DisposeExact(SafeLockFileHandle value) { if (value != null) value.Dispose(); }
+        public Stream Stream {
             get {
-                if (stream == null) throw new ObjectDisposedException("SafeLockFileHandle");
-                return stream;
+                lock (syncRoot) {
+                    if (!IsOpenUnsafe) throw new ObjectDisposedException("SafeLockFileHandle");
+                    return streamView;
+                }
             }
         }
-        internal SafeFileHandle Handle { get { return stream == null ? null : stream.SafeFileHandle; } }
-        public void Dispose() { if (stream != null) { stream.Dispose(); stream = null; } }
+        internal object SyncRoot { get { return syncRoot; } }
+        internal SafeLockOrderBinding GetOrderBindingExact() { return Volatile.Read(ref orderBinding); }
+        private bool IsOpenExactCore() { lock (syncRoot) { return IsOpenUnsafe; } }
+        internal bool IsOpenUnsafe {
+            get {
+                if (stream == null) return false;
+                try {
+                    SafeFileHandle currentHandle = stream.SafeFileHandle;
+                    return stream.CanRead && stream.CanWrite && currentHandle != null && !currentHandle.IsClosed && !currentHandle.IsInvalid;
+                } catch (ObjectDisposedException) { return false; } catch (InvalidOperationException) { return false; }
+            }
+        }
+        internal SafeFileHandle Handle {
+            get {
+                lock (syncRoot) {
+                    if (!IsOpenUnsafe) return null;
+                    try { return stream.SafeFileHandle; } catch (ObjectDisposedException) { return null; }
+                }
+            }
+        }
+
+        private FileStream RequireStreamUnsafe() {
+            if (!IsOpenUnsafe) throw new ObjectDisposedException("SafeLockFileHandle");
+            return stream;
+        }
+        internal bool ViewCanRead { get { lock (syncRoot) { return IsOpenUnsafe && stream.CanRead; } } }
+        internal bool ViewCanSeek { get { lock (syncRoot) { return IsOpenUnsafe && stream.CanSeek; } } }
+        internal bool ViewCanWrite { get { lock (syncRoot) { return IsOpenUnsafe && stream.CanWrite; } } }
+        internal long ViewLength { get { lock (syncRoot) { return RequireStreamUnsafe().Length; } } }
+        internal long ViewPosition { get { lock (syncRoot) { return RequireStreamUnsafe().Position; } } set { lock (syncRoot) { RequireStreamUnsafe().Position = value; } } }
+        internal void ViewFlush(bool flushToDisk) { lock (syncRoot) { RequireStreamUnsafe().Flush(flushToDisk); } }
+        internal int ViewRead(byte[] buffer, int offset, int count) { lock (syncRoot) { return RequireStreamUnsafe().Read(buffer, offset, count); } }
+        internal long ViewSeek(long offset, SeekOrigin origin) { lock (syncRoot) { return RequireStreamUnsafe().Seek(offset, origin); } }
+        internal void ViewSetLength(long value) { lock (syncRoot) { RequireStreamUnsafe().SetLength(value); } }
+        internal void ViewWrite(byte[] buffer, int offset, int count) { lock (syncRoot) { RequireStreamUnsafe().Write(buffer, offset, count); } }
+
+        private static bool IsCanonicalHash(string value) {
+            if (value == null || value.Length != 64) return false;
+            for (int index = 0; index < value.Length; index++) {
+                char current = value[index];
+                if (!((current >= '0' && current <= '9') || (current >= 'a' && current <= 'f'))) return false;
+            }
+            return true;
+        }
+
+        public SafeLockOrderBinding BindAcquiredAfter(SafeLockFileHandle prerequisite, SafeDirectoryHandle currentParent,
+            object prerequisiteWitness, object authorityContext, object currentWrapper, string bindingHash) {
+            if (prerequisite == null) throw new ArgumentNullException("prerequisite");
+            if (currentParent == null) throw new ArgumentNullException("currentParent");
+            if (prerequisiteWitness == null) throw new ArgumentNullException("prerequisiteWitness");
+            if (authorityContext == null) throw new ArgumentNullException("authorityContext");
+            if (currentWrapper == null) throw new ArgumentNullException("currentWrapper");
+            if (!IsCanonicalHash(bindingHash)) throw new ArgumentException("Binding hash must be lowercase SHA-256.", "bindingHash");
+            if (Object.ReferenceEquals(prerequisite, this) || prerequisite.acquisitionOrdinal >= acquisitionOrdinal)
+                throw new InvalidOperationException("Lock-order prerequisite was not acquired before the current lock.");
+
+            lock (prerequisite.syncRoot) {
+                lock (currentParent.SyncRoot) {
+                    lock (syncRoot) {
+                        if (!prerequisite.IsOpenUnsafe || !currentParent.IsOpenUnsafe || !IsOpenUnsafe)
+                            throw new ObjectDisposedException("SafeLockOrderBinding");
+                        if (prerequisite.dependentCurrent != null)
+                            throw new InvalidOperationException("The prerequisite lock already has a dependent lock.");
+                        if (Volatile.Read(ref orderBinding) != null)
+                            throw new InvalidOperationException("The current lock already has an order binding.");
+                        SafeLockOrderBinding candidate = new SafeLockOrderBinding(prerequisite, this, currentParent,
+                            prerequisiteWitness, authorityContext, currentWrapper, bindingHash);
+                        if (Interlocked.CompareExchange(ref orderBinding, candidate, null) != null)
+                            throw new InvalidOperationException("The current lock already has an order binding.");
+                        prerequisite.dependentCurrent = this;
+                        try {
+                            SafeLockOrderBinding.RegisterWrapperExact(currentWrapper, candidate);
+                            return candidate;
+                        } catch {
+                            prerequisite.dependentCurrent = null;
+                            Interlocked.CompareExchange(ref orderBinding, null, candidate);
+                            throw;
+                        }
+                    }
+                }
+            }
+        }
+
+        internal bool MatchesOrderBindingState(SafeLockOrderBinding binding, SafeLockFileHandle prerequisiteValue,
+            SafeLockFileHandle currentValue, SafeDirectoryHandle currentParentValue, object prerequisiteWitnessValue,
+            object authorityContextValue, object currentWrapperValue, string bindingHashValue) {
+            if (binding == null || prerequisiteValue == null || currentParentValue == null || !IsCanonicalHash(bindingHashValue)) return false;
+            if (!Object.ReferenceEquals(this, currentValue) || !Object.ReferenceEquals(binding.Prerequisite, prerequisiteValue) ||
+                !Object.ReferenceEquals(binding.Current, currentValue) || !Object.ReferenceEquals(binding.CurrentParent, currentParentValue) ||
+                !Object.ReferenceEquals(binding.PrerequisiteWitness, prerequisiteWitnessValue) || !Object.ReferenceEquals(binding.AuthorityContext, authorityContextValue) ||
+                !Object.ReferenceEquals(binding.CurrentWrapper, currentWrapperValue) || !String.Equals(binding.BindingHash, bindingHashValue, StringComparison.Ordinal)) return false;
+
+            lock (prerequisiteValue.syncRoot) {
+                lock (currentParentValue.SyncRoot) {
+                    lock (syncRoot) {
+                        return prerequisiteValue.IsOpenUnsafe && currentParentValue.IsOpenUnsafe && IsOpenUnsafe &&
+                            prerequisiteValue.acquisitionOrdinal < acquisitionOrdinal &&
+                            Object.ReferenceEquals(prerequisiteValue.dependentCurrent, this) &&
+                            Object.ReferenceEquals(Volatile.Read(ref orderBinding), binding) &&
+                            binding.PrerequisiteAcquisitionOrdinal == prerequisiteValue.acquisitionOrdinal &&
+                            binding.CurrentAcquisitionOrdinal == acquisitionOrdinal &&
+                            String.Equals(binding.PrerequisiteIdentity, prerequisiteValue.acquiredIdentity, StringComparison.Ordinal) &&
+                            binding.PrerequisiteLinkCount == prerequisiteValue.acquiredLinkCount && binding.PrerequisiteLength == prerequisiteValue.acquiredLength &&
+                            String.Equals(binding.CurrentIdentity, acquiredIdentity, StringComparison.Ordinal) &&
+                            binding.CurrentLinkCount == acquiredLinkCount && binding.CurrentLength == acquiredLength &&
+                            String.Equals(binding.CurrentParentIdentity, currentParentValue.AcquiredIdentity, StringComparison.Ordinal) &&
+                            binding.CurrentParentLinkCount == currentParentValue.AcquiredLinkCount;
+                    }
+                }
+            }
+        }
+
+        internal bool ReleaseBoundCurrentAndReportPrerequisiteOpen(SafeLockOrderBinding binding) {
+            if (binding == null || !Object.ReferenceEquals(binding.Current, this)) return false;
+            SafeLockFileHandle prerequisite = binding.Prerequisite;
+            SafeDirectoryHandle currentParent = binding.CurrentParent;
+            if (prerequisite == null || currentParent == null) return false;
+            FileStream detached = null;
+            bool completeOrderWasValid;
+            lock (prerequisite.syncRoot) {
+                lock (currentParent.SyncRoot) {
+                    lock (syncRoot) {
+                        if (dependentCurrent != null)
+                            throw new InvalidOperationException("dependent-lock-active");
+                        completeOrderWasValid = prerequisite.IsOpenUnsafe && currentParent.IsOpenUnsafe && IsOpenUnsafe &&
+                            prerequisite.acquisitionOrdinal < acquisitionOrdinal &&
+                            Object.ReferenceEquals(prerequisite.dependentCurrent, this) &&
+                            Object.ReferenceEquals(Volatile.Read(ref orderBinding), binding) &&
+                            binding.PrerequisiteAcquisitionOrdinal == prerequisite.acquisitionOrdinal &&
+                            binding.CurrentAcquisitionOrdinal == acquisitionOrdinal &&
+                            String.Equals(binding.PrerequisiteIdentity, prerequisite.acquiredIdentity, StringComparison.Ordinal) &&
+                            binding.PrerequisiteLinkCount == prerequisite.acquiredLinkCount && binding.PrerequisiteLength == prerequisite.acquiredLength &&
+                            String.Equals(binding.CurrentIdentity, acquiredIdentity, StringComparison.Ordinal) &&
+                            binding.CurrentLinkCount == acquiredLinkCount && binding.CurrentLength == acquiredLength &&
+                            String.Equals(binding.CurrentParentIdentity, currentParent.AcquiredIdentity, StringComparison.Ordinal) &&
+                            binding.CurrentParentLinkCount == currentParent.AcquiredLinkCount;
+                        detached = stream;
+                        stream = null;
+                    }
+                }
+            }
+            if (detached != null) detached.Dispose();
+            lock (prerequisite.syncRoot) {
+                if (Object.ReferenceEquals(prerequisite.dependentCurrent, this)) prerequisite.dependentCurrent = null;
+            }
+            SafeLockOrderBinding.UnregisterWrapperExact(binding.CurrentWrapper, binding);
+            return completeOrderWasValid;
+        }
+
+        public void Dispose() {
+            SafeLockOrderBinding binding = Volatile.Read(ref orderBinding);
+            if (binding != null && Object.ReferenceEquals(binding.Current, this)) {
+                ReleaseBoundCurrentAndReportPrerequisiteOpen(binding);
+                return;
+            }
+            FileStream detached = null;
+            lock (syncRoot) {
+                if (dependentCurrent != null)
+                    throw new InvalidOperationException("dependent-lock-active");
+                detached = stream;
+                stream = null;
+            }
+            if (detached != null) detached.Dispose();
+        }
     }
     public static class NoFollowFile {
         private const uint GENERIC_READ = 0x80000000;
@@ -225,7 +587,7 @@ namespace AiAgentDotfiles {
             return full;
         }
         private static SafeDirectoryHandle HoldAbsoluteVolumeRoot(string path) {
-            SafeFileHandle handle = OpenMetadata(path, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE);
+            SafeFileHandle handle = OpenMetadata(path, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE);
             try {
                 FileIdentityInfo info = ReadInfo(handle);
                 if (!info.IsDirectory || info.IsReparsePoint) throw new InvalidOperationException("Volume root is not a no-follow directory: " + path);
@@ -294,20 +656,36 @@ namespace AiAgentDotfiles {
                 throw new ArgumentException("Relative entry name must be one non-stream path component.", "name");
         }
         private static SafeFileHandle OpenRelative(SafeDirectoryHandle parent, string name, uint access, uint share, int disposition, uint options) {
+            return OpenRelative(parent, name, access, share, disposition, options, null);
+        }
+        private static SafeFileHandle OpenRelative(SafeDirectoryHandle parent, string name, uint access, uint share, int disposition, uint options, string securityDescriptorSddl) {
             ValidateRelativeName(name);
             IntPtr nameBuffer = Marshal.StringToHGlobalUni(name);
             IntPtr unicodePointer = IntPtr.Zero;
             bool parentReference = false;
+            byte[] securityDescriptorBytes = null;
+            GCHandle securityDescriptorPin = default(GCHandle);
+            bool securityDescriptorPinned = false;
             SafeFileHandle parentHandle = parent == null ? null : parent.Handle;
             if (parentHandle == null) { Marshal.FreeHGlobal(nameBuffer); throw new ObjectDisposedException("parent"); }
             try {
+                IntPtr securityDescriptorPointer = IntPtr.Zero;
+                if (securityDescriptorSddl != null) {
+                    if (String.IsNullOrWhiteSpace(securityDescriptorSddl)) throw new ArgumentException("Security descriptor SDDL must not be empty.", "securityDescriptorSddl");
+                    var descriptor = new RawSecurityDescriptor(securityDescriptorSddl);
+                    securityDescriptorBytes = new byte[descriptor.BinaryLength];
+                    descriptor.GetBinaryForm(securityDescriptorBytes, 0);
+                    securityDescriptorPin = GCHandle.Alloc(securityDescriptorBytes, GCHandleType.Pinned);
+                    securityDescriptorPinned = true;
+                    securityDescriptorPointer = securityDescriptorPin.AddrOfPinnedObject();
+                }
                 parentHandle.DangerousAddRef(ref parentReference);
                 UNICODE_STRING unicode = new UNICODE_STRING { Length = checked((ushort)(name.Length * 2)), MaximumLength = checked((ushort)((name.Length + 1) * 2)), Buffer = nameBuffer };
                 unicodePointer = Marshal.AllocHGlobal(Marshal.SizeOf<UNICODE_STRING>());
                 Marshal.StructureToPtr(unicode, unicodePointer, false);
                 OBJECT_ATTRIBUTES attributes = new OBJECT_ATTRIBUTES {
                     Length = Marshal.SizeOf<OBJECT_ATTRIBUTES>(), RootDirectory = parentHandle.DangerousGetHandle(), ObjectName = unicodePointer,
-                    Attributes = OBJ_CASE_INSENSITIVE, SecurityDescriptor = IntPtr.Zero, SecurityQualityOfService = IntPtr.Zero
+                    Attributes = OBJ_CASE_INSENSITIVE, SecurityDescriptor = securityDescriptorPointer, SecurityQualityOfService = IntPtr.Zero
                 };
                 IO_STATUS_BLOCK io;
                 SafeFileHandle result;
@@ -319,6 +697,7 @@ namespace AiAgentDotfiles {
                 if (unicodePointer != IntPtr.Zero) Marshal.FreeHGlobal(unicodePointer);
                 Marshal.FreeHGlobal(nameBuffer);
                 if (parentReference) parentHandle.DangerousRelease();
+                if (securityDescriptorPinned) securityDescriptorPin.Free();
             }
         }
         public static FileIdentityInfo Inspect(string path) {
@@ -332,7 +711,7 @@ namespace AiAgentDotfiles {
             return HoldAbsoluteVolumeRoot(volumeRoot);
         }
         public static SafeDirectoryHandle HoldChildDirectory(SafeDirectoryHandle parent, string name) {
-            SafeFileHandle handle = OpenRelative(parent, name, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, FILE_DIRECTORY_FILE);
+            SafeFileHandle handle = OpenRelative(parent, name, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, FILE_DIRECTORY_FILE);
             try {
                 FileIdentityInfo info = ReadInfo(handle);
                 if (!info.IsDirectory || info.IsReparsePoint) throw new InvalidOperationException("Relative containment child is not a no-follow directory: " + name);
@@ -360,6 +739,15 @@ namespace AiAgentDotfiles {
             try {
                 FileIdentityInfo info = ReadInfo(handle);
                 if (!info.IsDirectory || info.IsReparsePoint) throw new InvalidOperationException("Created relative child is not a no-follow directory: " + name);
+                return new SafeDirectoryHandle(handle, info);
+            } catch { handle.Dispose(); throw; }
+        }
+        public static SafeDirectoryHandle CreateChildDirectoryWithSecurityDescriptor(SafeDirectoryHandle parent, string name, string securityDescriptorSddl) {
+            SafeFileHandle handle = OpenRelative(parent, name, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_CREATE, FILE_DIRECTORY_FILE, securityDescriptorSddl);
+            try {
+                FileIdentityInfo info = ReadInfo(handle);
+                if (!info.IsDirectory || info.IsReparsePoint) throw new InvalidOperationException("Created secured relative child is not a no-follow directory: " + name);
                 return new SafeDirectoryHandle(handle, info);
             } catch { handle.Dispose(); throw; }
         }
@@ -428,26 +816,53 @@ namespace AiAgentDotfiles {
             }
             throw new InvalidOperationException("Held stream enumeration exceeded the safety bound.");
         }
-        public static string[] GetNamedStreams(SafeDirectoryHandle directory) { return GetNamedStreamsByHandle(directory.Handle); }
+        public static string[] GetNamedStreams(SafeDirectoryHandle directory) {
+            if (directory == null || directory.Handle == null) throw new ObjectDisposedException("directory");
+            return GetNamedStreamsByHandle(directory.Handle);
+        }
+        public static string[] GetNamedStreams(SafeLockFileHandle file) {
+            if (file == null || file.Handle == null) throw new ObjectDisposedException("file");
+            return GetNamedStreamsByHandle(file.Handle);
+        }
+        private static DirectorySecuritySnapshot GetSecuritySnapshotByHandle(SafeFileHandle handle, bool requireDirectory, string label) {
+            FileIdentityInfo info = ReadInfo(handle);
+            if (info.IsReparsePoint || info.IsDirectory != requireDirectory)
+                throw new InvalidOperationException("Security target has the wrong no-follow type: " + label);
+            IntPtr owner, group, dacl, sacl, descriptor;
+            uint error = GetSecurityInfo(handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                out owner, out group, out dacl, out sacl, out descriptor);
+            if (error != 0) throw new Win32Exception((int)error, "Unable to query security by held handle (error " + error.ToString() + "): " + label);
+            try {
+                uint length = GetSecurityDescriptorLength(descriptor);
+                byte[] bytes = new byte[length];
+                Marshal.Copy(descriptor, bytes, 0, checked((int)length));
+                var raw = new RawSecurityDescriptor(bytes, 0);
+                return new DirectorySecuritySnapshot {
+                    Identity = info.Identity, LinkCount = info.LinkCount,
+                    Sddl = raw.GetSddlForm(AccessControlSections.Owner | AccessControlSections.Access)
+                };
+            } finally { if (descriptor != IntPtr.Zero) LocalFree(descriptor); }
+        }
         public static DirectorySecuritySnapshot GetDirectorySecuritySnapshot(string path) {
-            using (SafePathHandle capture = OpenSafePathHandle(path, READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_DIRECTORY_FILE)) {
-                FileIdentityInfo info = ReadInfo(capture.Handle);
-                if (!info.IsDirectory || info.IsReparsePoint) throw new InvalidOperationException("Security target is not a no-follow directory: " + path);
-                IntPtr owner, group, dacl, sacl, descriptor;
-                uint error = GetSecurityInfo(capture.Handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-                    out owner, out group, out dacl, out sacl, out descriptor);
-                if (error != 0) throw new Win32Exception((int)error, "Unable to query directory security by handle: " + path);
-                try {
-                    uint length = GetSecurityDescriptorLength(descriptor);
-                    byte[] bytes = new byte[length];
-                    Marshal.Copy(descriptor, bytes, 0, checked((int)length));
-                    var raw = new RawSecurityDescriptor(bytes, 0);
-                    return new DirectorySecuritySnapshot {
-                        Identity = info.Identity, LinkCount = info.LinkCount,
-                        Sddl = raw.GetSddlForm(AccessControlSections.Owner | AccessControlSections.Access)
-                    };
-                } finally { if (descriptor != IntPtr.Zero) LocalFree(descriptor); }
-            }
+            using (SafePathHandle capture = OpenSafePathHandle(path, READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_DIRECTORY_FILE))
+                return GetSecuritySnapshotByHandle(capture.Handle, true, path);
+        }
+        public static DirectorySecuritySnapshot GetDirectorySecuritySnapshot(SafeDirectoryHandle directory) {
+            if (directory == null || directory.Handle == null) throw new ObjectDisposedException("directory");
+            return GetSecuritySnapshotByHandle(directory.Handle, true, "held directory");
+        }
+        public static DirectorySecuritySnapshot GetLockFileSecuritySnapshot(SafeLockFileHandle file) {
+            if (file == null || file.Handle == null) throw new ObjectDisposedException("file");
+            return GetSecuritySnapshotByHandle(file.Handle, false, "held lock file");
+        }
+        public static DirectorySecuritySnapshot GetRegularFileSecuritySnapshot(string path) {
+            using (SafePathHandle capture = OpenSafePathHandle(path, READ_CONTROL | FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_NON_DIRECTORY_FILE))
+                return GetSecuritySnapshotByHandle(capture.Handle, false, path);
+        }
+        public static DirectorySecuritySnapshot GetRegularFileSecuritySnapshot(SafeRegularFileHandle file) {
+            if (file == null || file.Handle == null) throw new ObjectDisposedException("file");
+            return GetSecuritySnapshotByHandle(file.Handle, false, "held regular file");
         }
         public static string[] GetNamedStreams(string path) {
             using (SafePathHandle capture = OpenSafePathHandle(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0))
@@ -464,7 +879,7 @@ namespace AiAgentDotfiles {
                     Length=capture.ReadResult.Length, Sha256=capture.ReadResult.Sha256 };
         }
         public static SafeRegularFileHandle OpenAndHashChildRegularFile(SafeDirectoryHandle parent, string name) {
-            SafeFileHandle handle = OpenRelative(parent, name, FILE_READ_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE);
+            SafeFileHandle handle = OpenRelative(parent, name, FILE_READ_DATA | FILE_READ_ATTRIBUTES | READ_CONTROL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE);
             FileStream stream = null;
             try {
                 FileIdentityInfo info = ReadInfo(handle);
@@ -644,6 +1059,37 @@ namespace AiAgentDotfiles {
         }
         public static SafeLockFileHandle OpenOrCreateChildLockFile(SafeDirectoryHandle parent, string name) {
             return OpenChildLockFileCore(parent, name, FILE_OPEN_IF);
+        }
+        private static SafeLockFileHandle OpenSecuredChildLockFileCore(SafeDirectoryHandle parent, string name, int disposition, string securityDescriptorSddl) {
+            SafeFileHandle handle = OpenRelative(parent, name,
+                GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, disposition, FILE_NON_DIRECTORY_FILE, securityDescriptorSddl);
+            FileStream stream = null;
+            try {
+                FileIdentityInfo before = ReadInfo(handle);
+                if (before.IsDirectory || before.IsReparsePoint)
+                    throw new InvalidOperationException("Relative secured lock child is not a regular file: " + name);
+                if (before.LinkCount != 1)
+                    throw new InvalidOperationException("Relative secured lock child has multiple hard links: " + name);
+                if (GetNamedStreamsByHandle(handle).Length != 0)
+                    throw new InvalidOperationException("Relative secured lock child has a named alternate data stream: " + name);
+                FileIdentityInfo after = ReadInfo(handle);
+                if (after.IsDirectory || after.IsReparsePoint || after.LinkCount != 1 ||
+                    !String.Equals(after.Identity, before.Identity, StringComparison.Ordinal) || after.Length != before.Length)
+                    throw new InvalidOperationException("Relative secured lock child changed during acquisition: " + name);
+                if (GetNamedStreamsByHandle(handle).Length != 0)
+                    throw new InvalidOperationException("Relative secured lock child acquired a named alternate data stream during acquisition: " + name);
+                stream = new FileStream(handle, FileAccess.ReadWrite);
+                return new SafeLockFileHandle(stream, after);
+            } catch {
+                if (stream != null) stream.Dispose(); else handle.Dispose();
+                throw;
+            }
+        }
+        public static SafeLockFileHandle CreateChildLockFileWithSecurityDescriptor(SafeDirectoryHandle parent, string name, string securityDescriptorSddl) {
+            return OpenSecuredChildLockFileCore(parent, name, FILE_CREATE, securityDescriptorSddl);
+        }
+        public static SafeLockFileHandle OpenOrCreateChildLockFileWithSecurityDescriptor(SafeDirectoryHandle parent, string name, string securityDescriptorSddl) {
+            return OpenSecuredChildLockFileCore(parent, name, FILE_OPEN_IF, securityDescriptorSddl);
         }
         private static FileIdentityInfo ValidateHeldRegularFileState(SafeRegularFileHandle source, string stage) {
             if (source == null) throw new ArgumentNullException("source");
@@ -972,7 +1418,10 @@ function Open-SafeExistingDirectoryContainmentChain {
 
 function Close-SafeDirectoryContainmentChain {
     param([object[]] $Handles)
-    for ($index = @($Handles).Count - 1; $index -ge 0; $index--) { $Handles[$index].Dispose() }
+    for ($index = @($Handles).Count - 1; $index -ge 0; $index--) {
+        if ($Handles[$index] -is [AiAgentDotfiles.SafeDirectoryHandle]) { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($Handles[$index]) }
+        elseif ($null -ne $Handles[$index]) { $Handles[$index].Dispose() }
+    }
 }
 
 function Get-NoFollowRootEntryMarker {

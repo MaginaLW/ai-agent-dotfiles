@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/current-env-state.schema.json",
+  "title": "Shared Home Authority Environment State",
+  "type": "object",
+  "required": [
+    "SchemaVersion", "ArtifactKind", "HomeAuthorityKey", "AuthorityGeneration", "RootClaimsHash",
+    "SelectionKind", "EnvironmentName", "EnvironmentLockHash", "TaskOverlayHash", "TaskOverlaySkills",
+    "ManifestHashes", "FinalManagedHashes", "FinalResolvedIdentities", "FinalTargetContextHash",
+    "ControllerRepoFingerprint", "ApprovedToolchainHash", "PlanHash", "DocumentHash",
+    "JournalId", "PreStatePhaseHash", "LastOperationKind"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": 3 },
+    "ArtifactKind": { "const": "current-env-state" },
+    "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+    "AuthorityGeneration": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "RootClaimsHash": { "$ref": "#/$defs/hash" },
+    "SelectionKind": { "const": "environment" },
+    "EnvironmentName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+    "EnvironmentLockHash": { "$ref": "#/$defs/hash" },
+    "TaskOverlayHash": { "$ref": "#/$defs/hash" },
+    "TaskOverlaySkills": { "$ref": "#/$defs/platformSkills" },
+    "ManifestHashes": { "$ref": "#/$defs/platformHashes" },
+    "FinalManagedHashes": { "$ref": "#/$defs/platformHashes" },
+    "FinalResolvedIdentities": { "$ref": "#/$defs/finalResolvedIdentities" },
+    "FinalTargetContextHash": { "$ref": "#/$defs/hash" },
+    "ControllerRepoFingerprint": { "$ref": "#/$defs/hash" },
+    "ApprovedToolchainHash": { "$ref": "#/$defs/hash" },
+    "PlanHash": { "$ref": "#/$defs/hash" },
+    "DocumentHash": { "$ref": "#/$defs/hash" },
+    "JournalId": { "$ref": "#/$defs/uuid" },
+    "PreStatePhaseHash": { "$ref": "#/$defs/hash" },
+    "LastOperationKind": {
+      "enum": [
+        "initial", "environment", "task-overlay", "migrate", "adopt", "repair-adopt",
+        "retirement", "environment-rollback", "controller-transition"
+      ]
+    },
+    "ReceiptId": { "$ref": "#/$defs/uuid" },
+    "ReceiptHash": { "$ref": "#/$defs/hash" },
+    "ReceiptRef": { "const": "NO_LIVE_MUTATION" }
+  },
+  "oneOf": [
+    {
+      "required": ["ReceiptId", "ReceiptHash"],
+      "properties": {
+        "LastOperationKind": { "const": "initial" },
+        "EnvironmentName": { "const": "full" }
+      },
+      "not": { "required": ["ReceiptRef"] }
+    },
+    {
+      "required": ["ReceiptId", "ReceiptHash"],
+      "properties": {
+        "LastOperationKind": {
+          "enum": ["environment", "task-overlay", "migrate", "adopt", "repair-adopt", "retirement", "environment-rollback"]
+        }
+      },
+      "not": { "required": ["ReceiptRef"] }
+    },
+    {
+      "required": ["ReceiptRef"],
+      "properties": { "LastOperationKind": { "const": "controller-transition" } },
+      "not": { "anyOf": [{ "required": ["ReceiptId"] }, { "required": ["ReceiptHash"] }] }
+    }
+  ],
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "locationKey": { "type": "string", "minLength": 4, "pattern": "^[a-z]:/[^/]" },
+    "volumeId": { "type": "string", "minLength": 8, "maxLength": 8, "pattern": "^[0-9a-f]{8}$" },
+    "directoryIdentity": { "type": "string", "minLength": 25, "maxLength": 25, "pattern": "^[0-9a-f]{8}:[0-9a-f]{16}$" },
+    "platformSkillsEntry": {
+      "type": "object",
+      "required": ["Platform", "Skills"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Skills": { "type": "array", "uniqueItems": true, "items": { "type": "string", "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" } }
+      },
+      "additionalProperties": false
+    },
+    "platformHashEntry": {
+      "type": "object",
+      "required": ["Platform", "Hash"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Hash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "finalResolvedIdentity": {
+      "type": "object",
+      "required": ["Platform", "LocationKey", "ResolvedPath", "VolumeId", "DirectoryIdentity", "FilesystemCapabilityHash"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "LocationKey": { "$ref": "#/$defs/locationKey" },
+        "ResolvedPath": { "type": "string", "minLength": 4, "pattern": "^[A-Za-z]:\\\\" },
+        "VolumeId": { "$ref": "#/$defs/volumeId" },
+        "DirectoryIdentity": { "$ref": "#/$defs/directoryIdentity" },
+        "FilesystemCapabilityHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "platformSkills": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "platformHashes": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "finalResolvedIdentities": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/finalResolvedIdentity" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/finalResolvedIdentity" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/finalResolvedIdentity" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    }
+  },
+  "additionalProperties": false
+}

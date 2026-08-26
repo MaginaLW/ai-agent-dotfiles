@@ -83,7 +83,12 @@ try{
             }
             break
         }
-        $null=$watcher.WaitForChanged([IO.WatcherChangeTypes]::All,1000)
+        if($TriggerKind -ceq 'LeaseHeld'){
+            # LeaseHeld is a short kernel window, not a durable filesystem event. Poll without the
+            # one-second watcher blind spot so the external process cannot miss the entire lease.
+            [Threading.Thread]::Sleep(1)
+        }
+        else{$null=$watcher.WaitForChanged([IO.WatcherChangeTypes]::All,1000)}
     }
     if(-not $result.Attempted -and -not $result.Missed){$result.Missed=$true}
 }

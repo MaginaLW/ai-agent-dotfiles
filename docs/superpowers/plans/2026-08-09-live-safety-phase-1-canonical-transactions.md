@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** Prepared from the approved design; implementation has not started. This phase grants no Git staging/commit/publish or real live Apply authorization; production live mutation remains interlocked.
+**Status:** Completed (44/44 checklist items). This phase grants no real live Apply authorization and no permission to stage, commit, or publish Git changes; production live mutation remains interlocked.
 
 **Goal:** Make normalize, promote, and merge change canonical source, managed generated outputs, and manifests only through one reviewed, durable, recoverable transaction.
 
@@ -310,7 +310,7 @@ Expected: no earlier candidate appears in canonical source; one reviewed plan co
 - Modify: `.github/workflows/validate.yml`
 - Keep unchanged: `scripts/live-safety-policy.psd1` release state
 
-- [ ] **Step 1: Run focused suites**
+- [x] **Step 1: Run focused suites**
 
 ```powershell
 pwsh -NoProfile -File tests/json-canonicalization.tests.ps1
@@ -325,18 +325,30 @@ pwsh -NoProfile -File tests/canonical-recovery.tests.ps1
 
 Expected: zero failures; all tests use isolated candidates/recovery roots.
 
-- [ ] **Step 2: Run full runner and artifact validation**
+- [x] **Step 2: Run full runner and artifact validation**
 
 Use new external summary paths and require discovered=started=completed=passed with all error counts zero. Validate every canonical transaction/recovery plan, result, journal fixture, semantic validator, and emitted artifact.
 
-- [ ] **Step 3: Run build/scan/doctor and diff checks**
+- [x] **Step 3: Run build/scan/doctor and diff checks**
 
 Run current repository gates, then unstaged/staged `git diff --check` with exactly the four protected Reasonix literal negative pathspecs, never a broad directory exclude. The Phase 0 privacy test must prove no protected desktop-state content was opened while a fifth adjacent `.reasonix` file remains visible/scanned. Confirm current manifests still describe 7 Claude, 15 Codex, and 7 Reasonix skills unless an explicitly reviewed canonical change in this phase intended otherwise.
 
-- [ ] **Step 4: Perform requirements and quality reviews**
+- [x] **Step 4: Perform requirements and quality reviews**
 
 Review design compliance first, then path identity, no-follow behavior, lock lifetime, recovery durability, journal reconciliation, and unknown generated preservation.
 
-- [ ] **Step 5: Leave live mutation interlocked**
+- [x] **Step 5: Leave live mutation interlocked**
 
 Do not change the protocol policy to released and do not run any production live Apply.
+
+Checkpoint evidence (2026-08-25): the focused suites completed with zero failures. A fresh unified
+runner summary passed 31/31 suites with zero failures, timeouts, duplicates, missing suites, or
+process-tree reap failures (`SHA-256 744f20d5f2155e0c0d6560c49c8f78e0fd86d95364b3048d4e3668f73214f82b`).
+Registered artifact validation passed 19 contracts, 19 positive fixtures, and 28 negative fixtures
+with zero failures (`SHA-256 1304e114343120903fcaceec57ea80fa8ead77bd252ad6a609625bd2ce7216d2`).
+Build produced Claude 7, Codex 15, and Reasonix 7; the pinned secret scan had no blocking findings;
+doctor, exact protected-path privacy coverage, staged/unstaged diff checks, and sync DryRun passed.
+Requirements and quality review retained strict original-process identity/reap semantics, confirmed
+the parent-lease regression holds the real lease across the external attack, and found no production
+hard-kill helper change. `ProtocolVersion=3` remains `ReleaseState=interlocked`; no production Apply,
+rollback, backup, retirement, Git staging, commit, or publication was performed.

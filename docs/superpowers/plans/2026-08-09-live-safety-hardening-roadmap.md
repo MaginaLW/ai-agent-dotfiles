@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** Prepared from the approved design; implementation has not started. This roadmap grants no permission to stage, commit, publish, or run a real live Apply/rollback. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not repository publication or live-mutation authorization.
+**Status:** In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The separately authorized privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` remains an external follow-up while Phase 2 Task 1 proceeds independently (0/6 steps; Phase 2 overall 0/52). Phases 3-4 have not started. This roadmap grants no permission to run a real live Apply/rollback or to perform any further Git staging, commit, or publication. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not live-mutation authorization.
 
 **Goal:** Replace the repository's current live and canonical mutation paths with the reviewed, plan-bound, process-crash/hard-kill-recoverable safety protocol without discarding the current skill/MCP cleanup or retirement work.
 
@@ -39,6 +39,11 @@ The baseline choice means “preserve and build on these bytes”; it does not a
 4. [Phase 3 — Shared Environment Authority and Task Overlay](2026-08-09-live-safety-phase-3-shared-authority.md)
 5. [Phase 4 — Schema/CI Contract and Safe Release](2026-08-09-live-safety-phase-4-validation-release.md)
 
+Current execution boundary: roadmap Task 1 is complete at 5/5, the Phase 0 entry-interlock subplan
+is complete at 43/43, and Phase 1 is complete at 44/44. GitHub Support ticket `#4697323` is open as
+a parallel external privacy follow-up. Phase 2 Task 1 is in progress at 0/6 steps (Phase 2 overall
+0/52), and Phases 3-4 have not started.
+
 Phase 0 may ship alone as a safety stop. Phases 1–3 must not re-enable production live mutation. Phase 0 through Phase 4 together form the first live-capable protocol release.
 
 Phase 4's released public-CLI test requires the complete implementation in an exact, separately user-authorized reviewed commit inside a disposable OS identity. If no such commit exists, internal sandbox verification may continue but the release switch remains interlocked; this roadmap does not grant commit or publication authority.
@@ -60,7 +65,7 @@ Completion of this roadmap does not claim that every repository write path has b
 - Review: `docs/superpowers/specs/2026-08-09-live-safety-hardening-design.md`
 - Record in: this roadmap's task notes
 
-- [ ] **Step 1: Capture the non-private workspace shape**
+- [x] **Step 1: Capture the non-private workspace shape**
 
 Run all three non-private views separately:
 
@@ -80,23 +85,58 @@ For the four protected Reasonix desktop-state paths, use only `git ls-files --st
 
 Expected: cleanup/retirement is current HEAD, no non-Reasonix staged/unstaged implementation change exists, and exactly the design, roadmap, and five phase plans are additional untracked documents. The three user Reasonix modifications remain visible only through exact metadata checks.
 
-- [ ] **Step 2: Contain the committed STATUS privacy exposure before any implementation commit or publication**
+- [x] **Step 2: Contain the committed STATUS privacy exposure before any implementation commit or publication**
 
 Current HEAD `7d9dd08` contains complete machine-local backup paths, an unredacted device label, and a Codex `.system` content hash/count in `STATUS.md`; the same public commit/history also tracks four opaque machine-private `.reasonix/desktop-topic-*` blobs whose contents remain unread. Before any safety implementation commit or publication, apply an additive **worktree** STATUS redaction: replace paths with backup basenames, replace the device label with a generic redacted label, replace content fingerprint/count with marker-presence evidence, and change the contradictory inventory claim that current staging locks are valid to the later observed fact that commit-bound locks/attestation are stale while live parity passes. Verify only the worktree copy now; HEAD/index are expected to retain the already-public bytes until a later separately authorized staging/commit step. Because current-tree redaction and future index-only untrack do not erase public history, separately ask the user to choose whether both the historical STATUS exposure and four opaque historical blobs are accepted or require an explicitly authorized history rewrite/force-push; never read those blobs, perform destructive history remediation, or delete backups under this plan.
 
-- [ ] **Step 3: Recheck overlapping implementation files**
+- [x] **Step 3: Recheck overlapping implementation files**
 
 Re-read the current versions of `scripts/sync.ps1`, `scripts/backup.ps1`, `scripts/build-harness-env.ps1`, `scripts/harness-env-common.ps1`, `schemas/sync-plan.schema.json`, and their tests before editing.
 
 Expected: work is based on current `7d9dd08` bytes, not on line numbers or conclusions from the superseded `89019f4` audit alone.
 
-- [ ] **Step 4: Protect unrelated work**
+- [x] **Step 4: Protect unrelated work**
 
 Do not reset, stash, stage, commit, restore, or rewrite any pre-existing working-tree change. If one of the overlapping files changes again during execution, stop that task, re-read the file and its diff, and update only the affected checklist before continuing.
 
-- [ ] **Step 5: Record the baseline result**
+- [x] **Step 5: Record the baseline result**
 
 Add a dated note under this task stating which current fixes were retained and which targeted defects remain. Do not record machine-private paths or `.reasonix` contents.
+
+Baseline reconciliation note (2026-08-25): the user selected the separately authorized history
+rewrite/force-push option. An exact-path index rewrite removed the four opaque desktop-state paths
+from all 82 `main` commits without opening their contents; all historical `STATUS.md` snapshots were
+mechanically redacted for machine-local paths, device labels, the `.system` child fingerprint/count,
+and the stale staging-lock claim. A dedicated commit added four literal ignore rules. The corrected
+rewritten head `bbba28f` was published with force-with-lease, and fresh remote/local audits found zero
+reachable protected-path records and zero targeted STATUS matches. The four user-owned working files
+remain present and ignored; seven unrelated Phase 1 worktree files retained identical SHA-256 values.
+The first changed commit pair is old `58b4bc3` to new `dd4014f`; affected pull-request head refs and
+LFS attributes are both zero. GitHub still serves the old head by SHA, so a GitHub Support request for
+server garbage collection/cache removal is open as ticket `#4697323`; Support confirmation and the
+old-SHA re-probe remain pending as an external follow-up that does not gate unrelated hardening.
+Phase 2 Task 1 has started under the unchanged production interlock. This one-time
+privacy authorization grants no permission for later staging, commits, publication, or live mutation.
+
+The 2026-08-26 intermediate checkpoint completed a runtime read-only authority/schema slice without
+completing any whole Task 1 step: token/Known-Folder authority resolution, no-follow metadata targets,
+root-claims v1, current-env-state v3, and exact-byte schema-first pair validation now have failure-first
+coverage. Registered validation passed 21 positives and 66 negatives with zero failures, and three
+independent reviews passed after their findings were fixed. Task 1 therefore remains 0/6 and Phase 2
+remains 0/52. Pre-lock `MetadataOnly` TargetContext is planning evidence only; every future mutation
+consumer must recapture the complete no-follow context while holding all required locks and reject
+drift before backup/workspace creation.
+
+A second 2026-08-26 intermediate checkpoint completed the sealed fake-ControlBase bootstrap and
+existing-only global-lock slice. It atomically creates the final-ACL six-directory prefix and creates
+the global lock last under an external bootstrap lock; strict re-entry rejects hostile topology,
+identity, ACL, callback/opaque ACE, hard-link, named-stream, and reparse cases. The full concurrency
+suite passes two real Git-repository contenders, zero-wait and sealed bounded-wait behavior,
+owner-death handle release, and all 14 hard-kill creation boundaries with exact-prefix recovery.
+Independent security, concurrency-evidence, and scope reviews pass after fixes. The slice remains
+sealed and is not wired to production Apply, registry, or journal routes; its supplied capability hash
+is fixture evidence, not production preflight. Task 1 remains 0/6 and Phase 2 remains 0/52; the next
+isolated slice is the held-global-lock read-only unified registry view.
 
 ### Task 2: Complete Phase 0
 
@@ -104,17 +144,17 @@ Add a dated note under this task stating which current fixes were retained and w
 - Execute: `docs/superpowers/plans/2026-08-09-live-safety-phase-0-entry-interlock.md`
 - Review: `scripts/sync.ps1`, `scripts/auto-sync-after-git.ps1`, `scripts/bootstrap-clone.ps1`
 
-- [ ] **Step 1: Execute every Phase 0 task in order**
+- [x] **Step 1: Execute every Phase 0 task in order**
 
 Keep the production live interlock enabled throughout the phase.
 
 Before Phase 0 runs any repository scan, obtain the explicit user approval required by `AGENTS.md` for the exact four-path `.reasonix/desktop-topic-*` no-read input boundary. If approval is absent, Phase 0 stops before scan; it must not read those files or broaden the exclusion.
 
-- [ ] **Step 2: Run the Phase 0 checkpoint**
+- [x] **Step 2: Run the Phase 0 checkpoint**
 
 Expected: default bootstrap and all installed Git hooks are non-consumable-preview-only and actionable plans require an explicit external DryRun; checkout toolchain changes produce `runner-review-required`; every production Apply/rollback path, including retirement, plus standalone legacy backup exits before live traversal, backup or mutation with `safety-protocol-upgrade-required`; doctor records only the no-follow `.system` root-entry marker.
 
-- [ ] **Step 3: Review requirements, then quality**
+- [x] **Step 3: Review requirements, then quality**
 
 First compare behavior to design §§4.1 and 5 Phase 0. Then review path/ACL handling, pinned-runner trust, error exits, and fake-home isolation.
 
@@ -124,15 +164,15 @@ First compare behavior to design §§4.1 and 5 Phase 0. Then review path/ACL han
 - Execute: `docs/superpowers/plans/2026-08-09-live-safety-phase-1-canonical-transactions.md`
 - Review: `scripts/skills-common.ps1`, `scripts/normalize-skill.ps1`, `scripts/promote-skill.ps1`, `scripts/auto-merge-skills.ps1`
 
-- [ ] **Step 1: Execute every Phase 1 task in order**
+- [x] **Step 1: Execute every Phase 1 task in order**
 
 Preserve the selected canonical inventory and never treat current manifest dirty bytes as transaction recovery input.
 
-- [ ] **Step 2: Run the Phase 1 checkpoint**
+- [x] **Step 2: Run the Phase 1 checkpoint**
 
 Expected: normalize/promote/merge use reviewed external plans, one repo-scoped lock, durable multi-target recovery, and deterministic isolated build/scan; injected failure or hard kill leaves canonical source, managed generated outputs, and manifests byte-for-byte unchanged or recoverable.
 
-- [ ] **Step 3: Review requirements, then quality**
+- [x] **Step 3: Review requirements, then quality**
 
 First compare behavior to design §§4.2 and 6.1. Then review SafeTreeWalker use, journal reconciliation, dirty-manifest handling, and batch atomicity.
 

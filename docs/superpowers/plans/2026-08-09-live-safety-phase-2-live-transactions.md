@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** Prepared from the approved design; implementation has not started. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
+**Status:** In progress. Task 1 has started at 0/6 steps; the remaining tasks have not started. GitHub Support ticket `#4697323` remains a parallel external privacy follow-up and does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
 
 **Goal:** Replace normal sync, explicit retirement, backup, rollback, and crash recovery with one target-bound, globally serialized, receipt-backed live transaction protocol.
 
@@ -20,6 +20,7 @@
 - Create: `scripts/home-authority-common.ps1`
 - Create: `scripts/live-target-context.ps1`
 - Create: `scripts/shared-authority-state-common.ps1`
+- Create: `scripts/root-claims-registry-common.ps1`
 - Modify: `scripts/canonical-transaction-common.ps1`
 - Modify: `scripts/recover-canonical-transaction.ps1`
 - Modify: `scripts/setup-canonical-transaction.ps1`
@@ -30,8 +31,99 @@
 - Modify: `schemas/artifact-contracts.psd1`
 - Create: `tests/home-authority.tests.ps1`
 - Create: `tests/live-concurrency.tests.ps1`
+- Create: `tests/root-claims-registry.tests.ps1`
 - Modify: `tests/canonical-transaction.tests.ps1`
 - Modify: `tests/canonical-recovery.tests.ps1`
+
+**Intermediate checkpoint (2026-08-26):** One runtime read-only authority/schema slice is complete:
+access-token SID plus Known Folder resolution, no-follow metadata TargetContext, root-claims v1,
+current-env-state v3, schema-first exact-byte claims/state binding, and failure-layer tests. Registered
+validation passes 21 positive and 66 negative fixtures with zero failures; independent no-follow/token,
+schema-to-pair, and fixture-layer reviews pass after their findings were fixed. This checkpoint does
+not complete any full step below, so Task 1 remains 0/6 and Phase 2 remains 0/52.
+
+**Second intermediate checkpoint (2026-08-26):** The sealed fake-ControlBase bootstrap-completion
+contract and existing-only global live lock are complete as an isolated slice. An external
+pre-ControlBase lock serializes an exact deterministic prefix: six directories are created with their
+final current-user security descriptors, the global lock is created last, and its handle is retained
+through handoff. Re-entry accepts only the same reviewed exact prefix; wrong type/ACL/identity,
+extra/non-prefix children, reparses, hard links, named streams, callback/opaque ACEs, and capture drift
+fail closed. Tests cover two actual Git repositories racing from the same validated MISSING intent,
+zero-wait losers with whole-fake-home zero-write evidence, sealed-host-only bounded wait, OS handle
+release after owner death, and hard kill before/after each of seven creation boundaries with exact
+resume and identity preservation. Independent security, concurrency-evidence, and scope reviews pass
+after their findings were fixed. Caller-bound `FilesystemCapabilityHash` remains sealed fixture
+evidence rather than a production capability preflight; no production Apply, registry, or journal path
+uses this API. No full step below is complete, so Task 1 remains 0/6 and Phase 2 remains 0/52.
+
+**Third intermediate checkpoint (2026-08-26):** The held-global-lock, read-only unified registry core
+is implemented as an isolated sealed slice. Pristine bootstrap validation is separate from the fixed
+post-bootstrap envelope; a real typed global-lock witness guards strict in-memory zero-write validators
+for immutable canonical/home claims, associated state classification as `VALID`, `MISSING`, or
+`INVALID`, represented-root conflict detection, and inventory of normalized UUID live-transaction
+directories as unresolved markers. Tests exercise true typed-lock requirements, whole-fixture
+zero-write behavior, represented-root overlap, and hostile topology/type/reparse/hard-link/ADS/security
+cases. Canonical-root-claim v1 does not carry a GitCommonDir locator, so the current canonical namespace
+and setup state still require a caller-held typed witness. Task 4 owns the live-journal schema; until
+then, any nonempty live-transaction namespace fails closed as recovery-required without inventing a
+record format. The complete forbidden-root matrix, current-route held-lock TargetContext recapture, and
+production integration remain unfinished. No full step below is complete: Task 1 remains 0/6 and Phase
+2 remains 0/52, and production Apply remains interlocked. The caller-held witness/current-route slice
+planned here is recorded in the fourth checkpoint below; live-journal interpretation remains deferred
+to Task 4.
+
+Third-checkpoint validation used `scripts/run-tests.ps1 -All`: all 34 suites were discovered, started,
+completed, and passed exactly once, with every failure counter at zero. The external create-new summary
+has raw SHA-256 `e08248fd63e895a2245db0fa416c778111009a5a34c99c7b662999d5c7da3b24` and discovery SHA-256
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`.
+`canonical-hard-kill.tests.ps1` reached 317/0 and `root-claims-registry.tests.ps1` reached 69/0. The
+separate build, secret-scan, and sync DryRun chain passed without production Apply, live-root mutation,
+or Git index/ref mutation.
+
+**Fourth intermediate checkpoint (2026-08-27):** The sealed caller-held canonical-witness and
+current-route registry slice is implemented. The canonical witness seals the exact setup bytes and
+transaction-namespace evidence acquired under its canonical lock. Canonical-bound global-lock
+acquisition accepts only that genuine CLR-held owner/capture, binds canonical before global, and
+enforces tail-to-head release for dependent locks. The current-route path revalidates exact held
+metadata and can capture an immutable read-only root set under the bound pair. Its reported route
+coverage is precisely `HELD_METADATA_VERIFIED`; filesystem capability remains `UNPROBED_READ_ONLY`.
+Tests fail closed on
+stateful getter/ABA substitution, ETS shadowing, genuine foreign owners, wrong lock order, mutable
+display replacement, and nested path/identity/hash drift. Private target, live-set, and registry
+receipts expose exact `OPEN`/`CLOSING`/`CLOSED` close state, preserve retryability after dependent-lock
+or injected cleanup failure, and perform best-effort cleanup without accepting partial closure.
+
+The current-route overlap slice covers current repository and Git-private/setup evidence, fixed
+control/backup/recovery roots, live targets and reservations, and applicable workspace,
+materialization, source, and staging roles. It is not the complete Task 1 forbidden-root matrix and is
+not connected to production routes. Task 4 still owns live-journal structure and interpretation;
+nonempty live-transaction namespaces remain recovery-required. Remaining work includes the rest of
+the identity/concurrency failure matrix, production lock/route integration, a real under-lock
+filesystem-capability preflight, and the complete forbidden-root matrix where applicable. No full step
+below is complete: Task 1 remains 0/6 and Phase 2 remains 0/52. Production Apply remains interlocked,
+and no live root or Git index/ref was changed.
+
+Fourth-checkpoint validation used `scripts/run-tests.ps1 -All` with a path proven absent before its
+create-new summary write. All 34 suites were discovered, started, completed, and passed exactly once;
+failures, timeouts, duplicates, missing suites, and tree-kill failures were zero. The external summary
+raw SHA-256 is `b8bc1c887ea1d8aaf9cffbc2ef63ded74779ea430920a117a377b695d21710ec`, and its independently
+recomputed discovery SHA-256 is `1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`.
+`canonical-hard-kill.tests.ps1` reached 317/0; `root-claims-registry.tests.ps1` emitted 159 PASS
+assertions with exit code 0. Build (7/15/7), secret scan, and sync DryRun passed, and the hard-kill
+suite added no temporary-directory residue. No production Apply, live-root mutation, or Git index/ref
+mutation occurred.
+
+The pristine bootstrap validator continues to require reserved roots to be empty, while the fixed
+post-bootstrap envelope accepts only its exact allowlisted topology under the held global lock.
+Arbitrary children remain fail-closed.
+
+Current pre-lock `MetadataOnly` TargetContext is discovery/planning evidence only, not mutation
+authority. The sealed read-only registry now recaptures a supplied current route only under the
+genuine caller-held canonical/global pair. Any future production plan or Apply consumer must likewise
+hold every required route lock, including the global live lock, then recapture and compare the complete
+no-follow TargetContext before backup/workspace creation. Path, ancestor, reparse, VolumeId,
+DirectoryIdentity, or capability drift must fail closed; state
+`FinalResolvedIdentities`/`FinalTargetContextHash` cannot replace that capture.
 
 - [ ] **Step 1: Write identity/overlap/lock failures**
 

@@ -337,9 +337,475 @@ function Get-CanonicalRepoIdentity {
     param([Parameter(Mandatory)]$GitContext)
     $sid=Get-CanonicalTokenSid
     $commonMarker=Get-NoFollowRootEntryMarker -Path $GitContext.GitCommonDir
-    $identityParts=@([string]$commonMarker.Identity -split ':',2)
-    if($identityParts.Count -ne 2 -or [string]::IsNullOrWhiteSpace($identityParts[0]) -or [string]::IsNullOrWhiteSpace($identityParts[1])){throw 'Unable to derive canonical repository identity.'}
-    return Get-SemanticJsonHash -InputObject ([ordered]@{ Domain='ai-agent-dotfiles/canonical-repo/v1'; TokenSid=$sid; VolumeIdentity=$identityParts[0]; DirectoryIdentity=$identityParts[1] })
+    return Get-CanonicalRepoIdentityFromHeldGitCommonDir -TokenSid $sid -GitCommonDirIdentity ([string]$commonMarker.Identity)
+}
+
+function Get-CanonicalRepoIdentityFromHeldGitCommonDir {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$TokenSid,
+        [Parameter(Mandatory)][string]$GitCommonDirIdentity
+    )
+
+    $identityParts=@($GitCommonDirIdentity -split ':',2)
+    if($TokenSid -cnotmatch '^S-[0-9]+(?:-[0-9]+)+$' -or $identityParts.Count -ne 2 -or
+        [string]::IsNullOrWhiteSpace($identityParts[0]) -or [string]::IsNullOrWhiteSpace($identityParts[1])) {
+        throw 'Unable to derive canonical repository identity.'
+    }
+    return Get-SemanticJsonHash -InputObject ([ordered]@{
+        Domain='ai-agent-dotfiles/canonical-repo/v1'
+        TokenSid=$TokenSid
+        VolumeIdentity=$identityParts[0]
+        DirectoryIdentity=$identityParts[1]
+    })
+}
+
+function Test-CanonicalHeldPathEqual {
+    param([Parameter(Mandatory)][string]$Left,[Parameter(Mandatory)][string]$Right)
+    return [IO.Path]::GetFullPath($Left).Equals([IO.Path]::GetFullPath($Right),[StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-CanonicalHeldOrdinalStrings {
+    param([AllowEmptyCollection()][string[]]$Values=@())
+    $result=[string[]]@($Values)
+    [Array]::Sort($result,[StringComparer]::Ordinal)
+    return $result
+}
+
+function Test-CanonicalHeldOrdinalStringArrayEqual {
+    param([AllowEmptyCollection()][string[]]$Left=@(),[AllowEmptyCollection()][string[]]$Right=@())
+    $leftItems=@($Left);$rightItems=@($Right)
+    if($leftItems.Count -ne $rightItems.Count){return $false}
+    for($index=0;$index -lt $leftItems.Count;$index++){if([string]$leftItems[$index] -cne [string]$rightItems[$index]){return $false}}
+    return $true
+}
+
+function Get-CanonicalHeldDirectoryChainProjection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][object[]]$Handles,
+        [Parameter(Mandatory)][string]$Label
+    )
+
+    $full=[IO.Path]::GetFullPath($Path)
+    $volumeRoot=[IO.Path]::GetPathRoot($full)
+    $relative=[IO.Path]::GetRelativePath($volumeRoot,$full)
+    $segments=if($relative -ceq '.'){@()}else{@($relative -split '[\\/]')}
+    $held=@($Handles)
+    if($held.Count -ne ($segments.Count+1)){throw "$Label containment-chain cardinality mismatch"}
+    $rows=[Collections.Generic.List[object]]::new()
+    $current=$volumeRoot
+    for($index=0;$index -lt $held.Count;$index++){
+        $handle=$held[$index]
+        if($handle -isnot [AiAgentDotfiles.SafeDirectoryHandle]){throw "$Label contains a non-directory handle"}
+        if($index -gt 0){$current=[IO.Path]::GetFullPath((Join-Path $current ([string]$segments[$index-1])))}
+        $securityBefore=[AiAgentDotfiles.NoFollowFile]::GetDirectorySecuritySnapshot($handle)
+        $streamsBefore=@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($handle))
+        $securityAfter=[AiAgentDotfiles.NoFollowFile]::GetDirectorySecuritySnapshot($handle)
+        $streamsAfter=@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($handle))
+        if(-not $handle.Info.IsDirectory -or $handle.Info.IsReparsePoint -or [long]$handle.Info.LinkCount -ne 1 -or
+            [string]$securityBefore.Identity -cne [string]$handle.Info.Identity -or [string]$securityAfter.Identity -cne [string]$handle.Info.Identity -or
+            [long]$securityBefore.LinkCount -ne 1 -or [long]$securityAfter.LinkCount -ne 1 -or [string]$securityBefore.Sddl -cne [string]$securityAfter.Sddl -or
+            $streamsBefore.Count -ne 0 -or $streamsAfter.Count -ne 0){throw "$Label held directory evidence is unstable"}
+        if($index -gt 0){
+            $relativeInfo=[AiAgentDotfiles.NoFollowFile]::InspectChild($held[$index-1],[string]$segments[$index-1])
+            if(-not $relativeInfo.IsDirectory -or $relativeInfo.IsReparsePoint -or [long]$relativeInfo.LinkCount -ne 1 -or
+                [string]$relativeInfo.Identity -cne [string]$handle.Info.Identity){throw "$Label relative directory identity changed"}
+        }
+        $securityHash=Get-SemanticJsonHash -InputObject ([ordered]@{
+            Domain='ai-agent-dotfiles/canonical-held-directory-security/v1'
+            Identity=[string]$securityAfter.Identity;LinkCount=[long]$securityAfter.LinkCount;Sddl=[string]$securityAfter.Sddl
+        })
+        $rows.Add([ordered]@{
+            Path=[IO.Path]::GetFullPath($current)
+            LocationKey=[IO.Path]::GetFullPath($current).ToLowerInvariant().Replace([char]92,[char]47)
+            Identity=[string]$securityAfter.Identity
+            LinkCount=[long]$securityAfter.LinkCount
+            SecurityHash=$securityHash
+            NamedStreamCount=0L
+        })
+    }
+    return [ordered]@{
+        ResolverVersion='windows-no-follow-held-directory-chain-v1'
+        Label=$Label
+        Path=$full
+        LocationKey=$full.ToLowerInvariant().Replace([char]92,[char]47)
+        LeafIdentity=[string]$rows[$rows.Count-1].Identity
+        Rows=@($rows)
+    }
+}
+
+function Open-CanonicalHeldDirectoryChainCapture {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$Label)
+
+    $handles=$null
+    try{
+        $full=[IO.Path]::GetFullPath($Path)
+        $handles=Open-SafeDirectoryContainmentChain -Path $full
+        $projection=Get-CanonicalHeldDirectoryChainProjection -Path $full -Handles @($handles) -Label $Label
+        $capture=[pscustomobject][ordered]@{
+            Path=$full;Label=$Label;Handles=$handles;Projection=$projection
+            ProjectionHash=Get-SemanticJsonHash -InputObject $projection;IsClosed=$false
+        }
+        $capture.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.CanonicalHeldDirectoryChainCapture')
+        return $capture
+    }
+    catch{
+        if($null -ne $handles){Close-SafeDirectoryContainmentChain -Handles $handles}
+        throw
+    }
+}
+
+function Assert-CanonicalHeldDirectoryChainCapture {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Capture)
+
+    if('AiAgentDotfiles.CanonicalHeldDirectoryChainCapture' -cnotin @($Capture.PSObject.TypeNames) -or [bool]$Capture.IsClosed){throw 'canonical directory witness is missing, untyped, or closed'}
+    $heldProjection=Get-CanonicalHeldDirectoryChainProjection -Path ([string]$Capture.Path) -Handles @($Capture.Handles) -Label ([string]$Capture.Label)
+    $heldHash=Get-SemanticJsonHash -InputObject $heldProjection
+    if($heldHash -cne [string]$Capture.ProjectionHash -or $heldHash -cne (Get-SemanticJsonHash -InputObject $Capture.Projection)){throw 'canonical held directory projection drift'}
+    $fresh=$null
+    try{
+        $fresh=Open-SafeDirectoryContainmentChain -Path ([string]$Capture.Path)
+        $freshProjection=Get-CanonicalHeldDirectoryChainProjection -Path ([string]$Capture.Path) -Handles @($fresh) -Label ([string]$Capture.Label)
+        if((Get-SemanticJsonHash -InputObject $freshProjection) -cne $heldHash){throw 'canonical directory path no longer names the held chain'}
+    }
+    finally{if($null -ne $fresh){Close-SafeDirectoryContainmentChain -Handles $fresh}}
+    return $true
+}
+
+function Close-CanonicalHeldDirectoryChainCapture {
+    param([AllowNull()]$Capture)
+    if($null -eq $Capture -or [bool]$Capture.IsClosed){return}
+    Close-SafeDirectoryContainmentChain -Handles @($Capture.Handles)
+    $Capture.IsClosed=$true
+}
+
+function Get-CanonicalHeldTransactionSetProjection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$TransactionsRoot,
+        [Parameter(Mandatory)][string]$ExpectedRepoId,
+        [Parameter(Mandatory)][string]$ExpectedGitCommonDirHash
+    )
+
+    try{$states=@(Get-CanonicalAllTransactionStates -TransactionsRoot $TransactionsRoot)}
+    catch{throw 'canonical-recovery-required'}
+    $rows=[Collections.Generic.List[object]]::new()
+    $transactionIds=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($state in @($states | Sort-Object @{Expression={[string]$_.Header.WorktreeId}},@{Expression={[string]$_.Header.TransactionId}})){
+        if(-not [bool]$state.IsTerminal -or @($state.PendingEntries).Count -ne 0){throw 'canonical-recovery-required'}
+        if([string]$state.Header.RepoId -cne $ExpectedRepoId -or [string]$state.Header.GitCommonDirHash -cne $ExpectedGitCommonDirHash){throw 'canonical-recovery-required'}
+        if(-not $transactionIds.Add([string]$state.Header.TransactionId)){throw 'canonical-recovery-required'}
+        $rows.Add([ordered]@{
+            WorktreeId=[string]$state.Header.WorktreeId
+            TransactionId=[string]$state.Header.TransactionId
+            TransactionNamespace=[IO.Path]::GetFullPath([string]$state.TransactionNamespace)
+            HeaderHash=[string]$state.HeaderHash
+            DerivedJournalHeadHash=[string]$state.DerivedJournalHeadHash
+            ResultHash=[string]$state.ResultHash
+            IsTerminal=[bool]$state.IsTerminal
+            Outcome=[string]$state.Outcome
+            ConsumedDocumentHashes=@(Get-CanonicalHeldOrdinalStrings -Values @($state.ConsumedDocumentHashes))
+        })
+    }
+    return [ordered]@{
+        ResolverVersion='canonical-phase1-held-transaction-set-projection-v1'
+        TransactionsRoot=[IO.Path]::GetFullPath($TransactionsRoot)
+        RepoId=$ExpectedRepoId
+        GitCommonDirHash=$ExpectedGitCommonDirHash
+        Transactions=@($rows)
+    }
+}
+
+function ConvertFrom-CanonicalHeldSetupStateBytes {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][byte[]]$Bytes,
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$SchemaPath,
+        [Parameter(Mandatory)][string]$RepoId,
+        [Parameter(Mandatory)][string]$GitCommonDirHash,
+        [Parameter(Mandatory)][string]$TokenSid
+    )
+
+    $json=[Text.UTF8Encoding]::new($false,$true).GetString($Bytes)
+    $state=ConvertFrom-SemanticJson -Json $json
+    if($state -isnot [Collections.IDictionary]){throw 'canonical setup state root must be an object'}
+    $null=Invoke-CanonicalContractSchemaValidation -Path $Path -SchemaPath $SchemaPath -ContentBytes $Bytes
+    if($state.SchemaVersion -isnot [long] -or [long]$state.SchemaVersion -ne 1 -or [string]$state.ArtifactKind -cne 'canonical-setup-state'){throw 'canonical setup state v1 contract mismatch'}
+    if([string]$state.RepoId -cne $RepoId -or [string]$state.ClaimId -cne $RepoId -or [string]$state.GitCommonDirHash -cne $GitCommonDirHash){throw 'canonical setup state repository binding mismatch'}
+    $template=Get-CanonicalCurrentUserOnlySecurityTemplate
+    $templateHash=Get-SemanticJsonHash -InputObject $template
+    if([string]$template.OwnerSid -cne $TokenSid -or [string]$state.OwnerSid -cne $TokenSid -or
+        [string]$state.SecurityResolverVersion -cne [string]$template.ResolverVersion -or [string]$state.SecurityTemplateHash -cne $templateHash){throw 'canonical setup state security binding mismatch'}
+    foreach($binding in @(
+        [pscustomobject]@{Context=$state.CanonicalRecoveryRootIntent;Hash=[string]$state.CanonicalRecoveryRootIntentHash;Final=$state.CanonicalRecoveryRootFinalContext;FinalHash=[string]$state.CanonicalRecoveryRootFinalContextHash},
+        [pscustomobject]@{Context=$state.ControlBaseIntent;Hash=[string]$state.ControlBaseIntentHash;Final=$state.ControlBaseFinalContext;FinalHash=[string]$state.ControlBaseFinalContextHash},
+        [pscustomobject]@{Context=$state.BackupRootIntent;Hash=[string]$state.BackupRootIntentHash;Final=$state.BackupRootFinalContext;FinalHash=[string]$state.BackupRootFinalContextHash}
+    )){
+        if((Get-CanonicalStableRootContextHash -Context $binding.Context) -cne $binding.Hash -or
+            (Get-CanonicalStableRootContextHash -Context $binding.Final) -cne $binding.FinalHash -or [string]$binding.Final.TargetStatus -cne 'EXISTS'){throw 'canonical setup state root-context graph mismatch'}
+    }
+    $bootstrapIntent=[ordered]@{
+        OwnerSid=[string]$state.OwnerSid;SecurityResolverVersion=[string]$state.SecurityResolverVersion;SecurityTemplateHash=[string]$state.SecurityTemplateHash
+        CanonicalRecoveryRootIntent=$state.CanonicalRecoveryRootIntent;CanonicalRecoveryRootIntentHash=[string]$state.CanonicalRecoveryRootIntentHash
+        ControlBaseIntent=$state.ControlBaseIntent;ControlBaseIntentHash=[string]$state.ControlBaseIntentHash
+        BackupRootIntent=$state.BackupRootIntent;BackupRootIntentHash=[string]$state.BackupRootIntentHash
+    }
+    if((Get-SemanticJsonHash -InputObject $bootstrapIntent) -cne [string]$state.SetupIntentHash -or
+        (Get-SemanticJsonHash -InputObject (Get-CanonicalSetupStateProjection -State $state)) -cne [string]$state.SetupStateProjectionHash){throw 'canonical setup state semantic graph mismatch'}
+    return $state
+}
+
+function Get-CanonicalHeldSetupStateCaptureProjection {
+    param([Parameter(Mandatory)]$Capture)
+    return [ordered]@{
+        Path=[string]$Capture.Path;Identity=[string]$Capture.Identity;Length=[long]$Capture.Length
+        BytesHash=[string]$Capture.BytesHash;SemanticHash=[string]$Capture.SemanticHash
+        SecurityHash=[string]$Capture.SecurityHash;RootClaimHash=[string]$Capture.Document.RootClaimHash
+        SetupStateProjectionHash=[string]$Capture.Document.SetupStateProjectionHash
+    }
+}
+
+function Open-CanonicalHeldSetupStateCapture {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$ContractCapture,
+        [Parameter(Mandatory)][string]$SetupStatePath,
+        [Parameter(Mandatory)][string]$SchemaPath,
+        [Parameter(Mandatory)][string]$RepoId,
+        [Parameter(Mandatory)][string]$GitCommonDirHash,
+        [Parameter(Mandatory)][string]$TokenSid
+    )
+
+    $held=$null
+    try{
+        $null=Assert-CanonicalHeldDirectoryChainCapture -Capture $ContractCapture
+        $full=[IO.Path]::GetFullPath($SetupStatePath)
+        if(-not(Test-CanonicalHeldPathEqual -Left (Split-Path -Parent $full) -Right ([string]$ContractCapture.Path)) -or [IO.Path]::GetFileName($full) -cne 'canonical-setup-state.json'){throw 'canonical setup state path mismatch'}
+        $parent=@($ContractCapture.Handles)[@($ContractCapture.Handles).Count-1]
+        $initial=[AiAgentDotfiles.NoFollowFile]::TryInspectChild($parent,'canonical-setup-state.json')
+        if($null -eq $initial){throw 'canonical-setup-required'}
+        $held=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($parent,'canonical-setup-state.json')
+        if([string]$initial.Identity -cne [string]$held.ReadResult.Identity -or [long]$initial.LinkCount -ne 1 -or [long]$initial.Length -ne [long]$held.ReadResult.Length){throw 'canonical setup state identity changed while opening'}
+        $bytes=[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($held,4194304L)
+        $securityBefore=[AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($held)
+        $bytesAgain=[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($held,4194304L)
+        $securityAfter=[AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($held)
+        if([string]$securityBefore.Identity -cne [string]$held.ReadResult.Identity -or [string]$securityAfter.Identity -cne [string]$held.ReadResult.Identity -or
+            [long]$securityBefore.LinkCount -ne 1 -or [long]$securityAfter.LinkCount -ne 1 -or [string]$securityBefore.Sddl -cne [string]$securityAfter.Sddl -or
+            -not [Linq.Enumerable]::SequenceEqual([byte[]]$bytes,[byte[]]$bytesAgain)){throw 'canonical setup state held evidence is unstable'}
+        $document=ConvertFrom-CanonicalHeldSetupStateBytes -Bytes $bytes -Path $full -SchemaPath $SchemaPath -RepoId $RepoId -GitCommonDirHash $GitCommonDirHash -TokenSid $TokenSid
+        $capture=[pscustomobject][ordered]@{
+            Path=$full;Handle=$held;Identity=[string]$held.ReadResult.Identity;Length=[long]$held.ReadResult.Length
+            Bytes=[byte[]]$bytes;BytesHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$bytes)).ToLowerInvariant()
+            SemanticHash=Get-SemanticJsonHash -InputObject $document;SecuritySddl=[string]$securityAfter.Sddl
+            SecurityHash=Get-SemanticJsonHash -InputObject ([ordered]@{Identity=[string]$securityAfter.Identity;LinkCount=[long]$securityAfter.LinkCount;Sddl=[string]$securityAfter.Sddl})
+            Document=$document;SchemaPath=[IO.Path]::GetFullPath($SchemaPath);RepoId=$RepoId;GitCommonDirHash=$GitCommonDirHash;TokenSid=$TokenSid;ProjectionHash=$null;IsClosed=$false
+        }
+        $capture.ProjectionHash=Get-SemanticJsonHash -InputObject (Get-CanonicalHeldSetupStateCaptureProjection -Capture $capture)
+        $capture.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.CanonicalHeldSetupStateCapture')
+        $held=$null
+        return $capture
+    }
+    catch{
+        if($null -ne $held){$held.Dispose()}
+        if($_.Exception.Message -ceq 'canonical-setup-required'){throw}
+        throw [InvalidOperationException]::new('canonical-recovery-required',$_.Exception)
+    }
+}
+
+function Assert-CanonicalHeldSetupStateCapture {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Capture)
+
+    if('AiAgentDotfiles.CanonicalHeldSetupStateCapture' -cnotin @($Capture.PSObject.TypeNames) -or [bool]$Capture.IsClosed -or
+        $Capture.Handle -isnot [AiAgentDotfiles.SafeRegularFileHandle]){throw 'canonical setup-state capture is missing, untyped, or closed'}
+    $bytes=[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($Capture.Handle,4194304L)
+    $security=[AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($Capture.Handle)
+    $bytesHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$bytes)).ToLowerInvariant()
+    $storedBytes=[byte[]]$Capture.Bytes
+    if([string]$Capture.Handle.ReadResult.Identity -cne [string]$Capture.Identity -or [long]$Capture.Handle.ReadResult.Length -ne [long]$Capture.Length -or
+        $bytesHash -cne [string]$Capture.BytesHash -or [string]$security.Identity -cne [string]$Capture.Identity -or [long]$security.LinkCount -ne 1 -or
+        $storedBytes.LongLength -ne [long]$Capture.Length -or [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($storedBytes)).ToLowerInvariant() -cne [string]$Capture.BytesHash -or
+        [string]$security.Sddl -cne [string]$Capture.SecuritySddl -or
+        (Get-SemanticJsonHash -InputObject ([ordered]@{Identity=[string]$security.Identity;LinkCount=[long]$security.LinkCount;Sddl=[string]$security.Sddl})) -cne [string]$Capture.SecurityHash){throw 'canonical setup-state held evidence drift'}
+    $document=ConvertFrom-CanonicalHeldSetupStateBytes -Bytes $bytes -Path ([string]$Capture.Path) -SchemaPath ([string]$Capture.SchemaPath) -RepoId ([string]$Capture.RepoId) -GitCommonDirHash ([string]$Capture.GitCommonDirHash) -TokenSid ([string]$Capture.TokenSid)
+    if((Get-SemanticJsonHash -InputObject $document) -cne [string]$Capture.SemanticHash -or
+        (Get-SemanticJsonHash -InputObject $Capture.Document) -cne [string]$Capture.SemanticHash -or
+        (Get-SemanticJsonHash -InputObject (Get-CanonicalHeldSetupStateCaptureProjection -Capture $Capture)) -cne [string]$Capture.ProjectionHash){throw 'canonical setup-state semantic projection drift'}
+    return $true
+}
+
+function Close-CanonicalHeldSetupStateCapture {
+    param([AllowNull()]$Capture)
+    if($null -eq $Capture -or [bool]$Capture.IsClosed){return}
+    $Capture.Handle.Dispose();$Capture.IsClosed=$true
+}
+
+function Get-CanonicalHeldNamespaceWitnessProjection {
+    param([Parameter(Mandatory)]$Witness)
+    return [ordered]@{
+        ResolverVersion=[string]$Witness.ResolverVersion;TokenSid=[string]$Witness.TokenSid
+        RepoRoot=[string]$Witness.RepoRoot;RepoRootPath=[string]$Witness.RepoRootPath;RepoRootChainHash=[string]$Witness.RepoRootCapture.ProjectionHash
+        GitDir=[string]$Witness.GitDir;GitDirPath=[string]$Witness.GitDirPath;GitDirChainHash=[string]$Witness.GitDirCapture.ProjectionHash
+        GitCommonDir=[string]$Witness.GitCommonDir;GitCommonDirPath=[string]$Witness.GitCommonDirPath;GitCommonDirChainHash=[string]$Witness.GitCommonDirCapture.ProjectionHash
+        ContractRoot=[string]$Witness.ContractRoot;ContractRootPath=[string]$Witness.ContractRootPath;ContractRootChainHash=[string]$Witness.ContractRootCapture.ProjectionHash
+        LockPath=[string]$Witness.LockPath;LockIdentity=[string]$Witness.CanonicalLockHandle.HeldLock.Info.Identity;LockSecurityHash=[string]$Witness.CanonicalLockHandle.SecurityHash
+        RepoId=[string]$Witness.RepoId;GitCommonDirHash=[string]$Witness.GitCommonDirHash;WorktreeId=[string]$Witness.WorktreeId;RepositoryCommit=[string]$Witness.RepositoryCommit
+        SetupStatePath=[string]$Witness.SetupStatePath;SetupStateProjectionHash=[string]$Witness.SetupStateCapture.ProjectionHash;SetupStateSemanticHash=[string]$Witness.SetupStateSemanticHash
+        SetupStateStatus=[string]$Witness.SetupStateStatus;CanonicalTransactionCoverage=[string]$Witness.CanonicalTransactionCoverage
+        UnfinishedCanonicalTransactionCount=[long]$Witness.UnfinishedCanonicalTransactionCount;CanonicalTransactionSetHash=[string]$Witness.CanonicalTransactionSetHash;ToolchainRoot=[string]$Witness.ToolchainRoot
+        ContractRootInitialNames=@($Witness.ContractRootInitialNames)
+    }
+}
+
+function Open-CanonicalHeldNamespaceWitness {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$CanonicalLockHandle,
+        [string]$ToolchainRoot=$script:CanonicalToolchainRoot
+    )
+
+    $repoCapture=$null;$gitDirCapture=$null;$commonCapture=$null;$contractCapture=$null;$stateCapture=$null
+    try{
+        $git=Get-CanonicalGitContext -RepoRoot $RepoRoot
+        $paths=Get-CanonicalTransactionContractPaths -GitContext $git
+        $null=Assert-CanonicalRepoLockHandle -LockHandle $CanonicalLockHandle -ExpectedLockPath ([string]$paths.LockPath)
+        $repoCapture=Open-CanonicalHeldDirectoryChainCapture -Path ([string]$git.RepoRoot) -Label 'RepoRoot'
+        $gitDirCapture=Open-CanonicalHeldDirectoryChainCapture -Path ([string]$git.GitDir) -Label 'GitDir'
+        $commonCapture=Open-CanonicalHeldDirectoryChainCapture -Path ([string]$git.GitCommonDir) -Label 'GitCommonDir'
+        $contractCapture=Open-CanonicalHeldDirectoryChainCapture -Path ([string]$paths.ContractRoot) -Label 'ContractRoot'
+        $contractLeaf=@($contractCapture.Handles)[@($contractCapture.Handles).Count-1]
+        $lockParent=@($CanonicalLockHandle.ParentHandles)[@($CanonicalLockHandle.ParentHandles).Count-1]
+        if([string]$contractLeaf.Info.Identity -cne [string]$lockParent.Info.Identity){throw 'canonical lock is not held relative to the witnessed contract root'}
+
+        $stableGit=Get-CanonicalGitContext -RepoRoot ([string]$git.RepoRoot)
+        foreach($name in @('RepoRoot','GitDir','GitCommonDir','GitCommonDirHash','WorktreeId','RepositoryCommit')){
+            if([string]$stableGit.$name -cne [string]$git.$name){throw 'canonical Git context changed during held capture'}
+        }
+        $tokenSid=Get-CanonicalTokenSid
+        $heldCommonLeaf=@($commonCapture.Handles)[@($commonCapture.Handles).Count-1]
+        $repoId=Get-CanonicalRepoIdentityFromHeldGitCommonDir -TokenSid $tokenSid -GitCommonDirIdentity ([string]$heldCommonLeaf.Info.Identity)
+        $transactionProjection=Get-CanonicalHeldTransactionSetProjection -TransactionsRoot ([string]$paths.TransactionsRoot) -ExpectedRepoId $repoId -ExpectedGitCommonDirHash ([string]$git.GitCommonDirHash)
+        $transactionHash=Get-SemanticJsonHash -InputObject $transactionProjection
+        $schemaPath=Join-Path ([IO.Path]::GetFullPath($ToolchainRoot)) 'schemas/canonical-setup-state.schema.json'
+        $stateCapture=Open-CanonicalHeldSetupStateCapture -ContractCapture $contractCapture -SetupStatePath ([string]$paths.SetupStatePath) -SchemaPath $schemaPath -RepoId $repoId -GitCommonDirHash ([string]$git.GitCommonDirHash) -TokenSid $tokenSid
+        $contractNames=@(Get-CanonicalHeldOrdinalStrings -Values @([AiAgentDotfiles.NoFollowFile]::GetChildNames($contractLeaf)))
+        $witness=[pscustomobject][ordered]@{
+            ResolverVersion='windows-no-follow-canonical-namespace-witness-v1';CanonicalLockHandle=$CanonicalLockHandle;TokenSid=$tokenSid
+            RepoRoot=[string]$git.RepoRoot;RepoRootPath=[string]$git.RepoRoot;RepoRootCapture=$repoCapture
+            GitDir=[string]$git.GitDir;GitDirPath=[string]$git.GitDir;GitDirCapture=$gitDirCapture
+            GitCommonDir=[string]$git.GitCommonDir;GitCommonDirPath=[string]$git.GitCommonDir;GitCommonDirCapture=$commonCapture
+            ContractRoot=[string]$paths.ContractRoot;ContractRootPath=[string]$paths.ContractRoot;ContractRootCapture=$contractCapture
+            LockPath=[string]$paths.LockPath;SetupStatePath=[string]$paths.SetupStatePath;TransactionsRoot=[string]$paths.TransactionsRoot
+            RepoId=$repoId;GitCommonDirHash=[string]$git.GitCommonDirHash;WorktreeId=[string]$git.WorktreeId;RepositoryCommit=[string]$git.RepositoryCommit
+            SetupStateStatus='VALID';SetupStateCapture=$stateCapture;SetupStateHandle=$stateCapture.Handle;SetupStateDocument=$stateCapture.Document;SetupStateBytes=[byte[]]$stateCapture.Bytes
+            SetupStateIdentity=[string]$stateCapture.Identity;SetupStateLength=[long]$stateCapture.Length;SetupStateBytesHash=[string]$stateCapture.BytesHash;SetupStateSemanticHash=[string]$stateCapture.SemanticHash;SetupStateSecurityHash=[string]$stateCapture.SecurityHash
+            CanonicalTransactionCoverage='WITNESSED';UnfinishedCanonicalTransactionCount=0L;CanonicalTransactionSetProjection=$transactionProjection;CanonicalTransactionSetHash=$transactionHash;ContractRootInitialNames=$contractNames
+            ToolchainRoot=[IO.Path]::GetFullPath($ToolchainRoot);WitnessHash=$null;IsClosed=$false;Closed=$false
+        }
+        $witness.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.CanonicalNamespaceWitness')
+        $witness.WitnessHash=Get-SemanticJsonHash -InputObject (Get-CanonicalHeldNamespaceWitnessProjection -Witness $witness)
+        $null=Assert-CanonicalHeldNamespaceWitness -Witness $witness -RepoRoot ([string]$git.RepoRoot) -CanonicalLockHandle $CanonicalLockHandle -ToolchainRoot $ToolchainRoot
+        $stateCapture=$null;$contractCapture=$null;$commonCapture=$null;$gitDirCapture=$null;$repoCapture=$null
+        return $witness
+    }
+    catch{
+        if($null -ne $stateCapture){Close-CanonicalHeldSetupStateCapture -Capture $stateCapture}
+        foreach($capture in @($contractCapture,$commonCapture,$gitDirCapture,$repoCapture)){if($null -ne $capture){Close-CanonicalHeldDirectoryChainCapture -Capture $capture}}
+        if($_.Exception.Message -in @('canonical-witness-required','canonical-setup-required','canonical-recovery-required')){throw}
+        throw 'canonical-witness-required'
+    }
+}
+
+function Assert-CanonicalHeldNamespaceWitness {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Witness,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$CanonicalLockHandle,
+        [string]$ToolchainRoot=$script:CanonicalToolchainRoot
+    )
+
+    try{
+        if($null -eq $Witness -or 'AiAgentDotfiles.CanonicalNamespaceWitness' -cnotin @($Witness.PSObject.TypeNames) -or [bool]$Witness.IsClosed -or [bool]$Witness.Closed){throw 'invalid canonical witness type or lifetime'}
+        if(-not [object]::ReferenceEquals($Witness.CanonicalLockHandle,$CanonicalLockHandle)){throw 'canonical witness lock reference mismatch'}
+        if(-not(Test-CanonicalHeldPathEqual -Left ([string]$Witness.ToolchainRoot) -Right ([IO.Path]::GetFullPath($ToolchainRoot)))){throw 'canonical witness toolchain root mismatch'}
+        foreach($aliasBinding in @(
+            [pscustomobject]@{Alias=[string]$Witness.RepoRootPath;Canonical=[string]$Witness.RepoRoot},
+            [pscustomobject]@{Alias=[string]$Witness.GitDirPath;Canonical=[string]$Witness.GitDir},
+            [pscustomobject]@{Alias=[string]$Witness.GitCommonDirPath;Canonical=[string]$Witness.GitCommonDir},
+            [pscustomobject]@{Alias=[string]$Witness.ContractRootPath;Canonical=[string]$Witness.ContractRoot}
+        )){if(-not(Test-CanonicalHeldPathEqual -Left $aliasBinding.Alias -Right $aliasBinding.Canonical)){throw 'canonical witness path alias mismatch'}}
+        $git=Get-CanonicalGitContext -RepoRoot $RepoRoot
+        $paths=Get-CanonicalTransactionContractPaths -GitContext $git
+        $null=Assert-CanonicalRepoLockHandle -LockHandle $CanonicalLockHandle -ExpectedLockPath ([string]$paths.LockPath)
+        foreach($binding in @(
+            [pscustomobject]@{Actual=[string]$git.RepoRoot;Expected=[string]$Witness.RepoRoot},
+            [pscustomobject]@{Actual=[string]$git.GitDir;Expected=[string]$Witness.GitDir},
+            [pscustomobject]@{Actual=[string]$git.GitCommonDir;Expected=[string]$Witness.GitCommonDir},
+            [pscustomobject]@{Actual=[string]$paths.ContractRoot;Expected=[string]$Witness.ContractRoot},
+            [pscustomobject]@{Actual=[string]$paths.LockPath;Expected=[string]$Witness.LockPath},
+            [pscustomobject]@{Actual=[string]$paths.SetupStatePath;Expected=[string]$Witness.SetupStatePath},
+            [pscustomobject]@{Actual=[string]$paths.TransactionsRoot;Expected=[string]$Witness.TransactionsRoot}
+        )){if(-not(Test-CanonicalHeldPathEqual -Left $binding.Actual -Right $binding.Expected)){throw 'canonical witness path mismatch'}}
+        if([string]$git.GitCommonDirHash -cne [string]$Witness.GitCommonDirHash -or [string]$git.WorktreeId -cne [string]$Witness.WorktreeId -or
+            [string]$git.RepositoryCommit -cne [string]$Witness.RepositoryCommit){throw 'canonical witness Git projection mismatch'}
+        foreach($captureBinding in @(
+            [pscustomobject]@{Capture=$Witness.RepoRootCapture;Path=[string]$Witness.RepoRoot;Label='RepoRoot'},
+            [pscustomobject]@{Capture=$Witness.GitDirCapture;Path=[string]$Witness.GitDir;Label='GitDir'},
+            [pscustomobject]@{Capture=$Witness.GitCommonDirCapture;Path=[string]$Witness.GitCommonDir;Label='GitCommonDir'},
+            [pscustomobject]@{Capture=$Witness.ContractRootCapture;Path=[string]$Witness.ContractRoot;Label='ContractRoot'}
+        )){
+            if([string]$captureBinding.Capture.Label -cne [string]$captureBinding.Label -or -not(Test-CanonicalHeldPathEqual -Left ([string]$captureBinding.Capture.Path) -Right ([string]$captureBinding.Path))){throw 'canonical witness directory role mismatch'}
+            $null=Assert-CanonicalHeldDirectoryChainCapture -Capture $captureBinding.Capture
+        }
+        $contractLeaf=@($Witness.ContractRootCapture.Handles)[@($Witness.ContractRootCapture.Handles).Count-1]
+        $lockParent=@($CanonicalLockHandle.ParentHandles)[@($CanonicalLockHandle.ParentHandles).Count-1]
+        if([string]$contractLeaf.Info.Identity -cne [string]$lockParent.Info.Identity){throw 'canonical witness lock/contract identity mismatch'}
+        $tokenSid=Get-CanonicalTokenSid
+        $commonLeaf=@($Witness.GitCommonDirCapture.Handles)[@($Witness.GitCommonDirCapture.Handles).Count-1]
+        $repoId=Get-CanonicalRepoIdentityFromHeldGitCommonDir -TokenSid $tokenSid -GitCommonDirIdentity ([string]$commonLeaf.Info.Identity)
+        if($tokenSid -cne [string]$Witness.TokenSid -or $repoId -cne [string]$Witness.RepoId){throw 'canonical witness repository identity mismatch'}
+        $null=Assert-CanonicalHeldSetupStateCapture -Capture $Witness.SetupStateCapture
+        if(-not [object]::ReferenceEquals($Witness.SetupStateHandle,$Witness.SetupStateCapture.Handle) -or
+            -not(Test-CanonicalHeldPathEqual -Left ([string]$Witness.SetupStateCapture.Path) -Right ([string]$Witness.SetupStatePath)) -or
+            [string]$Witness.SetupStateCapture.RepoId -cne [string]$Witness.RepoId -or [string]$Witness.SetupStateCapture.GitCommonDirHash -cne [string]$Witness.GitCommonDirHash -or
+            [string]$Witness.SetupStateCapture.TokenSid -cne [string]$Witness.TokenSid -or
+            -not(Test-CanonicalHeldPathEqual -Left ([string]$Witness.SetupStateCapture.SchemaPath) -Right (Join-Path ([string]$Witness.ToolchainRoot) 'schemas/canonical-setup-state.schema.json')) -or
+            [string]$Witness.SetupStateBytesHash -cne [string]$Witness.SetupStateCapture.BytesHash -or
+            [string]$Witness.SetupStateIdentity -cne [string]$Witness.SetupStateCapture.Identity -or [long]$Witness.SetupStateLength -ne [long]$Witness.SetupStateCapture.Length -or
+            [string]$Witness.SetupStateSemanticHash -cne [string]$Witness.SetupStateCapture.SemanticHash -or [string]$Witness.SetupStateSecurityHash -cne [string]$Witness.SetupStateCapture.SecurityHash -or
+            ([byte[]]$Witness.SetupStateBytes).LongLength -ne [long]$Witness.SetupStateLength -or
+            [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$Witness.SetupStateBytes)).ToLowerInvariant() -cne [string]$Witness.SetupStateCapture.BytesHash -or
+            (Get-SemanticJsonHash -InputObject $Witness.SetupStateDocument) -cne [string]$Witness.SetupStateCapture.SemanticHash -or
+            [string]$Witness.SetupStateStatus -cne 'VALID' -or [string]$Witness.CanonicalTransactionCoverage -cne 'WITNESSED' -or [long]$Witness.UnfinishedCanonicalTransactionCount -ne 0){throw 'canonical witness setup-state alias mismatch'}
+        $transactionProjection=Get-CanonicalHeldTransactionSetProjection -TransactionsRoot ([string]$Witness.TransactionsRoot) -ExpectedRepoId $repoId -ExpectedGitCommonDirHash ([string]$Witness.GitCommonDirHash)
+        $transactionHash=Get-SemanticJsonHash -InputObject $transactionProjection
+        if($transactionHash -cne [string]$Witness.CanonicalTransactionSetHash -or $transactionHash -cne (Get-SemanticJsonHash -InputObject $Witness.CanonicalTransactionSetProjection)){throw 'canonical-recovery-required'}
+        $currentNames=@(Get-CanonicalHeldOrdinalStrings -Values @([AiAgentDotfiles.NoFollowFile]::GetChildNames($contractLeaf)))
+        if(-not(Test-CanonicalHeldOrdinalStringArrayEqual -Left @($Witness.ContractRootInitialNames) -Right $currentNames)){throw 'canonical contract-root inventory drift'}
+        if((Get-SemanticJsonHash -InputObject (Get-CanonicalHeldNamespaceWitnessProjection -Witness $Witness)) -cne [string]$Witness.WitnessHash){throw 'canonical witness projection hash mismatch'}
+        return $true
+    }
+    catch{
+        if($_.Exception.Message -ceq 'canonical-recovery-required'){throw}
+        throw 'canonical-witness-required'
+    }
+}
+
+function Close-CanonicalHeldNamespaceWitness {
+    [CmdletBinding()]
+    param([AllowNull()]$Witness)
+    if($null -eq $Witness -or [bool]$Witness.IsClosed -or [bool]$Witness.Closed){return}
+    Close-CanonicalHeldSetupStateCapture -Capture $Witness.SetupStateCapture
+    foreach($capture in @($Witness.ContractRootCapture,$Witness.GitCommonDirCapture,$Witness.GitDirCapture,$Witness.RepoRootCapture)){Close-CanonicalHeldDirectoryChainCapture -Capture $capture}
+    $Witness.IsClosed=$true;$Witness.Closed=$true
 }
 
 function Get-CanonicalCurrentUserOnlySecurityTemplate {

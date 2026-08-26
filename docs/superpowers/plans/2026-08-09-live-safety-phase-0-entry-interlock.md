@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** Prepared from the approved design; implementation has not started. This phase authorizes neither Git staging/commit/publish nor real live Apply/rollback. Keep `ReleaseState=interlocked` throughout.
+**Status:** Completed (43/43 checklist items; implementation commit `0a6c16e`). This phase authorizes neither Git staging/commit/publication nor any real live Apply/rollback. Keep `ReleaseState=interlocked` throughout.
 
 **Goal:** Stop every production managed-skill Apply path before backup/mutation, make bootstrap and Git hooks non-consumable-preview-only, and install the validation/test foundations required to keep later phase suites visible.
 

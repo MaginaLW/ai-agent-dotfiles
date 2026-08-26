@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-24
+Last updated: 2026-08-27
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -14,7 +14,11 @@ runtime output is rebuilt, scanned for secrets, backed up, and deployed one skil
 a time. Whole-root mirroring is forbidden, unknown live skills are preserved by default, and
 Codex `.system` is outside repository ownership.
 
-The current implementation phase is live-safety hardening Phase 0. Tracked policy remains
+Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0
+entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
+rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is open, and server-side
+cache/object purge remains a parallel external follow-up. Phase 2 Task 1 has started (0/6 steps;
+Phase 2 overall 0/52), while Phases 3-4 have not started. Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
@@ -382,23 +386,110 @@ Fresh closure validation on 2026-08-24 produced:
   `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e` with no live changes and
   Codex `.system` preserved.
 
-Fresh unified validation on 2026-08-24 used `scripts/run-tests.ps1 -All` and an external
+Fresh Phase 1 checkpoint validation on 2026-08-25 used `scripts/run-tests.ps1 -All` and an external
 create-new JSON summary. The summary's raw SHA-256 is
-`2a4b1ca6946c062d3b39b6b19c7d535aa3fd2ff7d5f94a9701cbb964358aec25`, and its discovery SHA-256 is
-`fcff1de8746c0633a478667df5817c2a36fa5a0416cd8492c59533fc8f99993b`:
+`744f20d5f2155e0c0d6560c49c8f78e0fd86d95364b3048d4e3668f73214f82b`, and its discovery SHA-256 is
+`12e438c9bf7c5d2222447d79c39e1afeb8781062d15a97fe851f454aaeaacc05`:
 
-- all 30 suites were discovered, started, completed, and passed exactly once;
+- all 31 suites were discovered, started, completed, and passed exactly once;
 - failures, timeouts, duplicates, missing suites, and tree-kill failures were all zero;
 - `canonical-hard-kill.tests.ps1` reached 317 passed / 0 failed inside the unified run;
 - the summary passed its registered schema and semantic consistency validation.
 
-This supersedes the 2026-08-22 28/30 result as the current repository validation state while
-retaining that older run as historical evidence. The unified runner does not include the separate
-PowerShell parse, canonical build, filtered secret scan, or sync dry-run gates; their fresh same-day
-evidence above remains independently recorded.
+The separate registered artifact validator passed 19 contracts, 19 positive fixtures, and 28
+negative fixtures with zero failures; its external summary SHA-256 is
+`1304e114343120903fcaceec57ea80fa8ead77bd252ad6a609625bd2ce7216d2`. PowerShell parsing,
+canonical build, filtered secret scan, doctor, exact protected-path privacy coverage, staged and
+unstaged diff checks, and sync DryRun also passed. The managed inventory remains 7/15/7.
 
-This closes the complete hard-kill process/rollback matrix and the fresh unified 30-suite runner.
-Production Apply remains interlocked.
+This closes the complete hard-kill process/rollback matrix and Phase 1's 44/44 checkpoint.
+Production Apply remains interlocked; no live mutation or Git staging/commit/publication occurred.
+
+The 2026-08-26 Phase 2 Task 1 intermediate checkpoint completed one runtime read-only
+authority/schema slice: access-token SID plus Known Folder authority resolution, no-follow metadata
+TargetContext capture, root-claims v1, current-env-state v3, exact-byte claims/state binding, and
+failure-layer coverage. Registered artifact validation passed 21 positive and 66 negative fixtures
+with zero failures. Independent no-follow/token, schema-to-pair, and fixture-layer reviews found and
+then revalidated the closed race, identity-format, schema-boundary, and Windows-name issues. This
+does not complete any whole Task 1 step: Task 1 remains 0/6 and Phase 2 remains 0/52. No production
+live root or Git index/ref was changed.
+
+The current pre-lock `MetadataOnly` TargetContext is discovery/planning evidence only. The sealed
+read-only registry now recaptures a supplied current route only under the genuine caller-held lock
+pair; any future production plan or Apply consumer must likewise hold every required route lock,
+including the global live lock, then recapture and compare the complete no-follow TargetContext before
+backup/workspace creation. Path, ancestor, reparse, volume, directory-identity, or capability drift
+must fail closed.
+
+A second 2026-08-26 intermediate checkpoint completed the sealed fake-ControlBase bootstrap and
+existing-only global-lock slice. The pre-ControlBase bootstrap lock is created under the already-held
+Known Folder parent; the six deterministic directories and final global lock are created in one exact
+prefix with their final current-user security descriptors, and the global lock is created last and
+retained through bootstrap handoff. Snapshot validation rejects wrong type/ACL/identity, extra or
+non-prefix children, reparse points, hard links, named streams, callback/opaque ACEs, and security
+drift. The complete `live-concurrency` suite passes two real Git-repository contenders, strict
+zero-wait loss with whole-fake-home zero-write evidence, a sealed test-only bounded wait, owner-death
+handle release, and hard kill before/after all seven creation boundaries with exact-prefix resume and
+identity preservation. Three independent security/concurrency/scope reviews passed after their
+findings were fixed. This remains sealed test-adapter work: caller-supplied capability evidence is not
+a production capability preflight, no production route consumes the bootstrap/global-lock API, and no
+whole Task 1 step is complete. Task 1 remains 0/6 and Phase 2 remains 0/52.
+
+A third 2026-08-26 intermediate checkpoint implemented the held-global-lock, read-only unified
+registry core. Pristine bootstrap validation is now separate from the fixed post-bootstrap envelope;
+under a real typed global-lock witness, strict in-memory zero-write validators read immutable
+canonical and home claims, classify associated state as `VALID`, `MISSING`, or `INVALID`, retain
+represented roots for conflict detection, and inventory normalized UUID live-transaction directories
+as unresolved markers. Tests cover typed-lock rejection, fake-root zero-write behavior, represented-root
+overlap, and hostile topology/type/reparse/hard-link/ADS/security cases. This remains an intermediate
+registry slice: canonical-root-claim v1 has no GitCommonDir locator, so the current canonical namespace
+and setup state still require a caller-held typed witness; before Task 4, a nonempty live-transaction
+namespace fails closed as recovery-required without inventing a journal schema. The complete forbidden
+matrix, held-route TargetContext recapture, and production integration remain unfinished. No whole Task
+1 step is complete: Task 1 remains 0/6 and Phase 2 remains 0/52. Production Apply remains interlocked,
+and no live root or Git index/ref was changed.
+
+Fresh closure validation for this third intermediate checkpoint used `scripts/run-tests.ps1 -All`
+with an external create-new JSON summary. Its raw SHA-256 is
+`e08248fd63e895a2245db0fa416c778111009a5a34c99c7b662999d5c7da3b24`, and its discovery SHA-256 is
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`: all 34 suites were
+discovered, started, completed, and passed exactly once; failures, timeouts, duplicates, missing
+suites, and tree-kill failures were zero. `canonical-hard-kill.tests.ps1` reached 317 passed / 0
+failed, and `root-claims-registry.tests.ps1` reached 69 passed / 0 failed. `build-skills.ps1`,
+`scan-secrets.ps1`, and `sync.ps1` DryRun then passed; no production Apply, live-root mutation, or Git
+index/ref mutation occurred.
+
+A fourth 2026-08-27 intermediate checkpoint completed the sealed caller-held canonical-witness and
+current-route registry slice. The canonical witness now retains the exact canonical setup bytes and
+transaction-namespace evidence captured under its own lock; global-lock acquisition binds that exact
+CLR-held owner and capture in canonical-to-global order, and a dependent-lock chain can close only
+tail-to-head. The canonical-bound current-route path accepts only the genuine acquisition pair,
+revalidates immutable held metadata, and can capture a read-only current-route root set under those
+locks. Its returned coverage is exactly `HELD_METADATA_VERIFIED`; filesystem capability remains
+`UNPROBED_READ_ONLY`. Tests now
+fail closed on stateful getters, ABA substitution, ETS shadowing, genuine foreign owners, mutable
+display replacement, identity/path/hash drift, and wrong lock order. Target, live-set, and registry
+receipts use private `OPEN`/`CLOSING`/`CLOSED` state with exact retryable close and best-effort cleanup,
+including injected cleanup failure. The implemented current-route overlap checks cover the current
+repository, Git-private/setup, fixed control/backup/recovery, live targets/reservations, and applicable
+workspace/materialization/source/staging roles, without claiming the complete Task 1 matrix.
+
+This fourth slice remains read-only and disconnected from production routes. Task 4 still owns the
+live-journal structure and interpretation, so any nonempty live-transaction namespace remains
+recovery-required. Remaining Task 1 work includes the rest of the identity/concurrency failure matrix,
+production route lock integration, a real under-lock filesystem-capability preflight, and the complete
+forbidden-root matrix where applicable. No whole step is complete: Task 1 remains 0/6 and Phase 2
+remains 0/52. Production Apply remains interlocked; no live root or Git index/ref was changed.
+
+Fresh validation for this fourth checkpoint used `scripts/run-tests.ps1 -All` with a path proven
+absent before the runner's create-new write. The external summary raw SHA-256 is
+`b8bc1c887ea1d8aaf9cffbc2ef63ded74779ea430920a117a377b695d21710ec`; its independently recomputed
+discovery SHA-256 is `1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`.
+All 34 suites were discovered, started, completed, and passed exactly once; failures, timeouts,
+duplicates, missing suites, and tree-kill failures were zero. `canonical-hard-kill.tests.ps1`
+reached 317 passed / 0 failed, and `root-claims-registry.tests.ps1` emitted 159 PASS assertions with
+exit code 0. `build-skills.ps1`, `scan-secrets.ps1`, and `sync.ps1` DryRun then passed; the build
+inventory remained 7/15/7, and the hard-kill suite added no temporary-directory residue.
 
 ## Current boundaries and known state
 
@@ -412,13 +503,24 @@ Production Apply remains interlocked.
   this repository's sync scope.
 - The MCP subsystem removal did not alter any live MCP registration.
 - User-owned `.reasonix/desktop-topic-*.json` files and the live-safety planning stream remain
-  outside this repair. The fresh 2026-08-24 filtered working-tree scan passed without blocking findings
-  (746 non-blocking keyword hints).
-- Git publishing is outside this cleanup task: no push or pull request has been performed.
+  outside this repair. The fresh 2026-08-25 filtered working-tree scan passed without blocking findings
+  (750 non-blocking keyword hints).
+- Corrected rewritten state through `bbba28f` is published; local `main` and `origin/main` are
+  synchronized. Branch/tag history and fresh clones contain no protected-path records or targeted
+  STATUS exposure, but GitHub still serves the old head by SHA. Support ticket `#4697323` is open
+  for server-side garbage collection/cache removal; the request contains the required audit metadata
+  and no protected file contents.
 
 ## Next actions
 
-1. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+1. Continue Phase 2 Task 1 with the remaining identity/concurrency failure matrix, production-route
+   integration of the canonical-to-global lock order and current-route witness, a real under-lock
+   filesystem-capability preflight, and the remaining forbidden-root cases. Keep production Apply
+   disconnected and leave live-journal structure and interpretation to Task 4.
+2. In parallel, monitor GitHub Support ticket `#4697323`; after Support confirms server-side garbage
+   collection and cache removal, re-probe the old SHA before closing the external privacy follow-up.
+3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
+4. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.
