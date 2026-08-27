@@ -9,7 +9,7 @@
         'canonical-hard-kill-reap-semantics.tests.ps1' = 15
         'canonical-command-result.tests.ps1' = 420
         'canonical-mutation-blockers.tests.ps1' = 600
-        'canonical-mutation-parent-lease.tests.ps1' = 180
+        'canonical-mutation-parent-lease.tests.ps1' = 420
         'canonical-recovery.tests.ps1' = 1200
         'canonical-transaction-apply.tests.ps1' = 1800
         'canonical-transaction.tests.ps1' = 360

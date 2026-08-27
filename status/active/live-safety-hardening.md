@@ -1,6 +1,6 @@
 # Live Safety Hardening
 
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
@@ -49,6 +49,24 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   Registry coverage is `HELD_METADATA_VERIFIED`; filesystem capability remains
   `UNPROBED_READ_ONLY`. Current-route overlap coverage is implemented without claiming the complete
   forbidden-root matrix or production integration.
+- 2026-08-28 CI repair (infrastructure, no Task 1 step): the always-red `Validate` workflow was
+  traced to elevated GitHub runner tokens creating `BUILTIN\Administrators`-owned objects while the
+  current-user-only checks demanded the token user SID. Resolver version
+  `windows-token-sid-current-user-only-v2` accepts owner evidence from {token user SID, token
+  default owner} across canonical, home-authority, and registry checks; DACL current-user-only
+  requirements are unchanged. The hard-kill suite self-seals its own bytes and the reviewed load;
+  the repair re-pinned the reviewed-load manifest, actual-prelude rows and digest, pre-section
+  region, transport-contract extent, function inventory, cleanup-gate self digest, and controller
+  surface digest while the 299/81/2 sealed mutation inventory revalidated unchanged. Schemas and
+  the three positive fixtures moved to v2. The parent-lease external-attack wait now exceeds the
+  helper's own deadline so missed windows surface as explicit diagnostics. Local validation:
+  syntax gate 156 files, artifact validation 21/21/66/0, targeted suites green (recovery 104/0
+  including three new owner-rule assertions, command-result 46/0, registry/transaction/
+  parent-lease/home-authority/live-concurrency pass), build 7/15/7, secret scan clean, sync
+  DryRun without mutation. The definitive unified run passed all 34 suites exactly once with
+  zero failures and timeouts (hard-kill 317/0 inside the run); external create-new summary
+  SHA-256 `fef5a8e1d1ed5acd5a1bf74c8b7290b19a06aceb043f4ad5452f5735d5a396fa`. Production Apply
+  remains interlocked.
 - Phase 2 fourth-checkpoint unified validation: all 34 suites were discovered and passed exactly
   once with every runner error count zero; external create-new summary raw SHA-256
   `b8bc1c887ea1d8aaf9cffbc2ef63ded74779ea430920a117a377b695d21710ec` and independently recomputed

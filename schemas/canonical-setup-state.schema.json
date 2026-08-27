@@ -18,7 +18,7 @@
     "ClaimId": { "$ref": "#/$defs/hash" },
     "GitCommonDirHash": { "$ref": "#/$defs/hash" },
     "OwnerSid": { "$ref": "#/$defs/sid" },
-    "SecurityResolverVersion": { "const": "windows-token-sid-current-user-only-v1" },
+    "SecurityResolverVersion": { "const": "windows-token-sid-current-user-only-v2" },
     "SecurityTemplateHash": { "$ref": "#/$defs/hash" },
     "CanonicalRecoveryRoot": { "type": "string", "minLength": 3 },
     "CanonicalRecoveryRootIntent": { "$ref": "#/$defs/rootContext" },
@@ -47,7 +47,7 @@
       "type": "object",
       "required": ["ResolverVersion", "TargetStatus", "LocationKey", "RequestedPath", "VolumeId", "DeepestExistingParentPath", "DeepestExistingParentIdentity", "DeepestExistingParentOwnerSid", "DeepestExistingParentDaclHash", "MissingRemainder", "ExpectedFinalOwnerSid", "ExpectedFinalDaclTemplateHash", "FinalDirectoryIdentity", "FinalOwnerSid", "FinalDaclHash"],
       "properties": {
-        "ResolverVersion": { "const": "windows-token-sid-current-user-only-v1" },
+        "ResolverVersion": { "const": "windows-token-sid-current-user-only-v2" },
         "TargetStatus": { "enum": ["MISSING", "EXISTS"] },
         "LocationKey": { "type": "string", "minLength": 3 },
         "RequestedPath": { "type": "string", "minLength": 3 },

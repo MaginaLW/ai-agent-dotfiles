@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -178,6 +178,67 @@ volume. Their external recovery fixtures now use random working-tree-external si
 repository volume, and the setup-only root is explicitly current-user-only. This preserves the
 production cross-volume and broad-ACL rejection gates. `status/active/README.md` now keeps the
 doctor-required active-status directory present in fresh clones.
+
+## 2026-08-28 CI runner owner-authorization repair
+
+The GitHub Actions `Validate` workflow had failed on every push since 2026-08-09 while local
+unified runs of the same commits stayed green. The current-run log isolated four failing suites:
+`canonical-command-result` (four routed setup cases), `canonical-recovery` (the public setup
+DryRun published no plan), `root-claims-registry` (crash with
+`registry owner/DACL is not current-user-only`), and `canonical-mutation-parent-lease`
+(`external parent attack timed out: file-rollback`).
+
+Root cause, confirmed at the code level and by direct reproduction of the check behavior:
+GitHub-hosted Windows runners execute job processes under an elevated administrator token, so
+objects the job creates without an explicit owner are owned by `BUILTIN\Administrators`
+(`S-1-5-32-544`) rather than the access-token user SID. The current-user-only security checks
+compared directory-owner evidence strictly against the access-token user SID, so every
+test-created fixture ancestor and snapshot failed closed on CI. Non-elevated local development
+shells create user-SID-owned objects and were unaffected. The same asymmetry applies to the
+parent-lease external attack: the parent-side wait (30 s) was shorter than the external helper's
+own 120 s deadline, so a missed lease window surfaced as a misleading timeout instead of a real
+`Blocked=false` diagnostic.
+
+Repair (resolver version `windows-token-sid-current-user-only-v2`):
+
+- The owner expectation is now the set {access-token user SID, token default owner}. On
+  non-elevated tokens the default owner equals the user SID, so non-elevated behavior is
+  unchanged; on elevated tokens the default owner is the Administrators group, matching what
+  that token factually creates. The DACL requirements (current-user-only, protected or the
+  reviewed inherited single-ACE shape, broad-SID rejection) are unchanged and remain fail-closed.
+- `canonical-transaction-common.ps1`, `home-authority-common.ps1`, and
+  `root-claims-registry-common.ps1` gained token-default-owner helpers; the directory-security,
+  ancestor, registry-snapshot, and canonical-root-context checks accept the owner set; stored
+  artifact bindings still record the token user SID. The hard-kill suite seals its own bytes and
+  the reviewed load, so the same repair re-pinned the reviewed-load manifest, the actual-prelude
+  row list and digest, the 27-statement pre-section region digest, the transport-contract extent,
+  the function-inventory digest, the cleanup-gate self digest, and the whole-file controller
+  surface digest. The sealed mutation inventory itself (299 rejections / 81 controls / 2 actual
+  prelude controls) is unchanged and revalidated green.
+- The three schemas pinning `SecurityResolverVersion` moved their const to v2, and the
+  `canonical-root-claim`, `canonical-setup-state`, and `canonical-transaction-plan` positive
+  fixtures were regenerated (the plan's `PlanHash`/`DocumentHash` recomputed with the reviewed
+  hash functions). The regeneration helper lived outside the repository and was not committed.
+- The parent-lease controller now waits 125 s per external attack (above the helper's own 120 s
+  deadline), the lease-acknowledgement handshake waits 60 s, and the suite budget moved from 180 s
+  to 420 s. A missed lease window now surfaces as an explicit `Blocked=false` assertion failure
+  rather than a timeout; the blocking assertions themselves are unchanged.
+- `canonical-recovery.tests.ps1` gained regression assertions pinning the v2 resolver string,
+  acceptance of the token default owner, and continued rejection of a foreign owner.
+
+Validation on 2026-08-28: the PowerShell syntax gate passed (156 files), registered artifact
+validation passed 21 contracts / 21 positive / 66 negative with zero failures, and the affected
+suites passed standalone (`canonical-recovery` 104/0, `canonical-command-result` 46/0,
+`root-claims-registry` pass, `canonical-transaction` 45/0, `canonical-mutation-parent-lease`
+12/0, `home-authority` pass, `live-concurrency` pass). The definitive unified
+`run-tests.ps1 -All` run then discovered, started, completed, and passed all 34 suites exactly
+once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures; the external
+create-new JSON summary's SHA-256 is
+`fef5a8e1d1ed5acd5a1bf74c8b7290b19a06aceb043f4ad5452f5735d5a396fa`, with `canonical-hard-kill`
+reaching 317/0 inside the unified run. `build-skills.ps1` (7/15/7), `scan-secrets.ps1` (no
+blocking findings; 805 non-blocking keyword hints), and `sync.ps1` DryRun (no live mutation)
+passed. Production Apply remains interlocked and no live root was touched. See
+`status/active/live-safety-hardening.md` for this repair's record.
 
 ## Validation status
 

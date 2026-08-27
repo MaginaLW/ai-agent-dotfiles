@@ -187,6 +187,19 @@ try{
     $inheritedParent=Join-Path $root 'inherited-broad-parent';$inheritedRecovery=Join-Path $inheritedParent 'recovery';[IO.Directory]::CreateDirectory($inheritedParent)|Out-Null;Set-TestBroadWriteAcl -Path $inheritedParent;[IO.Directory]::CreateDirectory($inheritedRecovery)|Out-Null
     Assert-Throws {New-CanonicalSetupPlanPayload -RepoRoot $fixture -CanonicalRecoveryRoot $inheritedRecovery -ControlBase (Join-Path $root 'inherited-control') -BackupRoot (Join-Path $root 'inherited-backup') -ProbeRoot $planRoot} 'broad write|owner/DACL' 'setup: inherited Everyone broad-write ACL is rejected'
     Assert-Throws {Assert-CanonicalRecoveryVolumeMatch -RepositoryVolumeId 'volume-a' -RecoveryVolumeId 'volume-b'} 'cross-volume' 'setup: payload volume guard rejects a different recovery volume deterministically'
+    $securityTemplateV2=Get-CanonicalCurrentUserOnlySecurityTemplate
+    Assert ([string]$securityTemplateV2.ResolverVersion -ceq 'windows-token-sid-current-user-only-v2') 'setup: current-user-only security template resolver version is v2'
+    $ancestorTokenSid=Get-CanonicalTokenSid;$ancestorDefaultOwnerSid=Get-CanonicalTokenDefaultOwnerSid
+    $ancestorEvidence=[ordered]@{}
+    foreach($templateKey in @($securityTemplateV2.Keys)){$ancestorEvidence[$templateKey]=$securityTemplateV2[$templateKey]}
+    $ancestorEvidence.OwnerSid=$ancestorDefaultOwnerSid
+    $ancestorAccepted=$false
+    try{Assert-CanonicalControlledPrivateAncestorSecurity -Evidence $ancestorEvidence -Path $root -TokenSid $ancestorTokenSid;$ancestorAccepted=$true}catch{}
+    Assert $ancestorAccepted 'setup: ancestor owner check accepts the access-token default owner'
+    $ancestorEvidenceForeign=[ordered]@{}
+    foreach($templateKey in @($securityTemplateV2.Keys)){$ancestorEvidenceForeign[$templateKey]=$securityTemplateV2[$templateKey]}
+    $ancestorEvidenceForeign.OwnerSid='S-1-5-32-545'
+    Assert-Throws {Assert-CanonicalControlledPrivateAncestorSecurity -Evidence $ancestorEvidenceForeign -Path $root -TokenSid $ancestorTokenSid} 'ancestor is not owned' 'setup: ancestor owner check still rejects a foreign owner'
     $reparseTarget=Join-Path $root 'reparse-target';$reparseAlias=Join-Path $root 'reparse-alias';[IO.Directory]::CreateDirectory($reparseTarget)|Out-Null
     $null=New-Item -ItemType Junction -Path $reparseAlias -Target $reparseTarget
     Assert-Throws {Get-CanonicalTransactionContractPaths ([pscustomobject]@{GitCommonDir=$reparseAlias})} 'reparse' 'setup: contract-root ancestor reparse fails closed'

@@ -981,11 +981,16 @@ function Close-SealedRegistryCurrentRouteCapture {
     if ($null -ne $cleanupError) { throw $cleanupError }
 }
 
+function Test-SealedRegistryAllowedOwnerSid {
+    param([Parameter(Mandatory)][string]$OwnerSid,[Parameter(Mandatory)][string]$TokenSid)
+    return ([string]$OwnerSid -ceq $TokenSid -or [string]$OwnerSid -ceq (Get-HomeAuthorityTokenDefaultOwnerSid))
+}
+
 function Get-SealedRegistryCanonicalSecurityTemplate {
     param([Parameter(Mandatory)][string]$TokenSid)
     $inheritance = [long]([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit)
     return [ordered]@{
-        ResolverVersion = 'windows-token-sid-current-user-only-v1'
+        ResolverVersion = 'windows-token-sid-current-user-only-v2'
         OwnerSid = $TokenSid
         AreAccessRulesProtected = $true
         AccessRules = @([ordered]@{
@@ -1031,6 +1036,15 @@ function Assert-SealedRegistryCurrentUserOnlySecuritySnapshot {
         })
     }
     $null = $allowedHashes.Add((Get-SemanticJsonHash -InputObject $inherited))
+
+    # v2 also accepts the token default owner (the user SID on non-elevated
+    # tokens, BUILTIN\Administrators on elevated admin tokens) because that is
+    # the factual owner of objects the current token creates without an
+    # explicit O: SDDL assignment. The DACL shapes stay current-user-only.
+    $defaultOwnerSid = Get-HomeAuthorityTokenDefaultOwnerSid
+    $null = $allowedHashes.Add((Get-SemanticJsonHash -InputObject (Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $explicit -OwnerSid $defaultOwnerSid)))
+    $inheritedOwnerVariant = Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $inherited -OwnerSid $defaultOwnerSid
+    $null = $allowedHashes.Add((Get-SemanticJsonHash -InputObject $inheritedOwnerVariant))
     if (-not $allowedHashes.Contains($actualHash)) { throw 'registry owner/DACL is not current-user-only' }
     return [pscustomobject][ordered]@{ Evidence=$evidence; EvidenceHash=$actualHash }
 }
@@ -1052,9 +1066,13 @@ function Assert-SealedRegistryCanonicalDirectorySecuritySnapshot {
         AccessRules = @($evidence.AccessRules)
     }
     $actualHash = Get-SemanticJsonHash -InputObject $canonicalEvidence
-    if ($actualHash -cne $ExpectedSecurityTemplateHash) { throw 'canonical recovery root owner/DACL does not match the claimed protected template' }
+    $allowedTemplateHashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $null = $allowedTemplateHashes.Add([string]$ExpectedSecurityTemplateHash)
+    $defaultOwnerTemplate = Get-SealedRegistryCanonicalSecurityTemplate -TokenSid (Get-HomeAuthorityTokenDefaultOwnerSid)
+    $null = $allowedTemplateHashes.Add((Get-SemanticJsonHash -InputObject $defaultOwnerTemplate))
+    if (-not $allowedTemplateHashes.Contains($actualHash)) { throw 'canonical recovery root owner/DACL does not match the claimed protected template' }
     if (-not [string]::IsNullOrEmpty($ExpectedFinalDaclHash) -and $actualHash -cne $ExpectedFinalDaclHash) { throw 'canonical recovery root owner/DACL differs from the existing-root intent' }
-    if ([string]$canonicalEvidence.OwnerSid -cne $TokenSid -or -not [bool]$canonicalEvidence.AreAccessRulesProtected) { throw 'canonical recovery root security authority mismatch' }
+    if (-not (Test-SealedRegistryAllowedOwnerSid -OwnerSid ([string]$canonicalEvidence.OwnerSid) -TokenSid $TokenSid) -or -not [bool]$canonicalEvidence.AreAccessRulesProtected) { throw 'canonical recovery root security authority mismatch' }
     return [pscustomobject][ordered]@{ Evidence=$canonicalEvidence; EvidenceHash=$actualHash }
 }
 
@@ -1332,7 +1350,7 @@ function Assert-SealedRegistryCanonicalRootContext {
     )
     $fields = @('ResolverVersion','TargetStatus','LocationKey','RequestedPath','VolumeId','DeepestExistingParentPath','DeepestExistingParentIdentity','DeepestExistingParentOwnerSid','DeepestExistingParentDaclHash','MissingRemainder','ExpectedFinalOwnerSid','ExpectedFinalDaclTemplateHash','FinalDirectoryIdentity','FinalOwnerSid','FinalDaclHash')
     Assert-SealedRegistryExactPropertySet -InputObject $Context -Expected $fields -Label $Label
-    Assert-SealedRegistryString $Context.ResolverVersion "$Label ResolverVersion" $null @('windows-token-sid-current-user-only-v1')
+    Assert-SealedRegistryString $Context.ResolverVersion "$Label ResolverVersion" $null @('windows-token-sid-current-user-only-v2')
     Assert-SealedRegistryString $Context.TargetStatus "$Label TargetStatus" $null @('MISSING','EXISTS')
     Assert-SealedRegistryString $Context.RequestedPath "$Label RequestedPath"
     Assert-SealedRegistryString $Context.LocationKey "$Label LocationKey"
@@ -1347,7 +1365,7 @@ function Assert-SealedRegistryCanonicalRootContext {
     Assert-SealedRegistryString $Context.DeepestExistingParentDaclHash "$Label parent DACL hash" $script:SealedRegistryHashPattern
     Assert-SealedRegistryArray $Context.MissingRemainder "$Label MissingRemainder"
     foreach ($segment in @($Context.MissingRemainder)) { Assert-SealedRegistryString $segment "$Label missing segment" '\A[^\\/:]+\z' }
-    if ([string]$Context.DeepestExistingParentOwnerSid -cne $TokenSid -or [string]$Context.ExpectedFinalOwnerSid -cne $TokenSid) { throw "$Label owner SID mismatch" }
+    if (-not (Test-SealedRegistryAllowedOwnerSid -OwnerSid ([string]$Context.DeepestExistingParentOwnerSid) -TokenSid $TokenSid) -or [string]$Context.ExpectedFinalOwnerSid -cne $TokenSid) { throw "$Label owner SID mismatch" }
     if ([string]$Context.ExpectedFinalDaclTemplateHash -cne $SecurityTemplateHash) { throw "$Label expected DACL template mismatch" }
     if ([string]$Context.TargetStatus -ceq 'MISSING') {
         if ($null -ne $Context.FinalDirectoryIdentity -or $null -ne $Context.FinalOwnerSid -or $null -ne $Context.FinalDaclHash -or @($Context.MissingRemainder).Count -lt 1) { throw "$Label MISSING branch mismatch" }
@@ -1360,7 +1378,10 @@ function Assert-SealedRegistryCanonicalRootContext {
         Assert-SealedRegistryString $Context.FinalDirectoryIdentity "$Label final identity" '\A[0-9a-f]{8}:[0-9a-f]{16}\z'
         Assert-SealedRegistryString $Context.FinalOwnerSid "$Label final owner" '\AS-[0-9]+(?:-[0-9]+)+\z'
         Assert-SealedRegistryString $Context.FinalDaclHash "$Label final DACL hash" $script:SealedRegistryHashPattern
-        if (@($Context.MissingRemainder).Count -ne 0 -or [string]$parent.Path -cne [string]$requested.Path -or [string]$Context.FinalDirectoryIdentity -cne [string]$Context.DeepestExistingParentIdentity -or [string]$Context.FinalOwnerSid -cne $TokenSid -or [string]$Context.FinalDaclHash -cne $SecurityTemplateHash) { throw "$Label EXISTS branch mismatch" }
+        $allowedFinalDaclHashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $null = $allowedFinalDaclHashes.Add([string]$SecurityTemplateHash)
+        $null = $allowedFinalDaclHashes.Add((Get-SemanticJsonHash -InputObject (Get-SealedRegistryCanonicalSecurityTemplate -TokenSid (Get-HomeAuthorityTokenDefaultOwnerSid))))
+        if (@($Context.MissingRemainder).Count -ne 0 -or [string]$parent.Path -cne [string]$requested.Path -or [string]$Context.FinalDirectoryIdentity -cne [string]$Context.DeepestExistingParentIdentity -or -not (Test-SealedRegistryAllowedOwnerSid -OwnerSid ([string]$Context.FinalOwnerSid) -TokenSid $TokenSid) -or -not $allowedFinalDaclHashes.Contains([string]$Context.FinalDaclHash)) { throw "$Label EXISTS branch mismatch" }
     }
 }
 
@@ -1377,7 +1398,7 @@ function Assert-SealedRegistryCanonicalRootClaimContract {
     if ([string]$Document.RepoId -cne $ExpectedRepoId -or [string]$Document.ClaimId -cne $ExpectedRepoId) { throw 'canonical-root-claim filename/repository identity mismatch' }
     $tokenSid = [string]$AuthorityContext.TokenSid
     Assert-SealedRegistryString $Document.OwnerSid 'canonical-root-claim OwnerSid' '\AS-[0-9]+(?:-[0-9]+)+\z'
-    if ([string]$Document.OwnerSid -cne $tokenSid -or [string]$Document.SecurityResolverVersion -cne 'windows-token-sid-current-user-only-v1') { throw 'canonical-root-claim owner/security resolver mismatch' }
+    if ([string]$Document.OwnerSid -cne $tokenSid -or [string]$Document.SecurityResolverVersion -cne 'windows-token-sid-current-user-only-v2') { throw 'canonical-root-claim owner/security resolver mismatch' }
     $securityTemplate = Get-SealedRegistryCanonicalSecurityTemplate -TokenSid $tokenSid
     $securityTemplateHash = Get-SemanticJsonHash -InputObject $securityTemplate
     if ([string]$Document.SecurityTemplateHash -cne $securityTemplateHash) { throw 'canonical-root-claim security template mismatch' }

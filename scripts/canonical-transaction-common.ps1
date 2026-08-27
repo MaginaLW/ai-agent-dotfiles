@@ -333,6 +333,21 @@ function Get-CanonicalTokenSid {
     return $sid
 }
 
+function Get-CanonicalTokenDefaultOwnerSid {
+    [CmdletBinding()]
+    param()
+    try { $ownerSid=[System.Security.Principal.WindowsIdentity]::GetCurrent().Owner.Value }
+    catch { throw 'canonical-token-owner-unavailable' }
+    if([string]::IsNullOrWhiteSpace($ownerSid)){throw 'canonical-token-owner-unavailable'}
+    return $ownerSid
+}
+
+function Test-CanonicalAllowedOwnerSid {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$OwnerSid,[Parameter(Mandatory)][string]$TokenSid)
+    return ([string]$OwnerSid -ceq $TokenSid -or [string]$OwnerSid -ceq (Get-CanonicalTokenDefaultOwnerSid))
+}
+
 function Get-CanonicalRepoIdentity {
     param([Parameter(Mandatory)]$GitContext)
     $sid=Get-CanonicalTokenSid
@@ -814,7 +829,7 @@ function Get-CanonicalCurrentUserOnlySecurityTemplate {
     $sid=Get-CanonicalTokenSid
     $inheritance=[long]([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit)
     return [ordered]@{
-        ResolverVersion='windows-token-sid-current-user-only-v1'
+        ResolverVersion='windows-token-sid-current-user-only-v2'
         OwnerSid=$sid
         AreAccessRulesProtected=$true
         AccessRules=@([ordered]@{
@@ -864,7 +879,7 @@ function Get-CanonicalDirectorySecurityEvidence {
     $after=[AiAgentDotfiles.NoFollowFile]::GetDirectorySecuritySnapshot($full)
     if([string]$before.Identity -cne [string]$after.Identity -or [string]$before.Sddl -cne [string]$after.Sddl){throw "canonical private root owner/DACL changed while reading: $full"}
     $protected=($raw.ControlFlags -band [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0
-    return [ordered]@{ResolverVersion='windows-token-sid-current-user-only-v1';OwnerSid=$ownerSid;AreAccessRulesProtected=$protected;AccessRules=$orderedRules}
+    return [ordered]@{ResolverVersion='windows-token-sid-current-user-only-v2';OwnerSid=$ownerSid;AreAccessRulesProtected=$protected;AccessRules=$orderedRules}
 }
 
 function Assert-CanonicalCurrentUserOnlyDirectorySecurity {
@@ -880,14 +895,20 @@ function Assert-CanonicalCurrentUserOnlyDirectorySecurity {
     }
     $actualHash=Get-SemanticJsonHash -InputObject $actual
     $templateHash=Get-SemanticJsonHash -InputObject $Template
-    if($actualHash -cne $templateHash){throw "canonical private root owner/DACL does not match the current-user-only template: $Path"}
+    $allowedHashes=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $null=$allowedHashes.Add($templateHash)
+    $ownerVariant=[ordered]@{}
+    foreach($key in @($Template.Keys)){ $ownerVariant[$key]=$Template[$key] }
+    $ownerVariant.OwnerSid=Get-CanonicalTokenDefaultOwnerSid
+    $null=$allowedHashes.Add((Get-SemanticJsonHash -InputObject $ownerVariant))
+    if(-not $allowedHashes.Contains($actualHash)){throw "canonical private root owner/DACL does not match the current-user-only template: $Path"}
     return [pscustomobject][ordered]@{Evidence=$actual;EvidenceHash=$actualHash}
 }
 
 function Assert-CanonicalControlledPrivateAncestorSecurity {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Evidence,[Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$TokenSid)
-    if([string]$Evidence.OwnerSid -cne $TokenSid){throw "canonical private root ancestor is not owned by the access-token SID: $Path"}
+    if(-not (Test-CanonicalAllowedOwnerSid -OwnerSid ([string]$Evidence.OwnerSid) -TokenSid $TokenSid)){throw "canonical private root ancestor is not owned by the access-token owner: $Path"}
     $broadSids=@('S-1-1-0','S-1-5-11','S-1-5-32-545')
     $dangerousMask=[long]([System.Security.AccessControl.FileSystemRights]::Write -bor [System.Security.AccessControl.FileSystemRights]::Modify -bor [System.Security.AccessControl.FileSystemRights]::FullControl -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles)
     foreach($rule in @($Evidence.AccessRules)){

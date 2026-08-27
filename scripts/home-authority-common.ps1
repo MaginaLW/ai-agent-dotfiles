@@ -347,6 +347,16 @@ function Get-WindowsHomeAuthorityIdentity {
     }
 }
 
+function Get-HomeAuthorityTokenDefaultOwnerSid {
+    [CmdletBinding()]
+    param()
+
+    try { $ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().Owner.Value }
+    catch { throw 'home-authority-token-owner-unavailable' }
+    if ([string]::IsNullOrWhiteSpace($ownerSid)) { throw 'home-authority-token-owner-unavailable' }
+    return $ownerSid
+}
+
 function Get-HomeAuthorityIdentityField {
     param([Parameter(Mandatory)]$Identity,[Parameter(Mandatory)][string]$Name)
     $property = $Identity.PSObject.Properties[$Name]
@@ -418,7 +428,7 @@ function Get-HomeAuthorityCurrentUserOnlySecurityTemplate {
     }
     else { [long][Security.AccessControl.InheritanceFlags]::None }
     return [ordered]@{
-        ResolverVersion = 'windows-token-sid-current-user-only-v1'
+        ResolverVersion = 'windows-token-sid-current-user-only-v2'
         ResourceKind = $ResourceKind
         OwnerSid = $TokenSid
         AreAccessRulesProtected = $true
@@ -478,12 +488,26 @@ function ConvertFrom-HomeAuthoritySecuritySnapshot {
     $orderedRules = @($rules | Sort-Object @{Expression={[string]$_.Sid}},@{Expression={[long]$_.AccessControlType}},@{Expression={[long]$_.FileSystemRights}},@{Expression={[long]$_.InheritanceFlags}},@{Expression={[long]$_.PropagationFlags}},@{Expression={[bool]$_.IsInherited}})
     $protected = ($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0
     return [ordered]@{
-        ResolverVersion = 'windows-token-sid-current-user-only-v1'
+        ResolverVersion = 'windows-token-sid-current-user-only-v2'
         ResourceKind = $ResourceKind
         OwnerSid = [string]$raw.Owner.Value
         AreAccessRulesProtected = $protected
         AccessRules = $orderedRules
     }
+}
+
+function Copy-HomeAuthoritySecurityTemplateWithOwner {
+    param([Parameter(Mandatory)]$SecurityTemplate,[Parameter(Mandatory)][string]$OwnerSid)
+
+    $variant = [ordered]@{}
+    if ($SecurityTemplate -is [System.Collections.IDictionary]) {
+        foreach ($key in @($SecurityTemplate.Keys)) { $variant[$key] = $SecurityTemplate[$key] }
+    }
+    else {
+        foreach ($property in @($SecurityTemplate.PSObject.Properties)) { $variant[$property.Name] = $property.Value }
+    }
+    $variant.OwnerSid = $OwnerSid
+    return $variant
 }
 
 function Assert-HomeAuthoritySecuritySnapshot {
@@ -497,8 +521,10 @@ function Assert-HomeAuthoritySecuritySnapshot {
     $kind = [string](Get-HomeAuthorityObjectProperty -InputObject $SecurityTemplate -Name 'ResourceKind')
     $evidence = ConvertFrom-HomeAuthoritySecuritySnapshot -Snapshot $Snapshot -ResourceKind $kind
     $actualHash = Get-SemanticJsonHash -InputObject $evidence
-    $expectedHash = Get-SemanticJsonHash -InputObject $SecurityTemplate
-    if ($actualHash -cne $expectedHash) { throw 'home-authority-bootstrap-owner-dacl-mismatch' }
+    $expectedHashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $null = $expectedHashes.Add((Get-SemanticJsonHash -InputObject $SecurityTemplate))
+    $null = $expectedHashes.Add((Get-SemanticJsonHash -InputObject (Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $SecurityTemplate -OwnerSid (Get-HomeAuthorityTokenDefaultOwnerSid))))
+    if (-not $expectedHashes.Contains($actualHash)) { throw 'home-authority-bootstrap-owner-dacl-mismatch' }
     return [pscustomobject][ordered]@{ Evidence=$evidence; EvidenceHash=$actualHash }
 }
 

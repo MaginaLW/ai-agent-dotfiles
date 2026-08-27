@@ -58,7 +58,7 @@ function Start-ExternalParentAttack{
 }
 function Complete-ExternalParentAttack{
     param([Parameter(Mandatory)]$Attack)
-    if(-not $Attack.Process.WaitForExit(30000)){Stop-Process -Id $Attack.Process.Id -Force;throw "external parent attack timed out: $($Attack.Name)"}
+    if(-not $Attack.Process.WaitForExit(125000)){Stop-Process -Id $Attack.Process.Id -Force;throw "external parent attack timed out: $($Attack.Name)"}
     if(-not(Wait-TestPath -Path $Attack.ResultPath -TimeoutMilliseconds 5000)){throw "external parent attack result is missing: $($Attack.Name)"}
     $result=[IO.File]::ReadAllText($Attack.ResultPath)|ConvertFrom-Json
     Write-Host ("    controller {0}: attempted={1}; blocked={2}; moved={3}; missed={4}" -f $Attack.Name,$result.Attempted,$result.Blocked,$result.Moved,$result.Missed) -ForegroundColor DarkGray
@@ -157,7 +157,7 @@ try{
         $lease=& $script:parentLeaseOriginal -LeafPaths $LeafPaths -RequireLeafParentsExist:$RequireLeafParentsExist
         try{
             [IO.File]::WriteAllText([IO.Path]::GetFullPath($script:parentLeaseMarker),'held',[Text.UTF8Encoding]::new($false))
-            if(-not(Wait-TestPath -Path $script:parentLeaseAttackResult -TimeoutMilliseconds 30000)){throw 'external parent attack did not acknowledge the held lease'}
+            if(-not(Wait-TestPath -Path $script:parentLeaseAttackResult -TimeoutMilliseconds 60000)){throw 'external parent attack did not acknowledge the held lease'}
             return $lease
         }catch{Close-CanonicalMutationParentLease -Lease $lease;throw}
     }
