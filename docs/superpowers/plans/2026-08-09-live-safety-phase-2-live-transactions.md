@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Task 1 has started at 0/6 steps; the remaining tasks have not started. GitHub Support ticket `#4697323` remains a parallel external privacy follow-up and does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
+**Status:** In progress. Task 1 has started at 0/6 steps; the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
 
 **Goal:** Replace normal sync, explicit retirement, backup, rollback, and crash recovery with one target-bound, globally serialized, receipt-backed live transaction protocol.
 

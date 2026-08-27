@@ -4,9 +4,9 @@ Last updated: 2026-08-27
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
-published at `bbba28f`; GitHub Support ticket `#4697323` is open and the server-side purge remains
-pending as a parallel external follow-up. Phase 2 Task 1 is in progress (0/6 steps; Phase 2 overall
-0/52), while Phases 3-4 have not started.
+published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side garbage
+collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no longer served.
+Phase 2 Task 1 is in progress (0/6 steps; Phase 2 overall 0/52), while Phases 3-4 have not started.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 
@@ -22,8 +22,10 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   diff checks, and sync DryRun passed without live mutation.
 - Corrected history rewrite: fresh remote and local branch audits contain zero protected-path
   records and zero targeted STATUS matches; four local user-owned files remain present and ignored.
-- GitHub Support request: ticket `#4697323` is open with the required repository, changed-commit,
-  affected-PR, and LFS audit metadata; no protected file contents were included.
+- GitHub Support closure: ticket `#4697323` is resolved after Support ran server-side garbage
+  collection and cleared the repository cache. The independent old-SHA re-probe returned 404 for
+  commit/tree/raw endpoints, 422 from the commits REST endpoint, and `upload-pack: not our ref` from
+  a no-write direct-fetch dry run; local HEAD and refs remained unchanged.
 - Phase 2 Task 1 intermediate read-only authority/schema slice: token/Known-Folder authority,
   no-follow metadata targets, root-claims v1, current-env-state v3, and exact-byte pair validation are
   implemented. Registered validation passed 21 positives and 66 negatives with zero failures; three
@@ -58,13 +60,13 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 
 ## Current checkpoint
 
-Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published, but the old
-head remains fetchable directly by SHA from GitHub. GitHub Support ticket `#4697323` is open; the
-external checkpoint remains Support confirmation followed by an old-SHA probe, but it no longer
-blocks unrelated hardening work. The implementation checkpoint now includes the reviewed read-only
-authority/schema, sealed fake-ControlBase bootstrap/global-lock, held-lock registry core, and
-caller-held canonical/current-route slices within Phase 2 Task 1. They complete no whole Task 1 step
-and are not connected to production mutation routes. Task 1 remains 0/6 and Phase 2 remains 0/52.
+Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
+server-side garbage collection/cache clearing, and the old head is no longer available through the
+web, REST, raw-content, or direct Git SHA probes. Ticket `#4697323` and the external privacy follow-up
+are closed. The implementation checkpoint now includes the reviewed read-only authority/schema,
+sealed fake-ControlBase bootstrap/global-lock, held-lock registry core, and caller-held
+canonical/current-route slices within Phase 2 Task 1. They complete no whole Task 1 step and are not
+connected to production mutation routes. Task 1 remains 0/6 and Phase 2 remains 0/52.
 
 ## Current phase
 

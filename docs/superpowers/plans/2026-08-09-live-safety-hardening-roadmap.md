@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The separately authorized privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` remains an external follow-up while Phase 2 Task 1 proceeds independently (0/6 steps; Phase 2 overall 0/52). Phases 3-4 have not started. This roadmap grants no permission to run a real live Apply/rollback or to perform any further Git staging, commit, or publication. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not live-mutation authorization.
+**Status:** In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The separately authorized privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` and the independently verified old-SHA follow-up are closed. Phase 2 Task 1 proceeds at 0/6 steps (Phase 2 overall 0/52), and Phases 3-4 have not started. This roadmap grants no permission to run a real live Apply/rollback or to perform any further Git staging, commit, or publication. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not live-mutation authorization.
 
 **Goal:** Replace the repository's current live and canonical mutation paths with the reviewed, plan-bound, process-crash/hard-kill-recoverable safety protocol without discarding the current skill/MCP cleanup or retirement work.
 
@@ -40,9 +40,9 @@ The baseline choice means “preserve and build on these bytes”; it does not a
 5. [Phase 4 — Schema/CI Contract and Safe Release](2026-08-09-live-safety-phase-4-validation-release.md)
 
 Current execution boundary: roadmap Task 1 is complete at 5/5, the Phase 0 entry-interlock subplan
-is complete at 43/43, and Phase 1 is complete at 44/44. GitHub Support ticket `#4697323` is open as
-a parallel external privacy follow-up. Phase 2 Task 1 is in progress at 0/6 steps (Phase 2 overall
-0/52), and Phases 3-4 have not started.
+is complete at 43/43, and Phase 1 is complete at 44/44. GitHub Support ticket `#4697323` and the
+old-SHA external privacy follow-up are closed. Phase 2 Task 1 is in progress at 0/6 steps (Phase 2
+overall 0/52), and Phases 3-4 have not started.
 
 Phase 0 may ship alone as a safety stop. Phases 1–3 must not re-enable production live mutation. Phase 0 through Phase 4 together form the first live-capable protocol release.
 
@@ -112,11 +112,12 @@ rewritten head `bbba28f` was published with force-with-lease, and fresh remote/l
 reachable protected-path records and zero targeted STATUS matches. The four user-owned working files
 remain present and ignored; seven unrelated Phase 1 worktree files retained identical SHA-256 values.
 The first changed commit pair is old `58b4bc3` to new `dd4014f`; affected pull-request head refs and
-LFS attributes are both zero. GitHub still serves the old head by SHA, so a GitHub Support request for
-server garbage collection/cache removal is open as ticket `#4697323`; Support confirmation and the
-old-SHA re-probe remain pending as an external follow-up that does not gate unrelated hardening.
-Phase 2 Task 1 has started under the unchanged production interlock. This one-time
-privacy authorization grants no permission for later staging, commits, publication, or live mutation.
+LFS attributes are both zero. GitHub Support ticket `#4697323` is resolved after server-side garbage
+collection/cache clearing. On 2026-08-27, the full old SHA returned 404 from commit/tree/raw endpoints,
+422 from the commits REST endpoint, and `upload-pack: not our ref` from a no-write direct-fetch dry
+run; local HEAD and refs remained unchanged. The external privacy follow-up is closed. Phase 2 Task 1
+has started under the unchanged production interlock. This one-time privacy authorization grants no
+permission for later staging, commits, publication, or live mutation.
 
 The 2026-08-26 intermediate checkpoint completed a runtime read-only authority/schema slice without
 completing any whole Task 1 step: token/Known-Folder authority resolution, no-follow metadata targets,

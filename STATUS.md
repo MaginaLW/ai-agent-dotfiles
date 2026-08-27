@@ -16,9 +16,10 @@ Codex `.system` is outside repository ownership.
 
 Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0
 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
-rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is open, and server-side
-cache/object purge remains a parallel external follow-up. Phase 2 Task 1 has started (0/6 steps;
-Phase 2 overall 0/52), while Phases 3-4 have not started. Tracked policy remains
+rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
+garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
+longer served. Phase 2 Task 1 has started (0/6 steps; Phase 2 overall 0/52), while Phases 3-4 have not
+started. Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
@@ -505,11 +506,14 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 - User-owned `.reasonix/desktop-topic-*.json` files and the live-safety planning stream remain
   outside this repair. The fresh 2026-08-25 filtered working-tree scan passed without blocking findings
   (750 non-blocking keyword hints).
-- Corrected rewritten state through `bbba28f` is published; local `main` and `origin/main` are
-  synchronized. Branch/tag history and fresh clones contain no protected-path records or targeted
-  STATUS exposure, but GitHub still serves the old head by SHA. Support ticket `#4697323` is open
-  for server-side garbage collection/cache removal; the request contains the required audit metadata
-  and no protected file contents.
+- Corrected rewritten state through `bbba28f` and the Phase 2 checkpoint through `91e871e` are
+  published. Branch/tag history and fresh clones contain no protected-path records or targeted STATUS
+  exposure.
+  GitHub Support ticket `#4697323` is resolved after server-side garbage collection and cache clearing.
+  The 2026-08-27 independent re-probe of old SHA
+  `58b4bc329e3acca6ed38dfe6e0319dcf0f56e173` returned 404 for commit/tree/raw endpoints, 422 from the
+  commits REST endpoint, and `upload-pack: not our ref` from a no-write direct-fetch dry run; local
+  HEAD and refs remained unchanged. The external privacy follow-up is closed.
 
 ## Next actions
 
@@ -517,10 +521,8 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
    integration of the canonical-to-global lock order and current-route witness, a real under-lock
    filesystem-capability preflight, and the remaining forbidden-root cases. Keep production Apply
    disconnected and leave live-journal structure and interpretation to Task 4.
-2. In parallel, monitor GitHub Support ticket `#4697323`; after Support confirms server-side garbage
-   collection and cache removal, re-probe the old SHA before closing the external privacy follow-up.
-3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
-4. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+2. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
+3. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.
