@@ -117,7 +117,7 @@ function New-ApprovedRunnerStateFixtureDocument {
 }
 
 $temporaryBase = [System.IO.Path]::GetTempPath().TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-$work = Join-Path $temporaryBase "ai-agent-dotfiles-approved-runner-exact-byte-$([Guid]::NewGuid().ToString('N'))"
+$work = Join-Path $temporaryBase "ai-agent-dotfiles-arb-xb-$([Guid]::NewGuid().ToString('N'))"
 $repo = Join-Path $work 'repo'
 $external = Join-Path $work 'external'
 [System.IO.Directory]::CreateDirectory($repo) | Out-Null

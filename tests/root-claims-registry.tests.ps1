@@ -384,7 +384,7 @@ function Invoke-TestRegistryFailure([Parameter(Mandatory)]$Fixture,[string]$Patt
 }
 
 $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([char]92,[char]47)
-    $workRoot = [IO.Path]::GetFullPath((Join-Path $tempParent ('.rcr-' + [guid]::NewGuid().ToString('N'))))
+$workRoot = [IO.Path]::GetFullPath((Join-Path $tempParent ('.rcr-' + [guid]::NewGuid().ToString('N'))))
 [IO.Directory]::CreateDirectory($workRoot) | Out-Null
 
 try {
@@ -671,7 +671,7 @@ try {
         Assert-TestCondition ([string]$actualMarker.EntryType -ceq 'Directory' -and [string]$actualMarker.Identity -ceq [string]$validStateDocument.FinalResolvedIdentities[$index].DirectoryIdentity) "valid state binds the actual no-follow $($validClaims.LiveRootClaims[$index].Platform) root identity"
     }
 
-    $missingLiveRoot = New-TestRegistryFixture -Parent $workRoot -Name 'valid-state-live-root-missing'
+    $missingLiveRoot = New-TestRegistryFixture -Parent $workRoot -Name 'vslr-missing'
     $missingLiveClaims = New-TestRootClaims -Context $missingLiveRoot.Context
     $missingLiveClaimsBytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $missingLiveClaims)
     $missingLiveState = New-TestCurrentEnvState -Claims $missingLiveClaims -ClaimsBytes $missingLiveClaimsBytes
@@ -679,7 +679,7 @@ try {
     [IO.Directory]::Delete([string]$missingLiveClaims.LiveRootClaims[0].RequestedPath)
     Invoke-TestRegistryFailure -Fixture $missingLiveRoot -Pattern 'manual-recovery-required:.*(?:missing|Unable to open)' -Message 'VALID state with a deleted live root fails closed'
 
-    $reparseLiveRoot = New-TestRegistryFixture -Parent $workRoot -Name 'valid-state-live-root-reparse'
+    $reparseLiveRoot = New-TestRegistryFixture -Parent $workRoot -Name 'vslr-reparse'
     $reparseLiveClaims = New-TestRootClaims -Context $reparseLiveRoot.Context
     $reparseLiveClaimsBytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $reparseLiveClaims)
     $reparseLiveState = New-TestCurrentEnvState -Claims $reparseLiveClaims -ClaimsBytes $reparseLiveClaimsBytes
@@ -691,7 +691,7 @@ try {
     $null = New-PathSafetyJunction -Path $reparsePath -Target $reparseTarget
     Invoke-TestRegistryFailure -Fixture $reparseLiveRoot -Pattern 'manual-recovery-required:.*(?:reparse|no-follow directory)' -Message 'VALID state live root replaced by a junction fails closed without traversal'
 
-    $driftLiveRoot = New-TestRegistryFixture -Parent $workRoot -Name 'valid-state-live-root-identity-drift'
+    $driftLiveRoot = New-TestRegistryFixture -Parent $workRoot -Name 'vslr-identity-drift'
     $driftLiveClaims = New-TestRootClaims -Context $driftLiveRoot.Context
     $driftLiveClaimsBytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $driftLiveClaims)
     $driftLiveState = New-TestCurrentEnvState -Claims $driftLiveClaims -ClaimsBytes $driftLiveClaimsBytes
@@ -1074,7 +1074,7 @@ try {
         Exit-CanonicalRepoLock -LockHandle $canonicalLock
     }
 
-    $missingSetup = New-TestRegistryFixture -Parent $workRoot -Name 'canonical-witness-missing-state'
+    $missingSetup = New-TestRegistryFixture -Parent $workRoot -Name 'cw-missing-state'
     $missingSetupCanonical = New-TestCanonicalClaim -Fixture $missingSetup
     $missingSetupClaimPath = Join-Path $missingSetup.Context.CanonicalRootsRoot ($missingSetupCanonical.RepoId + '.json')
     $null = Write-TestSemanticDocument -Path $missingSetupClaimPath -Document $missingSetupCanonical.Claim
@@ -1094,7 +1094,7 @@ try {
     $null = Add-TestAuthorityArtifacts -Context $contextB -Claims $overlapClaimsB
     Invoke-TestRegistryFailure -Fixture $overlap -Pattern 'manual-recovery-required:.*registry reserved roots overlap' -Message 'cross-authority reserved path overlap fails closed'
 
-    $infrastructureOverlap = New-TestRegistryFixture -Parent $workRoot -Name 'fixed-infrastructure-overlap'
+    $infrastructureOverlap = New-TestRegistryFixture -Parent $workRoot -Name 'fixed-infra-overlap'
     $infrastructureClaims = New-TestRootClaims -Context $infrastructureOverlap.Context
     $controlTarget = Resolve-TargetContext -Path ([string]$infrastructureOverlap.Context.ControlBase) -Mode MetadataOnly
     $reasonixClaim = $infrastructureClaims.LiveRootClaims[2]

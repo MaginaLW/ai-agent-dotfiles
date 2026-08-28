@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
 
-$work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-approved-runner-$([Guid]::NewGuid().ToString('N'))"
+$work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-arb-$([Guid]::NewGuid().ToString('N'))"
 $repo = Join-Path $work 'repo'
 $linked = Join-Path $work 'linked'
 $approvalRepo = Join-Path $work 'approval-repo'

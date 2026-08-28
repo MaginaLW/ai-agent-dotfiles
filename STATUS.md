@@ -251,6 +251,18 @@ CI confirmation: after the test-infrastructure follow-up, the `Validate` workflo
 timed-out=0` and hard-kill 317/0 on the runner, closing the failure streak that had run since
 2026-08-09.
 
+A follow-up audit confirmed no elevated-owner comparison points remain (the two C# test helpers
+set their fixture owners explicitly, so they are elevation-independent), and re-hardened the
+remaining Windows path-length margins that the audit identified: the longest root-claims fixture
+names and the approved-runner fixture root prefixes were shortened (the deepest regular fixture
+paths now keep >=30 characters of margin, and the one alternate-data-stream operation keeps >=30
+under the longer runner profile), and one leftover indentation from the `.rcr-` rename was
+corrected. The audit also recorded an environment dependency worth keeping in mind: regular
+.NET file I/O in the suites relies on the GitHub Windows runner's long-path support (paths near
+380 characters already exist under `canonical-hard-kill`), while PowerShell-provider named-stream
+operations (`Set-Content -Stream`) remain bound by MAX_PATH -- new ADS probes must stay on short
+paths.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
