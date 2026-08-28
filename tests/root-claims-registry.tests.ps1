@@ -384,7 +384,7 @@ function Invoke-TestRegistryFailure([Parameter(Mandatory)]$Fixture,[string]$Patt
 }
 
 $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([char]92,[char]47)
-$workRoot = [IO.Path]::GetFullPath((Join-Path $tempParent ('.ai-agent-dotfiles-root-claims-registry-' + [guid]::NewGuid().ToString('N'))))
+    $workRoot = [IO.Path]::GetFullPath((Join-Path $tempParent ('.rcr-' + [guid]::NewGuid().ToString('N'))))
 [IO.Directory]::CreateDirectory($workRoot) | Out-Null
 
 try {
@@ -1153,7 +1153,7 @@ finally {
     $resolvedWorkRoot = [IO.Path]::GetFullPath($workRoot)
     $resolvedParent = [IO.Path]::GetDirectoryName($resolvedWorkRoot).TrimEnd([char]92,[char]47)
     $leaf = [IO.Path]::GetFileName($resolvedWorkRoot)
-    if ($resolvedParent -cne $tempParent -or $leaf -cnotmatch '^\.ai-agent-dotfiles-root-claims-registry-[0-9a-f]{32}$') {
+    if ($resolvedParent -cne $tempParent -or $leaf -cnotmatch '^\.rcr-[0-9a-f]{32}$') {
         throw "unsafe registry test cleanup target: $resolvedWorkRoot"
     }
     if (Test-Path -LiteralPath $resolvedWorkRoot) { Remove-Item -LiteralPath $resolvedWorkRoot -Recurse -Force }

@@ -67,6 +67,15 @@ $watcher.Filter='*'
 $watcher.EnableRaisingEvents=$true
 $result=[ordered]@{Attempted=$false;Blocked=$false;Moved=$false;Missed=$false;Error=$null}
 try{
+    if($TriggerKind -ceq 'LeaseHeld'){
+        # The ready gate lets the parent start the leased operation as soon as this process is
+        # armed, so complete one full probe cycle before arming. Otherwise cold-start jitter on a
+        # loaded runner can push the first in-loop probe past the entire short lease window.
+        try{
+            [IO.Directory]::Move([IO.Path]::GetFullPath($Ancestor),[IO.Path]::GetFullPath($ProbePath))
+            [IO.Directory]::Move([IO.Path]::GetFullPath($ProbePath),[IO.Path]::GetFullPath($Ancestor))
+        }catch{}
+    }
     [IO.File]::WriteAllText([IO.Path]::GetFullPath($ReadyPath),'ready',[Text.UTF8Encoding]::new($false))
     $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while([DateTime]::UtcNow -lt $deadline){

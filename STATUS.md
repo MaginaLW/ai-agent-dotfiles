@@ -222,7 +222,13 @@ Repair (resolver version `windows-token-sid-current-user-only-v2`):
 - The parent-lease controller now waits 125 s per external attack (above the helper's own 120 s
   deadline), the lease-acknowledgement handshake waits 60 s, and the suite budget moved from 180 s
   to 420 s. A missed lease window now surfaces as an explicit `Blocked=false` assertion failure
-  rather than a timeout; the blocking assertions themselves are unchanged.
+  rather than a timeout; the blocking assertions themselves are unchanged. The first CI run of
+  this repair confirmed the elevated-owner diagnosis (hard-kill 317/0 on the runner, the registry
+  whitelist accepting Administrators-owned evidence) and exposed two remaining runner-specific
+  test-infrastructure issues, both fixed in this repair: the root-claims fixture root was
+  shortened after the longer runner profile pushed its alternate-data-stream file past the
+  MAX_PATH limit, and the parent-rename attack host now completes one full probe cycle before
+  arming so a cold-start JIT delay cannot skip the whole short lease window.
 - `canonical-recovery.tests.ps1` gained regression assertions pinning the v2 resolver string,
   acceptance of the token default owner, and continued rejection of a foreign owner.
 
