@@ -246,6 +246,11 @@ blocking findings; 805 non-blocking keyword hints), and `sync.ps1` DryRun (no li
 passed. Production Apply remains interlocked and no live root was touched. See
 `status/active/live-safety-hardening.md` for this repair's record.
 
+CI confirmation: after the test-infrastructure follow-up, the `Validate` workflow for
+`6540681` completed green with `Test summary: PASS; discovered=34; passed=34; failed=0;
+timed-out=0` and hard-kill 317/0 on the runner, closing the failure streak that had run since
+2026-08-09.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

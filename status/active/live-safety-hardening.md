@@ -65,8 +65,9 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   parent-lease/home-authority/live-concurrency pass), build 7/15/7, secret scan clean, sync
   DryRun without mutation. The definitive unified run passed all 34 suites exactly once with
   zero failures and timeouts (hard-kill 317/0 inside the run); external create-new summary
-  SHA-256 `fef5a8e1d1ed5acd5a1bf74c8b7290b19a06aceb043f4ad5452f5735d5a396fa`. Production Apply
-  remains interlocked.
+  SHA-256 `fef5a8e1d1ed5acd5a1bf74c8b7290b19a06aceb043f4ad5452f5735d5a396fa`. The follow-up CI
+  run for `6540681` then completed green with 34/34 and hard-kill 317/0 on the runner, closing
+  the failure streak since 2026-08-09. Production Apply remains interlocked.
 - Phase 2 fourth-checkpoint unified validation: all 34 suites were discovered and passed exactly
   once with every runner error count zero; external create-new summary raw SHA-256
   `b8bc1c887ea1d8aaf9cffbc2ef63ded74779ea430920a117a377b695d21710ec` and independently recomputed
