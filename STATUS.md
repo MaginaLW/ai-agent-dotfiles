@@ -261,7 +261,10 @@ corrected. The audit also recorded an environment dependency worth keeping in mi
 .NET file I/O in the suites relies on the GitHub Windows runner's long-path support (paths near
 380 characters already exist under `canonical-hard-kill`), while PowerShell-provider named-stream
 operations (`Set-Content -Stream`) remain bound by MAX_PATH -- new ADS probes must stay on short
-paths.
+paths. The hardening commit `43b2f85` then completed the `Validate` workflow green with
+`Test summary: PASS; discovered=34; passed=34; failed=0; timed-out=0` and hard-kill 317/0,
+after an independent Grok review of the diff returned PASS on stale-reference, hash-seal, and
+documentation-consistency checks.
 
 ## Validation status
 
