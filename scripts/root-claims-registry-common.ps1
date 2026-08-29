@@ -2171,51 +2171,44 @@ function Invoke-SealedHeldCapabilityPreflight {
             throw 'capability-probe-root-forbidden-overlap'
         }
     }
+    # Only the lower-level probe owns its exact GUID slot. Any matching entry left here may be
+    # foreign concurrent evidence, so this layer must fail closed without deleting it.
     if (@([System.IO.Directory]::EnumerateFileSystemEntries($probeRootFull,'.target-capability-*')).Count -gt 0) {
         throw 'capability-probe-root-residue'
     }
 
     $rows = [Collections.Generic.List[AiAgentDotfiles.SealedCapabilityPreflightRow]]::new()
-    try {
-        foreach ($target in @($CapabilityTargets)) {
-            if ($null -eq $target) { throw 'capability-preflight-target-required' }
-            $targetShape = @(Get-SealedRegistryOrdinalStrings -Values @(Get-SealedRegistryPropertyNames -InputObject $target))
-            if (($targetShape -join "`0") -cne ([string[]]@('ExpectedFilesystemCapabilityHash','Path') -join "`0") -and
-                ($targetShape -join "`0") -cne ([string[]]@('Path') -join "`0")) { throw 'capability-preflight-target-contract-invalid' }
-            $targetPathValue = [string](Get-SealedRegistryObjectValue -InputObject $target -Name 'Path')
-            $expectedValue = Get-SealedRegistryObjectValue -InputObject $target -Name 'ExpectedFilesystemCapabilityHash'
-            if ([string]::IsNullOrWhiteSpace($targetPathValue)) { throw 'capability-preflight-target-contract-invalid' }
-            if ($null -ne $expectedValue) { Assert-SealedRegistryString $expectedValue 'capability preflight expected hash' -Pattern $script:SealedRegistryHashPattern }
-            if (Test-TargetPathOverlap -Left $probeRootFull -Right ([System.IO.Path]::GetFullPath($targetPathValue))) {
-                throw 'capability-probe-root-forbidden-overlap'
-            }
-
-            $metadata = Resolve-TargetContext -Path $targetPathValue -Mode MetadataOnly
-            $volumeInfo = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$metadata.DeepestExistingParentPath)
-            if ([string]$volumeInfo.VolumeSerial -cne [string]$metadata.VolumeId) { throw 'capability-target-volume-drift' }
-            $capabilityHash = Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRootFull -VolumeInfo $volumeInfo
-
-            $verified = $null
-            if ($null -ne $expectedValue) {
-                $verified = ([string]$expectedValue -ceq [string]$capabilityHash)
-                if (-not $verified) { throw 'capability-evidence-mismatch' }
-            }
-            $expectedForEvidence = if ($null -eq $expectedValue) { $null } else { [string]$expectedValue }
-            $rows.Add([AiAgentDotfiles.SealedCapabilityPreflightRow]::CreateExact(
-                [string]$metadata.RequestedPath,[string]$metadata.LocationKey,[string]$metadata.TargetStatus,
-                [string]$volumeInfo.DriveType,[string]$volumeInfo.FileSystemType,[string]$volumeInfo.VolumeSerial,
-                [string]$capabilityHash,$expectedForEvidence,$verified))
+    foreach ($target in @($CapabilityTargets)) {
+        if ($null -eq $target) { throw 'capability-preflight-target-required' }
+        $targetShape = @(Get-SealedRegistryOrdinalStrings -Values @(Get-SealedRegistryPropertyNames -InputObject $target))
+        if (($targetShape -join "`0") -cne ([string[]]@('ExpectedFilesystemCapabilityHash','Path') -join "`0") -and
+            ($targetShape -join "`0") -cne ([string[]]@('Path') -join "`0")) { throw 'capability-preflight-target-contract-invalid' }
+        $targetPathValue = [string](Get-SealedRegistryObjectValue -InputObject $target -Name 'Path')
+        $expectedValue = Get-SealedRegistryObjectValue -InputObject $target -Name 'ExpectedFilesystemCapabilityHash'
+        if ([string]::IsNullOrWhiteSpace($targetPathValue)) { throw 'capability-preflight-target-contract-invalid' }
+        if ($null -ne $expectedValue) { Assert-SealedRegistryString $expectedValue 'capability preflight expected hash' -Pattern $script:SealedRegistryHashPattern }
+        if (Test-TargetPathOverlap -Left $probeRootFull -Right ([System.IO.Path]::GetFullPath($targetPathValue))) {
+            throw 'capability-probe-root-forbidden-overlap'
         }
-        if (@([System.IO.Directory]::EnumerateFileSystemEntries($probeRootFull,'.target-capability-*')).Count -gt 0) {
-            throw 'capability-probe-root-residue'
+
+        $metadata = Resolve-TargetContext -Path $targetPathValue -Mode MetadataOnly
+        $volumeInfo = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$metadata.DeepestExistingParentPath)
+        if ([string]$volumeInfo.VolumeSerial -cne [string]$metadata.VolumeId) { throw 'capability-target-volume-drift' }
+        $capabilityHash = Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRootFull -VolumeInfo $volumeInfo
+
+        $verified = $null
+        if ($null -ne $expectedValue) {
+            $verified = ([string]$expectedValue -ceq [string]$capabilityHash)
+            if (-not $verified) { throw 'capability-evidence-mismatch' }
         }
+        $expectedForEvidence = if ($null -eq $expectedValue) { $null } else { [string]$expectedValue }
+        $rows.Add([AiAgentDotfiles.SealedCapabilityPreflightRow]::CreateExact(
+            [string]$metadata.RequestedPath,[string]$metadata.LocationKey,[string]$metadata.TargetStatus,
+            [string]$volumeInfo.DriveType,[string]$volumeInfo.FileSystemType,[string]$volumeInfo.VolumeSerial,
+            [string]$capabilityHash,$expectedForEvidence,$verified))
     }
-    finally {
-        foreach ($leftover in @([System.IO.Directory]::EnumerateFileSystemEntries($probeRootFull,'.target-capability-*'))) {
-            if (-not (Test-SafePathInsideRoot -Path $leftover -Root $probeRootFull) -or
-                [System.IO.Path]::GetFileName($leftover) -cnotlike '.target-capability-*') { continue }
-            Remove-Item -LiteralPath $leftover -Recurse -Force
-        }
+    if (@([System.IO.Directory]::EnumerateFileSystemEntries($probeRootFull,'.target-capability-*')).Count -gt 0) {
+        throw 'capability-probe-root-residue'
     }
 
     $rowArray = [AiAgentDotfiles.SealedCapabilityPreflightRow[]]::new($rows.Count)

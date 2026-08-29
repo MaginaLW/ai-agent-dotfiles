@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The separately authorized privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` and the independently verified old-SHA follow-up are closed. Phase 2 Task 1 proceeds at 0/6 steps (Phase 2 overall 0/52), and Phases 3-4 have not started. This roadmap grants no permission to run a real live Apply/rollback or to perform any further Git staging, commit, or publication. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not live-mutation authorization.
+**Status:** In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The separately authorized privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` and the independently verified old-SHA follow-up are closed. Phase 2 Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52), and Phases 3-4 have not started. This roadmap grants no permission to run a real live Apply/rollback or to perform any further Git staging, commit, or publication. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not live-mutation authorization.
 
 **Goal:** Replace the repository's current live and canonical mutation paths with the reviewed, plan-bound, process-crash/hard-kill-recoverable safety protocol without discarding the current skill/MCP cleanup or retirement work.
 
@@ -41,8 +41,8 @@ The baseline choice means “preserve and build on these bytes”; it does not a
 
 Current execution boundary: roadmap Task 1 is complete at 5/5, the Phase 0 entry-interlock subplan
 is complete at 43/43, and Phase 1 is complete at 44/44. GitHub Support ticket `#4697323` and the
-old-SHA external privacy follow-up are closed. Phase 2 Task 1 is in progress at 0/6 steps (Phase 2
-overall 0/52), and Phases 3-4 have not started.
+old-SHA external privacy follow-up are closed. Phase 2 Task 1 Step 1 is complete at 1/6 steps (Phase 2
+overall 1/52), and Phases 3-4 have not started.
 
 Phase 0 may ship alone as a safety stop. Phases 1–3 must not re-enable production live mutation. Phase 0 through Phase 4 together form the first live-capable protocol release.
 

@@ -1248,6 +1248,32 @@ try {
             Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-residue$' 'a leftover probe artifact in the approved probe root fails closed before any probe'
             Assert-TestCondition (Test-Path -LiteralPath $capabilityResidueSlot -PathType Container) 'the residue rejection does not modify the pre-existing artifact'
             [IO.Directory]::Delete($capabilityResidueSlot)
+
+            $originalCapabilityProbe = (Get-Command Invoke-TargetFilesystemCapabilityProbe -CommandType Function -ErrorAction Stop).ScriptBlock
+            $foreignResidueSlot = Join-Path $capabilityProbeRoot '.target-capability-foreign-owned-by-test'
+            $foreignResidueFile = Join-Path $foreignResidueSlot 'foreign.bin'
+            $foreignResidueBytes = [Text.Encoding]::UTF8.GetBytes('foreign-capability-residue')
+            $shadowCapabilityProbe = {
+                param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo)
+                $capabilityHash = & $originalCapabilityProbe -ProbeRoot $ProbeRoot -VolumeInfo $VolumeInfo
+                [IO.Directory]::CreateDirectory($foreignResidueSlot) | Out-Null
+                [IO.File]::WriteAllBytes($foreignResidueFile,$foreignResidueBytes)
+                return $capabilityHash
+            }.GetNewClosure()
+            try {
+                Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $shadowCapabilityProbe
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-residue$' 'foreign matching residue created after the initial check fails closed at the post-probe check'
+                $matchingResidue = @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot,'.target-capability-*'))
+                Assert-TestCondition ($matchingResidue.Count -eq 1 -and [IO.Path]::GetFullPath($matchingResidue[0]) -ceq [IO.Path]::GetFullPath($foreignResidueSlot)) 'the real probe cleans only its owned slot and leaves the foreign matching residue'
+                Assert-TestCondition ((Test-Path -LiteralPath $foreignResidueFile -PathType Leaf) -and
+                    [Convert]::ToHexString([IO.File]::ReadAllBytes($foreignResidueFile)) -ceq [Convert]::ToHexString($foreignResidueBytes)) 'the post-probe residue failure preserves the foreign file bytes'
+            }
+            finally {
+                try { Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $originalCapabilityProbe }
+                finally {
+                    if (Test-Path -LiteralPath $foreignResidueSlot) { [IO.Directory]::Delete($foreignResidueSlot,$true) }
+                }
+            }
         }
         finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $capabilityGlobal }
 

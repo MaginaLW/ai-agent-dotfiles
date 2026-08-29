@@ -104,12 +104,15 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   volume serial, and runs the real write-capability probe per target under the held locks. Evidence
   rows are immutable and a supplied expected hash must reproduce the under-lock probe exactly; the
   tests prove the plan-bound recovery-root claim hash reproduces under the held locks, with zero
-  authority-area writes, zero probe-slot residue, lock/contract rejections, and ETS forgery
-  resistance. No pinned script changed and no production route consumes the preflight yet;
+  authority-area writes and zero residue from the invocation's exact owned probe slots. The preflight
+  never wildcard-cleans matching entries: foreign residue created after the initial check is
+  preserved and makes the post-probe check fail closed. Lock/contract rejections and ETS forgery
+  resistance remain covered. No pinned script changed and no production route consumes the
+  preflight yet;
   Step 2's resolver-side wiring and setup-Apply bootstrap flow remain open. Focused
-  `root-claims-registry.tests.ps1` reached 215 PASS with exit code 0. The unified `run-tests.ps1
+  `root-claims-registry.tests.ps1` reached 218 PASS with exit code 0. The unified `run-tests.ps1
   -All` run passed all 34 suites exactly once with zero failures/timeouts (summary SHA-256
-  `eff00a13e9121c592cf84fb8fc3d7a7a4bc674f8b1111c9b0e6ce5ad69b8324e`, hard-kill 317/0); parse gate
+  `51f51e8b0eba5421979b712cb586826bc392ce90251b97ea8e114e0c82a0e8c4`, hard-kill 317/0); parse gate
   (156 files), build (7/15/7), secret scan, diff checks, and sync DryRun passed. Task 1 remains 1/6
   and Phase 2 remains 1/52. Production Apply remains interlocked.
 
@@ -128,10 +131,11 @@ mutation routes.
 ## Current phase
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. Next are production-route integration of the
-strict canonical-to-global lock order and current-route witness, a real under-lock
-filesystem-capability preflight, and the remaining forbidden-root cases, including applying the
-complete forbidden-root matrix before accepting any default/custom claim. Production Apply remains
-disconnected, and live-journal structure and interpretation remain deferred to Task 4.
+strict canonical-to-global lock order and current-route witness, per-volume probe-root binding plus
+exact-slot identity hardening for the existing under-lock filesystem-capability preflight, and the
+remaining forbidden-root cases, including applying the complete forbidden-root matrix before
+accepting any default/custom claim. Production Apply remains disconnected, and live-journal structure
+and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine

@@ -321,19 +321,22 @@ live volume serial, and runs the real write-capability probe on the target's dee
 volume. Evidence rows carry path, location key, status, drive type, filesystem type, volume serial,
 the real capability hash, and an optional expected-hash verification; a supplied expected hash must
 reproduce the under-lock probe exactly or the preflight fails closed. The tests prove the plan-bound
-recovery-root claim hash reproduces under the held locks, zero authority-area writes and zero
-probe-slot residue on success and failure paths, lock and contract rejections, and ETS note-property
-forgery resistance. This advances Step 2's capability binding for existing ControlBase/BackupRoot;
+recovery-root claim hash reproduces under the held locks, zero authority-area writes and zero residue
+from the invocation's exact owned probe slots, lock and contract rejections, and ETS note-property
+forgery resistance. The preflight never wildcard-cleans matching entries: foreign residue created
+after the initial check is preserved and makes the post-probe check fail closed. This advances Step
+2's capability binding for existing ControlBase/BackupRoot;
 resolver-side wiring, the `PrivateRootBootstrapIntent` setup-Apply bootstrap flow, and public
 dispatch rules remain open. Production Apply remains interlocked, and no live root or Git index/ref
 was changed.
 
-Validation on 2026-08-29: `root-claims-registry.tests.ps1` passed focused with 215 assertions and
-exit code 0; the parse gate passed 156 files; and the definitive unified `run-tests.ps1 -All` run
+Validation on 2026-08-29: `root-claims-registry.tests.ps1` passed focused with 218 assertions and
+exit code 0, including the deterministic foreign-residue regression; the parse gate passed 156
+files; and the definitive unified `run-tests.ps1 -All` run
 discovered, started, completed, and passed all 34 suites exactly once with zero failures, timeouts,
 duplicates, missing suites, or tree-kill failures. The external create-new summary SHA-256 is
-`eff00a13e9121c592cf84fb8fc3d7a7a4bc674f8b1111c9b0e6ce5ad69b8324e`, with `canonical-hard-kill` at
-317/0 inside the run. `build-skills.ps1` (7/15/7), `scan-secrets.ps1` (no blocking findings; 806
+`51f51e8b0eba5421979b712cb586826bc392ce90251b97ea8e114e0c82a0e8c4`, with `canonical-hard-kill` at
+317/0 inside the run. `build-skills.ps1` (7/15/7), `scan-secrets.ps1` (no blocking findings; 827
 non-blocking keyword hints), and `sync.ps1` DryRun (no live mutation) then passed. Task 1 remains
 1/6 and Phase 2 remains 1/52; the GitHub `Validate` workflow for the previous Step 1 commit
 `38d64f7` completed green on the runner before this slice.
@@ -677,10 +680,10 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 ## Next actions
 
 1. Continue Phase 2 Task 1 with production-route integration of the canonical-to-global lock order
-   and current-route witness, a real under-lock filesystem-capability preflight, and the remaining
-   forbidden-root cases, including applying the complete forbidden-root matrix before accepting any
-   default/custom claim. Keep production Apply disconnected and leave live-journal structure and
-   interpretation to Task 4.
+   and current-route witness, per-volume probe-root binding plus exact-slot identity hardening for the
+   existing under-lock filesystem-capability preflight, and the remaining forbidden-root cases.
+   Apply the complete forbidden-root matrix before accepting any default/custom claim. Keep
+   production Apply disconnected and leave live-journal structure and interpretation to Task 4.
 2. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
 3. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Task 1 has started at 0/6 steps; the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
+**Status:** In progress. Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
 
 **Goal:** Replace normal sync, explicit retirement, backup, rollback, and crash recovery with one target-bound, globally serialized, receipt-backed live transaction protocol.
 
@@ -178,25 +178,29 @@ serial. It returns a CLR-sealed `SealedCapabilityPreflightEvidence` with one
 `SealedCapabilityPreflightRow` per target (path, location key, status, drive type, filesystem type,
 volume serial, real capability hash, optional expected hash, verification result), binds the
 authority-context, fixed-envelope, and lock-security hashes plus a reproducible projection hash, and
-guarantees zero authority-area writes and zero probe-slot residue on success and failure paths. A
-supplied expected hash must reproduce the under-lock probe exactly or the preflight fails closed with
+guarantees zero authority-area writes and zero residue from the invocation's exact owned probe slots.
+It never wildcard-cleans matching entries: foreign `.target-capability-*` residue created after the
+initial check is preserved and makes the post-probe check fail closed. A supplied expected hash must
+reproduce the under-lock probe exactly or the preflight fails closed with
 `capability-evidence-mismatch`; the tests prove the plan-bound recovery-root claim hash reproduces
 under the held locks, so DryRun-plan and under-lock evidence are the same value on the same volume.
 Tests cover lock requirements (null, plain-global without binding), probe-root
-invalid/overlap/residue rejection without modifying pre-existing artifacts, target contract
-enforcement, ETS note-property forgery resistance, zero-write and zero-residue evidence, and
-projection reproducibility. This advances Step 2's `FilesystemCapabilityHash` binding for existing
+invalid/overlap/residue rejection without modifying pre-existing or concurrently injected foreign
+artifacts, target contract enforcement, ETS note-property forgery resistance, zero-write and
+owned-slot cleanup evidence, and projection reproducibility. This advances Step 2's
+`FilesystemCapabilityHash` binding for existing
 ControlBase/BackupRoot but does not complete the step: resolver-side wiring into the fixed envelope,
 the `PrivateRootBootstrapIntent` setup-Apply bootstrap flow, and protocol v1 public dispatch rules
 remain open. No whole step is complete: Task 1 remains 1/6 and Phase 2 remains 1/52. Production
 Apply remains interlocked; no live root or Git index/ref was changed.
 
-Sixth-checkpoint validation on 2026-08-29: `root-claims-registry.tests.ps1` reached 215 PASS
-assertions with exit code 0, including the plan-bound hash reproduction under the held locks. The
+Sixth-checkpoint follow-up validation on 2026-08-29: `root-claims-registry.tests.ps1` reached 218 PASS
+assertions with exit code 0, including foreign-residue preservation and the plan-bound hash
+reproduction under the held locks. The
 parse gate passed 156 files, and the definitive unified `run-tests.ps1 -All` run passed all 34
 suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures;
 the external create-new summary SHA-256 is
-`eff00a13e9121c592cf84fb8fc3d7a7a4bc674f8b1111c9b0e6ce5ad69b8324e`, with `canonical-hard-kill` at
+`51f51e8b0eba5421979b712cb586826bc392ce90251b97ea8e114e0c82a0e8c4`, with `canonical-hard-kill` at
 317/0 inside the run. `build-skills.ps1` (7/15/7), `scan-secrets.ps1` (no blocking findings), and
 `sync.ps1` DryRun (no live mutation) then passed.
 
