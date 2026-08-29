@@ -96,6 +96,23 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   hard-kill 317/0); build (7/15/7), secret scan, parse gate (156 files), diff checks, and sync DryRun
   passed. Step 1 is complete (Task 1 1/6, Phase 2 1/52). Production Apply remains interlocked.
 
+- Phase 2 Task 1 sealed under-lock capability preflight (2026-08-29, additive building block): the
+  registry surface gained `Invoke-SealedHeldCapabilityPreflight` with CLR-sealed evidence types. It
+  requires the genuine global-lock witness (optional canonical witness revalidated in order), accepts
+  only an approved external non-reparse probe root disjoint from the authority area and targets, fails
+  closed on pre-existing probe residue without modifying it, binds metadata VolumeId to the live
+  volume serial, and runs the real write-capability probe per target under the held locks. Evidence
+  rows are immutable and a supplied expected hash must reproduce the under-lock probe exactly; the
+  tests prove the plan-bound recovery-root claim hash reproduces under the held locks, with zero
+  authority-area writes, zero probe-slot residue, lock/contract rejections, and ETS forgery
+  resistance. No pinned script changed and no production route consumes the preflight yet;
+  Step 2's resolver-side wiring and setup-Apply bootstrap flow remain open. Focused
+  `root-claims-registry.tests.ps1` reached 215 PASS with exit code 0. The unified `run-tests.ps1
+  -All` run passed all 34 suites exactly once with zero failures/timeouts (summary SHA-256
+  `eff00a13e9121c592cf84fb8fc3d7a7a4bc674f8b1111c9b0e6ce5ad69b8324e`, hard-kill 317/0); parse gate
+  (156 files), build (7/15/7), secret scan, diff checks, and sync DryRun passed. Task 1 remains 1/6
+  and Phase 2 remains 1/52. Production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -103,9 +120,10 @@ server-side garbage collection/cache clearing, and the old head is no longer ava
 web, REST, raw-content, or direct Git SHA probes. Ticket `#4697323` and the external privacy follow-up
 are closed. The implementation checkpoint now includes the reviewed read-only authority/schema,
 sealed fake-ControlBase bootstrap/global-lock, held-lock registry core, caller-held
-canonical/current-route slices, and the Step 1 identity/concurrency failure matrix within Phase 2
-Task 1. Step 1 is complete (Task 1 1/6); the remaining steps stay unconnected to production mutation
-routes.
+canonical/current-route slices, the Step 1 identity/concurrency failure matrix, and the sealed
+under-lock capability preflight within Phase 2 Task 1. Step 1 is complete (Task 1 1/6); the
+capability preflight advances Step 2 without completing it and stays unconnected to production
+mutation routes.
 
 ## Current phase
 

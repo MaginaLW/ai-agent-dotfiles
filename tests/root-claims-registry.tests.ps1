@@ -1198,6 +1198,71 @@ try {
         }
     }
 
+    $capabilityFixture = New-TestRegistryFixture -Parent $workRoot -Name 'capability-preflight'
+    $capabilityCanonical = New-TestCanonicalClaim -Fixture $capabilityFixture -Name 'capability-canonical'
+    $capabilityClaimPath = Join-Path $capabilityFixture.Context.CanonicalRootsRoot ($capabilityCanonical.RepoId + '.json')
+    $null = Write-TestSemanticDocument -Path $capabilityClaimPath -Document $capabilityCanonical.Claim
+    $null = Complete-TestCanonicalSetupState -Fixture $capabilityFixture -CanonicalFixture $capabilityCanonical
+    $capabilityProbeRoot = Join-Path $capabilityFixture.Root 'capability-probe-root'
+    [IO.Directory]::CreateDirectory($capabilityProbeRoot) | Out-Null
+    $capabilityLock = Enter-CanonicalRepoLock -LockPath ([string]$capabilityCanonical.ContractPaths.LockPath)
+    $capabilityWitness = $null
+    try {
+        $capabilityWitness = Open-CanonicalHeldNamespaceWitness -RepoRoot ([string]$capabilityCanonical.RepoRoot) -CanonicalLockHandle $capabilityLock -ToolchainRoot $RepoRoot
+        $capabilityGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $capabilityFixture.Context -RequiredCanonicalWitness $capabilityWitness
+        try {
+            $capabilityTreeBefore = Get-TestRegistryTreeHash -Fixture $capabilityFixture
+            $capabilityEvidence = Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @(
+                [ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }
+                [ordered]@{ Path = [string]$capabilityFixture.Context.BackupRoot }
+                [ordered]@{ Path = [string]$capabilityCanonical.RecoveryRoot; ExpectedFilesystemCapabilityHash = [string]$capabilityCanonical.Claim.FilesystemCapabilityHash }
+            )
+            Assert-TestCondition ('AiAgentDotfiles.SealedCapabilityPreflightEvidence' -cin @($capabilityEvidence.PSObject.TypeNames)) 'held capability preflight returns a genuine CLR-sealed evidence object'
+            Assert-TestCondition ([int][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowCountExact($capabilityEvidence) -eq 3) 'held capability preflight records one sealed row per requested target'
+            $capabilityRecoveryRow = [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowExact($capabilityEvidence,2)
+            Assert-TestCondition ([string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($capabilityRecoveryRow) -ceq [string]$capabilityCanonical.Claim.FilesystemCapabilityHash -and
+                [bool][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVerifiedAgainstExpectedExact($capabilityRecoveryRow)) 'the under-lock capability probe reproduces the plan-bound recovery root capability hash exactly'
+            $capabilityControlRow = [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowExact($capabilityEvidence,0)
+            Assert-TestCondition ($null -eq [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetExpectedCapabilityHashExact($capabilityControlRow) -and
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetDriveTypeExact($capabilityControlRow) -ceq 'Fixed' -and
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFileSystemTypeExact($capabilityControlRow) -ceq 'NTFS' -and
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetTargetStatusExact($capabilityControlRow) -ceq 'EXISTS') 'control and backup rows carry real probed volume evidence without expected-hash claims'
+            Assert-TestCondition ((Get-TestRegistryTreeHash -Fixture $capabilityFixture) -ceq $capabilityTreeBefore) 'the capability preflight writes nothing inside the controlled authority area'
+            Assert-TestCondition (@([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0) 'the capability preflight leaves zero probe slot residue in the approved probe root'
+            Assert-TestCondition ((Get-SealedCapabilityPreflightProjectionHash -Evidence $capabilityEvidence) -ceq [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($capabilityEvidence)) 'the sealed preflight evidence projection hash is reproducible from its exact getters'
+            $capabilityEvidence | Add-Member -Force -NotePropertyName ProjectionHash -NotePropertyValue ('0' * 64)
+            $capabilityEvidence | Add-Member -Force -NotePropertyName Rows -NotePropertyValue @()
+            $capabilityForgedRow = [pscustomobject]@{}
+            $capabilityForgedRow.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.SealedCapabilityPreflightRow')
+            $capabilityEvidence | Add-Member -Force -NotePropertyName ForgedRow -NotePropertyValue $capabilityForgedRow
+            Assert-TestCondition ((Get-SealedCapabilityPreflightProjectionHash -Evidence $capabilityEvidence) -ceq [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($capabilityEvidence) -and
+                [int][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowCountExact($capabilityEvidence) -eq 3) 'ETS note-property forgeries cannot alter the sealed preflight evidence projection'
+
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; ExpectedFilesystemCapabilityHash = ('0' * 64) }) | Out-Null } '^capability-evidence-mismatch$' 'a capability preflight expected-hash mismatch fails closed after the real probe'
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot ([string]$capabilityFixture.Context.ControlBase) -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-forbidden-overlap$' 'a capability preflight probe root inside the authority area fails closed'
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; Extra = 'x' }) | Out-Null } 'capability-preflight-target-contract-invalid' 'a capability preflight target with an unexpected property shape fails closed'
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @() | Out-Null } '^capability-preflight-target-required$' 'a capability preflight without targets fails closed'
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot (Join-Path $capabilityFixture.Root 'capability-missing-probe-root') -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-invalid$' 'a capability preflight with a missing probe root fails closed'
+            $capabilityResidueSlot = Join-Path $capabilityProbeRoot ('.target-capability-' + [guid]::NewGuid().ToString('N'))
+            [IO.Directory]::CreateDirectory($capabilityResidueSlot) | Out-Null
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-residue$' 'a leftover probe artifact in the approved probe root fails closed before any probe'
+            Assert-TestCondition (Test-Path -LiteralPath $capabilityResidueSlot -PathType Container) 'the residue rejection does not modify the pre-existing artifact'
+            [IO.Directory]::Delete($capabilityResidueSlot)
+        }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $capabilityGlobal }
+
+        $capabilityPlainGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $capabilityFixture.Context
+        try {
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityPlainGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^canonical-witness-required$' 'a capability preflight cannot bind a canonical witness onto a global lock acquired without one'
+        }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $capabilityPlainGlobal }
+        Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $null -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^home-authority-registry-lock-required$' 'a capability preflight without a genuine global lock fails closed'
+    }
+    finally {
+        if ($null -ne $capabilityWitness) { Close-CanonicalHeldNamespaceWitness -Witness $capabilityWitness }
+        Exit-CanonicalRepoLock -LockHandle $capabilityLock
+    }
+
     $live = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction'
     $liveId = '33333333-3333-4333-8333-333333333333'
     [IO.Directory]::CreateDirectory((Join-Path $live.Context.LiveTransactionsRoot $liveId)) | Out-Null

@@ -306,6 +306,38 @@ non-blocking keyword hints), and `sync.ps1` DryRun (no live mutation) then passe
 Task 1 Step 1 (Task 1 1/6, Phase 2 1/52). Production Apply remains interlocked, and no live root or
 Git index/ref was changed.
 
+## 2026-08-29 Phase 2 under-lock capability preflight
+
+Phase 2 Task 1 gained the sealed under-lock filesystem-capability preflight as an additive building
+block in the registry surface (`Invoke-SealedHeldCapabilityPreflight` plus CLR-sealed
+`SealedCapabilityPreflightEvidence`/`SealedCapabilityPreflightRow` in
+`scripts/root-claims-registry-common.ps1`). No pinned script changed, so no hard-kill re-pin was
+required, and no production route consumes the preflight yet. The preflight requires the genuine
+global-lock witness (optionally revalidating the canonical witness in canonical-to-global order),
+validates an approved external probe root (existing non-reparse container; rejects overlap with
+ControlBase/BackupRoot/private base or any capability target; fails closed on pre-existing
+`.target-capability-*` residue without modifying it), binds each target's metadata VolumeId to the
+live volume serial, and runs the real write-capability probe on the target's deepest-existing-parent
+volume. Evidence rows carry path, location key, status, drive type, filesystem type, volume serial,
+the real capability hash, and an optional expected-hash verification; a supplied expected hash must
+reproduce the under-lock probe exactly or the preflight fails closed. The tests prove the plan-bound
+recovery-root claim hash reproduces under the held locks, zero authority-area writes and zero
+probe-slot residue on success and failure paths, lock and contract rejections, and ETS note-property
+forgery resistance. This advances Step 2's capability binding for existing ControlBase/BackupRoot;
+resolver-side wiring, the `PrivateRootBootstrapIntent` setup-Apply bootstrap flow, and public
+dispatch rules remain open. Production Apply remains interlocked, and no live root or Git index/ref
+was changed.
+
+Validation on 2026-08-29: `root-claims-registry.tests.ps1` passed focused with 215 assertions and
+exit code 0; the parse gate passed 156 files; and the definitive unified `run-tests.ps1 -All` run
+discovered, started, completed, and passed all 34 suites exactly once with zero failures, timeouts,
+duplicates, missing suites, or tree-kill failures. The external create-new summary SHA-256 is
+`eff00a13e9121c592cf84fb8fc3d7a7a4bc674f8b1111c9b0e6ce5ad69b8324e`, with `canonical-hard-kill` at
+317/0 inside the run. `build-skills.ps1` (7/15/7), `scan-secrets.ps1` (no blocking findings; 806
+non-blocking keyword hints), and `sync.ps1` DryRun (no live mutation) then passed. Task 1 remains
+1/6 and Phase 2 remains 1/52; the GitHub `Validate` workflow for the previous Step 1 commit
+`38d64f7` completed green on the runner before this slice.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

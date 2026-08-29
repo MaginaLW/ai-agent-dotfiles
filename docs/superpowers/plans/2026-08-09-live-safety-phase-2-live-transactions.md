@@ -166,6 +166,40 @@ Cover a fresh OS identity with ControlBase and every Claude/Codex/Reasonix paren
 
 - [ ] **Step 2: Resolve ControlBase and HomeAuthorityKey**
 
+**Sixth intermediate checkpoint (2026-08-29):** The sealed under-lock filesystem-capability preflight
+is implemented as an additive building block in the registry surface; no pinned script changed and no
+production route consumes it yet. `Invoke-SealedHeldCapabilityPreflight` requires the genuine
+global-lock witness (and optionally the canonical witness, revalidated in canonical-to-global order),
+validates an approved external probe root (exists, non-reparse container, rejected on overlap with
+ControlBase/BackupRoot/private base or any capability target, fail-closed on pre-existing
+`.target-capability-*` residue), and for each exact-shape target runs the real write-capability probe
+on the target's deepest-existing-parent volume after binding metadata VolumeId to the live volume
+serial. It returns a CLR-sealed `SealedCapabilityPreflightEvidence` with one
+`SealedCapabilityPreflightRow` per target (path, location key, status, drive type, filesystem type,
+volume serial, real capability hash, optional expected hash, verification result), binds the
+authority-context, fixed-envelope, and lock-security hashes plus a reproducible projection hash, and
+guarantees zero authority-area writes and zero probe-slot residue on success and failure paths. A
+supplied expected hash must reproduce the under-lock probe exactly or the preflight fails closed with
+`capability-evidence-mismatch`; the tests prove the plan-bound recovery-root claim hash reproduces
+under the held locks, so DryRun-plan and under-lock evidence are the same value on the same volume.
+Tests cover lock requirements (null, plain-global without binding), probe-root
+invalid/overlap/residue rejection without modifying pre-existing artifacts, target contract
+enforcement, ETS note-property forgery resistance, zero-write and zero-residue evidence, and
+projection reproducibility. This advances Step 2's `FilesystemCapabilityHash` binding for existing
+ControlBase/BackupRoot but does not complete the step: resolver-side wiring into the fixed envelope,
+the `PrivateRootBootstrapIntent` setup-Apply bootstrap flow, and protocol v1 public dispatch rules
+remain open. No whole step is complete: Task 1 remains 1/6 and Phase 2 remains 1/52. Production
+Apply remains interlocked; no live root or Git index/ref was changed.
+
+Sixth-checkpoint validation on 2026-08-29: `root-claims-registry.tests.ps1` reached 215 PASS
+assertions with exit code 0, including the plan-bound hash reproduction under the held locks. The
+parse gate passed 156 files, and the definitive unified `run-tests.ps1 -All` run passed all 34
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures;
+the external create-new summary SHA-256 is
+`eff00a13e9121c592cf84fb8fc3d7a7a4bc674f8b1111c9b0e6ce5ad69b8324e`, with `canonical-hard-kill` at
+317/0 inside the run. `build-skills.ps1` (7/15/7), `scan-secrets.ps1` (no blocking findings), and
+`sync.ps1` DryRun (no live mutation) then passed.
+
 Resolve Windows ControlBase and fixed sibling BackupRoot from access-token SID plus `FOLDERID_LocalAppData`, and HomeRoot/AppData from OS Known Folder APIs, never from mutable process environment variables. Before either private root exists, derive the fixed no-follow bootstrap-lock file under the already-existing Known Folder root from SID/location/domain only. The reviewed canonical setup plan binds `PrivateRootBootstrapIntent` (parent identity, fixed control/backups remainders, each MISSING|COMPLETE, final current-user DACL template, expected fixed children); Apply acquires that pre-ControlBase exclusive handle, revalidates intent, creates the private parent, BackupRoot, ControlBase plus `homes/canonical-roots/live-transactions` only with the final security descriptor, validates the deterministic prefix, and only then obtains the normal global lock. Exact crash prefixes may be completed by the same setup plan; wrong ACL/identity/extra/reparse is manual. No live/receipt/journal work precedes global lock. Read-only status never creates the bootstrap lock/file or directories. Existing ControlBase/BackupRoot bind resolved identity, owner ACL/SID, resolver version and FilesystemCapabilityHash; production on an undefined non-Windows adapter remains interlocked. Protocol v1 production dispatch rejects public `-HomeRoot`/`-BackupRoot`; sealed fake-home injection remains an internal capability only. Derive `HomeAuthorityKey` from token SID plus canonical Known-Folder HomeRoot location key only; do not include root existence/file IDs or Reasonix override.
 
 - [ ] **Step 3: Build the registry view**
