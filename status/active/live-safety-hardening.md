@@ -1,12 +1,13 @@
 # Live Safety Hardening
 
-Last updated: 2026-08-28
+Last updated: 2026-08-29
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
 published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side garbage
 collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no longer served.
-Phase 2 Task 1 is in progress (0/6 steps; Phase 2 overall 0/52), while Phases 3-4 have not started.
+Phase 2 Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52), while Phases 3-4 have not
+started.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 
@@ -77,23 +78,42 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   scan, and sync DryRun passed without production Apply, live-root mutation, Git index/ref mutation,
   or new hard-kill temporary-directory residue.
 
+- Phase 2 Task 1 Step 1 failure-matrix completion (2026-08-29, test-only): the remaining
+  identity/concurrency failure cases were written with no production script change. Registry tests
+  now cover a tracked working tree/GitCommonDir inside a live target root, second-repository claims
+  nested in and exactly duplicating an existing recovery root, linked-worktree versus second-clone
+  identity and lock namespaces, two-HomeRoot ancestor/descendant overlap, and enumerated rejection of
+  public `-HomeRoot`/`-BackupRoot`/`-LockWaitSeconds`/`-TestMode` on the registry command surface.
+  Home-authority tests add the exhaustive six-pair state-semantics platform-overlap matrix, per-root
+  incremental absent-to-created classification, and the same parameter enumeration across
+  authority/lock/bootstrap/live-target commands. Live-concurrency adds a `canonical-global-hold`
+  host operation proving a canonical-bound global holder beats live-route and second-repository
+  canonical contenders with exact zero-wait busy, zero writes, correct canonical-before-global order,
+  and post-release witness re-acquisition; adopt/retirement races are covered at the implemented
+  lock-class level pending the Step 5 retrofit. Focused suites passed (191/197/222 PASS assertions),
+  and the unified `run-tests.ps1 -All` run passed all 34 suites exactly once with zero
+  failures/timeouts (summary SHA-256 `0bbff288638a3ca5a509fa158a398b59d1bb4b45c10f63150452cfaa92fa15e2`,
+  hard-kill 317/0); build (7/15/7), secret scan, parse gate (156 files), diff checks, and sync DryRun
+  passed. Step 1 is complete (Task 1 1/6, Phase 2 1/52). Production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
 server-side garbage collection/cache clearing, and the old head is no longer available through the
 web, REST, raw-content, or direct Git SHA probes. Ticket `#4697323` and the external privacy follow-up
 are closed. The implementation checkpoint now includes the reviewed read-only authority/schema,
-sealed fake-ControlBase bootstrap/global-lock, held-lock registry core, and caller-held
-canonical/current-route slices within Phase 2 Task 1. They complete no whole Task 1 step and are not
-connected to production mutation routes. Task 1 remains 0/6 and Phase 2 remains 0/52.
+sealed fake-ControlBase bootstrap/global-lock, held-lock registry core, caller-held
+canonical/current-route slices, and the Step 1 identity/concurrency failure matrix within Phase 2
+Task 1. Step 1 is complete (Task 1 1/6); the remaining steps stay unconnected to production mutation
+routes.
 
 ## Current phase
 
-Phase 2 is 0/9 Tasks and 0/52 Steps with Task 1 in progress at 0/6. Next are the remaining
-identity/concurrency failure cases, production-route integration of the strict canonical-to-global
-lock order and current-route witness, a real under-lock filesystem-capability preflight, and the
-remaining forbidden-root matrix. Production Apply remains disconnected, and live-journal structure
-and interpretation remain deferred to Task 4.
+Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. Next are production-route integration of the
+strict canonical-to-global lock order and current-route witness, a real under-lock
+filesystem-capability preflight, and the remaining forbidden-root cases, including applying the
+complete forbidden-root matrix before accepting any default/custom claim. Production Apply remains
+disconnected, and live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine

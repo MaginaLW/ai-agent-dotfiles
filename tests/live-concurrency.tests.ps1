@@ -6,6 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $RepoRoot 'scripts/home-authority-common.ps1')
+. (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/home-authority-test-host.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/process-tree.ps1')
 
@@ -68,6 +69,38 @@ function New-TestAuthorityFixture([string]$Root,[string]$ProfileName='profile',[
     return [pscustomobject][ordered]@{ Root=$Root; Profile=$profile; Roaming=$roaming; Local=$local; Context=$context; Intent=$intent }
 }
 function Get-TestTreeHash([string]$Root,[string[]]$ExcludeRelativePaths=@()) { return [string](Get-SafeTreeSnapshot -Root $Root -ExcludeRelativePaths $ExcludeRelativePaths).TreeHash }
+function New-TestCanonicalRouteFixture([string]$Root,[string]$Name,$AuthorityContext) {
+    $repo = Join-Path $Root ($Name + '-repo')
+    $probe = Join-Path $Root ($Name + '-probe')
+    $recoveryParent = Join-Path $Root ($Name + '-recovery-parent')
+    $recovery = Join-Path $recoveryParent 'recovery'
+    [IO.Directory]::CreateDirectory($repo) | Out-Null
+    [IO.Directory]::CreateDirectory($probe) | Out-Null
+    [IO.Directory]::CreateDirectory($recoveryParent) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $recoveryParent
+    [IO.File]::WriteAllText((Join-Path $repo 'fixture.txt'),'canonical route fixture',[Text.UTF8Encoding]::new($false))
+    & git init --quiet $repo
+    if ($LASTEXITCODE -ne 0) { throw 'canonical route fixture git init failed' }
+    & git -C $repo add fixture.txt
+    if ($LASTEXITCODE -ne 0) { throw 'canonical route fixture git add failed' }
+    & git -C $repo -c 'user.name=Canonical Route Fixture' -c 'user.email=canonical-route-fixture@example.invalid' commit --quiet -m fixture
+    if ($LASTEXITCODE -ne 0) { throw 'canonical route fixture git commit failed' }
+    $payload = New-CanonicalSetupPlanPayload -RepoRoot $repo -CanonicalRecoveryRoot $recovery -ControlBase ([string]$AuthorityContext.ControlBase) -BackupRoot ([string]$AuthorityContext.BackupRoot) -ProbeRoot $probe -ToolchainRoot $RepoRoot
+    [IO.Directory]::CreateDirectory($recovery) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $recovery
+    $git = Get-CanonicalGitContext -RepoRoot $repo
+    $paths = Get-CanonicalTransactionContractPaths -GitContext $git
+    $claimPath = Join-Path ([string]$AuthorityContext.CanonicalRootsRoot) ([string]$payload.ExpectedRootClaim.RepoId + '.json')
+    $null = Write-TestCreateNewFile -Path $claimPath -Bytes ([byte[]](ConvertTo-SemanticJsonBytes -InputObject $payload.ExpectedRootClaim))
+    $state = New-CanonicalFinalSetupState -PlanPayload $payload -RepoRoot $repo
+    $stateLock = Enter-CanonicalRepoLock -LockPath ([string]$paths.LockPath) -AllowCreate
+    try { $null = Write-TestCreateNewFile -Path ([string]$paths.SetupStatePath) -Bytes ([byte[]](ConvertTo-SemanticJsonBytes -InputObject $state)) }
+    finally { Exit-CanonicalRepoLock -LockHandle $stateLock }
+    return [pscustomobject][ordered]@{
+        RepoRoot=$repo; RepoId=[string]$payload.ExpectedRootClaim.RepoId
+        LockPath=[string]$paths.LockPath; ClaimPath=$claimPath
+    }
+}
 function Set-TestDirectoryCurrentUserOnly([string]$Path) {
     $sidText = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $sid = [Security.Principal.SecurityIdentifier]::new($sidText)
@@ -97,13 +130,14 @@ function Start-TestHost {
         [string]$CrashStage,
         [int]$CrashOrder,
         [int]$WaitSeconds,
-        [string]$WorkingDirectory
+        [string]$WorkingDirectory,
+        [string]$CanonicalRepoRoot
     )
     $arguments = @('-NoProfile','-File',(Join-Path $RepoRoot 'tests/helpers/home-authority-bootstrap-host.ps1'),'-ToolchainRoot',$RepoRoot,'-ProfileRoot',$Fixture.Profile,'-RoamingAppDataRoot',$Fixture.Roaming,'-LocalAppDataRoot',$Fixture.Local,'-Operation',$Operation)
     foreach ($pair in @(
         @('IntentPath',$IntentPath),@('ReadyMarker',$ReadyMarker),@('StartMarker',$StartMarker),
         @('AcquiredMarker',$AcquiredMarker),@('ContendedMarker',$ContendedMarker),
-        @('ReleaseMarker',$ReleaseMarker),@('CrashStage',$CrashStage)
+        @('ReleaseMarker',$ReleaseMarker),@('CrashStage',$CrashStage),@('RepoRoot',$CanonicalRepoRoot)
     )) { if (-not [string]::IsNullOrWhiteSpace([string]$pair[1])) { $arguments += @("-$($pair[0])",[string]$pair[1]) } }
     if ($PSBoundParameters.ContainsKey('CrashOrder')) { $arguments += @('-CrashOrder',[string]$CrashOrder) }
     if ($PSBoundParameters.ContainsKey('WaitSeconds')) { $arguments += @('-WaitSeconds',[string]$WaitSeconds) }
@@ -385,6 +419,58 @@ try {
         $afterBootstrapDeath=Complete-SealedHomeAuthorityBootstrap -AuthorityContext $bootstrapFixture.Context -Intent $bootstrapFixture.Intent
         try { Assert-TestCondition ((Get-NoFollowRootEntryMarker -Path $bootstrapFixture.Context.ControlBootstrapLockPath).Identity -ceq $bootstrapIdentity) 'bootstrap owner death releases the same external lock identity' }
         finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $afterBootstrapDeath }
+
+        Write-Host '[canonical-bound global lock versus live and second-repository routes]'
+        $canonicalRaceRoot = Join-Path $work 'canonical-global-race'
+        $canonicalFixture = New-TestAuthorityFixture -Root $canonicalRaceRoot
+        $canonicalBootstrap = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $canonicalFixture.Context -Intent $canonicalFixture.Intent
+        Exit-HomeAuthorityGlobalLiveLock -LockHandle $canonicalBootstrap
+        $canonicalRepoA = New-TestCanonicalRouteFixture -Root $canonicalRaceRoot -Name 'route-a' -AuthorityContext $canonicalFixture.Context
+        $canonicalRepoB = New-TestCanonicalRouteFixture -Root $canonicalRaceRoot -Name 'route-b' -AuthorityContext $canonicalFixture.Context
+        Assert-TestCondition ($canonicalRepoA.RepoId -cne $canonicalRepoB.RepoId -and $canonicalRepoA.ClaimPath -cne $canonicalRepoB.ClaimPath) 'the two canonical route fixtures are distinct repository identities with distinct claims'
+        $holderReady = Join-Path $canonicalRaceRoot 'holder-ready'
+        $holderStart = Join-Path $canonicalRaceRoot 'holder-start'
+        $holderAcquired = Join-Path $canonicalRaceRoot 'holder-acquired'
+        $holderRelease = Join-Path $canonicalRaceRoot 'holder-release'
+        $holderOutput = Join-Path $canonicalRaceRoot 'holder'
+        $holder = Start-TestHost -Fixture $canonicalFixture -Operation canonical-global-hold -OutputBase $holderOutput -CanonicalRepoRoot $canonicalRepoA.RepoRoot -ReadyMarker $holderReady -StartMarker $holderStart -AcquiredMarker $holderAcquired -ReleaseMarker $holderRelease
+        $processes.Add($holder)
+        Assert-TestCondition (Wait-TestPath $holderReady -Process $holder) 'the canonical-bound holder becomes ready before acquisition'
+        Write-TestMarker $holderStart
+        Assert-TestCondition (Wait-TestPath $holderAcquired -Process $holder) 'the canonical-bound holder acquires the global lock through its held canonical witness'
+        $canonicalGlobalIdentity = Read-TestMarkerText $holderAcquired
+        $canonicalLockRelative = [IO.Path]::GetRelativePath([string]$canonicalFixture.Local,[string]$canonicalFixture.Context.GlobalLiveLockPath).Replace([char]92,[char]47)
+        $canonicalTreeBefore = Get-TestTreeHash -Root $canonicalFixture.Local -ExcludeRelativePaths @($canonicalLockRelative)
+        Assert-ThrowsPattern { Enter-CanonicalRepoLock -LockPath ([string]$canonicalRepoA.LockPath) | Out-Null } '^operation-lock-busy$' 'the holder keeps its canonical repository lock while holding global'
+        $liveRouteWatch = [Diagnostics.Stopwatch]::StartNew()
+        Assert-ThrowsPattern { Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $canonicalFixture.Context | Out-Null } '^operation-lock-busy$' 'a live-route global acquisition loses to the canonical-bound holder with exact zero-wait busy'
+        Assert-TestCondition ($liveRouteWatch.ElapsedMilliseconds -lt 1000) 'the losing live route is zero-wait bounded'
+        Assert-TestCondition ((Get-TestTreeHash -Root $canonicalFixture.Local -ExcludeRelativePaths @($canonicalLockRelative)) -ceq $canonicalTreeBefore) 'the losing live route makes zero writes in the controlled fake home'
+        $secondLock = Enter-CanonicalRepoLock -LockPath ([string]$canonicalRepoB.LockPath)
+        $secondWitness = $null
+        try {
+            $secondWitness = Open-CanonicalHeldNamespaceWitness -RepoRoot ([string]$canonicalRepoB.RepoRoot) -CanonicalLockHandle $secondLock -ToolchainRoot $RepoRoot
+            Assert-ThrowsPattern { Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $canonicalFixture.Context -RequiredCanonicalWitness $secondWitness | Out-Null } '^operation-lock-busy$' 'a second-repository canonical route acquires its own canonical lock and contends only at the global lock'
+        }
+        finally {
+            if ($null -ne $secondWitness) { Close-CanonicalHeldNamespaceWitness -Witness $secondWitness }
+            Exit-CanonicalRepoLock -LockHandle $secondLock
+        }
+        Assert-TestCondition ((Get-TestTreeHash -Root $canonicalFixture.Local -ExcludeRelativePaths @($canonicalLockRelative)) -ceq $canonicalTreeBefore) 'the losing second-repository canonical route also makes zero writes in the controlled fake home'
+        Write-TestMarker $holderRelease
+        Assert-TestCondition ((Wait-TestExit $holder) -and $holder.ExitCode -eq 0) 'the canonical-bound holder releases global before canonical and exits cleanly'
+        $successorLock = Enter-CanonicalRepoLock -LockPath ([string]$canonicalRepoB.LockPath)
+        $successorWitness = $null
+        try {
+            $successorWitness = Open-CanonicalHeldNamespaceWitness -RepoRoot ([string]$canonicalRepoB.RepoRoot) -CanonicalLockHandle $successorLock -ToolchainRoot $RepoRoot
+            $successorGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $canonicalFixture.Context -RequiredCanonicalWitness $successorWitness
+            try { Assert-TestCondition ([string]$successorGlobal.Info.Identity -ceq $canonicalGlobalIdentity) 'after release the second-repository canonical route acquires the same immutable global lock through its own witness' }
+            finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $successorGlobal }
+        }
+        finally {
+            if ($null -ne $successorWitness) { Close-CanonicalHeldNamespaceWitness -Witness $successorWitness }
+            Exit-CanonicalRepoLock -LockHandle $successorLock
+        }
     }
 
 }
@@ -408,6 +494,10 @@ finally {
     try {
         if (-not $fullWork.StartsWith($tempRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'unsafe live-concurrency cleanup root' }
         if ([IO.Directory]::Exists($fullWork)) {
+            foreach ($readOnlyCandidate in [IO.Directory]::EnumerateFiles($fullWork,'*',[IO.SearchOption]::AllDirectories)) {
+                $attributes = [IO.File]::GetAttributes($readOnlyCandidate)
+                if (($attributes -band [IO.FileAttributes]::ReadOnly) -ne 0) { [IO.File]::SetAttributes($readOnlyCandidate,$attributes -band (-bnot [IO.FileAttributes]::ReadOnly)) }
+            }
             $cleanupDeadline=[Diagnostics.Stopwatch]::StartNew()
             while ($true) {
                 try { [IO.Directory]::Delete($fullWork,$true); break }

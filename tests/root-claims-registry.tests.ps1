@@ -335,11 +335,11 @@ function Assert-TestRegistryReadIsZeroWrite {
     finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $lock }
 }
 
-function New-TestCanonicalClaim([Parameter(Mandatory)]$Fixture,[string]$Name='canonical') {
-    $repo = Join-Path $Fixture.Root ($Name + '-repo')
+function New-TestCanonicalClaim([Parameter(Mandatory)]$Fixture,[string]$Name='canonical',[string]$RepoPath,[string]$RecoveryRootPath) {
+    $repo = if ([string]::IsNullOrWhiteSpace($RepoPath)) { Join-Path $Fixture.Root ($Name + '-repo') } else { [IO.Path]::GetFullPath($RepoPath) }
     $probe = Join-Path $Fixture.Root ($Name + '-probe')
-    $recoveryParent = Join-Path $Fixture.Root ($Name + '-recovery-parent')
-    $recovery = Join-Path $recoveryParent 'recovery'
+    $recovery = if ([string]::IsNullOrWhiteSpace($RecoveryRootPath)) { Join-Path (Join-Path $Fixture.Root ($Name + '-recovery-parent')) 'recovery' } else { [IO.Path]::GetFullPath($RecoveryRootPath) }
+    $recoveryParent = Split-Path -Parent $recovery
     [IO.Directory]::CreateDirectory($repo) | Out-Null
     [IO.Directory]::CreateDirectory($probe) | Out-Null
     [IO.Directory]::CreateDirectory($recoveryParent) | Out-Null
@@ -1108,6 +1108,95 @@ try {
     $reasonixClaim.InitialDirectoryIdentity = [string]$controlTarget.DeepestExistingParentIdentity
     $null = Add-TestAuthorityArtifacts -Context $infrastructureOverlap.Context -Claims $infrastructureClaims
     Invoke-TestRegistryFailure -Fixture $infrastructureOverlap -Pattern 'manual-recovery-required:.*registry reservation overlaps fixed infrastructure' -Message 'home claim overlapping ControlBase fails closed'
+
+    $insideLive = New-TestRegistryFixture -Parent $workRoot -Name 'tracked-tree-in-live'
+    $insideLiveClaudePath = [string]$insideLive.Context.LiveTargets[0].TargetContext.RequestedPath
+    $insideLiveRepo = Join-Path $insideLiveClaudePath 'cloned-repo-inside-live-root'
+    $insideLiveCanonical = New-TestCanonicalClaim -Fixture $insideLive -Name 'inside-live' -RepoPath $insideLiveRepo
+    $insideLiveContext = Resolve-SealedHomeAuthorityTestContext -TokenSid ([string]$insideLive.Context.TokenSid) -ProfileRoot ([string]$insideLive.Profile) -RoamingAppDataRoot ([string]$insideLive.Roaming) -LocalAppDataRoot ([string]$insideLive.Local)
+    Assert-TestCondition ([string]$insideLiveContext.LiveTargets[0].TargetContext.TargetStatus -ceq 'EXISTS') 'fixture precondition: the Claude live target exists with the tracked tree inside it'
+    $insideLiveClaimPath = Join-Path $insideLiveContext.CanonicalRootsRoot ($insideLiveCanonical.RepoId + '.json')
+    $null = Write-TestSemanticDocument -Path $insideLiveClaimPath -Document $insideLiveCanonical.Claim
+    $null = Complete-TestCanonicalSetupState -Fixture $insideLive -CanonicalFixture $insideLiveCanonical
+    $insideLiveLock = Enter-CanonicalRepoLock -LockPath ([string]$insideLiveCanonical.ContractPaths.LockPath)
+    $insideLiveWitness = $null
+    try {
+        $insideLiveWitness = Open-CanonicalHeldNamespaceWitness -RepoRoot ([string]$insideLiveCanonical.RepoRoot) -CanonicalLockHandle $insideLiveLock -ToolchainRoot $RepoRoot
+        Assert-TestCondition (Test-TargetPathOverlap -Left ([string]$insideLiveWitness.GitCommonDir) -Right $insideLiveClaudePath) 'fixture precondition: the tracked GitCommonDir really is inside the Claude live root'
+        $insideLiveRoute = New-SealedCurrentRouteRootSet -CanonicalWitness $insideLiveWitness
+        $insideLiveGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $insideLiveContext -RequiredCanonicalWitness $insideLiveWitness
+        try {
+            Assert-ThrowsPattern { Get-SealedHomeAuthorityRegistryView -AuthorityContext $insideLiveContext -GlobalLockHandle $insideLiveGlobal -CanonicalWitness $insideLiveWitness -CurrentRouteRootSet $insideLiveRoute | Out-Null } 'manual-recovery-required:.*current-route-forbidden-path-overlap' 'a tracked Git working tree and GitCommonDir inside a live target root fail closed as forbidden route overlap'
+        }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $insideLiveGlobal }
+    }
+    finally {
+        if ($null -ne $insideLiveWitness) { Close-CanonicalHeldNamespaceWitness -Witness $insideLiveWitness }
+        Exit-CanonicalRepoLock -LockHandle $insideLiveLock
+    }
+
+    $claimCollision = New-TestRegistryFixture -Parent $workRoot -Name 'claim-collision'
+    $collisionA = New-TestCanonicalClaim -Fixture $claimCollision -Name 'collision-a'
+    $collisionClaimPathA = Join-Path $claimCollision.Context.CanonicalRootsRoot ($collisionA.RepoId + '.json')
+    $null = Write-TestSemanticDocument -Path $collisionClaimPathA -Document $collisionA.Claim
+    $collisionB = New-TestCanonicalClaim -Fixture $claimCollision -Name 'collision-b' -RecoveryRootPath (Join-Path $collisionA.RecoveryRoot 'nested-recovery')
+    Assert-TestCondition ($collisionB.RepoId -cne $collisionA.RepoId) 'fixture precondition: the colliding claim comes from a second repository identity'
+    $collisionClaimPathB = Join-Path $claimCollision.Context.CanonicalRootsRoot ($collisionB.RepoId + '.json')
+    $null = Write-TestSemanticDocument -Path $collisionClaimPathB -Document $collisionB.Claim
+    Invoke-TestRegistryFailure -Fixture $claimCollision -Pattern 'manual-recovery-required:.*registry reserved roots overlap' -Message 'a second repository claim nested inside an existing claim recovery root fails closed'
+    [IO.File]::Delete($collisionClaimPathB)
+    $collisionDuplicate = New-TestCanonicalClaim -Fixture $claimCollision -Name 'collision-dup' -RecoveryRootPath ([string]$collisionA.RecoveryRoot)
+    Assert-TestCondition ($collisionDuplicate.RepoId -cne $collisionA.RepoId) 'fixture precondition: the duplicate claim also comes from a second repository identity'
+    $collisionClaimPathDup = Join-Path $claimCollision.Context.CanonicalRootsRoot ($collisionDuplicate.RepoId + '.json')
+    $null = Write-TestSemanticDocument -Path $collisionClaimPathDup -Document $collisionDuplicate.Claim
+    Invoke-TestRegistryFailure -Fixture $claimCollision -Pattern 'manual-recovery-required:.*registry reserved roots overlap' -Message 'a second repository claiming the exact same recovery root fails closed'
+
+    $repoIdentity = New-TestRegistryFixture -Parent $workRoot -Name 'repo-identity'
+    $identityMain = New-TestCanonicalClaim -Fixture $repoIdentity -Name 'identity-main'
+    $identityWorktree = Join-Path $repoIdentity.Root 'identity-worktree'
+    & git -C $identityMain.RepoRoot worktree add --quiet -b identity-wt $identityWorktree
+    if ($LASTEXITCODE -ne 0) { throw 'fixture git worktree add failed' }
+    $identityWorktreeGit = Get-CanonicalGitContext -RepoRoot $identityWorktree
+    $identityWorktreePaths = Get-CanonicalTransactionContractPaths -GitContext $identityWorktreeGit
+    Assert-TestCondition ([string]$identityWorktreePaths.LockPath -ceq [string]$identityMain.ContractPaths.LockPath) 'a linked worktree shares the main repository canonical contract namespace'
+    Assert-TestCondition ((Get-CanonicalRepoIdentity -GitContext $identityWorktreeGit) -ceq $identityMain.RepoId) 'a linked worktree resolves the same canonical repository identity'
+    $identityClone = Join-Path $repoIdentity.Root 'identity-clone'
+    & git clone --quiet $identityMain.RepoRoot $identityClone
+    if ($LASTEXITCODE -ne 0) { throw 'fixture git clone failed' }
+    $identityCloneGit = Get-CanonicalGitContext -RepoRoot $identityClone
+    $identityClonePaths = Get-CanonicalTransactionContractPaths -GitContext $identityCloneGit
+    $identityCloneRepoId = Get-CanonicalRepoIdentity -GitContext $identityCloneGit
+    Assert-TestCondition ($identityCloneRepoId -cne $identityMain.RepoId -and [string]$identityClonePaths.LockPath -cne [string]$identityMain.ContractPaths.LockPath) 'a second clone derives its own canonical identity and contract namespace'
+    Assert-TestCondition ((Join-Path $repoIdentity.Context.CanonicalRootsRoot ($identityCloneRepoId + '.json')) -cne (Join-Path $repoIdentity.Context.CanonicalRootsRoot ($identityMain.RepoId + '.json'))) 'a second clone cannot collide with the existing canonical claim file'
+    $identityMainLock = Enter-CanonicalRepoLock -LockPath ([string]$identityMain.ContractPaths.LockPath) -AllowCreate
+    try {
+        Assert-ThrowsPattern { Enter-CanonicalRepoLock -LockPath ([string]$identityWorktreePaths.LockPath) | Out-Null } '^operation-lock-busy$' 'a linked worktree contends on the one shared canonical lock'
+        $identityCloneLock = Enter-CanonicalRepoLock -LockPath ([string]$identityClonePaths.LockPath) -AllowCreate
+        try { Assert-TestCondition $true 'a second clone holds its own canonical lock concurrently with the main repository' }
+        finally { Exit-CanonicalRepoLock -LockHandle $identityCloneLock }
+    }
+    finally { Exit-CanonicalRepoLock -LockHandle $identityMainLock }
+
+    $partialOverlap = New-TestRegistryFixture -Parent $workRoot -Name 'partial-home-overlap'
+    $partialClaimsA = New-TestRootClaims -Context $partialOverlap.Context
+    $null = Add-TestAuthorityArtifacts -Context $partialOverlap.Context -Claims $partialClaimsA
+    $partialProfileB = Join-Path $partialOverlap.Root 'profile-partial-b'
+    [IO.Directory]::CreateDirectory($partialProfileB) | Out-Null
+    $partialContextB = Resolve-SealedHomeAuthorityTestContext -TokenSid ([string]$partialOverlap.Context.TokenSid) -ProfileRoot $partialProfileB -RoamingAppDataRoot ([string]$partialOverlap.Roaming) -LocalAppDataRoot ([string]$partialOverlap.Local) -ReasonixLiveSkillsPath (Join-Path $partialClaimsA.LiveRootClaims[0].RequestedPath 'nested-reasonix-override')
+    $partialClaimsB = New-TestRootClaims -Context $partialContextB
+    $null = Add-TestAuthorityArtifacts -Context $partialContextB -Claims $partialClaimsB
+    Invoke-TestRegistryFailure -Fixture $partialOverlap -Pattern 'manual-recovery-required:.*registry reserved roots overlap' -Message 'two HomeRoots with ancestor/descendant live-root overlap fail closed'
+
+    foreach ($commandName in @(
+        'Get-SealedHomeAuthorityRegistryView','Open-SealedRegistryCurrentRouteCapture',
+        'Close-SealedRegistryCurrentRouteCapture','Assert-SealedRegistryCurrentRouteCaptureStable',
+        'New-SealedCurrentRouteRootSet'
+    )) {
+        $registryCommand = Get-Command $commandName -ErrorAction Stop
+        foreach ($publicSelector in @('HomeRoot','BackupRoot','LockWaitSeconds','TestMode')) {
+            Assert-TestCondition (-not $registryCommand.Parameters.ContainsKey($publicSelector)) "$commandName rejects public -$publicSelector"
+        }
+    }
 
     $live = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction'
     $liveId = '33333333-3333-4333-8333-333333333333'

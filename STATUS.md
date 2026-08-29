@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-28
+Last updated: 2026-08-29
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -18,8 +18,8 @@ Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete
 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
-longer served. Phase 2 Task 1 has started (0/6 steps; Phase 2 overall 0/52), while Phases 3-4 have not
-started. Tracked policy remains
+longer served. Phase 2 Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52), while Phases 3-4
+have not started. Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
@@ -265,6 +265,46 @@ paths. The hardening commit `43b2f85` then completed the `Validate` workflow gre
 `Test summary: PASS; discovered=34; passed=34; failed=0; timed-out=0` and hard-kill 317/0,
 after an independent Grok review of the diff returned PASS on stale-reference, hash-seal, and
 documentation-consistency checks.
+
+## 2026-08-29 Phase 2 Task 1 Step 1 failure-matrix completion
+
+The remaining Step 1 identity/concurrency failure matrix was completed as test-only changes; no
+production script changed, so no hard-kill re-pin was required. The additions close the previously
+named Step 1 gaps:
+
+- root-claims-registry: a tracked Git working tree and GitCommonDir inside a live target root fails
+  closed as forbidden route overlap; second-repository claims nested inside and exactly duplicating
+  an existing claim's recovery root fail closed as reserved-root overlap; a linked worktree shares
+  the main repository's contract namespace and contends on the one canonical lock while a second
+  clone derives its own identity, claim file, and concurrently holdable lock; two HomeRoots with
+  ancestor/descendant live-root overlap fail closed; and the registry command surface is enumerated
+  to prove no public `-HomeRoot`/`-BackupRoot`/`-LockWaitSeconds`/`-TestMode` selector exists.
+- home-authority: an exhaustive ordered-pair state-semantics matrix rejects each platform final root
+  nested inside another (all six pairs); live roots are created one at a time and the resolver
+  classifies exactly the created platforms while requested paths and the authority namespace stay
+  stable; and the same public-parameter enumeration covers the authority/lock/bootstrap/live-target
+  commands.
+- live-concurrency: a new sealed-host `canonical-global-hold` operation holds canonical plus global
+  through a genuine canonical witness; a live-route-shaped acquisition and a second-repository
+  canonical route each lose with exact zero-wait busy and zero writes, the holder's canonical lock
+  stays busy, and after release the second repository acquires the same immutable global lock through
+  its own witness. Canonical-setup versus live-adopt and canonical-versus-retirement races are
+  covered at the implemented lock-class level; those routes are retrofitted in Step 5 and re-verified
+  in Step 6. Fixed-NTFS versus UNC/mapped/removable/ReFS/FAT/unknown capability remains at the
+  established unit-fixture and path-rejection level. The new canonical fixture introduced
+  git-created read-only loose object files, so the suite cleanup now clears read-only attributes
+  before its guarded recursive delete.
+
+Validation on 2026-08-29: focused runs passed (home-authority 191 PASS, root-claims-registry 197
+PASS, live-concurrency 222 PASS, each exit code 0); the parse gate passed 156 files; `git diff
+--check` was clean; and the definitive unified `run-tests.ps1 -All` run discovered, started,
+completed, and passed all 34 suites exactly once with zero failures, timeouts, duplicates, missing
+suites, or tree-kill failures. The external create-new summary SHA-256 is
+`0bbff288638a3ca5a509fa158a398b59d1bb4b45c10f63150452cfaa92fa15e2`, with `canonical-hard-kill` at
+317/0 inside the run. `build-skills.ps1` (7/15/7), `scan-secrets.ps1` (no blocking findings; 805
+non-blocking keyword hints), and `sync.ps1` DryRun (no live mutation) then passed. This completes
+Task 1 Step 1 (Task 1 1/6, Phase 2 1/52). Production Apply remains interlocked, and no live root or
+Git index/ref was changed.
 
 ## Validation status
 
@@ -604,10 +644,11 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 
 ## Next actions
 
-1. Continue Phase 2 Task 1 with the remaining identity/concurrency failure matrix, production-route
-   integration of the canonical-to-global lock order and current-route witness, a real under-lock
-   filesystem-capability preflight, and the remaining forbidden-root cases. Keep production Apply
-   disconnected and leave live-journal structure and interpretation to Task 4.
+1. Continue Phase 2 Task 1 with production-route integration of the canonical-to-global lock order
+   and current-route witness, a real under-lock filesystem-capability preflight, and the remaining
+   forbidden-root cases, including applying the complete forbidden-root matrix before accepting any
+   default/custom claim. Keep production Apply disconnected and leave live-journal structure and
+   interpretation to Task 4.
 2. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
 3. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,

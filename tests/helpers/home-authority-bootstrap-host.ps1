@@ -5,8 +5,9 @@ param(
     [Parameter(Mandatory)][string]$ProfileRoot,
     [Parameter(Mandatory)][string]$RoamingAppDataRoot,
     [Parameter(Mandatory)][string]$LocalAppDataRoot,
-    [Parameter(Mandatory)][ValidateSet('bootstrap-hold','complete-hold','global-hold','global-once','global-wait','crash-complete')][string]$Operation,
+    [Parameter(Mandatory)][ValidateSet('bootstrap-hold','complete-hold','global-hold','global-once','global-wait','crash-complete','canonical-global-hold')][string]$Operation,
     [string]$IntentPath,
+    [string]$RepoRoot,
     [string]$ReadyMarker,
     [string]$StartMarker,
     [string]$AcquiredMarker,
@@ -90,6 +91,29 @@ try {
         'global-hold' {
             $lock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $context
             Wait-WithHeldLock -Lock $lock
+        }
+        'canonical-global-hold' {
+            if ([string]::IsNullOrWhiteSpace($RepoRoot)) { throw 'canonical-global-hold requires -RepoRoot' }
+            . (Join-Path $ToolchainRoot 'scripts/canonical-transaction-common.ps1')
+            $repoFull = [IO.Path]::GetFullPath($RepoRoot)
+            $git = Get-CanonicalGitContext -RepoRoot $repoFull
+            $paths = Get-CanonicalTransactionContractPaths -GitContext $git
+            $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string]$paths.LockPath)
+            $witness = $null
+            try {
+                $witness = Open-CanonicalHeldNamespaceWitness -RepoRoot $repoFull -CanonicalLockHandle $canonicalLock -ToolchainRoot $ToolchainRoot
+                $lock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $context -RequiredCanonicalWitness $witness
+                try {
+                    if ($AcquiredMarker) { Write-HostMarker -Path $AcquiredMarker -Value ([string]$lock.Info.Identity) }
+                    if ($ReleaseMarker) { Wait-HostMarker -Path $ReleaseMarker }
+                    else { while ($true) { Start-Sleep -Milliseconds 100 } }
+                }
+                finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $lock }
+            }
+            finally {
+                if ($null -ne $witness) { Close-CanonicalHeldNamespaceWitness -Witness $witness }
+                Exit-CanonicalRepoLock -LockHandle $canonicalLock
+            }
         }
         'global-once' {
             $lock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $context

@@ -277,6 +277,19 @@ try {
         $overlappingState.FinalTargetContextHash = Get-SemanticJsonHash -InputObject @($overlappingState.FinalResolvedIdentities)
         Assert-ThrowsPattern { Test-CurrentEnvStateSemantics -Document $overlappingState } 'overlap' 'final platform root locations must be disjoint'
 
+        $pairwisePlatformNames = @('Claude','Codex','Reasonix')
+        for ($pairwiseOuter = 0; $pairwiseOuter -lt 3; $pairwiseOuter++) {
+            for ($pairwiseInner = 0; $pairwiseInner -lt 3; $pairwiseInner++) {
+                if ($pairwiseOuter -eq $pairwiseInner) { continue }
+                $pairwiseState = Copy-SemanticDocument -Document $stateDocument
+                $pairwiseNestedPath = Join-Path ([string]$pairwiseState.FinalResolvedIdentities[$pairwiseOuter].ResolvedPath) ('nested-' + $pairwisePlatformNames[$pairwiseInner].ToLowerInvariant())
+                $pairwiseState.FinalResolvedIdentities[$pairwiseInner].ResolvedPath = $pairwiseNestedPath
+                $pairwiseState.FinalResolvedIdentities[$pairwiseInner].LocationKey = $pairwiseNestedPath.ToLowerInvariant().Replace([char]92,[char]47)
+                $pairwiseState.FinalTargetContextHash = Get-SemanticJsonHash -InputObject @($pairwiseState.FinalResolvedIdentities)
+                Assert-ThrowsPattern { Test-CurrentEnvStateSemantics -Document $pairwiseState } 'overlap' "state semantics reject a $($pairwisePlatformNames[$pairwiseInner]) final root nested inside the $($pairwisePlatformNames[$pairwiseOuter]) final root"
+            }
+        }
+
         $systemSkill = Copy-SemanticDocument -Document $stateDocument
         $systemSkill.TaskOverlaySkills[1].Skills = @('.system')
         Assert-ThrowsPattern { Test-CurrentEnvStateSemantics -Document $systemSkill } 'skill|system' 'TaskOverlaySkills rejects the protected .system name'
@@ -834,6 +847,23 @@ try {
         Assert-TestCondition (@($created.LiveTargets | Where-Object { [string]$_.TargetContext.TargetStatus -ceq 'EXISTS' }).Count -eq 3) 'created live roots resolve as EXISTS'
         Assert-TestCondition ([string]$created.PrivateRootBootstrapStatus -ceq 'PARTIAL') 'directory existence alone never grants bootstrap COMPLETE'
 
+        $incrementalProfile = Join-Path $work 'incremental-profile'
+        $incrementalRoaming = Join-Path $work 'incremental-roaming'
+        $incrementalLocal = Join-Path $work 'incremental-local'
+        foreach ($path in @($incrementalProfile,$incrementalRoaming,$incrementalLocal)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
+        $incrementalFirst = Resolve-SealedHomeAuthorityTestContext -TokenSid $sid -ProfileRoot $incrementalProfile -RoamingAppDataRoot $incrementalRoaming -LocalAppDataRoot $incrementalLocal
+        Assert-TestCondition (@($incrementalFirst.LiveTargets | Where-Object { [string]$_.TargetContext.TargetStatus -ceq 'MISSING' }).Count -eq 3) 'the incremental fixture starts with every live root missing'
+        for ($createdIndex = 0; $createdIndex -lt @($incrementalFirst.LiveTargets).Count; $createdIndex++) {
+            [IO.Directory]::CreateDirectory([string]$incrementalFirst.LiveTargets[$createdIndex].TargetContext.RequestedPath) | Out-Null
+            $incrementalResolved = Resolve-SealedHomeAuthorityTestContext -TokenSid $sid -ProfileRoot $incrementalProfile -RoamingAppDataRoot $incrementalRoaming -LocalAppDataRoot $incrementalLocal
+            Assert-TestCondition (@($incrementalResolved.LiveTargets | Where-Object { [string]$_.TargetContext.TargetStatus -ceq 'EXISTS' }).Count -eq ($createdIndex + 1)) "creating live roots one at a time classifies exactly $($createdIndex + 1) platform target(s) as EXISTS"
+            $incrementalPathsStable = $true
+            for ($checkIndex = 0; $checkIndex -lt @($incrementalResolved.LiveTargets).Count; $checkIndex++) {
+                if ([string]$incrementalResolved.LiveTargets[$checkIndex].TargetContext.RequestedPath -cne [string]$incrementalFirst.LiveTargets[$checkIndex].TargetContext.RequestedPath) { $incrementalPathsStable = $false }
+            }
+            Assert-TestCondition ($incrementalPathsStable -and [string]$incrementalResolved.HomeAuthorityKey -ceq [string]$incrementalFirst.HomeAuthorityKey) 'partially created live roots keep every requested path and the authority namespace stable'
+        }
+
         foreach ($conversion in @(
             { ConvertTo-HomeAuthorityKnownFolderPath -Path ([IO.Path]::GetPathRoot($work)) -Name 'VolumeRoot' },
             { ConvertTo-HomeAuthorityLocationKey -Path ([IO.Path]::GetPathRoot($work)) },
@@ -868,6 +898,17 @@ try {
         $resolverCommand = Get-Command Resolve-HomeAuthorityContext -ErrorAction Stop
         foreach ($publicSelector in @('HomeRoot', 'BackupRoot', 'LockWaitSeconds')) {
             Assert-TestCondition (-not $resolverCommand.Parameters.ContainsKey($publicSelector)) "production authority resolver rejects public -$publicSelector"
+        }
+        foreach ($authorityCommandName in @(
+            'Resolve-HomeAuthorityContext','Enter-HomeAuthorityGlobalLiveLock','Enter-SealedHomeAuthorityBootstrapLock',
+            'Exit-HomeAuthorityGlobalLiveLock','Exit-HomeAuthorityLockHandle','Complete-SealedHomeAuthorityBootstrap',
+            'Get-SealedHomeAuthorityBootstrapCompletionStatus','New-SealedHomeAuthorityBootstrapIntent',
+            'Assert-SealedHomeAuthorityBootstrapIntent','Resolve-LiveTargetContextSet','Open-SealedHeldLiveTargetContextSet'
+        )) {
+            $authorityCommand = Get-Command $authorityCommandName -ErrorAction Stop
+            foreach ($publicSelector in @('HomeRoot','BackupRoot','LockWaitSeconds','TestMode')) {
+                Assert-TestCondition (-not $authorityCommand.Parameters.ContainsKey($publicSelector)) "$authorityCommandName rejects public -$publicSelector"
+            }
         }
 
         $knownFolderMethods = @([AiAgentDotfiles.WindowsKnownFolder].GetMethods([Reflection.BindingFlags]'Public,Static') | Where-Object Name -ceq 'GetPath')
