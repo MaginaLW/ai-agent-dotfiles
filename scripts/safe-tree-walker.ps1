@@ -734,6 +734,43 @@ namespace AiAgentDotfiles {
             try { return InspectChild(parent, name); }
             catch (Win32Exception error) when (error.NativeErrorCode == 2 || error.NativeErrorCode == 3) { return null; }
         }
+        private static Exception TryRollbackCreatedChildOnSameHandle(SafeFileHandle handle, FileIdentityInfo created, string name, bool directory) {
+            try {
+                if (handle == null || handle.IsClosed || handle.IsInvalid)
+                    throw new ObjectDisposedException("createdChild");
+                FileIdentityInfo before = ReadInfo(handle);
+                if (created != null && (!String.Equals(before.Identity, created.Identity, StringComparison.Ordinal) ||
+                    before.LinkCount != created.LinkCount))
+                    throw new InvalidOperationException("Created child identity changed before exact failure rollback: " + name);
+                if (directory) {
+                    if (!before.IsDirectory || before.IsReparsePoint)
+                        throw new InvalidOperationException("Created failure rollback child is not a no-follow directory: " + name);
+                    if (before.LinkCount != 1)
+                        throw new InvalidOperationException("Created failure rollback directory has an unexpected link count: " + name);
+                    if (GetNamedStreamsByHandle(handle).Length != 0)
+                        throw new InvalidOperationException("Created failure rollback directory has a named alternate data stream: " + name);
+                    if (GetChildNamesByHandle(handle).Length != 0)
+                        throw new InvalidOperationException("Created failure rollback directory is not empty: " + name);
+                } else {
+                    if (before.IsDirectory || before.IsReparsePoint)
+                        throw new InvalidOperationException("Created failure rollback child is not a no-follow regular file: " + name);
+                    if (before.LinkCount != 1)
+                        throw new InvalidOperationException("Created failure rollback file has multiple hard links: " + name);
+                    if (GetNamedStreamsByHandle(handle).Length != 0)
+                        throw new InvalidOperationException("Created failure rollback file has a named alternate data stream: " + name);
+                }
+                FileIdentityInfo after = ReadInfo(handle);
+                if (!String.Equals(after.Identity, before.Identity, StringComparison.Ordinal) ||
+                    after.LinkCount != before.LinkCount || after.IsDirectory != before.IsDirectory || after.IsReparsePoint)
+                    throw new InvalidOperationException("Created child changed during exact failure rollback: " + name);
+                if (GetNamedStreamsByHandle(handle).Length != 0)
+                    throw new InvalidOperationException("Created failure rollback child acquired a named alternate data stream: " + name);
+                if (directory && GetChildNamesByHandle(handle).Length != 0)
+                    throw new InvalidOperationException("Created failure rollback directory acquired a child: " + name);
+                MarkHeldChildForDeletion(handle, name);
+                return null;
+            } catch (Exception cleanupFailure) { return cleanupFailure; }
+        }
         public static SafeDirectoryHandle CreateChildDirectory(SafeDirectoryHandle parent, string name) {
             SafeFileHandle handle = OpenRelative(parent, name, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_CREATE, FILE_DIRECTORY_FILE);
             try {
@@ -741,6 +778,28 @@ namespace AiAgentDotfiles {
                 if (!info.IsDirectory || info.IsReparsePoint) throw new InvalidOperationException("Created relative child is not a no-follow directory: " + name);
                 return new SafeDirectoryHandle(handle, info);
             } catch { handle.Dispose(); throw; }
+        }
+        public static SafeDirectoryHandle CreateHeldChildDirectoryForCleanup(SafeDirectoryHandle parent, string name) {
+            SafeFileHandle handle = OpenRelative(parent, name, DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_CREATE, FILE_DIRECTORY_FILE);
+            FileIdentityInfo created = null;
+            try {
+                created = ReadInfo(handle);
+                if (!created.IsDirectory || created.IsReparsePoint || created.LinkCount != 1)
+                    throw new InvalidOperationException("Created held cleanup child is not a no-follow directory: " + name);
+                FileIdentityInfo after = ReadInfo(handle);
+                if (!after.IsDirectory || after.IsReparsePoint || after.LinkCount != 1 ||
+                    !String.Equals(after.Identity, created.Identity, StringComparison.Ordinal) ||
+                    after.LinkCount != created.LinkCount)
+                    throw new InvalidOperationException("Created held cleanup child identity changed during acquisition: " + name);
+                return new SafeDirectoryHandle(handle, after);
+            } catch (Exception primaryFailure) {
+                Exception cleanupFailure = TryRollbackCreatedChildOnSameHandle(handle, created, name, true);
+                handle.Dispose();
+                if (cleanupFailure != null)
+                    throw new AggregateException("Held cleanup directory creation and exact failure rollback both failed.", primaryFailure, cleanupFailure);
+                throw;
+            }
         }
         public static SafeDirectoryHandle CreateChildDirectoryWithSecurityDescriptor(SafeDirectoryHandle parent, string name, string securityDescriptorSddl) {
             SafeFileHandle handle = OpenRelative(parent, name, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
@@ -914,8 +973,9 @@ namespace AiAgentDotfiles {
                 GENERIC_READ | GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES,
                 FILE_SHARE_READ, FILE_CREATE, FILE_NON_DIRECTORY_FILE);
             FileStream stream = null;
+            FileIdentityInfo created = null;
             try {
-                FileIdentityInfo created = ReadInfo(handle);
+                created = ReadInfo(handle);
                 if (created.IsDirectory || created.IsReparsePoint || created.LinkCount != 1 || created.Length != 0)
                     throw new InvalidOperationException("Created relative child is not a new regular file: " + name);
                 if (GetNamedStreamsByHandle(handle).Length != 0)
@@ -948,8 +1008,12 @@ namespace AiAgentDotfiles {
                         Sha256 = actualHash };
                     return new SafeRegularFileHandle(stream, after, result);
                 }
-            } catch {
+            } catch (Exception primaryFailure) {
+                SafeFileHandle rollbackHandle = stream == null ? handle : stream.SafeFileHandle;
+                Exception cleanupFailure = TryRollbackCreatedChildOnSameHandle(rollbackHandle, created, name, false);
                 if (stream != null) stream.Dispose(); else handle.Dispose();
+                if (cleanupFailure != null)
+                    throw new AggregateException("Regular-file create/write and exact failure rollback both failed.", primaryFailure, cleanupFailure);
                 throw;
             }
         }
@@ -959,8 +1023,10 @@ namespace AiAgentDotfiles {
             SafeFileHandle bridge = null;
             SafeFileHandle sealedHandle = null;
             FileStream sealedStream = null;
+            string createdIdentity = null;
             try {
                 writer = CreateAndHashChildRegularFile(parent, name, bytes);
+                createdIdentity = writer.ExpectedIdentity;
                 FileIdentityInfo writerState = ValidateHeldRegularFileState(writer, "before read-only seal bridge");
 
                 bridge = OpenRelative(parent, name, FILE_READ_DATA | FILE_READ_ATTRIBUTES,
@@ -1019,7 +1085,18 @@ namespace AiAgentDotfiles {
                     sealedStream = null;
                     return sealedFile;
                 }
-            } catch {
+            } catch (Exception primaryFailure) {
+                if (sealedStream != null) { sealedStream.Dispose(); sealedStream = null; }
+                else if (sealedHandle != null) { sealedHandle.Dispose(); sealedHandle = null; }
+                if (bridge != null) { bridge.Dispose(); bridge = null; }
+                if (writer != null) { writer.Dispose(); writer = null; }
+                Exception cleanupFailure = null;
+                if (createdIdentity != null) {
+                    try { DeleteChildRegularFileIfIdentity(parent, name, createdIdentity); }
+                    catch (Exception error) { cleanupFailure = error; }
+                }
+                if (cleanupFailure != null)
+                    throw new AggregateException("Regular-file seal and exact failure rollback both failed.", primaryFailure, cleanupFailure);
                 throw;
             } finally {
                 if (sealedStream != null) sealedStream.Dispose();
@@ -1249,6 +1326,55 @@ namespace AiAgentDotfiles {
             }
 
             if (!marked) throw new InvalidOperationException("Relative cleanup child was not marked for deletion: " + name);
+            return approved;
+        }
+        public static FileIdentityInfo DeleteHeldEmptyDirectoryIfIdentity(SafeDirectoryHandle directory, string expectedIdentity) {
+            if (directory == null) throw new ArgumentNullException("directory");
+            if (String.IsNullOrWhiteSpace(expectedIdentity))
+                throw new ArgumentException("Expected held directory identity must not be empty.", "expectedIdentity");
+
+            FileIdentityInfo approved = null;
+            bool marked = false;
+            lock (directory.SyncRoot) {
+                if (!directory.IsOpenUnsafe) throw new ObjectDisposedException("directory");
+                SafeFileHandle handle = directory.Handle;
+                string acquiredIdentity = SafeDirectoryHandle.GetAcquiredIdentityExact(directory);
+                uint acquiredLinkCount = SafeDirectoryHandle.GetAcquiredLinkCountExact(directory);
+                FileIdentityInfo acquiredReceipt = SafeDirectoryHandle.GetInfoExact(directory);
+                if (!String.Equals(acquiredIdentity, expectedIdentity, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Held cleanup directory identity differs from the expected object.");
+                if (acquiredReceipt == null ||
+                    !String.Equals(acquiredReceipt.Identity, acquiredIdentity, StringComparison.Ordinal) ||
+                    acquiredReceipt.LinkCount != acquiredLinkCount || acquiredLinkCount != 1 ||
+                    !acquiredReceipt.IsDirectory || acquiredReceipt.IsReparsePoint)
+                    throw new InvalidOperationException("Held cleanup directory public receipt differs from its immutable acquired identity.");
+
+                FileIdentityInfo before = ReadInfo(handle);
+                if (!String.Equals(before.Identity, acquiredIdentity, StringComparison.Ordinal) ||
+                    before.LinkCount != acquiredLinkCount || before.LinkCount != 1)
+                    throw new InvalidOperationException("Held cleanup directory current identity differs from its acquired identity.");
+                if (!before.IsDirectory || before.IsReparsePoint)
+                    throw new InvalidOperationException("Held cleanup object is not a no-follow directory.");
+                if (GetNamedStreamsByHandle(handle).Length != 0)
+                    throw new InvalidOperationException("Held cleanup directory has a named alternate data stream.");
+                if (GetChildNamesByHandle(handle).Length != 0)
+                    throw new InvalidOperationException("Held cleanup directory is not empty.");
+
+                FileIdentityInfo after = ReadInfo(handle);
+                if (!String.Equals(after.Identity, before.Identity, StringComparison.Ordinal) ||
+                    after.LinkCount != before.LinkCount || after.LinkCount != 1 || !after.IsDirectory || after.IsReparsePoint)
+                    throw new InvalidOperationException("Held cleanup directory changed during identity validation.");
+                if (GetNamedStreamsByHandle(handle).Length != 0)
+                    throw new InvalidOperationException("Held cleanup directory acquired a named alternate data stream during identity validation.");
+                if (GetChildNamesByHandle(handle).Length != 0)
+                    throw new InvalidOperationException("Held cleanup directory acquired a child during identity validation.");
+
+                approved = CloneInfo(after);
+                MarkHeldChildForDeletion(handle, "held-owned-directory");
+                marked = true;
+            }
+            if (!marked) throw new InvalidOperationException("Held cleanup directory was not marked for deletion.");
+            directory.Dispose();
             return approved;
         }
         public static FileIdentityInfo DeleteChildRegularFileIfIdentity(SafeDirectoryHandle parent, string name, string expectedIdentity) {

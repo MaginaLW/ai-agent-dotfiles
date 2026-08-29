@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -341,6 +341,56 @@ non-blocking keyword hints), and `sync.ps1` DryRun (no live mutation) then passe
 1/6 and Phase 2 remains 1/52; the GitHub `Validate` workflow for the previous Step 1 commit
 `38d64f7` completed green on the runner before this slice.
 
+## 2026-08-29 Phase 2 per-target/per-volume capability hardening
+
+The sealed under-lock capability preflight now accepts an exact target-to-ProbeRoot map instead of
+one aggregate ProbeRoot. Every target row binds its own normalized ProbeRoot path, location key, and
+probe-time captured directory identity in the CLR-sealed evidence. Before the first real probe, the
+registry layer validates the complete map: exact input shape, target type and uniqueness, target-to-target,
+target-to-ProbeRoot, ProbeRoot-to-ProbeRoot, and authority-root overlap, Fixed/NTFS support, exact
+target/probe volume-serial equality, expected-hash syntax, and residue in every unique ProbeRoot.
+Rows are ordered by target LocationKey, so input permutation does not change the projection. A
+dynamic test uses two distinct writable Fixed/NTFS volumes when available; on the current validation
+host that branch executed and proved three independent target probes, bidirectional wrong-volume
+zero-probe rejection, per-row sealed evidence, zero authority/external-tree drift, and empty
+ProbeRoots after success.
+
+The lower probe now holds the complete ProbeRoot containment chain and verifies the caller-captured
+ProbeRoot identity before creating anything. It rejects matching residue case-insensitively both
+before the GUID slot is created and after exact cleanup, preserving foreign names and bytes. The
+owned slot is create-new with DELETE access and no delete sharing; its creation-failure rollback and
+successful deletion act on the exact held slot. Child-file create/write rollback uses the held file,
+and later cleanup stays identity-bound under the held slot. Slot cleanup validates identity, type,
+single-link state, alternate streams, and emptiness before marking that same held directory for
+deletion. There is no wildcard, recursive, or path-delete cleanup fallback. Primary probe failures
+and cleanup failures remain
+separately available inside one stable combined error. Because `target-context-common.ps1` and
+`safe-tree-walker.ps1` are pinned into the hard-kill trust closure, their final source hashes and the
+dependent controller/prelude pins were recomputed from the reviewed bytes rather than weakening any
+check.
+
+This remains an additive sealed building block. No production Apply, rollback, registry consumer,
+or live-mutation route calls it; resolver/fixed-envelope integration, the
+`PrivateRootBootstrapIntent` setup-Apply flow, protocol-v1 public dispatch, and the remaining
+forbidden-root matrix are still open. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply
+remains interlocked, and no live root was changed.
+
+Validation completed on 2026-08-30. Focused runs passed `safe-tree-walker.tests.ps1`,
+`path-safety.tests.ps1`, and `root-claims-registry.tests.ps1` (247 assertions), including all 19
+real mixed-volume assertions; `canonical-production-seams.tests.ps1` passed 13/0, and the standalone
+`canonical-hard-kill.tests.ps1` run passed 317/0. The PowerShell syntax gate parsed all 156 files,
+and registered-artifact validation passed 21 contracts, 21 positive fixtures, and 66 negative
+fixtures with zero failures. The definitive create-new external `run-tests.ps1 -All` summary passed
+all 34 discovered suites exactly once, with zero failures, timeouts, duplicates, missing suites, or
+tree-kill failures; its SHA-256 is
+`7e4d1c855804a4db29d9ca4175fa1bb7c9113bfc1b238564cd3ce19ec6a0e0bf`, and its embedded
+`canonical-hard-kill.tests.ps1` record is exit 0 with 317/0.
+Final repository gates then passed: skill generation produced Claude/Codex/Reasonix counts 7/15/7;
+the pinned gitleaks gate found no blocking findings and reported 828 reviewed non-blocking keyword
+hints; and `sync.ps1 -DryRun` completed with plan hash
+`b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, explicitly preserving
+Codex `.system` and changing no live files. `git diff --check` also passed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -680,8 +730,9 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 ## Next actions
 
 1. Continue Phase 2 Task 1 with production-route integration of the canonical-to-global lock order
-   and current-route witness, per-volume probe-root binding plus exact-slot identity hardening for the
-   existing under-lock filesystem-capability preflight, and the remaining forbidden-root cases.
+   and current-route witness, resolver/fixed-envelope consumption of the sealed per-target capability
+   evidence, the `PrivateRootBootstrapIntent` setup path and protocol-v1 public dispatch, and the
+   remaining forbidden-root cases.
    Apply the complete forbidden-root matrix before accepting any default/custom claim. Keep
    production Apply disconnected and leave live-journal structure and interpretation to Task 4.
 2. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

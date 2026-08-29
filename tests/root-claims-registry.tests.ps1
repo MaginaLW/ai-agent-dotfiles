@@ -1204,7 +1204,8 @@ try {
     $null = Write-TestSemanticDocument -Path $capabilityClaimPath -Document $capabilityCanonical.Claim
     $null = Complete-TestCanonicalSetupState -Fixture $capabilityFixture -CanonicalFixture $capabilityCanonical
     $capabilityProbeRoot = Join-Path $capabilityFixture.Root 'capability-probe-root'
-    [IO.Directory]::CreateDirectory($capabilityProbeRoot) | Out-Null
+    $capabilityAlternateProbeRoot = Join-Path $capabilityFixture.Root 'capability-probe-root-alternate'
+    foreach ($path in @($capabilityProbeRoot,$capabilityAlternateProbeRoot)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
     $capabilityLock = Enter-CanonicalRepoLock -LockPath ([string]$capabilityCanonical.ContractPaths.LockPath)
     $capabilityWitness = $null
     try {
@@ -1212,57 +1213,186 @@ try {
         $capabilityGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $capabilityFixture.Context -RequiredCanonicalWitness $capabilityWitness
         try {
             $capabilityTreeBefore = Get-TestRegistryTreeHash -Fixture $capabilityFixture
-            $capabilityEvidence = Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @(
-                [ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }
-                [ordered]@{ Path = [string]$capabilityFixture.Context.BackupRoot }
-                [ordered]@{ Path = [string]$capabilityCanonical.RecoveryRoot; ExpectedFilesystemCapabilityHash = [string]$capabilityCanonical.Claim.FilesystemCapabilityHash }
+            $capabilityProbeMetadata = Resolve-TargetContext -Path $capabilityProbeRoot -Mode MetadataOnly
+            $capabilityEvidence = Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                [ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; ProbeRoot = $capabilityProbeRoot }
+                [ordered]@{ Path = [string]$capabilityFixture.Context.BackupRoot; ProbeRoot = $capabilityProbeRoot }
+                [ordered]@{ Path = [string]$capabilityCanonical.RecoveryRoot; ProbeRoot = $capabilityProbeRoot; ExpectedFilesystemCapabilityHash = [string]$capabilityCanonical.Claim.FilesystemCapabilityHash }
             )
             Assert-TestCondition ('AiAgentDotfiles.SealedCapabilityPreflightEvidence' -cin @($capabilityEvidence.PSObject.TypeNames)) 'held capability preflight returns a genuine CLR-sealed evidence object'
+            Assert-TestCondition ($null -eq [AiAgentDotfiles.SealedCapabilityPreflightEvidence].GetMethod('GetProbeRootPathExact')) 'top-level single ProbeRootPath evidence is absent from the per-target mapping contract'
             Assert-TestCondition ([int][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowCountExact($capabilityEvidence) -eq 3) 'held capability preflight records one sealed row per requested target'
-            $capabilityRecoveryRow = [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowExact($capabilityEvidence,2)
+            $capabilityRows = @([AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowsExact($capabilityEvidence))
+            $capabilityRecoveryRow = @($capabilityRows | Where-Object {
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($_) -ceq
+                    ([IO.Path]::GetFullPath([string]$capabilityCanonical.RecoveryRoot).TrimEnd([char]92,[char]47).ToLowerInvariant().Replace([char]92,[char]47))
+            })[0]
             Assert-TestCondition ([string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($capabilityRecoveryRow) -ceq [string]$capabilityCanonical.Claim.FilesystemCapabilityHash -and
                 [bool][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVerifiedAgainstExpectedExact($capabilityRecoveryRow)) 'the under-lock capability probe reproduces the plan-bound recovery root capability hash exactly'
-            $capabilityControlRow = [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowExact($capabilityEvidence,0)
+            $capabilityControlRow = @($capabilityRows | Where-Object {
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($_) -ceq
+                    ([IO.Path]::GetFullPath([string]$capabilityFixture.Context.ControlBase).TrimEnd([char]92,[char]47).ToLowerInvariant().Replace([char]92,[char]47))
+            })[0]
             Assert-TestCondition ($null -eq [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetExpectedCapabilityHashExact($capabilityControlRow) -and
                 [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetDriveTypeExact($capabilityControlRow) -ceq 'Fixed' -and
                 [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFileSystemTypeExact($capabilityControlRow) -ceq 'NTFS' -and
                 [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetTargetStatusExact($capabilityControlRow) -ceq 'EXISTS') 'control and backup rows carry real probed volume evidence without expected-hash claims'
+            Assert-TestCondition ([string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootPathExact($capabilityControlRow) -ceq [IO.Path]::GetFullPath($capabilityProbeRoot) -and
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootLocationKeyExact($capabilityControlRow) -ceq [IO.Path]::GetFullPath($capabilityProbeRoot).TrimEnd([char]92,[char]47).ToLowerInvariant().Replace([char]92,[char]47) -and
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootIdentityExact($capabilityControlRow) -ceq [string]$capabilityProbeMetadata.DeepestExistingParentIdentity -and
+                @($capabilityRows | Where-Object {
+                    [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootPathExact($_) -cne [IO.Path]::GetFullPath($capabilityProbeRoot) -or
+                    [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootIdentityExact($_) -cne [string]$capabilityProbeMetadata.DeepestExistingParentIdentity
+                }).Count -eq 0) 'each sealed row binds its exact normalized shared-root mapping and no-follow root identity'
             Assert-TestCondition ((Get-TestRegistryTreeHash -Fixture $capabilityFixture) -ceq $capabilityTreeBefore) 'the capability preflight writes nothing inside the controlled authority area'
-            Assert-TestCondition (@([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0) 'the capability preflight leaves zero probe slot residue in the approved probe root'
+            Assert-TestCondition (@([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0 -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityAlternateProbeRoot)).Count -eq 0) 'the capability preflight leaves zero probe slot residue in every approved probe root'
             Assert-TestCondition ((Get-SealedCapabilityPreflightProjectionHash -Evidence $capabilityEvidence) -ceq [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($capabilityEvidence)) 'the sealed preflight evidence projection hash is reproducible from its exact getters'
             $capabilityEvidence | Add-Member -Force -NotePropertyName ProjectionHash -NotePropertyValue ('0' * 64)
             $capabilityEvidence | Add-Member -Force -NotePropertyName Rows -NotePropertyValue @()
+            $capabilityControlRow | Add-Member -Force -NotePropertyName ProbeRootPath -NotePropertyValue 'C:\forged-probe-root'
+            $capabilityControlRow | Add-Member -Force -NotePropertyName ProbeRootLocationKey -NotePropertyValue 'c:/forged-probe-root'
+            $capabilityControlRow | Add-Member -Force -NotePropertyName ProbeRootIdentity -NotePropertyValue 'ffffffff:ffffffffffffffff'
             $capabilityForgedRow = [pscustomobject]@{}
             $capabilityForgedRow.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.SealedCapabilityPreflightRow')
             $capabilityEvidence | Add-Member -Force -NotePropertyName ForgedRow -NotePropertyValue $capabilityForgedRow
             Assert-TestCondition ((Get-SealedCapabilityPreflightProjectionHash -Evidence $capabilityEvidence) -ceq [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($capabilityEvidence) -and
-                [int][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowCountExact($capabilityEvidence) -eq 3) 'ETS note-property forgeries cannot alter the sealed preflight evidence projection'
+                [int][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowCountExact($capabilityEvidence) -eq 3 -and
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootPathExact($capabilityControlRow) -ceq [IO.Path]::GetFullPath($capabilityProbeRoot) -and
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootIdentityExact($capabilityControlRow) -ceq [string]$capabilityProbeMetadata.DeepestExistingParentIdentity) 'ETS note-property forgeries cannot alter the sealed preflight evidence or target-to-probe mapping projection'
 
-            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; ExpectedFilesystemCapabilityHash = ('0' * 64) }) | Out-Null } '^capability-evidence-mismatch$' 'a capability preflight expected-hash mismatch fails closed after the real probe'
-            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot ([string]$capabilityFixture.Context.ControlBase) -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-forbidden-overlap$' 'a capability preflight probe root inside the authority area fails closed'
-            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; Extra = 'x' }) | Out-Null } 'capability-preflight-target-contract-invalid' 'a capability preflight target with an unexpected property shape fails closed'
-            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @() | Out-Null } '^capability-preflight-target-required$' 'a capability preflight without targets fails closed'
-            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot (Join-Path $capabilityFixture.Root 'capability-missing-probe-root') -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-invalid$' 'a capability preflight with a missing probe root fails closed'
-            $capabilityResidueSlot = Join-Path $capabilityProbeRoot ('.target-capability-' + [guid]::NewGuid().ToString('N'))
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; ProbeRoot = $capabilityProbeRoot; ExpectedFilesystemCapabilityHash = ('0' * 64) }) | Out-Null } '^capability-evidence-mismatch$' 'a capability preflight expected-hash mismatch fails closed after the real probe'
+
+            $capabilityPrimarySingle = Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                [ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; ProbeRoot = $capabilityProbeRoot }
+            )
+            $capabilityAlternateSingle = Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                [ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; ProbeRoot = $capabilityAlternateProbeRoot }
+            )
+            $capabilityPrimaryRow = [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowExact($capabilityPrimarySingle,0)
+            $capabilityAlternateRow = [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowExact($capabilityAlternateSingle,0)
+            Assert-TestCondition ([string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($capabilityPrimaryRow) -ceq
+                    [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($capabilityAlternateRow) -and
+                [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($capabilityPrimarySingle) -cne
+                    [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($capabilityAlternateSingle)) 'alternate same-volume probe roots preserve capability semantics while changing the sealed mapping projection'
+
+            $permutationOriginalCapabilityProbe = (Get-Command Invoke-TargetFilesystemCapabilityProbe -CommandType Function -ErrorAction Stop).ScriptBlock
+            $permutationProbeState = [pscustomobject]@{ Count=0L }
+            $permutationProbeShadow = {
+                param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo,[Parameter(Mandatory)][string]$ExpectedProbeRootIdentity)
+                $permutationProbeState.Count++
+                & $permutationOriginalCapabilityProbe -ProbeRoot $ProbeRoot -VolumeInfo $VolumeInfo -ExpectedProbeRootIdentity $ExpectedProbeRootIdentity
+            }.GetNewClosure()
+            try {
+                Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $permutationProbeShadow
+                $capabilityPermutationA = Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                    [ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; ProbeRoot = $capabilityProbeRoot },
+                    [ordered]@{ Path = [string]$capabilityFixture.Context.BackupRoot; ProbeRoot = $capabilityProbeRoot }
+                )
+                $capabilityPermutationB = Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                    [ordered]@{ Path = [string]$capabilityFixture.Context.BackupRoot; ProbeRoot = $capabilityProbeRoot },
+                    [ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase; ProbeRoot = $capabilityProbeRoot }
+                )
+            }
+            finally { Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $permutationOriginalCapabilityProbe }
+            Assert-TestCondition ([string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($capabilityPermutationA) -ceq
+                    [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($capabilityPermutationB) -and
+                (@([AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowsExact($capabilityPermutationA) | ForEach-Object { [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($_) }) -join "`0") -ceq
+                    (@([AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowsExact($capabilityPermutationB) | ForEach-Object { [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($_) }) -join "`0") -and
+                [long]$permutationProbeState.Count -eq 4L) 'target input permutations produce one canonical row order and projection hash while probing every binding independently'
+
+            $capabilityProbeFile = Join-Path $capabilityFixture.Root 'capability-probe-file'
+            [IO.File]::WriteAllText($capabilityProbeFile,'not a directory',[Text.UTF8Encoding]::new($false))
+            $capabilityTopologyOutside = Join-Path $capabilityFixture.Root 'capability-topology-outside'
+            $capabilityProbeLeafJunction = Join-Path $capabilityFixture.Root 'capability-probe-leaf-junction'
+            $capabilityProbeAncestorAlias = Join-Path $capabilityFixture.Root 'capability-probe-ancestor-alias'
+            $capabilityTargetAncestorAlias = Join-Path $capabilityFixture.Root 'capability-target-ancestor-alias'
+            $capabilityProbeOverlapParent = Join-Path $capabilityFixture.Root 'capability-probe-overlap-parent'
+            $capabilityProbeOverlapChild = Join-Path $capabilityProbeOverlapParent 'child'
+            $capabilityTargetOverlapParent = Join-Path $capabilityFixture.Root 'capability-target-overlap-parent'
+            $capabilityTargetOverlapChild = Join-Path $capabilityTargetOverlapParent 'child'
+            foreach ($path in @($capabilityTopologyOutside,(Join-Path $capabilityTopologyOutside 'probe-child'),(Join-Path $capabilityTopologyOutside 'target-child'),$capabilityProbeOverlapChild,$capabilityTargetOverlapChild)) {
+                [IO.Directory]::CreateDirectory($path) | Out-Null
+            }
+            [IO.File]::WriteAllText((Join-Path $capabilityTopologyOutside 'outside-sentinel.bin'),'outside bytes',[Text.UTF8Encoding]::new($false))
+            New-PathSafetyJunction -Path $capabilityProbeLeafJunction -Target (Join-Path $capabilityTopologyOutside 'probe-child') | Out-Null
+            New-PathSafetyJunction -Path $capabilityProbeAncestorAlias -Target $capabilityTopologyOutside | Out-Null
+            New-PathSafetyJunction -Path $capabilityTargetAncestorAlias -Target $capabilityTopologyOutside | Out-Null
+            $capabilityResidueSlot = Join-Path $capabilityAlternateProbeRoot '.target-capability-preexisting-foreign'
+            $capabilityResidueFile = Join-Path $capabilityResidueSlot 'foreign.bin'
+            $capabilityResidueBytes = [Text.Encoding]::UTF8.GetBytes('preexisting foreign residue')
             [IO.Directory]::CreateDirectory($capabilityResidueSlot) | Out-Null
-            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-residue$' 'a leftover probe artifact in the approved probe root fails closed before any probe'
-            Assert-TestCondition (Test-Path -LiteralPath $capabilityResidueSlot -PathType Container) 'the residue rejection does not modify the pre-existing artifact'
-            [IO.Directory]::Delete($capabilityResidueSlot)
+            [IO.File]::WriteAllBytes($capabilityResidueFile,$capabilityResidueBytes)
 
             $originalCapabilityProbe = (Get-Command Invoke-TargetFilesystemCapabilityProbe -CommandType Function -ErrorAction Stop).ScriptBlock
+            $guardedCapabilityProbeState = [pscustomobject]@{ Count=0L }
+            $guardedCapabilityProbe = {
+                param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo,[Parameter(Mandatory)][string]$ExpectedProbeRootIdentity)
+                $guardedCapabilityProbeState.Count++
+                throw 'unexpected-capability-probe-invocation'
+            }.GetNewClosure()
+            try {
+                Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $guardedCapabilityProbe
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @() | Out-Null } '^capability-preflight-target-required$' 'a capability preflight without targets fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @($null) | Out-Null } '^capability-preflight-target-required$' 'a null capability binding fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^capability-preflight-target-contract-invalid$' 'a capability binding missing Path fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-preflight-target-contract-invalid$' 'a capability binding missing ProbeRoot fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot; Extra='x' }) | Out-Null } '^capability-preflight-target-contract-invalid$' 'a capability binding with an extra property fails closed before any probe'
+                $controlAlias = ([string]$capabilityFixture.Context.ControlBase).ToUpperInvariant().Replace([char]92,[char]47) + '/'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                    [ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot },
+                    [ordered]@{ Path=$controlAlias; ProbeRoot=$capabilityAlternateProbeRoot }
+                ) | Out-Null } '^capability-preflight-target-duplicate$' 'case and separator aliases cannot duplicate one capability target'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                    [ordered]@{ Path=$capabilityTargetOverlapParent; ProbeRoot=$capabilityProbeRoot },
+                    [ordered]@{ Path=$capabilityTargetOverlapChild; ProbeRoot=$capabilityProbeRoot }
+                ) | Out-Null } '^capability-preflight-target-duplicate$' 'existing ancestor and descendant capability targets cannot enter one preflight map'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=(Join-Path $capabilityFixture.Root 'capability-missing-probe-root') }) | Out-Null } '^capability-probe-root-invalid$' 'a missing probe root fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeFile }) | Out-Null } '^capability-probe-root-invalid$' 'a file probe root fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=$capabilityProbeFile; ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^capability-preflight-target-contract-invalid$' 'an existing file cannot be supplied as a root capability target'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeLeafJunction }) | Out-Null } '^capability-probe-root-invalid$' 'a leaf reparse probe root fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=(Join-Path $capabilityProbeAncestorAlias 'probe-child') }) | Out-Null } '^capability-probe-root-invalid$' 'a probe root below a reparse ancestor fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=(Join-Path $capabilityTargetAncestorAlias 'target-child'); ProbeRoot=$capabilityProbeRoot }) | Out-Null } 'reparse' 'a capability target below a reparse ancestor fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.BackupRoot; ProbeRoot=[string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-forbidden-overlap$' 'a probe root inside the authority area fails closed before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                    [ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot },
+                    [ordered]@{ Path=(Join-Path $capabilityProbeRoot 'nested-target'); ProbeRoot=$capabilityAlternateProbeRoot }
+                ) | Out-Null } '^capability-probe-root-forbidden-overlap$' 'every probe root is checked against every capability target before any probe'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                    [ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeOverlapParent },
+                    [ordered]@{ Path=[string]$capabilityFixture.Context.BackupRoot; ProbeRoot=$capabilityProbeOverlapChild }
+                ) | Out-Null } '^capability-probe-root-forbidden-overlap$' 'unique probe roots cannot overlap each other'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                    [ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot },
+                    [ordered]@{ Path=[string]$capabilityFixture.Context.BackupRoot; ProbeRoot=$capabilityAlternateProbeRoot }
+                ) | Out-Null } '^capability-probe-root-residue$' 'residue in a later unique probe root fails the complete map before any probe'
+                Assert-TestCondition ([long]$guardedCapabilityProbeState.Count -eq 0L) 'all contract, topology, overlap, and late-root residue failures occur before the first filesystem probe'
+                Assert-TestCondition ((Test-Path -LiteralPath $capabilityResidueFile -PathType Leaf) -and
+                    [Convert]::ToHexString([IO.File]::ReadAllBytes($capabilityResidueFile)) -ceq [Convert]::ToHexString($capabilityResidueBytes)) 'pre-existing late-root residue remains byte-identical after fail-closed validation'
+            }
+            finally {
+                try { Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $originalCapabilityProbe }
+                finally {
+                    foreach ($junctionPath in @($capabilityProbeLeafJunction,$capabilityProbeAncestorAlias,$capabilityTargetAncestorAlias)) {
+                        if ([string](Get-NoFollowRootEntryMarker -Path $junctionPath).EntryType -ceq 'ReparsePoint') { Remove-Item -LiteralPath $junctionPath -Force }
+                    }
+                    if (Test-Path -LiteralPath $capabilityResidueSlot) { [IO.Directory]::Delete($capabilityResidueSlot,$true) }
+                }
+            }
+
             $foreignResidueSlot = Join-Path $capabilityProbeRoot '.target-capability-foreign-owned-by-test'
             $foreignResidueFile = Join-Path $foreignResidueSlot 'foreign.bin'
             $foreignResidueBytes = [Text.Encoding]::UTF8.GetBytes('foreign-capability-residue')
             $shadowCapabilityProbe = {
-                param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo)
-                $capabilityHash = & $originalCapabilityProbe -ProbeRoot $ProbeRoot -VolumeInfo $VolumeInfo
+                param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo,[Parameter(Mandatory)][string]$ExpectedProbeRootIdentity)
+                $capabilityHash = & $originalCapabilityProbe -ProbeRoot $ProbeRoot -VolumeInfo $VolumeInfo -ExpectedProbeRootIdentity $ExpectedProbeRootIdentity
                 [IO.Directory]::CreateDirectory($foreignResidueSlot) | Out-Null
                 [IO.File]::WriteAllBytes($foreignResidueFile,$foreignResidueBytes)
                 return $capabilityHash
             }.GetNewClosure()
             try {
                 Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $shadowCapabilityProbe
-                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^capability-probe-root-residue$' 'foreign matching residue created after the initial check fails closed at the post-probe check'
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^capability-probe-root-residue$' 'foreign matching residue created after the initial check fails closed at the post-probe check'
                 $matchingResidue = @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot,'.target-capability-*'))
                 Assert-TestCondition ($matchingResidue.Count -eq 1 -and [IO.Path]::GetFullPath($matchingResidue[0]) -ceq [IO.Path]::GetFullPath($foreignResidueSlot)) 'the real probe cleans only its owned slot and leaves the foreign matching residue'
                 Assert-TestCondition ((Test-Path -LiteralPath $foreignResidueFile -PathType Leaf) -and
@@ -1274,15 +1404,114 @@ try {
                     if (Test-Path -LiteralPath $foreignResidueSlot) { [IO.Directory]::Delete($foreignResidueSlot,$true) }
                 }
             }
+
+            $probeSwapKeeperRoot = Join-Path $capabilityFixture.Root 'capability-probe-swap-keepers'
+            [IO.Directory]::CreateDirectory($probeSwapKeeperRoot) | Out-Null
+            $probeSwapState = [pscustomobject]@{ ReplacementIdentity=$null }
+            $probeSwapShadow = {
+                param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo,[Parameter(Mandatory)][string]$ExpectedProbeRootIdentity)
+                $capabilityHash = & $originalCapabilityProbe -ProbeRoot $ProbeRoot -VolumeInfo $VolumeInfo -ExpectedProbeRootIdentity $ExpectedProbeRootIdentity
+                $probeSwapState.ReplacementIdentity = Replace-TestDirectoryWithDifferentIdentity -Path $ProbeRoot -ExpectedIdentity $ExpectedProbeRootIdentity -KeeperRoot $probeSwapKeeperRoot
+                return $capabilityHash
+            }.GetNewClosure()
+            try {
+                Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $probeSwapShadow
+                Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^capability-probe-root-stale$' 'probe-root identity replacement after the real probe fails closed with the stable stale token'
+                Assert-TestCondition (-not [string]::IsNullOrWhiteSpace([string]$probeSwapState.ReplacementIdentity) -and
+                    [string]$probeSwapState.ReplacementIdentity -cne [string]$capabilityProbeMetadata.DeepestExistingParentIdentity -and
+                    @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0) 'post-probe root replacement is detected after exact owned-slot cleanup without leaving residue'
+            }
+            finally {
+                try { Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $originalCapabilityProbe }
+                finally { if (Test-Path -LiteralPath $probeSwapKeeperRoot) { [IO.Directory]::Delete($probeSwapKeeperRoot,$true) } }
+            }
+
+            $mixedVolumeRoot = $null
+            $mixedVolumeParent = [IO.Path]::GetFullPath((Split-Path -Parent $RepoRoot)).TrimEnd([char]92,[char]47)
+            $mixedVolumeLeaf = '.rcr-mv-' + [guid]::NewGuid().ToString('N')
+            $mixedVolumeCandidate = [IO.Path]::GetFullPath((Join-Path $mixedVolumeParent $mixedVolumeLeaf))
+            $tempVolumeInfo = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($tempParent)
+            $repoParentVolumeInfo = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($mixedVolumeParent)
+            $mixedVolumeAvailable = [string]$tempVolumeInfo.DriveType -ceq 'Fixed' -and [string]$tempVolumeInfo.FileSystemType -ceq 'NTFS' -and
+                [string]$repoParentVolumeInfo.DriveType -ceq 'Fixed' -and [string]$repoParentVolumeInfo.FileSystemType -ceq 'NTFS' -and
+                [string]$tempVolumeInfo.VolumeSerial -cne [string]$repoParentVolumeInfo.VolumeSerial -and
+                -not (Test-TargetPathOverlap -Left $mixedVolumeCandidate -Right $RepoRoot)
+            if ($mixedVolumeAvailable) {
+                try {
+                    try { [IO.Directory]::CreateDirectory($mixedVolumeCandidate) | Out-Null; $mixedVolumeRoot=$mixedVolumeCandidate }
+                    catch { $mixedVolumeAvailable=$false; Write-Host "  SKIP  capability-mixed-volume-unavailable: $($_.Exception.Message)" }
+                    if ($mixedVolumeAvailable) {
+                        $mixedTarget = Join-Path $mixedVolumeRoot 'target'
+                        $mixedProbeRoot = Join-Path $mixedVolumeRoot 'probe'
+                        foreach ($path in @($mixedTarget,$mixedProbeRoot)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
+                        $mixedTargetVolume = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($mixedTarget)
+                        $mixedProbeMetadata = Resolve-TargetContext -Path $mixedProbeRoot -Mode MetadataOnly
+                        $mixedExpectedHash = Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $mixedProbeRoot -VolumeInfo $mixedTargetVolume -ExpectedProbeRootIdentity ([string]$mixedProbeMetadata.DeepestExistingParentIdentity)
+                        $mixedAuthorityBefore = Get-TestRegistryTreeHash -Fixture $capabilityFixture
+                        $mixedExternalBefore = [string](Get-SafeTreeSnapshot -Root $mixedVolumeRoot).TreeHash
+                        $mixedProbeState = [pscustomobject]@{ Calls=[Collections.Generic.List[object]]::new() }
+                        $mixedProbeShadow = {
+                            param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo,[Parameter(Mandatory)][string]$ExpectedProbeRootIdentity)
+                            $mixedProbeState.Calls.Add([pscustomobject]@{ProbeRoot=[IO.Path]::GetFullPath($ProbeRoot);VolumeSerial=[string]$VolumeInfo.VolumeSerial;ProbeRootIdentity=$ExpectedProbeRootIdentity})
+                            & $originalCapabilityProbe -ProbeRoot $ProbeRoot -VolumeInfo $VolumeInfo -ExpectedProbeRootIdentity $ExpectedProbeRootIdentity
+                        }.GetNewClosure()
+                        try {
+                            Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $mixedProbeShadow
+                            $mixedEvidence = Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                                [ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot },
+                                [ordered]@{ Path=[string]$capabilityFixture.Context.BackupRoot; ProbeRoot=$capabilityProbeRoot },
+                                [ordered]@{ Path=$mixedTarget; ProbeRoot=$mixedProbeRoot; ExpectedFilesystemCapabilityHash=[string]$mixedExpectedHash }
+                            )
+                            $mixedCallsAfterSuccess = $mixedProbeState.Calls.Count
+                            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=$mixedTarget; ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^capability-probe-target-volume-mismatch$' 'a target cannot use a probe root from a different physical volume'
+                            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$mixedProbeRoot }) | Out-Null } '^capability-probe-target-volume-mismatch$' 'the reverse cross-volume target-to-probe mapping also fails closed'
+                            Assert-TestCondition ($mixedProbeState.Calls.Count -eq $mixedCallsAfterSuccess) 'both wrong-volume mappings fail before invoking any filesystem probe'
+                        }
+                        finally { Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $originalCapabilityProbe }
+
+                        $mixedRows = @([AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowsExact($mixedEvidence))
+                        $mixedRow = @($mixedRows | Where-Object { [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetRequestedPathExact($_) -ceq [IO.Path]::GetFullPath($mixedTarget) })[0]
+                        $mixedControlRow = @($mixedRows | Where-Object { [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($_) -ceq
+                            ([IO.Path]::GetFullPath([string]$capabilityFixture.Context.ControlBase).TrimEnd([char]92,[char]47).ToLowerInvariant().Replace([char]92,[char]47)) })[0]
+                        $mixedBackupRow = @($mixedRows | Where-Object { [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($_) -ceq
+                            ([IO.Path]::GetFullPath([string]$capabilityFixture.Context.BackupRoot).TrimEnd([char]92,[char]47).ToLowerInvariant().Replace([char]92,[char]47)) })[0]
+                        Assert-TestCondition ([string]$tempVolumeInfo.VolumeSerial -cne [string]$repoParentVolumeInfo.VolumeSerial -and
+                            [string]$mixedTargetVolume.VolumeSerial -ceq [string]$repoParentVolumeInfo.VolumeSerial) 'mixed-volume fixture uses two distinct physical Fixed/NTFS volume serials'
+                        Assert-TestCondition ($mixedRows.Count -eq 3 -and $mixedProbeState.Calls.Count -eq 3) 'mixed-volume preflight probes every target independently'
+                        Assert-TestCondition (@($mixedProbeState.Calls | Where-Object { [string]$_.ProbeRoot -ceq [IO.Path]::GetFullPath($capabilityProbeRoot) -and [string]$_.VolumeSerial -ceq [string]$tempVolumeInfo.VolumeSerial }).Count -eq 2 -and
+                            @($mixedProbeState.Calls | Where-Object { [string]$_.ProbeRoot -ceq [IO.Path]::GetFullPath($mixedProbeRoot) -and [string]$_.VolumeSerial -ceq [string]$repoParentVolumeInfo.VolumeSerial }).Count -eq 1) 'mixed-volume calls preserve the exact per-target probe-root and volume mapping'
+                        Assert-TestCondition ([string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($mixedControlRow) -ceq [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($mixedBackupRow) -and
+                            [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($mixedRow) -cne [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($mixedControlRow)) 'same-volume rows share capability semantics while a different physical volume has a distinct hash'
+                        Assert-TestCondition ([bool][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVerifiedAgainstExpectedExact($mixedRow) -and
+                            [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootPathExact($mixedRow) -ceq [IO.Path]::GetFullPath($mixedProbeRoot) -and
+                            [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootIdentityExact($mixedRow) -ceq [string]$mixedProbeMetadata.DeepestExistingParentIdentity -and
+                            @($mixedProbeState.Calls | Where-Object { [string]$_.ProbeRoot -ceq [IO.Path]::GetFullPath($mixedProbeRoot) -and [string]$_.ProbeRootIdentity -ceq [string]$mixedProbeMetadata.DeepestExistingParentIdentity }).Count -eq 1) 'mixed-volume sealed evidence binds and verifies the external target against its own-volume probe root identity'
+                        Assert-TestCondition ((Get-TestRegistryTreeHash -Fixture $capabilityFixture) -ceq $mixedAuthorityBefore -and
+                            [string](Get-SafeTreeSnapshot -Root $mixedVolumeRoot).TreeHash -ceq $mixedExternalBefore) 'mixed-volume preflight is zero-write in both authority and external fixture trees after owned-slot cleanup'
+                        Assert-TestCondition (@([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0 -and
+                            @([IO.Directory]::EnumerateFileSystemEntries($mixedProbeRoot)).Count -eq 0) 'mixed-volume success leaves every physical-volume probe root empty'
+                    }
+                }
+                finally {
+                    if ($null -ne $mixedVolumeRoot -and (Test-Path -LiteralPath $mixedVolumeRoot)) {
+                        $resolvedMixedRoot = [IO.Path]::GetFullPath($mixedVolumeRoot)
+                        if ([IO.Path]::GetDirectoryName($resolvedMixedRoot).TrimEnd([char]92,[char]47) -cne $mixedVolumeParent -or
+                            [IO.Path]::GetFileName($resolvedMixedRoot) -cnotmatch '^\.rcr-mv-[0-9a-f]{32}$' -or
+                            [bool][AiAgentDotfiles.NoFollowFile]::Inspect($resolvedMixedRoot).IsReparsePoint) { throw "unsafe mixed-volume test cleanup target: $resolvedMixedRoot" }
+                        Remove-Item -LiteralPath $resolvedMixedRoot -Recurse -Force
+                    }
+                }
+            }
+            else { Write-Host '  SKIP  capability-mixed-volume-unavailable: two distinct writable Fixed/NTFS volumes were not discovered' }
         }
         finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $capabilityGlobal }
 
         $capabilityPlainGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $capabilityFixture.Context
         try {
-            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityPlainGlobal -CanonicalWitness $capabilityWitness -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^canonical-witness-required$' 'a capability preflight cannot bind a canonical witness onto a global lock acquired without one'
+            Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityPlainGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^canonical-witness-required$' 'a capability preflight cannot bind a canonical witness onto a global lock acquired without one'
         }
         finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $capabilityPlainGlobal }
-        Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $null -ProbeRoot $capabilityProbeRoot -CapabilityTargets @([ordered]@{ Path = [string]$capabilityFixture.Context.ControlBase }) | Out-Null } '^home-authority-registry-lock-required$' 'a capability preflight without a genuine global lock fails closed'
+        Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $null -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^home-authority-registry-lock-required$' 'a capability preflight without a genuine global lock fails closed'
     }
     finally {
         if ($null -ne $capabilityWitness) { Close-CanonicalHeldNamespaceWitness -Witness $capabilityWitness }

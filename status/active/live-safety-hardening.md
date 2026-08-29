@@ -1,6 +1,6 @@
 # Live Safety Hardening
 
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
@@ -116,6 +116,28 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   (156 files), build (7/15/7), secret scan, diff checks, and sync DryRun passed. Task 1 remains 1/6
   and Phase 2 remains 1/52. Production Apply remains interlocked.
 
+- Phase 2 Task 1 per-target/per-volume capability and exact-slot hardening (2026-08-29, additive
+  building block): the preflight now accepts an exact target-to-ProbeRoot map and seals each root's
+  path, location key, and captured identity into its target row. It validates the complete map before
+  the first probe, including target/target, target/root, root/root, and authority overlap plus exact
+  target/root volume equality. Canonical LocationKey ordering makes evidence permutation-stable. A
+  dynamic two-Fixed/NTFS-volume branch executed on the current validation host and proved correct
+  per-volume routing, both wrong-volume zero-probe rejections, zero authority/external drift, and
+  empty probe roots. The lower probe holds the full ProbeRoot containment chain, binds the expected
+  root identity, rejects matching residue case-insensitively before and after probing, and uses a
+  create-new, no-delete-share held GUID slot. Exact-slot creation rollback/deletion requires the same
+  identity, directory type, single-link state, no alternate streams, and emptiness; child cleanup is
+  identity-bound under that held slot. Foreign entries and bytes are preserved, with no
+  wildcard/recursive/path-delete fallback. Pinned-source and
+  dependent hard-kill hashes are recomputed from the final reviewed bytes. No production route
+  consumes this evidence; Task 1 remains 1/6 and Phase 2 remains 1/52, with production Apply still
+  interlocked. Final validation on 2026-08-30 passed the 156-file parse gate, artifact validation
+  (21 contracts, 21 positive fixtures, 66 negative fixtures), and all 34 unified suites exactly once
+  with zero failure/timeout/discovery/process-tree anomalies; the external summary SHA-256 is
+  `7e4d1c855804a4db29d9ca4175fa1bb7c9113bfc1b238564cd3ce19ec6a0e0bf`, with hard-kill 317/0.
+  Final build (7/15/7), pinned gitleaks (no blocking findings; 828 reviewed hints), diff checks, and
+  sync DryRun also passed; the DryRun preserved `.system` and changed no live file.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -124,18 +146,18 @@ web, REST, raw-content, or direct Git SHA probes. Ticket `#4697323` and the exte
 are closed. The implementation checkpoint now includes the reviewed read-only authority/schema,
 sealed fake-ControlBase bootstrap/global-lock, held-lock registry core, caller-held
 canonical/current-route slices, the Step 1 identity/concurrency failure matrix, and the sealed
-under-lock capability preflight within Phase 2 Task 1. Step 1 is complete (Task 1 1/6); the
-capability preflight advances Step 2 without completing it and stays unconnected to production
-mutation routes.
+under-lock per-target/per-volume capability preflight with held exact-slot cleanup within Phase 2
+Task 1. Step 1 is complete (Task 1 1/6); the capability preflight advances Step 2 without completing
+it and stays unconnected to production mutation routes.
 
 ## Current phase
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. Next are production-route integration of the
-strict canonical-to-global lock order and current-route witness, per-volume probe-root binding plus
-exact-slot identity hardening for the existing under-lock filesystem-capability preflight, and the
-remaining forbidden-root cases, including applying the complete forbidden-root matrix before
-accepting any default/custom claim. Production Apply remains disconnected, and live-journal structure
-and interpretation remain deferred to Task 4.
+strict canonical-to-global lock order and current-route witness, resolver/fixed-envelope consumption
+of the sealed per-target capability evidence, the `PrivateRootBootstrapIntent` setup path and
+protocol-v1 public dispatch, and the remaining forbidden-root cases, including applying the complete
+forbidden-root matrix before accepting any default/custom claim. Production Apply remains
+disconnected, and live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine

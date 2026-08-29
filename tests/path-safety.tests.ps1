@@ -52,6 +52,188 @@ try {
     Assert-TestCondition (@([System.IO.Directory]::EnumerateFileSystemEntries($probeRoot)).Count -eq 0) 'capability probe cleans its dedicated slot'
     Assert-TestCondition ($mutation.RequestedInitialRootContextHash -ceq $first.RequestedInitialRootContextHash) 'mutation preflight independently preserves metadata-only intent hash'
 
+    Write-Host '[identity-owned capability probe cleanup]'
+    $probeMetadata = Get-TargetMetadataContext -Path $probeRoot
+    $probeIdentity = [string]$probeMetadata.DeepestExistingParentIdentity
+    $targetVolume = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($existing)
+    Assert-PathSafetyThrows -Script {
+        Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRoot -VolumeInfo $targetVolume -ExpectedProbeRootIdentity '00000000:0000000000000001' | Out-Null
+    } -Pattern '^capability-probe-root-stale$' -Message 'capability probe rejects a stale expected ProbeRoot identity before writing'
+    Assert-TestCondition (@([IO.Directory]::EnumerateFileSystemEntries($probeRoot)).Count -eq 0) 'stale ProbeRoot identity rejection creates no slot'
+
+    $preexistingResiduePath = Join-Path $probeRoot '.TARGET-CAPABILITY-preexisting-foreign'
+    $preexistingResidueFile = Join-Path $preexistingResiduePath 'sentinel.bin'
+    $preexistingResidueBytes = [Text.UTF8Encoding]::new($false).GetBytes('preexisting foreign residue must survive')
+    [IO.Directory]::CreateDirectory($preexistingResiduePath) | Out-Null
+    [IO.File]::WriteAllBytes($preexistingResidueFile,$preexistingResidueBytes)
+    try {
+        Assert-PathSafetyThrows -Script {
+            Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRoot -VolumeInfo $targetVolume -ExpectedProbeRootIdentity $probeIdentity | Out-Null
+        } -Pattern '^capability-probe-root-residue$' -Message 'preexisting foreign ProbeRoot residue fails closed before the probe creates a slot'
+        $preexistingResidueEntries = @([IO.Directory]::EnumerateFileSystemEntries($probeRoot))
+        Assert-TestCondition ($preexistingResidueEntries.Count -eq 1 -and
+            [IO.Path]::GetFullPath($preexistingResidueEntries[0]) -ceq [IO.Path]::GetFullPath($preexistingResiduePath) -and
+            [Linq.Enumerable]::SequenceEqual[byte]([IO.File]::ReadAllBytes($preexistingResidueFile),$preexistingResidueBytes)) 'preexisting residue rejection preserves exact foreign bytes and creates zero owned slots'
+    }
+    finally {
+        if (Test-Path -LiteralPath $preexistingResidueFile -PathType Leaf) { [IO.File]::Delete($preexistingResidueFile) }
+        if (Test-Path -LiteralPath $preexistingResiduePath -PathType Container) { [IO.Directory]::Delete($preexistingResiduePath) }
+    }
+
+    $originalProbeCleanup = (Get-Command Remove-TargetFilesystemCapabilityProbeOwnedSlot -CommandType Function -ErrorAction Stop).ScriptBlock
+    $foreignProbeBytes = [Text.UTF8Encoding]::new($false).GetBytes('foreign probe child must survive')
+    $postResidueState = [pscustomobject]@{ Path=(Join-Path $probeRoot '.Target-Capability-post-foreign'); Injected=$false }
+    $postResidueCleanup = {
+        param(
+            [Parameter(Mandatory)]$SlotHandle,
+            [Parameter(Mandatory)][string]$SlotIdentity,
+            [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedFiles,
+            [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedDirectories
+        )
+        & $originalProbeCleanup -SlotHandle $SlotHandle -SlotIdentity $SlotIdentity -OwnedFiles $OwnedFiles -OwnedDirectories $OwnedDirectories
+        [IO.Directory]::CreateDirectory($postResidueState.Path) | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $postResidueState.Path 'sentinel.bin'),$foreignProbeBytes)
+        $postResidueState.Injected=$true
+    }.GetNewClosure()
+    try {
+        Set-Item -LiteralPath Function:\Remove-TargetFilesystemCapabilityProbeOwnedSlot -Value $postResidueCleanup
+        Assert-PathSafetyThrows -Script {
+            Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRoot -VolumeInfo $targetVolume -ExpectedProbeRootIdentity $probeIdentity | Out-Null
+        } -Pattern '^capability-probe-root-residue$' -Message 'foreign ProbeRoot residue injected after exact owned cleanup fails closed'
+        $postResidueEntries = @([IO.Directory]::EnumerateFileSystemEntries($probeRoot))
+        Assert-TestCondition ($postResidueState.Injected -and $postResidueEntries.Count -eq 1 -and
+            [IO.Path]::GetFullPath($postResidueEntries[0]) -ceq [IO.Path]::GetFullPath($postResidueState.Path) -and
+            [Linq.Enumerable]::SequenceEqual[byte]([IO.File]::ReadAllBytes((Join-Path $postResidueState.Path 'sentinel.bin')),$foreignProbeBytes)) 'post-probe residue rejection preserves foreign bytes after removing the exact owned slot'
+    }
+    finally {
+        Set-Item -LiteralPath Function:\Remove-TargetFilesystemCapabilityProbeOwnedSlot -Value $originalProbeCleanup
+        $postResidueFile = Join-Path $postResidueState.Path 'sentinel.bin'
+        if (Test-Path -LiteralPath $postResidueFile -PathType Leaf) { [IO.File]::Delete($postResidueFile) }
+        if (Test-Path -LiteralPath $postResidueState.Path -PathType Container) { [IO.Directory]::Delete($postResidueState.Path) }
+    }
+
+    $foreignProbeState = [pscustomobject]@{ Injected=$false; SlotPath=$null }
+    $foreignProbeCleanup = {
+        param(
+            [Parameter(Mandatory)]$SlotHandle,
+            [Parameter(Mandatory)][string]$SlotIdentity,
+            [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedFiles,
+            [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedDirectories
+        )
+        $foreign = [AiAgentDotfiles.NoFollowFile]::CreateAndSealChildRegularFile($SlotHandle,'foreign.bin',$foreignProbeBytes)
+        try { $foreignProbeState.Injected=$true }
+        finally { $foreign.Dispose() }
+        & $originalProbeCleanup -SlotHandle $SlotHandle -SlotIdentity $SlotIdentity -OwnedFiles $OwnedFiles -OwnedDirectories $OwnedDirectories
+    }.GetNewClosure()
+    try {
+        Set-Item -LiteralPath Function:\Remove-TargetFilesystemCapabilityProbeOwnedSlot -Value $foreignProbeCleanup
+        Assert-PathSafetyThrows -Script {
+            Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRoot -VolumeInfo $targetVolume -ExpectedProbeRootIdentity $probeIdentity | Out-Null
+        } -Pattern '^capability-probe-cleanup-failed: capability-probe-owned-slot-cleanup-failed:' -Message 'foreign child injected after the real probe makes owned-slot cleanup fail closed'
+        $foreignProbeSlots = @([IO.Directory]::EnumerateDirectories($probeRoot,'.target-capability-*'))
+        Assert-TestCondition ($foreignProbeState.Injected -and $foreignProbeSlots.Count -eq 1) 'foreign-child cleanup failure preserves exactly the test-owned probe slot'
+        $foreignProbeState.SlotPath = $foreignProbeSlots[0]
+        $foreignProbeFile = Join-Path $foreignProbeState.SlotPath 'foreign.bin'
+        Assert-TestCondition ((Test-Path -LiteralPath $foreignProbeFile -PathType Leaf) -and
+            [Linq.Enumerable]::SequenceEqual[byte]([IO.File]::ReadAllBytes($foreignProbeFile),$foreignProbeBytes)) 'foreign-child cleanup failure preserves foreign bytes exactly'
+    }
+    finally {
+        Set-Item -LiteralPath Function:\Remove-TargetFilesystemCapabilityProbeOwnedSlot -Value $originalProbeCleanup
+        if ($null -ne $foreignProbeState.SlotPath -and (Test-Path -LiteralPath $foreignProbeState.SlotPath)) {
+            $foreignSlotFull = [IO.Path]::GetFullPath([string]$foreignProbeState.SlotPath)
+            if ([IO.Path]::GetDirectoryName($foreignSlotFull) -cne [IO.Path]::GetFullPath($probeRoot) -or
+                [IO.Path]::GetFileName($foreignSlotFull) -cnotmatch '^\.target-capability-[0-9a-f]{32}$' -or
+                [bool][AiAgentDotfiles.NoFollowFile]::Inspect($foreignSlotFull).IsReparsePoint) { throw "unsafe foreign probe fixture cleanup target: $foreignSlotFull" }
+            [IO.Directory]::Delete($foreignSlotFull,$true)
+        }
+    }
+
+    $originalSemanticHash = (Get-Command Get-SemanticJsonHash -CommandType Function -ErrorAction Stop).ScriptBlock
+    $combinedProbeState = [pscustomobject]@{ Injected=$false; SlotPath=$null; Error=$null }
+    $combinedProbeCleanup = {
+        param(
+            [Parameter(Mandatory)]$SlotHandle,
+            [Parameter(Mandatory)][string]$SlotIdentity,
+            [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedFiles,
+            [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedDirectories
+        )
+        $foreign = [AiAgentDotfiles.NoFollowFile]::CreateAndSealChildRegularFile($SlotHandle,'foreign-primary.bin',$foreignProbeBytes)
+        try { $combinedProbeState.Injected=$true }
+        finally { $foreign.Dispose() }
+        & $originalProbeCleanup -SlotHandle $SlotHandle -SlotIdentity $SlotIdentity -OwnedFiles $OwnedFiles -OwnedDirectories $OwnedDirectories
+    }.GetNewClosure()
+    try {
+        Set-Item -LiteralPath Function:\Remove-TargetFilesystemCapabilityProbeOwnedSlot -Value $combinedProbeCleanup
+        Set-Item -LiteralPath Function:\Get-SemanticJsonHash -Value { throw 'injected-capability-primary' }
+        try {
+            Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRoot -VolumeInfo $targetVolume -ExpectedProbeRootIdentity $probeIdentity | Out-Null
+        }
+        catch { $combinedProbeState.Error=$_ }
+        $combinedProbeSlots = @([IO.Directory]::EnumerateDirectories($probeRoot,'.target-capability-*'))
+        if ($combinedProbeSlots.Count -eq 1) { $combinedProbeState.SlotPath=$combinedProbeSlots[0] }
+        Assert-TestCondition ($null -ne $combinedProbeState.Error -and
+            $combinedProbeState.Error.Exception.Message -match '^capability-probe-primary-and-cleanup-failed: primary=injected-capability-primary;' -and
+            $combinedProbeState.Error.Exception.InnerException -is [AggregateException] -and
+            @($combinedProbeState.Error.Exception.InnerException.InnerExceptions).Count -eq 2 -and
+            [string]$combinedProbeState.Error.Exception.InnerException.InnerExceptions[0].Message -ceq 'injected-capability-primary' -and
+            [string]$combinedProbeState.Error.Exception.InnerException.InnerExceptions[1].Message -match '^capability-probe-cleanup-failed:' -and
+            [string]$combinedProbeState.Error.Exception.Data['CapabilityProbePrimaryFailure'] -ceq 'injected-capability-primary' -and
+            [string]$combinedProbeState.Error.Exception.Data['CapabilityProbeCleanupFailure'] -match '^capability-probe-cleanup-failed:' -and
+            $combinedProbeState.Injected) 'primary plus cleanup failure publishes one stable combined error with both original messages'
+        Assert-TestCondition ($combinedProbeSlots.Count -eq 1 -and
+            (Get-Content -Raw -LiteralPath (Join-Path $combinedProbeState.SlotPath 'foreign-primary.bin')) -ceq 'foreign probe child must survive') 'combined failure preserves the foreign child while removing exact owned artifacts'
+    }
+    finally {
+        Set-Item -LiteralPath Function:\Get-SemanticJsonHash -Value $originalSemanticHash
+        Set-Item -LiteralPath Function:\Remove-TargetFilesystemCapabilityProbeOwnedSlot -Value $originalProbeCleanup
+        if ($null -ne $combinedProbeState.SlotPath -and (Test-Path -LiteralPath $combinedProbeState.SlotPath)) {
+            $combinedSlotFull = [IO.Path]::GetFullPath([string]$combinedProbeState.SlotPath)
+            if ([IO.Path]::GetDirectoryName($combinedSlotFull) -cne [IO.Path]::GetFullPath($probeRoot) -or
+                [IO.Path]::GetFileName($combinedSlotFull) -cnotmatch '^\.target-capability-[0-9a-f]{32}$' -or
+                [bool][AiAgentDotfiles.NoFollowFile]::Inspect($combinedSlotFull).IsReparsePoint) { throw "unsafe combined probe fixture cleanup target: $combinedSlotFull" }
+            [IO.Directory]::Delete($combinedSlotFull,$true)
+        }
+    }
+
+    $probeMoveState = [pscustomobject]@{ SlotAttempted=$false;SlotBlocked=$false;RootAttempted=$false;RootBlocked=$false }
+    $probeRootMoved = $probeRoot + '-moved'
+    $leaseProbeCleanup = {
+        param(
+            [Parameter(Mandatory)]$SlotHandle,
+            [Parameter(Mandatory)][string]$SlotIdentity,
+            [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedFiles,
+            [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedDirectories
+        )
+        $slotCandidates = @([IO.Directory]::EnumerateDirectories($probeRoot,'.target-capability-*'))
+        if ($slotCandidates.Count -eq 1) {
+            $probeMoveState.SlotAttempted=$true
+            try { [IO.Directory]::Move($slotCandidates[0],($slotCandidates[0] + '-moved')) }
+            catch { $probeMoveState.SlotBlocked=$true }
+        }
+        $probeMoveState.RootAttempted=$true
+        try { [IO.Directory]::Move($probeRoot,$probeRootMoved) }
+        catch { $probeMoveState.RootBlocked=$true }
+        & $originalProbeCleanup -SlotHandle $SlotHandle -SlotIdentity $SlotIdentity -OwnedFiles $OwnedFiles -OwnedDirectories $OwnedDirectories
+    }.GetNewClosure()
+    try {
+        Set-Item -LiteralPath Function:\Remove-TargetFilesystemCapabilityProbeOwnedSlot -Value $leaseProbeCleanup
+        $leaseProbeHash = Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRoot -VolumeInfo $targetVolume -ExpectedProbeRootIdentity $probeIdentity
+        Assert-TestCondition ($leaseProbeHash -ceq [string]$mutation.FilesystemCapabilityHash -and
+            $probeMoveState.SlotAttempted -and $probeMoveState.SlotBlocked -and
+            $probeMoveState.RootAttempted -and $probeMoveState.RootBlocked) 'held slot and complete ProbeRoot containment chain block namespace replacement throughout cleanup'
+        Assert-TestCondition ((Test-Path -LiteralPath $probeRoot -PathType Container) -and
+            -not (Test-Path -LiteralPath $probeRootMoved) -and @([IO.Directory]::EnumerateFileSystemEntries($probeRoot)).Count -eq 0) 'blocked replacement attempts leave the original ProbeRoot identity and zero owned residue'
+    }
+    finally { Set-Item -LiteralPath Function:\Remove-TargetFilesystemCapabilityProbeOwnedSlot -Value $originalProbeCleanup }
+
+    $targetContextSource = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'scripts/target-context-common.ps1')
+    $probeSourceMatch = [regex]::Match($targetContextSource,'(?s)function Remove-TargetFilesystemCapabilityProbeOwnedSlot \{.+?function Resolve-TargetContext \{').Value
+    Assert-TestCondition ($probeSourceMatch -match 'Open-SafeDirectoryContainmentChain' -and
+        $probeSourceMatch -match 'GetChildNames' -and
+        $probeSourceMatch -match 'CreateHeldChildDirectoryForCleanup' -and
+        $probeSourceMatch -match 'DeleteHeldEmptyDirectoryIfIdentity' -and
+        $probeSourceMatch -notmatch 'Remove-Item|\[IO\.Directory\]::Delete|\[IO\.File\]::Delete|-Recurse|-like\s+''\.target-capability-\*''') 'production capability cleanup uses held exact identities with no wildcard, recursive, or path-delete fallback'
+
     Write-Host '[unsupported locations and capabilities]'
     Assert-PathSafetyThrows -Script { Resolve-TargetContext -Path 'relative-target' -Mode MetadataOnly } -Pattern 'absolute|fully-qualified|relative' -Message 'relative target paths are rejected before cwd-bound normalization'
     $cwdBeforeRootProbe = Join-Path $work 'cwd-before-root-probe'

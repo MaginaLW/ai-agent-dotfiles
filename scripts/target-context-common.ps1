@@ -601,31 +601,295 @@ function Assert-SealedHeldTargetContextMatchesMetadata {
     }
 }
 
-function Invoke-TargetFilesystemCapabilityProbe {
-    param([Parameter(Mandatory)] [string] $ProbeRoot, [Parameter(Mandatory)] $VolumeInfo)
-    $probeRootFull = (Resolve-Path -LiteralPath $ProbeRoot).Path
-    $probeVolume = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($probeRootFull)
-    if ($probeVolume.VolumeSerial -cne $VolumeInfo.VolumeSerial) { throw 'capability probe must be on the target volume' }
-    Assert-SupportedTargetFilesystem -DriveType $VolumeInfo.DriveType -FileSystemType $VolumeInfo.FileSystemType
-    $slot = Join-Path $probeRootFull ".target-capability-$([Guid]::NewGuid().ToString('N'))"
+function Remove-TargetFilesystemCapabilityProbeOwnedSlot {
+    param(
+        [Parameter(Mandatory)]$SlotHandle,
+        [Parameter(Mandatory)][string]$SlotIdentity,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedFiles,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$OwnedDirectories
+    )
+
+    $cleanupFailures = [Collections.Generic.List[Exception]]::new()
     try {
-        [System.IO.Directory]::CreateDirectory($slot) | Out-Null
-        $oldDir = Join-Path $slot 'directory-old'; $newDir = Join-Path $slot 'directory-new'
-        [System.IO.Directory]::CreateDirectory($oldDir) | Out-Null
-        [System.IO.Directory]::Move($oldDir, $newDir)
-        $destination = Join-Path $slot 'replace-target.txt'; $replacement = Join-Path $slot 'replace-source.txt'; $backup = Join-Path $slot 'replace-backup.txt'
-        [System.IO.File]::WriteAllText($destination, 'old', [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::WriteAllText($replacement, 'new', [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::Replace($replacement, $destination, $backup, $true)
-        if ([System.IO.File]::ReadAllText($destination) -cne 'new' -or [System.IO.File]::ReadAllText($backup) -cne 'old') { throw 'atomic replace probe postcondition failed' }
+        foreach ($rows in @(@($OwnedFiles),@($OwnedDirectories))) {
+            for ($index=$rows.Count-1; $index -ge 0; $index--) {
+                $held = $rows[$index].Handle
+                if ($null -ne $held) {
+                    try { $held.Dispose() }
+                    catch { $cleanupFailures.Add($_.Exception) }
+                    $rows[$index].Handle = $null
+                }
+            }
+        }
+
+        $fileNames = [Collections.Generic.List[string]]::new()
+        for ($index=$OwnedFiles.Count-1; $index -ge 0; $index--) {
+            foreach ($name in @($OwnedFiles[$index].Names)) {
+                if (-not $fileNames.Contains([string]$name)) { $fileNames.Add([string]$name) }
+            }
+        }
+        foreach ($name in $fileNames) {
+            try {
+                $current = [AiAgentDotfiles.NoFollowFile]::TryInspectChild($SlotHandle,$name)
+                if ($null -eq $current) { continue }
+                $owner = @($OwnedFiles | Where-Object {
+                    [string]$_.Identity -ceq [string]$current.Identity -and @($_.Names) -ccontains [string]$name
+                })
+                if ($owner.Count -ne 1) { throw "capability-probe-owned-file-identity-mismatch: $name" }
+                if ([bool]$current.IsDirectory -or [bool]$current.IsReparsePoint) { throw "capability-probe-owned-file-type-mismatch: $name" }
+                $deleted = [AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($SlotHandle,$name,[string]$owner[0].Identity)
+                if ([string]$deleted.Identity -cne [string]$owner[0].Identity) { throw "capability-probe-owned-file-delete-receipt-mismatch: $name" }
+            }
+            catch { $cleanupFailures.Add($_.Exception) }
+        }
+
+        $directoryNames = [Collections.Generic.List[string]]::new()
+        for ($index=$OwnedDirectories.Count-1; $index -ge 0; $index--) {
+            foreach ($name in @($OwnedDirectories[$index].Names)) {
+                if (-not $directoryNames.Contains([string]$name)) { $directoryNames.Add([string]$name) }
+            }
+        }
+        foreach ($name in $directoryNames) {
+            try {
+                $current = [AiAgentDotfiles.NoFollowFile]::TryInspectChild($SlotHandle,$name)
+                if ($null -eq $current) { continue }
+                $owner = @($OwnedDirectories | Where-Object {
+                    [string]$_.Identity -ceq [string]$current.Identity -and @($_.Names) -ccontains [string]$name
+                })
+                if ($owner.Count -ne 1) { throw "capability-probe-owned-directory-identity-mismatch: $name" }
+                if (-not [bool]$current.IsDirectory -or [bool]$current.IsReparsePoint) { throw "capability-probe-owned-directory-type-mismatch: $name" }
+                $deleted = [AiAgentDotfiles.NoFollowFile]::DeleteChildEmptyDirectoryIfIdentity($SlotHandle,$name,[string]$owner[0].Identity)
+                if ([string]$deleted.Identity -cne [string]$owner[0].Identity) { throw "capability-probe-owned-directory-delete-receipt-mismatch: $name" }
+            }
+            catch { $cleanupFailures.Add($_.Exception) }
+        }
+
+        try {
+            $remaining = @([AiAgentDotfiles.NoFollowFile]::GetChildNames($SlotHandle))
+            if ($remaining.Count -ne 0) {
+                throw ('capability-probe-owned-slot-residue: ' + (@($remaining | Sort-Object) -join ','))
+            }
+            $deletedSlot = [AiAgentDotfiles.NoFollowFile]::DeleteHeldEmptyDirectoryIfIdentity($SlotHandle,$SlotIdentity)
+            if ([string]$deletedSlot.Identity -cne $SlotIdentity) { throw 'capability-probe-owned-slot-delete-receipt-mismatch' }
+        }
+        catch { $cleanupFailures.Add($_.Exception) }
     }
+    catch { $cleanupFailures.Add($_.Exception) }
     finally {
-        if (Test-Path -LiteralPath $slot) {
-            if (-not (Test-SafePathInsideRoot -Path $slot -Root $probeRootFull) -or [System.IO.Path]::GetFileName($slot) -notlike '.target-capability-*') { throw 'unsafe capability cleanup target' }
-            Remove-Item -LiteralPath $slot -Recurse -Force
+        if ($null -ne $SlotHandle -and [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($SlotHandle)) {
+            try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($SlotHandle) }
+            catch { $cleanupFailures.Add($_.Exception) }
         }
     }
-    return Get-SemanticJsonHash -InputObject ([ordered]@{ ProtocolVersion=1; DriveType=[string]$VolumeInfo.DriveType; FileSystemType=[string]$VolumeInfo.FileSystemType; VolumeSerial=[string]$VolumeInfo.VolumeSerial; DirectoryRename=$true; AtomicReplace=$true })
+    if ($cleanupFailures.Count -ne 0) {
+        $messages = @($cleanupFailures | ForEach-Object { $_.Message }) -join ' | '
+        $inner = if ($cleanupFailures.Count -eq 1) { $cleanupFailures[0] } else {
+            [AggregateException]::new('capability-probe-owned-slot-cleanup-failures',[Exception[]]$cleanupFailures.ToArray())
+        }
+        throw [InvalidOperationException]::new("capability-probe-owned-slot-cleanup-failed: $messages",$inner)
+    }
+}
+
+function Invoke-TargetFilesystemCapabilityProbe {
+    param(
+        [Parameter(Mandatory)][string]$ProbeRoot,
+        [Parameter(Mandatory)]$VolumeInfo,
+        [Parameter(Mandatory)][string]$ExpectedProbeRootIdentity
+    )
+
+    $probeRootHandles = $null
+    $probeRootResiduePrecheckPassed = $false
+    $probeRootResidueFailure = $null
+    $slotHandle = $null
+    $slotIdentity = $null
+    $slotName = $null
+    $ownedFiles = [Collections.Generic.List[object]]::new()
+    $ownedDirectories = [Collections.Generic.List[object]]::new()
+    $primaryFailure = $null
+    $cleanupFailures = [Collections.Generic.List[Exception]]::new()
+    $capabilityHash = $null
+    try {
+        if ([string]::IsNullOrWhiteSpace($ProbeRoot) -or -not [IO.Path]::IsPathFullyQualified($ProbeRoot) -or
+            $ProbeRoot.StartsWith('\',[StringComparison]::Ordinal)) { throw 'capability-probe-root-invalid' }
+        if ([string]::IsNullOrWhiteSpace($ExpectedProbeRootIdentity)) { throw 'capability-probe-root-stale' }
+        $probeRootFull = [IO.Path]::GetFullPath($ProbeRoot).TrimEnd([char]92,[char]47)
+        if ([string]::IsNullOrWhiteSpace($probeRootFull) -or [IO.Path]::GetPathRoot($probeRootFull) -ceq $probeRootFull) { throw 'capability-probe-root-invalid' }
+
+        try {
+            $probeRootHandles = Open-SafeDirectoryContainmentChain -Path $probeRootFull
+            if (@($probeRootHandles).Count -eq 0) { throw 'capability-probe-root-stale' }
+            $probeRootHandle = $probeRootHandles[$probeRootHandles.Count-1]
+            $probeRootAcquiredIdentity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($probeRootHandle)
+            $probeRootReceipt = [AiAgentDotfiles.SafeDirectoryHandle]::GetInfoExact($probeRootHandle)
+            $probeRootCurrent = [AiAgentDotfiles.NoFollowFile]::GetDirectorySecuritySnapshot($probeRootHandle)
+            if ($probeRootHandle -isnot [AiAgentDotfiles.SafeDirectoryHandle] -or
+                -not [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($probeRootHandle) -or
+                $null -eq $probeRootReceipt -or -not [bool]$probeRootReceipt.IsDirectory -or [bool]$probeRootReceipt.IsReparsePoint -or
+                $probeRootAcquiredIdentity -cne $ExpectedProbeRootIdentity -or
+                [string]$probeRootReceipt.Identity -cne $probeRootAcquiredIdentity -or
+                [string]$probeRootCurrent.Identity -cne $probeRootAcquiredIdentity -or
+                [long]$probeRootCurrent.LinkCount -ne [long][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredLinkCountExact($probeRootHandle)) {
+                throw 'capability-probe-root-stale'
+            }
+        }
+        catch { throw 'capability-probe-root-stale' }
+
+        $preexistingProbeResidue = @([AiAgentDotfiles.NoFollowFile]::GetChildNames($probeRootHandle) | Where-Object {
+            ([string]$_).StartsWith('.target-capability-',[StringComparison]::OrdinalIgnoreCase)
+        })
+        if ($preexistingProbeResidue.Count -ne 0) { throw 'capability-probe-root-residue' }
+        $probeRootResiduePrecheckPassed = $true
+
+        $probeVolume = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($probeRootFull)
+        $heldVolumeId = ($probeRootAcquiredIdentity -split ':')[0]
+        if ([string]$probeVolume.VolumeSerial -cne $heldVolumeId -or
+            [string]$probeVolume.VolumeSerial -cne [string]$VolumeInfo.VolumeSerial) {
+            throw 'capability probe must be on the target volume'
+        }
+        Assert-SupportedTargetFilesystem -DriveType $VolumeInfo.DriveType -FileSystemType $VolumeInfo.FileSystemType
+
+        $slotName = ".target-capability-$([Guid]::NewGuid().ToString('N'))"
+        $slotPath = Join-Path $probeRootFull $slotName
+        $slotHandle = [AiAgentDotfiles.NoFollowFile]::CreateHeldChildDirectoryForCleanup($probeRootHandle,$slotName)
+        $slotIdentity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($slotHandle)
+        $slotReceipt = [AiAgentDotfiles.SafeDirectoryHandle]::GetInfoExact($slotHandle)
+        if ([string]$slotReceipt.Identity -cne $slotIdentity -or -not [bool]$slotReceipt.IsDirectory -or [bool]$slotReceipt.IsReparsePoint -or
+            -not $slotIdentity.StartsWith(($heldVolumeId + ':'),[StringComparison]::Ordinal)) { throw 'capability-probe-owned-slot-identity-invalid' }
+
+        $directoryRow = [pscustomobject][ordered]@{Identity=$null;Names=@('directory-new','directory-old');Handle=$null}
+        $directoryRow.Handle = [AiAgentDotfiles.NoFollowFile]::CreateHeldChildDirectoryForCleanup($slotHandle,'directory-old')
+        $directoryRow.Identity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($directoryRow.Handle)
+        $ownedDirectories.Add($directoryRow)
+        [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($directoryRow.Handle)
+        $directoryRow.Handle = $null
+        [IO.Directory]::Move((Join-Path $slotPath 'directory-old'),(Join-Path $slotPath 'directory-new'))
+        $renamedDirectoryHandle = $null
+        try {
+            $renamedDirectoryHandle = [AiAgentDotfiles.NoFollowFile]::HoldChildDirectory($slotHandle,'directory-new')
+            if ([string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($renamedDirectoryHandle) -cne [string]$directoryRow.Identity -or
+                $null -ne [AiAgentDotfiles.NoFollowFile]::TryInspectChild($slotHandle,'directory-old')) {
+                throw 'directory rename probe postcondition failed'
+            }
+            $directoryRow.Handle = $renamedDirectoryHandle
+            $renamedDirectoryHandle = $null
+        }
+        finally { if ($null -ne $renamedDirectoryHandle) { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($renamedDirectoryHandle) } }
+
+        $oldBytes = [Text.UTF8Encoding]::new($false).GetBytes('old')
+        $newBytes = [Text.UTF8Encoding]::new($false).GetBytes('new')
+        $destinationRow = [pscustomobject][ordered]@{Identity=$null;Names=@('replace-backup.txt','replace-target.txt');Handle=$null}
+        $destinationRow.Handle = [AiAgentDotfiles.NoFollowFile]::CreateAndSealChildRegularFile($slotHandle,'replace-target.txt',$oldBytes)
+        $destinationRow.Identity = [string]$destinationRow.Handle.ReadResult.Identity
+        $ownedFiles.Add($destinationRow)
+        $replacementRow = [pscustomobject][ordered]@{Identity=$null;Names=@('replace-target.txt','replace-source.txt');Handle=$null}
+        $replacementRow.Handle = [AiAgentDotfiles.NoFollowFile]::CreateAndSealChildRegularFile($slotHandle,'replace-source.txt',$newBytes)
+        $replacementRow.Identity = [string]$replacementRow.Handle.ReadResult.Identity
+        $ownedFiles.Add($replacementRow)
+
+        $replacementRow.Handle.Dispose(); $replacementRow.Handle=$null
+        $destinationRow.Handle.Dispose(); $destinationRow.Handle=$null
+        [IO.File]::Replace(
+            (Join-Path $slotPath 'replace-source.txt'),
+            (Join-Path $slotPath 'replace-target.txt'),
+            (Join-Path $slotPath 'replace-backup.txt'),$true)
+
+        $targetHandle = $null
+        $backupHandle = $null
+        try {
+            $targetHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($slotHandle,'replace-target.txt')
+            $backupHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($slotHandle,'replace-backup.txt')
+            if ([string]$targetHandle.ReadResult.Identity -cne [string]$replacementRow.Identity -or
+                [string]$backupHandle.ReadResult.Identity -cne [string]$destinationRow.Identity -or
+                $null -ne [AiAgentDotfiles.NoFollowFile]::TryInspectChild($slotHandle,'replace-source.txt') -or
+                -not [Linq.Enumerable]::SequenceEqual[byte]([AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($targetHandle,$newBytes.LongLength),$newBytes) -or
+                -not [Linq.Enumerable]::SequenceEqual[byte]([AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($backupHandle,$oldBytes.LongLength),$oldBytes)) {
+                throw 'atomic replace probe postcondition failed'
+            }
+            $replacementRow.Handle=$targetHandle; $targetHandle=$null
+            $destinationRow.Handle=$backupHandle; $backupHandle=$null
+        }
+        finally {
+            if ($null -ne $backupHandle) { $backupHandle.Dispose() }
+            if ($null -ne $targetHandle) { $targetHandle.Dispose() }
+        }
+
+        $capabilityHash = Get-SemanticJsonHash -InputObject ([ordered]@{
+            ProtocolVersion=1; DriveType=[string]$VolumeInfo.DriveType; FileSystemType=[string]$VolumeInfo.FileSystemType
+            VolumeSerial=[string]$VolumeInfo.VolumeSerial; DirectoryRename=$true; AtomicReplace=$true
+        })
+    }
+    catch { $primaryFailure = $_ }
+    finally {
+        if ($null -ne $slotHandle) {
+            try {
+                Remove-TargetFilesystemCapabilityProbeOwnedSlot -SlotHandle $slotHandle -SlotIdentity $slotIdentity `
+                    -OwnedFiles @($ownedFiles) -OwnedDirectories @($ownedDirectories)
+            }
+            catch { $cleanupFailures.Add($_.Exception) }
+        }
+        if ($probeRootResiduePrecheckPassed -and $null -ne $probeRootHandles -and
+            @($probeRootHandles).Count -ne 0 -and
+            [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($probeRootHandles[$probeRootHandles.Count-1])) {
+            try {
+                $heldProbeRoot = $probeRootHandles[$probeRootHandles.Count-1]
+                $matchingResidueNames = @([AiAgentDotfiles.NoFollowFile]::GetChildNames($heldProbeRoot) | Where-Object {
+                    ([string]$_).StartsWith('.target-capability-',[StringComparison]::OrdinalIgnoreCase)
+                })
+                $ownedSlotStillPresent = $false
+                if ($matchingResidueNames -ccontains $slotName -and -not [string]::IsNullOrWhiteSpace($slotIdentity)) {
+                    $currentSlot = [AiAgentDotfiles.NoFollowFile]::TryInspectChild($heldProbeRoot,$slotName)
+                    $ownedSlotStillPresent = $null -ne $currentSlot -and
+                        [string]$currentSlot.Identity -ceq $slotIdentity -and
+                        [bool]$currentSlot.IsDirectory -and -not [bool]$currentSlot.IsReparsePoint
+                }
+                $foreignResidueNames = @($matchingResidueNames | Where-Object {
+                    -not ($ownedSlotStillPresent -and [string]$_ -ceq $slotName)
+                })
+                if ($foreignResidueNames.Count -ne 0) {
+                    $probeRootResidueFailure = [InvalidOperationException]::new('capability-probe-root-residue')
+                }
+            }
+            catch { $cleanupFailures.Add($_.Exception) }
+        }
+        if ($null -ne $probeRootHandles) {
+            try { Close-SafeDirectoryContainmentChain -Handles $probeRootHandles }
+            catch { $cleanupFailures.Add($_.Exception) }
+        }
+    }
+
+    $cleanupFailure = $null
+    if ($cleanupFailures.Count -ne 0) {
+        $cleanupMessages = @($cleanupFailures | ForEach-Object { $_.Message }) -join ' | '
+        $cleanupInner = if ($cleanupFailures.Count -eq 1) { $cleanupFailures[0] } else {
+            [AggregateException]::new('capability-probe-cleanup-failures',[Exception[]]$cleanupFailures.ToArray())
+        }
+        $cleanupFailure = [InvalidOperationException]::new("capability-probe-cleanup-failed: $cleanupMessages",$cleanupInner)
+    }
+    if ($null -ne $probeRootResidueFailure -and $null -ne $cleanupFailure) {
+        $probeRootResidueFailure = [InvalidOperationException]::new(
+            'capability-probe-root-residue',
+            [AggregateException]::new(
+                'capability-probe-root-residue-and-cleanup-failures',
+                [Exception[]]@($probeRootResidueFailure,$cleanupFailure)))
+    }
+    $secondaryFailure = if ($null -ne $probeRootResidueFailure) { $probeRootResidueFailure } else { $cleanupFailure }
+    if ($null -ne $primaryFailure) {
+        if ($null -ne $secondaryFailure) {
+            $combinedInner = [AggregateException]::new(
+                'capability-probe-primary-and-cleanup-failures',
+                [Exception[]]@($primaryFailure.Exception,$secondaryFailure))
+            $combined = [InvalidOperationException]::new(
+                "capability-probe-primary-and-cleanup-failed: primary=$($primaryFailure.Exception.Message); cleanup=$($secondaryFailure.Message)",
+                $combinedInner)
+            $combined.Data['CapabilityProbePrimaryFailure'] = $primaryFailure.Exception.Message
+            $combined.Data['CapabilityProbeCleanupFailure'] = $secondaryFailure.Message
+            throw $combined
+        }
+        throw $primaryFailure
+    }
+    if ($null -ne $probeRootResidueFailure) { throw $probeRootResidueFailure }
+    if ($null -ne $cleanupFailure) { throw $cleanupFailure }
+    return $capabilityHash
 }
 
 function Resolve-TargetContext {
@@ -657,9 +921,12 @@ function Resolve-TargetContext {
         return [pscustomobject]$result
     }
     if ([string]::IsNullOrWhiteSpace($ProbeRoot)) { throw 'MutationPreflight requires an approved ProbeRoot' }
+    $probeMetadata = Get-TargetMetadataContext -Path $ProbeRoot
+    if ([string]$probeMetadata.TargetStatus -cne 'EXISTS' -or [string]$probeMetadata.TargetType -cne 'Directory' -or
+        [string]::IsNullOrWhiteSpace([string]$probeMetadata.DeepestExistingParentIdentity)) { throw 'MutationPreflight requires an existing approved ProbeRoot' }
     $volume = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($metadata.DeepestExistingParentPath)
     $result.FilesystemCapabilityStatus='SUPPORTED'
-    $result.FilesystemCapabilityHash=Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $ProbeRoot -VolumeInfo $volume
+    $result.FilesystemCapabilityHash=Invoke-TargetFilesystemCapabilityProbe -ProbeRoot ([string]$probeMetadata.RequestedPath) -VolumeInfo $volume -ExpectedProbeRootIdentity ([string]$probeMetadata.DeepestExistingParentIdentity)
     $result.DriveType=[string]$volume.DriveType; $result.FileSystemType=[string]$volume.FileSystemType; $result.VolumeSerial=[string]$volume.VolumeSerial
     return [pscustomobject]$result
 }

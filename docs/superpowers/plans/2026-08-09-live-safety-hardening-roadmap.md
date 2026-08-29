@@ -44,6 +44,13 @@ is complete at 43/43, and Phase 1 is complete at 44/44. GitHub Support ticket `#
 old-SHA external privacy follow-up are closed. Phase 2 Task 1 Step 1 is complete at 1/6 steps (Phase 2
 overall 1/52), and Phases 3-4 have not started.
 
+The latest 2026-08-29 intermediate checkpoint makes the sealed capability preflight
+target-specific and volume-correct, binds each target to a captured ProbeRoot identity, and replaces
+wildcard cleanup with held exact-slot creation, rollback, and deletion that preserves foreign
+residue. Dynamic validation executed across two distinct writable Fixed/NTFS volumes. This advances
+Task 1 Step 2 without completing it; next are resolver/fixed-envelope and bootstrap/public-dispatch
+integration plus the remaining forbidden-root matrix. Production Apply remains disconnected.
+
 Phase 0 may ship alone as a safety stop. Phases 1–3 must not re-enable production live mutation. Phase 0 through Phase 4 together form the first live-capable protocol release.
 
 Phase 4's released public-CLI test requires the complete implementation in an exact, separately user-authorized reviewed commit inside a disposable OS identity. If no such commit exists, internal sandbox verification may continue but the release switch remains interlocked; this roadmap does not grant commit or publication authority.

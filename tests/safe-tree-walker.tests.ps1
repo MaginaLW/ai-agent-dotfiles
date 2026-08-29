@@ -295,6 +295,106 @@ namespace AiAgentDotfilesTest {
         $deleteChain = Open-SafeDirectoryContainmentChain -Path $deleteParentPath
         $deleteParent = $deleteChain[$deleteChain.Count - 1]
 
+        Write-Host '[held owned directory cleanup]'
+        $ownedEmptyHandle = $null
+        $ownedWrongIdentityHandle = $null
+        $ownedForeignHandle = $null
+        $ownedAdsHandle = $null
+        $ownedMutableReceiptHandle = $null
+        try {
+            $ownedEmptyName = 'owned-held-empty'
+            $ownedEmptyPath = Join-Path $deleteParentPath $ownedEmptyName
+            $ownedEmptyMovedPath = Join-Path $deleteParentPath 'owned-held-empty-moved'
+            $ownedEmptyHandle = [AiAgentDotfiles.NoFollowFile]::CreateHeldChildDirectoryForCleanup($deleteParent, $ownedEmptyName)
+            $ownedEmptyIdentity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($ownedEmptyHandle)
+            Assert-TestCondition ($ownedEmptyIdentity -cmatch '^[0-9a-f]{8}:[0-9a-f]{16}$' -and
+                [uint32][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredLinkCountExact($ownedEmptyHandle) -eq 1 -and
+                [uint32][AiAgentDotfiles.SafeDirectoryHandle]::GetInfoExact($ownedEmptyHandle).LinkCount -eq 1 -and
+                [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($ownedEmptyHandle)) 'held cleanup directory returns an immutable acquired identity receipt'
+            Assert-PathSafetyThrows -Script {
+                [IO.Directory]::Move($ownedEmptyPath, $ownedEmptyMovedPath)
+            } -Pattern 'used by another process|access|denied|sharing' -Message 'held cleanup directory blocks an external same-name move before exact deletion'
+            Assert-PathSafetyThrows -Script {
+                [AiAgentDotfiles.NoFollowFile]::CreateHeldChildDirectoryForCleanup($deleteParent, $ownedEmptyName) | Out-Null
+            } -Pattern 'exist|create|open child|collision' -Message 'held cleanup directory creation is create-new and never adopts an existing same-name entry'
+            $ownedEmptyDeleted = [AiAgentDotfiles.NoFollowFile]::DeleteHeldEmptyDirectoryIfIdentity($ownedEmptyHandle, $ownedEmptyIdentity)
+            $ownedEmptyHandle = $null
+            Assert-TestCondition ([string]$ownedEmptyDeleted.Identity -ceq $ownedEmptyIdentity -and
+                -not (Test-Path -LiteralPath $ownedEmptyPath) -and -not (Test-Path -LiteralPath $ownedEmptyMovedPath)) 'held cleanup deletes the exact acquired empty directory without a name reopen'
+
+            $ownedWrongIdentityName = 'owned-held-wrong-identity'
+            $ownedWrongIdentityPath = Join-Path $deleteParentPath $ownedWrongIdentityName
+            $ownedWrongIdentityHandle = [AiAgentDotfiles.NoFollowFile]::CreateHeldChildDirectoryForCleanup($deleteParent, $ownedWrongIdentityName)
+            $ownedWrongIdentity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($ownedWrongIdentityHandle)
+            Assert-PathSafetyThrows -Script {
+                [AiAgentDotfiles.NoFollowFile]::DeleteHeldEmptyDirectoryIfIdentity($ownedWrongIdentityHandle, '00000000:0000000000000001') | Out-Null
+            } -Pattern 'identity|expected' -Message 'held cleanup rejects a wrong expected identity'
+            Assert-TestCondition ((Test-Path -LiteralPath $ownedWrongIdentityPath -PathType Container) -and
+                [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($ownedWrongIdentityHandle)) 'wrong held-cleanup identity preserves the directory and its held lease'
+            [AiAgentDotfiles.NoFollowFile]::DeleteHeldEmptyDirectoryIfIdentity($ownedWrongIdentityHandle, $ownedWrongIdentity) | Out-Null
+            $ownedWrongIdentityHandle = $null
+
+            $ownedForeignName = 'owned-held-foreign-child'
+            $ownedForeignPath = Join-Path $deleteParentPath $ownedForeignName
+            $ownedForeignFile = Join-Path $ownedForeignPath 'foreign.bin'
+            $ownedForeignBytes = [Text.UTF8Encoding]::new($false).GetBytes('foreign child must survive rejection')
+            $ownedForeignHandle = [AiAgentDotfiles.NoFollowFile]::CreateHeldChildDirectoryForCleanup($deleteParent, $ownedForeignName)
+            $ownedForeignIdentity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($ownedForeignHandle)
+            [IO.File]::WriteAllBytes($ownedForeignFile, $ownedForeignBytes)
+            Assert-PathSafetyThrows -Script {
+                [AiAgentDotfiles.NoFollowFile]::DeleteHeldEmptyDirectoryIfIdentity($ownedForeignHandle, $ownedForeignIdentity) | Out-Null
+            } -Pattern 'empty|child|entry' -Message 'held cleanup rejects a directory containing a foreign child'
+            Assert-TestCondition ((Test-Path -LiteralPath $ownedForeignFile -PathType Leaf) -and
+                [System.Linq.Enumerable]::SequenceEqual[byte]([IO.File]::ReadAllBytes($ownedForeignFile), $ownedForeignBytes) -and
+                [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($ownedForeignHandle)) 'foreign-child rejection preserves exact bytes and keeps the owned slot held'
+            $ownedForeignFileIdentity = [string]([AiAgentDotfiles.NoFollowFile]::InspectChild($ownedForeignHandle, 'foreign.bin')).Identity
+            [AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($ownedForeignHandle, 'foreign.bin', $ownedForeignFileIdentity) | Out-Null
+            [AiAgentDotfiles.NoFollowFile]::DeleteHeldEmptyDirectoryIfIdentity($ownedForeignHandle, $ownedForeignIdentity) | Out-Null
+            $ownedForeignHandle = $null
+
+            $ownedAdsName = 'owned-held-ads'
+            $ownedAdsPath = Join-Path $deleteParentPath $ownedAdsName
+            $ownedAdsHandle = [AiAgentDotfiles.NoFollowFile]::CreateHeldChildDirectoryForCleanup($deleteParent, $ownedAdsName)
+            $ownedAdsIdentity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($ownedAdsHandle)
+            $ownedAdsStreamHandle = [IO.File]::OpenHandle(
+                ($ownedAdsPath + ':safety-sentinel'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,
+                ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete),[IO.FileOptions]::None)
+            try {
+                $ownedAdsStream = [IO.FileStream]::new($ownedAdsStreamHandle,[IO.FileAccess]::Write)
+                try { $ownedAdsStream.WriteByte(1); $ownedAdsStream.Flush($true) }
+                finally { $ownedAdsStream.Dispose() }
+            }
+            finally { if (-not $ownedAdsStreamHandle.IsClosed) { $ownedAdsStreamHandle.Dispose() } }
+            Assert-PathSafetyThrows -Script {
+                [AiAgentDotfiles.NoFollowFile]::DeleteHeldEmptyDirectoryIfIdentity($ownedAdsHandle, $ownedAdsIdentity) | Out-Null
+            } -Pattern 'stream' -Message 'held cleanup rejects an owned directory that acquired an alternate stream'
+            Assert-TestCondition ((Test-Path -LiteralPath $ownedAdsPath -PathType Container) -and
+                @([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($ownedAdsHandle)).Count -eq 1) 'held cleanup preserves a directory and its alternate stream after rejection'
+            [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($ownedAdsHandle)
+            $ownedAdsHandle = $null
+            [IO.File]::Delete($ownedAdsPath + ':safety-sentinel')
+            [AiAgentDotfiles.NoFollowFile]::DeleteChildEmptyDirectoryIfIdentity($deleteParent, $ownedAdsName, $ownedAdsIdentity) | Out-Null
+
+            $ownedMutableReceiptName = 'owned-held-mutable-receipt'
+            $ownedMutableReceiptPath = Join-Path $deleteParentPath $ownedMutableReceiptName
+            $ownedMutableReceiptHandle = [AiAgentDotfiles.NoFollowFile]::CreateHeldChildDirectoryForCleanup($deleteParent, $ownedMutableReceiptName)
+            $ownedMutableReceiptIdentity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($ownedMutableReceiptHandle)
+            [AiAgentDotfiles.SafeDirectoryHandle]::GetInfoExact($ownedMutableReceiptHandle).Identity = '00000000:0000000000000002'
+            Assert-PathSafetyThrows -Script {
+                [AiAgentDotfiles.NoFollowFile]::DeleteHeldEmptyDirectoryIfIdentity($ownedMutableReceiptHandle, $ownedMutableReceiptIdentity) | Out-Null
+            } -Pattern 'identity|receipt|acquired' -Message 'held cleanup rejects a mutable public receipt that diverges from the immutable acquired identity'
+            Assert-TestCondition ((Test-Path -LiteralPath $ownedMutableReceiptPath -PathType Container) -and
+                [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($ownedMutableReceiptHandle) -ceq $ownedMutableReceiptIdentity) 'mutable receipt rejection preserves the exact acquired directory'
+            [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($ownedMutableReceiptHandle)
+            $ownedMutableReceiptHandle = $null
+            [AiAgentDotfiles.NoFollowFile]::DeleteChildEmptyDirectoryIfIdentity($deleteParent, $ownedMutableReceiptName, $ownedMutableReceiptIdentity) | Out-Null
+        }
+        finally {
+            foreach ($heldOwned in @($ownedMutableReceiptHandle,$ownedAdsHandle,$ownedForeignHandle,$ownedWrongIdentityHandle,$ownedEmptyHandle)) {
+                if ($null -ne $heldOwned) { try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($heldOwned) } catch {} }
+            }
+        }
+
         $regularDeletePath = New-PathSafetyFile -Path (Join-Path $deleteParentPath 'regular.txt') -Content 'controlled regular bytes'
         $regularDeleteInfo = [AiAgentDotfiles.NoFollowFile]::InspectChild($deleteParent, 'regular.txt')
         $regularDeleted = [AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($deleteParent, 'regular.txt', [string]$regularDeleteInfo.Identity)

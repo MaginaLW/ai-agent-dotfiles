@@ -2003,6 +2003,9 @@ namespace AiAgentDotfiles {
         private readonly string requestedPath;
         private readonly string locationKey;
         private readonly string targetStatus;
+        private readonly string probeRootPath;
+        private readonly string probeRootLocationKey;
+        private readonly string probeRootIdentity;
         private readonly string driveType;
         private readonly string fileSystemType;
         private readonly string volumeSerial;
@@ -2011,11 +2014,15 @@ namespace AiAgentDotfiles {
         private readonly bool? verifiedAgainstExpected;
 
         private SealedCapabilityPreflightRow(string requestedPathValue, string locationKeyValue, string targetStatusValue,
+            string probeRootPathValue, string probeRootLocationKeyValue, string probeRootIdentityValue,
             string driveTypeValue, string fileSystemTypeValue, string volumeSerialValue,
             string filesystemCapabilityHashValue, string expectedCapabilityHashValue, bool? verifiedAgainstExpectedValue) {
             requestedPath = requestedPathValue;
             locationKey = locationKeyValue;
             targetStatus = targetStatusValue;
+            probeRootPath = probeRootPathValue;
+            probeRootLocationKey = probeRootLocationKeyValue;
+            probeRootIdentity = probeRootIdentityValue;
             driveType = driveTypeValue;
             fileSystemType = fileSystemTypeValue;
             volumeSerial = volumeSerialValue;
@@ -2025,10 +2032,13 @@ namespace AiAgentDotfiles {
         }
 
         public static SealedCapabilityPreflightRow CreateExact(string requestedPathValue, string locationKeyValue,
-            string targetStatusValue, string driveTypeValue, string fileSystemTypeValue, string volumeSerialValue,
+            string targetStatusValue, string probeRootPathValue, string probeRootLocationKeyValue, string probeRootIdentityValue,
+            string driveTypeValue, string fileSystemTypeValue, string volumeSerialValue,
             string filesystemCapabilityHashValue, string expectedCapabilityHashValue, bool? verifiedAgainstExpectedValue) {
             if (String.IsNullOrEmpty(requestedPathValue) || String.IsNullOrEmpty(locationKeyValue) ||
-                String.IsNullOrEmpty(targetStatusValue) || String.IsNullOrEmpty(driveTypeValue) ||
+                String.IsNullOrEmpty(targetStatusValue) || String.IsNullOrEmpty(probeRootPathValue) ||
+                String.IsNullOrEmpty(probeRootLocationKeyValue) || String.IsNullOrEmpty(probeRootIdentityValue) ||
+                String.IsNullOrEmpty(driveTypeValue) ||
                 String.IsNullOrEmpty(fileSystemTypeValue) || String.IsNullOrEmpty(volumeSerialValue) ||
                 String.IsNullOrEmpty(filesystemCapabilityHashValue) || filesystemCapabilityHashValue.Length != 64) {
                 throw new InvalidOperationException("capability-preflight-evidence-invalid");
@@ -2044,13 +2054,17 @@ namespace AiAgentDotfiles {
                 }
             }
             return new SealedCapabilityPreflightRow(requestedPathValue, locationKeyValue, targetStatusValue,
-                driveTypeValue, fileSystemTypeValue, volumeSerialValue, filesystemCapabilityHashValue,
+                probeRootPathValue, probeRootLocationKeyValue, probeRootIdentityValue, driveTypeValue, fileSystemTypeValue,
+                volumeSerialValue, filesystemCapabilityHashValue,
                 expectedCapabilityHashValue, verifiedValue);
         }
 
         public static string GetRequestedPathExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.requestedPath; }
         public static string GetLocationKeyExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.locationKey; }
         public static string GetTargetStatusExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.targetStatus; }
+        public static string GetProbeRootPathExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.probeRootPath; }
+        public static string GetProbeRootLocationKeyExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.probeRootLocationKey; }
+        public static string GetProbeRootIdentityExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.probeRootIdentity; }
         public static string GetDriveTypeExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.driveType; }
         public static string GetFileSystemTypeExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.fileSystemType; }
         public static string GetVolumeSerialExact(SealedCapabilityPreflightRow value) { return value == null ? null : value.volumeSerial; }
@@ -2063,28 +2077,25 @@ namespace AiAgentDotfiles {
         private readonly string authorityContextHash;
         private readonly string fixedEnvelopeHash;
         private readonly string lockSecurityHash;
-        private readonly string probeRootPath;
         private readonly SealedCapabilityPreflightRow[] rows;
         private readonly string projectionHash;
 
         private SealedCapabilityPreflightEvidence(string authorityContextHashValue, string fixedEnvelopeHashValue,
-            string lockSecurityHashValue, string probeRootPathValue, SealedCapabilityPreflightRow[] rowsValue,
-            string projectionHashValue) {
+            string lockSecurityHashValue, SealedCapabilityPreflightRow[] rowsValue, string projectionHashValue) {
             authorityContextHash = authorityContextHashValue;
             fixedEnvelopeHash = fixedEnvelopeHashValue;
             lockSecurityHash = lockSecurityHashValue;
-            probeRootPath = probeRootPathValue;
             rows = (SealedCapabilityPreflightRow[])rowsValue.Clone();
             projectionHash = projectionHashValue;
         }
 
         public static SealedCapabilityPreflightEvidence CreateExact(string authorityContextHashValue,
-            string fixedEnvelopeHashValue, string lockSecurityHashValue, string probeRootPathValue,
-            SealedCapabilityPreflightRow[] rowsValue, string projectionHashValue) {
+            string fixedEnvelopeHashValue, string lockSecurityHashValue, SealedCapabilityPreflightRow[] rowsValue,
+            string projectionHashValue) {
             if (String.IsNullOrEmpty(authorityContextHashValue) || authorityContextHashValue.Length != 64 ||
                 String.IsNullOrEmpty(fixedEnvelopeHashValue) || fixedEnvelopeHashValue.Length != 64 ||
                 String.IsNullOrEmpty(lockSecurityHashValue) || lockSecurityHashValue.Length != 64 ||
-                String.IsNullOrEmpty(probeRootPathValue) || rowsValue == null || rowsValue.Length == 0 ||
+                rowsValue == null || rowsValue.Length == 0 ||
                 String.IsNullOrEmpty(projectionHashValue) || projectionHashValue.Length != 64) {
                 throw new InvalidOperationException("capability-preflight-evidence-invalid");
             }
@@ -2092,13 +2103,12 @@ namespace AiAgentDotfiles {
                 if (row == null) { throw new InvalidOperationException("capability-preflight-evidence-invalid"); }
             }
             return new SealedCapabilityPreflightEvidence(authorityContextHashValue, fixedEnvelopeHashValue,
-                lockSecurityHashValue, probeRootPathValue, rowsValue, projectionHashValue);
+                lockSecurityHashValue, rowsValue, projectionHashValue);
         }
 
         public static string GetAuthorityContextHashExact(SealedCapabilityPreflightEvidence value) { return value == null ? null : value.authorityContextHash; }
         public static string GetFixedEnvelopeHashExact(SealedCapabilityPreflightEvidence value) { return value == null ? null : value.fixedEnvelopeHash; }
         public static string GetLockSecurityHashExact(SealedCapabilityPreflightEvidence value) { return value == null ? null : value.lockSecurityHash; }
-        public static string GetProbeRootPathExact(SealedCapabilityPreflightEvidence value) { return value == null ? null : value.probeRootPath; }
         public static int GetRowCountExact(SealedCapabilityPreflightEvidence value) { return value == null ? 0 : value.rows.Length; }
         public static SealedCapabilityPreflightRow GetRowExact(SealedCapabilityPreflightEvidence value, int index) {
             if (value == null || index < 0 || index >= value.rows.Length) { throw new ArgumentOutOfRangeException("index"); }
@@ -2117,6 +2127,9 @@ function Get-SealedCapabilityPreflightRowProjection {
         RequestedPath=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetRequestedPathExact($Row)
         LocationKey=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($Row)
         TargetStatus=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetTargetStatusExact($Row)
+        ProbeRootPath=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootPathExact($Row)
+        ProbeRootLocationKey=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootLocationKeyExact($Row)
+        ProbeRootIdentity=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootIdentityExact($Row)
         DriveType=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetDriveTypeExact($Row)
         FileSystemType=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFileSystemTypeExact($Row)
         VolumeSerial=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVolumeSerialExact($Row)
@@ -2137,7 +2150,6 @@ function Get-SealedCapabilityPreflightProjectionHash {
         AuthorityContextHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetAuthorityContextHashExact($Evidence)
         FixedEnvelopeHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetFixedEnvelopeHashExact($Evidence)
         LockSecurityHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetLockSecurityHashExact($Evidence)
-        ProbeRootPath=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProbeRootPathExact($Evidence)
         Rows=@($rows)
     })
 }
@@ -2148,8 +2160,7 @@ function Invoke-SealedHeldCapabilityPreflight {
         [Parameter(Mandatory)]$AuthorityContext,
         [Parameter(Mandatory)][AllowNull()]$GlobalLockHandle,
         [AllowNull()]$CanonicalWitness,
-        [Parameter(Mandatory)][string]$ProbeRoot,
-        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$CapabilityTargets
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$CapabilityTargets
     )
 
     if (@($CapabilityTargets).Count -eq 0) { throw 'capability-preflight-target-required' }
@@ -2158,43 +2169,135 @@ function Invoke-SealedHeldCapabilityPreflight {
         $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness
     }
 
-    if ([string]::IsNullOrWhiteSpace($ProbeRoot) -or -not [System.IO.Path]::IsPathFullyQualified($ProbeRoot) -or
-        $ProbeRoot.StartsWith('\',[StringComparison]::Ordinal)) { throw 'capability-probe-root-invalid' }
-    $probeRootFull = [System.IO.Path]::GetFullPath($ProbeRoot).TrimEnd([char]92,[char]47)
-    if ([string]::IsNullOrWhiteSpace($probeRootFull) -or [System.IO.Path]::GetPathRoot($probeRootFull) -ceq $probeRootFull) { throw 'capability-probe-root-invalid' }
-    if (-not (Test-Path -LiteralPath $probeRootFull -PathType Container)) { throw 'capability-probe-root-invalid' }
-    $probeRootInfo = [AiAgentDotfiles.NoFollowFile]::Inspect($probeRootFull)
-    if (-not $probeRootInfo.IsDirectory -or $probeRootInfo.IsReparsePoint) { throw 'capability-probe-root-invalid' }
-    foreach ($reservedRoot in @([string]$AuthorityContext.ControlBase,[string]$AuthorityContext.BackupRoot,[string]$AuthorityContext.PrivateRootBase)) {
-        if (-not [string]::IsNullOrWhiteSpace($reservedRoot) -and
-            (Test-TargetPathOverlap -Left $probeRootFull -Right ([System.IO.Path]::GetFullPath($reservedRoot)))) {
-            throw 'capability-probe-root-forbidden-overlap'
-        }
-    }
-    # Only the lower-level probe owns its exact GUID slot. Any matching entry left here may be
-    # foreign concurrent evidence, so this layer must fail closed without deleting it.
-    if (@([System.IO.Directory]::EnumerateFileSystemEntries($probeRootFull,'.target-capability-*')).Count -gt 0) {
-        throw 'capability-probe-root-residue'
-    }
-
-    $rows = [Collections.Generic.List[AiAgentDotfiles.SealedCapabilityPreflightRow]]::new()
+    $bindingsByTarget = [Collections.Generic.SortedDictionary[string,object]]::new([StringComparer]::Ordinal)
+    $probeRootsByLocation = [Collections.Generic.SortedDictionary[string,object]]::new([StringComparer]::Ordinal)
+    $targetLocationsByIdentity = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+    $probeLocationsByIdentity = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
     foreach ($target in @($CapabilityTargets)) {
         if ($null -eq $target) { throw 'capability-preflight-target-required' }
         $targetShape = @(Get-SealedRegistryOrdinalStrings -Values @(Get-SealedRegistryPropertyNames -InputObject $target))
-        if (($targetShape -join "`0") -cne ([string[]]@('ExpectedFilesystemCapabilityHash','Path') -join "`0") -and
-            ($targetShape -join "`0") -cne ([string[]]@('Path') -join "`0")) { throw 'capability-preflight-target-contract-invalid' }
-        $targetPathValue = [string](Get-SealedRegistryObjectValue -InputObject $target -Name 'Path')
-        $expectedValue = Get-SealedRegistryObjectValue -InputObject $target -Name 'ExpectedFilesystemCapabilityHash'
-        if ([string]::IsNullOrWhiteSpace($targetPathValue)) { throw 'capability-preflight-target-contract-invalid' }
-        if ($null -ne $expectedValue) { Assert-SealedRegistryString $expectedValue 'capability preflight expected hash' -Pattern $script:SealedRegistryHashPattern }
-        if (Test-TargetPathOverlap -Left $probeRootFull -Right ([System.IO.Path]::GetFullPath($targetPathValue))) {
-            throw 'capability-probe-root-forbidden-overlap'
+        $shapeText = $targetShape -join "`0"
+        $baseShapeText = [string[]]@('Path','ProbeRoot') -join "`0"
+        $expectedShapeText = [string[]]@('ExpectedFilesystemCapabilityHash','Path','ProbeRoot') -join "`0"
+        if ($shapeText -cne $baseShapeText -and $shapeText -cne $expectedShapeText) { throw 'capability-preflight-target-contract-invalid' }
+        $targetPathRaw = Get-SealedRegistryObjectValue -InputObject $target -Name 'Path'
+        $probeRootRaw = Get-SealedRegistryObjectValue -InputObject $target -Name 'ProbeRoot'
+        if ($targetPathRaw -isnot [string] -or $probeRootRaw -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$targetPathRaw) -or [string]::IsNullOrWhiteSpace([string]$probeRootRaw)) {
+            throw 'capability-preflight-target-contract-invalid'
         }
+        $hasExpected = $shapeText -ceq $expectedShapeText
+        $expectedValue = if ($hasExpected) { Get-SealedRegistryObjectValue -InputObject $target -Name 'ExpectedFilesystemCapabilityHash' } else { $null }
+        if ($hasExpected) { Assert-SealedRegistryString $expectedValue 'capability preflight expected hash' -Pattern $script:SealedRegistryHashPattern }
 
-        $metadata = Resolve-TargetContext -Path $targetPathValue -Mode MetadataOnly
-        $volumeInfo = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$metadata.DeepestExistingParentPath)
-        if ([string]$volumeInfo.VolumeSerial -cne [string]$metadata.VolumeId) { throw 'capability-target-volume-drift' }
-        $capabilityHash = Invoke-TargetFilesystemCapabilityProbe -ProbeRoot $probeRootFull -VolumeInfo $volumeInfo
+        $metadata = Resolve-TargetContext -Path ([string]$targetPathRaw) -Mode MetadataOnly
+        $targetLocationKey = [string]$metadata.LocationKey
+        if ($bindingsByTarget.ContainsKey($targetLocationKey)) { throw 'capability-preflight-target-duplicate' }
+        if ([string]$metadata.TargetStatus -ceq 'EXISTS') {
+            if ([string]$metadata.TargetType -cne 'Directory') { throw 'capability-preflight-target-contract-invalid' }
+            $targetIdentity = [string]$metadata.DeepestExistingParentIdentity
+            if ($targetLocationsByIdentity.ContainsKey($targetIdentity) -and
+                [string]$targetLocationsByIdentity[$targetIdentity] -cne $targetLocationKey) { throw 'capability-preflight-target-duplicate' }
+            $targetLocationsByIdentity[$targetIdentity] = $targetLocationKey
+        }
+        $targetVolumeInfo = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$metadata.DeepestExistingParentPath)
+        if ([string]$targetVolumeInfo.VolumeSerial -cne [string]$metadata.VolumeId) { throw 'capability-target-volume-drift' }
+        Assert-SupportedTargetFilesystem -DriveType ([string]$targetVolumeInfo.DriveType) -FileSystemType ([string]$targetVolumeInfo.FileSystemType)
+
+        $probeMetadata = $null
+        try {
+            if (-not [System.IO.Path]::IsPathFullyQualified([string]$probeRootRaw) -or ([string]$probeRootRaw).StartsWith('\',[StringComparison]::Ordinal)) {
+                throw 'invalid'
+            }
+            $probeRootFull = [System.IO.Path]::GetFullPath([string]$probeRootRaw).TrimEnd([char]92,[char]47)
+            if ([string]::IsNullOrWhiteSpace($probeRootFull) -or [System.IO.Path]::GetPathRoot($probeRootFull) -ceq $probeRootFull) { throw 'invalid' }
+            $probeMetadata = Resolve-TargetContext -Path $probeRootFull -Mode MetadataOnly
+            if ([string]$probeMetadata.TargetStatus -cne 'EXISTS' -or [string]$probeMetadata.TargetType -cne 'Directory') { throw 'invalid' }
+        }
+        catch { throw 'capability-probe-root-invalid' }
+        $probeVolumeInfo = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$probeMetadata.DeepestExistingParentPath)
+        if ([string]$probeVolumeInfo.VolumeSerial -cne [string]$probeMetadata.VolumeId) { throw 'capability-probe-root-invalid' }
+        Assert-SupportedTargetFilesystem -DriveType ([string]$probeVolumeInfo.DriveType) -FileSystemType ([string]$probeVolumeInfo.FileSystemType)
+        if ([string]$probeVolumeInfo.VolumeSerial -cne [string]$targetVolumeInfo.VolumeSerial) { throw 'capability-probe-target-volume-mismatch' }
+
+        $probeLocationKey = [string]$probeMetadata.LocationKey
+        $probeIdentity = [string]$probeMetadata.DeepestExistingParentIdentity
+        if ($probeLocationsByIdentity.ContainsKey($probeIdentity) -and
+            [string]$probeLocationsByIdentity[$probeIdentity] -cne $probeLocationKey) { throw 'capability-probe-root-invalid' }
+        if (-not $probeRootsByLocation.ContainsKey($probeLocationKey)) {
+            $probeRootsByLocation.Add($probeLocationKey,[pscustomobject][ordered]@{
+                Path=[string]$probeMetadata.RequestedPath
+                LocationKey=$probeLocationKey
+                Identity=$probeIdentity
+                VolumeInfo=$probeVolumeInfo
+                Metadata=$probeMetadata
+            })
+            $probeLocationsByIdentity[$probeIdentity] = $probeLocationKey
+        }
+        elseif ([string]$probeRootsByLocation[$probeLocationKey].Identity -cne $probeIdentity -or
+            [string]$probeRootsByLocation[$probeLocationKey].VolumeInfo.VolumeSerial -cne [string]$probeVolumeInfo.VolumeSerial -or
+            [string]$probeRootsByLocation[$probeLocationKey].VolumeInfo.DriveType -cne [string]$probeVolumeInfo.DriveType -or
+            [string]$probeRootsByLocation[$probeLocationKey].VolumeInfo.FileSystemType -cne [string]$probeVolumeInfo.FileSystemType) {
+            throw 'capability-probe-root-invalid'
+        }
+        $bindingsByTarget.Add($targetLocationKey,[pscustomobject][ordered]@{
+            Metadata=$metadata
+            TargetVolumeInfo=$targetVolumeInfo
+            ProbeRootPath=[string]$probeMetadata.RequestedPath
+            ProbeRootLocationKey=$probeLocationKey
+            ProbeRootIdentity=$probeIdentity
+            ExpectedCapabilityHash=if($hasExpected){[string]$expectedValue}else{$null}
+        })
+    }
+
+    $probeRootRows = @($probeRootsByLocation.Values)
+    $bindingRows = @($bindingsByTarget.Values)
+    for ($leftIndex=0; $leftIndex -lt $bindingRows.Count; $leftIndex++) {
+        for ($rightIndex=$leftIndex+1; $rightIndex -lt $bindingRows.Count; $rightIndex++) {
+            if (Test-SealedRegistryTargetContextsOverlap -Left $bindingRows[$leftIndex].Metadata -Right $bindingRows[$rightIndex].Metadata) {
+                throw 'capability-preflight-target-duplicate'
+            }
+        }
+    }
+    $reservedRootContexts = [Collections.Generic.List[object]]::new()
+    foreach ($reservedRoot in @([string]$AuthorityContext.ControlBase,[string]$AuthorityContext.BackupRoot,[string]$AuthorityContext.PrivateRootBase)) {
+        if (-not [string]::IsNullOrWhiteSpace($reservedRoot)) {
+            $reservedRootContexts.Add((Resolve-TargetContext -Path ([System.IO.Path]::GetFullPath($reservedRoot)) -Mode MetadataOnly))
+        }
+    }
+    foreach ($probeRootRow in $probeRootRows) {
+        foreach ($reservedRootContext in $reservedRootContexts) {
+            if (Test-SealedRegistryTargetContextsOverlap -Left $probeRootRow.Metadata -Right $reservedRootContext) {
+                throw 'capability-probe-root-forbidden-overlap'
+            }
+        }
+        foreach ($binding in $bindingRows) {
+            if (Test-SealedRegistryTargetContextsOverlap -Left $probeRootRow.Metadata -Right $binding.Metadata) {
+                throw 'capability-probe-root-forbidden-overlap'
+            }
+        }
+    }
+    for ($leftIndex=0; $leftIndex -lt $probeRootRows.Count; $leftIndex++) {
+        for ($rightIndex=$leftIndex+1; $rightIndex -lt $probeRootRows.Count; $rightIndex++) {
+            if (Test-SealedRegistryTargetContextsOverlap -Left $probeRootRows[$leftIndex].Metadata -Right $probeRootRows[$rightIndex].Metadata) {
+                throw 'capability-probe-root-forbidden-overlap'
+            }
+        }
+    }
+    # Only the lower-level probe owns its exact GUID slot. Any matching entry observed by this
+    # layer may be foreign concurrent evidence, so validation fails closed without deleting it.
+    foreach ($probeRootRow in $probeRootRows) {
+        if (@([System.IO.Directory]::EnumerateFileSystemEntries([string]$probeRootRow.Path,'.target-capability-*')).Count -gt 0) {
+            throw 'capability-probe-root-residue'
+        }
+    }
+
+    $rows = [Collections.Generic.List[AiAgentDotfiles.SealedCapabilityPreflightRow]]::new()
+    foreach ($binding in $bindingRows) {
+        $metadata = $binding.Metadata
+        $volumeInfo = $binding.TargetVolumeInfo
+        $expectedValue = $binding.ExpectedCapabilityHash
+        $capabilityHash = Invoke-TargetFilesystemCapabilityProbe -ProbeRoot ([string]$binding.ProbeRootPath) -VolumeInfo $volumeInfo -ExpectedProbeRootIdentity ([string]$binding.ProbeRootIdentity)
 
         $verified = $null
         if ($null -ne $expectedValue) {
@@ -2204,11 +2307,23 @@ function Invoke-SealedHeldCapabilityPreflight {
         $expectedForEvidence = if ($null -eq $expectedValue) { $null } else { [string]$expectedValue }
         $rows.Add([AiAgentDotfiles.SealedCapabilityPreflightRow]::CreateExact(
             [string]$metadata.RequestedPath,[string]$metadata.LocationKey,[string]$metadata.TargetStatus,
+            [string]$binding.ProbeRootPath,[string]$binding.ProbeRootLocationKey,[string]$binding.ProbeRootIdentity,
             [string]$volumeInfo.DriveType,[string]$volumeInfo.FileSystemType,[string]$volumeInfo.VolumeSerial,
             [string]$capabilityHash,$expectedForEvidence,$verified))
     }
-    if (@([System.IO.Directory]::EnumerateFileSystemEntries($probeRootFull,'.target-capability-*')).Count -gt 0) {
-        throw 'capability-probe-root-residue'
+    foreach ($probeRootRow in $probeRootRows) {
+        $postProbeMetadata = $null
+        try {
+            $postProbeMetadata = Resolve-TargetContext -Path ([string]$probeRootRow.Path) -Mode MetadataOnly
+            if ([string]$postProbeMetadata.TargetStatus -cne 'EXISTS' -or [string]$postProbeMetadata.TargetType -cne 'Directory' -or
+                [string]$postProbeMetadata.LocationKey -cne [string]$probeRootRow.LocationKey -or
+                [string]$postProbeMetadata.DeepestExistingParentIdentity -cne [string]$probeRootRow.Identity -or
+                [string]$postProbeMetadata.VolumeId -cne [string]$probeRootRow.VolumeInfo.VolumeSerial) { throw 'invalid' }
+        }
+        catch { throw 'capability-probe-root-stale' }
+        if (@([System.IO.Directory]::EnumerateFileSystemEntries([string]$probeRootRow.Path,'.target-capability-*')).Count -gt 0) {
+            throw 'capability-probe-root-residue'
+        }
     }
 
     $rowArray = [AiAgentDotfiles.SealedCapabilityPreflightRow[]]::new($rows.Count)
@@ -2221,12 +2336,11 @@ function Invoke-SealedHeldCapabilityPreflight {
         AuthorityContextHash=[string]$authorityContextHash
         FixedEnvelopeHash=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetFixedEnvelopeHashExact($lockEvidence)
         LockSecurityHash=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetLockSecurityHashExact($lockEvidence)
-        ProbeRootPath=[string]$probeRootFull
         Rows=@($rowProjections)
     })
     return [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::CreateExact(
         [string]$authorityContextHash,
         [string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetFixedEnvelopeHashExact($lockEvidence),
         [string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetLockSecurityHashExact($lockEvidence),
-        [string]$probeRootFull,$rowArray,[string]$projectionHash)
+        $rowArray,[string]$projectionHash)
 }

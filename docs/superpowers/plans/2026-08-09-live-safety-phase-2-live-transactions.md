@@ -204,6 +204,53 @@ the external create-new summary SHA-256 is
 317/0 inside the run. `build-skills.ps1` (7/15/7), `scan-secrets.ps1` (no blocking findings), and
 `sync.ps1` DryRun (no live mutation) then passed.
 
+**Seventh intermediate checkpoint (2026-08-29):** The sealed capability contract is now
+target-specific and volume-correct. `Invoke-SealedHeldCapabilityPreflight` accepts only rows shaped
+as `{Path, ProbeRoot}` or `{Path, ProbeRoot, ExpectedFilesystemCapabilityHash}`; the aggregate
+top-level ProbeRoot is gone. Each sealed row binds the target to its ProbeRoot path, normalized
+location key, and captured directory identity as well as drive/filesystem/volume and capability-hash
+evidence. The complete map is validated before the first probe: target types and duplicate/overlap
+aliases, target-to-target overlap, authority/target/root and root-to-root overlap, Fixed/NTFS support,
+exact target/root volume-serial equality, expected-hash syntax, and residue in every unique root.
+Rows use ordinal target-LocationKey order, making their projection independent of caller order.
+Shared roots must recapture the same identity and volume, while multiple distinct roots on one volume
+and distinct roots across volumes remain target-bound rather than collapsed into an aggregate group.
+
+The lower probe receives the preflight-captured ProbeRoot identity, opens and retains the complete
+no-follow containment chain, and revalidates that identity before creating its GUID slot. ProbeRoot
+residue is matched with Windows case-insensitive namespace semantics before and after probing and is
+never removed. The owned slot is create-new with DELETE access and without delete sharing. Slot
+creation-failure rollback and deletion operate on that exact held object; child-file create/write
+rollback uses its held handle, while later child cleanup remains identity-bound under the held slot.
+Slot deletion rechecks immutable and current identity, directory type, link count one, no alternate
+streams, and emptiness before marking that same handle for deletion. Foreign children or identity
+mismatches are preserved and produce a stable cleanup failure; simultaneous primary/cleanup failures
+retain both underlying errors. No wildcard, recursive, or path-delete fallback exists. Dynamic
+validation discovered two distinct writable Fixed/NTFS volume serials on the current host and
+executed the real mixed-volume branch: correct three-target mapping caused three independent probes,
+both reversed cross-volume mappings failed before any probe, evidence stayed bound to each root
+identity, and both authority and external fixture trees returned to their exact pre-probe hashes with
+empty roots.
+
+The changed pinned sources and dependent hard-kill prelude/controller trust pins are recomputed from
+the final reviewed bytes without relaxing the pin checks. This checkpoint still does not complete
+Step 2: no production Apply/rollback, registry consumer, fixed-envelope resolver, bootstrap-setup, or
+public-dispatch route consumes the evidence. Task 1 remains 1/6 and Phase 2 remains 1/52; production
+Apply remains interlocked and no live root is mutated.
+
+Definitive validation completed on 2026-08-30: the focused safe-tree, path-safety, and 247-assertion
+root-claims suites passed, the real mixed-volume branch executed all 19 assertions, production seams
+passed 13/0, and standalone hard-kill passed 317/0. The 156-file PowerShell parse gate and artifact
+registry matrix (21 contracts, 21 positive fixtures, 66 negative fixtures) passed. The create-new
+external unified summary recorded 34/34 suites passed exactly once with zero failures, timeouts,
+duplicates, missing suites, or tree-kill failures; its SHA-256 is
+`7e4d1c855804a4db29d9ca4175fa1bb7c9113bfc1b238564cd3ce19ec6a0e0bf`, and its hard-kill suite
+record is exit 0 with 317/0.
+Final skill generation (7/15/7), pinned gitleaks (no blocking findings; 828 reviewed non-blocking
+hints), diff checks, and `sync.ps1 -DryRun` also passed. The DryRun plan hash is
+`b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`; it preserved Codex
+`.system` and changed no live file.
+
 Resolve Windows ControlBase and fixed sibling BackupRoot from access-token SID plus `FOLDERID_LocalAppData`, and HomeRoot/AppData from OS Known Folder APIs, never from mutable process environment variables. Before either private root exists, derive the fixed no-follow bootstrap-lock file under the already-existing Known Folder root from SID/location/domain only. The reviewed canonical setup plan binds `PrivateRootBootstrapIntent` (parent identity, fixed control/backups remainders, each MISSING|COMPLETE, final current-user DACL template, expected fixed children); Apply acquires that pre-ControlBase exclusive handle, revalidates intent, creates the private parent, BackupRoot, ControlBase plus `homes/canonical-roots/live-transactions` only with the final security descriptor, validates the deterministic prefix, and only then obtains the normal global lock. Exact crash prefixes may be completed by the same setup plan; wrong ACL/identity/extra/reparse is manual. No live/receipt/journal work precedes global lock. Read-only status never creates the bootstrap lock/file or directories. Existing ControlBase/BackupRoot bind resolved identity, owner ACL/SID, resolver version and FilesystemCapabilityHash; production on an undefined non-Windows adapter remains interlocked. Protocol v1 production dispatch rejects public `-HomeRoot`/`-BackupRoot`; sealed fake-home injection remains an internal capability only. Derive `HomeAuthorityKey` from token SID plus canonical Known-Folder HomeRoot location key only; do not include root existence/file IDs or Reasonix override.
 
 - [ ] **Step 3: Build the registry view**
