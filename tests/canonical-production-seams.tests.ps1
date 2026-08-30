@@ -197,6 +197,28 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
+$reviewedAllScriptsDynamicCommandDigest='5113f059347b5b2a3de24a3d5b08e1a715d66858cfce6abfdbfc5d113183e4b4'
+$reviewedAllScriptsReflectionSensitiveSiteCount=12270
+$reviewedAllScriptsReflectionSensitiveDigest='0de1ed7c2bffb390dc9297fee1a57e5f974df3ab0a9afddafe04652196ecca20'
+$reflectionSensitiveCommandNames=@(
+    'Add-Type','Get-Command','Get-Member','Import-Module','Invoke-Command','Invoke-Expression',
+    'New-Module','New-Object'
+)
+$memberDispatchCommandNames=@(
+    '%','?','compare','ForEach-Object','Format-Custom','Format-List','Format-Table','Format-Wide',
+    'group','Group-Object','measure','Measure-Object','select','Select-Object','sort','Sort-Object',
+    'Where-Object'
+)
+$memberDispatchParameterNames=@('MemberName','ArgumentList','ExpandProperty','Property')
+$reviewedIssuerInvocationInventory=@(
+    'scripts/root-claims-registry-common.ps1|<script>|InitializeExact'
+    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|InvokeProbeExact'
+    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|IsExactIssuerToken'
+    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|MatchesProbeExact'
+    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|InvokeRawExact'
+    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|MatchesRawExact'
+) | Sort-Object -CaseSensitive
+
 $testsOnlyReferencePattern='(?ix)(?:
     canonical-reviewed-mutation-engine(?:\.ps1)? |
     tests[\\/]helpers[\\/]canonical-reviewed-mutation-engine\.ps1 |
@@ -217,6 +239,19 @@ function Invoke-ProductionSeamAnalysis {
     $parseFailures=[Collections.Generic.List[string]]::new()
     $forbiddenReferences=[Collections.Generic.List[string]]::new()
     $resolutionFailures=[Collections.Generic.List[string]]::new()
+    $fixedCapabilityBoundaryViolations=[Collections.Generic.List[string]]::new()
+    $rawCapabilityAllowedCallers=[Collections.Generic.List[string]]::new()
+    $probeCapabilityAllowedCallers=[Collections.Generic.List[string]]::new()
+    $validatorAllowedCallers=[Collections.Generic.List[string]]::new()
+    $allScriptsDynamicCommandInventory=[Collections.Generic.List[string]]::new()
+    $allScriptsDynamicCommandViolations=[Collections.Generic.List[string]]::new()
+    $allScriptsReflectionSensitiveInventory=[Collections.Generic.List[string]]::new()
+    $allScriptsReflectionSensitiveViolations=[Collections.Generic.List[string]]::new()
+    $allScriptsUsingStatementInventory=[Collections.Generic.List[string]]::new()
+    $allScriptsUsingStatementViolations=[Collections.Generic.List[string]]::new()
+    $allScriptsTypeDefinitionInventory=[Collections.Generic.List[string]]::new()
+    $allScriptsTypeDefinitionViolations=[Collections.Generic.List[string]]::new()
+    $issuerInvocationInventory=[Collections.Generic.List[string]]::new()
     $definitions=@{}
 
     foreach($model in $SourceModels){
@@ -224,11 +259,149 @@ function Invoke-ProductionSeamAnalysis {
         $ast=[Management.Automation.Language.Parser]::ParseInput([string]$model.Text,[string]$model.RelativePath,[ref]$tokens,[ref]$parseErrors)
         foreach($parseError in @($parseErrors)){$parseFailures.Add("$($model.RelativePath):$($parseError.Message)")}
         foreach($match in [regex]::Matches([string]$model.Text,$testsOnlyReferencePattern)){$forbiddenReferences.Add("$($model.RelativePath):$($match.Value)")}
+        foreach($command in @($ast.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst]},$true))){
+            $commandName=$command.GetCommandName()
+            $owner=Get-OwningFunctionDefinition -Node $command
+            $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            if($null -eq $commandName){
+                $allScriptsDynamicCommandInventory.Add("$($model.RelativePath)|$ownerName|$($command.Extent.Text)")
+                continue
+            }
+            $hasMemberDispatchParameter=@($command.CommandElements | Where-Object {
+                if($_ -isnot [Management.Automation.Language.CommandParameterAst]){return $false}
+                $observedParameter=[string]$_.ParameterName
+                foreach($dispatchParameter in $memberDispatchParameterNames){
+                    if($dispatchParameter.StartsWith($observedParameter,[StringComparison]::OrdinalIgnoreCase)){return $true}
+                }
+                return $false
+            }).Count -gt 0
+            if($commandName -iin $reflectionSensitiveCommandNames -or $commandName -iin $memberDispatchCommandNames -or
+                $hasMemberDispatchParameter){
+                $allScriptsReflectionSensitiveInventory.Add("Command|$($model.RelativePath)|$ownerName|$($command.Extent.Text)")
+            }
+            if($commandName -ieq 'Invoke-SealedHeldFixedInfrastructureCapabilityCapture'){
+                $fixedCapabilityBoundaryViolations.Add("fixed capability capture caller: $($model.RelativePath):$ownerName")
+            }
+            if($commandName -ieq 'Invoke-SealedHeldCapabilityPreflight'){
+                $fixedCapabilityBoundaryViolations.Add("dynamic raw capability preflight caller: $($model.RelativePath):$ownerName")
+            }
+            if($commandName -ieq 'Assert-SealedFixedInfrastructureCapabilityEvidenceExact'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Invoke-SealedHeldFixedInfrastructureCapabilityCapture'){
+                    $validatorAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedCapabilityBoundaryViolations.Add("fixed capability evidence validator caller: $($model.RelativePath):$ownerName")}
+            }
+        }
+        foreach($memberExpression in @($ast.FindAll({param($node)$node -is [Management.Automation.Language.MemberExpressionAst]},$true))){
+            $owner=Get-OwningFunctionDefinition -Node $memberExpression
+            $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            $memberKind=if($memberExpression -is [Management.Automation.Language.InvokeMemberExpressionAst]){'InvokeMember'}else{'Member'}
+            $allScriptsReflectionSensitiveInventory.Add(
+                "$memberKind|$($model.RelativePath)|$ownerName|$([bool]$memberExpression.Static)|$($memberExpression.Extent.Text)")
+        }
+        foreach($usingStatement in @($ast.FindAll({param($node)$node -is [Management.Automation.Language.UsingStatementAst]},$true))){
+            $owner=Get-OwningFunctionDefinition -Node $usingStatement
+            $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            $allScriptsUsingStatementInventory.Add("$($model.RelativePath)|$ownerName|$($usingStatement.Extent.Text)")
+        }
+        foreach($typeDefinition in @($ast.FindAll({param($node)$node -is [Management.Automation.Language.TypeDefinitionAst]},$true))){
+            $owner=Get-OwningFunctionDefinition -Node $typeDefinition
+            $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            $allScriptsTypeDefinitionInventory.Add("$($model.RelativePath)|$ownerName|$($typeDefinition.Extent.Text)")
+        }
+        foreach($typeExpression in @($ast.FindAll({param($node)
+            if($node -isnot [Management.Automation.Language.TypeExpressionAst]){return $false}
+            $typeName=[string]$node.TypeName.FullName
+            return $typeName -imatch '^(?:System\.)?(?:Type|AppDomain|Activator)$' -or
+                $typeName -imatch '^(?:System\.)?Reflection\.' -or
+                $typeName -imatch '^(?:System\.)?Runtime\.InteropServices\.Marshal$'
+        },$true))){
+            $owner=Get-OwningFunctionDefinition -Node $typeExpression
+            $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            $allScriptsReflectionSensitiveInventory.Add("TypeExpression|$($model.RelativePath)|$ownerName|$($typeExpression.Extent.Text)")
+        }
+        foreach($typeExpression in @($ast.FindAll({param($node)
+            $node -is [Management.Automation.Language.TypeExpressionAst] -and
+            @(([string]$node.TypeName.FullName -split '\.'))[-1] -ieq 'SealedFixedInfrastructureCapabilityIssuer'
+        },$true))){
+            $owner=Get-OwningFunctionDefinition -Node $typeExpression
+            $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            $memberCall=$typeExpression.Parent
+            if($memberCall -isnot [Management.Automation.Language.InvokeMemberExpressionAst] -or
+                -not [object]::ReferenceEquals($memberCall.Expression,$typeExpression)){
+                $fixedCapabilityBoundaryViolations.Add("issuer type reflection or non-direct access: $($model.RelativePath):$ownerName")
+                continue
+            }
+            if($memberCall.Member -isnot [Management.Automation.Language.StringConstantExpressionAst]){
+                $fixedCapabilityBoundaryViolations.Add("issuer nonliteral member access: $($model.RelativePath):$ownerName")
+                continue
+            }
+            $memberName=[string]$memberCall.Member.Value
+            $issuerSite="$($model.RelativePath)|$ownerName|$memberName"
+            $issuerInvocationInventory.Add($issuerSite)
+            if($issuerSite -cnotin $reviewedIssuerInvocationInventory){
+                $fixedCapabilityBoundaryViolations.Add("unreviewed issuer member access: $issuerSite")
+            }
+            if($issuerSite -ceq 'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|InvokeRawExact'){
+                $rawCapabilityAllowedCallers.Add("$($model.RelativePath):$ownerName")
+            }
+            if($issuerSite -ceq 'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|InvokeProbeExact'){
+                $probeCapabilityAllowedCallers.Add("$($model.RelativePath):$ownerName")
+            }
+        }
         foreach($definition in @($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))){
             $key=$definition.Name.ToLowerInvariant()
             if(-not $definitions.ContainsKey($key)){$definitions[$key]=[Collections.Generic.List[object]]::new()}
             $definitions[$key].Add([pscustomobject]@{Name=$definition.Name;RelativePath=[string]$model.RelativePath;Ast=$definition})
         }
+    }
+
+    $allScriptsDynamicCommandInventory=@($allScriptsDynamicCommandInventory | Sort-Object -CaseSensitive)
+    $allScriptsDynamicCommandDigest=Get-TextSha256 -Text ($allScriptsDynamicCommandInventory -join "`n")
+    $allScriptsDynamicCommandMatches=$allScriptsDynamicCommandDigest -ceq $reviewedAllScriptsDynamicCommandDigest
+    if(-not $allScriptsDynamicCommandMatches){
+        $allScriptsDynamicCommandViolations.Add("all-scripts dynamic command digest is $allScriptsDynamicCommandDigest, expected $reviewedAllScriptsDynamicCommandDigest")
+    }
+    $allScriptsReflectionSensitiveInventory=@($allScriptsReflectionSensitiveInventory | Sort-Object -CaseSensitive)
+    $allScriptsReflectionSensitiveDigest=Get-TextSha256 -Text ($allScriptsReflectionSensitiveInventory -join "`n")
+    $allScriptsReflectionSensitiveMatches=$allScriptsReflectionSensitiveInventory.Count -eq $reviewedAllScriptsReflectionSensitiveSiteCount -and
+        $allScriptsReflectionSensitiveDigest -ceq $reviewedAllScriptsReflectionSensitiveDigest
+    if(-not $allScriptsReflectionSensitiveMatches){
+        $allScriptsReflectionSensitiveViolations.Add(
+            "all-scripts reflection-sensitive inventory is count $($allScriptsReflectionSensitiveInventory.Count), digest $allScriptsReflectionSensitiveDigest; expected count $reviewedAllScriptsReflectionSensitiveSiteCount, digest $reviewedAllScriptsReflectionSensitiveDigest")
+    }
+    $allScriptsUsingStatementInventory=@($allScriptsUsingStatementInventory | Sort-Object -CaseSensitive)
+    if($allScriptsUsingStatementInventory.Count -ne 0){
+        $allScriptsUsingStatementViolations.Add(
+            "all scripts/**/*.ps1 must retain the reviewed zero UsingStatementAst baseline; observed $($allScriptsUsingStatementInventory.Count)")
+    }
+    $allScriptsTypeDefinitionInventory=@($allScriptsTypeDefinitionInventory | Sort-Object -CaseSensitive)
+    if($allScriptsTypeDefinitionInventory.Count -ne 0){
+        $allScriptsTypeDefinitionViolations.Add(
+            "all scripts/**/*.ps1 must retain the reviewed zero TypeDefinitionAst baseline; observed $($allScriptsTypeDefinitionInventory.Count)")
+    }
+    $issuerInvocationInventory=@($issuerInvocationInventory | Sort-Object -CaseSensitive)
+    if(($issuerInvocationInventory -join "`n") -cne ($reviewedIssuerInvocationInventory -join "`n")){
+        $fixedCapabilityBoundaryViolations.Add('reviewed issuer owner/member invocation inventory changed')
+    }
+
+    $fixedCaptureDefinitions=@(if($definitions.ContainsKey('invoke-sealedheldfixedinfrastructurecapabilitycapture')){@($definitions['invoke-sealedheldfixedinfrastructurecapabilitycapture'])})
+    if($fixedCaptureDefinitions.Count -ne 1 -or [string]$fixedCaptureDefinitions[0].RelativePath -cne 'scripts/root-claims-registry-common.ps1'){
+        $fixedCapabilityBoundaryViolations.Add('fixed capability capture definition is missing, ambiguous, or outside root-claims-registry-common.ps1')
+    }
+    if($rawCapabilityAllowedCallers.Count -ne 1){
+        $fixedCapabilityBoundaryViolations.Add("exact raw capability issuer allowed caller count is $($rawCapabilityAllowedCallers.Count), expected 1")
+    }
+    if($probeCapabilityAllowedCallers.Count -ne 1){
+        $fixedCapabilityBoundaryViolations.Add("exact lower capability issuer allowed caller count is $($probeCapabilityAllowedCallers.Count), expected 1")
+    }
+    $validatorDefinitions=@(if($definitions.ContainsKey('assert-sealedfixedinfrastructurecapabilityevidenceexact')){@($definitions['assert-sealedfixedinfrastructurecapabilityevidenceexact'])})
+    if($validatorDefinitions.Count -ne 1 -or [string]$validatorDefinitions[0].RelativePath -cne 'scripts/root-claims-registry-common.ps1'){
+        $fixedCapabilityBoundaryViolations.Add('fixed capability evidence validator definition is missing, ambiguous, or outside root-claims-registry-common.ps1')
+    }
+    if($validatorAllowedCallers.Count -ne 1){
+        $fixedCapabilityBoundaryViolations.Add("fixed capability evidence validator allowed caller count is $($validatorAllowedCallers.Count), expected 1")
     }
 
     $queue=[Collections.Generic.Queue[string]]::new()
@@ -309,11 +482,29 @@ function Invoke-ProductionSeamAnalysis {
     $exceptionInventory=@($exceptionInventory | Sort-Object)
     $exceptionMatches=(($exceptionInventory -join "`n") -ceq ($reviewedExceptionInventory -join "`n"))
     if(-not $exceptionMatches){$unreviewedSeams.Add('reviewed reachable seam inventory or digest changed')}
-    $accepted=($parseFailures.Count -eq 0 -and $forbiddenReferences.Count -eq 0 -and $resolutionFailures.Count -eq 0 -and $unreviewedSeams.Count -eq 0)
+    $accepted=($parseFailures.Count -eq 0 -and $forbiddenReferences.Count -eq 0 -and $resolutionFailures.Count -eq 0 -and
+        $unreviewedSeams.Count -eq 0 -and $fixedCapabilityBoundaryViolations.Count -eq 0 -and
+        $allScriptsDynamicCommandViolations.Count -eq 0 -and $allScriptsReflectionSensitiveViolations.Count -eq 0 -and
+        $allScriptsUsingStatementViolations.Count -eq 0 -and $allScriptsTypeDefinitionViolations.Count -eq 0)
     return [pscustomobject]@{
         Accepted=$accepted;ParseFailures=@($parseFailures);ForbiddenReferences=@($forbiddenReferences)
         ResolutionFailures=@($resolutionFailures);UnreviewedSeams=@($unreviewedSeams);Closure=@($closureInventory)
         ClosureMatches=$closureMatches;ExceptionInventory=@($exceptionInventory);ExceptionMatches=$exceptionMatches;Definitions=$definitions
+        FixedCapabilityBoundaryViolations=@($fixedCapabilityBoundaryViolations);RawCapabilityAllowedCallers=@($rawCapabilityAllowedCallers)
+        ProbeCapabilityAllowedCallers=@($probeCapabilityAllowedCallers);ValidatorAllowedCallers=@($validatorAllowedCallers)
+        AllScriptsDynamicCommandInventory=@($allScriptsDynamicCommandInventory)
+        AllScriptsDynamicCommandDigest=$allScriptsDynamicCommandDigest
+        AllScriptsDynamicCommandMatches=$allScriptsDynamicCommandMatches
+        AllScriptsDynamicCommandViolations=@($allScriptsDynamicCommandViolations)
+        AllScriptsReflectionSensitiveInventory=@($allScriptsReflectionSensitiveInventory)
+        AllScriptsReflectionSensitiveDigest=$allScriptsReflectionSensitiveDigest
+        AllScriptsReflectionSensitiveMatches=$allScriptsReflectionSensitiveMatches
+        AllScriptsReflectionSensitiveViolations=@($allScriptsReflectionSensitiveViolations)
+        AllScriptsUsingStatementInventory=@($allScriptsUsingStatementInventory)
+        AllScriptsUsingStatementViolations=@($allScriptsUsingStatementViolations)
+        AllScriptsTypeDefinitionInventory=@($allScriptsTypeDefinitionInventory)
+        AllScriptsTypeDefinitionViolations=@($allScriptsTypeDefinitionViolations)
+        IssuerInvocationInventory=@($issuerInvocationInventory)
     }
 }
 
@@ -327,6 +518,13 @@ Assert-TestCondition $baseline.ClosureMatches 'four production roots derive the 
 Assert-TestCondition ($baseline.ResolutionFailures.Count -eq 0) 'every closure command resolves to one repository function or an explicit reviewed leaf'
 Assert-TestCondition $baseline.ExceptionMatches 'reachable ScriptBlock and dynamic invocation exceptions match exact reviewed digests'
 Assert-TestCondition ($baseline.UnreviewedSeams.Count -eq 0) 'closure exposes no new callback, shadow, alias, environment, failpoint, hook, or provider seam'
+Assert-TestCondition $baseline.AllScriptsDynamicCommandMatches 'all scripts/**/*.ps1 dynamic CommandAst sites match the compact reviewed digest'
+Assert-TestCondition $baseline.AllScriptsReflectionSensitiveMatches 'all scripts/**/*.ps1 reflection and dynamic type/method-resolution sites match the compact reviewed count and digest'
+Assert-TestCondition ($baseline.AllScriptsUsingStatementInventory.Count -eq 0 -and
+    $baseline.AllScriptsUsingStatementViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero using-statement baseline'
+Assert-TestCondition ($baseline.AllScriptsTypeDefinitionInventory.Count -eq 0 -and
+    $baseline.AllScriptsTypeDefinitionViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero PowerShell type-definition baseline'
+Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture is unconsumed; validator and exact raw/probe issuers have only their reviewed internal callers; issuer type/member inventory is exact'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])
@@ -342,7 +540,8 @@ function Get-NeutralTreeProjection {
 }
 '@
 $outOfClosureResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $safeTreeModel.RelativePath -Text $outOfClosureSafeTreeText)
-Assert-TestCondition $outOfClosureResult.Accepted 'acceptance control: an unrelated generic SafeTree ScriptBlock/dynamic API is not globally banned'
+Assert-TestCondition (-not $outOfClosureResult.Accepted -and $outOfClosureResult.ClosureMatches -and
+    $outOfClosureResult.UnreviewedSeams.Count -eq 0 -and $outOfClosureResult.AllScriptsDynamicCommandViolations.Count -eq 1) 'acceptance control: an unrelated out-of-closure dynamic API changes only the reviewed all-scripts dynamic digest'
 
 $mutationBase=@($sources | Where-Object RelativePath -ceq 'scripts/canonical-mutation-common.ps1')[0]
 $scriptBlockMutation=Add-CallToFunctionSource -Source ([string]$mutationBase.Text) -FileName $mutationBase.RelativePath -FunctionName 'Initialize-CanonicalRecoveryWorkspace' -Call 'Invoke-NeutralTransform'
@@ -376,6 +575,108 @@ function Get-NeutralInternalState {
 $identifierMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath 'scripts/internal/neutral-state.ps1' -Text $identifierMutation)
 Assert-TestCondition (-not $identifierMutationResult.Accepted -and @($identifierMutationResult.ForbiddenReferences | Where-Object {$_ -match '^scripts/internal/neutral-state\.ps1:'}).Count -gt 0) 'mutation RED: recursive all-scripts scan rejects a tests-only identifier under scripts/internal'
 
+$typeDefinitionMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath 'scripts/internal/neutral-runtime-type.ps1' -Text 'class NeutralRuntimeDispatchShim {}')
+Assert-TestCondition (-not $typeDefinitionMutationResult.Accepted -and
+    $typeDefinitionMutationResult.AllScriptsTypeDefinitionViolations.Count -eq 1 -and
+    $typeDefinitionMutationResult.AllScriptsReflectionSensitiveMatches) 'mutation RED: zero-baseline TypeDefinitionAst inventory rejects a new production PowerShell runtime type'
+
+$addTypeMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath 'scripts/internal/neutral-add-type.ps1' -Text "Add-Type -TypeDefinition 'public sealed class NeutralCompiledDispatchShim {}'")
+Assert-TestCondition (-not $addTypeMutationResult.Accepted -and
+    $addTypeMutationResult.AllScriptsReflectionSensitiveViolations.Count -eq 1 -and
+    $addTypeMutationResult.AllScriptsUsingStatementViolations.Count -eq 0 -and
+    $addTypeMutationResult.AllScriptsTypeDefinitionViolations.Count -eq 0) 'mutation RED: exact reflection-sensitive CommandAst inventory rejects a new production Add-Type site'
+
+$syncApplyModel=@($sources | Where-Object RelativePath -ceq 'scripts/sync.ps1')[0]
+$applyMarkerMatches=[regex]::Matches([string]$syncApplyModel.Text,'(?m)^# Apply\r?$')
+if($applyMarkerMatches.Count -ne 1){throw 'sync Apply mutation marker is not unique'}
+$fixedCapabilityApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`nInvoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext `$authority -GlobalLockHandle `$globalLock -CapabilityProbeBindings `$bindings",
+    1)
+$fixedCapabilityApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $fixedCapabilityApplyMutation)
+Assert-TestCondition (-not $fixedCapabilityApplyMutationResult.Accepted -and
+    @($fixedCapabilityApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq 'fixed capability capture caller: scripts/sync.ps1:<script>'}).Count -eq 1) 'mutation RED: recursive all-scripts guard rejects fixed capability capture injected into the production Apply branch'
+
+$rawCapabilityApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`nInvoke-SealedHeldCapabilityPreflight -AuthorityContext `$authority -GlobalLockHandle `$globalLock -CapabilityTargets `$targets",
+    1)
+$rawCapabilityApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $rawCapabilityApplyMutation)
+Assert-TestCondition (-not $rawCapabilityApplyMutationResult.Accepted -and
+    @($rawCapabilityApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq 'dynamic raw capability preflight caller: scripts/sync.ps1:<script>'}).Count -eq 1) 'mutation RED: recursive all-scripts guard rejects a direct raw capability preflight injected into production Apply'
+
+$exactRawIssuerApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`n[AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]::iNvOkErAwExAcT(`$authority,`$globalLock,`$null,`$targets) | Out-Null",
+    1)
+$exactRawIssuerApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $exactRawIssuerApplyMutation)
+Assert-TestCondition (-not $exactRawIssuerApplyMutationResult.Accepted -and
+    @($exactRawIssuerApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq 'unreviewed issuer member access: scripts/sync.ps1|<script>|iNvOkErAwExAcT'}).Count -eq 1) 'mutation RED: case variants of exact raw issuer invocation are accepted only inside the fixed capture function'
+
+$dynamicRawApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`n`$rawCapabilityCommand='Invoke-SealedHeldCapabilityPreflight'`n& `$rawCapabilityCommand -AuthorityContext `$authority -GlobalLockHandle `$globalLock -CapabilityTargets `$targets",
+    1)
+$dynamicRawApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $dynamicRawApplyMutation)
+Assert-TestCondition (-not $dynamicRawApplyMutationResult.Accepted -and
+    $dynamicRawApplyMutationResult.AllScriptsDynamicCommandViolations.Count -eq 1) 'mutation RED: all-scripts dynamic-command inventory rejects an indirect raw preflight injected into production Apply'
+
+$issuerReflectionApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`n([AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]).GetMethod('InvokeRawExact').Invoke(`$null,@(`$authority,`$globalLock,`$null,`$targets)) | Out-Null",
+    1)
+$issuerReflectionApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $issuerReflectionApplyMutation)
+Assert-TestCondition (-not $issuerReflectionApplyMutationResult.Accepted -and
+    @($issuerReflectionApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq 'issuer type reflection or non-direct access: scripts/sync.ps1:<script>'}).Count -eq 1) 'mutation RED: issuer TypeExpression/reflection inventory rejects reflective InvokeRawExact access in production Apply'
+
+$hiddenIssuerReflectionApplyMutation=([regex]::new('(?m)^# Apply\r?$')).Replace(
+    [string]$syncApplyModel.Text,
+    "# Apply`n`$issuerType=`$null`nforeach(`$assembly in [AppDomain]::CurrentDomain.GetAssemblies()){`n    `$candidateType=`$assembly.GetType(('AiAgentDotfiles.'+'SealedFixedInfrastructureCapabilityIssuer'))`n    if(`$null -ne `$candidateType){`$issuerType=`$candidateType;break}`n}`n`$issuerType.GetMethod(('InvokeRaw'+'Exact')).Invoke(`$null,@(`$authority,`$globalLock,`$null,`$targets)) | Out-Null",
+    1)
+$hiddenIssuerReflectionApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $hiddenIssuerReflectionApplyMutation)
+Assert-TestCondition (-not $hiddenIssuerReflectionApplyMutationResult.Accepted -and
+    $hiddenIssuerReflectionApplyMutationResult.AllScriptsReflectionSensitiveViolations.Count -eq 1 -and
+    $hiddenIssuerReflectionApplyMutationResult.AllScriptsDynamicCommandMatches -and
+    $hiddenIssuerReflectionApplyMutationResult.FixedCapabilityBoundaryViolations.Count -eq 0) 'mutation RED: all-scripts reflection inventory rejects assembly/type/method resolution with concatenated issuer names in production Apply'
+
+$caseVariantIssuerReflectionApplyMutation=([regex]::new('(?m)^# Apply\r?$')).Replace(
+    [string]$syncApplyModel.Text,
+    "# Apply`n`$issuerType=`$null`nforeach(`$assembly in [aPpDoMaIn]::CurrentDomain.gEtAsSeMbLiEs()){`n    `$candidateType=`$assembly.gEtTyPe(('aiagentdotfiles.'+'sealedfixedinfrastructurecapabilityissuer'),`$false,`$true)`n    if(`$null -ne `$candidateType){`$issuerType=`$candidateType;break}`n}`n`$issuerType.gEtMeThOd(('iNvOkErAw'+'ExAcT')).iNvOkE(`$null,@(`$authority,`$globalLock,`$null,`$targets)) | Out-Null",
+    1)
+$caseVariantIssuerReflectionApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $caseVariantIssuerReflectionApplyMutation)
+Assert-TestCondition (-not $caseVariantIssuerReflectionApplyMutationResult.Accepted -and
+    $caseVariantIssuerReflectionApplyMutationResult.AllScriptsReflectionSensitiveViolations.Count -eq 1 -and
+    $caseVariantIssuerReflectionApplyMutationResult.AllScriptsDynamicCommandMatches -and
+    $caseVariantIssuerReflectionApplyMutationResult.FixedCapabilityBoundaryViolations.Count -eq 0) 'mutation RED: reflection inventory is case-insensitive to member spelling and rejects split lowercase issuer/method strings'
+
+$propertyDispatchIssuerReflectionApplyMutation=([regex]::new('(?m)^# Apply\r?$')).Replace(
+    "using namespace AiAgentDotfiles`n$([string]$syncApplyModel.Text)",
+    "# Apply`n`$issuerType=[SealedFixedInfrastructureCapabilityIssuer]`n`$issuerMethod=`$issuerType.DeclaredMethods | Where-Object -Property Name -CEQ 'InvokeRawExact' | Select-Object -First 1`n`$issuerMethod | ForEach-Object -MemberName Invoke -ArgumentList @(`$null,[object[]]@(`$authority,`$globalLock,`$null,`$targets)) | Out-Null",
+    1)
+$propertyDispatchIssuerReflectionApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $propertyDispatchIssuerReflectionApplyMutation)
+Assert-TestCondition (-not $propertyDispatchIssuerReflectionApplyMutationResult.Accepted -and
+    $propertyDispatchIssuerReflectionApplyMutationResult.AllScriptsReflectionSensitiveViolations.Count -eq 1 -and
+    $propertyDispatchIssuerReflectionApplyMutationResult.AllScriptsUsingStatementViolations.Count -eq 1 -and
+    $propertyDispatchIssuerReflectionApplyMutationResult.AllScriptsTypeDefinitionViolations.Count -eq 0 -and
+    $propertyDispatchIssuerReflectionApplyMutationResult.AllScriptsDynamicCommandMatches -and
+    @($propertyDispatchIssuerReflectionApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {
+        $_ -ceq 'issuer type reflection or non-direct access: scripts/sync.ps1:<script>'
+    }).Count -eq 1) 'mutation RED: using-namespace, short issuer type, property-only method discovery, and ForEach-Object member dispatch cannot bypass the all-scripts reflection guard'
+
+$validatorApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`nAssert-SealedFixedInfrastructureCapabilityEvidenceExact -Evidence `$evidence -AuthorityContext `$authority -ExpectedAuthorityContextHash `$a -ExpectedFixedEnvelopeHash `$f -ExpectedLockSecurityHash `$l -ControlBaseProbeRoot `$p1 -BackupRootProbeRoot `$p2",
+    1)
+$validatorApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $validatorApplyMutation)
+Assert-TestCondition (-not $validatorApplyMutationResult.Accepted -and
+    @($validatorApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq 'fixed capability evidence validator caller: scripts/sync.ps1:<script>'}).Count -eq 1) 'mutation RED: fixed evidence validator has exactly one production caller inside fixed capture'
+
 Write-Host ''
 Write-Host ("Results: {0} passed, {1} failed" -f $script:pass,$script:fail) -ForegroundColor Cyan
 if($script:fail -ne 0){
@@ -383,5 +684,10 @@ if($script:fail -ne 0){
     if($baseline.ForbiddenReferences.Count -gt 0){Write-Host ($baseline.ForbiddenReferences -join "`n") -ForegroundColor DarkRed}
     if($baseline.ResolutionFailures.Count -gt 0){Write-Host ($baseline.ResolutionFailures -join "`n") -ForegroundColor DarkRed}
     if($baseline.UnreviewedSeams.Count -gt 0){Write-Host ($baseline.UnreviewedSeams -join "`n") -ForegroundColor DarkRed}
+    if($baseline.FixedCapabilityBoundaryViolations.Count -gt 0){Write-Host ($baseline.FixedCapabilityBoundaryViolations -join "`n") -ForegroundColor DarkRed}
+    if($baseline.AllScriptsDynamicCommandViolations.Count -gt 0){Write-Host ($baseline.AllScriptsDynamicCommandViolations -join "`n") -ForegroundColor DarkRed}
+    if($baseline.AllScriptsReflectionSensitiveViolations.Count -gt 0){Write-Host ($baseline.AllScriptsReflectionSensitiveViolations -join "`n") -ForegroundColor DarkRed}
+    if($baseline.AllScriptsUsingStatementViolations.Count -gt 0){Write-Host ($baseline.AllScriptsUsingStatementViolations -join "`n") -ForegroundColor DarkRed}
+    if($baseline.AllScriptsTypeDefinitionViolations.Count -gt 0){Write-Host ($baseline.AllScriptsTypeDefinitionViolations -join "`n") -ForegroundColor DarkRed}
     exit 1
 }

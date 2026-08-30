@@ -390,6 +390,34 @@ $workRoot = [IO.Path]::GetFullPath((Join-Path $tempParent ('.rcr-' + [guid]::New
 try {
     Write-Host 'Root claims registry tests'
 
+    $fixedDomainError=[InvalidOperationException]::new('fixed domain primary; cleanup: fixed domain cleanup')
+    $fixedDomainError.Data['Primary']='fixed-domain-primary'
+    $fixedDomainError.Data['Cleanup']='fixed-domain-cleanup'
+    $fixedRuntimeWrapper=[System.Management.Automation.RuntimeException]::new('runtime-wrapper',$fixedDomainError)
+    $fixedMethodWrapper=[System.Management.Automation.MethodInvocationException]::new('method-wrapper',$fixedRuntimeWrapper)
+    try {
+        Throw-SealedFixedInfrastructureCapabilityIssuerException -Exception $fixedMethodWrapper
+        throw 'FAIL: exact issuer exception unwrapping preserves the first domain exception (did not throw)'
+    }
+    catch {
+        if($_.Exception.Message -like 'FAIL:*'){throw}
+        Assert-TestCondition ($_.Exception -is [InvalidOperationException] -and
+            $_.Exception.Message -ceq 'fixed domain primary; cleanup: fixed domain cleanup' -and
+            [string]$_.Exception.Data['Primary'] -ceq 'fixed-domain-primary' -and
+            [string]$_.Exception.Data['Cleanup'] -ceq 'fixed-domain-cleanup') 'exact issuer exception unwrapping preserves domain type, combined message, and primary/cleanup Data'
+    }
+
+    $fixedAggregateBoundary=[AggregateException]::new('fixed aggregate boundary',[Exception[]]@($fixedDomainError))
+    $fixedAggregateWrapper=[System.Management.Automation.RuntimeException]::new('runtime-wrapper',$fixedAggregateBoundary)
+    try {
+        Throw-SealedFixedInfrastructureCapabilityIssuerException -Exception $fixedAggregateWrapper
+        throw 'FAIL: exact issuer exception unwrapping stops at AggregateException (did not throw)'
+    }
+    catch {
+        if($_.Exception.Message -like 'FAIL:*'){throw}
+        Assert-TestCondition ($_.Exception -is [AggregateException] -and $_.Exception.Message -like 'fixed aggregate boundary*') 'exact issuer exception unwrapping does not descend into AggregateException'
+    }
+
     $blockingTargetProbe = [AiAgentDotfiles.ReceiptReleaseProbe]::new($true,$false)
     $blockingTargetLease = New-TestSyntheticTargetReceiptLease -Handles @($blockingTargetProbe)
     $blockingTargetTask = $null
@@ -1503,20 +1531,426 @@ try {
                 }
             }
             else { Write-Host '  SKIP  capability-mixed-volume-unavailable: two distinct writable Fixed/NTFS volumes were not discovered' }
+
+            $fixedCaptureCommand = Get-Command Invoke-SealedHeldFixedInfrastructureCapabilityCapture -CommandType Function -ErrorAction Stop
+            Assert-TestCondition (-not $fixedCaptureCommand.Parameters.ContainsKey('Path') -and
+                -not $fixedCaptureCommand.Parameters.ContainsKey('SealedCapabilityPreflightEvidence') -and
+                $fixedCaptureCommand.Parameters.ContainsKey('CapabilityProbeBindings')) 'fixed infrastructure capture accepts role bindings but no caller-selected target Path or preflight evidence'
+
+            $fixedOriginalRawPreflight = (Get-Command Invoke-SealedHeldCapabilityPreflight -CommandType Function -ErrorAction Stop).ScriptBlock
+            $fixedOriginalCapabilityProbe = (Get-Command Invoke-TargetFilesystemCapabilityProbe -CommandType Function -ErrorAction Stop).ScriptBlock
+            $fixedTreeBefore = Get-TestRegistryTreeHash -Fixture $capabilityFixture
+            $fixedEvidence = Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                [ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+                [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot}
+            )
+            Assert-TestCondition ($fixedEvidence -is [AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence] -and
+                'AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence' -cin @($fixedEvidence.PSObject.TypeNames)) 'fixed infrastructure capture returns genuine CLR-sealed evidence'
+            $fixedRows=@([AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetRowsExact($fixedEvidence))
+            Assert-TestCondition ($fixedRows.Count -eq 2 -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRoleExact($fixedRows[0]) -ceq 'ControlBase' -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRoleExact($fixedRows[1]) -ceq 'BackupRoot') 'input permutation produces the fixed ControlBase then BackupRoot role order'
+            $fixedControlProbeMetadata=Resolve-TargetContext -Path $capabilityProbeRoot -Mode MetadataOnly
+            $fixedBackupProbeMetadata=Resolve-TargetContext -Path $capabilityAlternateProbeRoot -Mode MetadataOnly
+            Assert-TestCondition ([string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootPathExact($fixedRows[0]) -ceq [IO.Path]::GetFullPath($capabilityProbeRoot) -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootPathExact($fixedRows[1]) -ceq [IO.Path]::GetFullPath($capabilityAlternateProbeRoot) -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootIdentityExact($fixedRows[0]) -ceq [string]$fixedControlProbeMetadata.DeepestExistingParentIdentity -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootIdentityExact($fixedRows[1]) -ceq [string]$fixedBackupProbeMetadata.DeepestExistingParentIdentity -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootIdentityExact($fixedRows[0]) -cne
+                    [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootIdentityExact($fixedRows[1])) 'fixed roles retain independent exact probe-root mappings even when their filesystem capability hashes can match'
+            Assert-TestCondition ([string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetCoverageExact($fixedEvidence) -ceq 'FIXED_INFRASTRUCTURE_PROBED' -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetAuthorityContextHashExact($fixedEvidence) -ceq (Get-SemanticJsonHash -InputObject $capabilityFixture.Context) -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRequestedPathExact($fixedRows[0]) -ceq [IO.Path]::GetFullPath([string]$capabilityFixture.Context.ControlBase) -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRequestedPathExact($fixedRows[1]) -ceq [IO.Path]::GetFullPath([string]$capabilityFixture.Context.BackupRoot)) 'fixed evidence binds its authority, coverage, roles, and derived target paths'
+            Assert-TestCondition ((Get-SealedFixedInfrastructureCapabilityProjectionHash -Evidence $fixedEvidence) -ceq
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetProjectionHashExact($fixedEvidence)) 'fixed infrastructure projection hash is reproducible from exact getters'
+            Assert-TestCondition ([string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFilesystemCapabilityHashExact($fixedRows[0]) -ceq
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFilesystemCapabilityHashExact($fixedRows[1])) 'same-volume fixed roles may share capability semantics without collapsing their role mapping'
+            Assert-TestCondition ((Get-TestRegistryTreeHash -Fixture $capabilityFixture) -ceq $fixedTreeBefore -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0 -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityAlternateProbeRoot)).Count -eq 0) 'successful fixed capture leaves the authority tree stable and no owned probe residue'
+
+            $fixedRowsClone=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetRowsExact($fixedEvidence)
+            $fixedRowsClone[0]=$fixedRowsClone[1]
+            $fixedEvidence | Add-Member -Force -NotePropertyName Rows -NotePropertyValue @()
+            $fixedEvidence | Add-Member -Force -NotePropertyName Coverage -NotePropertyValue 'FORGED'
+            $fixedRows[0] | Add-Member -Force -NotePropertyName Role -NotePropertyValue 'BackupRoot'
+            $fixedRowsAfterForgery=@([AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetRowsExact($fixedEvidence))
+            Assert-TestCondition ($fixedRowsAfterForgery.Count -eq 2 -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetCoverageExact($fixedEvidence) -ceq 'FIXED_INFRASTRUCTURE_PROBED' -and
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRoleExact($fixedRowsAfterForgery[0]) -ceq 'ControlBase') 'ETS shadows and mutation of a returned rows clone cannot alter sealed fixed evidence'
+
+            $fixedExpectedBindings=@(
+                [ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot;ExpectedFilesystemCapabilityHash=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFilesystemCapabilityHashExact($fixedRows[1])}
+                [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot;ExpectedFilesystemCapabilityHash=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFilesystemCapabilityHashExact($fixedRows[0])}
+            )
+            $fixedExpectedEvidence=Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings $fixedExpectedBindings
+            $fixedExpectedRows=@([AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetRowsExact($fixedExpectedEvidence))
+            Assert-TestCondition (@($fixedExpectedRows | Where-Object {
+                -not [bool][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetVerifiedAgainstExpectedExact($_) -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetExpectedCapabilityHashExact($_) -cne
+                    [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFilesystemCapabilityHashExact($_)
+            }).Count -eq 0) 'each fixed role independently preserves expected-hash and VerifiedAgainstExpected semantics'
+
+            $fixedGuardProbeState=[pscustomobject]@{Count=0L}
+            $fixedGuardProbe={
+                param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo,[Parameter(Mandatory)][string]$ExpectedProbeRootIdentity)
+                $fixedGuardProbeState.Count++
+                throw 'unexpected-fixed-capability-probe'
+            }.GetNewClosure()
+            $fixedInvalidBindingCases=@(
+                [pscustomobject]@{Name='missing role row';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot})}
+                [pscustomobject]@{Name='null row';Bindings=@($null,[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='missing Role property';Bindings=@([ordered]@{ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='missing ProbeRoot property';Bindings=@([ordered]@{Role='ControlBase'},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='blank Role value';Bindings=@([ordered]@{Role='   ';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='duplicate role';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='ControlBase';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='extra role';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='RecoveryRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='extra property';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot;Extra='x'},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='invalid hash';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot;ExpectedFilesystemCapabilityHash='not-a-hash'},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='null expected hash';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot;ExpectedFilesystemCapabilityHash=$null},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='empty expected hash';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot;ExpectedFilesystemCapabilityHash=''},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='whitespace expected hash';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot;ExpectedFilesystemCapabilityHash='  '},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+                [pscustomobject]@{Name='empty ProbeRoot value';Bindings=@([ordered]@{Role='ControlBase';ProbeRoot=''},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot})}
+            )
+            try {
+                Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $fixedGuardProbe
+                foreach($case in $fixedInvalidBindingCases){
+                    Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings $case.Bindings | Out-Null } '^fixed-infrastructure-capability-binding-invalid$' "fixed role map rejects $($case.Name) before the first real probe"
+                }
+                Assert-TestCondition ([long]$fixedGuardProbeState.Count -eq 0L) 'the complete fixed role-map contract is validated before the first real probe'
+            }
+            finally { Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $fixedOriginalCapabilityProbe }
+
+            $fixedFailureTreeBefore=Get-TestRegistryTreeHash -Fixture $capabilityFixture
+            Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot;ExpectedFilesystemCapabilityHash=('0' * 64)}
+                [ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+            ) | Out-Null } '^capability-evidence-mismatch$' 'a real fixed-role expected-hash mismatch propagates the lower-level stable error'
+            Assert-TestCondition ((Get-TestRegistryTreeHash -Fixture $capabilityFixture) -ceq $fixedFailureTreeBefore -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0 -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityAlternateProbeRoot)).Count -eq 0) 'failed fixed capture closes its outer envelope and leaves no owned probe residue or authority drift'
+
+            $fixedOriginalEnvelopeClose=(Get-Command Close-SealedHomeAuthorityFixedEnvelope -CommandType Function -ErrorAction Stop).ScriptBlock
+            $fixedEnvelopeCloseState=[pscustomobject]@{OuterCalls=0L}
+            $fixedEnvelopeCloseShadow={
+                param([Parameter(Mandatory)]$EnvelopeLease)
+                $directCaller=[string]@(Get-PSCallStack)[1].Command
+                & $fixedOriginalEnvelopeClose -EnvelopeLease $EnvelopeLease
+                if($directCaller -ceq 'Invoke-SealedHeldFixedInfrastructureCapabilityCapture'){
+                    $fixedEnvelopeCloseState.OuterCalls++
+                    throw 'injected-fixed-capability-close-error'
+                }
+            }.GetNewClosure()
+            try {
+                Set-Item -LiteralPath Function:\Close-SealedHomeAuthorityFixedEnvelope -Value $fixedEnvelopeCloseShadow
+                $fixedPrimaryAndCleanupError=$null
+                try {
+                    Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                        [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot;ExpectedFilesystemCapabilityHash=('0' * 64)}
+                        [ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+                    ) | Out-Null
+                    throw 'FAIL: fixed capture preserves primary and records outer cleanup failure (did not throw)'
+                }
+                catch {
+                    if($_.Exception.Message -like 'FAIL:*'){throw}
+                    $fixedPrimaryAndCleanupError=$_
+                }
+                Assert-TestCondition ($fixedPrimaryAndCleanupError.Exception.Message -ceq 'capability-evidence-mismatch' -and
+                    [string]$fixedPrimaryAndCleanupError.Exception.Data['SealedFixedInfrastructureCapabilityCleanupError'] -ceq 'injected-fixed-capability-close-error') 'fixed capture preserves its primary exception and records outer-envelope cleanup failure as secondary Data'
+
+                Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                    [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot}
+                    [ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+                ) | Out-Null } '^injected-fixed-capability-close-error$' 'fixed capture surfaces outer-envelope cleanup failure when there is no primary error'
+                Assert-TestCondition ([long]$fixedEnvelopeCloseState.OuterCalls -eq 2L -and
+                    @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0 -and
+                    @([IO.Directory]::EnumerateFileSystemEntries($capabilityAlternateProbeRoot)).Count -eq 0) 'outer-envelope close failure regressions still release both leases and leave no owned probe residue'
+            }
+            finally { Set-Item -LiteralPath Function:\Close-SealedHomeAuthorityFixedEnvelope -Value $fixedOriginalEnvelopeClose }
+
+            $fixedBaselineRaw=& $fixedOriginalRawPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @(
+                [ordered]@{Path=[string]$capabilityFixture.Context.ControlBase;ProbeRoot=$capabilityProbeRoot}
+                [ordered]@{Path=[string]$capabilityFixture.Context.BackupRoot;ProbeRoot=$capabilityAlternateProbeRoot}
+            )
+            $fixedEvidenceValidationArguments=@{
+                AuthorityContext=$capabilityFixture.Context
+                ExpectedAuthorityContextHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetAuthorityContextHashExact($fixedBaselineRaw)
+                ExpectedFixedEnvelopeHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetFixedEnvelopeHashExact($fixedBaselineRaw)
+                ExpectedLockSecurityHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetLockSecurityHashExact($fixedBaselineRaw)
+                ControlBaseProbeRoot=$capabilityProbeRoot
+                BackupRootProbeRoot=$capabilityAlternateProbeRoot
+                ControlBaseExpectedCapabilityHash=$null
+                BackupRootExpectedCapabilityHash=$null
+            }
+            $fixedValidatedBaselineRows=Assert-SealedFixedInfrastructureCapabilityEvidenceExact -Evidence $fixedBaselineRaw @fixedEvidenceValidationArguments
+            Assert-TestCondition ($fixedValidatedBaselineRows.ControlBase -is [AiAgentDotfiles.SealedCapabilityPreflightRow] -and
+                $fixedValidatedBaselineRows.BackupRoot -is [AiAgentDotfiles.SealedCapabilityPreflightRow]) 'the side-effect-free fixed evidence validator returns the exact two role-mapped raw rows for genuine evidence'
+
+            $fixedForgedRaw=[pscustomobject]@{}
+            $fixedForgedRaw.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.SealedCapabilityPreflightEvidence')
+            Assert-ThrowsPattern { Assert-SealedFixedInfrastructureCapabilityEvidenceExact -Evidence $fixedForgedRaw @fixedEvidenceValidationArguments | Out-Null } '^fixed-infrastructure-capability-evidence-invalid$' 'the fixed evidence validator rejects a type-name-forged lower-level evidence object'
+
+            $fixedBadProjectionRaw=[AiAgentDotfiles.SealedCapabilityPreflightEvidence]::CreateExact(
+                [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetAuthorityContextHashExact($fixedBaselineRaw),
+                [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetFixedEnvelopeHashExact($fixedBaselineRaw),
+                [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetLockSecurityHashExact($fixedBaselineRaw),
+                [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowsExact($fixedBaselineRaw),('0' * 64))
+            Assert-ThrowsPattern { Assert-SealedFixedInfrastructureCapabilityEvidenceExact -Evidence $fixedBadProjectionRaw @fixedEvidenceValidationArguments | Out-Null } '^fixed-infrastructure-capability-evidence-invalid$' 'the fixed evidence validator rejects genuine CLR evidence with an unreproducible projection hash'
+
+            $newFixedRawMutation={
+                param([AiAgentDotfiles.SealedCapabilityPreflightEvidence]$Source,[string]$Kind)
+                $authorityHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetAuthorityContextHashExact($Source)
+                $fixedHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetFixedEnvelopeHashExact($Source)
+                $lockHash=[string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetLockSecurityHashExact($Source)
+                $rowData=[Collections.Generic.List[object]]::new()
+                foreach($row in @([AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowsExact($Source))){
+                    $rowData.Add([ordered]@{
+                        RequestedPath=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetRequestedPathExact($row)
+                        LocationKey=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($row)
+                        TargetStatus=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetTargetStatusExact($row)
+                        ProbeRootPath=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootPathExact($row)
+                        ProbeRootLocationKey=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootLocationKeyExact($row)
+                        ProbeRootIdentity=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootIdentityExact($row)
+                        DriveType=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetDriveTypeExact($row)
+                        FileSystemType=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFileSystemTypeExact($row)
+                        VolumeSerial=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVolumeSerialExact($row)
+                        FilesystemCapabilityHash=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($row)
+                        ExpectedCapabilityHash=[AiAgentDotfiles.SealedCapabilityPreflightRow]::GetExpectedCapabilityHashExact($row)
+                        VerifiedAgainstExpected=[AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVerifiedAgainstExpectedExact($row)
+                    })
+                }
+                switch($Kind){
+                    'AuthorityHash' {$authorityHash='0' * 64}
+                    'RowCount' {$rowData.RemoveAt(1)}
+                    'TargetStatus' {$rowData[0].TargetStatus='MISSING'}
+                    'TargetPath' {$rowData[0].RequestedPath=[IO.Path]::GetFullPath([string]$capabilityFixture.Root)}
+                    'ProbeIdentity' {$rowData[0].ProbeRootIdentity='ffffffff:ffffffffffffffff'}
+                    'VolumeSerial' {$rowData[0].VolumeSerial='ffffffff'}
+                    'FilesystemType' {$rowData[0].FileSystemType='ReFS'}
+                    'CapabilityHash' {foreach($data in $rowData){$data.FilesystemCapabilityHash='0' * 64}}
+                    'ExpectedSemantics' {$rowData[0].ExpectedCapabilityHash='0' * 64;$rowData[0].VerifiedAgainstExpected=$false}
+                    default {throw "unsupported fixed raw mutation: $Kind"}
+                }
+                $mutatedRows=[AiAgentDotfiles.SealedCapabilityPreflightRow[]]::new($rowData.Count)
+                for($index=0;$index -lt $rowData.Count;$index++){
+                    $data=$rowData[$index]
+                    $mutatedRows[$index]=[AiAgentDotfiles.SealedCapabilityPreflightRow]::CreateExact(
+                        $data.RequestedPath,$data.LocationKey,$data.TargetStatus,
+                        $data.ProbeRootPath,$data.ProbeRootLocationKey,$data.ProbeRootIdentity,
+                        $data.DriveType,$data.FileSystemType,$data.VolumeSerial,$data.FilesystemCapabilityHash,
+                        $data.ExpectedCapabilityHash,$data.VerifiedAgainstExpected)
+                }
+                $rowProjections=foreach($row in $mutatedRows){Get-SealedCapabilityPreflightRowProjection -Row $row}
+                $projectionHash=Get-SemanticJsonHash -InputObject ([ordered]@{
+                    AuthorityContextHash=$authorityHash;FixedEnvelopeHash=$fixedHash;LockSecurityHash=$lockHash;Rows=@($rowProjections)
+                })
+                return [AiAgentDotfiles.SealedCapabilityPreflightEvidence]::CreateExact($authorityHash,$fixedHash,$lockHash,$mutatedRows,$projectionHash)
+            }.GetNewClosure()
+
+            $fixedExactIssuerRedFailures=[Collections.Generic.List[string]]::new()
+            $fixedForgedSelfConsistentRaw=& $newFixedRawMutation $fixedBaselineRaw 'CapabilityHash'
+            $fixedForgedRawShadowState=[pscustomobject]@{Called=$false}
+            $fixedForgedSelfConsistentRawShadow={
+                param($AuthorityContext,$GlobalLockHandle,$CanonicalWitness,$CapabilityTargets)
+                $fixedForgedRawShadowState.Called=$true
+                return $fixedForgedSelfConsistentRaw
+            }.GetNewClosure()
+            try {
+                Set-Item -LiteralPath Function:\Invoke-SealedHeldCapabilityPreflight -Value $fixedForgedSelfConsistentRawShadow
+                try {
+                    Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                        [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+                    ) | Out-Null
+                    $fixedExactIssuerRedFailures.Add('self-consistent public-factory raw evidence was accepted')
+                }
+                catch {
+                    if($_.Exception.Message -cne 'fixed-infrastructure-capability-evidence-invalid'){$fixedExactIssuerRedFailures.Add("raw evidence bypass returned unexpected token: $($_.Exception.Message)")}
+                }
+            }
+            finally { Set-Item -LiteralPath Function:\Invoke-SealedHeldCapabilityPreflight -Value $fixedOriginalRawPreflight }
+
+            $fixedFakeProbeShadowState=[pscustomobject]@{Calls=0L}
+            $fixedFakeProbeShadow={
+                param([Parameter(Mandatory)][string]$ProbeRoot,[Parameter(Mandatory)]$VolumeInfo,[Parameter(Mandatory)][string]$ExpectedProbeRootIdentity)
+                $fixedFakeProbeShadowState.Calls++
+                return '0' * 64
+            }.GetNewClosure()
+            try {
+                Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $fixedFakeProbeShadow
+                try {
+                    Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                        [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+                    ) | Out-Null
+                    $fixedExactIssuerRedFailures.Add('shadowed lower probe arbitrary hash was accepted')
+                }
+                catch {
+                    if($_.Exception.Message -cne 'fixed-infrastructure-capability-evidence-invalid'){$fixedExactIssuerRedFailures.Add("lower probe bypass returned unexpected token: $($_.Exception.Message)")}
+                }
+            }
+            finally { Set-Item -LiteralPath Function:\Invoke-TargetFilesystemCapabilityProbe -Value $fixedOriginalCapabilityProbe }
+            if($fixedExactIssuerRedFailures.Count -gt 0){
+                throw "FAIL: fixed exact issuer bypass RED: $($fixedExactIssuerRedFailures -join '; '); rawShadowCalled=$($fixedForgedRawShadowState.Called); fakeProbeCalls=$($fixedFakeProbeShadowState.Calls); primaryEntries=$(@([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count); alternateEntries=$(@([IO.Directory]::EnumerateFileSystemEntries($capabilityAlternateProbeRoot)).Count)"
+            }
+            Assert-TestCondition (-not [bool]$fixedForgedRawShadowState.Called -and [long]$fixedFakeProbeShadowState.Calls -eq 0L -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0 -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityAlternateProbeRoot)).Count -eq 0) 'fixed capture rejects raw/probe command shadows before invocation and leaves both probe roots untouched'
+
+            foreach($mutationKind in @('AuthorityHash','RowCount','TargetStatus','TargetPath','ProbeIdentity','VolumeSerial','FilesystemType','ExpectedSemantics')){
+                $fixedMutatedRawEvidence=& $newFixedRawMutation $fixedBaselineRaw $mutationKind
+                Assert-ThrowsPattern { Assert-SealedFixedInfrastructureCapabilityEvidenceExact -Evidence $fixedMutatedRawEvidence @fixedEvidenceValidationArguments | Out-Null } '^fixed-infrastructure-capability-evidence-invalid$' "the fixed evidence validator rejects genuine, self-consistent lower evidence with $mutationKind drift"
+            }
+
+            $fixedForeignSlot=Join-Path $capabilityProbeRoot '.target-capability-fixed-foreign-owned-by-test'
+            $fixedForeignFile=Join-Path $fixedForeignSlot 'foreign.bin'
+            $fixedForeignBytes=[Text.Encoding]::UTF8.GetBytes('fixed foreign residue')
+            try {
+                [IO.Directory]::CreateDirectory($fixedForeignSlot) | Out-Null
+                [IO.File]::WriteAllBytes($fixedForeignFile,$fixedForeignBytes)
+                Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                    [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+                ) | Out-Null } '^capability-probe-root-residue$' 'fixed capture propagates lower-level foreign residue failure without trusting a probe shadow'
+                Assert-TestCondition ((Test-Path -LiteralPath $fixedForeignFile -PathType Leaf) -and
+                    [Convert]::ToHexString([IO.File]::ReadAllBytes($fixedForeignFile)) -ceq [Convert]::ToHexString($fixedForeignBytes)) 'fixed capture deletes only lower-level owned GUID slots and preserves foreign matching residue'
+            }
+            finally {
+                if(Test-Path -LiteralPath $fixedForeignSlot){[IO.Directory]::Delete($fixedForeignSlot,$true)}
+            }
+
+            $fixedCanonicalBindingOriginal=(Get-Command Assert-HomeAuthorityCanonicalGlobalLockBinding -CommandType Function -ErrorAction Stop).ScriptBlock
+            $fixedCanonicalWitnessHash=[string]$capabilityGlobal.CanonicalWitnessHash
+            $fixedCanonicalBindingState=[pscustomobject]@{Calls=0L;Mutated=$false}
+            $fixedCanonicalBindingShadow={
+                param($AuthorityContext,$GlobalLockHandle,$CanonicalWitness)
+                $fixedCanonicalBindingState.Calls++
+                if([long]$fixedCanonicalBindingState.Calls -eq 3L){
+                    $GlobalLockHandle.CanonicalWitnessHash=('0' * 64)
+                    $fixedCanonicalBindingState.Mutated=$true
+                }
+                & $fixedCanonicalBindingOriginal -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness
+            }.GetNewClosure()
+            try {
+                Set-Item -LiteralPath Function:\Assert-HomeAuthorityCanonicalGlobalLockBinding -Value $fixedCanonicalBindingShadow
+                Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                    [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+                ) | Out-Null } '^fixed-infrastructure-capability-lock-drift$' 'final canonical/global binding validation fails closed after exact real probes when the binding display drifts'
+            }
+            finally {
+                $capabilityGlobal.CanonicalWitnessHash=$fixedCanonicalWitnessHash
+                Set-Item -LiteralPath Function:\Assert-HomeAuthorityCanonicalGlobalLockBinding -Value $fixedCanonicalBindingOriginal
+            }
+            Assert-TestCondition ([long]$fixedCanonicalBindingState.Calls -eq 3L -and [bool]$fixedCanonicalBindingState.Mutated -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0 -and
+                @([IO.Directory]::EnumerateFileSystemEntries($capabilityAlternateProbeRoot)).Count -eq 0) 'final canonical-binding drift is injected only after entry and exact raw binding checks and leaves no owned probe residue'
         }
         finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $capabilityGlobal }
 
         $capabilityPlainGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $capabilityFixture.Context
         try {
             Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityPlainGlobal -CanonicalWitness $capabilityWitness -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^canonical-witness-required$' 'a capability preflight cannot bind a canonical witness onto a global lock acquired without one'
+            Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityPlainGlobal -CanonicalWitness $capabilityWitness -CapabilityProbeBindings @(
+                [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+            ) | Out-Null } '^fixed-infrastructure-capability-lock-drift$' 'a plain global lock cannot be retroactively bound to a canonical witness for fixed capture'
         }
         finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $capabilityPlainGlobal }
         Assert-ThrowsPattern { Invoke-SealedHeldCapabilityPreflight -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $null -CapabilityTargets @([ordered]@{ Path=[string]$capabilityFixture.Context.ControlBase; ProbeRoot=$capabilityProbeRoot }) | Out-Null } '^home-authority-registry-lock-required$' 'a capability preflight without a genuine global lock fails closed'
+        foreach($invalidFixedLock in @($null,[pscustomobject]@{})){
+            Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $invalidFixedLock -CapabilityProbeBindings @(
+                [ordered]@{Role='ControlBase';ProbeRoot=$capabilityProbeRoot},[ordered]@{Role='BackupRoot';ProbeRoot=$capabilityAlternateProbeRoot}
+            ) | Out-Null } '^fixed-infrastructure-capability-lock-drift$' 'fixed capture rejects a null or forged global lock before probing'
+        }
     }
     finally {
         if ($null -ne $capabilityWitness) { Close-CanonicalHeldNamespaceWitness -Witness $capabilityWitness }
         Exit-CanonicalRepoLock -LockHandle $capabilityLock
     }
+
+    $fixedEnvelopeFixture=New-TestRegistryFixture -Parent $workRoot -Name 'fixed-capability-envelope-drift'
+    $fixedEnvelopeProbeA=Join-Path $fixedEnvelopeFixture.Root 'probe-control'
+    $fixedEnvelopeProbeB=Join-Path $fixedEnvelopeFixture.Root 'probe-backup'
+    foreach($path in @($fixedEnvelopeProbeA,$fixedEnvelopeProbeB)){[IO.Directory]::CreateDirectory($path) | Out-Null}
+    $fixedEnvelopeGlobal=Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $fixedEnvelopeFixture.Context
+    $fixedEnvelopeOriginalProjection=(Get-Command Get-SealedHomeAuthorityFixedEnvelopeProjection -CommandType Function -ErrorAction Stop).ScriptBlock
+    $fixedEnvelopeState=[pscustomobject]@{ProjectionCount=0L;Lease=$null;SameLease=$false;Mutated=$false}
+    $fixedEnvelopeProjectionShadow={
+        param($AuthorityContext,$DirectorySecurityTemplate,$FileSecurityTemplate,$EnvelopeLease,$HeldGlobalLock)
+        $fixedEnvelopeState.ProjectionCount++
+        if([long]$fixedEnvelopeState.ProjectionCount -eq 1L){
+            $fixedEnvelopeState.Lease=$EnvelopeLease
+        }
+        elseif([long]$fixedEnvelopeState.ProjectionCount -eq 2L){
+            $fixedEnvelopeState.SameLease=[object]::ReferenceEquals($fixedEnvelopeState.Lease,$EnvelopeLease)
+            Set-TestDirectoryInheritedCurrentUserOnly -Path ([string]$fixedEnvelopeFixture.Context.BackupRoot)
+            $fixedEnvelopeState.Mutated=$true
+        }
+        & $fixedEnvelopeOriginalProjection -AuthorityContext $AuthorityContext -DirectorySecurityTemplate $DirectorySecurityTemplate -FileSecurityTemplate $FileSecurityTemplate -EnvelopeLease $EnvelopeLease -HeldGlobalLock $HeldGlobalLock
+    }.GetNewClosure()
+    try {
+        Set-Item -LiteralPath Function:\Get-SealedHomeAuthorityFixedEnvelopeProjection -Value $fixedEnvelopeProjectionShadow
+        Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $fixedEnvelopeFixture.Context -GlobalLockHandle $fixedEnvelopeGlobal -CapabilityProbeBindings @(
+            [ordered]@{Role='BackupRoot';ProbeRoot=$fixedEnvelopeProbeB},[ordered]@{Role='ControlBase';ProbeRoot=$fixedEnvelopeProbeA}
+        ) | Out-Null } '^fixed-infrastructure-capability-envelope-drift$' 'outer fixed envelope detects security drift created only after the real probe'
+        Assert-TestCondition ([long]$fixedEnvelopeState.ProjectionCount -eq 2L -and [bool]$fixedEnvelopeState.SameLease -and [bool]$fixedEnvelopeState.Mutated) 'the same outer fixed-envelope lease is held from initial projection through both exact real probes and final projection'
+        Assert-TestCondition (@([IO.Directory]::EnumerateFileSystemEntries($fixedEnvelopeProbeA)).Count -eq 0 -and
+            @([IO.Directory]::EnumerateFileSystemEntries($fixedEnvelopeProbeB)).Count -eq 0) 'envelope-drift failure leaves no owned probe residue'
+    }
+    finally {
+        Set-Item -LiteralPath Function:\Get-SealedHomeAuthorityFixedEnvelopeProjection -Value $fixedEnvelopeOriginalProjection
+        if([bool]$fixedEnvelopeState.Mutated){Set-TestDirectoryCurrentUserOnly -Path ([string]$fixedEnvelopeFixture.Context.BackupRoot)}
+        Exit-HomeAuthorityGlobalLiveLock -LockHandle $fixedEnvelopeGlobal
+    }
+
+    $fixedLockFixture=New-TestRegistryFixture -Parent $workRoot -Name 'fixed-capability-lock-drift'
+    $fixedLockProbeA=Join-Path $fixedLockFixture.Root 'probe-control'
+    $fixedLockProbeB=Join-Path $fixedLockFixture.Root 'probe-backup'
+    foreach($path in @($fixedLockProbeA,$fixedLockProbeB)){[IO.Directory]::CreateDirectory($path) | Out-Null}
+    $fixedOldGlobal=Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $fixedLockFixture.Context
+    $fixedLockOriginalAssert=(Get-Command Assert-SealedHomeAuthorityGlobalLockWitness -CommandType Function -ErrorAction Stop).ScriptBlock
+    $fixedLockState=[pscustomobject]@{AssertCalls=0L;OldReleased=$false;Replacement=$null}
+    $fixedLockAssertShadow={
+        param($AuthorityContext,$GlobalLockHandle)
+        $fixedLockState.AssertCalls++
+        if([long]$fixedLockState.AssertCalls -eq 3L){
+            Exit-HomeAuthorityGlobalLiveLock -LockHandle $GlobalLockHandle
+            $fixedLockState.OldReleased=$true
+            $fixedLockState.Replacement=Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $AuthorityContext
+        }
+        & $fixedLockOriginalAssert -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
+    }.GetNewClosure()
+    $fixedLockTreeBefore=Get-TestRegistryTreeHash -Fixture $fixedLockFixture
+    try {
+        Set-Item -LiteralPath Function:\Assert-SealedHomeAuthorityGlobalLockWitness -Value $fixedLockAssertShadow
+        Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $fixedLockFixture.Context -GlobalLockHandle $fixedOldGlobal -CapabilityProbeBindings @(
+            [ordered]@{Role='ControlBase';ProbeRoot=$fixedLockProbeA},[ordered]@{Role='BackupRoot';ProbeRoot=$fixedLockProbeB}
+        ) | Out-Null } '^fixed-infrastructure-capability-lock-drift$' 'release and reacquire of the same global lock path fails the final exact lock-evidence comparison'
+        Assert-TestCondition ([long]$fixedLockState.AssertCalls -eq 3L -and $null -ne $fixedLockState.Replacement -and
+            -not [object]::ReferenceEquals($fixedOldGlobal,$fixedLockState.Replacement)) 'lock-drift fixture replaces the caller-held wrapper only at the final lock revalidation after exact real probes'
+        Assert-TestCondition ((Get-TestRegistryTreeHash -Fixture $fixedLockFixture) -ceq $fixedLockTreeBefore -and
+            @([IO.Directory]::EnumerateFileSystemEntries($fixedLockProbeA)).Count -eq 0 -and
+            @([IO.Directory]::EnumerateFileSystemEntries($fixedLockProbeB)).Count -eq 0) 'lock-drift failure leaves the authority tree stable and no owned probe residue'
+    }
+    finally {
+        Set-Item -LiteralPath Function:\Assert-SealedHomeAuthorityGlobalLockWitness -Value $fixedLockOriginalAssert
+        if($null -ne $fixedLockState.Replacement){Exit-HomeAuthorityGlobalLiveLock -LockHandle $fixedLockState.Replacement}
+        elseif(-not [bool]$fixedLockState.OldReleased){Exit-HomeAuthorityGlobalLiveLock -LockHandle $fixedOldGlobal}
+    }
+
+    $fixedReleasedFixture=New-TestRegistryFixture -Parent $workRoot -Name 'fixed-capability-released-lock'
+    $fixedReleasedProbeA=Join-Path $fixedReleasedFixture.Root 'probe-control'
+    $fixedReleasedProbeB=Join-Path $fixedReleasedFixture.Root 'probe-backup'
+    foreach($path in @($fixedReleasedProbeA,$fixedReleasedProbeB)){[IO.Directory]::CreateDirectory($path) | Out-Null}
+    $fixedReleasedOld=Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $fixedReleasedFixture.Context
+    Exit-HomeAuthorityGlobalLiveLock -LockHandle $fixedReleasedOld
+    Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $fixedReleasedFixture.Context -GlobalLockHandle $fixedReleasedOld -CapabilityProbeBindings @(
+        [ordered]@{Role='ControlBase';ProbeRoot=$fixedReleasedProbeA},[ordered]@{Role='BackupRoot';ProbeRoot=$fixedReleasedProbeB}
+    ) | Out-Null } '^fixed-infrastructure-capability-lock-drift$' 'a released genuine global lock fails closed before fixed probing'
+    $fixedReleasedReplacement=Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $fixedReleasedFixture.Context
+    try {
+        Assert-ThrowsPattern { Invoke-SealedHeldFixedInfrastructureCapabilityCapture -AuthorityContext $fixedReleasedFixture.Context -GlobalLockHandle $fixedReleasedOld -CapabilityProbeBindings @(
+            [ordered]@{Role='ControlBase';ProbeRoot=$fixedReleasedProbeA},[ordered]@{Role='BackupRoot';ProbeRoot=$fixedReleasedProbeB}
+        ) | Out-Null } '^fixed-infrastructure-capability-lock-drift$' 'a released-and-reacquired lock path cannot authenticate the stale genuine wrapper'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $fixedReleasedReplacement }
 
     $live = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction'
     $liveId = '33333333-3333-4333-8333-333333333333'

@@ -2154,14 +2154,127 @@ function Get-SealedCapabilityPreflightProjectionHash {
     })
 }
 
+function Throw-SealedFixedInfrastructureCapabilityIssuerException {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][Exception]$Exception)
+
+    $domainException=$Exception
+    while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+        $domainException -is [System.Management.Automation.RuntimeException]) -and
+        $null -ne $domainException.InnerException){
+        $domainException=$domainException.InnerException
+        if($domainException -is [AggregateException]){break}
+    }
+    throw $domainException
+}
+
+if (-not ('AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.ObjectModel;
+using System.Management.Automation;
+
+namespace AiAgentDotfiles {
+    public static class SealedFixedInfrastructureCapabilityIssuer {
+        private static readonly object Gate = new object();
+        private static readonly object ExactIssuerToken = new object();
+        private static ScriptBlock rawPreflight;
+        private static ScriptBlock capabilityProbe;
+        private static string rawPreflightText;
+        private static string capabilityProbeText;
+
+        private static string GetExactText(ScriptBlock value) {
+            return value == null || value.Ast == null || value.Ast.Extent == null ? null : value.Ast.Extent.Text;
+        }
+
+        private static bool MatchesExactDefinition(ScriptBlock candidate, ScriptBlock canonical, string canonicalText) {
+            if (candidate == null || canonical == null || canonicalText == null) return false;
+            if (Object.ReferenceEquals(candidate, canonical)) return true;
+            return String.Equals(GetExactText(candidate), canonicalText, StringComparison.Ordinal);
+        }
+
+        public static void InitializeExact(ScriptBlock rawPreflightValue, ScriptBlock capabilityProbeValue) {
+            if (rawPreflightValue == null || capabilityProbeValue == null)
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            lock (Gate) {
+                if (rawPreflight == null && capabilityProbe == null) {
+                    rawPreflight = rawPreflightValue;
+                    capabilityProbe = capabilityProbeValue;
+                    rawPreflightText = GetExactText(rawPreflightValue);
+                    capabilityProbeText = GetExactText(capabilityProbeValue);
+                    return;
+                }
+                if (!MatchesExactDefinition(rawPreflightValue, rawPreflight, rawPreflightText) ||
+                    !MatchesExactDefinition(capabilityProbeValue, capabilityProbe, capabilityProbeText))
+                    throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            }
+        }
+
+        public static bool MatchesRawExact(ScriptBlock candidate) {
+            lock (Gate) { return MatchesExactDefinition(candidate, rawPreflight, rawPreflightText); }
+        }
+
+        public static bool MatchesProbeExact(ScriptBlock candidate) {
+            lock (Gate) { return MatchesExactDefinition(candidate, capabilityProbe, capabilityProbeText); }
+        }
+
+        public static bool IsExactIssuerToken(object candidate) {
+            return Object.ReferenceEquals(ExactIssuerToken, candidate);
+        }
+
+        private static object InvokeSingleExact(ScriptBlock command, object[] arguments) {
+            if (command == null)
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            Collection<PSObject> output = command.Invoke(arguments);
+            if (output == null || output.Count != 1 || output[0] == null)
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            return output[0].BaseObject;
+        }
+
+        public static object InvokeRawExact(object authorityContext, object globalLockHandle,
+            object canonicalWitness, object[] capabilityTargets) {
+            ScriptBlock command;
+            lock (Gate) { command = rawPreflight; }
+            return InvokeSingleExact(command, new object[] {
+                authorityContext, globalLockHandle, canonicalWitness, capabilityTargets, ExactIssuerToken
+            });
+        }
+
+        public static object InvokeProbeExact(object issuerToken, string probeRoot, object volumeInfo,
+            string expectedProbeRootIdentity) {
+            if (!Object.ReferenceEquals(ExactIssuerToken, issuerToken))
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            ScriptBlock command;
+            lock (Gate) { command = capabilityProbe; }
+            return InvokeSingleExact(command, new object[] { probeRoot, volumeInfo, expectedProbeRootIdentity });
+        }
+    }
+}
+'@
+}
+
 function Invoke-SealedHeldCapabilityPreflight {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$AuthorityContext,
         [Parameter(Mandatory)][AllowNull()]$GlobalLockHandle,
         [AllowNull()]$CanonicalWitness,
-        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$CapabilityTargets
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$CapabilityTargets,
+        [Parameter(DontShow)][AllowNull()]$FixedInfrastructureExactIssuerToken
     )
+
+    $useFixedInfrastructureExactIssuer = $null -ne $FixedInfrastructureExactIssuerToken
+    if ($useFixedInfrastructureExactIssuer) {
+        if (-not [AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]::IsExactIssuerToken($FixedInfrastructureExactIssuerToken)) {
+            throw 'fixed-infrastructure-capability-evidence-invalid'
+        }
+        $currentCapabilityProbe = $ExecutionContext.SessionState.InvokeCommand.GetCommand(
+            'Invoke-TargetFilesystemCapabilityProbe',[System.Management.Automation.CommandTypes]::Function)
+        if ($null -eq $currentCapabilityProbe -or
+            -not [AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]::MatchesProbeExact($currentCapabilityProbe.ScriptBlock)) {
+            throw 'fixed-infrastructure-capability-evidence-invalid'
+        }
+    }
 
     if (@($CapabilityTargets).Count -eq 0) { throw 'capability-preflight-target-required' }
     $lockEvidence = Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
@@ -2297,7 +2410,18 @@ function Invoke-SealedHeldCapabilityPreflight {
         $metadata = $binding.Metadata
         $volumeInfo = $binding.TargetVolumeInfo
         $expectedValue = $binding.ExpectedCapabilityHash
-        $capabilityHash = Invoke-TargetFilesystemCapabilityProbe -ProbeRoot ([string]$binding.ProbeRootPath) -VolumeInfo $volumeInfo -ExpectedProbeRootIdentity ([string]$binding.ProbeRootIdentity)
+        $capabilityHash = if ($useFixedInfrastructureExactIssuer) {
+            try {
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]::InvokeProbeExact(
+                    $FixedInfrastructureExactIssuerToken,[string]$binding.ProbeRootPath,$volumeInfo,[string]$binding.ProbeRootIdentity)
+            }
+            catch {
+                Throw-SealedFixedInfrastructureCapabilityIssuerException -Exception $_.Exception
+            }
+        }
+        else {
+            Invoke-TargetFilesystemCapabilityProbe -ProbeRoot ([string]$binding.ProbeRootPath) -VolumeInfo $volumeInfo -ExpectedProbeRootIdentity ([string]$binding.ProbeRootIdentity)
+        }
 
         $verified = $null
         if ($null -ne $expectedValue) {
@@ -2343,4 +2467,497 @@ function Invoke-SealedHeldCapabilityPreflight {
         [string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetFixedEnvelopeHashExact($lockEvidence),
         [string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetLockSecurityHashExact($lockEvidence),
         $rowArray,[string]$projectionHash)
+}
+
+$sealedFixedInfrastructureRawCommand = $ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Invoke-SealedHeldCapabilityPreflight',[System.Management.Automation.CommandTypes]::Function)
+$sealedFixedInfrastructureProbeCommand = $ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Invoke-TargetFilesystemCapabilityProbe',[System.Management.Automation.CommandTypes]::Function)
+if ($null -eq $sealedFixedInfrastructureRawCommand -or $null -eq $sealedFixedInfrastructureProbeCommand) {
+    throw 'fixed-infrastructure-capability-evidence-invalid'
+}
+[AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]::InitializeExact(
+    $sealedFixedInfrastructureRawCommand.ScriptBlock,$sealedFixedInfrastructureProbeCommand.ScriptBlock)
+
+if (-not ('AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+
+namespace AiAgentDotfiles {
+    public sealed class SealedFixedInfrastructureCapabilityRoleRow {
+        private readonly string role;
+        private readonly string requestedPath;
+        private readonly string locationKey;
+        private readonly string targetStatus;
+        private readonly string probeRootPath;
+        private readonly string probeRootLocationKey;
+        private readonly string probeRootIdentity;
+        private readonly string driveType;
+        private readonly string fileSystemType;
+        private readonly string volumeSerial;
+        private readonly string filesystemCapabilityHash;
+        private readonly string expectedCapabilityHash;
+        private readonly bool? verifiedAgainstExpected;
+
+        private SealedFixedInfrastructureCapabilityRoleRow(string roleValue, string requestedPathValue,
+            string locationKeyValue, string targetStatusValue, string probeRootPathValue,
+            string probeRootLocationKeyValue, string probeRootIdentityValue, string driveTypeValue,
+            string fileSystemTypeValue, string volumeSerialValue, string filesystemCapabilityHashValue,
+            string expectedCapabilityHashValue, bool? verifiedAgainstExpectedValue) {
+            role = roleValue;
+            requestedPath = requestedPathValue;
+            locationKey = locationKeyValue;
+            targetStatus = targetStatusValue;
+            probeRootPath = probeRootPathValue;
+            probeRootLocationKey = probeRootLocationKeyValue;
+            probeRootIdentity = probeRootIdentityValue;
+            driveType = driveTypeValue;
+            fileSystemType = fileSystemTypeValue;
+            volumeSerial = volumeSerialValue;
+            filesystemCapabilityHash = filesystemCapabilityHashValue;
+            expectedCapabilityHash = expectedCapabilityHashValue;
+            verifiedAgainstExpected = verifiedAgainstExpectedValue;
+        }
+
+        private static bool IsLowerHex64(string value) {
+            if (value == null || value.Length != 64) return false;
+            for (int index = 0; index < value.Length; index++) {
+                char current = value[index];
+                if (!((current >= '0' && current <= '9') || (current >= 'a' && current <= 'f'))) return false;
+            }
+            return true;
+        }
+
+        public static SealedFixedInfrastructureCapabilityRoleRow CreateExact(string roleValue,
+            string requestedPathValue, string locationKeyValue, string targetStatusValue,
+            string probeRootPathValue, string probeRootLocationKeyValue, string probeRootIdentityValue,
+            string driveTypeValue, string fileSystemTypeValue, string volumeSerialValue,
+            string filesystemCapabilityHashValue, string expectedCapabilityHashValue,
+            bool? verifiedAgainstExpectedValue) {
+            if (!(String.Equals(roleValue,"ControlBase",StringComparison.Ordinal) ||
+                    String.Equals(roleValue,"BackupRoot",StringComparison.Ordinal)) ||
+                String.IsNullOrEmpty(requestedPathValue) || String.IsNullOrEmpty(locationKeyValue) ||
+                !String.Equals(targetStatusValue,"EXISTS",StringComparison.Ordinal) ||
+                String.IsNullOrEmpty(probeRootPathValue) || String.IsNullOrEmpty(probeRootLocationKeyValue) ||
+                String.IsNullOrEmpty(probeRootIdentityValue) ||
+                !String.Equals(driveTypeValue,"Fixed",StringComparison.Ordinal) ||
+                !String.Equals(fileSystemTypeValue,"NTFS",StringComparison.Ordinal) ||
+                String.IsNullOrEmpty(volumeSerialValue) || !IsLowerHex64(filesystemCapabilityHashValue)) {
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            }
+            if (String.IsNullOrEmpty(expectedCapabilityHashValue)) {
+                if (verifiedAgainstExpectedValue.HasValue) {
+                    throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+                }
+                expectedCapabilityHashValue = null;
+                verifiedAgainstExpectedValue = null;
+            }
+            else if (!IsLowerHex64(expectedCapabilityHashValue) ||
+                !verifiedAgainstExpectedValue.HasValue || !verifiedAgainstExpectedValue.Value ||
+                !String.Equals(expectedCapabilityHashValue,filesystemCapabilityHashValue,StringComparison.Ordinal)) {
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            }
+            return new SealedFixedInfrastructureCapabilityRoleRow(roleValue,requestedPathValue,
+                locationKeyValue,targetStatusValue,probeRootPathValue,probeRootLocationKeyValue,
+                probeRootIdentityValue,driveTypeValue,fileSystemTypeValue,volumeSerialValue,
+                filesystemCapabilityHashValue,expectedCapabilityHashValue,verifiedAgainstExpectedValue);
+        }
+
+        public static string GetRoleExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.role; }
+        public static string GetRequestedPathExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.requestedPath; }
+        public static string GetLocationKeyExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.locationKey; }
+        public static string GetTargetStatusExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.targetStatus; }
+        public static string GetProbeRootPathExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.probeRootPath; }
+        public static string GetProbeRootLocationKeyExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.probeRootLocationKey; }
+        public static string GetProbeRootIdentityExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.probeRootIdentity; }
+        public static string GetDriveTypeExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.driveType; }
+        public static string GetFileSystemTypeExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.fileSystemType; }
+        public static string GetVolumeSerialExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.volumeSerial; }
+        public static string GetFilesystemCapabilityHashExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.filesystemCapabilityHash; }
+        public static string GetExpectedCapabilityHashExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? null : value.expectedCapabilityHash; }
+        public static bool? GetVerifiedAgainstExpectedExact(SealedFixedInfrastructureCapabilityRoleRow value) { return value == null ? (bool?)null : value.verifiedAgainstExpected; }
+    }
+
+    public sealed class SealedFixedInfrastructureCapabilityEvidence {
+        private readonly string authorityContextHash;
+        private readonly string fixedEnvelopeHash;
+        private readonly string lockSecurityHash;
+        private readonly string coverage;
+        private readonly SealedFixedInfrastructureCapabilityRoleRow[] rows;
+        private readonly string projectionHash;
+
+        private SealedFixedInfrastructureCapabilityEvidence(string authorityContextHashValue,
+            string fixedEnvelopeHashValue, string lockSecurityHashValue, string coverageValue,
+            SealedFixedInfrastructureCapabilityRoleRow[] rowsValue, string projectionHashValue) {
+            authorityContextHash = authorityContextHashValue;
+            fixedEnvelopeHash = fixedEnvelopeHashValue;
+            lockSecurityHash = lockSecurityHashValue;
+            coverage = coverageValue;
+            rows = (SealedFixedInfrastructureCapabilityRoleRow[])rowsValue.Clone();
+            projectionHash = projectionHashValue;
+        }
+
+        private static bool IsLowerHex64(string value) {
+            if (value == null || value.Length != 64) return false;
+            for (int index = 0; index < value.Length; index++) {
+                char current = value[index];
+                if (!((current >= '0' && current <= '9') || (current >= 'a' && current <= 'f'))) return false;
+            }
+            return true;
+        }
+
+        public static SealedFixedInfrastructureCapabilityEvidence CreateExact(string authorityContextHashValue,
+            string fixedEnvelopeHashValue, string lockSecurityHashValue, string coverageValue,
+            SealedFixedInfrastructureCapabilityRoleRow[] rowsValue, string projectionHashValue) {
+            if (!IsLowerHex64(authorityContextHashValue) || !IsLowerHex64(fixedEnvelopeHashValue) ||
+                !IsLowerHex64(lockSecurityHashValue) ||
+                !String.Equals(coverageValue,"FIXED_INFRASTRUCTURE_PROBED",StringComparison.Ordinal) ||
+                rowsValue == null || rowsValue.Length != 2 || rowsValue[0] == null || rowsValue[1] == null ||
+                !String.Equals(SealedFixedInfrastructureCapabilityRoleRow.GetRoleExact(rowsValue[0]),"ControlBase",StringComparison.Ordinal) ||
+                !String.Equals(SealedFixedInfrastructureCapabilityRoleRow.GetRoleExact(rowsValue[1]),"BackupRoot",StringComparison.Ordinal) ||
+                !IsLowerHex64(projectionHashValue)) {
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            }
+            return new SealedFixedInfrastructureCapabilityEvidence(authorityContextHashValue,
+                fixedEnvelopeHashValue,lockSecurityHashValue,coverageValue,rowsValue,projectionHashValue);
+        }
+
+        public static string GetAuthorityContextHashExact(SealedFixedInfrastructureCapabilityEvidence value) { return value == null ? null : value.authorityContextHash; }
+        public static string GetFixedEnvelopeHashExact(SealedFixedInfrastructureCapabilityEvidence value) { return value == null ? null : value.fixedEnvelopeHash; }
+        public static string GetLockSecurityHashExact(SealedFixedInfrastructureCapabilityEvidence value) { return value == null ? null : value.lockSecurityHash; }
+        public static string GetCoverageExact(SealedFixedInfrastructureCapabilityEvidence value) { return value == null ? null : value.coverage; }
+        public static int GetRowCountExact(SealedFixedInfrastructureCapabilityEvidence value) { return value == null ? 0 : value.rows.Length; }
+        public static SealedFixedInfrastructureCapabilityRoleRow GetRowExact(SealedFixedInfrastructureCapabilityEvidence value, int index) {
+            if (value == null || index < 0 || index >= value.rows.Length) throw new ArgumentOutOfRangeException("index");
+            return value.rows[index];
+        }
+        public static SealedFixedInfrastructureCapabilityRoleRow[] GetRowsExact(SealedFixedInfrastructureCapabilityEvidence value) { return value == null ? null : (SealedFixedInfrastructureCapabilityRoleRow[])value.rows.Clone(); }
+        public static string GetProjectionHashExact(SealedFixedInfrastructureCapabilityEvidence value) { return value == null ? null : value.projectionHash; }
+    }
+}
+'@
+}
+
+function Get-SealedFixedInfrastructureCapabilityRoleRowProjection {
+    param([Parameter(Mandatory)][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]$Row)
+    return [ordered]@{
+        Role=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRoleExact($Row)
+        RequestedPath=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRequestedPathExact($Row)
+        LocationKey=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetLocationKeyExact($Row)
+        TargetStatus=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetTargetStatusExact($Row)
+        ProbeRootPath=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootPathExact($Row)
+        ProbeRootLocationKey=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootLocationKeyExact($Row)
+        ProbeRootIdentity=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootIdentityExact($Row)
+        DriveType=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetDriveTypeExact($Row)
+        FileSystemType=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFileSystemTypeExact($Row)
+        VolumeSerial=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetVolumeSerialExact($Row)
+        FilesystemCapabilityHash=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFilesystemCapabilityHashExact($Row)
+        ExpectedCapabilityHash=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetExpectedCapabilityHashExact($Row)
+        VerifiedAgainstExpected=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetVerifiedAgainstExpectedExact($Row)
+    }
+}
+
+function Get-SealedFixedInfrastructureCapabilityProjectionHash {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]$Evidence)
+    $rowCount=[int][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetRowCountExact($Evidence)
+    $rows=for($index=0;$index -lt $rowCount;$index++){
+        Get-SealedFixedInfrastructureCapabilityRoleRowProjection -Row ([AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetRowExact($Evidence,$index))
+    }
+    return Get-SemanticJsonHash -InputObject ([ordered]@{
+        AuthorityContextHash=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetAuthorityContextHashExact($Evidence)
+        FixedEnvelopeHash=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetFixedEnvelopeHashExact($Evidence)
+        LockSecurityHash=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetLockSecurityHashExact($Evidence)
+        Coverage=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetCoverageExact($Evidence)
+        Rows=@($rows)
+    })
+}
+
+function Assert-SealedFixedInfrastructureCapabilityEvidenceExact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Evidence,
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)][string]$ExpectedAuthorityContextHash,
+        [Parameter(Mandatory)][string]$ExpectedFixedEnvelopeHash,
+        [Parameter(Mandatory)][string]$ExpectedLockSecurityHash,
+        [Parameter(Mandatory)][string]$ControlBaseProbeRoot,
+        [Parameter(Mandatory)][string]$BackupRootProbeRoot,
+        [AllowNull()]$ControlBaseExpectedCapabilityHash,
+        [AllowNull()]$BackupRootExpectedCapabilityHash
+    )
+
+    try {
+        if($ExpectedAuthorityContextHash -cnotmatch $script:SealedRegistryHashPattern -or
+            $ExpectedFixedEnvelopeHash -cnotmatch $script:SealedRegistryHashPattern -or
+            $ExpectedLockSecurityHash -cnotmatch $script:SealedRegistryHashPattern -or
+            $ExpectedAuthorityContextHash -cne (Get-SemanticJsonHash -InputObject $AuthorityContext)){
+            throw 'invalid'
+        }
+        $targetPaths=@{
+            ControlBase=[IO.Path]::GetFullPath([string]$AuthorityContext.ControlBase).TrimEnd([char]92,[char]47)
+            BackupRoot=[IO.Path]::GetFullPath([string]$AuthorityContext.BackupRoot).TrimEnd([char]92,[char]47)
+        }
+        $probeRoots=@{
+            ControlBase=[IO.Path]::GetFullPath($ControlBaseProbeRoot).TrimEnd([char]92,[char]47)
+            BackupRoot=[IO.Path]::GetFullPath($BackupRootProbeRoot).TrimEnd([char]92,[char]47)
+        }
+        $expectedHashes=@{
+            ControlBase=$ControlBaseExpectedCapabilityHash
+            BackupRoot=$BackupRootExpectedCapabilityHash
+        }
+        foreach($role in @('ControlBase','BackupRoot')){
+            if([string]::IsNullOrWhiteSpace([string]$targetPaths[$role]) -or
+                [string]::IsNullOrWhiteSpace([string]$probeRoots[$role]) -or
+                ($null -ne $expectedHashes[$role] -and [string]$expectedHashes[$role] -cnotmatch $script:SealedRegistryHashPattern)){
+                throw 'invalid'
+            }
+        }
+
+        if($Evidence -isnot [AiAgentDotfiles.SealedCapabilityPreflightEvidence]){throw 'invalid'}
+        if((Get-SealedCapabilityPreflightProjectionHash -Evidence $Evidence) -cne
+            [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetProjectionHashExact($Evidence)){throw 'invalid'}
+        if([string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetAuthorityContextHashExact($Evidence) -cne $ExpectedAuthorityContextHash -or
+            [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetFixedEnvelopeHashExact($Evidence) -cne $ExpectedFixedEnvelopeHash -or
+            [string][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetLockSecurityHashExact($Evidence) -cne $ExpectedLockSecurityHash -or
+            [int][AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowCountExact($Evidence) -ne 2){throw 'invalid'}
+
+        $rawRowsByRole=@{}
+        foreach($rawRow in @([AiAgentDotfiles.SealedCapabilityPreflightEvidence]::GetRowsExact($Evidence))){
+            if($rawRow -isnot [AiAgentDotfiles.SealedCapabilityPreflightRow]){throw 'invalid'}
+            $requestedPath=[string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetRequestedPathExact($rawRow)
+            $roleMatches=@('ControlBase','BackupRoot' | Where-Object { [string]$targetPaths[$_] -ceq $requestedPath })
+            if($roleMatches.Count -ne 1 -or $rawRowsByRole.ContainsKey([string]$roleMatches[0])){throw 'invalid'}
+            $role=[string]$roleMatches[0]
+            $targetMetadata=Resolve-TargetContext -Path ([string]$targetPaths[$role]) -Mode MetadataOnly
+            $probeMetadata=Resolve-TargetContext -Path ([string]$probeRoots[$role]) -Mode MetadataOnly
+            $targetVolumeInfo=[AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$targetMetadata.DeepestExistingParentPath)
+            $probeVolumeInfo=[AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$probeMetadata.DeepestExistingParentPath)
+            if([string]$targetMetadata.TargetStatus -cne 'EXISTS' -or [string]$targetMetadata.TargetType -cne 'Directory' -or
+                [string]$targetMetadata.RequestedPath -cne [string]$targetPaths[$role] -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($rawRow) -cne [string]$targetMetadata.LocationKey -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetTargetStatusExact($rawRow) -cne 'EXISTS' -or
+                [string]$probeMetadata.TargetStatus -cne 'EXISTS' -or [string]$probeMetadata.TargetType -cne 'Directory' -or
+                [string]$probeMetadata.RequestedPath -cne [string]$probeRoots[$role] -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootPathExact($rawRow) -cne [string]$probeMetadata.RequestedPath -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootLocationKeyExact($rawRow) -cne [string]$probeMetadata.LocationKey -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootIdentityExact($rawRow) -cne [string]$probeMetadata.DeepestExistingParentIdentity -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetDriveTypeExact($rawRow) -cne 'Fixed' -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFileSystemTypeExact($rawRow) -cne 'NTFS' -or
+                [string]$targetVolumeInfo.DriveType -cne 'Fixed' -or [string]$targetVolumeInfo.FileSystemType -cne 'NTFS' -or
+                [string]$probeVolumeInfo.DriveType -cne 'Fixed' -or [string]$probeVolumeInfo.FileSystemType -cne 'NTFS' -or
+                [string]$targetVolumeInfo.VolumeSerial -cne [string]$targetMetadata.VolumeId -or
+                [string]$probeVolumeInfo.VolumeSerial -cne [string]$probeMetadata.VolumeId -or
+                [string]$probeVolumeInfo.VolumeSerial -cne [string]$targetVolumeInfo.VolumeSerial -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVolumeSerialExact($rawRow) -cne [string]$targetMetadata.VolumeId -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVolumeSerialExact($rawRow) -cne [string]$probeMetadata.VolumeId -or
+                [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($rawRow) -cnotmatch $script:SealedRegistryHashPattern){throw 'invalid'}
+
+            $expectedActual=[AiAgentDotfiles.SealedCapabilityPreflightRow]::GetExpectedCapabilityHashExact($rawRow)
+            $verifiedActual=[AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVerifiedAgainstExpectedExact($rawRow)
+            $expectedForRole=$expectedHashes[$role]
+            if($null -ne $expectedForRole){
+                if([string]$expectedActual -cne [string]$expectedForRole -or
+                    [string]$expectedActual -cne [string][AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($rawRow) -or
+                    $null -eq $verifiedActual -or -not [bool]$verifiedActual){throw 'invalid'}
+            }
+            elseif($null -ne $expectedActual -or $null -ne $verifiedActual){throw 'invalid'}
+            $rawRowsByRole[$role]=$rawRow
+        }
+        if($rawRowsByRole.Count -ne 2 -or -not $rawRowsByRole.ContainsKey('ControlBase') -or
+            -not $rawRowsByRole.ContainsKey('BackupRoot')){throw 'invalid'}
+        return [pscustomobject][ordered]@{
+            ControlBase=$rawRowsByRole.ControlBase
+            BackupRoot=$rawRowsByRole.BackupRoot
+        }
+    }
+    catch { throw 'fixed-infrastructure-capability-evidence-invalid' }
+}
+
+function Invoke-SealedHeldFixedInfrastructureCapabilityCapture {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)][AllowNull()]$GlobalLockHandle,
+        [AllowNull()]$CanonicalWitness,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$CapabilityProbeBindings
+    )
+
+    $normalizedBindings=@{}
+    try {
+        $bindingRows=@($CapabilityProbeBindings)
+        if($bindingRows.Count -ne 2){throw 'invalid'}
+        foreach($binding in $bindingRows){
+            if($null -eq $binding){throw 'invalid'}
+            $shape=@(Get-SealedRegistryOrdinalStrings -Values @(Get-SealedRegistryPropertyNames -InputObject $binding))
+            $shapeText=$shape -join "`0"
+            $baseShapeText=[string[]]@('ProbeRoot','Role') -join "`0"
+            $expectedShapeText=[string[]]@('ExpectedFilesystemCapabilityHash','ProbeRoot','Role') -join "`0"
+            if($shapeText -cne $baseShapeText -and $shapeText -cne $expectedShapeText){throw 'invalid'}
+            $role=Get-SealedRegistryObjectValue -InputObject $binding -Name 'Role'
+            $probeRoot=Get-SealedRegistryObjectValue -InputObject $binding -Name 'ProbeRoot'
+            if($role -isnot [string] -or $probeRoot -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$role) -or [string]::IsNullOrWhiteSpace([string]$probeRoot) -or
+                [string]$role -cnotin @('ControlBase','BackupRoot') -or $normalizedBindings.ContainsKey([string]$role)){
+                throw 'invalid'
+            }
+            if(-not [IO.Path]::IsPathFullyQualified([string]$probeRoot) -or ([string]$probeRoot).StartsWith('\',[StringComparison]::Ordinal)){throw 'invalid'}
+            $probeRootFull=[IO.Path]::GetFullPath([string]$probeRoot).TrimEnd([char]92,[char]47)
+            if([string]::IsNullOrWhiteSpace($probeRootFull) -or [IO.Path]::GetPathRoot($probeRootFull) -ceq $probeRootFull){throw 'invalid'}
+            $hasExpected=$shapeText -ceq $expectedShapeText
+            $expectedValue=if($hasExpected){Get-SealedRegistryObjectValue -InputObject $binding -Name 'ExpectedFilesystemCapabilityHash'}else{$null}
+            if($hasExpected -and ($expectedValue -isnot [string] -or [string]$expectedValue -cnotmatch $script:SealedRegistryHashPattern)){throw 'invalid'}
+            $normalizedBindings[[string]$role]=[pscustomobject][ordered]@{
+                Role=[string]$role
+                ProbeRoot=$probeRootFull
+                HasExpected=[bool]$hasExpected
+                ExpectedFilesystemCapabilityHash=if($hasExpected){[string]$expectedValue}else{$null}
+            }
+        }
+        if($normalizedBindings.Count -ne 2 -or -not $normalizedBindings.ContainsKey('ControlBase') -or -not $normalizedBindings.ContainsKey('BackupRoot')){throw 'invalid'}
+    }
+    catch { throw 'fixed-infrastructure-capability-binding-invalid' }
+
+    $entryLockEvidence=$null
+    try {
+        $null=Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $AuthorityContext
+        $entryLockEvidence=Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
+        if($null -ne $CanonicalWitness){
+            $null=Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness
+        }
+    }
+    catch { throw 'fixed-infrastructure-capability-lock-drift' }
+
+    $authorityContextHash=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetAuthorityContextHashExact($entryLockEvidence)
+    $entryFixedEnvelopeHash=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetFixedEnvelopeHashExact($entryLockEvidence)
+    $entryLockSecurityHash=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetLockSecurityHashExact($entryLockEvidence)
+    $targetPaths=@{
+        ControlBase=[IO.Path]::GetFullPath([string]$AuthorityContext.ControlBase).TrimEnd([char]92,[char]47)
+        BackupRoot=[IO.Path]::GetFullPath([string]$AuthorityContext.BackupRoot).TrimEnd([char]92,[char]47)
+    }
+    $directoryTemplate=Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([string]$AuthorityContext.TokenSid) -ResourceKind Directory
+    $fileTemplate=Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([string]$AuthorityContext.TokenSid) -ResourceKind File
+    $fixedEnvelope=$null
+    $initialEnvelopeHash=$null
+    $capturePrimaryError=$null
+    try {
+        try {
+            $fixedEnvelope=Open-SealedHomeAuthorityFixedEnvelope -AuthorityContext $AuthorityContext -DirectorySecurityTemplate $directoryTemplate -FileSecurityTemplate $fileTemplate -HeldGlobalLock $GlobalLockHandle
+            $initialEnvelopeHash=[string]$fixedEnvelope.InitialEnvelopeHash
+            if($initialEnvelopeHash -cnotmatch $script:SealedRegistryHashPattern -or $initialEnvelopeHash -cne $entryFixedEnvelopeHash){throw 'invalid'}
+        }
+        catch { throw 'fixed-infrastructure-capability-envelope-drift' }
+
+        $capabilityTargets=[Collections.Generic.List[object]]::new()
+        foreach($role in @('ControlBase','BackupRoot')){
+            $binding=$normalizedBindings[$role]
+            $target=[ordered]@{Path=[string]$targetPaths[$role];ProbeRoot=[string]$binding.ProbeRoot}
+            if([bool]$binding.HasExpected){$target.ExpectedFilesystemCapabilityHash=[string]$binding.ExpectedFilesystemCapabilityHash}
+            $capabilityTargets.Add($target)
+        }
+
+        $currentRawPreflight=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+            'Invoke-SealedHeldCapabilityPreflight',[System.Management.Automation.CommandTypes]::Function)
+        if($null -eq $currentRawPreflight -or
+            -not [AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]::MatchesRawExact($currentRawPreflight.ScriptBlock)){
+            throw 'fixed-infrastructure-capability-evidence-invalid'
+        }
+        try {
+            $rawEvidence=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]::InvokeRawExact(
+                $AuthorityContext,$GlobalLockHandle,$CanonicalWitness,[object[]]$capabilityTargets.ToArray())
+        }
+        catch {
+            Throw-SealedFixedInfrastructureCapabilityIssuerException -Exception $_.Exception
+        }
+        $validatedRawRows=Assert-SealedFixedInfrastructureCapabilityEvidenceExact -Evidence $rawEvidence `
+            -AuthorityContext $AuthorityContext -ExpectedAuthorityContextHash $authorityContextHash `
+            -ExpectedFixedEnvelopeHash $entryFixedEnvelopeHash -ExpectedLockSecurityHash $entryLockSecurityHash `
+            -ControlBaseProbeRoot ([string]$normalizedBindings.ControlBase.ProbeRoot) `
+            -BackupRootProbeRoot ([string]$normalizedBindings.BackupRoot.ProbeRoot) `
+            -ControlBaseExpectedCapabilityHash $(if([bool]$normalizedBindings.ControlBase.HasExpected){[string]$normalizedBindings.ControlBase.ExpectedFilesystemCapabilityHash}else{$null}) `
+            -BackupRootExpectedCapabilityHash $(if([bool]$normalizedBindings.BackupRoot.HasExpected){[string]$normalizedBindings.BackupRoot.ExpectedFilesystemCapabilityHash}else{$null})
+        $rawRowsByRole=@{
+            ControlBase=$validatedRawRows.ControlBase
+            BackupRoot=$validatedRawRows.BackupRoot
+        }
+
+        $sealedRows=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow[]]::new(2)
+        for($index=0;$index -lt 2;$index++){
+            $role=@('ControlBase','BackupRoot')[$index]
+            $rawRow=$rawRowsByRole[$role]
+            $sealedRows[$index]=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::CreateExact(
+                $role,
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetRequestedPathExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetLocationKeyExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetTargetStatusExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootPathExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootLocationKeyExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetProbeRootIdentityExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetDriveTypeExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFileSystemTypeExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVolumeSerialExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetFilesystemCapabilityHashExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetExpectedCapabilityHashExact($rawRow),
+                [AiAgentDotfiles.SealedCapabilityPreflightRow]::GetVerifiedAgainstExpectedExact($rawRow))
+        }
+        $rowProjections=foreach($row in $sealedRows){Get-SealedFixedInfrastructureCapabilityRoleRowProjection -Row $row}
+        $coverage='FIXED_INFRASTRUCTURE_PROBED'
+        $projectionHash=Get-SemanticJsonHash -InputObject ([ordered]@{
+            AuthorityContextHash=$authorityContextHash
+            FixedEnvelopeHash=$entryFixedEnvelopeHash
+            LockSecurityHash=$entryLockSecurityHash
+            Coverage=$coverage
+            Rows=@($rowProjections)
+        })
+        $sealedEvidence=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::CreateExact(
+            $authorityContextHash,$entryFixedEnvelopeHash,$entryLockSecurityHash,$coverage,$sealedRows,$projectionHash)
+        if((Get-SealedFixedInfrastructureCapabilityProjectionHash -Evidence $sealedEvidence) -cne
+            [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetProjectionHashExact($sealedEvidence)){
+            throw 'fixed-infrastructure-capability-evidence-invalid'
+        }
+
+        $finalEnvelope=$null
+        $finalEnvelopeError=$null
+        try {
+            $finalEnvelope=Get-SealedHomeAuthorityFixedEnvelopeProjection -AuthorityContext $AuthorityContext -DirectorySecurityTemplate $directoryTemplate -FileSecurityTemplate $fileTemplate -EnvelopeLease $fixedEnvelope -HeldGlobalLock $GlobalLockHandle
+        }
+        catch { $finalEnvelopeError=$_ }
+        $finalLockEvidence=$null
+        try { $finalLockEvidence=Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle }
+        catch { throw 'fixed-infrastructure-capability-lock-drift' }
+        if(-not [AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::MatchesExact($entryLockEvidence,$finalLockEvidence)){
+            throw 'fixed-infrastructure-capability-lock-drift'
+        }
+        if($null -ne $finalEnvelopeError -or [string]$finalEnvelope.EnvelopeHash -cne $initialEnvelopeHash){
+            throw 'fixed-infrastructure-capability-envelope-drift'
+        }
+        if($null -ne $CanonicalWitness){
+            try {
+                $null=Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness
+            }
+            catch { throw 'fixed-infrastructure-capability-lock-drift' }
+        }
+        return $sealedEvidence
+    }
+    catch {
+        $capturePrimaryError=$_
+        throw
+    }
+    finally {
+        if($null -ne $fixedEnvelope){
+            $captureCleanupError=$null
+            try { Close-SealedHomeAuthorityFixedEnvelope -EnvelopeLease $fixedEnvelope }
+            catch { $captureCleanupError=$_ }
+            if($null -ne $captureCleanupError){
+                if($null -ne $capturePrimaryError){
+                    try {
+                        $capturePrimaryError.Exception.Data['SealedFixedInfrastructureCapabilityCleanupError']=[string]$captureCleanupError.Exception.Message
+                    }
+                    catch { }
+                    throw $capturePrimaryError
+                }
+                throw $captureCleanupError
+            }
+        }
+    }
 }
