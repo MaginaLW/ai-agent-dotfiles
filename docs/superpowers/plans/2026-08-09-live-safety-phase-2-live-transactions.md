@@ -251,6 +251,74 @@ hints), diff checks, and `sync.ps1 -DryRun` also passed. The DryRun plan hash is
 `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`; it preserved Codex
 `.system` and changed no live file.
 
+**Eighth intermediate checkpoint (2026-08-30):** Existing complete `ControlBase` and `BackupRoot`
+now have an internal same-lock composition layer. `Invoke-SealedHeldFixedInfrastructureCapabilityCapture`
+accepts exactly two role bindings—`ControlBase` and `BackupRoot`—whose only caller-selected values
+are approved external ProbeRoots and optional expected hashes; target paths are derived from the
+sealed authority context. It requires the genuine global-lock witness and optional already-bound
+canonical witness, holds one outer fixed-envelope lease across both exact real probes, and performs
+final exact global-lock, canonical-binding, fixed-envelope, directory identity/security,
+drive/filesystem/volume, role-map, expected-hash, and projection revalidation. It returns immutable
+`SealedFixedInfrastructureCapabilityEvidence` ordered `ControlBase`, then `BackupRoot`, with coverage
+exactly `FIXED_INFRASTRUCTURE_PROBED`.
+
+The capture cannot accept caller-supplied raw evidence. A private-token exact issuer seals the first
+reviewed raw-preflight and lower-probe ScriptBlocks and executes those definitions even after an
+equivalent repeated load; command shadows, public factories, and fake hash-returning probes fail
+before invocation. The capture is the separately tested internal validator's only production caller
+and rejects forged types, unreproducible projections, and self-consistent authority/header/path/
+identity/volume/filesystem/expected-semantics drift. Exact issuer exception unwrapping stops at the
+first non-PowerShell domain or Aggregate exception and preserves type, combined primary/cleanup
+message, and Data. Outer-envelope primary+cleanup failures retain the primary while recording the
+cleanup message in a stable Data key; cleanup-only failure is thrown directly.
+
+The recursive production-seam contract proves zero production caller for this capture and exact
+single internal owners for the validator and raw/probe issuer calls. It freezes all script dynamic
+commands plus member/property/reflection and member-dispatch AST surfaces with exact reviewed
+digests, keeps zero `using` and PowerShell type-definition baselines, and mutation-tests direct,
+dynamic, explicit-type reflection, split-string AppDomain reflection, case variants, short issuer
+types with property-only method discovery and `ForEach-Object -MemberName`, `Add-Type`, and runtime
+class definitions. The broad digest is intentionally a review interlock for future production
+dispatch changes, not a claim that static analysis proves runtime non-interference.
+
+This checkpoint still does not complete Step 2. No production Apply/rollback, registry/current-route
+consumer, resolver adapter, bootstrap setup, public dispatcher, receipt, journal, or live-mutation
+route consumes the evidence. Process-static first-ScriptBlock/runspace lifetime and the evidence's
+post-return temporal scope remain production-integration blockers; `PrivateRootBootstrapIntent`,
+protocol-v1 public selector rejection, and the remaining forbidden-root matrix also remain open.
+Task 1 stays 1/6 and Phase 2 stays 1/52. Production Apply remains interlocked, and no live root or
+Git index/ref was changed.
+
+Focused validation passed the complete root-claims registry suite, the 29/0 recursive production-seam
+suite, parsing for the three modified feature PowerShell files, and `git diff --check`.
+
+Closure validation then exposed two tests-only bounds. The first create-new unified run completed all
+34 suites, passed 33, and isolated the sole failure to legacy hard-kill Job cleanup borrowing a
+five-second caller timeout; the helper now owns one reviewed 30-second absolute deadline, makes at
+most one native termination attempt, preserves the first native error across reflection wrappers, and reports setup
+cleanup primary-first. Dedicated reap semantics passed 27/0, the after-state focus passed 10/0, and
+the complete hard-kill suite passed 317/0. A second run passed 33 completed suites with zero assertion
+failures but cleanly timed out root-claims at 300002 ms. Passing observations at 284196 ms and 298324
+ms plus the definitive 306091 ms runtime proved that the old 300-second boundary lacked jitter room.
+The root-claims suite bound is now 600 seconds. The dedicated reap-semantics suite has a 60-second
+runner bound so its reviewed 30-second cleanup deadline and preceding exact-process-identity wait
+cannot be preempted by the runner. The Windows workflow is 276 minutes; the computed requirement is
+16335 seconds against 16560 seconds, retaining at least the prior 210-second outer difference. The
+34/34 unified summary below predates only this final budget-only adjustment; afterward the dedicated
+reap-semantics suite passed 27/0 and the runner contract passed with the 60-second/276-minute delta.
+
+The definitive external create-new unified summary passed all 34 suites exactly once with zero
+failures, timeouts, duplicates, missing suites, or tree-kill failures. Its raw SHA-256 is
+`fdf669636415e10f7f9e76b9f404ced705e02eb9225b6a89f1060205d4462784`, and discovery SHA-256 remains
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`. Hard-kill reached 317/0,
+reap semantics 27/0, production seams 29/0, and root-claims completed under the new bound. The
+156-file parse gate, artifact matrix (21 contracts, 21 positive fixtures, 66 negative fixtures),
+skill build (7/15/7), pinned gitleaks scan (zero blocking findings; 835 non-blocking hints), and
+`git diff --check` passed. `sync.ps1 -DryRun` reproduced plan hash
+`b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, preserved Codex `.system`,
+and changed no live file. No production Apply, backup, rollback, retirement, live-root mutation, or
+Git index/ref mutation occurred.
+
 Resolve Windows ControlBase and fixed sibling BackupRoot from access-token SID plus `FOLDERID_LocalAppData`, and HomeRoot/AppData from OS Known Folder APIs, never from mutable process environment variables. Before either private root exists, derive the fixed no-follow bootstrap-lock file under the already-existing Known Folder root from SID/location/domain only. The reviewed canonical setup plan binds `PrivateRootBootstrapIntent` (parent identity, fixed control/backups remainders, each MISSING|COMPLETE, final current-user DACL template, expected fixed children); Apply acquires that pre-ControlBase exclusive handle, revalidates intent, creates the private parent, BackupRoot, ControlBase plus `homes/canonical-roots/live-transactions` only with the final security descriptor, validates the deterministic prefix, and only then obtains the normal global lock. Exact crash prefixes may be completed by the same setup plan; wrong ACL/identity/extra/reparse is manual. No live/receipt/journal work precedes global lock. Read-only status never creates the bootstrap lock/file or directories. Existing ControlBase/BackupRoot bind resolved identity, owner ACL/SID, resolver version and FilesystemCapabilityHash; production on an undefined non-Windows adapter remains interlocked. Protocol v1 production dispatch rejects public `-HomeRoot`/`-BackupRoot`; sealed fake-home injection remains an internal capability only. Derive `HomeAuthorityKey` from token SID plus canonical Known-Folder HomeRoot location key only; do not include root existence/file IDs or Reasonix override.
 
 - [ ] **Step 3: Build the registry view**

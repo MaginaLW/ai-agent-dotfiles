@@ -138,6 +138,37 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   Final build (7/15/7), pinned gitleaks (no blocking findings; 828 reviewed hints), diff checks, and
   sync DryRun also passed; the DryRun preserved `.system` and changed no live file.
 
+- Phase 2 Task 1 fixed-infrastructure same-lock capability capture (2026-08-30, additive Step 2
+  checkpoint): the new internal `Invoke-SealedHeldFixedInfrastructureCapabilityCapture` accepts
+  exactly the `ControlBase` and `BackupRoot` roles, derives both target paths only from the sealed
+  authority context, holds one outer fixed-envelope lease across both real per-target probes, and
+  returns CLR-sealed `FIXED_INFRASTRUCTURE_PROBED` evidence only after exact final global-lock,
+  optional canonical-binding, fixed-envelope, identity, security, volume, filesystem, and role-map
+  revalidation. A private-token exact issuer pins the reviewed raw-preflight and lower-probe
+  ScriptBlocks so command shadows and public-factory evidence cannot substitute for the real probes;
+  an independently tested validator rejects forged/reprojected or self-consistently drifted raw
+  evidence. Primary and cleanup failures retain their separate evidence, including outer-envelope
+  cleanup Data. Recursive production-seam guards prove zero production consumer and freeze dynamic,
+  member/property, reflection, `using`, type-definition, `Add-Type`, and member-dispatch bypass
+  surfaces; AppDomain/string, case-variant, and short-type/property-only reflection mutations all
+  fail closed. Focused root-claims and 29/0 seam suites, modified-file parsing, and diff checks passed.
+  Closure validation also hardened two tests-only bounds: legacy Job reap now uses one reviewed
+  30-second absolute deadline and primary-first cleanup. Its dedicated semantics suite now has a
+  60-second runner bound; the expanded root-claims suite uses a 600-second bound and the Windows
+  workflow uses 276 minutes. The 16335-second computed requirement remains below the 16560-second
+  job limit and retains at least the prior 210-second outer difference. The 34/34 create-new unified
+  summary predates only this final budget-only adjustment; afterward reap semantics passed 27/0 and
+  the runner contract passed with the 60-second/276-minute delta. That unified summary passed 34/34
+  with every failure counter zero
+  (SHA-256 `fdf669636415e10f7f9e76b9f404ced705e02eb9225b6a89f1060205d4462784`); hard-kill reached 317/0,
+  reap semantics 27/0, and the root-claims suite completed in 306091 ms. The 156-file parse gate,
+  artifact matrix 21/21/66, build 7/15/7, pinned secret scan with zero blocking findings, diff checks,
+  and sync DryRun then passed; `.system` was preserved and no live file changed. The wide
+  reflection/member digest intentionally requires review for future production dispatch changes. No
+  production Apply/rollback/current-route consumer uses this evidence; process-static
+  first-ScriptBlock/runspace lifetime and evidence temporal scope remain integration blockers.
+  Task 1 remains 1/6 and Phase 2 remains 1/52, with production Apply interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -146,17 +177,18 @@ web, REST, raw-content, or direct Git SHA probes. Ticket `#4697323` and the exte
 are closed. The implementation checkpoint now includes the reviewed read-only authority/schema,
 sealed fake-ControlBase bootstrap/global-lock, held-lock registry core, caller-held
 canonical/current-route slices, the Step 1 identity/concurrency failure matrix, and the sealed
-under-lock per-target/per-volume capability preflight with held exact-slot cleanup within Phase 2
-Task 1. Step 1 is complete (Task 1 1/6); the capability preflight advances Step 2 without completing
-it and stays unconnected to production mutation routes.
+under-lock per-target/per-volume capability preflight with held exact-slot cleanup plus the internal
+fixed-infrastructure same-lock capture within Phase 2 Task 1. Step 1 is complete (Task 1 1/6); these
+capability layers advance Step 2 without completing it and stay unconnected to production mutation
+routes.
 
 ## Current phase
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. Next are production-route integration of the
 strict canonical-to-global lock order and current-route witness, resolver/fixed-envelope consumption
-of the sealed per-target capability evidence, the `PrivateRootBootstrapIntent` setup path and
-protocol-v1 public dispatch, and the remaining forbidden-root cases, including applying the complete
-forbidden-root matrix before accepting any default/custom claim. Production Apply remains
+of the sealed fixed-infrastructure capability evidence, the `PrivateRootBootstrapIntent` setup path
+and protocol-v1 public dispatch, and the remaining forbidden-root cases, including applying the
+complete forbidden-root matrix before accepting any default/custom claim. Production Apply remains
 disconnected, and live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.

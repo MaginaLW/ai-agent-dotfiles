@@ -391,6 +391,92 @@ hints; and `sync.ps1 -DryRun` completed with plan hash
 `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, explicitly preserving
 Codex `.system` and changing no live files. `git diff --check` also passed.
 
+## 2026-08-30 Phase 2 fixed-infrastructure same-lock capability capture
+
+Phase 2 Task 1 now has an internal same-lock composition layer for already-complete fixed private
+infrastructure. `Invoke-SealedHeldFixedInfrastructureCapabilityCapture` accepts exactly one
+`ControlBase` and one `BackupRoot` role binding, each selecting only an approved external ProbeRoot
+and optional expected capability hash; the target paths always come from the sealed
+`AuthorityContext`. Under the genuine caller-held global lock, and an optional canonical witness
+already bound in canonical-to-global order, it opens one outer fixed-envelope lease, runs both real
+filesystem probes, and revalidates the exact global-lock evidence, canonical binding, fixed-envelope
+projection, directory identity, security, volume, filesystem, and role mapping before returning.
+The CLR-sealed result is ordered `ControlBase`, then `BackupRoot`, reports coverage exactly
+`FIXED_INFRASTRUCTURE_PROBED`, and binds the authority-context, fixed-envelope, lock-security, role,
+target, ProbeRoot, volume, capability, expected-hash, and reproducible projection evidence.
+
+The capture does not trust caller-supplied preflight evidence or a dynamically shadowed raw/probe
+function. A process-sealed exact issuer retains the first reviewed raw-preflight and lower-probe
+ScriptBlocks behind a private issuer token; repeated loading must match their exact AST text, while
+execution continues through the sealed first definitions. An extracted side-effect-free evidence
+validator is called only by the fixed capture and independently rejects forged type names,
+unreproducible projections, header/path/identity/volume/filesystem drift, and invalid expected-hash
+semantics. Exact-issuer exception handling removes only PowerShell invocation wrappers, preserving
+the first domain exception, aggregate boundary, combined primary/cleanup message, type, and Data.
+If outer fixed-envelope close fails with a primary error, the primary remains authoritative and the
+cleanup message is retained in `SealedFixedInfrastructureCapabilityCleanupError`; cleanup-only
+failure remains visible directly.
+
+The recursive production-seam test now proves that the fixed capture has zero production callers and
+that the validator plus exact raw/probe issuer calls have only their reviewed internal owners. It
+freezes all `scripts/**/*.ps1` dynamic-command and member/property/reflection dispatch surfaces with
+reviewed count/digests, retains zero `using` and PowerShell type-definition baselines, and rejects
+direct, dynamic, public-factory, explicit-type reflection, split-string AppDomain reflection,
+mixed-case reflection, short-type/property-only member discovery, `ForEach-Object -MemberName`, and
+new `Add-Type`/PowerShell class mutations. This broad digest is deliberately a change-review guard,
+not a runtime non-interference proof; any production dispatch-surface change requires explicit
+review and re-pinning.
+
+This is an additive Step 2 checkpoint only. No production Apply, rollback, registry/current-route
+consumer, resolver adapter, bootstrap setup, public dispatcher, receipt, journal, or live-mutation
+route calls the capture. Process-static first-ScriptBlock/runspace lifetime and the returned probe
+evidence's temporal scope remain production-integration blockers to test before any consumer is
+connected. The `PrivateRootBootstrapIntent` path, protocol-v1 public selector rejection, and the
+remaining forbidden-root matrix are still open. Task 1 remains 1/6 and Phase 2 remains 1/52;
+production Apply remains interlocked, and no live root or Git index/ref was changed.
+
+Focused validation passed `root-claims-registry.tests.ps1`, the 29/0 recursive production-seam
+suite, parser checks for all three modified feature PowerShell files, and `git diff --check`.
+
+Fresh closure validation exposed two bounded test-infrastructure defects without reaching a
+production route. The first create-new unified summary (raw SHA-256
+`bea7544faf1700639c23e387390f7cc97d8fd3c63d36dfceff7c63bceefa3ef7`) completed all 34 suites and
+passed 33: only `canonical-hard-kill.tests.ps1` failed after the legacy Job cleanup exceeded its
+borrowed five-second caller budget and a retrying cleanup path covered the primary failure. The
+tests-only helper now binds one reviewed 30-second absolute QPC deadline, attempts `TerminateJobObject` at most
+once, preserves its first native failure across PowerShell reflection wrappers, and reports setup
+cleanup primary-first. Its dedicated semantics suite reached 27/0, the focused after-state matrix
+reached 10/0, and the complete hard-kill suite reached 317/0.
+
+The next create-new unified summary (raw SHA-256
+`9d58ce17fb46f4edb6ca97c52c2a23d632a2e262a4e047aba04bfc16c3bddf87`) completed and passed 33
+suites with zero assertion failures, but the expanded `root-claims-registry.tests.ps1` was cleanly
+tree-reaped at its old 300-second suite boundary. The same suite had passed at 284196 ms and 298324
+ms, while the definitive run required 306091 ms, so this was a measured budget defect rather than a
+hang. Its bounded suite budget is now 600 seconds. The dedicated reap-semantics suite is bounded at
+60 seconds so its reviewed 30-second cleanup deadline and preceding exact-process-identity wait
+cannot be preempted by the runner. The Windows validation workflow is 276 minutes: the computed
+repository requirement is 16335 seconds versus a 16560-second job limit, retaining at least the prior
+210-second outer difference. The existing runner contract recomputes and tests that bound. The
+34/34 unified summary below predates only this final budget-only adjustment; afterward the dedicated
+reap-semantics suite passed 27/0 and the runner contract passed with the 60-second/276-minute delta.
+
+The definitive external create-new unified summary passed all 34 suites exactly once with zero
+failures, timeouts, duplicates, missing suites, or tree-kill failures. Its raw SHA-256 is
+`fdf669636415e10f7f9e76b9f404ced705e02eb9225b6a89f1060205d4462784`, and its discovery SHA-256 is
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`.
+`canonical-hard-kill.tests.ps1` reached 317/0, the reap-semantics suite reached 27/0, the recursive
+production-seam suite reached 29/0, and the root-claims suite completed under its new bound.
+
+Final repository gates passed: the PowerShell parser accepted all 156 files; artifact validation
+accepted 21 contracts, 21 positive fixtures, and 66 negative fixtures with zero failures (summary
+SHA-256 `5d771d2d0a5139732e19204c26f1ad7af1b4f49f21f8c1cdb97be184dd96a432`); skill generation remained
+7/15/7; pinned gitleaks found no blocking secret and reported 835 non-blocking keyword hints; and
+`git diff --check` passed. `sync.ps1 -DryRun` reproduced plan hash
+`b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, preserved Codex `.system`,
+and changed no live file. No production Apply, backup, rollback, retirement, live-root mutation, or
+Git index/ref mutation was performed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
