@@ -44,6 +44,7 @@ namespace AiAgentDotfilesTests {
         private const int ReviewedControllerObservationMilliseconds = 300000;
         private const int ReviewedJobReapMilliseconds = 30000;
         private const int ReviewedCleanupMilliseconds = 30000;
+        private const int ReviewedLegacyReapMilliseconds = 30000;
         private const int ERROR_INVALID_PARAMETER = 87;
         private static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
         private static readonly IntPtr PROC_THREAD_ATTRIBUTE_HANDLE_LIST = new IntPtr(0x00020002);
@@ -112,6 +113,11 @@ namespace AiAgentDotfilesTests {
         private bool resumed;
         private bool reaped;
         private bool disposed;
+        private bool legacyReapDeadlineBound;
+        private long legacyReapDeadlineQpc;
+        private int legacyTerminationAttemptCount;
+        private int legacyTerminationNativeErrorCode;
+        private string legacyTerminationFailureOperation;
 
         private HardKillJobProcess(IntPtr job, IntPtr processHandle, IntPtr threadHandle, Process process, int processId, long startTicks, string stdoutPath, string stderrPath) {
             jobHandle = job;
@@ -153,6 +159,13 @@ namespace AiAgentDotfilesTests {
         }
 
         private static Win32Exception Win32(string operation) { return new Win32Exception(Marshal.GetLastWin32Error(), operation); }
+
+        private Win32Exception CreateLegacyTerminationFailure() {
+            Win32Exception failure = new Win32Exception(legacyTerminationNativeErrorCode, legacyTerminationFailureOperation);
+            failure.Data["NativeErrorCode"] = legacyTerminationNativeErrorCode;
+            failure.Data["NativeOperation"] = legacyTerminationFailureOperation;
+            return failure;
+        }
 
         private static string QuoteArgument(string argument) {
             if (argument == null) argument = String.Empty;
@@ -624,13 +637,25 @@ namespace AiAgentDotfilesTests {
         internal void TerminateForLegacy(int timeoutMilliseconds) {
             if (timeoutMilliseconds <= 0) throw new ArgumentOutOfRangeException("timeoutMilliseconds");
             lock (gate) {
+                if (legacyTerminationFailureOperation != null) throw CreateLegacyTerminationFailure();
                 if (disposed) throw new ObjectDisposedException("HardKillJobProcess");
                 if (reaped) return;
+                if (!legacyReapDeadlineBound) {
+                    legacyReapDeadlineQpc = AddMillisecondsChecked(Stopwatch.GetTimestamp(), ReviewedLegacyReapMilliseconds, Stopwatch.Frequency);
+                    legacyReapDeadlineBound = true;
+                }
+                long deadline = legacyReapDeadlineQpc;
+                RequireTimeRemaining(deadline, "legacy Job reap entry");
                 if (!resumed) ResumeRoot();
-                long deadline = AddMillisecondsChecked(Stopwatch.GetTimestamp(), timeoutMilliseconds, Stopwatch.Frequency);
                 uint active = GetActiveProcessCountUntil(jobHandle, deadline);
-                if (active > 0U && !TerminateJobObject(jobHandle, HardKillTerminationExitCode))
-                    throw Win32("TerminateJobObject legacy containment failed");
+                if (active > 0U && legacyTerminationAttemptCount == 0) {
+                    legacyTerminationAttemptCount = 1;
+                    if (!TerminateJobObject(jobHandle, HardKillTerminationExitCode)) {
+                        legacyTerminationNativeErrorCode = Marshal.GetLastWin32Error();
+                        legacyTerminationFailureOperation = "TerminateJobObject legacy containment failed";
+                        throw CreateLegacyTerminationFailure();
+                    }
+                }
                 if (rootProcessHandle != IntPtr.Zero) {
                     WaitForRootExitUntil(deadline);
                     CaptureRootExitCodeUntil(deadline);
@@ -1872,7 +1897,15 @@ function Confirm-HardKillJobProcessReaped {
     param([Parameter(Mandatory)][AiAgentDotfilesTests.HardKillJobProcess]$JobProcess,[int]$TimeoutMilliseconds=5000)
     $terminateMethod=[AiAgentDotfilesTests.HardKillJobProcess].GetMethod('TerminateForLegacy',[Reflection.BindingFlags]'Instance,NonPublic')
     if($null -eq $terminateMethod){throw 'hard-kill legacy termination bridge is unavailable'}
-    $null=$terminateMethod.Invoke($JobProcess,@([int]$TimeoutMilliseconds))
+    try{$null=$terminateMethod.Invoke($JobProcess,@([int]$TimeoutMilliseconds))}
+    catch{
+        $bridgeFailure=$_.Exception
+        while(($bridgeFailure -is [Management.Automation.MethodInvocationException] -or
+            $bridgeFailure -is [Reflection.TargetInvocationException]) -and $null -ne $bridgeFailure.InnerException){
+            $bridgeFailure=$bridgeFailure.InnerException
+        }
+        throw $bridgeFailure
+    }
     return $true
 }
 
