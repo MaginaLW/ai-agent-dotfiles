@@ -207,8 +207,8 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   suite-budget sum is 17235 seconds, the computed job requirement is 17655 seconds, and the Windows
   workflow is 298 minutes / 17880 seconds, retaining the prior 225-second outer difference. Focused
   validation passed hard-kill primitives 95/0, complete hard-kill 317/0, the runner budget contract,
-  and both real-runner timeout checks. Final unified evidence remains to be appended after
-  completion. This changes only tests and CI bounds and grants no production mutation authority.
+  and both real-runner timeout checks. The final unified result is recorded in the recovery-stage
+  follow-up below. This changes only tests and CI bounds and grants no production mutation authority.
 
 - Test-internal recovery-stage publication-race follow-up (2026-09-01, commit `b1fe6e1`): a
   subsequent create-new validation attempt completed all 34 discovered and started suites with 33
@@ -225,9 +225,21 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   Primitives passed 95/0, the original failing focused case set passed 22/0, the complete hard-kill
   suite passed 318/0, and read-only logic/baseline audits found no P0, P1, or P2 issue. This is not
   held-identity or atomic-directory-snapshot evidence: final replacement, StageRoot rebinding, and
-  external scanners remain open boundaries. Final unified evidence remains pending and will be
-  appended only after completion. Task 1 remains 1/6, Phase 2 remains 1/52, and production Apply
-  remains interlocked.
+  external scanners remain open boundaries. The final create-new unified run discovered, started,
+  completed, and passed all 34 suites exactly once, with zero failures, timeouts, duplicates, missing
+  suites, or tree-kill failures. Its external summary SHA-256 is
+  `976f84e50aadc0ac37fb89acee183961d01c6f5fdf9a5ff99fda11424b72c5a8`; the embedded hard-kill
+  record exited 0 and passed 318/0.
+
+  Final post-run gates passed the 156-file PowerShell syntax check, registered artifact validation
+  at 21 contracts / 21 positive / 66 negative / 0 failures (summary SHA-256
+  `b87d5c65bc3e1f1bee8375b54acb023edf9cdb8b515da3251ca3e6ce412af0cf`), the 7/15/7
+  Claude/Codex/Reasonix skill build, and the pinned secret scan with zero blocking findings. A sync
+  DryRun used a fresh external path whose plan leaf was absent before invocation, changed no live
+  files, and produced PlanHash
+  `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e` with plan-file SHA-256
+  `4c5ccb35185531f5da8a052371bef4a3f76a741571056536ea22a2e92a236d08`. No Apply was run. Task 1
+  remains 1/6, Phase 2 remains 1/52, and production Apply remains interlocked.
 
 ## Current checkpoint
 

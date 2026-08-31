@@ -531,9 +531,9 @@ remained unchanged. With suite budgets totaling
 17235 seconds, setup/non-suite allowance 300 seconds, and margin 120 seconds, the computed job
 requirement is 17655 seconds. The Windows workflow is now 298 minutes (17880 seconds), preserving the
 same 225-second outer difference. Focused validation passed hard-kill primitives 95/0, the complete
-hard-kill suite 317/0, the runner budget contract, and both real-runner timeout checks. Final unified
-validation will be appended only after completion; no production Apply is authorized by these test
-configuration changes.
+hard-kill suite 317/0, the runner budget contract, and both real-runner timeout checks. The final
+unified result is recorded in the recovery-stage follow-up below; no production Apply is authorized
+by these test configuration changes.
 
 A subsequent create-new final-validation attempt completed all 34 discovered and started suites,
 with 33 passing, one failing, and zero timeouts; its summary SHA-256 is
@@ -553,8 +553,22 @@ primitives 95/0 and the original failing case set 22/0; the complete hard-kill s
 
 This does not establish held directory identity or an atomic directory snapshot. Final-file
 replacement, StageRoot rebinding, and uncoordinated external scanners remain outside this tests-only
-fix. Final create-new unified evidence remains pending and will be appended only after completion.
-Task 1 remains 1/6, Phase 2 remains 1/52, and production Apply remains interlocked.
+fix. The final create-new unified run discovered, started, completed, and passed all 34 suites
+exactly once, with zero failures, timeouts, duplicates, missing suites, or tree-kill failures. Its
+external summary SHA-256 is
+`976f84e50aadc0ac37fb89acee183961d01c6f5fdf9a5ff99fda11424b72c5a8`; the embedded
+`canonical-hard-kill.tests.ps1` record exited 0 and passed 318/0.
+
+Final post-run gates also passed: the project syntax checker parsed 156 PowerShell files; registered
+artifact validation passed 21 contracts, 21 positive fixtures, and 66 negative fixtures with zero
+failures (summary SHA-256
+`b87d5c65bc3e1f1bee8375b54acb023edf9cdb8b515da3251ca3e6ce412af0cf`); the skill build produced
+Claude/Codex/Reasonix counts 7/15/7; and the pinned secret scan found zero blocking findings. A sync
+DryRun used a fresh external path whose plan leaf was absent before invocation, changed no live
+files, and produced PlanHash
+`b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e` with plan-file SHA-256
+`4c5ccb35185531f5da8a052371bef4a3f76a741571056536ea22a2e92a236d08`. No Apply was run. Task 1
+remains 1/6, Phase 2 remains 1/52, and production Apply remains interlocked.
 
 ## Validation status
 

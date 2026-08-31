@@ -366,7 +366,8 @@ computed requirement including 300-second setup/non-suite allowance and 120-seco
 seconds, and the Windows workflow is 298 minutes / 17880 seconds, preserving the prior 225-second
 outer difference. Focused validation passed hard-kill primitives 95/0, complete hard-kill 317/0, the
 runner budget contract, and both real-runner timeout checks. These are test/CI baseline changes only;
-final unified evidence is recorded after it completes, and production Apply remains interlocked.
+the final unified result is recorded in the recovery-stage follow-up below, and production Apply
+remains interlocked.
 
 **Ninth-checkpoint test-internal recovery-stage follow-up (2026-09-01; commit `b1fe6e1`):** A
 subsequent create-new validation attempt completed all 34 discovered and started suites, with 33
@@ -382,9 +383,20 @@ the original failing focused set passed 22/0, the complete hard-kill suite passe
 read-only logic/baseline review reported no P0, P1, or P2 issue.
 
 This tests-only repair does not prove held directory identity or an atomic directory snapshot;
-final-file replacement, StageRoot rebinding, and external scanners remain outside its scope. Final
-create-new unified evidence remains pending and will be appended only after completion. Task 1 stays
-1/6, Phase 2 stays 1/52, and production Apply remains interlocked.
+final-file replacement, StageRoot rebinding, and external scanners remain outside its scope. The
+final create-new unified run discovered, started, completed, and passed all 34 suites exactly once,
+with zero failures, timeouts, duplicates, missing suites, or tree-kill failures. Its external summary
+SHA-256 is `976f84e50aadc0ac37fb89acee183961d01c6f5fdf9a5ff99fda11424b72c5a8`; the embedded hard-kill
+record exited 0 and passed 318/0.
+
+Final post-run gates passed the 156-file PowerShell syntax check, registered artifact validation at
+21 contracts / 21 positive / 66 negative / 0 failures (summary SHA-256
+`b87d5c65bc3e1f1bee8375b54acb023edf9cdb8b515da3251ca3e6ce412af0cf`), the 7/15/7
+Claude/Codex/Reasonix skill build, and the pinned secret scan with zero blocking findings. A sync
+DryRun used a fresh external path whose plan leaf was absent before invocation, changed no live files,
+and produced PlanHash `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`
+with plan-file SHA-256 `4c5ccb35185531f5da8a052371bef4a3f76a741571056536ea22a2e92a236d08`.
+No Apply was run. Task 1 stays 1/6, Phase 2 stays 1/52, and production Apply remains interlocked.
 
 Resolve Windows ControlBase and fixed sibling BackupRoot from access-token SID plus `FOLDERID_LocalAppData`, and HomeRoot/AppData from OS Known Folder APIs, never from mutable process environment variables. Before either private root exists, derive the fixed no-follow bootstrap-lock file under the already-existing Known Folder root from SID/location/domain only. The reviewed canonical setup plan binds `PrivateRootBootstrapIntent` (parent identity, fixed control/backups remainders, each MISSING|COMPLETE, final current-user DACL template, expected fixed children); Apply acquires that pre-ControlBase exclusive handle, revalidates intent, creates the private parent, BackupRoot, ControlBase plus `homes/canonical-roots/live-transactions` only with the final security descriptor, validates the deterministic prefix, and only then obtains the normal global lock. Exact crash prefixes may be completed by the same setup plan; wrong ACL/identity/extra/reparse is manual. No live/receipt/journal work precedes global lock. Read-only status never creates the bootstrap lock/file or directories. Existing ControlBase/BackupRoot bind resolved identity, owner ACL/SID, resolver version and FilesystemCapabilityHash; production on an undefined non-Windows adapter remains interlocked. Protocol v1 production dispatch rejects public `-HomeRoot`/`-BackupRoot`; sealed fake-home injection remains an internal capability only. Derive `HomeAuthorityKey` from token SID plus canonical Known-Folder HomeRoot location key only; do not include root existence/file IDs or Reasonix override.
 
