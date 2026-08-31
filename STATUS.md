@@ -906,6 +906,27 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
   commits REST endpoint, and `upload-pack: not our ref` from a no-write direct-fetch dry run; local
   HEAD and refs remained unchanged. The external privacy follow-up is closed.
 
+## Remaining roadmap snapshot
+
+Phase 2 has 51 of 52 steps remaining. Task 1 has five remaining steps; Tasks 2-9 have not started.
+The implementation order and remaining scope are:
+
+| Phase 2 task | Remaining steps | Scope |
+|---|---:|---|
+| Task 1 | 5/6 | ControlBase/HomeAuthorityKey, registry view, shared state, deterministic locks, verification |
+| Task 2 | 7/7 | Semantic sync-plan schema 3 and environment-build v3 |
+| Task 3 | 7/7 | Unique managed-object and authority-preimage backup receipts |
+| Task 4 | 7/7 | Live-mutation state machine, same-volume staging, journal, and failure classification |
+| Task 5 | 6/6 | Common transaction host for normal sync and explicit retirement |
+| Task 6 | 5/5 | Read-only recovery status, reviewed recovery transitions, failpoints, and restart behavior |
+| Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
+| Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
+| Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
+
+The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 shared
+environment authority and task-overlay work, followed by the Phase 4 schema/CI contract and safe
+release, remain downstream and have not started.
+
 ## Next actions
 
 1. Continue Phase 2 Task 1 Step 2 by defining a production caller/cleanup ledger that can own and
@@ -917,8 +938,10 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
    cases.
    Apply the complete forbidden-root matrix before accepting any default/custom claim. Keep
    production Apply disconnected and leave live-journal structure and interpretation to Task 4.
-2. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
-3. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
+   environment planning. This is artifact preparation only and does not authorize environment Apply.
+3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
+4. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.

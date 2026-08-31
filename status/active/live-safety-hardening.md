@@ -282,6 +282,27 @@ production route supplies it yet. Before Task 4 defines the live-journal contrac
 live-transaction directory is inventoried as unresolved and blocks mutation as recovery-required
 rather than being interpreted heuristically.
 
+## Remaining work
+
+Phase 2 has 51 of 52 steps remaining. Task 1 has five remaining steps; Tasks 2-9 are unstarted:
+
+| Task | Remaining steps | Remaining outcome |
+|---|---:|---|
+| Task 1 | 5/6 | ControlBase/HomeAuthorityKey, registry, shared state, locks, and verification |
+| Task 2 | 7/7 | Semantic plan schema 3 and environment-build v3 |
+| Task 3 | 7/7 | Unique managed-object and authority-preimage receipts |
+| Task 4 | 7/7 | Common live-mutation state machine and journal |
+| Task 5 | 6/6 | Normal sync and retirement migration to the common host |
+| Task 6 | 5/5 | Crash-recovery status, transitions, failpoints, and restart verification |
+| Task 7 | 5/5 | Receipt-backed environment rollback |
+| Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
+| Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
+
+The required execution order is Task 1 -> Task 2 -> Task 3 -> Task 4 -> Task 5 -> Task 6 -> Task 7
+-> Task 8 -> Task 9. Phase 3 shared environment authority and task-overlay work, followed by the
+Phase 4 schema/CI contract and safe release, have not started. Before future environment planning,
+rebuild the stale commit-bound environment staging locks; this does not authorize Apply.
+
 ## Safety boundary
 
 Do not run production Apply, backup, rollback, retirement, or live mutation.
