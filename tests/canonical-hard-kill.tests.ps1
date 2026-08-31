@@ -5351,7 +5351,7 @@ try{
         if(-not[object]::ReferenceEquals($owner.Parent,$ast.EndBlock)){throw 'preimage-transport-session-owner-scope'}
         if((Get-HardKillTokenFingerprint -Source ([string]$owner.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldOwner.Extent.Text))){throw 'preimage-transport-session-owner-shape'}
         if($Profile -ceq 'Actual'){
-            $reviewedActualControllerSurfaceSha='15b78332c7c372c04dd89e04337a034655a4fc645ef31323cb2abacfa08af3b8'
+            $reviewedActualControllerSurfaceSha='e237d32913aba3898b8be39cdca249d68cbf58d039011921929e4c98d044815e'
             $surfacePattern='(?m)(\$reviewedActualControllerSurfaceSha\s*=\s*'')[0-9a-f]{64}('')'
             $surfaceMatches=[regex]::Matches($ControllerSource,$surfacePattern,[Text.RegularExpressions.RegexOptions]::CultureInvariant)
             if($surfaceMatches.Count -ne 1 -or $reviewedActualControllerSurfaceSha -ceq ('0'*64)){throw 'preimage-transport-reviewed-controller-surface'}
@@ -8631,7 +8631,7 @@ try{
         if($launcherDefinitions.Count -ne 1 -or $launcherDefinitions[0].Name -cne 'Start-HardKillRegisteredProcess' -or -not[object]::ReferenceEquals($launcherDefinitions[0].Parent,$ast.EndBlock)){throw 'preimage-transport-launch-inventory'}
         $sectionSurfaceSha=Get-TransportTokenSha256 ([string]$sectionIf.Extent.Text)
         $goldSectionSurfaceSha=Get-TransportTokenSha256 ([string]$goldSectionIf.Extent.Text)
-        $reviewedActualSectionSurfaceSha='ceb2b812ab53b8ec9396ebf5998c62b23179a09677132a2483859102f6bcb94a'
+        $reviewedActualSectionSurfaceSha='57b5540bc46c7f376becb29cf0ee1c83f18b0d225e327e6d978d53dd3758d455'
         if(($Profile -ceq 'Synthetic' -and $sectionSurfaceSha -cne $goldSectionSurfaceSha) -or
             ($Profile -ceq 'Actual' -and ($reviewedActualSectionSurfaceSha -ceq ('0'*64) -or $sectionSurfaceSha -cne $reviewedActualSectionSurfaceSha))){
             throw 'preimage-transport-reviewed-section-surface'
@@ -10200,7 +10200,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $preimageTransportAuthority=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityPreflight' '936f6d772d39806426f3f5f81adc5a3436de2ee578f7d3c507a3a224a14b9ee2' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntime=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContract' '4d43f6b9416b05c04785c4fa46df104bfa650af03611f1b9477d720e4fc2ac05' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntimeMutations=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContractMutations' '4c962df050a1ae4fb9768d7fbfcc14425d407512b0d634b1c8ab8814fed514d5' 'cleanup-trust-closure'
-        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' '68394d6161e8c159c94b7830aed78367ad8827d926e892000571c682e8c0ed1b' 'cleanup-trust-closure'
+        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' '042446cee3d383bd5b63a8f83bb29cf549647391c34e52abe0113b8851bef68b' 'cleanup-trust-closure'
         $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' '296991db4ca8853b323ddcbcd89de2ca215a6e4e1026b07122d6245fa0e966fc' 'cleanup-trust-closure'
         $afterPreimageLadderContract=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContract' 'bb2b6518ac32f530466e7f8a0a6a3e9b2cf2a26f0800911cc9bc7c1abe18262a' 'cleanup-trust-closure'
         $afterPreimageLadderMutations=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContractMutations' '96767d13f1a11cbcd42030e6f7ff1de02b0337a0a7fe98638a3d5129a4cb9a3e' 'cleanup-trust-closure'
@@ -10216,7 +10216,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $normalizedSelfSource=[regex]::new($selfDigestPattern).Replace($selfSource,"        `$reviewedSelfDigest='__CLEANUP_GATE_SELF_DIGEST__'",1)
         $normalizedSelfSource=$normalizedSelfSource -replace "`r`n?","`n"
         $actualSelfDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalizedSelfSource))).ToLowerInvariant()
-        $reviewedSelfDigest='a1c639776f8902706e8ac5ecd7e52e7027fcae7123c56a77093b3fa993c449a5'
+        $reviewedSelfDigest='388692420c2d3634960f5d25f9a5872b2228f375ac2985ea8e0564619d199a81'
         if($actualSelfDigest -cne $reviewedSelfDigest){throw 'cleanup-gate-self-definition'}
         $result.SelfDefinitionPinned=$true
         $functionRows=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|
@@ -10364,13 +10364,13 @@ function Test-HardKillBehaviorCleanupBarrierContract {
             @($node.Arguments|Where-Object{(Get-HardKillAstTextCompact $_) -cin @('$true','[bool]1','1')}).Count -gt 0
         },$true))
         if($recursiveDeleteMembers.Count -ne 0){throw 'cleanup-outer-lifecycle'}
-        if((Get-ReviewedExtentSha256 $mainTry) -cne 'ef52726aa2d8a66423490dc2dc01a5094307d23db81e5644800adea2fa3a11fc'){throw 'cleanup-main-execution'}
+        if((Get-ReviewedExtentSha256 $mainTry) -cne '4f28377756c5a042bf4575a9df6f3ef76e47a21852884b17f8cc092eb8e2376b'){throw 'cleanup-main-execution'}
         $topExecutionRows=@($topStatements|Where-Object{$_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}|ForEach-Object{
             '{0}|{1}' -f $_.GetType().FullName,(Get-ReviewedExtentSha256 $_)
         })
         $topExecutionDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($topExecutionRows -join "`n")))).ToLowerInvariant()
-        if($topExecutionDigest -cne '0b85ae4f5126320ec0ed7d441f2c87e6a098d530d1da7211bfec4333f9cb90c0'){throw 'cleanup-top-level-execution'}
-        if($functionInventoryDigest -cne '43cc34e218eb49e9bcd9773b841b941fc5ea97d449a4cd152a4e58f5ae3240d2'){throw 'cleanup-function-inventory'}
+        if($topExecutionDigest -cne '197ad6eab336df8929782688de8a461665cf988a09efe39fe1b81beeb368071c'){throw 'cleanup-top-level-execution'}
+        if($functionInventoryDigest -cne '2393050b175e3bd80a8e97a792e0b770bbcb7e0bee37ed7fd4927e52e8c9691c'){throw 'cleanup-function-inventory'}
         $result.FunctionInventoryPinned=$true
         $result.MainExecutionPinned=$true
         $result.OuterForensicGuardPinned=$true
@@ -11542,6 +11542,21 @@ function Read-HardKillRecoveryVisitedStages {
     param([Parameter(Mandatory)][string]$StageRoot)
     $rootPath=[IO.Path]::GetFullPath($StageRoot)
     $files=@([IO.Directory]::EnumerateFiles($rootPath)|Sort-Object)
+    $publicationTempPattern='^\.(?:entering|visited)-[0-9]{6}\.json\.[0-9a-f]{32}\.tmp$'
+    $publishedStagePattern='^(?:entering|visited)-[0-9]{6}\.json$'
+    $regexOptions=[Text.RegularExpressions.RegexOptions]::CultureInvariant
+    $publicationInProgress=$false
+    for($index=0;$index -lt $files.Count;$index++){
+        $leaf=[IO.Path]::GetFileName($files[$index])
+        if([Text.RegularExpressions.Regex]::IsMatch($leaf,$publicationTempPattern,$regexOptions)){
+            $publicationInProgress=$true
+            continue
+        }
+        if(-not[Text.RegularExpressions.Regex]::IsMatch($leaf,$publishedStagePattern,$regexOptions)){
+            throw ('sealed recovery stage inventory contains an unexpected entry: '+$leaf)
+        }
+    }
+    if($publicationInProgress){throw 'sealed-recovery-stage-publication-in-progress'}
     $stages=[Collections.Generic.List[object]]::new()
     for($index=0;$index -lt $files.Count;$index++){
         $file=$files[$index];$leaf=[IO.Path]::GetFileName($file)
@@ -13020,6 +13035,50 @@ try{
         $recoveryKillHostText.IndexOf('[Parameter(Mandatory)][string]$StageEventName',[StringComparison]::Ordinal) -ge 0 -and
         $hardKillControllerText.IndexOf($legacyTypedGuard,[StringComparison]::Ordinal) -lt 0) `
         'sealed recovery kill host exposes only the mandatory typed stage protocol'
+    $stageReaderProbeRoot=Join-Path $root 'recovery-stage-reader-probe'
+    [IO.Directory]::CreateDirectory($stageReaderProbeRoot)|Out-Null
+    $stageReaderProbeDocument=[ordered]@{
+        SchemaVersion=1
+        ArtifactKind='sealed-recovery-target-stage'
+        Stage='entering'
+        Sequence=1
+        TargetId=(('0'*64)-join '')
+        Order=0
+        TargetKind='file'
+    }
+    $stageReaderProbeBytes=[Text.UTF8Encoding]::new($false,$true).GetBytes(($stageReaderProbeDocument|ConvertTo-Json -Compress -Depth 10))
+    $stageReaderProbeTemp=Join-Path $stageReaderProbeRoot ('.entering-000001.json.'+[Guid]::NewGuid().ToString('N')+'.tmp')
+    $stageReaderProbeFinal=Join-Path $stageReaderProbeRoot 'entering-000001.json'
+    $stageReaderProbeNear=Join-Path $stageReaderProbeRoot ('.entering-000002.json.'+[Guid]::NewGuid().ToString('N')+'.tmpx')
+    $stageReaderTempError='';$stageReaderNearError='';$stageReaderPublished=@()
+    $stageReaderProbeStream=$null
+    try{
+        $stageReaderProbeStream=[IO.File]::Open($stageReaderProbeTemp,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+        $stageReaderProbeStream.Write($stageReaderProbeBytes,0,$stageReaderProbeBytes.Length)
+        $stageReaderProbeStream.Flush($true)
+        try{$null=@(Read-HardKillRecoveryVisitedStages -StageRoot $stageReaderProbeRoot)}catch{$stageReaderTempError=[string]$_.Exception.Message}
+    }finally{
+        if($null -ne $stageReaderProbeStream){$stageReaderProbeStream.Dispose()}
+    }
+    [IO.File]::Move($stageReaderProbeTemp,$stageReaderProbeFinal,$false)
+    $stageReaderPublished=@(Read-HardKillRecoveryVisitedStages -StageRoot $stageReaderProbeRoot)
+    $stageReaderFinalStream=$null;$stageReaderNearStream=$null
+    try{
+        $stageReaderFinalStream=[IO.File]::Open($stageReaderProbeFinal,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
+        $stageReaderNearStream=[IO.File]::Open($stageReaderProbeNear,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+        try{$null=@(Read-HardKillRecoveryVisitedStages -StageRoot $stageReaderProbeRoot)}catch{$stageReaderNearError=[string]$_.Exception.Message}
+    }finally{
+        try{
+            if($null -ne $stageReaderNearStream){$stageReaderNearStream.Dispose()}
+        }finally{
+            if($null -ne $stageReaderFinalStream){$stageReaderFinalStream.Dispose()}
+        }
+    }
+    $stageReaderProbeValid=$stageReaderTempError -ceq 'sealed-recovery-stage-publication-in-progress' -and
+        $stageReaderPublished.Count -eq 1 -and [string]$stageReaderPublished[0].Stage -ceq 'entering' -and
+        [long]$stageReaderPublished[0].Sequence -eq 1 -and
+        $stageReaderNearError.StartsWith('sealed recovery stage inventory contains an unexpected entry:',[StringComparison]::Ordinal)
+    Assert $stageReaderProbeValid ("typed recovery stage reader classifies the complete inventory before content open (temp={0}; near={1})" -f $stageReaderTempError,$stageReaderNearError)
     $cases=@(
         [ordered]@{Name='before-workspace';Kind='file';Checkpoint='before-workspace-mkdir:preimage';Action='abandon';Outcome='abandoned';SealedMutationTransport=$true}
         [ordered]@{Name='after-workspace';Kind='file';Checkpoint='after-workspace-mkdir:preimage';Action='abandon';Outcome='abandoned';SealedMutationTransport=$true}
