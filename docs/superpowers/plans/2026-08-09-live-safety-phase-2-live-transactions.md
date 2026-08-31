@@ -319,6 +319,36 @@ skill build (7/15/7), pinned gitleaks scan (zero blocking findings; 835 non-bloc
 and changed no live file. No production Apply, backup, rollback, retirement, live-root mutation, or
 Git index/ref mutation occurred.
 
+**Ninth intermediate checkpoint (2026-08-31; commit `4af1d79`):** The runtime-only held-current-route
+capability observation is now production-defined as a narrow composition seam. A mandatory
+caller-owned `SealedOwnershipTransferReceiver` receives the exact issued observation while the
+observation borrows the already-held current route/canonical/global chain and owns the frozen outer
+fixed-envelope handle chains. Its contract is exactly
+`Coverage=HELD_CURRENT_ROUTE_FIXED_INFRASTRUCTURE_PROBED`, `Scope=RUNTIME_ONLY`, and
+`MutationAuthorization=NONE`; it is not plan evidence, a registry capability upgrade, or mutation
+authority. The read-only registry therefore continues to report `CurrentRouteCoverage=HELD_METADATA_VERIFIED`
+and `FilesystemCapabilityCoverage=UNPROBED_READ_ONLY`.
+
+This checkpoint supersedes only the eighth checkpoint's historical statements that no current-route
+composition existed and that the fixed-capability issuer was process-static. The fixed raw/probe
+definitions and issuer token are now pinned per exact PowerShell runspace in a weak-keyed definition
+table, so a second runspace cannot invoke the first runspace's ScriptBlocks. The public PowerShell
+lifecycle surface remains limited to receiver-backed `Open` plus observation-only `Assert`/`Close`. The recursive
+production-seam gate proves that all three lifecycle functions have zero production callers and
+mutation-RED tests reject wiring them into the production Apply branch, including qualified, aliased,
+provider-drive, and direct issuer-member variants.
+
+The lifecycle/attack tests establish exact receiver ownership, cleanup behavior, cross-runspace
+rejection, and Stop durability only for the receiver-backed trusted path. The route test pins the
+exact `DeliverExact`-to-transfer-flag boundary; the observation test proves receiver durability only
+after public `Open` has returned, not an internal observation `DeliverExact`-to-flag breakpoint. They
+do not establish that legacy optional-receiver or raw success-stream APIs are Stop-safe, do not prove recursive/transitive
+provider closure, and do not authorize a production resolver, dispatcher, plan, backup, receipt,
+journal, or Apply consumer. Step 2 remains incomplete; Task 1 stays 1/6 and Phase 2 stays 1/52.
+Production Apply remains interlocked and no live root is mutated. The next Step 2 slice is a
+production caller/cleanup ledger that can own and explicitly close the runtime observation after the
+relevant ownership-transfer and cleanup debts are closed, not Apply integration or release.
+
 Resolve Windows ControlBase and fixed sibling BackupRoot from access-token SID plus `FOLDERID_LocalAppData`, and HomeRoot/AppData from OS Known Folder APIs, never from mutable process environment variables. Before either private root exists, derive the fixed no-follow bootstrap-lock file under the already-existing Known Folder root from SID/location/domain only. The reviewed canonical setup plan binds `PrivateRootBootstrapIntent` (parent identity, fixed control/backups remainders, each MISSING|COMPLETE, final current-user DACL template, expected fixed children); Apply acquires that pre-ControlBase exclusive handle, revalidates intent, creates the private parent, BackupRoot, ControlBase plus `homes/canonical-roots/live-transactions` only with the final security descriptor, validates the deterministic prefix, and only then obtains the normal global lock. Exact crash prefixes may be completed by the same setup plan; wrong ACL/identity/extra/reparse is manual. No live/receipt/journal work precedes global lock. Read-only status never creates the bootstrap lock/file or directories. Existing ControlBase/BackupRoot bind resolved identity, owner ACL/SID, resolver version and FilesystemCapabilityHash; production on an undefined non-Windows adapter remains interlocked. Protocol v1 production dispatch rejects public `-HomeRoot`/`-BackupRoot`; sealed fake-home injection remains an internal capability only. Derive `HomeAuthorityKey` from token SID plus canonical Known-Folder HomeRoot location key only; do not include root existence/file IDs or Reasonix override.
 
 - [ ] **Step 3: Build the registry view**

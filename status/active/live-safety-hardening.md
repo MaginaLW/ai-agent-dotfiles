@@ -1,6 +1,6 @@
 # Live Safety Hardening
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
@@ -169,6 +169,31 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   first-ScriptBlock/runspace lifetime and evidence temporal scope remain integration blockers.
   Task 1 remains 1/6 and Phase 2 remains 1/52, with production Apply interlocked.
 
+- Phase 2 Task 1 receiver-backed held-route capability observation (2026-08-31, commit `4af1d79`,
+  narrow Step 2 checkpoint): a caller-owned sealed receiver now accepts exact ownership transfer for
+  safe containment chains, target/live leases, current-route capture, and the runtime observation.
+  The observation borrows the genuine held route, canonical witness, and global lock, owns frozen
+  outer fixed-envelope handle chains, and reports exactly
+  `Coverage=HELD_CURRENT_ROUTE_FIXED_INFRASTRUCTURE_PROBED`, `Scope=RUNTIME_ONLY`, and
+  `MutationAuthorization=NONE`. Its public `Open`/`Assert`/`Close` lifecycle APIs have zero production
+  callers. The only production consumer of the current-route capture remains the read-only registry,
+  whose output is still `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY`; no resolver, dispatcher,
+  setup, Apply, rollback, or live-mutation path consumes the observation.
+
+  The fixed-capability issuer moved from process-first ScriptBlock capture to per-runspace definitions
+  weak-keyed by `Runspace`, with exact pinned ScriptBlock references, runspace identity, and a
+  definition-local issuer token. Real `PowerShell.Stop` coverage pins the route's exact
+  `DeliverExact`-to-transfer-flag boundary, proves observation receiver durability after public
+  `Open` returns, and verifies the delivered safe-chain/target resources remain open for explicit
+  cleanup. It does not claim an internal observation `DeliverExact`-to-flag breakpoint, cover legacy
+  raw success-stream return branches, or make the complete public API Stop-safe. Remaining debt includes legacy raw returns (safe-existing,
+  retained traversal, target, and live-set included); runspace-disposal recovery and observation
+  definitions retaining strong runspace references; target/live `Assert` versus concurrent `Close`;
+  transitive provider closure and raw-getter capability transfer; computed provider-path dataflow and
+  a literal-provider-token static false positive; opaque bare lease wrappers; and a durable recovery
+  ticket when route cleanup itself fails. Step 2 remains incomplete; Task 1 stays 1/6, Phase 2 stays
+  1/52, and production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -178,26 +203,31 @@ are closed. The implementation checkpoint now includes the reviewed read-only au
 sealed fake-ControlBase bootstrap/global-lock, held-lock registry core, caller-held
 canonical/current-route slices, the Step 1 identity/concurrency failure matrix, and the sealed
 under-lock per-target/per-volume capability preflight with held exact-slot cleanup plus the internal
-fixed-infrastructure same-lock capture within Phase 2 Task 1. Step 1 is complete (Task 1 1/6); these
-capability layers advance Step 2 without completing it and stay unconnected to production mutation
-routes.
+fixed-infrastructure same-lock capture and receiver-backed held-route runtime observation within Phase
+2 Task 1. The observation is production-defined but production-unconsumed; the only production route
+consumer remains the read-only registry with `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` output.
+Step 1 is complete (Task 1 1/6); these capability layers advance Step 2 without completing it and
+stay unconnected to production mutation routes.
 
 ## Current phase
 
-Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. Next are production-route integration of the
-strict canonical-to-global lock order and current-route witness, resolver/fixed-envelope consumption
-of the sealed fixed-infrastructure capability evidence, the `PrivateRootBootstrapIntent` setup path
-and protocol-v1 public dispatch, and the remaining forbidden-root cases, including applying the
-complete forbidden-root matrix before accepting any default/custom claim. Production Apply remains
-disconnected, and live-journal structure and interpretation remain deferred to Task 4.
+Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. Next is to define a production caller/cleanup
+ledger that can own and explicitly close the runtime observation, after closing the relevant
+receiver/raw-return, runspace-lifecycle, target/live reader-close, and provider-closure blockers. The
+`PrivateRootBootstrapIntent` setup path,
+protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
+the complete forbidden-root matrix before accepting any default/custom claim. Production Apply
+remains disconnected, and live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine
 caller-held lock pair. Future production plan/Apply consumers must hold all required locks, including
 the global live lock, then recapture the full no-follow TargetContext and reject any drift before
 backup/workspace creation.
-The current sealed bootstrap and route snapshot accept or report read-only evidence only; they are not
-the production filesystem-capability preflight required before release.
+The receiver-backed observation can compose that held route with fixed-infrastructure capability
+evidence at runtime, but it grants no mutation authority and has no production lifecycle caller. The
+sealed bootstrap and read-only registry remain insufficient as a production filesystem-capability
+preflight before release.
 Pristine bootstrap validation is now separate from the exact fixed post-bootstrap envelope; arbitrary
 children remain fail-closed. Canonical-root-claim v1 has no GitCommonDir locator, so the current
 canonical namespace and setup state resolve only through the genuine caller-held witness; no

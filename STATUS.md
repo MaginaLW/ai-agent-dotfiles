@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -417,8 +417,9 @@ If outer fixed-envelope close fails with a primary error, the primary remains au
 cleanup message is retained in `SealedFixedInfrastructureCapabilityCleanupError`; cleanup-only
 failure remains visible directly.
 
-The recursive production-seam test now proves that the fixed capture has zero production callers and
-that the validator plus exact raw/probe issuer calls have only their reviewed internal owners. It
+At this checkpoint, the recursive production-seam test proved that the fixed capture had zero
+production callers and that the validator plus exact raw/probe issuer calls had only their reviewed
+internal owners. It
 freezes all `scripts/**/*.ps1` dynamic-command and member/property/reflection dispatch surfaces with
 reviewed count/digests, retains zero `using` and PowerShell type-definition baselines, and rejects
 direct, dynamic, public-factory, explicit-type reflection, split-string AppDomain reflection,
@@ -426,6 +427,10 @@ mixed-case reflection, short-type/property-only member discovery, `ForEach-Objec
 new `Add-Type`/PowerShell class mutations. This broad digest is deliberately a change-review guard,
 not a runtime non-interference proof; any production dispatch-surface change requires explicit
 review and re-pinning.
+
+This paragraph records the 2026-08-30 tree. The 2026-08-31 checkpoint below supersedes its current-tree
+zero-caller and process-static-issuer statements with a runtime-only observation and per-runspace
+issuer; the historical no-Apply boundary remains unchanged.
 
 This is an additive Step 2 checkpoint only. No production Apply, rollback, registry/current-route
 consumer, resolver adapter, bootstrap setup, public dispatcher, receipt, journal, or live-mutation
@@ -476,6 +481,40 @@ SHA-256 `5d771d2d0a5139732e19204c26f1ad7af1b4f49f21f8c1cdb97be184dd96a432`); ski
 `b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, preserved Codex `.system`,
 and changed no live file. No production Apply, backup, rollback, retirement, live-root mutation, or
 Git index/ref mutation was performed.
+
+## 2026-08-31 Phase 2 receiver-backed held-route capability observation
+
+Commit `4af1d79` adds a narrow runtime observation over a genuine held current route and the fixed
+infrastructure capability capture. The observation borrows the route, canonical witness, and global
+lock while owning the frozen outer fixed-envelope handle chains delivered through a caller-owned
+sealed receiver. Its contract is exactly
+`Coverage=HELD_CURRENT_ROUTE_FIXED_INFRASTRUCTURE_PROBED`, `Scope=RUNTIME_ONLY`, and
+`MutationAuthorization=NONE`; it is neither a plan/receipt nor mutation authority.
+
+The public observation lifecycle surface (`Open`, `Assert`, and `Close`) has zero production callers.
+In the production call graph, the current-route capture is still consumed only by the read-only
+registry, whose published result remains `CurrentRouteCoverage=HELD_METADATA_VERIFIED` with
+`FilesystemCapabilityCoverage=UNPROBED_READ_ONLY`. The observation therefore establishes a reviewed runtime
+composition boundary without claiming resolver, dispatcher, setup, Apply, rollback, or live-mutation
+integration.
+
+The fixed-capability issuer is now scoped per PowerShell runspace in a
+`ConditionalWeakTable<Runspace,...>`, with exact pinned ScriptBlock references, runspace identity,
+and a definition-local issuer token. This removes the previous process-first ScriptBlock capture
+across runspaces. Real `PowerShell.Stop` tests cover the receiver-backed trusted path: the route test
+pins the exact `DeliverExact`-to-transfer-flag boundary, while the observation test proves receiver
+durability after public `Open` has returned. Safe-chain and target tests verify their delivered
+resources remain open for explicit cleanup. The observation test does not claim an internal
+`DeliverExact`-to-flag breakpoint, and none of these claims extends to legacy raw success-stream
+return branches or makes the complete public API Stop-safe.
+
+Known follow-up debt includes those legacy raw returns (including safe-existing, retained traversal,
+target, and live-set paths); runspace-disposal recovery and observation definitions that retain strong
+runspace references; target/live `Assert` versus concurrent `Close`; transitive provider closure and
+raw-getter capability transfer; computed provider-path dataflow and the literal-provider-token static
+false positive; opaque bare lease wrappers; and a durable recovery ticket when route cleanup itself
+fails. Step 2 remains incomplete. Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply stays
+interlocked.
 
 ## Validation status
 
@@ -815,10 +854,13 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 
 ## Next actions
 
-1. Continue Phase 2 Task 1 with production-route integration of the canonical-to-global lock order
-   and current-route witness, resolver/fixed-envelope consumption of the sealed per-target capability
-   evidence, the `PrivateRootBootstrapIntent` setup path and protocol-v1 public dispatch, and the
-   remaining forbidden-root cases.
+1. Continue Phase 2 Task 1 Step 2 by defining a production caller/cleanup ledger that can own and
+   explicitly close the runtime observation. Before wiring a resolver or dispatcher consumer, close
+   the relevant receiver/raw-return, runspace-lifecycle, target/live reader-close, and
+   provider-closure blockers. Preserve the read-only registry's
+   `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` contract while completing the
+   `PrivateRootBootstrapIntent` setup path, protocol-v1 public dispatch, and remaining forbidden-root
+   cases.
    Apply the complete forbidden-root matrix before accepting any default/custom claim. Keep
    production Apply disconnected and leave live-journal structure and interpretation to Task 4.
 2. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
