@@ -535,6 +535,27 @@ hard-kill suite 317/0, the runner budget contract, and both real-runner timeout 
 validation will be appended only after completion; no production Apply is authorized by these test
 configuration changes.
 
+A subsequent create-new final-validation attempt completed all 34 discovered and started suites,
+with 33 passing, one failing, and zero timeouts; its summary SHA-256 is
+`88b4cfd0cfb911600c3a1fbf76c7c82e362f8ffaebeaa930c6826372d9445342`. The sole failing suite was
+`canonical-hard-kill.tests.ps1` at 233/5. Its first failure was a tests-only sharing race: the
+recovery-stage reader used `ReadAllText` on a publisher-private temp file and thereby blocked the
+publisher's `File.Move`; the other four failures cascaded from that stall.
+
+Commit `b1fe6e1` fixes only this test-internal reader/publication race. The reader now classifies the
+complete enumerated name set before opening content, treats an exact publication-temp name as stable
+in-progress, gives unknown entries precedence, and reads only validated final names. Exclusive-open
+probes make the temp and unknown/final classifications deterministic. Only the seven required
+reviewed baselines changed; the final `canonical-hard-kill.tests.ps1` SHA-256 is
+`2e3dae688d2334fe171558adfee00b68ba5e2778a5f6ae70a1a1637cf9e5c234`. Focused validation passed
+primitives 95/0 and the original failing case set 22/0; the complete hard-kill suite then passed
+318/0, and read-only logic/baseline audits reported no P0, P1, or P2 finding.
+
+This does not establish held directory identity or an atomic directory snapshot. Final-file
+replacement, StageRoot rebinding, and uncoordinated external scanners remain outside this tests-only
+fix. Final create-new unified evidence remains pending and will be appended only after completion.
+Task 1 remains 1/6, Phase 2 remains 1/52, and production Apply remains interlocked.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

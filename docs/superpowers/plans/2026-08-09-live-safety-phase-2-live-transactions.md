@@ -368,6 +368,24 @@ outer difference. Focused validation passed hard-kill primitives 95/0, complete 
 runner budget contract, and both real-runner timeout checks. These are test/CI baseline changes only;
 final unified evidence is recorded after it completes, and production Apply remains interlocked.
 
+**Ninth-checkpoint test-internal recovery-stage follow-up (2026-09-01; commit `b1fe6e1`):** A
+subsequent create-new validation attempt completed all 34 discovered and started suites, with 33
+passing, one failing, and zero timeouts; its summary SHA-256 is
+`88b4cfd0cfb911600c3a1fbf76c7c82e362f8ffaebeaa930c6826372d9445342`. Hard-kill alone reached
+233/5. A tests-only `ReadAllText` of the publisher-private temp blocked `File.Move`, producing the
+primary failure and four cascades. The reader now classifies the enumerated name set before content
+access, treats exact publication temps as stable in-progress, rejects unknown entries first, and
+reads only validated final names; exclusive-open regressions make those classifications
+deterministic. Seven reviewed baselines were minimally re-pinned, and the final file SHA-256 is
+`2e3dae688d2334fe171558adfee00b68ba5e2778a5f6ae70a1a1637cf9e5c234`. Primitives passed 95/0,
+the original failing focused set passed 22/0, the complete hard-kill suite passed 318/0, and
+read-only logic/baseline review reported no P0, P1, or P2 issue.
+
+This tests-only repair does not prove held directory identity or an atomic directory snapshot;
+final-file replacement, StageRoot rebinding, and external scanners remain outside its scope. Final
+create-new unified evidence remains pending and will be appended only after completion. Task 1 stays
+1/6, Phase 2 stays 1/52, and production Apply remains interlocked.
+
 Resolve Windows ControlBase and fixed sibling BackupRoot from access-token SID plus `FOLDERID_LocalAppData`, and HomeRoot/AppData from OS Known Folder APIs, never from mutable process environment variables. Before either private root exists, derive the fixed no-follow bootstrap-lock file under the already-existing Known Folder root from SID/location/domain only. The reviewed canonical setup plan binds `PrivateRootBootstrapIntent` (parent identity, fixed control/backups remainders, each MISSING|COMPLETE, final current-user DACL template, expected fixed children); Apply acquires that pre-ControlBase exclusive handle, revalidates intent, creates the private parent, BackupRoot, ControlBase plus `homes/canonical-roots/live-transactions` only with the final security descriptor, validates the deterministic prefix, and only then obtains the normal global lock. Exact crash prefixes may be completed by the same setup plan; wrong ACL/identity/extra/reparse is manual. No live/receipt/journal work precedes global lock. Read-only status never creates the bootstrap lock/file or directories. Existing ControlBase/BackupRoot bind resolved identity, owner ACL/SID, resolver version and FilesystemCapabilityHash; production on an undefined non-Windows adapter remains interlocked. Protocol v1 production dispatch rejects public `-HomeRoot`/`-BackupRoot`; sealed fake-home injection remains an internal capability only. Derive `HomeAuthorityKey` from token SID plus canonical Known-Folder HomeRoot location key only; do not include root existence/file IDs or Reasonix override.
 
 - [ ] **Step 3: Build the registry view**

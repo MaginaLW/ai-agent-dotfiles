@@ -210,6 +210,25 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   and both real-runner timeout checks. Final unified evidence remains to be appended after
   completion. This changes only tests and CI bounds and grants no production mutation authority.
 
+- Test-internal recovery-stage publication-race follow-up (2026-09-01, commit `b1fe6e1`): a
+  subsequent create-new validation attempt completed all 34 discovered and started suites with 33
+  passing, one failing, and zero timeouts (summary SHA-256
+  `88b4cfd0cfb911600c3a1fbf76c7c82e362f8ffaebeaa930c6826372d9445342`). The only failing suite was
+  hard-kill at 233/5: its tests-only reader opened a publisher-private temp through `ReadAllText`,
+  blocked `File.Move`, and caused four later failures to cascade. The reader now classifies the
+  complete enumerated name set first, reports an exact temp as stable publication-in-progress, gives
+  unknown names precedence, and reads content only from validated final names. Exclusive-open probes
+  pin this behavior deterministically.
+
+  The repair changes only the seven required transitive reviewed baselines; final hard-kill file
+  SHA-256 is `2e3dae688d2334fe171558adfee00b68ba5e2778a5f6ae70a1a1637cf9e5c234`.
+  Primitives passed 95/0, the original failing focused case set passed 22/0, the complete hard-kill
+  suite passed 318/0, and read-only logic/baseline audits found no P0, P1, or P2 issue. This is not
+  held-identity or atomic-directory-snapshot evidence: final replacement, StageRoot rebinding, and
+  external scanners remain open boundaries. Final unified evidence remains pending and will be
+  appended only after completion. Task 1 remains 1/6, Phase 2 remains 1/52, and production Apply
+  remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
