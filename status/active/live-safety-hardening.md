@@ -1,6 +1,6 @@
 # Live Safety Hardening
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
@@ -153,10 +153,11 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   surfaces; AppDomain/string, case-variant, and short-type/property-only reflection mutations all
   fail closed. Focused root-claims and 29/0 seam suites, modified-file parsing, and diff checks passed.
   Closure validation also hardened two tests-only bounds: legacy Job reap now uses one reviewed
-  30-second absolute deadline and primary-first cleanup. Its dedicated semantics suite now has a
-  60-second runner bound; the expanded root-claims suite uses a 600-second bound and the Windows
-  workflow uses 276 minutes. The 16335-second computed requirement remains below the 16560-second
-  job limit and retains at least the prior 210-second outer difference. The 34/34 create-new unified
+  30-second absolute deadline and primary-first cleanup. At that checkpoint its dedicated semantics
+  suite had a 60-second runner bound, the expanded root-claims suite had a 600-second bound, and the
+  Windows workflow used 276 minutes. The 16335-second computed requirement remained below the
+  16560-second job limit with a 225-second outer difference. These historical budget values are
+  superseded by the 2026-09-01 correction below. The 34/34 create-new unified
   summary predates only this final budget-only adjustment; afterward reap semantics passed 27/0 and
   the runner contract passed with the 60-second/276-minute delta. That unified summary passed 34/34
   with every failure counter zero
@@ -193,6 +194,21 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   a literal-provider-token static false positive; opaque bare lease wrappers; and a durable recovery
   ticket when route cleanup itself fails. Step 2 remains incomplete; Task 1 stays 1/6, Phase 2 stays
   1/52, and production Apply remains interlocked.
+
+  Validation follow-up on 2026-09-01 proved two budget defects rather than hangs. The production-seam
+  suite completed standalone in about 166.9 seconds and then passed 56/0 under the real runner in
+  193092 ms with a 240-second bound. The observation lifecycle added about nine real `Open` paths
+  plus route captures; the root-claims suite then passed under the real runner with 438 PASS lines and
+  exit code 0 in 1291927 ms with an 1800-second bound. The first unified
+  run completed 31 suites successfully, rejected one stale hard-kill reviewed baseline, and cleanly
+  tree-reaped only those two under-budget suites. Seventeen directly or transitively affected
+  reviewed constants were recomputed against the committed production bytes; the reviewed load set
+  and 67-function/131-edge static production closure remained unchanged. The new
+  suite-budget sum is 17235 seconds, the computed job requirement is 17655 seconds, and the Windows
+  workflow is 298 minutes / 17880 seconds, retaining the prior 225-second outer difference. Focused
+  validation passed hard-kill primitives 95/0, complete hard-kill 317/0, the runner budget contract,
+  and both real-runner timeout checks. Final unified evidence remains to be appended after
+  completion. This changes only tests and CI bounds and grants no production mutation authority.
 
 ## Current checkpoint
 

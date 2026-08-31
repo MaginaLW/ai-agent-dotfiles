@@ -300,10 +300,12 @@ cleanup primary-first. Dedicated reap semantics passed 27/0, the after-state foc
 the complete hard-kill suite passed 317/0. A second run passed 33 completed suites with zero assertion
 failures but cleanly timed out root-claims at 300002 ms. Passing observations at 284196 ms and 298324
 ms plus the definitive 306091 ms runtime proved that the old 300-second boundary lacked jitter room.
-The root-claims suite bound is now 600 seconds. The dedicated reap-semantics suite has a 60-second
-runner bound so its reviewed 30-second cleanup deadline and preceding exact-process-identity wait
-cannot be preempted by the runner. The Windows workflow is 276 minutes; the computed requirement is
-16335 seconds against 16560 seconds, retaining at least the prior 210-second outer difference. The
+For that checkpoint, the root-claims suite bound was raised to 600 seconds. The dedicated
+reap-semantics suite had a 60-second runner bound so its reviewed 30-second cleanup deadline and
+preceding exact-process-identity wait could not be preempted by the runner. The Windows workflow was
+276 minutes; the computed requirement was 16335 seconds against 16560 seconds, retaining a
+225-second outer difference. These historical budget values are superseded by the 2026-09-01
+correction below. The
 34/34 unified summary below predates only this final budget-only adjustment; afterward the dedicated
 reap-semantics suite passed 27/0 and the runner contract passed with the 60-second/276-minute delta.
 
@@ -348,6 +350,23 @@ journal, or Apply consumer. Step 2 remains incomplete; Task 1 stays 1/6 and Phas
 Production Apply remains interlocked and no live root is mutated. The next Step 2 slice is a
 production caller/cleanup ledger that can own and explicitly close the runtime observation after the
 relevant ownership-transfer and cleanup debts are closed, not Apply integration or release.
+
+**Ninth-checkpoint validation follow-up (2026-09-01):** The first create-new unified run completed 31
+suites successfully, rejected the stale hard-kill reviewed-load baseline, and cleanly timed out only
+`canonical-production-seams.tests.ps1` at 120069 ms / 120 seconds and
+`root-claims-registry.tests.ps1` at 600008 ms / 600 seconds. A standalone seam invocation completed
+in about 166.9 seconds; the real runner then proved the expanded seam matrix at 56/0 in 193092 ms
+with a 240-second bound and the root-claims observation lifecycle with 438 PASS lines and exit code 0
+in 1291927 ms with an 1800-second bound.
+Seventeen directly or transitively affected reviewed constants were recomputed against the committed
+production bytes; the reviewed load set and 67-function / 131-edge static production closure
+remained unchanged. The seam and
+root-claims bounds are therefore 240 and 1800 seconds. The suite-budget sum is 17235 seconds, the
+computed requirement including 300-second setup/non-suite allowance and 120-second margin is 17655
+seconds, and the Windows workflow is 298 minutes / 17880 seconds, preserving the prior 225-second
+outer difference. Focused validation passed hard-kill primitives 95/0, complete hard-kill 317/0, the
+runner budget contract, and both real-runner timeout checks. These are test/CI baseline changes only;
+final unified evidence is recorded after it completes, and production Apply remains interlocked.
 
 Resolve Windows ControlBase and fixed sibling BackupRoot from access-token SID plus `FOLDERID_LocalAppData`, and HomeRoot/AppData from OS Known Folder APIs, never from mutable process environment variables. Before either private root exists, derive the fixed no-follow bootstrap-lock file under the already-existing Known Folder root from SID/location/domain only. The reviewed canonical setup plan binds `PrivateRootBootstrapIntent` (parent identity, fixed control/backups remainders, each MISSING|COMPLETE, final current-user DACL template, expected fixed children); Apply acquires that pre-ControlBase exclusive handle, revalidates intent, creates the private parent, BackupRoot, ControlBase plus `homes/canonical-roots/live-transactions` only with the final security descriptor, validates the deterministic prefix, and only then obtains the normal global lock. Exact crash prefixes may be completed by the same setup plan; wrong ACL/identity/extra/reparse is manual. No live/receipt/journal work precedes global lock. Read-only status never creates the bootstrap lock/file or directories. Existing ControlBase/BackupRoot bind resolved identity, owner ACL/SID, resolver version and FilesystemCapabilityHash; production on an undefined non-Windows adapter remains interlocked. Protocol v1 production dispatch rejects public `-HomeRoot`/`-BackupRoot`; sealed fake-home injection remains an internal capability only. Derive `HomeAuthorityKey` from token SID plus canonical Known-Folder HomeRoot location key only; do not include root existence/file IDs or Reasonix override.
 

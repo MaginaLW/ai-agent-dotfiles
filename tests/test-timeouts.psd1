@@ -8,6 +8,7 @@
         'canonical-hard-kill.tests.ps1' = 5400
         'canonical-hard-kill-reap-semantics.tests.ps1' = 60
         'canonical-command-result.tests.ps1' = 420
+        'canonical-production-seams.tests.ps1' = 240
         'canonical-mutation-blockers.tests.ps1' = 600
         'canonical-mutation-parent-lease.tests.ps1' = 420
         'canonical-recovery.tests.ps1' = 1200
@@ -17,7 +18,7 @@
         'doctor.tests.ps1' = 60
         'home-authority.tests.ps1' = 180
         'live-concurrency.tests.ps1' = 300
-        'root-claims-registry.tests.ps1' = 600
+        'root-claims-registry.tests.ps1' = 1800
         'harness-env.tests.ps1' = 180
         'harness-multiplatform.tests.ps1' = 210
         'harness-profile.tests.ps1' = 90

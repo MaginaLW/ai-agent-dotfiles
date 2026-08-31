@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -458,11 +458,13 @@ The next create-new unified summary (raw SHA-256
 suites with zero assertion failures, but the expanded `root-claims-registry.tests.ps1` was cleanly
 tree-reaped at its old 300-second suite boundary. The same suite had passed at 284196 ms and 298324
 ms, while the definitive run required 306091 ms, so this was a measured budget defect rather than a
-hang. Its bounded suite budget is now 600 seconds. The dedicated reap-semantics suite is bounded at
+hang. For that checkpoint, its bounded suite budget was raised to 600 seconds. The dedicated
+reap-semantics suite was bounded at
 60 seconds so its reviewed 30-second cleanup deadline and preceding exact-process-identity wait
-cannot be preempted by the runner. The Windows validation workflow is 276 minutes: the computed
-repository requirement is 16335 seconds versus a 16560-second job limit, retaining at least the prior
-210-second outer difference. The existing runner contract recomputes and tests that bound. The
+could not be preempted by the runner. The Windows validation workflow at that checkpoint was 276
+minutes: the computed repository requirement was 16335 seconds versus a 16560-second job limit,
+retaining a 225-second outer difference. The existing runner contract recomputes and tests that
+bound. These values are historical and are superseded by the 2026-09-01 correction below. The
 34/34 unified summary below predates only this final budget-only adjustment; afterward the dedicated
 reap-semantics suite passed 27/0 and the runner contract passed with the 60-second/276-minute delta.
 
@@ -515,6 +517,23 @@ raw-getter capability transfer; computed provider-path dataflow and the literal-
 false positive; opaque bare lease wrappers; and a durable recovery ticket when route cleanup itself
 fails. Step 2 remains incomplete. Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply stays
 interlocked.
+
+The 2026-09-01 validation follow-up identified two deterministic suite-budget defects rather than
+runtime hangs. After its analysis matrix grew from 29 to 56 results,
+`canonical-production-seams.tests.ps1` completed standalone in about 166.9 seconds and then passed
+56/0 under the real runner in 193092 ms with a 240-second bound. The observation lifecycle added
+about nine real `Open` paths plus route captures; `root-claims-registry.tests.ps1` then passed under
+the real runner with 438 PASS lines and exit code 0 in 1291927 ms with an 1800-second bound. The first
+unified run had 31 passing suites, one stale reviewed-load baseline failure, and exactly those two
+clean timeouts. Seventeen directly or transitively affected reviewed constants were recomputed
+against the committed production bytes; the reviewed load set and static closure cardinality
+remained unchanged. With suite budgets totaling
+17235 seconds, setup/non-suite allowance 300 seconds, and margin 120 seconds, the computed job
+requirement is 17655 seconds. The Windows workflow is now 298 minutes (17880 seconds), preserving the
+same 225-second outer difference. Focused validation passed hard-kill primitives 95/0, the complete
+hard-kill suite 317/0, the runner budget contract, and both real-runner timeout checks. Final unified
+validation will be appended only after completion; no production Apply is authorized by these test
+configuration changes.
 
 ## Validation status
 
