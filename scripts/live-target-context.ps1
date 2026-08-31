@@ -411,13 +411,19 @@ function Open-SealedHeldLiveTargetContextSet {
     param(
         [Parameter(Mandatory)]$AuthorityContext,
         [Parameter(Mandatory)]$CanonicalWitness,
-        [Parameter(Mandatory)]$GlobalLockHandle
+        [Parameter(Mandatory)]$GlobalLockHandle,
+        [AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
     )
 
     $leases = [Collections.Generic.List[object]]::new()
     $setLease = $null
     $setReceipt = $null
+    $pendingLease = $null
+    $pendingLeaseReceiver = $null
+    $ownershipTransferred = $false
+    $primaryError = $null
     try {
+        if ($null -ne $OwnershipReceiver) { $OwnershipReceiver.AssertEmptyExact() }
         $globalBinding = Assert-SealedHeldLiveTargetRouteWitness -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness -GlobalLockHandle $GlobalLockHandle
         $null = Assert-SealedHeldLiveTargetExpectedSet -AuthorityContext $AuthorityContext
         $initialMarkers = Get-SealedHeldLiveTargetMarkerSet -AuthorityContext $AuthorityContext
@@ -426,8 +432,14 @@ function Open-SealedHeldLiveTargetContextSet {
 
         $rows = [Collections.Generic.List[object]]::new()
         foreach ($expected in @($AuthorityContext.LiveTargets)) {
-            $lease = Open-SealedHeldTargetContextLease -Path ([string]$expected.TargetContext.RequestedPath)
-            $leases.Add($lease)
+            $pendingLeaseReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedHeldTargetContextLease -Path ([string]$expected.TargetContext.RequestedPath) `
+                -OwnershipReceiver $pendingLeaseReceiver
+            $pendingLease = $pendingLeaseReceiver.GetDeliveredExact()
+            $leases.Add($pendingLease)
+            $lease = $pendingLease
+            $pendingLease = $null
+            $pendingLeaseReceiver = $null
             $actual = Get-SealedHeldTargetContextLease -Lease $lease
             $null = Assert-SealedHeldTargetContextMatchesMetadata -Expected $expected.TargetContext -Actual $actual
             $rows.Add([pscustomobject][ordered]@{
@@ -467,19 +479,61 @@ function Open-SealedHeldLiveTargetContextSet {
         $setReceipt = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::BindExact(
             $setLease,$AuthorityContext,$CanonicalWitness,$GlobalLockHandle,$confirmedInitialMarkers,[object[]]@($leases),$projection)
         $null = Assert-SealedHeldLiveTargetContextSet -Lease $setLease
+        if ($null -ne $OwnershipReceiver) {
+            $OwnershipReceiver.DeliverExact($setLease)
+            $ownershipTransferred = $true
+            return
+        }
+        $ownershipTransferred = $true
         return $setLease
     }
     catch {
-        $primaryError = $_
-        try {
-            if ($null -ne $setReceipt) { Close-SealedHeldLiveTargetContextSet -Lease $setLease }
+        $caughtError = $_
+        if ($caughtError.Exception.Message -eq 'route-witness-required' -or $caughtError.Exception.Message -like 'target-context-plan-stale:*') {
+            $primaryError = $caughtError
+            throw
+        }
+        try { throw "target-context-plan-stale: $($caughtError.Exception.Message)" }
+        catch {
+            $primaryError = $_
+            throw
+        }
+    }
+    finally {
+        $receiverOwnsSetLease = $null -ne $OwnershipReceiver -and $OwnershipReceiver.HoldsExact($setLease)
+        if (-not $ownershipTransferred -and -not $receiverOwnsSetLease) {
+            $cleanupError = $null
+            if ($null -ne $setReceipt) {
+                try { $null = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::ReleaseForWrapperExact($setLease) }
+                catch { $cleanupError = $_ }
+            }
             else {
-                for ($index=$leases.Count-1; $index -ge 0; $index--) { Close-SealedHeldTargetContextLease -Lease $leases[$index] }
+                $receiverLease = $null
+                if ($null -ne $pendingLeaseReceiver -and
+                    [string]$pendingLeaseReceiver.GetStateExact() -ceq 'DELIVERED') {
+                    try {
+                        $receiverLease = $pendingLeaseReceiver.GetDeliveredExact()
+                        $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($receiverLease)
+                    }
+                    catch { $cleanupError = $_ }
+                }
+                if ($null -ne $pendingLease) {
+                    try { $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($pendingLease) }
+                    catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                }
+                for ($index=$leases.Count-1; $index -ge 0; $index--) {
+                    try { $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($leases[$index]) }
+                    catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                }
+            }
+            if ($null -ne $cleanupError) {
+                if ($null -ne $primaryError) {
+                    try { $primaryError.Exception.Data['SealedHeldLiveTargetContextCleanupError'] = [string]$cleanupError.Exception.Message }
+                    catch { }
+                }
+                else { throw $cleanupError }
             }
         }
-        catch { }
-        if ($primaryError.Exception.Message -eq 'route-witness-required' -or $primaryError.Exception.Message -like 'target-context-plan-stale:*') { throw $primaryError }
-        throw "target-context-plan-stale: $($primaryError.Exception.Message)"
     }
 }
 

@@ -744,6 +744,11 @@ function Get-SealedHomeAuthorityFixedEnvelopeContextHash {
 function Close-SealedHomeAuthorityFixedEnvelope {
     param([Parameter(Mandatory)]$EnvelopeLease)
 
+    $observationOwnershipGuard='AiAgentDotfiles.SealedFixedEnvelopeOwnershipGuard' -as [type]
+    if($null -ne $observationOwnershipGuard -and
+        [AiAgentDotfiles.SealedFixedEnvelopeOwnershipGuard]::IsReservedExact($EnvelopeLease)){
+        throw 'home-authority-fixed-envelope-lease-reserved'
+    }
     if ($null -ne $EnvelopeLease.PSObject.Properties['IsClosed'] -and [bool]$EnvelopeLease.IsClosed) { return }
     $leases = @($EnvelopeLease.DirectoryLeases)
     for ($index = $leases.Count - 1; $index -ge 0; $index--) {

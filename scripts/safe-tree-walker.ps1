@@ -19,6 +19,69 @@ using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
 namespace AiAgentDotfiles {
+    public sealed class SealedOwnershipTransferReceiver {
+        private const int EmptyState = 0;
+        private const int DeliveredState = 1;
+        private readonly object gate = new object();
+        private readonly Guid ownerRunspaceId;
+        private object value;
+        private int state;
+
+        public SealedOwnershipTransferReceiver() {
+            System.Management.Automation.Runspaces.Runspace current =
+                System.Management.Automation.Runspaces.Runspace.DefaultRunspace;
+            if (current == null || current.InstanceId == Guid.Empty)
+                throw new InvalidOperationException("ownership-transfer-receiver-stale");
+            ownerRunspaceId = current.InstanceId;
+        }
+        private void RequireOwnerExact() {
+            System.Management.Automation.Runspaces.Runspace current =
+                System.Management.Automation.Runspaces.Runspace.DefaultRunspace;
+            if (current == null || current.InstanceId != ownerRunspaceId)
+                throw new InvalidOperationException("ownership-transfer-receiver-stale");
+        }
+        public void AssertEmptyExact() {
+            RequireOwnerExact();
+            lock (gate) {
+                if (state != EmptyState || value != null)
+                    throw new InvalidOperationException("ownership-transfer-receiver-stale");
+            }
+        }
+        public void DeliverExact(object candidate) {
+            RequireOwnerExact();
+            if (candidate == null)
+                throw new InvalidOperationException("ownership-transfer-receiver-stale");
+            lock (gate) {
+                if (state != EmptyState || value != null)
+                    throw new InvalidOperationException("ownership-transfer-receiver-stale");
+                value = candidate;
+                Volatile.Write(ref state,DeliveredState);
+            }
+        }
+        public object GetDeliveredExact() {
+            RequireOwnerExact();
+            lock (gate) {
+                if (state != DeliveredState || value == null)
+                    throw new InvalidOperationException("ownership-transfer-receiver-stale");
+                return value;
+            }
+        }
+        public bool HoldsExact(object candidate) {
+            RequireOwnerExact();
+            if (candidate == null)
+                return false;
+            lock (gate) {
+                return state == DeliveredState && Object.ReferenceEquals(value,candidate);
+            }
+        }
+        public string GetStateExact() {
+            RequireOwnerExact();
+            lock (gate) {
+                return state == EmptyState ? "EMPTY" : "DELIVERED";
+            }
+        }
+    }
+
     public sealed class FileIdentityInfo {
         public string Identity { get; set; }
         public uint LinkCount { get; set; }
@@ -1480,30 +1543,67 @@ function Test-SafeTreeEntryExcluded {
 
 function Open-SafeDirectoryContainmentChain {
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $Path)
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [AiAgentDotfiles.SealedOwnershipTransferReceiver] $OwnershipReceiver
+    )
 
     $full = [System.IO.Path]::GetFullPath($Path)
     $volumeRoot = [System.IO.Path]::GetPathRoot($full)
     if (-not (Test-SafePathInsideRoot -Path $full -Root $volumeRoot)) { throw "Safe tree containment path escaped its volume root: $full" }
     $relative = [System.IO.Path]::GetRelativePath($volumeRoot, $full)
     $handles = [System.Collections.Generic.List[object]]::new()
+    $pendingHandle = $null
+    $ownershipTransferred = $false
+    $primaryError = $null
     try {
-        $parentHandle = [AiAgentDotfiles.NoFollowFile]::HoldDirectory($volumeRoot)
-        $handles.Add($parentHandle)
+        if ($null -ne $OwnershipReceiver) { $OwnershipReceiver.AssertEmptyExact() }
+        $pendingHandle = [AiAgentDotfiles.NoFollowFile]::HoldDirectory($volumeRoot)
+        $handles.Add($pendingHandle)
+        $parentHandle = $pendingHandle
+        $pendingHandle = $null
         if ($relative -ne '.') {
             foreach ($segment in @($relative -split '[\\/]')) {
                 if ($segment -in @('', '.', '..')) { throw "Unsafe containment path segment: $full" }
-                $childHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldPathChildDirectory($parentHandle, $segment)
-                if ($null -eq $childHandle) { throw "Safe tree containment path is missing: $full" }
-                $handles.Add($childHandle)
-                $parentHandle = $childHandle
+                $pendingHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldPathChildDirectory($parentHandle, $segment)
+                if ($null -eq $pendingHandle) { throw "Safe tree containment path is missing: $full" }
+                $handles.Add($pendingHandle)
+                $parentHandle = $pendingHandle
+                $pendingHandle = $null
             }
         }
+        if ($null -ne $OwnershipReceiver) {
+            $OwnershipReceiver.DeliverExact($handles)
+            $ownershipTransferred = $true
+            return
+        }
+        $ownershipTransferred = $true
         return ,$handles
     }
     catch {
-        for ($index = $handles.Count - 1; $index -ge 0; $index--) { $handles[$index].Dispose() }
+        $primaryError = $_
         throw
+    }
+    finally {
+        $receiverOwnsHandles = $null -ne $OwnershipReceiver -and $OwnershipReceiver.HoldsExact($handles)
+        if (-not $ownershipTransferred -and -not $receiverOwnsHandles) {
+            $cleanupError = $null
+            if ($pendingHandle -is [AiAgentDotfiles.SafeDirectoryHandle]) {
+                try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($pendingHandle) }
+                catch { $cleanupError = $_ }
+            }
+            for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+                try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($handles[$index]) }
+                catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+            }
+            if ($null -ne $cleanupError) {
+                if ($null -ne $primaryError) {
+                    try { $primaryError.Exception.Data['SafeDirectoryContainmentCleanupError'] = [string]$cleanupError.Exception.Message }
+                    catch { }
+                }
+                else { throw $cleanupError }
+            }
+        }
     }
 }
 
@@ -1511,7 +1611,8 @@ function Open-SafeExistingDirectoryContainmentChain {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [ref] $ExistingPath
+        [Parameter(Mandatory)] [ref] $ExistingPath,
+        [AiAgentDotfiles.SealedOwnershipTransferReceiver] $OwnershipReceiver
     )
 
     $full = [System.IO.Path]::GetFullPath($Path)
@@ -1520,25 +1621,59 @@ function Open-SafeExistingDirectoryContainmentChain {
     $relative = [System.IO.Path]::GetRelativePath($volumeRoot, $full)
     $handles = [System.Collections.Generic.List[object]]::new()
     $cursor = $volumeRoot
+    $pendingHandle = $null
+    $ownershipTransferred = $false
+    $primaryError = $null
     try {
-        $parentHandle = [AiAgentDotfiles.NoFollowFile]::HoldDirectory($volumeRoot)
-        $handles.Add($parentHandle)
+        if ($null -ne $OwnershipReceiver) { $OwnershipReceiver.AssertEmptyExact() }
+        $pendingHandle = [AiAgentDotfiles.NoFollowFile]::HoldDirectory($volumeRoot)
+        $handles.Add($pendingHandle)
+        $parentHandle = $pendingHandle
+        $pendingHandle = $null
         if ($relative -ne '.') {
             foreach ($segment in @($relative -split '[\\/]')) {
                 if ($segment -in @('', '.', '..')) { throw "Unsafe containment path segment: $full" }
-                $childHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldPathChildDirectory($parentHandle, $segment)
-                if ($null -eq $childHandle) { break }
-                $handles.Add($childHandle)
-                $parentHandle = $childHandle
+                $pendingHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldPathChildDirectory($parentHandle, $segment)
+                if ($null -eq $pendingHandle) { break }
+                $handles.Add($pendingHandle)
+                $parentHandle = $pendingHandle
+                $pendingHandle = $null
                 $cursor = Join-Path $cursor $segment
             }
         }
         $ExistingPath.Value = $cursor
+        if ($null -ne $OwnershipReceiver) {
+            $OwnershipReceiver.DeliverExact($handles)
+            $ownershipTransferred = $true
+            return
+        }
+        $ownershipTransferred = $true
         return ,$handles
     }
     catch {
-        Close-SafeDirectoryContainmentChain -Handles $handles
+        $primaryError = $_
         throw
+    }
+    finally {
+        $receiverOwnsHandles = $null -ne $OwnershipReceiver -and $OwnershipReceiver.HoldsExact($handles)
+        if (-not $ownershipTransferred -and -not $receiverOwnsHandles) {
+            $cleanupError = $null
+            if ($pendingHandle -is [AiAgentDotfiles.SafeDirectoryHandle]) {
+                try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($pendingHandle) }
+                catch { $cleanupError = $_ }
+            }
+            for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+                try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($handles[$index]) }
+                catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+            }
+            if ($null -ne $cleanupError) {
+                if ($null -ne $primaryError) {
+                    try { $primaryError.Exception.Data['SafeDirectoryContainmentCleanupError'] = [string]$cleanupError.Exception.Message }
+                    catch { }
+                }
+                else { throw $cleanupError }
+            }
+        }
     }
 }
 

@@ -15,10 +15,112 @@ $script:SealedCurrentRouteRootSetResolverVersion = 'sealed-current-route-root-se
 if (-not ('AiAgentDotfiles.SealedRegistryCurrentRouteCapture' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Management.Automation;
+using System.Management.Automation.Runspaces;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace AiAgentDotfiles {
+    internal sealed class SealedRegistryCurrentRouteCaptureIssuerDefinition {
+        internal readonly ScriptBlock OpenRoute;
+        internal readonly ScriptBlock OpenLiveSet;
+        internal readonly ScriptBlock OpenTarget;
+        internal readonly string OpenRouteText;
+        internal readonly string OpenLiveSetText;
+        internal readonly string OpenTargetText;
+        internal readonly Guid OwnerRunspaceId;
+
+        internal SealedRegistryCurrentRouteCaptureIssuerDefinition(
+            ScriptBlock openRoute, ScriptBlock openLiveSet, ScriptBlock openTarget,
+            string openRouteText, string openLiveSetText, string openTargetText,
+            Guid ownerRunspaceId) {
+            if (openRoute == null || openLiveSet == null || openTarget == null ||
+                String.IsNullOrWhiteSpace(openRouteText) ||
+                String.IsNullOrWhiteSpace(openLiveSetText) ||
+                String.IsNullOrWhiteSpace(openTargetText) ||
+                ownerRunspaceId == Guid.Empty) throw new InvalidOperationException("route-witness-required");
+            OpenRoute = openRoute;
+            OpenLiveSet = openLiveSet;
+            OpenTarget = openTarget;
+            OpenRouteText = openRouteText;
+            OpenLiveSetText = openLiveSetText;
+            OpenTargetText = openTargetText;
+            OwnerRunspaceId = ownerRunspaceId;
+        }
+    }
+
+    internal sealed class SealedRegistryCurrentRouteOpenOperation {
+        internal readonly object ProvenanceToken;
+        internal readonly Guid OwnerRunspaceId;
+        private readonly HashSet<object> resources =
+            new HashSet<object>(ReferenceEqualityComparer.Instance);
+        private const int ReadyState = 0;
+        private const int IssuedState = 1;
+        private const int AbandonedState = 2;
+        private int state;
+
+        internal SealedRegistryCurrentRouteOpenOperation(object provenanceToken, Guid ownerRunspaceId) {
+            if (provenanceToken == null || ownerRunspaceId == Guid.Empty)
+                throw new InvalidOperationException("route-witness-required");
+            ProvenanceToken = provenanceToken;
+            OwnerRunspaceId = ownerRunspaceId;
+        }
+        internal bool IsReadyExact() { return Volatile.Read(ref state) == ReadyState; }
+        internal bool CommitIssueExact() {
+            return Interlocked.CompareExchange(ref state,IssuedState,ReadyState) == ReadyState;
+        }
+        internal bool AbandonExact() {
+            return Interlocked.CompareExchange(ref state,AbandonedState,ReadyState) == ReadyState;
+        }
+        internal bool AddResourceExact(object value) { return resources.Add(value); }
+        internal bool RemoveResourceExact(object value) { return resources.Remove(value); }
+        internal bool ContainsResourceExact(object value) { return resources.Contains(value); }
+        internal int ResourceCountExact { get { return resources.Count; } }
+        internal object[] GetResourcesExact() {
+            object[] result = new object[resources.Count];
+            resources.CopyTo(result);
+            return result;
+        }
+    }
+
+    internal sealed class SealedRegistryCurrentRouteCaptureIssuanceReceipt {
+        internal readonly SealedRegistryCurrentRouteCapture Capture;
+        internal readonly object LiveSetLease;
+        internal readonly SealedRegistryCurrentRouteOpenOperation Operation;
+        internal readonly object[] Resources;
+        internal readonly Guid OwnerRunspaceId;
+        internal readonly object ProvenanceToken;
+
+        internal SealedRegistryCurrentRouteCaptureIssuanceReceipt(
+            SealedRegistryCurrentRouteCapture capture, object liveSetLease,
+            SealedRegistryCurrentRouteOpenOperation operation, object[] resources,
+            Guid ownerRunspaceId, object provenanceToken) {
+            if (capture == null || liveSetLease == null || ownerRunspaceId == Guid.Empty ||
+                operation == null || resources == null || resources.Length == 0 ||
+                provenanceToken == null) throw new InvalidOperationException("route-witness-required");
+            Capture = capture;
+            LiveSetLease = liveSetLease;
+            Operation = operation;
+            Resources = (object[])resources.Clone();
+            OwnerRunspaceId = ownerRunspaceId;
+            ProvenanceToken = provenanceToken;
+        }
+
+        internal bool MatchesExact(SealedRegistryCurrentRouteCapture capture,
+            object liveSetLease, SealedRegistryCurrentRouteOpenOperation operation,
+            Guid ownerRunspaceId, object provenanceToken) {
+            return Object.ReferenceEquals(Capture,capture) &&
+                Object.ReferenceEquals(LiveSetLease,liveSetLease) &&
+                Object.ReferenceEquals(Operation,operation) &&
+                OwnerRunspaceId == ownerRunspaceId &&
+                Object.ReferenceEquals(ProvenanceToken,provenanceToken);
+        }
+    }
+
     public sealed class SealedRegistryRouteLeaseBinding {
         private readonly long _routeIndex;
         private readonly object _spec;
@@ -72,6 +174,11 @@ namespace AiAgentDotfiles {
     }
 
     public sealed class SealedRegistryCurrentRouteCapture {
+        private static readonly object ExactIssuanceGate = new object();
+        private static readonly ConditionalWeakTable<SealedRegistryCurrentRouteCapture,SealedRegistryCurrentRouteCaptureIssuanceReceipt> ExactIssuanceReceipts =
+            new ConditionalWeakTable<SealedRegistryCurrentRouteCapture,SealedRegistryCurrentRouteCaptureIssuanceReceipt>();
+        private static readonly ConditionalWeakTable<object,SealedRegistryCurrentRouteOpenOperation> ExactResourceReservations =
+            new ConditionalWeakTable<object,SealedRegistryCurrentRouteOpenOperation>();
         private readonly object _liveSetLease;
         private readonly object _liveProjection;
         private readonly SealedRegistryRouteLeaseBinding[] _routeLeaseRows;
@@ -109,15 +216,169 @@ namespace AiAgentDotfiles {
             _heldTargetSetHash = heldTargetSetHash;
         }
 
+        internal static SealedRegistryCurrentRouteOpenOperation BeginOpenForIssuerExact(
+            object issuanceToken) {
+            if (!SealedRegistryCurrentRouteCaptureIssuer.IsIssuanceTokenExact(issuanceToken))
+                throw new InvalidOperationException("route-witness-required");
+            Runspace currentRunspace = Runspace.DefaultRunspace;
+            if (currentRunspace == null || currentRunspace.InstanceId == Guid.Empty)
+                throw new InvalidOperationException("route-witness-required");
+            return new SealedRegistryCurrentRouteOpenOperation(issuanceToken,currentRunspace.InstanceId);
+        }
+        internal static void ClaimResourcesForIssuerExact(object issuanceToken,
+            SealedRegistryCurrentRouteOpenOperation operation, object[] resources) {
+            Runspace currentRunspace = Runspace.DefaultRunspace;
+            if (!SealedRegistryCurrentRouteCaptureIssuer.IsIssuanceTokenExact(issuanceToken) ||
+                currentRunspace == null || operation == null || resources == null || resources.Length == 0 ||
+                !Object.ReferenceEquals(operation.ProvenanceToken,issuanceToken) ||
+                operation.OwnerRunspaceId != currentRunspace.InstanceId || !operation.IsReadyExact())
+                throw new InvalidOperationException("route-witness-required");
+            HashSet<object> unique = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            foreach (object resource in resources) {
+                if (resource == null || !unique.Add(resource))
+                    throw new InvalidOperationException("route-witness-required");
+            }
+            lock (ExactIssuanceGate) {
+                if (!operation.IsReadyExact())
+                    throw new InvalidOperationException("route-witness-required");
+                SealedRegistryCurrentRouteOpenOperation reserved;
+                foreach (object resource in resources) {
+                    if (ExactResourceReservations.TryGetValue(resource,out reserved) ||
+                        operation.ContainsResourceExact(resource))
+                        throw new InvalidOperationException("route-witness-required");
+                }
+                List<object> added = new List<object>(resources.Length);
+                try {
+                    foreach (object resource in resources) {
+                        ExactResourceReservations.Add(resource,operation);
+                        added.Add(resource);
+                        if (!operation.AddResourceExact(resource))
+                            throw new InvalidOperationException("route-witness-required");
+                    }
+                }
+                catch {
+                    foreach (object resource in added) {
+                        ExactResourceReservations.Remove(resource);
+                        operation.RemoveResourceExact(resource);
+                    }
+                    throw;
+                }
+            }
+        }
+        internal static void AbandonOpenForIssuerExact(object issuanceToken,
+            SealedRegistryCurrentRouteOpenOperation operation) {
+            Runspace currentRunspace = Runspace.DefaultRunspace;
+            if (!SealedRegistryCurrentRouteCaptureIssuer.IsIssuanceTokenExact(issuanceToken) ||
+                currentRunspace == null || operation == null ||
+                !Object.ReferenceEquals(operation.ProvenanceToken,issuanceToken) ||
+                operation.OwnerRunspaceId != currentRunspace.InstanceId)
+                throw new InvalidOperationException("route-witness-required");
+            lock (ExactIssuanceGate) {
+                foreach (object resource in operation.GetResourcesExact()) {
+                    SealedRegistryCurrentRouteOpenOperation reserved;
+                    if (!ExactResourceReservations.TryGetValue(resource,out reserved) ||
+                        !Object.ReferenceEquals(reserved,operation))
+                        throw new InvalidOperationException("route-witness-required");
+                }
+                if (!operation.AbandonExact()) throw new InvalidOperationException("route-witness-required");
+                foreach (object resource in operation.GetResourcesExact()) {
+                    ExactResourceReservations.Remove(resource);
+                }
+            }
+        }
+        private static object[] ExpectedResourcesExact(object liveSetLease,
+            object[] liveTargetLeases, SealedRegistryRouteLeaseBinding[] routeLeaseRows,
+            object[] reservationLeases, object[] fixedLeases) {
+            if (liveSetLease == null || liveTargetLeases == null || routeLeaseRows == null ||
+                reservationLeases == null || fixedLeases == null)
+                throw new InvalidOperationException("route-witness-required");
+            List<object> result = new List<object>();
+            HashSet<object> unique = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            Action<object> add = delegate(object value) {
+                if (value == null || !unique.Add(value))
+                    throw new InvalidOperationException("route-witness-required");
+                result.Add(value);
+            };
+            add(liveSetLease);
+            foreach (object value in liveTargetLeases) add(value);
+            foreach (SealedRegistryRouteLeaseBinding binding in routeLeaseRows) {
+                if (binding == null) throw new InvalidOperationException("route-witness-required");
+                add(binding.Lease);
+            }
+            foreach (object value in reservationLeases) add(value);
+            foreach (object value in fixedLeases) add(value);
+            return result.ToArray();
+        }
+        internal static SealedRegistryCurrentRouteCapture IssueForIssuerExact(object issuanceToken,
+            SealedRegistryCurrentRouteOpenOperation operation, object liveSetLease,
+            object[] liveTargetLeases, object liveProjection,
+            SealedRegistryRouteLeaseBinding[] routeLeaseRows, object[] reservationLeases,
+            object[] fixedLeases, object originalCurrentRouteRootSet,
+            object canonicalWitness, object currentRouteRootSetSnapshot, string entryCurrentRouteRootSetHash,
+            string currentRouteRootSetSnapshotHash, string heldTargetSetHash) {
+            Runspace currentRunspace = Runspace.DefaultRunspace;
+            if (!SealedRegistryCurrentRouteCaptureIssuer.IsIssuanceTokenExact(issuanceToken) ||
+                currentRunspace == null || operation == null ||
+                !Object.ReferenceEquals(operation.ProvenanceToken,issuanceToken) ||
+                operation.OwnerRunspaceId != currentRunspace.InstanceId || !operation.IsReadyExact())
+                throw new InvalidOperationException("route-witness-required");
+            object[] expectedResources = ExpectedResourcesExact(liveSetLease,liveTargetLeases,
+                routeLeaseRows,reservationLeases,fixedLeases);
+            lock (ExactIssuanceGate) {
+                if (!operation.IsReadyExact())
+                    throw new InvalidOperationException("route-witness-required");
+                if (operation.ResourceCountExact != expectedResources.Length)
+                    throw new InvalidOperationException("route-witness-required");
+                foreach (object resource in expectedResources) {
+                    SealedRegistryCurrentRouteOpenOperation reserved;
+                    if (!operation.ContainsResourceExact(resource) ||
+                        !ExactResourceReservations.TryGetValue(resource,out reserved) ||
+                        !Object.ReferenceEquals(reserved,operation))
+                        throw new InvalidOperationException("route-witness-required");
+                }
+                SealedRegistryCurrentRouteCapture capture = new SealedRegistryCurrentRouteCapture(
+                    liveSetLease,liveProjection,routeLeaseRows,reservationLeases,fixedLeases,
+                    originalCurrentRouteRootSet,canonicalWitness,currentRouteRootSetSnapshot,
+                    entryCurrentRouteRootSetHash,currentRouteRootSetSnapshotHash,heldTargetSetHash);
+                SealedRegistryCurrentRouteCaptureIssuanceReceipt receipt =
+                    new SealedRegistryCurrentRouteCaptureIssuanceReceipt(capture,liveSetLease,
+                        operation,expectedResources,currentRunspace.InstanceId,issuanceToken);
+                ExactIssuanceReceipts.Add(capture,receipt);
+                if (!operation.CommitIssueExact()) {
+                    ExactIssuanceReceipts.Remove(capture);
+                    throw new InvalidOperationException("route-witness-required");
+                }
+                return capture;
+            }
+        }
+        internal static bool MatchesIssuanceTokenExact(SealedRegistryCurrentRouteCapture capture,
+            object issuanceToken) {
+            if (capture == null || issuanceToken == null) return false;
+            Runspace currentRunspace = Runspace.DefaultRunspace;
+            if (currentRunspace == null || currentRunspace.InstanceId == Guid.Empty) return false;
+            lock (ExactIssuanceGate) {
+                SealedRegistryCurrentRouteCaptureIssuanceReceipt receipt;
+                if (!ExactIssuanceReceipts.TryGetValue(capture,out receipt) ||
+                    !receipt.MatchesExact(capture,capture._liveSetLease,receipt.Operation,
+                        currentRunspace.InstanceId,issuanceToken)) return false;
+                foreach (object resource in receipt.Resources) {
+                    SealedRegistryCurrentRouteOpenOperation reserved;
+                    if (!ExactResourceReservations.TryGetValue(resource,out reserved) ||
+                        !Object.ReferenceEquals(reserved,receipt.Operation)) return false;
+                }
+                return true;
+            }
+        }
+
         private static void RejectMutation() { throw new InvalidOperationException("route-witness-required"); }
-        public object LiveSetLease { get { return _liveSetLease; } set { RejectMutation(); } }
-        public object LiveProjection { get { return _liveProjection; } set { RejectMutation(); } }
-        public SealedRegistryRouteLeaseBinding[] RouteLeaseRows { get { return (SealedRegistryRouteLeaseBinding[])_routeLeaseRows.Clone(); } set { RejectMutation(); } }
-        public object[] ReservationLeases { get { return (object[])_reservationLeases.Clone(); } set { RejectMutation(); } }
-        public object[] FixedLeases { get { return (object[])_fixedLeases.Clone(); } set { RejectMutation(); } }
-        public object OriginalCurrentRouteRootSet { get { return _originalCurrentRouteRootSet; } set { RejectMutation(); } }
-        public object CanonicalWitness { get { return _canonicalWitness; } set { RejectMutation(); } }
-        public object CurrentRouteRootSetSnapshot { get { return _currentRouteRootSetSnapshot; } set { RejectMutation(); } }
+        public object LiveSetLease { get { return RequireIssuedCurrent(this)._liveSetLease; } set { RejectMutation(); } }
+        public object LiveProjection { get { return RequireIssuedCurrent(this)._liveProjection; } set { RejectMutation(); } }
+        public SealedRegistryRouteLeaseBinding[] RouteLeaseRows { get { return (SealedRegistryRouteLeaseBinding[])RequireIssuedCurrent(this)._routeLeaseRows.Clone(); } set { RejectMutation(); } }
+        public object[] ReservationLeases { get { return (object[])RequireIssuedCurrent(this)._reservationLeases.Clone(); } set { RejectMutation(); } }
+        public object[] FixedLeases { get { return (object[])RequireIssuedCurrent(this)._fixedLeases.Clone(); } set { RejectMutation(); } }
+        public object OriginalCurrentRouteRootSet { get { return RequireIssuedCurrent(this)._originalCurrentRouteRootSet; } set { RejectMutation(); } }
+        public object CanonicalWitness { get { return RequireIssuedCurrent(this)._canonicalWitness; } set { RejectMutation(); } }
+        public object CurrentRouteRootSetSnapshot { get { return RequireIssuedCurrent(this)._currentRouteRootSetSnapshot; } set { RejectMutation(); } }
         public string EntryCurrentRouteRootSetHash { get { return _entryCurrentRouteRootSetHash; } set { RejectMutation(); } }
         public string CurrentRouteRootSetSnapshotHash { get { return _currentRouteRootSetSnapshotHash; } set { RejectMutation(); } }
         public string CurrentRouteRootSetHash { get { return _entryCurrentRouteRootSetHash; } set { RejectMutation(); } }
@@ -130,21 +391,31 @@ namespace AiAgentDotfiles {
             if (capture == null) throw new InvalidOperationException("route-witness-required");
             return capture;
         }
+        private static SealedRegistryCurrentRouteCapture RequireIssuedCurrent(object value) {
+            SealedRegistryCurrentRouteCapture capture = Require(value);
+            if (!SealedRegistryCurrentRouteCaptureIssuer.IsIssuedExact(capture))
+                throw new InvalidOperationException("route-witness-required");
+            return capture;
+        }
         public static bool IsGenuine(object value) { return value is SealedRegistryCurrentRouteCapture; }
+        public static bool HasExactIssuanceReceipt(object value) {
+            return SealedRegistryCurrentRouteCaptureIssuer.IsIssuedExact(
+                value as SealedRegistryCurrentRouteCapture);
+        }
         public static bool GetIsOpenExact(object value) { return Volatile.Read(ref Require(value)._closeState) == OpenState; }
         public static bool GetIsClosed(object value) { return Volatile.Read(ref Require(value)._closeState) == ClosedState; }
         public static string GetCloseStateExact(object value) {
             int state = Volatile.Read(ref Require(value)._closeState);
             return state == OpenState ? "OPEN" : state == ClosingState ? "CLOSING" : "CLOSED";
         }
-        public static object GetLiveSetLease(object value) { return Require(value)._liveSetLease; }
-        public static object GetLiveProjection(object value) { return Require(value)._liveProjection; }
-        public static SealedRegistryRouteLeaseBinding[] GetRouteLeaseRows(object value) { return (SealedRegistryRouteLeaseBinding[])Require(value)._routeLeaseRows.Clone(); }
-        public static object[] GetReservationLeases(object value) { return (object[])Require(value)._reservationLeases.Clone(); }
-        public static object[] GetFixedLeases(object value) { return (object[])Require(value)._fixedLeases.Clone(); }
-        public static object GetOriginalCurrentRouteRootSet(object value) { return Require(value)._originalCurrentRouteRootSet; }
-        public static object GetCanonicalWitness(object value) { return Require(value)._canonicalWitness; }
-        public static object GetCurrentRouteRootSetSnapshot(object value) { return Require(value)._currentRouteRootSetSnapshot; }
+        public static object GetLiveSetLease(object value) { return RequireIssuedCurrent(value)._liveSetLease; }
+        public static object GetLiveProjection(object value) { return RequireIssuedCurrent(value)._liveProjection; }
+        public static SealedRegistryRouteLeaseBinding[] GetRouteLeaseRows(object value) { return (SealedRegistryRouteLeaseBinding[])RequireIssuedCurrent(value)._routeLeaseRows.Clone(); }
+        public static object[] GetReservationLeases(object value) { return (object[])RequireIssuedCurrent(value)._reservationLeases.Clone(); }
+        public static object[] GetFixedLeases(object value) { return (object[])RequireIssuedCurrent(value)._fixedLeases.Clone(); }
+        public static object GetOriginalCurrentRouteRootSet(object value) { return RequireIssuedCurrent(value)._originalCurrentRouteRootSet; }
+        public static object GetCanonicalWitness(object value) { return RequireIssuedCurrent(value)._canonicalWitness; }
+        public static object GetCurrentRouteRootSetSnapshot(object value) { return RequireIssuedCurrent(value)._currentRouteRootSetSnapshot; }
         public static string GetEntryCurrentRouteRootSetHash(object value) { return Require(value)._entryCurrentRouteRootSetHash; }
         public static string GetCurrentRouteRootSetSnapshotHash(object value) { return Require(value)._currentRouteRootSetSnapshotHash; }
         public static string GetHeldTargetSetHash(object value) { return Require(value)._heldTargetSetHash; }
@@ -165,6 +436,9 @@ namespace AiAgentDotfiles {
         }
         public static bool ReleaseExact(object value) {
             SealedRegistryCurrentRouteCapture capture = Require(value);
+            if (Volatile.Read(ref capture._closeState) == ClosedState) return false;
+            if (!SealedRegistryCurrentRouteCaptureIssuer.IsIssuedExact(capture))
+                throw new InvalidOperationException("route-witness-required");
             int observed = Interlocked.CompareExchange(ref capture._closeState, ClosingState, OpenState);
             if (observed == ClosedState) return false;
             if (observed == ClosingState) throw new InvalidOperationException("route-close-active");
@@ -191,7 +465,138 @@ namespace AiAgentDotfiles {
                 throw firstError;
             }
             Volatile.Write(ref capture._closeState, ClosedState);
+            lock (ExactIssuanceGate) {
+                SealedRegistryCurrentRouteCaptureIssuanceReceipt receipt;
+                if (ExactIssuanceReceipts.TryGetValue(capture,out receipt)) {
+                    foreach (object resource in receipt.Resources) ExactResourceReservations.Remove(resource);
+                    ExactIssuanceReceipts.Remove(capture);
+                }
+            }
             return true;
+        }
+    }
+
+    public static class SealedRegistryCurrentRouteCaptureIssuer {
+        private static readonly object IssuanceToken = new object();
+        private static readonly object DefinitionGate = new object();
+        private static readonly ConditionalWeakTable<Runspace,SealedRegistryCurrentRouteCaptureIssuerDefinition> Definitions =
+            new ConditionalWeakTable<Runspace,SealedRegistryCurrentRouteCaptureIssuerDefinition>();
+
+        private static string ExactScriptText(ScriptBlock value) {
+            return value == null || value.Ast == null || value.Ast.Extent == null ? null : value.Ast.Extent.Text;
+        }
+        private static bool IsPinnedOpenCallerExact() {
+            Runspace runspace = Runspace.DefaultRunspace;
+            if (runspace == null || runspace.InstanceId == Guid.Empty) return false;
+            SealedRegistryCurrentRouteCaptureIssuerDefinition definition;
+            lock (DefinitionGate) {
+                if (!Definitions.TryGetValue(runspace,out definition) || definition == null ||
+                    definition.OwnerRunspaceId != runspace.InstanceId) return false;
+            }
+            CallStackFrame caller = null;
+            foreach (CallStackFrame frame in runspace.Debugger.GetCallStack()) { caller = frame; break; }
+            if (caller == null || !String.Equals(caller.FunctionName,
+                "Open-SealedRegistryCurrentRouteCapture",StringComparison.Ordinal)) return false;
+            CommandInfo command = caller.InvocationInfo == null ? null : caller.InvocationInfo.MyCommand;
+            ScriptBlock scriptBlock = command is FunctionInfo ? ((FunctionInfo)command).ScriptBlock :
+                command is ScriptInfo ? ((ScriptInfo)command).ScriptBlock : null;
+            return Object.ReferenceEquals(scriptBlock,definition.OpenRoute);
+        }
+
+        private static SealedRegistryCurrentRouteCaptureIssuerDefinition RequirePinnedDefinitionExact() {
+            if (!IsPinnedOpenCallerExact()) throw new InvalidOperationException("route-witness-required");
+            Runspace runspace = Runspace.DefaultRunspace;
+            SealedRegistryCurrentRouteCaptureIssuerDefinition definition;
+            lock (DefinitionGate) {
+                if (runspace == null || !Definitions.TryGetValue(runspace,out definition) || definition == null)
+                    throw new InvalidOperationException("route-witness-required");
+            }
+            return definition;
+        }
+        private static void InvokeNoOutputExact(ScriptBlock command, object[] arguments) {
+            Collection<PSObject> output = command.Invoke(arguments);
+            if (output != null && output.Count != 0)
+                throw new InvalidOperationException("route-witness-required");
+        }
+
+        public static void InitializeExact(ScriptBlock openRoute, ScriptBlock openLiveSet,
+            ScriptBlock openTarget, string runspaceId) {
+            Runspace runspace = Runspace.DefaultRunspace;
+            Guid expected;
+            if (runspace == null || runspace.InstanceId == Guid.Empty ||
+                !Guid.TryParseExact(runspaceId,"D",out expected) || expected != runspace.InstanceId)
+                throw new InvalidOperationException("route-witness-required");
+            string text = ExactScriptText(openRoute);
+            string liveText = ExactScriptText(openLiveSet);
+            string targetText = ExactScriptText(openTarget);
+            if (String.IsNullOrWhiteSpace(text) || String.IsNullOrWhiteSpace(liveText) ||
+                String.IsNullOrWhiteSpace(targetText))
+                throw new InvalidOperationException("route-witness-required");
+            lock (DefinitionGate) {
+                SealedRegistryCurrentRouteCaptureIssuerDefinition existing;
+                if (Definitions.TryGetValue(runspace,out existing)) {
+                    if (existing == null || existing.OwnerRunspaceId != runspace.InstanceId ||
+                        !Object.ReferenceEquals(existing.OpenRoute,openRoute) ||
+                        !Object.ReferenceEquals(existing.OpenLiveSet,openLiveSet) ||
+                        !Object.ReferenceEquals(existing.OpenTarget,openTarget) ||
+                        !String.Equals(existing.OpenRouteText,text,StringComparison.Ordinal) ||
+                        !String.Equals(existing.OpenLiveSetText,liveText,StringComparison.Ordinal) ||
+                        !String.Equals(existing.OpenTargetText,targetText,StringComparison.Ordinal))
+                        throw new InvalidOperationException("route-witness-required");
+                    return;
+                }
+                Definitions.Add(runspace,new SealedRegistryCurrentRouteCaptureIssuerDefinition(
+                    openRoute,openLiveSet,openTarget,text,liveText,targetText,runspace.InstanceId));
+            }
+        }
+
+        internal static bool IsIssuanceTokenExact(object value) {
+            return Object.ReferenceEquals(value,IssuanceToken);
+        }
+        internal static bool IsIssuedExact(SealedRegistryCurrentRouteCapture capture) {
+            return SealedRegistryCurrentRouteCapture.MatchesIssuanceTokenExact(capture,IssuanceToken);
+        }
+        public static object BeginOpenExact() {
+            if (!IsPinnedOpenCallerExact()) throw new InvalidOperationException("route-witness-required");
+            return SealedRegistryCurrentRouteCapture.BeginOpenForIssuerExact(IssuanceToken);
+        }
+        public static void OpenLiveSetExact(object authorityContext,
+            object canonicalWitness, object globalLockHandle, object ownershipReceiver) {
+            SealedRegistryCurrentRouteCaptureIssuerDefinition definition = RequirePinnedDefinitionExact();
+            InvokeNoOutputExact(definition.OpenLiveSet,new object[] {
+                authorityContext,canonicalWitness,globalLockHandle,ownershipReceiver
+            });
+        }
+        public static void OpenTargetExact(string path, object ownershipReceiver) {
+            SealedRegistryCurrentRouteCaptureIssuerDefinition definition = RequirePinnedDefinitionExact();
+            InvokeNoOutputExact(definition.OpenTarget,new object[] { path,ownershipReceiver });
+        }
+        public static void ClaimResourceSetExact(object operation, object[] resources) {
+            if (!IsPinnedOpenCallerExact()) throw new InvalidOperationException("route-witness-required");
+            SealedRegistryCurrentRouteOpenOperation typed = operation as SealedRegistryCurrentRouteOpenOperation;
+            if (typed == null) throw new InvalidOperationException("route-witness-required");
+            SealedRegistryCurrentRouteCapture.ClaimResourcesForIssuerExact(
+                IssuanceToken,typed,resources);
+        }
+        public static void AbandonOpenExact(object operation) {
+            if (!IsPinnedOpenCallerExact()) throw new InvalidOperationException("route-witness-required");
+            SealedRegistryCurrentRouteOpenOperation typed = operation as SealedRegistryCurrentRouteOpenOperation;
+            if (typed == null) throw new InvalidOperationException("route-witness-required");
+            SealedRegistryCurrentRouteCapture.AbandonOpenForIssuerExact(IssuanceToken,typed);
+        }
+        public static SealedRegistryCurrentRouteCapture IssueExact(object operation,
+            object liveSetLease, object[] liveTargetLeases, object liveProjection,
+            SealedRegistryRouteLeaseBinding[] routeLeaseRows,
+            object[] reservationLeases, object[] fixedLeases, object originalCurrentRouteRootSet,
+            object canonicalWitness, object currentRouteRootSetSnapshot, string entryCurrentRouteRootSetHash,
+            string currentRouteRootSetSnapshotHash, string heldTargetSetHash) {
+            if (!IsPinnedOpenCallerExact()) throw new InvalidOperationException("route-witness-required");
+            SealedRegistryCurrentRouteOpenOperation typed = operation as SealedRegistryCurrentRouteOpenOperation;
+            if (typed == null) throw new InvalidOperationException("route-witness-required");
+            return SealedRegistryCurrentRouteCapture.IssueForIssuerExact(IssuanceToken,
+                typed,liveSetLease,liveTargetLeases,liveProjection,routeLeaseRows,reservationLeases,fixedLeases,
+                originalCurrentRouteRootSet,canonicalWitness,currentRouteRootSetSnapshot,
+                entryCurrentRouteRootSetHash,currentRouteRootSetSnapshotHash,heldTargetSetHash);
         }
     }
 }
@@ -753,13 +1158,24 @@ function Open-SealedRegistryCurrentRouteCapture {
         [Parameter(Mandatory)]$GlobalLockHandle,
         [Parameter(Mandatory)]$CanonicalWitness,
         [Parameter(Mandatory)]$CurrentRouteRootSet,
-        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Reservations
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Reservations,
+        [Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
     )
+    $OwnershipReceiver.AssertEmptyExact()
+    $routeOpenOperation = [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::BeginOpenExact()
     $liveSetLease = $null
+    $liveTargetLeases = @()
     $routeLeaseRows = [Collections.Generic.List[AiAgentDotfiles.SealedRegistryRouteLeaseBinding]]::new()
     $routeHeldLeases = [Collections.Generic.List[object]]::new()
     $reservationLeaseRows = [Collections.Generic.List[object]]::new()
     $fixedLeaseRows = [Collections.Generic.List[object]]::new()
+    $liveSetReceiver = $null
+    $leaseReceiver = $null
+    $liveSetCandidate = $null
+    $leaseCandidate = $null
+    $routeCapture = $null
+    $routeOwnershipTransferred = $false
+    $routePrimaryError = $null
     try {
         $null = Assert-SealedCurrentRouteRootSet -RootSet $CurrentRouteRootSet -CanonicalWitness $CanonicalWitness
         $entryCurrentRouteRootSetHash = [string]$CurrentRouteRootSet.RouteRootSetHash
@@ -775,15 +1191,34 @@ function Open-SealedRegistryCurrentRouteCapture {
         })
         $null = Assert-SealedCurrentRouteRootSet -RootSet $CurrentRouteRootSet -CanonicalWitness $CanonicalWitness
         if ([string]$CurrentRouteRootSet.RouteRootSetHash -cne $entryCurrentRouteRootSetHash) { throw 'route-witness-required' }
-        $liveSetLease = Open-SealedHeldLiveTargetContextSet -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness -GlobalLockHandle $GlobalLockHandle
+        $liveSetReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::OpenLiveSetExact(
+            $AuthorityContext,$CanonicalWitness,$GlobalLockHandle,$liveSetReceiver)
+        $liveSetCandidate = $liveSetReceiver.GetDeliveredExact()
+        $liveSetReceipt = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetForWrapperExact($liveSetCandidate)
+        $liveTargetCandidates = @([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetTargetLeasesExact($liveSetReceipt))
+        $liveSetLease = $liveSetCandidate
+        $liveSetCandidate = $null
+        $liveSetReceiver = $null
+        $liveTargetLeases = @($liveTargetCandidates)
+        [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::ClaimResourceSetExact(
+            $routeOpenOperation,[object[]](@($liveSetLease) + @($liveTargetCandidates)))
         $liveProjection = Get-SealedHeldLiveTargetContextSet -Lease $liveSetLease
 
         $snapshotRows = @($currentRouteRootSetSnapshot.Roots)
         for ($routeIndex=0; $routeIndex -lt $snapshotRows.Count; $routeIndex++) {
             $row = $snapshotRows[$routeIndex]
             if ([string]$row.Applicability -cne 'PRESENT') { continue }
-            $lease = Open-SealedHeldTargetContextLease -Path ([string]$row.Path)
+            $leaseReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::OpenTargetExact(
+                [string]$row.Path,$leaseReceiver)
+            $leaseCandidate = $leaseReceiver.GetDeliveredExact()
+            $lease = $leaseCandidate
             $routeHeldLeases.Add($lease)
+            $leaseCandidate = $null
+            $leaseReceiver = $null
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::ClaimResourceSetExact(
+                $routeOpenOperation,[object[]]@($lease))
             $actual = Get-SealedHeldTargetContextLease -Lease $lease
             $null = Assert-SealedHeldTargetContextMatchesMetadata -Expected $row.TargetContext -Actual $actual
             $routeLeaseRows.Add([AiAgentDotfiles.SealedRegistryRouteLeaseBinding]::new(
@@ -794,15 +1229,31 @@ function Open-SealedRegistryCurrentRouteCapture {
             [pscustomobject]@{Role='ControlBase';Path=[string]$AuthorityContext.ControlBase},
             [pscustomobject]@{Role='BackupRoot';Path=[string]$AuthorityContext.BackupRoot}
         )) {
-            $lease = Open-SealedHeldTargetContextLease -Path $binding.Path
-            $tracked = [pscustomobject][ordered]@{Role=$binding.Role;Lease=$lease;Context=$null}
+            $leaseReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::OpenTargetExact(
+                [string]$binding.Path,$leaseReceiver)
+            $leaseCandidate = $leaseReceiver.GetDeliveredExact()
+            $tracked = [pscustomobject][ordered]@{Role=$binding.Role;Lease=$leaseCandidate;Context=$null}
             $fixedLeaseRows.Add($tracked)
+            $lease = $leaseCandidate
+            $leaseCandidate = $null
+            $leaseReceiver = $null
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::ClaimResourceSetExact(
+                $routeOpenOperation,[object[]]@($lease))
             $tracked.Context = Get-SealedHeldTargetContextLease -Lease $lease
         }
         foreach ($reservation in $Reservations) {
-            $lease = Open-SealedHeldTargetContextLease -Path ([string]$reservation.RequestedPath)
-            $tracked = [pscustomobject][ordered]@{Reservation=$reservation;Lease=$lease;Context=$null}
+            $leaseReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::OpenTargetExact(
+                [string]$reservation.RequestedPath,$leaseReceiver)
+            $leaseCandidate = $leaseReceiver.GetDeliveredExact()
+            $tracked = [pscustomobject][ordered]@{Reservation=$reservation;Lease=$leaseCandidate;Context=$null}
             $reservationLeaseRows.Add($tracked)
+            $lease = $leaseCandidate
+            $leaseCandidate = $null
+            $leaseReceiver = $null
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::ClaimResourceSetExact(
+                $routeOpenOperation,[object[]]@($lease))
             $context = Get-SealedHeldTargetContextLease -Lease $lease
             if ([string]$context.LocationKey -cne [string]$reservation.LocationKey -or [string]$context.VolumeId -cne [string]$reservation.VolumeId) { throw 'current-route-reservation-context-drift' }
             if ($null -ne $reservation.DirectoryIdentity -and ([string]$context.TargetStatus -cne 'EXISTS' -or [string]$context.DirectoryIdentity -cne [string]$reservation.DirectoryIdentity)) { throw 'current-route-reservation-context-drift' }
@@ -872,37 +1323,181 @@ function Open-SealedRegistryCurrentRouteCapture {
             }
         }
 
-        return [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::new(
-            $liveSetLease,$liveProjection,[AiAgentDotfiles.SealedRegistryRouteLeaseBinding[]]@($routeLeaseRows),
+        $routeCapture = [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::IssueExact(
+            $routeOpenOperation,$liveSetLease,[object[]]@($liveTargetLeases),$liveProjection,
+            [AiAgentDotfiles.SealedRegistryRouteLeaseBinding[]]@($routeLeaseRows),
             [object[]]@($reservationLeaseRows | ForEach-Object { $_.Lease }),
             [object[]]@($fixedLeaseRows | ForEach-Object { $_.Lease }),$CurrentRouteRootSet,$CanonicalWitness,
             $currentRouteRootSetSnapshot,$entryCurrentRouteRootSetHash,$currentRouteRootSetSnapshotHash,
             [string]$liveProjection.HeldTargetSetHash)
+        $OwnershipReceiver.DeliverExact($routeCapture)
+        $routeOwnershipTransferred = $true
+        return
     }
     catch {
-        $primaryError = $_
-        $cleanupError = $null
-        try {
-            $closeArguments = @{
-                LiveSetLease=$liveSetLease
-                RouteLeases=[object[]]@($routeHeldLeases)
-                FixedLeases=[object[]]@($fixedLeaseRows | ForEach-Object { $_.Lease })
-                ReservationLeases=[object[]]@($reservationLeaseRows | ForEach-Object { $_.Lease })
-            }
-            Close-SealedRegistryCurrentRouteResources @closeArguments
-        }
-        catch { $cleanupError = $_ }
-        if ($null -ne $cleanupError) {
-            try { $primaryError.Exception.Data['SealedRegistryRouteCleanupError'] = [string]$cleanupError.Exception.Message }
-            catch { }
-        }
-        throw $primaryError
+        $routePrimaryError = $_
+        throw
     }
+    finally {
+        $receiverOwnsRouteCapture = $OwnershipReceiver.HoldsExact($routeCapture)
+        if (-not $routeOwnershipTransferred -and -not $receiverOwnsRouteCapture) {
+            $cleanupError = $null
+            if ($null -ne $routeCapture) {
+                try { $null = [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($routeCapture) }
+                catch { $cleanupError = $_ }
+            }
+            else {
+                try {
+                    $receiverLease = $null
+                    if ($null -ne $leaseReceiver -and
+                        [string]$leaseReceiver.GetStateExact() -ceq 'DELIVERED') {
+                        try {
+                            $receiverLease = $leaseReceiver.GetDeliveredExact()
+                            $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($receiverLease)
+                        }
+                        catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                    }
+                    if ($null -ne $leaseCandidate) {
+                        try { $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($leaseCandidate) }
+                        catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                    }
+                    $reservationCleanupLeases = @($reservationLeaseRows | ForEach-Object { $_.Lease })
+                    for ($index=$reservationCleanupLeases.Count-1; $index -ge 0; $index--) {
+                        try { $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($reservationCleanupLeases[$index]) }
+                        catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                    }
+                    $fixedCleanupLeases = @($fixedLeaseRows | ForEach-Object { $_.Lease })
+                    for ($index=$fixedCleanupLeases.Count-1; $index -ge 0; $index--) {
+                        try { $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($fixedCleanupLeases[$index]) }
+                        catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                    }
+                    for ($index=$routeHeldLeases.Count-1; $index -ge 0; $index--) {
+                        try { $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($routeHeldLeases[$index]) }
+                        catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                    }
+                    $receiverLiveSet = $null
+                    if ($null -ne $liveSetReceiver -and
+                        [string]$liveSetReceiver.GetStateExact() -ceq 'DELIVERED') {
+                        try {
+                            $receiverLiveSet = $liveSetReceiver.GetDeliveredExact()
+                            $null = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::ReleaseForWrapperExact($receiverLiveSet)
+                        }
+                        catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                    }
+                    if ($null -ne $liveSetLease) {
+                        try { $null = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::ReleaseForWrapperExact($liveSetLease) }
+                        catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                    }
+                    elseif ($null -ne $liveSetCandidate) {
+                        try { $null = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::ReleaseForWrapperExact($liveSetCandidate) }
+                        catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+                    }
+                    if ($null -eq $cleanupError) {
+                        [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::AbandonOpenExact($routeOpenOperation)
+                    }
+                }
+                catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
+            }
+            if ($null -ne $cleanupError) {
+                if ($null -ne $routePrimaryError) {
+                    try { $routePrimaryError.Exception.Data['SealedRegistryRouteCleanupError'] = [string]$cleanupError.Exception.Message }
+                    catch { }
+                }
+                else { throw $cleanupError }
+            }
+        }
+    }
+}
+
+$sealedRegistryCurrentRouteOpenCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Open-SealedRegistryCurrentRouteCapture',[System.Management.Automation.CommandTypes]::Function)
+$sealedRegistryCurrentRouteLiveOpenCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Open-SealedHeldLiveTargetContextSet',[System.Management.Automation.CommandTypes]::Function)
+$sealedRegistryCurrentRouteTargetOpenCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Open-SealedHeldTargetContextLease',[System.Management.Automation.CommandTypes]::Function)
+$sealedRegistryCurrentRouteTargetCloseCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Close-SealedHeldTargetContextLease',[System.Management.Automation.CommandTypes]::Function)
+$sealedRegistryCurrentRouteTargetAssertCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Assert-SealedHeldTargetContextLease',[System.Management.Automation.CommandTypes]::Function)
+$sealedRegistryCurrentRouteLiveCloseCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Close-SealedHeldLiveTargetContextSet',[System.Management.Automation.CommandTypes]::Function)
+$sealedRegistryCurrentRouteLiveOpenOriginal=$sealedRegistryCurrentRouteLiveOpenCommand.ScriptBlock
+$sealedRegistryCurrentRouteTargetOpenOriginal=$sealedRegistryCurrentRouteTargetOpenCommand.ScriptBlock
+$sealedRegistryCurrentRouteTargetCloseOriginal=$sealedRegistryCurrentRouteTargetCloseCommand.ScriptBlock
+$sealedRegistryCurrentRouteTargetAssertOriginal=$sealedRegistryCurrentRouteTargetAssertCommand.ScriptBlock
+$sealedRegistryCurrentRouteLiveCloseOriginal=$sealedRegistryCurrentRouteLiveCloseCommand.ScriptBlock
+$sealedRegistryCurrentRouteTargetOpenCore={
+    param([string]$Path,$OwnershipReceiver)
+
+    $pinnedFunctions=[Collections.Generic.Dictionary[string,scriptblock]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
+    $pinnedFunctions.Add('Close-SealedHeldTargetContextLease',$sealedRegistryCurrentRouteTargetCloseOriginal)
+    $pinnedFunctions.Add('Assert-SealedHeldTargetContextLease',$sealedRegistryCurrentRouteTargetAssertOriginal)
+    foreach($pinnedName in @($pinnedFunctions.Keys)){
+        if($null -ne $ExecutionContext.SessionState.InvokeCommand.GetCommand(
+            $pinnedName,[System.Management.Automation.CommandTypes]::Alias)){
+            throw 'route-witness-required'
+        }
+    }
+    $pinnedVariables=[Collections.Generic.List[Management.Automation.PSVariable]]::new()
+    $output=$sealedRegistryCurrentRouteTargetOpenOriginal.InvokeWithContext(
+        $pinnedFunctions,$pinnedVariables,[object[]]@($Path,$OwnershipReceiver))
+    if($null -ne $output -and $output.Count -ne 0){
+        throw 'route-witness-required'
+    }
+}.GetNewClosure()
+$sealedRegistryCurrentRouteLiveOpenCore={
+    param($AuthorityContext,$CanonicalWitness,$GlobalLockHandle,$OwnershipReceiver)
+
+    $pinnedFunctions=[Collections.Generic.Dictionary[string,scriptblock]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
+    $pinnedFunctions.Add('Open-SealedHeldTargetContextLease',$sealedRegistryCurrentRouteTargetOpenCore)
+    $pinnedFunctions.Add('Close-SealedHeldTargetContextLease',$sealedRegistryCurrentRouteTargetCloseOriginal)
+    $pinnedFunctions.Add('Close-SealedHeldLiveTargetContextSet',$sealedRegistryCurrentRouteLiveCloseOriginal)
+    foreach($pinnedName in @($pinnedFunctions.Keys)){
+        if($null -ne $ExecutionContext.SessionState.InvokeCommand.GetCommand(
+            $pinnedName,[System.Management.Automation.CommandTypes]::Alias)){
+            throw 'route-witness-required'
+        }
+    }
+    $pinnedVariables=[Collections.Generic.List[Management.Automation.PSVariable]]::new()
+    $output=$sealedRegistryCurrentRouteLiveOpenOriginal.InvokeWithContext(
+        $pinnedFunctions,$pinnedVariables,[object[]]@(
+            $AuthorityContext,$CanonicalWitness,$GlobalLockHandle,$OwnershipReceiver))
+    if($null -ne $output -and $output.Count -ne 0){
+        throw 'route-witness-required'
+    }
+}.GetNewClosure()
+$sealedRegistryCurrentRouteOpenRunspace=[System.Management.Automation.Runspaces.Runspace]::DefaultRunspace
+try {
+    if($null -eq $sealedRegistryCurrentRouteOpenCommand -or $null -eq $sealedRegistryCurrentRouteLiveOpenCommand -or
+        $null -eq $sealedRegistryCurrentRouteTargetOpenCommand -or $null -eq $sealedRegistryCurrentRouteTargetCloseCommand -or
+        $null -eq $sealedRegistryCurrentRouteTargetAssertCommand -or
+        $null -eq $sealedRegistryCurrentRouteLiveCloseCommand -or $null -eq $sealedRegistryCurrentRouteTargetOpenCore -or
+        $null -eq $sealedRegistryCurrentRouteLiveOpenCore -or
+        $null -eq $sealedRegistryCurrentRouteOpenRunspace){
+        throw 'route-witness-required'
+    }
+    [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::InitializeExact(
+        $sealedRegistryCurrentRouteOpenCommand.ScriptBlock,$sealedRegistryCurrentRouteLiveOpenCore,
+        $sealedRegistryCurrentRouteTargetOpenCore,
+        $sealedRegistryCurrentRouteOpenRunspace.InstanceId.ToString('D').ToLowerInvariant())
+}
+finally {
+    Remove-Variable -Name sealedRegistryCurrentRouteOpenCommand,sealedRegistryCurrentRouteLiveOpenCommand,
+        sealedRegistryCurrentRouteTargetOpenCommand,sealedRegistryCurrentRouteTargetCloseCommand,
+        sealedRegistryCurrentRouteTargetAssertCommand,sealedRegistryCurrentRouteLiveCloseCommand,
+        sealedRegistryCurrentRouteLiveOpenOriginal,
+        sealedRegistryCurrentRouteTargetOpenOriginal,sealedRegistryCurrentRouteTargetCloseOriginal,
+        sealedRegistryCurrentRouteTargetAssertOriginal,sealedRegistryCurrentRouteLiveCloseOriginal,
+        sealedRegistryCurrentRouteTargetOpenCore,sealedRegistryCurrentRouteLiveOpenCore,
+        sealedRegistryCurrentRouteOpenRunspace -ErrorAction SilentlyContinue
 }
 
 function Assert-SealedRegistryCurrentRouteCaptureStable {
     param([Parameter(Mandatory)]$Capture)
     if (-not [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::IsGenuine($Capture) -or
+        -not [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::HasExactIssuanceReceipt($Capture) -or
         -not [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($Capture)) { throw 'route-witness-required' }
     try {
         $original = [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetOriginalCurrentRouteRootSet($Capture)
@@ -1763,6 +2358,7 @@ function Get-SealedHomeAuthorityRegistryView {
     $directoryChildren = [Collections.Generic.List[object]]::new()
     $fileCaptures = [Collections.Generic.List[object]]::new()
     $currentRouteCapture = $null
+    $currentRouteReceiver = $null
     $registryCleanupStack = [Collections.Generic.List[object]]::new()
     $registryPrimaryError = $null
     try {
@@ -1916,8 +2512,14 @@ function Get-SealedHomeAuthorityRegistryView {
 
         Assert-SealedRegistryReservationsDisjoint -Reservations @($reservations) -ForbiddenRoots @([string]$AuthorityContext.ControlBase,[string]$AuthorityContext.BackupRoot)
         if ($null -ne $CanonicalWitness) {
-            $currentRouteCapture = Open-SealedRegistryCurrentRouteCapture -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness -CurrentRouteRootSet $CurrentRouteRootSet -Reservations @($reservations)
+            $currentRouteReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedRegistryCurrentRouteCapture -AuthorityContext $AuthorityContext `
+                -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness `
+                -CurrentRouteRootSet $CurrentRouteRootSet -Reservations @($reservations) `
+                -OwnershipReceiver $currentRouteReceiver
+            $currentRouteCapture = $currentRouteReceiver.GetDeliveredExact()
             $registryCleanupStack.Add([pscustomobject]@{Kind='CurrentRouteCapture';Resource=$currentRouteCapture})
+            $currentRouteReceiver = $null
             Assert-SealedRegistryCurrentRouteCaptureStable -Capture $currentRouteCapture
         }
         foreach ($capture in $fileCaptures) { Assert-SealedRegistryCaptureStable -Capture $capture -TokenSid $tokenSid }
@@ -1977,6 +2579,14 @@ function Get-SealedHomeAuthorityRegistryView {
     }
     finally {
         $registryCleanupError = $null
+        if ($null -ne $currentRouteReceiver -and
+            [string]$currentRouteReceiver.GetStateExact() -ceq 'DELIVERED') {
+            try {
+                $unacknowledgedRoute = $currentRouteReceiver.GetDeliveredExact()
+                $null = [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($unacknowledgedRoute)
+            }
+            catch { $registryCleanupError = $_ }
+        }
         for ($index=$registryCleanupStack.Count-1; $index -ge 0; $index--) {
             $cleanup = $registryCleanupStack[$index]
             try {
@@ -2173,15 +2783,35 @@ if (-not ('AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer' -as [type]
 using System;
 using System.Collections.ObjectModel;
 using System.Management.Automation;
+using System.Management.Automation.Runspaces;
+using System.Runtime.CompilerServices;
 
 namespace AiAgentDotfiles {
+    internal sealed class SealedFixedInfrastructureCapabilityIssuerDefinition {
+        internal readonly ScriptBlock RawPreflight;
+        internal readonly ScriptBlock CapabilityProbe;
+        internal readonly string RawPreflightText;
+        internal readonly string CapabilityProbeText;
+        internal readonly Guid OwnerRunspaceId;
+        internal readonly object ExactIssuerToken;
+
+        internal SealedFixedInfrastructureCapabilityIssuerDefinition(
+            ScriptBlock rawPreflight, ScriptBlock capabilityProbe,
+            string rawPreflightText, string capabilityProbeText,
+            Guid ownerRunspaceId) {
+            RawPreflight = rawPreflight;
+            CapabilityProbe = capabilityProbe;
+            RawPreflightText = rawPreflightText;
+            CapabilityProbeText = capabilityProbeText;
+            OwnerRunspaceId = ownerRunspaceId;
+            ExactIssuerToken = new object();
+        }
+    }
+
     public static class SealedFixedInfrastructureCapabilityIssuer {
-        private static readonly object Gate = new object();
-        private static readonly object ExactIssuerToken = new object();
-        private static ScriptBlock rawPreflight;
-        private static ScriptBlock capabilityProbe;
-        private static string rawPreflightText;
-        private static string capabilityProbeText;
+        private static readonly object DefinitionGate = new object();
+        private static readonly ConditionalWeakTable<Runspace,SealedFixedInfrastructureCapabilityIssuerDefinition> Definitions =
+            new ConditionalWeakTable<Runspace,SealedFixedInfrastructureCapabilityIssuerDefinition>();
 
         private static string GetExactText(ScriptBlock value) {
             return value == null || value.Ast == null || value.Ast.Extent == null ? null : value.Ast.Extent.Text;
@@ -2193,33 +2823,68 @@ namespace AiAgentDotfiles {
             return String.Equals(GetExactText(candidate), canonicalText, StringComparison.Ordinal);
         }
 
-        public static void InitializeExact(ScriptBlock rawPreflightValue, ScriptBlock capabilityProbeValue) {
+        private static SealedFixedInfrastructureCapabilityIssuerDefinition RequireDefinitionExact() {
+            Runspace runspace = Runspace.DefaultRunspace;
+            SealedFixedInfrastructureCapabilityIssuerDefinition definition;
+            lock (DefinitionGate) {
+                if (runspace == null || runspace.InstanceId == Guid.Empty ||
+                    !Definitions.TryGetValue(runspace,out definition) || definition == null ||
+                    definition.OwnerRunspaceId != runspace.InstanceId)
+                    throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            }
+            return definition;
+        }
+
+        public static void InitializeExact(ScriptBlock rawPreflightValue,
+            ScriptBlock capabilityProbeValue, string runspaceId) {
+            Runspace runspace = Runspace.DefaultRunspace;
+            Guid expected;
             if (rawPreflightValue == null || capabilityProbeValue == null)
                 throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
-            lock (Gate) {
-                if (rawPreflight == null && capabilityProbe == null) {
-                    rawPreflight = rawPreflightValue;
-                    capabilityProbe = capabilityProbeValue;
-                    rawPreflightText = GetExactText(rawPreflightValue);
-                    capabilityProbeText = GetExactText(capabilityProbeValue);
+            if (runspace == null || runspace.InstanceId == Guid.Empty ||
+                !Guid.TryParseExact(runspaceId,"D",out expected) || expected != runspace.InstanceId)
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            string rawText = GetExactText(rawPreflightValue);
+            string probeText = GetExactText(capabilityProbeValue);
+            if (String.IsNullOrWhiteSpace(rawText) || String.IsNullOrWhiteSpace(probeText))
+                throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+            lock (DefinitionGate) {
+                SealedFixedInfrastructureCapabilityIssuerDefinition existing;
+                if (Definitions.TryGetValue(runspace,out existing)) {
+                    if (existing == null || existing.OwnerRunspaceId != runspace.InstanceId ||
+                        !Object.ReferenceEquals(existing.RawPreflight,rawPreflightValue) ||
+                        !Object.ReferenceEquals(existing.CapabilityProbe,capabilityProbeValue) ||
+                        !String.Equals(existing.RawPreflightText,rawText,StringComparison.Ordinal) ||
+                        !String.Equals(existing.CapabilityProbeText,probeText,StringComparison.Ordinal))
+                        throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
                     return;
                 }
-                if (!MatchesExactDefinition(rawPreflightValue, rawPreflight, rawPreflightText) ||
-                    !MatchesExactDefinition(capabilityProbeValue, capabilityProbe, capabilityProbeText))
-                    throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
+                Definitions.Add(runspace,new SealedFixedInfrastructureCapabilityIssuerDefinition(
+                    rawPreflightValue,capabilityProbeValue,rawText,probeText,runspace.InstanceId));
             }
         }
 
         public static bool MatchesRawExact(ScriptBlock candidate) {
-            lock (Gate) { return MatchesExactDefinition(candidate, rawPreflight, rawPreflightText); }
+            try {
+                SealedFixedInfrastructureCapabilityIssuerDefinition definition = RequireDefinitionExact();
+                return MatchesExactDefinition(candidate,definition.RawPreflight,definition.RawPreflightText);
+            }
+            catch { return false; }
         }
 
         public static bool MatchesProbeExact(ScriptBlock candidate) {
-            lock (Gate) { return MatchesExactDefinition(candidate, capabilityProbe, capabilityProbeText); }
+            try {
+                SealedFixedInfrastructureCapabilityIssuerDefinition definition = RequireDefinitionExact();
+                return MatchesExactDefinition(candidate,definition.CapabilityProbe,definition.CapabilityProbeText);
+            }
+            catch { return false; }
         }
 
         public static bool IsExactIssuerToken(object candidate) {
-            return Object.ReferenceEquals(ExactIssuerToken, candidate);
+            try {
+                return Object.ReferenceEquals(RequireDefinitionExact().ExactIssuerToken,candidate);
+            }
+            catch { return false; }
         }
 
         private static object InvokeSingleExact(ScriptBlock command, object[] arguments) {
@@ -2233,20 +2898,20 @@ namespace AiAgentDotfiles {
 
         public static object InvokeRawExact(object authorityContext, object globalLockHandle,
             object canonicalWitness, object[] capabilityTargets) {
-            ScriptBlock command;
-            lock (Gate) { command = rawPreflight; }
-            return InvokeSingleExact(command, new object[] {
-                authorityContext, globalLockHandle, canonicalWitness, capabilityTargets, ExactIssuerToken
+            SealedFixedInfrastructureCapabilityIssuerDefinition definition = RequireDefinitionExact();
+            return InvokeSingleExact(definition.RawPreflight, new object[] {
+                authorityContext, globalLockHandle, canonicalWitness, capabilityTargets,
+                definition.ExactIssuerToken
             });
         }
 
         public static object InvokeProbeExact(object issuerToken, string probeRoot, object volumeInfo,
             string expectedProbeRootIdentity) {
-            if (!Object.ReferenceEquals(ExactIssuerToken, issuerToken))
+            SealedFixedInfrastructureCapabilityIssuerDefinition definition = RequireDefinitionExact();
+            if (!Object.ReferenceEquals(definition.ExactIssuerToken,issuerToken))
                 throw new InvalidOperationException("fixed-infrastructure-capability-evidence-invalid");
-            ScriptBlock command;
-            lock (Gate) { command = capabilityProbe; }
-            return InvokeSingleExact(command, new object[] { probeRoot, volumeInfo, expectedProbeRootIdentity });
+            return InvokeSingleExact(definition.CapabilityProbe,
+                new object[] { probeRoot, volumeInfo, expectedProbeRootIdentity });
         }
     }
 }
@@ -2477,7 +3142,8 @@ if ($null -eq $sealedFixedInfrastructureRawCommand -or $null -eq $sealedFixedInf
     throw 'fixed-infrastructure-capability-evidence-invalid'
 }
 [AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer]::InitializeExact(
-    $sealedFixedInfrastructureRawCommand.ScriptBlock,$sealedFixedInfrastructureProbeCommand.ScriptBlock)
+    $sealedFixedInfrastructureRawCommand.ScriptBlock,$sealedFixedInfrastructureProbeCommand.ScriptBlock,
+    [System.Management.Automation.Runspaces.Runspace]::DefaultRunspace.InstanceId.ToString('D').ToLowerInvariant())
 
 if (-not ('AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -2960,4 +3626,2264 @@ function Invoke-SealedHeldFixedInfrastructureCapabilityCapture {
             }
         }
     }
+}
+
+if (-not ('AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections;
+using System.Collections.Specialized;
+using System.IO;
+using System.Management.Automation;
+using System.Management.Automation.Runspaces;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+
+namespace AiAgentDotfiles {
+    internal sealed class SealedFixedEnvelopeOwnershipReceipt {
+        internal readonly object ProvenanceToken;
+        internal readonly object Owner;
+        internal readonly Guid OwnerRunspaceId;
+        internal SealedFixedEnvelopeOwnershipReceipt(object provenanceToken,
+            object owner, Guid ownerRunspaceId) {
+            if (provenanceToken == null || owner == null || ownerRunspaceId == Guid.Empty)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            ProvenanceToken = provenanceToken;
+            Owner = owner;
+            OwnerRunspaceId = ownerRunspaceId;
+        }
+    }
+
+    public static class SealedFixedEnvelopeOwnershipGuard {
+        private static readonly object Gate = new object();
+        private static readonly ConditionalWeakTable<object,SealedFixedEnvelopeOwnershipReceipt> Receipts =
+            new ConditionalWeakTable<object,SealedFixedEnvelopeOwnershipReceipt>();
+        internal static void RegisterExact(object provenanceToken, object envelopeLease, object owner) {
+            Runspace current = Runspace.DefaultRunspace;
+            if (provenanceToken == null || envelopeLease == null || owner == null ||
+                current == null || current.InstanceId == Guid.Empty)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            lock (Gate) {
+                SealedFixedEnvelopeOwnershipReceipt existing;
+                if (Receipts.TryGetValue(envelopeLease,out existing))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                Receipts.Add(envelopeLease,new SealedFixedEnvelopeOwnershipReceipt(
+                    provenanceToken,owner,current.InstanceId));
+            }
+        }
+        internal static bool MatchesExact(object provenanceToken, object envelopeLease, object owner) {
+            Runspace current = Runspace.DefaultRunspace;
+            if (provenanceToken == null || envelopeLease == null || owner == null || current == null)
+                return false;
+            lock (Gate) {
+                SealedFixedEnvelopeOwnershipReceipt receipt;
+                return Receipts.TryGetValue(envelopeLease,out receipt) && receipt != null &&
+                    Object.ReferenceEquals(receipt.ProvenanceToken,provenanceToken) &&
+                    Object.ReferenceEquals(receipt.Owner,owner) &&
+                    receipt.OwnerRunspaceId == current.InstanceId;
+            }
+        }
+        internal static void ReleaseExact(object provenanceToken, object envelopeLease) {
+            Runspace current = Runspace.DefaultRunspace;
+            if (provenanceToken == null || envelopeLease == null || current == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            lock (Gate) {
+                SealedFixedEnvelopeOwnershipReceipt receipt;
+                if (!Receipts.TryGetValue(envelopeLease,out receipt) || receipt == null ||
+                    !Object.ReferenceEquals(receipt.ProvenanceToken,provenanceToken) ||
+                    receipt.OwnerRunspaceId != current.InstanceId)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                Receipts.Remove(envelopeLease);
+            }
+        }
+        public static bool IsReservedExact(object envelopeLease) {
+            if (envelopeLease == null) return false;
+            lock (Gate) {
+                SealedFixedEnvelopeOwnershipReceipt receipt;
+                return Receipts.TryGetValue(envelopeLease,out receipt) && receipt != null;
+            }
+        }
+    }
+
+    internal sealed class SealedCurrentRouteFixedInfrastructureIssuerDefinition {
+        internal readonly ScriptBlock OpenCore;
+        internal readonly ScriptBlock AssertCore;
+        internal readonly ScriptBlock FixedCapture;
+        internal readonly ScriptBlock FixedEnvelopeOpen;
+        internal readonly ScriptBlock FixedEnvelopeProjection;
+        internal readonly ScriptBlock FixedEnvelopeClose;
+        internal readonly ScriptBlock FixedDirectoryOpen;
+        internal readonly ScriptBlock FixedDirectoryClose;
+        internal readonly ScriptBlock RouteCaptureStable;
+        internal readonly ScriptBlock CanonicalGlobalBinding;
+        internal readonly ScriptBlock GlobalLockWitness;
+        internal readonly ScriptBlock FixedEvidenceCurrent;
+        internal readonly ScriptBlock SemanticJsonHash;
+        internal readonly ScriptBlock SecurityTemplate;
+        internal readonly string OpenCoreText;
+        internal readonly string AssertCoreText;
+        internal readonly string FixedCaptureText;
+        internal readonly string FixedEnvelopeOpenText;
+        internal readonly string FixedEnvelopeProjectionText;
+        internal readonly string FixedEnvelopeCloseText;
+        internal readonly string FixedDirectoryOpenText;
+        internal readonly string FixedDirectoryCloseText;
+        internal readonly string RouteCaptureStableText;
+        internal readonly string CanonicalGlobalBindingText;
+        internal readonly string GlobalLockWitnessText;
+        internal readonly string FixedEvidenceCurrentText;
+        internal readonly string SemanticJsonHashText;
+        internal readonly string SecurityTemplateText;
+        internal readonly string DefinitionDigest;
+        internal readonly object ProvenanceToken;
+
+        internal SealedCurrentRouteFixedInfrastructureIssuerDefinition(ScriptBlock openCore,
+            ScriptBlock assertCore, ScriptBlock fixedCapture,
+            ScriptBlock fixedEnvelopeOpen, ScriptBlock fixedEnvelopeProjection,
+            ScriptBlock fixedEnvelopeClose, ScriptBlock fixedDirectoryOpen,
+            ScriptBlock fixedDirectoryClose,
+            ScriptBlock routeCaptureStable,
+            ScriptBlock canonicalGlobalBinding, ScriptBlock globalLockWitness,
+            ScriptBlock fixedEvidenceCurrent, ScriptBlock semanticJsonHash,
+            ScriptBlock securityTemplate, string openCoreText, string assertCoreText,
+            string fixedCaptureText, string fixedEnvelopeOpenText, string fixedEnvelopeProjectionText,
+            string fixedEnvelopeCloseText, string fixedDirectoryOpenText,
+            string fixedDirectoryCloseText,
+            string routeCaptureStableText,
+            string canonicalGlobalBindingText, string globalLockWitnessText,
+            string fixedEvidenceCurrentText, string semanticJsonHashText,
+            string securityTemplateText, string definitionDigest) {
+            OpenCore = openCore;
+            AssertCore = assertCore;
+            FixedCapture = fixedCapture;
+            FixedEnvelopeOpen = fixedEnvelopeOpen;
+            FixedEnvelopeProjection = fixedEnvelopeProjection;
+            FixedEnvelopeClose = fixedEnvelopeClose;
+            FixedDirectoryOpen = fixedDirectoryOpen;
+            FixedDirectoryClose = fixedDirectoryClose;
+            RouteCaptureStable = routeCaptureStable;
+            CanonicalGlobalBinding = canonicalGlobalBinding;
+            GlobalLockWitness = globalLockWitness;
+            FixedEvidenceCurrent = fixedEvidenceCurrent;
+            SemanticJsonHash = semanticJsonHash;
+            SecurityTemplate = securityTemplate;
+            OpenCoreText = openCoreText;
+            AssertCoreText = assertCoreText;
+            FixedCaptureText = fixedCaptureText;
+            FixedEnvelopeOpenText = fixedEnvelopeOpenText;
+            FixedEnvelopeProjectionText = fixedEnvelopeProjectionText;
+            FixedEnvelopeCloseText = fixedEnvelopeCloseText;
+            FixedDirectoryOpenText = fixedDirectoryOpenText;
+            FixedDirectoryCloseText = fixedDirectoryCloseText;
+            RouteCaptureStableText = routeCaptureStableText;
+            CanonicalGlobalBindingText = canonicalGlobalBindingText;
+            GlobalLockWitnessText = globalLockWitnessText;
+            FixedEvidenceCurrentText = fixedEvidenceCurrentText;
+            SemanticJsonHashText = semanticJsonHashText;
+            SecurityTemplateText = securityTemplateText;
+            DefinitionDigest = definitionDigest;
+            ProvenanceToken = new object();
+        }
+    }
+
+    internal sealed class SealedCurrentRouteFixedInfrastructureCaptureTicket {
+        internal readonly object ProvenanceToken;
+        internal readonly string RunspaceId;
+        internal readonly string DefinitionDigest;
+        internal readonly object BorrowedTicket;
+        internal readonly object Operation;
+        internal readonly object AuthorityContext;
+        internal readonly object GlobalLockHandle;
+        internal readonly object CanonicalWitness;
+        internal readonly object FixedEvidence;
+        internal readonly string FixedProjectionHash;
+
+        internal SealedCurrentRouteFixedInfrastructureCaptureTicket(object provenanceToken,
+            string runspaceId, string definitionDigest, object borrowedTicket, object operation,
+            object authorityContext, object globalLockHandle, object canonicalWitness,
+            object fixedEvidence, string fixedProjectionHash) {
+            if (provenanceToken == null || borrowedTicket == null || operation == null ||
+                authorityContext == null || globalLockHandle == null || canonicalWitness == null ||
+                fixedEvidence == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            ProvenanceToken = provenanceToken;
+            RunspaceId = runspaceId;
+            DefinitionDigest = definitionDigest;
+            BorrowedTicket = borrowedTicket;
+            Operation = operation;
+            AuthorityContext = authorityContext;
+            GlobalLockHandle = globalLockHandle;
+            CanonicalWitness = canonicalWitness;
+            FixedEvidence = fixedEvidence;
+            FixedProjectionHash = fixedProjectionHash;
+        }
+    }
+
+    internal sealed class SealedCurrentRouteFixedInfrastructureEnvelopeTicket {
+        internal readonly object ProvenanceToken;
+        internal readonly string RunspaceId;
+        internal readonly string DefinitionDigest;
+        internal readonly object BorrowedTicket;
+        internal readonly object Operation;
+        internal readonly object EnvelopeLease;
+        internal readonly object[][] OwnedHandleChains;
+        internal readonly object AuthorityContext;
+        internal readonly object GlobalLockHandle;
+        internal readonly object EntryGlobalLockEvidence;
+        internal readonly object EntryEnvelopeProjection;
+        internal readonly string AuthorityContextHash;
+        internal readonly string FixedEnvelopeHash;
+        internal readonly string LockSecurityHash;
+        private const int OpenState = 0;
+        private const int ClosingState = 1;
+        private const int ClosedState = 2;
+        private int state;
+
+        internal SealedCurrentRouteFixedInfrastructureEnvelopeTicket(object provenanceToken,
+            string runspaceId, string definitionDigest, object borrowedTicket, object operation,
+            object envelopeLease, object[][] ownedHandleChains,
+            object authorityContext, object globalLockHandle,
+            object entryGlobalLockEvidence, object entryEnvelopeProjection,
+            string authorityContextHash, string fixedEnvelopeHash, string lockSecurityHash) {
+            if (provenanceToken == null || borrowedTicket == null || operation == null ||
+                envelopeLease == null || authorityContext == null || globalLockHandle == null ||
+                ownedHandleChains == null || ownedHandleChains.Length == 0 ||
+                entryGlobalLockEvidence == null || entryEnvelopeProjection == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            ProvenanceToken = provenanceToken;
+            RunspaceId = runspaceId;
+            DefinitionDigest = definitionDigest;
+            BorrowedTicket = borrowedTicket;
+            Operation = operation;
+            EnvelopeLease = envelopeLease;
+            OwnedHandleChains = CloneHandleChainsExact(ownedHandleChains);
+            AuthorityContext = authorityContext;
+            GlobalLockHandle = globalLockHandle;
+            EntryGlobalLockEvidence = entryGlobalLockEvidence;
+            EntryEnvelopeProjection = entryEnvelopeProjection;
+            AuthorityContextHash = authorityContextHash;
+            FixedEnvelopeHash = fixedEnvelopeHash;
+            LockSecurityHash = lockSecurityHash;
+        }
+
+        private static object[][] CloneHandleChainsExact(object[][] value) {
+            object[][] result = new object[value.Length][];
+            for (int index = 0; index < value.Length; index++) {
+                if (value[index] == null || value[index].Length == 0)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                result[index] = (object[])value[index].Clone();
+            }
+            return result;
+        }
+
+        internal bool IsOpenExact() { return Volatile.Read(ref state) == OpenState; }
+        internal int BeginCloseExact() {
+            return Interlocked.CompareExchange(ref state,ClosingState,OpenState);
+        }
+        internal void RestoreOpenFromCloseExact() {
+            if (Interlocked.CompareExchange(ref state,OpenState,ClosingState) != ClosingState)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+        }
+        internal void CompleteCloseExact() {
+            if (Interlocked.CompareExchange(ref state,ClosedState,ClosingState) != ClosingState)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+        }
+    }
+
+    public sealed class SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation {
+        private sealed class ExactIssuanceReceipt {
+            internal readonly SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation Observation;
+            internal readonly object ProvenanceToken;
+            internal readonly Guid OwnerRunspaceId;
+            internal ExactIssuanceReceipt(
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation,
+                object provenanceTokenValue, Guid ownerRunspaceIdValue) {
+                Observation = observation;
+                ProvenanceToken = provenanceTokenValue;
+                OwnerRunspaceId = ownerRunspaceIdValue;
+            }
+        }
+        private static readonly ConditionalWeakTable<SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation,ExactIssuanceReceipt> ExactIssuanceReceipts =
+            new ConditionalWeakTable<SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation,ExactIssuanceReceipt>();
+        private readonly object provenanceToken;
+        private readonly string issuerRunspaceId;
+        private readonly string issuerDefinitionDigest;
+        private readonly object currentRouteCapture;
+        private readonly object liveSetLease;
+        private readonly object liveSetReceipt;
+        private readonly object liveProjection;
+        private readonly object authorityContext;
+        private readonly object canonicalWitness;
+        private readonly object globalLockHandle;
+        private readonly object globalBinding;
+        private readonly object entryGlobalLockEvidence;
+        private readonly object outerFixedEnvelopeLease;
+        private readonly object[][] outerFixedEnvelopeHandleChains;
+        private readonly object outerFixedEnvelopeOwner;
+        private readonly object fixedEvidence;
+        private readonly string authorityContextHash;
+        private readonly string fixedEnvelopeHash;
+        private readonly string lockSecurityHash;
+        private readonly string currentRouteRootSetHash;
+        private readonly string heldTargetSetHash;
+        private readonly string globalBindingHash;
+        private readonly string fixedCapabilityProjectionHash;
+        private readonly string observationProjectionHash;
+        private const int OpenState = 0;
+        private const int ClosingState = 1;
+        private const int ClosedState = 2;
+        private readonly object lifecycleGate = new object();
+        private int activeAssertions;
+        private int closeState;
+
+        internal SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation(object provenanceTokenValue,
+            string issuerRunspaceIdValue, string issuerDefinitionDigestValue,
+            object currentRouteCaptureValue, object liveSetLeaseValue, object liveSetReceiptValue,
+            object liveProjectionValue, object authorityContextValue, object canonicalWitnessValue,
+            object globalLockHandleValue, object globalBindingValue, object entryGlobalLockEvidenceValue,
+            object outerFixedEnvelopeLeaseValue, object[][] outerFixedEnvelopeHandleChainsValue,
+            object outerFixedEnvelopeOwnerValue, object fixedEvidenceValue,
+            string authorityContextHashValue, string fixedEnvelopeHashValue, string lockSecurityHashValue,
+            string currentRouteRootSetHashValue, string heldTargetSetHashValue, string globalBindingHashValue,
+            string fixedCapabilityProjectionHashValue, string observationProjectionHashValue) {
+            provenanceToken = provenanceTokenValue;
+            issuerRunspaceId = issuerRunspaceIdValue;
+            issuerDefinitionDigest = issuerDefinitionDigestValue;
+            currentRouteCapture = currentRouteCaptureValue;
+            liveSetLease = liveSetLeaseValue;
+            liveSetReceipt = liveSetReceiptValue;
+            liveProjection = liveProjectionValue;
+            authorityContext = authorityContextValue;
+            canonicalWitness = canonicalWitnessValue;
+            globalLockHandle = globalLockHandleValue;
+            globalBinding = globalBindingValue;
+            entryGlobalLockEvidence = entryGlobalLockEvidenceValue;
+            outerFixedEnvelopeLease = outerFixedEnvelopeLeaseValue;
+            outerFixedEnvelopeHandleChains = CloneHandleChainsExact(outerFixedEnvelopeHandleChainsValue);
+            if (outerFixedEnvelopeOwnerValue == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            outerFixedEnvelopeOwner = outerFixedEnvelopeOwnerValue;
+            fixedEvidence = fixedEvidenceValue;
+            authorityContextHash = authorityContextHashValue;
+            fixedEnvelopeHash = fixedEnvelopeHashValue;
+            lockSecurityHash = lockSecurityHashValue;
+            currentRouteRootSetHash = currentRouteRootSetHashValue;
+            heldTargetSetHash = heldTargetSetHashValue;
+            globalBindingHash = globalBindingHashValue;
+            fixedCapabilityProjectionHash = fixedCapabilityProjectionHashValue;
+            observationProjectionHash = observationProjectionHashValue;
+        }
+
+        private static object[][] CloneHandleChainsExact(object[][] value) {
+            if (value == null || value.Length == 0)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            object[][] result = new object[value.Length][];
+            for (int index = 0; index < value.Length; index++) {
+                if (value[index] == null || value[index].Length == 0)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                result[index] = (object[])value[index].Clone();
+            }
+            return result;
+        }
+
+        internal void BindIssuanceReceiptExact(object value) {
+            if (value == null || !Object.ReferenceEquals(value,provenanceToken))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            Runspace current = Runspace.DefaultRunspace;
+            Guid declared;
+            if (current == null || current.InstanceId == Guid.Empty ||
+                !Guid.TryParseExact(issuerRunspaceId,"D",out declared) ||
+                declared != current.InstanceId)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            ExactIssuanceReceipts.Add(this,new ExactIssuanceReceipt(this,value,current.InstanceId));
+        }
+        internal void RemoveIssuanceReceiptExact(object value) {
+            ExactIssuanceReceipt registered;
+            if (value != null && ExactIssuanceReceipts.TryGetValue(this,out registered) &&
+                registered != null && Object.ReferenceEquals(registered.Observation,this) &&
+                Object.ReferenceEquals(registered.ProvenanceToken,value) &&
+                Object.ReferenceEquals(registered.ProvenanceToken,provenanceToken))
+                ExactIssuanceReceipts.Remove(this);
+        }
+        internal bool MatchesIssuanceReceiptExact(object value) {
+            if (value == null) return false;
+            ExactIssuanceReceipt registered;
+            Runspace current = Runspace.DefaultRunspace;
+            return ExactIssuanceReceipts.TryGetValue(this,out registered) &&
+                current != null && current.InstanceId != Guid.Empty &&
+                Object.ReferenceEquals(registered.Observation,this) &&
+                Object.ReferenceEquals(registered.ProvenanceToken,value) &&
+                Object.ReferenceEquals(registered.ProvenanceToken,provenanceToken) &&
+                registered.OwnerRunspaceId == current.InstanceId;
+        }
+        private static bool HasIssuanceReceiptExact(
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) {
+            if (value == null) return false;
+            ExactIssuanceReceipt registered;
+            Runspace current = Runspace.DefaultRunspace;
+            return ExactIssuanceReceipts.TryGetValue(value,out registered) &&
+                registered != null && current != null && current.InstanceId != Guid.Empty &&
+                Object.ReferenceEquals(registered.Observation,value) &&
+                Object.ReferenceEquals(registered.ProvenanceToken,value.provenanceToken) &&
+                registered.OwnerRunspaceId == current.InstanceId;
+        }
+        private static SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation RequireIssuedExact(
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) {
+            if (!HasIssuanceReceiptExact(value))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return value;
+        }
+        internal object ProvenanceTokenExact { get { return provenanceToken; } }
+        internal object OuterFixedEnvelopeLeaseExact { get { return outerFixedEnvelopeLease; } }
+        internal object[][] OuterFixedEnvelopeHandleChainsExact {
+            get { return CloneHandleChainsExact(outerFixedEnvelopeHandleChains); }
+        }
+        internal object OuterFixedEnvelopeOwnerExact { get { return outerFixedEnvelopeOwner; } }
+        internal void BeginAssertionExact() {
+            lock (lifecycleGate) {
+                if (closeState != OpenState || activeAssertions == Int32.MaxValue)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                activeAssertions++;
+            }
+        }
+        internal void EndAssertionExact() {
+            lock (lifecycleGate) {
+                if (activeAssertions <= 0)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                activeAssertions--;
+            }
+        }
+        internal int BeginCloseExact() {
+            lock (lifecycleGate) {
+                if (closeState == ClosedState) return ClosedState;
+                if (closeState == ClosingState) return ClosingState;
+                if (closeState != OpenState)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                if (activeAssertions != 0) return 3;
+                Volatile.Write(ref closeState,ClosingState);
+                return OpenState;
+            }
+        }
+        internal void RestoreOpenExact() {
+            lock (lifecycleGate) {
+                if (closeState != ClosingState)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                Volatile.Write(ref closeState,OpenState);
+            }
+        }
+        internal void CompleteCloseExact() {
+            lock (lifecycleGate) {
+                if (closeState != ClosingState)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                Volatile.Write(ref closeState,ClosedState);
+            }
+        }
+
+        public static bool IsGenuine(object value) {
+            return HasIssuanceReceiptExact(
+                value as SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation);
+        }
+        public static bool GetIsOpenExact(object value) {
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observed =
+                value as SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation;
+            return HasIssuanceReceiptExact(observed) && Volatile.Read(ref observed.closeState) == OpenState;
+        }
+        public static bool GetIsClosedExact(object value) {
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observed =
+                value as SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation;
+            RequireIssuedExact(observed);
+            return Volatile.Read(ref observed.closeState) == ClosedState;
+        }
+        public static string GetCloseStateExact(object value) {
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observed =
+                value as SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation;
+            RequireIssuedExact(observed);
+            int state = Volatile.Read(ref observed.closeState);
+            return state == OpenState ? "OPEN" : state == ClosingState ? "CLOSING" : "CLOSED";
+        }
+        public static string GetCoverageExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { RequireIssuedExact(value); return "HELD_CURRENT_ROUTE_FIXED_INFRASTRUCTURE_PROBED"; }
+        public static string GetScopeExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { RequireIssuedExact(value); return "RUNTIME_ONLY"; }
+        public static string GetMutationAuthorizationExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { RequireIssuedExact(value); return "NONE"; }
+        public static string GetIssuerRunspaceIdExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).issuerRunspaceId; }
+        public static string GetIssuerDefinitionDigestExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).issuerDefinitionDigest; }
+        public static object GetCurrentRouteCaptureExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).currentRouteCapture; }
+        public static object GetLiveSetLeaseExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).liveSetLease; }
+        public static object GetLiveSetReceiptExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).liveSetReceipt; }
+        public static object GetLiveProjectionExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).liveProjection; }
+        public static object GetAuthorityContextExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).authorityContext; }
+        public static object GetCanonicalWitnessExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).canonicalWitness; }
+        public static object GetGlobalLockHandleExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).globalLockHandle; }
+        public static object GetGlobalBindingExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).globalBinding; }
+        public static object GetEntryGlobalLockEvidenceExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).entryGlobalLockEvidence; }
+        public static object GetFixedEvidenceExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).fixedEvidence; }
+        public static string GetAuthorityContextHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).authorityContextHash; }
+        public static string GetFixedEnvelopeHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).fixedEnvelopeHash; }
+        public static string GetLockSecurityHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).lockSecurityHash; }
+        public static string GetCurrentRouteRootSetHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).currentRouteRootSetHash; }
+        public static string GetHeldTargetSetHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).heldTargetSetHash; }
+        public static string GetGlobalBindingHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).globalBindingHash; }
+        public static string GetFixedCapabilityProjectionHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).fixedCapabilityProjectionHash; }
+        public static string GetObservationProjectionHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).observationProjectionHash; }
+    }
+
+    public static class SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer {
+        private static readonly object Gate = new object();
+        private static readonly Dictionary<string,SealedCurrentRouteFixedInfrastructureIssuerDefinition> Definitions =
+            new Dictionary<string,SealedCurrentRouteFixedInfrastructureIssuerDefinition>(StringComparer.Ordinal);
+
+        private sealed class ObservationOpenOperation {
+            private const int ReadyState = 0;
+            private const int IssuedState = 1;
+            private int state;
+            internal bool IsReadyExact() { return Volatile.Read(ref state) == ReadyState; }
+            internal bool IsIssuedExact() { return Volatile.Read(ref state) == IssuedState; }
+            internal bool CommitIssueExact() {
+                return Interlocked.CompareExchange(ref state,IssuedState,ReadyState) == ReadyState;
+            }
+        }
+        private sealed class BorrowedStateTicket {
+            internal readonly ObservationOpenOperation Operation;
+            internal readonly object ProvenanceToken;
+            internal readonly string RunspaceId;
+            internal readonly string DefinitionDigest;
+            internal readonly object RouteCapture;
+            internal readonly object LiveSetLease;
+            internal readonly object LiveSetReceipt;
+            internal readonly object LiveProjection;
+            internal readonly object AuthorityContext;
+            internal readonly object CanonicalWitness;
+            internal readonly object GlobalLockHandle;
+            internal readonly object GlobalBinding;
+            internal readonly object BindingPrerequisite;
+            internal readonly object BindingCurrent;
+            internal readonly object BindingCurrentParent;
+            internal readonly object BindingPrerequisiteWitness;
+            internal readonly object BindingAuthorityContext;
+            internal readonly object GlobalLockEvidence;
+            internal readonly string CurrentRouteRootSetHash;
+            internal readonly string HeldTargetSetHash;
+            internal readonly string GlobalBindingHash;
+            internal readonly string AuthorityContextHash;
+            internal readonly string FixedEnvelopeHash;
+            internal readonly string LockSecurityHash;
+
+            internal BorrowedStateTicket(ObservationOpenOperation operation,
+                object provenanceToken, string runspaceId,
+                string definitionDigest, object routeCapture, object liveSetLease,
+                object liveSetReceipt, object liveProjection, object authorityContext,
+                object canonicalWitness, object globalLockHandle, object globalBinding,
+                object bindingPrerequisite, object bindingCurrent, object bindingCurrentParent,
+                object bindingPrerequisiteWitness, object bindingAuthorityContext,
+                object globalLockEvidence, string currentRouteRootSetHash,
+                string heldTargetSetHash, string globalBindingHash,
+                string authorityContextHash, string fixedEnvelopeHash, string lockSecurityHash) {
+                Operation = operation;
+                ProvenanceToken = provenanceToken;
+                RunspaceId = runspaceId;
+                DefinitionDigest = definitionDigest;
+                RouteCapture = routeCapture;
+                LiveSetLease = liveSetLease;
+                LiveSetReceipt = liveSetReceipt;
+                LiveProjection = liveProjection;
+                AuthorityContext = authorityContext;
+                CanonicalWitness = canonicalWitness;
+                GlobalLockHandle = globalLockHandle;
+                GlobalBinding = globalBinding;
+                BindingPrerequisite = bindingPrerequisite;
+                BindingCurrent = bindingCurrent;
+                BindingCurrentParent = bindingCurrentParent;
+                BindingPrerequisiteWitness = bindingPrerequisiteWitness;
+                BindingAuthorityContext = bindingAuthorityContext;
+                GlobalLockEvidence = globalLockEvidence;
+                CurrentRouteRootSetHash = currentRouteRootSetHash;
+                HeldTargetSetHash = heldTargetSetHash;
+                GlobalBindingHash = globalBindingHash;
+                AuthorityContextHash = authorityContextHash;
+                FixedEnvelopeHash = fixedEnvelopeHash;
+                LockSecurityHash = lockSecurityHash;
+            }
+
+            internal bool MatchesDefinitionExact(
+                SealedCurrentRouteFixedInfrastructureIssuerDefinition definition) {
+                return definition != null &&
+                    Operation != null && Operation.IsReadyExact() &&
+                    Object.ReferenceEquals(ProvenanceToken,definition.ProvenanceToken) &&
+                    String.Equals(DefinitionDigest,definition.DefinitionDigest,StringComparison.Ordinal);
+            }
+            internal bool MatchesBorrowedExact(BorrowedStateTicket other) {
+                return other != null &&
+                    Object.ReferenceEquals(Operation,other.Operation) &&
+                    Object.ReferenceEquals(RouteCapture,other.RouteCapture) &&
+                    Object.ReferenceEquals(LiveSetLease,other.LiveSetLease) &&
+                    Object.ReferenceEquals(LiveSetReceipt,other.LiveSetReceipt) &&
+                    Object.ReferenceEquals(LiveProjection,other.LiveProjection) &&
+                    Object.ReferenceEquals(AuthorityContext,other.AuthorityContext) &&
+                    Object.ReferenceEquals(CanonicalWitness,other.CanonicalWitness) &&
+                    Object.ReferenceEquals(GlobalLockHandle,other.GlobalLockHandle) &&
+                    Object.ReferenceEquals(GlobalBinding,other.GlobalBinding) &&
+                    Object.ReferenceEquals(BindingPrerequisite,other.BindingPrerequisite) &&
+                    Object.ReferenceEquals(BindingCurrent,other.BindingCurrent) &&
+                    Object.ReferenceEquals(BindingCurrentParent,other.BindingCurrentParent) &&
+                    Object.ReferenceEquals(BindingPrerequisiteWitness,other.BindingPrerequisiteWitness) &&
+                    Object.ReferenceEquals(BindingAuthorityContext,other.BindingAuthorityContext) &&
+                    String.Equals(CurrentRouteRootSetHash,other.CurrentRouteRootSetHash,StringComparison.Ordinal) &&
+                    String.Equals(HeldTargetSetHash,other.HeldTargetSetHash,StringComparison.Ordinal) &&
+                    String.Equals(GlobalBindingHash,other.GlobalBindingHash,StringComparison.Ordinal) &&
+                    String.Equals(AuthorityContextHash,other.AuthorityContextHash,StringComparison.Ordinal) &&
+                    String.Equals(FixedEnvelopeHash,other.FixedEnvelopeHash,StringComparison.Ordinal) &&
+                    String.Equals(LockSecurityHash,other.LockSecurityHash,StringComparison.Ordinal);
+            }
+            internal bool MatchesBorrowedSourcesExact(BorrowedStateTicket other) {
+                return other != null &&
+                    Object.ReferenceEquals(ProvenanceToken,other.ProvenanceToken) &&
+                    String.Equals(RunspaceId,other.RunspaceId,StringComparison.Ordinal) &&
+                    String.Equals(DefinitionDigest,other.DefinitionDigest,StringComparison.Ordinal) &&
+                    Object.ReferenceEquals(RouteCapture,other.RouteCapture) &&
+                    Object.ReferenceEquals(LiveSetLease,other.LiveSetLease) &&
+                    Object.ReferenceEquals(LiveSetReceipt,other.LiveSetReceipt) &&
+                    Object.ReferenceEquals(LiveProjection,other.LiveProjection) &&
+                    Object.ReferenceEquals(AuthorityContext,other.AuthorityContext) &&
+                    Object.ReferenceEquals(CanonicalWitness,other.CanonicalWitness) &&
+                    Object.ReferenceEquals(GlobalLockHandle,other.GlobalLockHandle) &&
+                    Object.ReferenceEquals(GlobalBinding,other.GlobalBinding) &&
+                    Object.ReferenceEquals(BindingPrerequisite,other.BindingPrerequisite) &&
+                    Object.ReferenceEquals(BindingCurrent,other.BindingCurrent) &&
+                    Object.ReferenceEquals(BindingCurrentParent,other.BindingCurrentParent) &&
+                    Object.ReferenceEquals(BindingPrerequisiteWitness,other.BindingPrerequisiteWitness) &&
+                    Object.ReferenceEquals(BindingAuthorityContext,other.BindingAuthorityContext) &&
+                    String.Equals(CurrentRouteRootSetHash,other.CurrentRouteRootSetHash,StringComparison.Ordinal) &&
+                    String.Equals(HeldTargetSetHash,other.HeldTargetSetHash,StringComparison.Ordinal) &&
+                    String.Equals(GlobalBindingHash,other.GlobalBindingHash,StringComparison.Ordinal) &&
+                    String.Equals(AuthorityContextHash,other.AuthorityContextHash,StringComparison.Ordinal);
+            }
+        }
+
+        private static string ExactText(ScriptBlock value) {
+            return value == null || value.Ast == null || value.Ast.Extent == null ? null : value.Ast.Extent.Text;
+        }
+        private static Type FindRequiredType(string typeName) {
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies()) {
+                Type candidate = assembly.GetType(typeName,false,false);
+                if (candidate != null) return candidate;
+            }
+            throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+        }
+        private static object InvokeExactStatic(string typeName, string methodName,
+            object[] arguments) {
+            Type type = FindRequiredType(typeName);
+            MethodInfo selected = null;
+            foreach (MethodInfo candidate in type.GetMethods(
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)) {
+                if (!String.Equals(candidate.Name,methodName,StringComparison.Ordinal) ||
+                    candidate.GetParameters().Length != arguments.Length) continue;
+                if (selected != null)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                selected = candidate;
+            }
+            if (selected == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            try { return selected.Invoke(null,arguments); }
+            catch (TargetInvocationException error) { throw error.InnerException ?? error; }
+        }
+        private static bool IsExactType(object value, string typeName) {
+            return value != null && value.GetType() == FindRequiredType(typeName);
+        }
+        private static object ReadPropertyExact(object value, string name) {
+            if (value == null || String.IsNullOrEmpty(name))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            PSPropertyInfo property = PSObject.AsPSObject(value).Properties[name];
+            object result = property == null ? null : property.Value;
+            if (result == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return result;
+        }
+        private static string ReadStringPropertyExact(object value, string name) {
+            object result = ReadPropertyExact(value,name);
+            string text = result as string;
+            if (text == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return text;
+        }
+        private static bool IsLowerHex64(string value) {
+            if (value == null || value.Length != 64) return false;
+            for (int index = 0; index < value.Length; index++) {
+                char current = value[index];
+                if (!((current >= '0' && current <= '9') || (current >= 'a' && current <= 'f'))) return false;
+            }
+            return true;
+        }
+        private static string Sha256(string value) {
+            byte[] hash = SHA256.HashData(new UTF8Encoding(false,true).GetBytes(value));
+            StringBuilder result = new StringBuilder(hash.Length * 2);
+            foreach (byte current in hash) result.Append(current.ToString("x2"));
+            return result.ToString();
+        }
+        private static string NormalizeRunspaceId(string value) {
+            Guid parsed;
+            if (String.IsNullOrWhiteSpace(value) || !Guid.TryParseExact(value,"D",out parsed) || parsed == Guid.Empty)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return parsed.ToString("D").ToLowerInvariant();
+        }
+        private static string CurrentRunspaceId() {
+            Runspace current = Runspace.DefaultRunspace;
+            if (current == null || current.InstanceId == Guid.Empty)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return current.InstanceId.ToString("D").ToLowerInvariant();
+        }
+        private static bool MatchesDefinition(ScriptBlock candidate, ScriptBlock canonical, string canonicalText) {
+            if (candidate == null || canonical == null || canonicalText == null) return false;
+            return Object.ReferenceEquals(candidate,canonical);
+        }
+        private static SealedCurrentRouteFixedInfrastructureIssuerDefinition RequireDefinition(string runspaceId) {
+            string normalized = NormalizeRunspaceId(runspaceId);
+            if (!String.Equals(CurrentRunspaceId(),normalized,StringComparison.Ordinal))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            lock (Gate) {
+                SealedCurrentRouteFixedInfrastructureIssuerDefinition definition;
+                if (!Definitions.TryGetValue(normalized,out definition))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return definition;
+            }
+        }
+        private static void RequireCurrentRouteFacadeExact(object value) {
+            const string routeType = "AiAgentDotfiles.SealedRegistryCurrentRouteCapture";
+            if (!IsExactType(value,routeType))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            object issued = InvokeExactStatic(routeType,"HasExactIssuanceReceipt",new object[] { value });
+            object open = InvokeExactStatic(routeType,"GetIsOpenExact",new object[] { value });
+            if (!(issued is bool) || !(bool)issued || !(open is bool) || !(bool)open)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+        }
+        private static object InvokeSingle(ScriptBlock command, object[] arguments) {
+            Collection<PSObject> output = command.Invoke(arguments);
+            if (output == null || output.Count != 1 || output[0] == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return output[0].BaseObject;
+        }
+        private static object InvokeSinglePowerShellObject(ScriptBlock command, object[] arguments) {
+            Collection<PSObject> output = command.Invoke(arguments);
+            if (output == null || output.Count != 1 || output[0] == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return output[0];
+        }
+        private static void InvokeNoOutput(ScriptBlock command, object[] arguments) {
+            Collection<PSObject> output = command.Invoke(arguments);
+            if (output != null && output.Count != 0)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+        }
+        private static SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation RequireObservation(object value,
+            bool requireCurrentRunspace) {
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation =
+                value as SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation;
+            if (observation == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            string observationRunspaceId =
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetIssuerRunspaceIdExact(observation);
+            string observationDefinitionDigest =
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetIssuerDefinitionDigestExact(observation);
+            SealedCurrentRouteFixedInfrastructureIssuerDefinition definition;
+            lock (Gate) {
+                if (!Definitions.TryGetValue(observationRunspaceId,out definition) ||
+                    !observation.MatchesIssuanceReceiptExact(definition.ProvenanceToken) ||
+                    !Object.ReferenceEquals(definition.ProvenanceToken,observation.ProvenanceTokenExact) ||
+                    !String.Equals(definition.DefinitionDigest,observationDefinitionDigest,StringComparison.Ordinal))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            }
+            if (requireCurrentRunspace &&
+                !String.Equals(CurrentRunspaceId(),observationRunspaceId,StringComparison.Ordinal))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return observation;
+        }
+        private static SealedCurrentRouteFixedInfrastructureEnvelopeTicket RequireEnvelopeTicket(object value,
+            bool requireOpen) {
+            SealedCurrentRouteFixedInfrastructureEnvelopeTicket ticket =
+                value as SealedCurrentRouteFixedInfrastructureEnvelopeTicket;
+            if (ticket == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            SealedCurrentRouteFixedInfrastructureIssuerDefinition definition =
+                RequireDefinition(ticket.RunspaceId);
+            if (!Object.ReferenceEquals(definition.ProvenanceToken,ticket.ProvenanceToken) ||
+                !String.Equals(definition.DefinitionDigest,ticket.DefinitionDigest,StringComparison.Ordinal) ||
+                (requireOpen && !ticket.IsOpenExact()))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            return ticket;
+        }
+
+        private sealed class RuntimeBroker {
+            private readonly SealedCurrentRouteFixedInfrastructureIssuerDefinition definition;
+            private readonly string runspaceId;
+
+            internal RuntimeBroker(SealedCurrentRouteFixedInfrastructureIssuerDefinition definitionValue,
+                string runspaceIdValue) {
+                if (definitionValue == null)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                definition = definitionValue;
+                runspaceId = NormalizeRunspaceId(runspaceIdValue);
+                RequireCurrentExact();
+            }
+            private void RequireCurrentExact() {
+                if (!String.Equals(CurrentRunspaceId(),runspaceId,StringComparison.Ordinal) ||
+                    !Object.ReferenceEquals(RequireDefinition(runspaceId),definition))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            }
+
+            private static object[] ToObjectArrayExact(object value) {
+                object source = value is PSObject ? ((PSObject)value).BaseObject : value;
+                if (source == null || source is string)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                object[] exact = source as object[];
+                if (exact != null) return (object[])exact.Clone();
+                IEnumerable sequence = source as IEnumerable;
+                if (sequence == null)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                List<object> result = new List<object>();
+                foreach (object current in sequence) result.Add(current);
+                return result.ToArray();
+            }
+            private static void SetPropertyExact(object value, string name, object replacement) {
+                PSPropertyInfo property = value == null ? null : PSObject.AsPSObject(value).Properties[name];
+                if (property == null)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                property.Value = replacement;
+            }
+            private static object CreateOwnershipReceiverExact() {
+                Type type = FindRequiredType("AiAgentDotfiles.SealedOwnershipTransferReceiver");
+                object receiver = Activator.CreateInstance(type);
+                if (receiver == null)
+                    throw new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-stale");
+                return receiver;
+            }
+            private static object InvokeOwnershipReceiverExact(object receiver,
+                string methodName, object[] arguments) {
+                if (receiver == null || String.IsNullOrWhiteSpace(methodName))
+                    throw new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-stale");
+                MethodInfo selected = null;
+                foreach (MethodInfo candidate in receiver.GetType().GetMethods(
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)) {
+                    if (!String.Equals(candidate.Name,methodName,StringComparison.Ordinal) ||
+                        candidate.GetParameters().Length != arguments.Length) continue;
+                    if (selected != null)
+                        throw new InvalidOperationException(
+                            "held-current-route-fixed-infrastructure-observation-stale");
+                    selected = candidate;
+                }
+                if (selected == null)
+                    throw new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-stale");
+                try { return selected.Invoke(receiver,arguments); }
+                catch (TargetInvocationException error) { throw error.InnerException ?? error; }
+            }
+            private static bool IsExactOpenDirectoryHandle(object value) {
+                if (!IsExactType(value,"AiAgentDotfiles.SafeDirectoryHandle")) return false;
+                object open = InvokeExactStatic("AiAgentDotfiles.SafeDirectoryHandle","IsOpenExact",
+                    new object[] { value });
+                return open is bool && (bool)open;
+            }
+            private static string AcquiredDirectoryIdentityExact(object value) {
+                object identity = InvokeExactStatic("AiAgentDotfiles.SafeDirectoryHandle",
+                    "GetAcquiredIdentityExact",new object[] { value });
+                string text = identity as string;
+                if (String.IsNullOrWhiteSpace(text))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return text;
+            }
+            private void CloseOwnedEnvelopeHandlesExact(object[][] handleChains, object envelopeLease) {
+                if (handleChains == null || handleChains.Length == 0)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                Exception first = null;
+                for (int index = handleChains.Length - 1; index >= 0; index--) {
+                    try { InvokeNoOutput(definition.FixedDirectoryClose,
+                        new object[] { (object[])handleChains[index].Clone() }); }
+                    catch (Exception error) { if (first == null) first = error; }
+                }
+                if (first != null) throw first;
+                try { SetPropertyExact(envelopeLease,"IsClosed",true); }
+                catch { }
+            }
+            private bool AllOwnedEnvelopeHandlesClosedExact(object[][] handleChains) {
+                if (handleChains == null || handleChains.Length == 0) return false;
+                foreach (object[] chain in handleChains) {
+                    if (chain == null || chain.Length == 0) return false;
+                    foreach (object handle in chain) {
+                        if (!IsExactType(handle,"AiAgentDotfiles.SafeDirectoryHandle") ||
+                            IsExactOpenDirectoryHandle(handle)) return false;
+                    }
+                }
+                return true;
+            }
+            private Exception ForceCloseOwnedEnvelopeHandlesAfterOpenFailureExact(
+                object[][] handleChains, object envelopeLease) {
+                if (handleChains == null || handleChains.Length == 0)
+                    return new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                Exception first = null;
+                for (int index = handleChains.Length - 1; index >= 0; index--) {
+                    object[] chain = handleChains[index];
+                    try { InvokeNoOutput(definition.FixedDirectoryClose,
+                        new object[] { chain == null ? null : (object[])chain.Clone() }); }
+                    catch (Exception error) { if (first == null) first = error; }
+                    if (chain == null || chain.Length == 0) {
+                        if (first == null) first = new InvalidOperationException(
+                            "held-current-route-fixed-infrastructure-observation-stale");
+                        continue;
+                    }
+                    for (int handleIndex = chain.Length - 1; handleIndex >= 0; handleIndex--) {
+                        object handle = chain[handleIndex];
+                        try {
+                            if (!IsExactType(handle,"AiAgentDotfiles.SafeDirectoryHandle"))
+                                throw new InvalidOperationException(
+                                    "held-current-route-fixed-infrastructure-observation-stale");
+                            if (IsExactOpenDirectoryHandle(handle)) ((IDisposable)handle).Dispose();
+                            if (IsExactOpenDirectoryHandle(handle))
+                                throw new InvalidOperationException(
+                                    "held-current-route-fixed-infrastructure-observation-stale");
+                        }
+                        catch (Exception error) { if (first == null) first = error; }
+                    }
+                }
+                if (AllOwnedEnvelopeHandlesClosedExact(handleChains)) {
+                    try { SetPropertyExact(envelopeLease,"IsClosed",true); }
+                    catch (Exception error) { if (first == null) first = error; }
+                }
+                else if (first == null) {
+                    first = new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-stale");
+                }
+                return first;
+            }
+            internal void CloseObservationEnvelopeExact(
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation) {
+                CloseOwnedEnvelopeHandlesExact(
+                    observation.OuterFixedEnvelopeHandleChainsExact,
+                    observation.OuterFixedEnvelopeLeaseExact);
+            }
+            private bool EnvelopeLeaseMatchesOwnedHandlesExact(object envelopeLease,
+                object[][] handleChains) {
+                if (envelopeLease == null || handleChains == null || handleChains.Length == 0)
+                    return false;
+                try {
+                    object closed = ReadPropertyExact(envelopeLease,"IsClosed");
+                    if (!(closed is bool) || (bool)closed) return false;
+                    object[] rows = ToObjectArrayExact(ReadPropertyExact(envelopeLease,"DirectoryLeases"));
+                    if (rows.Length != handleChains.Length) return false;
+                    for (int index = 0; index < rows.Length; index++) {
+                        object[] displayed = ToObjectArrayExact(ReadPropertyExact(rows[index],"Handles"));
+                        object[] owned = handleChains[index];
+                        if (owned == null || owned.Length == 0 || displayed.Length != owned.Length ||
+                            !Object.ReferenceEquals(ReadPropertyExact(rows[index],"Held"),owned[owned.Length - 1]))
+                            return false;
+                        for (int handleIndex = 0; handleIndex < owned.Length; handleIndex++) {
+                            if (!Object.ReferenceEquals(displayed[handleIndex],owned[handleIndex]) ||
+                                !IsExactOpenDirectoryHandle(owned[handleIndex])) return false;
+                        }
+                    }
+                    return true;
+                }
+                catch { return false; }
+            }
+            private SealedCurrentRouteFixedInfrastructureEnvelopeTicket OpenOwnedEnvelopeExact(
+                BorrowedStateTicket borrowed, BorrowedStateTicket current,
+                object directoryTemplate, object fileTemplate) {
+                string[] names = new string[] { "PrivateRootBase", "BackupRoot", "ControlBase",
+                    "HomesRoot", "CanonicalRootsRoot", "LiveTransactionsRoot" };
+                List<object[]> ownedChains = new List<object[]>();
+                List<object> directoryRows = new List<object>();
+                PSObject envelopeLease = null;
+                bool ownershipRegistered = false;
+                Exception primary = null;
+                object pendingReceiver = null;
+                bool pendingChainRegistered = false;
+                try {
+                    foreach (string name in names) {
+                        string path = Path.GetFullPath(ReadStringPropertyExact(current.AuthorityContext,name));
+                        pendingReceiver = CreateOwnershipReceiverExact();
+                        pendingChainRegistered = false;
+                        InvokeNoOutput(definition.FixedDirectoryOpen,
+                            new object[] { path,pendingReceiver });
+                        object handlesResult = InvokeOwnershipReceiverExact(
+                            pendingReceiver,"GetDeliveredExact",new object[0]);
+                        object[] handles = ToObjectArrayExact(handlesResult);
+                        if (handles.Length == 0)
+                            throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                        ownedChains.Add((object[])handles.Clone());
+                        pendingChainRegistered = true;
+                        foreach (object handle in handles) {
+                            if (!IsExactOpenDirectoryHandle(handle))
+                                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                        }
+                        object held = handles[handles.Length - 1];
+                        PSObject row = new PSObject();
+                        row.Properties.Add(new PSNoteProperty("Name",name));
+                        row.Properties.Add(new PSNoteProperty("Path",path));
+                        row.Properties.Add(new PSNoteProperty("Identity",AcquiredDirectoryIdentityExact(held)));
+                        row.Properties.Add(new PSNoteProperty("Handles",(object[])handles.Clone()));
+                        row.Properties.Add(new PSNoteProperty("Held",held));
+                        directoryRows.Add(row);
+                        pendingReceiver = null;
+                        pendingChainRegistered = false;
+                    }
+                    OrderedDictionary contextProjection = new OrderedDictionary(StringComparer.Ordinal);
+                    contextProjection.Add("TokenSid",ReadStringPropertyExact(current.AuthorityContext,"TokenSid"));
+                    contextProjection.Add("LocalAppDataRoot",Path.GetFullPath(ReadStringPropertyExact(current.AuthorityContext,"LocalAppDataRoot")));
+                    contextProjection.Add("ControlBootstrapLockPath",Path.GetFullPath(ReadStringPropertyExact(current.AuthorityContext,"ControlBootstrapLockPath")));
+                    foreach (string name in names)
+                        contextProjection.Add(name,Path.GetFullPath(ReadStringPropertyExact(current.AuthorityContext,name)));
+                    contextProjection.Add("GlobalLiveLockPath",Path.GetFullPath(ReadStringPropertyExact(current.AuthorityContext,"GlobalLiveLockPath")));
+                    envelopeLease = new PSObject();
+                    envelopeLease.Properties.Add(new PSNoteProperty("ContextHash",SemanticHashExact(contextProjection)));
+                    envelopeLease.Properties.Add(new PSNoteProperty("DirectoryLeases",directoryRows.ToArray()));
+                    envelopeLease.Properties.Add(new PSNoteProperty("IsClosed",false));
+                    envelopeLease.Properties.Add(new PSNoteProperty("InitialProjection",null));
+                    envelopeLease.Properties.Add(new PSNoteProperty("InitialEnvelopeHash",null));
+                    object projection = InvokeSinglePowerShellObject(definition.FixedEnvelopeProjection,
+                        new object[] { current.AuthorityContext,directoryTemplate,fileTemplate,
+                            envelopeLease,current.GlobalLockHandle });
+                    string envelopeHash = ReadStringPropertyExact(projection,"EnvelopeHash");
+                    if (!String.Equals(envelopeHash,current.FixedEnvelopeHash,StringComparison.Ordinal))
+                        throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                    SetPropertyExact(envelopeLease,"InitialProjection",ReadPropertyExact(projection,"Projection"));
+                    SetPropertyExact(envelopeLease,"InitialEnvelopeHash",envelopeHash);
+                    object[][] exactChains = ownedChains.ToArray();
+                    if (!EnvelopeLeaseMatchesOwnedHandlesExact(envelopeLease,exactChains))
+                        throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                    SealedFixedEnvelopeOwnershipGuard.RegisterExact(
+                        definition.ProvenanceToken,envelopeLease,borrowed.Operation);
+                    ownershipRegistered = true;
+                    return new SealedCurrentRouteFixedInfrastructureEnvelopeTicket(
+                        definition.ProvenanceToken,runspaceId,definition.DefinitionDigest,
+                        borrowed,borrowed.Operation,envelopeLease,exactChains,current.AuthorityContext,
+                        current.GlobalLockHandle,current.GlobalLockEvidence,projection,
+                        current.AuthorityContextHash,current.FixedEnvelopeHash,current.LockSecurityHash);
+                }
+                catch (Exception error) {
+                    primary = error;
+                    if (pendingReceiver != null && !pendingChainRegistered) {
+                        try {
+                            object state = InvokeOwnershipReceiverExact(
+                                pendingReceiver,"GetStateExact",new object[0]);
+                            if (String.Equals(state as string,"DELIVERED",StringComparison.Ordinal)) {
+                                object pending = InvokeOwnershipReceiverExact(
+                                    pendingReceiver,"GetDeliveredExact",new object[0]);
+                                object[] pendingHandles = ToObjectArrayExact(pending);
+                                if (pendingHandles.Length != 0) ownedChains.Add(pendingHandles);
+                            }
+                        }
+                        catch (Exception receiverError) {
+                            try { primary.Data["SealedHeldCurrentRouteFixedInfrastructureObservationCleanupError"] =
+                                receiverError.Message; }
+                            catch { }
+                        }
+                    }
+                    if (ownedChains.Count != 0) {
+                        object closeLease = envelopeLease;
+                        if (closeLease == null) {
+                            closeLease = new PSObject();
+                            ((PSObject)closeLease).Properties.Add(new PSNoteProperty("IsClosed",false));
+                        }
+                        object[][] failedChains = ownedChains.ToArray();
+                        Exception cleanup = ForceCloseOwnedEnvelopeHandlesAfterOpenFailureExact(
+                            failedChains,closeLease);
+                        if (ownershipRegistered && AllOwnedEnvelopeHandlesClosedExact(failedChains)) {
+                            try { SealedFixedEnvelopeOwnershipGuard.ReleaseExact(
+                                definition.ProvenanceToken,envelopeLease); }
+                            catch (Exception releaseError) { if (cleanup == null) cleanup = releaseError; }
+                        }
+                        if (cleanup != null) {
+                            try { primary.Data["SealedHeldCurrentRouteFixedInfrastructureObservationCleanupError"] = cleanup.Message; }
+                            catch { }
+                        }
+                    }
+                    throw primary;
+                }
+            }
+
+            private BorrowedStateTicket RequireBorrowedTicketExact(object value) {
+                RequireCurrentExact();
+                BorrowedStateTicket ticket = value as BorrowedStateTicket;
+                if (ticket == null || !ticket.MatchesDefinitionExact(definition) ||
+                    !String.Equals(ticket.RunspaceId,runspaceId,StringComparison.Ordinal))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return ticket;
+            }
+            private SealedCurrentRouteFixedInfrastructureCaptureTicket RequireCaptureTicketExact(
+                object value, bool requireUnconsumed) {
+                RequireCurrentExact();
+                SealedCurrentRouteFixedInfrastructureCaptureTicket ticket =
+                    value as SealedCurrentRouteFixedInfrastructureCaptureTicket;
+                ObservationOpenOperation operation = ticket == null ? null : ticket.Operation as ObservationOpenOperation;
+                BorrowedStateTicket borrowed = ticket == null ? null : ticket.BorrowedTicket as BorrowedStateTicket;
+                if (ticket == null || !Object.ReferenceEquals(ticket.ProvenanceToken,definition.ProvenanceToken) ||
+                    !String.Equals(ticket.RunspaceId,runspaceId,StringComparison.Ordinal) ||
+                    !String.Equals(ticket.DefinitionDigest,definition.DefinitionDigest,StringComparison.Ordinal) ||
+                    operation == null || borrowed == null ||
+                    !Object.ReferenceEquals(operation,borrowed.Operation) ||
+                    !borrowed.MatchesDefinitionExact(definition) ||
+                    (requireUnconsumed && !operation.IsReadyExact()))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return ticket;
+            }
+            private SealedCurrentRouteFixedInfrastructureEnvelopeTicket RequireOwnedEnvelopeTicketExact(
+                object value, bool requireOpen) {
+                RequireCurrentExact();
+                SealedCurrentRouteFixedInfrastructureEnvelopeTicket ticket =
+                    value as SealedCurrentRouteFixedInfrastructureEnvelopeTicket;
+                ObservationOpenOperation operation = ticket == null ? null : ticket.Operation as ObservationOpenOperation;
+                BorrowedStateTicket borrowed = ticket == null ? null : ticket.BorrowedTicket as BorrowedStateTicket;
+                if (ticket == null || !Object.ReferenceEquals(ticket.ProvenanceToken,definition.ProvenanceToken) ||
+                    !String.Equals(ticket.RunspaceId,runspaceId,StringComparison.Ordinal) ||
+                    !String.Equals(ticket.DefinitionDigest,definition.DefinitionDigest,StringComparison.Ordinal) ||
+                    operation == null || borrowed == null ||
+                    !Object.ReferenceEquals(operation,borrowed.Operation) ||
+                    !borrowed.MatchesDefinitionExact(definition) ||
+                    (ticket.IsOpenExact() && !SealedFixedEnvelopeOwnershipGuard.MatchesExact(
+                        definition.ProvenanceToken,ticket.EnvelopeLease,operation)) ||
+                    (requireOpen && !ticket.IsOpenExact()))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return ticket;
+            }
+            private string SemanticHashExact(object value) {
+                RequireCurrentExact();
+                object result = InvokeSingle(definition.SemanticJsonHash,new object[] { value });
+                string hash = result as string;
+                if (!IsLowerHex64(hash))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return hash;
+            }
+            private object SecurityTemplateExact(object authorityContext, string resourceKind) {
+                if (authorityContext == null ||
+                    !(String.Equals(resourceKind,"Directory",StringComparison.Ordinal) ||
+                      String.Equals(resourceKind,"File",StringComparison.Ordinal)))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                string tokenSid = ReadStringPropertyExact(authorityContext,"TokenSid");
+                return InvokeSingle(definition.SecurityTemplate,new object[] { tokenSid,resourceKind });
+            }
+            private bool GlobalEvidenceMatchesExact(object left, object right) {
+                object result = InvokeExactStatic("AiAgentDotfiles.SealedRegistryGlobalLockEvidence",
+                    "MatchesExact",new object[] { left,right });
+                return result is bool && (bool)result;
+            }
+            private BorrowedStateTicket ReadBorrowedStateExact(ObservationOpenOperation operation,
+                object routeCapture, object globalLockEvidence) {
+                if (operation == null || !operation.IsReadyExact())
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                RequireCurrentRouteFacadeExact(routeCapture);
+                const string routeType = "AiAgentDotfiles.SealedRegistryCurrentRouteCapture";
+                const string liveReceiptType = "AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt";
+                const string bindingType = "AiAgentDotfiles.SafeLockOrderBinding";
+                const string evidenceType = "AiAgentDotfiles.SealedRegistryGlobalLockEvidence";
+
+                object liveSetLease = InvokeExactStatic(routeType,"GetLiveSetLease",new object[] { routeCapture });
+                object liveProjection = InvokeExactStatic(routeType,"GetLiveProjection",new object[] { routeCapture });
+                object routeCanonical = InvokeExactStatic(routeType,"GetCanonicalWitness",new object[] { routeCapture });
+                string routeRootHash = InvokeExactStatic(routeType,"GetEntryCurrentRouteRootSetHash",
+                    new object[] { routeCapture }) as string;
+                string heldTargetSetHash = InvokeExactStatic(routeType,"GetHeldTargetSetHash",
+                    new object[] { routeCapture }) as string;
+                object liveReceipt = InvokeExactStatic(liveReceiptType,"GetForWrapperExact",
+                    new object[] { liveSetLease });
+                object liveOpen = InvokeExactStatic(liveReceiptType,"GetIsOpenExact",
+                    new object[] { liveReceipt });
+                if (!IsExactType(liveReceipt,liveReceiptType) || !(liveOpen is bool) || !(bool)liveOpen ||
+                    !Object.ReferenceEquals(InvokeExactStatic(liveReceiptType,"GetWrapperExact",
+                        new object[] { liveReceipt }),liveSetLease))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                object authorityContext = InvokeExactStatic(liveReceiptType,"GetAuthorityContextExact",
+                    new object[] { liveReceipt });
+                object canonicalWitness = InvokeExactStatic(liveReceiptType,"GetCanonicalWitnessExact",
+                    new object[] { liveReceipt });
+                object globalLockHandle = InvokeExactStatic(liveReceiptType,"GetGlobalLockHandleExact",
+                    new object[] { liveReceipt });
+                object receiptProjection = InvokeExactStatic(liveReceiptType,"GetProjectionExact",
+                    new object[] { liveReceipt });
+                if (authorityContext == null || canonicalWitness == null || globalLockHandle == null ||
+                    !Object.ReferenceEquals(routeCanonical,canonicalWitness) ||
+                    !Object.ReferenceEquals(liveProjection,receiptProjection) ||
+                    !String.Equals(heldTargetSetHash,ReadStringPropertyExact(receiptProjection,"HeldTargetSetHash"),
+                        StringComparison.Ordinal) || !IsLowerHex64(routeRootHash) || !IsLowerHex64(heldTargetSetHash))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+
+                object binding = InvokeExactStatic(bindingType,"GetForWrapperExact",
+                    new object[] { globalLockHandle });
+                if (!IsExactType(binding,bindingType))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                object exactWrapper = InvokeExactStatic(bindingType,"GetCurrentWrapperExact",new object[] { binding });
+                object exactForWrapper = InvokeExactStatic(bindingType,"IsExactForWrapper",
+                    new object[] { binding,globalLockHandle });
+                object prerequisite = InvokeExactStatic(bindingType,"GetPrerequisiteExact",new object[] { binding });
+                object current = InvokeExactStatic(bindingType,"GetCurrentExact",new object[] { binding });
+                object currentParent = InvokeExactStatic(bindingType,"GetCurrentParentExact",new object[] { binding });
+                object prerequisiteWitness = InvokeExactStatic(bindingType,"GetPrerequisiteWitnessExact",
+                    new object[] { binding });
+                object bindingAuthority = InvokeExactStatic(bindingType,"GetAuthorityContextExact",
+                    new object[] { binding });
+                string bindingHash = InvokeExactStatic(bindingType,"GetBindingHashExact",
+                    new object[] { binding }) as string;
+                object bindingMatches = InvokeExactStatic(bindingType,"MatchesExact",new object[] {
+                    binding,prerequisite,current,currentParent,prerequisiteWitness,bindingAuthority,
+                    globalLockHandle,bindingHash
+                });
+                if (!Object.ReferenceEquals(exactWrapper,globalLockHandle) ||
+                    !(exactForWrapper is bool) || !(bool)exactForWrapper ||
+                    prerequisite == null || current == null || currentParent == null ||
+                    prerequisiteWitness == null || bindingAuthority == null ||
+                    !(bindingMatches is bool) || !(bool)bindingMatches || !IsLowerHex64(bindingHash))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+
+                string authorityHash = SemanticHashExact(authorityContext);
+                string fixedEnvelopeHash = null;
+                string lockSecurityHash = null;
+                if (globalLockEvidence != null) {
+                    if (!IsExactType(globalLockEvidence,evidenceType))
+                        throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                    object evidenceWrapper = InvokeExactStatic(evidenceType,"GetWrapperExact",
+                        new object[] { globalLockEvidence });
+                    object evidenceHeld = InvokeExactStatic(evidenceType,"GetHeldLockExact",
+                        new object[] { globalLockEvidence });
+                    object evidenceParent = InvokeExactStatic(evidenceType,"GetFinalParentExact",
+                        new object[] { globalLockEvidence });
+                    object[] evidenceParents = InvokeExactStatic(evidenceType,"GetParentHandlesExact",
+                        new object[] { globalLockEvidence }) as object[];
+                    string evidenceAuthorityHash = InvokeExactStatic(evidenceType,"GetAuthorityContextHashExact",
+                        new object[] { globalLockEvidence }) as string;
+                    fixedEnvelopeHash = InvokeExactStatic(evidenceType,"GetFixedEnvelopeHashExact",
+                        new object[] { globalLockEvidence }) as string;
+                    lockSecurityHash = InvokeExactStatic(evidenceType,"GetLockSecurityHashExact",
+                        new object[] { globalLockEvidence }) as string;
+                    if (!Object.ReferenceEquals(evidenceWrapper,globalLockHandle) ||
+                        !Object.ReferenceEquals(evidenceHeld,current) ||
+                        !Object.ReferenceEquals(evidenceParent,currentParent) || evidenceParents == null ||
+                        evidenceParents.Length == 0 ||
+                        !Object.ReferenceEquals(evidenceParents[evidenceParents.Length - 1],currentParent) ||
+                        !String.Equals(evidenceAuthorityHash,authorityHash,StringComparison.Ordinal) ||
+                        !IsLowerHex64(fixedEnvelopeHash) || !IsLowerHex64(lockSecurityHash))
+                        throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                }
+                return new BorrowedStateTicket(operation,definition.ProvenanceToken,runspaceId,
+                    definition.DefinitionDigest,routeCapture,liveSetLease,liveReceipt,liveProjection,
+                    authorityContext,canonicalWitness,globalLockHandle,binding,prerequisite,current,
+                    currentParent,prerequisiteWitness,bindingAuthority,globalLockEvidence,routeRootHash,
+                    heldTargetSetHash,bindingHash,authorityHash,fixedEnvelopeHash,lockSecurityHash);
+            }
+
+            public object AcquireBorrowedStateExact(object routeCapture) {
+                RequireCurrentExact();
+                ObservationOpenOperation operation = new ObservationOpenOperation();
+                BorrowedStateTicket entry = ReadBorrowedStateExact(operation,routeCapture,null);
+                InvokeNoOutput(definition.RouteCaptureStable,new object[] { routeCapture });
+                object canonicalResult = InvokeSingle(definition.CanonicalGlobalBinding,new object[] {
+                    entry.AuthorityContext,entry.GlobalLockHandle,entry.CanonicalWitness
+                });
+                if (!(canonicalResult is bool) || !(bool)canonicalResult)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                object globalEvidence = InvokeSingle(definition.GlobalLockWitness,new object[] {
+                    entry.AuthorityContext,entry.GlobalLockHandle
+                });
+                BorrowedStateTicket current = ReadBorrowedStateExact(operation,routeCapture,globalEvidence);
+                if (!entry.MatchesBorrowedSourcesExact(current))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return current;
+            }
+            private BorrowedStateTicket RefreshBorrowedStateExact(BorrowedStateTicket borrowed) {
+                if (borrowed == null || !borrowed.MatchesDefinitionExact(definition) ||
+                    !String.Equals(borrowed.RunspaceId,runspaceId,StringComparison.Ordinal))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                BorrowedStateTicket entry = ReadBorrowedStateExact(
+                    borrowed.Operation,borrowed.RouteCapture,null);
+                InvokeNoOutput(definition.RouteCaptureStable,new object[] { borrowed.RouteCapture });
+                object canonicalResult = InvokeSingle(definition.CanonicalGlobalBinding,new object[] {
+                    entry.AuthorityContext,entry.GlobalLockHandle,entry.CanonicalWitness
+                });
+                if (!(canonicalResult is bool) || !(bool)canonicalResult)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                object globalEvidence = InvokeSingle(definition.GlobalLockWitness,new object[] {
+                    entry.AuthorityContext,entry.GlobalLockHandle
+                });
+                BorrowedStateTicket current = ReadBorrowedStateExact(
+                    borrowed.Operation,borrowed.RouteCapture,globalEvidence);
+                if (!borrowed.MatchesBorrowedSourcesExact(current) ||
+                    !GlobalEvidenceMatchesExact(borrowed.GlobalLockEvidence,current.GlobalLockEvidence))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return current;
+            }
+
+            private void AssertFixedEvidenceCurrentExact(BorrowedStateTicket borrowed,
+                SealedCurrentRouteFixedInfrastructureCaptureTicket capture) {
+                if (borrowed == null || capture == null || capture.FixedEvidence == null ||
+                    !Object.ReferenceEquals(capture.AuthorityContext,borrowed.AuthorityContext) ||
+                    !Object.ReferenceEquals(capture.GlobalLockHandle,borrowed.GlobalLockHandle) ||
+                    !Object.ReferenceEquals(capture.CanonicalWitness,borrowed.CanonicalWitness) ||
+                    !IsLowerHex64(capture.FixedProjectionHash))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                object result = InvokeSingle(definition.FixedEvidenceCurrent,new object[] {
+                    capture.FixedEvidence,borrowed.AuthorityContext,borrowed.AuthorityContextHash,
+                    borrowed.FixedEnvelopeHash,borrowed.LockSecurityHash,capture.FixedProjectionHash
+                });
+                if (!(result is bool) || !(bool)result)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            }
+            private string ObservationProjectionHashExact(BorrowedStateTicket borrowed,
+                SealedCurrentRouteFixedInfrastructureCaptureTicket capture) {
+                AssertFixedEvidenceCurrentExact(borrowed,capture);
+                OrderedDictionary projection = new OrderedDictionary(StringComparer.Ordinal);
+                projection.Add("IssuerRunspaceId",runspaceId);
+                projection.Add("IssuerDefinitionDigest",definition.DefinitionDigest);
+                projection.Add("AuthorityContextHash",borrowed.AuthorityContextHash);
+                projection.Add("CurrentRouteRootSetHash",borrowed.CurrentRouteRootSetHash);
+                projection.Add("HeldTargetSetHash",borrowed.HeldTargetSetHash);
+                projection.Add("GlobalBindingHash",borrowed.GlobalBindingHash);
+                projection.Add("FixedEnvelopeHash",borrowed.FixedEnvelopeHash);
+                projection.Add("LockSecurityHash",borrowed.LockSecurityHash);
+                projection.Add("FixedCapabilityProjectionHash",capture.FixedProjectionHash);
+                projection.Add("Coverage","HELD_CURRENT_ROUTE_FIXED_INFRASTRUCTURE_PROBED");
+                projection.Add("Scope","RUNTIME_ONLY");
+                projection.Add("MutationAuthorization","NONE");
+                return SemanticHashExact(projection);
+            }
+            private bool ObservationMatchesBorrowedExact(
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation,
+                BorrowedStateTicket borrowed) {
+                if (observation == null || borrowed == null) return false;
+                object storedEvidence =
+                    SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetEntryGlobalLockEvidenceExact(observation);
+                return Object.ReferenceEquals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetCurrentRouteCaptureExact(observation),
+                        borrowed.RouteCapture) &&
+                    Object.ReferenceEquals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetLiveSetLeaseExact(observation),
+                        borrowed.LiveSetLease) &&
+                    Object.ReferenceEquals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetLiveSetReceiptExact(observation),
+                        borrowed.LiveSetReceipt) &&
+                    Object.ReferenceEquals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetLiveProjectionExact(observation),
+                        borrowed.LiveProjection) &&
+                    Object.ReferenceEquals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetAuthorityContextExact(observation),
+                        borrowed.AuthorityContext) &&
+                    Object.ReferenceEquals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetCanonicalWitnessExact(observation),
+                        borrowed.CanonicalWitness) &&
+                    Object.ReferenceEquals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetGlobalLockHandleExact(observation),
+                        borrowed.GlobalLockHandle) &&
+                    Object.ReferenceEquals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetGlobalBindingExact(observation),
+                        borrowed.GlobalBinding) &&
+                    GlobalEvidenceMatchesExact(storedEvidence,borrowed.GlobalLockEvidence) &&
+                    String.Equals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetAuthorityContextHashExact(observation),
+                        borrowed.AuthorityContextHash,StringComparison.Ordinal) &&
+                    String.Equals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetFixedEnvelopeHashExact(observation),
+                        borrowed.FixedEnvelopeHash,StringComparison.Ordinal) &&
+                    String.Equals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetLockSecurityHashExact(observation),
+                        borrowed.LockSecurityHash,StringComparison.Ordinal) &&
+                    String.Equals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetCurrentRouteRootSetHashExact(observation),
+                        borrowed.CurrentRouteRootSetHash,StringComparison.Ordinal) &&
+                    String.Equals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetHeldTargetSetHashExact(observation),
+                        borrowed.HeldTargetSetHash,StringComparison.Ordinal) &&
+                    String.Equals(
+                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetGlobalBindingHashExact(observation),
+                        borrowed.GlobalBindingHash,StringComparison.Ordinal);
+            }
+
+            public object OpenEnvelopeExact(object borrowedValue) {
+                BorrowedStateTicket borrowed = RequireBorrowedTicketExact(borrowedValue);
+                BorrowedStateTicket current = RefreshBorrowedStateExact(borrowed);
+                object directoryTemplate = SecurityTemplateExact(current.AuthorityContext,"Directory");
+                object fileTemplate = SecurityTemplateExact(current.AuthorityContext,"File");
+                return OpenOwnedEnvelopeExact(borrowed,current,directoryTemplate,fileTemplate);
+            }
+            public object CaptureExact(object borrowedValue, object envelopeValue,
+                object[] capabilityProbeBindings) {
+                BorrowedStateTicket borrowed = RequireBorrowedTicketExact(borrowedValue);
+                SealedCurrentRouteFixedInfrastructureEnvelopeTicket envelope =
+                    RequireOwnedEnvelopeTicketExact(envelopeValue,true);
+                if (capabilityProbeBindings == null)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                if (!Object.ReferenceEquals(envelope.BorrowedTicket,borrowed) ||
+                    !Object.ReferenceEquals(envelope.Operation,borrowed.Operation))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                BorrowedStateTicket current = RefreshBorrowedStateExact(borrowed);
+                AssertEnvelopeTicketCurrentExact(borrowed,envelope);
+                object directoryTemplate = SecurityTemplateExact(current.AuthorityContext,"Directory");
+                object fileTemplate = SecurityTemplateExact(current.AuthorityContext,"File");
+                object evidence = InvokeSingle(definition.FixedCapture,new object[] {
+                    current.AuthorityContext,current.GlobalLockHandle,current.CanonicalWitness,
+                    capabilityProbeBindings,envelope.EnvelopeLease,directoryTemplate,fileTemplate,
+                    current.GlobalLockEvidence,definition.FixedEnvelopeProjection,
+                    definition.GlobalLockWitness,definition.CanonicalGlobalBinding,
+                    definition.SemanticJsonHash,definition.SecurityTemplate
+                });
+                object projectionHashValue = InvokeExactStatic(
+                    "AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence","GetProjectionHashExact",
+                    new object[] { evidence });
+                string projectionHash = projectionHashValue as string;
+                SealedCurrentRouteFixedInfrastructureCaptureTicket ticket =
+                    new SealedCurrentRouteFixedInfrastructureCaptureTicket(definition.ProvenanceToken,
+                        runspaceId,definition.DefinitionDigest,borrowed,borrowed.Operation,
+                        current.AuthorityContext,
+                    current.GlobalLockHandle,current.CanonicalWitness,evidence,projectionHash);
+                AssertEnvelopeTicketCurrentExact(borrowed,envelope);
+                AssertFixedEvidenceCurrentExact(current,ticket);
+                return ticket;
+            }
+            private void AssertEnvelopeTicketCurrentExact(BorrowedStateTicket borrowed,
+                SealedCurrentRouteFixedInfrastructureEnvelopeTicket envelope) {
+                if (borrowed == null || envelope == null ||
+                    !Object.ReferenceEquals(envelope.BorrowedTicket,borrowed) ||
+                    !Object.ReferenceEquals(envelope.Operation,borrowed.Operation) ||
+                    !Object.ReferenceEquals(envelope.AuthorityContext,borrowed.AuthorityContext) ||
+                    !Object.ReferenceEquals(envelope.GlobalLockHandle,borrowed.GlobalLockHandle) ||
+                    !GlobalEvidenceMatchesExact(envelope.EntryGlobalLockEvidence,borrowed.GlobalLockEvidence) ||
+                    !String.Equals(envelope.AuthorityContextHash,borrowed.AuthorityContextHash,StringComparison.Ordinal) ||
+                    !String.Equals(envelope.FixedEnvelopeHash,borrowed.FixedEnvelopeHash,StringComparison.Ordinal) ||
+                    !String.Equals(envelope.LockSecurityHash,borrowed.LockSecurityHash,StringComparison.Ordinal) ||
+                    !EnvelopeLeaseMatchesOwnedHandlesExact(envelope.EnvelopeLease,envelope.OwnedHandleChains))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                BorrowedStateTicket current = RefreshBorrowedStateExact(borrowed);
+                object directoryTemplate = SecurityTemplateExact(current.AuthorityContext,"Directory");
+                object fileTemplate = SecurityTemplateExact(current.AuthorityContext,"File");
+                object projection = InvokeSinglePowerShellObject(definition.FixedEnvelopeProjection,new object[] {
+                    current.AuthorityContext,directoryTemplate,fileTemplate,envelope.EnvelopeLease,
+                    current.GlobalLockHandle
+                });
+                string entryHash = ReadStringPropertyExact(envelope.EntryEnvelopeProjection,"EnvelopeHash");
+                string currentHash = ReadStringPropertyExact(projection,"EnvelopeHash");
+                if (!String.Equals(entryHash,current.FixedEnvelopeHash,StringComparison.Ordinal) ||
+                    !String.Equals(currentHash,current.FixedEnvelopeHash,StringComparison.Ordinal))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            }
+            public string GetObservationProjectionHashExact(object borrowedValue, object captureValue,
+                object envelopeValue) {
+                BorrowedStateTicket borrowed = RequireBorrowedTicketExact(borrowedValue);
+                SealedCurrentRouteFixedInfrastructureCaptureTicket capture =
+                    RequireCaptureTicketExact(captureValue,true);
+                SealedCurrentRouteFixedInfrastructureEnvelopeTicket envelope =
+                    RequireOwnedEnvelopeTicketExact(envelopeValue,true);
+                if (!Object.ReferenceEquals(capture.BorrowedTicket,borrowed) ||
+                    !Object.ReferenceEquals(capture.Operation,borrowed.Operation))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                AssertEnvelopeTicketCurrentExact(borrowed,envelope);
+                return ObservationProjectionHashExact(borrowed,capture);
+            }
+            public SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation IssueExact(
+                object borrowedValue, object captureValue, object envelopeValue,
+                string observationProjectionHash) {
+                BorrowedStateTicket borrowed = RequireBorrowedTicketExact(borrowedValue);
+                SealedCurrentRouteFixedInfrastructureCaptureTicket capture =
+                    RequireCaptureTicketExact(captureValue,true);
+                SealedCurrentRouteFixedInfrastructureEnvelopeTicket envelope =
+                    RequireOwnedEnvelopeTicketExact(envelopeValue,true);
+                if (!Object.ReferenceEquals(capture.BorrowedTicket,borrowed) ||
+                    !Object.ReferenceEquals(envelope.BorrowedTicket,borrowed) ||
+                    !Object.ReferenceEquals(capture.Operation,borrowed.Operation) ||
+                    !Object.ReferenceEquals(envelope.Operation,borrowed.Operation) ||
+                    !Object.ReferenceEquals(capture.AuthorityContext,borrowed.AuthorityContext) ||
+                    !Object.ReferenceEquals(capture.GlobalLockHandle,borrowed.GlobalLockHandle) ||
+                    !Object.ReferenceEquals(capture.CanonicalWitness,borrowed.CanonicalWitness) ||
+                    !IsLowerHex64(observationProjectionHash))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                BorrowedStateTicket current = RefreshBorrowedStateExact(borrowed);
+                if (!borrowed.MatchesBorrowedExact(current) ||
+                    !GlobalEvidenceMatchesExact(borrowed.GlobalLockEvidence,current.GlobalLockEvidence))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                AssertEnvelopeTicketCurrentExact(borrowed,envelope);
+                string expectedProjectionHash = ObservationProjectionHashExact(borrowed,capture);
+                if (!String.Equals(expectedProjectionHash,observationProjectionHash,StringComparison.Ordinal))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation =
+                    new SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation(
+                    definition.ProvenanceToken,runspaceId,definition.DefinitionDigest,
+                    borrowed.RouteCapture,borrowed.LiveSetLease,borrowed.LiveSetReceipt,
+                    borrowed.LiveProjection,borrowed.AuthorityContext,borrowed.CanonicalWitness,
+                    borrowed.GlobalLockHandle,borrowed.GlobalBinding,borrowed.GlobalLockEvidence,
+                    envelope.EnvelopeLease,envelope.OwnedHandleChains,envelope.Operation,
+                    capture.FixedEvidence,borrowed.AuthorityContextHash,
+                    borrowed.FixedEnvelopeHash,borrowed.LockSecurityHash,
+                    borrowed.CurrentRouteRootSetHash,borrowed.HeldTargetSetHash,
+                    borrowed.GlobalBindingHash,capture.FixedProjectionHash,observationProjectionHash);
+                observation.BindIssuanceReceiptExact(definition.ProvenanceToken);
+                if (!borrowed.Operation.CommitIssueExact()) {
+                    observation.RemoveIssuanceReceiptExact(definition.ProvenanceToken);
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                }
+                return observation;
+            }
+            public bool CloseEnvelopeTicketExact(object value) {
+                SealedCurrentRouteFixedInfrastructureEnvelopeTicket ticket =
+                    RequireOwnedEnvelopeTicketExact(value,false);
+                ObservationOpenOperation operation = ticket.Operation as ObservationOpenOperation;
+                if (operation == null || !operation.IsReadyExact())
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                int observed = ticket.BeginCloseExact();
+                if (observed == 2) return false;
+                if (observed == 1)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-close-active");
+                if (observed != 0)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                try {
+                    CloseOwnedEnvelopeHandlesExact(ticket.OwnedHandleChains,ticket.EnvelopeLease);
+                    SealedFixedEnvelopeOwnershipGuard.ReleaseExact(
+                        definition.ProvenanceToken,ticket.EnvelopeLease);
+                }
+                catch {
+                    ticket.RestoreOpenFromCloseExact();
+                    throw;
+                }
+                ticket.CompleteCloseExact();
+                return true;
+            }
+            public bool CloseEnvelopeTicketAfterOpenFailureExact(object value) {
+                SealedCurrentRouteFixedInfrastructureEnvelopeTicket ticket =
+                    RequireOwnedEnvelopeTicketExact(value,true);
+                ObservationOpenOperation operation = ticket.Operation as ObservationOpenOperation;
+                if (operation == null || !operation.IsReadyExact())
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                int observed = ticket.BeginCloseExact();
+                if (observed == 2) return false;
+                if (observed == 1)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-close-active");
+                if (observed != 0)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                Exception cleanup = ForceCloseOwnedEnvelopeHandlesAfterOpenFailureExact(
+                    ticket.OwnedHandleChains,ticket.EnvelopeLease);
+                if (!AllOwnedEnvelopeHandlesClosedExact(ticket.OwnedHandleChains)) {
+                    ticket.RestoreOpenFromCloseExact();
+                    throw cleanup ?? new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-stale");
+                }
+                try {
+                    SealedFixedEnvelopeOwnershipGuard.ReleaseExact(
+                        definition.ProvenanceToken,ticket.EnvelopeLease);
+                }
+                catch {
+                    ticket.RestoreOpenFromCloseExact();
+                    throw;
+                }
+                ticket.CompleteCloseExact();
+                if (cleanup != null) throw cleanup;
+                return true;
+            }
+            public bool CloseObservationExact(object value) {
+                RequireCurrentExact();
+                return SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer.CloseObservationExact(value);
+            }
+            public bool CloseObservationAfterOpenFailureExact(object value) {
+                RequireCurrentExact();
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation =
+                    RequireObservation(value,true);
+                int observed = observation.BeginCloseExact();
+                if (observed == 2) return false;
+                if (observed == 1 || observed == 3)
+                    throw new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-close-active");
+                if (observed != 0)
+                    throw new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-stale");
+                if (!SealedFixedEnvelopeOwnershipGuard.MatchesExact(
+                    definition.ProvenanceToken,observation.OuterFixedEnvelopeLeaseExact,
+                    observation.OuterFixedEnvelopeOwnerExact)) {
+                    observation.RestoreOpenExact();
+                    throw new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-stale");
+                }
+                Exception cleanup = ForceCloseOwnedEnvelopeHandlesAfterOpenFailureExact(
+                    observation.OuterFixedEnvelopeHandleChainsExact,
+                    observation.OuterFixedEnvelopeLeaseExact);
+                if (!AllOwnedEnvelopeHandlesClosedExact(
+                    observation.OuterFixedEnvelopeHandleChainsExact)) {
+                    observation.RestoreOpenExact();
+                    throw cleanup ?? new InvalidOperationException(
+                        "held-current-route-fixed-infrastructure-observation-stale");
+                }
+                try {
+                    SealedFixedEnvelopeOwnershipGuard.ReleaseExact(
+                        definition.ProvenanceToken,observation.OuterFixedEnvelopeLeaseExact);
+                }
+                catch {
+                    observation.RestoreOpenExact();
+                    throw;
+                }
+                observation.CompleteCloseExact();
+                if (cleanup != null) throw cleanup;
+                return true;
+            }
+            public bool AssertPinnedObservationExact(object value) {
+                RequireCurrentExact();
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation =
+                    RequireObservation(value,true);
+                if (!SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetIsOpenExact(observation))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                if (!SealedFixedEnvelopeOwnershipGuard.MatchesExact(
+                    definition.ProvenanceToken,observation.OuterFixedEnvelopeLeaseExact,
+                    observation.OuterFixedEnvelopeOwnerExact))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                object route = SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.
+                    GetCurrentRouteCaptureExact(observation);
+                BorrowedStateTicket current = (BorrowedStateTicket)AcquireBorrowedStateExact(route);
+                if (!ObservationMatchesBorrowedExact(observation,current))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                object fixedEvidence = SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.
+                    GetFixedEvidenceExact(observation);
+                string fixedProjectionHash = SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.
+                    GetFixedCapabilityProjectionHashExact(observation);
+                SealedCurrentRouteFixedInfrastructureCaptureTicket capture =
+                    new SealedCurrentRouteFixedInfrastructureCaptureTicket(definition.ProvenanceToken,
+                        runspaceId,definition.DefinitionDigest,current,current.Operation,
+                        current.AuthorityContext,current.GlobalLockHandle,current.CanonicalWitness,
+                        fixedEvidence,fixedProjectionHash);
+                AssertFixedEvidenceCurrentExact(current,capture);
+                object directoryTemplate = SecurityTemplateExact(current.AuthorityContext,"Directory");
+                object fileTemplate = SecurityTemplateExact(current.AuthorityContext,"File");
+                object envelopeProjection = InvokeSinglePowerShellObject(
+                    definition.FixedEnvelopeProjection,new object[] { current.AuthorityContext,
+                    directoryTemplate,fileTemplate,observation.OuterFixedEnvelopeLeaseExact,
+                    current.GlobalLockHandle });
+                if (!String.Equals(ReadStringPropertyExact(envelopeProjection,"EnvelopeHash"),
+                    current.FixedEnvelopeHash,StringComparison.Ordinal))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                string expectedProjectionHash = ObservationProjectionHashExact(current,capture);
+                if (!String.Equals(expectedProjectionHash,
+                    SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.
+                        GetObservationProjectionHashExact(observation),StringComparison.Ordinal))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                BorrowedStateTicket exit = (BorrowedStateTicket)AcquireBorrowedStateExact(route);
+                if (!current.MatchesBorrowedSourcesExact(exit) ||
+                    !GlobalEvidenceMatchesExact(current.GlobalLockEvidence,exit.GlobalLockEvidence) ||
+                    !ObservationMatchesBorrowedExact(observation,exit))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return true;
+            }
+        }
+
+        private static string GetCurrentRunspaceIdExact() { return CurrentRunspaceId(); }
+        public static void InitializeObservationExact(ScriptBlock openCore, ScriptBlock assertCore,
+            ScriptBlock fixedCapture, ScriptBlock fixedEnvelopeOpen,
+            ScriptBlock fixedEnvelopeProjection, ScriptBlock fixedEnvelopeClose,
+            ScriptBlock fixedDirectoryOpen, ScriptBlock fixedDirectoryClose,
+            ScriptBlock routeCaptureStable, ScriptBlock canonicalGlobalBinding,
+            ScriptBlock globalLockWitness, ScriptBlock fixedEvidenceCurrent,
+            ScriptBlock semanticJsonHash, ScriptBlock securityTemplate, string runspaceId) {
+            string normalized = NormalizeRunspaceId(runspaceId);
+            if (!String.Equals(CurrentRunspaceId(),normalized,StringComparison.Ordinal) ||
+                openCore == null || assertCore == null || fixedCapture == null ||
+                fixedEnvelopeOpen == null || fixedEnvelopeProjection == null ||
+                fixedEnvelopeClose == null || fixedDirectoryOpen == null ||
+                fixedDirectoryClose == null || routeCaptureStable == null ||
+                canonicalGlobalBinding == null || globalLockWitness == null ||
+                fixedEvidenceCurrent == null || semanticJsonHash == null ||
+                securityTemplate == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            string openCoreText = ExactText(openCore);
+            string assertCoreText = ExactText(assertCore);
+            string fixedCaptureText = ExactText(fixedCapture);
+            string fixedEnvelopeOpenText = ExactText(fixedEnvelopeOpen);
+            string fixedEnvelopeProjectionText = ExactText(fixedEnvelopeProjection);
+            string fixedEnvelopeCloseText = ExactText(fixedEnvelopeClose);
+            string fixedDirectoryOpenText = ExactText(fixedDirectoryOpen);
+            string fixedDirectoryCloseText = ExactText(fixedDirectoryClose);
+            string routeCaptureStableText = ExactText(routeCaptureStable);
+            string canonicalGlobalBindingText = ExactText(canonicalGlobalBinding);
+            string globalLockWitnessText = ExactText(globalLockWitness);
+            string fixedEvidenceCurrentText = ExactText(fixedEvidenceCurrent);
+            string semanticJsonHashText = ExactText(semanticJsonHash);
+            string securityTemplateText = ExactText(securityTemplate);
+            if (String.IsNullOrEmpty(openCoreText) || String.IsNullOrEmpty(assertCoreText) ||
+                String.IsNullOrEmpty(fixedCaptureText) || String.IsNullOrEmpty(fixedEnvelopeOpenText) ||
+                String.IsNullOrEmpty(fixedEnvelopeProjectionText) || String.IsNullOrEmpty(fixedEnvelopeCloseText) ||
+                String.IsNullOrEmpty(fixedDirectoryOpenText) || String.IsNullOrEmpty(fixedDirectoryCloseText) ||
+                String.IsNullOrEmpty(routeCaptureStableText) || String.IsNullOrEmpty(canonicalGlobalBindingText) ||
+                String.IsNullOrEmpty(globalLockWitnessText) || String.IsNullOrEmpty(fixedEvidenceCurrentText) ||
+                String.IsNullOrEmpty(semanticJsonHashText) || String.IsNullOrEmpty(securityTemplateText))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            string digest = Sha256("open-core\0" + openCoreText +
+                "\0assert-core\0" + assertCoreText +
+                "\0fixed-capture\0" + fixedCaptureText +
+                "\0fixed-envelope-open\0" + fixedEnvelopeOpenText +
+                "\0fixed-envelope-projection\0" + fixedEnvelopeProjectionText +
+                "\0fixed-envelope-close\0" + fixedEnvelopeCloseText +
+                "\0fixed-directory-open\0" + fixedDirectoryOpenText +
+                "\0fixed-directory-close\0" + fixedDirectoryCloseText +
+                "\0route-capture-stable\0" + routeCaptureStableText +
+                "\0canonical-global-binding\0" + canonicalGlobalBindingText +
+                "\0global-lock-witness\0" + globalLockWitnessText +
+                "\0fixed-evidence-current\0" + fixedEvidenceCurrentText +
+                "\0semantic-json-hash\0" + semanticJsonHashText +
+                "\0security-template\0" + securityTemplateText);
+            lock (Gate) {
+                SealedCurrentRouteFixedInfrastructureIssuerDefinition existing;
+                if (Definitions.TryGetValue(normalized,out existing)) {
+                    if (!MatchesDefinition(openCore,existing.OpenCore,existing.OpenCoreText) ||
+                        !MatchesDefinition(assertCore,existing.AssertCore,existing.AssertCoreText) ||
+                        !MatchesDefinition(fixedCapture,existing.FixedCapture,existing.FixedCaptureText) ||
+                        !MatchesDefinition(fixedEnvelopeOpen,existing.FixedEnvelopeOpen,existing.FixedEnvelopeOpenText) ||
+                        !MatchesDefinition(fixedEnvelopeProjection,existing.FixedEnvelopeProjection,existing.FixedEnvelopeProjectionText) ||
+                        !MatchesDefinition(fixedEnvelopeClose,existing.FixedEnvelopeClose,existing.FixedEnvelopeCloseText) ||
+                        !MatchesDefinition(fixedDirectoryOpen,existing.FixedDirectoryOpen,existing.FixedDirectoryOpenText) ||
+                        !MatchesDefinition(fixedDirectoryClose,existing.FixedDirectoryClose,existing.FixedDirectoryCloseText) ||
+                        !MatchesDefinition(routeCaptureStable,existing.RouteCaptureStable,existing.RouteCaptureStableText) ||
+                        !MatchesDefinition(canonicalGlobalBinding,existing.CanonicalGlobalBinding,existing.CanonicalGlobalBindingText) ||
+                        !MatchesDefinition(globalLockWitness,existing.GlobalLockWitness,existing.GlobalLockWitnessText) ||
+                        !MatchesDefinition(fixedEvidenceCurrent,existing.FixedEvidenceCurrent,existing.FixedEvidenceCurrentText) ||
+                        !MatchesDefinition(semanticJsonHash,existing.SemanticJsonHash,existing.SemanticJsonHashText) ||
+                        !MatchesDefinition(securityTemplate,existing.SecurityTemplate,existing.SecurityTemplateText) ||
+                        !String.Equals(digest,existing.DefinitionDigest,StringComparison.Ordinal))
+                        throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                    return;
+                }
+                Definitions.Add(normalized,new SealedCurrentRouteFixedInfrastructureIssuerDefinition(
+                    openCore,assertCore,fixedCapture,fixedEnvelopeOpen,fixedEnvelopeProjection,fixedEnvelopeClose,
+                    fixedDirectoryOpen,fixedDirectoryClose,routeCaptureStable,canonicalGlobalBinding,globalLockWitness,fixedEvidenceCurrent,
+                    semanticJsonHash,securityTemplate,
+                    openCoreText,assertCoreText,fixedCaptureText,fixedEnvelopeOpenText,fixedEnvelopeProjectionText,
+                    fixedEnvelopeCloseText,fixedDirectoryOpenText,fixedDirectoryCloseText,
+                    routeCaptureStableText,canonicalGlobalBindingText,
+                    globalLockWitnessText,fixedEvidenceCurrentText,semanticJsonHashText,
+                    securityTemplateText,digest));
+            }
+        }
+        public static bool MatchesObservationDefinitionsExact(ScriptBlock openCore, ScriptBlock assertCore,
+            ScriptBlock fixedCapture, ScriptBlock fixedEnvelopeOpen,
+            ScriptBlock fixedEnvelopeProjection, ScriptBlock fixedEnvelopeClose,
+            ScriptBlock fixedDirectoryOpen, ScriptBlock fixedDirectoryClose,
+            ScriptBlock routeCaptureStable, ScriptBlock canonicalGlobalBinding,
+            ScriptBlock globalLockWitness, ScriptBlock fixedEvidenceCurrent,
+            ScriptBlock semanticJsonHash, ScriptBlock securityTemplate, string runspaceId) {
+            try {
+                SealedCurrentRouteFixedInfrastructureIssuerDefinition definition = RequireDefinition(runspaceId);
+                return MatchesDefinition(openCore,definition.OpenCore,definition.OpenCoreText) &&
+                    MatchesDefinition(assertCore,definition.AssertCore,definition.AssertCoreText) &&
+                    MatchesDefinition(fixedCapture,definition.FixedCapture,definition.FixedCaptureText) &&
+                    MatchesDefinition(fixedEnvelopeOpen,definition.FixedEnvelopeOpen,definition.FixedEnvelopeOpenText) &&
+                    MatchesDefinition(fixedEnvelopeProjection,definition.FixedEnvelopeProjection,definition.FixedEnvelopeProjectionText) &&
+                    MatchesDefinition(fixedEnvelopeClose,definition.FixedEnvelopeClose,definition.FixedEnvelopeCloseText) &&
+                    MatchesDefinition(fixedDirectoryOpen,definition.FixedDirectoryOpen,definition.FixedDirectoryOpenText) &&
+                    MatchesDefinition(fixedDirectoryClose,definition.FixedDirectoryClose,definition.FixedDirectoryCloseText) &&
+                    MatchesDefinition(routeCaptureStable,definition.RouteCaptureStable,definition.RouteCaptureStableText) &&
+                    MatchesDefinition(canonicalGlobalBinding,definition.CanonicalGlobalBinding,definition.CanonicalGlobalBindingText) &&
+                    MatchesDefinition(globalLockWitness,definition.GlobalLockWitness,definition.GlobalLockWitnessText) &&
+                    MatchesDefinition(fixedEvidenceCurrent,definition.FixedEvidenceCurrent,definition.FixedEvidenceCurrentText) &&
+                    MatchesDefinition(semanticJsonHash,definition.SemanticJsonHash,definition.SemanticJsonHashText) &&
+                    MatchesDefinition(securityTemplate,definition.SecurityTemplate,definition.SecurityTemplateText);
+            }
+            catch { return false; }
+        }
+        public static void OpenObservationExact(object currentRouteCapture,
+            object[] capabilityProbeBindings, object ownershipReceiver) {
+            if (currentRouteCapture == null || capabilityProbeBindings == null ||
+                !IsExactType(ownershipReceiver,"AiAgentDotfiles.SealedOwnershipTransferReceiver"))
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            RequireCurrentRouteFacadeExact(currentRouteCapture);
+            string runspaceId = CurrentRunspaceId();
+            SealedCurrentRouteFixedInfrastructureIssuerDefinition definition =
+                RequireDefinition(runspaceId);
+            RuntimeBroker broker = new RuntimeBroker(definition,runspaceId);
+            InvokeNoOutput(definition.OpenCore,new object[] {
+                broker,currentRouteCapture,capabilityProbeBindings,ownershipReceiver
+            });
+        }
+        public static bool AssertObservationExact(object value) {
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation =
+                RequireObservation(value,true);
+            observation.BeginAssertionExact();
+            try {
+                string runspaceId =
+                    SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetIssuerRunspaceIdExact(observation);
+                SealedCurrentRouteFixedInfrastructureIssuerDefinition definition =
+                    RequireDefinition(runspaceId);
+                RuntimeBroker broker = new RuntimeBroker(definition,runspaceId);
+                object result = InvokeSingle(definition.AssertCore,new object[] { broker,observation });
+                if (!(result is bool) || !(bool)result ||
+                    !SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetIsOpenExact(observation))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                return true;
+            }
+            finally { observation.EndAssertionExact(); }
+        }
+        public static bool CloseObservationExact(object value) {
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation = RequireObservation(value,true);
+            int observed = observation.BeginCloseExact();
+            if (observed == 2) return false;
+            if (observed == 1 || observed == 3)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-close-active");
+            if (observed != 0) throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            try {
+                string runspaceId =
+                    SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetIssuerRunspaceIdExact(observation);
+                SealedCurrentRouteFixedInfrastructureIssuerDefinition definition = RequireDefinition(runspaceId);
+                RuntimeBroker broker = new RuntimeBroker(definition,runspaceId);
+                if (!SealedFixedEnvelopeOwnershipGuard.MatchesExact(
+                    definition.ProvenanceToken,observation.OuterFixedEnvelopeLeaseExact,
+                    observation.OuterFixedEnvelopeOwnerExact))
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                broker.CloseObservationEnvelopeExact(observation);
+                SealedFixedEnvelopeOwnershipGuard.ReleaseExact(
+                    definition.ProvenanceToken,observation.OuterFixedEnvelopeLeaseExact);
+            }
+            catch {
+                observation.RestoreOpenExact();
+                throw;
+            }
+            observation.CompleteCloseExact();
+            return true;
+        }
+    }
+}
+'@
+}
+
+function Assert-SealedHeldCurrentRouteFixedInfrastructureFixedEvidenceCurrent {
+    param(
+        [Parameter(Mandatory)]$Evidence,
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)][string]$ExpectedAuthorityContextHash,
+        [Parameter(Mandatory)][string]$ExpectedFixedEnvelopeHash,
+        [Parameter(Mandatory)][string]$ExpectedLockSecurityHash,
+        [Parameter(Mandatory)][string]$ExpectedProjectionHash
+    )
+
+    try {
+        if($Evidence -isnot [AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence] -or
+            [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetAuthorityContextHashExact($Evidence) -cne $ExpectedAuthorityContextHash -or
+            [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetFixedEnvelopeHashExact($Evidence) -cne $ExpectedFixedEnvelopeHash -or
+            [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetLockSecurityHashExact($Evidence) -cne $ExpectedLockSecurityHash -or
+            [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetCoverageExact($Evidence) -cne 'FIXED_INFRASTRUCTURE_PROBED' -or
+            [int][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetRowCountExact($Evidence) -ne 2 -or
+            [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetProjectionHashExact($Evidence) -cne $ExpectedProjectionHash -or
+            (Get-SealedFixedInfrastructureCapabilityProjectionHash -Evidence $Evidence) -cne $ExpectedProjectionHash){throw 'invalid'}
+        $expectedRoles=@('ControlBase','BackupRoot')
+        for($index=0;$index -lt 2;$index++){
+            $role=$expectedRoles[$index]
+            $row=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityEvidence]::GetRowExact($Evidence,$index)
+            if($row -isnot [AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow] -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRoleExact($row) -cne $role){throw 'invalid'}
+            $expectedTarget=[IO.Path]::GetFullPath([string]$AuthorityContext.$role).TrimEnd([char]92,[char]47)
+            $targetMetadata=Resolve-TargetContext -Path $expectedTarget -Mode MetadataOnly
+            $probeRoot=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootPathExact($row)
+            $probeMetadata=Resolve-TargetContext -Path $probeRoot -Mode MetadataOnly
+            $targetVolume=[AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$targetMetadata.DeepestExistingParentPath)
+            $probeVolume=[AiAgentDotfiles.NoFollowFile]::GetVolumeInfo([string]$probeMetadata.DeepestExistingParentPath)
+            $capabilityHash=[string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFilesystemCapabilityHashExact($row)
+            $expectedCapabilityHash=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetExpectedCapabilityHashExact($row)
+            $verified=[AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetVerifiedAgainstExpectedExact($row)
+            if([string]$targetMetadata.TargetStatus -cne 'EXISTS' -or [string]$targetMetadata.TargetType -cne 'Directory' -or
+                [string]$targetMetadata.RequestedPath -cne $expectedTarget -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetRequestedPathExact($row) -cne $expectedTarget -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetLocationKeyExact($row) -cne [string]$targetMetadata.LocationKey -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetTargetStatusExact($row) -cne 'EXISTS' -or
+                [string]$probeMetadata.TargetStatus -cne 'EXISTS' -or [string]$probeMetadata.TargetType -cne 'Directory' -or
+                [string]$probeMetadata.RequestedPath -cne $probeRoot -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootLocationKeyExact($row) -cne [string]$probeMetadata.LocationKey -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetProbeRootIdentityExact($row) -cne [string]$probeMetadata.DeepestExistingParentIdentity -or
+                [string]$targetVolume.DriveType -cne 'Fixed' -or [string]$targetVolume.FileSystemType -cne 'NTFS' -or
+                [string]$probeVolume.DriveType -cne 'Fixed' -or [string]$probeVolume.FileSystemType -cne 'NTFS' -or
+                [string]$targetVolume.VolumeSerial -cne [string]$targetMetadata.VolumeId -or
+                [string]$probeVolume.VolumeSerial -cne [string]$probeMetadata.VolumeId -or
+                [string]$targetVolume.VolumeSerial -cne [string]$probeVolume.VolumeSerial -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetDriveTypeExact($row) -cne 'Fixed' -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetFileSystemTypeExact($row) -cne 'NTFS' -or
+                [string][AiAgentDotfiles.SealedFixedInfrastructureCapabilityRoleRow]::GetVolumeSerialExact($row) -cne [string]$targetVolume.VolumeSerial -or
+                $capabilityHash -cnotmatch $script:SealedRegistryHashPattern){throw 'invalid'}
+            if($null -eq $expectedCapabilityHash){if($null -ne $verified){throw 'invalid'}}
+            elseif([string]$expectedCapabilityHash -cne $capabilityHash -or $null -eq $verified -or -not [bool]$verified){throw 'invalid'}
+        }
+        return $true
+    }
+    catch { throw 'held-current-route-fixed-infrastructure-observation-stale' }
+}
+
+$sealedHeldCurrentRouteFixedAssertCore={
+    param($Broker,$Observation)
+
+    try { return [bool]$Broker.AssertPinnedObservationExact($Observation) }
+    catch { throw 'held-current-route-fixed-infrastructure-observation-stale' }
+}
+
+$sealedHeldCurrentRouteFixedOpenCore={
+    param($Broker,$CurrentRouteCapture,[object[]]$CapabilityProbeBindings,$OwnershipReceiver)
+
+    $envelopeTicket=$null
+    $observation=$null
+    $openPrimaryError=$null
+    $openNeedsCleanup=$false
+    try {
+        $OwnershipReceiver.AssertEmptyExact()
+        $borrowedTicket=$Broker.AcquireBorrowedStateExact($CurrentRouteCapture)
+        $openNeedsCleanup=$true
+        $envelopeTicket=$Broker.OpenEnvelopeExact($borrowedTicket)
+        $captureTicket=$Broker.CaptureExact(
+            $borrowedTicket,$envelopeTicket,[object[]]@($CapabilityProbeBindings))
+        $observationProjectionHash=[string]$Broker.GetObservationProjectionHashExact(
+            $borrowedTicket,$captureTicket,$envelopeTicket)
+        $observation=$Broker.IssueExact(
+            $borrowedTicket,$captureTicket,$envelopeTicket,$observationProjectionHash)
+        $null=$Broker.AssertPinnedObservationExact($observation)
+        $OwnershipReceiver.DeliverExact($observation)
+        $openNeedsCleanup=$false
+        return
+    }
+    catch {
+        $openPrimaryError=$_
+        throw
+    }
+    finally {
+        $receiverOwnsObservation=$OwnershipReceiver.HoldsExact($observation)
+        if($openNeedsCleanup -and -not $receiverOwnsObservation -and $null -ne $envelopeTicket){
+            $openCleanupError=$null
+            try {
+                if($null -ne $observation){
+                    $null=$Broker.CloseObservationAfterOpenFailureExact($observation)
+                }
+                else {
+                    $null=$Broker.CloseEnvelopeTicketAfterOpenFailureExact($envelopeTicket)
+                }
+            }
+            catch { $openCleanupError=$_ }
+            if($null -ne $openCleanupError){
+                if($null -ne $openPrimaryError){
+                    try {
+                        $openCleanupDomainException=$openPrimaryError.Exception
+                        while(($openCleanupDomainException -is [System.Management.Automation.MethodInvocationException] -or
+                            $openCleanupDomainException -is [System.Management.Automation.RuntimeException]) -and
+                            $null -ne $openCleanupDomainException.InnerException){
+                            $openCleanupDomainException=$openCleanupDomainException.InnerException
+                            if($openCleanupDomainException -is [AggregateException]){break}
+                        }
+                        $openCleanupSecondaryException=$openCleanupError.Exception
+                        while(($openCleanupSecondaryException -is [System.Management.Automation.MethodInvocationException] -or
+                            $openCleanupSecondaryException -is [System.Management.Automation.RuntimeException]) -and
+                            $null -ne $openCleanupSecondaryException.InnerException){
+                            $openCleanupSecondaryException=$openCleanupSecondaryException.InnerException
+                            if($openCleanupSecondaryException -is [AggregateException]){break}
+                        }
+                        $openCleanupDomainException.Data['SealedHeldCurrentRouteFixedInfrastructureObservationCleanupError']=
+                            [string]$openCleanupSecondaryException.Message
+                    }
+                    catch { }
+                }
+                else { throw $openCleanupError }
+            }
+        }
+    }
+}
+function Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$CurrentRouteCapture,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$CapabilityProbeBindings,
+        [Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
+    )
+
+    try {
+        $OwnershipReceiver.AssertEmptyExact()
+        [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::OpenObservationExact(
+            $CurrentRouteCapture,[object[]]@($CapabilityProbeBindings),$OwnershipReceiver)
+        if([string]$OwnershipReceiver.GetStateExact() -cne 'DELIVERED'){
+            throw 'held-current-route-fixed-infrastructure-observation-stale'
+        }
+        return
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+function Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()]$Observation)
+
+    try {
+        return [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::AssertObservationExact($Observation)
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+function Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()]$Observation)
+
+    try {
+        return [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::CloseObservationExact($Observation)
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+$sealedHeldCurrentRouteFixedEnvelopeOpenCore={
+    param(
+        $AuthorityContext,
+        $DirectorySecurityTemplate,
+        $FileSecurityTemplate,
+        $HeldGlobalLock,
+        [scriptblock]$DirectoryOpen,
+        [scriptblock]$DirectoryClose,
+        [scriptblock]$EnvelopeProjection,
+        [scriptblock]$EnvelopeClose
+    )
+
+    $null=Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $AuthorityContext
+    $definitions=@(Get-HomeAuthorityBootstrapEntryDefinitions -AuthorityContext $AuthorityContext)
+    $bootstrapLockState=Get-HomeAuthorityLockFileState -Path ([string]$AuthorityContext.ControlBootstrapLockPath) -Name 'ControlBootstrapLock' -FileSecurityTemplate $FileSecurityTemplate
+    $markers=[Collections.Generic.List[object]]::new()
+    $missingSeen=$false
+    $completeCount=0
+    foreach($definition in $definitions){
+        $marker=Get-NoFollowRootEntryMarker -Path ([string]$definition.Path)
+        if([string]$marker.EntryType -ceq 'MISSING'){$missingSeen=$true}
+        else {
+            if([string]$marker.EntryType -cne [string]$definition.Kind){throw "home-authority-fixed-envelope-manual-recovery-required: wrong type for $($definition.Name)"}
+            if($missingSeen){throw 'home-authority-fixed-envelope-manual-recovery-required: non-prefix bootstrap state'}
+            $completeCount++
+        }
+        $markers.Add([pscustomobject][ordered]@{Definition=$definition;Marker=$marker})
+    }
+    if([string]$bootstrapLockState.Status -ceq 'MISSING' -and $completeCount -gt 0){throw 'home-authority-fixed-envelope-manual-recovery-required: private prefix exists without bootstrap lock'}
+    if($completeCount -lt $definitions.Count){
+        if($completeCount -eq ($definitions.Count-1) -and [string]$markers[$markers.Count-1].Marker.EntryType -ceq 'MISSING'){throw 'global-live-lock-missing'}
+        throw 'home-authority-bootstrap-incomplete'
+    }
+    if([string]$bootstrapLockState.Status -cne 'COMPLETE'){throw 'home-authority-bootstrap-incomplete'}
+
+    $directoryLeases=[Collections.Generic.List[object]]::new()
+    $lease=$null
+    try {
+        foreach($row in @($markers | Where-Object {[string]$_.Definition.Kind -ceq 'Directory'})){
+            $handles=& $DirectoryOpen -Path ([string]$row.Definition.Path)
+            $held=$handles[$handles.Count-1]
+            if([string]$held.Info.Identity -cne [string]$row.Marker.Identity){
+                & $DirectoryClose -Handles $handles
+                throw "home-authority-fixed-envelope-manual-recovery-required: directory identity changed while opening $($row.Definition.Name)"
+            }
+            $directoryLeases.Add([pscustomobject][ordered]@{
+                Name=[string]$row.Definition.Name
+                Path=[IO.Path]::GetFullPath([string]$row.Definition.Path)
+                Identity=[string]$row.Marker.Identity
+                Handles=$handles
+                Held=$held
+            })
+        }
+        $lease=[pscustomobject][ordered]@{
+            ContextHash=Get-SealedHomeAuthorityFixedEnvelopeContextHash -AuthorityContext $AuthorityContext
+            DirectoryLeases=@($directoryLeases)
+            IsClosed=$false
+            InitialProjection=$null
+            InitialEnvelopeHash=$null
+        }
+        $initial=& $EnvelopeProjection -AuthorityContext $AuthorityContext -DirectorySecurityTemplate $DirectorySecurityTemplate -FileSecurityTemplate $FileSecurityTemplate -EnvelopeLease $lease -HeldGlobalLock $HeldGlobalLock
+        $lease.InitialProjection=$initial.Projection
+        $lease.InitialEnvelopeHash=[string]$initial.EnvelopeHash
+        return $lease
+    }
+    catch {
+        if($null -ne $lease){& $EnvelopeClose -EnvelopeLease $lease -DirectoryClose $DirectoryClose}
+        else {
+            for($index=$directoryLeases.Count-1;$index -ge 0;$index--){
+                & $DirectoryClose -Handles $directoryLeases[$index].Handles
+            }
+        }
+        throw
+    }
+}
+
+$sealedHeldCurrentRouteFixedCloseCore={
+    param($EnvelopeLease,[scriptblock]$DirectoryClose)
+
+    if($null -ne $EnvelopeLease.PSObject.Properties['IsClosed'] -and [bool]$EnvelopeLease.IsClosed){return}
+    $envelopeDirectoryLeases=@($EnvelopeLease.DirectoryLeases)
+    for($envelopeDirectoryIndex=$envelopeDirectoryLeases.Count-1;$envelopeDirectoryIndex -ge 0;$envelopeDirectoryIndex--){
+        if($null -ne $envelopeDirectoryLeases[$envelopeDirectoryIndex].Handles){
+            & $DirectoryClose -Handles $envelopeDirectoryLeases[$envelopeDirectoryIndex].Handles
+        }
+    }
+    $EnvelopeLease.IsClosed=$true
+}
+$sealedHeldCurrentRouteFixedCaptureCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Invoke-SealedHeldFixedInfrastructureCapabilityCapture',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteFixedCaptureOriginal=$sealedHeldCurrentRouteFixedCaptureCommand.ScriptBlock
+$sealedHeldCurrentRouteFixedCaptureCore={
+    param(
+        $AuthorityContext,
+        $GlobalLockHandle,
+        $CanonicalWitness,
+        [object[]]$CapabilityProbeBindings,
+        $FixedEnvelope,
+        $DirectorySecurityTemplate,
+        $FileSecurityTemplate,
+        $EntryGlobalLockEvidence,
+        [scriptblock]$EnvelopeProjection,
+        [scriptblock]$GlobalLockWitness,
+        [scriptblock]$CanonicalGlobalBinding,
+        [scriptblock]$SemanticJsonHash,
+        [scriptblock]$SecurityTemplate
+    )
+
+    $pinnedFixedEnvelopeOpen={
+        param($AuthorityContext,$DirectorySecurityTemplate,$FileSecurityTemplate,$HeldGlobalLock)
+        return $FixedEnvelope
+    }.GetNewClosure()
+    $pinnedFixedEnvelopeClose={
+        param($EnvelopeLease)
+    }.GetNewClosure()
+    $pinnedFunctions=[Collections.Generic.Dictionary[string,scriptblock]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
+    $pinnedFunctions.Add('Open-SealedHomeAuthorityFixedEnvelope',$pinnedFixedEnvelopeOpen)
+    $pinnedFunctions.Add('Close-SealedHomeAuthorityFixedEnvelope',$pinnedFixedEnvelopeClose)
+    $pinnedFunctions.Add('Get-SealedHomeAuthorityFixedEnvelopeProjection',$EnvelopeProjection)
+    $pinnedFunctions.Add('Assert-SealedHomeAuthorityGlobalLockWitness',$GlobalLockWitness)
+    $pinnedFunctions.Add('Assert-HomeAuthorityCanonicalGlobalLockBinding',$CanonicalGlobalBinding)
+    $pinnedFunctions.Add('Get-SemanticJsonHash',$SemanticJsonHash)
+    $pinnedFunctions.Add('Get-HomeAuthorityCurrentUserOnlySecurityTemplate',$SecurityTemplate)
+    foreach($pinnedName in @($pinnedFunctions.Keys)){
+        if($null -ne $ExecutionContext.SessionState.InvokeCommand.GetCommand(
+            $pinnedName,[System.Management.Automation.CommandTypes]::Alias)){
+            throw 'held-current-route-fixed-infrastructure-observation-stale'
+        }
+    }
+    $pinnedVariables=[Collections.Generic.List[Management.Automation.PSVariable]]::new()
+    $captureArguments=[object[]]::new(4)
+    $captureArguments[0]=$AuthorityContext
+    $captureArguments[1]=$GlobalLockHandle
+    $captureArguments[2]=$CanonicalWitness
+    $captureArguments[3]=[object[]]@($CapabilityProbeBindings)
+    $output=$sealedHeldCurrentRouteFixedCaptureOriginal.InvokeWithContext(
+        $pinnedFunctions,$pinnedVariables,$captureArguments)
+    if($null -eq $output -or $output.Count -ne 1 -or $null -eq $output[0]){
+        throw 'held-current-route-fixed-infrastructure-observation-stale'
+    }
+    return $output[0]
+}.GetNewClosure()
+$sealedHeldCurrentRouteFixedProjectionCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Get-SealedHomeAuthorityFixedEnvelopeProjection',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteFixedDirectoryOpenCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Open-SafeDirectoryContainmentChain',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteFixedDirectoryCloseCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Close-SafeDirectoryContainmentChain',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteFixedDirectoryOpenOriginal=$sealedHeldCurrentRouteFixedDirectoryOpenCommand.ScriptBlock
+$sealedHeldCurrentRouteFixedDirectoryCloseOriginal=$sealedHeldCurrentRouteFixedDirectoryCloseCommand.ScriptBlock
+$sealedHeldCurrentRouteFixedDirectoryOpenCore={
+    param([string]$Path,$OwnershipReceiver)
+
+    $pinnedFunctions=[Collections.Generic.Dictionary[string,scriptblock]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
+    $pinnedFunctions.Add('Close-SafeDirectoryContainmentChain',
+        $sealedHeldCurrentRouteFixedDirectoryCloseOriginal)
+    foreach($pinnedName in @($pinnedFunctions.Keys)){
+        if($null -ne $ExecutionContext.SessionState.InvokeCommand.GetCommand(
+            $pinnedName,[System.Management.Automation.CommandTypes]::Alias)){
+            throw 'held-current-route-fixed-infrastructure-observation-stale'
+        }
+    }
+    $pinnedVariables=[Collections.Generic.List[Management.Automation.PSVariable]]::new()
+    $output=$sealedHeldCurrentRouteFixedDirectoryOpenOriginal.InvokeWithContext(
+        $pinnedFunctions,$pinnedVariables,[object[]]@($Path,$OwnershipReceiver))
+    if($null -ne $output -and $output.Count -ne 0){
+        throw 'held-current-route-fixed-infrastructure-observation-stale'
+    }
+}.GetNewClosure()
+$sealedHeldCurrentRouteStableCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Assert-SealedRegistryCurrentRouteCaptureStable',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteCanonicalBindingCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Assert-HomeAuthorityCanonicalGlobalLockBinding',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteGlobalWitnessCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Assert-SealedHomeAuthorityGlobalLockWitness',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteFixedEvidenceCurrentCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Assert-SealedHeldCurrentRouteFixedInfrastructureFixedEvidenceCurrent',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteSemanticHashCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Get-SemanticJsonHash',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteSecurityTemplateCommand=$ExecutionContext.SessionState.InvokeCommand.GetCommand(
+    'Get-HomeAuthorityCurrentUserOnlySecurityTemplate',[System.Management.Automation.CommandTypes]::Function)
+$sealedHeldCurrentRouteFixedProjectionOriginal=$sealedHeldCurrentRouteFixedProjectionCommand.ScriptBlock
+$sealedHeldCurrentRouteSemanticHashOriginal=$sealedHeldCurrentRouteSemanticHashCommand.ScriptBlock
+$sealedHeldCurrentRouteFixedProjectionCore={
+    param($AuthorityContext,$DirectorySecurityTemplate,$FileSecurityTemplate,$EnvelopeLease,$HeldGlobalLock)
+
+    $pinnedFunctions=[Collections.Generic.Dictionary[string,scriptblock]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
+    $pinnedFunctions.Add('Get-SemanticJsonHash',$sealedHeldCurrentRouteSemanticHashOriginal)
+    foreach($pinnedName in @($pinnedFunctions.Keys)){
+        if($null -ne $ExecutionContext.SessionState.InvokeCommand.GetCommand(
+            $pinnedName,[System.Management.Automation.CommandTypes]::Alias)){
+            throw 'held-current-route-fixed-infrastructure-observation-stale'
+        }
+    }
+    $pinnedVariables=[Collections.Generic.List[Management.Automation.PSVariable]]::new()
+    $output=$sealedHeldCurrentRouteFixedProjectionOriginal.InvokeWithContext(
+        $pinnedFunctions,$pinnedVariables,[object[]]@(
+            $AuthorityContext,$DirectorySecurityTemplate,$FileSecurityTemplate,$EnvelopeLease,$HeldGlobalLock))
+    if($null -eq $output -or $output.Count -ne 1 -or $null -eq $output[0]){
+        throw 'held-current-route-fixed-infrastructure-observation-stale'
+    }
+    return $output[0]
+}.GetNewClosure()
+$sealedHeldCurrentRouteFixedRunspace=[System.Management.Automation.Runspaces.Runspace]::DefaultRunspace
+try {
+    if($null -eq $sealedHeldCurrentRouteFixedOpenCore -or $null -eq $sealedHeldCurrentRouteFixedAssertCore -or
+        $null -eq $sealedHeldCurrentRouteFixedEnvelopeOpenCore -or
+        $null -eq $sealedHeldCurrentRouteFixedCaptureCommand -or $null -eq $sealedHeldCurrentRouteFixedCaptureCore -or
+        $null -eq $sealedHeldCurrentRouteFixedProjectionCommand -or $null -eq $sealedHeldCurrentRouteFixedCloseCore -or
+        $null -eq $sealedHeldCurrentRouteFixedDirectoryOpenCommand -or $null -eq $sealedHeldCurrentRouteFixedDirectoryOpenCore -or
+        $null -eq $sealedHeldCurrentRouteFixedDirectoryCloseCommand -or
+        $null -eq $sealedHeldCurrentRouteStableCommand -or $null -eq $sealedHeldCurrentRouteCanonicalBindingCommand -or
+        $null -eq $sealedHeldCurrentRouteGlobalWitnessCommand -or $null -eq $sealedHeldCurrentRouteFixedEvidenceCurrentCommand -or
+        $null -eq $sealedHeldCurrentRouteSemanticHashCommand -or $null -eq $sealedHeldCurrentRouteFixedProjectionCore -or
+        $null -eq $sealedHeldCurrentRouteSecurityTemplateCommand -or
+        $null -eq $sealedHeldCurrentRouteFixedRunspace){throw 'held-current-route-fixed-infrastructure-observation-stale'}
+    [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::InitializeObservationExact(
+        $sealedHeldCurrentRouteFixedOpenCore,$sealedHeldCurrentRouteFixedAssertCore,
+        $sealedHeldCurrentRouteFixedCaptureCore,$sealedHeldCurrentRouteFixedEnvelopeOpenCore,
+        $sealedHeldCurrentRouteFixedProjectionCore,$sealedHeldCurrentRouteFixedCloseCore,
+        $sealedHeldCurrentRouteFixedDirectoryOpenCore,$sealedHeldCurrentRouteFixedDirectoryCloseCommand.ScriptBlock,
+        $sealedHeldCurrentRouteStableCommand.ScriptBlock,$sealedHeldCurrentRouteCanonicalBindingCommand.ScriptBlock,
+        $sealedHeldCurrentRouteGlobalWitnessCommand.ScriptBlock,$sealedHeldCurrentRouteFixedEvidenceCurrentCommand.ScriptBlock,
+        $sealedHeldCurrentRouteSemanticHashCommand.ScriptBlock,$sealedHeldCurrentRouteSecurityTemplateCommand.ScriptBlock,
+        $sealedHeldCurrentRouteFixedRunspace.InstanceId.ToString('D').ToLowerInvariant())
+}
+finally {
+    Remove-Variable -Name sealedHeldCurrentRouteFixedOpenCore,sealedHeldCurrentRouteFixedAssertCore,
+        sealedHeldCurrentRouteFixedEnvelopeOpenCore,sealedHeldCurrentRouteFixedCloseCore,
+        sealedHeldCurrentRouteFixedCaptureCommand,sealedHeldCurrentRouteFixedCaptureOriginal,
+        sealedHeldCurrentRouteFixedCaptureCore,
+        sealedHeldCurrentRouteFixedProjectionCommand,sealedHeldCurrentRouteFixedProjectionOriginal,
+        sealedHeldCurrentRouteFixedProjectionCore,sealedHeldCurrentRouteSemanticHashOriginal,
+        sealedHeldCurrentRouteFixedDirectoryOpenCommand,sealedHeldCurrentRouteFixedDirectoryOpenOriginal,
+        sealedHeldCurrentRouteFixedDirectoryOpenCore,
+        sealedHeldCurrentRouteFixedDirectoryCloseCommand,sealedHeldCurrentRouteFixedDirectoryCloseOriginal,
+        sealedHeldCurrentRouteStableCommand,sealedHeldCurrentRouteCanonicalBindingCommand,
+        sealedHeldCurrentRouteGlobalWitnessCommand,sealedHeldCurrentRouteFixedEvidenceCurrentCommand,
+        sealedHeldCurrentRouteSemanticHashCommand,sealedHeldCurrentRouteSecurityTemplateCommand,
+        sealedHeldCurrentRouteFixedRunspace -ErrorAction SilentlyContinue
 }

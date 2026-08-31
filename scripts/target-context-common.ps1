@@ -318,12 +318,19 @@ function Get-SealedHeldTargetMetadataHash {
 
 function Open-SealedHeldTargetContextLease {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
+    )
 
     $handles = [Collections.Generic.List[object]]::new()
     $lease = $null
     $receipt = $null
+    $pendingHandle = $null
+    $ownershipTransferred = $false
+    $primaryError = $null
     try {
+        if ($null -ne $OwnershipReceiver) { $OwnershipReceiver.AssertEmptyExact() }
         if ([string]::IsNullOrWhiteSpace($Path) -or -not [IO.Path]::IsPathFullyQualified($Path)) { throw 'target path must be fully-qualified and absolute' }
         if ($Path.StartsWith('\\',[StringComparison]::Ordinal)) { throw 'network/UNC target is unsupported' }
         $rawFull = [IO.Path]::GetFullPath($Path)
@@ -336,8 +343,10 @@ function Open-SealedHeldTargetContextLease {
         }
         if (@($segments | Where-Object { $_ -ieq '.system' }).Count -gt 0) { throw '.system cannot be a managed target' }
 
-        $rootHandle = [AiAgentDotfiles.NoFollowFile]::HoldDirectory($volumeRoot)
-        $handles.Add($rootHandle)
+        $pendingHandle = [AiAgentDotfiles.NoFollowFile]::HoldDirectory($volumeRoot)
+        $handles.Add($pendingHandle)
+        $rootHandle = $pendingHandle
+        $pendingHandle = $null
         $volume = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($volumeRoot)
         $volumeId = ([string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($rootHandle) -split ':')[0]
         if ([string]$volume.VolumeSerial -cne $volumeId) { throw 'target volume identity/serial mismatch' }
@@ -362,8 +371,9 @@ function Open-SealedHeldTargetContextLease {
             }
             if ($info.IsReparsePoint -or -not $info.IsDirectory) { throw "target path contains a non-directory or reparse entry: $candidate" }
             if ([long]$info.LinkCount -ne 1) { throw "target path contains a multi-link directory: $candidate" }
-            $child = [AiAgentDotfiles.NoFollowFile]::TryHoldPathChildDirectory($parentHandle,$segment)
-            if ($null -eq $child) { throw "target path changed during held capture: $candidate" }
+            $pendingHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldPathChildDirectory($parentHandle,$segment)
+            if ($null -eq $pendingHandle) { throw "target path changed during held capture: $candidate" }
+            $child = $pendingHandle
             $accepted = $false
             try {
                 $childInfo = [AiAgentDotfiles.SafeDirectoryHandle]::GetInfoExact($child)
@@ -372,8 +382,14 @@ function Open-SealedHeldTargetContextLease {
                     [long]$childInfo.LinkCount -ne 1) { throw "target path identity changed during held capture: $candidate" }
                 $handles.Add($child)
                 $accepted = $true
+                $pendingHandle = $null
             }
-            finally { if (-not $accepted) { $child.Dispose() } }
+            finally {
+                if (-not $accepted -and $pendingHandle -is [AiAgentDotfiles.SafeDirectoryHandle]) {
+                    [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($pendingHandle)
+                    $pendingHandle = $null
+                }
+            }
             $rows.Add((Get-SealedHeldTargetDirectoryEvidence -Handle $child -Path $candidate -ParentHandle $parentHandle -LeafName $segment -VolumeId $volumeId))
             $parentHandle = $child
             $currentPath = $candidate
@@ -439,21 +455,52 @@ function Open-SealedHeldTargetContextLease {
         $receipt = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::BindExact(
             $lease,$projection,$legacy,[object[]]@($rows),[object[]]@($handles),$firstMissingParent,$firstMissingName)
         $null = Assert-SealedHeldTargetContextLease -Lease $lease
+        if ($null -ne $OwnershipReceiver) {
+            $OwnershipReceiver.DeliverExact($lease)
+            $ownershipTransferred = $true
+            return
+        }
+        $ownershipTransferred = $true
         return $lease
     }
     catch {
-        $primaryError = $_
-        try {
-            if ($null -ne $receipt) { Close-SealedHeldTargetContextLease -Lease $lease }
+        $caughtError = $_
+        if ($caughtError.Exception.Message -like 'target-context-plan-stale:*') {
+            $primaryError = $caughtError
+            throw
+        }
+        try { throw "target-context-plan-stale: $($caughtError.Exception.Message)" }
+        catch {
+            $primaryError = $_
+            throw
+        }
+    }
+    finally {
+        $receiverOwnsLease = $null -ne $OwnershipReceiver -and $OwnershipReceiver.HoldsExact($lease)
+        if (-not $ownershipTransferred -and -not $receiverOwnsLease) {
+            $cleanupError = $null
+            if ($null -ne $receipt) {
+                try { $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($lease) }
+                catch { $cleanupError = $_ }
+            }
             else {
+                if ($pendingHandle -is [AiAgentDotfiles.SafeDirectoryHandle]) {
+                    try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($pendingHandle) }
+                    catch { $cleanupError = $_ }
+                }
                 for ($index=$handles.Count-1; $index -ge 0; $index--) {
-                    if ($handles[$index] -is [AiAgentDotfiles.SafeDirectoryHandle]) { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($handles[$index]) }
+                    try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($handles[$index]) }
+                    catch { if ($null -eq $cleanupError) { $cleanupError = $_ } }
                 }
             }
+            if ($null -ne $cleanupError) {
+                if ($null -ne $primaryError) {
+                    try { $primaryError.Exception.Data['SealedHeldTargetContextCleanupError'] = [string]$cleanupError.Exception.Message }
+                    catch { }
+                }
+                else { throw $cleanupError }
+            }
         }
-        catch { }
-        if ($primaryError.Exception.Message -like 'target-context-plan-stale:*') { throw $primaryError }
-        throw "target-context-plan-stale: $($primaryError.Exception.Message)"
     }
 }
 

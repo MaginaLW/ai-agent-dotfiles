@@ -29,6 +29,73 @@ function Get-OwningFunctionDefinition {
     return $null
 }
 
+function Get-NormalizedStaticCommandName {
+    param(
+        [AllowNull()][string]$CommandName,
+        [Parameter(Mandatory)][hashtable]$AliasMap,
+        [Parameter(Mandatory)][ref]$QualificationViolation
+    )
+
+    $QualificationViolation.Value=$null
+    if([string]::IsNullOrEmpty($CommandName)){return $null}
+    $normalized=$CommandName
+    if($normalized.Contains([char]47) -or $normalized.Contains([char]92) -or
+        $normalized.Contains([char]58)){
+        $QualificationViolation.Value="qualified or path command is not reviewed: $CommandName"
+        return $normalized
+    }
+    if($AliasMap.ContainsKey($normalized)){return [string]$AliasMap[$normalized]}
+    return $normalized
+}
+
+function Get-NormalizedStaticFunctionName {
+    param([Parameter(Mandatory)][string]$FunctionName)
+
+    $normalized=$FunctionName
+    $scopeSeparator=$normalized.IndexOf([char]58)
+    if($scopeSeparator -gt 0 -and $scopeSeparator -lt $normalized.Length-1){
+        $scopeName=$normalized.Substring(0,$scopeSeparator)
+        if($scopeName -iin @('global','script','local','private')){
+            $normalized=$normalized.Substring($scopeSeparator+1)
+        }
+    }
+    return $normalized
+}
+
+function Get-MinimalTopLevelStatementAst {
+    param([Parameter(Mandatory)][Management.Automation.Language.Ast]$Node)
+
+    $cursor=$Node
+    while($null -ne $cursor.Parent){
+        if($cursor.Parent -is [Management.Automation.Language.NamedBlockAst]){return $cursor}
+        $cursor=$cursor.Parent
+    }
+    return $null
+}
+
+function Get-ScriptTopLevelStatementBinding {
+    param([Parameter(Mandatory)][Management.Automation.Language.Ast]$Node)
+
+    $statement=Get-MinimalTopLevelStatementAst -Node $Node
+    if($null -eq $statement -or $statement.Parent -isnot [Management.Automation.Language.NamedBlockAst] -or
+        $statement.Parent.Parent -isnot [Management.Automation.Language.ScriptBlockAst] -or
+        $null -ne $statement.Parent.Parent.Parent){return $null}
+    $statements=@($statement.Parent.Statements)
+    for($index=0;$index -lt $statements.Count;$index++){
+        if([object]::ReferenceEquals($statements[$index],$statement)){
+            return [pscustomobject]@{Ast=$statement;Ordinal=[long]$index}
+        }
+    }
+    return $null
+}
+
+function Test-DirectScriptTopLevelFunctionDefinition {
+    param([Parameter(Mandatory)][Management.Automation.Language.FunctionDefinitionAst]$Function)
+
+    $binding=Get-ScriptTopLevelStatementBinding -Node $Function
+    return $null -ne $binding -and [object]::ReferenceEquals($binding.Ast,$Function)
+}
+
 function Get-DirectFunctionNodes {
     param(
         [Parameter(Mandatory)][Management.Automation.Language.FunctionDefinitionAst]$Function,
@@ -197,12 +264,19 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
-$reviewedAllScriptsDynamicCommandDigest='5113f059347b5b2a3de24a3d5b08e1a715d66858cfce6abfdbfc5d113183e4b4'
-$reviewedAllScriptsReflectionSensitiveSiteCount=12270
-$reviewedAllScriptsReflectionSensitiveDigest='0de1ed7c2bffb390dc9297fee1a57e5f974df3ab0a9afddafe04652196ecca20'
+$reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
+$reviewedAllScriptsReflectionSensitiveSiteCount=12660
+$reviewedAllScriptsReflectionSensitiveDigest='aea11a7fb381a9e9533f0b015507f9661f35dad426461b486b7d64b37a7dc2ab'
+$reviewedStaticCommandAliasMap=@{
+    '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
+    fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
+    gcm='Get-Command';gm='Get-Member';group='Group-Object';icm='Invoke-Command';iex='Invoke-Expression'
+    ipal='Import-Alias';ipmo='Import-Module';measure='Measure-Object';nal='New-Alias';nmo='New-Module'
+    sal='Set-Alias';select='Select-Object';sort='Sort-Object';where='Where-Object'
+}
 $reflectionSensitiveCommandNames=@(
-    'Add-Type','Get-Command','Get-Member','Import-Module','Invoke-Command','Invoke-Expression',
-    'New-Module','New-Object'
+    'Add-Type','Get-Command','Get-Member','Import-Alias','Import-Module','Invoke-Command','Invoke-Expression',
+    'New-Alias','New-Module','New-Object','Remove-Alias','Set-Alias'
 )
 $memberDispatchCommandNames=@(
     '%','?','compare','ForEach-Object','Format-Custom','Format-List','Format-Table','Format-Wide',
@@ -210,13 +284,59 @@ $memberDispatchCommandNames=@(
     'Where-Object'
 )
 $memberDispatchParameterNames=@('MemberName','ArgumentList','ExpandProperty','Property')
+$reviewedSensitiveIssuerTypeNames=@(
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer',
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer',
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer'
+)
+$reviewedSensitiveIssuerTypeShortNames=@($reviewedSensitiveIssuerTypeNames | ForEach-Object {@(([string]$_ -split '\.'))[-1]})
 $reviewedIssuerInvocationInventory=@(
-    'scripts/root-claims-registry-common.ps1|<script>|InitializeExact'
-    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|InvokeProbeExact'
-    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|IsExactIssuerToken'
-    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|MatchesProbeExact'
-    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|InvokeRawExact'
-    'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|MatchesRawExact'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|<script>|InitializeExact'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|InvokeProbeExact'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|IsExactIssuerToken'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|MatchesProbeExact'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|InvokeRawExact'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|MatchesRawExact'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|<script>|InitializeObservationExact'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation|AssertObservationExact'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation|CloseObservationExact'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation|OpenObservationExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|<script>|InitializeExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|AbandonOpenExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|BeginOpenExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|ClaimResourceSetExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|ClaimResourceSetExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|ClaimResourceSetExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|ClaimResourceSetExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|IssueExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|OpenLiveSetExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|OpenTargetExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|OpenTargetExact'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|OpenTargetExact'
+) | Sort-Object -CaseSensitive
+$reviewedIssuerOwnerBindingInventory=@(
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|<script>|InitializeExact|PipelineAst|eae9e74e5946ecc06cabb6ca8591e78bc089c0a17701e163daf2286439879f83'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|InvokeProbeExact|FunctionDefinitionAst|3e5dab7a9cdcec7efeb0c4b7da3c52288562cc9db12552ae007e9fc9d22abd44'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|IsExactIssuerToken|FunctionDefinitionAst|3e5dab7a9cdcec7efeb0c4b7da3c52288562cc9db12552ae007e9fc9d22abd44'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|MatchesProbeExact|FunctionDefinitionAst|3e5dab7a9cdcec7efeb0c4b7da3c52288562cc9db12552ae007e9fc9d22abd44'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|InvokeRawExact|FunctionDefinitionAst|78426ba022cd98f75c1963c5b673f15ed218eff76536f1ffbc9d90d6ec304786'
+    'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|MatchesRawExact|FunctionDefinitionAst|78426ba022cd98f75c1963c5b673f15ed218eff76536f1ffbc9d90d6ec304786'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|<script>|InitializeObservationExact|TryStatementAst|af9868225f932a77a9bd428651be606838a5a547d61b7194c8036d9948658fd2'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation|AssertObservationExact|FunctionDefinitionAst|041760c7165ef82dbc11707dccab1b0b3913cd2ebde5f9feafa7845de8f17b8c'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation|CloseObservationExact|FunctionDefinitionAst|ae2f1357bbe077c65750bdf09894292e4e4862fd4800b217688e00b37e929eba'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation|OpenObservationExact|FunctionDefinitionAst|545e31d37f2f4b27b0a363c7d0781771e7f254d823ba9f1df7dcbe9a8a8501f0'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|<script>|InitializeExact|TryStatementAst|f97d9cd4e5d5f884cbae847a5e5d579b0976823fb8e19888cf2f934c5570c46d'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|AbandonOpenExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|BeginOpenExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|ClaimResourceSetExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|ClaimResourceSetExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|ClaimResourceSetExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|ClaimResourceSetExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|IssueExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|OpenLiveSetExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|OpenTargetExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|OpenTargetExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
+    'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|OpenTargetExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
 ) | Sort-Object -CaseSensitive
 
 $testsOnlyReferencePattern='(?ix)(?:
@@ -240,18 +360,26 @@ function Invoke-ProductionSeamAnalysis {
     $forbiddenReferences=[Collections.Generic.List[string]]::new()
     $resolutionFailures=[Collections.Generic.List[string]]::new()
     $fixedCapabilityBoundaryViolations=[Collections.Generic.List[string]]::new()
+    $fixedObservationBoundaryViolations=[Collections.Generic.List[string]]::new()
     $rawCapabilityAllowedCallers=[Collections.Generic.List[string]]::new()
     $probeCapabilityAllowedCallers=[Collections.Generic.List[string]]::new()
+    $routeCaptureIssuerAllowedCallers=[Collections.Generic.List[string]]::new()
     $validatorAllowedCallers=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandInventory=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandViolations=[Collections.Generic.List[string]]::new()
+    $allScriptsCommandQualificationViolations=[Collections.Generic.List[string]]::new()
     $allScriptsReflectionSensitiveInventory=[Collections.Generic.List[string]]::new()
     $allScriptsReflectionSensitiveViolations=[Collections.Generic.List[string]]::new()
     $allScriptsUsingStatementInventory=[Collections.Generic.List[string]]::new()
     $allScriptsUsingStatementViolations=[Collections.Generic.List[string]]::new()
     $allScriptsTypeDefinitionInventory=[Collections.Generic.List[string]]::new()
     $allScriptsTypeDefinitionViolations=[Collections.Generic.List[string]]::new()
+    $allScriptsScriptBlockFunctionDefinitionInventory=[Collections.Generic.List[string]]::new()
+    $allScriptsScriptBlockFunctionDefinitionViolations=[Collections.Generic.List[string]]::new()
+    $allScriptsLiteralProviderDriveTokenInventory=[Collections.Generic.List[string]]::new()
+    $allScriptsLiteralProviderDriveTokenViolations=[Collections.Generic.List[string]]::new()
     $issuerInvocationInventory=[Collections.Generic.List[string]]::new()
+    $issuerOwnerBindingInventory=[Collections.Generic.List[string]]::new()
     $definitions=@{}
 
     foreach($model in $SourceModels){
@@ -259,10 +387,50 @@ function Invoke-ProductionSeamAnalysis {
         $ast=[Management.Automation.Language.Parser]::ParseInput([string]$model.Text,[string]$model.RelativePath,[ref]$tokens,[ref]$parseErrors)
         foreach($parseError in @($parseErrors)){$parseFailures.Add("$($model.RelativePath):$($parseError.Message)")}
         foreach($match in [regex]::Matches([string]$model.Text,$testsOnlyReferencePattern)){$forbiddenReferences.Add("$($model.RelativePath):$($match.Value)")}
+        # This zero baseline covers only literal provider-drive syntax. It scans every non-comment token and
+        # explicitly recognizes drive-qualified Alias/Function VariableExpressionAst nodes. It supplements the
+        # direct named CommandAst checks below; computed paths and general provider-mutator data flow are out of scope.
+        $providerVariableRanges=[Collections.Generic.List[object]]::new()
+        foreach($variableExpression in @($ast.FindAll({param($node)
+            $node -is [Management.Automation.Language.VariableExpressionAst] -and
+            $node.VariablePath.IsDriveQualified -and
+            [string]$node.VariablePath.DriveName -iin @('alias','function')
+        },$true))){
+            $providerVariableRanges.Add([pscustomobject]@{
+                StartOffset=$variableExpression.Extent.StartOffset
+                EndOffset=$variableExpression.Extent.EndOffset
+            })
+            $owner=Get-OwningFunctionDefinition -Node $variableExpression
+            $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            $allScriptsLiteralProviderDriveTokenInventory.Add(
+                "VariableExpressionAst|$($model.RelativePath)|$ownerName|$($variableExpression.Extent.Text)")
+        }
+        foreach($token in @($tokens)){
+            if($token.Kind -eq [Management.Automation.Language.TokenKind]::Comment){continue}
+            foreach($providerDriveMatch in [regex]::Matches(
+                [string]$token.Text,
+                '(?i)(?<![A-Za-z0-9_])(?:Alias|Function):')){
+                $matchStart=$token.Extent.StartOffset+$providerDriveMatch.Index
+                $matchEnd=$matchStart+$providerDriveMatch.Length
+                $coveredByVariableAst=@($providerVariableRanges | Where-Object {
+                    $matchStart -ge $_.StartOffset -and $matchEnd -le $_.EndOffset
+                }).Count -gt 0
+                if($coveredByVariableAst){continue}
+                $allScriptsLiteralProviderDriveTokenInventory.Add(
+                    "Token|$($model.RelativePath)|$($token.Kind)|$matchStart|$($token.Text)")
+            }
+        }
         foreach($command in @($ast.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst]},$true))){
-            $commandName=$command.GetCommandName()
             $owner=Get-OwningFunctionDefinition -Node $command
             $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            $qualificationViolation=$null
+            $commandName=Get-NormalizedStaticCommandName -CommandName ($command.GetCommandName()) `
+                -AliasMap $reviewedStaticCommandAliasMap `
+                -QualificationViolation ([ref]$qualificationViolation)
+            if($null -ne $qualificationViolation){
+                $allScriptsCommandQualificationViolations.Add(
+                    "$($model.RelativePath)|$ownerName|$qualificationViolation")
+            }
             if($null -eq $commandName){
                 $allScriptsDynamicCommandInventory.Add("$($model.RelativePath)|$ownerName|$($command.Extent.Text)")
                 continue
@@ -281,6 +449,12 @@ function Invoke-ProductionSeamAnalysis {
             }
             if($commandName -ieq 'Invoke-SealedHeldFixedInfrastructureCapabilityCapture'){
                 $fixedCapabilityBoundaryViolations.Add("fixed capability capture caller: $($model.RelativePath):$ownerName")
+            }
+            if($commandName -iin @(
+                'Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
+                'Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
+                'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation')){
+                $fixedObservationBoundaryViolations.Add("held current-route fixed-infrastructure observation caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Invoke-SealedHeldCapabilityPreflight'){
                 $fixedCapabilityBoundaryViolations.Add("dynamic raw capability preflight caller: $($model.RelativePath):$ownerName")
@@ -323,10 +497,19 @@ function Invoke-ProductionSeamAnalysis {
         }
         foreach($typeExpression in @($ast.FindAll({param($node)
             $node -is [Management.Automation.Language.TypeExpressionAst] -and
-            @(([string]$node.TypeName.FullName -split '\.'))[-1] -ieq 'SealedFixedInfrastructureCapabilityIssuer'
+            @(([string]$node.TypeName.FullName -split '\.'))[-1] -iin $reviewedSensitiveIssuerTypeShortNames
         },$true))){
             $owner=Get-OwningFunctionDefinition -Node $typeExpression
             $ownerName=if($null -eq $owner){'<script>'}else{[string]$owner.Name}
+            $observedIssuerShortName=@(([string]$typeExpression.TypeName.FullName -split '\.'))[-1]
+            $issuerTypeMatches=@($reviewedSensitiveIssuerTypeNames | Where-Object {
+                @(([string]$_ -split '\.'))[-1] -ieq $observedIssuerShortName
+            })
+            if($issuerTypeMatches.Count -ne 1){
+                $fixedCapabilityBoundaryViolations.Add("issuer type is ambiguous or unreviewed: $($model.RelativePath):$ownerName")
+                continue
+            }
+            $issuerTypeName=[string]$issuerTypeMatches[0]
             $memberCall=$typeExpression.Parent
             if($memberCall -isnot [Management.Automation.Language.InvokeMemberExpressionAst] -or
                 -not [object]::ReferenceEquals($memberCall.Expression,$typeExpression)){
@@ -338,22 +521,63 @@ function Invoke-ProductionSeamAnalysis {
                 continue
             }
             $memberName=[string]$memberCall.Member.Value
-            $issuerSite="$($model.RelativePath)|$ownerName|$memberName"
+            $issuerSite="$issuerTypeName|$($model.RelativePath)|$ownerName|$memberName"
             $issuerInvocationInventory.Add($issuerSite)
+            $issuerTopLevelBinding=if($null -eq $owner){
+                Get-ScriptTopLevelStatementBinding -Node $typeExpression
+            }
+            else {
+                Get-ScriptTopLevelStatementBinding -Node $owner
+            }
+            if($null -eq $issuerTopLevelBinding){
+                $fixedCapabilityBoundaryViolations.Add("issuer owner/statement binding is missing: $issuerSite")
+            }
+            elseif($null -ne $owner -and -not [object]::ReferenceEquals($issuerTopLevelBinding.Ast,$owner)){
+                $fixedCapabilityBoundaryViolations.Add("issuer owner function is not a direct script top-level definition: $issuerSite")
+            }
+            else {
+                $issuerOwnerBindingAst=if($null -eq $owner){$issuerTopLevelBinding.Ast}else{$owner}
+                $issuerOwnerBindingInventory.Add(
+                    "$issuerSite|$($issuerOwnerBindingAst.GetType().Name)|$(Get-TextSha256 -Text $issuerOwnerBindingAst.Extent.Text)")
+            }
             if($issuerSite -cnotin $reviewedIssuerInvocationInventory){
                 $fixedCapabilityBoundaryViolations.Add("unreviewed issuer member access: $issuerSite")
             }
-            if($issuerSite -ceq 'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|InvokeRawExact'){
+            if($issuerSite -ceq 'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldFixedInfrastructureCapabilityCapture|InvokeRawExact'){
                 $rawCapabilityAllowedCallers.Add("$($model.RelativePath):$ownerName")
             }
-            if($issuerSite -ceq 'scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|InvokeProbeExact'){
+            if($issuerSite -ceq 'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/root-claims-registry-common.ps1|Invoke-SealedHeldCapabilityPreflight|InvokeProbeExact'){
                 $probeCapabilityAllowedCallers.Add("$($model.RelativePath):$ownerName")
+            }
+            if($issuerSite -ceq 'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|IssueExact'){
+                $routeCaptureIssuerAllowedCallers.Add("$($model.RelativePath):$ownerName")
             }
         }
         foreach($definition in @($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))){
-            $key=$definition.Name.ToLowerInvariant()
+            $definitionName=[string]$definition.Name
+            if($definitionName.Contains([char]47) -or $definitionName.Contains([char]92) -or
+                $definitionName.Contains([char]58)){
+                $allScriptsCommandQualificationViolations.Add(
+                    "$($model.RelativePath)|$definitionName|qualified function definition is not reviewed: $definitionName")
+            }
+            $definitionAncestor=$definition.Parent
+            $insideScriptBlockExpression=$false
+            while($null -ne $definitionAncestor){
+                if($definitionAncestor -is [Management.Automation.Language.ScriptBlockExpressionAst]){
+                    $insideScriptBlockExpression=$true
+                    break
+                }
+                $definitionAncestor=$definitionAncestor.Parent
+            }
+            if($insideScriptBlockExpression){
+                $allScriptsScriptBlockFunctionDefinitionInventory.Add(
+                    "$($model.RelativePath)|$($definition.Name)|$($definition.Extent.Text)")
+                continue
+            }
+            $normalizedDefinitionName=Get-NormalizedStaticFunctionName -FunctionName $definitionName
+            $key=$normalizedDefinitionName.ToLowerInvariant()
             if(-not $definitions.ContainsKey($key)){$definitions[$key]=[Collections.Generic.List[object]]::new()}
-            $definitions[$key].Add([pscustomobject]@{Name=$definition.Name;RelativePath=[string]$model.RelativePath;Ast=$definition})
+            $definitions[$key].Add([pscustomobject]@{Name=$definitionName;RelativePath=[string]$model.RelativePath;Ast=$definition})
         }
     }
 
@@ -381,13 +605,29 @@ function Invoke-ProductionSeamAnalysis {
         $allScriptsTypeDefinitionViolations.Add(
             "all scripts/**/*.ps1 must retain the reviewed zero TypeDefinitionAst baseline; observed $($allScriptsTypeDefinitionInventory.Count)")
     }
+    $allScriptsScriptBlockFunctionDefinitionInventory=@($allScriptsScriptBlockFunctionDefinitionInventory | Sort-Object -CaseSensitive)
+    if($allScriptsScriptBlockFunctionDefinitionInventory.Count -ne 0){
+        $allScriptsScriptBlockFunctionDefinitionViolations.Add(
+            "all scripts/**/*.ps1 must retain the reviewed zero ScriptBlockExpressionAst FunctionDefinitionAst baseline; observed $($allScriptsScriptBlockFunctionDefinitionInventory.Count)")
+    }
+    $allScriptsLiteralProviderDriveTokenInventory=@($allScriptsLiteralProviderDriveTokenInventory | Sort-Object -CaseSensitive)
+    if($allScriptsLiteralProviderDriveTokenInventory.Count -ne 0){
+        $allScriptsLiteralProviderDriveTokenViolations.Add(
+            "all scripts/**/*.ps1 must retain the reviewed zero literal provider-drive token baseline that supplements direct named CommandAst analysis; observed $($allScriptsLiteralProviderDriveTokenInventory.Count)")
+    }
     $issuerInvocationInventory=@($issuerInvocationInventory | Sort-Object -CaseSensitive)
     if(($issuerInvocationInventory -join "`n") -cne ($reviewedIssuerInvocationInventory -join "`n")){
         $fixedCapabilityBoundaryViolations.Add('reviewed issuer owner/member invocation inventory changed')
     }
+    $issuerOwnerBindingInventory=@($issuerOwnerBindingInventory | Sort-Object -CaseSensitive)
+    if(($issuerOwnerBindingInventory -join "`n") -cne ($reviewedIssuerOwnerBindingInventory -join "`n")){
+        $fixedCapabilityBoundaryViolations.Add('reviewed issuer owner/statement binding inventory changed')
+    }
 
     $fixedCaptureDefinitions=@(if($definitions.ContainsKey('invoke-sealedheldfixedinfrastructurecapabilitycapture')){@($definitions['invoke-sealedheldfixedinfrastructurecapabilitycapture'])})
-    if($fixedCaptureDefinitions.Count -ne 1 -or [string]$fixedCaptureDefinitions[0].RelativePath -cne 'scripts/root-claims-registry-common.ps1'){
+    if($fixedCaptureDefinitions.Count -ne 1 -or
+        [string]$fixedCaptureDefinitions[0].RelativePath -cne 'scripts/root-claims-registry-common.ps1' -or
+        -not (Test-DirectScriptTopLevelFunctionDefinition -Function $fixedCaptureDefinitions[0].Ast)){
         $fixedCapabilityBoundaryViolations.Add('fixed capability capture definition is missing, ambiguous, or outside root-claims-registry-common.ps1')
     }
     if($rawCapabilityAllowedCallers.Count -ne 1){
@@ -396,12 +636,29 @@ function Invoke-ProductionSeamAnalysis {
     if($probeCapabilityAllowedCallers.Count -ne 1){
         $fixedCapabilityBoundaryViolations.Add("exact lower capability issuer allowed caller count is $($probeCapabilityAllowedCallers.Count), expected 1")
     }
+    if($routeCaptureIssuerAllowedCallers.Count -ne 1){
+        $fixedCapabilityBoundaryViolations.Add("exact current-route capture issuer allowed caller count is $($routeCaptureIssuerAllowedCallers.Count), expected 1")
+    }
     $validatorDefinitions=@(if($definitions.ContainsKey('assert-sealedfixedinfrastructurecapabilityevidenceexact')){@($definitions['assert-sealedfixedinfrastructurecapabilityevidenceexact'])})
-    if($validatorDefinitions.Count -ne 1 -or [string]$validatorDefinitions[0].RelativePath -cne 'scripts/root-claims-registry-common.ps1'){
+    if($validatorDefinitions.Count -ne 1 -or
+        [string]$validatorDefinitions[0].RelativePath -cne 'scripts/root-claims-registry-common.ps1' -or
+        -not (Test-DirectScriptTopLevelFunctionDefinition -Function $validatorDefinitions[0].Ast)){
         $fixedCapabilityBoundaryViolations.Add('fixed capability evidence validator definition is missing, ambiguous, or outside root-claims-registry-common.ps1')
     }
     if($validatorAllowedCallers.Count -ne 1){
         $fixedCapabilityBoundaryViolations.Add("fixed capability evidence validator allowed caller count is $($validatorAllowedCallers.Count), expected 1")
+    }
+    foreach($observationFunctionName in @(
+        'Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
+        'Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
+        'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation')){
+        $observationDefinitionKey=$observationFunctionName.ToLowerInvariant()
+        $observationDefinitions=@(if($definitions.ContainsKey($observationDefinitionKey)){@($definitions[$observationDefinitionKey])})
+        if($observationDefinitions.Count -ne 1 -or
+            [string]$observationDefinitions[0].RelativePath -cne 'scripts/root-claims-registry-common.ps1' -or
+            -not (Test-DirectScriptTopLevelFunctionDefinition -Function $observationDefinitions[0].Ast)){
+            $fixedObservationBoundaryViolations.Add("$observationFunctionName definition is missing, ambiguous, or outside root-claims-registry-common.ps1")
+        }
     }
 
     $queue=[Collections.Generic.Queue[string]]::new()
@@ -415,8 +672,15 @@ function Invoke-ProductionSeamAnalysis {
         if($matches.Count -ne 1){$resolutionFailures.Add("ambiguous repository function: $requested ($($matches.Count) definitions)");continue}
         $definition=$matches[0];$closure[$key]=$definition
         foreach($command in @(Get-DirectFunctionNodes -Function $definition.Ast -Predicate {param($node)$node -is [Management.Automation.Language.CommandAst]})){
-            $commandName=$command.GetCommandName()
+            $qualificationViolation=$null
+            $commandName=Get-NormalizedStaticCommandName -CommandName ($command.GetCommandName()) `
+                -AliasMap $reviewedStaticCommandAliasMap `
+                -QualificationViolation ([ref]$qualificationViolation)
             if($null -eq $commandName){continue}
+            if($null -ne $qualificationViolation){
+                $resolutionFailures.Add("unreviewed path or module-qualified closure command: $($definition.Name) -> $commandName")
+                continue
+            }
             $commandKey=$commandName.ToLowerInvariant()
             if($definitions.ContainsKey($commandKey)){
                 $repositoryMatches=@($definitions[$commandKey])
@@ -445,8 +709,15 @@ function Invoke-ProductionSeamAnalysis {
         }
 
         foreach($node in @(Get-DirectFunctionNodes -Function $definition.Ast -Predicate {param($candidate)$candidate -is [Management.Automation.Language.CommandAst]})){
-            $commandName=$node.GetCommandName()
+            $qualificationViolation=$null
+            $commandName=Get-NormalizedStaticCommandName -CommandName ($node.GetCommandName()) `
+                -AliasMap $reviewedStaticCommandAliasMap `
+                -QualificationViolation ([ref]$qualificationViolation)
             if($node.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Dot){$unreviewedSeams.Add("reachable dot invocation: $($definition.Name):$($node.Extent.Text)")}
+            if($null -ne $qualificationViolation){
+                $unreviewedSeams.Add("reachable unreviewed path or module-qualified command: $($definition.Name):$commandName")
+                continue
+            }
             if($null -eq $commandName){
                 $site="DynamicInvocation|$($definition.Name)|$($definition.RelativePath)|$($node.Extent.Text)"
                 $inventory="DynamicInvocation|$($definition.Name)|$($definition.RelativePath)|$(Get-TextSha256 -Text $site)"
@@ -484,18 +755,24 @@ function Invoke-ProductionSeamAnalysis {
     if(-not $exceptionMatches){$unreviewedSeams.Add('reviewed reachable seam inventory or digest changed')}
     $accepted=($parseFailures.Count -eq 0 -and $forbiddenReferences.Count -eq 0 -and $resolutionFailures.Count -eq 0 -and
         $unreviewedSeams.Count -eq 0 -and $fixedCapabilityBoundaryViolations.Count -eq 0 -and
+        $fixedObservationBoundaryViolations.Count -eq 0 -and
+        $allScriptsCommandQualificationViolations.Count -eq 0 -and
         $allScriptsDynamicCommandViolations.Count -eq 0 -and $allScriptsReflectionSensitiveViolations.Count -eq 0 -and
-        $allScriptsUsingStatementViolations.Count -eq 0 -and $allScriptsTypeDefinitionViolations.Count -eq 0)
+        $allScriptsUsingStatementViolations.Count -eq 0 -and $allScriptsTypeDefinitionViolations.Count -eq 0 -and
+        $allScriptsScriptBlockFunctionDefinitionViolations.Count -eq 0 -and $allScriptsLiteralProviderDriveTokenViolations.Count -eq 0)
     return [pscustomobject]@{
         Accepted=$accepted;ParseFailures=@($parseFailures);ForbiddenReferences=@($forbiddenReferences)
         ResolutionFailures=@($resolutionFailures);UnreviewedSeams=@($unreviewedSeams);Closure=@($closureInventory)
         ClosureMatches=$closureMatches;ExceptionInventory=@($exceptionInventory);ExceptionMatches=$exceptionMatches;Definitions=$definitions
         FixedCapabilityBoundaryViolations=@($fixedCapabilityBoundaryViolations);RawCapabilityAllowedCallers=@($rawCapabilityAllowedCallers)
-        ProbeCapabilityAllowedCallers=@($probeCapabilityAllowedCallers);ValidatorAllowedCallers=@($validatorAllowedCallers)
+        FixedObservationBoundaryViolations=@($fixedObservationBoundaryViolations)
+        ProbeCapabilityAllowedCallers=@($probeCapabilityAllowedCallers);RouteCaptureIssuerAllowedCallers=@($routeCaptureIssuerAllowedCallers)
+        ValidatorAllowedCallers=@($validatorAllowedCallers)
         AllScriptsDynamicCommandInventory=@($allScriptsDynamicCommandInventory)
         AllScriptsDynamicCommandDigest=$allScriptsDynamicCommandDigest
         AllScriptsDynamicCommandMatches=$allScriptsDynamicCommandMatches
         AllScriptsDynamicCommandViolations=@($allScriptsDynamicCommandViolations)
+        AllScriptsCommandQualificationViolations=@($allScriptsCommandQualificationViolations)
         AllScriptsReflectionSensitiveInventory=@($allScriptsReflectionSensitiveInventory)
         AllScriptsReflectionSensitiveDigest=$allScriptsReflectionSensitiveDigest
         AllScriptsReflectionSensitiveMatches=$allScriptsReflectionSensitiveMatches
@@ -504,7 +781,12 @@ function Invoke-ProductionSeamAnalysis {
         AllScriptsUsingStatementViolations=@($allScriptsUsingStatementViolations)
         AllScriptsTypeDefinitionInventory=@($allScriptsTypeDefinitionInventory)
         AllScriptsTypeDefinitionViolations=@($allScriptsTypeDefinitionViolations)
+        AllScriptsScriptBlockFunctionDefinitionInventory=@($allScriptsScriptBlockFunctionDefinitionInventory)
+        AllScriptsScriptBlockFunctionDefinitionViolations=@($allScriptsScriptBlockFunctionDefinitionViolations)
+        AllScriptsLiteralProviderDriveTokenInventory=@($allScriptsLiteralProviderDriveTokenInventory)
+        AllScriptsLiteralProviderDriveTokenViolations=@($allScriptsLiteralProviderDriveTokenViolations)
         IssuerInvocationInventory=@($issuerInvocationInventory)
+        IssuerOwnerBindingInventory=@($issuerOwnerBindingInventory)
     }
 }
 
@@ -519,12 +801,18 @@ Assert-TestCondition ($baseline.ResolutionFailures.Count -eq 0) 'every closure c
 Assert-TestCondition $baseline.ExceptionMatches 'reachable ScriptBlock and dynamic invocation exceptions match exact reviewed digests'
 Assert-TestCondition ($baseline.UnreviewedSeams.Count -eq 0) 'closure exposes no new callback, shadow, alias, environment, failpoint, hook, or provider seam'
 Assert-TestCondition $baseline.AllScriptsDynamicCommandMatches 'all scripts/**/*.ps1 dynamic CommandAst sites match the compact reviewed digest'
+Assert-TestCondition ($baseline.AllScriptsCommandQualificationViolations.Count -eq 0) 'all scripts/**/*.ps1 use only unqualified static command names'
 Assert-TestCondition $baseline.AllScriptsReflectionSensitiveMatches 'all scripts/**/*.ps1 reflection and dynamic type/method-resolution sites match the compact reviewed count and digest'
 Assert-TestCondition ($baseline.AllScriptsUsingStatementInventory.Count -eq 0 -and
     $baseline.AllScriptsUsingStatementViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero using-statement baseline'
 Assert-TestCondition ($baseline.AllScriptsTypeDefinitionInventory.Count -eq 0 -and
     $baseline.AllScriptsTypeDefinitionViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero PowerShell type-definition baseline'
-Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture is unconsumed; validator and exact raw/probe issuers have only their reviewed internal callers; issuer type/member inventory is exact'
+Assert-TestCondition ($baseline.AllScriptsScriptBlockFunctionDefinitionInventory.Count -eq 0 -and
+    $baseline.AllScriptsScriptBlockFunctionDefinitionViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero ScriptBlockExpression nested-function baseline'
+Assert-TestCondition ($baseline.AllScriptsLiteralProviderDriveTokenInventory.Count -eq 0 -and
+    $baseline.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero literal provider-drive token baseline alongside direct named CommandAst analysis'
+Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture, route, observation, raw, and probe issuers plus the fixed validator have only their exact reviewed definitions, owners, and members'
+Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route fixed-infrastructure observation APIs are uniquely defined and have zero production callers'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])
@@ -586,6 +874,203 @@ Assert-TestCondition (-not $addTypeMutationResult.Accepted -and
     $addTypeMutationResult.AllScriptsUsingStatementViolations.Count -eq 0 -and
     $addTypeMutationResult.AllScriptsTypeDefinitionViolations.Count -eq 0) 'mutation RED: exact reflection-sensitive CommandAst inventory rejects a new production Add-Type site'
 
+$moduleQualifiedAddTypeMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath 'scripts/internal/neutral-module-add-type.ps1' -Text "Microsoft.PowerShell.Utility\Add-Type -TypeDefinition 'public sealed class NeutralModuleQualifiedDispatchShim {}'")
+Assert-TestCondition (-not $moduleQualifiedAddTypeMutationResult.Accepted -and
+    $moduleQualifiedAddTypeMutationResult.AllScriptsCommandQualificationViolations.Count -eq 1 -and
+    $moduleQualifiedAddTypeMutationResult.AllScriptsReflectionSensitiveMatches -and
+    $moduleQualifiedAddTypeMutationResult.AllScriptsDynamicCommandMatches) 'mutation RED: module-qualified Add-Type is rejected before a same-name function can shadow it'
+
+$moduleQualifiedGetCommandMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath 'scripts/internal/neutral-module-get-command.ps1' -Text 'Microsoft.PowerShell.Core\Get-Command Get-Item | Out-Null')
+Assert-TestCondition (-not $moduleQualifiedGetCommandMutationResult.Accepted -and
+    $moduleQualifiedGetCommandMutationResult.AllScriptsCommandQualificationViolations.Count -eq 1 -and
+    $moduleQualifiedGetCommandMutationResult.AllScriptsReflectionSensitiveMatches -and
+    $moduleQualifiedGetCommandMutationResult.AllScriptsDynamicCommandMatches) 'mutation RED: module-qualified Get-Command is rejected before a same-name function can shadow it'
+
+$invokeExpressionAliasMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath 'scripts/internal/neutral-iex.ps1' -Text "iex 'Write-Output neutral'")
+Assert-TestCondition (-not $invokeExpressionAliasMutationResult.Accepted -and
+    $invokeExpressionAliasMutationResult.AllScriptsReflectionSensitiveViolations.Count -eq 1 -and
+    $invokeExpressionAliasMutationResult.AllScriptsDynamicCommandMatches) 'mutation RED: fixed Invoke-Expression alias cannot bypass normalized reflection inventory'
+
+$moduleQualifiedMemberDispatchMutation=@'
+$neutralBlock={ 'neutral' }
+$dispatch=@{MemberName='InvokeWithContext';ArgumentList=@($null,$null,[object[]]@())}
+$neutralBlock | Microsoft.PowerShell.Core\ForEach-Object @dispatch | Out-Null
+'@
+$moduleQualifiedMemberDispatchMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath 'scripts/internal/neutral-module-member-dispatch.ps1' -Text $moduleQualifiedMemberDispatchMutation)
+Assert-TestCondition (-not $moduleQualifiedMemberDispatchMutationResult.Accepted -and
+    $moduleQualifiedMemberDispatchMutationResult.AllScriptsCommandQualificationViolations.Count -eq 1 -and
+    $moduleQualifiedMemberDispatchMutationResult.AllScriptsReflectionSensitiveMatches -and
+    $moduleQualifiedMemberDispatchMutationResult.AllScriptsDynamicCommandMatches) 'mutation RED: module-qualified splatted member dispatch is rejected before a same-name function can shadow it'
+
+$relativePathCommandMutation=Add-CallToFunctionSource `
+    -Source ([string]$mutationBase.Text) `
+    -FileName $mutationBase.RelativePath `
+    -FunctionName 'Initialize-CanonicalRecoveryWorkspace' `
+    -Call '.\Test-Path -LiteralPath $RepoRoot | Out-Null'
+$relativePathCommandMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $mutationBase.RelativePath -Text $relativePathCommandMutation)
+Assert-TestCondition (-not $relativePathCommandMutationResult.Accepted -and
+    @($relativePathCommandMutationResult.AllScriptsCommandQualificationViolations | Where-Object {$_ -match [regex]::Escape('.\Test-Path')}).Count -eq 1 -and
+    @($relativePathCommandMutationResult.ResolutionFailures | Where-Object {$_ -match [regex]::Escape('Initialize-CanonicalRecoveryWorkspace -> .\Test-Path')}).Count -eq 1 -and
+    @($relativePathCommandMutationResult.UnreviewedSeams | Where-Object {$_ -match [regex]::Escape('Initialize-CanonicalRecoveryWorkspace:.\Test-Path')}).Count -eq 1) 'mutation RED: a reachable relative-path command cannot normalize to a reviewed Test-Path leaf'
+
+$unknownModuleCommandMutation=Add-CallToFunctionSource `
+    -Source ([string]$mutationBase.Text) `
+    -FileName $mutationBase.RelativePath `
+    -FunctionName 'Initialize-CanonicalRecoveryWorkspace' `
+    -Call 'EvilModule\Test-Path -LiteralPath $RepoRoot | Out-Null'
+$unknownModuleCommandMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $mutationBase.RelativePath -Text $unknownModuleCommandMutation)
+Assert-TestCondition (-not $unknownModuleCommandMutationResult.Accepted -and
+    @($unknownModuleCommandMutationResult.AllScriptsCommandQualificationViolations | Where-Object {$_ -match [regex]::Escape('EvilModule\Test-Path')}).Count -eq 1 -and
+    @($unknownModuleCommandMutationResult.ResolutionFailures | Where-Object {$_ -match [regex]::Escape('Initialize-CanonicalRecoveryWorkspace -> EvilModule\Test-Path')}).Count -eq 1 -and
+    @($unknownModuleCommandMutationResult.UnreviewedSeams | Where-Object {$_ -match [regex]::Escape('Initialize-CanonicalRecoveryWorkspace:EvilModule\Test-Path')}).Count -eq 1) 'mutation RED: an unknown module qualifier cannot normalize to a reviewed Test-Path leaf'
+
+$reviewedModuleCommandMutation=Add-CallToFunctionSource `
+    -Source ([string]$mutationBase.Text) `
+    -FileName $mutationBase.RelativePath `
+    -FunctionName 'Initialize-CanonicalRecoveryWorkspace' `
+    -Call 'Microsoft.PowerShell.Management\Test-Path -LiteralPath $RepoRoot | Out-Null'
+$reviewedModuleCommandMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $mutationBase.RelativePath -Text $reviewedModuleCommandMutation)
+Assert-TestCondition (-not $reviewedModuleCommandMutationResult.Accepted -and
+    @($reviewedModuleCommandMutationResult.AllScriptsCommandQualificationViolations | Where-Object {
+        $_ -match [regex]::Escape('Microsoft.PowerShell.Management\Test-Path')
+    }).Count -eq 1 -and
+    @($reviewedModuleCommandMutationResult.ResolutionFailures | Where-Object {
+        $_ -match [regex]::Escape('Initialize-CanonicalRecoveryWorkspace -> Microsoft.PowerShell.Management\Test-Path')
+    }).Count -eq 1 -and
+    @($reviewedModuleCommandMutationResult.UnreviewedSeams | Where-Object {
+        $_ -match [regex]::Escape('Initialize-CanonicalRecoveryWorkspace:Microsoft.PowerShell.Management\Test-Path')
+    }).Count -eq 1) 'mutation RED: even a standard module-qualified command is rejected because a same-name function can shadow it'
+
+$moduleQualifiedFunctionShadowMutation=$reviewedModuleCommandMutation+@'
+
+function Microsoft.PowerShell.Management\Test-Path {
+    param([string]$LiteralPath)
+    return $true
+}
+'@
+$moduleQualifiedFunctionShadowMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $mutationBase.RelativePath -Text $moduleQualifiedFunctionShadowMutation)
+Assert-TestCondition (-not $moduleQualifiedFunctionShadowMutationResult.Accepted -and
+    $moduleQualifiedFunctionShadowMutationResult.ParseFailures.Count -eq 0 -and
+    @($moduleQualifiedFunctionShadowMutationResult.AllScriptsCommandQualificationViolations | Where-Object {
+        $_ -match 'qualified or path command is not reviewed: Microsoft\.PowerShell\.Management\\Test-Path$'
+    }).Count -eq 1 -and
+    @($moduleQualifiedFunctionShadowMutationResult.AllScriptsCommandQualificationViolations | Where-Object {
+        $_ -match 'qualified function definition is not reviewed: Microsoft\.PowerShell\.Management\\Test-Path$'
+    }).Count -eq 1) 'mutation RED: a standard module-qualified call plus its exact same-name function shadow are both rejected'
+
+$scopeQualifiedBuiltInMutation=Add-CallToFunctionSource `
+    -Source ([string]$mutationBase.Text) `
+    -FileName $mutationBase.RelativePath `
+    -FunctionName 'Initialize-CanonicalRecoveryWorkspace' `
+    -Call 'global:Test-Path -LiteralPath $RepoRoot | Out-Null'
+$scopeQualifiedBuiltInMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $mutationBase.RelativePath -Text $scopeQualifiedBuiltInMutation)
+Assert-TestCondition (-not $scopeQualifiedBuiltInMutationResult.Accepted -and
+    @($scopeQualifiedBuiltInMutationResult.AllScriptsCommandQualificationViolations | Where-Object {
+        $_ -match [regex]::Escape('global:Test-Path')
+    }).Count -eq 1 -and
+    @($scopeQualifiedBuiltInMutationResult.ResolutionFailures | Where-Object {
+        $_ -match [regex]::Escape('Initialize-CanonicalRecoveryWorkspace -> global:Test-Path')
+    }).Count -eq 1 -and
+    @($scopeQualifiedBuiltInMutationResult.UnreviewedSeams | Where-Object {
+        $_ -match [regex]::Escape('Initialize-CanonicalRecoveryWorkspace:global:Test-Path')
+    }).Count -eq 1) 'mutation RED: scope-qualified built-in syntax is rejected before a global function can shadow it'
+
+$rootClaimsModel=@($sources | Where-Object RelativePath -ceq 'scripts/root-claims-registry-common.ps1')[0]
+$fixedEnvelopeCoreOffset=([string]$rootClaimsModel.Text).IndexOf('$sealedHeldCurrentRouteFixedEnvelopeOpenCore={',[StringComparison]::Ordinal)
+$fixedEnvelopeValidatorText='    $null=Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $AuthorityContext'
+$fixedEnvelopeValidatorOffset=if($fixedEnvelopeCoreOffset -lt 0){-1}else{([string]$rootClaimsModel.Text).IndexOf($fixedEnvelopeValidatorText,$fixedEnvelopeCoreOffset,[StringComparison]::Ordinal)}
+if($fixedEnvelopeValidatorOffset -lt 0){throw 'fixed-envelope nested-shadow mutation marker is missing'}
+$nestedShadowDefinition=@'
+    function Assert-SealedHomeAuthorityBootstrapContext {
+        param($AuthorityContext)
+        return $AuthorityContext
+    }
+'@
+$sourceNewline=if(([string]$rootClaimsModel.Text).Contains("`r`n")){"`r`n"}else{"`n"}
+$nestedFunctionShadowMutation=([string]$rootClaimsModel.Text).Insert(
+    $fixedEnvelopeValidatorOffset,$nestedShadowDefinition+$sourceNewline)
+$nestedFunctionShadowMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $rootClaimsModel.RelativePath -Text $nestedFunctionShadowMutation)
+Assert-TestCondition (-not $nestedFunctionShadowMutationResult.Accepted -and
+    $nestedFunctionShadowMutationResult.AllScriptsScriptBlockFunctionDefinitionInventory.Count -eq 1 -and
+    $nestedFunctionShadowMutationResult.AllScriptsScriptBlockFunctionDefinitionViolations.Count -eq 1 -and
+    $nestedFunctionShadowMutationResult.AllScriptsDynamicCommandMatches -and
+    $nestedFunctionShadowMutationResult.AllScriptsReflectionSensitiveMatches) 'mutation RED: nested function definition cannot shadow a fixed-envelope safety validator'
+
+$scopeQualifiedObservationDefinitionMutation=([string]$rootClaimsModel.Text)+@'
+
+function script:Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation {
+    'shadowed'
+}
+'@
+$scopeQualifiedObservationDefinitionMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $rootClaimsModel.RelativePath -Text $scopeQualifiedObservationDefinitionMutation)
+Assert-TestCondition (-not $scopeQualifiedObservationDefinitionMutationResult.Accepted -and
+    @($scopeQualifiedObservationDefinitionMutationResult.FixedObservationBoundaryViolations | Where-Object {
+        $_ -ceq 'Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation definition is missing, ambiguous, or outside root-claims-registry-common.ps1'
+    }).Count -eq 1 -and
+    $scopeQualifiedObservationDefinitionMutationResult.AllScriptsScriptBlockFunctionDefinitionViolations.Count -eq 0 -and
+    $scopeQualifiedObservationDefinitionMutationResult.AllScriptsDynamicCommandMatches -and
+    $scopeQualifiedObservationDefinitionMutationResult.AllScriptsReflectionSensitiveMatches) 'mutation RED: scope-qualified function definition cannot shadow a protected observation API'
+
+$routeBeginIssuerMarker='    $routeOpenOperation = [AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::BeginOpenExact()'
+if(([regex]::Matches([string]$rootClaimsModel.Text,[regex]::Escape($routeBeginIssuerMarker))).Count -ne 1){
+    throw 'route issuer relocation mutation marker is not unique'
+}
+$routeIssuerRelocationMutation=([string]$rootClaimsModel.Text).Replace(
+    $routeBeginIssuerMarker,
+    "    `$routeOpenOperation = `$null`n    if(`$false){`n$routeBeginIssuerMarker`n    }")
+$routeIssuerRelocationMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $rootClaimsModel.RelativePath -Text $routeIssuerRelocationMutation)
+Assert-TestCondition (-not $routeIssuerRelocationMutationResult.Accepted -and
+    ($routeIssuerRelocationMutationResult.IssuerInvocationInventory -join "`n") -ceq ($reviewedIssuerInvocationInventory -join "`n") -and
+    @($routeIssuerRelocationMutationResult.FixedCapabilityBoundaryViolations | Where-Object {
+        $_ -ceq 'reviewed issuer owner/statement binding inventory changed'
+    }).Count -eq 1 -and
+    $routeIssuerRelocationMutationResult.AllScriptsDynamicCommandMatches -and
+    $routeIssuerRelocationMutationResult.AllScriptsReflectionSensitiveMatches) 'mutation RED: issuer call relocation into a dead function branch changes the bound owner digest'
+
+$rootClaimsTokens=$null;$rootClaimsParseErrors=$null
+$rootClaimsAst=[Management.Automation.Language.Parser]::ParseInput(
+    [string]$rootClaimsModel.Text,$rootClaimsModel.RelativePath,[ref]$rootClaimsTokens,[ref]$rootClaimsParseErrors)
+if(@($rootClaimsParseErrors).Count -ne 0){throw 'root-claims source is not parseable for script issuer relocation mutation'}
+$routeOpenDefinitions=@($rootClaimsAst.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    [string]$node.Name -ceq 'Open-SealedRegistryCurrentRouteCapture'
+},$true))
+if($routeOpenDefinitions.Count -ne 1){throw 'route owner definition relocation mutation target is not unique'}
+$routeOwnerDefinitionRelocationMutation=([string]$rootClaimsModel.Text).Insert(
+    $routeOpenDefinitions[0].Extent.EndOffset,$sourceNewline+'}').Insert(
+    $routeOpenDefinitions[0].Extent.StartOffset,'if($false){'+$sourceNewline)
+$routeOwnerDefinitionRelocationMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $rootClaimsModel.RelativePath -Text $routeOwnerDefinitionRelocationMutation)
+Assert-TestCondition (-not $routeOwnerDefinitionRelocationMutationResult.Accepted -and
+    ($routeOwnerDefinitionRelocationMutationResult.IssuerInvocationInventory -join "`n") -ceq ($reviewedIssuerInvocationInventory -join "`n") -and
+    @($routeOwnerDefinitionRelocationMutationResult.FixedCapabilityBoundaryViolations | Where-Object {
+        $_ -ceq 'issuer owner function is not a direct script top-level definition: AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|BeginOpenExact'
+    }).Count -eq 1 -and
+    $routeOwnerDefinitionRelocationMutationResult.AllScriptsDynamicCommandMatches -and
+    $routeOwnerDefinitionRelocationMutationResult.AllScriptsReflectionSensitiveMatches) 'mutation RED: a reviewed issuer owner function cannot be relocated wholesale into a dead script branch'
+
+$fixedIssuerInitializeExpressions=@($rootClaimsAst.FindAll({param($node)
+    $node -is [Management.Automation.Language.TypeExpressionAst] -and
+    [string]$node.TypeName.FullName -ceq 'AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer' -and
+    $node.Parent -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $node.Parent.Member -is [Management.Automation.Language.StringConstantExpressionAst] -and
+    [string]$node.Parent.Member.Value -ceq 'InitializeExact' -and
+    $null -eq (Get-OwningFunctionDefinition -Node $node)
+},$true))
+if($fixedIssuerInitializeExpressions.Count -ne 1){throw 'script issuer relocation mutation target is not unique'}
+$fixedIssuerInitializeStatement=Get-MinimalTopLevelStatementAst -Node $fixedIssuerInitializeExpressions[0]
+if($null -eq $fixedIssuerInitializeStatement){throw 'script issuer relocation mutation has no top-level statement'}
+$scriptIssuerRelocationMutation=([string]$rootClaimsModel.Text).Insert(
+    $fixedIssuerInitializeStatement.Extent.EndOffset,$sourceNewline+'}').Insert(
+    $fixedIssuerInitializeStatement.Extent.StartOffset,'if($false){'+$sourceNewline)
+$scriptIssuerRelocationMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $rootClaimsModel.RelativePath -Text $scriptIssuerRelocationMutation)
+Assert-TestCondition (-not $scriptIssuerRelocationMutationResult.Accepted -and
+    ($scriptIssuerRelocationMutationResult.IssuerInvocationInventory -join "`n") -ceq ($reviewedIssuerInvocationInventory -join "`n") -and
+    @($scriptIssuerRelocationMutationResult.FixedCapabilityBoundaryViolations | Where-Object {
+        $_ -ceq 'reviewed issuer owner/statement binding inventory changed'
+    }).Count -eq 1 -and
+    $scriptIssuerRelocationMutationResult.AllScriptsDynamicCommandMatches -and
+    $scriptIssuerRelocationMutationResult.AllScriptsReflectionSensitiveMatches) 'mutation RED: script issuer call relocation changes the bound top-level statement digest'
+
 $syncApplyModel=@($sources | Where-Object RelativePath -ceq 'scripts/sync.ps1')[0]
 $applyMarkerMatches=[regex]::Matches([string]$syncApplyModel.Text,'(?m)^# Apply\r?$')
 if($applyMarkerMatches.Count -ne 1){throw 'sync Apply mutation marker is not unique'}
@@ -597,6 +1082,86 @@ $fixedCapabilityApplyMutation=[regex]::Replace(
 $fixedCapabilityApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $fixedCapabilityApplyMutation)
 Assert-TestCondition (-not $fixedCapabilityApplyMutationResult.Accepted -and
     @($fixedCapabilityApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq 'fixed capability capture caller: scripts/sync.ps1:<script>'}).Count -eq 1) 'mutation RED: recursive all-scripts guard rejects fixed capability capture injected into the production Apply branch'
+
+$fixedObservationApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`nOpen-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -CurrentRouteCapture `$currentRouteCapture -CapabilityProbeBindings `$bindings | Out-Null",
+    1)
+$fixedObservationApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $fixedObservationApplyMutation)
+Assert-TestCondition (-not $fixedObservationApplyMutationResult.Accepted -and
+    @($fixedObservationApplyMutationResult.FixedObservationBoundaryViolations | Where-Object {
+        $_ -ceq 'held current-route fixed-infrastructure observation caller: scripts/sync.ps1:<script>:Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation'
+    }).Count -eq 1) 'mutation RED: recursive all-scripts guard rejects opening a held observation from the production Apply branch'
+
+$scopeQualifiedObservationApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`nscript:Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -CurrentRouteCapture `$currentRouteCapture -CapabilityProbeBindings `$bindings | Out-Null",
+    1)
+$scopeQualifiedObservationApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $scopeQualifiedObservationApplyMutation)
+Assert-TestCondition (-not $scopeQualifiedObservationApplyMutationResult.Accepted -and
+    @($scopeQualifiedObservationApplyMutationResult.AllScriptsCommandQualificationViolations | Where-Object {
+        $_ -match [regex]::Escape('script:Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation')
+    }).Count -eq 1 -and
+    $scopeQualifiedObservationApplyMutationResult.FixedObservationBoundaryViolations.Count -eq 0 -and
+    $scopeQualifiedObservationApplyMutationResult.AllScriptsDynamicCommandMatches) 'mutation RED: scope-qualified observation call is rejected before provider or function shadow resolution'
+
+$aliasedObservationApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`nSet-Alias -Name NeutralObservationOpen -Value Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation`nNeutralObservationOpen -CurrentRouteCapture `$currentRouteCapture -CapabilityProbeBindings `$bindings | Out-Null",
+    1)
+$aliasedObservationApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $aliasedObservationApplyMutation)
+Assert-TestCondition (-not $aliasedObservationApplyMutationResult.Accepted -and
+    $aliasedObservationApplyMutationResult.AllScriptsReflectionSensitiveViolations.Count -eq 1 -and
+    $aliasedObservationApplyMutationResult.AllScriptsDynamicCommandMatches -and
+    $aliasedObservationApplyMutationResult.FixedObservationBoundaryViolations.Count -eq 0) 'mutation RED: alias creation cannot hide an observation API call'
+
+$providerAliasedObservationApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`nSet-Item Alias:NeutralObservationOpen -Value Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation`nSet-Item Function:NeutralObservationShadow -Value { 'neutral' }`nNeutralObservationOpen -CurrentRouteCapture `$currentRouteCapture -CapabilityProbeBindings `$bindings | Out-Null",
+    1)
+$providerAliasedObservationApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $providerAliasedObservationApplyMutation)
+Assert-TestCondition (-not $providerAliasedObservationApplyMutationResult.Accepted -and
+    $providerAliasedObservationApplyMutationResult.AllScriptsLiteralProviderDriveTokenInventory.Count -eq 2 -and
+    $providerAliasedObservationApplyMutationResult.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 1 -and
+    $providerAliasedObservationApplyMutationResult.AllScriptsDynamicCommandMatches -and
+    $providerAliasedObservationApplyMutationResult.AllScriptsReflectionSensitiveMatches -and
+    $providerAliasedObservationApplyMutationResult.FixedObservationBoundaryViolations.Count -eq 0) 'mutation RED: contiguous literal Alias:/Function: provider-drive tokens cannot hide an observation API call from direct named CommandAst analysis'
+
+$providerVariableAliasedObservationApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`n`$alias:NeutralObservationOpen = 'Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation'`n`${function:NeutralObservationShadow} = { 'neutral' }`nNeutralObservationOpen -CurrentRouteCapture `$currentRouteCapture -CapabilityProbeBindings `$bindings | Out-Null",
+    1)
+$providerVariableAliasedObservationApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $providerVariableAliasedObservationApplyMutation)
+$expectedProviderVariableInventory=@(
+    'VariableExpressionAst|scripts/sync.ps1|<script>|$alias:NeutralObservationOpen'
+    'VariableExpressionAst|scripts/sync.ps1|<script>|${function:NeutralObservationShadow}'
+) | Sort-Object -CaseSensitive
+Assert-TestCondition (-not $providerVariableAliasedObservationApplyMutationResult.Accepted -and
+    ($providerVariableAliasedObservationApplyMutationResult.AllScriptsLiteralProviderDriveTokenInventory -join "`n") -ceq ($expectedProviderVariableInventory -join "`n") -and
+    $providerVariableAliasedObservationApplyMutationResult.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 1 -and
+    $providerVariableAliasedObservationApplyMutationResult.AllScriptsDynamicCommandMatches -and
+    $providerVariableAliasedObservationApplyMutationResult.AllScriptsReflectionSensitiveMatches -and
+    $providerVariableAliasedObservationApplyMutationResult.FixedObservationBoundaryViolations.Count -eq 0) 'mutation RED: drive-qualified $alias:name and ${function:name} VariableExpressionAst forms cannot hide an observation API call from direct named CommandAst analysis'
+
+foreach($observationMutation in @(
+    [pscustomobject]@{Name='assert';Command='Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $observation | Out-Null';Expected='Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation'},
+    [pscustomobject]@{Name='close';Command='Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $observation | Out-Null';Expected='Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation'}
+)){
+    $observationLifecycleApplyMutation=[regex]::Replace(
+        [string]$syncApplyModel.Text,
+        '(?m)^# Apply\r?$',
+        "# Apply`n$([string]$observationMutation.Command)",
+        1)
+    $observationLifecycleApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $observationLifecycleApplyMutation)
+    $expectedObservationLifecycleViolation="held current-route fixed-infrastructure observation caller: scripts/sync.ps1:<script>:$([string]$observationMutation.Expected)"
+    Assert-TestCondition (-not $observationLifecycleApplyMutationResult.Accepted -and
+        @($observationLifecycleApplyMutationResult.FixedObservationBoundaryViolations | Where-Object {$_ -ceq $expectedObservationLifecycleViolation}).Count -eq 1) "mutation RED: recursive all-scripts guard rejects observation $([string]$observationMutation.Name) from the production Apply branch"
+}
 
 $rawCapabilityApplyMutation=[regex]::Replace(
     [string]$syncApplyModel.Text,
@@ -614,7 +1179,25 @@ $exactRawIssuerApplyMutation=[regex]::Replace(
     1)
 $exactRawIssuerApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $exactRawIssuerApplyMutation)
 Assert-TestCondition (-not $exactRawIssuerApplyMutationResult.Accepted -and
-    @($exactRawIssuerApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq 'unreviewed issuer member access: scripts/sync.ps1|<script>|iNvOkErAwExAcT'}).Count -eq 1) 'mutation RED: case variants of exact raw issuer invocation are accepted only inside the fixed capture function'
+    @($exactRawIssuerApplyMutationResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq 'unreviewed issuer member access: AiAgentDotfiles.SealedFixedInfrastructureCapabilityIssuer|scripts/sync.ps1|<script>|iNvOkErAwExAcT'}).Count -eq 1) 'mutation RED: case variants of exact raw issuer invocation are accepted only inside the fixed capture function'
+
+foreach($issuerApplyMutation in @(
+    [pscustomobject]@{
+        Name='observation broker access'
+        Text="# Apply`n[AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::oPeNoBsErVaTiOnExAcT(`$route,`$bindings) | Out-Null"
+        Expected='unreviewed issuer member access: AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/sync.ps1|<script>|oPeNoBsErVaTiOnExAcT'
+    },
+    [pscustomobject]@{
+        Name='current-route issuance'
+        Text="# Apply`n[AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer]::iSsUeExAcT() | Out-Null"
+        Expected='unreviewed issuer member access: AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/sync.ps1|<script>|iSsUeExAcT'
+    }
+)){
+    $directIssuerApplyText=[regex]::Replace([string]$syncApplyModel.Text,'(?m)^# Apply\r?$',[string]$issuerApplyMutation.Text,1)
+    $directIssuerApplyResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $directIssuerApplyText)
+    Assert-TestCondition (-not $directIssuerApplyResult.Accepted -and
+        @($directIssuerApplyResult.FixedCapabilityBoundaryViolations | Where-Object {$_ -ceq [string]$issuerApplyMutation.Expected}).Count -eq 1) "mutation RED: direct $([string]$issuerApplyMutation.Name) is rejected outside its exact reviewed owner"
+}
 
 $dynamicRawApplyMutation=[regex]::Replace(
     [string]$syncApplyModel.Text,
@@ -685,9 +1268,13 @@ if($script:fail -ne 0){
     if($baseline.ResolutionFailures.Count -gt 0){Write-Host ($baseline.ResolutionFailures -join "`n") -ForegroundColor DarkRed}
     if($baseline.UnreviewedSeams.Count -gt 0){Write-Host ($baseline.UnreviewedSeams -join "`n") -ForegroundColor DarkRed}
     if($baseline.FixedCapabilityBoundaryViolations.Count -gt 0){Write-Host ($baseline.FixedCapabilityBoundaryViolations -join "`n") -ForegroundColor DarkRed}
+    if($baseline.FixedObservationBoundaryViolations.Count -gt 0){Write-Host ($baseline.FixedObservationBoundaryViolations -join "`n") -ForegroundColor DarkRed}
+    if($baseline.AllScriptsCommandQualificationViolations.Count -gt 0){Write-Host ($baseline.AllScriptsCommandQualificationViolations -join "`n") -ForegroundColor DarkRed}
     if($baseline.AllScriptsDynamicCommandViolations.Count -gt 0){Write-Host ($baseline.AllScriptsDynamicCommandViolations -join "`n") -ForegroundColor DarkRed}
     if($baseline.AllScriptsReflectionSensitiveViolations.Count -gt 0){Write-Host ($baseline.AllScriptsReflectionSensitiveViolations -join "`n") -ForegroundColor DarkRed}
     if($baseline.AllScriptsUsingStatementViolations.Count -gt 0){Write-Host ($baseline.AllScriptsUsingStatementViolations -join "`n") -ForegroundColor DarkRed}
     if($baseline.AllScriptsTypeDefinitionViolations.Count -gt 0){Write-Host ($baseline.AllScriptsTypeDefinitionViolations -join "`n") -ForegroundColor DarkRed}
+    if($baseline.AllScriptsScriptBlockFunctionDefinitionViolations.Count -gt 0){Write-Host ($baseline.AllScriptsScriptBlockFunctionDefinitionViolations -join "`n") -ForegroundColor DarkRed}
+    if($baseline.AllScriptsLiteralProviderDriveTokenViolations.Count -gt 0){Write-Host ($baseline.AllScriptsLiteralProviderDriveTokenViolations -join "`n") -ForegroundColor DarkRed}
     exit 1
 }
