@@ -137,10 +137,14 @@ function Invoke-HardKillRetainedPartialPreimageFixture {
     $partialPrimary=$null
     $partialCleanupErrors=[Collections.Generic.List[Exception]]::new()
     try{
-        $workspaceHandles=Open-SafeDirectoryContainmentChain -Path $partialParentPath
+        $workspaceHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $partialParentPath -OwnershipReceiver $workspaceHandlesReceiver
+        $workspaceHandles = $workspaceHandlesReceiver.GetDeliveredExact()
         $workspaceHandle=$workspaceHandles[$workspaceHandles.Count-1]
         if([string]$workspaceHandle.Info.Identity -cne [string]$preimageWorkspaceRecords[1].Data.CreatedIdentity){throw 'retained partial preimage workspace identity differs from the durable record'}
-        $sourceHandles=Open-SafeDirectoryContainmentChain -Path $sourceParentPath
+        $sourceHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $sourceParentPath -OwnershipReceiver $sourceHandlesReceiver
+        $sourceHandles = $sourceHandlesReceiver.GetDeliveredExact()
         $sourceParentHandle=$sourceHandles[$sourceHandles.Count-1]
         $sourceCapture=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($sourceParentHandle,$sourceLeaf)
         if([string]$sourceCapture.Info.Identity -cne [string]$targetState.Identity -or [string]$sourceCapture.ReadResult.Sha256 -cne [string]$targetState.Hash){throw 'retained partial preimage source differs from the durable target tuple'}

@@ -279,7 +279,9 @@ function Open-ApprovedRunnerHeldFile {
     $parentHandles = $null
     $fileHandle = $null
     try {
-        $parentHandles = Open-SafeDirectoryContainmentChain -Path $parent
+        $parentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $parent -OwnershipReceiver $parentHandlesReceiver
+        $parentHandles = $parentHandlesReceiver.GetDeliveredExact()
         $fileHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($parentHandles[$parentHandles.Count - 1], $leaf)
         $bytes = [AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($fileHandle, $MaximumBytes)
         return [pscustomobject][ordered]@{
@@ -732,7 +734,9 @@ function Publish-ApprovedHookEntry {
             if ([string] $sourceCapture.Sha256 -cne [string] $row[0].Sha256 -or [long] $sourceCapture.Length -ne [long] $row[0].Length) {
                 throw 'runner-review-required: approved hook entry is not bound by state.'
             }
-            $destinationHandles = Open-SafeDirectoryContainmentChain -Path $context.CommonPrivateRoot
+            $destinationHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path $context.CommonPrivateRoot -OwnershipReceiver $destinationHandlesReceiver
+            $destinationHandles = $destinationHandlesReceiver.GetDeliveredExact()
             $copy = [AiAgentDotfiles.NoFollowFile]::CopyHeldRegularFile($sourceCapture.FileHandle, $destinationHandles[$destinationHandles.Count - 1], [System.IO.Path]::GetFileName($temp))
             if ([string] $copy.Identity -cne [string] $sourceCapture.Identity -or
                 [long] $copy.Length -ne [long] $sourceCapture.Length -or

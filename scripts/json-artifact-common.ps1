@@ -635,7 +635,9 @@ function Read-PinnedToolLockCapture {
     $full=[IO.Path]::GetFullPath($Path)
     $parents=$null;$handle=$null
     try{
-        $parents=Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $full)
+        $parentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $full) -OwnershipReceiver $parentsReceiver
+        $parents=$parentsReceiver.GetDeliveredExact()
         $handle=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($parents[$parents.Count-1],[IO.Path]::GetFileName($full))
         $bytes=[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($handle,$script:JsonArtifactMaximumBytes)
         $document=ConvertFrom-SemanticJson -Json ([Text.UTF8Encoding]::new($false,$true).GetString($bytes))
@@ -765,7 +767,9 @@ function Open-PinnedToolLease {
     $executableHandle = $null
     $lease = $null
     try {
-        $lockParentHandles = Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $lockFull)
+        $lockParentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $lockFull) -OwnershipReceiver $lockParentHandlesReceiver
+        $lockParentHandles = $lockParentHandlesReceiver.GetDeliveredExact()
         $lockHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($lockParentHandles[$lockParentHandles.Count - 1], [IO.Path]::GetFileName($lockFull))
         $lockBytes = [AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($lockHandle, $script:JsonArtifactMaximumBytes)
         $lock = ConvertFrom-SemanticJson -Json ([Text.UTF8Encoding]::new($false,$true).GetString($lockBytes))
@@ -774,11 +778,11 @@ function Open-PinnedToolLease {
         }
         if ([long]$lock.SchemaVersion -ne 1 -or [string]$lock.AssetSha256 -cnotmatch '^[0-9a-f]{64}$' -or [string]$lock.ExecutableSha256 -cnotmatch '^[0-9a-f]{64}$') { throw "Pinned tool lock is invalid: $lockFull" }
         $paths = Get-PinnedToolPaths -Lock $lock -CacheRoot $CacheRoot
-        try { $archiveParentHandles = Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $paths.Archive) }
+        try { $archiveParentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new(); Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $paths.Archive) -OwnershipReceiver $archiveParentHandlesReceiver; $archiveParentHandles = $archiveParentHandlesReceiver.GetDeliveredExact() }
         catch { throw "Pinned $($lock.ToolKind) is not installed: $($paths.Archive)" }
         $archiveHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($archiveParentHandles[$archiveParentHandles.Count - 1], [IO.Path]::GetFileName($paths.Archive))
         if ([string]$archiveHandle.ReadResult.Sha256 -cne [string]$lock.AssetSha256) { throw "Pinned $($lock.ToolKind) archive hash mismatch." }
-        try { $executableParentHandles = Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $paths.Executable) }
+        try { $executableParentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new(); Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $paths.Executable) -OwnershipReceiver $executableParentHandlesReceiver; $executableParentHandles = $executableParentHandlesReceiver.GetDeliveredExact() }
         catch { throw "Pinned $($lock.ToolKind) is not installed: $($paths.Executable)" }
         $executableHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($executableParentHandles[$executableParentHandles.Count - 1], [IO.Path]::GetFileName($paths.Executable))
         if ([string]$executableHandle.ReadResult.Sha256 -cne [string]$lock.ExecutableSha256) { throw "Pinned $($lock.ToolKind) executable hash mismatch." }
@@ -997,7 +1001,9 @@ function Read-ExactJsonArtifactCapture {
     $directoryHandles = $null
     $fileHandle = $null
     try {
-        $directoryHandles = Open-SafeDirectoryContainmentChain -Path $parentPath
+        $directoryHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $parentPath -OwnershipReceiver $directoryHandlesReceiver
+        $directoryHandles = $directoryHandlesReceiver.GetDeliveredExact()
         if ($directoryHandles.Count -eq 0) { throw "Unable to hold the JSON artifact parent directory: $parentPath" }
         $fileHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($directoryHandles[$directoryHandles.Count - 1], $leafName)
         if ([string] $fileHandle.Info.Identity -cne [string] $evidence.Identity -or [long] $fileHandle.Info.Length -ne [long] $evidence.Length) {
@@ -1091,7 +1097,9 @@ function New-HeldJsonSchemaCopy {
     $succeeded = $false
     $failure = $null
     try {
-        $parentHandles = Open-SafeDirectoryContainmentChain -Path $tempParentPath
+        $parentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $tempParentPath -OwnershipReceiver $parentHandlesReceiver
+        $parentHandles = $parentHandlesReceiver.GetDeliveredExact()
         if ($parentHandles.Count -eq 0) { throw 'Unable to hold the temporary root containment chain.' }
         $directoryName = 'ai-agent-dotfiles-schema-copy-' + [Guid]::NewGuid().ToString('N')
         $directoryHandle = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectory($parentHandles[$parentHandles.Count - 1], $directoryName)

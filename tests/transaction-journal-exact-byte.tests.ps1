@@ -486,7 +486,9 @@ try {
     $batchCaptureParents=$null;$batchValidHandle=$null;$batchInvalidHandle=$null
     $batchWrongSchemaRejected=$false;$batchMixedError=$null;$batchUnknownError=$null;$batchUnknownResidueNames=@();$batchUnknownResidueChildren=@()
     try{
-        $batchCaptureParents=Open-SafeDirectoryContainmentChain -Path $batchCaptureRoot
+        $batchCaptureParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $batchCaptureRoot -OwnershipReceiver $batchCaptureParentsReceiver
+        $batchCaptureParents = $batchCaptureParentsReceiver.GetDeliveredExact()
         $batchCaptureParent=$batchCaptureParents[$batchCaptureParents.Count-1]
         $batchValidHandle=[AiAgentDotfiles.NoFollowFile]::CreateAndSealChildRegularFile($batchCaptureParent,'valid.json',$batchValidBytes)
         $batchInvalidHandle=[AiAgentDotfiles.NoFollowFile]::CreateAndSealChildRegularFile($batchCaptureParent,'invalid.json',$batchInvalidBytes)
@@ -637,7 +639,9 @@ try {
     $namespaceSha=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($namespaceFinalBytes)).ToLowerInvariant()
     $namespaceFinalHandles=$null;$namespaceIdentityMatches=$false
     try{
-        $namespaceFinalHandles=Open-SafeDirectoryContainmentChain -Path $newNamespace
+        $namespaceFinalHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $newNamespace -OwnershipReceiver $namespaceFinalHandlesReceiver
+        $namespaceFinalHandles = $namespaceFinalHandlesReceiver.GetDeliveredExact()
         $namespaceFinalInfo=[AiAgentDotfiles.NoFollowFile]::InspectChild($namespaceFinalHandles[$namespaceFinalHandles.Count-1],'header.json')
         $namespaceIdentityMatches=([string]$namespacePublish.Identity -ceq [string]$namespaceFinalInfo.Identity)
     }finally{if($namespaceFinalHandles){Close-SafeDirectoryContainmentChain -Handles $namespaceFinalHandles}}

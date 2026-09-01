@@ -56,7 +56,9 @@ function Read-CanonicalHeldRegularFileCapture {
     $handles=$null
     $fileHandle=$null
     try {
-        $handles=Open-SafeDirectoryContainmentChain -Path $parent
+        $handlesReceiver2=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $parent -OwnershipReceiver $handlesReceiver2
+        $handles=$handlesReceiver2.GetDeliveredExact()
         $parentHandle=$handles[$handles.Count-1]
         $initial=[AiAgentDotfiles.NoFollowFile]::TryInspectChild($parentHandle,$leaf)
         if ($null -eq $initial) {
@@ -458,7 +460,9 @@ function Open-CanonicalHeldDirectoryChainCapture {
     $handles=$null
     try{
         $full=[IO.Path]::GetFullPath($Path)
-        $handles=Open-SafeDirectoryContainmentChain -Path $full
+        $handlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $full -OwnershipReceiver $handlesReceiver
+        $handles=$handlesReceiver.GetDeliveredExact()
         $projection=Get-CanonicalHeldDirectoryChainProjection -Path $full -Handles @($handles) -Label $Label
         $capture=[pscustomobject][ordered]@{
             Path=$full;Label=$Label;Handles=$handles;Projection=$projection
@@ -483,7 +487,9 @@ function Assert-CanonicalHeldDirectoryChainCapture {
     if($heldHash -cne [string]$Capture.ProjectionHash -or $heldHash -cne (Get-SemanticJsonHash -InputObject $Capture.Projection)){throw 'canonical held directory projection drift'}
     $fresh=$null
     try{
-        $fresh=Open-SafeDirectoryContainmentChain -Path ([string]$Capture.Path)
+        $freshReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([string]$Capture.Path) -OwnershipReceiver $freshReceiver
+        $fresh=$freshReceiver.GetDeliveredExact()
         $freshProjection=Get-CanonicalHeldDirectoryChainProjection -Path ([string]$Capture.Path) -Handles @($fresh) -Label ([string]$Capture.Label)
         if((Get-SemanticJsonHash -InputObject $freshProjection) -cne $heldHash){throw 'canonical directory path no longer names the held chain'}
     }

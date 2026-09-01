@@ -52,7 +52,9 @@ try {
     $heldReadChain = $null
     $heldReadFile = $null
     try {
-        $heldReadChain = Open-SafeDirectoryContainmentChain -Path $source
+        $heldReadChainReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $source -OwnershipReceiver $heldReadChainReceiver
+        $heldReadChain = $heldReadChainReceiver.GetDeliveredExact()
         $heldReadParent = $heldReadChain[$heldReadChain.Count - 1]
 
         $preExistingWriter = [System.IO.File]::Open($heldReadPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
@@ -86,7 +88,9 @@ try {
 
         $heldCopyDestination = Join-Path $work 'held-copy-destination'
         [System.IO.Directory]::CreateDirectory($heldCopyDestination) | Out-Null
-        $heldCopyChain = Open-SafeDirectoryContainmentChain -Path $heldCopyDestination
+        $heldCopyChainReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $heldCopyDestination -OwnershipReceiver $heldCopyChainReceiver
+        $heldCopyChain = $heldCopyChainReceiver.GetDeliveredExact()
         try {
             $heldCopyParent = $heldCopyChain[$heldCopyChain.Count - 1]
             $liveHardLink = Join-Path $source 'held-read-live-hardlink.txt'
@@ -171,7 +175,9 @@ try {
     $sealedChain = $null
     $sealedHandle = $null
     try {
-        $sealedChain = Open-SafeDirectoryContainmentChain -Path $sealedParentPath
+        $sealedChainReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $sealedParentPath -OwnershipReceiver $sealedChainReceiver
+        $sealedChain = $sealedChainReceiver.GetDeliveredExact()
         $sealedParent = $sealedChain[$sealedChain.Count - 1]
         $sealedName = 'instances.jsonl'
         $sealedPath = Join-Path $sealedParentPath $sealedName
@@ -292,7 +298,9 @@ namespace AiAgentDotfilesTest {
     $deleteDirectoryHandle = $null
     $deleteReader = $null
     try {
-        $deleteChain = Open-SafeDirectoryContainmentChain -Path $deleteParentPath
+        $deleteChainReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $deleteParentPath -OwnershipReceiver $deleteChainReceiver
+        $deleteChain = $deleteChainReceiver.GetDeliveredExact()
         $deleteParent = $deleteChain[$deleteChain.Count - 1]
 
         Write-Host '[held owned directory cleanup]'
@@ -586,8 +594,12 @@ $stream.Dispose()
     $collisionHandle = $null
     $publishAnchorMovedUnexpectedly = $false
     try {
-        $publishTempChain = Open-SafeDirectoryContainmentChain -Path $publishTempParentPath
-        $publishFinalChain = Open-SafeDirectoryContainmentChain -Path $publishFinalParentPath
+        $publishTempChainReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $publishTempParentPath -OwnershipReceiver $publishTempChainReceiver
+        $publishTempChain = $publishTempChainReceiver.GetDeliveredExact()
+        $publishFinalChainReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $publishFinalParentPath -OwnershipReceiver $publishFinalChainReceiver
+        $publishFinalChain = $publishFinalChainReceiver.GetDeliveredExact()
         $publishTempParent = $publishTempChain[$publishTempChain.Count - 1]
         $publishFinalParent = $publishFinalChain[$publishFinalChain.Count - 1]
         $publishBytes = [System.Text.UTF8Encoding]::new($false).GetBytes('{"Result":"PASS","Sequence":1}')
@@ -656,7 +668,9 @@ $stream.Dispose()
     $lockHandle = $null
     $lockAnchorMovedUnexpectedly = $false
     try {
-        $lockChain = Open-SafeDirectoryContainmentChain -Path $lockParentPath
+        $lockChainReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $lockParentPath -OwnershipReceiver $lockChainReceiver
+        $lockChain = $lockChainReceiver.GetDeliveredExact()
         $lockParent = $lockChain[$lockChain.Count - 1]
         $lockPath = Join-Path $lockParentPath 'canonical.lock'
         $lockHandle = [AiAgentDotfiles.NoFollowFile]::OpenOrCreateChildLockFile($lockParent, 'canonical.lock')

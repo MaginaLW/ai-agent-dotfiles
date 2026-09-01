@@ -1677,7 +1677,9 @@ function Open-SealedRegistryDirectoryCapture {
         [Parameter(Mandatory)][string]$TokenSid,
         [Parameter(Mandatory)][string]$Label
     )
-    $handles = Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($Path))
+    $handlesReceiver3=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($Path)) -OwnershipReceiver $handlesReceiver3
+    $handles = $handlesReceiver3.GetDeliveredExact()
     try {
         $held = $handles[$handles.Count - 1]
         if (@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($held)).Count -ne 0) { throw "${Label} has named streams" }
@@ -1709,7 +1711,9 @@ function Open-SealedRegistryOpaqueDirectoryCapture {
         [Parameter(Mandatory)][string]$ExpectedSecurityTemplateHash,
         [AllowNull()][string]$ExpectedFinalDaclHash
     )
-    $handles = Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($Path))
+    $handlesReceiver2=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($Path)) -OwnershipReceiver $handlesReceiver2
+    $handles = $handlesReceiver2.GetDeliveredExact()
     try {
         $held = $handles[$handles.Count - 1]
         if (@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams($held)).Count -ne 0) { throw "${Label} has named streams" }
@@ -1730,7 +1734,9 @@ function Open-SealedRegistryIdentityDirectoryCapture {
         [Parameter(Mandatory)][string]$ExpectedIdentity,
         [Parameter(Mandatory)][string]$Label
     )
-    $handles = Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($Path))
+    $handlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($Path)) -OwnershipReceiver $handlesReceiver
+    $handles = $handlesReceiver.GetDeliveredExact()
     try {
         $held = $handles[$handles.Count - 1]
         if ([string]$held.Info.Identity -cne $ExpectedIdentity) { throw "${Label} identity differs from valid state" }
@@ -2234,7 +2240,9 @@ function Assert-SealedHomeAuthorityGlobalLockWitness {
         }
         $freshParents = $null
         try {
-            $freshParents = Open-SafeDirectoryContainmentChain -Path ([string]$AuthorityContext.ControlBase)
+            $freshParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path ([string]$AuthorityContext.ControlBase) -OwnershipReceiver $freshParentsReceiver
+            $freshParents = $freshParentsReceiver.GetDeliveredExact()
             if ($freshParents.Count -ne $parentHandles.Count) { throw 'parent chain cardinality changed' }
             for ($index=0; $index -lt $parentHandles.Count; $index++) {
                 if ([string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($freshParents[$index]) -cne

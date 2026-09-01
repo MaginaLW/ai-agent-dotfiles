@@ -72,8 +72,12 @@ function Invoke-SealedPreparedSetupPublish {
     )
     $finalHandles=$null;$pendingHandles=$null;$prepared=$null
     try{
-        $finalHandles=Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent ([IO.Path]::GetFullPath($FinalPath)))
-        $pendingHandles=Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($PendingDirectory))
+        $finalHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent ([IO.Path]::GetFullPath($FinalPath))) -OwnershipReceiver $finalHandlesReceiver
+        $finalHandles = $finalHandlesReceiver.GetDeliveredExact()
+        $pendingHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($PendingDirectory)) -OwnershipReceiver $pendingHandlesReceiver
+        $pendingHandles = $pendingHandlesReceiver.GetDeliveredExact()
         $prepared=New-CanonicalPreparedJsonArtifact -Document $Document -PendingParent $pendingHandles[$pendingHandles.Count-1] -PendingPath $PendingDirectory -PendingName $PendingName -SchemaPath $SchemaPath
         Stop-SealedHostAtBoundary $PreparedCheckpoint $prepared
         return Publish-CanonicalPreparedJsonArtifact -PreparedArtifact $prepared -FinalParent $finalHandles[$finalHandles.Count-1] -FinalPath $FinalPath

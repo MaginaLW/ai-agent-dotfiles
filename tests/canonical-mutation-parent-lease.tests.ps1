@@ -72,7 +72,7 @@ try{
     $kernelAncestor=Join-Path $root 'kernel/ancestor';$kernelParent=Join-Path $kernelAncestor 'parent';$kernelMoved=Join-Path $root 'kernel/ancestor-moved'
     [IO.Directory]::CreateDirectory($kernelParent)|Out-Null;Write-Utf8 (Join-Path $kernelParent 'sentinel.txt') 'unchanged'
     $kernelHandles=$null;$kernelAttack=New-AttackState
-    try{$kernelHandles=Open-SafeDirectoryContainmentChain -Path $kernelParent;Invoke-TestParentSwap -State $kernelAttack -Ancestor $kernelAncestor -Moved $kernelMoved -CreateReplacement {param($path)[IO.Directory]::CreateDirectory((Join-Path $path 'parent'))|Out-Null}}
+    try{$kernelChainReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new();Open-SafeDirectoryContainmentChain -Path $kernelParent -OwnershipReceiver $kernelChainReceiver;$kernelHandles=$kernelChainReceiver.GetDeliveredExact();Invoke-TestParentSwap -State $kernelAttack -Ancestor $kernelAncestor -Moved $kernelMoved -CreateReplacement {param($path)[IO.Directory]::CreateDirectory((Join-Path $path 'parent'))|Out-Null}}
     finally{if($kernelHandles){Close-SafeDirectoryContainmentChain -Handles $kernelHandles}}
     Assert ($kernelAttack.Attempted -and $kernelAttack.Blocked -and -not $kernelAttack.Moved -and [IO.File]::ReadAllText((Join-Path $kernelParent 'sentinel.txt')) -ceq 'unchanged') 'kernel: held parent containment chain blocks ordinary ancestor rename'
 

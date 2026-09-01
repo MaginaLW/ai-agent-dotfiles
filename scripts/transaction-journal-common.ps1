@@ -179,7 +179,11 @@ function Open-CanonicalDirectoryContainmentChain {
     )
 
     $full = [System.IO.Path]::GetFullPath($Path)
-    if (-not $CreateMissing) { return Open-SafeDirectoryContainmentChain -Path $full }
+    if (-not $CreateMissing) {
+        $missingReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $full -OwnershipReceiver $missingReceiver
+        return $missingReceiver.GetDeliveredExact()
+    }
     $existingPath = $null
     $existingReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
     Open-SafeExistingDirectoryContainmentChain -Path $full -ExistingPath ([ref]$existingPath) -OwnershipReceiver $existingReceiver
@@ -320,7 +324,9 @@ function Assert-CanonicalRepoLockHandle {
         $heldParent = $parents[$parents.Count - 1]
         $freshParents = $null
         try {
-            $freshParents = Open-SafeDirectoryContainmentChain -Path ([System.IO.Path]::GetDirectoryName($expected))
+            $freshParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path ([System.IO.Path]::GetDirectoryName($expected)) -OwnershipReceiver $freshParentsReceiver
+            $freshParents = $freshParentsReceiver.GetDeliveredExact()
             if ($freshParents.Count -ne $parents.Count) { throw 'canonical lock parent chain cardinality mismatch' }
             for ($index=0; $index -lt $parents.Count; $index++) {
                 if ([string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($freshParents[$index]) -cne [AiAgentDotfiles.SafeLockResourceOwner]::GetParentIdentityExact($owner,$index) -or
@@ -583,8 +589,12 @@ function Write-CanonicalAtomicJson {
     $pendingHandles = $null
     $publication = $null
     try {
-        $finalHandles = Open-SafeDirectoryContainmentChain -Path $finalRoot
-        $pendingHandles = Open-SafeDirectoryContainmentChain -Path $pendingRoot
+        $finalHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $finalRoot -OwnershipReceiver $finalHandlesReceiver
+        $finalHandles = $finalHandlesReceiver.GetDeliveredExact()
+        $pendingHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $pendingRoot -OwnershipReceiver $pendingHandlesReceiver
+        $pendingHandles = $pendingHandlesReceiver.GetDeliveredExact()
         $finalParent = $finalHandles[$finalHandles.Count - 1]
         $pendingParent = $pendingHandles[$pendingHandles.Count - 1]
         $publication = Publish-CanonicalHeldJson -Document $Document -FinalParent $finalParent -FinalPath $final -PendingParent $pendingParent -PendingPath $pendingRoot -PendingName $PendingName -SchemaPath $SchemaPath
@@ -673,7 +683,9 @@ function Invoke-CanonicalJournalSchemaBatchValidation {
         $tempParentPath=[System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
         $tempVolumeRoot=[System.IO.Path]::GetPathRoot($tempParentPath)
         if($tempParentPath.Length -gt $tempVolumeRoot.Length){$tempParentPath=$tempParentPath.TrimEnd([char]92,[char]47)}
-        $instanceRootHandles=Open-SafeDirectoryContainmentChain -Path $tempParentPath
+        $instanceRootHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $tempParentPath -OwnershipReceiver $instanceRootHandlesReceiver
+        $instanceRootHandles=$instanceRootHandlesReceiver.GetDeliveredExact()
         $instanceRootName='ai-agent-dotfiles-journal-batch-'+[Guid]::NewGuid().ToString('N')
         $instanceDirectoryHandle=[AiAgentDotfiles.NoFollowFile]::CreateChildDirectory($instanceRootHandles[$instanceRootHandles.Count-1],$instanceRootName)
         $instanceRoot=Join-Path $tempParentPath $instanceRootName
@@ -769,7 +781,9 @@ function Open-CanonicalJournalSnapshot {
     $namespace=[IO.Path]::GetFullPath($TransactionNamespace)
     $namespaceHandles=$null;$pendingHandle=$null;$artifactHandles=[ordered]@{}
     try{
-        $namespaceHandles=Open-SafeDirectoryContainmentChain -Path $namespace
+        $namespaceHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $namespace -OwnershipReceiver $namespaceHandlesReceiver
+        $namespaceHandles=$namespaceHandlesReceiver.GetDeliveredExact()
         $namespaceHandle=$namespaceHandles[$namespaceHandles.Count-1]
         $initialNames=@([AiAgentDotfiles.NoFollowFile]::GetChildNames($namespaceHandle)|Sort-Object)
         $publishedNames=[System.Collections.Generic.List[string]]::new();$recordNames=[System.Collections.Generic.List[string]]::new();$resultNames=[System.Collections.Generic.List[string]]::new()

@@ -456,7 +456,9 @@ try {
 
         $lowRoot = Join-Path $work 'low-level-lock-order'
         [IO.Directory]::CreateDirectory($lowRoot) | Out-Null
-        $lowParents = Open-SafeDirectoryContainmentChain -Path $lowRoot
+        $lowParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $lowRoot -OwnershipReceiver $lowParentsReceiver
+        $lowParents = $lowParentsReceiver.GetDeliveredExact()
         $firstLock = $null
         $secondLock = $null
         $thirdLock = $null
@@ -524,7 +526,9 @@ try {
             $unboundHomeActualParents = @([AiAgentDotfiles.SafeLockResourceOwner]::GetParentHandlesExact($unboundHomeOwner))
             $homeExitSubstituteRoot = Join-Path $bindingRoot 'home-exit-substitute'
             [IO.Directory]::CreateDirectory($homeExitSubstituteRoot) | Out-Null
-            $homeExitSubstituteParents = Open-SafeDirectoryContainmentChain -Path $homeExitSubstituteRoot
+            $homeExitSubstituteParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path $homeExitSubstituteRoot -OwnershipReceiver $homeExitSubstituteParentsReceiver
+            $homeExitSubstituteParents = $homeExitSubstituteParentsReceiver.GetDeliveredExact()
             $homeExitSubstituteHeld = [AiAgentDotfiles.NoFollowFile]::OpenOrCreateChildLockFile($homeExitSubstituteParents[$homeExitSubstituteParents.Count - 1],'substitute.lock')
             $script:HomeExitActualHeldForTest = $unboundHomeActualHeld
             $script:HomeExitActualParentsForTest = $unboundHomeActualParents
@@ -577,7 +581,9 @@ try {
         }
 
         try {
-            $canonicalParents = Open-SafeDirectoryContainmentChain -Path $canonicalRoot
+            $canonicalParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path $canonicalRoot -OwnershipReceiver $canonicalParentsReceiver
+            $canonicalParents = $canonicalParentsReceiver.GetDeliveredExact()
             $canonicalHeld = $null
             $canonicalWrapper = $null
             $foreignCanonicalParents = $null
@@ -624,7 +630,9 @@ try {
                 } '^canonical-witness-required$' 'stateful authority-context getters are rejected instead of being reread across acquisition'
                 Remove-Variable -Name StatefulGlobalPathForTest -Scope Script -ErrorAction SilentlyContinue
 
-                $foreignCanonicalParents = Open-SafeDirectoryContainmentChain -Path $canonicalRoot
+                $foreignCanonicalParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                Open-SafeDirectoryContainmentChain -Path $canonicalRoot -OwnershipReceiver $foreignCanonicalParentsReceiver
+                $foreignCanonicalParents = $foreignCanonicalParentsReceiver.GetDeliveredExact()
                 $foreignCanonicalHeld = [AiAgentDotfiles.NoFollowFile]::OpenOrCreateChildLockFile($foreignCanonicalParents[$foreignCanonicalParents.Count - 1],'canonical-foreign.lock')
                 $foreignSecurity = Get-CanonicalRepoLockSecurityEvidence -HeldLock $foreignCanonicalHeld
                 $foreignSecurityHash = Get-SemanticJsonHash -InputObject $foreignSecurity
@@ -709,7 +717,9 @@ try {
                 Assert-ThrowsPattern { [AiAgentDotfiles.SafeLockFileHandle]::DisposeExact($canonicalHeld) } 'dependent-lock-active' 'canonical release is rejected while its dependent global lock remains open'
                 Assert-TestCondition ([AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($canonicalHeld) -and [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($actualGlobalHeld)) 'rejected reverse release keeps both ordered locks open'
 
-                $tailParents = Open-SafeDirectoryContainmentChain -Path $canonicalRoot
+                $tailParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                Open-SafeDirectoryContainmentChain -Path $canonicalRoot -OwnershipReceiver $tailParentsReceiver
+                $tailParents = $tailParentsReceiver.GetDeliveredExact()
                 $tailHeld = $null
                 $tailBinding = $null
                 try {
@@ -757,7 +767,9 @@ try {
                 }
             }
 
-            $swapCanonicalParents = Open-SafeDirectoryContainmentChain -Path $canonicalRoot
+            $swapCanonicalParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path $canonicalRoot -OwnershipReceiver $swapCanonicalParentsReceiver
+            $swapCanonicalParents = $swapCanonicalParentsReceiver.GetDeliveredExact()
             $swapCanonicalHeld = $null
             $swapWrapper = $null
             $replacementHeld = $null

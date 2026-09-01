@@ -18,7 +18,9 @@ $parentHandles = $null
 $executableHandle = $null
 $lease = $null
 try {
-    $parentHandles = Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $pwsh)
+    $parentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $pwsh) -OwnershipReceiver $parentHandlesReceiver
+    $parentHandles = $parentHandlesReceiver.GetDeliveredExact()
     $executableHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile(
         $parentHandles[$parentHandles.Count - 1],
         [System.IO.Path]::GetFileName($pwsh)

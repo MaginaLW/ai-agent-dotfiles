@@ -372,7 +372,9 @@ try{
     $headerPath=Join-Path $transactionRoot 'header.json';$sameLengthBytes=[IO.File]::ReadAllBytes($headerPath);$sameLengthBytes[$sameLengthBytes.Length-2]=$sameLengthBytes[$sameLengthBytes.Length-2] -bxor 1
     $headerParents=$null;$headerHandle=$null
     try{
-        $headerParents=Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $headerPath)
+        $headerParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $headerPath) -OwnershipReceiver $headerParentsReceiver
+        $headerParents = $headerParentsReceiver.GetDeliveredExact()
         $headerHandle=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($headerParents[$headerParents.Count-1],[IO.Path]::GetFileName($headerPath))
         Assert-Throws {try{[IO.File]::WriteAllBytes($headerPath,$sameLengthBytes)}catch [IO.IOException]{throw 'canonical-race-write-blocked'}} 'canonical-race-write-blocked' 'journal: deterministic same-length in-place race is blocked by the shared held exact-byte primitive'
     }

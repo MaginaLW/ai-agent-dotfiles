@@ -1545,7 +1545,7 @@ function Open-SafeDirectoryContainmentChain {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Path,
-        [AiAgentDotfiles.SealedOwnershipTransferReceiver] $OwnershipReceiver
+        [Parameter(Mandatory)] [AiAgentDotfiles.SealedOwnershipTransferReceiver] $OwnershipReceiver
     )
 
     $full = [System.IO.Path]::GetFullPath($Path)
@@ -1557,14 +1557,14 @@ function Open-SafeDirectoryContainmentChain {
     $ownershipTransferred = $false
     $primaryError = $null
     try {
-        if ($null -ne $OwnershipReceiver) { $OwnershipReceiver.AssertEmptyExact() }
+        $OwnershipReceiver.AssertEmptyExact()
         $pendingHandle = [AiAgentDotfiles.NoFollowFile]::HoldDirectory($volumeRoot)
         $handles.Add($pendingHandle)
         $parentHandle = $pendingHandle
         $pendingHandle = $null
         if ($relative -ne '.') {
             foreach ($segment in @($relative -split '[\\/]')) {
-                if ($segment -in @('', '.', '..')) { throw "Unsafe containment path segment: $full" }
+                if ($segment -in @('', '.', '..')) { throw "Safe tree containment path segment: $full" }
                 $pendingHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldPathChildDirectory($parentHandle, $segment)
                 if ($null -eq $pendingHandle) { throw "Safe tree containment path is missing: $full" }
                 $handles.Add($pendingHandle)
@@ -1572,13 +1572,9 @@ function Open-SafeDirectoryContainmentChain {
                 $pendingHandle = $null
             }
         }
-        if ($null -ne $OwnershipReceiver) {
-            $OwnershipReceiver.DeliverExact($handles)
-            $ownershipTransferred = $true
-            return
-        }
+        $OwnershipReceiver.DeliverExact($handles)
         $ownershipTransferred = $true
-        return ,$handles
+        return
     }
     catch {
         $primaryError = $_
@@ -1689,7 +1685,9 @@ function Get-NoFollowRootEntryMarker {
     $handles = $null
     try {
         if ([System.IO.Path]::GetRelativePath($volumeRoot, $full) -eq '.') {
-            $handles = Open-SafeDirectoryContainmentChain -Path $full
+            $handlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path $full -OwnershipReceiver $handlesReceiver
+            $handles = $handlesReceiver.GetDeliveredExact()
             $info = $handles[$handles.Count - 1].Info
         }
         else {
@@ -1720,7 +1718,9 @@ function Get-SafeTreeSnapshotInternal {
         [switch] $RetainContainmentHandles
     )
     $rootFull = [System.IO.Path]::GetFullPath($Root)
-    $containmentHandles = Open-SafeDirectoryContainmentChain -Path $rootFull
+    $containmentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeDirectoryContainmentChain -Path $rootFull -OwnershipReceiver $containmentHandlesReceiver
+    $containmentHandles = $containmentHandlesReceiver.GetDeliveredExact()
     $directoryHandlesByRelativePath = @{ '' = $containmentHandles[$containmentHandles.Count - 1] }
     $fileHandlesByRelativePath = @{}
     $succeeded = $false

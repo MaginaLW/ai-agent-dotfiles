@@ -811,6 +811,49 @@ failures (external summary SHA-256
 transaction-journal-exact-byte 12/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52.
 Production Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-02 Phase 2 plain containment-chain receiver-backing
+
+The largest member of the receiver/raw-return blocker is closed. `Open-SafeDirectoryContainmentChain`
+in `scripts/safe-tree-walker.ps1` now requires a caller-owned `SealedOwnershipTransferReceiver` and
+delivers the held containment handle chain through exact ownership transfer only; the legacy raw
+`return ,$handles` branch is removed and the empty-receiver assertion is unconditional. All thirty
+production call sites across nine scripts converted to the two-line receiver pattern
+(`approved-runner-common` ×2, `canonical-preflight-common` ×2, `canonical-transaction-common` ×3,
+`home-authority-common` ×5, `json-artifact-common` ×6, `root-claims-registry-common` ×4,
+`safe-tree-walker` ×2, `target-context-common` ×1, `transaction-journal-common` ×6 including the
+`-CreateMissing` early-return branch); `GetDeliveredExact` returns the identical list instance, so
+downstream indexing, close-on-error, and finally cleanup semantics are unchanged. Test-side real
+call sites converted across eleven files (canonical-hard-kill ×5 plus the
+`HardKillBehaviorAcquire` delegate scriptblock and its fingerprint pin, canonical-recovery,
+canonical-mutation-parent-lease inline compound, home-authority ×6, transaction-journal-exact-byte
+×2, root-claims-registry ×3, canonical-hard-kill-host ×2, canonical-setup-kill-host ×2,
+pinned-tool-process-probe, safe-tree-walker ×7); source-text assertions were unaffected. With this
+slice the safe-existing, target-lease, live-set, and plain containment-chain raw-return branches are
+all receiver-backed; only the retained-traversal composite remains open in the blocker.
+
+The six hard-kill-sealed production scripts plus the sealed `canonical-hard-kill-host.ps1` helper
+required the full reviewed-load re-pin to a fixpoint, which surfaced two new self-seal pin classes
+beyond the established ten: the two pre-section section-owner IF-statement token hashes
+(`43811abcef…` → `a5c1391c…` for the primitives-section owner; the setup owner unchanged), and the
+preimage provenance contract's `allowedMembers` whitelist, which now admits the reviewed
+`GetDeliveredExact` extraction call used by the receiver pattern. Final hard-kill file SHA-256 is
+`cb2cc1cf4e0e5ab887bd4795b901a63ab9fd813398f2010af972f811000db40a`. The production closure contract
+(67/131/`b15898c8…`) again passed unchanged.
+
+Validation: primitives passed 95/0 after the fixpoint; the complete standalone
+`canonical-hard-kill.tests.ps1` run passed 318/0; canonical-recovery, canonical-mutation-parent-lease,
+home-authority, transaction-journal-exact-byte, path-safety, approved-runner, canonical-preflight,
+json-artifact-exact-byte, and safe-tree-walker suites all passed; the seams suite passed 56/0 after
+one reflection re-pin (count 12694 → 12756, digest →
+`7679a8a55fcbdc96a6654cb914bcd2ea337e2654d54d3211d7df6d647b18097c`); the parse gate accepted all 156
+files; the skill build produced 7/15/7; the pinned secret scan found no blocking findings (847
+non-blocking hints); `git diff --check` was clean; and `sync.ps1 -DryRun` with a fresh external plan
+path changed no live file (plan-file SHA-256
+`25aa688305faeb4119c00bfd92626f1b1bc3e1c676611ff4caa8a234e1ac2a67`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

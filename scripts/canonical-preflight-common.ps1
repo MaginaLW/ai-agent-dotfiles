@@ -152,7 +152,9 @@ function Read-CanonicalPreflightDataFile {
     $parentHandles = $null
     $fileHandle = $null
     try {
-        $parentHandles = Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $evidence.FullPath)
+        $parentHandlesReceiver2=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path (Split-Path -Parent $evidence.FullPath) -OwnershipReceiver $parentHandlesReceiver2
+        $parentHandles = $parentHandlesReceiver2.GetDeliveredExact()
         if ($parentHandles.Count -eq 0) { throw 'Unable to hold the canonical preflight data-file parent chain.' }
         $fileHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($parentHandles[$parentHandles.Count - 1], [System.IO.Path]::GetFileName($evidence.FullPath))
         if ([string] $fileHandle.ReadResult.Identity -cne [string] $evidence.Identity -or
@@ -271,7 +273,9 @@ function Invoke-HeldCanonicalPreflightScript {
     $parentHandles = $null
     $scriptHandle = $null
     try {
-        $parentHandles = Open-SafeDirectoryContainmentChain -Path $parent
+        $parentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $parent -OwnershipReceiver $parentHandlesReceiver
+        $parentHandles = $parentHandlesReceiver.GetDeliveredExact()
         if ($parentHandles.Count -eq 0) { throw "Unable to hold the canonical preflight script parent chain: $parent" }
         $scriptHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($parentHandles[$parentHandles.Count - 1], $leaf)
         if ([string] $scriptHandle.ReadResult.Identity -cne [string] $ScriptEvidence.Identity -or

@@ -658,7 +658,9 @@ function Get-SealedHomeAuthorityBootstrapSnapshot {
         }
         try {
             if ([string]$definition.Kind -ceq 'Directory') {
-                $handles = Open-SafeDirectoryContainmentChain -Path ([string]$definition.Path)
+                $handlesReceiver2=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                Open-SafeDirectoryContainmentChain -Path ([string]$definition.Path) -OwnershipReceiver $handlesReceiver2
+                $handles = $handlesReceiver2.GetDeliveredExact()
                 try {
                     $held = $handles[$handles.Count - 1]
                     if ([string]$held.Info.Identity -cne [string]$marker.Identity) { throw 'directory identity changed during capture' }
@@ -869,7 +871,9 @@ function Open-SealedHomeAuthorityFixedEnvelope {
     $lease = $null
     try {
         foreach ($row in @($markers | Where-Object { [string]$_.Definition.Kind -ceq 'Directory' })) {
-            $handles = Open-SafeDirectoryContainmentChain -Path ([string]$row.Definition.Path)
+            $handlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path ([string]$row.Definition.Path) -OwnershipReceiver $handlesReceiver
+            $handles = $handlesReceiver.GetDeliveredExact()
             $held = $handles[$handles.Count - 1]
             if ([string]$held.Info.Identity -cne [string]$row.Marker.Identity) {
                 Close-SafeDirectoryContainmentChain -Handles $handles
@@ -1123,7 +1127,7 @@ function Enter-HomeAuthorityLockFileCore {
     $held = $null
     $resourceOwner = $null
     try {
-        try { $parents = Open-SafeDirectoryContainmentChain -Path $fullParent }
+        try { $parentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new(); Open-SafeDirectoryContainmentChain -Path $fullParent -OwnershipReceiver $parentsReceiver; $parents = $parentsReceiver.GetDeliveredExact() }
         catch { if ($_.Exception.Message -match 'missing') { throw $MissingToken }; throw }
         $parentHandle = $parents[$parents.Count - 1]
         if ($ExpectedParentIdentity -and [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($parentHandle) -cne $ExpectedParentIdentity) { throw 'home-authority-lock-parent-identity-drift' }
@@ -1571,7 +1575,9 @@ function Get-HomeAuthorityCanonicalGlobalBindingEvidence {
 
     $freshParents = $null
     try {
-        $freshParents = Open-SafeDirectoryContainmentChain -Path ([string]$AuthorityContext.ControlBase)
+        $freshParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([string]$AuthorityContext.ControlBase) -OwnershipReceiver $freshParentsReceiver
+        $freshParents = $freshParentsReceiver.GetDeliveredExact()
         if ($freshParents.Count -ne $parents.Count) { throw 'global lock parent chain cardinality changed' }
         for ($index=0; $index -lt $parents.Count; $index++) {
             if ([string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($freshParents[$index]) -cne [AiAgentDotfiles.SafeLockResourceOwner]::GetParentIdentityExact($globalOwner,$index) -or
@@ -1841,7 +1847,9 @@ function Complete-SealedHomeAuthorityBootstrap {
             if ([string]$state.Status -ceq 'COMPLETE') { continue }
             if ($BeforeCreate) { & $BeforeCreate ([pscustomobject]$definition) }
             if ([string]$definition.Kind -ceq 'Directory') {
-                $parentHandles = Open-SafeDirectoryContainmentChain -Path ([string]$definition.ParentPath)
+                $parentHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                Open-SafeDirectoryContainmentChain -Path ([string]$definition.ParentPath) -OwnershipReceiver $parentHandlesReceiver
+                $parentHandles = $parentHandlesReceiver.GetDeliveredExact()
                 $created = $null
                 try {
                     $created = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectoryWithSecurityDescriptor($parentHandles[$parentHandles.Count - 1],[string]$definition.LeafName,$directorySddl)

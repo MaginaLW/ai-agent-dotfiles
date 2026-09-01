@@ -799,7 +799,8 @@ try {
             $null=Set-PSBreakpoint -Script $SafeTreeScriptPath -Line ([int]$BreakLine) -Action {
                 $Probe.CaptureAndWait($pendingHandle)
             }
-            Open-SafeDirectoryContainmentChain -Path $TargetPath
+            $safeContainmentStopReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path $TargetPath -OwnershipReceiver $safeContainmentStopReceiver
         }).AddArgument($safeTreeScriptPath).AddArgument($workRoot).AddArgument(
             [long]$safeContainmentPendingAdd.Extent.StartLineNumber).AddArgument($safeContainmentStopProbe)
         $safeContainmentStopResult=Invoke-TestPowerShellStopAtProbe -PowerShell $safeContainmentStopPowerShell -Probe $safeContainmentStopProbe
@@ -1147,7 +1148,9 @@ try {
     $foreignOriginalPath = $foreignLock.PSObject.Properties['Path'].Value
     $foreignOriginalParents = $foreignLock.PSObject.Properties['ParentHandles'].Value
     try {
-        $foreignControlParents = Open-SafeDirectoryContainmentChain -Path ([string]$pristine.Context.ControlBase)
+        $foreignControlParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([string]$pristine.Context.ControlBase) -OwnershipReceiver $foreignControlParentsReceiver
+        $foreignControlParents = $foreignControlParentsReceiver.GetDeliveredExact()
         $foreignLock | Add-Member -Force -MemberType NoteProperty -Name Path -Value ([IO.Path]::GetFullPath([string]$pristine.Context.GlobalLiveLockPath))
         $foreignLock | Add-Member -Force -MemberType NoteProperty -Name ParentHandles -Value $foreignControlParents
         $foreignLock | Add-Member -Force -MemberType NoteProperty -Name FixedEnvelopeHash -Value ('0' * 64)
@@ -1175,7 +1178,9 @@ try {
         $originalGlobalParents = $pristineLock.PSObject.Properties['ParentHandles'].Value
         $alternateParentRoot = Join-Path $pristine.Root 'alternate-output-parent'
         [IO.Directory]::CreateDirectory($alternateParentRoot) | Out-Null
-        $alternateParents = Open-SafeDirectoryContainmentChain -Path $alternateParentRoot
+        $alternateParentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $alternateParentRoot -OwnershipReceiver $alternateParentsReceiver
+        $alternateParents = $alternateParentsReceiver.GetDeliveredExact()
         try {
             $infoReads = [pscustomobject]@{Count=0L}
             $parentReads = [pscustomobject]@{Count=0L}

@@ -759,7 +759,9 @@ function Invoke-TargetFilesystemCapabilityProbe {
         if ([string]::IsNullOrWhiteSpace($probeRootFull) -or [IO.Path]::GetPathRoot($probeRootFull) -ceq $probeRootFull) { throw 'capability-probe-root-invalid' }
 
         try {
-            $probeRootHandles = Open-SafeDirectoryContainmentChain -Path $probeRootFull
+            $probeRootHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path $probeRootFull -OwnershipReceiver $probeRootHandlesReceiver
+            $probeRootHandles = $probeRootHandlesReceiver.GetDeliveredExact()
             if (@($probeRootHandles).Count -eq 0) { throw 'capability-probe-root-stale' }
             $probeRootHandle = $probeRootHandles[$probeRootHandles.Count-1]
             $probeRootAcquiredIdentity = [string][AiAgentDotfiles.SafeDirectoryHandle]::GetAcquiredIdentityExact($probeRootHandle)

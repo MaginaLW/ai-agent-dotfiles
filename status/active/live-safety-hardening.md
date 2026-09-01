@@ -373,6 +373,27 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   run. Task 1 remains 1/6 and
   Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 plain containment-chain receiver-backing (2026-09-02): the largest member of the
+  receiver/raw-return blocker is closed. `Open-SafeDirectoryContainmentChain` now requires a
+  caller-owned receiver and delivers only through exact ownership transfer; the raw return branch is
+  removed. All thirty production call sites across nine scripts and the real test call sites across
+  eleven files (including the hard-kill `HardKillBehaviorAcquire` delegate scriptblock and its
+  fingerprint pin, and the sealed canonical-hard-kill-host helper) converted to the two-line
+  receiver pattern with identical downstream semantics. The re-pin surfaced two new self-seal pin
+  classes — the two pre-section section-owner IF-statement token hashes (primitives owner →
+  `a5c1391c…`) and the preimage provenance `allowedMembers` whitelist now admitting the reviewed
+  `GetDeliveredExact` — beyond the established ten. Final hard-kill file SHA-256
+  `cb2cc1cf4e0e5ab887bd4795b901a63ab9fd813398f2010af972f811000db40a`; closure contract 67/131/
+  `b15898c8…` unchanged. Validation: primitives 95/0, full hard-kill 318/0, nine affected suites
+  PASS, seams 56/0 after one reflection re-pin (count 12694 → 12756, digest `7679a8a5…`), parse 156
+  files, build 7/15/7, secret scan clean (847 hints), diff-check, sync DryRun without live change
+  (plan-file SHA-256
+  `25aa688305faeb4119c00bfd92626f1b1bc3e1c676611ff4caa8a234e1ac2a67`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. With this slice the
+  safe-existing, target-lease, live-set, and plain containment-chain raw-return branches are all
+  receiver-backed; only the retained-traversal composite remains open. Task 1 remains 1/6 and Phase
+  2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -392,11 +413,11 @@ stay unconnected to production mutation routes.
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. The production caller/cleanup ledger is
 production-defined with zero production consumers, the runspace-lifecycle definition-store blocker
-is closed, and the live-set, target-lease, and safe-existing raw-return branches are receiver-backed.
-Next is to close the remaining plain containment-chain raw-return branch (~66 call sites across
-scripts and tests, one reflection re-pin) and the retained-traversal composite (sealed wrapper
-design), plus the target/live reader-close and provider-closure blockers, then wire the ledger as
-the reviewed observation lifecycle owner for a resolver or dispatcher consumer. The
+is closed, and the live-set, target-lease, safe-existing, and plain containment-chain raw-return
+branches are receiver-backed. Next is the retained-traversal composite (a sealed wrapper design for
+`Get-SafeTreeSnapshotInternal -RetainContainmentHandles` snapshot-plus-handles return), the
+target/live reader-close and provider-closure blockers, then wiring the ledger as the reviewed
+observation lifecycle owner for a resolver or dispatcher consumer. The
 `PrivateRootBootstrapIntent` setup path,
 protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
 the complete forbidden-root matrix before accepting any default/custom claim. Production Apply
