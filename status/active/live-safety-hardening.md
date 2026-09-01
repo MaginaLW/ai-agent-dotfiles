@@ -365,7 +365,12 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   `311b3e9325a072125952361bf0b1d144b46d4c1c10b1f27b551f714fb5e11fde`, deleted after the run). The
   unified run started for `48a30ae` was killed externally at suite 5/34 with no published result
   (session-restore process loss), so one definitive unified run executes after this commit covering
-  both `48a30ae` and this slice; every affected suite has passed standalone. Task 1 remains 1/6 and
+  both `48a30ae` and this slice; every affected suite has passed standalone. The definitive combined
+  create-new unified run then passed all 34 discovered suites exactly once with zero failures,
+  timeouts, duplicates, missing suites, or tree-kill failures (external summary SHA-256
+  `20b522730ef2e034d3f9467ea9023d450999ba1b7baad71d523885813304753f`), with hard-kill 318/0, seams
+  56/0, root-claims 484/0, approved-runner 45/0, and transaction-journal-exact-byte 12/0 inside the
+  run. Task 1 remains 1/6 and
   Phase 2 remains 1/52; production Apply remains interlocked.
 
 ## Current checkpoint

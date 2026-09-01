@@ -802,8 +802,14 @@ unified `run-tests.ps1 -All` run started for the previous commit `48a30ae` was k
 suite 5 of 34 with no summary (background-process loss during a session restore; no result was
 published), so the definitive unified run for the branch state executes once after this commit and
 covers both `48a30ae` and this slice; every suite affected by either slice has passed standalone.
-Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root
-or Git index/ref was changed.
+The definitive combined create-new unified run then discovered, started, completed, and passed all
+34 suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill
+failures (external summary SHA-256
+`20b522730ef2e034d3f9467ea9023d450999ba1b7baad71d523885813304753f`; discovery SHA-256
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`), with hard-kill 318/0, seams
+56/0, root-claims 484/0, approved-runner 45/0, mutation suites green, and
+transaction-journal-exact-byte 12/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52.
+Production Apply remains interlocked, and no live root or Git index/ref was changed.
 
 ## Validation status
 
