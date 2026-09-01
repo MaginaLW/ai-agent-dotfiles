@@ -1612,7 +1612,7 @@ function Open-SafeExistingDirectoryContainmentChain {
     param(
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [ref] $ExistingPath,
-        [AiAgentDotfiles.SealedOwnershipTransferReceiver] $OwnershipReceiver
+        [Parameter(Mandatory)] [AiAgentDotfiles.SealedOwnershipTransferReceiver] $OwnershipReceiver
     )
 
     $full = [System.IO.Path]::GetFullPath($Path)
@@ -1625,7 +1625,7 @@ function Open-SafeExistingDirectoryContainmentChain {
     $ownershipTransferred = $false
     $primaryError = $null
     try {
-        if ($null -ne $OwnershipReceiver) { $OwnershipReceiver.AssertEmptyExact() }
+        $OwnershipReceiver.AssertEmptyExact()
         $pendingHandle = [AiAgentDotfiles.NoFollowFile]::HoldDirectory($volumeRoot)
         $handles.Add($pendingHandle)
         $parentHandle = $pendingHandle
@@ -1642,13 +1642,9 @@ function Open-SafeExistingDirectoryContainmentChain {
             }
         }
         $ExistingPath.Value = $cursor
-        if ($null -ne $OwnershipReceiver) {
-            $OwnershipReceiver.DeliverExact($handles)
-            $ownershipTransferred = $true
-            return
-        }
+        $OwnershipReceiver.DeliverExact($handles)
         $ownershipTransferred = $true
-        return ,$handles
+        return
     }
     catch {
         $primaryError = $_
@@ -1699,7 +1695,9 @@ function Get-NoFollowRootEntryMarker {
         else {
             $parent = [System.IO.Path]::GetDirectoryName($full)
             $existingParent = $null
-            $handles = Open-SafeExistingDirectoryContainmentChain -Path $parent -ExistingPath ([ref]$existingParent)
+            $existingParentReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeExistingDirectoryContainmentChain -Path $parent -ExistingPath ([ref]$existingParent) -OwnershipReceiver $existingParentReceiver
+            $handles = $existingParentReceiver.GetDeliveredExact()
             if (-not ([System.IO.Path]::GetFullPath($existingParent).TrimEnd([char]92,[char]47).Equals([System.IO.Path]::GetFullPath($parent).TrimEnd([char]92,[char]47), [System.StringComparison]::OrdinalIgnoreCase))) {
                 return [pscustomobject][ordered]@{ Path=$full; EntryType='MISSING'; Identity=$null; LinkCount=0 }
             }
@@ -1815,7 +1813,9 @@ function Copy-SafeTree {
     $destination = [System.IO.Path]::GetFullPath($DestinationRoot)
     if ((Test-SafePathInsideRoot $source $destination) -or (Test-SafePathInsideRoot $destination $source)) { throw 'Safe tree source and destination must be disjoint.' }
     $existingDestinationAncestor = $null
-    $destinationHandles = Open-SafeExistingDirectoryContainmentChain -Path $destination -ExistingPath ([ref]$existingDestinationAncestor)
+    $destinationReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeExistingDirectoryContainmentChain -Path $destination -ExistingPath ([ref]$existingDestinationAncestor) -OwnershipReceiver $destinationReceiver
+    $destinationHandles = $destinationReceiver.GetDeliveredExact()
     $destinationByRelativePath = @{}
     $destinationByRelativePath[''] = $null
     $sourceTraversal = $null

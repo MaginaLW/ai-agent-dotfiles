@@ -757,6 +757,54 @@ definitive unified `run-tests.ps1 -All` run for this slice has not been executed
 pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
 live root or Git index/ref was changed.
 
+## 2026-09-02 Phase 2 safe-existing containment receiver-backing
+
+The safe-existing member of the receiver/raw-return blocker is closed.
+`Open-SafeExistingDirectoryContainmentChain` in `scripts/safe-tree-walker.ps1` now requires a
+caller-owned `SealedOwnershipTransferReceiver` and delivers the held containment handle chain
+through exact ownership transfer only; the legacy raw `return ,$handles` branch is removed and the
+empty-receiver assertion is unconditional. Production was already receiver-shaped at every reviewed
+consumer: all six raw call sites were converted to the two-line receiver pattern (create receiver,
+open with it, extract the delivered list) — `safe-tree-walker.ps1` internal callers in the
+entry-marker lookup and the create-new copy path, `approved-runner-common.ps1` destination
+materialization, `canonical-mutation-common.ps1` leaf-parent preparation, and
+`transaction-journal-common.ps1` journal-parent and worktree-root capture. `GetDeliveredExact`
+returns the identical list instance, so downstream indexing, close-on-error, and finally cleanup
+semantics are unchanged at every site. The plain `Open-SafeDirectoryContainmentChain` variant and
+the retained-traversal composite remain open members of the blocker.
+
+Because `safe-tree-walker.ps1`, `canonical-mutation-common.ps1`, and
+`transaction-journal-common.ps1` are all hard-kill-sealed, the full reviewed-load re-pin was
+performed to a fixpoint with the generalized out-of-repository probe (now covering N manifest
+hashes): three manifest hashes re-pinned at both recorded sites (`safe-tree-walker` →
+`0c9024699101cd260ae731b2ebf6970cf0846134af92ffa2faca2f1ddf7fb889`, `canonical-mutation-common` →
+`70ee83e0a901559a8aa2bf14dfce4f38882689dbc97f222c2a76830b3a1b92a6`, `transaction-journal-common` →
+`77594bf5c7632ce7b83cc53f5f5eda2f6048e88a2f104dc654e7c521164642c8`), plus the 24-row actual-prelude
+block and digest (`ce6416f2…`, four occurrences), the 27-statement pre-section region digest
+(`dba2c033…`), the transport-contract and mutations function pins, the function inventory, the
+cleanup-gate self digest, the main-try execution digest, the top-level execution digest, and the
+whole-file controller surface digest. Final hard-kill file SHA-256 is
+`4766228f652c99aa0728ba4e02913b43ca4775eb0644505d57260cbd5091c9ae`. The production closure contract
+(67 functions / 131 edges / digest `b15898c8…`) passed unchanged inside the full hard-kill run,
+confirming that boundary-function body edits do not enter the closure digest.
+
+Validation: primitives passed 95/0 as a fast signal; the complete standalone
+`canonical-hard-kill.tests.ps1` run passed 318/0; `approved-runner.tests.ps1`,
+`canonical-mutation-blockers.tests.ps1`, `transaction-journal-exact-byte.tests.ps1`, and
+`path-safety.tests.ps1` all passed; the seams suite passed 56/0 after one re-pin (the six call-site
+conversions add twelve reflection-sensitive sites: count 12682 → 12694, digest
+`374b019e…` → `77ec47b44f27267a3c3943d5078d3070b0b5cf5eadb0d405150915c5326904f5`); the parse gate
+accepted all 156 files; the skill build produced 7/15/7; the pinned secret scan found no blocking
+findings (845 non-blocking hints); `git diff --check` was clean; and `sync.ps1 -DryRun` with a
+fresh external plan path changed no live file (plan-file SHA-256
+`311b3e9325a072125952361bf0b1d144b46d4c1c10b1f27b551f714fb5e11fde`, deleted after the run). The
+unified `run-tests.ps1 -All` run started for the previous commit `48a30ae` was killed externally at
+suite 5 of 34 with no summary (background-process loss during a session restore; no result was
+published), so the definitive unified run for the branch state executes once after this commit and
+covers both `48a30ae` and this slice; every suite affected by either slice has passed standalone.
+Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root
+or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

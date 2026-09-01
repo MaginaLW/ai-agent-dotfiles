@@ -152,7 +152,9 @@ function Open-CanonicalMutationParentLease {
     try{
         foreach($parent in @($parentSet|Sort-Object)){
             $existingParent=$null
-            $handles=@(Open-SafeExistingDirectoryContainmentChain -Path $parent -ExistingPath ([ref]$existingParent))
+            $leafParentReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeExistingDirectoryContainmentChain -Path $parent -ExistingPath ([ref]$existingParent) -OwnershipReceiver $leafParentReceiver
+            $handles=@($leafParentReceiver.GetDeliveredExact())
             $requestedNormalized=[IO.Path]::GetFullPath($parent).TrimEnd([char]92,[char]47)
             $existingNormalized=[IO.Path]::GetFullPath([string]$existingParent).TrimEnd([char]92,[char]47)
             if($RequireLeafParentsExist -and -not $existingNormalized.Equals($requestedNormalized,[StringComparison]::OrdinalIgnoreCase)){

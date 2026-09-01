@@ -315,7 +315,9 @@ function New-ApprovedRunnerDestinationTree {
 
     $destination = [System.IO.Path]::GetFullPath($DestinationRoot)
     $existingAncestor = $null
-    $handles = Open-SafeExistingDirectoryContainmentChain -Path $destination -ExistingPath ([ref] $existingAncestor)
+    $ancestorReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeExistingDirectoryContainmentChain -Path $destination -ExistingPath ([ref] $existingAncestor) -OwnershipReceiver $ancestorReceiver
+    $handles = $ancestorReceiver.GetDeliveredExact()
     try {
         $existingKey = [System.IO.Path]::GetFullPath($existingAncestor).TrimEnd([char]92, [char]47)
         $destinationKey = $destination.TrimEnd([char]92, [char]47)

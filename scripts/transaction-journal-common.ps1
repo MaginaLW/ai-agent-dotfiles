@@ -181,7 +181,9 @@ function Open-CanonicalDirectoryContainmentChain {
     $full = [System.IO.Path]::GetFullPath($Path)
     if (-not $CreateMissing) { return Open-SafeDirectoryContainmentChain -Path $full }
     $existingPath = $null
-    $handles = Open-SafeExistingDirectoryContainmentChain -Path $full -ExistingPath ([ref]$existingPath)
+    $existingReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeExistingDirectoryContainmentChain -Path $full -ExistingPath ([ref]$existingPath) -OwnershipReceiver $existingReceiver
+    $handles = $existingReceiver.GetDeliveredExact()
     try {
         $relative = [System.IO.Path]::GetRelativePath([System.IO.Path]::GetFullPath($existingPath), $full)
         if ($relative -ne '.') {
@@ -1403,7 +1405,9 @@ function Get-CanonicalAllTransactionStates {
     $states=[System.Collections.Generic.List[object]]::new()
     try{
         $existingPath=$null
-        $rootHandles=Open-SafeExistingDirectoryContainmentChain -Path $root -ExistingPath ([ref]$existingPath)
+        $rootReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeExistingDirectoryContainmentChain -Path $root -ExistingPath ([ref]$existingPath) -OwnershipReceiver $rootReceiver
+        $rootHandles=$rootReceiver.GetDeliveredExact()
         if(-not [string]::Equals([System.IO.Path]::GetFullPath([string]$existingPath).TrimEnd([char]92,[char]47),$root.TrimEnd([char]92,[char]47),[System.StringComparison]::OrdinalIgnoreCase)){
             return @()
         }

@@ -343,6 +343,31 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 safe-existing containment receiver-backing (2026-09-02): the safe-existing member
+  of the receiver/raw-return blocker is closed.
+  `Open-SafeExistingDirectoryContainmentChain` now requires a caller-owned receiver and delivers the
+  held handle chain through exact ownership transfer only; the raw `return ,$handles` branch is
+  removed. All six production call sites converted to the two-line receiver pattern across
+  `safe-tree-walker.ps1` (entry-marker lookup, create-new copy path), `approved-runner-common.ps1`,
+  `canonical-mutation-common.ps1`, and `transaction-journal-common.ps1` (journal-parent,
+  worktree-root); `GetDeliveredExact` returns the identical list instance, so indexing, close, and
+  finally semantics are unchanged. The three hard-kill-sealed scripts required the full reviewed-load
+  re-pin to a fixpoint via the generalized N-manifest probe (manifest hashes `safe-tree-walker` →
+  `0c902469…`, `canonical-mutation-common` → `70ee83e0…`, `transaction-journal-common` →
+  `77594bf5…`, both sites each; prelude block+digest `ce6416f2…`; pre-section `dba2c033…`; function
+  pins; inventory; self; main-try; top-execution; surface). Final hard-kill file SHA-256
+  `4766228f652c99aa0728ba4e02913b43ca4775eb0644505d57260cbd5091c9ae`. The production closure
+  contract (67/131/`b15898c8…`) passed unchanged, confirming boundary-function body edits stay
+  outside the closure digest. Validation: primitives 95/0, full hard-kill 318/0, approved-runner,
+  mutation-blockers, transaction-journal-exact-byte, and path-safety all PASS, seams 56/0 after one
+  reflection re-pin (count 12682 → 12694, digest `77ec47b4…`), parse gate 156 files, build 7/15/7,
+  secret scan clean (845 hints), diff-check, sync DryRun without live change (plan-file SHA-256
+  `311b3e9325a072125952361bf0b1d144b46d4c1c10b1f27b551f714fb5e11fde`, deleted after the run). The
+  unified run started for `48a30ae` was killed externally at suite 5/34 with no published result
+  (session-restore process loss), so one definitive unified run executes after this commit covering
+  both `48a30ae` and this slice; every affected suite has passed standalone. Task 1 remains 1/6 and
+  Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -362,11 +387,11 @@ stay unconnected to production mutation routes.
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. The production caller/cleanup ledger is
 production-defined with zero production consumers, the runspace-lifecycle definition-store blocker
-is closed, and the live-set and target-lease raw-return branches are receiver-backed. Next is to
-close the remaining safe-existing and retained-traversal raw-return branches (both live in
-hard-kill-pinned `safe-tree-walker.ps1`), the target/live reader-close and provider-closure
-blockers, then wire the ledger as the reviewed observation lifecycle owner for a resolver or
-dispatcher consumer. The
+is closed, and the live-set, target-lease, and safe-existing raw-return branches are receiver-backed.
+Next is to close the remaining plain containment-chain raw-return branch (~66 call sites across
+scripts and tests, one reflection re-pin) and the retained-traversal composite (sealed wrapper
+design), plus the target/live reader-close and provider-closure blockers, then wire the ledger as
+the reviewed observation lifecycle owner for a resolver or dispatcher consumer. The
 `PrivateRootBootstrapIntent` setup path,
 protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
 the complete forbidden-root matrix before accepting any default/custom claim. Production Apply
