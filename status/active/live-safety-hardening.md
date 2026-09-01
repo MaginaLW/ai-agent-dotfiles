@@ -389,7 +389,10 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   files, build 7/15/7, secret scan clean (847 hints), diff-check, sync DryRun without live change
   (plan-file SHA-256
   `25aa688305faeb4119c00bfd92626f1b1bc3e1c676611ff4caa8a234e1ac2a67`, deleted after the run). The
-  definitive unified `run-tests.ps1 -All` run for this slice is still pending. With this slice the
+  definitive unified `run-tests.ps1 -All` run then passed all 34 discovered suites exactly once with
+  zero failures, timeouts, duplicates, missing suites, or tree-kill failures (external summary
+  SHA-256 `893a9fd46c97c89105a7322e88461283a8e68be1143b10b36c44139f7074a33e`), with hard-kill 318/0,
+  seams 56/0, root-claims 484/0, and home-authority 190/0 inside the run. With this slice the
   safe-existing, target-lease, live-set, and plain containment-chain raw-return branches are all
   receiver-backed; only the retained-traversal composite remains open. Task 1 remains 1/6 and Phase
   2 remains 1/52; production Apply remains interlocked.
