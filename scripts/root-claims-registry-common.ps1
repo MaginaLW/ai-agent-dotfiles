@@ -3740,6 +3740,7 @@ namespace AiAgentDotfiles {
         internal readonly string SemanticJsonHashText;
         internal readonly string SecurityTemplateText;
         internal readonly string DefinitionDigest;
+        internal readonly Guid OwnerRunspaceId;
         internal readonly object ProvenanceToken;
 
         internal SealedCurrentRouteFixedInfrastructureIssuerDefinition(ScriptBlock openCore,
@@ -3757,7 +3758,7 @@ namespace AiAgentDotfiles {
             string routeCaptureStableText,
             string canonicalGlobalBindingText, string globalLockWitnessText,
             string fixedEvidenceCurrentText, string semanticJsonHashText,
-            string securityTemplateText, string definitionDigest) {
+            string securityTemplateText, string definitionDigest, Guid ownerRunspaceId) {
             OpenCore = openCore;
             AssertCore = assertCore;
             FixedCapture = fixedCapture;
@@ -3787,6 +3788,7 @@ namespace AiAgentDotfiles {
             SemanticJsonHashText = semanticJsonHashText;
             SecurityTemplateText = securityTemplateText;
             DefinitionDigest = definitionDigest;
+            OwnerRunspaceId = ownerRunspaceId;
             ProvenanceToken = new object();
         }
     }
@@ -4133,8 +4135,8 @@ namespace AiAgentDotfiles {
 
     public static class SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer {
         private static readonly object Gate = new object();
-        private static readonly Dictionary<string,SealedCurrentRouteFixedInfrastructureIssuerDefinition> Definitions =
-            new Dictionary<string,SealedCurrentRouteFixedInfrastructureIssuerDefinition>(StringComparer.Ordinal);
+        private static readonly ConditionalWeakTable<Runspace,SealedCurrentRouteFixedInfrastructureIssuerDefinition> Definitions =
+            new ConditionalWeakTable<Runspace,SealedCurrentRouteFixedInfrastructureIssuerDefinition>();
 
         private sealed class ObservationOpenOperation {
             private const int ReadyState = 0;
@@ -4343,9 +4345,12 @@ namespace AiAgentDotfiles {
             string normalized = NormalizeRunspaceId(runspaceId);
             if (!String.Equals(CurrentRunspaceId(),normalized,StringComparison.Ordinal))
                 throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            Runspace current = Runspace.DefaultRunspace;
             lock (Gate) {
                 SealedCurrentRouteFixedInfrastructureIssuerDefinition definition;
-                if (!Definitions.TryGetValue(normalized,out definition))
+                if (current == null || current.InstanceId == Guid.Empty ||
+                    !Definitions.TryGetValue(current,out definition) || definition == null ||
+                    definition.OwnerRunspaceId != current.InstanceId)
                     throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
                 return definition;
             }
@@ -4386,9 +4391,12 @@ namespace AiAgentDotfiles {
                 SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetIssuerRunspaceIdExact(observation);
             string observationDefinitionDigest =
                 SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetIssuerDefinitionDigestExact(observation);
+            Runspace currentRunspace = Runspace.DefaultRunspace;
             SealedCurrentRouteFixedInfrastructureIssuerDefinition definition;
             lock (Gate) {
-                if (!Definitions.TryGetValue(observationRunspaceId,out definition) ||
+                if (currentRunspace == null || currentRunspace.InstanceId == Guid.Empty ||
+                    !Definitions.TryGetValue(currentRunspace,out definition) || definition == null ||
+                    definition.OwnerRunspaceId != currentRunspace.InstanceId ||
                     !observation.MatchesIssuanceReceiptExact(definition.ProvenanceToken) ||
                     !Object.ReferenceEquals(definition.ProvenanceToken,observation.ProvenanceTokenExact) ||
                     !String.Equals(definition.DefinitionDigest,observationDefinitionDigest,StringComparison.Ordinal))
@@ -5274,9 +5282,13 @@ namespace AiAgentDotfiles {
             ScriptBlock routeCaptureStable, ScriptBlock canonicalGlobalBinding,
             ScriptBlock globalLockWitness, ScriptBlock fixedEvidenceCurrent,
             ScriptBlock semanticJsonHash, ScriptBlock securityTemplate, string runspaceId) {
-            string normalized = NormalizeRunspaceId(runspaceId);
-            if (!String.Equals(CurrentRunspaceId(),normalized,StringComparison.Ordinal) ||
-                openCore == null || assertCore == null || fixedCapture == null ||
+            Runspace runspace = Runspace.DefaultRunspace;
+            Guid expectedRunspaceId;
+            if (runspace == null || runspace.InstanceId == Guid.Empty ||
+                !Guid.TryParseExact(runspaceId,"D",out expectedRunspaceId) ||
+                expectedRunspaceId != runspace.InstanceId)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            if (openCore == null || assertCore == null || fixedCapture == null ||
                 fixedEnvelopeOpen == null || fixedEnvelopeProjection == null ||
                 fixedEnvelopeClose == null || fixedDirectoryOpen == null ||
                 fixedDirectoryClose == null || routeCaptureStable == null ||
@@ -5322,8 +5334,9 @@ namespace AiAgentDotfiles {
                 "\0security-template\0" + securityTemplateText);
             lock (Gate) {
                 SealedCurrentRouteFixedInfrastructureIssuerDefinition existing;
-                if (Definitions.TryGetValue(normalized,out existing)) {
-                    if (!MatchesDefinition(openCore,existing.OpenCore,existing.OpenCoreText) ||
+                if (Definitions.TryGetValue(runspace,out existing)) {
+                    if (existing == null || existing.OwnerRunspaceId != runspace.InstanceId ||
+                        !MatchesDefinition(openCore,existing.OpenCore,existing.OpenCoreText) ||
                         !MatchesDefinition(assertCore,existing.AssertCore,existing.AssertCoreText) ||
                         !MatchesDefinition(fixedCapture,existing.FixedCapture,existing.FixedCaptureText) ||
                         !MatchesDefinition(fixedEnvelopeOpen,existing.FixedEnvelopeOpen,existing.FixedEnvelopeOpenText) ||
@@ -5341,7 +5354,7 @@ namespace AiAgentDotfiles {
                         throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
                     return;
                 }
-                Definitions.Add(normalized,new SealedCurrentRouteFixedInfrastructureIssuerDefinition(
+                Definitions.Add(runspace,new SealedCurrentRouteFixedInfrastructureIssuerDefinition(
                     openCore,assertCore,fixedCapture,fixedEnvelopeOpen,fixedEnvelopeProjection,fixedEnvelopeClose,
                     fixedDirectoryOpen,fixedDirectoryClose,routeCaptureStable,canonicalGlobalBinding,globalLockWitness,fixedEvidenceCurrent,
                     semanticJsonHash,securityTemplate,
@@ -5349,7 +5362,7 @@ namespace AiAgentDotfiles {
                     fixedEnvelopeCloseText,fixedDirectoryOpenText,fixedDirectoryCloseText,
                     routeCaptureStableText,canonicalGlobalBindingText,
                     globalLockWitnessText,fixedEvidenceCurrentText,semanticJsonHashText,
-                    securityTemplateText,digest));
+                    securityTemplateText,digest,runspace.InstanceId));
             }
         }
         public static bool MatchesObservationDefinitionsExact(ScriptBlock openCore, ScriptBlock assertCore,

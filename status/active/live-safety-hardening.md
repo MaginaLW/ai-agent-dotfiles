@@ -241,6 +241,29 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   `4c5ccb35185531f5da8a052371bef4a3f76a741571056536ea22a2e92a236d08`. No Apply was run. Task 1
   remains 1/6, Phase 2 remains 1/52, and production Apply remains interlocked.
 
+- Phase 2 Task 1 observation issuer per-runscape definition migration (2026-09-01): the observation
+  issuer's pinned definitions moved from a process-static `Dictionary<string,...>` keyed by
+  normalized runscape-id strings to the reviewed per-runscape `ConditionalWeakTable<Runspace,...>`
+  pattern with an `OwnerRunspaceId` Guid binding, matching the route-capture and fixed-capability
+  issuers. Definition resolution now goes through the live current-runscape object, its instance id,
+  and the owner binding; `InitializeObservationExact` validates the supplied runscape id against the
+  actual current runscape. Fail-closed contracts are unchanged (cross-runscape, same-text
+  substitution, clone/uninitialized rejection); the issuer public surface and every PowerShell-level
+  function are byte-identical. The focused root-claims suite reached 442 PASS with exit code 0
+  (438 before), pinning the storage type, the owner binding, and child-runscape recovery (a fresh
+  runscape initializes its own equal-digest definition bound to itself). An out-of-repository probe
+  recorded the honest boundary that forced GC after child-runscape disposal did not evict the
+  existing route-capture CWT entry (the pinned ScriptBlock/session-state chain keeps the owner
+  runscape reachable), so this slice claims per-runscape scoping and recovery, not collection
+  guarantees. Validation: seams 56/0 after one re-pin (reflection-sensitive count 12660 unchanged;
+  digest `aea11a7f…` → `343ec71636bbd1b91f0d4989d271559badb5cf28ac88bad149894a3ebac0dfcc` because
+  the C# here-string edit shifts site positions), parse gate 156 files, build 7/15/7, secret scan
+  clean (835 hints), `git diff --check`, and a sync DryRun with a fresh external plan path (29
+  additions, zero modified/removed/unknown, `.system` preserved, no live change; plan-file SHA-256
+  `44ef6692064762be975310d9a73864532e828214ba101ee08322af666a00ac54`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -259,8 +282,12 @@ stay unconnected to production mutation routes.
 ## Current phase
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. Next is to define a production caller/cleanup
-ledger that can own and explicitly close the runtime observation, after closing the relevant
-receiver/raw-return, runspace-lifecycle, target/live reader-close, and provider-closure blockers. The
+ledger that can own and explicitly close the runtime observation. The runspace-lifecycle
+definition-store blocker is closed: the observation issuer now uses the reviewed per-runscape
+`ConditionalWeakTable` pattern with `OwnerRunspaceId` binding, so a disposed runscape's definition
+can never be reached again and a fresh runscape recovers by initializing its own equal-digest
+definition. The ledger itself plus the receiver/raw-return, target/live reader-close, and
+provider-closure blockers remain open. The
 `PrivateRootBootstrapIntent` setup path,
 protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
 the complete forbidden-root matrix before accepting any default/custom claim. Production Apply

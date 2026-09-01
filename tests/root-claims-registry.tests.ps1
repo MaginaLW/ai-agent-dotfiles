@@ -3405,8 +3405,66 @@ try {
                 ([Reflection.BindingFlags]::NonPublic -bor [Reflection.BindingFlags]::Static))
             $observationDefinitions=$observationDefinitionsField.GetValue($null)
             $observationOwnerRunspaceId=[Management.Automation.Runspaces.Runspace]::DefaultRunspace.InstanceId.ToString('D').ToLowerInvariant()
-            $observationDefinition=$observationDefinitions[$observationOwnerRunspaceId]
+            $observationDefinitionsType=$observationDefinitions.GetType()
+            Assert-TestCondition ($null -ne $observationDefinitions -and
+                $observationDefinitionsType.IsGenericType -and
+                $observationDefinitionsType.GetGenericTypeDefinition().FullName -ceq
+                    'System.Runtime.CompilerServices.ConditionalWeakTable`2' -and
+                $observationDefinitionsType.GetGenericArguments()[0] -eq
+                    [Management.Automation.Runspaces.Runspace]) 'the observation issuer stores its pinned definitions weak-keyed per owner runscape'
+            $observationDefinitionArguments=[object[]]@(
+                [Management.Automation.Runspaces.Runspace]::DefaultRunspace,$null)
+            $observationDefinitionFound=$observationDefinitions.GetType().GetMethod('TryGetValue').Invoke(
+                $observationDefinitions,$observationDefinitionArguments)
+            $observationDefinition=$observationDefinitionArguments[1]
+            Assert-TestCondition ([bool]$observationDefinitionFound -and $null -ne $observationDefinition) 'the observation issuer retains one exact definition for its owner runscape'
             $observationDefinitionFieldFlags=[Reflection.BindingFlags]::NonPublic -bor [Reflection.BindingFlags]::Instance
+            $observationOwnerRunspaceIdField=$observationDefinition.GetType().GetField(
+                'OwnerRunspaceId',$observationDefinitionFieldFlags)
+            Assert-TestCondition ($null -ne $observationOwnerRunspaceIdField -and
+                [Guid]$observationOwnerRunspaceIdField.GetValue($observationDefinition) -eq
+                    [Management.Automation.Runspaces.Runspace]::DefaultRunspace.InstanceId) 'the observation definition binds its exact owner runscape identity'
+            $observationChildRunspacePowerShell=[PowerShell]::Create()
+            $observationChildIsolationOutput=$null
+            try {
+                $null=$observationChildRunspacePowerShell.AddScript({
+                    param($RegistryPath)
+                    $ErrorActionPreference='Stop'
+                    . $RegistryPath
+                    $issuerType=[AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]
+                    $definitionsField=$issuerType.GetField('Definitions',
+                        ([Reflection.BindingFlags]::NonPublic -bor [Reflection.BindingFlags]::Static))
+                    $definitions=$definitionsField.GetValue($null)
+                    $arguments=[object[]]@(
+                        [Management.Automation.Runspaces.Runspace]::DefaultRunspace,$null)
+                    $found=$definitions.GetType().GetMethod('TryGetValue').Invoke(
+                        $definitions,$arguments)
+                    $definition=$arguments[1]
+                    $fieldFlags=[Reflection.BindingFlags]::NonPublic -bor [Reflection.BindingFlags]::Instance
+                    [pscustomobject][ordered]@{
+                        Found=[bool]$found
+                        Digest=[string]$definition.GetType().GetField(
+                            'DefinitionDigest',$fieldFlags).GetValue($definition)
+                        OwnerRunspaceId=[Guid]$definition.GetType().GetField(
+                            'OwnerRunspaceId',$fieldFlags).GetValue($definition)
+                        CurrentRunspaceId=[Guid][Management.Automation.Runspaces.Runspace]::DefaultRunspace.InstanceId
+                    }
+                }).AddArgument((Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1'))
+                $observationChildIsolationOutput=@($observationChildRunspacePowerShell.Invoke())
+                if($observationChildRunspacePowerShell.HadErrors -or
+                    $observationChildIsolationOutput.Count -ne 1){
+                    throw 'observation child-runscape definition isolation probe failed'
+                }
+            }
+            finally { $observationChildRunspacePowerShell.Dispose() }
+            $observationChildIsolation=$observationChildIsolationOutput[0]
+            $observationParentDefinitionDigest=$observationDefinition.GetType().GetField(
+                'DefinitionDigest',$observationDefinitionFieldFlags).GetValue($observationDefinition)
+            Assert-TestCondition ([bool]$observationChildIsolation.Found -and
+                [string]$observationChildIsolation.Digest -ceq [string]$observationParentDefinitionDigest -and
+                [Guid]$observationChildIsolation.OwnerRunspaceId -eq [Guid]$observationChildIsolation.CurrentRunspaceId -and
+                [Guid]$observationChildIsolation.OwnerRunspaceId -ne
+                    [Management.Automation.Runspaces.Runspace]::DefaultRunspace.InstanceId) 'a child runscape recovers the observation issuer by initializing its own equal-digest definition bound to itself'
             $observationFixedCaptureField=$observationDefinition.GetType().GetField(
                 'FixedCapture',$observationDefinitionFieldFlags)
             $observationOriginalFixedCapture=$observationFixedCaptureField.GetValue($observationDefinition)

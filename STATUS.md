@@ -570,6 +570,51 @@ files, and produced PlanHash
 `4c5ccb35185531f5da8a052371bef4a3f76a741571056536ea22a2e92a236d08`. No Apply was run. Task 1
 remains 1/6, Phase 2 remains 1/52, and production Apply remains interlocked.
 
+## 2026-09-01 Phase 2 observation issuer per-runscape definition migration
+
+Commit `4af1d79` left the observation issuer
+(`SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer`) as the last issuer in
+`scripts/root-claims-registry-common.ps1` whose pinned definitions were stored in one process-static
+`Dictionary<string,...>` keyed by normalized runscape-id strings. That closed Step 1 but kept the
+runspace-lifecycle debt open. This slice migrates that store to the reviewed per-runscape pattern the
+route-capture and fixed-capability issuers already use: definitions now live in a
+`ConditionalWeakTable<Runspace,...>` and each definition carries an `OwnerRunspaceId` Guid binding.
+`RequireDefinition` and the observation receipt validation resolve definitions only through the live
+current-runscape object, its instance id, and that owner binding; `InitializeObservationExact`
+validates the supplied runscape id against the actual current runscape before registration. The
+fail-closed contracts are unchanged: cross-runscape assert/close still rejects, same-text
+ScriptBlock substitution still rejects, and clone/uninitialized instances still cannot forge
+provenance. The public issuer surface, the observation facade, and every PowerShell-level function
+are byte-identical; only the C# definition store changed.
+
+Test changes in `tests/root-claims-registry.tests.ps1`: the definition lookup now goes through the
+weak-keyed table exactly like the route-capture lookup, a new assertion pins the storage type and the
+`OwnerRunspaceId` binding, and a child-runscape probe proves recovery semantics — a fresh runscape
+that dot-sources the registry initializes its own equal-digest definition bound to itself while the
+parent definition stays bound to the parent. The focused suite reached 442 PASS lines with exit code
+0 (438 before this slice), with zero failures.
+
+An eviction probe (kept outside the repository under `tmp/`) also recorded an honest boundary:
+forced garbage collection after disposing a child runscape did NOT evict the route-capture issuer's
+existing CWT entry, because the pinned ScriptBlock/session-state chain keeps the owner runscape
+reachable. The migration therefore delivers per-runscape scoping, identity binding, and fresh-runscape
+recovery; it does not claim collection or eviction guarantees for any of the three issuers.
+
+Validation on 2026-09-01: focused `root-claims-registry.tests.ps1` passed 442 assertions with exit
+code 0, and `canonical-production-seams.tests.ps1` passed 56/0 after a single re-pin — the
+reflection-sensitive inventory count stayed 12660 while its digest moved from
+`aea11a7fb381a9e9533f0b015507f9661f35dad426461b486b7d64b37a7dc2ab` to
+`343ec71636bbd1b91f0d4989d271559badb5cf28ac88bad149894a3ebac0dfcc` because the C# here-string edit
+shifts inventoried-site positions. The PowerShell parse gate accepted all 156 files; the skill build
+produced 7/15/7; the pinned secret scan found no blocking findings (835 non-blocking hints);
+`git diff --check` was clean; and `sync.ps1 -DryRun` with a fresh external plan path reported 29
+additions with zero modified/removed/unknown targets, preserved Codex `.system`, changed no live
+file (plan-file SHA-256
+`44ef6692064762be975310d9a73864532e828214ba101ee08322af666a00ac54`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -930,14 +975,18 @@ release, remain downstream and have not started.
 ## Next actions
 
 1. Continue Phase 2 Task 1 Step 2 by defining a production caller/cleanup ledger that can own and
-   explicitly close the runtime observation. Before wiring a resolver or dispatcher consumer, close
-   the relevant receiver/raw-return, runspace-lifecycle, target/live reader-close, and
-   provider-closure blockers. Preserve the read-only registry's
+   explicitly close the runtime observation. The runspace-lifecycle definition-store blocker is now
+   closed (the observation issuer uses the reviewed per-runscape CWT pattern with `OwnerRunspaceId`
+   binding), but the ledger and the remaining receiver/raw-return, target/live reader-close, and
+   provider-closure blockers are still open. Before wiring a resolver or dispatcher consumer, close
+   those blockers. Preserve the read-only registry's
    `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` contract while completing the
    `PrivateRootBootstrapIntent` setup path, protocol-v1 public dispatch, and remaining forbidden-root
    cases.
    Apply the complete forbidden-root matrix before accepting any default/custom claim. Keep
    production Apply disconnected and leave live-journal structure and interpretation to Task 4.
+   Also run the definitive unified `run-tests.ps1 -All` validation for the 2026-09-01
+   per-runscape definition migration slice.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
