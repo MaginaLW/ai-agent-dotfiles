@@ -261,7 +261,11 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   clean (835 hints), `git diff --check`, and a sync DryRun with a fresh external plan path (29
   additions, zero modified/removed/unknown, `.system` preserved, no live change; plan-file SHA-256
   `44ef6692064762be975310d9a73864532e828214ba101ee08322af666a00ac54`, deleted after the run). The
-  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  definitive unified `run-tests.ps1 -All` run then passed all 34 discovered suites exactly once with
+  zero failures, timeouts, duplicates, missing suites, or tree-kill failures; its external
+  create-new summary SHA-256 is
+  `2e5fc36a843481532af00606a3cb98f31e908e702b4ea1ceb309ccd6c15867dd`, with hard-kill 318/0, seams
+  56/0, and root-claims 442/0 inside the run. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
 ## Current checkpoint

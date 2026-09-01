@@ -611,8 +611,14 @@ produced 7/15/7; the pinned secret scan found no blocking findings (835 non-bloc
 additions with zero modified/removed/unknown targets, preserved Codex `.system`, changed no live
 file (plan-file SHA-256
 `44ef6692064762be975310d9a73864532e828214ba101ee08322af666a00ac54`, deleted after the run). The
-definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
-pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+definitive unified `run-tests.ps1 -All` run then discovered, started, completed, and passed all 34
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures
+(external create-new summary SHA-256
+`2e5fc36a843481532af00606a3cb98f31e908e702b4ea1ceb309ccd6c15867dd`; discovery SHA-256
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`; computed job requirement 17655
+seconds). Inside that run `canonical-hard-kill.tests.ps1` passed 318/0,
+`canonical-production-seams.tests.ps1` passed 56/0, and `root-claims-registry.tests.ps1` passed
+442/0. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
 live root or Git index/ref was changed.
 
 ## Validation status
@@ -985,8 +991,6 @@ release, remain downstream and have not started.
    cases.
    Apply the complete forbidden-root matrix before accepting any default/custom claim. Keep
    production Apply disconnected and leave live-journal structure and interpretation to Task 4.
-   Also run the definitive unified `run-tests.ps1 -All` validation for the 2026-09-01
-   per-runscape definition migration slice.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
