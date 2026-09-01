@@ -621,6 +621,57 @@ seconds). Inside that run `canonical-hard-kill.tests.ps1` passed 318/0,
 442/0. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
 live root or Git index/ref was changed.
 
+## 2026-09-01 Phase 2 observation caller/cleanup ledger
+
+Step 2's named deliverable is now production-defined: an additive sealed caller/cleanup ledger that
+can own and explicitly close the runtime observation. `scripts/root-claims-registry-common.ps1`
+gains the CLR `SealedHeldObservationCleanupLedger`, five issuer lifecycle statics
+(`OpenObservationCleanupLedgerExact`, `RegisterObservationCleanupLedgerEntryExact`,
+`AssertObservationCleanupLedgerExact`, `CloseObservationCleanupLedgerEntryExact`,
+`CloseObservationCleanupLedgerExact`), and five reviewed facade functions
+(`Open-SealedHeldObservationCleanupLedger`,
+`Register-SealedHeldObservationCleanupLedgerObservation`,
+`Assert-SealedHeldObservationCleanupLedger`,
+`Close-SealedHeldObservationCleanupLedgerObservation`,
+`Close-SealedHeldObservationCleanupLedger`). The ledger opens only through a caller-owned
+`SealedOwnershipTransferReceiver` and binds to its owner runscape's live issuer definition by
+provenance token, definition digest, and runscape instance id. Registration accepts only a genuine,
+receipt-bound, OPEN observation and records it as a single-use entry; duplicate registration,
+registration of a closed observation, and registration on a closing/closed ledger all fail closed
+with `held-observation-cleanup-ledger-stale`. Ledger close refuses while any registered entry is
+OPEN (`held-observation-cleanup-ledger-open-entries`); each entry close releases the observation
+through the exact reviewed `CloseObservationExact` route before committing the entry, and the ledger
+close itself is single-use and idempotent. Assert, close, and state inspection all fail closed from
+a foreign runscape and against `MemberwiseClone` provenance copies. The observation's public
+Open/Assert/Close APIs retain zero production callers — the ledger closes through the issuer's
+internal static route, and no PowerShell-level observation call was added. The ledger itself has
+zero production consumers; no resolver, dispatcher, setup, Apply, rollback, or live-mutation route
+uses it, and it grants no mutation authority.
+
+Test changes: `tests/root-claims-registry.tests.ps1` extends the issuer public-method freeze to the
+ten reviewed statics, extends the public-command selector-rejection enumeration to the five new
+functions, and adds a full ledger lifecycle block — receiver-delivered open, genuine/OPEN/empty/
+owner-bound evidence, receiver-reuse rejection, duplicate and closed-observation registration
+rejection, open-entries close rejection, entry close through the exact route, idempotent entry
+close, unregistered-observation close rejection, clone rejection, foreign-runscape rejection,
+single-use ledger close, and closed-ledger rejection — reaching 480 PASS lines with exit code 0
+(442 before this slice). `tests/canonical-production-seams.tests.ps1` re-pins deliberately: five new
+issuer invocation rows, five owner-binding rows with the reviewed function-AST digests, and the
+reflection-sensitive inventory (count 12660 → 12682, digest
+`343ec71636bbd1b91f0d4989d271559badb5cf28ac88bad149894a3ebac0dfcc` →
+`374b019e0e591b913d647e99d0f6c765bceb14aebe4fb77ecdcbb016819a4dd8`; the dynamic-command digest is
+unchanged), passing 56/0.
+
+Validation on 2026-09-01: focused `root-claims-registry.tests.ps1` passed 480 assertions with exit
+code 0; `canonical-production-seams.tests.ps1` passed 56/0; the parse gate accepted all 156 files;
+the skill build produced 7/15/7; the pinned secret scan found no blocking findings (837 non-blocking
+hints); `git diff --check` was clean; and `sync.ps1 -DryRun` with a fresh external plan path changed
+no live file (plan-file SHA-256
+`f880cf5f6778e45ec397f043d411ec152b4c457bf8700b4693afca5e67744c82`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -980,12 +1031,11 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Continue Phase 2 Task 1 Step 2 by defining a production caller/cleanup ledger that can own and
-   explicitly close the runtime observation. The runspace-lifecycle definition-store blocker is now
-   closed (the observation issuer uses the reviewed per-runscape CWT pattern with `OwnerRunspaceId`
-   binding), but the ledger and the remaining receiver/raw-return, target/live reader-close, and
-   provider-closure blockers are still open. Before wiring a resolver or dispatcher consumer, close
-   those blockers. Preserve the read-only registry's
+1. Continue Phase 2 Task 1 Step 2. The production caller/cleanup ledger is now defined as an
+   additive sealed building block with zero production consumers, and the runspace-lifecycle
+   definition-store blocker is closed. Remaining before wiring any resolver or dispatcher consumer:
+   close the receiver/raw-return, target/live reader-close, and provider-closure blockers, then wire
+   the ledger as the reviewed observation lifecycle owner. Preserve the read-only registry's
    `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` contract while completing the
    `PrivateRootBootstrapIntent` setup path, protocol-v1 public dispatch, and remaining forbidden-root
    cases.

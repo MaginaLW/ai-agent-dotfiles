@@ -4046,6 +4046,7 @@ namespace AiAgentDotfiles {
             get { return CloneHandleChainsExact(outerFixedEnvelopeHandleChains); }
         }
         internal object OuterFixedEnvelopeOwnerExact { get { return outerFixedEnvelopeOwner; } }
+        internal int CloseStateForLedgerExact { get { return Volatile.Read(ref closeState); } }
         internal void BeginAssertionExact() {
             lock (lifecycleGate) {
                 if (closeState != OpenState || activeAssertions == Int32.MaxValue)
@@ -4131,6 +4132,231 @@ namespace AiAgentDotfiles {
         public static string GetGlobalBindingHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).globalBindingHash; }
         public static string GetFixedCapabilityProjectionHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).fixedCapabilityProjectionHash; }
         public static string GetObservationProjectionHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).observationProjectionHash; }
+    }
+
+    public sealed class SealedHeldObservationCleanupLedger {
+        private sealed class LedgerIssuanceReceipt {
+            internal readonly SealedHeldObservationCleanupLedger Ledger;
+            internal readonly object ProvenanceToken;
+            internal readonly Guid OwnerRunspaceId;
+            internal LedgerIssuanceReceipt(SealedHeldObservationCleanupLedger ledger,
+                object provenanceTokenValue, Guid ownerRunspaceIdValue) {
+                Ledger = ledger;
+                ProvenanceToken = provenanceTokenValue;
+                OwnerRunspaceId = ownerRunspaceIdValue;
+            }
+        }
+        private static readonly ConditionalWeakTable<SealedHeldObservationCleanupLedger,LedgerIssuanceReceipt> LedgerReceipts =
+            new ConditionalWeakTable<SealedHeldObservationCleanupLedger,LedgerIssuanceReceipt>();
+        private sealed class LedgerEntry {
+            internal readonly SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation Observation;
+            private const int EntryOpenState = 0;
+            private const int EntryClosedState = 1;
+            private int state;
+            internal LedgerEntry(
+                SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observationValue) {
+                Observation = observationValue;
+            }
+            internal bool IsOpenExact() { return Volatile.Read(ref state) == EntryOpenState; }
+            internal bool CommitCloseExact() {
+                return Interlocked.CompareExchange(ref state,EntryClosedState,EntryOpenState) == EntryOpenState;
+            }
+        }
+        private readonly object provenanceToken;
+        private readonly Guid ownerRunspaceId;
+        private readonly string definitionDigest;
+        private const int OpenState = 0;
+        private const int ClosingState = 1;
+        private const int ClosedState = 2;
+        private readonly object lifecycleGate = new object();
+        private readonly object entriesGate = new object();
+        private readonly List<LedgerEntry> entries = new List<LedgerEntry>();
+        private int closeState;
+
+        internal SealedHeldObservationCleanupLedger(object provenanceTokenValue,
+            Guid ownerRunspaceIdValue, string definitionDigestValue) {
+            if (provenanceTokenValue == null || ownerRunspaceIdValue == Guid.Empty ||
+                String.IsNullOrEmpty(definitionDigestValue))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            provenanceToken = provenanceTokenValue;
+            ownerRunspaceId = ownerRunspaceIdValue;
+            definitionDigest = definitionDigestValue;
+        }
+
+        internal object ProvenanceTokenExact { get { return provenanceToken; } }
+        internal string DefinitionDigestExact { get { return definitionDigest; } }
+        internal void BindLedgerReceiptExact(object value) {
+            if (value == null || !Object.ReferenceEquals(value,provenanceToken))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            Runspace current = Runspace.DefaultRunspace;
+            if (current == null || current.InstanceId == Guid.Empty || current.InstanceId != ownerRunspaceId)
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            LedgerReceipts.Add(this,new LedgerIssuanceReceipt(this,value,current.InstanceId));
+        }
+        private static bool HasLedgerReceiptExact(SealedHeldObservationCleanupLedger value) {
+            if (value == null) return false;
+            LedgerIssuanceReceipt registered;
+            Runspace current = Runspace.DefaultRunspace;
+            return LedgerReceipts.TryGetValue(value,out registered) &&
+                registered != null && current != null && current.InstanceId != Guid.Empty &&
+                Object.ReferenceEquals(registered.Ledger,value) &&
+                Object.ReferenceEquals(registered.ProvenanceToken,value.provenanceToken) &&
+                registered.OwnerRunspaceId == value.ownerRunspaceId &&
+                registered.OwnerRunspaceId == current.InstanceId;
+        }
+        private static SealedHeldObservationCleanupLedger RequireIssuedExact(object value) {
+            SealedHeldObservationCleanupLedger ledger = value as SealedHeldObservationCleanupLedger;
+            if (ledger == null || !HasLedgerReceiptExact(ledger))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            return ledger;
+        }
+        private void RequireCurrentOwnerExact() {
+            Runspace current = Runspace.DefaultRunspace;
+            if (current == null || current.InstanceId == Guid.Empty || current.InstanceId != ownerRunspaceId)
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+        }
+        internal void RegisterEntryExact(
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation) {
+            RequireCurrentOwnerExact();
+            if (observation == null || observation.CloseStateForLedgerExact != 0 ||
+                !observation.MatchesIssuanceReceiptExact(observation.ProvenanceTokenExact))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            if (Volatile.Read(ref closeState) != OpenState)
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            lock (entriesGate) {
+                if (Volatile.Read(ref closeState) != OpenState)
+                    throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+                foreach (LedgerEntry existing in entries) {
+                    if (Object.ReferenceEquals(existing.Observation,observation))
+                        throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+                }
+                entries.Add(new LedgerEntry(observation));
+            }
+        }
+        internal bool AssertEntriesOpenExact() {
+            RequireCurrentOwnerExact();
+            if (Volatile.Read(ref closeState) != OpenState)
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            lock (entriesGate) {
+                if (Volatile.Read(ref closeState) != OpenState)
+                    throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+                foreach (LedgerEntry entry in entries) {
+                    if (!entry.IsOpenExact() || entry.Observation.CloseStateForLedgerExact != 0 ||
+                        !entry.Observation.MatchesIssuanceReceiptExact(entry.Observation.ProvenanceTokenExact))
+                        return false;
+                }
+            }
+            return true;
+        }
+        private LedgerEntry RequireRegisteredEntryExact(
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation) {
+            RequireCurrentOwnerExact();
+            lock (entriesGate) {
+                foreach (LedgerEntry entry in entries) {
+                    if (Object.ReferenceEquals(entry.Observation,observation)) return entry;
+                }
+            }
+            throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+        }
+        internal bool BeginEntryCloseExact(
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation) {
+            LedgerEntry entry = RequireRegisteredEntryExact(observation);
+            return entry.IsOpenExact();
+        }
+        internal void CompleteEntryCloseExact(
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation) {
+            LedgerEntry entry = RequireRegisteredEntryExact(observation);
+            if (!entry.CommitCloseExact())
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+        }
+        internal int EntryCountExact() { lock (entriesGate) { return entries.Count; } }
+        internal bool IsEntryRegisteredExact(
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation) {
+            RequireCurrentOwnerExact();
+            if (observation == null) return false;
+            lock (entriesGate) {
+                foreach (LedgerEntry entry in entries) {
+                    if (Object.ReferenceEquals(entry.Observation,observation)) return true;
+                }
+            }
+            return false;
+        }
+        internal string EntryCloseStateExact(
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation) {
+            LedgerEntry entry = RequireRegisteredEntryExact(observation);
+            return entry.IsOpenExact() ? "OPEN" : "CLOSED";
+        }
+        internal int BeginCloseExact() {
+            RequireCurrentOwnerExact();
+            lock (lifecycleGate) {
+                if (closeState == ClosedState) return ClosedState;
+                if (closeState == ClosingState) return ClosingState;
+                if (closeState != OpenState)
+                    throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+                lock (entriesGate) {
+                    foreach (LedgerEntry entry in entries) {
+                        if (entry.IsOpenExact())
+                            throw new InvalidOperationException("held-observation-cleanup-ledger-open-entries");
+                    }
+                }
+                Volatile.Write(ref closeState,ClosingState);
+                return OpenState;
+            }
+        }
+        internal void RestoreOpenExact() {
+            lock (lifecycleGate) {
+                if (closeState != ClosingState)
+                    throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+                Volatile.Write(ref closeState,OpenState);
+            }
+        }
+        internal void CompleteCloseExact() {
+            lock (lifecycleGate) {
+                if (closeState != ClosingState)
+                    throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+                Volatile.Write(ref closeState,ClosedState);
+            }
+        }
+
+        public static bool IsGenuine(object value) {
+            return value != null && Object.ReferenceEquals(RequireIssuedExactOrNull(value),value);
+        }
+        private static SealedHeldObservationCleanupLedger RequireIssuedExactOrNull(object value) {
+            SealedHeldObservationCleanupLedger ledger = value as SealedHeldObservationCleanupLedger;
+            if (ledger == null || !HasLedgerReceiptExact(ledger)) return null;
+            return ledger;
+        }
+        public static bool GetIsOpenExact(object value) {
+            SealedHeldObservationCleanupLedger ledger = RequireIssuedExactOrNull(value);
+            return ledger != null && Volatile.Read(ref ledger.closeState) == OpenState;
+        }
+        public static bool GetIsClosedExact(object value) {
+            return Volatile.Read(ref RequireIssuedExact(value).closeState) == ClosedState;
+        }
+        public static string GetCloseStateExact(object value) {
+            SealedHeldObservationCleanupLedger ledger = RequireIssuedExact(value);
+            int state = Volatile.Read(ref ledger.closeState);
+            return state == OpenState ? "OPEN" : state == ClosingState ? "CLOSING" : "CLOSED";
+        }
+        public static string GetOwnerRunspaceIdExact(object value) {
+            return RequireIssuedExact(value).ownerRunspaceId.ToString("D").ToLowerInvariant();
+        }
+        public static string GetDefinitionDigestExact(object value) {
+            return RequireIssuedExact(value).definitionDigest;
+        }
+        public static int GetEntryCountExact(object value) {
+            return RequireIssuedExact(value).EntryCountExact();
+        }
+        public static bool IsEntryRegisteredExact(object ledgerValue, object observationValue) {
+            SealedHeldObservationCleanupLedger ledger = RequireIssuedExact(ledgerValue);
+            return ledger.IsEntryRegisteredExact(
+                observationValue as SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation);
+        }
+        public static string GetEntryCloseStateExact(object ledgerValue, object observationValue) {
+            SealedHeldObservationCleanupLedger ledger = RequireIssuedExact(ledgerValue);
+            return ledger.EntryCloseStateExact(
+                observationValue as SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation);
+        }
     }
 
     public static class SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer {
@@ -5450,6 +5676,92 @@ namespace AiAgentDotfiles {
             observation.CompleteCloseExact();
             return true;
         }
+
+        private static SealedHeldObservationCleanupLedger RequireCleanupLedgerExact(object value) {
+            SealedHeldObservationCleanupLedger ledger =
+                value as SealedHeldObservationCleanupLedger;
+            if (ledger == null || !SealedHeldObservationCleanupLedger.IsGenuine(ledger))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            SealedCurrentRouteFixedInfrastructureIssuerDefinition definition =
+                RequireDefinition(CurrentRunspaceId());
+            if (!Object.ReferenceEquals(ledger.ProvenanceTokenExact,definition.ProvenanceToken) ||
+                !String.Equals(ledger.DefinitionDigestExact,definition.DefinitionDigest,StringComparison.Ordinal))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            return ledger;
+        }
+        private static void InvokeOwnershipReceiverMethodExact(object receiver,
+            string methodName, object[] arguments) {
+            if (receiver == null || String.IsNullOrWhiteSpace(methodName))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            MethodInfo selected = null;
+            foreach (MethodInfo candidate in receiver.GetType().GetMethods(
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)) {
+                if (!String.Equals(candidate.Name,methodName,StringComparison.Ordinal) ||
+                    candidate.GetParameters().Length != arguments.Length) continue;
+                if (selected != null)
+                    throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+                selected = candidate;
+            }
+            if (selected == null)
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            try { selected.Invoke(receiver,arguments); }
+            catch (TargetInvocationException error) { throw error.InnerException ?? error; }
+        }
+        public static void OpenObservationCleanupLedgerExact(object ownershipReceiver) {
+            if (!IsExactType(ownershipReceiver,"AiAgentDotfiles.SealedOwnershipTransferReceiver"))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            SealedCurrentRouteFixedInfrastructureIssuerDefinition definition =
+                RequireDefinition(CurrentRunspaceId());
+            Runspace current = Runspace.DefaultRunspace;
+            if (current == null || current.InstanceId == Guid.Empty)
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            InvokeOwnershipReceiverMethodExact(ownershipReceiver,"AssertEmptyExact",new object[0]);
+            SealedHeldObservationCleanupLedger ledger = new SealedHeldObservationCleanupLedger(
+                definition.ProvenanceToken,current.InstanceId,definition.DefinitionDigest);
+            ledger.BindLedgerReceiptExact(definition.ProvenanceToken);
+            InvokeOwnershipReceiverMethodExact(ownershipReceiver,"DeliverExact",
+                new object[] { ledger });
+        }
+        public static void RegisterObservationCleanupLedgerEntryExact(object ledgerValue,
+            object observationValue) {
+            SealedHeldObservationCleanupLedger ledger = RequireCleanupLedgerExact(ledgerValue);
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation =
+                RequireObservation(observationValue,true);
+            ledger.RegisterEntryExact(observation);
+        }
+        public static bool AssertObservationCleanupLedgerExact(object ledgerValue) {
+            SealedHeldObservationCleanupLedger ledger = RequireCleanupLedgerExact(ledgerValue);
+            return ledger.AssertEntriesOpenExact();
+        }
+        public static bool CloseObservationCleanupLedgerEntryExact(object ledgerValue,
+            object observationValue) {
+            SealedHeldObservationCleanupLedger ledger = RequireCleanupLedgerExact(ledgerValue);
+            SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation observation =
+                RequireObservation(observationValue,true);
+            if (!ledger.BeginEntryCloseExact(observation)) return false;
+            if (observation.CloseStateForLedgerExact != 0)
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            if (!CloseObservationExact(observation))
+                throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            ledger.CompleteEntryCloseExact(observation);
+            return true;
+        }
+        public static bool CloseObservationCleanupLedgerExact(object ledgerValue) {
+            SealedHeldObservationCleanupLedger ledger = RequireCleanupLedgerExact(ledgerValue);
+            int observed = ledger.BeginCloseExact();
+            if (observed == 2) return false;
+            if (observed == 1)
+                throw new InvalidOperationException("held-observation-cleanup-ledger-close-active");
+            if (observed != 0) throw new InvalidOperationException("held-observation-cleanup-ledger-stale");
+            try {
+                ledger.CompleteCloseExact();
+            }
+            catch {
+                ledger.RestoreOpenExact();
+                throw;
+            }
+            return true;
+        }
     }
 }
 '@
@@ -5643,6 +5955,113 @@ function Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation {
 
     try {
         return [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::CloseObservationExact($Observation)
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+function Open-SealedHeldObservationCleanupLedger {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver)
+
+    try {
+        $OwnershipReceiver.AssertEmptyExact()
+        [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::OpenObservationCleanupLedgerExact($OwnershipReceiver)
+        if([string]$OwnershipReceiver.GetStateExact() -cne 'DELIVERED'){
+            throw 'held-observation-cleanup-ledger-stale'
+        }
+        return
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+function Register-SealedHeldObservationCleanupLedgerObservation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Ledger,
+        [Parameter(Mandatory)][AllowNull()]$Observation
+    )
+
+    try {
+        [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::RegisterObservationCleanupLedgerEntryExact($Ledger,$Observation)
+        return
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+function Assert-SealedHeldObservationCleanupLedger {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()]$Ledger)
+
+    try {
+        return [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::AssertObservationCleanupLedgerExact($Ledger)
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+function Close-SealedHeldObservationCleanupLedgerObservation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Ledger,
+        [Parameter(Mandatory)][AllowNull()]$Observation
+    )
+
+    try {
+        return [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::CloseObservationCleanupLedgerEntryExact($Ledger,$Observation)
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+function Close-SealedHeldObservationCleanupLedger {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()]$Ledger)
+
+    try {
+        return [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::CloseObservationCleanupLedgerExact($Ledger)
     }
     catch {
         $domainException=$_.Exception

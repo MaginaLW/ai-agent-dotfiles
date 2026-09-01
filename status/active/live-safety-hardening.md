@@ -268,6 +268,30 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, and root-claims 442/0 inside the run. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 observation caller/cleanup ledger (2026-09-01): the Step 2 named deliverable is
+  production-defined as an additive sealed building block. `scripts/root-claims-registry-common.ps1`
+  gains the CLR `SealedHeldObservationCleanupLedger`, five issuer lifecycle statics, and five
+  reviewed facade functions (`Open-SealedHeldObservationCleanupLedger`,
+  `Register-SealedHeldObservationCleanupLedgerObservation`, `Assert-SealedHeldObservationCleanupLedger`,
+  `Close-SealedHeldObservationCleanupLedgerObservation`, `Close-SealedHeldObservationCleanupLedger`).
+  The ledger binds to its owner runscape's live issuer definition (provenance token, definition
+  digest, runscape instance id), registers only genuine receipt-bound OPEN observations as single-use
+  entries, refuses ledger close while any entry is OPEN, releases each entry's observation through
+  the exact reviewed `CloseObservationExact` route before committing the entry, and closes
+  single-use and idempotently. Cross-runscape and clone provenance attacks fail closed. The
+  observation's public Open/Assert/Close APIs retain zero production callers (the ledger closes
+  through the issuer internal static route); the ledger itself has zero production consumers and
+  grants no mutation authority. Focused root-claims passed 480 assertions with exit code 0 (442
+  before; the issuer surface freeze now pins the ten reviewed statics and the selector enumeration
+  covers the five new functions), and seams passed 56/0 after deliberate re-pin (five new invocation
+  rows, five owner-binding rows, reflection count 12660 → 12682, digest →
+  `374b019e0e591b913d647e99d0f6c765bceb14aebe4fb77ecdcbb016819a4dd8`, dynamic-command digest
+  unchanged). Gates: parse 156 files, build 7/15/7, secret scan clean (837 hints), `git diff
+  --check`, sync DryRun with a fresh external plan path (no live change; plan-file SHA-256
+  `f880cf5f6778e45ec397f043d411ec152b4c457bf8700b4693afca5e67744c82`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -285,13 +309,12 @@ stay unconnected to production mutation routes.
 
 ## Current phase
 
-Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. Next is to define a production caller/cleanup
-ledger that can own and explicitly close the runtime observation. The runspace-lifecycle
-definition-store blocker is closed: the observation issuer now uses the reviewed per-runscape
-`ConditionalWeakTable` pattern with `OwnerRunspaceId` binding, so a disposed runscape's definition
-can never be reached again and a fresh runscape recovers by initializing its own equal-digest
-definition. The ledger itself plus the receiver/raw-return, target/live reader-close, and
-provider-closure blockers remain open. The
+Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. The production caller/cleanup ledger is
+production-defined with zero production consumers, and the runspace-lifecycle definition-store
+blocker is closed (the observation issuer uses the reviewed per-runscape `ConditionalWeakTable`
+pattern with `OwnerRunspaceId` binding). Next is to close the remaining receiver/raw-return,
+target/live reader-close, and provider-closure blockers, then wire the ledger as the reviewed
+observation lifecycle owner for a resolver or dispatcher consumer. The
 `PrivateRootBootstrapIntent` setup path,
 protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
 the complete forbidden-root matrix before accepting any default/custom claim. Production Apply

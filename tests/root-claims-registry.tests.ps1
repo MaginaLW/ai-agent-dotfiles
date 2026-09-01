@@ -1779,7 +1779,12 @@ try {
         'Invoke-SealedHeldFixedInfrastructureCapabilityCapture',
         'Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
         'Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
-        'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation'
+        'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
+        'Open-SealedHeldObservationCleanupLedger',
+        'Register-SealedHeldObservationCleanupLedgerObservation',
+        'Assert-SealedHeldObservationCleanupLedger',
+        'Close-SealedHeldObservationCleanupLedgerObservation',
+        'Close-SealedHeldObservationCleanupLedger'
     )) {
         $registryCommand = Get-Command $commandName -ErrorAction Stop
         foreach ($publicSelector in @('HomeRoot','BackupRoot','LockWaitSeconds','TestMode')) {
@@ -3711,8 +3716,11 @@ try {
                 $observationIssuerPublicMethods=@([AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer].GetMethods(
                     ([Reflection.BindingFlags]::Public -bor [Reflection.BindingFlags]::Static -bor [Reflection.BindingFlags]::DeclaredOnly)).Name | Sort-Object -CaseSensitive)
                 $expectedObservationIssuerPublicMethods=@(
-                    'AssertObservationExact','CloseObservationExact','InitializeObservationExact',
-                    'MatchesObservationDefinitionsExact','OpenObservationExact'
+                    'AssertObservationCleanupLedgerExact','AssertObservationExact',
+                    'CloseObservationCleanupLedgerEntryExact','CloseObservationCleanupLedgerExact',
+                    'CloseObservationExact','InitializeObservationExact',
+                    'MatchesObservationDefinitionsExact','OpenObservationCleanupLedgerExact',
+                    'OpenObservationExact','RegisterObservationCleanupLedgerEntryExact'
                 ) | Sort-Object -CaseSensitive
                 Assert-TestCondition (($observationIssuerPublicMethods -join "`0") -ceq ($expectedObservationIssuerPublicMethods -join "`0")) 'observation issuer exposes only the reviewed route-plus-bindings broker and lifecycle surface'
                 $observationDefinitionScripts=@{}
@@ -4021,6 +4029,118 @@ try {
                 if($null -ne $routeStaleCleanupError){
                     if($null -eq $routeStalePrimaryError){throw $routeStaleCleanupError}
                     try {$routeStalePrimaryError.Exception.Data['RouteStaleTestCleanupError']=[string]$routeStaleCleanupError.Exception.Message}
+                    catch { }
+                }
+            }
+
+            $ledgerRoute=$null
+            $ledgerFirstObservation=$null
+            $ledgerSecondObservation=$null
+            $ledgerReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            $ledger=$null
+            $ledgerPrimaryError=$null
+            try {
+                $ledgerRouteSet=New-SealedCurrentRouteRootSet -CanonicalWitness $capabilityWitness
+                $ledgerRoute=Open-TestSealedRegistryCurrentRouteCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CurrentRouteRootSet $ledgerRouteSet -Reservations @()
+                $ledgerFirstObservation=Open-TestSealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -CurrentRouteCapture $ledgerRoute -CapabilityProbeBindings $observationBindings
+                $ledgerSecondObservation=Open-TestSealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -CurrentRouteCapture $ledgerRoute -CapabilityProbeBindings $observationBindings
+                Open-SealedHeldObservationCleanupLedger -OwnershipReceiver $ledgerReceiver
+                $ledger=$ledgerReceiver.GetDeliveredExact()
+                Assert-TestCondition ($ledger -is [AiAgentDotfiles.SealedHeldObservationCleanupLedger] -and
+                    [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::IsGenuine($ledger) -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($ledger) -ceq 'OPEN' -and
+                    [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCountExact($ledger) -eq 0 -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetOwnerRunspaceIdExact($ledger) -ceq
+                        [string][Management.Automation.Runspaces.Runspace]::DefaultRunspace.InstanceId -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetDefinitionDigestExact($ledger) -ceq
+                        [string]$observationParentDefinitionDigest) 'the observation cleanup ledger opens genuine, OPEN, empty, and bound to its owner runscape definition'
+                Assert-ThrowsPattern {
+                    Open-SealedHeldObservationCleanupLedger -OwnershipReceiver $ledgerReceiver | Out-Null
+                } '^ownership-transfer-receiver-stale$' 'the cleanup ledger cannot be delivered through a receiver that already holds one'
+                Register-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $ledgerFirstObservation
+                Assert-TestCondition ([AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCountExact($ledger) -eq 1 -and
+                    [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::IsEntryRegisteredExact($ledger,$ledgerFirstObservation) -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCloseStateExact($ledger,$ledgerFirstObservation) -ceq 'OPEN' -and
+                    (Assert-SealedHeldObservationCleanupLedger -Ledger $ledger)) 'registering an open observation publishes one OPEN entry and the ledger asserts current'
+                Assert-ThrowsPattern {
+                    Register-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $ledgerFirstObservation | Out-Null
+                } '^held-observation-cleanup-ledger-stale$' 'the cleanup ledger rejects duplicate registration of the same observation'
+                Assert-ThrowsPattern {
+                    Register-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $observation | Out-Null
+                } '^held-observation-cleanup-ledger-stale$' 'the cleanup ledger rejects registering a closed observation'
+                Assert-ThrowsPattern {
+                    Close-SealedHeldObservationCleanupLedger -Ledger $ledger | Out-Null
+                } '^held-observation-cleanup-ledger-open-entries$' 'the cleanup ledger refuses to close while a registered observation remains OPEN'
+                Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($ledger) -ceq 'OPEN') 'a rejected ledger close leaves the ledger OPEN'
+                Assert-TestCondition (Close-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $ledgerFirstObservation) 'the ledger entry close releases the owned observation through the exact reviewed close route'
+                Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetCloseStateExact($ledgerFirstObservation) -ceq 'CLOSED' -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCloseStateExact($ledger,$ledgerFirstObservation) -ceq 'CLOSED' -and
+                    -not (Assert-SealedHeldObservationCleanupLedger -Ledger $ledger)) 'the closed entry records the observation close and the ledger assert reports the cleanup obligation resolved'
+                Assert-TestCondition (-not (Close-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $ledgerFirstObservation)) 'closing an already-closed ledger entry is idempotent without re-running owned cleanup'
+                Assert-ThrowsPattern {
+                    Close-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $ledgerSecondObservation | Out-Null
+                } '^held-observation-cleanup-ledger-stale$' 'the ledger refuses to close an observation it never registered'
+                $ledgerClone=[object].GetMethod('MemberwiseClone',([Reflection.BindingFlags]::Instance -bor [Reflection.BindingFlags]::NonPublic)).Invoke($ledger,$null)
+                Assert-ThrowsPattern { Assert-SealedHeldObservationCleanupLedger -Ledger $ledgerClone | Out-Null } '^held-observation-cleanup-ledger-stale$' 'a genuine CLR MemberwiseClone cannot copy ledger provenance'
+                Assert-ThrowsPattern { Close-SealedHeldObservationCleanupLedger -Ledger $ledgerClone | Out-Null } '^held-observation-cleanup-ledger-stale$' 'closing a ledger clone cannot release any registered cleanup obligation'
+                $ledgerCrossRunspacePowerShell=[PowerShell]::Create()
+                try {
+                    $null=$ledgerCrossRunspacePowerShell.AddScript({
+                        param($ForeignLedger)
+                        $results=@()
+                        foreach($foreignLedgerCall in @(
+                            { [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($ForeignLedger) },
+                            { [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::AssertObservationCleanupLedgerExact($ForeignLedger) | Out-Null },
+                            { [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::CloseObservationCleanupLedgerExact($ForeignLedger) | Out-Null }
+                        )){
+                            try {
+                                [string](& $foreignLedgerCall)
+                                $results+='ledger-foreign-runspace-unexpectedly-succeeded'
+                            }
+                            catch {
+                                $domainError=$_.Exception
+                                while($null -ne $domainError.InnerException){$domainError=$domainError.InnerException}
+                                $results+=[string]$domainError.Message
+                            }
+                        }
+                        return $results
+                    }).AddArgument($ledger)
+                    $ledgerCrossRunspaceResults=@($ledgerCrossRunspacePowerShell.Invoke())
+                    $ledgerCrossRunspaceErrors=@($ledgerCrossRunspacePowerShell.Streams.Error)
+                }
+                finally { $ledgerCrossRunspacePowerShell.Dispose() }
+                Assert-TestCondition ($ledgerCrossRunspaceErrors.Count -eq 0 -and $ledgerCrossRunspaceResults.Count -eq 3 -and
+                    @($ledgerCrossRunspaceResults | Where-Object {[string]$_ -cne 'held-observation-cleanup-ledger-stale'}).Count -eq 0) 'a foreign runscape cannot inspect, assert, or close the owner-runscape cleanup ledger'
+                Assert-TestCondition (Close-SealedHeldObservationCleanupLedger -Ledger $ledger) 'the ledger closes after every registered entry is closed'
+                Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($ledger) -ceq 'CLOSED' -and
+                    -not (Close-SealedHeldObservationCleanupLedger -Ledger $ledger)) 'ledger close is single-use and idempotent'
+                Assert-ThrowsPattern {
+                    Register-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $ledgerSecondObservation | Out-Null
+                } '^held-observation-cleanup-ledger-stale$' 'a closed ledger rejects new registration obligations'
+                Assert-ThrowsPattern {
+                    Close-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $ledgerSecondObservation | Out-Null
+                } '^held-observation-cleanup-ledger-stale$' 'a closed ledger rejects entry-close obligations'
+            }
+            catch {
+                $ledgerPrimaryError=$_
+                throw
+            }
+            finally {
+                $ledgerCleanupError=$null
+                foreach($pendingLedgerObservation in @($ledgerSecondObservation,$ledgerFirstObservation)){
+                    if($null -ne $pendingLedgerObservation -and
+                        [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($pendingLedgerObservation)){
+                        try {$null=Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $pendingLedgerObservation}
+                        catch {if($null -eq $ledgerCleanupError){$ledgerCleanupError=$_}}
+                    }
+                }
+                if($null -ne $ledgerRoute -and [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($ledgerRoute)){
+                    try {$null=Close-SealedRegistryCurrentRouteCapture -Capture $ledgerRoute}
+                    catch {if($null -eq $ledgerCleanupError){$ledgerCleanupError=$_}}
+                }
+                if($null -ne $ledgerCleanupError){
+                    if($null -eq $ledgerPrimaryError){throw $ledgerCleanupError}
+                    try {$ledgerPrimaryError.Exception.Data['LedgerTestCleanupError']=[string]$ledgerCleanupError.Exception.Message}
                     catch { }
                 }
             }
