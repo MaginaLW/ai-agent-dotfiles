@@ -676,6 +676,37 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 56/0, and root-claims 480/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
 Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-01 Phase 2 live-set receiver-backing
+
+The live-set member of the receiver/raw-return blocker is closed.
+`Open-SealedHeldLiveTargetContextSet` in `scripts/live-target-context.ps1` now requires a
+caller-owned `SealedOwnershipTransferReceiver` and delivers the held live-set lease through exact
+ownership transfer only; the legacy raw success-stream return branch is removed. Production was
+already receiver-based — the pinned route-capture live-set open core passes the receiver and asserts
+zero output — so no production caller changed behavior. The open-failure cleanup path is unchanged:
+when delivery never happens (including a `PipelineStoppedException` raised before delivery), the
+finally block releases the receipt and every nested lease exactly as before.
+
+Test changes in `tests/root-claims-registry.tests.ps1`: the three raw-branch call sites were
+converted to receiver style (the pipeline-retention probe now proves receiver durability instead of
+`Select-Object -First 1` short-circuit retention; the provider-isolation victim opens through its
+own receiver), and two new assertions pin the exact four-parameter mandatory-receiver contract and
+reject a receiver-less invocation with the parameter-binding error. The focused suite reached 482
+PASS lines with exit code 0 (480 before this slice). The seams suite passed 56/0 without any
+baseline change — the edit touches no inventoried member, type, or literal text in the
+reflection-sensitive inventory. The target-lease, safe-existing, and retained-traversal raw-return
+branches remain open (two of them live in hard-kill-pinned files).
+
+Validation on 2026-09-01: focused `root-claims-registry.tests.ps1` passed 482 assertions with exit
+code 0; `canonical-production-seams.tests.ps1` passed 56/0; the parse gate accepted all 156 files;
+the skill build produced 7/15/7; the pinned secret scan found no blocking findings (841 non-blocking
+hints); `git diff --check` was clean; and `sync.ps1 -DryRun` with a fresh external plan path changed
+no live file (plan-file SHA-256
+`dda9dcff69c1b6da4575f020c05ab6549105fb5003e454680198e685ddef08ab`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -1035,11 +1066,13 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Continue Phase 2 Task 1 Step 2. The production caller/cleanup ledger is now defined as an
-   additive sealed building block with zero production consumers, and the runspace-lifecycle
-   definition-store blocker is closed. Remaining before wiring any resolver or dispatcher consumer:
-   close the receiver/raw-return, target/live reader-close, and provider-closure blockers, then wire
-   the ledger as the reviewed observation lifecycle owner. Preserve the read-only registry's
+1. Continue Phase 2 Task 1 Step 2. The production caller/cleanup ledger is defined as an additive
+   sealed building block with zero production consumers, the runspace-lifecycle definition-store
+   blocker is closed, and the live-set raw-return branch is receiver-backed. Remaining before wiring
+   any resolver or dispatcher consumer: close the target-lease, safe-existing, and retained-traversal
+   raw-return branches (two live in hard-kill-pinned files), the target/live reader-close and
+   provider-closure blockers, then wire the ledger as the reviewed observation lifecycle owner.
+   Preserve the read-only registry's
    `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` contract while completing the
    `PrivateRootBootstrapIntent` setup path, protocol-v1 public dispatch, and remaining forbidden-root
    cases.

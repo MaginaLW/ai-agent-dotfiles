@@ -296,6 +296,23 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, and root-claims 480/0 inside the run. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 live-set receiver-backing (2026-09-01): the live-set member of the
+  receiver/raw-return blocker is closed. `Open-SealedHeldLiveTargetContextSet` now requires a
+  caller-owned `SealedOwnershipTransferReceiver` and delivers only through exact ownership transfer;
+  the raw success-stream return branch is removed. Production was already receiver-based (the
+  pinned route-capture live-set open core passes the receiver and asserts zero output), and the
+  open-failure cleanup path — including a `PipelineStoppedException` before delivery — is
+  unchanged. The three raw-branch test call sites converted to receiver style (the pipeline-retention
+  probe now proves receiver durability), and new assertions pin the exact four-parameter
+  mandatory-receiver contract and reject receiver-less invocation. Focused root-claims passed 482
+  assertions with exit code 0 (480 before); seams passed 56/0 without baseline change (no
+  inventoried member, type, or literal text changed). Gates: parse 156 files, build 7/15/7, secret
+  scan clean (841 hints), `git diff --check`, sync DryRun with a fresh external plan path (no live
+  change; plan-file SHA-256
+  `dda9dcff69c1b6da4575f020c05ab6549105fb5003e454680198e685ddef08ab`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -314,11 +331,11 @@ stay unconnected to production mutation routes.
 ## Current phase
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. The production caller/cleanup ledger is
-production-defined with zero production consumers, and the runspace-lifecycle definition-store
-blocker is closed (the observation issuer uses the reviewed per-runscape `ConditionalWeakTable`
-pattern with `OwnerRunspaceId` binding). Next is to close the remaining receiver/raw-return,
-target/live reader-close, and provider-closure blockers, then wire the ledger as the reviewed
-observation lifecycle owner for a resolver or dispatcher consumer. The
+production-defined with zero production consumers, the runspace-lifecycle definition-store blocker
+is closed, and the live-set raw-return branch is receiver-backed. Next is to close the remaining
+target-lease, safe-existing, and retained-traversal raw-return branches (two live in hard-kill-pinned
+files), the target/live reader-close and provider-closure blockers, then wire the ledger as the
+reviewed observation lifecycle owner for a resolver or dispatcher consumer. The
 `PrivateRootBootstrapIntent` setup path,
 protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
 the complete forbidden-root matrix before accepting any default/custom claim. Production Apply

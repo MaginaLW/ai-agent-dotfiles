@@ -2985,8 +2985,11 @@ try {
             Assert-TestCondition ([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact($targetSelectFirstReceipt) -and
                 @($targetSelectFirstHandles | Where-Object {[AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($_)}).Count -eq 0) 'explicit target close releases every handle received through Select-Object -First 1'
 
-            $liveSelectFirstLease=Open-SealedHeldLiveTargetContextSet -AuthorityContext $capabilityFixture.Context `
-                -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal | Select-Object -First 1
+            $liveSelectFirstReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedHeldLiveTargetContextSet -AuthorityContext $capabilityFixture.Context `
+                -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal `
+                -OwnershipReceiver $liveSelectFirstReceiver
+            $liveSelectFirstLease=$liveSelectFirstReceiver.GetDeliveredExact()
             $liveSelectFirstReceipt=[AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetForWrapperExact($liveSelectFirstLease)
             $liveSelectFirstTargetLeases=@([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetTargetLeasesExact($liveSelectFirstReceipt))
             $liveSelectFirstTargetReceipts=@($liveSelectFirstTargetLeases | ForEach-Object {
@@ -2995,11 +2998,21 @@ try {
             try {
                 Assert-TestCondition ([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetIsOpenExact($liveSelectFirstReceipt) -and
                     $liveSelectFirstTargetReceipts.Count -eq 3 -and
-                    @($liveSelectFirstTargetReceipts | Where-Object {-not [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsOpenExact($_)}).Count -eq 0) 'Select-Object -First 1 receives an OPEN live-set lease with three OPEN nested receipts'
+                    @($liveSelectFirstTargetReceipts | Where-Object {-not [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsOpenExact($_)}).Count -eq 0 -and
+                    [bool]$liveSelectFirstReceiver.HoldsExact($liveSelectFirstLease)) 'receiver-delivered live-set ownership stays with the caller receiver with three OPEN nested receipts'
             }
             finally { $null=[AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::ReleaseForWrapperExact($liveSelectFirstLease) }
             Assert-TestCondition ([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetIsClosedExact($liveSelectFirstReceipt) -and
-                @($liveSelectFirstTargetReceipts | Where-Object {-not [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact($_)}).Count -eq 0) 'explicit live-set close releases every nested lease received through Select-Object -First 1'
+                @($liveSelectFirstTargetReceipts | Where-Object {-not [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact($_)}).Count -eq 0) 'explicit live-set close releases every nested lease held through its ownership receiver'
+
+            $liveSetOpenCommand=Get-Command Open-SealedHeldLiveTargetContextSet -CommandType Function -ErrorAction Stop
+            Assert-TestCondition ((@($liveSetOpenCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object {$_.Name.VariablePath.UserPath}) -join "`0") -ceq "AuthorityContext`0CanonicalWitness`0GlobalLockHandle`0OwnershipReceiver" -and
+                $liveSetOpenCommand.Parameters['OwnershipReceiver'].ParameterType -eq [AiAgentDotfiles.SealedOwnershipTransferReceiver] -and
+                @($liveSetOpenCommand.Parameters['OwnershipReceiver'].Attributes | Where-Object {$_ -is [Management.Automation.ParameterAttribute] -and $_.Mandatory}).Count -eq 1) 'the live-set open exposes an exact authority-plus-witness-plus-lock-plus-mandatory-receiver contract'
+            Assert-ThrowsPattern {
+                Open-SealedHeldLiveTargetContextSet -AuthorityContext $capabilityFixture.Context `
+                    -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal | Out-Null
+            } 'missing mandatory parameters: OwnershipReceiver' 'the live-set open rejects a raw success-stream return path by requiring the ownership receiver'
 
             $liveStopAssertOriginal=(Get-Command Assert-SealedHeldLiveTargetContextSet -CommandType Function -ErrorAction Stop).ScriptBlock
             $liveStopState=[pscustomobject]@{Calls=0L;Lease=$null}
@@ -3012,8 +3025,10 @@ try {
             $liveStopArguments=[object[]]@($capabilityFixture.Context,$capabilityWitness,$capabilityGlobal)
             $liveStopInvoker={
                 param($AuthorityContext,$CanonicalWitness,$GlobalLockHandle)
+                $stopOwnershipReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
                 Open-SealedHeldLiveTargetContextSet -AuthorityContext $AuthorityContext `
-                    -CanonicalWitness $CanonicalWitness -GlobalLockHandle $GlobalLockHandle
+                    -CanonicalWitness $CanonicalWitness -GlobalLockHandle $GlobalLockHandle `
+                    -OwnershipReceiver $stopOwnershipReceiver
             }
             try {
                 Set-Item -LiteralPath Function:\Assert-SealedHeldLiveTargetContextSet -Value $liveStoppingAssert
@@ -3267,7 +3282,9 @@ try {
             $observationRoute=Open-TestSealedRegistryCurrentRouteCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CurrentRouteRootSet $observationRouteSet -Reservations @()
             $originalLiveSetOpen=(Get-Command Open-SealedHeldLiveTargetContextSet -CommandType Function -ErrorAction Stop).ScriptBlock
             $originalTargetOpen=(Get-Command Open-SealedHeldTargetContextLease -CommandType Function -ErrorAction Stop).ScriptBlock
-            $standaloneVictimLiveSet=& $originalLiveSetOpen -AuthorityContext $capabilityFixture.Context -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal
+            $standaloneVictimLiveReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            & $originalLiveSetOpen -AuthorityContext $capabilityFixture.Context -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal -OwnershipReceiver $standaloneVictimLiveReceiver
+            $standaloneVictimLiveSet=$standaloneVictimLiveReceiver.GetDeliveredExact()
             $standaloneVictimTarget=& $originalTargetOpen -Path $capabilityProbeRoot
             $standaloneVictimLiveReceipt=[AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetForWrapperExact($standaloneVictimLiveSet)
             $standaloneVictimTargetReceipt=[AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($standaloneVictimTarget)

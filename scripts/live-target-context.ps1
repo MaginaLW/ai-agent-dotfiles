@@ -412,7 +412,7 @@ function Open-SealedHeldLiveTargetContextSet {
         [Parameter(Mandatory)]$AuthorityContext,
         [Parameter(Mandatory)]$CanonicalWitness,
         [Parameter(Mandatory)]$GlobalLockHandle,
-        [AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
+        [Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
     )
 
     $leases = [Collections.Generic.List[object]]::new()
@@ -423,7 +423,7 @@ function Open-SealedHeldLiveTargetContextSet {
     $ownershipTransferred = $false
     $primaryError = $null
     try {
-        if ($null -ne $OwnershipReceiver) { $OwnershipReceiver.AssertEmptyExact() }
+        $OwnershipReceiver.AssertEmptyExact()
         $globalBinding = Assert-SealedHeldLiveTargetRouteWitness -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness -GlobalLockHandle $GlobalLockHandle
         $null = Assert-SealedHeldLiveTargetExpectedSet -AuthorityContext $AuthorityContext
         $initialMarkers = Get-SealedHeldLiveTargetMarkerSet -AuthorityContext $AuthorityContext
@@ -479,13 +479,9 @@ function Open-SealedHeldLiveTargetContextSet {
         $setReceipt = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::BindExact(
             $setLease,$AuthorityContext,$CanonicalWitness,$GlobalLockHandle,$confirmedInitialMarkers,[object[]]@($leases),$projection)
         $null = Assert-SealedHeldLiveTargetContextSet -Lease $setLease
-        if ($null -ne $OwnershipReceiver) {
-            $OwnershipReceiver.DeliverExact($setLease)
-            $ownershipTransferred = $true
-            return
-        }
+        $OwnershipReceiver.DeliverExact($setLease)
         $ownershipTransferred = $true
-        return $setLease
+        return
     }
     catch {
         $caughtError = $_
