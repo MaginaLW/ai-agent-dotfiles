@@ -824,7 +824,8 @@ try {
                 & $originalEvidence -Handle $Handle -Path $Path -ParentHandle $ParentHandle -LeafName $LeafName -VolumeId $VolumeId
             }.GetNewClosure()
             Set-Item -LiteralPath Function:\Get-SealedHeldTargetDirectoryEvidence -Value $blockingEvidence
-            Open-SealedHeldTargetContextLease -Path $TargetPath
+            $rawStopReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedHeldTargetContextLease -Path $TargetPath -OwnershipReceiver $rawStopReceiver
         }).AddArgument((Join-Path $RepoRoot 'scripts/target-context-common.ps1')).AddArgument($workRoot).AddArgument($targetRawStopProbe)
         $targetRawStopResult = Invoke-TestPowerShellStopAtProbe -PowerShell $targetRawStopPowerShell -Probe $targetRawStopProbe
     }
@@ -848,7 +849,8 @@ try {
                 & $originalAssert -Lease $Lease
             }.GetNewClosure()
             Set-Item -LiteralPath Function:\Assert-SealedHeldTargetContextLease -Value $blockingAssert
-            Open-SealedHeldTargetContextLease -Path $TargetPath
+            $receiptStopReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedHeldTargetContextLease -Path $TargetPath -OwnershipReceiver $receiptStopReceiver
         }).AddArgument((Join-Path $RepoRoot 'scripts/target-context-common.ps1')).AddArgument($workRoot).AddArgument($targetReceiptStopProbe)
         $targetReceiptStopResult = Invoke-TestPowerShellStopAtProbe -PowerShell $targetReceiptStopPowerShell -Probe $targetReceiptStopProbe
     }
@@ -2972,18 +2974,29 @@ try {
                 @([IO.Directory]::EnumerateFileSystemEntries($capabilityProbeRoot)).Count -eq 0 -and
                 @([IO.Directory]::EnumerateFileSystemEntries($capabilityAlternateProbeRoot)).Count -eq 0) 'final canonical-binding drift is injected only after entry and exact raw binding checks and leaves no owned probe residue'
 
-            $targetSelectFirstLease=Open-SealedHeldTargetContextLease -Path ([string]$capabilityFixture.Context.ControlBase) |
-                Select-Object -First 1
+            $targetSelectFirstReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedHeldTargetContextLease -Path ([string]$capabilityFixture.Context.ControlBase) `
+                -OwnershipReceiver $targetSelectFirstReceiver
+            $targetSelectFirstLease=$targetSelectFirstReceiver.GetDeliveredExact()
             $targetSelectFirstReceipt=[AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($targetSelectFirstLease)
             $targetSelectFirstHandles=@([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetHandlesExact($targetSelectFirstReceipt))
             try {
                 Assert-TestCondition ([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsOpenExact($targetSelectFirstReceipt) -and
                     $targetSelectFirstHandles.Count -gt 0 -and
-                    @($targetSelectFirstHandles | Where-Object {-not [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($_)}).Count -eq 0) 'Select-Object -First 1 receives an OPEN target lease after its ownership transfer point'
+                    @($targetSelectFirstHandles | Where-Object {-not [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($_)}).Count -eq 0 -and
+                    [bool]$targetSelectFirstReceiver.HoldsExact($targetSelectFirstLease)) 'receiver-delivered target lease opens with every frozen handle held through its ownership receiver'
             }
             finally { $null=[AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($targetSelectFirstLease) }
             Assert-TestCondition ([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact($targetSelectFirstReceipt) -and
-                @($targetSelectFirstHandles | Where-Object {[AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($_)}).Count -eq 0) 'explicit target close releases every handle received through Select-Object -First 1'
+                @($targetSelectFirstHandles | Where-Object {[AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($_)}).Count -eq 0) 'explicit target close releases every handle held through its ownership receiver'
+
+            $targetLeaseOpenCommand=Get-Command Open-SealedHeldTargetContextLease -CommandType Function -ErrorAction Stop
+            Assert-TestCondition ((@($targetLeaseOpenCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object {$_.Name.VariablePath.UserPath}) -join "`0") -ceq "Path`0OwnershipReceiver" -and
+                $targetLeaseOpenCommand.Parameters['OwnershipReceiver'].ParameterType -eq [AiAgentDotfiles.SealedOwnershipTransferReceiver] -and
+                @($targetLeaseOpenCommand.Parameters['OwnershipReceiver'].Attributes | Where-Object {$_ -is [Management.Automation.ParameterAttribute] -and $_.Mandatory}).Count -eq 1) 'the target lease open exposes an exact path-plus-mandatory-receiver contract'
+            Assert-ThrowsPattern {
+                Open-SealedHeldTargetContextLease -Path ([string]$capabilityFixture.Context.ControlBase) | Out-Null
+            } 'missing mandatory parameters: OwnershipReceiver' 'the target lease open rejects a raw success-stream return path by requiring the ownership receiver'
 
             $liveSelectFirstReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
             Open-SealedHeldLiveTargetContextSet -AuthorityContext $capabilityFixture.Context `
@@ -3285,7 +3298,9 @@ try {
             $standaloneVictimLiveReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
             & $originalLiveSetOpen -AuthorityContext $capabilityFixture.Context -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal -OwnershipReceiver $standaloneVictimLiveReceiver
             $standaloneVictimLiveSet=$standaloneVictimLiveReceiver.GetDeliveredExact()
-            $standaloneVictimTarget=& $originalTargetOpen -Path $capabilityProbeRoot
+            $standaloneVictimTargetReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            & $originalTargetOpen -Path $capabilityProbeRoot -OwnershipReceiver $standaloneVictimTargetReceiver
+            $standaloneVictimTarget=$standaloneVictimTargetReceiver.GetDeliveredExact()
             $standaloneVictimLiveReceipt=[AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetForWrapperExact($standaloneVictimLiveSet)
             $standaloneVictimTargetReceipt=[AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($standaloneVictimTarget)
             $routeOpenShadowState=[pscustomobject]@{LiveCalls=0L;TargetCalls=0L}

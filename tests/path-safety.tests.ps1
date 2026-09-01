@@ -32,7 +32,9 @@ try {
 
     Write-Host '[held target metadata lease]'
     $heldMissing = Join-Path $existing 'held-missing/child/target'
-    $heldLease = Open-SealedHeldTargetContextLease -Path $heldMissing
+    $heldMissingReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SealedHeldTargetContextLease -Path $heldMissing -OwnershipReceiver $heldMissingReceiver
+    $heldLease = $heldMissingReceiver.GetDeliveredExact()
     try {
         $heldProjection = Get-SealedHeldTargetContextLease -Lease $heldLease
         $heldLegacy = Resolve-TargetContext -Path $heldMissing -Mode MetadataOnly

@@ -320,7 +320,7 @@ function Open-SealedHeldTargetContextLease {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path,
-        [AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
+        [Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
     )
 
     $handles = [Collections.Generic.List[object]]::new()
@@ -330,7 +330,7 @@ function Open-SealedHeldTargetContextLease {
     $ownershipTransferred = $false
     $primaryError = $null
     try {
-        if ($null -ne $OwnershipReceiver) { $OwnershipReceiver.AssertEmptyExact() }
+        $OwnershipReceiver.AssertEmptyExact()
         if ([string]::IsNullOrWhiteSpace($Path) -or -not [IO.Path]::IsPathFullyQualified($Path)) { throw 'target path must be fully-qualified and absolute' }
         if ($Path.StartsWith('\\',[StringComparison]::Ordinal)) { throw 'network/UNC target is unsupported' }
         $rawFull = [IO.Path]::GetFullPath($Path)
@@ -455,13 +455,9 @@ function Open-SealedHeldTargetContextLease {
         $receipt = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::BindExact(
             $lease,$projection,$legacy,[object[]]@($rows),[object[]]@($handles),$firstMissingParent,$firstMissingName)
         $null = Assert-SealedHeldTargetContextLease -Lease $lease
-        if ($null -ne $OwnershipReceiver) {
-            $OwnershipReceiver.DeliverExact($lease)
-            $ownershipTransferred = $true
-            return
-        }
+        $OwnershipReceiver.DeliverExact($lease)
         $ownershipTransferred = $true
-        return $lease
+        return
     }
     catch {
         $caughtError = $_

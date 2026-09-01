@@ -710,6 +710,53 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 56/0, and root-claims 482/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
 Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-02 Phase 2 target-lease receiver-backing
+
+The target-lease member of the receiver/raw-return blocker is closed.
+`Open-SealedHeldTargetContextLease` in `scripts/target-context-common.ps1` now requires a
+caller-owned `SealedOwnershipTransferReceiver` and delivers the held target-context lease through
+exact ownership transfer only; the legacy raw success-stream return branch is removed. Production
+was already receiver-based — both the pinned route-capture target open core and the live-set open
+pass the receiver — so no production caller changed behavior. The open-failure cleanup path is
+unchanged: when delivery never happens (including a `PipelineStoppedException` before delivery),
+the finally block releases the receipt and every frozen directory handle exactly as before.
+
+Because `scripts/target-context-common.ps1` is sealed byte-for-byte by the hard-kill suite, the
+change required the full reviewed-load re-pin: the manifest hash moved from `d777c1c4…` to
+`a3a585b0f957f943d9a36959e304247abc8a9208c6799885cac9b3dd548d348c` at both recorded sites, and the
+self-seal pins were recomputed to a fixpoint with an out-of-repository probe — the 24-row
+actual-prelude block and its digest (now
+`77d3145dbb8df1bcdf17e90c809ff34798e40803f9206ca6af1c5930dca3cf81`, four occurrences), the
+27-statement pre-section region digest (`0317b628…`), the
+`Test-HardKillPreimageControllerTransportContract` and `…ContractMutations` function pins, the
+function-inventory digest, the cleanup-gate self digest, the main-try execution digest, the
+top-level execution digest, and the whole-file controller surface digest. The final hard-kill file
+SHA-256 is `27da95165a92b253fea5714111cd680e8e46865f46e0d363ddccf2f7a25bda63`. The probe also
+confirmed the known hyphen leak in the historical function-pin regex — function names containing
+hyphens were invisible to the previous `[A-Za-z0-9]+` pattern and are matched by
+`[A-Za-z0-9-]+` in the adapted probe; the shipped suite was re-pinned by the corrected loop, and no
+suite assertion was weakened.
+
+Test changes: the six raw-branch call sites were converted to receiver style — the two target Stop
+probes (stop during evidence capture and stop at the receipt-binding assert both keep their
+post-state semantics because delivery is never reached), the target `Select-Object -First 1`
+probe (now receiver-durability), the provider-isolation victim, the path-safety held-missing lease,
+and the root-claims fixture invocations — plus two new assertions pinning the exact
+path-plus-mandatory-receiver contract and rejecting a receiver-less invocation. The focused
+root-claims suite reached 484 PASS lines with exit code 0 (482 before this slice). The seams suite
+passed 56/0 without baseline change (no inventoried member, type, or literal text changed).
+
+Validation: the complete standalone `canonical-hard-kill.tests.ps1` run passed 318/0 (primitives
+first passed 95/0 as a fast signal); `tests/path-safety.tests.ps1` passed; focused root-claims
+passed 484 assertions with exit code 0; seams passed 56/0; the parse gate accepted all 156 files;
+the skill build produced 7/15/7; the pinned secret scan found no blocking findings (843 non-blocking
+hints); `git diff --check` was clean; and `sync.ps1 -DryRun` with a fresh external plan path changed
+no live file (plan-file SHA-256
+`2f89fafb31f933301d26c70c40c9161e9898581cc461e3ba566b07eae1bdc759`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -1071,11 +1118,11 @@ release, remain downstream and have not started.
 
 1. Continue Phase 2 Task 1 Step 2. The production caller/cleanup ledger is defined as an additive
    sealed building block with zero production consumers, the runspace-lifecycle definition-store
-   blocker is closed, and the live-set raw-return branch is receiver-backed. Remaining before wiring
-   any resolver or dispatcher consumer: close the target-lease, safe-existing, and retained-traversal
-   raw-return branches (two live in hard-kill-pinned files), the target/live reader-close and
-   provider-closure blockers, then wire the ledger as the reviewed observation lifecycle owner.
-   Preserve the read-only registry's
+   blocker is closed, and the live-set and target-lease raw-return branches are receiver-backed.
+   Remaining before wiring any resolver or dispatcher consumer: close the safe-existing and
+   retained-traversal raw-return branches (both live in hard-kill-pinned `safe-tree-walker.ps1`),
+   the target/live reader-close and provider-closure blockers, then wire the ledger as the reviewed
+   observation lifecycle owner. Preserve the read-only registry's
    `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` contract while completing the
    `PrivateRootBootstrapIntent` setup path, protocol-v1 public dispatch, and remaining forbidden-root
    cases.

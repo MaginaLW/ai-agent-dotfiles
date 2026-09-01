@@ -317,6 +317,32 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, and root-claims 482/0 inside the run. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 target-lease receiver-backing (2026-09-02): the target-lease member of the
+  receiver/raw-return blocker is closed. `Open-SealedHeldTargetContextLease` now requires a
+  caller-owned receiver and delivers only through exact ownership transfer; the raw success-stream
+  return branch is removed. Production was already receiver-based, and the open-failure cleanup
+  path — including `PipelineStoppedException` before delivery — is unchanged. Because
+  `target-context-common.ps1` is hard-kill-sealed, the full reviewed-load re-pin was performed to a
+  fixpoint with an out-of-repository probe: manifest hash `d777c1c4…` →
+  `a3a585b0f957f943d9a36959e304247abc8a9208c6799885cac9b3dd548d348c` (both sites), the 24-row
+  actual-prelude block and digest (now
+  `77d3145dbb8df1bcdf17e90c809ff34798e40803f9206ca6af1c5930dca3cf81`, four occurrences), the
+  27-statement pre-section region digest (`0317b628…`), the transport-contract and mutations
+  function pins, function-inventory, cleanup-gate self, main-try execution, top-level execution, and
+  the whole-file controller surface digest. Final hard-kill file SHA-256
+  `27da95165a92b253fea5714111cd680e8e46865f46e0d363ddccf2f7a25bda63`. The probe confirmed the
+  documented hyphen leak in the historical function-pin regex (`[A-Za-z0-9]+` misses hyphenated
+  names) and re-pinned through the corrected `[A-Za-z0-9-]+` loop; no suite assertion was weakened.
+  All six raw-branch test call sites converted to receiver style with post-state semantics
+  preserved; two new assertions pin the mandatory-receiver contract and reject receiver-less
+  invocation. Validation: complete standalone hard-kill 318/0 (primitives 95/0 fast signal),
+  path-safety PASS, focused root-claims 484 assertions exit 0 (482 before), seams 56/0 without
+  baseline change, parse gate 156 files, build 7/15/7, secret scan clean (843 hints),
+  `git diff --check`, sync DryRun with a fresh external plan path (no live change; plan-file SHA-256
+  `2f89fafb31f933301d26c70c40c9161e9898581cc461e3ba566b07eae1bdc759`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -336,10 +362,11 @@ stay unconnected to production mutation routes.
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. The production caller/cleanup ledger is
 production-defined with zero production consumers, the runspace-lifecycle definition-store blocker
-is closed, and the live-set raw-return branch is receiver-backed. Next is to close the remaining
-target-lease, safe-existing, and retained-traversal raw-return branches (two live in hard-kill-pinned
-files), the target/live reader-close and provider-closure blockers, then wire the ledger as the
-reviewed observation lifecycle owner for a resolver or dispatcher consumer. The
+is closed, and the live-set and target-lease raw-return branches are receiver-backed. Next is to
+close the remaining safe-existing and retained-traversal raw-return branches (both live in
+hard-kill-pinned `safe-tree-walker.ps1`), the target/live reader-close and provider-closure
+blockers, then wire the ledger as the reviewed observation lifecycle owner for a resolver or
+dispatcher consumer. The
 `PrivateRootBootstrapIntent` setup path,
 protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
 the complete forbidden-root matrix before accepting any default/custom claim. Production Apply
