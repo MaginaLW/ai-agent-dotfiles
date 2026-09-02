@@ -748,9 +748,12 @@ function Get-SealedHomeAuthorityBootstrapSnapshot {
             $childState = @($states | Where-Object { [string]$_.Name -ceq [string]$childDefinition.Name })[0]
             if ([string]$childState.Status -ceq 'COMPLETE') { $expectedChildren.Add([string]$childDefinition.LeafName) }
         }
+        $allowedExtra = [string[]]@()
+        if ([string]$definition.Name -ceq 'ControlBase') { $allowedExtra = @('route-cleanup-recovery') }
         $actualOrdered = @($state.ImmediateChildren | Sort-Object -CaseSensitive)
         $expectedOrdered = @($expectedChildren | Sort-Object -CaseSensitive)
-        if (($actualOrdered -join "`0") -cne ($expectedOrdered -join "`0")) {
+        $actualRequired = @($state.ImmediateChildren | Where-Object { $_ -cnotin $allowedExtra } | Sort-Object -CaseSensitive)
+        if (($actualRequired -join "`0") -cne ($expectedOrdered -join "`0")) {
             throw "home-authority-bootstrap-manual-recovery-required: unexpected children under $($definition.Name)"
         }
     }
@@ -820,6 +823,10 @@ function Get-SealedHomeAuthorityFixedEnvelopeProjection {
 
     $fixedChildren = @{
         PrivateRootBase = @('backups','control')
+        ControlBase = @('canonical-roots','homes','live-mutation.lock','live-transactions','route-cleanup-recovery')
+    }
+    $fixedChildrenRequired = @{
+        PrivateRootBase = @('backups','control')
         ControlBase = @('canonical-roots','homes','live-mutation.lock','live-transactions')
     }
     $directoryStates = [Collections.Generic.List[object]]::new()
@@ -840,7 +847,11 @@ function Get-SealedHomeAuthorityFixedEnvelopeProjection {
             if ($fixedChildren.ContainsKey([string]$definition.Name)) {
                 $immediateEnvelopeChildren = @([AiAgentDotfiles.NoFollowFile]::GetChildNames($lease.Held) | Sort-Object -CaseSensitive)
                 $expected = @($fixedChildren[[string]$definition.Name] | Sort-Object -CaseSensitive)
-                if (($immediateEnvelopeChildren -join "`0") -cne ($expected -join "`0")) { throw 'unexpected immediate envelope children' }
+                $required = @($fixedChildrenRequired[[string]$definition.Name] | Sort-Object -CaseSensitive)
+                if (@($immediateEnvelopeChildren | Where-Object { $_ -cnotin $expected }).Count -ne 0 -or
+                    @($required | Where-Object { $_ -cnotin $immediateEnvelopeChildren }).Count -ne 0) {
+                    throw 'unexpected immediate envelope children'
+                }
             }
             $security = [AiAgentDotfiles.NoFollowFile]::GetDirectorySecuritySnapshot($lease.Held)
             if ([string]$securityBefore.Identity -cne [string]$security.Identity -or [string]$securityBefore.Sddl -cne [string]$security.Sddl) { throw 'directory owner/DACL changed during capture' }

@@ -1119,6 +1119,60 @@ Execution state after the envelope close-state slice (`d8adace`):
    forbidden-root matrix before accepting any default/custom claim. Production Apply stays
    interlocked throughout.
 
+## 2026-09-02 Phase 2 slice 1: durable recovery ticket published from ReleaseExact
+
+Slice 1 of the durable recovery ticket design is implemented. `scripts/root-claims-registry-common.ps1`
+gains `SealedRegistryRouteCleanupTicketPublisher` plus the recovery descriptor and per-lease snapshot
+types: on `ReleaseExact` entry an immutable descriptor is snapshotted before the first release
+(CaptureId, entry hashes, per-lease kind/path/location key/close state/attempt state/opaque handle
+identity taken via `GetAcquiredIdentityExact` while handles are still open); the release loop marks
+each attempt; on `firstError` the capture is restored OPEN, close states are refreshed, and
+`AttachPublishAttemptExact` publishes
+`<ControlBase>oute-cleanup-recovery\<CaptureId>	icket.json` atomically (CreateNew temp,
+WriteThrough flush, non-overwriting `File.Move`, same-CaptureId idempotent, identity-collision
+fail-closed) with the seven `DurableRecoveryTicket*` keys attached to the original error and the
+publish error never shadowing it; `GetCaptureIdExact` and the read-only discovery facade
+`Get-SealedRegistryRouteCleanupRecoveryTicket` (schema/version/hash validation, `.tmp` ignored) were
+added. `scripts/home-authority-common.ps1` extends the envelope `ControlBase` children check to an
+allow-list (`route-cleanup-recovery` allowed as an optional sidecar, the original four still
+required) and the bootstrap snapshot check to permit the same extra — after an out-of-repository
+diagnostic proved that a plain whitelist entry would break every envelope projection and bootstrap
+snapshot once a ticket existed. Discovery is discoverability only: no interpretation, consumption,
+retry, deletion, or `LiveTransactionsRoot` writes; those stay with Task 4. An independent Grok
+review (full-access per the updated routing rules) found and fixed a real production defect in the
+new facade — `[string]$row.Path.EndsWith(...)` casts the boolean instead of the path, so every
+valid ticket was skipped — then verified the focused suite end to end.
+
+Tests: `tests/root-claims-registry.tests.ps1` adds the synthetic cleanup-capture helpers
+(`New-TestSyntheticLiveReceiptLease` gains an optional `-AuthorityContext` so the ticket's
+ControlBase is injected through `BindExact` rather than a reflection write) and five core blocks:
+publication from the firstError branch (path/hash/CaptureId/OPEN assertions), atomic visibility
+(rename barrier: final absent, discovery empty, exactly one `.tmp`; after release: exactly one
+valid row), ContentHash over the canonical payload (mutation sensitivity), retry idempotence
+(byte-identical single `ticket.json`), and the whitelist coupling (no `LiveTransactionsRoot`
+marker, registry inventory unaffected, sidecar discoverable). Focused root-claims reached 529 PASS
+lines with exit 0 (504 before this slice). `scripts/home-authority-common.ps1` and
+`scripts/root-claims-registry-common.ps1` are not hard-kill-sealed; hard-kill was re-run as the
+authoritative regression anyway. The seams suite re-pinned the reflection-sensitive inventory
+(count 12755 → 12773, digest after the pre-commit review fixes →
+`740f11712cd9f3bfc397add337b90e759ae3c3e29c59ee8d038f8b49a6b28c51`) and passed 56/0. A read-only
+Grok pre-commit review raised three defects that were all adopted: the identity-collision branch
+was fail-open (now a per-field needle match over every immutable identity field, mismatch failing
+closed), the recovery descriptor was snapshotted after the closing CAS (now before the CAS, a
+snapshot failure leaving the capture OPEN), and the rename-hold gate had no timeout (now 60 s, then
+best-effort temp deletion and a `failed` publish). The focused suite was re-verified at 529 PASS
+with exit 0 after those fixes.
+
+Validation: complete hard-kill 318/0, focused root-claims 529 assertions exit 0, home-authority
+PASS, path-safety PASS, seams 56/0, parse gate 156 files, build 7/15/7, secret scan clean (868
+non-blocking hints), `git diff --check`, and `sync.ps1 -DryRun` with a fresh external plan path
+changed no live file (plan-file SHA-256
+`27ed96397e770916f860a29b61ab2b28914b0d8b192e3111bfd13cb958967ef4`, deleted after the run; an
+earlier DryRun before the review fixes had plan-file SHA-256
+`0378709ba89ea826a363398d23bebb56bbc2a6d2ccfc670058ed0978972990f5`). The definitive unified
+`run-tests.ps1 -All` run for this slice has not been executed yet and remains pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

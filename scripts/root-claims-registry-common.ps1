@@ -18,10 +18,14 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.IO;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 
 namespace AiAgentDotfiles {
@@ -173,12 +177,377 @@ namespace AiAgentDotfiles {
         public static string GetHeldMetadataHash(object value) { return Require(value)._heldMetadataHash; }
     }
 
+    internal sealed class SealedRegistryRouteCleanupLeaseSnapshot {
+        internal string EntryKey;
+        internal long ReleaseOrdinal;
+        internal string Kind;
+        internal string RequestedPath;
+        internal string LocationKey;
+        internal string AuthorityHash;
+        internal string CloseState;
+        internal string AttemptState;
+        internal string SafeDirectoryHandleIdentity;
+        internal object Wrapper;
+        internal bool NestedUnderLiveSet;
+    }
+
+    public sealed class SealedRegistryCurrentRouteCaptureRecoveryDescriptor {
+        internal Guid CaptureId;
+        internal string AuthorityControlRoot;
+        internal string ResolverVersion;
+        internal string EntryCurrentRouteRootSetHash;
+        internal string CurrentRouteRootSetSnapshotHash;
+        internal string HeldTargetSetHash;
+        internal SealedRegistryRouteCleanupLeaseSnapshot[] Leases;
+    }
+
+    public static class SealedRegistryRouteCleanupRecoveryTicketPublisher {
+        public const int SchemaVersion = 1;
+        public const string TicketType = "sealed-registry-current-route-cleanup";
+        public const string TicketFileName = "ticket.json";
+        public const string RecoveryRootLeaf = "route-cleanup-recovery";
+        public static DateTime? FrozenUtcNow;
+        public static Guid? FrozenNonce;
+        public static Guid? FrozenCaptureId;
+        public static ManualResetEventSlim RenameEnteredGate;
+        public static ManualResetEventSlim RenameHoldGate;
+
+        internal static Guid ConsumeFrozenCaptureIdExact() {
+            Guid? frozen = FrozenCaptureId;
+            FrozenCaptureId = null;
+            return frozen.HasValue && frozen.Value != Guid.Empty ? frozen.Value : Guid.NewGuid();
+        }
+        internal static DateTime ReadUtcNowExact() {
+            return FrozenUtcNow.HasValue
+                ? DateTime.SpecifyKind(FrozenUtcNow.Value.ToUniversalTime(), DateTimeKind.Utc)
+                : DateTime.UtcNow;
+        }
+        internal static Guid ReadNonceExact() {
+            Guid? frozen = FrozenNonce;
+            FrozenNonce = null;
+            return frozen.HasValue && frozen.Value != Guid.Empty ? frozen.Value : Guid.NewGuid();
+        }
+        public static string FormatUtcExact(DateTime value) {
+            return DateTime.SpecifyKind(value.ToUniversalTime(), DateTimeKind.Utc)
+                .ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);
+        }
+        public static string FormatHResultExact(int value) {
+            return "0x" + unchecked((uint)value).ToString("x8", CultureInfo.InvariantCulture);
+        }
+        public static string HashCanonicalUtf8Exact(string canonicalJson) {
+            if (canonicalJson == null) throw new ArgumentNullException("canonicalJson");
+            byte[] bytes = new UTF8Encoding(false, true).GetBytes(canonicalJson);
+            return "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        }
+        public static string RouteCleanupRecoveryRootExact(string authorityControlRoot) {
+            if (String.IsNullOrWhiteSpace(authorityControlRoot)) return null;
+            return Path.GetFullPath(Path.Combine(Path.GetFullPath(authorityControlRoot), RecoveryRootLeaf));
+        }
+        public static string TicketDirectoryExact(string authorityControlRoot, Guid captureId) {
+            return Path.GetFullPath(Path.Combine(RouteCleanupRecoveryRootExact(authorityControlRoot),
+                captureId.ToString("D").ToLowerInvariant()));
+        }
+        public static string TicketPathExact(string authorityControlRoot, Guid captureId) {
+            return Path.GetFullPath(Path.Combine(TicketDirectoryExact(authorityControlRoot, captureId), TicketFileName));
+        }
+
+        static void WriteJsonString(StringBuilder sb, string value) {
+            if (value == null) { sb.Append("null"); return; }
+            sb.Append('"');
+            for (int index = 0; index < value.Length; index++) {
+                char c = value[index];
+                switch (c) {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                        else sb.Append(c);
+                        break;
+                }
+            }
+            sb.Append('"');
+        }
+        static void WriteLeaseIdentity(StringBuilder sb, SealedRegistryRouteCleanupLeaseSnapshot lease, bool includeVolatile) {
+            sb.Append("{\"EntryKey\":"); WriteJsonString(sb, lease.EntryKey);
+            sb.Append(",\"ReleaseOrdinal\":").Append(lease.ReleaseOrdinal.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"Kind\":"); WriteJsonString(sb, lease.Kind);
+            sb.Append(",\"RequestedPath\":"); WriteJsonString(sb, lease.RequestedPath);
+            sb.Append(",\"LocationKey\":"); WriteJsonString(sb, lease.LocationKey);
+            sb.Append(",\"AuthorityHash\":"); WriteJsonString(sb, lease.AuthorityHash);
+            if (includeVolatile) {
+                sb.Append(",\"CloseState\":"); WriteJsonString(sb, lease.CloseState);
+                sb.Append(",\"AttemptState\":"); WriteJsonString(sb, lease.AttemptState);
+            }
+            sb.Append(",\"SafeDirectoryHandleIdentity\":"); WriteJsonString(sb, lease.SafeDirectoryHandleIdentity);
+            sb.Append('}');
+        }
+        public static string CanonicalPayloadJsonExact(
+            SealedRegistryCurrentRouteCaptureRecoveryDescriptor descriptor,
+            string captureCloseState, DateTime failureObservedUtc, DateTime publishedUtc,
+            string failureType, string failureHResult) {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("{\"SchemaVersion\":").Append(SchemaVersion.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"TicketType\":"); WriteJsonString(sb, TicketType);
+            sb.Append(",\"CaptureId\":"); WriteJsonString(sb, descriptor.CaptureId.ToString("D").ToLowerInvariant());
+            sb.Append(",\"FailureObservedUtc\":"); WriteJsonString(sb, FormatUtcExact(failureObservedUtc));
+            sb.Append(",\"PublishedUtc\":"); WriteJsonString(sb, FormatUtcExact(publishedUtc));
+            sb.Append(",\"ResolverVersion\":"); WriteJsonString(sb, descriptor.ResolverVersion);
+            sb.Append(",\"CaptureCloseState\":"); WriteJsonString(sb, captureCloseState);
+            sb.Append(",\"EntryAuthorityHashes\":[");
+            for (int index = 0; index < descriptor.Leases.Length; index++) {
+                if (index > 0) sb.Append(',');
+                SealedRegistryRouteCleanupLeaseSnapshot lease = descriptor.Leases[index];
+                sb.Append("{\"EntryKey\":"); WriteJsonString(sb, lease.EntryKey);
+                sb.Append(",\"Hash\":"); WriteJsonString(sb, lease.AuthorityHash);
+                sb.Append('}');
+            }
+            sb.Append("],\"Leases\":[");
+            for (int index = 0; index < descriptor.Leases.Length; index++) {
+                if (index > 0) sb.Append(',');
+                WriteLeaseIdentity(sb, descriptor.Leases[index], true);
+            }
+            sb.Append("],\"Failure\":{\"Type\":"); WriteJsonString(sb, failureType);
+            sb.Append(",\"HResult\":"); WriteJsonString(sb, failureHResult);
+            sb.Append("}}");
+            return sb.ToString();
+        }
+        static string IdentityCanonicalJsonExact(SealedRegistryCurrentRouteCaptureRecoveryDescriptor descriptor) {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("{\"CaptureId\":"); WriteJsonString(sb, descriptor.CaptureId.ToString("D").ToLowerInvariant());
+            sb.Append(",\"ResolverVersion\":"); WriteJsonString(sb, descriptor.ResolverVersion);
+            sb.Append(",\"EntryCurrentRouteRootSetHash\":"); WriteJsonString(sb, descriptor.EntryCurrentRouteRootSetHash);
+            sb.Append(",\"CurrentRouteRootSetSnapshotHash\":"); WriteJsonString(sb, descriptor.CurrentRouteRootSetSnapshotHash);
+            sb.Append(",\"HeldTargetSetHash\":"); WriteJsonString(sb, descriptor.HeldTargetSetHash);
+            sb.Append(",\"Leases\":[");
+            for (int index = 0; index < descriptor.Leases.Length; index++) {
+                if (index > 0) sb.Append(',');
+                WriteLeaseIdentity(sb, descriptor.Leases[index], false);
+            }
+            sb.Append("]}");
+            return sb.ToString();
+        }
+        static bool ExistingTicketMatchesIdentityExact(string existingJson,
+            SealedRegistryCurrentRouteCaptureRecoveryDescriptor descriptor, out string existingHash) {
+            existingHash = null;
+            if (String.IsNullOrWhiteSpace(existingJson)) return false;
+            string captureNeedle = "\"CaptureId\":\"" + descriptor.CaptureId.ToString("D").ToLowerInvariant() + "\"";
+            if (existingJson.IndexOf(captureNeedle, StringComparison.Ordinal) < 0) return false;
+            int hashAt = existingJson.LastIndexOf("\"ContentHash\":", StringComparison.Ordinal);
+            if (hashAt < 0) return false;
+            int hashValueAt = existingJson.IndexOf('"', hashAt + 14);
+            if (hashValueAt < 0) return false;
+            int hashEnd = existingJson.IndexOf('"', hashValueAt + 1);
+            if (hashEnd < 0) return false;
+            existingHash = existingJson.Substring(hashValueAt + 1, hashEnd - hashValueAt - 1);
+            // Collision test: every immutable identity field of the descriptor must appear in the
+            // existing ticket (CaptureId was already matched; resolver version, each lease's
+            // non-volatile identity fields, and every entry key/hash are checked individually).
+            StringBuilder needle = new StringBuilder();
+            needle.Append("\"ResolverVersion\":"); WriteJsonString(needle, descriptor.ResolverVersion);
+            if (existingJson.IndexOf(needle.ToString(), StringComparison.Ordinal) < 0) return false;
+            foreach (SealedRegistryRouteCleanupLeaseSnapshot lease in descriptor.Leases) {
+                needle.Clear();
+                needle.Append("\"EntryKey\":"); WriteJsonString(needle, lease.EntryKey);
+                needle.Append(",\"ReleaseOrdinal\":").Append(lease.ReleaseOrdinal.ToString(CultureInfo.InvariantCulture));
+                needle.Append(",\"Kind\":"); WriteJsonString(needle, lease.Kind);
+                needle.Append(",\"RequestedPath\":"); WriteJsonString(needle, lease.RequestedPath);
+                needle.Append(",\"LocationKey\":"); WriteJsonString(needle, lease.LocationKey);
+                needle.Append(",\"AuthorityHash\":"); WriteJsonString(needle, lease.AuthorityHash);
+                needle.Append(",\"SafeDirectoryHandleIdentity\":"); WriteJsonString(needle, lease.SafeDirectoryHandleIdentity);
+                if (existingJson.IndexOf(needle.ToString(), StringComparison.Ordinal) < 0) return false;
+            }
+            return true;
+        }
+
+        static void SetTicketDataExact(Exception error, string status, string path, Guid captureId,
+            string contentHash, Exception publishError) {
+            if (error == null) return;
+            error.Data["DurableRecoveryTicketStatus"] = status;
+            error.Data["DurableRecoveryTicketSchemaVersion"] = SchemaVersion.ToString(CultureInfo.InvariantCulture);
+            error.Data["DurableRecoveryTicketCaptureId"] = captureId.ToString("D").ToLowerInvariant();
+            if (!String.IsNullOrEmpty(path)) error.Data["DurableRecoveryTicketPath"] = path;
+            if (!String.IsNullOrEmpty(contentHash)) error.Data["DurableRecoveryTicketContentHash"] = contentHash;
+            if (publishError != null) {
+                error.Data["DurableRecoveryTicketPublishErrorType"] = publishError.GetType().FullName;
+                error.Data["DurableRecoveryTicketPublishErrorHResult"] = FormatHResultExact(publishError.HResult);
+            }
+        }
+
+        internal static void AttachPublishAttemptExact(
+            SealedRegistryCurrentRouteCaptureRecoveryDescriptor descriptor,
+            Exception firstError, string captureCloseState) {
+            if (firstError == null || descriptor == null) return;
+            try {
+                if (String.IsNullOrWhiteSpace(descriptor.AuthorityControlRoot))
+                    throw new InvalidOperationException("durable-recovery-ticket-control-base-missing");
+                DateTime failureObservedUtc = ReadUtcNowExact();
+                DateTime publishedUtc = FrozenUtcNow.HasValue
+                    ? ReadUtcNowExact().AddTicks(100000L)
+                    : DateTime.UtcNow;
+                string failureType = firstError.GetType().FullName;
+                string failureHResult = FormatHResultExact(firstError.HResult);
+                string payload = CanonicalPayloadJsonExact(descriptor, captureCloseState,
+                    failureObservedUtc, publishedUtc, failureType, failureHResult);
+                string contentHash = HashCanonicalUtf8Exact(payload);
+                string json = payload.Substring(0, payload.Length - 1) + ",\"ContentHash\":";
+                StringBuilder sb = new StringBuilder(json);
+                WriteJsonString(sb, contentHash);
+                sb.Append('}');
+                json = sb.ToString();
+                string directory = TicketDirectoryExact(descriptor.AuthorityControlRoot, descriptor.CaptureId);
+                string finalPath = TicketPathExact(descriptor.AuthorityControlRoot, descriptor.CaptureId);
+                Directory.CreateDirectory(directory);
+                if (File.Exists(finalPath)) {
+                    string existing = File.ReadAllText(finalPath, new UTF8Encoding(false, true));
+                    string existingHash;
+                    if (ExistingTicketMatchesIdentityExact(existing, descriptor, out existingHash)) {
+                        SetTicketDataExact(firstError, "already-present", finalPath, descriptor.CaptureId,
+                            existingHash, null);
+                        return;
+                    }
+                    throw new InvalidOperationException("durable-recovery-ticket-identity-collision");
+                }
+                Guid nonce = ReadNonceExact();
+                string tempName = descriptor.CaptureId.ToString("D").ToLowerInvariant() + "." +
+                    nonce.ToString("N") + ".tmp";
+                string tempPath = Path.Combine(directory, tempName);
+                byte[] bytes = new UTF8Encoding(false, true).GetBytes(json);
+                FileStream stream = null;
+                try {
+                    stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                        4096, FileOptions.WriteThrough);
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
+                }
+                finally {
+                    if (stream != null) stream.Dispose();
+                }
+                ManualResetEventSlim entered = RenameEnteredGate;
+                ManualResetEventSlim hold = RenameHoldGate;
+                if (entered != null) entered.Set();
+                if (hold != null && !hold.Wait(60000)) {
+                    try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                    SetTicketDataExact(firstError, "failed", finalPath, descriptor.CaptureId, null,
+                        new TimeoutException("durable-recovery-ticket-rename-hold-timeout"));
+                    return;
+                }
+                try {
+                    File.Move(tempPath, finalPath);
+                }
+                catch (IOException) {
+                    try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                    if (File.Exists(finalPath)) {
+                        string existing = File.ReadAllText(finalPath, new UTF8Encoding(false, true));
+                        string existingHash;
+                        if (ExistingTicketMatchesIdentityExact(existing, descriptor, out existingHash)) {
+                            SetTicketDataExact(firstError, "already-present", finalPath, descriptor.CaptureId,
+                                existingHash, null);
+                            return;
+                        }
+                    }
+                    throw;
+                }
+                SetTicketDataExact(firstError, "published", finalPath, descriptor.CaptureId, contentHash, null);
+            }
+            catch (Exception publishError) {
+                try {
+                    SetTicketDataExact(firstError, "failed",
+                        String.IsNullOrWhiteSpace(descriptor.AuthorityControlRoot)
+                            ? null
+                            : TicketPathExact(descriptor.AuthorityControlRoot, descriptor.CaptureId),
+                        descriptor.CaptureId, null, publishError);
+                }
+                catch { }
+            }
+        }
+
+        public static object[] DiscoverExact(string authorityControlRoot, Guid? captureIdFilter) {
+            List<object> result = new List<object>();
+            if (String.IsNullOrWhiteSpace(authorityControlRoot)) return result.ToArray();
+            string root = RouteCleanupRecoveryRootExact(authorityControlRoot);
+            if (!Directory.Exists(root)) return result.ToArray();
+            string[] directories = Directory.GetDirectories(root);
+            Array.Sort(directories, StringComparer.Ordinal);
+            foreach (string directory in directories) {
+                string leaf = Path.GetFileName(directory);
+                Guid captureId;
+                if (!Guid.TryParseExact(leaf, "D", out captureId) && !Guid.TryParseExact(leaf, "N", out captureId))
+                    continue;
+                if (captureIdFilter.HasValue && captureIdFilter.Value != captureId) continue;
+                string ticketPath = Path.Combine(directory, TicketFileName);
+                if (!File.Exists(ticketPath)) continue;
+                PSObject row = new PSObject();
+                row.Properties.Add(new PSNoteProperty("Path", Path.GetFullPath(ticketPath)));
+                row.Properties.Add(new PSNoteProperty("CaptureId", captureId.ToString("D").ToLowerInvariant()));
+                try {
+                    string json = File.ReadAllText(ticketPath, new UTF8Encoding(false, true));
+                    if (json.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
+                    int versionAt = json.IndexOf("\"SchemaVersion\":", StringComparison.Ordinal);
+                    string status = "valid";
+                    int schemaVersion = 0;
+                    if (versionAt < 0) status = "schema-mismatch";
+                    else {
+                        int digit = versionAt + 16;
+                        while (digit < json.Length && (json[digit] == ' ' || json[digit] == '\t')) digit++;
+                        int end = digit;
+                        while (end < json.Length && json[end] >= '0' && json[end] <= '9') end++;
+                        if (end == digit ||
+                            !Int32.TryParse(json.Substring(digit, end - digit), NumberStyles.None,
+                                CultureInfo.InvariantCulture, out schemaVersion) ||
+                            schemaVersion != SchemaVersion) status = "schema-mismatch";
+                    }
+                    string captureNeedle = "\"CaptureId\":\"" + captureId.ToString("D").ToLowerInvariant() + "\"";
+                    if (json.IndexOf(captureNeedle, StringComparison.Ordinal) < 0)
+                        status = "capture-id-mismatch";
+                    int hashAt = json.LastIndexOf("\"ContentHash\":", StringComparison.Ordinal);
+                    string embedded = null;
+                    if (hashAt >= 0) {
+                        int hashValueAt = json.IndexOf('"', hashAt + 14);
+                        int hashEnd = hashValueAt < 0 ? -1 : json.IndexOf('"', hashValueAt + 1);
+                        if (hashEnd > hashValueAt)
+                            embedded = json.Substring(hashValueAt + 1, hashEnd - hashValueAt - 1);
+                    }
+                    string payload;
+                    if (hashAt > 0 && json[hashAt - 1] == ',')
+                        payload = json.Substring(0, hashAt - 1) + "}";
+                    else
+                        payload = json;
+                    string computed = HashCanonicalUtf8Exact(payload);
+                    if (!String.Equals(embedded, computed, StringComparison.Ordinal))
+                        status = status == "valid" ? "hash-mismatch" : status;
+                    row.Properties.Add(new PSNoteProperty("SchemaVersion", schemaVersion));
+                    row.Properties.Add(new PSNoteProperty("ContentHash", embedded));
+                    row.Properties.Add(new PSNoteProperty("ComputedContentHash", computed));
+                    row.Properties.Add(new PSNoteProperty("Status", status));
+                    row.Properties.Add(new PSNoteProperty("TicketJson", json));
+                }
+                catch (Exception error) {
+                    row.Properties.Add(new PSNoteProperty("SchemaVersion", 0));
+                    row.Properties.Add(new PSNoteProperty("ContentHash", null));
+                    row.Properties.Add(new PSNoteProperty("ComputedContentHash", null));
+                    row.Properties.Add(new PSNoteProperty("Status", "invalid-json"));
+                    row.Properties.Add(new PSNoteProperty("TicketJson", null));
+                    row.Properties.Add(new PSNoteProperty("ReadErrorType", error.GetType().FullName));
+                }
+                result.Add(row);
+            }
+            return result.ToArray();
+        }
+    }
+
     public sealed class SealedRegistryCurrentRouteCapture {
         private static readonly object ExactIssuanceGate = new object();
         private static readonly ConditionalWeakTable<SealedRegistryCurrentRouteCapture,SealedRegistryCurrentRouteCaptureIssuanceReceipt> ExactIssuanceReceipts =
             new ConditionalWeakTable<SealedRegistryCurrentRouteCapture,SealedRegistryCurrentRouteCaptureIssuanceReceipt>();
         private static readonly ConditionalWeakTable<object,SealedRegistryCurrentRouteOpenOperation> ExactResourceReservations =
             new ConditionalWeakTable<object,SealedRegistryCurrentRouteOpenOperation>();
+        private readonly Guid _captureId;
+        private SealedRegistryCurrentRouteCaptureRecoveryDescriptor _recoveryDescriptor;
         private readonly object _liveSetLease;
         private readonly object _liveProjection;
         private readonly SealedRegistryRouteLeaseBinding[] _routeLeaseRows;
@@ -214,6 +583,7 @@ namespace AiAgentDotfiles {
             _entryCurrentRouteRootSetHash = entryCurrentRouteRootSetHash;
             _currentRouteRootSetSnapshotHash = currentRouteRootSetSnapshotHash;
             _heldTargetSetHash = heldTargetSetHash;
+            _captureId = SealedRegistryRouteCleanupRecoveryTicketPublisher.ConsumeFrozenCaptureIdExact();
         }
 
         internal static SealedRegistryCurrentRouteOpenOperation BeginOpenForIssuerExact(
@@ -404,6 +774,7 @@ namespace AiAgentDotfiles {
         }
         public static bool GetIsOpenExact(object value) { return Volatile.Read(ref Require(value)._closeState) == OpenState; }
         public static bool GetIsClosed(object value) { return Volatile.Read(ref Require(value)._closeState) == ClosedState; }
+        public static Guid GetCaptureIdExact(object value) { return Require(value)._captureId; }
         public static string GetCloseStateExact(object value) {
             int state = Volatile.Read(ref Require(value)._closeState);
             return state == OpenState ? "OPEN" : state == ClosingState ? "CLOSING" : "CLOSED";
@@ -434,37 +805,208 @@ namespace AiAgentDotfiles {
             try { release.Invoke(null, new object[] { wrapper }); }
             catch (TargetInvocationException error) { throw error.InnerException ?? error; }
         }
+        private static object InvokeExactStatic(string typeName, string methodName, object[] arguments) {
+            Type receiptType = FindRequiredType(typeName);
+            MethodInfo method = receiptType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static);
+            if (method == null) throw new InvalidOperationException("route-witness-required");
+            try { return method.Invoke(null, arguments); }
+            catch (TargetInvocationException error) { throw error.InnerException ?? error; }
+        }
+        private static string ReadPsString(object value, string name) {
+            if (value == null) return null;
+            PSPropertyInfo property = PSObject.AsPSObject(value).Properties[name];
+            if (property == null || property.Value == null) return null;
+            return Convert.ToString(property.Value, CultureInfo.InvariantCulture);
+        }
+        private static string ReadHandleIdentityExact(object wrapper) {
+            object receipt = InvokeExactStatic("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt",
+                "GetForWrapperExact", new object[] { wrapper });
+            if (receipt == null) return null;
+            object handlesValue = InvokeExactStatic("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt",
+                "GetHandlesExact", new object[] { receipt });
+            object[] handles = handlesValue as object[];
+            if (handles == null || handles.Length == 0) return null;
+            object leaf = handles[handles.Length - 1];
+            if (leaf == null || leaf.GetType().FullName != "AiAgentDotfiles.SafeDirectoryHandle") return null;
+            object identity = InvokeExactStatic("AiAgentDotfiles.SafeDirectoryHandle",
+                "GetAcquiredIdentityExact", new object[] { leaf });
+            return identity as string;
+        }
+        private static string ReadTargetCloseStateExact(object wrapper) {
+            object receipt = InvokeExactStatic("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt",
+                "GetForWrapperExact", new object[] { wrapper });
+            object state = InvokeExactStatic("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt",
+                "GetCloseStateExact", new object[] { receipt });
+            return state as string;
+        }
+        private static string ReadLiveCloseStateExact(object wrapper) {
+            object receipt = InvokeExactStatic("AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt",
+                "GetForWrapperExact", new object[] { wrapper });
+            object state = InvokeExactStatic("AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt",
+                "GetCloseStateExact", new object[] { receipt });
+            return state as string;
+        }
+        private static SealedRegistryRouteCleanupLeaseSnapshot SnapshotTargetLeaseExact(
+            string entryKey, long ordinal, string kind, object wrapper, string path, string locationKey, string hash) {
+            object receipt = wrapper == null ? null : InvokeExactStatic(
+                "AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt", "GetForWrapperExact", new object[] { wrapper });
+            object projection = receipt == null ? null : InvokeExactStatic(
+                "AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt", "GetProjectionExact", new object[] { receipt });
+            if (String.IsNullOrEmpty(path)) path = ReadPsString(projection, "RequestedPath");
+            if (String.IsNullOrEmpty(locationKey)) locationKey = ReadPsString(projection, "LocationKey");
+            if (String.IsNullOrEmpty(hash)) {
+                hash = ReadPsString(projection, "HeldMetadataHash");
+                if (!String.IsNullOrEmpty(hash) && hash.IndexOf("sha256:", StringComparison.Ordinal) != 0)
+                    hash = "sha256:" + hash;
+            }
+            else if (hash.IndexOf("sha256:", StringComparison.Ordinal) != 0)
+                hash = "sha256:" + hash;
+            return new SealedRegistryRouteCleanupLeaseSnapshot {
+                EntryKey = entryKey, ReleaseOrdinal = ordinal, Kind = kind, Wrapper = wrapper,
+                RequestedPath = path, LocationKey = locationKey, AuthorityHash = hash,
+                CloseState = "OPEN", AttemptState = "not-attempted",
+                SafeDirectoryHandleIdentity = wrapper == null ? null : ReadHandleIdentityExact(wrapper)
+            };
+        }
+        private void EnsureRecoveryDescriptorExact() {
+            if (_recoveryDescriptor != null) return;
+            List<SealedRegistryRouteCleanupLeaseSnapshot> leases = new List<SealedRegistryRouteCleanupLeaseSnapshot>();
+            long ordinal = 0;
+            for (int index = _reservationLeases.Length - 1; index >= 0; index--) {
+                leases.Add(SnapshotTargetLeaseExact("reservation-lease:" + index.ToString(CultureInfo.InvariantCulture),
+                    ordinal++, "reservation-lease", _reservationLeases[index], null, null, null));
+            }
+            for (int index = _fixedLeases.Length - 1; index >= 0; index--) {
+                leases.Add(SnapshotTargetLeaseExact("fixed-lease:" + index.ToString(CultureInfo.InvariantCulture),
+                    ordinal++, "fixed-lease", _fixedLeases[index], null, null, null));
+            }
+            for (int index = _routeLeaseRows.Length - 1; index >= 0; index--) {
+                SealedRegistryRouteLeaseBinding binding = _routeLeaseRows[index];
+                leases.Add(SnapshotTargetLeaseExact("route-lease:" + index.ToString(CultureInfo.InvariantCulture),
+                    ordinal++, "route-lease", binding.Lease, binding.Path, null, binding.HeldMetadataHash));
+            }
+            object liveReceipt = InvokeExactStatic("AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt",
+                "GetForWrapperExact", new object[] { _liveSetLease });
+            object nestedValue = liveReceipt == null ? null : InvokeExactStatic(
+                "AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt", "GetTargetLeasesExact",
+                new object[] { liveReceipt });
+            object[] nested = nestedValue as object[] ?? Array.Empty<object>();
+            for (int index = nested.Length - 1; index >= 0; index--) {
+                SealedRegistryRouteCleanupLeaseSnapshot nestedLease = SnapshotTargetLeaseExact(
+                    "live-set-nested-target:" + index.ToString(CultureInfo.InvariantCulture),
+                    ordinal++, "live-set-nested-target", nested[index], null, null, null);
+                nestedLease.NestedUnderLiveSet = true;
+                leases.Add(nestedLease);
+            }
+            object liveProjection = liveReceipt == null ? null : InvokeExactStatic(
+                "AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt", "GetProjectionExact",
+                new object[] { liveReceipt });
+            string liveHash = ReadPsString(liveProjection, "HeldTargetSetHash");
+            if (String.IsNullOrEmpty(liveHash)) liveHash = _heldTargetSetHash;
+            if (!String.IsNullOrEmpty(liveHash) && liveHash.IndexOf("sha256:", StringComparison.Ordinal) != 0)
+                liveHash = "sha256:" + liveHash;
+            leases.Add(new SealedRegistryRouteCleanupLeaseSnapshot {
+                EntryKey = "live-set-wrapper", ReleaseOrdinal = ordinal++, Kind = "live-set-wrapper",
+                Wrapper = _liveSetLease, RequestedPath = null, LocationKey = null, AuthorityHash = liveHash,
+                CloseState = "OPEN", AttemptState = "not-attempted", SafeDirectoryHandleIdentity = null
+            });
+            object authority = liveReceipt == null ? null : InvokeExactStatic(
+                "AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt", "GetAuthorityContextExact",
+                new object[] { liveReceipt });
+            string resolver = ReadPsString(_currentRouteRootSetSnapshot, "ResolverVersion");
+            if (String.IsNullOrWhiteSpace(resolver)) resolver = "sealed-current-route-root-set-v1";
+            _recoveryDescriptor = new SealedRegistryCurrentRouteCaptureRecoveryDescriptor {
+                CaptureId = _captureId,
+                AuthorityControlRoot = ReadPsString(authority, "ControlBase"),
+                ResolverVersion = resolver,
+                EntryCurrentRouteRootSetHash = _entryCurrentRouteRootSetHash,
+                CurrentRouteRootSetSnapshotHash = _currentRouteRootSetSnapshotHash,
+                HeldTargetSetHash = _heldTargetSetHash,
+                Leases = leases.ToArray()
+            };
+        }
+        private void MarkAttemptExact(object wrapper, bool failed) {
+            if (_recoveryDescriptor == null || wrapper == null) return;
+            foreach (SealedRegistryRouteCleanupLeaseSnapshot lease in _recoveryDescriptor.Leases) {
+                if (!Object.ReferenceEquals(lease.Wrapper, wrapper) &&
+                    !(lease.NestedUnderLiveSet && Object.ReferenceEquals(wrapper, _liveSetLease))) continue;
+                if (lease.AttemptState == "not-attempted")
+                    lease.AttemptState = failed ? "failed" : "released";
+                else if (failed) lease.AttemptState = "failed";
+            }
+        }
+        private void RefreshLeaseCloseStatesExact() {
+            if (_recoveryDescriptor == null) return;
+            foreach (SealedRegistryRouteCleanupLeaseSnapshot lease in _recoveryDescriptor.Leases) {
+                try {
+                    lease.CloseState = lease.Kind == "live-set-wrapper"
+                        ? ReadLiveCloseStateExact(lease.Wrapper)
+                        : ReadTargetCloseStateExact(lease.Wrapper);
+                }
+                catch { }
+            }
+        }
         public static bool ReleaseExact(object value) {
             SealedRegistryCurrentRouteCapture capture = Require(value);
             if (Volatile.Read(ref capture._closeState) == ClosedState) return false;
             if (!SealedRegistryCurrentRouteCaptureIssuer.IsIssuedExact(capture))
                 throw new InvalidOperationException("route-witness-required");
+            capture.EnsureRecoveryDescriptorExact();
             int observed = Interlocked.CompareExchange(ref capture._closeState, ClosingState, OpenState);
             if (observed == ClosedState) return false;
             if (observed == ClosingState) throw new InvalidOperationException("route-close-active");
-            if (observed != OpenState) throw new InvalidOperationException("route-witness-required");
-
             Exception firstError = null;
             for (int index = capture._reservationLeases.Length - 1; index >= 0; index--) {
-                try { InvokeReleaseExact("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt", capture._reservationLeases[index]); }
-                catch (Exception error) { if (firstError == null) firstError = error; }
+                try {
+                    InvokeReleaseExact("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt", capture._reservationLeases[index]);
+                    capture.MarkAttemptExact(capture._reservationLeases[index], false);
+                }
+                catch (Exception error) {
+                    capture.MarkAttemptExact(capture._reservationLeases[index], true);
+                    if (firstError == null) firstError = error;
+                }
             }
             for (int index = capture._fixedLeases.Length - 1; index >= 0; index--) {
-                try { InvokeReleaseExact("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt", capture._fixedLeases[index]); }
-                catch (Exception error) { if (firstError == null) firstError = error; }
+                try {
+                    InvokeReleaseExact("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt", capture._fixedLeases[index]);
+                    capture.MarkAttemptExact(capture._fixedLeases[index], false);
+                }
+                catch (Exception error) {
+                    capture.MarkAttemptExact(capture._fixedLeases[index], true);
+                    if (firstError == null) firstError = error;
+                }
             }
             for (int index = capture._routeLeaseRows.Length - 1; index >= 0; index--) {
-                try { InvokeReleaseExact("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt", capture._routeLeaseRows[index].Lease); }
-                catch (Exception error) { if (firstError == null) firstError = error; }
+                try {
+                    InvokeReleaseExact("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt", capture._routeLeaseRows[index].Lease);
+                    capture.MarkAttemptExact(capture._routeLeaseRows[index].Lease, false);
+                }
+                catch (Exception error) {
+                    capture.MarkAttemptExact(capture._routeLeaseRows[index].Lease, true);
+                    if (firstError == null) firstError = error;
+                }
             }
-            try { InvokeReleaseExact("AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt", capture._liveSetLease); }
-            catch (Exception error) { if (firstError == null) firstError = error; }
+            try {
+                InvokeReleaseExact("AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt", capture._liveSetLease);
+                capture.MarkAttemptExact(capture._liveSetLease, false);
+            }
+            catch (Exception error) {
+                capture.MarkAttemptExact(capture._liveSetLease, true);
+                if (firstError == null) firstError = error;
+            }
 
             if (firstError != null) {
                 Volatile.Write(ref capture._closeState, OpenState);
+                try { capture.RefreshLeaseCloseStatesExact(); } catch { }
+                try {
+                    SealedRegistryRouteCleanupRecoveryTicketPublisher.AttachPublishAttemptExact(
+                        capture._recoveryDescriptor, firstError, "OPEN");
+                }
+                catch { }
                 throw firstError;
             }
             Volatile.Write(ref capture._closeState, ClosedState);
+            Volatile.Write(ref capture._closeState, ClosedState);            Volatile.Write(ref capture._closeState, ClosedState);
             lock (ExactIssuanceGate) {
                 SealedRegistryCurrentRouteCaptureIssuanceReceipt receipt;
                 if (ExactIssuanceReceipts.TryGetValue(capture,out receipt)) {
@@ -1574,6 +2116,26 @@ function Close-SealedRegistryCurrentRouteCapture {
     catch { $cleanupError = $_ }
     if ($null -ne $stabilityError) { throw 'route-witness-required' }
     if ($null -ne $cleanupError) { throw $cleanupError }
+}
+
+function Get-SealedRegistryRouteCleanupRecoveryTicket {
+    param(
+        [Parameter(Mandatory)][string]$AuthorityControlRoot,
+        [Guid]$CaptureId
+    )
+    $root = [IO.Path]::GetFullPath($AuthorityControlRoot)
+    if ($PSBoundParameters.ContainsKey('CaptureId')) {
+        $rows = @([AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::DiscoverExact($root, [Guid]$CaptureId))
+    }
+    else {
+        $rows = @([AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::DiscoverExact($root, $null))
+    }
+    foreach ($row in $rows) {
+        if ([string]$row.Status -cne 'valid') { continue }
+        # Parentheses required: `[string]$x.EndsWith(...)` casts the bool, and 'False' is truthy.
+        if (([string]$row.Path).EndsWith('.tmp', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        Write-Output $row
+    }
 }
 
 function Test-SealedRegistryAllowedOwnerSid {

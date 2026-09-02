@@ -467,16 +467,85 @@ function New-TestSyntheticTargetReceiptLease {
 }
 
 function New-TestSyntheticLiveReceiptLease {
-    param([Parameter(Mandatory)][object[]]$TargetLeaseWrappers)
+    param(
+        [Parameter(Mandatory)][object[]]$TargetLeaseWrappers,
+        $AuthorityContext = [pscustomobject]@{Kind='authority'}
+    )
     if ($TargetLeaseWrappers.Count -ne 3) { throw 'synthetic live receipt requires exactly three target leases' }
     $wrapper = [pscustomobject]@{ IsClosed=$false }
     $receipt = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::BindExact(
-        $wrapper,[pscustomobject]@{Kind='authority'},[pscustomobject]@{Kind='canonical'},
+        $wrapper,$AuthorityContext,[pscustomobject]@{Kind='canonical'},
         [pscustomobject]@{Kind='global'},[pscustomobject]@{Kind='markers'},
         [object[]]$TargetLeaseWrappers,[pscustomobject]@{Kind='projection'})
     return [pscustomobject]@{ Wrapper=$wrapper; Receipt=$receipt; TargetLeases=[object[]]$TargetLeaseWrappers }
 }
 
+function Get-DurableTicketExceptionWithData([Exception]$Exception) {
+    $cursor = $Exception
+    while ($null -ne $cursor) {
+        if ($null -ne $cursor.Data -and $cursor.Data.Contains('DurableRecoveryTicketStatus')) { return $cursor }
+        $cursor = $cursor.InnerException
+    }
+    return $Exception
+}
+
+function Reset-DurableTicketPublisherSeams {
+    [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::FrozenUtcNow = $null
+    [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::FrozenNonce = $null
+    [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::FrozenCaptureId = $null
+    [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::RenameEnteredGate = $null
+    [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::RenameHoldGate = $null
+}
+
+function New-DurableTicketSyntheticCleanupCapture {
+    param(
+        [Parameter(Mandatory)]$Fixture,
+        [Parameter(Mandatory)][Guid]$CaptureId,
+        [Parameter(Mandatory)][datetime]$FixedUtc,
+        [switch]$FailOnce
+    )
+    $failProbe = [AiAgentDotfiles.ReceiptReleaseProbe]::new($false, [bool]$FailOnce)
+    $reservation = New-TestSyntheticTargetReceiptLease -Handles @($failProbe)
+    $fixed = New-TestSyntheticTargetReceiptLease -Handles @([AiAgentDotfiles.ReceiptReleaseProbe]::new($false,$false))
+    $route = New-TestSyntheticTargetReceiptLease -Handles @([AiAgentDotfiles.ReceiptReleaseProbe]::new($false,$false))
+    $liveTargets = @(
+        (New-TestSyntheticTargetReceiptLease -Handles @([AiAgentDotfiles.ReceiptReleaseProbe]::new($false,$false)))
+        (New-TestSyntheticTargetReceiptLease -Handles @([AiAgentDotfiles.ReceiptReleaseProbe]::new($false,$false)))
+        (New-TestSyntheticTargetReceiptLease -Handles @([AiAgentDotfiles.ReceiptReleaseProbe]::new($false,$false)))
+    )
+    $authority = [pscustomobject]@{
+        Kind='authority'
+        ControlBase=[string]$Fixture.Context.ControlBase
+    }
+    $live = New-TestSyntheticLiveReceiptLease -TargetLeaseWrappers @($liveTargets.Wrapper)
+    $liveReceiptType = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]
+    $authorityField = $live.Receipt.GetType().GetField('authorityContext',
+        [Reflection.BindingFlags]::Instance -bor [Reflection.BindingFlags]::NonPublic)
+    if ($null -ne $authorityField) { $authorityField.SetValue($live.Receipt, $authority) }
+    $binding = [AiAgentDotfiles.SealedRegistryRouteLeaseBinding]::new(
+        0L,[pscustomobject]@{Kind='spec'},$route.Wrapper,[pscustomobject]@{Kind='context'},
+        'RepoRoot','PRESENT','D:\synthetic-route',('a' * 64),('b' * 64))
+    [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::FrozenCaptureId = $CaptureId
+    [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::FrozenUtcNow = $FixedUtc.ToUniversalTime()
+    [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::FrozenNonce =
+        [Guid]::Parse('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
+    $claimed = [object[]](@($live.Wrapper) + @($liveTargets.Wrapper) + @($route.Wrapper) + @($reservation.Wrapper) + @($fixed.Wrapper))
+    $capture = [AiAgentDotfiles.ReceiptReleaseProbe]::IssueSyntheticRouteCapture(
+        $live.Wrapper,[object[]]@($liveTargets.Wrapper),$claimed,
+        [pscustomobject]@{Kind='live-projection'},
+        [AiAgentDotfiles.SealedRegistryRouteLeaseBinding[]]@($binding),
+        [object[]]@($reservation.Wrapper),[object[]]@($fixed.Wrapper),
+        [pscustomobject]@{Kind='original'},[pscustomobject]@{Kind='canonical'},
+        [pscustomobject]@{Kind='snapshot';ResolverVersion='sealed-current-route-root-set-v1'},
+        ('c' * 64),('d' * 64),('e' * 64))
+    return [pscustomobject]@{
+        Capture=$capture; FailProbe=$failProbe; Reservation=$reservation; Live=$live
+        CaptureId=$CaptureId; Fixture=$Fixture
+        ExpectedPath=[AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::TicketPathExact(
+            [string]$Fixture.Context.ControlBase, $CaptureId)
+        LiveTransactionsMarker=Join-Path ([string]$Fixture.Context.LiveTransactionsRoot) ($CaptureId.ToString('D').ToLowerInvariant())
+    }
+}
 function New-TestRegistryFixture([string]$Parent,[string]$Name,[string]$ProfileName='profile') {
     $root = [IO.Path]::GetFullPath((Join-Path $Parent $Name))
     $profile = Join-Path $root $ProfileName
@@ -4751,6 +4820,162 @@ try {
     $null = Add-TestAuthorityArtifacts -Context $ads.Context -Claims $adsClaims
     Add-PathSafetyNamedStream -Path ([string]$ads.Context.RootClaimsPath) -Name 'registry-test'
     Invoke-TestRegistryFailure -Fixture $ads -Pattern 'manual-recovery-required:.*alternate data stream' -Message 'authority claim with an ADS fails closed'
+
+    Write-Host '[durable recovery ticket slice 1]'
+    $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
+
+    $durablePublishName = 'publishes a ticket from ReleaseExact firstError branch'
+    $durablePublishFixture = New-TestRegistryFixture -Parent $workRoot -Name 'durable-ticket-publish'
+    $durablePublishState = $null
+    try {
+        $durablePublishState = New-DurableTicketSyntheticCleanupCapture -Fixture $durablePublishFixture `
+            -CaptureId ([Guid]::Parse('10000000-0000-0000-0000-000000000001')) `
+            -FixedUtc $durableFixedUtc -FailOnce
+        $script:durableObserved = $null
+        Assert-ThrowsPattern {
+            try { [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durablePublishState.Capture) | Out-Null }
+            catch { $script:durableObserved = $_.Exception; throw }
+        } 'injected-dispose-failure' $durablePublishName
+        $durableError = Get-DurableTicketExceptionWithData -Exception $script:durableObserved
+        $durablePath = [string]$durableError.Data['DurableRecoveryTicketPath']
+        Assert-TestCondition ($durableError.Data['DurableRecoveryTicketStatus'] -ceq 'published' -and
+            (Test-Path -LiteralPath $durablePath) -and $durablePath -ieq [string]$durablePublishState.ExpectedPath -and
+            [string]$durableError.Data['DurableRecoveryTicketCaptureId'] -ceq '10000000-0000-0000-0000-000000000001' -and
+            [string]$durableError.Data['DurableRecoveryTicketSchemaVersion'] -ceq '1' -and
+            $durableError.Data.Contains('DurableRecoveryTicketContentHash')) $durablePublishName
+        $durableTicket = Get-Content -LiteralPath $durablePath -Raw | ConvertFrom-Json
+        Assert-TestCondition ($durableTicket.SchemaVersion -eq 1 -and
+            $durableTicket.TicketType -ceq 'sealed-registry-current-route-cleanup' -and
+            $durableTicket.CaptureId -ceq '10000000-0000-0000-0000-000000000001' -and
+            $durableTicket.CaptureCloseState -ceq 'OPEN' -and
+            [string]$durableError.Data['DurableRecoveryTicketContentHash'] -ceq [string]$durableTicket.ContentHash) $durablePublishName
+        Assert-TestCondition ([string][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetCloseStateExact($durablePublishState.Capture) -ceq 'OPEN') $durablePublishName
+    }
+    finally {
+        Reset-DurableTicketPublisherSeams
+        if ($null -ne $durablePublishState) {
+            try { [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durablePublishState.Capture) | Out-Null } catch { }
+        }
+    }
+
+    $durableAtomicName = 'publishes atomically'
+    $durableAtomicFixture = New-TestRegistryFixture -Parent $workRoot -Name 'durable-ticket-atomic'
+    $durableAtomicState = $null
+    $durableEntered = [Threading.ManualResetEventSlim]::new($false)
+    $durableHold = [Threading.ManualResetEventSlim]::new($false)
+    $durableAtomicTask = $null
+    try {
+        $durableAtomicState = New-DurableTicketSyntheticCleanupCapture -Fixture $durableAtomicFixture `
+            -CaptureId ([Guid]::Parse('10000000-0000-0000-0000-000000000004')) `
+            -FixedUtc $durableFixedUtc -FailOnce
+        [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::RenameEnteredGate = $durableEntered
+        [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::RenameHoldGate = $durableHold
+        $durableAtomicTask = [AiAgentDotfiles.ReceiptReleaseProbe]::StartReleaseInOwnerRunspace(
+            'AiAgentDotfiles.SealedRegistryCurrentRouteCapture','ReleaseExact',$durableAtomicState.Capture,
+            [Management.Automation.Runspaces.Runspace]::DefaultRunspace)
+        Assert-TestCondition ($durableEntered.Wait(60000)) $durableAtomicName
+        $durableBefore = @(Get-SealedRegistryRouteCleanupRecoveryTicket -AuthorityControlRoot ([string]$durableAtomicFixture.Context.ControlBase) -CaptureId $durableAtomicState.CaptureId)
+        $durableTmp = @(Get-ChildItem -LiteralPath (Split-Path -Parent $durableAtomicState.ExpectedPath) -Filter '*.tmp' -File -ErrorAction SilentlyContinue)
+        Assert-TestCondition (-not (Test-Path -LiteralPath $durableAtomicState.ExpectedPath)) "$durableAtomicName [final-absent]"
+        Assert-TestCondition ($durableBefore.Count -eq 0) "$durableAtomicName [before-count=$($durableBefore.Count); statuses=$(@($durableBefore | ForEach-Object { $_.Status }) -join '/'))"
+        Assert-TestCondition ($durableTmp.Count -ge 1) "$durableAtomicName [tmp-count=$($durableTmp.Count); dir=$(Split-Path -Parent $durableAtomicState.ExpectedPath)]"
+        $durableHold.Set()
+        try { $null = $durableAtomicTask.GetAwaiter().GetResult() } catch { }
+        $durableAfter = @(Get-SealedRegistryRouteCleanupRecoveryTicket -AuthorityControlRoot ([string]$durableAtomicFixture.Context.ControlBase) -CaptureId $durableAtomicState.CaptureId)
+        Assert-TestCondition ($durableAfter.Count -eq 1 -and
+            [string]$durableAfter[0].Status -ceq 'valid' -and
+            (Test-Path -LiteralPath $durableAtomicState.ExpectedPath)) $durableAtomicName
+    }
+    finally {
+        try { $durableHold.Set() } catch { }
+        Reset-DurableTicketPublisherSeams
+        if ($null -ne $durableAtomicTask) { try { $null = $durableAtomicTask.GetAwaiter().GetResult() } catch { } }
+        if ($null -ne $durableAtomicState) {
+            try { [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durableAtomicState.Capture) | Out-Null } catch { }
+        }
+        $durableEntered.Dispose(); $durableHold.Dispose()
+    }
+
+    $durableHashName = 'computes ContentHash over canonical payload'
+    $durableHashFixture = New-TestRegistryFixture -Parent $workRoot -Name 'durable-ticket-hash'
+    $durableHashState = $null
+    try {
+        $durableHashState = New-DurableTicketSyntheticCleanupCapture -Fixture $durableHashFixture `
+            -CaptureId ([Guid]::Parse('10000000-0000-0000-0000-000000000005')) `
+            -FixedUtc $durableFixedUtc -FailOnce
+        Assert-ThrowsPattern {
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durableHashState.Capture) | Out-Null
+        } 'injected-dispose-failure' $durableHashName
+        $durableRaw = Get-Content -LiteralPath $durableHashState.ExpectedPath -Raw
+        $durableObj = $durableRaw | ConvertFrom-Json
+        $hashAt = $durableRaw.LastIndexOf(',"ContentHash":')
+        Assert-TestCondition ($hashAt -gt 0) $durableHashName
+        $durablePayload = $durableRaw.Substring(0, $hashAt) + '}'
+        $durableComputed = [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::HashCanonicalUtf8Exact($durablePayload)
+        Assert-TestCondition ([string]$durableObj.ContentHash -ceq $durableComputed) $durableHashName
+        $durableMutated = $durablePayload.Replace('"CaptureCloseState":"OPEN"','"CaptureCloseState":"CLOSED"')
+        $durableMutatedHash = [AiAgentDotfiles.SealedRegistryRouteCleanupRecoveryTicketPublisher]::HashCanonicalUtf8Exact($durableMutated)
+        Assert-TestCondition ($durableMutatedHash -cne [string]$durableObj.ContentHash) $durableHashName
+    }
+    finally {
+        Reset-DurableTicketPublisherSeams
+        if ($null -ne $durableHashState) {
+            try { [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durableHashState.Capture) | Out-Null } catch { }
+        }
+    }
+
+    $durableIdempotentName = 'is idempotent across retry'
+    $durableIdempotentFixture = New-TestRegistryFixture -Parent $workRoot -Name 'durable-ticket-idempotent'
+    $durableIdempotentState = $null
+    try {
+        $durableIdempotentState = New-DurableTicketSyntheticCleanupCapture -Fixture $durableIdempotentFixture `
+            -CaptureId ([Guid]::Parse('10000000-0000-0000-0000-000000000006')) `
+            -FixedUtc $durableFixedUtc -FailOnce
+        Assert-ThrowsPattern {
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durableIdempotentState.Capture) | Out-Null
+        } 'injected-dispose-failure' $durableIdempotentName
+        $durableBeforeBytes = [IO.File]::ReadAllBytes($durableIdempotentState.ExpectedPath)
+        $script:durableRetryObserved = $null
+        [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durableIdempotentState.Capture) | Out-Null
+        $durableAfterBytes = [IO.File]::ReadAllBytes($durableIdempotentState.ExpectedPath)
+        $durableTicketFiles = @(Get-ChildItem -LiteralPath (Split-Path -Parent $durableIdempotentState.ExpectedPath) -Filter 'ticket.json' -File)
+        Assert-TestCondition (([Convert]::ToHexString($durableBeforeBytes) -ceq [Convert]::ToHexString($durableAfterBytes)) -and
+            $durableTicketFiles.Count -eq 1) $durableIdempotentName
+    }
+    finally {
+        Reset-DurableTicketPublisherSeams
+        if ($null -ne $durableIdempotentState) {
+            try { [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durableIdempotentState.Capture) | Out-Null } catch { }
+        }
+    }
+
+    $durableWhitelistName = 'does not create a recovery-required live transaction marker'
+    $durableWhitelistFixture = New-TestRegistryFixture -Parent $workRoot -Name 'durable-ticket-whitelist'
+    $durableWhitelistState = $null
+    try {
+        $durableWhitelistState = New-DurableTicketSyntheticCleanupCapture -Fixture $durableWhitelistFixture `
+            -CaptureId ([Guid]::Parse('10000000-0000-0000-0000-000000000007')) `
+            -FixedUtc $durableFixedUtc -FailOnce
+        Assert-ThrowsPattern {
+            [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durableWhitelistState.Capture) | Out-Null
+        } 'injected-dispose-failure' $durableWhitelistName
+        Assert-TestCondition (-not (Test-Path -LiteralPath $durableWhitelistState.LiveTransactionsMarker)) $durableWhitelistName
+        $durableView = Assert-TestRegistryReadIsZeroWrite -Fixture $durableWhitelistFixture `
+            -Message 'ticket sidecar leaves registry inventory zero-write' -Assertions {
+                param($view)
+                Assert-TestCondition ([string]$view.MutationGate -cne 'RECOVERY_REQUIRED' -and
+                    @($view.LiveTransactionMarkers).Count -eq 0) $durableWhitelistName
+            }
+        $durableFound = @(Get-SealedRegistryRouteCleanupRecoveryTicket -AuthorityControlRoot ([string]$durableWhitelistFixture.Context.ControlBase) -CaptureId $durableWhitelistState.CaptureId)
+        Assert-TestCondition ($durableFound.Count -eq 1 -and [string]$durableFound[0].CaptureId -ceq '10000000-0000-0000-0000-000000000007') $durableWhitelistName
+        $null = $durableView
+    }
+    finally {
+        Reset-DurableTicketPublisherSeams
+        if ($null -ne $durableWhitelistState) {
+            try { [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($durableWhitelistState.Capture) | Out-Null } catch { }
+        }
+    }
 
     Write-Host 'Root claims registry tests passed.'
 }

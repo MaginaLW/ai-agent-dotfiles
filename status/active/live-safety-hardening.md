@@ -541,6 +541,28 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   slice 1 (ticket), slice A (wiring), slice B (failure matrix), then the resolver consumer layer,
   `PrivateRootBootstrapIntent`, protocol-v1 dispatch, and the forbidden-root matrix.
 
+- Phase 2 Task 1 slice 1, durable recovery ticket (2026-09-02): `ReleaseExact` failures now publish
+  `<ControlBase>\route-cleanup-recovery\<CaptureId>\ticket.json` atomically (immutable descriptor
+  snapshotted before the first release, per-lease attempt/close states, ContentHash, seven
+  `DurableRecoveryTicket*` Data keys, publish errors never shadowing the primary), with read-only
+  discovery and the envelope `ControlBase` children check moved to allow-list + required-set form
+  (sidecar optional, original four required) plus the matching bootstrap-snapshot extra. Discovery
+  is discoverability only; interpretation/consumption/retry stay with Task 4. An independent
+  full-access Grok review found and fixed a real production defect in the new discovery facade
+  (boolean-to-string cast made every valid ticket skipped) and verified the focused suite. A
+  read-only Grok pre-commit review raised three defects, all adopted: the identity-collision branch
+  was fail-open (now a per-field needle match over every immutable identity field, mismatch failing
+  closed), the recovery descriptor was snapshotted after the closing CAS (now before the CAS, a
+  snapshot failure leaving the capture OPEN), and the rename-hold gate had no timeout (now 60 s,
+  then best-effort temp deletion and a `failed` publish). Validation: focused root-claims 529 PASS
+  exit 0 re-verified after the fixes (504 before), complete hard-kill 318/0, home-authority PASS,
+  path-safety PASS, seams 56/0 after reflection re-pin (12755 \u2192 12773, digest after the fixes
+  `740f1171\u2026`), parse 156 files, build 7/15/7, secret scan clean (868 hints), diff-check, sync
+  DryRun without live change (plan-file SHA-256
+  `27ed96397e770916f860a29b61ab2b28914b0d8b192e3111bfd13cb958967ef4`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
