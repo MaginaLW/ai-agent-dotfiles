@@ -1170,7 +1170,13 @@ changed no live file (plan-file SHA-256
 `27ed96397e770916f860a29b61ab2b28914b0d8b192e3111bfd13cb958967ef4`, deleted after the run; an
 earlier DryRun before the review fixes had plan-file SHA-256
 `0378709ba89ea826a363398d23bebb56bbc2a6d2ccfc670058ed0978972990f5`). The definitive unified
-`run-tests.ps1 -All` run for this slice has not been executed yet and remains pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+`run-tests.ps1 -All` run then discovered, started, completed, and passed all 34 suites exactly once
+with zero failures, timeouts, duplicates, missing suites, or tree-kill failures (external
+create-new summary SHA-256
+`d403207ade1a8728a434f3ebc11d9eea7e0118420573c4876d2a5dee6ea24c8a`), with hard-kill 318/0, seams
+56/0, root-claims 529/0, home-authority 190/0, and path-safety 43/0 inside the run. Task 1 remains
+1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root or Git
+index/ref was changed. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
 live root or Git index/ref was changed.
 
 ## Validation status
