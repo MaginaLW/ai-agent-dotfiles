@@ -1074,6 +1074,48 @@ definitive unified `run-tests.ps1 -All` run for this slice has not been executed
 pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
 live root or Git index/ref was changed.
 
+## 2026-09-02 execution status: parallel design batch, staging locks rebuilt, remaining queue
+
+Execution state after the envelope close-state slice (`d8adace`):
+
+- **Staging locks rebuilt (Next actions #2 done).** `envs/` was entirely absent (`staging=missing`,
+  not stale); `env build minimal/work/full` created the trees fresh and bound all three locks to the
+  current HEAD. `env status` reports `definition=valid staging=built lock=valid` for all three;
+  `tests/harness-env.tests.ps1` passed 126/0; the working tree stays clean (the whole `envs/` and
+  `state/` trees are git-ignored) and no interlock or live state was touched.
+- **External design batch (first round).** Under the model routing rule (Grok = hard, Luna = easy,
+  main agent = medium; all efforts maxed): Luna produced the durable recovery ticket design
+  (410 lines: schema with `CloseState`+`AttemptState` per lease, sibling
+  `route-cleanup-recovery` placement, CreateNew/flush/rename atomic protocol, 7-key
+  `DurableRecoveryTicket*` Exception.Data set, 9-test plan, 7-step slice list); Grok produced the
+  ledger-wiring design (334 lines: three-candidate comparison, the adopted (b) lifecycle
+  Open/Assert/Close owner trio, full freeze/seams impact matrix, failure matrix, ticket-separation
+  decision, A/B/C slice list with ten explicit non-goals); Luna also drafted the ticket test block
+  (52 KB, 9 test blocks + 22 declared helper prerequisites) for adoption at implementation time.
+- **Main-agent medium-task correction.** The planned ticket root
+  `<ControlBase>oute-cleanup-recovery` conflicts with the envelope projection's exact immediate-
+  children whitelist for `ControlBase` (HA `$fixedChildren`), which would break every observation
+  open once a ticket is written. Implementation slice 1 must therefore add `route-cleanup-recovery`
+  to `$fixedChildren.ControlBase` and update both suites' children assertions **in the same
+  commit**; the sibling directory does not affect the read-only registry's `recovery-required`
+  inventory of `live-transactions` itself.
+
+### Remaining queue (in dependency order)
+
+1. **Slice 1 — durable recovery ticket** (Luna's 7-step list): descriptor + sibling root with the
+   whitelist coupling above, canonical JSON/ContentHash/atomic protocol, `ReleaseExact` firstError
+   publication with `Exception.Data`, read-only discovery, failure/collision matrix, docs. Files:
+   `scripts/root-claims-registry-common.ps1` (or HA for the root policy), both test files.
+2. **Slice A — ledger wiring owner trio** (Grok's slice A): `Open-/Assert-/Close-SealedHeldObservationLifecycle`
+   with dual receivers, seams zero-caller boundary rewritten to unique-owner for `Open-/Assert-`
+   (Close stays zero), unique-caller checks for the five ledger facades, reflection re-pin.
+3. **Slice B — owner failure matrix** (Grok's slice B, separate merge): five failure-path tests;
+   no seams re-pin unless the owner finally changes.
+4. **After A/B:** resolver/dispatcher becomes the sole consumer of the lifecycle trio (Phase 3
+   adjacent); `PrivateRootBootstrapIntent` setup path; protocol-v1 public dispatch; the complete
+   forbidden-root matrix before accepting any default/custom claim. Production Apply stays
+   interlocked throughout.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

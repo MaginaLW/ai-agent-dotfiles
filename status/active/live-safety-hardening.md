@@ -528,6 +528,15 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Execution state (2026-09-02, parallel batch): staging locks rebuilt fresh (three environments
+  built+valid against current HEAD, harness-env regression 126/0, working tree clean, no interlock
+  impact). External design batch under the Grok/Luna/main-agent routing rule produced the durable
+  recovery ticket design, the ledger-wiring owner-trio design, and the ticket test-block draft;
+  the main-agent correction requires `route-cleanup-recovery` to join the envelope
+  `ControlBase` children whitelist in the same commit as ticket publication. Remaining queue:
+  slice 1 (ticket), slice A (wiring), slice B (failure matrix), then the resolver consumer layer,
+  `PrivateRootBootstrapIntent`, protocol-v1 dispatch, and the forbidden-root matrix.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
