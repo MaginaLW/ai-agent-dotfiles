@@ -458,6 +458,24 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, and root-claims 498/0 inside the run. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 raw-getter capability stripping (2026-09-02): the closure survey confirmed every
+  transitive-close path in the observation chain is already complete and located the real exposure
+  in the facade getters that handed out the route-capture-owned live-set wrapper and receipt.
+  `GetLiveSetLeaseExact`/`GetLiveSetReceiptExact` keep their reviewed names and now return the
+  capability-stripped `SealedHeldLiveSetBorrowedStateProjection` (CloseState, IsClosed,
+  TargetLeaseCloseStates) built through a private cross-assembly exact-reflection helper; the two
+  production identity checks read the new internal field accessors; `GetCurrentRouteCaptureExact`
+  and the caller-owned getters stay raw by design. The 27-name facade freeze is untouched. Tests:
+  both projections reflect the open live set, the projection cannot close the borrowed set
+  (receipt-missing stale), and the receipt projection exposes no nested leases — focused
+  root-claims 501 PASS exit 0 (498 before). Seams re-pinned only the reflection digest (count
+  12772 unchanged, `192eefa2…`) and passed 56/0; no edited file is hard-kill-sealed. Gates: parse
+  156 files, build 7/15/7, secret scan clean (855 hints), diff-check, sync DryRun without live
+  change (plan-file SHA-256
+  `0f8bf1a4e95b1ff95daab244140d9b825e2c990d044132f39f247f6e62af92ad`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed

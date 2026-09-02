@@ -950,6 +950,40 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 56/0, and root-claims 498/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
 Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-02 Phase 2 raw-getter capability stripping
+
+The raw-getter capability-transfer member of the provider-closure blocker is closed. An
+out-of-repository closure survey first established that every transitive-close path in the
+observation chain is already complete (observation-owned envelope plus six chains, live-set
+cascade to three nested leases, route-capture cascade to every lease, per-chain disposal) and that
+the real exposure is the observation facade handing out the route-capture-owned live-set wrapper
+and its internal receipt: a caller could close the nested leases under an open container and leave
+an unclosable capture. `SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation` now returns
+a capability-stripped state projection from both getters: `GetLiveSetLeaseExact` and
+`GetLiveSetReceiptExact` keep their reviewed names (the 27-name facade method table freeze is
+untouched) but return the new CLR `SealedHeldLiveSetBorrowedStateProjection` (CloseState, IsClosed,
+TargetLeaseCloseStates), built through a private cross-assembly exact-reflection helper so the
+borrowed receipt types stay reachable without a direct type reference. The two production identity
+checks in `ObservationMatchesBorrowedExact` now compare the internal `LiveSetLeaseFieldExact` /
+`LiveSetReceiptFieldExact` accessors; `GetCurrentRouteCaptureExact` and the caller-owned authority,
+witness, and global-lock getters remain raw by design (transfer by design, identity-pinned by
+tests).
+
+Tests in `tests/root-claims-registry.tests.ps1` (501 PASS lines with exit code 0, up from 498):
+both getters return the projection type with the open live set reflected (OPEN, not closed, three
+nested OPEN states), `Close-SealedHeldLiveTargetContextSet` fed the projection fails closed with
+the receipt-missing stale error, and the receipt projection carries no nested-lease accessor. The
+seams suite re-pinned only the reflection-sensitive digest (count 12772 unchanged, digest →
+`192eefa23d29fd66d776f6197b1b5071dafc8911f852b776c19f58852e652a33`) and passed 56/0; none of the
+three edited files is hard-kill-sealed. Focused root-claims passed 501 assertions with exit code 0;
+the parse gate accepted all 156 files; the skill build produced 7/15/7; the pinned secret scan
+found no blocking findings (855 non-blocking hints); `git diff --check` was clean; and
+`sync.ps1 -DryRun` with a fresh external plan path changed no live file (plan-file SHA-256
+`0f8bf1a4e95b1ff95daab244140d9b825e2c990d044132f39f247f6e62af92ad`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

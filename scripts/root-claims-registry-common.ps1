@@ -4054,6 +4054,8 @@ namespace AiAgentDotfiles {
             get { return CloneHandleChainsExact(outerFixedEnvelopeHandleChains); }
         }
         internal object OuterFixedEnvelopeOwnerExact { get { return outerFixedEnvelopeOwner; } }
+        internal object LiveSetLeaseFieldExact { get { return liveSetLease; } }
+        internal object LiveSetReceiptFieldExact { get { return liveSetReceipt; } }
         internal int CloseStateForLedgerExact { get { return Volatile.Read(ref closeState); } }
         internal void BeginAssertionExact() {
             lock (lifecycleGate) {
@@ -4095,6 +4097,50 @@ namespace AiAgentDotfiles {
             }
         }
 
+        private static object InvokeBorrowedReceiptStaticExact(string typeName, string methodName,
+            object[] arguments) {
+            Type receiptType = null;
+            foreach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies()) {
+                Type candidate = assembly.GetType(typeName,false,false);
+                if (candidate != null) { receiptType = candidate; break; }
+            }
+            if (receiptType == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            System.Reflection.MethodInfo selected = null;
+            foreach (System.Reflection.MethodInfo candidate in receiptType.GetMethods(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static |
+                System.Reflection.BindingFlags.DeclaredOnly)) {
+                if (!String.Equals(candidate.Name,methodName,StringComparison.Ordinal) ||
+                    candidate.GetParameters().Length != arguments.Length) continue;
+                if (selected != null)
+                    throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+                selected = candidate;
+            }
+            if (selected == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            try { return selected.Invoke(null,arguments); }
+            catch (System.Reflection.TargetInvocationException error) { throw error.InnerException ?? error; }
+        }
+        private static object BuildLiveSetStateProjectionExact(object liveSetReceiptValue) {
+            if (liveSetReceiptValue == null)
+                throw new InvalidOperationException("held-current-route-fixed-infrastructure-observation-stale");
+            string closeState = (string)InvokeBorrowedReceiptStaticExact("AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt",
+                "GetCloseStateExact", new object[] { liveSetReceiptValue });
+            bool isClosed = (bool)InvokeBorrowedReceiptStaticExact("AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt",
+                "GetIsClosedExact", new object[] { liveSetReceiptValue });
+            object[] nestedLeases = (object[])InvokeBorrowedReceiptStaticExact("AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt",
+                "GetTargetLeasesExact", new object[] { liveSetReceiptValue });
+            System.Collections.ArrayList states = new System.Collections.ArrayList();
+            foreach (object nestedLease in nestedLeases) {
+                object nestedReceipt = InvokeBorrowedReceiptStaticExact("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt",
+                    "GetForWrapperExact", new object[] { nestedLease });
+                states.Add(nestedReceipt == null ? "CLOSED" :
+                    (string)InvokeBorrowedReceiptStaticExact("AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt",
+                        "GetCloseStateExact", new object[] { nestedReceipt }));
+            }
+            return new SealedHeldLiveSetBorrowedStateProjection(closeState,isClosed,
+                (string[])states.ToArray(typeof(string)));
+        }
         public static bool IsGenuine(object value) {
             return HasIssuanceReceiptExact(
                 value as SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation);
@@ -4123,8 +4169,8 @@ namespace AiAgentDotfiles {
         public static string GetIssuerRunspaceIdExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).issuerRunspaceId; }
         public static string GetIssuerDefinitionDigestExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).issuerDefinitionDigest; }
         public static object GetCurrentRouteCaptureExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).currentRouteCapture; }
-        public static object GetLiveSetLeaseExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).liveSetLease; }
-        public static object GetLiveSetReceiptExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).liveSetReceipt; }
+        public static object GetLiveSetLeaseExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { RequireIssuedExact(value); return BuildLiveSetStateProjectionExact(value.liveSetReceipt); }
+        public static object GetLiveSetReceiptExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { RequireIssuedExact(value); return BuildLiveSetStateProjectionExact(value.liveSetReceipt); }
         public static object GetLiveProjectionExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).liveProjection; }
         public static object GetAuthorityContextExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).authorityContext; }
         public static object GetCanonicalWitnessExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).canonicalWitness; }
@@ -4140,6 +4186,18 @@ namespace AiAgentDotfiles {
         public static string GetGlobalBindingHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).globalBindingHash; }
         public static string GetFixedCapabilityProjectionHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).fixedCapabilityProjectionHash; }
         public static string GetObservationProjectionHashExact(SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation value) { return RequireIssuedExact(value).observationProjectionHash; }
+    }
+
+    public sealed class SealedHeldLiveSetBorrowedStateProjection {
+        public readonly string CloseState;
+        public readonly bool IsClosed;
+        public readonly string[] TargetLeaseCloseStates;
+        internal SealedHeldLiveSetBorrowedStateProjection(string closeStateValue, bool isClosedValue,
+            string[] targetLeaseCloseStatesValue) {
+            CloseState = closeStateValue;
+            IsClosed = isClosedValue;
+            TargetLeaseCloseStates = targetLeaseCloseStatesValue;
+        }
     }
 
     public sealed class SealedHeldObservationCleanupLedger {
@@ -5196,12 +5254,8 @@ namespace AiAgentDotfiles {
                 return Object.ReferenceEquals(
                         SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetCurrentRouteCaptureExact(observation),
                         borrowed.RouteCapture) &&
-                    Object.ReferenceEquals(
-                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetLiveSetLeaseExact(observation),
-                        borrowed.LiveSetLease) &&
-                    Object.ReferenceEquals(
-                        SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetLiveSetReceiptExact(observation),
-                        borrowed.LiveSetReceipt) &&
+                    Object.ReferenceEquals(observation.LiveSetLeaseFieldExact,borrowed.LiveSetLease) &&
+                    Object.ReferenceEquals(observation.LiveSetReceiptFieldExact,borrowed.LiveSetReceipt) &&
                     Object.ReferenceEquals(
                         SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation.GetLiveProjectionExact(observation),
                         borrowed.LiveProjection) &&

@@ -3845,6 +3845,21 @@ try {
                     [string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetCurrentRouteRootSetHashExact($observation) -ceq [string]$observationRouteSet.RouteRootSetHash -and
                     [string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetHeldTargetSetHashExact($observation) -ceq
                         [string][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetHeldTargetSetHash($observationRoute)) 'observation binds exact fixed capability, current-route, and held-live-target projections'
+                $observationLiveLeaseProjection=[AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetLiveSetLeaseExact($observation)
+                $observationLiveReceiptProjection=[AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetLiveSetReceiptExact($observation)
+                Assert-TestCondition (($observationLiveLeaseProjection -is [AiAgentDotfiles.SealedHeldLiveSetBorrowedStateProjection]) -and
+                    ($observationLiveReceiptProjection -is [AiAgentDotfiles.SealedHeldLiveSetBorrowedStateProjection]) -and
+                    [string]$observationLiveLeaseProjection.CloseState -ceq 'OPEN' -and
+                    -not [bool]$observationLiveLeaseProjection.IsClosed -and
+                    @($observationLiveLeaseProjection.TargetLeaseCloseStates).Count -eq 3 -and
+                    @($observationLiveLeaseProjection.TargetLeaseCloseStates | Where-Object {[string]$_ -cne 'OPEN'}).Count -eq 0 -and
+                    [string]$observationLiveReceiptProjection.CloseState -ceq [string]$observationLiveLeaseProjection.CloseState) 'the live-set getters return a capability-stripped state projection of the open borrowed live set'
+                Assert-ThrowsPattern {
+                    Close-SealedHeldLiveTargetContextSet -Lease $observationLiveLeaseProjection | Out-Null
+                } 'target-context-plan-stale: held live target set receipt is missing' 'a caller cannot close the borrowed live set through the observation lease projection'
+                Assert-ThrowsPattern {
+                    [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetTargetLeasesExact($observationLiveReceiptProjection) | Out-Null
+                } '.+' 'the observation receipt projection carries no nested lease handles'
                 Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIssuerDefinitionDigestExact($observation) -match '\A[0-9a-f]{64}\z' -and
                     [string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIssuerRunspaceIdExact($observation) -ceq
                         [string][Management.Automation.Runspaces.Runspace]::DefaultRunspace.InstanceId) 'runtime observation binds its exact issuer definition and owner runspace scope'
