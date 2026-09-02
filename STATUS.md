@@ -943,9 +943,12 @@ skill build produced 7/15/7; the pinned secret scan found no blocking findings (
 hints); `git diff --check` was clean; and `sync.ps1 -DryRun` with a fresh external plan path
 changed no live file (plan-file SHA-256
 `d5dc1a2c38c94aedf351175e6a47f28482c0d0ba263c0d1fa4c4fd9318af9578`, deleted after the run). The
-definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
-pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
-live root or Git index/ref was changed.
+definitive unified `run-tests.ps1 -All` run then discovered, started, completed, and passed all 34
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures
+(external create-new summary SHA-256
+`2ff091391f1be4fe8e9c65c83f408d33a29cc96b43c75f97a78f136e8fe301d5`), with hard-kill 318/0, seams
+56/0, and root-claims 498/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
+Apply remains interlocked, and no live root or Git index/ref was changed.
 
 ## Validation status
 
