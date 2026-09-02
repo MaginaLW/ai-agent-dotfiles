@@ -423,7 +423,12 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   parse 156 files, build 7/15/7, secret scan clean (851 hints), diff-check, sync DryRun without
   live change (plan-file SHA-256
   `74853edddd106b47106b6a8fdf5de7496121a1c05c72a86cb49b9dbe781ad209`, deleted after the run). The
-  definitive unified `run-tests.ps1 -All` run for this slice is still pending. With this slice all
+  definitive unified `run-tests.ps1 -All` run then passed all 34 discovered suites exactly once with
+  zero failures, timeouts, duplicates, missing suites, or tree-kill failures; its external
+  create-new summary SHA-256 is
+  `d9fab280ff76df72b8b1507e96378583e9abce5671678c718834037c5b5a0f39`, with hard-kill 318/0, seams
+  56/0, root-claims 484/0, mutation-blockers 32/0, recovery 104/0, and skills-import 42/0 inside
+  the run. With this slice all
   receiver/raw-return branches in the sealed registry's resource chain are receiver-backed. Task 1
   remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
