@@ -4804,7 +4804,8 @@ namespace AiAgentDotfiles {
                     catch (Exception error) { if (first == null) first = error; }
                 }
                 if (first != null) throw first;
-                try { SetPropertyExact(envelopeLease,"IsClosed",true); }
+                try { InvokeExactStatic("AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState",
+                    "MarkClosedExact",new object[] { envelopeLease }); }
                 catch { }
             }
             private bool AllOwnedEnvelopeHandlesClosedExact(object[][] handleChains) {
@@ -4848,7 +4849,8 @@ namespace AiAgentDotfiles {
                     }
                 }
                 if (AllOwnedEnvelopeHandlesClosedExact(handleChains)) {
-                    try { SetPropertyExact(envelopeLease,"IsClosed",true); }
+                    try { InvokeExactStatic("AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState",
+                        "MarkClosedExact",new object[] { envelopeLease }); }
                     catch (Exception error) { if (first == null) first = error; }
                 }
                 else if (first == null) {
@@ -4868,8 +4870,8 @@ namespace AiAgentDotfiles {
                 if (envelopeLease == null || handleChains == null || handleChains.Length == 0)
                     return false;
                 try {
-                    object closed = ReadPropertyExact(envelopeLease,"IsClosed");
-                    if (!(closed is bool) || (bool)closed) return false;
+                    if ((bool)InvokeExactStatic("AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState",
+                        "GetIsClosedExact",new object[] { envelopeLease })) return false;
                     object[] rows = ToObjectArrayExact(ReadPropertyExact(envelopeLease,"DirectoryLeases"));
                     if (rows.Length != handleChains.Length) return false;
                     for (int index = 0; index < rows.Length; index++) {
@@ -4938,7 +4940,8 @@ namespace AiAgentDotfiles {
                     envelopeLease = new PSObject();
                     envelopeLease.Properties.Add(new PSNoteProperty("ContextHash",SemanticHashExact(contextProjection)));
                     envelopeLease.Properties.Add(new PSNoteProperty("DirectoryLeases",directoryRows.ToArray()));
-                    envelopeLease.Properties.Add(new PSNoteProperty("IsClosed",false));
+                    InvokeExactStatic("AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState",
+                        "BindExact",new object[] { envelopeLease });
                     envelopeLease.Properties.Add(new PSNoteProperty("InitialProjection",null));
                     envelopeLease.Properties.Add(new PSNoteProperty("InitialEnvelopeHash",null));
                     object projection = InvokeSinglePowerShellObject(definition.FixedEnvelopeProjection,
@@ -4984,7 +4987,8 @@ namespace AiAgentDotfiles {
                         object closeLease = envelopeLease;
                         if (closeLease == null) {
                             closeLease = new PSObject();
-                            ((PSObject)closeLease).Properties.Add(new PSNoteProperty("IsClosed",false));
+                            InvokeExactStatic("AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState",
+                                "BindExact",new object[] { closeLease });
                         }
                         object[][] failedChains = ownedChains.ToArray();
                         Exception cleanup = ForceCloseOwnedEnvelopeHandlesAfterOpenFailureExact(

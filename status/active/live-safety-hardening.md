@@ -509,6 +509,25 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, root-claims 502/0, and path-safety 43/0 inside the run. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 envelope close-state CWT-ization (2026-09-02): the fixed-envelope lease's
+  authoritative close state moved into the new `SealedHomeAuthorityFixedEnvelopeCloseState`
+  conditional-weak-table class (volatile-backed reads; unbound objects read open, mark no-op),
+  replacing the spoofable `IsClosed` NoteProperty at both construction sites, the raw close
+  idempotence gate and write, the projection invalidation check, the observation owned-close and
+  force-close paths, and the open-path validation. An independent Grok review caught a P0 layering
+  defect pre-commit (the class initially lived above the standalone-dot-sourced HA layer); it moved
+  into `home-authority-common.ps1`'s own guarded `Add-Type` with the observation side reaching it
+  through cross-assembly exact reflection, and the review's P2s were adopted (volatile reads,
+  early `BindExact` before the initial projection, two anti-forgery assertions). The pinned issuer
+  snapshot ScriptBlocks keep the old shape by design (digest identity pins, never dispatched).
+  Validation: home-authority PASS, live-concurrency PASS, root-claims 504 assertions exit 0 (502
+  before), seams 56/0 after baseline re-pin (12753 → 12755, `41c54b74…`), complete hard-kill 318/0,
+  path-safety PASS, parse 156 files, build 7/15/7, secret scan clean (864 hints), diff-check, sync
+  DryRun without live change (plan-file SHA-256
+  `44fee4cadf291bbdd3ec50107694ab0eb2e5babfbd6bc589755d454f24b4b0cb`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed

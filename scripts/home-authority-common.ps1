@@ -3,6 +3,47 @@
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'live-target-context.ps1')
 
+if (-not ('AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
+
+namespace AiAgentDotfiles {
+    public static class SealedHomeAuthorityFixedEnvelopeCloseState {
+        private sealed class CloseRecord {
+            internal bool Closed;
+        }
+        private static readonly ConditionalWeakTable<object,CloseRecord> Records =
+            new ConditionalWeakTable<object,CloseRecord>();
+        public static void BindExact(object envelopeLease) {
+            if (envelopeLease == null)
+                throw new InvalidOperationException("home-authority-fixed-envelope-lease-invalid");
+            try { Records.Add(envelopeLease,new CloseRecord()); }
+            catch (ArgumentException) { throw new InvalidOperationException("home-authority-fixed-envelope-lease-invalid"); }
+        }
+        public static bool GetIsClosedExact(object envelopeLease) {
+            if (envelopeLease == null) return false;
+            CloseRecord record;
+            return Records.TryGetValue(envelopeLease,out record) && record != null &&
+                Volatile.Read(ref record.Closed);
+        }
+        public static bool MarkClosedExact(object envelopeLease) {
+            if (envelopeLease == null)
+                throw new InvalidOperationException("home-authority-fixed-envelope-lease-invalid");
+            CloseRecord record;
+            if (!Records.TryGetValue(envelopeLease,out record) || record == null) return false;
+            lock (record) {
+                if (Volatile.Read(ref record.Closed)) return false;
+                Volatile.Write(ref record.Closed,true);
+                return true;
+            }
+        }
+    }
+}
+'@
+}
+
 if ($IsWindows -and -not ('AiAgentDotfiles.WindowsKnownFolder' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -751,12 +792,12 @@ function Close-SealedHomeAuthorityFixedEnvelope {
         [AiAgentDotfiles.SealedFixedEnvelopeOwnershipGuard]::IsReservedExact($EnvelopeLease)){
         throw 'home-authority-fixed-envelope-lease-reserved'
     }
-    if ($null -ne $EnvelopeLease.PSObject.Properties['IsClosed'] -and [bool]$EnvelopeLease.IsClosed) { return }
+    if ([AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::GetIsClosedExact($EnvelopeLease)) { return }
     $leases = @($EnvelopeLease.DirectoryLeases)
     for ($index = $leases.Count - 1; $index -ge 0; $index--) {
         if ($null -ne $leases[$index].Handles) { Close-SafeDirectoryContainmentChain -Handles $leases[$index].Handles }
     }
-    $EnvelopeLease.IsClosed = $true
+    $null = [AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::MarkClosedExact($EnvelopeLease)
 }
 
 function Get-SealedHomeAuthorityFixedEnvelopeProjection {
@@ -769,7 +810,7 @@ function Get-SealedHomeAuthorityFixedEnvelopeProjection {
     )
 
     $null = Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $AuthorityContext
-    if ([bool]$EnvelopeLease.IsClosed -or [string]$EnvelopeLease.ContextHash -cne (Get-SealedHomeAuthorityFixedEnvelopeContextHash -AuthorityContext $AuthorityContext)) {
+    if ([AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::GetIsClosedExact($EnvelopeLease) -or [string]$EnvelopeLease.ContextHash -cne (Get-SealedHomeAuthorityFixedEnvelopeContextHash -AuthorityContext $AuthorityContext)) {
         throw 'home-authority-fixed-envelope-lease-invalid'
     }
     $definitions = @(Get-HomeAuthorityBootstrapEntryDefinitions -AuthorityContext $AuthorityContext)
@@ -887,10 +928,10 @@ function Open-SealedHomeAuthorityFixedEnvelope {
         $lease = [pscustomobject][ordered]@{
             ContextHash = Get-SealedHomeAuthorityFixedEnvelopeContextHash -AuthorityContext $AuthorityContext
             DirectoryLeases = @($directoryLeases)
-            IsClosed = $false
             InitialProjection = $null
             InitialEnvelopeHash = $null
         }
+        [AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::BindExact($lease)
         $initial = Get-SealedHomeAuthorityFixedEnvelopeProjection -AuthorityContext $AuthorityContext -DirectorySecurityTemplate $DirectorySecurityTemplate -FileSecurityTemplate $FileSecurityTemplate -EnvelopeLease $lease -HeldGlobalLock $HeldGlobalLock
         $lease.InitialProjection = $initial.Projection
         $lease.InitialEnvelopeHash = [string]$initial.EnvelopeHash

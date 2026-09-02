@@ -2165,7 +2165,8 @@ try {
                     -not [bool]$state.ObservationBoundaryHolds -or
                     $observationStateBefore -cne 'OPEN' -or
                     $handleChains.Length -ne 6 -or $handles.Count -eq 0 -or
-                    $handleOpenBefore -ne $handles.Count -or [bool]$envelopeLease.IsClosed -or
+                    $handleOpenBefore -ne $handles.Count -or
+                    [AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::GetIsClosedExact($envelopeLease) -or
                     -not $guardBefore -or $borrowedStateBefore -cne 'OPEN' -or
                     -not $borrowedStableBefore -or
                     -not [object]::ReferenceEquals(
@@ -2184,7 +2185,7 @@ try {
                 $borrowedStateAfterObservationClose=[string][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetCloseStateExact($state.BorrowedRoute)
                 $borrowedStableAfterObservationClose=((Assert-SealedRegistryCurrentRouteCaptureStable -Capture $state.BorrowedRoute) -ne $false)
                 if($observationStateAfter -cne 'CLOSED' -or $handleOpenAfter -ne 0 -or
-                    -not [bool]$envelopeLease.IsClosed -or $guardAfter -or
+                    -not [AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::GetIsClosedExact($envelopeLease) -or $guardAfter -or
                     $borrowedStateAfterObservationClose -cne 'OPEN' -or
                     -not $borrowedStableAfterObservationClose){
                     throw 'observation ownership receiver Stop payload did not close exactly'
@@ -3822,7 +3823,7 @@ try {
                 [string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetCloseStateExact(
                     $observationPostIssueCleanupState.Observation) -ceq 'CLOSED' -and
                 $observationPostIssueCleanupLeases.Count -eq 6 -and
-                [bool]$observationPostIssueCleanupState.EnvelopeLease.IsClosed -and
+                [AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::GetIsClosedExact($observationPostIssueCleanupState.EnvelopeLease) -and
                 $observationPostIssueCleanupHandles.Count -gt 0 -and
                 @($observationPostIssueCleanupHandles | Where-Object {[AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($_)}).Count -eq 0 -and
                 -not [AiAgentDotfiles.SealedFixedEnvelopeOwnershipGuard]::IsReservedExact($observationPostIssueCleanupState.EnvelopeLease) -and
@@ -4418,7 +4419,9 @@ try {
                 $observationShadowOwnedFrozenHandleChains=[object[][]]$observationShadowOwnedHandleChainsField.GetValue($observationShadowObservation)
                 $observationShadowOwnedFrozenHandles=@($observationShadowOwnedFrozenHandleChains | ForEach-Object {@($_)})
                 $observationShadowOwnedCloseProbe=[AiAgentDotfiles.ReceiptReleaseProbe]::new($false,$false)
-                $observationShadowOwnedEnvelope.IsClosed=$true
+                Assert-TestCondition (-not [AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::GetIsClosedExact($observationShadowOwnedEnvelope)) 'the owned envelope close state is open before the forged display is applied'
+                $observationShadowOwnedEnvelope | Add-Member -Force -MemberType NoteProperty -Name IsClosed -Value $true
+                Assert-TestCondition (-not [AiAgentDotfiles.SealedHomeAuthorityFixedEnvelopeCloseState]::GetIsClosedExact($observationShadowOwnedEnvelope)) 'a forged IsClosed NoteProperty cannot set the authoritative close state'
                 $observationShadowOwnedEnvelope.DirectoryLeases=@([pscustomobject]@{
                     Name='InjectedForeignDisplay';Path=$capabilityProbeRoot;Identity='foreign';
                     Handles=@($observationShadowOwnedCloseProbe);Held=$observationShadowOwnedCloseProbe

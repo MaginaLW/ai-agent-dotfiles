@@ -1036,6 +1036,44 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 56/0, root-claims 502/0, and path-safety 43/0 inside the run. Task 1 remains 1/6 and Phase 2
 remains 1/52. Production Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-02 Phase 2 envelope close-state CWT-ization
+
+The fixed-envelope lease's authoritative close state moved from the mutable `IsClosed`
+NoteProperty into the new CLR `SealedHomeAuthorityFixedEnvelopeCloseState` table (a
+`ConditionalWeakTable<object,CloseRecord>` with `BindExact`/`GetIsClosedExact`/`MarkClosedExact`,
+volatile-backed reads, unbound objects read as open and mark as a no-op), replacing the spoofable
+display at every authority point: both envelope construction sites (the HA bootstrap open and the
+observation's C# owned-envelope construction) bind at construction, the raw
+`Close-SealedHomeAuthorityFixedEnvelope` idempotence gate and write, the projection invalidation
+check, the observation owned-close and force-close paths, and the open-path validation all read and
+write only the table. The `IsClosed` NoteProperty no longer exists on any envelope.
+
+An independent Grok review (read-only, invoked through the reviewed wrapper) caught a P0 layering
+defect before commit: the class initially lived in `root-claims-registry-common.ps1`, but
+`home-authority-common.ps1` is dot-sourced standalone by `tests/home-authority.tests.ps1`,
+`tests/live-concurrency.tests.ps1`, and the bootstrap test host, so the hard dependency would have
+broken the HA-only path. The class moved into `home-authority-common.ps1`'s own guarded `Add-Type`
+(single definition — the observation side reaches it through the existing cross-assembly
+exact-reflection helper), and the two HA-only suites plus the full suite were then run for the
+first time in this slice. The review's P2s were also adopted: volatile-backed close reads,
+`BindExact` moved before the initial projection so the open-failure close path marks a bound lease,
+and two anti-forgery assertions pin that a forged `IsClosed` NoteProperty cannot set the
+authoritative state. The pinned issuer snapshot ScriptBlocks still describe the old NoteProperty
+shape by design — they are definition-digest identity pins, never dispatched; that boundary is
+recorded here rather than changed.
+
+Validation: `home-authority.tests.ps1` PASS, `live-concurrency.tests.ps1` PASS, focused
+root-claims 504 PASS lines with exit code 0 (502 before; the two new anti-forgery assertions),
+seams 56/0 after the reflection baseline re-pin (count 12753 → 12755, digest →
+`41c54b748eebd551d71c4e84a4cdca8535a336a10853e9dabbacf41f3ff66e3f`), complete hard-kill 318/0,
+path-safety PASS, parse gate 156 files, build 7/15/7, secret scan clean (864 non-blocking hints),
+`git diff --check`, and `sync.ps1 -DryRun` with a fresh external plan path changed no live file
+(plan-file SHA-256
+`44fee4cadf291bbdd3ec50107694ab0eb2e5babfbd6bc589755d454f24b4b0cb`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
