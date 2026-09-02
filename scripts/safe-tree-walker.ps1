@@ -1783,6 +1783,31 @@ function Get-SafeTreeSnapshotInternal {
     }
 }
 
+function Open-SafeTreeRetainedTraversal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [string[]] $ExcludeRelativePaths = @(),
+        [string[]] $ExcludePrefixes = @(),
+        [scriptblock] $ShouldSkipEntry,
+        [Parameter(Mandatory)] [AiAgentDotfiles.SealedOwnershipTransferReceiver] $OwnershipReceiver
+    )
+
+    $OwnershipReceiver.AssertEmptyExact()
+    $traversal = $null
+    try {
+        $traversal = Get-SafeTreeSnapshotInternal -Root $Root -ExcludeRelativePaths $ExcludeRelativePaths -ExcludePrefixes $ExcludePrefixes -ShouldSkipEntry $ShouldSkipEntry -RetainContainmentHandles
+        $OwnershipReceiver.DeliverExact($traversal)
+        $traversal = $null
+    }
+    finally {
+        if ($null -ne $traversal) {
+            foreach ($heldFile in $traversal.FileHandlesByRelativePath.Values) { $heldFile.Dispose() }
+            Close-SafeDirectoryContainmentChain -Handles $traversal.ContainmentHandles
+        }
+    }
+}
+
 function Get-SafeTreeSnapshot {
     [CmdletBinding()]
     param(
@@ -1823,7 +1848,9 @@ function Copy-SafeTree {
         if ([System.IO.Path]::GetFullPath($existingDestinationAncestor).TrimEnd([char]92,[char]47).Equals($destination.TrimEnd([char]92,[char]47), [System.StringComparison]::OrdinalIgnoreCase)) {
             throw "Safe tree destination must be create-new: $destination"
         }
-        $sourceTraversal = Get-SafeTreeSnapshotInternal -Root $source -ExcludeRelativePaths $ExcludeRelativePaths -ExcludePrefixes $ExcludePrefixes -ShouldSkipEntry $ShouldSkipEntry -RetainContainmentHandles
+        $sourceTraversalReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeTreeRetainedTraversal -Root $source -ExcludeRelativePaths $ExcludeRelativePaths -ExcludePrefixes $ExcludePrefixes -ShouldSkipEntry $ShouldSkipEntry -OwnershipReceiver $sourceTraversalReceiver
+        $sourceTraversal = $sourceTraversalReceiver.GetDeliveredExact()
         $sourceSnapshot = $sourceTraversal.Snapshot
         $evidenceByPath = @{}; foreach ($item in $sourceSnapshot.TraversalIdentityEvidence) { $evidenceByPath["$($item.Type):$($item.RelativePath)"] = $item }
         $relativeDestination = [System.IO.Path]::GetRelativePath($existingDestinationAncestor, $destination)

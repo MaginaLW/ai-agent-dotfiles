@@ -51,7 +51,7 @@ try{
         Assert ($coherent -and $script:observationHookCalls -eq 0) 'observation: directory identity and tree hash come from one retained traversal'
     }finally{Set-Item Function:\Get-SafeTreeSnapshot -Value $originalObservationSnapshot}
     $observationSource=${function:Get-CanonicalObservedPathState}.Ast.Extent.Text;$directoryCaptureSource=${function:Get-CanonicalRetainedDirectoryObservation}.Ast.Extent.Text
-    Assert ($observationSource -notmatch 'GetNamedStreams|NoFollowFile\]::Inspect|Get-SafeTreeSnapshot\s' -and $observationSource -match 'HashRegularFile|Get-CanonicalRetainedDirectoryObservation' -and $directoryCaptureSource -match 'Get-SafeTreeSnapshotInternal.+RetainContainmentHandles') 'observation: file and directory state contain no split path read sequence'
+    Assert ($observationSource -notmatch 'GetNamedStreams|NoFollowFile\]::Inspect|Get-SafeTreeSnapshot\s' -and $observationSource -match 'HashRegularFile|Get-CanonicalRetainedDirectoryObservation' -and $directoryCaptureSource -match 'Open-SafeTreeRetainedTraversal' -and $directoryCaptureSource -notmatch 'RetainContainmentHandles') 'observation: file and directory state contain no split path read sequence'
 
     Set-TestProgress 'zero-record';Write-Host "`n[zero-record tuple classification]" -ForegroundColor Cyan
     $recovery=Join-Path $root 'zero-record-recovery';[IO.Directory]::CreateDirectory((Join-Path $recovery 'staged'))|Out-Null

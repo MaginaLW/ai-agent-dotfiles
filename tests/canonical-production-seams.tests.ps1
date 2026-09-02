@@ -206,6 +206,7 @@ $reviewedClosure=@(
     'Get-ProtectedReasonixRelativePaths|scripts/scan-input-common.ps1'
     'Get-SafeTreeSnapshot|scripts/safe-tree-walker.ps1'
     'Get-SafeTreeSnapshotInternal|scripts/safe-tree-walker.ps1'
+    'Open-SafeTreeRetainedTraversal|scripts/safe-tree-walker.ps1'
     'Get-SemanticJsonHash|scripts/semantic-json.ps1'
     'Initialize-CanonicalRecoveryWorkspace|scripts/canonical-mutation-common.ps1'
     'Initialize-CanonicalTargetPreimage|scripts/canonical-mutation-common.ps1'
@@ -261,12 +262,13 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Copy-SafeTree|scripts/safe-tree-walker.ps1|4c5689806e64abdf7b6627566c31f36a6929720a13be5f4bd198cfb18ea51da5'
     'ScriptBlockParameter|Get-SafeTreeSnapshot|scripts/safe-tree-walker.ps1|77b35fa8987cb325f6a580336e0b1ef423e563309592f363d447bb81d200dd45'
     'ScriptBlockParameter|Get-SafeTreeSnapshotInternal|scripts/safe-tree-walker.ps1|ef8dd7f405f61d69f3a59a95465902333c85712ea415df5ba47c22c26ba3722c'
+    'ScriptBlockParameter|Open-SafeTreeRetainedTraversal|scripts/safe-tree-walker.ps1|ad9aa49e06084082906d3b0e94f20c6148ccb80dbe01ee7ff0a2b3f0993ef733'
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=12756
-$reviewedAllScriptsReflectionSensitiveDigest='7679a8a55fcbdc96a6654cb914bcd2ea337e2654d54d3211d7df6d647b18097c'
+$reviewedAllScriptsReflectionSensitiveSiteCount=12768
+$reviewedAllScriptsReflectionSensitiveDigest='7c88fdec06bd95d47c49a8f9a30e6977caad3230b1ab8c465cb3f46570860437'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

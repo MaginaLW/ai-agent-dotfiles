@@ -60,7 +60,9 @@ function Get-CanonicalRetainedDirectoryObservation {
     $full=[System.IO.Path]::GetFullPath($Path)
     $traversal=$null
     try {
-        $traversal=Get-SafeTreeSnapshotInternal -Root $full -RetainContainmentHandles
+        $traversalReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeTreeRetainedTraversal -Root $full -OwnershipReceiver $traversalReceiver
+        $traversal=$traversalReceiver.GetDeliveredExact()
         $rootEvidence=@($traversal.Snapshot.TraversalIdentityEvidence | Where-Object {
             [string]$_.Type -ceq 'Directory' -and [string]$_.RelativePath -ceq ''
         })

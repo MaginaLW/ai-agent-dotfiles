@@ -802,7 +802,9 @@ function New-CommittedDataSnapshot {
         $sourceTraversal = $null
         $destinationTree = $null
         try {
-            $sourceTraversal = Get-SafeTreeSnapshotInternal -Root $extracted -RetainContainmentHandles
+            $sourceTraversalReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeTreeRetainedTraversal -Root $extracted -OwnershipReceiver $sourceTraversalReceiver
+            $sourceTraversal = $sourceTraversalReceiver.GetDeliveredExact()
             $destinationTree = New-ApprovedRunnerDestinationTree -DestinationRoot $DestinationRoot
             $evidenceByPath = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
             foreach ($evidence in @($sourceTraversal.Snapshot.TraversalIdentityEvidence | Where-Object Type -eq 'File')) {

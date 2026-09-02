@@ -397,6 +397,36 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   receiver-backed; only the retained-traversal composite remains open. Task 1 remains 1/6 and Phase
   2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 retained-traversal receiver-backing (2026-09-02): the last raw success-stream
+  branch in the sealed registry's resource chain is closed. `safe-tree-walker.ps1` gains the sealed
+  wrapper `Open-SafeTreeRetainedTraversal` (mandatory caller-owned receiver, exact ownership
+  transfer of the snapshot-plus-retained-handles composite, failure cleanup in finally), and all
+  three production consumers (`Copy-SafeTree`, `New-CommittedDataSnapshot`,
+  `Get-CanonicalRetainedDirectoryObservation`) open through its receiver; the raw
+  `Get-SafeTreeSnapshotInternal -RetainContainmentHandles` path is no longer production-reachable.
+  Hard-kill re-pin: manifest hashes (`canonical-mutation-common` → `9b77a0a3…`,
+  `safe-tree-walker` → `e040c417…`), the self-seal fixpoint, and the production-closure contract
+  whose referenced boundary set changed by exactly one member — `Get-SafeTreeSnapshotInternal`
+  dropped out (its only closure-reachable caller now routes through the wrapper) while
+  `Open-SafeTreeRetainedTraversal` entered with the identical `ShouldSkipEntry` ParameterAst digest
+  `c341358e…`; 67/131/13 counts unchanged, closure digest now
+  `a719c9cb940a98e091941ef079e317f0f28b6e4f66d7a9f513b5232933ab2d9c` (contract baseline and
+  cleanup-gate assertion), verified first by an out-of-repository closure diagnostic. Final
+  hard-kill file SHA-256
+  `45c88d9fedf7a61ad0fe410f851b2bd03207176766d4a40c0ccdbb0b5c29bfc9`. The mutation-blockers static
+  assertion now requires the retained-observation route through the wrapper with no direct
+  `RetainContainmentHandles` reference; seams re-pinned deliberately (closure + exception inventory
+  rows with `ScriptBlockParameter` digest `ad9aa49e…`, reflection count 12756 → 12768, digest
+  `7c88fdec06bd95d47c49a8f9a30e6977caad3230b1ab8c465cb3f46570860437`) and passed 56/0.
+  Validation: primitives 95/0 after the closure-baseline fix, complete hard-kill 318/0,
+  mutation-blockers 32/0, recovery 104/0, skills-import 42/0, root-claims 484 assertions exit 0,
+  parse 156 files, build 7/15/7, secret scan clean (851 hints), diff-check, sync DryRun without
+  live change (plan-file SHA-256
+  `74853edddd106b47106b6a8fdf5de7496121a1c05c72a86cb49b9dbe781ad209`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. With this slice all
+  receiver/raw-return branches in the sealed registry's resource chain are receiver-backed. Task 1
+  remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -416,11 +446,10 @@ stay unconnected to production mutation routes.
 
 Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. The production caller/cleanup ledger is
 production-defined with zero production consumers, the runspace-lifecycle definition-store blocker
-is closed, and the live-set, target-lease, safe-existing, and plain containment-chain raw-return
-branches are receiver-backed. Next is the retained-traversal composite (a sealed wrapper design for
-`Get-SafeTreeSnapshotInternal -RetainContainmentHandles` snapshot-plus-handles return), the
-target/live reader-close and provider-closure blockers, then wiring the ledger as the reviewed
-observation lifecycle owner for a resolver or dispatcher consumer. The
+is closed, and every receiver/raw-return branch in the sealed registry's resource chain (target
+lease, live set, plain and existing containment chains, retained traversal) is receiver-backed.
+Next is to close the target/live reader-close and provider-closure blockers, then wire the ledger
+as the reviewed observation lifecycle owner for a resolver or dispatcher consumer. The
 `PrivateRootBootstrapIntent` setup path,
 protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
 the complete forbidden-root matrix before accepting any default/custom claim. Production Apply

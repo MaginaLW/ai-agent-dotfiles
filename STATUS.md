@@ -858,6 +858,53 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root or Git
 index/ref was changed.
 
+## 2026-09-02 Phase 2 retained-traversal receiver-backing
+
+The retained-traversal member of the receiver/raw-return blocker is closed — the last raw
+success-stream branch in the sealed read-only registry's resource chain.
+`scripts/safe-tree-walker.ps1` gains the reviewed sealed wrapper `Open-SafeTreeRetainedTraversal`
+(mandatory caller-owned `SealedOwnershipTransferReceiver`, exact ownership transfer of the
+snapshot-plus-retained-handles composite, and a finally block that disposes the file-handle map and
+containment chain if delivery never happens), and the raw
+`Get-SafeTreeSnapshotInternal -RetainContainmentHandles` path is no longer reachable from
+production: all three consumers (`Copy-SafeTree`, `New-CommittedDataSnapshot` in
+approved-runner-common, and `Get-CanonicalRetainedDirectoryObservation` in canonical-mutation-common)
+now open through the wrapper's receiver. `Get-SafeTreeSnapshot`/`Get-SafeTreeSnapshotInternal`
+remain for read-only tree hashing with no retained handles.
+
+Because both edited scripts are hard-kill-sealed, the full re-pin was performed: reviewed-load
+manifest hashes (`canonical-mutation-common` → `9b77a0a3…`, `safe-tree-walker` → `e040c417…` at
+both sites), the self-seal fixpoint (prelude rows/digest, pre-section region, function pins,
+inventory, self, main-try, top-execution, surface), and the production-closure contract whose
+boundary set changed membership by exactly one — `Get-SafeTreeSnapshotInternal` dropped out of the
+referenced boundary set (its only closure-reachable caller now goes through the wrapper) while
+`Open-SafeTreeRetainedTraversal` entered with the identical `ShouldSkipEntry` ParameterAst digest
+`c341358e…`; `FunctionCount=67`, `EdgeCount=131`, `BoundaryCount=13` are unchanged and the closure
+digest moved to `a719c9cb940a98e091941ef079e317f0f28b6e4f66d7a9f513b5232933ab2d9c` in the contract
+baseline and the cleanup-gate assertion. A closure diagnostic (out-of-repository) reproduced the
+exact boundary membership change before re-pinning. Final hard-kill file SHA-256
+`45c88d9fedf7a61ad0fe410f851b2bd03207176766d4a40c0ccdbb0b5c29bfc9`.
+
+Test changes: the mutation-blockers static assertion now requires
+`Get-CanonicalRetainedDirectoryObservation` to route through `Open-SafeTreeRetainedTraversal` and
+to retain no direct `RetainContainmentHandles` reference; the seams suite re-pins deliberately —
+the closure inventory gains `Open-SafeTreeRetainedTraversal|scripts/safe-tree-walker.ps1`, the
+exception inventory gains its `ScriptBlockParameter` row (digest
+`ad9aa49e06084082906d3b0e94f20c6148ccb80dbe01ee7ff0a2b3f0993ef733`), and the reflection-sensitive
+inventory moves from count 12756/digest `7679a8a5…` to count 12768/digest
+`7c88fdec06bd95d47c49a8f9a30e6977caad3230b1ab8c465cb3f46570860437` — passing 56/0.
+
+Validation: hard-kill primitives 95/0 (after the closure-baseline fix) then the complete standalone
+suite 318/0; `canonical-mutation-blockers` 32/0, `canonical-recovery` 104/0, `skills-import` 42/0,
+focused root-claims 484 assertions with exit code 0; seams 56/0; the parse gate accepted all 156
+files; the skill build produced 7/15/7; the pinned secret scan found no blocking findings (851
+non-blocking hints); `git diff --check` was clean; and `sync.ps1 -DryRun` with a fresh external plan
+path changed no live file (plan-file SHA-256
+`74853edddd106b47106b6a8fdf5de7496121a1c05c72a86cb49b9dbe781ad209`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -1219,10 +1266,10 @@ release, remain downstream and have not started.
 
 1. Continue Phase 2 Task 1 Step 2. The production caller/cleanup ledger is defined as an additive
    sealed building block with zero production consumers, the runspace-lifecycle definition-store
-   blocker is closed, and the live-set and target-lease raw-return branches are receiver-backed.
-   Remaining before wiring any resolver or dispatcher consumer: close the safe-existing and
-   retained-traversal raw-return branches (both live in hard-kill-pinned `safe-tree-walker.ps1`),
-   the target/live reader-close and provider-closure blockers, then wire the ledger as the reviewed
+   blocker is closed, and every receiver/raw-return branch in the sealed registry's resource chain
+   (target lease, live set, plain and existing containment chains, retained traversal) is
+   receiver-backed. Remaining before wiring any resolver or dispatcher consumer: close the
+   target/live reader-close and provider-closure blockers, then wire the ledger as the reviewed
    observation lifecycle owner. Preserve the read-only registry's
    `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` contract while completing the
    `PrivateRootBootstrapIntent` setup path, protocol-v1 public dispatch, and remaining forbidden-root
