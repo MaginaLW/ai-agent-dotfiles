@@ -496,7 +496,6 @@ function Open-SealedHeldLiveTargetContextSet {
             InitialCodexMarkers = $confirmedInitialMarkers
             TargetLeases = @($leases)
             Projection = $projection
-            IsClosed = $false
         }
         $setLease.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.SealedHeldLiveTargetContextSet')
         $setReceipt = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::BindExact(
@@ -628,13 +627,6 @@ function Close-SealedHeldLiveTargetContextSet {
     $receipt = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetForWrapperExact($Lease)
     if ($receipt -isnot [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]) { throw 'target-context-plan-stale: held live target set receipt is missing' }
     $null = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::ReleaseForWrapperExact($Lease)
-    try {
-        if ([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetIsClosedExact($receipt) -and
-            $null -ne $Lease.PSObject.Properties['IsClosed'] -and $Lease.PSObject.Properties['IsClosed'].MemberType -eq 'NoteProperty') {
-            $Lease.PSObject.Properties['IsClosed'].Value = $true
-        }
-    }
-    catch { }
 }
 
 function Assert-LiveAuthorityRootSetsDisjoint {

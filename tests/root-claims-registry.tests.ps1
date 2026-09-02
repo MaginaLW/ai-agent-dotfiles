@@ -3024,6 +3024,7 @@ try {
                 } 'target-context-plan-stale: held target lease reader count is invalid' 'an unbalanced target reader release fails closed'
                 Close-SealedHeldTargetContextLease -Lease $targetReadGuardLease
                 Assert-TestCondition ([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact($targetReadGuardReceipt)) 'the held target lease closes after its last reader releases'
+                Assert-TestCondition ($null -eq $targetReadGuardLease.PSObject.Properties['IsClosed']) 'the closed target wrapper carries no mutable lifecycle display; the receipt is the only close-state truth'
                 Assert-ThrowsPattern {
                     $targetReadGuardReceipt.BeginReadExact()
                 } 'target-context-plan-stale: held target lease is not open for reading' 'a closed target lease refuses new readers'

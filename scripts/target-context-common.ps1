@@ -464,7 +464,6 @@ function Open-SealedHeldTargetContextLease {
             Handles = @($handles)
             FirstMissingParentHandle = $firstMissingParent
             FirstMissingName = $firstMissingName
-            IsClosed = $false
         }
         $lease.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.SealedHeldTargetContextLease')
         foreach ($heldHandle in @($handles)) {
@@ -631,13 +630,6 @@ function Close-SealedHeldTargetContextLease {
     $receipt = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($Lease)
     if ($receipt -isnot [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]) { throw 'target-context-plan-stale: held target lease receipt is missing' }
     $null = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::ReleaseForWrapperExact($Lease)
-    try {
-        if ([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact($receipt) -and
-            $null -ne $Lease.PSObject.Properties['IsClosed'] -and $Lease.PSObject.Properties['IsClosed'].MemberType -eq 'NoteProperty') {
-            $Lease.PSObject.Properties['IsClosed'].Value = $true
-        }
-    }
-    catch { }
 }
 
 function Assert-SealedHeldTargetContextMatchesMetadata {

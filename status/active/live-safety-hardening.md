@@ -489,6 +489,22 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   when route cleanup itself fails, and wiring the cleanup ledger as the reviewed observation
   lifecycle owner.
 
+- Phase 2 Task 1 bare-lease wrapper de-mirroring (2026-09-02): the mutable `IsClosed` NoteProperty
+  is removed from both target-lease and live-set wrappers (constructor line and post-close mirror
+  block), after a reader census proved zero production or test readers of that property on those
+  wrappers — the bound receipt CWT is now the single close-state truth for every route-capture
+  collection wrapper, eliminating the drift/forge channel. The fixed-envelope lease's own
+  authoritative `IsClosed` (no receipt there) is deliberately untouched as a separate follow-up. A
+  new assertion pins the absence of the display on a closed wrapper. Hard-kill manifest re-pin plus
+  the self-seal fixpoint (final hard-kill file SHA-256
+  `4c84e4a89f9a11b40338e50743a0e42a1824fca61bc822573d8d053d5923320e`); seams reflection inventory
+  12772 → 12754 (digest `45f42c81…`), 56/0. Validation: primitives 95/0, complete hard-kill 318/0,
+  root-claims 502 assertions exit 0 (501 before), path-safety PASS, parse 156 files, build 7/15/7,
+  secret scan clean (862 hints), diff-check, sync DryRun without live change (plan-file SHA-256
+  `669bbeb39ffdadcc860ded307e5cce66cb1e4a3c4a4dc17c92c6c0fbd605a148`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed

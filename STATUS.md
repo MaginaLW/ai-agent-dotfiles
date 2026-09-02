@@ -1001,6 +1001,38 @@ and the full 56/0 suite shows zero false positives. The remaining open Step 2 su
 opaque bare lease wrappers, the durable recovery ticket when route cleanup itself fails, and then
 wiring the cleanup ledger as the reviewed observation lifecycle owner.
 
+## 2026-09-02 Phase 2 bare-lease wrapper de-mirroring
+
+The opaque bare lease wrappers sub-debt is materially reduced. An out-of-repository survey of the
+route-capture chain established that every route-capture collection wrapper (live-set, three route
+rows, reservations, fixed leases) is receipt-bound before delivery, so the receipt CWT is always
+the authoritative state store; the opacity channel is the mutable `IsClosed` NoteProperty that both
+close functions best-effort mirrored onto wrappers inside a swallowed-catch block, duplicating
+receipt state and drifting or forging silently. A precise reader census found zero production or
+test readers of that property on target/live wrappers (the identically named property on
+canonical captures, witnesses, and the fixed-envelope lease belongs to different objects and stays
+untouched). This slice deletes the display: the `IsClosed = $false` constructor line and the whole
+post-close mirror block are removed from both `target-context-common.ps1` and
+`live-target-context.ps1`, making the bound receipt the single close-state truth for every
+route-capture collection wrapper. A new root-claims assertion pins that a closed target wrapper
+carries no `IsClosed` property at all (502 PASS lines with exit code 0, up from 501). The envelope
+lease's own `IsClosed` — which is authoritative there because that wrapper has no receipt — is
+deliberately untouched and remains a separate follow-up.
+
+Because `target-context-common.ps1` is hard-kill-sealed, the manifest re-pin plus the full self-seal
+fixpoint was performed (13 updates, fixpoint reached); final hard-kill file SHA-256
+`4c84e4a89f9a11b40338e50743a0e42a1824fca61bc822573d8d053d5923320e`. The seams suite re-pinned the
+reflection-sensitive inventory (count 12772 → 12754, digest →
+`45f42c81ed65ead0ed0ec7bb4967e2064958853613e2c7df5e215e7e28624788`) and passed 56/0. Validation:
+primitives 95/0, complete hard-kill 318/0, focused root-claims 502 assertions exit 0, path-safety
+PASS, parse gate 156 files, build 7/15/7, secret scan clean (862 non-blocking hints),
+`git diff --check`, and `sync.ps1 -DryRun` with a fresh external plan path changed no live file
+(plan-file SHA-256
+`669bbeb39ffdadcc860ded307e5cce66cb1e4a3c4a4dc17c92c6c0fbd605a148`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
