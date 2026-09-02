@@ -480,6 +480,15 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, and root-claims 501/0 inside the run. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Provider-token debt closure assessment (2026-09-02): the "computed provider-path dataflow and a
+  literal-provider-token static false positive" sub-debt is already covered by shipped work — the
+  seams suite scans literal `Alias:`/`Function:` drive tokens and drive-qualified variable forms
+  with mutation-RED acceptance tests, declares computed-path data flow out of scope as a deliberate
+  design boundary, and reports zero false positives at 56/0. No code change was needed. The
+  remaining open Step 2 sub-debts are the opaque bare lease wrappers, the durable recovery ticket
+  when route cleanup itself fails, and wiring the cleanup ledger as the reviewed observation
+  lifecycle owner.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed

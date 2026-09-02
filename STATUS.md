@@ -987,6 +987,20 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 56/0, and root-claims 501/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
 Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-02 provider-token debt closure assessment
+
+A read-only assessment of the remaining provider-closure sub-debt concluded that the
+"computed provider-path dataflow and a literal-provider-token static false positive" item from the
+2026-08-31 checkpoint is already covered by shipped work and needs no code change. The seams suite
+scans every non-comment token for literal `Alias:`/`Function:` drive syntax, explicitly recognizes
+drive-qualified variable forms (`$alias:name`, `${function:name}`), and pairs both with mutation-RED
+acceptance tests ("contiguous literal Alias:/Function: provider-drive tokens cannot hide an
+observation API call"); the suite comment declares computed paths and general provider-mutator data
+flow out of scope as a deliberate design boundary supplemented by direct named CommandAst analysis,
+and the full 56/0 suite shows zero false positives. The remaining open Step 2 sub-debts are the
+opaque bare lease wrappers, the durable recovery ticket when route cleanup itself fails, and then
+wiring the cleanup ledger as the reviewed observation lifecycle owner.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
