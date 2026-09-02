@@ -3003,6 +3003,95 @@ try {
                 Open-SealedHeldTargetContextLease -Path ([string]$capabilityFixture.Context.ControlBase) | Out-Null
             } 'missing mandatory parameters: OwnershipReceiver' 'the target lease open rejects a raw success-stream return path by requiring the ownership receiver'
 
+            $targetReadGuardReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedHeldTargetContextLease -Path ([string]$capabilityFixture.Context.ControlBase) -OwnershipReceiver $targetReadGuardReceiver
+            $targetReadGuardLease=$targetReadGuardReceiver.GetDeliveredExact()
+            $targetReadGuardReceipt=[AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($targetReadGuardLease)
+            try {
+                $targetReadGuardReceipt.BeginReadExact()
+                Assert-ThrowsPattern {
+                    Close-SealedHeldTargetContextLease -Lease $targetReadGuardLease | Out-Null
+                } 'target-context-close-active' 'an active reader blocks the held target lease close without changing its lifecycle state'
+                Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetCloseStateExact($targetReadGuardReceipt) -ceq 'OPEN') 'a rejected target close leaves the receipt OPEN'
+                $targetReadGuardReceipt.BeginReadExact()
+                $targetReadGuardReceipt.EndReadExact()
+                Assert-ThrowsPattern {
+                    Close-SealedHeldTargetContextLease -Lease $targetReadGuardLease | Out-Null
+                } 'target-context-close-active' 'a second nested reader keeps blocking the held target lease close'
+                $targetReadGuardReceipt.EndReadExact()
+                Assert-ThrowsPattern {
+                    $targetReadGuardReceipt.EndReadExact()
+                } 'target-context-plan-stale: held target lease reader count is invalid' 'an unbalanced target reader release fails closed'
+                Close-SealedHeldTargetContextLease -Lease $targetReadGuardLease
+                Assert-TestCondition ([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact($targetReadGuardReceipt)) 'the held target lease closes after its last reader releases'
+                Assert-ThrowsPattern {
+                    $targetReadGuardReceipt.BeginReadExact()
+                } 'target-context-plan-stale: held target lease is not open for reading' 'a closed target lease refuses new readers'
+            }
+            finally {
+                if([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsOpenExact($targetReadGuardReceipt)){
+                    try { $null=Close-SealedHeldTargetContextLease -Lease $targetReadGuardLease } catch { }
+                }
+            }
+
+            $targetAssertGuardProbe=[AiAgentDotfiles.ReceiptReleaseProbe]::new($true,$false)
+            $targetAssertGuardLeaseReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedHeldTargetContextLease -Path ([string]$capabilityFixture.Context.ControlBase) -OwnershipReceiver $targetAssertGuardLeaseReceiver
+            $targetAssertGuardLease=$targetAssertGuardLeaseReceiver.GetDeliveredExact()
+            $targetAssertGuardRunspace=[Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+            $targetAssertGuardRunspace.Open()
+            $targetAssertGuardPowerShell=[PowerShell]::Create()
+            $targetAssertGuardTask=$null
+            try {
+                $targetAssertGuardPowerShell.Runspace=$targetAssertGuardRunspace
+                $null=$targetAssertGuardPowerShell.AddScript({
+                    param($TargetScriptPath,$GuardLease,$Probe)
+                    $ErrorActionPreference='Stop'
+                    . $TargetScriptPath
+                    $originalEvidence=(Get-Command Get-SealedHeldTargetDirectoryEvidence -CommandType Function -ErrorAction Stop).ScriptBlock
+                    $global:__TargetAssertGuardCalls=0L
+                    $blockingEvidence={
+                        param($Handle,[string]$Path,$ParentHandle,[string]$LeafName,[string]$VolumeId)
+                        $script:__TargetAssertGuardCalls++
+                        if($script:__TargetAssertGuardCalls -eq 1L){$Probe.CaptureAndWait($Handle)}
+                        & $originalEvidence -Handle $Handle -Path $Path -ParentHandle $ParentHandle -LeafName $LeafName -VolumeId $VolumeId
+                    }.GetNewClosure()
+                    Set-Item -LiteralPath Function:\Get-SealedHeldTargetDirectoryEvidence -Value $blockingEvidence
+                    Assert-SealedHeldTargetContextLease -Lease $GuardLease | Out-Null
+                    return 'assert-completed'
+                }).AddArgument((Join-Path $RepoRoot 'scripts/target-context-common.ps1')).AddArgument($targetAssertGuardLease).AddArgument($targetAssertGuardProbe)
+                $targetAssertGuardTask=$targetAssertGuardPowerShell.BeginInvoke()
+                $targetAssertGuardDeadline=[DateTime]::UtcNow.AddSeconds(60)
+                while($null -eq $targetAssertGuardProbe.CapturedValue -and [DateTime]::UtcNow -lt $targetAssertGuardDeadline){
+                    Start-Sleep -Milliseconds 50
+                }
+                Assert-TestCondition ($null -ne $targetAssertGuardProbe.CapturedValue) 'the live target assert reader entered its held read before the first evidence re-read'
+                Assert-ThrowsPattern {
+                    Close-SealedHeldTargetContextLease -Lease $targetAssertGuardLease | Out-Null
+                } 'target-context-close-active' 'a concurrent close is rejected while the real target assert holds its read'
+                Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetCloseStateExact(
+                    [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($targetAssertGuardLease)) -ceq 'OPEN') 'the rejected concurrent close leaves the asserted lease OPEN'
+            }
+            finally {
+                $targetAssertGuardProbe.AllowRelease()
+                if($null -ne $targetAssertGuardTask -and -not $targetAssertGuardTask.IsCompleted){
+                    $null=$targetAssertGuardTask.AsyncWaitHandle.WaitOne(60000)
+                }
+                $script:targetAssertGuardOutput=@($targetAssertGuardPowerShell.EndInvoke($targetAssertGuardTask))
+                $script:targetAssertGuardErrors=@($targetAssertGuardPowerShell.Streams.Error)
+                $targetAssertGuardPowerShell.Dispose()
+                $targetAssertGuardRunspace.Dispose()
+                if([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsOpenExact(
+                    [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($targetAssertGuardLease))){
+                    try { $null=Close-SealedHeldTargetContextLease -Lease $targetAssertGuardLease } catch { }
+                }
+            }
+            Close-SealedHeldTargetContextLease -Lease $targetAssertGuardLease
+            Assert-TestCondition ($script:targetAssertGuardErrors.Count -eq 0 -and
+                $script:targetAssertGuardOutput.Count -eq 1 -and [string]$script:targetAssertGuardOutput[0] -ceq 'assert-completed' -and
+                [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact(
+                    [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($targetAssertGuardLease))) 'the target assert completes after release and the lease then closes for the caller'
+
             $liveSelectFirstReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
             Open-SealedHeldLiveTargetContextSet -AuthorityContext $capabilityFixture.Context `
                 -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal `
@@ -3022,6 +3111,37 @@ try {
             finally { $null=[AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::ReleaseForWrapperExact($liveSelectFirstLease) }
             Assert-TestCondition ([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetIsClosedExact($liveSelectFirstReceipt) -and
                 @($liveSelectFirstTargetReceipts | Where-Object {-not [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact($_)}).Count -eq 0) 'explicit live-set close releases every nested lease held through its ownership receiver'
+
+            $liveReadGuardReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SealedHeldLiveTargetContextSet -AuthorityContext $capabilityFixture.Context `
+                -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal `
+                -OwnershipReceiver $liveReadGuardReceiver
+            $liveReadGuardLease=$liveReadGuardReceiver.GetDeliveredExact()
+            $liveReadGuardReceipt=[AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetForWrapperExact($liveReadGuardLease)
+            try {
+                $liveReadGuardReceipt.BeginReadExact()
+                Assert-ThrowsPattern {
+                    Close-SealedHeldLiveTargetContextSet -Lease $liveReadGuardLease | Out-Null
+                } 'target-context-close-active' 'an active reader blocks the held live-set close without changing its lifecycle state'
+                Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetCloseStateExact($liveReadGuardReceipt) -ceq 'OPEN' -and
+                    @([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetTargetLeasesExact($liveReadGuardReceipt) | ForEach-Object {
+                        [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsOpenExact([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($_))
+                    }).Count -eq 3) 'a rejected live-set close leaves the receipt and all three nested leases OPEN'
+                $liveReadGuardReceipt.EndReadExact()
+                Close-SealedHeldLiveTargetContextSet -Lease $liveReadGuardLease
+                Assert-TestCondition ([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetIsClosedExact($liveReadGuardReceipt) -and
+                    @([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetTargetLeasesExact($liveReadGuardReceipt) | ForEach-Object {
+                        [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsClosedExact([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($_))
+                    }).Count -eq 3) 'the held live-set closes after its reader releases and cascades to every nested lease'
+                Assert-ThrowsPattern {
+                    $liveReadGuardReceipt.BeginReadExact()
+                } 'target-context-plan-stale: held live target set is not open for reading' 'a closed live-set refuses new readers'
+            }
+            finally {
+                if([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetIsOpenExact($liveReadGuardReceipt)){
+                    try { $null=Close-SealedHeldLiveTargetContextSet -Lease $liveReadGuardLease } catch { }
+                }
+            }
 
             $liveSetOpenCommand=Get-Command Open-SealedHeldLiveTargetContextSet -CommandType Function -ErrorAction Stop
             Assert-TestCondition ((@($liveSetOpenCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object {$_.Name.VariablePath.UserPath}) -join "`0") -ceq "AuthorityContext`0CanonicalWitness`0GlobalLockHandle`0OwnershipReceiver" -and

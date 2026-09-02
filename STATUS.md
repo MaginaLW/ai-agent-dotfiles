@@ -909,6 +909,44 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live
 root or Git index/ref was changed.
 
+## 2026-09-02 Phase 2 target/live reader-close blocking
+
+The target/live reader-close blocker is closed: the held target-lease receipt and the held live-set
+receipt now protect their release path from concurrent readers. Both CLR receipt classes
+(`SealedHeldTargetContextLeaseReceipt`, `SealedHeldLiveTargetContextSetReceipt`) gained a lifecycle
+gate with an active-reader counter and public `BeginReadExact`/`EndReadExact` instance methods;
+`Assert-SealedHeldTargetContextLease` and `Assert-SealedHeldLiveTargetContextSet` hold the read for
+their whole revalidation, and `ReleaseForWrapperExact` in both classes — after acquiring the
+closing transition — restores `OPEN` and throws `target-context-close-active` when any reader is
+still active. A closed receipt refuses new readers with the stale message; an unbalanced reader
+release fails closed; closing is still single-use and idempotent for repeated calls. The nested
+live-set close continues to cascade to its three target leases only after the set-level reader
+releases. `live-target-context.ps1` is not hard-kill-sealed; `target-context-common.ps1` required
+the manifest re-pin plus the full self-seal fixpoint (13 updates across two fixpoint iterations).
+Final hashes: hard-kill file `34f244cb0e84a27aa44e2fe764c0fcc706478a35bdf260a860cee37fa031c329`,
+target-context-common `5fc1433e7187aa9a3da0efbf7301f8ace4e2a42cccdebe2ab1dda8ba4eb973d5`.
+
+Tests in `tests/root-claims-registry.tests.ps1` (498 PASS lines with exit code 0, up from 484):
+a target lifecycle block (active reader blocks close, rejected close leaves OPEN, nested second
+reader keeps blocking, unbalanced release fails closed, close after last release, closed lease
+refuses readers), a live-set lifecycle block (reader blocks close with all three nested leases
+OPEN, close after release cascades closed, closed set refuses readers), and a real-concurrency
+orchestration in which a child runscape's target `Assert` is blocked on its first evidence re-read
+while the main runscape's concurrent close is rejected `target-context-close-active` with the lease
+left OPEN, after which the assert completes and the caller closes. The seams suite re-pinned only
+the reflection-sensitive inventory (count 12768 → 12772, digest →
+`7f867f392eeb3210fc17964f407a774ba6cbbb9ff81ca86a1aac43be53c69efb`) and passed 56/0.
+
+Validation: hard-kill primitives 95/0 then the complete standalone suite 318/0; focused
+root-claims 498 assertions with exit code 0; seams 56/0; the parse gate accepted all 156 files; the
+skill build produced 7/15/7; the pinned secret scan found no blocking findings (853 non-blocking
+hints); `git diff --check` was clean; and `sync.ps1 -DryRun` with a fresh external plan path
+changed no live file (plan-file SHA-256
+`d5dc1a2c38c94aedf351175e6a47f28482c0d0ba263c0d1fa4c4fd9318af9578`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -1272,8 +1310,9 @@ release, remain downstream and have not started.
    sealed building block with zero production consumers, the runspace-lifecycle definition-store
    blocker is closed, and every receiver/raw-return branch in the sealed registry's resource chain
    (target lease, live set, plain and existing containment chains, retained traversal) is
-   receiver-backed. Remaining before wiring any resolver or dispatcher consumer: close the
-   target/live reader-close and provider-closure blockers, then wire the ledger as the reviewed
+   receiver-backed, and both held receipts now block concurrent close while their Assert revalidation
+   holds a read. Remaining before wiring any resolver or dispatcher consumer: close the
+   provider-closure blocker, then wire the ledger as the reviewed
    observation lifecycle owner. Preserve the read-only registry's
    `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` contract while completing the
    `PrivateRootBootstrapIntent` setup path, protocol-v1 public dispatch, and remaining forbidden-root

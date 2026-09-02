@@ -24,6 +24,8 @@ namespace AiAgentDotfiles {
         private const int ClosingState = 1;
         private const int ClosedState = 2;
         private int closeState;
+        private readonly object lifecycleGate = new object();
+        private int activeReaders;
 
         private SealedHeldTargetContextLeaseReceipt(object wrapperValue, object projectionValue,
             object legacyMetadataValue, object[] directoryRowsValue, object[] handlesValue,
@@ -35,6 +37,21 @@ namespace AiAgentDotfiles {
             handles = (object[])handlesValue.Clone();
             firstMissingParentHandle = firstMissingParentHandleValue;
             firstMissingName = firstMissingNameValue;
+        }
+
+        public void BeginReadExact() {
+            lock (lifecycleGate) {
+                if (Volatile.Read(ref closeState) != OpenState)
+                    throw new InvalidOperationException("target-context-plan-stale: held target lease is not open for reading");
+                activeReaders++;
+            }
+        }
+        public void EndReadExact() {
+            lock (lifecycleGate) {
+                if (activeReaders <= 0)
+                    throw new InvalidOperationException("target-context-plan-stale: held target lease reader count is invalid");
+                activeReaders--;
+            }
         }
 
         private static SealedHeldTargetContextLeaseReceipt RequireForWrapper(object wrapperValue) {
@@ -91,6 +108,12 @@ namespace AiAgentDotfiles {
             if (observed == ClosedState) return false;
             if (observed == ClosingState) throw new InvalidOperationException("target-context-close-active");
             if (observed != OpenState) throw new InvalidOperationException("target-context-plan-stale: held target lease close state is invalid");
+            lock (receipt.lifecycleGate) {
+                if (receipt.activeReaders != 0) {
+                    Volatile.Write(ref receipt.closeState, OpenState);
+                    throw new InvalidOperationException("target-context-close-active");
+                }
+            }
 
             Exception firstError = null;
             for (int index = receipt.handles.Length - 1; index >= 0; index--) {
@@ -512,6 +535,8 @@ function Assert-SealedHeldTargetContextLease {
             -not [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetIsOpenExact($receipt)) {
             throw 'held target lease is missing, untyped, or closed'
         }
+        $receipt.BeginReadExact()
+        try {
         $projection = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetProjectionExact($receipt)
         $legacyMetadata = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetLegacyMetadataExact($receipt)
         $rows = @([AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetDirectoryRowsExact($receipt))
@@ -580,6 +605,10 @@ function Assert-SealedHeldTargetContextLease {
         $rebuiltLegacy = Get-SealedHeldTargetLegacyMetadata -RequestedPath ([string]$projection.RequestedPath) -TargetStatus $status -TargetType ([string]$projection.TargetType) -VolumeId ([string]$projection.VolumeId) -DirectoryRows $rows -MissingRemainder $missing
         if ((Get-SemanticJsonHash -InputObject $rebuiltLegacy) -cne (Get-SemanticJsonHash -InputObject $legacyMetadata)) { throw 'held target legacy metadata projection changed' }
         return $true
+        }
+        finally {
+            $receipt.EndReadExact()
+        }
     }
     catch {
         if ($_.Exception.Message -like 'target-context-plan-stale:*') { throw }

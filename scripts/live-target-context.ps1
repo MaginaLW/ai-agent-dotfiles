@@ -25,6 +25,8 @@ namespace AiAgentDotfiles {
         private const int ClosingState = 1;
         private const int ClosedState = 2;
         private int closeState;
+        private readonly object lifecycleGate = new object();
+        private int activeReaders;
 
         private SealedHeldLiveTargetContextSetReceipt(object wrapperValue, object authorityContextValue,
             object canonicalWitnessValue, object globalLockHandleValue, object initialCodexMarkersValue,
@@ -36,6 +38,21 @@ namespace AiAgentDotfiles {
             initialCodexMarkers = initialCodexMarkersValue;
             targetLeases = (object[])targetLeasesValue.Clone();
             projection = projectionValue;
+        }
+
+        public void BeginReadExact() {
+            lock (lifecycleGate) {
+                if (Volatile.Read(ref closeState) != OpenState)
+                    throw new InvalidOperationException("target-context-plan-stale: held live target set is not open for reading");
+                activeReaders++;
+            }
+        }
+        public void EndReadExact() {
+            lock (lifecycleGate) {
+                if (activeReaders <= 0)
+                    throw new InvalidOperationException("target-context-plan-stale: held live target set reader count is invalid");
+                activeReaders--;
+            }
         }
 
         private static SealedHeldLiveTargetContextSetReceipt RequireForWrapper(object wrapperValue) {
@@ -106,6 +123,12 @@ namespace AiAgentDotfiles {
             if (observed == ClosedState) return false;
             if (observed == ClosingState) throw new InvalidOperationException("target-context-close-active");
             if (observed != OpenState) throw new InvalidOperationException("target-context-plan-stale: held live target set close state is invalid");
+            lock (receipt.lifecycleGate) {
+                if (receipt.activeReaders != 0) {
+                    Volatile.Write(ref receipt.closeState, OpenState);
+                    throw new InvalidOperationException("target-context-close-active");
+                }
+            }
 
             Exception firstError = null;
             for (int index = receipt.targetLeases.Length - 1; index >= 0; index--) {
@@ -543,6 +566,8 @@ function Assert-SealedHeldLiveTargetContextSet {
             $receipt -isnot [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt] -or
             -not [object]::ReferenceEquals([AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetWrapperExact($receipt),$Lease) -or
             -not [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetIsOpenExact($receipt)) { throw 'held live target set is missing, untyped, or closed' }
+        $receipt.BeginReadExact()
+        try {
         $authorityContext = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetAuthorityContextExact($receipt)
         $canonicalWitness = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetCanonicalWitnessExact($receipt)
         $globalLockHandle = [AiAgentDotfiles.SealedHeldLiveTargetContextSetReceipt]::GetGlobalLockHandleExact($receipt)
@@ -577,6 +602,10 @@ function Assert-SealedHeldLiveTargetContextSet {
             throw 'held live target set hash/capability coverage changed'
         }
         return $true
+        }
+        finally {
+            $receipt.EndReadExact()
+        }
     }
     catch {
         if ($_.Exception.Message -eq 'route-witness-required' -or $_.Exception.Message -like 'target-context-plan-stale:*') { throw }

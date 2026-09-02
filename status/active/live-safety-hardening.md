@@ -432,6 +432,28 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   receiver/raw-return branches in the sealed registry's resource chain are receiver-backed. Task 1
   remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 target/live reader-close blocking (2026-09-02): both held receipt classes
+  (target-lease and live-set) gained a lifecycle gate with an active-reader counter and public
+  `BeginReadExact`/`EndReadExact`; both `Assert` functions hold the read for their whole
+  revalidation, and both release paths restore `OPEN` and throw `target-context-close-active` when
+  a reader is active. Closed receipts refuse new readers; unbalanced releases fail closed; close
+  remains single-use and idempotent; the live-set cascade reaches its three nested leases only
+  after the set-level reader releases. `target-context-common.ps1` required the manifest re-pin
+  plus the self-seal fixpoint (final hard-kill file SHA-256
+  `34f244cb0e84a27aa44e2fe764c0fcc706478a35bdf260a860cee37fa031c329`; target-context-common
+  `5fc1433e7187aa9a3da0efbf7301f8ace4e2a42cccdebe2ab1dda8ba4eb973d5`); `live-target-context.ps1`
+  is not hard-kill-sealed. Tests: target and live lifecycle blocks plus a real-concurrency
+  orchestration (child-runscape `Assert` blocked on its first evidence re-read; the main runscape's
+  concurrent close is rejected `target-context-close-active` with the lease OPEN; after release the
+  assert completes and the caller closes) — focused root-claims reached 498 PASS with exit code 0
+  (484 before). Seams re-pinned only the reflection inventory (12768 → 12772, digest
+  `7f867f39…`) and passed 56/0. Validation: primitives 95/0, complete hard-kill 318/0, parse 156
+  files, build 7/15/7, secret scan clean (853 hints), diff-check, sync DryRun without live change
+  (plan-file SHA-256
+  `d5dc1a2c38c94aedf351175e6a47f28482c0d0ba263c0d1fa4c4fd9318af9578`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -453,8 +475,9 @@ Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. The production caller/cl
 production-defined with zero production consumers, the runspace-lifecycle definition-store blocker
 is closed, and every receiver/raw-return branch in the sealed registry's resource chain (target
 lease, live set, plain and existing containment chains, retained traversal) is receiver-backed.
-Next is to close the target/live reader-close and provider-closure blockers, then wire the ledger
-as the reviewed observation lifecycle owner for a resolver or dispatcher consumer. The
+The target/live reader-close blocker is closed (both held receipts block concurrent close while
+their Assert revalidation holds a read). Next is to close the provider-closure blocker, then wire
+the ledger as the reviewed observation lifecycle owner for a resolver or dispatcher consumer. The
 `PrivateRootBootstrapIntent` setup path,
 protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
 the complete forbidden-root matrix before accepting any default/custom claim. Production Apply
