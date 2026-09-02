@@ -525,7 +525,11 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   path-safety PASS, parse 156 files, build 7/15/7, secret scan clean (864 hints), diff-check, sync
   DryRun without live change (plan-file SHA-256
   `44fee4cadf291bbdd3ec50107694ab0eb2e5babfbd6bc589755d454f24b4b0cb`, deleted after the run). The
-  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  definitive unified `run-tests.ps1 -All` run then passed all 34 discovered suites exactly once with
+  zero failures, timeouts, duplicates, missing suites, or tree-kill failures; its external
+  create-new summary SHA-256 is
+  `fe57091678b947bd8424a799cf738dba316177af24689bd15847747d740f45f6`, with hard-kill 318/0, seams
+  56/0, and root-claims 504/0 inside the run. Task 1 remains 1/6
   and Phase 2 remains 1/52; production Apply remains interlocked.
 
 - Execution state (2026-09-02, parallel batch): staging locks rebuilt fresh (three environments

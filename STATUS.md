@@ -1070,9 +1070,12 @@ path-safety PASS, parse gate 156 files, build 7/15/7, secret scan clean (864 non
 `git diff --check`, and `sync.ps1 -DryRun` with a fresh external plan path changed no live file
 (plan-file SHA-256
 `44fee4cadf291bbdd3ec50107694ab0eb2e5babfbd6bc589755d454f24b4b0cb`, deleted after the run). The
-definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
-pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
-live root or Git index/ref was changed.
+definitive unified `run-tests.ps1 -All` run then discovered, started, completed, and passed all 34
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures
+(external create-new summary SHA-256
+`fe57091678b947bd8424a799cf738dba316177af24689bd15847747d740f45f6`), with hard-kill 318/0, seams
+56/0, and root-claims 504/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
+Apply remains interlocked, and no live root or Git index/ref was changed.
 
 ## 2026-09-02 execution status: parallel design batch, staging locks rebuilt, remaining queue
 
