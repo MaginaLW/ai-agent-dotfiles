@@ -980,9 +980,12 @@ the parse gate accepted all 156 files; the skill build produced 7/15/7; the pinn
 found no blocking findings (855 non-blocking hints); `git diff --check` was clean; and
 `sync.ps1 -DryRun` with a fresh external plan path changed no live file (plan-file SHA-256
 `0f8bf1a4e95b1ff95daab244140d9b825e2c990d044132f39f247f6e62af92ad`, deleted after the run). The
-definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
-pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
-live root or Git index/ref was changed.
+definitive unified `run-tests.ps1 -All` run then discovered, started, completed, and passed all 34
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures
+(external create-new summary SHA-256
+`c2a35eb71dfa9ec0e83a695d5aaeffe22d09a4d033df5229800dc2a4b4d29338`), with hard-kill 318/0, seams
+56/0, and root-claims 501/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
+Apply remains interlocked, and no live root or Git index/ref was changed.
 
 ## Validation status
 
