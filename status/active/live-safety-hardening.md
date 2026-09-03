@@ -586,8 +586,12 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   PASS, seams 56/0 after re-pins (reflection 12773 → 12809, `2d7eb352…`), parse 156 files, build
   7/15/7, secret scan clean (869 hints), diff-check, sync DryRun without live change (plan-file
   SHA-256 `59b30f633a4b61e9a4bb8e23a877ae8ca7b5782e59ea4b90c46e279d83891006`, deleted after the
-  run). The definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1
-  remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
+  run). The definitive unified `run-tests.ps1 -All` run then passed all 34 discovered suites exactly
+  once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures; its external
+  create-new summary SHA-256 is
+  `d8f6ef0e1bf3d359214db79c0844f806bff71bd89f2284a052b7c44818517189`, with hard-kill 318/0, seams
+  56/0, and root-claims 546/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52;
+  production Apply remains interlocked.
 
 ## Current checkpoint
 

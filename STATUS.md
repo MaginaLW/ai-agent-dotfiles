@@ -1227,9 +1227,12 @@ after the review fix. The seams suite passed 56/0 after the boundary rewrite and
 clean (869 non-blocking hints), `git diff --check`, and `sync.ps1 -DryRun` with a fresh external
 plan path changed no live file (plan-file SHA-256
 `59b30f633a4b61e9a4bb8e23a877ae8ca7b5782e59ea4b90c46e279d83891006`, deleted after the run). The
-definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
-pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
-live root or Git index/ref was changed.
+definitive unified `run-tests.ps1 -All` run then discovered, started, completed, and passed all 34
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures
+(external create-new summary SHA-256
+`d8f6ef0e1bf3d359214db79c0844f806bff71bd89f2284a052b7c44818517189`), with hard-kill 318/0, seams
+56/0, and root-claims 546/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
+Apply remains interlocked, and no live root or Git index/ref was changed.
 
 ## Validation status
 
