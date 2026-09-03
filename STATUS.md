@@ -1234,6 +1234,35 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 56/0, and root-claims 546/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
 Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-03 Phase 2 slice B: lifecycle owner failure matrix
+
+Slice B lands the owner failure matrix as suite-style regressions (the Luna Pester-style draft was
+rewritten against the trio's actual interface; the draft's injection semantics were kept, its
+assertion expectations aligned with the shipped fail-closed behavior — e.g. a lifecycle assert
+failure surfaces as the observation stale error because the observation assert core converts any
+revalidation error). Five failure paths are now pinned in `tests/root-claims-registry.tests.ps1`:
+
+- a register failure inside the lifecycle open propagates the primary error and delivers nothing
+  (both caller receivers remain EMPTY, the shadowed register was invoked);
+- a lifecycle assert failure (the pinned `RouteCaptureStable` definition field injected to throw)
+  surfaces as the observation stale error while the ledger, entry, and observation all stay OPEN;
+- a ledger with an OPEN entry refuses its own close after an assert failure
+  (`held-observation-cleanup-ledger-open-entries`);
+- an entry-close failure (the pinned `FixedDirectoryClose` definition field injected to throw)
+  restores the observation OPEN, keeps the entry OPEN, keeps the ledger OPEN, propagates, and
+  refuses the ledger close;
+- an entry-close failure publishes no `LiveTransactionsRoot` children and attaches no
+  `SealedRegistryRouteCleanupError` Data key.
+
+Focused root-claims reached 556 PASS lines with exit 0 (546 before this slice). No production file
+changed; the seams suite passed 56/0 unchanged. Validation: parse gate 156 files, build 7/15/7,
+secret scan clean (872 non-blocking hints), `git diff --check`, and `sync.ps1 -DryRun` with a fresh
+external plan path changed no live file (plan-file SHA-256
+`22fc7c597f1984801997cbcef2e0099e6325e03554b5ef6404da8152d36a49c1`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

@@ -4445,6 +4445,182 @@ try {
                     [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($lifecycleLedger) -ceq 'CLOSED' -and
                     [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCloseStateExact($lifecycleLedger,$lifecycleObservation) -ceq 'CLOSED' -and
                     -not (Close-SealedHeldObservationLifecycle -Ledger $lifecycleLedger -Observation $lifecycleObservation)) 'lifecycle close is single-use and leaves the observation, entry, and ledger CLOSED'
+
+                $lifecycleRegisterFailureReceiverA=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                $lifecycleRegisterFailureReceiverB=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                $lifecycleRegisterFailureRoute=$null
+                try {
+                    $lifecycleRegisterFailureRouteSet=New-SealedCurrentRouteRootSet -CanonicalWitness $capabilityWitness
+                    $lifecycleRegisterFailureRoute=Open-TestSealedRegistryCurrentRouteCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CurrentRouteRootSet $lifecycleRegisterFailureRouteSet -Reservations @()
+                    $lifecycleRegisterOriginal=(Get-Command Register-SealedHeldObservationCleanupLedgerObservation -CommandType Function -ErrorAction Stop).ScriptBlock
+                    $lifecycleRegisterFailing={
+                        param($Ledger,$Observation)
+                        throw 'injected-lifecycle-register-failure'
+                    }
+                    Set-Item -LiteralPath Function:\Register-SealedHeldObservationCleanupLedgerObservation -Value $lifecycleRegisterFailing
+                    try {
+                        Assert-ThrowsPattern {
+                            Open-SealedHeldObservationLifecycle -CurrentRouteCapture $lifecycleRegisterFailureRoute `
+                                -CapabilityProbeBindings $observationBindings `
+                                -LedgerOwnershipReceiver $lifecycleRegisterFailureReceiverA `
+                                -ObservationOwnershipReceiver $lifecycleRegisterFailureReceiverB | Out-Null
+                        } 'injected-lifecycle-register-failure' 'a register failure inside the lifecycle open propagates the primary error and delivers nothing'
+                        Assert-TestCondition ([string]$lifecycleRegisterFailureReceiverA.GetStateExact() -ceq 'EMPTY' -and
+                            [string]$lifecycleRegisterFailureReceiverB.GetStateExact() -ceq 'EMPTY') 'a register failure delivers nothing to either caller receiver'
+                    }
+                    finally {
+                        Set-Item -LiteralPath Function:\Register-SealedHeldObservationCleanupLedgerObservation -Value $lifecycleRegisterOriginal
+                    }
+                }
+                finally {
+                    if($null -ne $lifecycleRegisterFailureRoute -and [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($lifecycleRegisterFailureRoute)){
+                        try {$null=Close-SealedRegistryCurrentRouteCapture -Capture $lifecycleRegisterFailureRoute} catch { }
+                    }
+                }
+
+                $lifecycleAssertFailureReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                $lifecycleAssertFailureObservationReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                $lifecycleAssertFailureRoute=$null
+                $lifecycleAssertFailureLedger=$null
+                $lifecycleAssertFailureObservation=$null
+                try {
+                    $lifecycleAssertFailureRouteSet=New-SealedCurrentRouteRootSet -CanonicalWitness $capabilityWitness
+                    $lifecycleAssertFailureRoute=Open-TestSealedRegistryCurrentRouteCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CurrentRouteRootSet $lifecycleAssertFailureRouteSet -Reservations @()
+                    Open-SealedHeldObservationLifecycle -CurrentRouteCapture $lifecycleAssertFailureRoute `
+                        -CapabilityProbeBindings $observationBindings `
+                        -LedgerOwnershipReceiver $lifecycleAssertFailureReceiver `
+                        -ObservationOwnershipReceiver $lifecycleAssertFailureObservationReceiver
+                    $lifecycleAssertFailureLedger=$lifecycleAssertFailureReceiver.GetDeliveredExact()
+                    $lifecycleAssertFailureObservation=$lifecycleAssertFailureObservationReceiver.GetDeliveredExact()
+
+                    $lifecycleAssertDefinitionsField=[AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer].GetField(
+                        'Definitions',[System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static)
+                    if($null -eq $lifecycleAssertDefinitionsField){throw 'lifecycle assert-failure fixture could not locate the issuer definitions'}
+                    $lifecycleAssertDefinitions=$lifecycleAssertDefinitionsField.GetValue($null)
+                    $lifecycleAssertDefinitionArguments=[object[]]@([Management.Automation.Runspaces.Runspace]::DefaultRunspace,$null)
+                    $null=$lifecycleAssertDefinitions.GetType().GetMethod('TryGetValue').Invoke(
+                        $lifecycleAssertDefinitions,$lifecycleAssertDefinitionArguments)
+                    $lifecycleAssertDefinition=$lifecycleAssertDefinitionArguments[1]
+                    if($null -eq $lifecycleAssertDefinition){throw 'lifecycle assert-failure fixture could not resolve the issuer definition'}
+                    $lifecycleAssertDefinitionFlags=[System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Instance
+                    $lifecycleAssertStableField=$lifecycleAssertDefinition.GetType().GetField(
+                        'RouteCaptureStable',$lifecycleAssertDefinitionFlags)
+                    $lifecycleAssertStableOriginal=$lifecycleAssertStableField.GetValue($lifecycleAssertDefinition)
+                    $lifecycleAssertStableField.SetValue($lifecycleAssertDefinition,{
+                        param($Capture)
+                        throw 'injected-lifecycle-assert-failure'
+                    })
+                    try {
+                        Assert-ThrowsPattern {
+                            Assert-SealedHeldObservationLifecycle -Ledger $lifecycleAssertFailureLedger -Observation $lifecycleAssertFailureObservation | Out-Null
+                        } 'held-current-route-fixed-infrastructure-observation-stale' 'a lifecycle assert failure surfaces as the observation stale error and keeps the ledger OPEN'
+                    }
+                    finally {
+                        $lifecycleAssertStableField.SetValue($lifecycleAssertDefinition,$lifecycleAssertStableOriginal)
+                    }
+                    Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($lifecycleAssertFailureLedger) -ceq 'OPEN' -and
+                        [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::IsEntryRegisteredExact($lifecycleAssertFailureLedger,$lifecycleAssertFailureObservation) -and
+                        [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCloseStateExact($lifecycleAssertFailureLedger,$lifecycleAssertFailureObservation) -ceq 'OPEN' -and
+                        [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($lifecycleAssertFailureObservation)) 'a failed lifecycle assert keeps the ledger OPEN with the entry OPEN and retryable'
+                    Assert-ThrowsPattern {
+                        Close-SealedHeldObservationCleanupLedger -Ledger $lifecycleAssertFailureLedger | Out-Null
+                    } 'held-observation-cleanup-ledger-open-entries' 'a ledger with an OPEN entry refuses its own close after an assert failure'
+                }
+                finally {
+                    if($null -ne $lifecycleAssertFailureObservation -and
+                        [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($lifecycleAssertFailureObservation)){
+                        try {
+                            if([string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($lifecycleAssertFailureLedger) -ceq 'OPEN'){
+                                $null=Close-SealedHeldObservationLifecycle -Ledger $lifecycleAssertFailureLedger -Observation $lifecycleAssertFailureObservation
+                            }
+                            else {
+                                $null=Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $lifecycleAssertFailureObservation
+                            }
+                        } catch { }
+                    }
+                    if([string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($lifecycleAssertFailureLedger) -ceq 'OPEN'){
+                        try {$null=Close-SealedHeldObservationCleanupLedger -Ledger $lifecycleAssertFailureLedger} catch { }
+                    }
+                    if($null -ne $lifecycleAssertFailureRoute -and [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($lifecycleAssertFailureRoute)){
+                        try {$null=Close-SealedRegistryCurrentRouteCapture -Capture $lifecycleAssertFailureRoute} catch { }
+                    }
+                }
+
+                $lifecycleEntryCloseFailureReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                $lifecycleEntryCloseFailureObservationReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                $lifecycleEntryCloseFailureRoute=$null
+                $lifecycleEntryCloseFailureLedger=$null
+                $lifecycleEntryCloseFailureObservation=$null
+                $lifecycleEntryCloseOriginalDefinition=$null
+                $lifecycleEntryCloseDefinitionField=$null
+                try {
+                    $lifecycleEntryCloseFailureRouteSet=New-SealedCurrentRouteRootSet -CanonicalWitness $capabilityWitness
+                    $lifecycleEntryCloseFailureRoute=Open-TestSealedRegistryCurrentRouteCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CurrentRouteRootSet $lifecycleEntryCloseFailureRouteSet -Reservations @()
+                    Open-SealedHeldObservationLifecycle -CurrentRouteCapture $lifecycleEntryCloseFailureRoute `
+                        -CapabilityProbeBindings $observationBindings `
+                        -LedgerOwnershipReceiver $lifecycleEntryCloseFailureReceiver `
+                        -ObservationOwnershipReceiver $lifecycleEntryCloseFailureObservationReceiver
+                    $lifecycleEntryCloseFailureLedger=$lifecycleEntryCloseFailureReceiver.GetDeliveredExact()
+                    $lifecycleEntryCloseFailureObservation=$lifecycleEntryCloseFailureObservationReceiver.GetDeliveredExact()
+
+                    $liveTransactionsRootBefore=@([IO.Directory]::GetDirectories([string]$capabilityFixture.Context.LiveTransactionsRoot))
+                    $lifecycleEntryCloseFailureDefinitionField=[AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer].GetField(
+                        'Definitions',[System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static)
+                    if($null -eq $lifecycleEntryCloseFailureDefinitionField){throw 'lifecycle entry-close fixture could not locate the issuer definitions'}
+                    $lifecycleEntryCloseDefinitions=$lifecycleEntryCloseFailureDefinitionField.GetValue($null)
+                    $lifecycleEntryCloseDefinitionArguments=[object[]]@([Management.Automation.Runspaces.Runspace]::DefaultRunspace,$null)
+                    $null=$lifecycleEntryCloseDefinitions.GetType().GetMethod('TryGetValue').Invoke(
+                        $lifecycleEntryCloseDefinitions,$lifecycleEntryCloseDefinitionArguments)
+                    $lifecycleEntryCloseDefinition=$lifecycleEntryCloseDefinitionArguments[1]
+                    if($null -eq $lifecycleEntryCloseDefinition){throw 'lifecycle entry-close fixture could not resolve the issuer definition'}
+                    $lifecycleEntryCloseDefinitionFieldFlags=[System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Instance
+                    $lifecycleEntryCloseDefinitionField=$lifecycleEntryCloseDefinition.GetType().GetField(
+                        'FixedDirectoryClose',$lifecycleEntryCloseDefinitionFieldFlags)
+                    $lifecycleEntryCloseOriginalDefinition=$lifecycleEntryCloseDefinitionField.GetValue($lifecycleEntryCloseDefinition)
+                    $lifecycleEntryCloseDefinitionField.SetValue($lifecycleEntryCloseDefinition,{
+                        param($Lease)
+                        throw 'injected-lifecycle-entry-close-failure'
+                    })
+
+                    try {
+                        Assert-ThrowsPattern {
+                            Close-SealedHeldObservationLifecycle -Ledger $lifecycleEntryCloseFailureLedger -Observation $lifecycleEntryCloseFailureObservation | Out-Null
+                        } 'injected-lifecycle-entry-close-failure' 'an entry-close failure restores the observation OPEN, keeps the ledger entry OPEN, and propagates'
+                        Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetCloseStateExact($lifecycleEntryCloseFailureObservation) -ceq 'OPEN' -and
+                            [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCloseStateExact($lifecycleEntryCloseFailureLedger,$lifecycleEntryCloseFailureObservation) -ceq 'OPEN' -and
+                            [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($lifecycleEntryCloseFailureLedger) -ceq 'OPEN') 'an entry-close failure keeps the observation, entry, and ledger OPEN for retry'
+                        Assert-ThrowsPattern {
+                            Close-SealedHeldObservationCleanupLedger -Ledger $lifecycleEntryCloseFailureLedger | Out-Null
+                        } 'held-observation-cleanup-ledger-open-entries' 'a ledger with a retried-OPEN entry refuses its own close'
+                        $lifecycleLiveTransactionsAfter=@([IO.Directory]::GetDirectories([string]$capabilityFixture.Context.LiveTransactionsRoot))
+                        Assert-TestCondition (@($lifecycleLiveTransactionsAfter).Count -eq @($liveTransactionsRootBefore).Count) 'an entry-close failure publishes no LiveTransactionsRoot children'
+                        $lifecycleEntryCloseObservedData=$null
+                        try {
+                            Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $lifecycleEntryCloseFailureObservation | Out-Null
+                        }
+                        catch {
+                            $lifecycleEntryCloseObservedData=$_.Exception.Data
+                        }
+                        Assert-TestCondition ($null -eq $lifecycleEntryCloseObservedData -or
+                            -not $lifecycleEntryCloseObservedData.Contains('SealedRegistryRouteCleanupError')) 'an entry-close failure attaches no route-cleanup Data key'
+                    }
+                    finally {
+                        $lifecycleEntryCloseDefinitionField.SetValue($lifecycleEntryCloseDefinition,$lifecycleEntryCloseOriginalDefinition)
+                    }
+                }
+                finally {
+                    if($null -ne $lifecycleEntryCloseFailureObservation -and
+                        [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($lifecycleEntryCloseFailureObservation)){
+                        try {$null=Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $lifecycleEntryCloseFailureObservation} catch { }
+                    }
+                    if($null -ne $lifecycleEntryCloseFailureLedger -and
+                        [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($lifecycleEntryCloseFailureLedger) -ceq 'OPEN'){
+                        try {$null=Close-SealedHeldObservationCleanupLedger -Ledger $lifecycleEntryCloseFailureLedger} catch { }
+                    }
+                    if($null -ne $lifecycleEntryCloseFailureRoute -and [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($lifecycleEntryCloseFailureRoute)){
+                        try {$null=Close-SealedRegistryCurrentRouteCapture -Capture $lifecycleEntryCloseFailureRoute} catch { }
+                    }
+                }
             }
             catch {
                 $lifecyclePrimaryError=$_

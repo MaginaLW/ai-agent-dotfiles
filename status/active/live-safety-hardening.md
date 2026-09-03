@@ -593,6 +593,19 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, and root-claims 546/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52;
   production Apply remains interlocked.
 
+- Phase 2 Task 1 slice B, lifecycle owner failure matrix (2026-09-03): five failure paths pinned as
+  suite-style regressions (the Luna Pester-style draft rewritten against the trio's actual
+  interface): register failure delivers nothing and propagates; assert failure surfaces as the
+  observation stale error while ledger/entry/observation stay OPEN and retryable; entry-close
+  failure restores the observation OPEN, keeps entry and ledger OPEN, propagates, and refuses the
+  ledger close; no `LiveTransactionsRoot` children and no `SealedRegistryRouteCleanupError` Data key
+  on entry-close failure. Focused root-claims 556 PASS exit 0 (546 before). No production file
+  changed; seams 56/0 unchanged; parse 156 files, build 7/15/7, secret scan clean (872 hints),
+  diff-check, sync DryRun without live change (plan-file SHA-256
+  `22fc7c597f1984801997cbcef2e0099e6325e03554b5ef6404da8152d36a49c1`, deleted after the run). The
+  definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1 remains 1/6
+  and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
