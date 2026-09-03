@@ -1860,7 +1860,10 @@ try {
         'Register-SealedHeldObservationCleanupLedgerObservation',
         'Assert-SealedHeldObservationCleanupLedger',
         'Close-SealedHeldObservationCleanupLedgerObservation',
-        'Close-SealedHeldObservationCleanupLedger'
+        'Close-SealedHeldObservationCleanupLedger',
+        'Open-SealedHeldObservationLifecycle',
+        'Assert-SealedHeldObservationLifecycle',
+        'Close-SealedHeldObservationLifecycle'
     )) {
         $registryCommand = Get-Command $commandName -ErrorAction Stop
         foreach ($publicSelector in @('HomeRoot','BackupRoot','LockWaitSeconds','TestMode')) {
@@ -4384,6 +4387,94 @@ try {
                 if($null -ne $ledgerCleanupError){
                     if($null -eq $ledgerPrimaryError){throw $ledgerCleanupError}
                     try {$ledgerPrimaryError.Exception.Data['LedgerTestCleanupError']=[string]$ledgerCleanupError.Exception.Message}
+                    catch { }
+                }
+            }
+
+
+            $lifecycleOpenCommand=Get-Command Open-SealedHeldObservationLifecycle -CommandType Function -ErrorAction Stop
+            $lifecycleAssertCommand=Get-Command Assert-SealedHeldObservationLifecycle -CommandType Function -ErrorAction Stop
+            $lifecycleCloseCommand=Get-Command Close-SealedHeldObservationLifecycle -CommandType Function -ErrorAction Stop
+            Assert-TestCondition ((@($lifecycleOpenCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object {$_.Name.VariablePath.UserPath}) -join "`0") -ceq "CurrentRouteCapture`0CapabilityProbeBindings`0LedgerOwnershipReceiver`0ObservationOwnershipReceiver" -and
+                (@($lifecycleAssertCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object {$_.Name.VariablePath.UserPath}) -join "`0") -ceq "Ledger`0Observation" -and
+                (@($lifecycleCloseCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object {$_.Name.VariablePath.UserPath}) -join "`0") -ceq "Ledger`0Observation" -and
+                $lifecycleOpenCommand.Parameters['LedgerOwnershipReceiver'].ParameterType -eq [AiAgentDotfiles.SealedOwnershipTransferReceiver] -and
+                $lifecycleOpenCommand.Parameters['ObservationOwnershipReceiver'].ParameterType -eq [AiAgentDotfiles.SealedOwnershipTransferReceiver] -and
+                @($lifecycleOpenCommand.Parameters['LedgerOwnershipReceiver'].Attributes | Where-Object {$_ -is [Management.Automation.ParameterAttribute] -and $_.Mandatory}).Count -eq 1 -and
+                @($lifecycleOpenCommand.Parameters['ObservationOwnershipReceiver'].Attributes | Where-Object {$_ -is [Management.Automation.ParameterAttribute] -and $_.Mandatory}).Count -eq 1 -and
+                -not $lifecycleOpenCommand.Parameters.ContainsKey('Action') -and
+                -not $lifecycleOpenCommand.Parameters.ContainsKey('ScriptBlock') -and
+                -not $lifecycleAssertCommand.Parameters.ContainsKey('Action') -and
+                -not $lifecycleCloseCommand.Parameters.ContainsKey('Action')) 'the observation lifecycle exposes receiver-backed Open and ledger-plus-observation Assert/Close with no ScriptBlock Action'
+            Assert-ThrowsPattern {
+                Open-SealedHeldObservationLifecycle -CurrentRouteCapture $observation -CapabilityProbeBindings $observationBindings | Out-Null
+            } 'missing mandatory parameters: LedgerOwnershipReceiver' 'the observation lifecycle open rejects a raw success-stream return path by requiring both ownership receivers'
+
+            $lifecycleRoute=$null
+            $lifecycleLedger=$null
+            $lifecycleObservation=$null
+            $lifecycleLedgerReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            $lifecycleObservationReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            $lifecyclePrimaryError=$null
+            try {
+                $lifecycleRouteSet=New-SealedCurrentRouteRootSet -CanonicalWitness $capabilityWitness
+                $lifecycleRoute=Open-TestSealedRegistryCurrentRouteCapture -AuthorityContext $capabilityFixture.Context -GlobalLockHandle $capabilityGlobal -CanonicalWitness $capabilityWitness -CurrentRouteRootSet $lifecycleRouteSet -Reservations @()
+                $lifecycleOpenOutput=@(Open-SealedHeldObservationLifecycle -CurrentRouteCapture $lifecycleRoute `
+                    -CapabilityProbeBindings $observationBindings `
+                    -LedgerOwnershipReceiver $lifecycleLedgerReceiver `
+                    -ObservationOwnershipReceiver $lifecycleObservationReceiver)
+                $lifecycleLedger=$lifecycleLedgerReceiver.GetDeliveredExact()
+                $lifecycleObservation=$lifecycleObservationReceiver.GetDeliveredExact()
+                Assert-TestCondition ($lifecycleOpenOutput.Count -eq 0 -and
+                    [string]$lifecycleLedgerReceiver.GetStateExact() -ceq 'DELIVERED' -and
+                    [string]$lifecycleObservationReceiver.GetStateExact() -ceq 'DELIVERED' -and
+                    [bool]$lifecycleLedgerReceiver.HoldsExact($lifecycleLedger) -and
+                    [bool]$lifecycleObservationReceiver.HoldsExact($lifecycleObservation) -and
+                    $lifecycleLedger -is [AiAgentDotfiles.SealedHeldObservationCleanupLedger] -and
+                    $lifecycleObservation -is [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation] -and
+                    [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::IsGenuine($lifecycleLedger) -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($lifecycleLedger) -ceq 'OPEN' -and
+                    [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCountExact($lifecycleLedger) -eq 1 -and
+                    [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::IsEntryRegisteredExact($lifecycleLedger,$lifecycleObservation) -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCloseStateExact($lifecycleLedger,$lifecycleObservation) -ceq 'OPEN' -and
+                    [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($lifecycleObservation) -and
+                    [string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetMutationAuthorizationExact($lifecycleObservation) -ceq 'NONE' -and
+                    (Assert-SealedHeldObservationLifecycle -Ledger $lifecycleLedger -Observation $lifecycleObservation)) 'receiver-delivered observation lifecycle opens one registered OPEN ledger entry and an OPEN NONE-authorization observation without a success-stream payload'
+                Assert-TestCondition (Close-SealedHeldObservationLifecycle -Ledger $lifecycleLedger -Observation $lifecycleObservation) 'the observation lifecycle close releases the registered observation through the ledger entry then closes the ledger'
+                Assert-TestCondition ([string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetCloseStateExact($lifecycleObservation) -ceq 'CLOSED' -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($lifecycleLedger) -ceq 'CLOSED' -and
+                    [string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCloseStateExact($lifecycleLedger,$lifecycleObservation) -ceq 'CLOSED' -and
+                    -not (Close-SealedHeldObservationLifecycle -Ledger $lifecycleLedger -Observation $lifecycleObservation)) 'lifecycle close is single-use and leaves the observation, entry, and ledger CLOSED'
+            }
+            catch {
+                $lifecyclePrimaryError=$_
+                throw
+            }
+            finally {
+                $lifecycleCleanupError=$null
+                if($null -ne $lifecycleObservation -and
+                    [AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($lifecycleObservation)){
+                    try {
+                        if($null -ne $lifecycleLedger -and [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetIsOpenExact($lifecycleLedger)){
+                            $null=Close-SealedHeldObservationLifecycle -Ledger $lifecycleLedger -Observation $lifecycleObservation
+                        }
+                        else {
+                            $null=Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $lifecycleObservation
+                        }
+                    }
+                    catch {$lifecycleCleanupError=$_}
+                }
+                elseif($null -ne $lifecycleLedger -and [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetIsOpenExact($lifecycleLedger)){
+                    try {$null=Close-SealedHeldObservationCleanupLedger -Ledger $lifecycleLedger}
+                    catch {$lifecycleCleanupError=$_}
+                }
+                if($null -ne $lifecycleRoute -and [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($lifecycleRoute)){
+                    try {$null=Close-SealedRegistryCurrentRouteCapture -Capture $lifecycleRoute}
+                    catch {if($null -eq $lifecycleCleanupError){$lifecycleCleanupError=$_}}
+                }
+                if($null -ne $lifecycleCleanupError){
+                    if($null -eq $lifecyclePrimaryError){throw $lifecycleCleanupError}
+                    try {$lifecyclePrimaryError.Exception.Data['LifecycleTestCleanupError']=[string]$lifecycleCleanupError.Exception.Message}
                     catch { }
                 }
             }

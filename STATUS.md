@@ -1179,6 +1179,58 @@ create-new summary SHA-256
 index/ref was changed. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
 live root or Git index/ref was changed.
 
+## 2026-09-03 Phase 2 slice A: observation lifecycle owner wired
+
+The cleanup ledger is wired as the reviewed lifecycle owner for the observation. `scripts/root-claims-registry-common.ps1`
+gains the reviewed trio `Open-/Assert-/Close-SealedHeldObservationLifecycle`:
+
+- `Open-` verifies both caller receivers are empty and distinct, opens the ledger and the
+  observation on private receivers, registers the observation, runs the observation full assert and
+  the ledger assert, and only then delivers both payloads to the caller receivers. The failure
+  matrix is complete: nothing is delivered on failure; a registered observation is closed through
+  the ledger entry route; an unregistered one through exactly one issuer `CloseObservationExact`
+  call; an empty or entry-settled ledger is closed; cleanup errors ride
+  `SealedHeldObservationLifecycleCleanupError` on the primary domain exception. Following the
+  pre-commit review, ledger closure is unconditional once its entry obligation is settled even when
+  the ledger half was already delivered — a half-delivery can no longer leak an OPEN ledger to the
+  caller (a caller receiver left holding a CLOSED ledger must be discarded; retry requires fresh
+  receivers).
+- `Assert-` rejects unregistered pairs, runs the observation full assert, and requires the ledger
+  assert to be current.
+- `Close-` closes the registered observation through the ledger entry route (which internally uses
+  the reviewed `CloseObservationExact`), refuses while an entry is OPEN, then closes the ledger
+  single-use.
+
+The observation `Close-` facade retains zero production callers; the observation `Open-/Assert-`
+facades and the five ledger facades now have exactly one reviewed production caller each (the
+trio), enforced by the rewritten seams boundary: per-facade allowed-caller inventories, owner
+inventory assertions, unique-definition coverage extended to the trio, and the issuer invocation
+inventory plus owner-binding digest for the trio's single unregistered-cleanup `CloseObservationExact`
+call site (digest `451449d7df35a1950c099aa0da20dc18aeaf9258666ae93ead06900e7795df17` after the
+review fix). `MutationAuthorization=NONE` is unchanged; no resolver, dispatcher, registry view,
+setup Apply, rollback, or live mutation consumes the trio (the four production roots' closure is
+untouched). An independent read-only Grok pre-commit review returned one medium finding — the
+half-delivery ledger leak — which was adopted as above, plus test-freeze suggestions partially
+adopted (the missing-receiver assertion now pins the exact parameter name; the remaining freeze
+alignments move to the slice B follow-up).
+
+Tests: selector rejections for the three functions, parameter-freeze assertions (receiver types,
+mandatory flags, no Action/ScriptBlock), and the success-path block (zero success-stream payload,
+both receivers DELIVERED and holding, one registered OPEN entry, NONE authorization, lifecycle
+assert current, close releases through the ledger entry then the ledger, single-use with all three
+states CLOSED). Focused root-claims reached 546 PASS lines with exit 0 (529 before), re-verified
+after the review fix. The seams suite passed 56/0 after the boundary rewrite and re-pins
+(reflection-sensitive count 12773 → 12809, digest →
+`2d7eb3525ad63bc7ff6292c56a74d0255059b26f9ba0430b9947b295f1dd7ea2`; binding digest
+`451449d7…`; no dynamic-command, closure, or exception-inventory changes). Complete hard-kill
+318/0, home-authority PASS, path-safety PASS, parse gate 156 files, build 7/15/7, secret scan
+clean (869 non-blocking hints), `git diff --check`, and `sync.ps1 -DryRun` with a fresh external
+plan path changed no live file (plan-file SHA-256
+`59b30f633a4b61e9a4bb8e23a877ae8ca7b5782e59ea4b90c46e279d83891006`, deleted after the run). The
+definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
+pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
+live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

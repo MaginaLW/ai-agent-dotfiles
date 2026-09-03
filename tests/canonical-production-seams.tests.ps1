@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=12773
-$reviewedAllScriptsReflectionSensitiveDigest='740f11712cd9f3bfc397add337b90e759ae3c3e29c59ee8d038f8b49a6b28c51'
+$reviewedAllScriptsReflectionSensitiveSiteCount=12809
+$reviewedAllScriptsReflectionSensitiveDigest='2d7eb3525ad63bc7ff6292c56a74d0255059b26f9ba0430b9947b295f1dd7ea2'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -308,6 +308,7 @@ $reviewedIssuerInvocationInventory=@(
     'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Close-SealedHeldObservationCleanupLedgerObservation|CloseObservationCleanupLedgerEntryExact'
     'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Close-SealedHeldObservationCleanupLedger|CloseObservationCleanupLedgerExact'
     'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation|OpenObservationExact'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Open-SealedHeldObservationLifecycle|CloseObservationExact'
     'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|<script>|InitializeExact'
     'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|AbandonOpenExact'
     'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|BeginOpenExact'
@@ -337,6 +338,7 @@ $reviewedIssuerOwnerBindingInventory=@(
     'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Close-SealedHeldObservationCleanupLedgerObservation|CloseObservationCleanupLedgerEntryExact|FunctionDefinitionAst|7deed77152ac90744a83a11adf04cc619f51c0ab579816df21918b50ae8ee080'
     'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Close-SealedHeldObservationCleanupLedger|CloseObservationCleanupLedgerExact|FunctionDefinitionAst|dd313b2cc6249b65bc95fcfc2f5c8dcfa00765d16c5c4a7d7a194c906d7329ec'
     'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation|OpenObservationExact|FunctionDefinitionAst|545e31d37f2f4b27b0a363c7d0781771e7f254d823ba9f1df7dcbe9a8a8501f0'
+    'AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer|scripts/root-claims-registry-common.ps1|Open-SealedHeldObservationLifecycle|CloseObservationExact|FunctionDefinitionAst|451449d7df35a1950c099aa0da20dc18aeaf9258666ae93ead06900e7795df17'
     'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|<script>|InitializeExact|TryStatementAst|f97d9cd4e5d5f884cbae847a5e5d579b0976823fb8e19888cf2f934c5570c46d'
     'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|AbandonOpenExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
     'AiAgentDotfiles.SealedRegistryCurrentRouteCaptureIssuer|scripts/root-claims-registry-common.ps1|Open-SealedRegistryCurrentRouteCapture|BeginOpenExact|FunctionDefinitionAst|4e1f7c393210a9ce0fb55547d5c2bb3bf8033408829da7ee625492866d8bd86a'
@@ -377,6 +379,13 @@ function Invoke-ProductionSeamAnalysis {
     $probeCapabilityAllowedCallers=[Collections.Generic.List[string]]::new()
     $routeCaptureIssuerAllowedCallers=[Collections.Generic.List[string]]::new()
     $validatorAllowedCallers=[Collections.Generic.List[string]]::new()
+    $observationOpenAllowedCallers=[Collections.Generic.List[string]]::new()
+    $observationAssertAllowedCallers=[Collections.Generic.List[string]]::new()
+    $ledgerOpenAllowedCallers=[Collections.Generic.List[string]]::new()
+    $ledgerRegisterAllowedCallers=[Collections.Generic.List[string]]::new()
+    $ledgerAssertAllowedCallers=[Collections.Generic.List[string]]::new()
+    $ledgerCloseObservationAllowedCallers=[Collections.Generic.List[string]]::new()
+    $ledgerCloseAllowedCallers=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandInventory=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandViolations=[Collections.Generic.List[string]]::new()
     $allScriptsCommandQualificationViolations=[Collections.Generic.List[string]]::new()
@@ -462,11 +471,67 @@ function Invoke-ProductionSeamAnalysis {
             if($commandName -ieq 'Invoke-SealedHeldFixedInfrastructureCapabilityCapture'){
                 $fixedCapabilityBoundaryViolations.Add("fixed capability capture caller: $($model.RelativePath):$ownerName")
             }
-            if($commandName -iin @(
-                'Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
-                'Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
-                'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation')){
+            if($commandName -ieq 'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation'){
                 $fixedObservationBoundaryViolations.Add("held current-route fixed-infrastructure observation caller: $($model.RelativePath):$($ownerName):$commandName")
+            }
+            elseif($commandName -ieq 'Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Open-SealedHeldObservationLifecycle'){
+                    $observationOpenAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("held current-route fixed-infrastructure observation caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            elseif($commandName -ieq 'Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    ([string]$owner.Name -ceq 'Open-SealedHeldObservationLifecycle' -or
+                    [string]$owner.Name -ceq 'Assert-SealedHeldObservationLifecycle')){
+                    $observationAssertAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("held current-route fixed-infrastructure observation caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -iin @(
+                'Open-SealedHeldObservationLifecycle',
+                'Assert-SealedHeldObservationLifecycle',
+                'Close-SealedHeldObservationLifecycle')){
+                $fixedObservationBoundaryViolations.Add("held observation lifecycle caller: $($model.RelativePath):$($ownerName):$commandName")
+            }
+            if($commandName -ieq 'Open-SealedHeldObservationCleanupLedger'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Open-SealedHeldObservationLifecycle'){
+                    $ledgerOpenAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("observation cleanup ledger caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Register-SealedHeldObservationCleanupLedgerObservation'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Open-SealedHeldObservationLifecycle'){
+                    $ledgerRegisterAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("observation cleanup ledger caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Assert-SealedHeldObservationCleanupLedger'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    ([string]$owner.Name -ceq 'Open-SealedHeldObservationLifecycle' -or
+                    [string]$owner.Name -ceq 'Assert-SealedHeldObservationLifecycle')){
+                    $ledgerAssertAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("observation cleanup ledger caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Close-SealedHeldObservationCleanupLedgerObservation'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    ([string]$owner.Name -ceq 'Open-SealedHeldObservationLifecycle' -or
+                    [string]$owner.Name -ceq 'Close-SealedHeldObservationLifecycle')){
+                    $ledgerCloseObservationAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("observation cleanup ledger caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Close-SealedHeldObservationCleanupLedger'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    ([string]$owner.Name -ceq 'Open-SealedHeldObservationLifecycle' -or
+                    [string]$owner.Name -ceq 'Close-SealedHeldObservationLifecycle')){
+                    $ledgerCloseAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("observation cleanup ledger caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'Invoke-SealedHeldCapabilityPreflight'){
                 $fixedCapabilityBoundaryViolations.Add("dynamic raw capability preflight caller: $($model.RelativePath):$ownerName")
@@ -663,7 +728,10 @@ function Invoke-ProductionSeamAnalysis {
     foreach($observationFunctionName in @(
         'Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
         'Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
-        'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation')){
+        'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
+        'Open-SealedHeldObservationLifecycle',
+        'Assert-SealedHeldObservationLifecycle',
+        'Close-SealedHeldObservationLifecycle')){
         $observationDefinitionKey=$observationFunctionName.ToLowerInvariant()
         $observationDefinitions=@(if($definitions.ContainsKey($observationDefinitionKey)){@($definitions[$observationDefinitionKey])})
         if($observationDefinitions.Count -ne 1 -or
@@ -671,6 +739,46 @@ function Invoke-ProductionSeamAnalysis {
             -not (Test-DirectScriptTopLevelFunctionDefinition -Function $observationDefinitions[0].Ast)){
             $fixedObservationBoundaryViolations.Add("$observationFunctionName definition is missing, ambiguous, or outside root-claims-registry-common.ps1")
         }
+    }
+    $reviewedObservationOpenOwnerInventory=@('scripts/root-claims-registry-common.ps1:Open-SealedHeldObservationLifecycle')
+    $reviewedObservationAssertOwnerInventory=@(
+        'scripts/root-claims-registry-common.ps1:Assert-SealedHeldObservationLifecycle'
+        'scripts/root-claims-registry-common.ps1:Open-SealedHeldObservationLifecycle'
+    ) | Sort-Object -CaseSensitive
+    $reviewedLedgerOpenOwnerInventory=@('scripts/root-claims-registry-common.ps1:Open-SealedHeldObservationLifecycle')
+    $reviewedLedgerRegisterOwnerInventory=@('scripts/root-claims-registry-common.ps1:Open-SealedHeldObservationLifecycle')
+    $reviewedLedgerAssertOwnerInventory=@(
+        'scripts/root-claims-registry-common.ps1:Assert-SealedHeldObservationLifecycle'
+        'scripts/root-claims-registry-common.ps1:Open-SealedHeldObservationLifecycle'
+    ) | Sort-Object -CaseSensitive
+    $reviewedLedgerCloseObservationOwnerInventory=@(
+        'scripts/root-claims-registry-common.ps1:Close-SealedHeldObservationLifecycle'
+        'scripts/root-claims-registry-common.ps1:Open-SealedHeldObservationLifecycle'
+    ) | Sort-Object -CaseSensitive
+    $reviewedLedgerCloseOwnerInventory=@(
+        'scripts/root-claims-registry-common.ps1:Close-SealedHeldObservationLifecycle'
+        'scripts/root-claims-registry-common.ps1:Open-SealedHeldObservationLifecycle'
+    ) | Sort-Object -CaseSensitive
+    if((@($observationOpenAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedObservationOpenOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation Open owner inventory changed')
+    }
+    if((@($observationAssertAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedObservationAssertOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation Assert owner inventory changed')
+    }
+    if((@($ledgerOpenAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLedgerOpenOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation cleanup ledger Open owner inventory changed')
+    }
+    if((@($ledgerRegisterAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLedgerRegisterOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation cleanup ledger Register owner inventory changed')
+    }
+    if((@($ledgerAssertAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLedgerAssertOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation cleanup ledger Assert owner inventory changed')
+    }
+    if((@($ledgerCloseObservationAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLedgerCloseObservationOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation cleanup ledger entry-close owner inventory changed')
+    }
+    if((@($ledgerCloseAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLedgerCloseOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation cleanup ledger close owner inventory changed')
     }
 
     $queue=[Collections.Generic.Queue[string]]::new()
@@ -780,6 +888,13 @@ function Invoke-ProductionSeamAnalysis {
         FixedObservationBoundaryViolations=@($fixedObservationBoundaryViolations)
         ProbeCapabilityAllowedCallers=@($probeCapabilityAllowedCallers);RouteCaptureIssuerAllowedCallers=@($routeCaptureIssuerAllowedCallers)
         ValidatorAllowedCallers=@($validatorAllowedCallers)
+        ObservationOpenAllowedCallers=@($observationOpenAllowedCallers)
+        ObservationAssertAllowedCallers=@($observationAssertAllowedCallers)
+        LedgerOpenAllowedCallers=@($ledgerOpenAllowedCallers)
+        LedgerRegisterAllowedCallers=@($ledgerRegisterAllowedCallers)
+        LedgerAssertAllowedCallers=@($ledgerAssertAllowedCallers)
+        LedgerCloseObservationAllowedCallers=@($ledgerCloseObservationAllowedCallers)
+        LedgerCloseAllowedCallers=@($ledgerCloseAllowedCallers)
         AllScriptsDynamicCommandInventory=@($allScriptsDynamicCommandInventory)
         AllScriptsDynamicCommandDigest=$allScriptsDynamicCommandDigest
         AllScriptsDynamicCommandMatches=$allScriptsDynamicCommandMatches
@@ -824,7 +939,7 @@ Assert-TestCondition ($baseline.AllScriptsScriptBlockFunctionDefinitionInventory
 Assert-TestCondition ($baseline.AllScriptsLiteralProviderDriveTokenInventory.Count -eq 0 -and
     $baseline.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero literal provider-drive token baseline alongside direct named CommandAst analysis'
 Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture, route, observation, raw, and probe issuers plus the fixed validator have only their exact reviewed definitions, owners, and members'
-Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route fixed-infrastructure observation APIs are uniquely defined and have zero production callers'
+Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, observation Close and the lifecycle owner retain zero production callers, and all six functions remain uniquely defined'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])

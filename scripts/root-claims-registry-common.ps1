@@ -6596,6 +6596,194 @@ function Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation {
     }
 }
 
+function Open-SealedHeldObservationLifecycle {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$CurrentRouteCapture,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$CapabilityProbeBindings,
+        [Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$LedgerOwnershipReceiver,
+        [Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$ObservationOwnershipReceiver
+    )
+
+    $privateLedgerReceiver=$null
+    $privateObservationReceiver=$null
+    $ledger=$null
+    $observation=$null
+    $observationRegistered=$false
+    $delivered=$false
+    $openPrimaryError=$null
+    $openPrimaryDomainException=$null
+    try {
+        $LedgerOwnershipReceiver.AssertEmptyExact()
+        $ObservationOwnershipReceiver.AssertEmptyExact()
+        if([object]::ReferenceEquals($LedgerOwnershipReceiver,$ObservationOwnershipReceiver)){
+            throw 'ownership-transfer-receiver-stale'
+        }
+        $privateLedgerReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SealedHeldObservationCleanupLedger -OwnershipReceiver $privateLedgerReceiver
+        if([string]$privateLedgerReceiver.GetStateExact() -cne 'DELIVERED'){
+            throw 'held-observation-cleanup-ledger-stale'
+        }
+        $ledger=$privateLedgerReceiver.GetDeliveredExact()
+        $privateObservationReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation `
+            -CurrentRouteCapture $CurrentRouteCapture `
+            -CapabilityProbeBindings @($CapabilityProbeBindings) `
+            -OwnershipReceiver $privateObservationReceiver
+        if([string]$privateObservationReceiver.GetStateExact() -cne 'DELIVERED'){
+            throw 'held-current-route-fixed-infrastructure-observation-stale'
+        }
+        $observation=$privateObservationReceiver.GetDeliveredExact()
+        Register-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $observation
+        $observationRegistered=$true
+        if(-not (Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $observation)){
+            throw 'held-current-route-fixed-infrastructure-observation-stale'
+        }
+        if(-not (Assert-SealedHeldObservationCleanupLedger -Ledger $ledger)){
+            throw 'held-observation-cleanup-ledger-stale'
+        }
+        $LedgerOwnershipReceiver.AssertEmptyExact()
+        $ObservationOwnershipReceiver.AssertEmptyExact()
+        $LedgerOwnershipReceiver.DeliverExact($ledger)
+        $ObservationOwnershipReceiver.DeliverExact($observation)
+        $delivered=$true
+        return
+    }
+    catch {
+        $openPrimaryError=$_
+        $openPrimaryDomainException=$_.Exception
+        while(($openPrimaryDomainException -is [System.Management.Automation.MethodInvocationException] -or
+            $openPrimaryDomainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $openPrimaryDomainException.InnerException){
+            $openPrimaryDomainException=$openPrimaryDomainException.InnerException
+            if($openPrimaryDomainException -is [AggregateException]){break}
+        }
+        throw $openPrimaryDomainException
+    }
+    finally {
+        if(-not $delivered){
+            $openCleanupError=$null
+            $lifecycleCleanupEntryClosed=$false
+            if($null -eq $ledger -and $null -ne $privateLedgerReceiver){
+                try {
+                    if([string]$privateLedgerReceiver.GetStateExact() -ceq 'DELIVERED'){
+                        $ledger=$privateLedgerReceiver.GetDeliveredExact()
+                    }
+                }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            if($null -eq $observation -and $null -ne $privateObservationReceiver){
+                try {
+                    if([string]$privateObservationReceiver.GetStateExact() -ceq 'DELIVERED'){
+                        $observation=$privateObservationReceiver.GetDeliveredExact()
+                    }
+                }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            $callerHoldsLedger=$false
+            $callerHoldsObservation=$false
+            if($null -ne $ledger){
+                try { $callerHoldsLedger=[bool]$LedgerOwnershipReceiver.HoldsExact($ledger) }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            if($null -ne $observation){
+                try { $callerHoldsObservation=[bool]$ObservationOwnershipReceiver.HoldsExact($observation) }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            if($observationRegistered -and $null -ne $ledger -and $null -ne $observation -and -not $callerHoldsObservation){
+                try {
+                    $null=Close-SealedHeldObservationCleanupLedgerObservation -Ledger $ledger -Observation $observation
+                    $lifecycleCleanupEntryClosed=$true
+                }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            elseif($null -ne $observation -and -not $callerHoldsObservation){
+                try {
+                    $null=[AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservationIssuer]::CloseObservationExact($observation)
+                }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            if($null -ne $ledger -and ((-not $observationRegistered) -or $lifecycleCleanupEntryClosed)){
+                try {
+                    $null=Close-SealedHeldObservationCleanupLedger -Ledger $ledger
+                }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            if($null -ne $openCleanupError){
+                if($null -ne $openPrimaryError -and $null -ne $openPrimaryDomainException){
+                    try {
+                        $openCleanupSecondaryException=$openCleanupError.Exception
+                        while(($openCleanupSecondaryException -is [System.Management.Automation.MethodInvocationException] -or
+                            $openCleanupSecondaryException -is [System.Management.Automation.RuntimeException]) -and
+                            $null -ne $openCleanupSecondaryException.InnerException){
+                            $openCleanupSecondaryException=$openCleanupSecondaryException.InnerException
+                            if($openCleanupSecondaryException -is [AggregateException]){break}
+                        }
+                        $openPrimaryDomainException.Data['SealedHeldObservationLifecycleCleanupError']=
+                            [string]$openCleanupSecondaryException.Message
+                    }
+                    catch { }
+                }
+                else { throw $openCleanupError }
+            }
+        }
+    }
+}
+
+function Assert-SealedHeldObservationLifecycle {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Ledger,
+        [Parameter(Mandatory)][AllowNull()]$Observation
+    )
+
+    try {
+        if(-not [AiAgentDotfiles.SealedHeldObservationCleanupLedger]::IsEntryRegisteredExact($Ledger,$Observation)){
+            throw 'held-observation-cleanup-ledger-stale'
+        }
+        if(-not (Assert-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation -Observation $Observation)){
+            throw 'held-current-route-fixed-infrastructure-observation-stale'
+        }
+        return [bool](Assert-SealedHeldObservationCleanupLedger -Ledger $Ledger)
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
+function Close-SealedHeldObservationLifecycle {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Ledger,
+        [Parameter(Mandatory)][AllowNull()]$Observation
+    )
+
+    try {
+        $null=Close-SealedHeldObservationCleanupLedgerObservation -Ledger $Ledger -Observation $Observation
+        if([string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetEntryCloseStateExact($Ledger,$Observation) -ceq 'OPEN'){
+            throw 'held-observation-cleanup-ledger-open-entries'
+        }
+        return Close-SealedHeldObservationCleanupLedger -Ledger $Ledger
+    }
+    catch {
+        $domainException=$_.Exception
+        while(($domainException -is [System.Management.Automation.MethodInvocationException] -or
+            $domainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException){
+            $domainException=$domainException.InnerException
+            if($domainException -is [AggregateException]){break}
+        }
+        throw $domainException
+    }
+}
+
 function Open-SealedHeldObservationCleanupLedger {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver)

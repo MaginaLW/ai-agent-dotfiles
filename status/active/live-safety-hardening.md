@@ -567,6 +567,28 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, root-claims 529/0, home-authority 190/0, and path-safety 43/0 inside the run. Task 1
   remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task 1 slice A, ledger wiring (2026-09-03): the cleanup ledger is wired as the reviewed
+  observation lifecycle owner via the new `Open-/Assert-/Close-SealedHeldObservationLifecycle`
+  trio — dual caller receivers, private-receiver open/register/dual-assert before delivery, a
+  complete failure matrix (registered observations close through the ledger entry route;
+  unregistered ones through exactly one issuer `CloseObservationExact`; empty or entry-settled
+  ledgers close; cleanup errors ride `SealedHeldObservationLifecycleCleanupError`), and — per the
+  pre-commit review — unconditional ledger closure once the entry obligation is settled so a
+  half-delivery can no longer leak an OPEN ledger to the caller. The observation `Close-` facade
+  keeps zero production callers; the observation `Open-/Assert-` facades and the five ledger
+  facades have exactly one reviewed production caller each, enforced by the rewritten seams
+  boundary (per-facade allowed-caller inventories, owner inventory assertions, trio unique
+  definitions, issuer invocation +1, owner-binding digest
+  `451449d7df35a1950c099aa0da20dc18aeaf9258666ae93ead06900e7795df17`). `MutationAuthorization=NONE`
+  unchanged; no resolver/dispatcher/registry/Apply/rollback/mutation consumer; the four production
+  roots' closure untouched. Validation: focused root-claims 546 PASS exit 0 (529 before,
+  re-verified after the review fix), complete hard-kill 318/0, home-authority PASS, path-safety
+  PASS, seams 56/0 after re-pins (reflection 12773 → 12809, `2d7eb352…`), parse 156 files, build
+  7/15/7, secret scan clean (869 hints), diff-check, sync DryRun without live change (plan-file
+  SHA-256 `59b30f633a4b61e9a4bb8e23a877ae8ca7b5782e59ea4b90c46e279d83891006`, deleted after the
+  run). The definitive unified `run-tests.ps1 -All` run for this slice is still pending. Task 1
+  remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
