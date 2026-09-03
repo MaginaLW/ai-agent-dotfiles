@@ -619,6 +619,16 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   implementable sub-slice: production `AuthorityContext`-to-full-intent conversion replacing the
   adapter-only restriction.
 
+- Task-2 close-out (2026-09-03): working tree clean at `f25513d`, no code changes this round.
+  The 21:34 SetupIntentHash Grok call failed as `grok-exit-code--1` (slow first token + caller
+  abandonment, not an outage); session `01a0677a-…14655` verified intact but produced no blueprint
+  file — rerun `tmp/grok-setupintent-impl-prompt.txt` after the directory lock clears. Luna's
+  PrivateRootBootstrapIntent survey landed (146 lines, conclusions committed in `f25513d`); the
+  whitelist coupling is already inside `3228a6b`. Resume order: (1) SetupIntentHash blueprint
+  rerun + sub-slice, (2) AuthorityContext-to-full-intent conversion, (3) hash binding, (4)
+  resolver consumer layer, (5) `PrivateRootBootstrapIntent`, (6) protocol-v1, (7) forbidden-root
+  matrix.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed

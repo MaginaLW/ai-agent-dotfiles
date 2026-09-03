@@ -1289,6 +1289,33 @@ docs/superpowers/plans/2026-08-09-live-safety-phase-2-live-transactions.md:401-4
 Next implementable sub-slice identified: production `AuthorityContext`-to-full-intent conversion
 with the adapter-only restriction replaced by an explicit production topology check.
 
+## 2026-09-03 Task-2 session close-out: SetupIntentHash blueprint lost, tickets routed to Task-2
+
+Session closed with no code changes; working tree is clean at `f25513d`. Status of the open work:
+
+- **SetupIntentHash blueprint Grok call (21:34, lost).** The Grok CLI returned `grok-exit-code--1`
+  (slow first token plus caller-side abandonment), not an official outage. A rerun attempt was
+  refused by the working-directory lock (`grok-already-running-for-working-directory`) because the
+  original session `01a0677a-0e16-7740-bf9b-7167dd014655` was still alive; the session record and
+  prompt were verified intact via `grok export`. No blueprint file was produced
+  (`tmp/setup-intent-impl-blueprint.md` absent). **Rerun the same blueprint prompt at session
+  resume** (prompt preserved at `tmp/grok-setupintent-impl-prompt.txt`) after confirming the lock
+  is free via `grok sessions list`.
+- **Luna PrivateRootBootstrapIntent survey (landed).** 146-line survey at
+  `tmp/luna-pbi-survey.md` plus main-agent verification; its conclusions are already committed in
+  `f25513d` (two-layer semantics: canonical reduced intent vs sealed home-authority full intent,
+  no production adapter between them; seven gaps documented; next sub-slice identified as
+  production `AuthorityContext`-to-full-intent conversion).
+- **Whitelist coupling is committed.** The `route-cleanup-recovery` allow-list for the envelope
+  `ControlBase` children check and the bootstrap-snapshot extra live in `3228a6b` (durable
+  recovery ticket slice), not in a later commit; nothing pending.
+- **Enqueue order for Task-2 (resolver prerequisites).** (1) Rerun+adopt the SetupIntentHash
+  blueprint (hash precompute functions + schema + tests); (2) production
+  `AuthorityContext`-to-full-intent conversion replacing the adapter-only restriction; (3) cross-
+  layer hash binding; (4) resolver consumer layer (lifecycle trio as sole caller); (5)
+  `PrivateRootBootstrapIntent` completion; (6) protocol-v1 dispatch; (7) full forbidden-root
+  matrix. Production Apply stays interlocked; Task 1 remains 1/6, Phase 2 remains 1/52.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
