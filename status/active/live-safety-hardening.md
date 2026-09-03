@@ -610,6 +610,15 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   56/0, and root-claims 556/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52;
   production Apply remains interlocked.
 
+- Resolver-prereq survey (2026-09-03, Luna + main-agent): `PrivateRootBootstrapIntent` carries two
+  shipped layers — the canonical plan's reduced intent (schema + implementation complete) and the
+  sealed home-authority full intent (implementation complete, test-adapter-driven) — with no
+  production adapter between them. Seven gaps to resolver-consumer wiring documented (production
+  context-to-full-intent conversion, hash binding across layers, lock-internal recapture, ordered
+  sequence, trio as sole caller, ticket boundary, protocol-v1/forbidden-root gates). Next
+  implementable sub-slice: production `AuthorityContext`-to-full-intent conversion replacing the
+  adapter-only restriction.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed

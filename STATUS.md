@@ -1266,6 +1266,29 @@ suites exactly once with zero failures, timeouts, duplicates, missing suites, or
 56/0, and root-claims 556/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
 Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-03 resolver-prereq survey: PrivateRootBootstrapIntent two-layer semantics mapped
+
+A Luna survey (read-only context preprocessing, 146 lines) plus main-agent verification mapped the
+`PrivateRootBootstrapIntent` landscape. Key finding: the name carries **two shipped layers** — the
+canonical setup plan's reduced intent (`PlanPayload.PrivateRootBootstrapIntent` with
+`SetupIntentHash`/`ExpectedRootClaimHash`/`ExpectedSetupStateProjectionHash` DAG,
+schemas/canonical-transaction-plan.schema.json:160-194, implemented by
+`New-CanonicalSetupPlanPayload`/`Get-CanonicalSetupStatus` in
+scripts/canonical-transaction-common.ps1:1118-1290) and the sealed home-authority full intent
+(`sealed-private-root-bootstrap-intent`, scripts/home-authority-common.ps1:984-1080, with seven
+ordered entries, bootstrap lock, and reviewed-prefix validation, driven by
+`Complete-SealedHomeAuthorityBootstrap` :1877-1937). There is **no production adapter between the
+two layers**: `Assert-SealedHomeAuthorityBootstrapContext` (:572-597) still accepts only the test
+adapter, and the production resolver returns only a `PrivateRootBootstrapStatus`. The seven
+identified gaps to resolver-consumer wiring are recorded (production context-to-full-intent
+conversion, canonical-reduced-to-full hash binding, lock-internal no-follow recapture, ordered
+bootstrap/global sequence, trio as sole caller, ticket boundary, protocol-v1 + forbidden-root
+gates). The detailed survey is retained at tmp/luna-pbi-survey.md (untracked working notes).
+Design authority for the full flow remains
+docs/superpowers/plans/2026-08-09-live-safety-phase-2-live-transactions.md:401-405 and Step 4.
+Next implementable sub-slice identified: production `AuthorityContext`-to-full-intent conversion
+with the adapter-only restriction replaced by an explicit production topology check.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
