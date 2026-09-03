@@ -1259,9 +1259,12 @@ changed; the seams suite passed 56/0 unchanged. Validation: parse gate 156 files
 secret scan clean (872 non-blocking hints), `git diff --check`, and `sync.ps1 -DryRun` with a fresh
 external plan path changed no live file (plan-file SHA-256
 `22fc7c597f1984801997cbcef2e0099e6325e03554b5ef6404da8152d36a49c1`, deleted after the run). The
-definitive unified `run-tests.ps1 -All` run for this slice has not been executed yet and remains
-pending. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no
-live root or Git index/ref was changed.
+definitive unified `run-tests.ps1 -All` run then discovered, started, completed, and passed all 34
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures
+(external create-new summary SHA-256
+`a7040d09f35de17d56911e4fedff4bd8d83dfee95826ea3312ba58d4e6893aae`), with hard-kill 318/0, seams
+56/0, and root-claims 556/0 inside the run. Task 1 remains 1/6 and Phase 2 remains 1/52. Production
+Apply remains interlocked, and no live root or Git index/ref was changed.
 
 ## Validation status
 
