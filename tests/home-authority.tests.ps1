@@ -971,6 +971,37 @@ try {
             $env:APPDATA = $savedEnvironment.APPDATA
             $env:LOCALAPPDATA = $savedEnvironment.LOCALAPPDATA
         }
+
+        Write-Host '[production bootstrap context conversion]'
+        $productionContext = Resolve-HomeAuthorityContext
+        Assert-TestCondition ([string]$productionContext.IdentityResolverVersion -ceq 'windows-token-sid-known-folder-v1') 'production resolver carries the production identity resolver version'
+        $productionValidated = Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $productionContext
+        Assert-TestCondition ([string]$productionValidated.LocalAppDataRoot -ceq [string]$productionContext.LocalAppDataRoot) 'production authority context passes the bootstrap context gate with a stable local root'
+        $productionIntent = $null
+        $productionIntentGateError = $null
+        try { $productionIntent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $productionContext -FilesystemCapabilityHash ('f'*64) }
+        catch { $productionIntentGateError = [string]$_.Exception.Message }
+        Assert-TestCondition ($null -ne $productionIntent -or ($productionIntentGateError -notmatch 'sealed-home-authority-bootstrap-context-required')) 'production intent gate passes the resolver check (downstream evidence gates may still fail closed on real-machine ACLs)'
+        if ($null -ne $productionIntent) {
+            Assert-TestCondition ([string]$productionIntent.IdentityResolverVersion -ceq 'windows-token-sid-known-folder-v1' -and [string]$productionIntent.IntentHash -cmatch '^[0-9a-f]{64}$') 'production authority context produces a sealed intent bound to the production resolver version'
+        }
+        function Copy-ProductionAuthorityContext([Parameter(Mandatory)]$Source) {
+            $copy = [ordered]@{}
+            foreach ($property in $Source.PSObject.Properties) { $copy[$property.Name] = $property.Value }
+            return [pscustomobject]$copy
+        }
+        $forgedResolver = Copy-ProductionAuthorityContext -Source $productionContext
+        $forgedResolver.IdentityResolverVersion = 'forged-resolver-v9'
+        Assert-ThrowsPattern { Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $forgedResolver } 'sealed-home-authority-bootstrap-context-required' 'forged identity resolver version is rejected'
+        $forgedSid = Copy-ProductionAuthorityContext -Source $productionContext
+        $sidParts = ([string]$productionContext.TokenSid) -split '-'
+        $sidParts[-1] = '99999'
+        $forgedSid.TokenSid = ($sidParts -join '-')
+        Assert-ThrowsPattern { Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $forgedSid } 'token-sid-not-current-user' 'production resolver with a non-current token SID is rejected'
+        $forgedPath = Copy-ProductionAuthorityContext -Source $productionContext
+        $forgedPath.ControlBase = [IO.Path]::GetFullPath((Join-Path ([string]$productionContext.LocalAppDataRoot) 'forged-control'))
+        Assert-ThrowsPattern { Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $forgedPath } 'bootstrap-path-mismatch' 'production context with a tampered control path is rejected'
+        Assert-ThrowsPattern { New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $forgedResolver -FilesystemCapabilityHash ('f'*64) } 'sealed-home-authority-bootstrap-context-required' 'sealed intent construction inherits the resolver gate'
     }
 
     Write-Host 'home authority tests: PASS'

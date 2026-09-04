@@ -1362,6 +1362,39 @@ or tree-kill failures (external create-new summary SHA-256
 seams 56/0, and transaction 55/0 inside the run. No production Apply, backup, rollback,
 retirement, live-root mutation, or Git index/ref mutation was performed.
 
+## 2026-09-04 Task-2 slice 2: production AuthorityContext-to-full-intent conversion
+
+Task-2 resume item (2) is implemented. `Assert-SealedHomeAuthorityBootstrapContext`
+(`scripts/home-authority-common.ps1:572-611`) no longer accepts only the
+`sealed-home-authority-test-adapter-v1` context: a production
+`windows-token-sid-known-folder-v1` context now passes through an explicit production topology
+check — canonical SID shape, non-canonical rejection, and current-user binding
+(`sealed-home-authority-bootstrap-token-sid-invalid/-noncanonical/-not-current-user`) —
+before joining the exact same path-derivation validation the adapter already used
+(`LocalAppDataRoot` normalization plus all eight derived paths, `bootstrap-path-mismatch`
+unchanged). Forged resolver versions still fail closed with
+`sealed-home-authority-bootstrap-context-required`. No new bypass exists: the intent payload
+already binds `IdentityResolverVersion` into `IntentHash`, the intent constructor revalidates
+through the same gate, and downstream snapshot/template/drift checks are untouched.
+`home-authority-common.ps1` is not hard-kill-sealed, so no reviewed-load re-pin was required.
+
+`tests/home-authority.tests.ps1` gains the `[production bootstrap context conversion]` block
+(7 assertions: production resolver version carried, production context passes the gate with a
+stable local root, intent construction passes the resolver gate — downstream evidence gates may
+still fail closed on real-machine ACLs, which the suite asserts as legal rather than masking;
+forged resolver rejected, non-current SID rejected, tampered control path rejected, intent
+construction inherits the gate). Two environment-robustness fixes were needed before green:
+real-machine `LocalAppData` ACLs fail the current-user-only template (asserted as legal
+fail-closed), and the forged SID must stay canonical-form to reach the `not-current-user`
+branch. Focused home-authority passes; live-concurrency passes with zero adapter-path
+regression. The seams reflection inventory re-pinned count 12828 → 12833 with digest re-pin
+(the five new member-access sites from the SID check); dynamic-command digest and
+exception/issuer inventories untouched; seams 56/0. Parse gate 156 files, build 7/15/7,
+secret scan clean (886 non-blocking hints), `git diff --check` clean, sync DryRun unchanged
+(no live mutation, `.system` preserved). Production Apply remains interlocked; Task 1 remains
+1/6 and Phase 2 remains 1/52. Next: resume item (3) cross-layer hash binding
+(canonical reduced intent ↔ full sealed intent).
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

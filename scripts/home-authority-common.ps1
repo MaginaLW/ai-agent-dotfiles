@@ -572,7 +572,19 @@ function Assert-HomeAuthoritySecuritySnapshot {
 function Assert-SealedHomeAuthorityBootstrapContext {
     param([Parameter(Mandatory)]$AuthorityContext)
 
-    if ([string](Get-HomeAuthorityObjectProperty -InputObject $AuthorityContext -Name 'IdentityResolverVersion') -cne 'sealed-home-authority-test-adapter-v1') {
+    $identityResolver = [string](Get-HomeAuthorityObjectProperty -InputObject $AuthorityContext -Name 'IdentityResolverVersion')
+    if ($identityResolver -ceq 'sealed-home-authority-test-adapter-v1') {
+    }
+    elseif ($identityResolver -ceq $script:HomeAuthorityResolverVersion) {
+        $tokenSid = [string](Get-HomeAuthorityObjectProperty -InputObject $AuthorityContext -Name 'TokenSid')
+        try { $canonicalSid = [Security.Principal.SecurityIdentifier]::new($tokenSid).Value }
+        catch { throw 'sealed-home-authority-bootstrap-token-sid-invalid' }
+        if ($tokenSid -cne $canonicalSid) { throw 'sealed-home-authority-bootstrap-token-sid-noncanonical' }
+        try { $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value }
+        catch { throw 'sealed-home-authority-bootstrap-current-token-unavailable' }
+        if ($currentSid -cne $tokenSid) { throw 'sealed-home-authority-bootstrap-token-sid-not-current-user' }
+    }
+    else {
         throw 'sealed-home-authority-bootstrap-context-required'
     }
     $local = ConvertTo-HomeAuthorityKnownFolderPath -Path ([string](Get-HomeAuthorityObjectProperty -InputObject $AuthorityContext -Name 'LocalAppDataRoot')) -Name 'LocalAppData'
