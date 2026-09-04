@@ -1178,6 +1178,47 @@ function Get-CanonicalExpectedSetupStateProjectionHash {
     return Get-SemanticJsonHash -InputObject $ExpectedSetupStateProjection
 }
 
+function Get-CanonicalSealedDirectoryTemplateHash {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$SealedIntent)
+    $template=$SealedIntent.DirectorySecurityTemplate
+    if($null -eq $template){throw 'canonical-sealed-intent-template-missing'}
+    if([string]$SealedIntent.DirectorySecurityTemplateHash -cne (Get-SemanticJsonHash -InputObject $template)){throw 'canonical-sealed-intent-template-integrity-mismatch'}
+    if(@($template.Keys) -cnotcontains 'ResourceKind' -or [string]$template.ResourceKind -cne 'Directory'){throw 'canonical-sealed-intent-template-kind-mismatch'}
+    $stripped=[ordered]@{}
+    foreach($key in @($template.Keys)){if($key -cne 'ResourceKind'){$stripped[$key]=$template[$key]}}
+    return Get-SemanticJsonHash -InputObject $stripped
+}
+
+function Assert-CanonicalSealedSetupIntentBinding {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$SetupIntent,
+        [Parameter(Mandatory)]$SealedIntent
+    )
+    if([string]$SealedIntent.TokenSid -cne [string]$SetupIntent.OwnerSid){throw 'canonical-sealed-intent-token-sid-mismatch'}
+    $sealedTemplateHash=Get-CanonicalSealedDirectoryTemplateHash -SealedIntent $SealedIntent
+    if($sealedTemplateHash -cne [string]$SetupIntent.SecurityTemplateHash){throw 'canonical-sealed-intent-template-hash-mismatch'}
+    $localRoot=[string]$SealedIntent.LocalAppDataRoot
+    $controlRemainder=@($SealedIntent.ControlRemainder)
+    $backupRemainder=@($SealedIntent.BackupRemainder)
+    if($controlRemainder.Count -ne 2 -or $backupRemainder.Count -ne 2){throw 'canonical-sealed-intent-remainder-shape-mismatch'}
+    $controlPath=[IO.Path]::GetFullPath((Join-Path (Join-Path $localRoot ([string]$controlRemainder[0])) ([string]$controlRemainder[1])))
+    if($controlPath -cne [IO.Path]::GetFullPath([string]$SetupIntent.ControlBaseIntent.RequestedPath)){throw 'canonical-sealed-intent-control-path-mismatch'}
+    $backupPath=[IO.Path]::GetFullPath((Join-Path (Join-Path $localRoot ([string]$backupRemainder[0])) ([string]$backupRemainder[1])))
+    if($backupPath -cne [IO.Path]::GetFullPath([string]$SetupIntent.BackupRootIntent.RequestedPath)){throw 'canonical-sealed-intent-backup-path-mismatch'}
+    foreach($name in @('CanonicalRecoveryRootIntent','ControlBaseIntent','BackupRootIntent')){
+        if([string]$SetupIntent[$name].ExpectedFinalDaclTemplateHash -cne [string]$SetupIntent.SecurityTemplateHash){throw "canonical-sealed-intent-root-template-anchor-mismatch: $name"}
+    }
+    return [pscustomobject][ordered]@{
+        TokenSid=[string]$SealedIntent.TokenSid
+        ControlPath=$controlPath
+        BackupPath=$backupPath
+        DirectoryTemplateHash=$sealedTemplateHash
+        SecurityTemplateHash=[string]$SetupIntent.SecurityTemplateHash
+    }
+}
+
 function New-CanonicalSetupPlanPayload {
     [CmdletBinding()]
     param(

@@ -249,6 +249,82 @@ try {
     $missingProjection=[ordered]@{ SchemaVersion=1; ArtifactKind='canonical-setup-state-projection' }
     Assert-Throws {Get-CanonicalExpectedSetupStateProjectionHash -ExpectedSetupStateProjection $missingProjection} 'precompute: projection with missing fields is rejected'
 
+    Write-Host "`n[cross-layer intent binding]" -ForegroundColor Cyan
+    function New-TestBindingRootContext([string]$RequestedPath,[string]$TemplateHash) {
+        return [ordered]@{
+            ResolverVersion='windows-token-sid-current-user-only-v2'; TargetStatus='MISSING'
+            LocationKey='L'; RequestedPath=$RequestedPath; VolumeId='V'
+            DeepestExistingParentPath='C:/'; DeepestExistingParentIdentity='I'
+            DeepestExistingParentOwnerSid='S-1-5-21-339737861-2880570388-4001415158-1000'
+            DeepestExistingParentDaclHash=('b'*64); MissingRemainder=@('r')
+            ExpectedFinalOwnerSid='S-1-5-21-339737861-2880570388-4001415158-1000'
+            ExpectedFinalDaclTemplateHash=$TemplateHash
+            FinalDirectoryIdentity=$null; FinalOwnerSid=$null; FinalDaclHash=$null
+        }
+    }
+    function New-TestSealedDirectoryTemplate {
+        $sid='S-1-5-21-339737861-2880570388-4001415158-1000'
+        $inheritance=[long]([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit)
+        return [ordered]@{
+            ResolverVersion='windows-token-sid-current-user-only-v2'; ResourceKind='Directory'; OwnerSid=$sid
+            AreAccessRulesProtected=$true
+            AccessRules=@([ordered]@{
+                Sid=$sid; AccessControlType=[long][Security.AccessControl.AccessControlType]::Allow
+                FileSystemRights=[long][Security.AccessControl.FileSystemRights]::FullControl
+                InheritanceFlags=$inheritance; PropagationFlags=[long][Security.AccessControl.PropagationFlags]::None
+                IsInherited=$false
+            })
+        }
+    }
+    $bindingLocal='C:\binding-local'
+    $sealedTemplateProbe=New-TestSealedDirectoryTemplate
+    $canonicalTemplate=[ordered]@{}
+    foreach($k in @($sealedTemplateProbe.Keys)){if($k -cne 'ResourceKind'){$canonicalTemplate[$k]=$sealedTemplateProbe[$k]}}
+    $canonicalTemplateHash=Get-SemanticJsonHash -InputObject $canonicalTemplate
+    $bindingIntent=[ordered]@{
+        OwnerSid='S-1-5-21-339737861-2880570388-4001415158-1000'
+        SecurityResolverVersion='windows-token-sid-current-user-only-v2'
+        SecurityTemplateHash=$canonicalTemplateHash
+        CanonicalRecoveryRootIntent=(New-TestBindingRootContext 'C:\binding-recovery' $canonicalTemplateHash); CanonicalRecoveryRootIntentHash=('c'*64)
+        ControlBaseIntent=(New-TestBindingRootContext (Join-Path (Join-Path $bindingLocal 'ai-agent-dotfiles') 'control') $canonicalTemplateHash); ControlBaseIntentHash=('d'*64)
+        BackupRootIntent=(New-TestBindingRootContext (Join-Path (Join-Path $bindingLocal 'ai-agent-dotfiles') 'backups') $canonicalTemplateHash); BackupRootIntentHash=('e'*64)
+    }
+    $sealedTemplate=New-TestSealedDirectoryTemplate
+    $sealedIntent=[pscustomobject][ordered]@{
+        TokenSid='S-1-5-21-339737861-2880570388-4001415158-1000'
+        LocalAppDataRoot=$bindingLocal
+        ControlRemainder=@('ai-agent-dotfiles','control')
+        BackupRemainder=@('ai-agent-dotfiles','backups')
+        DirectorySecurityTemplate=$sealedTemplate
+        DirectorySecurityTemplateHash=Get-SemanticJsonHash -InputObject $sealedTemplate
+    }
+    $binding=Assert-CanonicalSealedSetupIntentBinding -SetupIntent $bindingIntent -SealedIntent $sealedIntent
+    Assert ($binding.TokenSid -ceq [string]$bindingIntent.OwnerSid -and $binding.DirectoryTemplateHash -ceq [string]$bindingIntent.SecurityTemplateHash) 'binding: canonical and sealed intents bind on token SID and directory template hash'
+    Assert ($binding.ControlPath -ceq [IO.Path]::GetFullPath((Join-Path (Join-Path $bindingLocal 'ai-agent-dotfiles') 'control'))) 'binding: control path derives from the sealed remainder exactly'
+    $wrongSid=[pscustomobject][ordered]@{};foreach($p in $sealedIntent.PSObject.Properties){$wrongSid | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value};$wrongSid.TokenSid='S-1-5-21-339737861-2880570388-4001415158-99999'
+    Assert-Throws {Assert-CanonicalSealedSetupIntentBinding -SetupIntent $bindingIntent -SealedIntent $wrongSid} 'binding: token SID mismatch is rejected'
+    $tamperedTemplate=[pscustomobject][ordered]@{};foreach($p in $sealedIntent.PSObject.Properties){$tamperedTemplate | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value};$tamperedTemplate.DirectorySecurityTemplateHash=('0'*64)
+    Assert-Throws {Assert-CanonicalSealedSetupIntentBinding -SetupIntent $bindingIntent -SealedIntent $tamperedTemplate} 'binding: sealed template hash mismatch is rejected'
+    $fileKind=[pscustomobject][ordered]@{};foreach($p in $sealedIntent.PSObject.Properties){$fileKind | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value}
+    $fileKindTemplate=[ordered]@{};foreach($k in @($sealedTemplate.Keys)){$fileKindTemplate[$k]=$sealedTemplate[$k]};$fileKindTemplate['ResourceKind']='File'
+    $fileKind.DirectorySecurityTemplate=$fileKindTemplate;$fileKind.DirectorySecurityTemplateHash=Get-SemanticJsonHash -InputObject $fileKindTemplate
+    Assert-Throws {Assert-CanonicalSealedSetupIntentBinding -SetupIntent $bindingIntent -SealedIntent $fileKind} 'binding: a file-kind sealed template is rejected'
+    $wrongRemainder=[pscustomobject][ordered]@{};foreach($p in $sealedIntent.PSObject.Properties){$wrongRemainder | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value};$wrongRemainder.ControlRemainder=@('ai-agent-dotfiles')
+    Assert-Throws {Assert-CanonicalSealedSetupIntentBinding -SetupIntent $bindingIntent -SealedIntent $wrongRemainder} 'binding: malformed control remainder is rejected'
+    $wrongPath=[pscustomobject][ordered]@{};foreach($p in $sealedIntent.PSObject.Properties){$wrongPath | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value}
+    $wrongControlIntent=[ordered]@{};foreach($k in @($bindingIntent.Keys)){$wrongControlIntent[$k]=$bindingIntent[$k]}
+    $wrongControlIntent['ControlBaseIntent']=(New-TestBindingRootContext (Join-Path $bindingLocal 'forged-control'))
+    $wrongPath.ControlRemainder=@('ai-agent-dotfiles','control')
+    Assert-Throws {Assert-CanonicalSealedSetupIntentBinding -SetupIntent $wrongControlIntent -SealedIntent $wrongPath} 'binding: control path mismatch is rejected'
+    $wrongBackupIntent=[ordered]@{};foreach($k in @($bindingIntent.Keys)){$wrongBackupIntent[$k]=$bindingIntent[$k]}
+    $wrongBackupIntent['BackupRootIntent']=(New-TestBindingRootContext (Join-Path $bindingLocal 'forged-backups'))
+    Assert-Throws {Assert-CanonicalSealedSetupIntentBinding -SetupIntent $wrongBackupIntent -SealedIntent $sealedIntent} 'binding: backup path mismatch is rejected'
+    $wrongAnchorIntent=[ordered]@{};foreach($k in @($bindingIntent.Keys)){$wrongAnchorIntent[$k]=$bindingIntent[$k]}
+    $driftedControl=[ordered]@{};foreach($k in @($bindingIntent.ControlBaseIntent.Keys)){$driftedControl[$k]=$bindingIntent.ControlBaseIntent[$k]}
+    $driftedControl['ExpectedFinalDaclTemplateHash']=('0'*64)
+    $wrongAnchorIntent['ControlBaseIntent']=$driftedControl
+    Assert-Throws {Assert-CanonicalSealedSetupIntentBinding -SetupIntent $wrongAnchorIntent -SealedIntent $sealedIntent} 'binding: drifted root template anchor is rejected'
+
 }
 catch{$script:fail++;Write-Host "  FAIL  unhandled test error: $($_.Exception.Message)" -ForegroundColor Red}
 finally{

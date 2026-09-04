@@ -1395,6 +1395,52 @@ secret scan clean (886 non-blocking hints), `git diff --check` clean, sync DryRu
 1/6 and Phase 2 remains 1/52. Next: resume item (3) cross-layer hash binding
 (canonical reduced intent ↔ full sealed intent).
 
+## 2026-09-05 Task-2 slice 3: cross-layer intent binding
+
+Task-2 resume item (3) is implemented. `scripts/canonical-transaction-common.ps1` gains two
+pure-computation functions binding the canonical reduced intent
+(`PlanPayload.PrivateRootBootstrapIntent`) to the full sealed intent
+(`sealed-private-root-bootstrap-intent`) on the stable quantities the design says plan and
+claim bind — token SID, DACL template, and fixed remainders — with time-varying state excluded:
+
+- `Get-CanonicalSealedDirectoryTemplateHash`: verifies the sealed directory template's stored
+  `DirectorySecurityTemplateHash` reproduces the full-template hash (integrity; a tampered
+  stored hash fails closed), requires `ResourceKind='Directory'`, strips `ResourceKind`, and
+  hashes the remainder. An out-of-repository probe proved the stripped sealed directory
+  template hash equals the canonical `Get-CanonicalCurrentUserOnlySecurityTemplate` hash
+  exactly (`8e6b080f…470446c1` in the probe; both encode the same resolver constant, owner
+  SID, protected DACL, and single FullControl allow rule) — the full sealed hash differs only
+  by the `ResourceKind` key the canonical layer does not carry.
+- `Assert-CanonicalSealedSetupIntentBinding`: token-SID binding
+  (`SealedIntent.TokenSid == SetupIntent.OwnerSid`), template-hash binding through the helper,
+  remainder-derived path binding (`LocalAppDataRoot` plus the two-segment control/backup
+  remainders must derive exactly the canonical `ControlBaseIntent/BackupRootIntent`
+  `RequestedPath`, with remainder shape rejected before derivation), per-root template-anchor
+  consistency (each rootContext's `ExpectedFinalDaclTemplateHash` equals the intent's
+  `SecurityTemplateHash`), and a binding-evidence projection. No FS access, no new bypass:
+  callers are expected to validate payload shapes with their own layer's validator first; the
+  binding fails closed independently on every tampered quantity.
+
+`tests/canonical-transaction.tests.ps1` gains the FS-free `[cross-layer intent binding]` block
+(9 assertions: legal binding with correct derived paths and equal template hashes, token-SID
+mismatch, sealed stored-hash integrity mismatch, file-kind template, malformed remainder,
+control-path mismatch, backup-path mismatch, drifted root anchor — focused suite 64/0).
+Reseal: the `tmp/reseal-txn.ps1` N-manifest probe (dynamically re-pinning from reviewed bytes)
+reached fixpoint in three iterations with 13 pin updates (manifest both sites, prelude
+block/digest four sites, pre-section region, both transport-contract function pins, function
+inventory, self twice, main-try, top-level execution, surface; final hard-kill file SHA-256
+`ecfc68a0616a2b6afc1407c0642af277dd877f48415c6c6992d21e3207a33aba`), and the seams
+reflection-sensitive inventory re-pinned count 12833 → 12858 with digest re-pin (the 25 new
+member-access sites from the two functions); dynamic-command digest and exception/issuer
+inventories untouched, seams 56/0. Validation: complete hard-kill 318/0, transaction 64/0,
+seams 56/0, parse gate 156 files, build PASS, secret scan clean, `git diff --check` clean,
+and sync DryRun with Summary identical to the established baseline (29 additions, zero
+modified/removed/unknown, `.system` PRESERVED) and unchanged PlanHash
+`b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`. Production Apply remains
+interlocked; Task 1 remains 1/6 and Phase 2 remains 1/52. Next: resume item (4) resolver
+consumer layer (lifecycle trio as sole caller), which consumes this binding under the
+bootstrap/global lock pair.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
