@@ -1115,6 +1115,69 @@ function Get-CanonicalSetupStatus {
     finally{if($lock){Exit-CanonicalRepoLock -LockHandle $lock}}
 }
 
+function Get-CanonicalSetupIntentKeyNames {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Object)
+    if($Object -is [System.Collections.IDictionary]){return @($Object.Keys)}
+    return @($Object.PSObject.Properties.Name)
+}
+
+function Assert-CanonicalSetupIntentRootContext {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Context,[Parameter(Mandatory)][string]$FieldName)
+    $required=@('ResolverVersion','TargetStatus','LocationKey','RequestedPath','VolumeId','DeepestExistingParentPath','DeepestExistingParentIdentity','DeepestExistingParentOwnerSid','DeepestExistingParentDaclHash','MissingRemainder','ExpectedFinalOwnerSid','ExpectedFinalDaclTemplateHash','FinalDirectoryIdentity','FinalOwnerSid','FinalDaclHash')
+    $actual=Get-CanonicalSetupIntentKeyNames -Object $Context
+    foreach($key in $required){if($key -cnotin $actual){throw "canonical setup intent root context is missing required field: $FieldName.$key"}}
+    foreach($key in $actual){if($key -cnotin $required){throw "canonical setup intent root context has an unexpected field: $FieldName.$key"}}
+    $status=[string]$Context.TargetStatus
+    if($status -cne 'MISSING' -and $status -cne 'EXISTS'){throw "canonical setup intent root context has an invalid TargetStatus: $FieldName"}
+    $remainder=@($Context.MissingRemainder)
+    if($status -ceq 'MISSING'){
+        if($remainder.Count -lt 1){throw "canonical setup intent root context violates MISSING shape: $FieldName"}
+        if($null -ne $Context.FinalDirectoryIdentity -or $null -ne $Context.FinalOwnerSid -or $null -ne $Context.FinalDaclHash){throw "canonical setup intent root context violates MISSING shape: $FieldName"}
+    }else{
+        if($remainder.Count -ne 0){throw "canonical setup intent root context violates EXISTS shape: $FieldName"}
+        if([string]::IsNullOrWhiteSpace([string]$Context.FinalDirectoryIdentity)){throw "canonical setup intent root context violates EXISTS shape: $FieldName"}
+        if([string]$Context.FinalOwnerSid -cnotmatch '^S-[0-9]+(?:-[0-9]+)+$'){throw "canonical setup intent root context violates EXISTS shape: $FieldName"}
+        if([string]$Context.FinalDaclHash -cnotmatch '^[0-9a-f]{64}$'){throw "canonical setup intent root context violates EXISTS shape: $FieldName"}
+    }
+}
+
+function Get-CanonicalSetupIntentHash {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$PrivateRootBootstrapIntent)
+    $required=@('OwnerSid','SecurityResolverVersion','SecurityTemplateHash','CanonicalRecoveryRootIntent','CanonicalRecoveryRootIntentHash','ControlBaseIntent','ControlBaseIntentHash','BackupRootIntent','BackupRootIntentHash')
+    $actual=Get-CanonicalSetupIntentKeyNames -Object $PrivateRootBootstrapIntent
+    foreach($key in $required){if($key -cnotin $actual){throw "canonical setup intent is missing required field: $key"}}
+    foreach($key in $actual){if($key -cnotin $required){throw "canonical setup intent has an unexpected field: $key"}}
+    if([string]$PrivateRootBootstrapIntent.SecurityResolverVersion -cne 'windows-token-sid-current-user-only-v2'){throw 'canonical setup intent has an unsupported security resolver version'}
+    if([string]$PrivateRootBootstrapIntent.OwnerSid -cnotmatch '^S-[0-9]+(?:-[0-9]+)+$'){throw 'canonical setup intent has an invalid OwnerSid'}
+    foreach($name in @('CanonicalRecoveryRootIntent','ControlBaseIntent','BackupRootIntent')){Assert-CanonicalSetupIntentRootContext -Context $PrivateRootBootstrapIntent[$name] -FieldName $name}
+    foreach($name in @('SecurityTemplateHash','CanonicalRecoveryRootIntentHash','ControlBaseIntentHash','BackupRootIntentHash')){
+        if([string]$PrivateRootBootstrapIntent[$name] -cnotmatch '^[0-9a-f]{64}$'){throw "canonical setup intent has an invalid hash field: $name"}
+    }
+    return Get-SemanticJsonHash -InputObject $PrivateRootBootstrapIntent
+}
+
+function Get-CanonicalExpectedSetupStateProjectionHash {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$ExpectedSetupStateProjection)
+    $required=@('SchemaVersion','ArtifactKind','RepoId','ClaimId','GitCommonDirHash','OwnerSid','SecurityResolverVersion','SecurityTemplateHash','CanonicalRecoveryRoot','CanonicalRecoveryRootIntent','CanonicalRecoveryRootIntentHash','FilesystemCapabilityHash','ControlBase','ControlBaseIntent','ControlBaseIntentHash','BackupRoot','BackupRootIntent','BackupRootIntentHash','SetupIntentHash')
+    $actual=Get-CanonicalSetupIntentKeyNames -Object $ExpectedSetupStateProjection
+    foreach($key in $required){if($key -cnotin $actual){throw "canonical setup projection is missing required field: $key"}}
+    foreach($key in $actual){
+        if($key -clike '*FinalContext*' -or $key -ceq 'RootClaimHash' -or $key -ceq 'SetupStateProjectionHash'){throw "canonical setup projection must exclude Apply-derived final fields: $key"}
+        if($key -cnotin $required){throw "canonical setup projection has an unexpected field: $key"}
+    }
+    if([string]$ExpectedSetupStateProjection.SecurityResolverVersion -cne 'windows-token-sid-current-user-only-v2'){throw 'canonical setup projection has an unsupported security resolver version'}
+    if([string]$ExpectedSetupStateProjection.OwnerSid -cnotmatch '^S-[0-9]+(?:-[0-9]+)+$'){throw 'canonical setup projection has an invalid OwnerSid'}
+    foreach($name in @('CanonicalRecoveryRootIntent','ControlBaseIntent','BackupRootIntent')){Assert-CanonicalSetupIntentRootContext -Context $ExpectedSetupStateProjection[$name] -FieldName $name}
+    foreach($name in @('RepoId','ClaimId','GitCommonDirHash','SecurityTemplateHash','CanonicalRecoveryRootIntentHash','FilesystemCapabilityHash','ControlBaseIntentHash','BackupRootIntentHash','SetupIntentHash')){
+        if([string]$ExpectedSetupStateProjection[$name] -cnotmatch '^[0-9a-f]{64}$'){throw "canonical setup projection has an invalid hash field: $name"}
+    }
+    return Get-SemanticJsonHash -InputObject $ExpectedSetupStateProjection
+}
+
 function New-CanonicalSetupPlanPayload {
     [CmdletBinding()]
     param(
@@ -1145,7 +1208,7 @@ function New-CanonicalSetupPlanPayload {
         ControlBaseIntent=$controlSecurityContext; ControlBaseIntentHash=$controlContextHash
         BackupRootIntent=$backupSecurityContext; BackupRootIntentHash=$backupContextHash
     }
-    $setupIntentHash=Get-SemanticJsonHash -InputObject $bootstrapIntent
+    $setupIntentHash=Get-CanonicalSetupIntentHash -PrivateRootBootstrapIntent $bootstrapIntent
     $stateProjection=[ordered]@{
         SchemaVersion=1;ArtifactKind='canonical-setup-state-projection';RepoId=$repoId;ClaimId=$repoId;GitCommonDirHash=$git.GitCommonDirHash
         OwnerSid=[string]$securityTemplate.OwnerSid;SecurityResolverVersion=[string]$securityTemplate.ResolverVersion;SecurityTemplateHash=$securityTemplateHash
@@ -1153,7 +1216,7 @@ function New-CanonicalSetupPlanPayload {
         FilesystemCapabilityHash=[string]$recovery.FilesystemCapabilityHash;ControlBase=[System.IO.Path]::GetFullPath($ControlBase);ControlBaseIntent=$controlSecurityContext;ControlBaseIntentHash=$controlContextHash
         BackupRoot=[System.IO.Path]::GetFullPath($BackupRoot);BackupRootIntent=$backupSecurityContext;BackupRootIntentHash=$backupContextHash;SetupIntentHash=$setupIntentHash
     }
-    $stateProjectionHash=Get-SemanticJsonHash -InputObject $stateProjection
+    $stateProjectionHash=Get-CanonicalExpectedSetupStateProjectionHash -ExpectedSetupStateProjection $stateProjection
     $claim=[ordered]@{
         SchemaVersion=1; ArtifactKind='canonical-root-claim'; RepoId=$repoId; ClaimId=$repoId; GitCommonDirHash=$git.GitCommonDirHash
         OwnerSid=[string]$securityTemplate.OwnerSid; SecurityResolverVersion=[string]$securityTemplate.ResolverVersion; SecurityTemplateHash=$securityTemplateHash

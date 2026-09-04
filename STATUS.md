@@ -1316,6 +1316,52 @@ Session closed with no code changes; working tree is clean at `f25513d`. Status 
   `PrivateRootBootstrapIntent` completion; (6) protocol-v1 dispatch; (7) full forbidden-root
   matrix. Production Apply stays interlocked; Task 1 remains 1/6, Phase 2 remains 1/52.
 
+## 2026-09-04 Task-2 slice 1: SetupIntentHash precompute functions implemented
+
+Task-2 resume item (1) is implemented. `scripts/canonical-transaction-common.ps1` gains four
+pure-computation functions wired into `New-CanonicalSetupPlanPayload` with zero behavior change
+(same input, same hash; the pre-existing `:1193`/`:1254` recompute checks are the regression net):
+
+- `Get-CanonicalSetupIntentKeyNames`: dictionary-compatible key enumeration (`IDictionary.Keys`
+  vs `PSObject.Properties`; a blueprint-stage probe proved `[ordered]` dictionaries expose
+  `Count/Keys/...` through `PSObject`, not their entries).
+- `Assert-CanonicalSetupIntentRootContext`: the schema `rootContext` oneOf state machine
+  (15-key exact set; `MISSING` requires non-empty remainder with null `Final*`;
+  `EXISTS` requires empty remainder with valid `Final*`).
+- `Get-CanonicalSetupIntentHash`: 8-key exact intent set plus resolver/SID/hash-shape checks,
+  then `Get-SemanticJsonHash`.
+- `Get-CanonicalExpectedSetupStateProjectionHash`: 19-key exact projection set with the
+  Apply-derived exclusion table (`*FinalContext*`, `RootClaimHash`, `SetupStateProjectionHash`)
+  checked before the generic unexpected-field check so pollution gets its dedicated error,
+  then `Get-SemanticJsonHash`.
+
+No new schema file: `PrivateRootBootstrapIntent` and the projection shapes are already covered
+exactly by `$defs/setupPayload` and `$defs/setupStateProjection` in
+`schemas/canonical-transaction-plan.schema.json`. `tests/canonical-transaction.tests.ps1`
+gains the `[setup intent precompute]` block (10 assertions: hash parity with the plan payload,
+reproduction, key-order independence, OwnerSid sensitivity, missing/unexpected rejection,
+`RootClaimHash`/`FinalContext` pollution rejection with the dedicated exclusion error).
+Focused suite passes 55/0. The hard-kill reseal (manifest both sites, prelude block/digest 4
+sites, surface, region, contract/mutation pins, self, main-try, top-execution, inventory) plus
+the seams reflection re-pin (count 12809 → 12828, digest re-pinned; dynamic-command digest and
+exception/issuer inventories untouched) were produced by the lingering Grok session's output found
+in the working tree; the reseal diff was verified value-only (all 30 hard-kill changed lines
+contain a 64-hex pin, zero non-pin lines; seams diff is exactly count+digest). Standalone
+validation: hard-kill primitives 95/0, complete hard-kill 318/0, seams 56/0, transaction 55/0,
+parse gate 156 files, build 7/15/7, secret scan clean (878 non-blocking hints),
+`git diff --check` clean, sync DryRun plan hash
+`b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e` (unchanged, no live
+mutation, `.system` preserved). Production Apply remains interlocked; Task 1 remains 1/6 and
+Phase 2 remains 1/52. Next: unified `run-tests.ps1 -All` result below, then resume item (2)
+production `AuthorityContext`-to-full-intent conversion.
+
+The definitive unified `run-tests.ps1 -All` run for this slice discovered, started, completed,
+and passed all 34 suites exactly once with zero failures, timeouts, duplicates, missing suites,
+or tree-kill failures (external create-new summary SHA-256
+`445ea5d9a937c4162c5da5f9d53c77b456c4386fef2d1a766ac093790c81236c`), with hard-kill 318/0,
+seams 56/0, and transaction 55/0 inside the run. No production Apply, backup, rollback,
+retirement, live-root mutation, or Git index/ref mutation was performed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

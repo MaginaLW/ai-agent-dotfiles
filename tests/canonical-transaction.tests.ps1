@@ -222,6 +222,33 @@ try {
         Assert-Throws {Assert-CanonicalDocumentHashNotConsumed -DocumentHash ([string]$doc.DocumentHash) -TerminalEvidence @([pscustomobject]@{Outcome=$outcome;OriginalDocumentHash=[string]$doc.DocumentHash;AttemptDocumentHashes=@();ClosingDocumentHash=[string]$doc.DocumentHash})} "replay: $outcome terminal consumes DocumentHash even when context bytes are reconstructed"
     }
 
+    Write-Host "`n[setup intent precompute]" -ForegroundColor Cyan
+    $intentHashDirect=Get-CanonicalSetupIntentHash -PrivateRootBootstrapIntent $setupPayload.PrivateRootBootstrapIntent
+    Assert ($intentHashDirect -ceq [string]$setupPayload.SetupIntentHash) 'precompute: intent hash matches the plan payload SetupIntentHash'
+    $intentHashAgain=Get-CanonicalSetupIntentHash -PrivateRootBootstrapIntent $setupPayload.PrivateRootBootstrapIntent
+    Assert ($intentHashAgain -ceq $intentHashDirect) 'precompute: same intent reproduces the same hash'
+    $projectionHashDirect=Get-CanonicalExpectedSetupStateProjectionHash -ExpectedSetupStateProjection $setupPayload.ExpectedSetupStateProjection
+    Assert ($projectionHashDirect -ceq [string]$setupPayload.ExpectedSetupStateProjectionHash) 'precompute: projection hash matches the plan payload ExpectedSetupStateProjectionHash'
+    $reorderedIntent=[ordered]@{};foreach($k in @($setupPayload.PrivateRootBootstrapIntent.Keys)){ $reorderedIntent[$k]=$setupPayload.PrivateRootBootstrapIntent[$k] }
+    $reversedIntent=[ordered]@{};foreach($k in @(@($setupPayload.PrivateRootBootstrapIntent.Keys) | Sort-Object -Descending)){ $reversedIntent[$k]=$setupPayload.PrivateRootBootstrapIntent[$k] }
+    Assert ((Get-CanonicalSetupIntentHash -PrivateRootBootstrapIntent $reversedIntent) -ceq $intentHashDirect) 'precompute: intent key order does not change the hash'
+    $mutatedOwner=[ordered]@{};foreach($k in @($setupPayload.PrivateRootBootstrapIntent.Keys)){ $mutatedOwner[$k]=$setupPayload.PrivateRootBootstrapIntent[$k] }
+    $mutatedOwner['OwnerSid']='S-1-5-21-9999999999-9999999999-9999999999-9999'
+    Assert ((Get-CanonicalSetupIntentHash -PrivateRootBootstrapIntent $mutatedOwner) -cne $intentHashDirect) 'precompute: OwnerSid change changes the intent hash'
+    $missingField=[ordered]@{ OwnerSid=[string]$setupPayload.PrivateRootBootstrapIntent.OwnerSid }
+    Assert-Throws {Get-CanonicalSetupIntentHash -PrivateRootBootstrapIntent $missingField} 'precompute: intent with missing fields is rejected'
+    $extraField=[ordered]@{};foreach($k in @($setupPayload.PrivateRootBootstrapIntent.Keys)){ $extraField[$k]=$setupPayload.PrivateRootBootstrapIntent[$k] }
+    $extraField['CanonicalRecoveryRootFinalContext']=[ordered]@{ TargetStatus='EXISTS' }
+    Assert-Throws {Get-CanonicalSetupIntentHash -PrivateRootBootstrapIntent $extraField} 'precompute: intent with an unexpected field is rejected'
+    $pollutedProjection=[ordered]@{};foreach($k in @($setupPayload.ExpectedSetupStateProjection.Keys)){ $pollutedProjection[$k]=$setupPayload.ExpectedSetupStateProjection[$k] }
+    $pollutedProjection['RootClaimHash']=('e'*64)
+    Assert-Throws {Get-CanonicalExpectedSetupStateProjectionHash -ExpectedSetupStateProjection $pollutedProjection} 'precompute: projection with Apply-derived RootClaimHash is rejected'
+    $pollutedProjection2=[ordered]@{};foreach($k in @($setupPayload.ExpectedSetupStateProjection.Keys)){ $pollutedProjection2[$k]=$setupPayload.ExpectedSetupStateProjection[$k] }
+    $pollutedProjection2['CanonicalRecoveryRootFinalContext']=[ordered]@{ TargetStatus='EXISTS' }
+    Assert-Throws {Get-CanonicalExpectedSetupStateProjectionHash -ExpectedSetupStateProjection $pollutedProjection2} 'precompute: projection with Apply-derived FinalContext is rejected'
+    $missingProjection=[ordered]@{ SchemaVersion=1; ArtifactKind='canonical-setup-state-projection' }
+    Assert-Throws {Get-CanonicalExpectedSetupStateProjectionHash -ExpectedSetupStateProjection $missingProjection} 'precompute: projection with missing fields is rejected'
+
 }
 catch{$script:fail++;Write-Host "  FAIL  unhandled test error: $($_.Exception.Message)" -ForegroundColor Red}
 finally{
