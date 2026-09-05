@@ -1636,6 +1636,29 @@ backup, rollback, retirement, live-root mutation, or Git index/ref mutation was 
 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root or Git
 index/ref was changed.
 
+## 2026-09-06 Task-2 item (6) resolution: protocol-v1 public dispatch is deferred/blocked
+
+Task-2 resume item (6) was surveyed and designed by Grok (evidence report at
+`tmp/grok-protocolv1-design.md`, one review round, zero open issues) and the conclusion is
+**deferred/blocked: nothing to build**. The design authorities define "protocol v1 public dispatch"
+as the locked production CLI contract (reject public `-HomeRoot`/`-BackupRoot`/`-LockWaitSeconds`,
+zero-wait with `operation-lock-busy`, Fixed/NTFS gate, setup Apply journaling claim then state,
+later `live recover`) — not a dispatch schema and not a new public surface. Its only consumers are
+the setup Apply (currently `canonical-apply-interlocked` / exit 75) and the planned Task 6 Step 3
+`live recover` dispatcher (blocked on the Task 4 journal contract, which does not exist yet), so no
+slice can be built without either inventing a zero-caller facade or lifting the interlock — both
+explicitly rejected. The read-only public dispatch already exists (`canonical status`, canonical
+recover status, env status; all MetadataOnly) and its contract forbids consuming the resolver
+(COMPLETE-prefix plus a setup-state-bearing witness would break status on MISSING setups).
+Naming axes are separated: "protocol v1" is the CLI/lock/selector contract, `ProtocolVersion=3`
+with `ReleaseState=interlocked` is the Phase 0 policy axis (scripts/live-safety-policy.psd1), the
+artifact `SchemaVersion` fields are another axis, and the `ProtocolVersion=1` in
+scripts/target-context-common.ps1:883 is a filesystem-capability probe field. Known selector debt
+(`sync.ps1 -HomeRoot/-BackupRoot` defaults to USERPROFILE) is live-host/plan Task 5 migration work,
+not a dispatch consumption layer, and is recorded here without being silently absorbed. No code,
+schema, or CLI change was made for this item; the item closes as deferred/blocked with the design
+authority evidence, pending a legally released interlock (which would reopen D1/D2 wiring first).
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

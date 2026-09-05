@@ -768,6 +768,18 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   `248319e3823b79d96b1faddb905ecb52227e749a6db0db4f23ca071eab88977c`), with hard-kill 318/0 and seams 56/0 inside the
   run. Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task-2 item (6) resolution, protocol-v1 public dispatch (2026-09-06): surveyed and designed by Grok
+  (evidence report `tmp/grok-protocolv1-design.md`, one review round, zero open issues) with the conclusion
+  **deferred/blocked — nothing to build**. "Protocol v1 public dispatch" in the design authorities is the locked
+  production CLI contract (selector rejections, zero-wait `operation-lock-busy`, Fixed/NTFS, setup Apply journaling
+  claim then state, later `live recover`), not a dispatch schema; its only consumers are the interlocked setup Apply
+  (D1/D2 already deferred) and the planned Task 6 `live recover` dispatcher blocked on the Task 4 journal. The read-only
+  public dispatch already exists and its MetadataOnly contract forbids consuming the resolver; naming axes are separated
+  (protocol v1 contract vs `ProtocolVersion=3`/`ReleaseState=interlocked` policy vs artifact `SchemaVersion` vs the
+  capability-probe `ProtocolVersion=1` field). Known selector debt (`sync.ps1 -HomeRoot/-BackupRoot` USERPROFILE
+  defaults) is plan Task 5 live-host migration work, recorded without being absorbed. No code changed for this item;
+  it closes as deferred/blocked pending a legally released interlock.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
