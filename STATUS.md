@@ -1498,6 +1498,47 @@ the run. The definitive unified `run-tests.ps1 -All` run for this state executes
 test slices land. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains
 interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-05 Task-2 slice 4 PR2+PR3: resolver observation failure matrix, close state, and contention
+
+Task-2 resume item (4) PR2+PR3 land as suite-style regressions in
+`tests/root-claims-registry.tests.ps1` only (commit `28ce839`), from the Grok implementation draft
+completed by the main agent after the Grok session was lost mid-verification. The shared
+`New-TestResolverObservationAdapter`/`Close-TestResolverObservationAdapter` helpers build
+independent COMPLETE fixtures (registry fixture + canonical claim + setup state + repo lock +
+namespace witness + two external ProbeRoots):
+
+- `[resolver observation failure matrix]`: a forged AuthorityContext resolver version fails with
+  `sealed-home-authority-bootstrap-context-required` and zero locks; removing the final global-lock
+  prefix entry makes the pre-lock COMPLETE check fire `home-authority-bootstrap-incomplete` with
+  zero re-creation and an unchanged tree hash (the incomplete variant reuses a standard fixture
+  because `New-CanonicalFinalSetupState` requires existing private roots); a tampered SetupIntent
+  OwnerSid fails `canonical-sealed-intent-token-sid-mismatch` after both locks with the locks
+  released; and an in-lock recapture identity drift on a candidate workspace root fails closed.
+- `[resolver observation close-state machine]`: an injected
+  `Close-SealedHeldObservationCleanupLedgerObservation` failure keeps CloseState OPEN, the route
+  capture open, and both lock wrappers held, and a retry after removing the injection succeeds; the
+  same contract holds for an injected `Close-SealedRegistryCurrentRouteCapture` failure; a forged
+  `CloseState='CLOSED'` NoteProperty with a live observation is ignored and the real close
+  completes; and the canonical-early-release case pins that Close fails closed, bootstrap and
+  global stay held, and the canonical repo lock itself refuses release with `dependent-lock-active`
+  while the stranded global lock holds its order binding — bootstrap, global, and the canonical
+  lock remain held until process exit, recorded by the suite as an expected stranded residue rather
+  than a cleanup failure.
+- `[resolver observation real contention]`: a child runscape loading the registry independently
+  loses with `operation-lock-busy` in under one second with an empty receiver, and re-enters the
+  global lock after the parent Close.
+
+The final cleanup gate narrows the expected stranded residue to the canonical-early fixture's own
+lock paths; any other removal failure still throws. No production file changed, so no seams or
+hard-kill re-pin was required.
+
+Validation on 2026-09-05: the full `root-claims-registry.tests.ps1` suite passed with exit code 0
+and 614 PASS lines (583 before this slice); `canonical-production-seams.tests.ps1` passed 56/0
+unchanged; `git diff --check` was clean. The definitive unified `run-tests.ps1 -All` run for commit
+`28ce839` executes with an external create-new summary; its result is recorded below. Task 1
+remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root or Git
+index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

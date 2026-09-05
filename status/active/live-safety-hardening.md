@@ -702,6 +702,25 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   deleted after the run. The definitive unified `run-tests.ps1 -All` run executes after the PR2/PR3 test slices land.
   Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task-2 slice 4 PR2+PR3, resolver observation failure matrix, close state, and contention (2026-09-05, commit
+  `28ce839`): tests-only slice from the Grok implementation draft, completed by the main agent after the Grok session
+  was lost mid-verification. `tests/root-claims-registry.tests.ps1` gains shared independent-fixture adapter helpers and
+  three blocks: the failure matrix (forged context `sealed-home-authority-bootstrap-context-required`; incomplete prefix
+  via removal of the final global-lock entry firing the pre-lock `home-authority-bootstrap-incomplete` with zero
+  re-creation and an unchanged tree hash, because `New-CanonicalFinalSetupState` requires existing private roots;
+  SetupIntent OwnerSid mismatch `canonical-sealed-intent-token-sid-mismatch` with both locks released; in-lock
+  recapture identity drift), the close-state machine (entry-close and route-close injection failures keeping CloseState
+  OPEN with the route open and both lock wrappers held and a successful retry after removal; a forged `CLOSED`
+  NoteProperty ignored while the observation is live; the canonical-early-release strand pinning `dependent-lock-active`
+  on the canonical repo lock itself with bootstrap, global, and the canonical lock held until process exit and recorded
+  as expected stranded residue), and the real contention probe (child-runscape Open loses `operation-lock-busy` under
+  one second with an empty receiver and re-enters the global lock after the parent Close). The final cleanup gate mutes
+  only the canonical-early fixture's own stranded lock paths. No production file changed, so no seams or hard-kill
+  re-pin was required. Validation: full registry suite exit 0 with 614 PASS lines (583 before), seams 56/0 unchanged,
+  `git diff --check` clean. The definitive unified `run-tests.ps1 -All` run for commit `28ce839` executes with an
+  external create-new summary; its result is recorded in STATUS.md when complete. Task 1 remains 1/6 and Phase 2
+  remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
