@@ -629,6 +629,55 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   resolver consumer layer, (5) `PrivateRootBootstrapIntent`, (6) protocol-v1, (7) forbidden-root
   matrix.
 
+- Phase 2 Task-2 slice 1, SetupIntentHash precompute functions (2026-09-04):
+  `scripts/canonical-transaction-common.ps1` gains four pure-computation functions wired into
+  `New-CanonicalSetupPlanPayload` with zero behavior change — `Get-CanonicalSetupIntentKeyNames`
+  (dictionary-compatible key enumeration), `Assert-CanonicalSetupIntentRootContext` (the schema rootContext oneOf
+  state machine, 15-key exact set), `Get-CanonicalSetupIntentHash` (8-key exact intent set plus
+  resolver/SID/hash-shape checks), and `Get-CanonicalExpectedSetupStateProjectionHash` (19-key exact projection set
+  with the Apply-derived exclusion table checked before the generic unexpected-field check). No new schema file:
+  `PrivateRootBootstrapIntent` and the projection shapes are already covered exactly by `$defs/setupPayload` and
+  `$defs/setupStateProjection` in `schemas/canonical-transaction-plan.schema.json`.
+  `tests/canonical-transaction.tests.ps1` gains the `[setup intent precompute]` block (10 assertions), focused suite
+  55/0. The hard-kill reseal plus the seams reflection re-pin (count 12809 → 12828) were verified value-only.
+  Validation: hard-kill primitives 95/0, complete hard-kill 318/0, seams 56/0, transaction 55/0, parse gate 156 files,
+  build 7/15/7, secret scan clean, `git diff --check` clean, sync DryRun plan hash unchanged. The definitive unified
+  `run-tests.ps1 -All` run passed all 34 suites exactly once (external create-new summary SHA-256
+  `445ea5d9a937c4162c5da5f9d53c77b456c4386fef2d1a766ac093790c81236c`). Task 1 remains 1/6 and Phase 2 remains 1/52;
+  production Apply remains interlocked.
+
+- Phase 2 Task-2 slice 2, production AuthorityContext-to-full-intent conversion (2026-09-04):
+  `Assert-SealedHomeAuthorityBootstrapContext` (`scripts/home-authority-common.ps1`) no longer accepts only the
+  `sealed-home-authority-test-adapter-v1` context — a production `windows-token-sid-known-folder-v1` context now
+  passes an explicit production topology check (canonical SID shape, non-canonical rejection, current-user binding via
+  `sealed-home-authority-bootstrap-token-sid-invalid/-noncanonical/-not-current-user`) before joining the same
+  path-derivation validation the adapter used; forged resolver versions still fail closed and no new bypass exists
+  because the intent payload already binds `IdentityResolverVersion` into `IntentHash`.
+  `tests/home-authority.tests.ps1` gains the `[production bootstrap context conversion]` block (7 assertions;
+  real-machine LocalAppData ACLs fail the current-user-only template and are asserted as legal fail-closed). Focused
+  home-authority passes; live-concurrency passes with zero adapter-path regression; seams reflection inventory
+  re-pinned count 12828 → 12833 with digest re-pin, seams 56/0; parse gate 156 files, build 7/15/7, secret scan clean,
+  `git diff --check` clean, sync DryRun unchanged. Focused validation recorded; the definitive unified `run-tests.ps1
+  -All` run for this state has not been executed or recorded yet. Task 1 remains 1/6 and Phase 2 remains 1/52;
+  production Apply remains interlocked.
+
+- Phase 2 Task-2 slice 3, cross-layer intent binding (2026-09-05): `scripts/canonical-transaction-common.ps1` gains
+  two pure-computation functions binding the canonical reduced intent (`PlanPayload.PrivateRootBootstrapIntent`) to
+  the full sealed intent on the stable quantities plan and claim bind — `Get-CanonicalSealedDirectoryTemplateHash`
+  (verifies the sealed template's stored `DirectorySecurityTemplateHash` reproduces the full-template hash, requires
+  `ResourceKind='Directory'`, strips `ResourceKind`, hashes the remainder) and
+  `Assert-CanonicalSealedSetupIntentBinding` (token-SID binding, template-hash binding, remainder-derived
+  control/backup path binding, per-root template-anchor consistency, binding-evidence projection; no FS access, fails
+  closed on every tampered quantity). `tests/canonical-transaction.tests.ps1` gains the FS-free `[cross-layer intent
+  binding]` block (9 assertions), focused suite 64/0. The `tmp/reseal-txn.ps1` N-manifest probe reached fixpoint in
+  three iterations with 13 pin updates (final hard-kill file SHA-256
+  `ecfc68a0616a2b6afc1407c0642af277dd877f48415c6c6992d21e3207a33aba`), and the seams reflection-sensitive inventory
+  re-pinned count 12833 → 12858 with digest re-pin, seams 56/0. Validation: complete hard-kill 318/0, transaction
+  64/0, parse gate 156 files, build PASS, secret scan clean, `git diff --check` clean, sync DryRun identical to the
+  established baseline with unchanged PlanHash. Focused validation recorded; the definitive unified `run-tests.ps1
+  -All` run for this state has not been executed or recorded yet. Task 1 remains 1/6 and Phase 2 remains 1/52;
+  production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed

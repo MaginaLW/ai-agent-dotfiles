@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-01
+Last updated: 2026-09-05
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
