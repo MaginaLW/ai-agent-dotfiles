@@ -1601,10 +1601,36 @@ callers.
 Validation on 2026-09-05: the full `root-claims-registry.tests.ps1` suite passed with exit code 0
 and 642 PASS lines (614 before this slice); `canonical-production-seams.tests.ps1` passed 56/0
 after the re-pins; `tests/home-authority.tests.ps1` and `tests/live-concurrency.tests.ps1` passed;
-`git diff --check` and the parse gate were clean. The definitive unified `run-tests.ps1 -All` run
-for commit `fc039a9` executes with an external create-new summary; its result is recorded below.
-Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root
-or Git index/ref was changed.
+`git diff --check` and the parse gate were clean.
+
+An independent read-only Grok review of both commits (invoked with the diffs inlined and terminal
+commands disabled after two cancelled attempts demonstrated that plan-mode terminal calls are
+auto-cancelled) returned three major and three minor findings, all adopted as commit `43fa08a`:
+
+- The composer's payload-graph step now pins the plan projection's `CanonicalRecoveryRoot` to the
+  sealed intent's `CanonicalRecoveryRootIntent.RequestedPath`
+  (`canonical-private-root-completion-recovery-path-mismatch`), closing the path-drift gap between
+  the overlap precheck, the remainder mkdir, and the final-state projection.
+- The recovery remainder now validates the plan-EXISTS/plan-MISSING state matrix with explicit
+  directory-type and named-stream checks on the recovery root and wraps every validation failure
+  into the `canonical-recovery-root-manual-recovery-required` family with the innermost exception
+  message, instead of leaking raw inner tokens or accepting an ADS-bearing root.
+- `tests/root-claims-registry.tests.ps1` adds the `[canonical private-root completion remainder
+  fail-closed]` block (plan-EXISTS root disappearing, a file at the planned root, a named stream on
+  the root, a drifted root DACL) plus the remainder parameter-shape freeze; the seams
+  reflection-sensitive inventory re-pinned count 13057 → 13077, digest `7fdcb874…`.
+- Recorded deviations: the design's OwnerSid binding negative is unreachable because the
+  payload-graph current-user-only template check precedes the binding, so the control-path-drift
+  variant pins that boundary instead; the durable-claim-absent surface is covered by the final
+  reviewed-prefix snapshot, which rejects unexpected children under every authority root; the
+  resolver COMPLETE-only contract is already pinned by the slice-4 incomplete-prefix block.
+
+Validation after the review fixes: the full `root-claims-registry.tests.ps1` suite passed with exit
+code 0 and 646 PASS lines; `canonical-production-seams.tests.ps1` passed 56/0 after the re-pin;
+`git diff --check` was clean. The definitive unified `run-tests.ps1 -All` run for commit `43fa08a`
+executes with an external create-new summary; its result is recorded below. Task 1 remains 1/6 and
+Phase 2 remains 1/52. Production Apply remains interlocked, and no live root or Git index/ref was
+changed.
 
 ## Validation status
 

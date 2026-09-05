@@ -749,7 +749,20 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   exact partial-prefix resume with identity preservation, the idempotent COMPLETE variant, the drifted-ACL manual gate,
   and the child-runscape `operation-lock-busy` contention probe. No hard-kill reseal. Validation: full registry suite
   exit 0 with 642 PASS lines (614 before), seams 56/0, home-authority and live-concurrency PASS, diff-check and parse
-  gate clean. The definitive unified `run-tests.ps1 -All` run for commit `fc039a9` executes with an external
+  gate clean.
+
+- Phase 2 Task-2 slice 5 review hardening (2026-09-05, commit `43fa08a`): the independent Grok review (diffs inlined,
+  plan-mode terminal commands disabled after two cancelled attempts) returned three majors, all adopted — the composer
+  pins `projection.CanonicalRecoveryRoot` to the sealed intent's recovery path before any create
+  (`canonical-private-root-completion-recovery-path-mismatch`); the remainder validates the plan-EXISTS/plan-MISSING
+  matrix with directory-type and named-stream checks and wraps all validation failures into
+  `canonical-recovery-root-manual-recovery-required` with the innermost message; the registry tests gain the remainder
+  fail-closed block (missing planned root, file at root, named stream, drifted DACL) and the remainder parameter-shape
+  freeze; seams re-pin 13057 → 13077 (`7fdcb874…`). Recorded deviations: the OwnerSid binding negative is unreachable
+  (the payload-graph template check precedes the binding) so the control-path variant pins that boundary; the
+  durable-claim-absent surface is covered by the final reviewed-prefix snapshot; resolver COMPLETE-only is already
+  pinned by the slice-4 incomplete block. Validation: registry suite exit 0 with 646 PASS lines, seams 56/0,
+  diff-check clean. The definitive unified `run-tests.ps1 -All` run for commit `43fa08a` executes with an external
   create-new summary; its result is recorded in STATUS.md when complete. Task 1 remains 1/6 and Phase 2 remains 1/52;
   production Apply remains interlocked.
 
