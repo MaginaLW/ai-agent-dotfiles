@@ -1549,6 +1549,63 @@ with the unified run pending. No production Apply, backup, rollback, retirement,
 mutation, or Git index/ref mutation was performed. Task 1 remains 1/6 and Phase 2 remains 1/52.
 Production Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-05 Task-2 slice 5: PrivateRootBootstrapIntent completion primitives (interlock preserved)
+
+Task-2 resume item (5) is implemented per the reviewed completion design
+(`tmp/grok-pbi-completion-design.md`, Grok, two review rounds; an untracked working note) in two
+commits, without lifting any interlock: completion stays a `CanonicalOperationKind=setup` Apply
+component covered by `canonical-apply-interlocked`, and both new primitives keep zero production
+callers.
+
+- PR1 (commit `2bd40a6`): `scripts/home-authority-common.ps1` gains
+  `Register-SealedHeldHomeAuthorityCanonicalGlobalBinding` — an already-held bind of a held
+  `HomeAuthorityLockHandle` global to a live canonical witness. It refuses an existing order
+  binding (`canonical-global-order-binding-already-present`), captures the witness through
+  `Assert-HomeAuthorityRequiredCanonicalWitness`, revalidates the capture, opens the fixed envelope
+  with `-HeldGlobalLock`, requires envelope-hash stability, supplies a missing `FixedEnvelopeHash`
+  on the CreateNew Complete path or verifies it on the OpenExisting path, and completes the same
+  `ClaimForBindingExact`/`BindExact` and wrapper NoteProperty sequence as
+  `Enter-HomeAuthorityGlobalLiveLock`, failing closed without exiting the global.
+  `Complete-SealedHomeAuthorityBootstrap` and `Enter` are unchanged (the KD2 return contract stays
+  unbound-global plus always-Exit-bootstrap). `tests/home-authority.tests.ps1` gains the
+  `[canonical-bound bind after complete]` block on the test binding witness stub covering the
+  CreateNew path, the already-bound refusal, and the OpenExisting path of an idempotent Complete of
+  the same fresh fixture, with the canonical repo lock acquired before every global acquisition so
+  the lock-order prerequisite holds; the selector-rejection list gained the new function. The seams
+  reflection-sensitive inventory re-pinned count 12955 -> 12978, digest `137134fb...`. Validation:
+  home-authority suite PASS, live-concurrency PASS, seams 56/0.
+- PR2+PR3 (commit `fc039a9`): `scripts/root-claims-registry-common.ps1` gains
+  `Complete-SealedHeldCanonicalRecoveryRootRemainder` and
+  `Complete-SealedHeldCanonicalPrivateRootBootstrap` — the first-run composition primitive that
+  consumes the slice-3 cross-layer binding and the plan payload graph before any create (full
+  projection/intent/claim hash chain, repository identity, current-user-only template,
+  remainder-derived path equality against the projection and the authority context), then completes
+  the seven-entry prefix through the unchanged `Complete-SealedHomeAuthorityBootstrap`, creates or
+  validates the canonical recovery root remainder under the still-held unbound global using the
+  sealed directory template (plan-MISSING roots may already exist; plan-EXISTS roots must exist;
+  collision 80/183 is `canonical-recovery-root-remainder-collision`; topology drift is
+  manual-recovery), computes the in-memory final setup state, and returns a thirteen-property typed
+  result (`AiAgentDotfiles.SealedHeldCanonicalPrivateRootCompletion`) whose global lock is unbound
+  and whose durable claim and setup-state writes are explicitly `deferred`. No Register call, no
+  witness, no durable artifact. The seams suite pins bootstrap Complete and the recovery remainder
+  to the composer as their unique production callers, pins the composer and Register at zero
+  external production callers, pins all three completion definitions uniquely, and re-pins the
+  reflection-sensitive inventory (count 12978 -> 13057, digest `91b47e9c...`).
+  `tests/root-claims-registry.tests.ps1` gains the completion success path, the
+  binding-before-create and payload-graph-before-create zero-creation failures, selector and
+  parameter-shape rejections, the exact partial-prefix resume with identity preservation, the
+  idempotent COMPLETE variant (`RecoveryCreated=$false`), the drifted-ACL manual-recovery gate, and
+  the child-runscape `operation-lock-busy` contention probe. No hard-kill reseal:
+  `canonical-transaction-common.ps1` is unchanged and the four-root closure is untouched.
+
+Validation on 2026-09-05: the full `root-claims-registry.tests.ps1` suite passed with exit code 0
+and 642 PASS lines (614 before this slice); `canonical-production-seams.tests.ps1` passed 56/0
+after the re-pins; `tests/home-authority.tests.ps1` and `tests/live-concurrency.tests.ps1` passed;
+`git diff --check` and the parse gate were clean. The definitive unified `run-tests.ps1 -All` run
+for commit `fc039a9` executes with an external create-new summary; its result is recorded below.
+Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root
+or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

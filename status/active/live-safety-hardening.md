@@ -727,6 +727,32 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   transaction 64/0 inside the run; it is also the recorded unified validation for Task-2 slices 2 and 3. Task 1 remains
   1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
+- Phase 2 Task-2 slice 5, `PrivateRootBootstrapIntent` completion primitives (2026-09-05, commits `2bd40a6` + `fc039a9`):
+  implemented per the Grok completion design (two review rounds) with the interlock untouched — completion stays a
+  setup-Apply component covered by `canonical-apply-interlocked` and both primitives keep zero production callers.
+  PR1: `Register-SealedHeldHomeAuthorityCanonicalGlobalBinding` in `scripts/home-authority-common.ps1` binds an
+  already-held global to a live canonical witness (already-bound refusal `canonical-global-order-binding-already-present`,
+  envelope re-projection with `-HeldGlobalLock`, CreateNew `FixedEnvelopeHash` supply or OpenExisting verification, the
+  Enter-equivalent `ClaimForBindingExact`/`BindExact` sequence, fail-closed without exiting the global);
+  `Complete-SealedHomeAuthorityBootstrap` and `Enter` unchanged. HA `[canonical-bound bind after complete]` block covers
+  CreateNew, refusal, and OpenExisting on the test binding witness stub with the canonical lock acquired before every
+  global acquisition; seams re-pin 12955 -> 12978 (`137134fb...`). PR2+PR3: `Complete-SealedHeldCanonicalRecoveryRootRemainder`
+  and `Complete-SealedHeldCanonicalPrivateRootBootstrap` in `scripts/root-claims-registry-common.ps1` consume the slice-3
+  binding and the plan payload graph before any create, complete the seven-entry prefix through the unchanged
+  `Complete-SealedHomeAuthorityBootstrap`, create or validate the recovery-root remainder under the still-held unbound
+  global with the sealed directory template (plan-MISSING roots may already exist; plan-EXISTS roots must exist;
+  remainder-collision and manual-recovery fail-closed), compute the in-memory final setup state, and return a
+  thirteen-property typed result with unbound global and `Durable*Write='deferred'`. Seams pins Complete and the
+  remainder to the composer as unique production callers, the composer and Register at zero external production
+  callers, all three definitions uniquely, and re-pins the reflection inventory (12978 -> 13057, `91b47e9c...`). Registry
+  tests gain the success path, binding/payload-graph zero-creation failures, selector and parameter-shape rejections,
+  exact partial-prefix resume with identity preservation, the idempotent COMPLETE variant, the drifted-ACL manual gate,
+  and the child-runscape `operation-lock-busy` contention probe. No hard-kill reseal. Validation: full registry suite
+  exit 0 with 642 PASS lines (614 before), seams 56/0, home-authority and live-concurrency PASS, diff-check and parse
+  gate clean. The definitive unified `run-tests.ps1 -All` run for commit `fc039a9` executes with an external
+  create-new summary; its result is recorded in STATUS.md when complete. Task 1 remains 1/6 and Phase 2 remains 1/52;
+  production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
