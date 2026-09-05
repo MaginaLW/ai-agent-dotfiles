@@ -678,6 +678,30 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   -All` run for this state has not been executed or recorded yet. Task 1 remains 1/6 and Phase 2 remains 1/52;
   production Apply remains interlocked.
 
+- Phase 2 Task-2 slice 4 PR1, resolver observation unique caller (2026-09-05, commit `b6d6353`): implemented per the
+  Grok resolver consumer design (four review rounds, `tmp/grok-resolver-consumer-design.md`). `scripts/root-claims-registry-common.ps1`
+  gains `Open-/Assert-/Close-SealedHeldResolverObservation` — the first production consumer of the observation lifecycle
+  trio, with `MutationAuthorization=NONE`: bootstrap OpenExisting after a COMPLETE seven-entry prefix check
+  (`home-authority-bootstrap-incomplete` otherwise; `Complete-SealedHomeAuthorityBootstrap` never called), existing-only
+  global lock bound to the mandatory caller-held canonical witness, slice-3 `Assert-CanonicalSealedSetupIntentBinding`
+  consumed under both locks, in-lock BLOCK on any valid `route-cleanup-recovery` ticket
+  (`sealed-held-resolver-unhandled-route-cleanup-recovery`, Data limited to count + CaptureId GUID list), no-follow
+  current-route recapture, and the lifecycle trio opened on private receivers, delivering one typed eleven-property
+  handle. Open failure cleanup closes trio → route → locks tail-to-head and never releases locks while an entry or
+  route stays OPEN; `Assert-` revalidates handle, bootstrap owner, intent, trio, route, and binding; `Close-` is a
+  retryable state machine whose CLOSED no-op gate requires the inner objects and both lock owners released, never the
+  NoteProperty alone. Seams rewrites the trio boundary to this unique owner (trio Close also allowed from resolver Open
+  failure cleanup), pins the resolver trio at zero production callers and unique registry-top definitions, and re-pins
+  the reflection-sensitive inventory (count 12858 → 12955, digest `70356ed7…`). `tests/root-claims-registry.tests.ps1`
+  extends selector rejections, pins the exact parameter set, and adds the independent-fixture success path and the
+  ticket-BLOCK failure path. No hard-kill reseal (canonical-transaction-common.ps1 unchanged; four-root closure
+  untouched). Validation: focused registry suite exit 0 with 583 PASS lines and clean temp cleanup; seams 56/0;
+  complete hard-kill 318/0 on a quiet re-run (one earlier run had 14 environment-flaky fixture-delete failures that
+  did not reproduce and are recorded as non-code); parse gate, build 7/15/7, secret scan clean (907 hints),
+  `git diff --check` clean, sync DryRun identical to the established baseline with unchanged PlanHash and the plan
+  deleted after the run. The definitive unified `run-tests.ps1 -All` run executes after the PR2/PR3 test slices land.
+  Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed

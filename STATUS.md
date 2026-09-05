@@ -1441,6 +1441,63 @@ interlocked; Task 1 remains 1/6 and Phase 2 remains 1/52. Next: resume item (4) 
 consumer layer (lifecycle trio as sole caller), which consumes this binding under the
 bootstrap/global lock pair.
 
+## 2026-09-05 Task-2 slice 4 PR1: resolver observation unique caller wired
+
+Task-2 resume item (4) PR1 is implemented per the reviewed resolver consumer design
+(`tmp/grok-resolver-consumer-design.md`, produced by Grok through four review rounds; the design is
+an untracked working note). `scripts/root-claims-registry-common.ps1` gains the reviewed trio
+`Open-/Assert-/Close-SealedHeldResolverObservation` — the first production consumer of the
+observation lifecycle trio:
+
+- `Open-` walks the ordered sequence with `MutationAuthorization=NONE`: bootstrap lock OpenExisting
+  only after the snapshot is verified COMPLETE with the full seven-entry prefix
+  (`home-authority-bootstrap-incomplete` otherwise; `Complete-SealedHomeAuthorityBootstrap` is never
+  called), existing-only global lock bound to the mandatory caller-held canonical witness, the
+  slice-3 `Assert-CanonicalSealedSetupIntentBinding` consumed under both held locks, an in-lock
+  BLOCK on any valid `route-cleanup-recovery` ticket
+  (`sealed-held-resolver-unhandled-route-cleanup-recovery` with only the count and CaptureId GUID
+  list in `Exception.Data`), the no-follow current-route recapture under the held locks, and the
+  lifecycle trio opened on private receivers. One typed handle (exactly eleven properties,
+  `AiAgentDotfiles.SealedHeldResolverObservation`, `CloseState='OPEN'`) is delivered receiver-only.
+  The Open failure ladder closes the trio through the trio's own Close (the reviewed second
+  production caller of trio Close), then the route capture, then the global and bootstrap locks
+  tail-to-head, and never releases locks while an observation entry or route capture remains OPEN.
+- `Assert-` revalidates the handle type and property set, the bootstrap-lock owner, the sealed
+  intent under both held locks, the lifecycle assert, route stability, and the global/canonical
+  binding, and stays OPEN on any failure.
+- `Close-` is a retryable tail-to-head state machine (`OPEN|CLOSING|CLOSED`); the CLOSED no-op gate
+  requires the inner observation and ledger to be CLOSED and both lock wrappers released from the
+  owner table, never the NoteProperty alone, and a forged `CLOSED` display with a live observation
+  is ignored.
+
+The seams suite rewrites the lifecycle-trio boundary deliberately: each trio verb's unique
+production caller is the matching resolver function, with trio Close additionally allowed from the
+resolver Open failure cleanup (the slice A ledger-Close inventory shape); the resolver trio itself
+is pinned at zero production callers and unique top-level registry definitions; the
+reflection-sensitive inventory re-pinned count 12858 → 12955 with digest
+`70356ed7f4bb0a7d0c6b9438cf3d56a56b5ced7293576d5a4767a37f4cc6cdb6` (dynamic-command, exception,
+and issuer inventories unchanged). `tests/root-claims-registry.tests.ps1` extends the
+selector-rejection enumeration to the three new functions, pins the exact parameter set with no
+`-Action`/`-ScriptBlock`, and adds the independent-fixture success path (zero success-stream, NONE
+authorization, frozen binding evidence for the current token and both fixed roots, zero tickets,
+single-use close, global re-entry) plus the ticket-BLOCK failure path (exactly one valid ticket,
+count+GUID Data only, empty receiver, both locks released). No hard-kill reseal:
+`canonical-transaction-common.ps1` is unchanged and the four-root production closure is untouched.
+
+Validation on 2026-09-05: focused `root-claims-registry.tests.ps1` passed with exit code 0 and 583
+PASS lines (clean temp cleanup); `canonical-production-seams.tests.ps1` passed 56/0 after the
+boundary rewrite and re-pin; the complete standalone `canonical-hard-kill.tests.ps1` passed 318/0
+on a quiet re-run after one environment-flaky run whose fourteen failures (transient
+fixture-delete contention under concurrent machine load) did not reproduce and are recorded as
+non-code; the parse gate accepted all scripts; `build-skills.ps1` produced 7/15/7; the pinned
+secret scan found no blocking findings (907 non-blocking hints); `git diff --check` was clean; and
+`sync.ps1 -DryRun` with a fresh external plan path reported the established baseline (Claude +7,
+Codex +15, Reasonix +7, zero modified/removed/unknown, `.system` preserved) with unchanged PlanHash
+`b94ca90b872568bddeed048a959b37b40f0cd8f1d89c90936afa876a32783e2e`, deleting the plan file after
+the run. The definitive unified `run-tests.ps1 -All` run for this state executes after the PR2/PR3
+test slices land. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains
+interlocked, and no live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
