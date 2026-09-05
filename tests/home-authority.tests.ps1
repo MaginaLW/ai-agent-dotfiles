@@ -808,6 +808,43 @@ try {
                     Close-SafeDirectoryContainmentChain -Handles $swapCanonicalParents
                 }
             }
+
+        Write-Host '[canonical-bound bind after complete]'
+        $registerGlobalFresh = $null
+        $registerGlobalIdempotent = $null
+        $registerCanonicalLock = $null
+        try {
+            $registerFreshRoot = Join-Path $work 'register-bind-fresh'
+            $registerFreshProfile = Join-Path $registerFreshRoot 'profile'
+            $registerFreshRoaming = Join-Path $registerFreshRoot 'roaming'
+            $registerFreshLocal = Join-Path $registerFreshRoot 'local'
+            foreach ($path in @($registerFreshRoot,$registerFreshProfile,$registerFreshRoaming,$registerFreshLocal)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
+            $registerFreshContext = Resolve-SealedHomeAuthorityTestContext -TokenSid $bindingSid -ProfileRoot $registerFreshProfile -RoamingAppDataRoot $registerFreshRoaming -LocalAppDataRoot $registerFreshLocal
+            $registerFreshIntent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $registerFreshContext -FilesystemCapabilityHash ('e' * 64)
+            $registerCanonicalLock = Enter-CanonicalRepoLock -LockPath (Join-Path $canonicalRoot 'register-binding.lock') -AllowCreate
+            $registerWitness = New-TestHomeAuthorityBindingWitness -RepoRoot $RepoRoot -CanonicalLockHandle $registerCanonicalLock
+            $registerGlobalFresh = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $registerFreshContext -Intent $registerFreshIntent
+            Assert-TestCondition ($null -eq $registerGlobalFresh.PSObject.Properties['FixedEnvelopeHash'] -and
+                $null -eq ([AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($registerGlobalFresh))) 'a first Complete returns a CreateNew global without a fixed-envelope hash or order binding'
+            $null = Register-SealedHeldHomeAuthorityCanonicalGlobalBinding -AuthorityContext $registerFreshContext -GlobalLockHandle $registerGlobalFresh -CanonicalWitness $registerWitness
+            Assert-TestCondition ((Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $registerFreshContext -GlobalLockHandle $registerGlobalFresh -CanonicalWitness $registerWitness) -and
+                [string]$registerGlobalFresh.FixedEnvelopeHash -match '\A[0-9a-f]{64}\z') 'Register binds a CreateNew Complete global to the held canonical witness without releasing it'
+            Assert-ThrowsPattern { Register-SealedHeldHomeAuthorityCanonicalGlobalBinding -AuthorityContext $registerFreshContext -GlobalLockHandle $registerGlobalFresh -CanonicalWitness $registerWitness } '^canonical-global-order-binding-already-present$' 'a second Register refuses an already-bound global'
+            Assert-TestCondition ($null -ne ([AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($registerGlobalFresh)) -and
+                $null -ne [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($registerGlobalFresh)) 'the refused second Register leaves the binding and the global lock held'
+            Exit-HomeAuthorityGlobalLiveLock -LockHandle $registerGlobalFresh
+            $registerGlobalFresh = $null
+            $registerGlobalIdempotent = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $registerFreshContext -Intent $registerFreshIntent
+            Assert-TestCondition ([string]$registerGlobalIdempotent.FixedEnvelopeHash -match '\A[0-9a-f]{64}\z' -and
+                $null -eq ([AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($registerGlobalIdempotent))) 'an idempotent Complete returns an OpenExisting global with the reviewed fixed-envelope hash and no order binding'
+            $null = Register-SealedHeldHomeAuthorityCanonicalGlobalBinding -AuthorityContext $registerFreshContext -GlobalLockHandle $registerGlobalIdempotent -CanonicalWitness $registerWitness
+            Assert-TestCondition ((Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $registerFreshContext -GlobalLockHandle $registerGlobalIdempotent -CanonicalWitness $registerWitness)) 'Register binds an OpenExisting Complete global whose fixed-envelope hash matches the recomputed envelope'
+        }
+        finally {
+            if ($null -ne $registerGlobalFresh) { try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $registerGlobalFresh } catch { } }
+            if ($null -ne $registerGlobalIdempotent) { try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $registerGlobalIdempotent } catch { } }
+            if ($null -ne $registerCanonicalLock) { try { Exit-CanonicalRepoLock -LockHandle $registerCanonicalLock } catch { } }
+        }
         }
         finally {
             if ($null -eq $savedCanonicalValidatorBlock) { Remove-Item -LiteralPath Function:\Assert-CanonicalHeldNamespaceWitness -ErrorAction SilentlyContinue }
@@ -915,7 +952,8 @@ try {
             'Resolve-HomeAuthorityContext','Enter-HomeAuthorityGlobalLiveLock','Enter-SealedHomeAuthorityBootstrapLock',
             'Exit-HomeAuthorityGlobalLiveLock','Exit-HomeAuthorityLockHandle','Complete-SealedHomeAuthorityBootstrap',
             'Get-SealedHomeAuthorityBootstrapCompletionStatus','New-SealedHomeAuthorityBootstrapIntent',
-            'Assert-SealedHomeAuthorityBootstrapIntent','Resolve-LiveTargetContextSet','Open-SealedHeldLiveTargetContextSet'
+            'Assert-SealedHomeAuthorityBootstrapIntent','Resolve-LiveTargetContextSet','Open-SealedHeldLiveTargetContextSet',
+            'Register-SealedHeldHomeAuthorityCanonicalGlobalBinding'
         )) {
             $authorityCommand = Get-Command $authorityCommandName -ErrorAction Stop
             foreach ($publicSelector in @('HomeRoot','BackupRoot','LockWaitSeconds','TestMode')) {

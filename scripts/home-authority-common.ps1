@@ -1876,6 +1876,61 @@ function Exit-HomeAuthorityGlobalLiveLock {
     if (-not $prerequisiteOpenAtRelease) { throw 'canonical-witness-required' }
 }
 
+function Register-SealedHeldHomeAuthorityCanonicalGlobalBinding {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$GlobalLockHandle,
+        [Parameter(Mandatory)]$CanonicalWitness
+    )
+
+    $envelope = $null
+    try {
+        $resourceOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($GlobalLockHandle)
+        if ('AiAgentDotfiles.HomeAuthorityLockHandle' -cnotin @($GlobalLockHandle.PSObject.TypeNames) -or
+            $resourceOwner -isnot [AiAgentDotfiles.SafeLockResourceOwner] -or
+            -not [AiAgentDotfiles.SafeLockResourceOwner]::IsExactForWrapper($resourceOwner,$GlobalLockHandle)) { throw 'home-authority-lock-owner-required' }
+        if ([AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($GlobalLockHandle) -is [AiAgentDotfiles.SafeLockOrderBinding]) { throw 'canonical-global-order-binding-already-present' }
+        $acquisitionCapture = Assert-HomeAuthorityRequiredCanonicalWitness -CanonicalWitness $CanonicalWitness -AuthorityContext $AuthorityContext
+        $null = Assert-HomeAuthorityCanonicalGlobalAcquisitionCaptureCurrent -AcquisitionCapture $acquisitionCapture -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness
+        $sid = [string](Get-HomeAuthorityObjectProperty -InputObject $AuthorityContext -Name 'TokenSid')
+        $directoryTemplate = Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid $sid -ResourceKind Directory
+        $fileTemplate = Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid $sid -ResourceKind File
+        $envelope = Open-SealedHomeAuthorityFixedEnvelope -AuthorityContext $AuthorityContext -DirectorySecurityTemplate $directoryTemplate -FileSecurityTemplate $fileTemplate -HeldGlobalLock $GlobalLockHandle
+        $after = Get-SealedHomeAuthorityFixedEnvelopeProjection -AuthorityContext $AuthorityContext -DirectorySecurityTemplate $directoryTemplate -FileSecurityTemplate $fileTemplate -EnvelopeLease $envelope -HeldGlobalLock $GlobalLockHandle
+        if ([string]$envelope.InitialEnvelopeHash -cne [string]$after.EnvelopeHash) { throw 'home-authority-fixed-envelope-drift-before-global-lock' }
+        $fixedEnvelopeHash = [string]$after.EnvelopeHash
+        $fixedProperty = $GlobalLockHandle.PSObject.Properties['FixedEnvelopeHash']
+        if ($null -eq $fixedProperty) {
+            $GlobalLockHandle | Add-Member -NotePropertyName FixedEnvelopeHash -NotePropertyValue $fixedEnvelopeHash
+        }
+        elseif ([string]$fixedProperty.Value -cne $fixedEnvelopeHash) { throw 'home-authority-fixed-envelope-drift-before-global-lock' }
+        $globalOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($GlobalLockHandle)
+        if ($globalOwner -isnot [AiAgentDotfiles.SafeLockResourceOwner]) { throw 'home-authority-lock-owner-required' }
+        $parentHandles = @([AiAgentDotfiles.SafeLockResourceOwner]::GetParentHandlesExact($globalOwner))
+        $globalParent = $parentHandles[$parentHandles.Count - 1]
+        $canonicalHeld = [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::GetCanonicalHeldExact($acquisitionCapture)
+        $globalHeld = [AiAgentDotfiles.SafeLockResourceOwner]::GetHeldLockExact($globalOwner)
+        $evidence = Get-HomeAuthorityCanonicalGlobalBindingEvidence -AcquisitionCapture $acquisitionCapture -GlobalLockHandle $GlobalLockHandle -GlobalHeld $globalHeld -GlobalParent $globalParent -FixedEnvelopeHash $fixedEnvelopeHash
+        try {
+            if (-not [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::ClaimForBindingExact($acquisitionCapture)) { throw 'canonical acquisition capture already claimed' }
+            $binding = [AiAgentDotfiles.SafeLockOrderBinding]::BindExact($globalHeld,$canonicalHeld,$globalParent,$acquisitionCapture,$acquisitionCapture,$GlobalLockHandle,[string]$evidence.BindingHash)
+        }
+        catch { throw 'canonical-witness-required' }
+        $GlobalLockHandle | Add-Member -NotePropertyName CanonicalWitness -NotePropertyValue $CanonicalWitness
+        $GlobalLockHandle | Add-Member -NotePropertyName CanonicalWitnessHash -NotePropertyValue ([AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::GetWitnessHashExact($acquisitionCapture))
+        $GlobalLockHandle | Add-Member -NotePropertyName CanonicalGlobalOrderBinding -NotePropertyValue $binding
+        $GlobalLockHandle | Add-Member -NotePropertyName CanonicalGlobalBindingHash -NotePropertyValue ([string]$evidence.BindingHash)
+        $GlobalLockHandle | Add-Member -NotePropertyName AuthorityContext -NotePropertyValue $AuthorityContext
+        $GlobalLockHandle | Add-Member -NotePropertyName AuthorityContextHash -NotePropertyValue ([string]$evidence.AuthorityContextHash)
+        $GlobalLockHandle | Add-Member -NotePropertyName LiveTargetProjectionHash -NotePropertyValue ([string]$evidence.LiveTargetProjectionHash)
+        $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness
+    }
+    finally {
+        if ($null -ne $envelope) { Close-SealedHomeAuthorityFixedEnvelope -EnvelopeLease $envelope }
+    }
+}
+
 function Get-SealedHomeAuthorityBootstrapCompletionStatus {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$AuthorityContext)
