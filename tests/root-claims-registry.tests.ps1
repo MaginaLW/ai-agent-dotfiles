@@ -738,6 +738,54 @@ function Complete-TestCanonicalSetupState {
     return $state
 }
 
+function New-TestResolverObservationAdapter {
+    param(
+        [Parameter(Mandatory)][string]$Parent,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $fx = New-TestRegistryFixture -Parent $Parent -Name $Name
+    $canonical = New-TestCanonicalClaim -Fixture $fx -Name ($Name + '-canonical')
+    $null = Complete-TestCanonicalSetupState -Fixture $fx -CanonicalFixture $canonical
+    $probeA = Join-Path $fx.Root ($Name + '-probe-a')
+    $probeB = Join-Path $fx.Root ($Name + '-probe-b')
+    foreach ($path in @($probeA,$probeB)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
+    $bindings = @(
+        [ordered]@{ Role='ControlBase'; ProbeRoot=$probeA }
+        [ordered]@{ Role='BackupRoot'; ProbeRoot=$probeB }
+    )
+    $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string]$canonical.ContractPaths.LockPath)
+    $witness = $null
+    try {
+        $witness = Open-CanonicalHeldNamespaceWitness -RepoRoot ([string]$canonical.RepoRoot) -CanonicalLockHandle $canonicalLock -ToolchainRoot $RepoRoot
+        $routeSet = New-SealedCurrentRouteRootSet -CanonicalWitness $witness
+        return [pscustomobject][ordered]@{
+            Fixture=$fx
+            Canonical=$canonical
+            SetupIntent=$canonical.PlanPayload.PrivateRootBootstrapIntent
+            CanonicalLock=$canonicalLock
+            Witness=$witness
+            RouteSet=$routeSet
+            Bindings=$bindings
+        }
+    }
+    catch {
+        if ($null -ne $witness) { try { Close-CanonicalHeldNamespaceWitness -Witness $witness } catch { } }
+        if ($null -ne $canonicalLock) { try { Exit-CanonicalRepoLock -LockHandle $canonicalLock } catch { } }
+        throw
+    }
+}
+
+function Close-TestResolverObservationAdapter {
+    param($Adapter)
+    if ($null -eq $Adapter) { return }
+    if ($null -ne $Adapter.Witness) {
+        try { Close-CanonicalHeldNamespaceWitness -Witness $Adapter.Witness } catch { }
+    }
+    if ($null -ne $Adapter.CanonicalLock) {
+        try { Exit-CanonicalRepoLock -LockHandle $Adapter.CanonicalLock } catch { }
+    }
+}
+
 function Invoke-TestRegistryFailure([Parameter(Mandatory)]$Fixture,[string]$Pattern,[string]$Message) {
     $lock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $Fixture.Context
     try {
@@ -750,6 +798,7 @@ $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([char]92,
 $workRoot = [IO.Path]::GetFullPath((Join-Path $tempParent ('.rcr-' + [guid]::NewGuid().ToString('N'))))
 [IO.Directory]::CreateDirectory($workRoot) | Out-Null
 $testPrimaryError = $null
+$script:resolverStrandedLockCleanupExpected = $false
 
 try {
     Write-Host 'Root claims registry tests'
@@ -5223,6 +5272,345 @@ try {
         }
     }
 
+    Write-Host '[resolver observation failure matrix]'
+
+    $resolverForgedAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-forged-context'
+    $resolverForgedReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    try {
+        $resolverForgedContext = $resolverForgedAdapter.Fixture.Context.PSObject.Copy()
+        $resolverForgedContext.IdentityResolverVersion = 'tampered-identity-resolver'
+        $resolverForgedContext.ResolverVersion = 'tampered-resolver-version'
+        $resolverForgedObserved = $null
+        try {
+            Open-SealedHeldResolverObservation -AuthorityContext $resolverForgedContext -Intent $resolverForgedAdapter.Fixture.Intent `
+                -SetupIntent $resolverForgedAdapter.SetupIntent -CanonicalWitness $resolverForgedAdapter.Witness `
+                -CurrentRouteRootSet $resolverForgedAdapter.RouteSet -CapabilityProbeBindings $resolverForgedAdapter.Bindings `
+                -Reservations @() -OwnershipReceiver $resolverForgedReceiver | Out-Null
+            throw 'FAIL: the resolver observation open accepted a forged AuthorityContext resolver version'
+        }
+        catch {
+            if ($_.Exception.Message -like 'FAIL:*') { throw }
+            $resolverForgedObserved = $_.Exception
+        }
+        Assert-TestCondition ([string]$resolverForgedObserved.Message -ceq 'sealed-home-authority-bootstrap-context-required' -and
+            [string]$resolverForgedReceiver.GetStateExact() -ceq 'EMPTY') 'a forged AuthorityContext resolver version fails closed with an empty receiver and no delivered handle'
+        $resolverForgedReentry = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $resolverForgedAdapter.Fixture.Context
+        try { Assert-TestCondition ($null -ne $resolverForgedReentry) 'forged-context open takes zero locks' }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $resolverForgedReentry }
+    }
+    finally { Close-TestResolverObservationAdapter -Adapter $resolverForgedAdapter }
+
+    $resolverIncompleteAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-incomplete'
+    $resolverIncompleteReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    try {
+        Remove-Item -LiteralPath ([string]$resolverIncompleteAdapter.Fixture.Context.GlobalLiveLockPath) -Force
+        Assert-TestCondition (-not (Test-Path -LiteralPath ([string]$resolverIncompleteAdapter.Fixture.Context.GlobalLiveLockPath))) 'the incomplete fixture lost its final global-lock prefix entry'
+        $resolverIncompleteBefore = Get-TestRegistryTreeHash -Fixture $resolverIncompleteAdapter.Fixture
+        $resolverIncompleteObserved = $null
+        try {
+            Open-SealedHeldResolverObservation -AuthorityContext $resolverIncompleteAdapter.Fixture.Context -Intent $resolverIncompleteAdapter.Fixture.Intent `
+                -SetupIntent $resolverIncompleteAdapter.SetupIntent -CanonicalWitness $resolverIncompleteAdapter.Witness `
+                -CurrentRouteRootSet $resolverIncompleteAdapter.RouteSet -CapabilityProbeBindings $resolverIncompleteAdapter.Bindings `
+                -Reservations @() -OwnershipReceiver $resolverIncompleteReceiver | Out-Null
+            throw 'FAIL: the resolver observation open accepted an incomplete bootstrap prefix'
+        }
+        catch {
+            if ($_.Exception.Message -like 'FAIL:*') { throw }
+            $resolverIncompleteObserved = $_.Exception
+        }
+        $resolverIncompleteAfter = Get-TestRegistryTreeHash -Fixture $resolverIncompleteAdapter.Fixture
+        Assert-TestCondition ([string]$resolverIncompleteObserved.Message -ceq 'home-authority-bootstrap-incomplete' -and
+            [string]$resolverIncompleteReceiver.GetStateExact() -ceq 'EMPTY' -and
+            $resolverIncompleteBefore -ceq $resolverIncompleteAfter -and
+            -not (Test-Path -LiteralPath ([string]$resolverIncompleteAdapter.Fixture.Context.GlobalLiveLockPath))) 'incomplete bootstrap open fails closed with zero creation, zero side effects, and an empty receiver'
+    }
+    finally { Close-TestResolverObservationAdapter -Adapter $resolverIncompleteAdapter }
+
+    $resolverSidAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-sid-mismatch'
+    $resolverSidReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    try {
+        $resolverSidTampered = [ordered]@{}
+        foreach ($resolverSidKey in @($resolverSidAdapter.SetupIntent.Keys)) { $resolverSidTampered[$resolverSidKey] = $resolverSidAdapter.SetupIntent[$resolverSidKey] }
+        $resolverSidTampered['OwnerSid'] = 'S-1-5-18'
+        $resolverSidObserved = $null
+        try {
+            Open-SealedHeldResolverObservation -AuthorityContext $resolverSidAdapter.Fixture.Context -Intent $resolverSidAdapter.Fixture.Intent `
+                -SetupIntent $resolverSidTampered -CanonicalWitness $resolverSidAdapter.Witness `
+                -CurrentRouteRootSet $resolverSidAdapter.RouteSet -CapabilityProbeBindings $resolverSidAdapter.Bindings `
+                -Reservations @() -OwnershipReceiver $resolverSidReceiver | Out-Null
+            throw 'FAIL: the resolver observation open accepted a SetupIntent token-sid mismatch'
+        }
+        catch {
+            if ($_.Exception.Message -like 'FAIL:*') { throw }
+            $resolverSidObserved = $_.Exception
+        }
+        Assert-TestCondition ([string]$resolverSidObserved.Message -ceq 'canonical-sealed-intent-token-sid-mismatch' -and
+            [string]$resolverSidReceiver.GetStateExact() -ceq 'EMPTY') 'a SetupIntent OwnerSid mismatch fails closed after both locks and delivers nothing'
+        $resolverSidReentry = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $resolverSidAdapter.Fixture.Context
+        try { Assert-TestCondition ($null -ne $resolverSidReentry) 'Open finally released both locks after the SetupIntent token-sid mismatch' }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $resolverSidReentry }
+    }
+    finally { Close-TestResolverObservationAdapter -Adapter $resolverSidAdapter }
+
+    $resolverDriftAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-recapture-drift'
+    $resolverDriftReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    try {
+        $resolverDriftWorkspace = Join-Path $resolverDriftAdapter.Fixture.Root 'resolver-drift-workspace'
+        [IO.Directory]::CreateDirectory($resolverDriftWorkspace) | Out-Null
+        $resolverDriftRouteSet = New-SealedCurrentRouteRootSet -CanonicalWitness $resolverDriftAdapter.Witness -CandidateWorkspaceRoot $resolverDriftWorkspace
+        $resolverDriftExpectedIdentity = [string](Get-NoFollowRootEntryMarker -Path $resolverDriftWorkspace).Identity
+        $resolverDriftReplacementIdentity = Replace-TestDirectoryWithDifferentIdentity -Path $resolverDriftWorkspace -ExpectedIdentity $resolverDriftExpectedIdentity -KeeperRoot ([string]$resolverDriftAdapter.Fixture.Root)
+        Assert-TestCondition ($resolverDriftReplacementIdentity -cne $resolverDriftExpectedIdentity) 'recapture drift fixture replaced the candidate-workspace identity after the metadata snapshot'
+        $resolverDriftObserved = $null
+        try {
+            Open-SealedHeldResolverObservation -AuthorityContext $resolverDriftAdapter.Fixture.Context -Intent $resolverDriftAdapter.Fixture.Intent `
+                -SetupIntent $resolverDriftAdapter.SetupIntent -CanonicalWitness $resolverDriftAdapter.Witness `
+                -CurrentRouteRootSet $resolverDriftRouteSet -CapabilityProbeBindings $resolverDriftAdapter.Bindings `
+                -Reservations @() -OwnershipReceiver $resolverDriftReceiver | Out-Null
+            throw 'FAIL: the resolver observation open accepted a recaptured current-route identity drift'
+        }
+        catch {
+            if ($_.Exception.Message -like 'FAIL:*') { throw }
+            $resolverDriftObserved = $_.Exception
+        }
+        Assert-TestCondition ([string]$resolverDriftObserved.Message -like 'target-context-plan-stale:*' -and
+            [string]$resolverDriftReceiver.GetStateExact() -ceq 'EMPTY') 'in-lock recapture identity drift fails closed and delivers nothing'
+        $resolverDriftReentry = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $resolverDriftAdapter.Fixture.Context
+        try { Assert-TestCondition ($null -ne $resolverDriftReentry) 'Open finally released both locks after recapture identity drift' }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $resolverDriftReentry }
+    }
+    finally { Close-TestResolverObservationAdapter -Adapter $resolverDriftAdapter }
+
+    Write-Host '[resolver observation close-state machine]'
+
+    $resolverEntryCloseAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-entry-close'
+    $resolverEntryCloseReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    $resolverEntryCloseHandle = $null
+    $resolverEntryCloseOriginal = $null
+    try {
+        Open-SealedHeldResolverObservation -AuthorityContext $resolverEntryCloseAdapter.Fixture.Context -Intent $resolverEntryCloseAdapter.Fixture.Intent `
+            -SetupIntent $resolverEntryCloseAdapter.SetupIntent -CanonicalWitness $resolverEntryCloseAdapter.Witness `
+            -CurrentRouteRootSet $resolverEntryCloseAdapter.RouteSet -CapabilityProbeBindings $resolverEntryCloseAdapter.Bindings `
+            -Reservations @() -OwnershipReceiver $resolverEntryCloseReceiver
+        $resolverEntryCloseHandle = $resolverEntryCloseReceiver.GetDeliveredExact()
+        $resolverEntryCloseOriginal = (Get-Command Close-SealedHeldObservationCleanupLedgerObservation -CommandType Function -ErrorAction Stop).ScriptBlock
+        try {
+            Set-Item -LiteralPath Function:\Close-SealedHeldObservationCleanupLedgerObservation -Value {
+                param($Ledger,$Observation)
+                throw 'injected-resolver-entry-close-failure'
+            }
+            $resolverEntryCloseObserved = $null
+            try {
+                Close-SealedHeldResolverObservation -Handle $resolverEntryCloseHandle | Out-Null
+                throw 'FAIL: resolver observation close accepted an injected entry-close failure'
+            }
+            catch {
+                if ($_.Exception.Message -like 'FAIL:*') { throw }
+                $resolverEntryCloseObserved = $_.Exception
+            }
+            Assert-TestCondition ([string]$resolverEntryCloseObserved.Message -ceq 'injected-resolver-entry-close-failure' -and
+                [string]$resolverEntryCloseHandle.CloseState -ceq 'OPEN' -and
+                [bool][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($resolverEntryCloseHandle.CurrentRouteCapture) -and
+                $null -ne [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($resolverEntryCloseHandle.GlobalLockHandle) -and
+                $null -ne [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($resolverEntryCloseHandle.BootstrapLockHandle)) 'entry-close failure keeps CloseState OPEN, the route capture open, and both lock wrappers held'
+        }
+        finally {
+            Set-Item -LiteralPath Function:\Close-SealedHeldObservationCleanupLedgerObservation -Value $resolverEntryCloseOriginal
+        }
+        Assert-TestCondition ((Close-SealedHeldResolverObservation -Handle $resolverEntryCloseHandle)) 'retrying Close after removing the entry-close injection succeeds'
+    }
+    finally {
+        if ($null -ne $resolverEntryCloseHandle -and [string]$resolverEntryCloseHandle.CloseState -cne 'CLOSED') {
+            try { $null = Close-SealedHeldResolverObservation -Handle $resolverEntryCloseHandle } catch { }
+        }
+        Close-TestResolverObservationAdapter -Adapter $resolverEntryCloseAdapter
+    }
+
+    $resolverRouteCloseAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-route-close'
+    $resolverRouteCloseReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    $resolverRouteCloseHandle = $null
+    $resolverRouteCloseOriginal = $null
+    try {
+        Open-SealedHeldResolverObservation -AuthorityContext $resolverRouteCloseAdapter.Fixture.Context -Intent $resolverRouteCloseAdapter.Fixture.Intent `
+            -SetupIntent $resolverRouteCloseAdapter.SetupIntent -CanonicalWitness $resolverRouteCloseAdapter.Witness `
+            -CurrentRouteRootSet $resolverRouteCloseAdapter.RouteSet -CapabilityProbeBindings $resolverRouteCloseAdapter.Bindings `
+            -Reservations @() -OwnershipReceiver $resolverRouteCloseReceiver
+        $resolverRouteCloseHandle = $resolverRouteCloseReceiver.GetDeliveredExact()
+        $resolverRouteCloseOriginal = (Get-Command Close-SealedRegistryCurrentRouteCapture -CommandType Function -ErrorAction Stop).ScriptBlock
+        try {
+            Set-Item -LiteralPath Function:\Close-SealedRegistryCurrentRouteCapture -Value {
+                param($Capture)
+                throw 'injected-resolver-route-close-failure'
+            }
+            $resolverRouteCloseObserved = $null
+            try {
+                Close-SealedHeldResolverObservation -Handle $resolverRouteCloseHandle | Out-Null
+                throw 'FAIL: resolver observation close accepted an injected route-close failure'
+            }
+            catch {
+                if ($_.Exception.Message -like 'FAIL:*') { throw }
+                $resolverRouteCloseObserved = $_.Exception
+            }
+            Assert-TestCondition ([string]$resolverRouteCloseObserved.Message -ceq 'injected-resolver-route-close-failure' -and
+                [string]$resolverRouteCloseHandle.CloseState -ceq 'OPEN' -and
+                [bool][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($resolverRouteCloseHandle.CurrentRouteCapture) -and
+                $null -ne [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($resolverRouteCloseHandle.GlobalLockHandle) -and
+                $null -ne [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($resolverRouteCloseHandle.BootstrapLockHandle)) 'route-close failure keeps CloseState OPEN, the capture open, and both lock wrappers held'
+        }
+        finally {
+            Set-Item -LiteralPath Function:\Close-SealedRegistryCurrentRouteCapture -Value $resolverRouteCloseOriginal
+        }
+        Assert-TestCondition ((Close-SealedHeldResolverObservation -Handle $resolverRouteCloseHandle)) 'retrying Close after removing the route-close injection succeeds'
+    }
+    finally {
+        if ($null -ne $resolverRouteCloseHandle -and [string]$resolverRouteCloseHandle.CloseState -cne 'CLOSED') {
+            try { $null = Close-SealedHeldResolverObservation -Handle $resolverRouteCloseHandle } catch { }
+        }
+        Close-TestResolverObservationAdapter -Adapter $resolverRouteCloseAdapter
+    }
+
+    $resolverForgeCloseAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-close-state-forge'
+    $resolverForgeCloseReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    $resolverForgeCloseHandle = $null
+    try {
+        Open-SealedHeldResolverObservation -AuthorityContext $resolverForgeCloseAdapter.Fixture.Context -Intent $resolverForgeCloseAdapter.Fixture.Intent `
+            -SetupIntent $resolverForgeCloseAdapter.SetupIntent -CanonicalWitness $resolverForgeCloseAdapter.Witness `
+            -CurrentRouteRootSet $resolverForgeCloseAdapter.RouteSet -CapabilityProbeBindings $resolverForgeCloseAdapter.Bindings `
+            -Reservations @() -OwnershipReceiver $resolverForgeCloseReceiver
+        $resolverForgeCloseHandle = $resolverForgeCloseReceiver.GetDeliveredExact()
+        Assert-TestCondition ([bool][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($resolverForgeCloseHandle.Observation) -and
+            [string]$resolverForgeCloseHandle.CloseState -ceq 'OPEN') 'the forged-CloseState fixture starts with a live OPEN observation'
+        $resolverForgeCloseHandle.CloseState = 'CLOSED'
+        Assert-TestCondition ((Close-SealedHeldResolverObservation -Handle $resolverForgeCloseHandle) -and
+            [string]$resolverForgeCloseHandle.CloseState -ceq 'CLOSED') 'Close ignores a forged CLOSED NoteProperty while the observation is still OPEN and performs the real close'
+        Assert-TestCondition ((-not (Close-SealedHeldResolverObservation -Handle $resolverForgeCloseHandle)) -and
+            [string]$resolverForgeCloseHandle.CloseState -ceq 'CLOSED') 'a second Close after a genuine close is a no-op that returns false without throwing'
+    }
+    finally {
+        if ($null -ne $resolverForgeCloseHandle -and [string]$resolverForgeCloseHandle.CloseState -cne 'CLOSED') {
+            try { $null = Close-SealedHeldResolverObservation -Handle $resolverForgeCloseHandle } catch { }
+        }
+        Close-TestResolverObservationAdapter -Adapter $resolverForgeCloseAdapter
+    }
+
+    $resolverCanonicalEarlyAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-canonical-early'
+    $resolverCanonicalEarlyReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    $resolverCanonicalEarlyHandle = $null
+    $resolverCanonicalEarlyStranded = $false
+    try {
+        Open-SealedHeldResolverObservation -AuthorityContext $resolverCanonicalEarlyAdapter.Fixture.Context -Intent $resolverCanonicalEarlyAdapter.Fixture.Intent `
+            -SetupIntent $resolverCanonicalEarlyAdapter.SetupIntent -CanonicalWitness $resolverCanonicalEarlyAdapter.Witness `
+            -CurrentRouteRootSet $resolverCanonicalEarlyAdapter.RouteSet -CapabilityProbeBindings $resolverCanonicalEarlyAdapter.Bindings `
+            -Reservations @() -OwnershipReceiver $resolverCanonicalEarlyReceiver
+        $resolverCanonicalEarlyHandle = $resolverCanonicalEarlyReceiver.GetDeliveredExact()
+        Close-CanonicalHeldNamespaceWitness -Witness $resolverCanonicalEarlyAdapter.Witness
+        $resolverCanonicalEarlyAdapter.Witness = $null
+        $resolverCanonicalEarlyLockReleaseObserved = $null
+        try { Exit-CanonicalRepoLock -LockHandle $resolverCanonicalEarlyAdapter.CanonicalLock }
+        catch {
+            $resolverCanonicalEarlyLockReleaseObserved = $_.Exception
+            while (($resolverCanonicalEarlyLockReleaseObserved -is [System.Management.Automation.MethodInvocationException] -or
+                $resolverCanonicalEarlyLockReleaseObserved -is [System.Management.Automation.RuntimeException]) -and
+                $null -ne $resolverCanonicalEarlyLockReleaseObserved.InnerException) {
+                $resolverCanonicalEarlyLockReleaseObserved = $resolverCanonicalEarlyLockReleaseObserved.InnerException
+            }
+        }
+        $resolverCanonicalEarlyObserved = $null
+        try {
+            Close-SealedHeldResolverObservation -Handle $resolverCanonicalEarlyHandle | Out-Null
+            throw 'FAIL: resolver observation close succeeded after the caller released canonical first'
+        }
+        catch {
+            if ($_.Exception.Message -like 'FAIL:*') { throw }
+            $resolverCanonicalEarlyObserved = $_.Exception
+        }
+        $resolverCanonicalEarlyBootstrapOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($resolverCanonicalEarlyHandle.BootstrapLockHandle)
+        $resolverCanonicalEarlyGlobalOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($resolverCanonicalEarlyHandle.GlobalLockHandle)
+        Assert-TestCondition (($resolverCanonicalEarlyObserved.Message -match 'canonical-witness-required|home-authority-lock-owner-required|route-witness-required|held-resolver-observation-stale|held-current-route-fixed-infrastructure-observation-stale|held-observation-cleanup-ledger') -and
+            [string]$resolverCanonicalEarlyHandle.CloseState -ceq 'OPEN' -and
+            $null -ne $resolverCanonicalEarlyBootstrapOwner -and
+            $null -ne $resolverCanonicalEarlyGlobalOwner) ("canonical-early-release fail-closed Close leaves both locks stranded and CloseState OPEN (token=$($resolverCanonicalEarlyObserved.Message))")
+        Assert-TestCondition ($null -ne $resolverCanonicalEarlyLockReleaseObserved -and
+            $resolverCanonicalEarlyLockReleaseObserved.Message -ceq 'dependent-lock-active') 'the canonical repo lock itself refuses release while the stranded global lock holds its order binding'
+        $resolverCanonicalEarlyStranded = $true
+        $script:resolverStrandedLockCleanupExpected = $true
+        Write-Host "  NOTE  stranded resolver lock wrappers recorded; bootstrap, global, and the canonical repo lock remain held until process exit (token=$($resolverCanonicalEarlyObserved.Message))"
+    }
+    finally {
+        if (-not $resolverCanonicalEarlyStranded -and $null -ne $resolverCanonicalEarlyHandle -and [string]$resolverCanonicalEarlyHandle.CloseState -cne 'CLOSED') {
+            try { $null = Close-SealedHeldResolverObservation -Handle $resolverCanonicalEarlyHandle } catch { }
+        }
+        Close-TestResolverObservationAdapter -Adapter $resolverCanonicalEarlyAdapter
+    }
+
+    Write-Host '[resolver observation real contention]'
+
+    $resolverContentionAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'resolver-obs-contention'
+    $resolverContentionReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    $resolverContentionHandle = $null
+    $resolverContentionChild = $null
+    try {
+        Open-SealedHeldResolverObservation -AuthorityContext $resolverContentionAdapter.Fixture.Context -Intent $resolverContentionAdapter.Fixture.Intent `
+            -SetupIntent $resolverContentionAdapter.SetupIntent -CanonicalWitness $resolverContentionAdapter.Witness `
+            -CurrentRouteRootSet $resolverContentionAdapter.RouteSet -CapabilityProbeBindings $resolverContentionAdapter.Bindings `
+            -Reservations @() -OwnershipReceiver $resolverContentionReceiver
+        $resolverContentionHandle = $resolverContentionReceiver.GetDeliveredExact()
+        Assert-TestCondition ([string]$resolverContentionReceiver.GetStateExact() -ceq 'DELIVERED' -and
+            [string]$resolverContentionHandle.CloseState -ceq 'OPEN') 'the parent runscape holds the resolver observation and both locks before child contention'
+        $resolverContentionChild = [PowerShell]::Create()
+        $null = $resolverContentionChild.AddScript({
+            param($RegistryPath)
+            $ErrorActionPreference = 'Stop'
+            . $RegistryPath
+        }).AddArgument((Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1'))
+        $null = $resolverContentionChild.Invoke()
+        if ($resolverContentionChild.HadErrors) { throw 'resolver contention child runscape failed to load registry common' }
+        $resolverContentionChild.Commands.Clear()
+        $null = $resolverContentionChild.AddScript({
+            param($AuthorityContext,$Intent,$SetupIntent,$CanonicalWitness,$RouteSet,$Bindings)
+            $ErrorActionPreference = 'Stop'
+            $receiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            try {
+                Open-SealedHeldResolverObservation -AuthorityContext $AuthorityContext -Intent $Intent `
+                    -SetupIntent $SetupIntent -CanonicalWitness $CanonicalWitness -CurrentRouteRootSet $RouteSet `
+                    -CapabilityProbeBindings $Bindings -Reservations @() -OwnershipReceiver $receiver | Out-Null
+                [pscustomobject][ordered]@{ ElapsedMilliseconds=[long]$watch.ElapsedMilliseconds; Error=$null; State=[string]$receiver.GetStateExact() }
+            }
+            catch {
+                $domain = $_.Exception
+                while ($null -ne $domain.InnerException) { $domain = $domain.InnerException }
+                [pscustomobject][ordered]@{ ElapsedMilliseconds=[long]$watch.ElapsedMilliseconds; Error=[string]$domain.Message; State=[string]$receiver.GetStateExact() }
+            }
+        }).AddArgument($resolverContentionAdapter.Fixture.Context).AddArgument($resolverContentionAdapter.Fixture.Intent).
+            AddArgument($resolverContentionAdapter.SetupIntent).AddArgument($resolverContentionAdapter.Witness).
+            AddArgument($resolverContentionAdapter.RouteSet).AddArgument($resolverContentionAdapter.Bindings)
+        $resolverContentionChildOutput = @($resolverContentionChild.Invoke())
+        Assert-TestCondition ($resolverContentionChildOutput.Count -eq 1 -and
+            [string]$resolverContentionChildOutput[0].Error -ceq 'operation-lock-busy' -and
+            [long]$resolverContentionChildOutput[0].ElapsedMilliseconds -lt 1000 -and
+            [string]$resolverContentionChildOutput[0].State -ceq 'EMPTY') 'a child runscape Open contends with operation-lock-busy in under one second and delivers nothing'
+        Assert-TestCondition ((Close-SealedHeldResolverObservation -Handle $resolverContentionHandle)) 'the parent Close releases both locks after the contention probe'
+        $resolverContentionHandle = $null
+        $resolverContentionChild.Commands.Clear()
+        $null = $resolverContentionChild.AddScript({
+            param($AuthorityContext)
+            $ErrorActionPreference = 'Stop'
+            $reentry = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $AuthorityContext
+            try { return ($null -ne $reentry) }
+            finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $reentry }
+        }).AddArgument($resolverContentionAdapter.Fixture.Context)
+        $resolverContentionReentryOutput = @($resolverContentionChild.Invoke())
+        Assert-TestCondition ($resolverContentionReentryOutput.Count -eq 1 -and [bool]$resolverContentionReentryOutput[0]) 'after parent Close the child runscape can re-enter the global lock'
+    }
+    finally {
+        if ($null -ne $resolverContentionChild) { try { $resolverContentionChild.Dispose() } catch { } }
+        if ($null -ne $resolverContentionHandle -and [string]$resolverContentionHandle.CloseState -cne 'CLOSED') {
+            try { $null = Close-SealedHeldResolverObservation -Handle $resolverContentionHandle } catch { }
+        }
+        Close-TestResolverObservationAdapter -Adapter $resolverContentionAdapter
+    }
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 
@@ -5395,9 +5783,16 @@ finally {
     if (Test-Path -LiteralPath $resolvedWorkRoot) {
         try { Remove-Item -LiteralPath $resolvedWorkRoot -Recurse -Force }
         catch {
-            if ($null -eq $testPrimaryError) { throw }
-            try { $testPrimaryError.Exception.Data['RootClaimsRegistryTestCleanupError'] = [string]$_.Exception.Message }
-            catch { }
+            $strandedLockResidue = ([bool]$script:resolverStrandedLockCleanupExpected -and
+                @($_.Exception.Message.Split("`n") | Where-Object { $_ -imatch 'resolver-obs-canonical-early' }).Count -gt 0)
+            if ($strandedLockResidue -and $null -eq $testPrimaryError) {
+                Write-Host '  NOTE  workRoot cleanup left stranded resolver lock files from canonical-early-release fail-closed Close'
+            }
+            elseif ($null -eq $testPrimaryError) { throw }
+            else {
+                try { $testPrimaryError.Exception.Data['RootClaimsRegistryTestCleanupError'] = [string]$_.Exception.Message }
+                catch { }
+            }
         }
     }
 }
