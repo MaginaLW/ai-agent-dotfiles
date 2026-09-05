@@ -762,9 +762,11 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   (the payload-graph template check precedes the binding) so the control-path variant pins that boundary; the
   durable-claim-absent surface is covered by the final reviewed-prefix snapshot; resolver COMPLETE-only is already
   pinned by the slice-4 incomplete block. Validation: registry suite exit 0 with 646 PASS lines, seams 56/0,
-  diff-check clean. The definitive unified `run-tests.ps1 -All` run for commit `43fa08a` executes with an external
-  create-new summary; its result is recorded in STATUS.md when complete. Task 1 remains 1/6 and Phase 2 remains 1/52;
-  production Apply remains interlocked.
+  diff-check clean. The definitive unified `run-tests.ps1 -All` run for commit `43fa08a` then passed all 34 suites
+  exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures (external create-new
+  summary SHA-256
+  `248319e3823b79d96b1faddb905ecb52227e749a6db0db4f23ca071eab88977c`), with hard-kill 318/0 and seams 56/0 inside the
+  run. Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
 ## Current checkpoint
 

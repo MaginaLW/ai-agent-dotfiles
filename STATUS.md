@@ -1628,9 +1628,13 @@ auto-cancelled) returned three major and three minor findings, all adopted as co
 Validation after the review fixes: the full `root-claims-registry.tests.ps1` suite passed with exit
 code 0 and 646 PASS lines; `canonical-production-seams.tests.ps1` passed 56/0 after the re-pin;
 `git diff --check` was clean. The definitive unified `run-tests.ps1 -All` run for commit `43fa08a`
-executes with an external create-new summary; its result is recorded below. Task 1 remains 1/6 and
-Phase 2 remains 1/52. Production Apply remains interlocked, and no live root or Git index/ref was
-changed.
+then discovered, started, completed, and passed all 34 suites exactly once with zero failures,
+timeouts, duplicates, missing suites, or tree-kill failures (external create-new summary SHA-256
+`248319e3823b79d96b1faddb905ecb52227e749a6db0db4f23ca071eab88977c`), with `canonical-hard-kill.tests.ps1`
+at 318/0 and `canonical-production-seams.tests.ps1` at 56/0 inside the run. No production Apply,
+backup, rollback, retirement, live-root mutation, or Git index/ref mutation was performed. Task 1
+remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root or Git
+index/ref was changed.
 
 ## Validation status
 
