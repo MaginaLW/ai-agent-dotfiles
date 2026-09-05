@@ -1863,7 +1863,10 @@ try {
         'Close-SealedHeldObservationCleanupLedger',
         'Open-SealedHeldObservationLifecycle',
         'Assert-SealedHeldObservationLifecycle',
-        'Close-SealedHeldObservationLifecycle'
+        'Close-SealedHeldObservationLifecycle',
+        'Open-SealedHeldResolverObservation',
+        'Assert-SealedHeldResolverObservation',
+        'Close-SealedHeldResolverObservation'
     )) {
         $registryCommand = Get-Command $commandName -ErrorAction Stop
         foreach ($publicSelector in @('HomeRoot','BackupRoot','LockWaitSeconds','TestMode')) {
@@ -5087,6 +5090,138 @@ try {
     $null = Add-TestAuthorityArtifacts -Context $ads.Context -Claims $adsClaims
     Add-PathSafetyNamedStream -Path ([string]$ads.Context.RootClaimsPath) -Name 'registry-test'
     Invoke-TestRegistryFailure -Fixture $ads -Pattern 'manual-recovery-required:.*alternate data stream' -Message 'authority claim with an ADS fails closed'
+
+    Write-Host '[resolver observation layer]'
+
+    $resolverOpenCommand = Get-Command Open-SealedHeldResolverObservation -CommandType Function -ErrorAction Stop
+    $resolverAssertCommand = Get-Command Assert-SealedHeldResolverObservation -CommandType Function -ErrorAction Stop
+    $resolverCloseCommand = Get-Command Close-SealedHeldResolverObservation -CommandType Function -ErrorAction Stop
+    Assert-TestCondition ((@($resolverOpenCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) -join "`0") -ceq "AuthorityContext`0Intent`0SetupIntent`0CanonicalWitness`0CurrentRouteRootSet`0CapabilityProbeBindings`0Reservations`0OwnershipReceiver" -and
+        (@($resolverAssertCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) -join "`0") -ceq "Handle" -and
+        (@($resolverCloseCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) -join "`0") -ceq "Handle" -and
+        $resolverOpenCommand.Parameters['OwnershipReceiver'].ParameterType -eq [AiAgentDotfiles.SealedOwnershipTransferReceiver] -and
+        @($resolverOpenCommand.Parameters['OwnershipReceiver'].Attributes | Where-Object { $_ -is [Management.Automation.ParameterAttribute] -and $_.Mandatory }).Count -eq 1 -and
+        -not $resolverOpenCommand.Parameters.ContainsKey('Action') -and
+        -not $resolverOpenCommand.Parameters.ContainsKey('ScriptBlock') -and
+        -not $resolverOpenCommand.Parameters.ContainsKey('HomeRoot') -and
+        -not $resolverOpenCommand.Parameters.ContainsKey('ProbeRoot') -and
+        -not $resolverAssertCommand.Parameters.ContainsKey('Action') -and
+        -not $resolverCloseCommand.Parameters.ContainsKey('Action')) 'the resolver observation exposes receiver-backed Open with the exact parameter set and no ScriptBlock Action'
+
+    $resolverSuccessFixture = New-TestRegistryFixture -Parent $workRoot -Name 'resolver-observation-success'
+    $resolverSuccessCanonical = New-TestCanonicalClaim -Fixture $resolverSuccessFixture -Name 'resolver-success-canonical'
+    $resolverSuccessSetupIntent = $resolverSuccessCanonical.PlanPayload.PrivateRootBootstrapIntent
+    $resolverSuccessCanonicalLock = $null
+    $resolverSuccessWitness = $null
+    $resolverSuccessHandle = $null
+    $resolverSuccessReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    try {
+        $null = Complete-TestCanonicalSetupState -Fixture $resolverSuccessFixture -CanonicalFixture $resolverSuccessCanonical
+        $resolverSuccessCanonicalLock = Enter-CanonicalRepoLock -LockPath ([string]$resolverSuccessCanonical.ContractPaths.LockPath)
+        $resolverSuccessWitness = Open-CanonicalHeldNamespaceWitness -RepoRoot ([string]$resolverSuccessCanonical.RepoRoot) -CanonicalLockHandle $resolverSuccessCanonicalLock -ToolchainRoot $RepoRoot
+        $resolverSuccessProbes = @((Join-Path $resolverSuccessFixture.Root 'resolver-probe-a'),(Join-Path $resolverSuccessFixture.Root 'resolver-probe-b'))
+        foreach ($resolverSuccessProbe in $resolverSuccessProbes) { [IO.Directory]::CreateDirectory($resolverSuccessProbe) | Out-Null }
+        $resolverSuccessBindings = @(
+            [ordered]@{ Role='ControlBase'; ProbeRoot=$resolverSuccessProbes[0] }
+            [ordered]@{ Role='BackupRoot'; ProbeRoot=$resolverSuccessProbes[1] }
+        )
+        $resolverSuccessRouteSet = New-SealedCurrentRouteRootSet -CanonicalWitness $resolverSuccessWitness
+        Assert-ThrowsPattern {
+            Open-SealedHeldResolverObservation -AuthorityContext $resolverSuccessFixture.Context -Intent $resolverSuccessFixture.Intent `
+                -SetupIntent $resolverSuccessSetupIntent -CanonicalWitness $resolverSuccessWitness -CurrentRouteRootSet $resolverSuccessRouteSet `
+                -CapabilityProbeBindings @() -Reservations @() | Out-Null
+        } 'missing mandatory parameters: OwnershipReceiver' 'the resolver observation open rejects a raw success-stream return path by requiring the ownership receiver'
+        $resolverSuccessOutput = @(Open-SealedHeldResolverObservation -AuthorityContext $resolverSuccessFixture.Context -Intent $resolverSuccessFixture.Intent `
+            -SetupIntent $resolverSuccessSetupIntent -CanonicalWitness $resolverSuccessWitness -CurrentRouteRootSet $resolverSuccessRouteSet `
+            -CapabilityProbeBindings $resolverSuccessBindings -Reservations @() -OwnershipReceiver $resolverSuccessReceiver)
+        $resolverSuccessHandle = $resolverSuccessReceiver.GetDeliveredExact()
+        Assert-TestCondition ($resolverSuccessOutput.Count -eq 0 -and
+            [string]$resolverSuccessReceiver.GetStateExact() -ceq 'DELIVERED' -and
+            'AiAgentDotfiles.SealedHeldResolverObservation' -cin @($resolverSuccessHandle.PSObject.TypeNames) -and
+            (@($resolverSuccessHandle.PSObject.Properties | ForEach-Object { $_.Name }) -join "`0") -ceq "AuthorityContext`0CanonicalWitness`0Intent`0SetupIntent`0BindingEvidence`0BootstrapLockHandle`0GlobalLockHandle`0CurrentRouteCapture`0Ledger`0Observation`0CloseState" -and
+            [string]$resolverSuccessHandle.CloseState -ceq 'OPEN' -and
+            [string][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetMutationAuthorizationExact($resolverSuccessHandle.Observation) -ceq 'NONE') 'the resolver observation delivers an owned typed handle with an OPEN state and a NONE-authorization observation without a success-stream payload'
+        Assert-TestCondition ([string]$resolverSuccessHandle.BindingEvidence.TokenSid -ceq [string]$resolverSuccessFixture.Context.TokenSid -and
+            [string]$resolverSuccessHandle.BindingEvidence.TokenSid -ceq [string]$resolverSuccessSetupIntent.OwnerSid -and
+            [string]$resolverSuccessHandle.BindingEvidence.ControlPath -ceq [string]$resolverSuccessFixture.Context.ControlBase -and
+            [string]$resolverSuccessHandle.BindingEvidence.BackupPath -ceq [string]$resolverSuccessFixture.Context.BackupRoot) 'the resolver observation froze the cross-layer binding evidence for the current token and both fixed roots'
+        Assert-TestCondition ((Assert-SealedHeldResolverObservation -Handle $resolverSuccessHandle)) 'the resolver observation asserts current under the held bootstrap and global locks'
+        Assert-TestCondition (@(Get-SealedRegistryRouteCleanupRecoveryTicket -AuthorityControlRoot ([string]$resolverSuccessFixture.Context.ControlBase)).Count -eq 0) 'the success open observes zero unhandled route-cleanup recovery tickets'
+        Assert-TestCondition ((Close-SealedHeldResolverObservation -Handle $resolverSuccessHandle)) 'the resolver observation close releases the trio, route, and both locks tail to head'
+        Assert-TestCondition ((-not (Close-SealedHeldResolverObservation -Handle $resolverSuccessHandle)) -and
+            [string]$resolverSuccessHandle.CloseState -ceq 'CLOSED') 'the resolver observation close is single-use after every inner resource and both locks are released'
+        $resolverSuccessReentry = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $resolverSuccessFixture.Context
+        try { Assert-TestCondition ($null -ne $resolverSuccessReentry) 'the global lock can be re-entered after the resolver observation close' }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $resolverSuccessReentry }
+    }
+    finally {
+        if ($null -ne $resolverSuccessHandle -and [string]$resolverSuccessHandle.CloseState -cne 'CLOSED') {
+            try { $null = Close-SealedHeldResolverObservation -Handle $resolverSuccessHandle } catch { }
+        }
+        if ($null -ne $resolverSuccessWitness) {
+            try { Close-CanonicalHeldNamespaceWitness -Witness $resolverSuccessWitness } catch { }
+        }
+        if ($null -ne $resolverSuccessCanonicalLock) {
+            try { Exit-CanonicalRepoLock -LockHandle $resolverSuccessCanonicalLock } catch { }
+        }
+    }
+
+    $resolverTicketFixture = New-TestRegistryFixture -Parent $workRoot -Name 'resolver-observation-ticket'
+    $resolverTicketCanonical = New-TestCanonicalClaim -Fixture $resolverTicketFixture -Name 'resolver-ticket-canonical'
+    $resolverTicketSetupIntent = $resolverTicketCanonical.PlanPayload.PrivateRootBootstrapIntent
+    $resolverTicketCanonicalLock = $null
+    $resolverTicketWitness = $null
+    $resolverTicketState = $null
+    $resolverTicketReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    try {
+        $null = Complete-TestCanonicalSetupState -Fixture $resolverTicketFixture -CanonicalFixture $resolverTicketCanonical
+        $resolverTicketState = New-DurableTicketSyntheticCleanupCapture -Fixture $resolverTicketFixture `
+            -CaptureId ([Guid]::Parse('20000000-0000-0000-0000-000000000004')) `
+            -FixedUtc ([DateTime]::Parse('2026-09-05T10:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)) -FailOnce
+        try { [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($resolverTicketState.Capture) | Out-Null } catch { }
+        $resolverTicketRows = @(Get-SealedRegistryRouteCleanupRecoveryTicket -AuthorityControlRoot ([string]$resolverTicketFixture.Context.ControlBase))
+        Assert-TestCondition ($resolverTicketRows.Count -eq 1 -and [string]$resolverTicketRows[0].Status -ceq 'valid') 'the ticket fixture publishes exactly one valid unhandled route-cleanup recovery ticket'
+        $resolverTicketCanonicalLock = Enter-CanonicalRepoLock -LockPath ([string]$resolverTicketCanonical.ContractPaths.LockPath)
+        $resolverTicketWitness = Open-CanonicalHeldNamespaceWitness -RepoRoot ([string]$resolverTicketCanonical.RepoRoot) -CanonicalLockHandle $resolverTicketCanonicalLock -ToolchainRoot $RepoRoot
+        $resolverTicketRouteSet = New-SealedCurrentRouteRootSet -CanonicalWitness $resolverTicketWitness
+        $resolverTicketProbes = @((Join-Path $resolverTicketFixture.Root 'resolver-ticket-probe-a'),(Join-Path $resolverTicketFixture.Root 'resolver-ticket-probe-b'))
+        foreach ($resolverTicketProbe in $resolverTicketProbes) { [IO.Directory]::CreateDirectory($resolverTicketProbe) | Out-Null }
+        $resolverTicketBindings = @(
+            [ordered]@{ Role='ControlBase'; ProbeRoot=$resolverTicketProbes[0] }
+            [ordered]@{ Role='BackupRoot'; ProbeRoot=$resolverTicketProbes[1] }
+        )
+        $resolverTicketObserved = $null
+        try {
+            Open-SealedHeldResolverObservation -AuthorityContext $resolverTicketFixture.Context -Intent $resolverTicketFixture.Intent `
+                -SetupIntent $resolverTicketSetupIntent -CanonicalWitness $resolverTicketWitness -CurrentRouteRootSet $resolverTicketRouteSet `
+                -CapabilityProbeBindings $resolverTicketBindings -Reservations @() -OwnershipReceiver $resolverTicketReceiver | Out-Null
+            throw 'FAIL: the resolver observation open accepted an unhandled route-cleanup recovery ticket'
+        }
+        catch {
+            if ($_.Exception.Message -like 'FAIL:*') { throw }
+            $resolverTicketObserved = $_.Exception
+        }
+        Assert-TestCondition ([string]$resolverTicketObserved.Message -ceq 'sealed-held-resolver-unhandled-route-cleanup-recovery' -and
+            [int]$resolverTicketObserved.Data['UnhandledRouteCleanupRecoveryTicketCount'] -eq 1 -and
+            @($resolverTicketObserved.Data['UnhandledRouteCleanupRecoveryTicketCaptureIds'])[0] -ceq '20000000-0000-0000-0000-000000000004' -and
+            -not $resolverTicketObserved.Data.Contains('DurableRecoveryTicketPath')) 'the resolver observation open fails closed on an unhandled recovery ticket with only count and capture-id evidence'
+        Assert-TestCondition ([string]$resolverTicketReceiver.GetStateExact() -ceq 'EMPTY') 'no resolver observation handle is delivered when the ticket block fires'
+        $resolverTicketReentry = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $resolverTicketFixture.Context
+        try { Assert-TestCondition ($null -ne $resolverTicketReentry) 'the failed open released the bootstrap and global locks after the ticket block' }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $resolverTicketReentry }
+    }
+    finally {
+        Reset-DurableTicketPublisherSeams
+        if ($null -ne $resolverTicketState) {
+            try { [AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::ReleaseExact($resolverTicketState.Capture) | Out-Null } catch { }
+        }
+        if ($null -ne $resolverTicketWitness) {
+            try { Close-CanonicalHeldNamespaceWitness -Witness $resolverTicketWitness } catch { }
+        }
+        if ($null -ne $resolverTicketCanonicalLock) {
+            try { Exit-CanonicalRepoLock -LockHandle $resolverTicketCanonicalLock } catch { }
+        }
+    }
 
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)

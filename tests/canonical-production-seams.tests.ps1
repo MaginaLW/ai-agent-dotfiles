@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=12858
-$reviewedAllScriptsReflectionSensitiveDigest='888c50d162521f000107c76a9307a11b380bda6906df10a6203cf452e221b2bd'
+$reviewedAllScriptsReflectionSensitiveSiteCount=12955
+$reviewedAllScriptsReflectionSensitiveDigest='70356ed7f4bb0a7d0c6b9438cf3d56a56b5ced7293576d5a4767a37f4cc6cdb6'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -381,6 +381,9 @@ function Invoke-ProductionSeamAnalysis {
     $validatorAllowedCallers=[Collections.Generic.List[string]]::new()
     $observationOpenAllowedCallers=[Collections.Generic.List[string]]::new()
     $observationAssertAllowedCallers=[Collections.Generic.List[string]]::new()
+    $lifecycleOpenAllowedCallers=[Collections.Generic.List[string]]::new()
+    $lifecycleAssertAllowedCallers=[Collections.Generic.List[string]]::new()
+    $lifecycleCloseAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerOpenAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerRegisterAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerAssertAllowedCallers=[Collections.Generic.List[string]]::new()
@@ -489,11 +492,33 @@ function Invoke-ProductionSeamAnalysis {
                 }
                 else{$fixedObservationBoundaryViolations.Add("held current-route fixed-infrastructure observation caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
+            if($commandName -ieq 'Open-SealedHeldObservationLifecycle'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Open-SealedHeldResolverObservation'){
+                    $lifecycleOpenAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("held observation lifecycle caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            elseif($commandName -ieq 'Assert-SealedHeldObservationLifecycle'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Assert-SealedHeldResolverObservation'){
+                    $lifecycleAssertAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("held observation lifecycle caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            elseif($commandName -ieq 'Close-SealedHeldObservationLifecycle'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    ([string]$owner.Name -ceq 'Open-SealedHeldResolverObservation' -or
+                    [string]$owner.Name -ceq 'Close-SealedHeldResolverObservation')){
+                    $lifecycleCloseAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("held observation lifecycle caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
             if($commandName -iin @(
-                'Open-SealedHeldObservationLifecycle',
-                'Assert-SealedHeldObservationLifecycle',
-                'Close-SealedHeldObservationLifecycle')){
-                $fixedObservationBoundaryViolations.Add("held observation lifecycle caller: $($model.RelativePath):$($ownerName):$commandName")
+                'Open-SealedHeldResolverObservation',
+                'Assert-SealedHeldResolverObservation',
+                'Close-SealedHeldResolverObservation')){
+                $fixedObservationBoundaryViolations.Add("held resolver observation caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Open-SealedHeldObservationCleanupLedger'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
@@ -731,7 +756,10 @@ function Invoke-ProductionSeamAnalysis {
         'Close-SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation',
         'Open-SealedHeldObservationLifecycle',
         'Assert-SealedHeldObservationLifecycle',
-        'Close-SealedHeldObservationLifecycle')){
+        'Close-SealedHeldObservationLifecycle',
+        'Open-SealedHeldResolverObservation',
+        'Assert-SealedHeldResolverObservation',
+        'Close-SealedHeldResolverObservation')){
         $observationDefinitionKey=$observationFunctionName.ToLowerInvariant()
         $observationDefinitions=@(if($definitions.ContainsKey($observationDefinitionKey)){@($definitions[$observationDefinitionKey])})
         if($observationDefinitions.Count -ne 1 -or
@@ -779,6 +807,21 @@ function Invoke-ProductionSeamAnalysis {
     }
     if((@($ledgerCloseAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLedgerCloseOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed observation cleanup ledger close owner inventory changed')
+    }
+    $reviewedLifecycleOpenOwnerInventory=@('scripts/root-claims-registry-common.ps1:Open-SealedHeldResolverObservation')
+    $reviewedLifecycleAssertOwnerInventory=@('scripts/root-claims-registry-common.ps1:Assert-SealedHeldResolverObservation')
+    $reviewedLifecycleCloseOwnerInventory=@(
+        'scripts/root-claims-registry-common.ps1:Close-SealedHeldResolverObservation'
+        'scripts/root-claims-registry-common.ps1:Open-SealedHeldResolverObservation'
+    ) | Sort-Object -CaseSensitive
+    if((@($lifecycleOpenAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLifecycleOpenOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation lifecycle Open owner inventory changed')
+    }
+    if((@($lifecycleAssertAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLifecycleAssertOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation lifecycle Assert owner inventory changed')
+    }
+    if((@($lifecycleCloseAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLifecycleCloseOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed observation lifecycle Close owner inventory changed')
     }
 
     $queue=[Collections.Generic.Queue[string]]::new()
@@ -939,7 +982,7 @@ Assert-TestCondition ($baseline.AllScriptsScriptBlockFunctionDefinitionInventory
 Assert-TestCondition ($baseline.AllScriptsLiteralProviderDriveTokenInventory.Count -eq 0 -and
     $baseline.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero literal provider-drive token baseline alongside direct named CommandAst analysis'
 Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture, route, observation, raw, and probe issuers plus the fixed validator have only their exact reviewed definitions, owners, and members'
-Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, observation Close and the lifecycle owner retain zero production callers, and all six functions remain uniquely defined'
+Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, observation Close and the resolver observation trio retain zero production callers, and all nine functions remain uniquely defined'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])

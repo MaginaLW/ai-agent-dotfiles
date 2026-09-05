@@ -6784,6 +6784,264 @@ function Close-SealedHeldObservationLifecycle {
     }
 }
 
+function Open-SealedHeldResolverObservation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$Intent,
+        [Parameter(Mandatory)]$SetupIntent,
+        [Parameter(Mandatory)]$CanonicalWitness,
+        [Parameter(Mandatory)]$CurrentRouteRootSet,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$CapabilityProbeBindings,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Reservations,
+        [Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver
+    )
+
+    $bootstrapLock=$null
+    $globalLock=$null
+    $routeCapture=$null
+    $routeReceiver=$null
+    $ledgerReceiver=$null
+    $observationReceiver=$null
+    $ledger=$null
+    $observation=$null
+    $delivered=$false
+    $openPrimaryError=$null
+    $openPrimaryDomainException=$null
+    try {
+        $OwnershipReceiver.AssertEmptyExact()
+        $null=Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $AuthorityContext
+        $current=Assert-SealedHomeAuthorityBootstrapIntent -AuthorityContext $AuthorityContext -Intent $Intent
+        if([string]$current.Status -cne 'COMPLETE' -or [long]$current.CompletePrefixLength -ne 7){
+            throw 'home-authority-bootstrap-incomplete'
+        }
+        $bootstrapLock=Enter-HomeAuthorityLockFileCore `
+            -ParentPath ([string]$Intent.LocalAppDataRoot) `
+            -LockPath ([string]$Intent.ControlBootstrapLockPath) `
+            -FileSecurityTemplate (Get-HomeAuthorityObjectProperty -InputObject $Intent -Name 'LockFileSecurityTemplate') `
+            -Mode OpenExisting `
+            -MissingToken 'home-authority-bootstrap-incomplete' `
+            -ExpectedParentIdentity ([string]$Intent.LocalAppDataRootIdentity)
+        $null=Assert-SealedHomeAuthorityBootstrapIntent -AuthorityContext $AuthorityContext -Intent $Intent -HeldBootstrapLock $bootstrapLock
+        $globalLock=Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $AuthorityContext -RequiredCanonicalWitness $CanonicalWitness
+        $null=Assert-SealedHomeAuthorityBootstrapIntent -AuthorityContext $AuthorityContext -Intent $Intent -HeldGlobalLock $globalLock -HeldBootstrapLock $bootstrapLock
+        $binding=Assert-CanonicalSealedSetupIntentBinding -SetupIntent $SetupIntent -SealedIntent $Intent
+        $validTickets=@(Get-SealedRegistryRouteCleanupRecoveryTicket -AuthorityControlRoot ([string]$AuthorityContext.ControlBase) |
+            Where-Object { [string]$_.Status -ceq 'valid' })
+        if($validTickets.Count -gt 0){
+            $unhandledError=[InvalidOperationException]::new('sealed-held-resolver-unhandled-route-cleanup-recovery')
+            $unhandledError.Data['UnhandledRouteCleanupRecoveryTicketCount']=[int]$validTickets.Count
+            $unhandledError.Data['UnhandledRouteCleanupRecoveryTicketCaptureIds']=@($validTickets | ForEach-Object { [string]$_.CaptureId })
+            throw $unhandledError
+        }
+        $routeReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SealedRegistryCurrentRouteCapture -AuthorityContext $AuthorityContext `
+            -GlobalLockHandle $globalLock -CanonicalWitness $CanonicalWitness `
+            -CurrentRouteRootSet $CurrentRouteRootSet -Reservations @($Reservations) `
+            -OwnershipReceiver $routeReceiver
+        if([string]$routeReceiver.GetStateExact() -cne 'DELIVERED'){
+            throw 'sealed-registry-current-route-capture-stale'
+        }
+        $routeCapture=$routeReceiver.GetDeliveredExact()
+        $ledgerReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        $observationReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SealedHeldObservationLifecycle -CurrentRouteCapture $routeCapture `
+            -CapabilityProbeBindings @($CapabilityProbeBindings) `
+            -LedgerOwnershipReceiver $ledgerReceiver `
+            -ObservationOwnershipReceiver $observationReceiver
+        if([string]$ledgerReceiver.GetStateExact() -cne 'DELIVERED' -or
+            [string]$observationReceiver.GetStateExact() -cne 'DELIVERED'){
+            throw 'held-observation-cleanup-ledger-stale'
+        }
+        $ledger=$ledgerReceiver.GetDeliveredExact()
+        $observation=$observationReceiver.GetDeliveredExact()
+        $handle=[pscustomobject][ordered]@{
+            AuthorityContext=$AuthorityContext
+            CanonicalWitness=$CanonicalWitness
+            Intent=$Intent
+            SetupIntent=$SetupIntent
+            BindingEvidence=$binding
+            BootstrapLockHandle=$bootstrapLock
+            GlobalLockHandle=$globalLock
+            CurrentRouteCapture=$routeCapture
+            Ledger=$ledger
+            Observation=$observation
+            CloseState='OPEN'
+        }
+        $null=$handle.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.SealedHeldResolverObservation')
+        $OwnershipReceiver.AssertEmptyExact()
+        $OwnershipReceiver.DeliverExact($handle)
+        $delivered=$true
+        return
+    }
+    catch {
+        $openPrimaryError=$_
+        $openPrimaryDomainException=$_.Exception
+        while(($openPrimaryDomainException -is [System.Management.Automation.MethodInvocationException] -or
+            $openPrimaryDomainException -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $openPrimaryDomainException.InnerException){
+            $openPrimaryDomainException=$openPrimaryDomainException.InnerException
+            if($openPrimaryDomainException -is [AggregateException]){break}
+        }
+        throw $openPrimaryDomainException
+    }
+    finally {
+        if(-not $delivered){
+            $openCleanupError=$null
+            $openCleanupStop=$false
+            if($null -eq $ledger -and $null -ne $ledgerReceiver){
+                try {
+                    if([string]$ledgerReceiver.GetStateExact() -ceq 'DELIVERED'){
+                        $ledger=$ledgerReceiver.GetDeliveredExact()
+                    }
+                }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            if($null -eq $observation -and $null -ne $observationReceiver){
+                try {
+                    if([string]$observationReceiver.GetStateExact() -ceq 'DELIVERED'){
+                        $observation=$observationReceiver.GetDeliveredExact()
+                    }
+                }
+                catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+            }
+            if($null -ne $ledger -and $null -ne $observation){
+                try {
+                    $null=Close-SealedHeldObservationLifecycle -Ledger $ledger -Observation $observation
+                }
+                catch {
+                    if($null -eq $openCleanupError){$openCleanupError=$_}
+                    $openCleanupStop=$true
+                }
+            }
+            if(-not $openCleanupStop){
+                $routeStillOpen=$false
+                if($null -ne $routeCapture){
+                    try {
+                        $null=Close-SealedRegistryCurrentRouteCapture -Capture $routeCapture
+                    }
+                    catch {
+                        if($null -eq $openCleanupError){$openCleanupError=$_}
+                        try {
+                            if([bool][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($routeCapture)){
+                                $routeStillOpen=$true
+                            }
+                        }
+                        catch { }
+                    }
+                }
+                if(-not $routeStillOpen){
+                    if($null -ne $globalLock){
+                        try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
+                        catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+                    }
+                    if($null -ne $bootstrapLock){
+                        try { Exit-HomeAuthorityLockHandle -LockHandle $bootstrapLock }
+                        catch { if($null -eq $openCleanupError){$openCleanupError=$_} }
+                    }
+                }
+            }
+            if($null -ne $openCleanupError){
+                if($null -ne $openPrimaryError -and $null -ne $openPrimaryDomainException){
+                    try {
+                        $openPrimaryDomainException.Data['SealedHeldResolverObservationCleanupError']=
+                            [string]$openCleanupError.Exception.Message
+                    }
+                    catch { }
+                }
+                else { throw $openCleanupError }
+            }
+        }
+    }
+}
+
+function Assert-SealedHeldResolverObservation {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()]$Handle)
+
+    if($null -eq $Handle -or 'AiAgentDotfiles.SealedHeldResolverObservation' -cnotin @($Handle.PSObject.TypeNames)){
+        throw 'held-resolver-observation-stale'
+    }
+    foreach($handleName in @('AuthorityContext','CanonicalWitness','Intent','SetupIntent','BindingEvidence','BootstrapLockHandle','GlobalLockHandle','CurrentRouteCapture','Ledger','Observation','CloseState')){
+        if($null -eq $Handle.PSObject.Properties[$handleName]){ throw 'held-resolver-observation-stale' }
+    }
+    if([string]$Handle.CloseState -cne 'OPEN'){ throw 'held-resolver-observation-stale' }
+    $bootstrapOwner=[AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($Handle.BootstrapLockHandle)
+    if($null -eq $bootstrapOwner -or -not [AiAgentDotfiles.SafeLockResourceOwner]::IsExactForWrapper($bootstrapOwner,$Handle.BootstrapLockHandle) -or
+        [AiAgentDotfiles.SafeLockResourceOwner]::GetIsReleasedExact($bootstrapOwner)){
+        throw 'held-resolver-observation-stale'
+    }
+    $null=Assert-SealedHomeAuthorityBootstrapIntent -AuthorityContext $Handle.AuthorityContext -Intent $Handle.Intent -HeldBootstrapLock $Handle.BootstrapLockHandle -HeldGlobalLock $Handle.GlobalLockHandle
+    if(-not (Assert-SealedHeldObservationLifecycle -Ledger $Handle.Ledger -Observation $Handle.Observation)){
+        throw 'held-resolver-observation-stale'
+    }
+    $null=Assert-SealedRegistryCurrentRouteCaptureStable -Capture $Handle.CurrentRouteCapture
+    $null=Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $Handle.AuthorityContext -GlobalLockHandle $Handle.GlobalLockHandle
+    $null=Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $Handle.AuthorityContext -GlobalLockHandle $Handle.GlobalLockHandle -CanonicalWitness $Handle.CanonicalWitness
+    return $true
+}
+
+function Close-SealedHeldResolverObservation {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()]$Handle)
+
+    if($null -eq $Handle -or 'AiAgentDotfiles.SealedHeldResolverObservation' -cnotin @($Handle.PSObject.TypeNames)){
+        throw 'held-resolver-observation-stale'
+    }
+    if($null -eq $Handle.PSObject.Properties['CloseState']){ throw 'held-resolver-observation-stale' }
+    $innerClosed=$false
+    try {
+        $innerClosed=(-not [bool][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($Handle.Observation)) -and
+            ([string][AiAgentDotfiles.SealedHeldObservationCleanupLedger]::GetCloseStateExact($Handle.Ledger) -ceq 'CLOSED')
+    }
+    catch { $innerClosed=$false }
+    if($innerClosed){
+        $locksReleased=$true
+        foreach($lockWrapper in @($Handle.GlobalLockHandle,$Handle.BootstrapLockHandle)){
+            $lockOwner=$null
+            try { $lockOwner=[AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($lockWrapper) } catch { $lockOwner=$null }
+            if($null -ne $lockOwner -and -not [AiAgentDotfiles.SafeLockResourceOwner]::GetIsReleasedExact($lockOwner)){
+                $locksReleased=$false
+            }
+        }
+        if($locksReleased){
+            try { $Handle.CloseState='CLOSED' } catch { }
+            return $false
+        }
+    }
+    try { $Handle.CloseState='CLOSING' } catch { throw 'held-resolver-observation-stale' }
+    try {
+        if([bool][AiAgentDotfiles.SealedHeldCurrentRouteFixedInfrastructureCapabilityObservation]::GetIsOpenExact($Handle.Observation)){
+            $null=Close-SealedHeldObservationLifecycle -Ledger $Handle.Ledger -Observation $Handle.Observation
+        }
+        if([bool][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($Handle.CurrentRouteCapture)){
+            try {
+                $null=Close-SealedRegistryCurrentRouteCapture -Capture $Handle.CurrentRouteCapture
+            }
+            catch {
+                if([bool][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetIsOpenExact($Handle.CurrentRouteCapture)){
+                    $Handle.CloseState='OPEN'
+                }
+                throw
+            }
+        }
+        $globalOwner=[AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($Handle.GlobalLockHandle)
+        if($null -ne $globalOwner -and -not [AiAgentDotfiles.SafeLockResourceOwner]::GetIsReleasedExact($globalOwner)){
+            Exit-HomeAuthorityGlobalLiveLock -LockHandle $Handle.GlobalLockHandle
+        }
+        $bootstrapOwner=[AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($Handle.BootstrapLockHandle)
+        if($null -ne $bootstrapOwner -and -not [AiAgentDotfiles.SafeLockResourceOwner]::GetIsReleasedExact($bootstrapOwner)){
+            Exit-HomeAuthorityLockHandle -LockHandle $Handle.BootstrapLockHandle
+        }
+    }
+    catch {
+        try { $Handle.CloseState='OPEN' } catch { }
+        throw
+    }
+    $Handle.CloseState='CLOSED'
+    return $true
+}
+
 function Open-SealedHeldObservationCleanupLedger {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AiAgentDotfiles.SealedOwnershipTransferReceiver]$OwnershipReceiver)
