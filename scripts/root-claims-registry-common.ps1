@@ -7149,6 +7149,129 @@ function Close-SealedHeldObservationCleanupLedger {
     }
 }
 
+function Complete-SealedHeldCanonicalRecoveryRootRemainder {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$PlanPayload,
+        [Parameter(Mandatory)]$DirectorySecurityTemplate,
+        [Parameter(Mandatory)]$GlobalLockHandle
+    )
+
+    $heldOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($GlobalLockHandle)
+    if ('AiAgentDotfiles.HomeAuthorityLockHandle' -cnotin @($GlobalLockHandle.PSObject.TypeNames) -or
+        $heldOwner -isnot [AiAgentDotfiles.SafeLockResourceOwner] -or
+        -not [AiAgentDotfiles.SafeLockResourceOwner]::IsExactForWrapper($heldOwner,$GlobalLockHandle)) { throw 'home-authority-lock-owner-required' }
+    $rootIntent = $PlanPayload.PrivateRootBootstrapIntent.CanonicalRecoveryRootIntent
+    $requestedPath = [string]$rootIntent.RequestedPath
+    $current = Resolve-TargetContext -Path $requestedPath -Mode MetadataOnly
+    if ([string]$current.VolumeId -cne [string]$rootIntent.VolumeId) { throw 'canonical-recovery-root-manual-recovery-required: volume changed' }
+    if ([string]$rootIntent.TargetStatus -ceq 'EXISTS' -and [string]$current.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: planned existing root is missing' }
+    if ([string]$current.TargetStatus -ceq 'EXISTS') {
+        $security = Get-CanonicalRootSecurityContext -TargetContext $current -SecurityTemplate (Get-CanonicalCurrentUserOnlySecurityTemplate)
+        if ([string]$security.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: existing root rejected' }
+        return [pscustomobject][ordered]@{ Path=$requestedPath; Status='EXISTS'; Created=$false }
+    }
+    if (@($rootIntent.MissingRemainder).Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$rootIntent.DeepestExistingParentPath)) { throw 'canonical-recovery-root-manual-recovery-required: missing plan remainder' }
+    $directorySddl = ConvertTo-HomeAuthoritySecurityDescriptorSddl -SecurityTemplate $DirectorySecurityTemplate
+    $cumulativeParent = [string]$rootIntent.DeepestExistingParentPath
+    foreach ($segment in @($rootIntent.MissingRemainder)) {
+        $parentsReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $cumulativeParent -OwnershipReceiver $parentsReceiver
+        $chainParents = $parentsReceiver.GetDeliveredExact()
+        $created = $null
+        try {
+            try {
+                $created = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectoryWithSecurityDescriptor($chainParents[$chainParents.Count - 1],[string]$segment,$directorySddl)
+            }
+            catch [ComponentModel.Win32Exception] {
+                if ($_.Exception.NativeErrorCode -in @(80,183)) { throw 'canonical-recovery-root-remainder-collision' }
+                throw
+            }
+        }
+        finally {
+            if ($null -ne $created) { $created.Dispose() }
+            Close-SafeDirectoryContainmentChain -Handles $chainParents
+        }
+        $cumulativeParent = [IO.Path]::GetFullPath((Join-Path $cumulativeParent [string]$segment))
+    }
+    $final = Resolve-TargetContext -Path $requestedPath -Mode MetadataOnly
+    if ([string]$final.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: remainder did not reach EXISTS' }
+    $security = Get-CanonicalRootSecurityContext -TargetContext $final -SecurityTemplate (Get-CanonicalCurrentUserOnlySecurityTemplate)
+    if ([string]$security.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: created root rejected' }
+    return [pscustomobject][ordered]@{ Path=$requestedPath; Status='EXISTS'; Created=$true }
+}
+
+function Complete-SealedHeldCanonicalPrivateRootBootstrap {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$Intent,
+        [Parameter(Mandatory)]$PlanPayload,
+        [Parameter(Mandatory)]$CanonicalRepoLockHandle,
+        [Parameter(Mandatory)][string]$RepoRoot
+    )
+
+    $globalLock = $null
+    $succeeded = $false
+    try {
+        $null = Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $AuthorityContext
+        $null = Assert-SealedHomeAuthorityBootstrapIntent -AuthorityContext $AuthorityContext -Intent $Intent
+        if ([string]$PlanPayload.OperationKind -cne 'setup') { throw 'canonical-private-root-completion-plan-kind-invalid' }
+        $git = Get-CanonicalGitContext -RepoRoot $RepoRoot
+        $null = Assert-CanonicalRepoLockHandle -LockHandle $CanonicalRepoLockHandle -ExpectedLockPath ([string](Get-CanonicalTransactionContractPaths -GitContext $git).LockPath)
+        if ([IO.Path]::GetFullPath($RepoRoot) -cne [IO.Path]::GetFullPath([string]$PlanPayload.RepoRoot)) { throw 'canonical-private-root-completion-repo-mismatch' }
+        $projection = $PlanPayload.ExpectedSetupStateProjection
+        if ((Get-SemanticJsonHash -InputObject $projection) -cne [string]$PlanPayload.ExpectedSetupStateProjectionHash) { throw 'canonical setup projection hash mismatch' }
+        if ((Get-SemanticJsonHash -InputObject $PlanPayload.PrivateRootBootstrapIntent) -cne [string]$PlanPayload.SetupIntentHash) { throw 'canonical setup intent hash mismatch' }
+        $rootClaimHash = Get-SemanticJsonHash -InputObject $PlanPayload.ExpectedRootClaim
+        if ($rootClaimHash -cne [string]$PlanPayload.ExpectedRootClaimHash) { throw 'canonical root claim hash mismatch' }
+        if ([string]$projection.SetupIntentHash -cne [string]$PlanPayload.SetupIntentHash -or
+            [string]$PlanPayload.ExpectedRootClaim.SetupIntentHash -cne [string]$PlanPayload.SetupIntentHash -or
+            [string]$PlanPayload.ExpectedRootClaim.ExpectedSetupStateProjectionHash -cne [string]$PlanPayload.ExpectedSetupStateProjectionHash) { throw 'canonical final setup state intent/claim/projection link mismatch' }
+        if ([string]$projection.GitCommonDirHash -cne [string]$git.GitCommonDirHash -or
+            [string]$projection.RepoId -cne (Get-CanonicalRepoIdentity -GitContext $git)) { throw 'canonical final setup state repository mismatch' }
+        $canonicalTemplate = Get-CanonicalCurrentUserOnlySecurityTemplate
+        if ([string]$projection.OwnerSid -cne [string]$canonicalTemplate.OwnerSid -or
+            [string]$projection.SecurityTemplateHash -cne (Get-SemanticJsonHash -InputObject $canonicalTemplate)) { throw 'canonical final setup state security template mismatch' }
+        $binding = Assert-CanonicalSealedSetupIntentBinding -SetupIntent $PlanPayload.PrivateRootBootstrapIntent -SealedIntent $Intent
+        if ([string]$binding.ControlPath -cne [IO.Path]::GetFullPath([string]$projection.ControlBase) -or
+            [string]$binding.BackupPath -cne [IO.Path]::GetFullPath([string]$projection.BackupRoot) -or
+            [string]$binding.ControlPath -cne [IO.Path]::GetFullPath([string]$AuthorityContext.ControlBase) -or
+            [string]$binding.BackupPath -cne [IO.Path]::GetFullPath([string]$AuthorityContext.BackupRoot)) { throw 'canonical-private-root-completion-path-mismatch' }
+        $null = Get-CanonicalSetupRootContexts -GitContext $git -CanonicalRecoveryRoot ([string]$projection.CanonicalRecoveryRoot) -ControlBase ([string]$projection.ControlBase) -BackupRoot ([string]$projection.BackupRoot)
+        $null = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $AuthorityContext
+        $globalLock = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $AuthorityContext -Intent $Intent
+        $remainder = Complete-SealedHeldCanonicalRecoveryRootRemainder -AuthorityContext $AuthorityContext -PlanPayload $PlanPayload -DirectorySecurityTemplate $Intent.DirectorySecurityTemplate -GlobalLockHandle $globalLock
+        $state = New-CanonicalFinalSetupState -PlanPayload $PlanPayload -RepoRoot $RepoRoot
+        $final = Assert-SealedHomeAuthorityBootstrapIntent -AuthorityContext $AuthorityContext -Intent $Intent -HeldGlobalLock $globalLock
+        if ([string]$final.Status -cne 'COMPLETE' -or [long]$final.CompletePrefixLength -ne 7) { throw 'home-authority-bootstrap-incomplete' }
+        $result = [pscustomobject][ordered]@{
+            AuthorityContext = $AuthorityContext
+            CanonicalRepoLockHandle = $CanonicalRepoLockHandle
+            Intent = $Intent
+            PlanPayload = $PlanPayload
+            BindingEvidence = $binding
+            BootstrapSnapshot = $final
+            GlobalLockHandle = $globalLock
+            RecoveryRootPath = [string]$remainder.Path
+            RecoveryRootStatus = [string]$remainder.Status
+            RecoveryCreated = [bool]$remainder.Created
+            FinalSetupState = $state
+            DurableClaimWrite = 'deferred'
+            DurableSetupStateWrite = 'deferred'
+        }
+        $null = $result.PSObject.TypeNames.Insert(0,'AiAgentDotfiles.SealedHeldCanonicalPrivateRootCompletion')
+        $succeeded = $true
+        return $result
+    }
+    finally {
+        if (-not $succeeded -and $null -ne $globalLock) {
+            Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock
+        }
+    }
+}
+
 $sealedHeldCurrentRouteFixedEnvelopeOpenCore={
     param(
         $AuthorityContext,

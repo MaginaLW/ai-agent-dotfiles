@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=12978
-$reviewedAllScriptsReflectionSensitiveDigest='137134fb5b55aa0025f8bb1a681d8d67fce17a419b8d733a93e8d8baff0d06a9'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13057
+$reviewedAllScriptsReflectionSensitiveDigest='91b47e9ce350ca88eb96756c62ae8d8ef02452a75e5312a7d9d1f5b371b37af5'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -384,6 +384,8 @@ function Invoke-ProductionSeamAnalysis {
     $lifecycleOpenAllowedCallers=[Collections.Generic.List[string]]::new()
     $lifecycleAssertAllowedCallers=[Collections.Generic.List[string]]::new()
     $lifecycleCloseAllowedCallers=[Collections.Generic.List[string]]::new()
+    $completionCompleteAllowedCallers=[Collections.Generic.List[string]]::new()
+    $completionRemainderAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerOpenAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerRegisterAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerAssertAllowedCallers=[Collections.Generic.List[string]]::new()
@@ -519,6 +521,25 @@ function Invoke-ProductionSeamAnalysis {
                 'Assert-SealedHeldResolverObservation',
                 'Close-SealedHeldResolverObservation')){
                 $fixedObservationBoundaryViolations.Add("held resolver observation caller: $($model.RelativePath):$($ownerName):$commandName")
+            }
+            if($commandName -ieq 'Complete-SealedHomeAuthorityBootstrap'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Complete-SealedHeldCanonicalPrivateRootBootstrap'){
+                    $completionCompleteAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("canonical bootstrap Complete caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Complete-SealedHeldCanonicalRecoveryRootRemainder'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Complete-SealedHeldCanonicalPrivateRootBootstrap'){
+                    $completionRemainderAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("canonical recovery remainder caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -iin @(
+                'Register-SealedHeldHomeAuthorityCanonicalGlobalBinding',
+                'Complete-SealedHeldCanonicalPrivateRootBootstrap')){
+                $fixedObservationBoundaryViolations.Add("canonical private-root completion caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Open-SealedHeldObservationCleanupLedger'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
@@ -823,6 +844,26 @@ function Invoke-ProductionSeamAnalysis {
     if((@($lifecycleCloseAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLifecycleCloseOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed observation lifecycle Close owner inventory changed')
     }
+    $reviewedCompletionCompleteOwnerInventory=@('scripts/root-claims-registry-common.ps1:Complete-SealedHeldCanonicalPrivateRootBootstrap')
+    $reviewedCompletionRemainderOwnerInventory=@('scripts/root-claims-registry-common.ps1:Complete-SealedHeldCanonicalPrivateRootBootstrap')
+    if((@($completionCompleteAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedCompletionCompleteOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed canonical bootstrap Complete owner inventory changed')
+    }
+    if((@($completionRemainderAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedCompletionRemainderOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed canonical recovery remainder owner inventory changed')
+    }
+    foreach($completionEntry in @(
+        @('Register-SealedHeldHomeAuthorityCanonicalGlobalBinding','scripts/home-authority-common.ps1'),
+        @('Complete-SealedHeldCanonicalRecoveryRootRemainder','scripts/root-claims-registry-common.ps1'),
+        @('Complete-SealedHeldCanonicalPrivateRootBootstrap','scripts/root-claims-registry-common.ps1'))){
+        $completionDefinitionKey=$completionEntry[0].ToLowerInvariant()
+        $completionDefinitions=@(if($definitions.ContainsKey($completionDefinitionKey)){@($definitions[$completionDefinitionKey])})
+        if($completionDefinitions.Count -ne 1 -or
+            [string]$completionDefinitions[0].RelativePath -cne $completionEntry[1] -or
+            -not (Test-DirectScriptTopLevelFunctionDefinition -Function $completionDefinitions[0].Ast)){
+            $fixedObservationBoundaryViolations.Add("$($completionEntry[0]) definition is missing, ambiguous, or outside $($completionEntry[1])")
+        }
+    }
 
     $queue=[Collections.Generic.Queue[string]]::new()
     foreach($root in $productionRoots){$queue.Enqueue($root)}
@@ -982,7 +1023,7 @@ Assert-TestCondition ($baseline.AllScriptsScriptBlockFunctionDefinitionInventory
 Assert-TestCondition ($baseline.AllScriptsLiteralProviderDriveTokenInventory.Count -eq 0 -and
     $baseline.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero literal provider-drive token baseline alongside direct named CommandAst analysis'
 Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture, route, observation, raw, and probe issuers plus the fixed validator have only their exact reviewed definitions, owners, and members'
-Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, observation Close and the resolver observation trio retain zero production callers, and all nine functions remain uniquely defined'
+Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, canonical bootstrap Complete and the recovery remainder have only the private-root completion composer, the resolver observation trio and both completion primitives retain zero external production callers, and all twelve reviewed functions remain uniquely defined'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])

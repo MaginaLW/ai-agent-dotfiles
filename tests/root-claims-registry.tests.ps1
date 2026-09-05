@@ -786,6 +786,45 @@ function Close-TestResolverObservationAdapter {
     }
 }
 
+function New-TestCanonicalPrivateRootCompletionFixture {
+    param([Parameter(Mandatory)][string]$Parent,[Parameter(Mandatory)][string]$Name)
+    $root = [IO.Path]::GetFullPath((Join-Path $Parent $Name))
+    $profile = Join-Path $root 'profile'
+    $roaming = Join-Path $root 'roaming'
+    $local = Join-Path $root 'local'
+    foreach ($path in @($root,$profile,$roaming,$local)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
+    Set-TestDirectoryCurrentUserOnly -Path $local
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $context = Resolve-SealedHomeAuthorityTestContext -TokenSid $sid -ProfileRoot $profile -RoamingAppDataRoot $roaming -LocalAppDataRoot $local
+    $intent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $context -FilesystemCapabilityHash ('a' * 64)
+    return [pscustomobject][ordered]@{ Root=$root; Profile=$profile; Roaming=$roaming; Local=$local; Context=$context; Intent=$intent }
+}
+
+function New-TestCanonicalPrivateRootCompletionClaim {
+    param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)][string]$Name)
+    $repo = Join-Path $Fixture.Root ($Name + '-repo')
+    $probe = Join-Path $Fixture.Root ($Name + '-probe')
+    $recoveryParent = Join-Path $Fixture.Root ($Name + '-recovery-parent')
+    [IO.Directory]::CreateDirectory($repo) | Out-Null
+    [IO.Directory]::CreateDirectory($probe) | Out-Null
+    [IO.Directory]::CreateDirectory($recoveryParent) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $recoveryParent
+    [IO.File]::WriteAllText((Join-Path $repo 'fixture.txt'),'completion fixture',[Text.UTF8Encoding]::new($false))
+    & git init --quiet $repo
+    if ($LASTEXITCODE -ne 0) { throw 'fixture git init failed' }
+    & git -C $repo add fixture.txt
+    if ($LASTEXITCODE -ne 0) { throw 'fixture git add failed' }
+    & git -C $repo -c 'user.name=Registry Fixture' -c 'user.email=registry-fixture@example.invalid' commit --quiet -m fixture
+    if ($LASTEXITCODE -ne 0) { throw 'fixture git commit failed' }
+    $payload = New-CanonicalSetupPlanPayload -RepoRoot $repo -CanonicalRecoveryRoot (Join-Path $recoveryParent 'recovery') -ControlBase ([string]$Fixture.Context.ControlBase) -BackupRoot ([string]$Fixture.Context.BackupRoot) -ProbeRoot $probe -ToolchainRoot $RepoRoot
+    $git = Get-CanonicalGitContext -RepoRoot $repo
+    $paths = Get-CanonicalTransactionContractPaths -GitContext $git
+    return [pscustomobject][ordered]@{
+        RepoRoot=$repo; RecoveryRoot=(Join-Path $recoveryParent 'recovery'); RecoveryParent=$recoveryParent
+        GitContext=$git; ContractPaths=$paths; PlanPayload=$payload
+    }
+}
+
 function Invoke-TestRegistryFailure([Parameter(Mandatory)]$Fixture,[string]$Pattern,[string]$Message) {
     $lock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $Fixture.Context
     try {
@@ -1915,7 +1954,9 @@ try {
         'Close-SealedHeldObservationLifecycle',
         'Open-SealedHeldResolverObservation',
         'Assert-SealedHeldResolverObservation',
-        'Close-SealedHeldResolverObservation'
+        'Close-SealedHeldResolverObservation',
+        'Complete-SealedHeldCanonicalPrivateRootBootstrap',
+        'Complete-SealedHeldCanonicalRecoveryRootRemainder'
     )) {
         $registryCommand = Get-Command $commandName -ErrorAction Stop
         foreach ($publicSelector in @('HomeRoot','BackupRoot','LockWaitSeconds','TestMode')) {
@@ -5609,6 +5650,201 @@ try {
             try { $null = Close-SealedHeldResolverObservation -Handle $resolverContentionHandle } catch { }
         }
         Close-TestResolverObservationAdapter -Adapter $resolverContentionAdapter
+    }
+
+    Write-Host '[canonical private-root completion]'
+
+    $completionComposerCommand = Get-Command Complete-SealedHeldCanonicalPrivateRootBootstrap -CommandType Function -ErrorAction Stop
+    Assert-TestCondition ((@($completionComposerCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) -join "`0") -ceq "AuthorityContext`0Intent`0PlanPayload`0CanonicalRepoLockHandle`0RepoRoot" -and
+        -not $completionComposerCommand.Parameters.ContainsKey('CanonicalWitness') -and
+        -not $completionComposerCommand.Parameters.ContainsKey('OwnershipReceiver') -and
+        -not $completionComposerCommand.Parameters.ContainsKey('Action') -and
+        -not $completionComposerCommand.Parameters.ContainsKey('ScriptBlock') -and
+        -not $completionComposerCommand.Parameters.ContainsKey('HomeRoot') -and
+        -not $completionComposerCommand.Parameters.ContainsKey('LockWaitSeconds')) 'the completion composer takes the exact five-parameter first-run shape with no witness, receiver, action, or public selector'
+
+    $completionFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-success'
+    $completionClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $completionFixture -Name 'canonical-completion-success'
+    $completionLock = $null
+    $completionResult = $null
+    try {
+        $completionLock = Enter-CanonicalRepoLock -LockPath ([string]$completionClaim.ContractPaths.LockPath) -AllowCreate
+        Assert-TestCondition (-not (Test-Path -LiteralPath ([string]$completionFixture.Context.ControlBootstrapLockPath)) -and
+            -not (Test-Path -LiteralPath ([string]$completionClaim.RecoveryRoot))) 'the completion fixture starts with no bootstrap lock file and no recovery root'
+        $completionResult = Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $completionFixture.Context -Intent $completionFixture.Intent `
+            -PlanPayload $completionClaim.PlanPayload -CanonicalRepoLockHandle $completionLock -RepoRoot ([string]$completionClaim.RepoRoot)
+        Assert-TestCondition ('AiAgentDotfiles.SealedHeldCanonicalPrivateRootCompletion' -cin @($completionResult.PSObject.TypeNames) -and
+            (@($completionResult.PSObject.Properties | ForEach-Object { $_.Name }) -join "`0") -ceq "AuthorityContext`0CanonicalRepoLockHandle`0Intent`0PlanPayload`0BindingEvidence`0BootstrapSnapshot`0GlobalLockHandle`0RecoveryRootPath`0RecoveryRootStatus`0RecoveryCreated`0FinalSetupState`0DurableClaimWrite`0DurableSetupStateWrite" -and
+            [string]$completionResult.DurableClaimWrite -ceq 'deferred' -and
+            [string]$completionResult.DurableSetupStateWrite -ceq 'deferred') 'the composer delivers the exact thirteen-property completion result with deferred durable writes'
+        Assert-TestCondition ([string]$completionResult.BootstrapSnapshot.Status -ceq 'COMPLETE' -and [long]$completionResult.BootstrapSnapshot.CompletePrefixLength -eq 7 -and
+            [string]$completionResult.RecoveryRootStatus -ceq 'EXISTS' -and [bool]$completionResult.RecoveryCreated -and
+            (Test-Path -LiteralPath ([string]$completionResult.RecoveryRootPath))) 'the composer completed the seven-entry prefix and created the missing recovery root'
+        Assert-TestCondition ([string]$completionResult.FinalSetupState.SetupStateProjectionHash -ceq [string]$completionClaim.PlanPayload.ExpectedSetupStateProjectionHash -and
+            [string]$completionResult.FinalSetupState.CanonicalRecoveryRootFinalContext.TargetStatus -ceq 'EXISTS' -and
+            [string]$completionResult.FinalSetupState.ControlBaseFinalContext.TargetStatus -ceq 'EXISTS' -and
+            [string]$completionResult.FinalSetupState.BackupRootFinalContext.TargetStatus -ceq 'EXISTS') 'the in-memory final setup state records all three roots EXISTS under the plan projection hash'
+        Assert-TestCondition ($null -eq ([AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($completionResult.GlobalLockHandle))) 'the composer returns an unbound held global lock'
+        Assert-TestCondition (-not (Test-Path -LiteralPath ([string]$completionClaim.ContractPaths.SetupStatePath))) 'the composer wrote no canonical setup state artifact'
+        $completionGlobalIdentity = [string][AiAgentDotfiles.SafeLockResourceOwner]::GetInfoExact([AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($completionResult.GlobalLockHandle)).Identity
+        Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionResult.GlobalLockHandle
+        $completionResult = $null
+        $completionReentry = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $completionFixture.Context
+        try {
+            Assert-TestCondition ([string][AiAgentDotfiles.SafeLockResourceOwner]::GetInfoExact([AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($completionReentry)).Identity -ceq $completionGlobalIdentity) 'the global lock re-enters with the same identity after the composer exits it'
+        }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionReentry }
+    }
+    finally {
+        if ($null -ne $completionResult) { try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionResult.GlobalLockHandle } catch { } }
+        if ($null -ne $completionLock) { try { Exit-CanonicalRepoLock -LockHandle $completionLock } catch { } }
+    }
+
+    $completionDriftFixtureA = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-drift-a'
+    $completionDriftClaimA = New-TestCanonicalPrivateRootCompletionClaim -Fixture $completionDriftFixtureA -Name 'canonical-completion-drift-a'
+    $completionDriftFixtureB = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-drift-b'
+    try {
+        $completionDriftFixtureA | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$completionDriftClaimA.ContractPaths.LockPath) -Force
+        $completionDriftLock = Enter-CanonicalRepoLock -LockPath ([string]$completionDriftClaimA.ContractPaths.LockPath) -AllowCreate
+        $completionDriftBefore = Get-TestRegistryTreeHash -Fixture $completionDriftFixtureA
+        Assert-ThrowsPattern {
+            Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $completionDriftFixtureB.Context -Intent $completionDriftFixtureB.Intent `
+                -PlanPayload $completionDriftClaimA.PlanPayload -CanonicalRepoLockHandle $completionDriftLock -RepoRoot ([string]$completionDriftClaimA.RepoRoot) | Out-Null
+        } '^canonical-sealed-intent-control-path-mismatch$' 'the completion composer binds the cross-layer intent before any create'
+        Assert-TestCondition ($completionDriftBefore -ceq (Get-TestRegistryTreeHash -Fixture $completionDriftFixtureA) -and
+            -not (Test-Path -LiteralPath ([string]$completionDriftFixtureA.Context.ControlBootstrapLockPath))) 'the binding failure creates nothing'
+    }
+    finally {
+        if ($null -ne $completionDriftLock) { try { Exit-CanonicalRepoLock -LockHandle $completionDriftLock } catch { } }
+    }
+
+    $completionGraphFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-graph'
+    $completionGraphClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $completionGraphFixture -Name 'canonical-completion-graph'
+    try {
+        $completionGraphFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$completionGraphClaim.ContractPaths.LockPath) -Force
+        $completionGraphLock = Enter-CanonicalRepoLock -LockPath ([string]$completionGraphClaim.ContractPaths.LockPath) -AllowCreate
+        $completionGraphPlan = [ordered]@{}
+        foreach ($completionGraphKey in @($completionGraphClaim.PlanPayload.Keys)) { $completionGraphPlan[$completionGraphKey] = $completionGraphClaim.PlanPayload[$completionGraphKey] }
+        $completionGraphPlan.ExpectedSetupStateProjectionHash = ('c' * 64)
+        $completionGraphBefore = Get-TestRegistryTreeHash -Fixture $completionGraphFixture
+        Assert-ThrowsPattern {
+            Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $completionGraphFixture.Context -Intent $completionGraphFixture.Intent `
+                -PlanPayload $completionGraphPlan -CanonicalRepoLockHandle $completionGraphLock -RepoRoot ([string]$completionGraphClaim.RepoRoot) | Out-Null
+        } '^canonical setup projection hash mismatch$' 'the completion composer validates the payload graph before any create'
+        Assert-TestCondition ($completionGraphBefore -ceq (Get-TestRegistryTreeHash -Fixture $completionGraphFixture) -and
+            -not (Test-Path -LiteralPath ([string]$completionGraphFixture.Context.ControlBootstrapLockPath))) 'the payload-graph failure creates nothing'
+    }
+    finally {
+        if ($null -ne $completionGraphLock) { try { Exit-CanonicalRepoLock -LockHandle $completionGraphLock } catch { } }
+    }
+
+    Write-Host '[canonical private-root completion resume]'
+
+    $completionPartialFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-partial'
+    $completionPartialClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $completionPartialFixture -Name 'canonical-completion-partial'
+    $completionPartialLock = $null
+    $completionPartialResult = $null
+    try {
+        $completionPartialLock = Enter-CanonicalRepoLock -LockPath ([string]$completionPartialClaim.ContractPaths.LockPath) -AllowCreate
+        $completionStop = {
+            param($Definition)
+            if ([int]$Definition.Order -ge 2) { throw 'stop-after-order-2' }
+        }
+        Assert-ThrowsPattern {
+            Complete-SealedHomeAuthorityBootstrap -AuthorityContext $completionPartialFixture.Context -Intent $completionPartialFixture.Intent -AfterCreate $completionStop | Out-Null
+        } 'stop-after-order-2' 'the partial fixture stops the seven-entry bootstrap after order two'
+        $completionPartialControlIdentity = [string](Get-NoFollowRootEntryMarker -Path ([string]$completionPartialFixture.Context.ControlBase)).Identity
+        $completionPartialResult = Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $completionPartialFixture.Context -Intent $completionPartialFixture.Intent `
+            -PlanPayload $completionPartialClaim.PlanPayload -CanonicalRepoLockHandle $completionPartialLock -RepoRoot ([string]$completionPartialClaim.RepoRoot)
+        Assert-TestCondition ([string]$completionPartialResult.BootstrapSnapshot.Status -ceq 'COMPLETE' -and
+            [string](Get-NoFollowRootEntryMarker -Path ([string]$completionPartialFixture.Context.ControlBase)).Identity -ceq $completionPartialControlIdentity -and
+            [string]$completionPartialResult.RecoveryRootStatus -ceq 'EXISTS' -and [bool]$completionPartialResult.RecoveryCreated) 'the composer resumes an exact partial prefix and preserves the pre-existing entry identity'
+        Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionPartialResult.GlobalLockHandle
+        $completionPartialResult = $null
+    }
+    finally {
+        if ($null -ne $completionPartialResult) { try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionPartialResult.GlobalLockHandle } catch { } }
+        if ($null -ne $completionPartialLock) { try { Exit-CanonicalRepoLock -LockHandle $completionPartialLock } catch { } }
+    }
+
+    $completionIdempotentFixture = New-TestRegistryFixture -Parent $workRoot -Name 'canonical-completion-idempotent'
+    $completionIdempotentClaim = New-TestCanonicalClaim -Fixture $completionIdempotentFixture -Name 'canonical-completion-idempotent'
+    $completionIdempotentLock = $null
+    $completionIdempotentResult = $null
+    try {
+        $null = Complete-TestCanonicalSetupState -Fixture $completionIdempotentFixture -CanonicalFixture $completionIdempotentClaim
+        $completionIdempotentLock = Enter-CanonicalRepoLock -LockPath ([string]$completionIdempotentClaim.ContractPaths.LockPath)
+        $completionIdempotentResult = Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $completionIdempotentFixture.Context -Intent $completionIdempotentFixture.Intent `
+            -PlanPayload $completionIdempotentClaim.PlanPayload -CanonicalRepoLockHandle $completionIdempotentLock -RepoRoot ([string]$completionIdempotentClaim.RepoRoot)
+        Assert-TestCondition ([string]$completionIdempotentResult.BootstrapSnapshot.Status -ceq 'COMPLETE' -and
+            [string]$completionIdempotentResult.RecoveryRootStatus -ceq 'EXISTS' -and -not [bool]$completionIdempotentResult.RecoveryCreated -and
+            $null -eq ([AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($completionIdempotentResult.GlobalLockHandle))) 'an idempotent completion over an existing prefix and recovery root creates nothing and stays unbound'
+        Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionIdempotentResult.GlobalLockHandle
+        $completionIdempotentResult = $null
+    }
+    finally {
+        if ($null -ne $completionIdempotentResult) { try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionIdempotentResult.GlobalLockHandle } catch { } }
+        if ($null -ne $completionIdempotentLock) { try { Exit-CanonicalRepoLock -LockHandle $completionIdempotentLock } catch { } }
+    }
+
+    $completionManualFixture = New-TestRegistryFixture -Parent $workRoot -Name 'canonical-completion-manual'
+    $completionManualClaim = New-TestCanonicalClaim -Fixture $completionManualFixture -Name 'canonical-completion-manual'
+    try {
+        Set-TestDirectoryInheritedCurrentUserOnly -Path ([string]$completionManualFixture.Context.ControlBase)
+        $completionManualLock = Enter-CanonicalRepoLock -LockPath ([string]$completionManualClaim.ContractPaths.LockPath) -AllowCreate
+        try {
+            Assert-ThrowsPattern {
+                Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $completionManualFixture.Context -Intent $completionManualFixture.Intent `
+                    -PlanPayload $completionManualClaim.PlanPayload -CanonicalRepoLockHandle $completionManualLock -RepoRoot ([string]$completionManualClaim.RepoRoot) | Out-Null
+            } 'manual-recovery-required' 'a drifted control-base ACL fails closed before any global acquisition'
+        }
+        finally {
+            if ($null -ne $completionManualLock) { try { Exit-CanonicalRepoLock -LockHandle $completionManualLock } catch { } }
+        }
+    }
+    finally { }
+
+    $completionContentionFixture = New-TestRegistryFixture -Parent $workRoot -Name 'canonical-completion-contention'
+    $completionContentionClaim = New-TestCanonicalClaim -Fixture $completionContentionFixture -Name 'canonical-completion-contention'
+    $completionContentionLock = $null
+    $completionContentionResult = $null
+    $completionContentionChild = $null
+    try {
+        $null = Complete-TestCanonicalSetupState -Fixture $completionContentionFixture -CanonicalFixture $completionContentionClaim
+        $completionContentionLock = Enter-CanonicalRepoLock -LockPath ([string]$completionContentionClaim.ContractPaths.LockPath)
+        $completionContentionResult = Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $completionContentionFixture.Context -Intent $completionContentionFixture.Intent `
+            -PlanPayload $completionContentionClaim.PlanPayload -CanonicalRepoLockHandle $completionContentionLock -RepoRoot ([string]$completionContentionClaim.RepoRoot)
+        $completionContentionChild = [PowerShell]::Create()
+        $null = $completionContentionChild.AddScript({
+            param($RegistryPath)
+            $ErrorActionPreference = 'Stop'
+            . $RegistryPath
+        }).AddArgument((Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1'))
+        $null = $completionContentionChild.Invoke()
+        if ($completionContentionChild.HadErrors) { throw 'completion contention child runscape failed to load registry common' }
+        $completionContentionChild.Commands.Clear()
+        $null = $completionContentionChild.AddScript({
+            param($AuthorityContext,$Intent)
+            $ErrorActionPreference = 'Stop'
+            try {
+                Complete-SealedHomeAuthorityBootstrap -AuthorityContext $AuthorityContext -Intent $Intent | Out-Null
+                return $null
+            }
+            catch {
+                $domain = $_.Exception
+                while ($null -ne $domain.InnerException) { $domain = $domain.InnerException }
+                return [string]$domain.Message
+            }
+        }).AddArgument($completionContentionFixture.Context).AddArgument($completionContentionFixture.Intent)
+        $completionContentionObserved = @($completionContentionChild.Invoke())
+        Assert-TestCondition ($completionContentionObserved.Count -eq 1 -and [string]$completionContentionObserved[0] -ceq 'operation-lock-busy') 'a child Complete contends with operation-lock-busy while the composer holds the unbound global'
+        Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionContentionResult.GlobalLockHandle
+        $completionContentionResult = $null
+    }
+    finally {
+        if ($null -ne $completionContentionChild) { try { $completionContentionChild.Dispose() } catch { } }
+        if ($null -ne $completionContentionResult) { try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionContentionResult.GlobalLockHandle } catch { } }
+        if ($null -ne $completionContentionLock) { try { Exit-CanonicalRepoLock -LockHandle $completionContentionLock } catch { } }
     }
 
     Write-Host '[durable recovery ticket slice 1]'
