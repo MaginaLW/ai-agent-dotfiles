@@ -801,7 +801,7 @@ function New-TestCanonicalPrivateRootCompletionFixture {
 }
 
 function New-TestCanonicalPrivateRootCompletionClaim {
-    param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)][string]$Name)
+    param([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)][string]$Name,[switch]$CreateRecovery)
     $repo = Join-Path $Fixture.Root ($Name + '-repo')
     $probe = Join-Path $Fixture.Root ($Name + '-probe')
     $recoveryParent = Join-Path $Fixture.Root ($Name + '-recovery-parent')
@@ -809,6 +809,10 @@ function New-TestCanonicalPrivateRootCompletionClaim {
     [IO.Directory]::CreateDirectory($probe) | Out-Null
     [IO.Directory]::CreateDirectory($recoveryParent) | Out-Null
     Set-TestDirectoryCurrentUserOnly -Path $recoveryParent
+    if ($CreateRecovery) {
+        [IO.Directory]::CreateDirectory((Join-Path $recoveryParent 'recovery')) | Out-Null
+        Set-TestDirectoryCurrentUserOnly -Path (Join-Path $recoveryParent 'recovery')
+    }
     [IO.File]::WriteAllText((Join-Path $repo 'fixture.txt'),'completion fixture',[Text.UTF8Encoding]::new($false))
     & git init --quiet $repo
     if ($LASTEXITCODE -ne 0) { throw 'fixture git init failed' }
@@ -5655,13 +5659,17 @@ try {
     Write-Host '[canonical private-root completion]'
 
     $completionComposerCommand = Get-Command Complete-SealedHeldCanonicalPrivateRootBootstrap -CommandType Function -ErrorAction Stop
+    $completionRemainderCommand = Get-Command Complete-SealedHeldCanonicalRecoveryRootRemainder -CommandType Function -ErrorAction Stop
     Assert-TestCondition ((@($completionComposerCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) -join "`0") -ceq "AuthorityContext`0Intent`0PlanPayload`0CanonicalRepoLockHandle`0RepoRoot" -and
+        (@($completionRemainderCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) -join "`0") -ceq "AuthorityContext`0PlanPayload`0DirectorySecurityTemplate`0GlobalLockHandle" -and
         -not $completionComposerCommand.Parameters.ContainsKey('CanonicalWitness') -and
         -not $completionComposerCommand.Parameters.ContainsKey('OwnershipReceiver') -and
         -not $completionComposerCommand.Parameters.ContainsKey('Action') -and
         -not $completionComposerCommand.Parameters.ContainsKey('ScriptBlock') -and
         -not $completionComposerCommand.Parameters.ContainsKey('HomeRoot') -and
-        -not $completionComposerCommand.Parameters.ContainsKey('LockWaitSeconds')) 'the completion composer takes the exact five-parameter first-run shape with no witness, receiver, action, or public selector'
+        -not $completionComposerCommand.Parameters.ContainsKey('LockWaitSeconds') -and
+        -not $completionRemainderCommand.Parameters.ContainsKey('Action') -and
+        -not $completionRemainderCommand.Parameters.ContainsKey('ScriptBlock')) 'the completion composer and remainder take their exact parameter shapes with no witness, receiver, action, or public selector'
 
     $completionFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-success'
     $completionClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $completionFixture -Name 'canonical-completion-success'
@@ -5765,6 +5773,66 @@ try {
     finally {
         if ($null -ne $completionPartialResult) { try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $completionPartialResult.GlobalLockHandle } catch { } }
         if ($null -ne $completionPartialLock) { try { Exit-CanonicalRepoLock -LockHandle $completionPartialLock } catch { } }
+    }
+
+    Write-Host '[canonical private-root completion remainder fail-closed]'
+
+    $remainderMissingFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-remainder-missing'
+    $remainderMissingClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $remainderMissingFixture -Name 'canonical-completion-remainder-missing' -CreateRecovery
+    try {
+        $remainderMissingLock = Enter-CanonicalRepoLock -LockPath ([string]$remainderMissingClaim.ContractPaths.LockPath) -AllowCreate
+        Remove-Item -LiteralPath ([string]$remainderMissingClaim.RecoveryRoot) -Force
+        Assert-ThrowsPattern {
+            Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $remainderMissingFixture.Context -Intent $remainderMissingFixture.Intent `
+                -PlanPayload $remainderMissingClaim.PlanPayload -CanonicalRepoLockHandle $remainderMissingLock -RepoRoot ([string]$remainderMissingClaim.RepoRoot) | Out-Null
+        } '^canonical-recovery-root-manual-recovery-required: planned existing root is missing$' 'a planned-EXISTS recovery root that disappeared fails closed as manual recovery'
+    }
+    finally {
+        if ($null -ne $remainderMissingLock) { try { Exit-CanonicalRepoLock -LockHandle $remainderMissingLock } catch { } }
+    }
+
+    $remainderFileFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-remainder-file'
+    $remainderFileClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $remainderFileFixture -Name 'canonical-completion-remainder-file'
+    try {
+        $remainderFileLock = Enter-CanonicalRepoLock -LockPath ([string]$remainderFileClaim.ContractPaths.LockPath) -AllowCreate
+        [IO.File]::WriteAllText([string]$remainderFileClaim.RecoveryRoot,'not a directory',[Text.UTF8Encoding]::new($false))
+        Assert-ThrowsPattern {
+            Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $remainderFileFixture.Context -Intent $remainderFileFixture.Intent `
+                -PlanPayload $remainderFileClaim.PlanPayload -CanonicalRepoLockHandle $remainderFileLock -RepoRoot ([string]$remainderFileClaim.RepoRoot) | Out-Null
+        } '^canonical-recovery-root-manual-recovery-required: existing recovery root is not a directory$' 'a file at the planned recovery root fails closed as manual recovery'
+    }
+    finally {
+        if ($null -ne $remainderFileLock) { try { Exit-CanonicalRepoLock -LockHandle $remainderFileLock } catch { } }
+    }
+
+    $remainderAdsFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-remainder-ads'
+    $remainderAdsClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $remainderAdsFixture -Name 'canonical-completion-remainder-ads'
+    try {
+        $remainderAdsLock = Enter-CanonicalRepoLock -LockPath ([string]$remainderAdsClaim.ContractPaths.LockPath) -AllowCreate
+        [IO.Directory]::CreateDirectory([string]$remainderAdsClaim.RecoveryRoot) | Out-Null
+        Set-TestDirectoryCurrentUserOnly -Path ([string]$remainderAdsClaim.RecoveryRoot)
+        Add-PathSafetyNamedStream -Path ([string]$remainderAdsClaim.RecoveryRoot) -Name 'completion-test'
+        Assert-ThrowsPattern {
+            Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $remainderAdsFixture.Context -Intent $remainderAdsFixture.Intent `
+                -PlanPayload $remainderAdsClaim.PlanPayload -CanonicalRepoLockHandle $remainderAdsLock -RepoRoot ([string]$remainderAdsClaim.RepoRoot) | Out-Null
+        } '^canonical-recovery-root-manual-recovery-required: existing recovery root has named streams$' 'an alternate data stream on the recovery root fails closed as manual recovery'
+    }
+    finally {
+        if ($null -ne $remainderAdsLock) { try { Exit-CanonicalRepoLock -LockHandle $remainderAdsLock } catch { } }
+    }
+
+    $remainderAclFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'canonical-completion-remainder-acl'
+    $remainderAclClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $remainderAclFixture -Name 'canonical-completion-remainder-acl' -CreateRecovery
+    try {
+        $remainderAclLock = Enter-CanonicalRepoLock -LockPath ([string]$remainderAclClaim.ContractPaths.LockPath) -AllowCreate
+        Set-TestDirectoryInheritedCurrentUserOnly -Path ([string]$remainderAclClaim.RecoveryRoot)
+        Assert-ThrowsPattern {
+            Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $remainderAclFixture.Context -Intent $remainderAclFixture.Intent `
+                -PlanPayload $remainderAclClaim.PlanPayload -CanonicalRepoLockHandle $remainderAclLock -RepoRoot ([string]$remainderAclClaim.RepoRoot) | Out-Null
+        } '^canonical-recovery-root-manual-recovery-required: ' 'a drifted recovery-root DACL fails closed as manual recovery'
+    }
+    finally {
+        if ($null -ne $remainderAclLock) { try { Exit-CanonicalRepoLock -LockHandle $remainderAclLock } catch { } }
     }
 
     $completionIdempotentFixture = New-TestRegistryFixture -Parent $workRoot -Name 'canonical-completion-idempotent'

@@ -7168,8 +7168,20 @@ function Complete-SealedHeldCanonicalRecoveryRootRemainder {
     if ([string]$current.VolumeId -cne [string]$rootIntent.VolumeId) { throw 'canonical-recovery-root-manual-recovery-required: volume changed' }
     if ([string]$rootIntent.TargetStatus -ceq 'EXISTS' -and [string]$current.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: planned existing root is missing' }
     if ([string]$current.TargetStatus -ceq 'EXISTS') {
-        $security = Get-CanonicalRootSecurityContext -TargetContext $current -SecurityTemplate (Get-CanonicalCurrentUserOnlySecurityTemplate)
-        if ([string]$security.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: existing root rejected' }
+        try {
+            $marker = Get-NoFollowRootEntryMarker -Path $requestedPath
+            if ([string]$marker.EntryType -cne 'Directory') { throw 'existing recovery root is not a directory' }
+            if (@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams([string]$requestedPath)).Count -ne 0) { throw 'existing recovery root has named streams' }
+            $security = Get-CanonicalRootSecurityContext -TargetContext $current -SecurityTemplate (Get-CanonicalCurrentUserOnlySecurityTemplate)
+            if ([string]$security.TargetStatus -cne 'EXISTS') { throw 'existing recovery root rejected' }
+        }
+        catch {
+            $manualInner = $_.Exception
+            while (($manualInner -is [System.Management.Automation.MethodInvocationException] -or
+                $manualInner -is [System.Management.Automation.RuntimeException]) -and
+                $null -ne $manualInner.InnerException) { $manualInner = $manualInner.InnerException }
+            throw "canonical-recovery-root-manual-recovery-required: $([string]$manualInner.Message)"
+        }
         return [pscustomobject][ordered]@{ Path=$requestedPath; Status='EXISTS'; Created=$false }
     }
     if (@($rootIntent.MissingRemainder).Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$rootIntent.DeepestExistingParentPath)) { throw 'canonical-recovery-root-manual-recovery-required: missing plan remainder' }
@@ -7197,8 +7209,20 @@ function Complete-SealedHeldCanonicalRecoveryRootRemainder {
     }
     $final = Resolve-TargetContext -Path $requestedPath -Mode MetadataOnly
     if ([string]$final.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: remainder did not reach EXISTS' }
-    $security = Get-CanonicalRootSecurityContext -TargetContext $final -SecurityTemplate (Get-CanonicalCurrentUserOnlySecurityTemplate)
-    if ([string]$security.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: created root rejected' }
+    try {
+        $security = Get-CanonicalRootSecurityContext -TargetContext $final -SecurityTemplate (Get-CanonicalCurrentUserOnlySecurityTemplate)
+        if ([string]$security.TargetStatus -cne 'EXISTS') { throw 'created recovery root rejected' }
+        $marker = Get-NoFollowRootEntryMarker -Path $requestedPath
+        if ([string]$marker.EntryType -cne 'Directory') { throw 'created recovery root is not a directory' }
+        if (@([AiAgentDotfiles.NoFollowFile]::GetNamedStreams([string]$requestedPath)).Count -ne 0) { throw 'created recovery root has named streams' }
+    }
+    catch {
+        $manualInner = $_.Exception
+        while (($manualInner -is [System.Management.Automation.MethodInvocationException] -or
+            $manualInner -is [System.Management.Automation.RuntimeException]) -and
+            $null -ne $manualInner.InnerException) { $manualInner = $manualInner.InnerException }
+        throw "canonical-recovery-root-manual-recovery-required: $([string]$manualInner.Message)"
+    }
     return [pscustomobject][ordered]@{ Path=$requestedPath; Status='EXISTS'; Created=$true }
 }
 
@@ -7234,6 +7258,8 @@ function Complete-SealedHeldCanonicalPrivateRootBootstrap {
         $canonicalTemplate = Get-CanonicalCurrentUserOnlySecurityTemplate
         if ([string]$projection.OwnerSid -cne [string]$canonicalTemplate.OwnerSid -or
             [string]$projection.SecurityTemplateHash -cne (Get-SemanticJsonHash -InputObject $canonicalTemplate)) { throw 'canonical final setup state security template mismatch' }
+        if ([IO.Path]::GetFullPath([string]$projection.CanonicalRecoveryRoot) -cne
+            [IO.Path]::GetFullPath([string]$PlanPayload.PrivateRootBootstrapIntent.CanonicalRecoveryRootIntent.RequestedPath)) { throw 'canonical-private-root-completion-recovery-path-mismatch' }
         $binding = Assert-CanonicalSealedSetupIntentBinding -SetupIntent $PlanPayload.PrivateRootBootstrapIntent -SealedIntent $Intent
         if ([string]$binding.ControlPath -cne [IO.Path]::GetFullPath([string]$projection.ControlBase) -or
             [string]$binding.BackupPath -cne [IO.Path]::GetFullPath([string]$projection.BackupRoot) -or
