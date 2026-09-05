@@ -1096,7 +1096,8 @@ Execution state after the envelope close-state slice (`d8adace`):
   decision, A/B/C slice list with ten explicit non-goals); Luna also drafted the ticket test block
   (52 KB, 9 test blocks + 22 declared helper prerequisites) for adoption at implementation time.
 - **Main-agent medium-task correction.** The planned ticket root
-  `<ControlBase>oute-cleanup-recovery` conflicts with the envelope projection's exact immediate-
+  `<ControlBase>
+oute-cleanup-recovery` conflicts with the envelope projection's exact immediate-
   children whitelist for `ControlBase` (HA `$fixedChildren`), which would break every observation
   open once a ticket is written. Implementation slice 1 must therefore add `route-cleanup-recovery`
   to `$fixedChildren.ControlBase` and update both suites' children assertions **in the same
@@ -1128,7 +1129,8 @@ types: on `ReleaseExact` entry an immutable descriptor is snapshotted before the
 identity taken via `GetAcquiredIdentityExact` while handles are still open); the release loop marks
 each attempt; on `firstError` the capture is restored OPEN, close states are refreshed, and
 `AttachPublishAttemptExact` publishes
-`<ControlBase>oute-cleanup-recovery\<CaptureId>	icket.json` atomically (CreateNew temp,
+`<ControlBase>
+oute-cleanup-recovery\<CaptureId>	icket.json` atomically (CreateNew temp,
 WriteThrough flush, non-overwriting `File.Move`, same-CaptureId idempotent, identity-collision
 fail-closed) with the seven `DurableRecoveryTicket*` keys attached to the original error and the
 publish error never shadowing it; `GetCaptureIdExact` and the read-only discovery facade
@@ -1535,9 +1537,17 @@ hard-kill re-pin was required.
 Validation on 2026-09-05: the full `root-claims-registry.tests.ps1` suite passed with exit code 0
 and 614 PASS lines (583 before this slice); `canonical-production-seams.tests.ps1` passed 56/0
 unchanged; `git diff --check` was clean. The definitive unified `run-tests.ps1 -All` run for commit
-`28ce839` executes with an external create-new summary; its result is recorded below. Task 1
-remains 1/6 and Phase 2 remains 1/52. Production Apply remains interlocked, and no live root or Git
-index/ref was changed.
+`28ce839` then discovered, started, completed, and passed all 34 suites exactly once with zero
+failures, timeouts, duplicates, missing suites, or tree-kill failures (external create-new summary
+SHA-256
+`5b42e119b72cb9fa91b6795da75a081415636344562ec283fdd1ff77be522474`). Inside the run
+`canonical-hard-kill.tests.ps1` passed 318/0, `canonical-production-seams.tests.ps1` passed 56/0,
+and `canonical-transaction.tests.ps1` passed 64/0. This definitive run is also the recorded unified
+validation for the earlier Task-2 slice 2 (production AuthorityContext-to-full-intent conversion)
+and slice 3 (cross-layer intent binding) states, whose focused validation was recorded at the time
+with the unified run pending. No production Apply, backup, rollback, retirement, live-root
+mutation, or Git index/ref mutation was performed. Task 1 remains 1/6 and Phase 2 remains 1/52.
+Production Apply remains interlocked, and no live root or Git index/ref was changed.
 
 ## Validation status
 

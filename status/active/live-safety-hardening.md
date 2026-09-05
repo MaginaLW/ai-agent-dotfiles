@@ -658,7 +658,8 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   home-authority passes; live-concurrency passes with zero adapter-path regression; seams reflection inventory
   re-pinned count 12828 → 12833 with digest re-pin, seams 56/0; parse gate 156 files, build 7/15/7, secret scan clean,
   `git diff --check` clean, sync DryRun unchanged. Focused validation recorded; the definitive unified `run-tests.ps1
-  -All` run for this state has not been executed or recorded yet. Task 1 remains 1/6 and Phase 2 remains 1/52;
+  -All` validation for this state was later recorded inside the 2026-09-05 definitive run for commit `28ce839` (see the
+  Task-2 slice 4 PR2+PR3 record). Task 1 remains 1/6 and Phase 2 remains 1/52;
   production Apply remains interlocked.
 
 - Phase 2 Task-2 slice 3, cross-layer intent binding (2026-09-05): `scripts/canonical-transaction-common.ps1` gains
@@ -675,7 +676,8 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   re-pinned count 12833 → 12858 with digest re-pin, seams 56/0. Validation: complete hard-kill 318/0, transaction
   64/0, parse gate 156 files, build PASS, secret scan clean, `git diff --check` clean, sync DryRun identical to the
   established baseline with unchanged PlanHash. Focused validation recorded; the definitive unified `run-tests.ps1
-  -All` run for this state has not been executed or recorded yet. Task 1 remains 1/6 and Phase 2 remains 1/52;
+  -All` validation for this state was later recorded inside the 2026-09-05 definitive run for commit `28ce839` (see the
+  Task-2 slice 4 PR2+PR3 record). Task 1 remains 1/6 and Phase 2 remains 1/52;
   production Apply remains interlocked.
 
 - Phase 2 Task-2 slice 4 PR1, resolver observation unique caller (2026-09-05, commit `b6d6353`): implemented per the
@@ -699,8 +701,9 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   complete hard-kill 318/0 on a quiet re-run (one earlier run had 14 environment-flaky fixture-delete failures that
   did not reproduce and are recorded as non-code); parse gate, build 7/15/7, secret scan clean (907 hints),
   `git diff --check` clean, sync DryRun identical to the established baseline with unchanged PlanHash and the plan
-  deleted after the run. The definitive unified `run-tests.ps1 -All` run executes after the PR2/PR3 test slices land.
-  Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
+  deleted after the run. The definitive unified `run-tests.ps1 -All` run executed after the PR2/PR3 test slices
+  landed and is recorded in the PR2+PR3 record below. Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply
+  remains interlocked.
 
 - Phase 2 Task-2 slice 4 PR2+PR3, resolver observation failure matrix, close state, and contention (2026-09-05, commit
   `28ce839`): tests-only slice from the Grok implementation draft, completed by the main agent after the Grok session
@@ -717,9 +720,12 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   one second with an empty receiver and re-enters the global lock after the parent Close). The final cleanup gate mutes
   only the canonical-early fixture's own stranded lock paths. No production file changed, so no seams or hard-kill
   re-pin was required. Validation: full registry suite exit 0 with 614 PASS lines (583 before), seams 56/0 unchanged,
-  `git diff --check` clean. The definitive unified `run-tests.ps1 -All` run for commit `28ce839` executes with an
-  external create-new summary; its result is recorded in STATUS.md when complete. Task 1 remains 1/6 and Phase 2
-  remains 1/52; production Apply remains interlocked.
+  `git diff --check` clean. The definitive unified `run-tests.ps1 -All` run for commit `28ce839` then discovered,
+  started, completed, and passed all 34 suites exactly once with zero failures, timeouts, duplicates, missing suites,
+  or tree-kill failures (external create-new summary SHA-256
+  `5b42e119b72cb9fa91b6795da75a081415636344562ec283fdd1ff77be522474`), with hard-kill 318/0, seams 56/0, and
+  transaction 64/0 inside the run; it is also the recorded unified validation for Task-2 slices 2 and 3. Task 1 remains
+  1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
 ## Current checkpoint
 
