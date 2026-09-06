@@ -3124,8 +3124,9 @@ function Get-SealedRegistryCanonicalSetupWindow {
         $unfinishedCount = [long]@($states | Where-Object { -not [bool]$_.IsTerminal }).Count
     }
     if ($unfinishedCount -gt 0L) { throw 'canonical-root-transition-not-supported' }
+    $finalizeWindowMessage = 'setup-finalize-required'
     return [pscustomobject][ordered]@{
-        SetupStateStatus='SETUP_FINALIZE_REQUIRED'; MessageToken='setup-finalize-required'
+        SetupStateStatus='SETUP_FINALIZE_REQUIRED'; MessageToken=$finalizeWindowMessage
         SetupStatePath=[string]$paths.SetupStatePath; UnfinishedCanonicalTransactionCount=0L
     }
 }
