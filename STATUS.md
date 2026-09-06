@@ -1710,11 +1710,18 @@ rationale.
 Validation on 2026-09-06: the full `root-claims-registry.tests.ps1` suite passed with exit code 0
 and 672 PASS lines (646 before this slice); `canonical-production-seams.tests.ps1` passed 56/0
 after the re-pin; `git diff --check` and the parse gate were clean. The definitive unified
-`run-tests.ps1 -All` run for commit `1e6acfc` executes with an external create-new summary; its
-result is recorded below. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains
-interlocked, and no live root or Git index/ref was changed. With this slice, Task-2 resume items
-(1)-(7) are all closed: (1)-(5) and (7) implemented with definitive validation, (6)
-deferred/blocked with evidence.
+`run-tests.ps1 -All` run for commit `1e6acfc` then discovered, started, completed, and passed all
+34 suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill
+failures (external create-new summary SHA-256
+`77374bdd2e9e918b05d10d4f3e7f8225da470035a07567d92def84f61407b924`), with `canonical-hard-kill.tests.ps1`
+at 318/0, `canonical-production-seams.tests.ps1` at 56/0, and `canonical-transaction.tests.ps1` at
+64/0 inside the run. No production Apply, backup, rollback, retirement, live-root mutation, or Git
+index/ref mutation was performed. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply
+remains interlocked, and no live root or Git index/ref was changed. With this slice, Task-2 resume
+items (1)-(7) are all closed: (1)-(5) and (7) implemented with definitive validation, (6)
+deferred/blocked with evidence. The remaining Task-1 Step 2 debt stays as recorded (durable
+recovery ticket consumption/interpretation belongs to Task 4), and the next implementable work is
+the Phase 2 plan's Task 1 Step 3 onward.
 
 ## Validation status
 

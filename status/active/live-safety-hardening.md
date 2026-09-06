@@ -798,10 +798,12 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   sibling/detached/cross-volume/missing-witness recovery cases, adapter cleanup); seams pins zero production callers,
   unique registry-top definition, and re-pins the reflection inventory (13077 → 13143, `e3292903…`). No hard-kill
   reseal. Validation: full registry suite exit 0 with 672 PASS lines (646 before), seams 56/0, diff-check and parse
-  gate clean. The definitive unified `run-tests.ps1 -All` run for commit `1e6acfc` executes with an external
-  create-new summary; its result is recorded in STATUS.md when complete. With this slice Task-2 resume items (1)-(7)
-  are all closed ((6) as deferred/blocked with evidence). Task 1 remains 1/6 and Phase 2 remains 1/52; production
-  Apply remains interlocked.
+  gate clean. The definitive unified `run-tests.ps1 -All` run for commit `1e6acfc` then passed all 34 suites exactly
+  once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures (external create-new summary
+  SHA-256
+  `77374bdd2e9e918b05d10d4f3e7f8225da470035a07567d92def84f61407b924`), with hard-kill 318/0, seams 56/0, and
+  transaction 64/0 inside the run. With this slice Task-2 resume items (1)-(7) are all closed ((6) as deferred/blocked
+  with evidence). Task 1 remains 1/6 and Phase 2 remains 1/52; production Apply remains interlocked.
 
 ## Current checkpoint
 
