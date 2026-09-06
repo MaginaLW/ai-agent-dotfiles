@@ -836,12 +836,18 @@ elsewhere: ticket consumption (Task 4), public selector defaults (Task 5), proto
 (deferred/blocked with evidence).
 
 The next implementable work is Task 1 Step 3 (Build the registry view) per the reviewed four-slice
-design at `tmp/grok-step3-registry-design.md`: (1) the shared live-transaction immediate-child
-contract plus live UUID rows in the ordered reservation set, (2) the read-only
-`setup-finalize-required` window with a status/Apply wrapper token that does not touch the sealed
-`Get-CanonicalSetupStatus`, (3) the unique claim-accept consumer of the forbidden-root matrix, and
-(4) the zero-production-caller live TransactionId create-new primitive. Production Apply remains
-disconnected, and live-journal structure and interpretation remain deferred to Task 4.
+design at `tmp/grok-step3-registry-design.md`. Slice 1 (live-namespace child contract and ordered
+reservation rows) is implemented in commit `8ab102f`: the V1 immediate-child allow table ships
+empty (Task 4 owns the journal contract), any published child of a live transaction directory
+fails closed as `manual-recovery-required`, and each UUID directory becomes an ordered
+`live-transaction-namespace` reservation row parent-bound to the LiveTransactionsRoot. The fixed
+infrastructure forbidden check is split into two runs (claims vs ControlBase+BackupRoot; extended
+claims+live vs BackupRoot only) because the transaction directories legitimately live inside
+ControlBase. Remaining Step 3 slices: (2) the read-only `setup-finalize-required` window with a
+status/Apply wrapper token that does not touch the sealed `Get-CanonicalSetupStatus`, (3) the
+unique claim-accept consumer of the forbidden-root matrix that also consumes the live reservation
+rows, and (4) the zero-production-caller live TransactionId create-new primitive. Production Apply
+remains disconnected, and live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine

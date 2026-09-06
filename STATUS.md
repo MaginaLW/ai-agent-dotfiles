@@ -1771,6 +1771,66 @@ document (live-namespace child contract, setup-finalize window, claim-accept con
 TransactionId create-new). Production Apply remains interlocked, and no live root or Git index/ref
 was changed.
 
+## 2026-09-06 Phase 2 Task 1 Step 3 slice 1: live-namespace child contract
+
+Per the reviewed four-slice Step 3 design (`tmp/grok-step3-registry-design.md`, Grok), slice 1 is
+implemented in commit `8ab102f`:
+
+- `scripts/root-claims-registry-common.ps1` gains
+  `Assert-SealedLiveTransactionNamespaceImmediateChildren` (mandatory
+  TransactionId/ImmediateChildren/AllowedEntries; a noncanonical id throws
+  `live-transaction-namespace-id-invalid`, any child outside the reviewed allow table throws
+  `live-transaction-namespace-child-not-allowed`, both wrapped into the
+  `home-authority-registry-manual-recovery-required:` family by the view's catch) and
+  `Assert-SealedRegistryReservationSetsDisjoint` (the claims-only run against
+  ControlBase+BackupRoot, plus, when live rows exist, the extended claims+live run against
+  BackupRoot only). The V1 allow table `$script:SealedLiveTransactionAllowedEntriesV1` ships
+  empty: Task 4 owns the journal contract, so any published child of a live transaction directory
+  fails closed while an empty UUID directory remains `RECOVERY_REQUIRED` /
+  `UNRESOLVED_UNTIL_TASK_4`.
+- `Get-SealedHomeAuthorityRegistryView` now asserts the child contract inside the live loop,
+  derives each transaction's canonical path projection and volume-prefixed identity (format
+  asserted before extraction), and adds one ordered `live-transaction-namespace` reservation row
+  per UUID directory (Role `LiveTransactionRoot`, parent bound to the LiveTransactionsRoot
+  location/identity). The projection `RootReservations` includes the live rows; the current-route
+  capture input stays claims-only by design (slice 3's claim-accept consumer must consume the
+  live rows).
+- Recorded design deviation (confirmed correct by the independent Grok review): the design's
+  single extended `Assert-SealedRegistryReservationsDisjoint` call is impossible because
+  `Test-TargetPathOverlap` is a bidirectional containment check and every legitimate transaction
+  directory is inside ControlBase, so the fixed-infrastructure forbidden check is split — claims
+  keep both forbidden roots, the extended run uses BackupRoot only, and both run inside one
+  helper with the view as its unique production caller.
+- Recorded token deviation: the view-level identity-collision negative (a contract-legal home
+  claim carrying the transaction directory's real identity) fires the single-row
+  `registry directory identity aliases multiple locations` token rather than the pairwise
+  `registry reserved root identities collide` token; the aliasing check precedes the pairwise
+  loop and is equally exclusive to the extended run.
+
+Tests: `tests/root-claims-registry.tests.ps1` gains 19 assertions (672 → 691 PASS): the V1 table
+pinned empty; the empty-UUID fixture's reservation row pinned on
+path/location/parent/volume/identity; a stray file, a pre-filled `header.json`, and a stray child
+directory each failing closed as `live-transaction-namespace-child-not-allowed`; a two-UUID
+fixture sharing one LiveTransactionsRoot parent binding; home claims coexisting with an empty
+live namespace in `RootReservations`; the view-level identity-aliasing negative; direct unit
+rejections for a noncanonical id and an off-table child; and the synthetic path-nesting negative
+proving the extended set rejects a transaction nested inside a canonical recovery root. The seams
+suite pins both new functions as uniquely defined with the view as their unique production caller
+and re-pins the reflection-sensitive inventory (count 13143 → 13156, digest
+`fb90c6fe962dda813b5d22958eaf2f444cfb5893aa4f1a8b1ffdcbdca1688ffd`).
+
+Validation on 2026-09-06: the parse gate accepted all 156 files;
+`canonical-production-seams.tests.ps1` passed 56/0 after the re-pin; the full
+`root-claims-registry.tests.ps1` suite passed with exit code 0 and 691 PASS lines (672 before);
+`git diff --check` was clean. An independent read-only Grok review of the diff returned
+NEEDS-FIX with zero P0s and one P1; all findings were adopted in the committed bytes (the helper
+extraction, the identity-format assertion before volume extraction, the V1-table pin, the
+parent-binding assertions, the two-UUID and claims-plus-namespace view positives, the
+journal-shaped `header.json` negative, and the two view-level/synthetic negatives that lock the
+extended disjoint run). The definitive unified `run-tests.ps1 -All` run for this slice has not
+been executed yet and remains pending. No production Apply, backup, rollback, retirement,
+live-root mutation, or Git index/ref mutation was performed. Production Apply remains interlocked.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2131,13 +2191,14 @@ release, remain downstream and have not started.
 ## Next actions
 
 1. Continue Phase 2 Task 1 Step 3 (Build the registry view) per the reviewed four-slice design at
-   `tmp/grok-step3-registry-design.md`: slice 1 adds the shared live-transaction immediate-child
-   contract and brings live UUID directories into the ordered reservation set; slice 2 defines the
-   read-only `setup-finalize-required` classification window and the status/Apply wrapper token
-   without touching the sealed `Get-CanonicalSetupStatus`; slice 3 wires the forbidden-root matrix
-   through a unique claim-accept consumer; slice 4 adds the zero-caller live TransactionId
-   create-new primitive. Task 1 Steps 4-6 (shared state, deterministic locks, verification) and
-   Tasks 2-9 follow in strict sequence. Live-journal structure and interpretation stay with Task 4.
+   `tmp/grok-step3-registry-design.md`. Slice 1 (live-namespace child contract and ordered
+   reservation rows) is implemented in commit `8ab102f`. Next: slice 2 defines the read-only
+   `setup-finalize-required` classification window and the status/Apply wrapper token without
+   touching the sealed `Get-CanonicalSetupStatus`; slice 3 wires the forbidden-root matrix through
+   a unique claim-accept consumer that also consumes the live reservation rows; slice 4 adds the
+   zero-caller live TransactionId create-new primitive. Task 1 Steps 4-6 (shared state,
+   deterministic locks, verification) and Tasks 2-9 follow in strict sequence. Live-journal
+   structure and interpretation stay with Task 4.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
