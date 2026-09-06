@@ -5915,6 +5915,185 @@ try {
         if ($null -ne $completionContentionLock) { try { Exit-CanonicalRepoLock -LockHandle $completionContentionLock } catch { } }
     }
 
+    Write-Host '[forbidden-root claim-accept matrix]'
+
+    $forbiddenFixture = New-TestRegistryFixture -Parent $workRoot -Name 'forbidden-root-accept'
+    $forbiddenLiveTargets = @($forbiddenFixture.Context.LiveTargets)
+    Assert-TestCondition ($forbiddenLiveTargets.Count -eq 3 -and
+        [string]$forbiddenLiveTargets[0].Platform -ceq 'Claude') 'the forbidden-root fixture exposes three ordered live target contexts'
+    $forbiddenBefore = Get-TestRegistryTreeHash -Fixture $forbiddenFixture
+    $null = Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenLiveTargets
+    Assert-TestCondition ($forbiddenBefore -ceq (Get-TestRegistryTreeHash -Fixture $forbiddenFixture)) 'the default claim-accept matrix passes the real live targets with zero writes'
+
+    $forbiddenOverlappingDir = Join-Path ([string]$forbiddenFixture.Context.ControlBase) 'nested-custom-live'
+    [IO.Directory]::CreateDirectory($forbiddenOverlappingDir) | Out-Null
+    $forbiddenOverlappingContext = Resolve-TargetContext -Path $forbiddenOverlappingDir -Mode MetadataOnly
+    $forbiddenCustomLive = @($forbiddenLiveTargets[0],$forbiddenLiveTargets[1],[pscustomobject][ordered]@{ Platform='Reasonix'; TargetContext=$forbiddenOverlappingContext })
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenCustomLive
+    } '^manual-recovery-required: forbidden-root-path-overlap$' 'a custom live root overlapping ControlBase fails the accept matrix'
+
+    $forbiddenTwoLive = @($forbiddenLiveTargets[0],$forbiddenLiveTargets[1])
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenTwoLive
+    } 'current-route-context-contract-invalid' 'a two-platform proposed live set fails the contract shape'
+
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets @($forbiddenLiveTargets[0],$null,$forbiddenLiveTargets[2])
+    } 'current-route-context-contract-invalid' 'a null proposed live element fails the contract shape'
+
+    $forbiddenNestedParent = Join-Path $forbiddenFixture.Root 'forbidden-nested-parent'
+    $forbiddenNestedChild = Join-Path $forbiddenNestedParent 'child'
+    [IO.Directory]::CreateDirectory($forbiddenNestedChild) | Out-Null
+    $forbiddenNestedParentContext = Resolve-TargetContext -Path $forbiddenNestedParent -Mode MetadataOnly
+    $forbiddenNestedChildContext = Resolve-TargetContext -Path $forbiddenNestedChild -Mode MetadataOnly
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets @(
+            $forbiddenNestedParentContext,$forbiddenNestedChildContext,$forbiddenLiveTargets[2].TargetContext)
+    } '^manual-recovery-required: forbidden-root-path-overlap$' 'pairwise nested proposed live roots fail the accept matrix'
+
+    $forbiddenHomeRootContext = Resolve-TargetContext -Path ([string]$forbiddenFixture.Context.HomeRoot) -Mode MetadataOnly
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets @(
+            $forbiddenHomeRootContext,$forbiddenLiveTargets[1].TargetContext,$forbiddenLiveTargets[2].TargetContext)
+    } '^manual-recovery-required: HomeRoot itself cannot be a target$' 'a proposed live root equal to HomeRoot fails the accept matrix'
+
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets @(
+            [pscustomobject][ordered]@{ RequestedPath='C:\' },$forbiddenLiveTargets[1].TargetContext,$forbiddenLiveTargets[2].TargetContext)
+    } '^manual-recovery-required: volume root cannot be a target$' 'a proposed live root at the volume root fails the accept matrix'
+
+    $forbiddenSystemPath = Join-Path ([string]$forbiddenFixture.Context.ControlBase) '.system\nested'
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets @(
+            [pscustomobject][ordered]@{ RequestedPath=$forbiddenSystemPath },$forbiddenLiveTargets[1].TargetContext,$forbiddenLiveTargets[2].TargetContext)
+    } '^manual-recovery-required: \.system cannot be a managed target$' 'a proposed live path with a .system segment fails the accept matrix'
+
+    $forbiddenJunctionTarget = Join-Path $forbiddenFixture.Root 'junction-target'
+    [IO.Directory]::CreateDirectory($forbiddenJunctionTarget) | Out-Null
+    $forbiddenJunction = New-PathSafetyJunction -Path (Join-Path $forbiddenFixture.Root 'junction-ancestor') -Target $forbiddenJunctionTarget
+    $forbiddenReparsePath = Join-Path (Join-Path $forbiddenFixture.Root 'junction-ancestor') 'nested-live'
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets @(
+            [pscustomobject][ordered]@{ RequestedPath=$forbiddenReparsePath },$forbiddenLiveTargets[1].TargetContext,$forbiddenLiveTargets[2].TargetContext)
+    } '^manual-recovery-required: target path contains a reparse ancestor' 'a proposed live path under a reparse ancestor fails the accept matrix'
+
+    $forbiddenForeignFixture = New-TestRegistryFixture -Parent $workRoot -Name 'forbidden-root-foreign'
+    $forbiddenForeignLive = [string]$forbiddenForeignFixture.Context.LiveTargets[0].TargetContext.RequestedPath
+    $forbiddenForeignReservation = [pscustomobject][ordered]@{
+        SourceKind='home-root-claim'; OwnerKey='foreign-authority-key'; Role='LiveRoot'; Platform='Claude'
+        LocationKey='foreign-location'; RequestedPath=[string]$forbiddenLiveTargets[0].TargetContext.RequestedPath; VolumeId=$null; DirectoryIdentity=$null
+        ParentLocationKey=$null; ParentIdentity=$null
+    }
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenLiveTargets -ExistingReservations @($forbiddenForeignReservation)
+    } '^manual-recovery-required: forbidden-root-path-overlap$' 'a proposed live root overlapping a foreign home reservation fails the accept matrix'
+
+    $forbiddenRecoveryReservation = [pscustomobject][ordered]@{
+        SourceKind='canonical-root-claim'; OwnerKey='foreign-repo'; Role='CanonicalRecoveryRoot'; Platform=$null
+        LocationKey='foreign-recovery'; RequestedPath=(Join-Path ([string]$forbiddenLiveTargets[0].TargetContext.RequestedPath) 'foreign-recovery'); VolumeId=$null; DirectoryIdentity=$null
+        ParentLocationKey=$null; ParentIdentity=$null
+    }
+    [IO.Directory]::CreateDirectory([string]$forbiddenRecoveryReservation.RequestedPath) | Out-Null
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenLiveTargets -ExistingReservations @($forbiddenRecoveryReservation)
+    } '^manual-recovery-required: forbidden-root-path-overlap$' 'a proposed live root overlapping a foreign canonical recovery reservation fails the accept matrix'
+
+    $forbiddenOwnReservation = [pscustomobject][ordered]@{
+        SourceKind='home-root-claim'; OwnerKey=[string]$forbiddenFixture.Context.HomeAuthorityKey; Role='LiveRoot'; Platform='Claude'
+        LocationKey=[string]$forbiddenLiveTargets[0].TargetContext.LocationKey; RequestedPath=[string]$forbiddenLiveTargets[0].TargetContext.RequestedPath
+        VolumeId=$null; DirectoryIdentity=$null; ParentLocationKey=$null; ParentIdentity=$null
+    }
+    $null = Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenLiveTargets -ExistingReservations @($forbiddenOwnReservation)
+    Assert-TestCondition ($forbiddenBefore -cne 'never-equal') 'an identical own home reservation passes the accept matrix without a transition rejection'
+
+    $forbiddenTransitionReservation = [pscustomobject][ordered]@{
+        SourceKind='home-root-claim'; OwnerKey=[string]$forbiddenFixture.Context.HomeAuthorityKey; Role='LiveRoot'; Platform='Claude'
+        LocationKey=[string]$forbiddenLiveTargets[0].TargetContext.LocationKey; RequestedPath=(Join-Path $forbiddenFixture.Root 'moved-claude')
+        VolumeId=$null; DirectoryIdentity=$null; ParentLocationKey=$null; ParentIdentity=$null
+    }
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenLiveTargets -ExistingReservations @($forbiddenTransitionReservation)
+    } '^root-transition-not-supported$' 'an own reservation whose live path changed is rejected as a root transition'
+
+    $forbiddenWitnessAdapter = New-TestResolverObservationAdapter -Parent $workRoot -Name 'forbidden-root-witness'
+    try {
+    $forbiddenWitnessLiveTargets = @($forbiddenWitnessAdapter.Fixture.Context.LiveTargets)
+    $forbiddenWitnessRepoDir = [string]$forbiddenWitnessAdapter.Canonical.RepoRoot
+    $forbiddenWitnessLiveClaude = Resolve-TargetContext -Path (Join-Path $forbiddenWitnessRepoDir 'claude-live-inside-repo') -Mode MetadataOnly
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenWitnessAdapter.Fixture.Context -ProposedLiveTargets @(
+            $forbiddenWitnessLiveClaude,$forbiddenWitnessLiveTargets[1].TargetContext,$forbiddenWitnessLiveTargets[2].TargetContext) `
+            -CanonicalWitness $forbiddenWitnessAdapter.Witness
+    } '^manual-recovery-required: forbidden-root-path-overlap$' 'a proposed live root inside the witnessed repo fails the accept matrix'
+
+    $forbiddenRecoverySibling = Join-Path $forbiddenWitnessAdapter.Fixture.Root 'witness-recovery-sibling'
+    [IO.Directory]::CreateDirectory($forbiddenRecoverySibling) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $forbiddenRecoverySibling
+    $forbiddenRecoverySiblingContext = Resolve-TargetContext -Path $forbiddenRecoverySibling -Mode MetadataOnly
+    $null = Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenWitnessAdapter.Fixture.Context -ProposedLiveTargets @($forbiddenWitnessLiveTargets[0],$forbiddenWitnessLiveTargets[1].TargetContext,$forbiddenWitnessLiveTargets[2].TargetContext) -ProposedCanonicalRecovery $forbiddenRecoverySiblingContext -CanonicalWitness $forbiddenWitnessAdapter.Witness
+    Assert-TestCondition ($true) 'a writable-sibling canonical recovery root with three live subjects passes the accept matrix'
+
+    $forbiddenRecoveryDescendant = Join-Path $forbiddenWitnessRepoDir 'recovery-inside-repo'
+    [IO.Directory]::CreateDirectory($forbiddenRecoveryDescendant) | Out-Null
+    $forbiddenRecoveryDescendantContext = Resolve-TargetContext -Path $forbiddenRecoveryDescendant -Mode MetadataOnly
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenWitnessAdapter.Fixture.Context -ProposedLiveTargets @($forbiddenWitnessLiveTargets[0],$forbiddenWitnessLiveTargets[1].TargetContext,$forbiddenWitnessLiveTargets[2].TargetContext) -ProposedCanonicalRecovery $forbiddenRecoveryDescendantContext -CanonicalWitness $forbiddenWitnessAdapter.Witness
+    } '^manual-recovery-required: forbidden-root-path-overlap$' 'a canonical recovery root inside the repo fails the accept matrix'
+
+    $forbiddenRecoveryOverlapControl = Join-Path ([string]$forbiddenWitnessAdapter.Fixture.Context.ControlBase) 'recovery-inside-control'
+    [IO.Directory]::CreateDirectory($forbiddenRecoveryOverlapControl) | Out-Null
+    $forbiddenRecoveryOverlapControlContext = Resolve-TargetContext -Path $forbiddenRecoveryOverlapControl -Mode MetadataOnly
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenWitnessAdapter.Fixture.Context -ProposedLiveTargets @($forbiddenWitnessLiveTargets[0],$forbiddenWitnessLiveTargets[1].TargetContext,$forbiddenWitnessLiveTargets[2].TargetContext) -ProposedCanonicalRecovery $forbiddenRecoveryOverlapControlContext -CanonicalWitness $forbiddenWitnessAdapter.Witness
+    } '^manual-recovery-required: forbidden-root-path-overlap$' 'a canonical recovery root overlapping ControlBase fails the accept matrix'
+
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenWitnessAdapter.Fixture.Context -ProposedLiveTargets @($forbiddenWitnessLiveTargets[0],$forbiddenWitnessLiveTargets[1].TargetContext,$forbiddenWitnessLiveTargets[2].TargetContext) -ProposedCanonicalRecovery $forbiddenRecoverySiblingContext
+    } '^canonical-witness-required$' 'a proposed recovery root without a canonical witness fails closed'
+
+    $forbiddenSecondVolume = $null
+    foreach ($candidateDrive in @(Get-PSDrive -PSProvider FileSystem)) {
+        if ([string]$candidateDrive.Name -cne 'C' -and $candidateDrive.Free -gt 0) { $forbiddenSecondVolume = "$($candidateDrive.Name):"; break }
+    }
+    if ($null -ne $forbiddenSecondVolume) {
+        $forbiddenCrossVolumeRecovery = Join-Path $forbiddenSecondVolume ('.rcr-forbidden-cross-volume-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+        [IO.Directory]::CreateDirectory($forbiddenCrossVolumeRecovery) | Out-Null
+        try {
+            $forbiddenCrossVolumeContext = Resolve-TargetContext -Path $forbiddenCrossVolumeRecovery -Mode MetadataOnly
+            Assert-ThrowsPattern {
+                Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenWitnessAdapter.Fixture.Context -ProposedLiveTargets @($forbiddenWitnessLiveTargets[0],$forbiddenWitnessLiveTargets[1].TargetContext,$forbiddenWitnessLiveTargets[2].TargetContext) -ProposedCanonicalRecovery $forbiddenCrossVolumeContext -CanonicalWitness $forbiddenWitnessAdapter.Witness
+            } '^manual-recovery-required: canonical-recovery-root-cross-volume$' 'a cross-volume canonical recovery root fails the accept matrix'
+        }
+        finally { try { Remove-Item -LiteralPath $forbiddenCrossVolumeRecovery -Recurse -Force } catch { } }
+    }
+    else { Write-Host '  SKIP  no second fixed volume for the cross-volume recovery assertion' }
+
+    $forbiddenStagingRoots = @()
+    foreach ($forbiddenLive in $forbiddenLiveTargets) {
+        $forbiddenStagingRoots += [pscustomobject][ordered]@{ Platform=[string]$forbiddenLive.Platform; Path=(Join-Path (Split-Path -Parent ([string]$forbiddenLive.TargetContext.RequestedPath)) ('staging-sibling-' + [string]$forbiddenLive.Platform)) }
+    }
+    foreach ($forbiddenStaging in $forbiddenStagingRoots) { [IO.Directory]::CreateDirectory([string]$forbiddenStaging.Path) | Out-Null }
+    $forbiddenStagingSiblingRootSet = New-SealedCurrentRouteRootSet -CanonicalWitness $forbiddenWitnessAdapter.Witness -LiveMutationStagingRoots @($forbiddenStagingRoots)
+    $null = Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenLiveTargets -CurrentRouteRootSet $forbiddenStagingSiblingRootSet
+    Assert-TestCondition ($true) 'a same-parent same-volume staging sibling passes the accept matrix'
+
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -CurrentRouteRootSet $forbiddenStagingSiblingRootSet
+    } '^manual-recovery-required: live-mutation-staging-not-sibling$' 'present staging rows with zero live subjects fail the accept matrix'
+
+    $forbiddenStagingDetached = Join-Path $forbiddenFixture.Root 'detached-staging'
+    [IO.Directory]::CreateDirectory($forbiddenStagingDetached) | Out-Null
+    $forbiddenStagingDetachedRootSet = New-SealedCurrentRouteRootSet -CanonicalWitness $forbiddenWitnessAdapter.Witness -LiveMutationStagingRoots @(
+        [pscustomobject][ordered]@{ Platform='Claude'; Path=(Join-Path $forbiddenStagingDetached 'claude') },
+        [pscustomobject][ordered]@{ Platform='Codex'; Path=(Join-Path $forbiddenStagingDetached 'codex') },
+        [pscustomobject][ordered]@{ Platform='Reasonix'; Path=(Join-Path $forbiddenStagingDetached 'reasonix') })
+    Assert-ThrowsPattern {
+        Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenFixture.Context -ProposedLiveTargets $forbiddenLiveTargets -CurrentRouteRootSet $forbiddenStagingDetachedRootSet
+    } '^manual-recovery-required: live-mutation-staging-not-sibling$' 'a staging root with a different parent than its live root fails the accept matrix'
+    }
+    finally { Close-TestResolverObservationAdapter -Adapter $forbiddenWitnessAdapter }
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 

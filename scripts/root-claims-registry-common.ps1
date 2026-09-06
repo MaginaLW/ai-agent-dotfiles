@@ -1667,6 +1667,175 @@ function Assert-SealedRegistryTargetContextsDisjoint {
     if (Test-SealedRegistryTargetContextsOverlap -Left $leftContext -Right $rightContext) { throw $IdentityToken }
 }
 
+function Assert-SealedProposedClaimsForbiddenRootMatrix {
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [AllowEmptyCollection()][object[]]$ProposedLiveTargets = @(),
+        [AllowNull()]$ProposedCanonicalRecovery,
+        [AllowNull()]$CanonicalWitness,
+        [AllowNull()]$CurrentRouteRootSet,
+        [AllowEmptyCollection()][object[]]$ExistingReservations = @()
+    )
+
+    $null = Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $AuthorityContext
+    $proposedLive = @($ProposedLiveTargets)
+    foreach ($proposed in $proposedLive) {
+        if ($null -eq $proposed) { throw 'current-route-context-contract-invalid' }
+    }
+    if ($proposedLive.Count -notin @(0,3)) { throw 'current-route-context-contract-invalid' }
+    $subjects = [Collections.Generic.List[object]]::new()
+    foreach ($live in $proposedLive) {
+        $livePlatform = [string](Get-SealedRegistryObjectValue -InputObject $live -Name 'Platform')
+        $liveContext = Get-SealedRegistryCoreTargetContext -InputObject $live
+        $subjects.Add([pscustomobject][ordered]@{ Kind='Live'; Platform=$livePlatform; Original=$live; TargetContext=$liveContext })
+    }
+    if ($null -ne $ProposedCanonicalRecovery) {
+        $recoveryContext = Get-SealedRegistryCoreTargetContext -InputObject $ProposedCanonicalRecovery
+        $subjects.Add([pscustomobject][ordered]@{ Kind='Recovery'; Platform=$null; Original=$ProposedCanonicalRecovery; TargetContext=$recoveryContext })
+    }
+    if ($proposedLive.Count -eq 3) {
+        for ($platformIndex=0; $platformIndex -lt 3; $platformIndex++) {
+            $entryPlatform = [string]$subjects[$platformIndex].Platform
+            if (-not [string]::IsNullOrEmpty($entryPlatform) -and $entryPlatform -cne @('Claude','Codex','Reasonix')[$platformIndex]) { throw 'current-route-context-contract-invalid' }
+        }
+    }
+
+    foreach ($subject in $subjects) {
+        $subjectPath = [string](Get-SealedRegistryObjectValue -InputObject $subject.TargetContext -Name 'RequestedPath')
+        try { $null = Resolve-TargetContext -Path $subjectPath -Mode MetadataOnly -HomeRoot ([string]$AuthorityContext.HomeRoot) }
+        catch {
+            $pathSafetyInner = $_.Exception
+            while (($pathSafetyInner -is [System.Management.Automation.MethodInvocationException] -or
+                $pathSafetyInner -is [System.Management.Automation.RuntimeException]) -and
+                $null -ne $pathSafetyInner.InnerException) { $pathSafetyInner = $pathSafetyInner.InnerException }
+            throw "manual-recovery-required: $([string]$pathSafetyInner.Message)"
+        }
+    }
+
+    $opponents = [Collections.Generic.List[object]]::new()
+    foreach ($authorityRootName in @('ControlBase','BackupRoot')) {
+        $authorityPath = [string](Get-HomeAuthorityObjectProperty -InputObject $AuthorityContext -Name $authorityRootName)
+        $opponents.Add((Resolve-TargetContext -Path $authorityPath -Mode MetadataOnly))
+    }
+    $repoRootContext = $null
+    if ($null -ne $CanonicalWitness) {
+        foreach ($witnessRole in @('RepoRoot','GitDir','GitCommonDir','ContractRoot')) {
+            $witnessPath = Get-CanonicalHeldWitnessPath -Witness $CanonicalWitness -Role $witnessRole
+            $witnessContext = Resolve-TargetContext -Path ([string]$witnessPath) -Mode MetadataOnly
+            $opponents.Add($witnessContext)
+            if ($witnessRole -ceq 'RepoRoot') { $repoRootContext = $witnessContext }
+        }
+    }
+    $presentStagingRows = @()
+    if ($null -ne $CurrentRouteRootSet) {
+        foreach ($rootRow in @((Get-SealedRegistryObjectValue -InputObject $CurrentRouteRootSet -Name 'Roots'))) {
+            if ($null -eq $rootRow) { continue }
+            $rowRole = [string](Get-SealedRegistryObjectValue -InputObject $rootRow -Name 'Role')
+            $rowApplicability = [string](Get-SealedRegistryObjectValue -InputObject $rootRow -Name 'Applicability')
+            if ($rowApplicability -cne 'PRESENT') { continue }
+            if ($rowRole -cnotin @('CandidateWorkspace','EnvironmentMaterializationRoot','SourceRoot','LiveMutationStagingRoot')) { continue }
+            $rowContext = Get-SealedRegistryObjectValue -InputObject $rootRow -Name 'TargetContext'
+            if ($null -eq $rowContext) { throw 'current-route-context-contract-invalid' }
+            $opponents.Add($rowContext)
+            if ($rowRole -ceq 'LiveMutationStagingRoot') { $presentStagingRows += [pscustomobject][ordered]@{ Platform=[string](Get-SealedRegistryObjectValue -InputObject $rootRow -Name 'Platform'); TargetContext=$rowContext } }
+        }
+    }
+    foreach ($reservation in @($ExistingReservations)) {
+        if ($null -eq $reservation) { throw 'current-route-context-contract-invalid' }
+        $isOwnReservation = $false
+        foreach ($subjectEntry in $subjects) {
+            if ([string]$subjectEntry.Kind -cne 'Live') { continue }
+            if ([string]$reservation.SourceKind -ceq 'home-root-claim' -and
+                [string]$reservation.OwnerKey -ceq [string]$AuthorityContext.HomeAuthorityKey -and
+                [string]$reservation.Platform -ceq [string]$subjectEntry.Platform) {
+                $isOwnReservation = $true
+                $ownContext = $subjectEntry.TargetContext
+                if ([string]$reservation.LocationKey -cne [string](Get-SealedRegistryObjectValue -InputObject $ownContext -Name 'LocationKey') -or
+                    [string]$reservation.RequestedPath -cne [string](Get-SealedRegistryObjectValue -InputObject $ownContext -Name 'RequestedPath')) { throw 'root-transition-not-supported' }
+                if ($null -ne $reservation.DirectoryIdentity -and
+                    [string]$reservation.DirectoryIdentity -cne [string](Get-SealedRegistryObjectValue -InputObject $ownContext -Name 'DirectoryIdentity')) { throw 'root-transition-not-supported' }
+                break
+            }
+        }
+        if (-not $isOwnReservation) {
+            $reservationPath = [string]$reservation.RequestedPath
+            $opponents.Add((Resolve-TargetContext -Path $reservationPath -Mode MetadataOnly))
+        }
+    }
+
+    for ($leftIndex=0; $leftIndex -lt $subjects.Count; $leftIndex++) {
+        for ($rightIndex=$leftIndex+1; $rightIndex -lt $subjects.Count; $rightIndex++) {
+            try {
+                Assert-SealedRegistryTargetContextsDisjoint -Left $subjects[$leftIndex].TargetContext -Right $subjects[$rightIndex].TargetContext -PathToken 'forbidden-root-path-overlap' -IdentityToken 'forbidden-root-identity-alias'
+            }
+            catch {
+                $matrixInner = $_.Exception
+                while (($matrixInner -is [System.Management.Automation.MethodInvocationException] -or
+                    $matrixInner -is [System.Management.Automation.RuntimeException]) -and
+                    $null -ne $matrixInner.InnerException) { $matrixInner = $matrixInner.InnerException }
+                throw "manual-recovery-required: $([string]$matrixInner.Message)"
+            }
+        }
+    }
+    foreach ($subject in $subjects) {
+        foreach ($opponent in $opponents) {
+            try {
+                Assert-SealedRegistryTargetContextsDisjoint -Left $subject.TargetContext -Right $opponent -PathToken 'forbidden-root-path-overlap' -IdentityToken 'forbidden-root-identity-alias'
+            }
+            catch {
+                $matrixInner = $_.Exception
+                while (($matrixInner -is [System.Management.Automation.MethodInvocationException] -or
+                    $matrixInner -is [System.Management.Automation.RuntimeException]) -and
+                    $null -ne $matrixInner.InnerException) { $matrixInner = $matrixInner.InnerException }
+                throw "manual-recovery-required: $([string]$matrixInner.Message)"
+            }
+        }
+    }
+
+    if ($subjects.Count -eq 0 -and $presentStagingRows.Count -eq 0) { throw 'current-route-context-contract-invalid' }
+    if ($presentStagingRows.Count -gt 0) {
+        if ($proposedLive.Count -eq 0) { throw 'manual-recovery-required: live-mutation-staging-not-sibling' }
+        foreach ($stagingRow in $presentStagingRows) {
+            $matchingSubject = $null
+            foreach ($subjectEntry in $subjects) {
+                if ([string]$subjectEntry.Kind -ceq 'Live' -and [string]$subjectEntry.Platform -ceq [string]$stagingRow.Platform) { $matchingSubject = $subjectEntry; break }
+            }
+            if ($null -eq $matchingSubject) { throw 'manual-recovery-required: live-mutation-staging-not-sibling' }
+            $stagingContext = $stagingRow.TargetContext
+            $liveContext = $matchingSubject.TargetContext
+            $stagingPath = [string](Get-SealedRegistryObjectValue -InputObject $stagingContext -Name 'RequestedPath')
+            $livePath = [string](Get-SealedRegistryObjectValue -InputObject $liveContext -Name 'RequestedPath')
+            if ([string](Get-SealedRegistryObjectValue -InputObject $stagingContext -Name 'VolumeId') -cne [string](Get-SealedRegistryObjectValue -InputObject $liveContext -Name 'VolumeId') -or
+                [IO.Path]::GetFullPath((Split-Path -Parent $stagingPath)) -cne [IO.Path]::GetFullPath((Split-Path -Parent $livePath))) { throw 'manual-recovery-required: live-mutation-staging-not-sibling' }
+        }
+    }
+    if ($null -ne $repoRootContext -and $presentStagingRows.Count -gt 0) {
+        foreach ($stagingRow in $presentStagingRows) {
+            try {
+                Assert-SealedRegistryTargetContextsDisjoint -Left $stagingRow.TargetContext -Right $repoRootContext -PathToken 'forbidden-root-path-overlap' -IdentityToken 'forbidden-root-identity-alias'
+            }
+            catch {
+                $matrixInner = $_.Exception
+                while (($matrixInner -is [System.Management.Automation.MethodInvocationException] -or
+                    $matrixInner -is [System.Management.Automation.RuntimeException]) -and
+                    $null -ne $matrixInner.InnerException) { $matrixInner = $matrixInner.InnerException }
+                throw "manual-recovery-required: $([string]$matrixInner.Message)"
+            }
+        }
+    }
+    if ($null -ne $ProposedCanonicalRecovery) {
+        if ($null -eq $CanonicalWitness) { throw 'canonical-witness-required' }
+        try { $null = Assert-CanonicalRecoveryVolumeMatch -RepositoryVolumeId ([string]$repoRootContext.VolumeId) -RecoveryVolumeId ([string]$ProposedCanonicalRecovery.VolumeId) }
+        catch {
+            $volumeInner = $_.Exception
+            while (($volumeInner -is [System.Management.Automation.MethodInvocationException] -or
+                $volumeInner -is [System.Management.Automation.RuntimeException]) -and
+                $null -ne $volumeInner.InnerException) { $volumeInner = $volumeInner.InnerException }
+            throw "manual-recovery-required: $([string]$volumeInner.Message)"
+        }
+    }
+}
+
 function Close-SealedRegistryCurrentRouteResources {
     param(
         [AllowNull()]$LiveSetLease,

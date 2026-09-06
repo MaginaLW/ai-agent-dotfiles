@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13077
-$reviewedAllScriptsReflectionSensitiveDigest='7fdcb8745a997b3c0d5ca6becc565717c2a9e34352f3e1985af0f5eedb61f89e'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13143
+$reviewedAllScriptsReflectionSensitiveDigest='e3292903958d0af19f7aa96bef719f98c058b3786833a57874537b9ca68cedaf'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -538,7 +538,8 @@ function Invoke-ProductionSeamAnalysis {
             }
             if($commandName -iin @(
                 'Register-SealedHeldHomeAuthorityCanonicalGlobalBinding',
-                'Complete-SealedHeldCanonicalPrivateRootBootstrap')){
+                'Complete-SealedHeldCanonicalPrivateRootBootstrap',
+                'Assert-SealedProposedClaimsForbiddenRootMatrix')){
                 $fixedObservationBoundaryViolations.Add("canonical private-root completion caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Open-SealedHeldObservationCleanupLedger'){
@@ -855,7 +856,8 @@ function Invoke-ProductionSeamAnalysis {
     foreach($completionEntry in @(
         @('Register-SealedHeldHomeAuthorityCanonicalGlobalBinding','scripts/home-authority-common.ps1'),
         @('Complete-SealedHeldCanonicalRecoveryRootRemainder','scripts/root-claims-registry-common.ps1'),
-        @('Complete-SealedHeldCanonicalPrivateRootBootstrap','scripts/root-claims-registry-common.ps1'))){
+        @('Complete-SealedHeldCanonicalPrivateRootBootstrap','scripts/root-claims-registry-common.ps1'),
+        @('Assert-SealedProposedClaimsForbiddenRootMatrix','scripts/root-claims-registry-common.ps1'))){
         $completionDefinitionKey=$completionEntry[0].ToLowerInvariant()
         $completionDefinitions=@(if($definitions.ContainsKey($completionDefinitionKey)){@($definitions[$completionDefinitionKey])})
         if($completionDefinitions.Count -ne 1 -or
