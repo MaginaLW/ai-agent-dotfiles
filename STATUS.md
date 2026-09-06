@@ -1659,6 +1659,63 @@ not a dispatch consumption layer, and is recorded here without being silently ab
 schema, or CLI change was made for this item; the item closes as deferred/blocked with the design
 authority evidence, pending a legally released interlock (which would reopen D1/D2 wiring first).
 
+## 2026-09-06 Task-2 item (7): claim-accept forbidden-root matrix helper
+
+Task-2 resume item (7) is implemented per the reviewed forbidden-root design
+(`tmp/grok-forbidden-root-design.md`, review revision 1; the Grok session died mid-loop after
+incorporating one review round and the main agent completed the design and implementation).
+`scripts/root-claims-registry-common.ps1` gains `Assert-SealedProposedClaimsForbiddenRootMatrix` —
+the claim-accept gate (plan Task 1 Step 3) that runs before any default/custom claim is accepted,
+with zero production callers and `MutationAuthorization=NONE`:
+
+- The gate enforces the 0-or-3 ordered live subjects contract and runs the M13 path-safety track
+  per subject (`Resolve-TargetContext -HomeRoot`: HomeRoot equality, volume root, `.system`,
+  reparse ancestor — wrapped into `manual-recovery-required`).
+- Every opponent is coerced to a no-follow `TargetContext` (ControlBase/BackupRoot, the witness's
+  four Git-private paths as disjoint opponents only, PRESENT optional root-set rows, non-own
+  reservations), the exact isOwn root-transition contract is copied from the current-route capture
+  (owner+platform+kind match, location/path identity, `DirectoryIdentity` only when present,
+  `root-transition-not-supported` unwrapped), and subjects-x-subjects plus subjects-x-opponents
+  disjoint runs with `forbidden-root-path-overlap` / `forbidden-root-identity-alias` tokens wrapped
+  into the `manual-recovery-required` family. Opponent pairs and source/materialization invariants
+  stay in the current-route gate by design (KD8); the Git-private opponents are never paired with
+  each other.
+- M11 enforces the same-parent same-volume staging-sibling rule with zero-live PRESENT staging
+  failing closed (`live-mutation-staging-not-sibling`); the defensive M12 staging-x-RepoRoot pair
+  is retained; recovery subjects require a canonical witness and wrap
+  `canonical-recovery-root-cross-volume`.
+- The implementation is ordered so the zero-subjects contract check follows the staging gathering
+  (a PRESENT staging row with zero live subjects is the staging failure, not the empty-subjects
+  failure), and the platform-order check skips anonymous (bare TargetContext) entries.
+
+`tests/root-claims-registry.tests.ps1` gains the `[forbidden-root claim-accept matrix]` block:
+default-claim pass with zero writes, custom overlap with ControlBase, contract shape rejections,
+pairwise nesting, the four M13 bans, foreign home and canonical-recovery reservation overlaps
+(foreign authorities claiming the proposed directories), identical own reservation passing without
+a transition rejection, root-transition rejection, witnessed-repo live overlap, writable-sibling
+recovery pass, recovery-in-repo and recovery-over-ControlBase failures, missing-witness failure,
+cross-volume recovery (second fixed volume present on this host), staging sibling pass, zero-live
+staging failure, detached-staging failure, and adapter cleanup. The seams suite pins the helper at
+zero production callers and unique registry-top definition and re-pins the reflection-sensitive
+inventory (count 13077 → 13143, digest `e3292903…`). No hard-kill reseal:
+`canonical-transaction-common.ps1` is unchanged and the four-root closure is untouched.
+
+Recorded deviations from the design: the design's "staging root inside the witnessed repo" M12
+negative is geometrically unreachable once the M11 sibling rule and the M2 live-x-RepoRoot rule
+both hold (a staging sibling shares its live root's parent, which M2 keeps outside the repo), so
+the M12 pair is retained in the helper as a defensive check without a dedicated negative test; and
+the design's OwnerSid binding negative from the earlier slice remains recorded with the same
+rationale.
+
+Validation on 2026-09-06: the full `root-claims-registry.tests.ps1` suite passed with exit code 0
+and 672 PASS lines (646 before this slice); `canonical-production-seams.tests.ps1` passed 56/0
+after the re-pin; `git diff --check` and the parse gate were clean. The definitive unified
+`run-tests.ps1 -All` run for commit `1e6acfc` executes with an external create-new summary; its
+result is recorded below. Task 1 remains 1/6 and Phase 2 remains 1/52. Production Apply remains
+interlocked, and no live root or Git index/ref was changed. With this slice, Task-2 resume items
+(1)-(7) are all closed: (1)-(5) and (7) implemented with definitive validation, (6)
+deferred/blocked with evidence.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON

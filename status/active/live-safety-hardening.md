@@ -780,6 +780,29 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   defaults) is plan Task 5 live-host migration work, recorded without being absorbed. No code changed for this item;
   it closes as deferred/blocked pending a legally released interlock.
 
+- Phase 2 Task-2 item (7), claim-accept forbidden-root matrix (2026-09-06, commit `1e6acfc`): implemented per the Grok
+  design (review revision 1; session died mid-loop, main agent completed design and implementation). `Assert-SealedProposedClaimsForbiddenRootMatrix`
+  in `scripts/root-claims-registry-common.ps1` is the claim-accept gate (plan Task 1 Step 3) with zero production callers
+  and `MutationAuthorization=NONE`: 0-or-3 ordered live subjects, M13 path-safety track per subject (HomeRoot equality,
+  volume root, `.system`, reparse ancestor, wrapped into `manual-recovery-required`), opponents coerced to no-follow
+  TargetContexts (ControlBase/BackupRoot, four witness Git-private paths as disjoint opponents only, PRESENT optional
+  root-set rows, non-own reservations), the exact isOwn root-transition contract, subjects-x-subjects and
+  subjects-x-opponents disjoint with `forbidden-root-path-overlap`/`forbidden-root-identity-alias` wrapped into
+  `manual-recovery-required`, M11 same-parent same-volume staging-sibling with zero-live PRESENT staging failing closed,
+  defensive M12 staging-x-RepoRoot, and recovery requiring a witness plus `canonical-recovery-root-cross-volume`
+  wrapping. Opponent pairs and source/materialization invariants remain in the current-route gate. Recorded deviation:
+  the design's staging-inside-repo M12 negative is unreachable under M11+M2 ordering, so the pair is defensive without
+  a dedicated negative. `tests/root-claims-registry.tests.ps1` gains the `[forbidden-root claim-accept matrix]` block
+  (default pass with zero writes, custom overlap, contract shapes, pairwise nesting, M13 bans, foreign home and
+  recovery reservation overlaps, identical own reservation, root-transition rejection, witnessed-repo live overlap,
+  sibling/detached/cross-volume/missing-witness recovery cases, adapter cleanup); seams pins zero production callers,
+  unique registry-top definition, and re-pins the reflection inventory (13077 → 13143, `e3292903…`). No hard-kill
+  reseal. Validation: full registry suite exit 0 with 672 PASS lines (646 before), seams 56/0, diff-check and parse
+  gate clean. The definitive unified `run-tests.ps1 -All` run for commit `1e6acfc` executes with an external
+  create-new summary; its result is recorded in STATUS.md when complete. With this slice Task-2 resume items (1)-(7)
+  are all closed ((6) as deferred/blocked with evidence). Task 1 remains 1/6 and Phase 2 remains 1/52; production
+  Apply remains interlocked.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
