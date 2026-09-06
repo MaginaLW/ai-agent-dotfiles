@@ -18,7 +18,7 @@ Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete
 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
-longer served. Phase 2 Task 1 Steps 1-2 are complete (Task 1 2/6; Phase 2 overall 2/52), while
+longer served. Phase 2 Task 1 Steps 1-3 are complete (Task 1 3/6; Phase 2 overall 3/52), while
 Phases 3-4
 have not started. Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
@@ -1983,9 +1983,15 @@ leaks (958 non-blocking keyword hints); `canonical-production-seams.tests.ps1` p
 without a baseline shift; the full `root-claims-registry.tests.ps1` suite passed with exit code 0
 and 713 PASS lines; `git diff --check` was clean; `build-skills.ps1` produced 7/15/7 and the sync
 DryRun completed with no live mutation. The authoritative unified run over the final committed
-state executes once and will be recorded here when complete. No production Apply, backup,
-rollback, retirement, live-root mutation, or Git index/ref mutation was performed. Production
-Apply remains interlocked.
+state then passed all 34 suites exactly once with zero failures, timeouts, duplicates, missing
+suites, or tree-kill failures (external create-new summary SHA-256
+`fac9c474926389e6334c64b62897d6aad77a6bb0f9c82fd255e141c18e0ca848`, discovery hash
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`; hard-kill 318/0, seams
+56/0, root-claims 713/0, transaction 64/0, command-result 51/0 inside the run). With that
+authoritative validation, Step 3 is complete: Task 1 is 3/6 and Phase 2 is 3/52, and the next
+implementable work is Task 1 Step 4 (Define the minimal shared-state and generic state-target
+contract). No production Apply, backup, rollback, retirement, live-root mutation, or Git
+index/ref mutation was performed. Production Apply remains interlocked.
 
 ## Validation status
 
@@ -2325,12 +2331,12 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 
 ## Remaining roadmap snapshot
 
-Phase 2 has 50 of 52 steps remaining. Task 1 has four remaining steps; Tasks 2-9 have not started.
+Phase 2 has 49 of 52 steps remaining. Task 1 has three remaining steps; Tasks 2-9 have not started.
 The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
-| Task 1 | 4/6 | Registry view, shared state, deterministic locks, verification |
+| Task 1 | 3/6 | Shared state, deterministic locks, verification |
 | Task 2 | 7/7 | Semantic sync-plan schema 3 and environment-build v3 |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage backup receipts |
 | Task 4 | 7/7 | Live-mutation state machine, same-volume staging, journal, and failure classification |
@@ -2346,11 +2352,15 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Run the definitive unified `run-tests.ps1 -All` validation for the Phase 2 Task 1 Step 3
-   state (slices 1-4 in commits `8ab102f`, `45b9510`, `744f326`, `c107ab8`), then record Step 3
-   complete with the Task 1 counter moving to 3/6. Next implementable work is Task 1 Step 4
-   (Define the minimal shared-state and generic state-target contract). Live-journal structure
-   and interpretation stay with Task 4; production Apply remains interlocked throughout.
+1. Begin Phase 2 Task 1 Step 4 (Define the minimal shared-state and generic state-target
+   contract): Schema 3 requires `SelectionKind=environment`, one named environment lock/task
+   baseline for all three platforms, and a `LastOperationKind` branch; receipt-bearing operations
+   require ReceiptId/ReceiptHash; controller-transition requires `ReceiptRef=NO_LIVE_MUTATION`;
+   state references the immutable RootClaimsHash. Implement validated read plus journaled
+   create-new of proposed claims and atomic create/replace/recovery-copy of a caller-supplied
+   state postimage; claims are created only for first authority. Task 1 Steps 5-6 (deterministic
+   locks, verification) and Tasks 2-9 follow in strict sequence. Live-journal structure and
+   interpretation stay with Task 4.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

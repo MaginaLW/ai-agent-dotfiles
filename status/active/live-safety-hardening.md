@@ -822,21 +822,19 @@ stay unconnected to production mutation routes.
 
 ## Current phase
 
-Phase 2 is 0/9 Tasks and 2/52 Steps with Task 1 at 2/6. Task 1 Step 2 (Resolve ControlBase and
-HomeAuthorityKey) is closed as of 2026-09-06 with per-clause evidence: the Windows Known-Folder
-resolver with the non-Windows interlock gate, the domain-keyed pre-ControlBase bootstrap lock, the
-two-layer bound `PrivateRootBootstrapIntent`, the bootstrap completion chain with explicitly
-`deferred` durable writes, MetadataOnly status that creates no locks or roots, the
-capability-evidence layers (preflight, fixed-infrastructure capture, receiver-backed observation,
-cleanup ledger, lifecycle owner, resolver consumer), and function-level rejection of public
-`-HomeRoot`/`-BackupRoot`/`-LockWaitSeconds`/`-TestMode` selectors. The step's Apply sentence is
-held by the Phase 0 policy gate, not by a missing primitive; the composer/Register/capability
-capture remain zero-external-caller primitives pending Step 5 D1/D2. Remainders are owned
-elsewhere: ticket consumption (Task 4), public selector defaults (Task 5), protocol-v1 dispatch
-(deferred/blocked with evidence).
+Phase 2 is 0/9 Tasks and 3/52 Steps with Task 1 at 3/6. Task 1 Step 3 (Build the registry view)
+is complete as of 2026-09-07 with the authoritative unified validation over the final state
+(34/34 suites, summary SHA-256 `fac9c474926389e6334c64b62897d6aad77a6bb0f9c82fd255e141c18e0ca848`):
+the read-only ordered registry view now carries the shared live-transaction immediate-child
+contract and ordered live reservation rows, the setup-finalize window primitive and the public
+`setup-finalize-required` status/Apply token, the claim-accept consumer as the unique production
+caller of the complete forbidden-root matrix, and the zero-caller TransactionId create-new mint.
+The witnessed view's read-only contract is unchanged (`HELD_METADATA_VERIFIED` /
+`UNPROBED_READ_ONLY`), live-journal structure and interpretation remain deferred to Task 4, and
+the recover-finalize Apply stays behind the recorded deferred items.
 
-The next implementable work is Task 1 Step 3 (Build the registry view) per the reviewed four-slice
-design at `tmp/grok-step3-registry-design.md`. Slice 1 (live-namespace child contract and ordered
+Step 3 was implemented in four slices per the reviewed design at `tmp/grok-step3-registry-design.md`.
+Slice 1 (live-namespace child contract and ordered
 reservation rows) is implemented in commit `8ab102f`: the V1 immediate-child allow table ships
 empty (Task 4 owns the journal contract), any published child of a live transaction directory
 fails closed as `manual-recovery-required`, and each UUID directory becomes an ordered
@@ -855,10 +853,9 @@ helper so live-transaction-namespace rows flow correctly; the consumer stays a z
 gate for Step 5 D2's first-authority writer. Slice 4 is implemented in commit `c107ab8`:
 `New-SealedHeldLiveTransactionNamespace` mints a normalized UUID directory create-new under the
 held global lock with the current-user-only descriptor, writes no journal, and stays a
-zero-production-caller primitive. All four Step 3 slices are implemented; the authoritative
-unified `run-tests.ps1 -All` run for the Step 3 state remains pending before Step 3 is declared
-complete. Production Apply remains disconnected, and live-journal structure and interpretation
-remain deferred to Task 4.
+zero-production-caller primitive. All four Step 3 slices are implemented and the authoritative
+unified run over the final state passed 34/34 suites. Production Apply remains disconnected, and
+live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine
@@ -878,11 +875,11 @@ rather than being interpreted heuristically.
 
 ## Remaining work
 
-Phase 2 has 50 of 52 steps remaining. Task 1 has four remaining steps; Tasks 2-9 are unstarted:
+Phase 2 has 49 of 52 steps remaining. Task 1 has three remaining steps; Tasks 2-9 are unstarted:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
-| Task 1 | 4/6 | Registry view, shared state, locks, and verification |
+| Task 1 | 3/6 | Shared state, locks, and verification |
 | Task 2 | 7/7 | Semantic plan schema 3 and environment-build v3 |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage receipts |
 | Task 4 | 7/7 | Common live-mutation state machine and journal |

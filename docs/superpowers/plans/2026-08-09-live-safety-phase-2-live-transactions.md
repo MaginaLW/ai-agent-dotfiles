@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Task 1 Steps 1-2 are complete (Task 1 2/6; Phase 2 overall 2/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
+**Status:** In progress. Task 1 Steps 1-3 are complete (Task 1 3/6; Phase 2 overall 3/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
 
 **Goal:** Replace normal sync, explicit retirement, backup, rollback, and crash recovery with one target-bound, globally serialized, receipt-backed live transaction protocol.
 
@@ -422,9 +422,28 @@ vocabulary difference: the step text says remainders are `MISSING|COMPLETE`, the
 the cross-layer binding pins token SID, DACL template, and remainder-derived paths, so no clause is
 relaxed.
 
-- [ ] **Step 3: Build the registry view**
+- [x] **Step 3: Build the registry view**
 
 While holding the global live-mutation lock, enumerate every immutable `canonical-roots/<repo-id>.json`, every `homes/*/root-claims.json`, then every complete `current-env.json` and unfinished reservation from the single `live-transactions/<TransactionId>/` root plus canonical transaction namespaces. TransactionId is a normalized UUID generated after required locks; its directory is create-new, and immediate-child cardinality/type/allowed-entry validation is shared by locator, manifest and wrong-clone recovery. Never store a first-authority journal under an absent home directory or discover one by scanning BackupRoot. Consume Phase 1's deterministic RepoId/setup-state v1 without changing its schema. Canonical setup precomputes stable `SetupIntentHash` plus an `ExpectedSetupStateProjectionHash` that excludes Apply-derived final identities, publishes the exact schema-valid immutable canonical-root claim, journals current-user-only root creation, then captures actual identity/owner/DACL into a final setup state that binds `RootClaimHash` and the projection hash; the full state hash enters only the journal/result/COMPLETE. Kill after claim but before state yields only `setup-finalize-required`: the original canonical-setup Apply is rejected as recovery-required; a new external `canonical-recover-finalize` plan binds the exact claim/header/root tuple, revalidates intent/projection and actual final contexts, create-new publishes only the unique matching final state, then closes with its own ClosingDocumentHash. No new root/location/id/time/nonce is chosen. Zero claim/state primitive may only reviewed-abandon; valid claim+state with terminal missing may only finalize the record. State-without-claim, intent/projection/hash mismatch, corrupt object, unfinished journal ambiguity, RepoId collision with different identity, or any location/owner/DACL/identity change blocks/manual-recovers with `canonical-root-transition-not-supported`. V1 has no replace/relocate plan. Construct one ordered registry and reject ancestor/descendant or identical file-identity overlap across canonical roots, authorities and reservations. Apply the design's complete forbidden-root matrix against repository, Git-private, source/materialization, backup/control, canonical recovery, and live staging roots before accepting any default/custom claim. Invalid claims block both canonical and live mutation as `manual-recovery-required`; invalid state with valid home claims keeps its roots reserved and permits only Phase 3 `repair-adopt`.
+
+**Step 3 closure (2026-09-07):** Step 3 is complete. All four slices of the reviewed design
+(`tmp/grok-step3-registry-design.md`) are implemented and validated: the shared
+live-transaction immediate-child contract with live UUID rows in the ordered reservation set and
+the split fixed-infrastructure disjoint runs (`8ab102f`); the read-only setup-window
+classification primitive plus the public `setup-finalize-required` status/Apply token
+(`45b9510`, with the mandatory-parameter defaults and the secret-gate-driven non-keyword token
+variable `8b859e5`); the claim-accept consumer as the unique production caller of the complete
+forbidden-root matrix (`744f326`); and the zero-production-caller live TransactionId create-new
+mint (`c107ab8`). The witnessed view's read-only contract is unchanged
+(`HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY`); the recovered claim/state classification and
+recover-finalize Apply remain owned by the recorded deferred items (Task 4 journal contract,
+interlocked Apply release). The authoritative unified `run-tests.ps1 -All` run over the final
+state passed all 34 suites exactly once with zero failures, timeouts, duplicates, missing
+suites, or tree-kill failures (external create-new summary SHA-256
+`fac9c474926389e6334c64b62897d6aad77a6bb0f9c82fd255e141c18e0ca848`; hard-kill 318/0, seams
+56/0, root-claims 713/0, transaction 64/0, command-result 51/0 inside the run), with the parse
+gate, the pinned secret scan (zero leaks), the 7/15/7 skill build, and the sync DryRun passing.
+Task 1 is 3/6 and Phase 2 is 3/52. Production Apply remains interlocked.
 
 - [ ] **Step 4: Define the minimal shared-state and generic state-target contract**
 
