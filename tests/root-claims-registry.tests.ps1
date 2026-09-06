@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
 . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
+. (Join-Path $RepoRoot 'scripts/canonical-command-result.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/home-authority-test-host.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/path-safety-fixtures.ps1')
 
@@ -5252,6 +5253,49 @@ try {
         ParentIdentity='0123abcd:2222222222222222'
     }
     Assert-ThrowsPattern { Assert-SealedRegistryReservationsDisjoint -Reservations @($disjointRecoveryRow,$disjointTransactionRow) -ForbiddenRoots @((Join-Path $workRoot 'synthetic-backup')) } 'registry reserved roots overlap' 'the extended reservation set rejects a live transaction namespace nested inside a canonical recovery root'
+
+    Write-Host '[registry setup-finalize window]' -ForegroundColor Cyan
+
+    $windowFixture = New-TestRegistryFixture -Parent $workRoot -Name 'setup-finalize-window'
+    $windowCanonical = New-TestCanonicalClaim -Fixture $windowFixture -Name 'setup-finalize-canonical'
+    $noLocatorWindow = Get-SealedRegistryCanonicalSetupWindow -AuthorityContext $windowFixture.Context -ClaimDocument $windowCanonical.Claim -RepoId ([string]$windowCanonical.RepoId)
+    Assert-TestCondition ([string]$noLocatorWindow.SetupStateStatus -ceq 'UNRESOLVED' -and $null -eq $noLocatorWindow.MessageToken) 'the setup window stays unresolved without a caller-held canonical locator'
+    Assert-ThrowsPattern { Get-SealedRegistryCanonicalSetupWindow -AuthorityContext $windowFixture.Context -ClaimDocument $windowCanonical.Claim -RepoId ([string]$windowCanonical.RepoId) -CanonicalLocator @{RepoRoot=$windowCanonical.RepoRoot} } '^registry-canonical-setup-window-locator-required$' 'the setup window rejects a locator without a held canonical repo lock'
+
+    $windowLock = Enter-CanonicalRepoLock -LockPath ([string]$windowCanonical.ContractPaths.LockPath) -AllowCreate
+    try {
+        $windowLocator = @{RepoRoot=[string]$windowCanonical.RepoRoot; CanonicalRepoLockHandle=$windowLock}
+        $finalizeWindow = Get-SealedRegistryCanonicalSetupWindow -AuthorityContext $windowFixture.Context -ClaimDocument $windowCanonical.Claim -RepoId ([string]$windowCanonical.RepoId) -CanonicalLocator $windowLocator
+        Assert-TestCondition ([string]$finalizeWindow.SetupStateStatus -ceq 'SETUP_FINALIZE_REQUIRED' -and
+            [string]$finalizeWindow.MessageToken -ceq 'setup-finalize-required' -and
+            [long]$finalizeWindow.UnfinishedCanonicalTransactionCount -eq 0L -and
+            [string]$finalizeWindow.SetupStatePath -ceq ([string]$windowCanonical.ContractPaths.SetupStatePath)) 'a published claim with an absent setup state classifies as the finalize window under the held locator'
+        $forgedOwnerClaim = [ordered]@{}
+        foreach ($claimKey in @($windowCanonical.Claim.Keys)) { $forgedOwnerClaim[$claimKey] = $windowCanonical.Claim[$claimKey] }
+        $forgedOwnerClaim['OwnerSid'] = 'S-1-5-21-3623811015-3361044348-30300820-1013'
+        Assert-ThrowsPattern { Get-SealedRegistryCanonicalSetupWindow -AuthorityContext $windowFixture.Context -ClaimDocument $forgedOwnerClaim -RepoId ([string]$windowCanonical.RepoId) -CanonicalLocator $windowLocator } '^canonical-root-transition-not-supported$' 'the setup window rejects a claim bound to another owner sid'
+        $otherCanonical = New-TestCanonicalClaim -Fixture $windowFixture -Name 'setup-finalize-other'
+        Assert-ThrowsPattern { Get-SealedRegistryCanonicalSetupWindow -AuthorityContext $windowFixture.Context -ClaimDocument $otherCanonical.Claim -RepoId ([string]$windowCanonical.RepoId) -CanonicalLocator $windowLocator } '^canonical-root-transition-not-supported$' 'the setup window rejects a claim document from another repository'
+        Assert-ThrowsPattern { Get-SealedRegistryCanonicalSetupWindow -AuthorityContext $windowFixture.Context -ClaimDocument $windowCanonical.Claim -RepoId ('b'*64) -CanonicalLocator $windowLocator } '^canonical-root-transition-not-supported$' 'the setup window rejects a repo id mismatch'
+        [IO.Directory]::CreateDirectory([string]$windowCanonical.ContractPaths.TransactionsRoot) | Out-Null
+        [IO.Directory]::CreateDirectory((Join-Path ([string]$windowCanonical.ContractPaths.TransactionsRoot) 'not-a-worktree')) | Out-Null
+        Assert-ThrowsPattern { Get-SealedRegistryCanonicalSetupWindow -AuthorityContext $windowFixture.Context -ClaimDocument $windowCanonical.Claim -RepoId ([string]$windowCanonical.RepoId) -CanonicalLocator $windowLocator } '^canonical-root-transition-not-supported$' 'an unreadable canonical journal fails the window closed'
+    }
+    finally { Exit-CanonicalRepoLock -LockHandle $windowLock }
+
+    $null = Complete-TestCanonicalSetupState -Fixture $windowFixture -CanonicalFixture $windowCanonical
+    $windowPresentLock = Enter-CanonicalRepoLock -LockPath ([string]$windowCanonical.ContractPaths.LockPath)
+    try {
+        $presentWindow = Get-SealedRegistryCanonicalSetupWindow -AuthorityContext $windowFixture.Context -ClaimDocument $windowCanonical.Claim -RepoId ([string]$windowCanonical.RepoId) -CanonicalLocator @{RepoRoot=[string]$windowCanonical.RepoRoot; CanonicalRepoLockHandle=$windowPresentLock}
+        Assert-TestCondition ([string]$presentWindow.SetupStateStatus -ceq 'PRESENT' -and $null -eq $presentWindow.MessageToken) 'a present setup state leaves the window classification to the existing witnessed binding path'
+    }
+    finally { Exit-CanonicalRepoLock -LockHandle $windowPresentLock }
+
+    $windowProbeRoot = Join-Path $workRoot 'setup-finalize-probe-control'
+    Assert-TestCondition (-not (Test-CanonicalSetupFinalizeClaimPresence -ControlBaseRoot $windowProbeRoot -RepoId ([string]$windowCanonical.RepoId))) 'the finalize claim probe reports absence on an empty control base'
+    $null = [IO.Directory]::CreateDirectory((Join-Path $windowProbeRoot 'canonical-roots'))
+    [IO.File]::WriteAllText((Join-Path (Join-Path $windowProbeRoot 'canonical-roots') ([string]$windowCanonical.RepoId + '.json')),'{}',[Text.UTF8Encoding]::new($false))
+    Assert-TestCondition (Test-CanonicalSetupFinalizeClaimPresence -ControlBaseRoot $windowProbeRoot -RepoId ([string]$windowCanonical.RepoId)) 'the finalize claim probe reports presence for the exact repo claim file'
 
     $extra = New-TestRegistryFixture -Parent $workRoot -Name 'authority-extra'
     $extraClaims = New-TestRootClaims -Context $extra.Context

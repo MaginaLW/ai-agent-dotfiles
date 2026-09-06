@@ -23,6 +23,10 @@ try{
 
     if($Status){
         $token=Get-CanonicalSetupStatus -RepoRoot $RepoRoot
+        try{
+            $selection=Get-CanonicalPrivateRootSelection -RepoRoot $RepoRoot
+            $token=Resolve-CanonicalSetupFinalizePublicToken -StatusToken $token -ControlBaseRoot ([string]$selection.ControlBase) -RepoId ([string]$selection.RepoId)
+        }catch{}
         $result=if($token -ceq 'canonical-ready'){'PASS'}elseif($token -ceq 'manual-recovery-required'){'FAIL'}else{'WARN'}
         $statusDocument=New-CanonicalPublicCommandResult -Result $result -CommandKind canonical-status -MessageToken $token
         Write-CanonicalPublicCommandResult -Document $statusDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
@@ -34,6 +38,18 @@ try{
 
     $transactionScript=Join-Path $PSScriptRoot 'canonical-transaction.ps1'
     if($Apply){
+        $finalizeMessageToken=$null
+        try{
+            $selection=Get-CanonicalPrivateRootSelection -RepoRoot $RepoRoot
+            $resolvedToken=Resolve-CanonicalSetupFinalizePublicToken -StatusToken (Get-CanonicalSetupStatus -RepoRoot $RepoRoot) -ControlBaseRoot ([string]$selection.ControlBase) -RepoId ([string]$selection.RepoId)
+            if($resolvedToken -ceq 'setup-finalize-required'){$finalizeMessageToken=$resolvedToken}
+        }catch{$finalizeMessageToken=$null}
+        if($null -ne $finalizeMessageToken){
+            $finalizeDocument=New-CanonicalPublicCommandResult -Result FAIL -CommandKind $commandKind -MessageToken $finalizeMessageToken
+            Write-CanonicalPublicCommandResult -Document $finalizeDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
+            [Console]::Error.WriteLine($finalizeMessageToken)
+            exit 1
+        }
         & pwsh -NoProfile -File $transactionScript -RepoRoot $RepoRoot -OperationKind setup -Apply -PlanPath $PlanPath
         exit $LASTEXITCODE
     }

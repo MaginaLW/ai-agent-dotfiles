@@ -3089,6 +3089,47 @@ function Assert-SealedRegistryReservationSetsDisjoint {
     }
 }
 
+function Get-SealedRegistryCanonicalSetupWindow {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$ClaimDocument,
+        [Parameter(Mandatory)][string]$RepoId,
+        [AllowNull()]$CanonicalLocator
+    )
+    if ($null -eq $CanonicalLocator) {
+        return [pscustomobject][ordered]@{
+            SetupStateStatus='UNRESOLVED'; MessageToken=$null; SetupStatePath=$null; UnfinishedCanonicalTransactionCount=$null
+        }
+    }
+    $locatorRepoRoot = [string](Get-SealedRegistryObjectValue -InputObject $CanonicalLocator -Name 'RepoRoot')
+    $locatorLockHandle = Get-SealedRegistryObjectValue -InputObject $CanonicalLocator -Name 'CanonicalRepoLockHandle'
+    if ([string]::IsNullOrWhiteSpace($locatorRepoRoot) -or $null -eq $locatorLockHandle) { throw 'registry-canonical-setup-window-locator-required' }
+    if ([string]$ClaimDocument.OwnerSid -cne [string]$AuthorityContext.TokenSid) { throw 'canonical-root-transition-not-supported' }
+    $git = Get-CanonicalGitContext -RepoRoot $locatorRepoRoot
+    if ([string]$ClaimDocument.GitCommonDirHash -cne [string]$git.GitCommonDirHash) { throw 'canonical-root-transition-not-supported' }
+    if ([string]$ClaimDocument.RepoId -cne [string]$RepoId) { throw 'canonical-root-transition-not-supported' }
+    $paths = Get-CanonicalTransactionContractPaths -GitContext $git
+    $null = Assert-CanonicalRepoLockHandle -LockHandle $locatorLockHandle -ExpectedLockPath ([string]$paths.LockPath)
+    if (Test-Path -LiteralPath ([string]$paths.SetupStatePath)) {
+        if (-not (Test-Path -LiteralPath ([string]$paths.SetupStatePath) -PathType Leaf)) { throw 'canonical-root-transition-not-supported' }
+        return [pscustomobject][ordered]@{
+            SetupStateStatus='PRESENT'; MessageToken=$null; SetupStatePath=[string]$paths.SetupStatePath; UnfinishedCanonicalTransactionCount=$null
+        }
+    }
+    $unfinishedCount = 0L
+    if (Test-Path -LiteralPath ([string]$paths.TransactionsRoot) -PathType Container) {
+        try { $states = @(Get-CanonicalAllTransactionStates -TransactionsRoot ([string]$paths.TransactionsRoot)) }
+        catch { throw 'canonical-root-transition-not-supported' }
+        $unfinishedCount = [long]@($states | Where-Object { -not [bool]$_.IsTerminal }).Count
+    }
+    if ($unfinishedCount -gt 0L) { throw 'canonical-root-transition-not-supported' }
+    return [pscustomobject][ordered]@{
+        SetupStateStatus='SETUP_FINALIZE_REQUIRED'; MessageToken='setup-finalize-required'
+        SetupStatePath=[string]$paths.SetupStatePath; UnfinishedCanonicalTransactionCount=0L
+    }
+}
+
 function Get-SealedHomeAuthorityRegistryView {
     [CmdletBinding()]
     param(

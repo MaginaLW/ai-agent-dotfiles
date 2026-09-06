@@ -6,6 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
+. (Join-Path $RepoRoot 'scripts/canonical-command-result.ps1')
 
 $script:pass = 0
 $script:fail = 0
@@ -193,6 +194,17 @@ try {
     $routedStatus = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'status', '-RepoRoot', $setupRepo)
     $routedStatusDocument = Get-ValidatedCanonicalCommandResult -Invocation $routedStatus -EvidenceRoot $evidenceRoot
     Assert ($routedStatus.Code -eq 0 -and (Test-ExactDiagnosticToken -Stderr $routedStatus.Stderr -ExpectedToken '') -and (Test-CommandResult -Document $routedStatusDocument -Result WARN -CommandKind canonical-status -MessageToken canonical-setup-required) -and $routedStatus.Stdout -notmatch 'Invoking script|Command result') 'agent-dotfiles canonical status forwards only the child JSON with no dispatcher banner'
+
+    Write-Host "`n[setup finalize public token]" -ForegroundColor Cyan
+    $finalizeProbeControl = Join-Path $testRoot 'finalize-probe-control'
+    $finalizeProbeRepoId = ('a' * 64)
+    Assert ((Resolve-CanonicalSetupFinalizePublicToken -StatusToken 'canonical-ready' -ControlBaseRoot $finalizeProbeControl -RepoId $finalizeProbeRepoId) -ceq 'canonical-ready') 'non setup-required status tokens pass through the finalize resolver unchanged'
+    Assert ((Resolve-CanonicalSetupFinalizePublicToken -StatusToken 'canonical-setup-required' -ControlBaseRoot $finalizeProbeControl -RepoId $finalizeProbeRepoId) -ceq 'canonical-setup-required') 'setup-required stays when the control base carries no repo claim file'
+    Assert ((Resolve-CanonicalSetupFinalizePublicToken -StatusToken 'canonical-setup-required' -ControlBaseRoot $finalizeProbeControl -RepoId 'not-a-hash') -ceq 'canonical-setup-required') 'a noncanonical repo id never promotes the setup-required token'
+    [IO.Directory]::CreateDirectory((Join-Path $finalizeProbeControl 'canonical-roots')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path (Join-Path $finalizeProbeControl 'canonical-roots') ($finalizeProbeRepoId + '.json')),'{}',[Text.UTF8Encoding]::new($false))
+    Assert ((Resolve-CanonicalSetupFinalizePublicToken -StatusToken 'canonical-setup-required' -ControlBaseRoot $finalizeProbeControl -RepoId $finalizeProbeRepoId) -ceq 'setup-finalize-required') 'setup-required promotes to setup-finalize-required when the exact repo claim file exists'
+    Assert ((Resolve-CanonicalSetupFinalizePublicToken -StatusToken 'canonical-setup-required' -ControlBaseRoot $finalizeProbeControl -RepoId ('b' * 64)) -ceq 'canonical-setup-required') 'a foreign repo id does not promote the setup-required token'
 
     $setupMissingPlan = Invoke-ScriptStreams -Script $setupScript -Arguments @('-DryRun', '-RepoRoot', $setupRepo)
     Assert-CanonicalCommandFailure -Invocation $setupMissingPlan -EvidenceRoot $evidenceRoot -CommandKind canonical-setup -MessageToken canonical-plan-required -Message 'setup missing PlanPath emits one typed failure result and exact token'

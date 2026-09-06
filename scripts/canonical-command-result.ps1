@@ -146,6 +146,29 @@ function Write-CanonicalPublicCommandFailure {
     return $failure
 }
 
+function Test-CanonicalSetupFinalizeClaimPresence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $ControlBaseRoot,
+        [Parameter(Mandatory)] [string] $RepoId
+    )
+    if ([string]::IsNullOrWhiteSpace($ControlBaseRoot) -or [string]$RepoId -cnotmatch '\A[0-9a-f]{64}\z') { return $false }
+    $claimPath = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $ControlBaseRoot 'canonical-roots') ($RepoId + '.json')))
+    return (Test-Path -LiteralPath $claimPath -PathType Leaf)
+}
+
+function Resolve-CanonicalSetupFinalizePublicToken {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $StatusToken,
+        [Parameter(Mandatory)] [string] $ControlBaseRoot,
+        [Parameter(Mandatory)] [string] $RepoId
+    )
+    if ($StatusToken -cne 'canonical-setup-required') { return $StatusToken }
+    if (Test-CanonicalSetupFinalizeClaimPresence -ControlBaseRoot $ControlBaseRoot -RepoId $RepoId) { return 'setup-finalize-required' }
+    return $StatusToken
+}
+
 function Write-CanonicalPublicCommandResult {
     [CmdletBinding()]
     param(

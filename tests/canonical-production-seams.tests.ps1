@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13156
-$reviewedAllScriptsReflectionSensitiveDigest='fb90c6fe962dda813b5d22958eaf2f444cfb5893aa4f1a8b1ffdcbdca1688ffd'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13180
+$reviewedAllScriptsReflectionSensitiveDigest='ad5022ab7e62daf6678e79dbe8ad559adc0d9d04f4f9f60b1b5859b1cca5dfb6'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -541,7 +541,8 @@ function Invoke-ProductionSeamAnalysis {
             if($commandName -iin @(
                 'Register-SealedHeldHomeAuthorityCanonicalGlobalBinding',
                 'Complete-SealedHeldCanonicalPrivateRootBootstrap',
-                'Assert-SealedProposedClaimsForbiddenRootMatrix')){
+                'Assert-SealedProposedClaimsForbiddenRootMatrix',
+                'Get-SealedRegistryCanonicalSetupWindow')){
                 $fixedObservationBoundaryViolations.Add("canonical private-root completion caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Assert-SealedLiveTransactionNamespaceImmediateChildren'){
@@ -882,7 +883,8 @@ function Invoke-ProductionSeamAnalysis {
         @('Complete-SealedHeldCanonicalPrivateRootBootstrap','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedProposedClaimsForbiddenRootMatrix','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedLiveTransactionNamespaceImmediateChildren','scripts/root-claims-registry-common.ps1'),
-        @('Assert-SealedRegistryReservationSetsDisjoint','scripts/root-claims-registry-common.ps1'))){
+        @('Assert-SealedRegistryReservationSetsDisjoint','scripts/root-claims-registry-common.ps1'),
+        @('Get-SealedRegistryCanonicalSetupWindow','scripts/root-claims-registry-common.ps1'))){
         $completionDefinitionKey=$completionEntry[0].ToLowerInvariant()
         $completionDefinitions=@(if($definitions.ContainsKey($completionDefinitionKey)){@($definitions[$completionDefinitionKey])})
         if($completionDefinitions.Count -ne 1 -or
