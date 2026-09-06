@@ -5254,6 +5254,24 @@ try {
     }
     Assert-ThrowsPattern { Assert-SealedRegistryReservationsDisjoint -Reservations @($disjointRecoveryRow,$disjointTransactionRow) -ForbiddenRoots @((Join-Path $workRoot 'synthetic-backup')) } 'registry reserved roots overlap' 'the extended reservation set rejects a live transaction namespace nested inside a canonical recovery root'
 
+    Write-Host '[live-transaction create-new]' -ForegroundColor Cyan
+
+    $mintFixture = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-mint'
+    $mintLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $mintFixture.Context
+    try {
+        $minted = New-SealedHeldLiveTransactionNamespace -AuthorityContext $mintFixture.Context -GlobalLockHandle $mintLock
+        Assert-TestCondition (([string]$minted.TransactionId -cmatch '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z') -and
+            [string]$minted.TransactionId -ceq ([string]$minted.TransactionId).ToLowerInvariant() -and
+            (Test-Path -LiteralPath (Join-Path $mintFixture.Context.LiveTransactionsRoot ([string]$minted.TransactionId)) -PathType Container) -and
+            [string]$minted.DirectoryIdentity -cmatch '\A[0-9a-f]{8}:[0-9a-f]{16}\z') 'the held-lock mint returns a canonical lowercase UUID transaction id with a real created directory identity'
+        $mintedMarker = Get-NoFollowRootEntryMarker -Path (Join-Path $mintFixture.Context.LiveTransactionsRoot ([string]$minted.TransactionId))
+        Assert-TestCondition ([string]$mintedMarker.Identity -ceq [string]$minted.DirectoryIdentity) 'the minted directory identity matches the created child'
+        $mintedSecond = New-SealedHeldLiveTransactionNamespace -AuthorityContext $mintFixture.Context -GlobalLockHandle $mintLock
+        Assert-TestCondition ([string]$mintedSecond.TransactionId -cne [string]$minted.TransactionId) 'a second held-lock mint creates a distinct transaction namespace'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $mintLock }
+    Assert-ThrowsPattern { New-SealedHeldLiveTransactionNamespace -AuthorityContext $mintFixture.Context -GlobalLockHandle $mintLock } '^home-authority-registry-lock-required$' 'a released genuine global lock fails the mint closed'
+
     Write-Host '[registry setup-finalize window]' -ForegroundColor Cyan
 
     $windowFixture = New-TestRegistryFixture -Parent $workRoot -Name 'setup-finalize-window'

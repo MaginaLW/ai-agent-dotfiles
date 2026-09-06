@@ -3151,6 +3151,41 @@ function Assert-SealedRegistryClaimAccept {
     $null = Assert-SealedRegistryReservationSetsDisjoint -AuthorityContext $AuthorityContext -ClaimReservations @($claimKindReservations) -LiveTransactionReservations @($liveKindReservations)
 }
 
+function New-SealedHeldLiveTransactionNamespace {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$GlobalLockHandle,
+        [AllowNull()]$CanonicalWitness
+    )
+    $null = Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
+    if ($null -ne $CanonicalWitness) {
+        $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness
+    }
+    $handlesReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    Open-SafeDirectoryContainmentChain -Path ([string]$AuthorityContext.LiveTransactionsRoot) -OwnershipReceiver $handlesReceiver
+    $handles = $handlesReceiver.GetDeliveredExact()
+    $transactionId = [Guid]::NewGuid().ToString('D').ToLowerInvariant()
+    $created = $null
+    try {
+        $directorySddl = ConvertTo-HomeAuthoritySecurityDescriptorSddl -SecurityTemplate (Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([string]$AuthorityContext.TokenSid) -ResourceKind Directory)
+        try {
+            $created = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectoryWithSecurityDescriptor($handles[$handles.Count - 1],$transactionId,$directorySddl)
+        }
+        catch [ComponentModel.Win32Exception] {
+            if ($_.Exception.NativeErrorCode -in @(80,183)) { throw 'live-transaction-namespace-must-be-create-new' }
+            throw
+        }
+        return [pscustomobject][ordered]@{
+            TransactionId=$transactionId; DirectoryIdentity=[string]$created.Info.Identity
+        }
+    }
+    finally {
+        if ($null -ne $created) { $created.Dispose() }
+        Close-SafeDirectoryContainmentChain -Handles $handles
+    }
+}
+
 function Get-SealedHomeAuthorityRegistryView {
     [CmdletBinding()]
     param(

@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13185
-$reviewedAllScriptsReflectionSensitiveDigest='8a2d2272fa2b728b1a3ab0c5c8b6924b1b4c33e65b855af6601398e6fd4feed2'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13199
+$reviewedAllScriptsReflectionSensitiveDigest='66e7a9146b890dfec49be254ed91577ea31067551d5e1ea011d820b22c68d38b'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -543,7 +543,8 @@ function Invoke-ProductionSeamAnalysis {
                 'Register-SealedHeldHomeAuthorityCanonicalGlobalBinding',
                 'Complete-SealedHeldCanonicalPrivateRootBootstrap',
                 'Get-SealedRegistryCanonicalSetupWindow',
-                'Assert-SealedRegistryClaimAccept')){
+                'Assert-SealedRegistryClaimAccept',
+                'New-SealedHeldLiveTransactionNamespace')){
                 $fixedObservationBoundaryViolations.Add("canonical private-root completion caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Assert-SealedProposedClaimsForbiddenRootMatrix'){
@@ -900,7 +901,8 @@ function Invoke-ProductionSeamAnalysis {
         @('Assert-SealedLiveTransactionNamespaceImmediateChildren','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedRegistryReservationSetsDisjoint','scripts/root-claims-registry-common.ps1'),
         @('Get-SealedRegistryCanonicalSetupWindow','scripts/root-claims-registry-common.ps1'),
-        @('Assert-SealedRegistryClaimAccept','scripts/root-claims-registry-common.ps1'))){
+        @('Assert-SealedRegistryClaimAccept','scripts/root-claims-registry-common.ps1'),
+        @('New-SealedHeldLiveTransactionNamespace','scripts/root-claims-registry-common.ps1'))){
         $completionDefinitionKey=$completionEntry[0].ToLowerInvariant()
         $completionDefinitions=@(if($definitions.ContainsKey($completionDefinitionKey)){@($definitions[$completionDefinitionKey])})
         if($completionDefinitions.Count -ne 1 -or
