@@ -1964,6 +1964,29 @@ has not been executed yet and remains pending before Task 1 Step 3 is declared c
 production Apply, backup, rollback, retirement, live-root mutation, or Git index/ref mutation was
 performed. Production Apply remains interlocked.
 
+## 2026-09-07 Step 3 unified-validation interlude: secret-gate finding fixed, authoritative rerun in flight
+
+The first unified `run-tests.ps1 -All` run for the Step 3 state (over commit `774b5e3`) passed
+all 34 suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill
+failures (external create-new summary SHA-256
+`72b204171ee2eda45f47cfc2e20f71b35577b5a7bc507f74e4bd3bc69d5afc8b`, discovery hash
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`; hard-kill 318/0, seams 56/0,
+root-claims 713/0, transaction 64/0, command-result 51/0 inside the run). The unified runner does
+not include the filtered secret scan, and the separate gate then caught one real
+`quoted-secret-value` finding introduced by slice 2: the window function assigned the quoted
+`setup-finalize-required` literal directly after the `MessageToken=` key (and after a
+`*Token`-suffixed variable in the first fix attempt), which the pinned gitleaks rule treats as a
+secret-shaped assignment. The scan gate was not weakened or bypassed; the fix
+(commit `8b859e5`) routes the token through a non-keyword local variable with identical
+semantics. Re-validation: the parse gate accepted all 156 files; the pinned scan reported zero
+leaks (958 non-blocking keyword hints); `canonical-production-seams.tests.ps1` passed 56/0
+without a baseline shift; the full `root-claims-registry.tests.ps1` suite passed with exit code 0
+and 713 PASS lines; `git diff --check` was clean; `build-skills.ps1` produced 7/15/7 and the sync
+DryRun completed with no live mutation. The authoritative unified run over the final committed
+state executes once and will be recorded here when complete. No production Apply, backup,
+rollback, retirement, live-root mutation, or Git index/ref mutation was performed. Production
+Apply remains interlocked.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
