@@ -5149,18 +5149,109 @@ try {
 
     $live = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction'
     $liveId = '33333333-3333-4333-8333-333333333333'
+    $liveExpectedTransactionPath = [IO.Path]::GetFullPath((Join-Path $live.Context.LiveTransactionsRoot $liveId))
     [IO.Directory]::CreateDirectory((Join-Path $live.Context.LiveTransactionsRoot $liveId)) | Out-Null
+    $liveTransactionsMarker = Get-NoFollowRootEntryMarker -Path ([string]$live.Context.LiveTransactionsRoot)
+    Assert-TestCondition (@($script:SealedLiveTransactionAllowedEntriesV1).Count -eq 0) 'the V1 live transaction allow table ships empty until Task 4 defines the journal contract'
     $liveView = Assert-TestRegistryReadIsZeroWrite -Fixture $live -Message 'live-transaction registry read is zero-write on the fake private root' -Assertions {
         param($view)
         Assert-TestCondition ([string]$view.MutationGate -ceq 'RECOVERY_REQUIRED') 'a canonical live transaction marker forces RECOVERY_REQUIRED'
         Assert-TestCondition ([string]$view.LiveTransactionCoverage -ceq 'UNRESOLVED_UNTIL_TASK_4') 'live transaction coverage remains explicitly unresolved'
         Assert-TestCondition (@($view.LiveTransactionMarkers).Count -eq 1 -and [string]$view.LiveTransactionMarkers[0].TransactionId -ceq $liveId -and [string]$view.LiveTransactionMarkers[0].ContractStatus -ceq 'UNRESOLVED_UNTIL_TASK_4') 'canonical UUID directory is enumerated as an unresolved marker'
+        $liveReservationRows = @($view.RootReservations | Where-Object { [string]$_.SourceKind -ceq 'live-transaction-namespace' })
+        Assert-TestCondition (@($liveReservationRows).Count -eq 1 -and
+            [string]$liveReservationRows[0].OwnerKey -ceq $liveId -and
+            [string]$liveReservationRows[0].Role -ceq 'LiveTransactionRoot' -and
+            [string]$liveReservationRows[0].RequestedPath -ceq $liveExpectedTransactionPath -and
+            [string]$liveReservationRows[0].LocationKey -ceq (Get-AuthorityCanonicalPathProjection -Path $liveExpectedTransactionPath -Role 'test live transaction root').LocationKey -and
+            [string]$liveReservationRows[0].ParentLocationKey -ceq (Get-AuthorityCanonicalPathProjection -Path ([string]$live.Context.LiveTransactionsRoot) -Role 'test live transactions root').LocationKey -and
+            [string]$liveReservationRows[0].ParentIdentity -ceq ([string]$liveTransactionsMarker.Identity) -and
+            [string]$liveReservationRows[0].DirectoryIdentity -ceq [string]$view.LiveTransactionMarkers[0].DirectoryIdentity -and
+            [string]$liveReservationRows[0].VolumeId -ceq ([string]$view.LiveTransactionMarkers[0].DirectoryIdentity).Substring(0,8)) 'the live transaction namespace enters the ordered reservation set with its real path, parent binding, volume, and identity'
     }
     Assert-TestCondition (@($liveView.LiveTransactionMarkers[0].ImmediateChildren).Count -eq 0) 'empty live transaction marker captures exact immediate inventory'
 
     $badLive = New-TestRegistryFixture -Parent $workRoot -Name 'bad-live-name'
     [IO.Directory]::CreateDirectory((Join-Path $badLive.Context.LiveTransactionsRoot 'NOT-A-UUID')) | Out-Null
     Invoke-TestRegistryFailure -Fixture $badLive -Pattern 'manual-recovery-required:.*live-transactions contains an unsupported child' -Message 'noncanonical live transaction directory name fails closed'
+
+    $liveChildFile = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-child-file'
+    $liveChildFileId = '44444444-4444-4444-8444-444444444444'
+    $liveChildFileDirectory = Join-Path $liveChildFile.Context.LiveTransactionsRoot $liveChildFileId
+    [IO.Directory]::CreateDirectory($liveChildFileDirectory) | Out-Null
+    Write-TestCreateNewFile -Path (Join-Path $liveChildFileDirectory 'stray-payload.json') -Bytes ([Text.Encoding]::ASCII.GetBytes('x'))
+    Invoke-TestRegistryFailure -Fixture $liveChildFile -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-not-allowed' -Message 'a stray file inside a live transaction namespace fails closed as a forbidden immediate child'
+
+    $liveHeaderStray = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-header-stray'
+    $liveHeaderStrayId = '48888888-8888-4888-8888-888888888888'
+    [IO.Directory]::CreateDirectory((Join-Path $liveHeaderStray.Context.LiveTransactionsRoot $liveHeaderStrayId)) | Out-Null
+    Write-TestCreateNewFile -Path (Join-Path (Join-Path $liveHeaderStray.Context.LiveTransactionsRoot $liveHeaderStrayId) 'header.json') -Bytes ([Text.Encoding]::ASCII.GetBytes('{}'))
+    Invoke-TestRegistryFailure -Fixture $liveHeaderStray -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-not-allowed' -Message 'a pre-filled journal-shaped file cannot bypass the V1 empty allow table'
+
+    $liveChildDir = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-child-dir'
+    $liveChildDirId = '45555555-5555-4555-8555-555555555555'
+    [IO.Directory]::CreateDirectory((Join-Path (Join-Path $liveChildDir.Context.LiveTransactionsRoot $liveChildDirId) 'stray-segment')) | Out-Null
+    Invoke-TestRegistryFailure -Fixture $liveChildDir -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-not-allowed' -Message 'a stray child directory inside a live transaction namespace fails closed under the V1 empty allow table'
+
+    $liveTwoIds = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-two-ids'
+    [IO.Directory]::CreateDirectory((Join-Path $liveTwoIds.Context.LiveTransactionsRoot '46666666-6666-4666-8666-666666666666')) | Out-Null
+    [IO.Directory]::CreateDirectory((Join-Path $liveTwoIds.Context.LiveTransactionsRoot '47777777-7777-4777-8777-777777777777')) | Out-Null
+    $liveTwoView = Assert-TestRegistryReadIsZeroWrite -Fixture $liveTwoIds -Message 'two live transaction namespaces read zero-write on the fake private root' -Assertions {
+        param($view)
+        $twoLiveRows = @($view.RootReservations | Where-Object { [string]$_.SourceKind -ceq 'live-transaction-namespace' })
+        Assert-TestCondition (@($twoLiveRows).Count -eq 2 -and
+            [string]$twoLiveRows[0].ParentLocationKey -ceq [string]$twoLiveRows[1].ParentLocationKey -and
+            [string]$twoLiveRows[0].ParentIdentity -ceq [string]$twoLiveRows[1].ParentIdentity -and
+            [string]$twoLiveRows[0].DirectoryIdentity -cne [string]$twoLiveRows[1].DirectoryIdentity) 'two live transaction namespaces share the LiveTransactionsRoot parent binding with distinct identities'
+    }
+
+    $liveWithClaims = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-with-claims'
+    $liveWithClaimsClaims = New-TestRootClaims -Context $liveWithClaims.Context
+    $null = Add-TestAuthorityArtifacts -Context $liveWithClaims.Context -Claims $liveWithClaimsClaims
+    [IO.Directory]::CreateDirectory((Join-Path $liveWithClaims.Context.LiveTransactionsRoot '49999999-9999-4999-8999-999999999999')) | Out-Null
+    $liveWithClaimsView = Assert-TestRegistryReadIsZeroWrite -Fixture $liveWithClaims -Message 'home claims plus an empty live namespace read zero-write' -Assertions {
+        param($view)
+        $claimRows = @($view.RootReservations | Where-Object { [string]$_.SourceKind -ceq 'home-root-claim' })
+        $withClaimsLiveRows = @($view.RootReservations | Where-Object { [string]$_.SourceKind -ceq 'live-transaction-namespace' })
+        Assert-TestCondition (@($claimRows).Count -gt 0 -and @($withClaimsLiveRows).Count -eq 1 -and
+            [string]$view.LiveTransactionCoverage -ceq 'UNRESOLVED_UNTIL_TASK_4') 'home root claims and the live transaction namespace coexist in the ordered reservation set'
+    }
+
+    $liveCollision = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-identity-collision'
+    $liveCollisionId = '4aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    [IO.Directory]::CreateDirectory((Join-Path $liveCollision.Context.LiveTransactionsRoot $liveCollisionId)) | Out-Null
+    $liveCollisionTransactionIdentity = [string](Get-NoFollowRootEntryMarker -Path (Join-Path $liveCollision.Context.LiveTransactionsRoot $liveCollisionId)).Identity
+    $liveCollisionClaims = New-TestRootClaims -Context $liveCollision.Context
+    $liveCollisionClaims.LiveRootClaims[0].InitialState = 'EXISTS'
+    $liveCollisionClaims.LiveRootClaims[0].MissingRemainder = @()
+    $liveCollisionClaims.LiveRootClaims[0].DeepestExistingParentPath = [string]$liveCollisionClaims.LiveRootClaims[0].RequestedPath
+    $liveCollisionClaims.LiveRootClaims[0].DeepestExistingParentIdentity = $liveCollisionTransactionIdentity
+    $liveCollisionClaims.LiveRootClaims[0].InitialDirectoryIdentity = $liveCollisionTransactionIdentity
+    $liveCollisionClaims.LiveRootClaims[0].VolumeId = $liveCollisionTransactionIdentity.Substring(0,8)
+    $null = Add-TestAuthorityArtifacts -Context $liveCollision.Context -Claims $liveCollisionClaims
+    Invoke-TestRegistryFailure -Fixture $liveCollision -Pattern 'manual-recovery-required:.*registry directory identity aliases multiple locations' -Message 'a home claim carrying the live transaction namespace identity fails the extended disjoint run as an aliased identity'
+
+    Assert-ThrowsPattern { Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId 'not-a-uuid' -ImmediateChildren @() -AllowedEntries @() } '^live-transaction-namespace-id-invalid: not-a-uuid$' 'the namespace child contract rejects a noncanonical transaction id'
+    Assert-ThrowsPattern { Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId '33333333-3333-4333-8333-333333333333' -ImmediateChildren @('header.json') -AllowedEntries @('other.json') } '^live-transaction-namespace-child-not-allowed: 33333333-3333-4333-8333-333333333333/header\.json$' 'the namespace child contract rejects a child outside the reviewed allow table'
+    $null = Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId '33333333-3333-4333-8333-333333333333' -ImmediateChildren @() -AllowedEntries @('header.json')
+
+    $disjointRecoveryPath = Join-Path $workRoot 'synthetic-recovery'
+    $disjointTransactionPath = Join-Path (Join-Path $disjointRecoveryPath 'live-transactions') '33333333-3333-4333-8333-333333333333'
+    $disjointRecoveryRow = [pscustomobject][ordered]@{
+        SourceKind='canonical-root-claim'; OwnerKey=('a'*64); Role='CanonicalRecoveryRoot'; Platform=$null
+        LocationKey=(Get-AuthorityCanonicalPathProjection -Path $disjointRecoveryPath -Role 'synthetic recovery root').LocationKey
+        RequestedPath=[IO.Path]::GetFullPath($disjointRecoveryPath); VolumeId='0123abcd'; DirectoryIdentity=$null
+        ParentLocationKey=(Get-AuthorityCanonicalPathProjection -Path (Join-Path $workRoot 'synthetic-recovery-parent') -Role 'synthetic recovery parent').LocationKey
+        ParentIdentity='0123abcd:1111111111111111'
+    }
+    $disjointTransactionRow = [pscustomobject][ordered]@{
+        SourceKind='live-transaction-namespace'; OwnerKey='33333333-3333-4333-8333-333333333333'; Role='LiveTransactionRoot'; Platform=$null
+        LocationKey=(Get-AuthorityCanonicalPathProjection -Path $disjointTransactionPath -Role 'synthetic live transaction root').LocationKey
+        RequestedPath=[IO.Path]::GetFullPath($disjointTransactionPath); VolumeId='0123abcd'; DirectoryIdentity='0123abcd:fedcba9876543210'
+        ParentLocationKey=(Get-AuthorityCanonicalPathProjection -Path (Join-Path $disjointRecoveryPath 'live-transactions') -Role 'synthetic live transaction parent').LocationKey
+        ParentIdentity='0123abcd:2222222222222222'
+    }
+    Assert-ThrowsPattern { Assert-SealedRegistryReservationsDisjoint -Reservations @($disjointRecoveryRow,$disjointTransactionRow) -ForbiddenRoots @((Join-Path $workRoot 'synthetic-backup')) } 'registry reserved roots overlap' 'the extended reservation set rejects a live transaction namespace nested inside a canonical recovery root'
 
     $extra = New-TestRegistryFixture -Parent $workRoot -Name 'authority-extra'
     $extraClaims = New-TestRootClaims -Context $extra.Context

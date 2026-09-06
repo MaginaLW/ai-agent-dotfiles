@@ -11,6 +11,7 @@ $script:SealedRegistryMaximumArtifactBytes = 4MB
 $script:SealedRegistryHashPattern = '\A[0-9a-f]{64}\z'
 $script:SealedRegistryUuidPattern = '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z'
 $script:SealedCurrentRouteRootSetResolverVersion = 'sealed-current-route-root-set-v1'
+$script:SealedLiveTransactionAllowedEntriesV1 = @()
 
 if (-not ('AiAgentDotfiles.SealedRegistryCurrentRouteCapture' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -3063,6 +3064,31 @@ function Assert-SealedRegistryReservationsDisjoint {
     }
 }
 
+function Assert-SealedLiveTransactionNamespaceImmediateChildren {
+    param(
+        [Parameter(Mandatory)][string]$TransactionId,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$ImmediateChildren,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$AllowedEntries
+    )
+    if ([string]$TransactionId -cnotmatch $script:SealedRegistryUuidPattern) { throw "live-transaction-namespace-id-invalid: $TransactionId" }
+    $allowed = @(Get-SealedRegistryOrdinalStrings -Values @($AllowedEntries))
+    foreach ($childName in @(Get-SealedRegistryOrdinalStrings -Values @($ImmediateChildren))) {
+        if ([string]$childName -cnotin $allowed) { throw "live-transaction-namespace-child-not-allowed: $TransactionId/$childName" }
+    }
+}
+
+function Assert-SealedRegistryReservationSetsDisjoint {
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$ClaimReservations,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$LiveTransactionReservations
+    )
+    Assert-SealedRegistryReservationsDisjoint -Reservations @($ClaimReservations) -ForbiddenRoots @([string]$AuthorityContext.ControlBase,[string]$AuthorityContext.BackupRoot)
+    if (@($LiveTransactionReservations).Count -gt 0) {
+        Assert-SealedRegistryReservationsDisjoint -Reservations (@($ClaimReservations)+@($LiveTransactionReservations)) -ForbiddenRoots @([string]$AuthorityContext.BackupRoot)
+    }
+}
+
 function Get-SealedHomeAuthorityRegistryView {
     [CmdletBinding()]
     param(
@@ -3238,18 +3264,32 @@ function Get-SealedHomeAuthorityRegistryView {
         }
 
         $liveMarkers = [Collections.Generic.List[object]]::new()
+        $liveTransactionReservations = [Collections.Generic.List[object]]::new()
+        $liveTransactionsPath = [string]$liveRoot.Path
+        if ($liveTransactionsPath -cne [IO.Path]::GetFullPath($liveTransactionsPath).TrimEnd([char]92,[char]47)) { throw 'live-transactions root path spelling is not canonical' }
+        $liveTransactionsProjection = Get-AuthorityCanonicalPathProjection -Path $liveTransactionsPath -Role 'live transactions root'
         foreach ($name in @($liveRoot.InitialNames)) {
             if ($name -cnotmatch $script:SealedRegistryUuidPattern) { throw "live-transactions contains an unsupported child: $name" }
             $transaction = Open-SealedRegistryHeldDirectoryChild -ParentHandle $liveRoot.Handle -Name $name -TokenSid $tokenSid -Label "live-transactions/$name"
             $directoryChildren.Add($transaction)
             $registryCleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$transaction})
+            Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId $name -ImmediateChildren @($transaction.InitialNames) -AllowedEntries $script:SealedLiveTransactionAllowedEntriesV1
+            $transactionProjection = Get-AuthorityCanonicalPathProjection -Path ([IO.Path]::Combine($liveTransactionsPath,$name)) -Role 'live transaction namespace root'
+            $transactionIdentity = [string]$transaction.Identity
+            if ($transactionIdentity -cnotmatch '\A([0-9a-f]{8}):[0-9a-f]{16}\z') { throw "live transaction namespace identity is not a volume-prefixed directory identity: $name" }
             $liveMarkers.Add([pscustomobject][ordered]@{
-                TransactionId=$name; DirectoryIdentity=[string]$transaction.Identity; SecurityHash=[string]$transaction.SecurityHash
+                TransactionId=$name; DirectoryIdentity=$transactionIdentity; SecurityHash=[string]$transaction.SecurityHash
                 ImmediateChildren=@($transaction.InitialNames); ContractStatus='UNRESOLVED_UNTIL_TASK_4'
+            })
+            $liveTransactionReservations.Add([pscustomobject][ordered]@{
+                SourceKind='live-transaction-namespace'; OwnerKey=[string]$name; Role='LiveTransactionRoot'; Platform=$null
+                LocationKey=[string]$transactionProjection.LocationKey; RequestedPath=[string]$transactionProjection.Path
+                VolumeId=$Matches[1]; DirectoryIdentity=$transactionIdentity
+                ParentLocationKey=[string]$liveTransactionsProjection.LocationKey; ParentIdentity=[string]$liveRoot.Identity
             })
         }
 
-        Assert-SealedRegistryReservationsDisjoint -Reservations @($reservations) -ForbiddenRoots @([string]$AuthorityContext.ControlBase,[string]$AuthorityContext.BackupRoot)
+        Assert-SealedRegistryReservationSetsDisjoint -AuthorityContext $AuthorityContext -ClaimReservations @($reservations) -LiveTransactionReservations @($liveTransactionReservations)
         if ($null -ne $CanonicalWitness) {
             $currentRouteReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
             Open-SealedRegistryCurrentRouteCapture -AuthorityContext $AuthorityContext `
@@ -3295,7 +3335,7 @@ function Get-SealedHomeAuthorityRegistryView {
             TokenSid=$tokenSid; ControlBaseIdentity=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetControlBaseIdentityExact($finalGlobalLockEvidence)
             GlobalLiveLockIdentity=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetLockIdentityExact($finalGlobalLockEvidence); FixedEnvelopeHash=[string]$fixedEnvelope.InitialEnvelopeHash
             CanonicalClaims=@($canonicalRows); Authorities=@($authorityRows); LiveTransactionMarkers=@($liveMarkers)
-            RootReservations=@(Get-SealedRegistryOrderedReservations -Reservations @($reservations))
+            RootReservations=@(Get-SealedRegistryOrderedReservations -Reservations (@($reservations)+@($liveTransactionReservations)))
             RepairOnlyAuthorities=@(Get-SealedRegistryOrdinalStrings -Values @($repairOnly)); MutationGate=$gate; MutationBlockers=@($blockers)
             CanonicalNamespaceCoverage=if($canonicalRows.Count -eq 0){'NO_CLAIMS'}elseif($unresolvedCanonicalCount -eq 0){'CURRENT_ROUTE_WITNESSED'}else{'CALLER_WITNESS_REQUIRED'}
             LiveTransactionCoverage=if($liveMarkers.Count -eq 0){'EMPTY'}else{'UNRESOLVED_UNTIL_TASK_4'}
