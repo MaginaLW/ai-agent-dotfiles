@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13180
-$reviewedAllScriptsReflectionSensitiveDigest='ad5022ab7e62daf6678e79dbe8ad559adc0d9d04f4f9f60b1b5859b1cca5dfb6'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13185
+$reviewedAllScriptsReflectionSensitiveDigest='8a2d2272fa2b728b1a3ab0c5c8b6924b1b4c33e65b855af6601398e6fd4feed2'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -393,6 +393,7 @@ function Invoke-ProductionSeamAnalysis {
     $ledgerCloseAllowedCallers=[Collections.Generic.List[string]]::new()
     $liveNamespaceAllowedCallers=[Collections.Generic.List[string]]::new()
     $liveNamespaceDisjointAllowedCallers=[Collections.Generic.List[string]]::new()
+    $claimAcceptMatrixAllowedCallers=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandInventory=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandViolations=[Collections.Generic.List[string]]::new()
     $allScriptsCommandQualificationViolations=[Collections.Generic.List[string]]::new()
@@ -541,9 +542,16 @@ function Invoke-ProductionSeamAnalysis {
             if($commandName -iin @(
                 'Register-SealedHeldHomeAuthorityCanonicalGlobalBinding',
                 'Complete-SealedHeldCanonicalPrivateRootBootstrap',
-                'Assert-SealedProposedClaimsForbiddenRootMatrix',
-                'Get-SealedRegistryCanonicalSetupWindow')){
+                'Get-SealedRegistryCanonicalSetupWindow',
+                'Assert-SealedRegistryClaimAccept')){
                 $fixedObservationBoundaryViolations.Add("canonical private-root completion caller: $($model.RelativePath):$($ownerName):$commandName")
+            }
+            if($commandName -ieq 'Assert-SealedProposedClaimsForbiddenRootMatrix'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Assert-SealedRegistryClaimAccept'){
+                    $claimAcceptMatrixAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("forbidden root matrix caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'Assert-SealedLiveTransactionNamespaceImmediateChildren'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
@@ -554,7 +562,7 @@ function Invoke-ProductionSeamAnalysis {
             }
             if($commandName -ieq 'Assert-SealedRegistryReservationSetsDisjoint'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
-                    [string]$owner.Name -ceq 'Get-SealedHomeAuthorityRegistryView'){
+                    [string]$owner.Name -cin @('Get-SealedHomeAuthorityRegistryView','Assert-SealedRegistryClaimAccept')){
                     $liveNamespaceDisjointAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("reservation set disjoint caller: $($model.RelativePath):$($ownerName):$commandName")}
@@ -874,8 +882,15 @@ function Invoke-ProductionSeamAnalysis {
     if((@($liveNamespaceAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed live transaction namespace contract owner inventory changed')
     }
-    if((@($liveNamespaceDisjointAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceOwnerInventory -join "`n")){
+    $reviewedLiveNamespaceDisjointOwnerInventory=@(
+        'scripts/root-claims-registry-common.ps1:Assert-SealedRegistryClaimAccept',
+        'scripts/root-claims-registry-common.ps1:Get-SealedHomeAuthorityRegistryView')
+    if((@($liveNamespaceDisjointAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceDisjointOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed reservation set disjoint owner inventory changed')
+    }
+    $reviewedClaimAcceptMatrixOwnerInventory=@('scripts/root-claims-registry-common.ps1:Assert-SealedRegistryClaimAccept')
+    if((@($claimAcceptMatrixAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedClaimAcceptMatrixOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed forbidden-root matrix owner inventory changed')
     }
     foreach($completionEntry in @(
         @('Register-SealedHeldHomeAuthorityCanonicalGlobalBinding','scripts/home-authority-common.ps1'),
@@ -884,7 +899,8 @@ function Invoke-ProductionSeamAnalysis {
         @('Assert-SealedProposedClaimsForbiddenRootMatrix','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedLiveTransactionNamespaceImmediateChildren','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedRegistryReservationSetsDisjoint','scripts/root-claims-registry-common.ps1'),
-        @('Get-SealedRegistryCanonicalSetupWindow','scripts/root-claims-registry-common.ps1'))){
+        @('Get-SealedRegistryCanonicalSetupWindow','scripts/root-claims-registry-common.ps1'),
+        @('Assert-SealedRegistryClaimAccept','scripts/root-claims-registry-common.ps1'))){
         $completionDefinitionKey=$completionEntry[0].ToLowerInvariant()
         $completionDefinitions=@(if($definitions.ContainsKey($completionDefinitionKey)){@($definitions[$completionDefinitionKey])})
         if($completionDefinitions.Count -ne 1 -or

@@ -6229,6 +6229,67 @@ try {
     }
     finally { Close-TestResolverObservationAdapter -Adapter $forbiddenWitnessAdapter }
 
+    Write-Host '[claim-accept unique consumer]' -ForegroundColor Cyan
+
+    $acceptFixture = New-TestRegistryFixture -Parent $workRoot -Name 'claim-accept-consumer'
+    $acceptLiveTargets = @($acceptFixture.Context.LiveTargets)
+    $acceptBefore = Get-TestRegistryTreeHash -Fixture $acceptFixture
+    $null = Assert-SealedRegistryClaimAccept -AuthorityContext $acceptFixture.Context -ProposedLiveTargets $acceptLiveTargets
+    Assert-TestCondition ($acceptBefore -ceq (Get-TestRegistryTreeHash -Fixture $acceptFixture)) 'the claim-accept consumer passes the default three-platform claim with zero writes'
+    $acceptOverlappingDir = Join-Path ([string]$acceptFixture.Context.ControlBase) 'nested-custom-live'
+    [IO.Directory]::CreateDirectory($acceptOverlappingDir) | Out-Null
+    $acceptOverlappingContext = Resolve-TargetContext -Path $acceptOverlappingDir -Mode MetadataOnly
+    $acceptCustomLive = @($acceptLiveTargets[0],$acceptLiveTargets[1],[pscustomobject][ordered]@{ Platform='Reasonix'; TargetContext=$acceptOverlappingContext })
+    Assert-ThrowsPattern {
+        Assert-SealedRegistryClaimAccept -AuthorityContext $acceptFixture.Context -ProposedLiveTargets $acceptCustomLive
+    } '^manual-recovery-required: forbidden-root-path-overlap$' 'the claim-accept consumer routes a ControlBase-overlapping custom live target into the forbidden-root matrix'
+
+    $acceptLiveId = '5bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    $acceptLivePath = [IO.Path]::GetFullPath((Join-Path $acceptFixture.Context.LiveTransactionsRoot $acceptLiveId))
+    [IO.Directory]::CreateDirectory($acceptLivePath) | Out-Null
+    $acceptLiveMarker = Get-NoFollowRootEntryMarker -Path $acceptLivePath
+    $acceptLiveParentMarker = Get-NoFollowRootEntryMarker -Path ([string]$acceptFixture.Context.LiveTransactionsRoot)
+    if ([string]$acceptLiveMarker.Identity -notmatch '\A([0-9a-f]{8}):[0-9a-f]{16}\z') { throw 'claim-accept live reservation identity is not a volume-prefixed directory identity' }
+    $acceptLiveVolumeId = $Matches[1]
+    $acceptLiveReservation = [pscustomobject][ordered]@{
+        SourceKind='live-transaction-namespace'; OwnerKey=$acceptLiveId; Role='LiveTransactionRoot'; Platform=$null
+        LocationKey=(Get-AuthorityCanonicalPathProjection -Path $acceptLivePath -Role 'claim-accept live transaction root').LocationKey
+        RequestedPath=$acceptLivePath; VolumeId=$acceptLiveVolumeId; DirectoryIdentity=[string]$acceptLiveMarker.Identity
+        ParentLocationKey=(Get-AuthorityCanonicalPathProjection -Path ([string]$acceptFixture.Context.LiveTransactionsRoot) -Role 'claim-accept live transactions root').LocationKey
+        ParentIdentity=[string]$acceptLiveParentMarker.Identity
+    }
+    $acceptLiveBefore = Get-TestRegistryTreeHash -Fixture $acceptFixture
+    $null = Assert-SealedRegistryClaimAccept -AuthorityContext $acceptFixture.Context -ProposedLiveTargets $acceptLiveTargets -ExistingReservations @($acceptLiveReservation)
+    Assert-TestCondition ($acceptLiveBefore -ceq (Get-TestRegistryTreeHash -Fixture $acceptFixture)) 'the claim-accept consumer consumes a ControlBase-resident live-transaction-namespace reservation without treating it as a claim row'
+
+    $acceptNestedRecoveryPath = Join-Path $workRoot 'claim-accept-nested-recovery'
+    $acceptNestedTransactionPath = Join-Path (Join-Path $acceptNestedRecoveryPath 'live-transactions') $acceptLiveId
+    [IO.Directory]::CreateDirectory($acceptNestedTransactionPath) | Out-Null
+    $acceptNestedRecoveryRow = [pscustomobject][ordered]@{
+        SourceKind='canonical-root-claim'; OwnerKey=('c'*64); Role='CanonicalRecoveryRoot'; Platform=$null
+        LocationKey=(Get-AuthorityCanonicalPathProjection -Path $acceptNestedRecoveryPath -Role 'claim-accept nested recovery root').LocationKey
+        RequestedPath=[IO.Path]::GetFullPath($acceptNestedRecoveryPath); VolumeId='0123abcd'; DirectoryIdentity=$null
+        ParentLocationKey=(Get-AuthorityCanonicalPathProjection -Path $workRoot -Role 'claim-accept nested recovery parent').LocationKey
+        ParentIdentity='0123abcd:1111111111111111'
+    }
+    $acceptNestedTransactionRow = [pscustomobject][ordered]@{
+        SourceKind='live-transaction-namespace'; OwnerKey=$acceptLiveId; Role='LiveTransactionRoot'; Platform=$null
+        LocationKey=(Get-AuthorityCanonicalPathProjection -Path $acceptNestedTransactionPath -Role 'claim-accept nested live transaction root').LocationKey
+        RequestedPath=[IO.Path]::GetFullPath($acceptNestedTransactionPath); VolumeId='0123abcd'; DirectoryIdentity='0123abcd:fedcba9876543210'
+        ParentLocationKey=(Get-AuthorityCanonicalPathProjection -Path (Join-Path $acceptNestedRecoveryPath 'live-transactions') -Role 'claim-accept nested live transaction parent').LocationKey
+        ParentIdentity='0123abcd:2222222222222222'
+    }
+    Assert-ThrowsPattern {
+        Assert-SealedRegistryClaimAccept -AuthorityContext $acceptFixture.Context -ProposedLiveTargets $acceptLiveTargets -ExistingReservations @($acceptNestedRecoveryRow,$acceptNestedTransactionRow)
+    } 'registry reserved roots overlap' 'the claim-accept consumer routes a live namespace nested in a canonical recovery reservation into the extended disjoint run'
+
+    $acceptCommand = Get-Command Assert-SealedRegistryClaimAccept -CommandType Function -ErrorAction Stop
+    Assert-TestCondition ((@($acceptCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) -join "`0") -ceq "AuthorityContext`0ProposedLiveTargets`0ProposedCanonicalRecovery`0CanonicalWitness`0CurrentRouteRootSet`0ExistingReservations" -and
+        -not $acceptCommand.Parameters.ContainsKey('HomeRoot') -and
+        -not $acceptCommand.Parameters.ContainsKey('BackupRoot') -and
+        -not $acceptCommand.Parameters.ContainsKey('LockWaitSeconds') -and
+        -not $acceptCommand.Parameters.ContainsKey('TestMode')) 'the claim-accept consumer exposes the exact reviewed parameter set with no public root or lock selectors'
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 

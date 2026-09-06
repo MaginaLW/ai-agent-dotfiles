@@ -3130,6 +3130,27 @@ function Get-SealedRegistryCanonicalSetupWindow {
     }
 }
 
+function Assert-SealedRegistryClaimAccept {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [AllowEmptyCollection()][object[]]$ProposedLiveTargets = @(),
+        [AllowNull()]$ProposedCanonicalRecovery,
+        [AllowNull()]$CanonicalWitness,
+        [AllowNull()]$CurrentRouteRootSet,
+        [AllowEmptyCollection()][object[]]$ExistingReservations = @()
+    )
+    $null = Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $AuthorityContext -ProposedLiveTargets $ProposedLiveTargets -ProposedCanonicalRecovery $ProposedCanonicalRecovery -CanonicalWitness $CanonicalWitness -CurrentRouteRootSet $CurrentRouteRootSet -ExistingReservations $ExistingReservations
+    $claimKindReservations = [Collections.Generic.List[object]]::new()
+    $liveKindReservations = [Collections.Generic.List[object]]::new()
+    foreach ($reservation in @($ExistingReservations)) {
+        if ($null -eq $reservation) { throw 'current-route-context-contract-invalid' }
+        if ([string]$reservation.SourceKind -ceq 'live-transaction-namespace') { $liveKindReservations.Add($reservation) }
+        else { $claimKindReservations.Add($reservation) }
+    }
+    $null = Assert-SealedRegistryReservationSetsDisjoint -AuthorityContext $AuthorityContext -ClaimReservations @($claimKindReservations) -LiveTransactionReservations @($liveKindReservations)
+}
+
 function Get-SealedHomeAuthorityRegistryView {
     [CmdletBinding()]
     param(
