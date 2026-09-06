@@ -18,7 +18,8 @@ Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete
 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
-longer served. Phase 2 Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52), while Phases 3-4
+longer served. Phase 2 Task 1 Steps 1-2 are complete (Task 1 2/6; Phase 2 overall 2/52), while
+Phases 3-4
 have not started. Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
@@ -1723,6 +1724,53 @@ deferred/blocked with evidence. The remaining Task-1 Step 2 debt stays as record
 recovery ticket consumption/interpretation belongs to Task 4), and the next implementable work is
 the Phase 2 plan's Task 1 Step 3 onward.
 
+## 2026-09-06 Phase 2 Task 1 Step 2 closure
+
+Task 1 Step 2 (Resolve ControlBase and HomeAuthorityKey) is closed. The closure is evidence-based
+(per-clause function and test anchors verified in the tree), not a scope change:
+
+- The Windows Known-Folder identity resolver (`Get-WindowsHomeAuthorityIdentity`,
+  `Resolve-HomeAuthorityContextFromIdentity`) derives ControlBase/BackupRoot from the access-token
+  SID plus `FOLDERID_LocalAppData` and never reads `USERPROFILE`/`APPDATA`/`LOCALAPPDATA`; the
+  non-Windows path throws `live-safety-non-windows-interlocked` and tracked policy remains
+  `ReleaseState=interlocked`.
+- The pre-ControlBase bootstrap lock is derived from SID/location/domain under the already-existing
+  Known Folder (`Enter-SealedHomeAuthorityBootstrapLock`), and MetadataOnly status creates neither
+  the bootstrap lock nor private roots.
+- `PrivateRootBootstrapIntent` exists as two bound layers: the canonical `$defs/setupPayload`
+  precompute (`Get-CanonicalSetupIntentHash`, `Get-CanonicalExpectedSetupStateProjectionHash`,
+  `Assert-CanonicalSetupIntentRootContext`) and the sealed seven-slot intent
+  (`New-SealedHomeAuthorityBootstrapIntent`), joined by `Assert-CanonicalSealedSetupIntentBinding`.
+- The bootstrap completion chain (`Complete-SealedHomeAuthorityBootstrap`,
+  `Register-SealedHeldHomeAuthorityCanonicalGlobalBinding`, and the composer
+  `Complete-SealedHeldCanonicalPrivateRootBootstrap` with
+  `Complete-SealedHeldCanonicalRecoveryRootRemainder`) implements the exact-prefix create/validate
+  path with durable claim and setup-state writes explicitly `deferred`; no live/receipt/journal work
+  precedes the global lock.
+- FilesystemCapabilityHash evidence layers are implemented (per-target/per-volume preflight,
+  fixed-infrastructure same-lock capture, receiver-backed held-route observation, the cleanup ledger,
+  the lifecycle owner trio, and the resolver observation consumer); the read-only registry view
+  continues to report `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY`.
+- Public `-HomeRoot`/`-BackupRoot`/`-LockWaitSeconds`/`-TestMode` selectors are rejected across the
+  authority/registry/resolver surfaces; `HomeAuthorityKey` is derived from token SID plus HomeRoot
+  location key only.
+
+The step's Apply sentence is held by the Phase 0 policy gate (`canonical-apply-interlocked` /
+exit 75), not by a missing primitive; the completion composer and Register remain zero-external-
+caller primitives pending Step 5 D1/D2. Recorded remainders owned elsewhere: durable recovery
+ticket consumption/interpretation (Task 4), public selector defaults in the sync/backup/env scripts
+(Task 5 live-host migration), protocol-v1 public dispatch (deferred/blocked with design evidence at
+`tmp/grok-protocolv1-design.md`), and production capability-capture consumption (Apply release). A
+recorded vocabulary difference: the step text says remainders are `MISSING|COMPLETE`, the canonical
+`$defs/rootContext` uses `MISSING|EXISTS`, and the sealed seven-slot intent uses `MISSING|COMPLETE`;
+the cross-layer binding pins token SID, DACL template, and remainder-derived paths, so no clause is
+relaxed. The design-authority evidence for this closure is retained at
+`tmp/grok-step3-registry-design.md` §0. With this closure, Task 1 is 2/6 and Phase 2 is 2/52. The
+next implementable work is Step 3 (Build the registry view), designed in four slices per the same
+document (live-namespace child contract, setup-finalize window, claim-accept consumer,
+TransactionId create-new). Production Apply remains interlocked, and no live root or Git index/ref
+was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2061,12 +2109,12 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 
 ## Remaining roadmap snapshot
 
-Phase 2 has 51 of 52 steps remaining. Task 1 has five remaining steps; Tasks 2-9 have not started.
+Phase 2 has 50 of 52 steps remaining. Task 1 has four remaining steps; Tasks 2-9 have not started.
 The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
-| Task 1 | 5/6 | ControlBase/HomeAuthorityKey, registry view, shared state, deterministic locks, verification |
+| Task 1 | 4/6 | Registry view, shared state, deterministic locks, verification |
 | Task 2 | 7/7 | Semantic sync-plan schema 3 and environment-build v3 |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage backup receipts |
 | Task 4 | 7/7 | Live-mutation state machine, same-volume staging, journal, and failure classification |
@@ -2082,19 +2130,14 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Continue Phase 2 Task 1 Step 2. The production caller/cleanup ledger is defined as an additive
-   sealed building block with zero production consumers, the runspace-lifecycle definition-store
-   blocker is closed, and every receiver/raw-return branch in the sealed registry's resource chain
-   (target lease, live set, plain and existing containment chains, retained traversal) is
-   receiver-backed, and both held receipts now block concurrent close while their Assert revalidation
-   holds a read. Remaining before wiring any resolver or dispatcher consumer: close the
-   provider-closure blocker, then wire the ledger as the reviewed
-   observation lifecycle owner. Preserve the read-only registry's
-   `HELD_METADATA_VERIFIED` / `UNPROBED_READ_ONLY` contract while completing the
-   `PrivateRootBootstrapIntent` setup path, protocol-v1 public dispatch, and remaining forbidden-root
-   cases.
-   Apply the complete forbidden-root matrix before accepting any default/custom claim. Keep
-   production Apply disconnected and leave live-journal structure and interpretation to Task 4.
+1. Continue Phase 2 Task 1 Step 3 (Build the registry view) per the reviewed four-slice design at
+   `tmp/grok-step3-registry-design.md`: slice 1 adds the shared live-transaction immediate-child
+   contract and brings live UUID directories into the ordered reservation set; slice 2 defines the
+   read-only `setup-finalize-required` classification window and the status/Apply wrapper token
+   without touching the sealed `Get-CanonicalSetupStatus`; slice 3 wires the forbidden-root matrix
+   through a unique claim-accept consumer; slice 4 adds the zero-caller live TransactionId
+   create-new primitive. Task 1 Steps 4-6 (shared state, deterministic locks, verification) and
+   Tasks 2-9 follow in strict sequence. Live-journal structure and interpretation stay with Task 4.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

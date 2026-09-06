@@ -822,17 +822,26 @@ stay unconnected to production mutation routes.
 
 ## Current phase
 
-Phase 2 is 0/9 Tasks and 1/52 Steps with Task 1 at 1/6. The production caller/cleanup ledger is
-production-defined with zero production consumers, the runspace-lifecycle definition-store blocker
-is closed, and every receiver/raw-return branch in the sealed registry's resource chain (target
-lease, live set, plain and existing containment chains, retained traversal) is receiver-backed.
-The target/live reader-close blocker is closed (both held receipts block concurrent close while
-their Assert revalidation holds a read). Next is to close the provider-closure blocker, then wire
-the ledger as the reviewed observation lifecycle owner for a resolver or dispatcher consumer. The
-`PrivateRootBootstrapIntent` setup path,
-protocol-v1 public dispatch, and remaining forbidden-root cases also remain open, including applying
-the complete forbidden-root matrix before accepting any default/custom claim. Production Apply
-remains disconnected, and live-journal structure and interpretation remain deferred to Task 4.
+Phase 2 is 0/9 Tasks and 2/52 Steps with Task 1 at 2/6. Task 1 Step 2 (Resolve ControlBase and
+HomeAuthorityKey) is closed as of 2026-09-06 with per-clause evidence: the Windows Known-Folder
+resolver with the non-Windows interlock gate, the domain-keyed pre-ControlBase bootstrap lock, the
+two-layer bound `PrivateRootBootstrapIntent`, the bootstrap completion chain with explicitly
+`deferred` durable writes, MetadataOnly status that creates no locks or roots, the
+capability-evidence layers (preflight, fixed-infrastructure capture, receiver-backed observation,
+cleanup ledger, lifecycle owner, resolver consumer), and function-level rejection of public
+`-HomeRoot`/`-BackupRoot`/`-LockWaitSeconds`/`-TestMode` selectors. The step's Apply sentence is
+held by the Phase 0 policy gate, not by a missing primitive; the composer/Register/capability
+capture remain zero-external-caller primitives pending Step 5 D1/D2. Remainders are owned
+elsewhere: ticket consumption (Task 4), public selector defaults (Task 5), protocol-v1 dispatch
+(deferred/blocked with evidence).
+
+The next implementable work is Task 1 Step 3 (Build the registry view) per the reviewed four-slice
+design at `tmp/grok-step3-registry-design.md`: (1) the shared live-transaction immediate-child
+contract plus live UUID rows in the ordered reservation set, (2) the read-only
+`setup-finalize-required` window with a status/Apply wrapper token that does not touch the sealed
+`Get-CanonicalSetupStatus`, (3) the unique claim-accept consumer of the forbidden-root matrix, and
+(4) the zero-production-caller live TransactionId create-new primitive. Production Apply remains
+disconnected, and live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine
@@ -852,11 +861,11 @@ rather than being interpreted heuristically.
 
 ## Remaining work
 
-Phase 2 has 51 of 52 steps remaining. Task 1 has five remaining steps; Tasks 2-9 are unstarted:
+Phase 2 has 50 of 52 steps remaining. Task 1 has four remaining steps; Tasks 2-9 are unstarted:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
-| Task 1 | 5/6 | ControlBase/HomeAuthorityKey, registry, shared state, locks, and verification |
+| Task 1 | 4/6 | Registry view, shared state, locks, and verification |
 | Task 2 | 7/7 | Semantic plan schema 3 and environment-build v3 |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage receipts |
 | Task 4 | 7/7 | Common live-mutation state machine and journal |

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
+**Status:** In progress. Task 1 Steps 1-2 are complete (Task 1 2/6; Phase 2 overall 2/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
 
 **Goal:** Replace normal sync, explicit retirement, backup, rollback, and crash recovery with one target-bound, globally serialized, receipt-backed live transaction protocol.
 
@@ -164,7 +164,7 @@ script, live root, or Git index/ref was changed.
 
 Cover a fresh OS identity with ControlBase and every Claude/Codex/Reasonix parent/live root MISSING, two-repo simultaneous first bootstrap, hard kill before/after each deterministic ControlBase child creation, partially absent→created live roots, path case/separator variants, default/custom Reasonix roots, actual live overlap with tracked tree/GitCommonDir/ControlBase/BackupRoot/CanonicalRecoveryRoot/materialization/source/staging, pairwise platform overlap, sealed resolver fixtures for two HomeRoots with partial root overlap plus production rejection of every public `-HomeRoot`, an existing canonical-root claim from another repo, simultaneous two-repo canonical-setup versus live-adopt races, second clone, linked worktree, altered `LOCALAPPDATA`/`USERPROFILE`/`APPDATA`, corrupt claims/state, fixed-NTFS versus UNC/mapped/removable/ReFS/FAT/unknown volume capability, state selection/operation oneOf branches, canonical-vs-live/retirement concurrency, public lock busy with zero wait/rejected LockWaitSeconds, sealed-host-only bounded wait, and owner hard kill.
 
-- [ ] **Step 2: Resolve ControlBase and HomeAuthorityKey**
+- [x] **Step 2: Resolve ControlBase and HomeAuthorityKey**
 
 **Sixth intermediate checkpoint (2026-08-29):** The sealed under-lock filesystem-capability preflight
 is implemented as an additive building block in the registry surface; no pinned script changed and no
@@ -399,6 +399,28 @@ with plan-file SHA-256 `4c5ccb35185531f5da8a052371bef4a3f76a741571056536ea22a2e9
 No Apply was run. Task 1 stays 1/6, Phase 2 stays 1/52, and production Apply remains interlocked.
 
 Resolve Windows ControlBase and fixed sibling BackupRoot from access-token SID plus `FOLDERID_LocalAppData`, and HomeRoot/AppData from OS Known Folder APIs, never from mutable process environment variables. Before either private root exists, derive the fixed no-follow bootstrap-lock file under the already-existing Known Folder root from SID/location/domain only. The reviewed canonical setup plan binds `PrivateRootBootstrapIntent` (parent identity, fixed control/backups remainders, each MISSING|COMPLETE, final current-user DACL template, expected fixed children); Apply acquires that pre-ControlBase exclusive handle, revalidates intent, creates the private parent, BackupRoot, ControlBase plus `homes/canonical-roots/live-transactions` only with the final security descriptor, validates the deterministic prefix, and only then obtains the normal global lock. Exact crash prefixes may be completed by the same setup plan; wrong ACL/identity/extra/reparse is manual. No live/receipt/journal work precedes global lock. Read-only status never creates the bootstrap lock/file or directories. Existing ControlBase/BackupRoot bind resolved identity, owner ACL/SID, resolver version and FilesystemCapabilityHash; production on an undefined non-Windows adapter remains interlocked. Protocol v1 production dispatch rejects public `-HomeRoot`/`-BackupRoot`; sealed fake-home injection remains an internal capability only. Derive `HomeAuthorityKey` from token SID plus canonical Known-Folder HomeRoot location key only; do not include root existence/file IDs or Reasonix override.
+
+**Step 2 closure (2026-09-06):** Step 2 is complete. The resolver/bootstrap/interlock clauses above are
+implemented with function and test anchors: the Windows Known-Folder identity resolver with the
+non-Windows `live-safety-non-windows-interlocked` gate, the domain-keyed bootstrap-lock derivation
+under the existing Known Folder, the two-layer `PrivateRootBootstrapIntent` (canonical
+`$defs/setupPayload` precompute plus the sealed seven-slot intent) with
+`Assert-CanonicalSealedSetupIntentBinding` cross-layer binding, the bootstrap completion and
+held-canonical-global bind primitives, the completion composer whose durable claim/state writes stay
+explicitly `deferred`, MetadataOnly status that creates neither the bootstrap lock nor private roots,
+capability evidence layers (per-target/per-volume preflight, fixed-infrastructure capture, receiver-backed
+held-route observation with the wired lifecycle owner and resolver consumer), and function-level
+rejection of public `-HomeRoot`/`-BackupRoot`/`-LockWaitSeconds` across the authority/registry/resolver
+surfaces. The Apply sentence of this step is held by the Phase 0 policy gate
+(`ReleaseState=interlocked`, `canonical-apply-interlocked`), not by a missing primitive. Recorded
+remainders owned elsewhere: durable recovery ticket consumption/interpretation (Task 4), public
+`-HomeRoot`/`-BackupRoot` selector defaults in the sync/backup/env scripts (Task 5 live-host
+migration), protocol-v1 public dispatch (deferred/blocked with design evidence), and production
+consumption of the capability capture and composer (Step 5 D1/D2 after interlock release). A recorded
+vocabulary difference: the step text says remainders are `MISSING|COMPLETE`, the canonical
+`$defs/rootContext` uses `MISSING|EXISTS`, and the sealed seven-slot intent uses `MISSING|COMPLETE`;
+the cross-layer binding pins token SID, DACL template, and remainder-derived paths, so no clause is
+relaxed.
 
 - [ ] **Step 3: Build the registry view**
 
