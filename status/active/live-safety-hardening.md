@@ -852,9 +852,13 @@ claim file exists under ControlBase, with Apply refusing to spawn the interlocke
 is implemented in commit `744f326`: `Assert-SealedRegistryClaimAccept` is the unique production
 caller of the forbidden-root matrix and routes `ExistingReservations` through the split disjoint
 helper so live-transaction-namespace rows flow correctly; the consumer stays a zero-external-caller
-gate for Step 5 D2's first-authority writer. The remaining Step 3 slice is (4) the
-zero-production-caller live TransactionId create-new primitive. Production Apply remains
-disconnected, and live-journal structure and interpretation remain deferred to Task 4.
+gate for Step 5 D2's first-authority writer. Slice 4 is implemented in commit `c107ab8`:
+`New-SealedHeldLiveTransactionNamespace` mints a normalized UUID directory create-new under the
+held global lock with the current-user-only descriptor, writes no journal, and stays a
+zero-production-caller primitive. All four Step 3 slices are implemented; the authoritative
+unified `run-tests.ps1 -All` run for the Step 3 state remains pending before Step 3 is declared
+complete. Production Apply remains disconnected, and live-journal structure and interpretation
+remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine

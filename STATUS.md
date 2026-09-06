@@ -1927,6 +1927,43 @@ existed. Validation on 2026-09-06: the parse gate accepted all 156 files;
 not been executed yet and remains pending. No production Apply, backup, rollback, retirement,
 live-root mutation, or Git index/ref mutation was performed. Production Apply remains interlocked.
 
+## 2026-09-06 Phase 2 Task 1 Step 3 slice 4: live TransactionId create-new primitive
+
+Per the same four-slice design, slice 4 (G1/G2 create-new) is implemented in commit `c107ab8`,
+completing all four Step 3 slices:
+
+- `scripts/root-claims-registry-common.ps1` gains `New-SealedHeldLiveTransactionNamespace` — the
+  zero-production-caller mint primitive. It requires the genuine held global lock witness
+  (optionally revalidating a supplied canonical witness through the canonical-to-global binding),
+  opens the held containment chain over `LiveTransactionsRoot`, mints a normalized lowercase
+  D-format UUID after the locks are held, creates the child directory create-new with the
+  current-user-only directory security descriptor
+  (`live-transaction-namespace-must-be-create-new` on native 80/183), and returns
+  `{TransactionId, DirectoryIdentity}`. It writes no header, no journal, and no reservation
+  record; the empty V1 immediate-child contract applies to the created directory exactly as to
+  any other live transaction directory. The 80/183 collision branch is defensive and untestable
+  without Guid injection (recorded, mirroring the M12 precedent); the same primitive call shape
+  is exercised by the composer's remainder tests.
+- The seams suite adds the mint to the zero-external-caller blanket list and the unique-definition
+  inventory, re-pinning the reflection-sensitive inventory to count 13199 / digest
+  `66e7a9146b890dfec49be254ed91577ea31067551d5e1ea011d820b22c68d38b`.
+- `tests/root-claims-registry.tests.ps1` gains the `[live-transaction create-new]` block
+  (708 → 713 PASS): a held-lock mint returns a canonical lowercase UUID with a real created
+  directory identity matching the created child; a second held-lock mint creates a distinct
+  namespace; a released genuine global lock fails the mint closed.
+
+Validation on 2026-09-06: the parse gate accepted all 156 files;
+`canonical-production-seams.tests.ps1` passed 56/0 after the re-pin; the full
+`root-claims-registry.tests.ps1` suite passed with exit code 0 and 713 PASS lines (708 before);
+`git diff --check` was clean. This closes all four Step 3 slices from the reviewed design:
+slice 1 `8ab102f` (live-namespace child contract and ordered reservation rows), slice 2 `45b9510`
+(the setup-finalize window primitive and the status/Apply public token), slice 3 `744f326` (the
+claim-accept consumer of the forbidden-root matrix), and slice 4 `c107ab8` (the TransactionId
+create-new primitive). The authoritative unified `run-tests.ps1 -All` run for the Step 3 state
+has not been executed yet and remains pending before Task 1 Step 3 is declared complete. No
+production Apply, backup, rollback, retirement, live-root mutation, or Git index/ref mutation was
+performed. Production Apply remains interlocked.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2286,14 +2323,11 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Continue Phase 2 Task 1 Step 3 (Build the registry view) per the reviewed four-slice design at
-   `tmp/grok-step3-registry-design.md`. Slices 1-3 are implemented in commits `8ab102f`,
-   `45b9510`, and `744f326` (live-namespace child contract with ordered reservation rows; the
-   `setup-finalize-required` window primitive plus the status/Apply public token; the claim-accept
-   consumer of the forbidden-root matrix). Next: slice 4 adds the zero-caller live TransactionId
-   create-new primitive. Task 1 Steps 4-6 (shared state, deterministic locks, verification) and
-   Tasks 2-9 follow in strict sequence. Live-journal structure and interpretation stay with
-   Task 4.
+1. Run the definitive unified `run-tests.ps1 -All` validation for the Phase 2 Task 1 Step 3
+   state (slices 1-4 in commits `8ab102f`, `45b9510`, `744f326`, `c107ab8`), then record Step 3
+   complete with the Task 1 counter moving to 3/6. Next implementable work is Task 1 Step 4
+   (Define the minimal shared-state and generic state-target contract). Live-journal structure
+   and interpretation stay with Task 4; production Apply remains interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
