@@ -1890,6 +1890,43 @@ claim file only a real interlocked Apply could produce. The definitive unified
 production Apply, backup, rollback, retirement, live-root mutation, or Git index/ref mutation was
 performed. Production Apply remains interlocked.
 
+## 2026-09-06 Phase 2 Task 1 Step 3 slice 3: claim-accept consumer of the forbidden-root matrix
+
+Per the same four-slice design, slice 3 (G6) is implemented in commit `744f326`:
+
+- `scripts/root-claims-registry-common.ps1` gains `Assert-SealedRegistryClaimAccept` — the
+  claim-accept gate a future first-authority writer calls before accepting any default/custom
+  claim. It is the unique production CommandAst caller of
+  `Assert-SealedProposedClaimsForbiddenRootMatrix` (item 7's helper, whose own contract is
+  unchanged), then splits `$ExistingReservations` by `SourceKind` and runs
+  `Assert-SealedRegistryReservationSetsDisjoint` so ControlBase-resident
+  `live-transaction-namespace` rows flow through the live-kind run instead of failing the
+  claims-only forbidden check. The consumer has zero external production callers (Step 5 D2's
+  writer becomes its caller) and the matrix's blanket CommandAst prohibition was rewritten into
+  the unique-caller pattern; the disjoint helper's owner inventory now admits exactly the view
+  and the claim-accept consumer. The seams reflection-sensitive inventory re-pinned to count
+  13185 / digest `8a2d2272fa2b728b1a3ab0c5c8b6924b1b4c33e65b855af6601398e6fd4feed2`.
+- `tests/root-claims-registry.tests.ps1` gains the `[claim-accept unique consumer]` block on a
+  fresh fixture (702 → 708 PASS): the default three-platform claim passes with zero writes; a
+  ControlBase-overlapping custom live target fails through the consumer with the exact matrix
+  token; a real `live-transaction-namespace` reservation row is consumed as a live-kind row with
+  zero writes; a live namespace nested inside a canonical recovery reservation fails the extended
+  disjoint run; and the exact parameter set is frozen with no public root or lock selectors.
+
+Review provenance for this slice, recorded honestly: two read-only review attempts died to the
+known plan-mode terminal-cancellation defect, and a third full-access attempt reached its turn
+budget without publishing a verdict — but that session applied the mandatory-parameter default fix
+(omitted `$ProposedLiveTargets`/`$ExistingReservations` bound `$null` into the matrix's null
+rejection) and added the two consumer-routing coverage cases directly in the working tree. The
+main agent reviewed all three files' diffs line by line (seams changes were entirely the main
+agent's), adopted the registry and test changes as reviewed above, and no other foreign edits
+existed. Validation on 2026-09-06: the parse gate accepted all 156 files;
+`canonical-production-seams.tests.ps1` passed 56/0 without a further baseline shift; the full
+`root-claims-registry.tests.ps1` suite passed with exit code 0 and 708 PASS lines (702 before);
+`git diff --check` was clean. The definitive unified `run-tests.ps1 -All` run for slices 1-3 has
+not been executed yet and remains pending. No production Apply, backup, rollback, retirement,
+live-root mutation, or Git index/ref mutation was performed. Production Apply remains interlocked.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2250,13 +2287,13 @@ release, remain downstream and have not started.
 ## Next actions
 
 1. Continue Phase 2 Task 1 Step 3 (Build the registry view) per the reviewed four-slice design at
-   `tmp/grok-step3-registry-design.md`. Slices 1-2 are implemented in commits `8ab102f` and
-   `45b9510` (live-namespace child contract with ordered reservation rows; the
-   `setup-finalize-required` window primitive plus the status/Apply public token). Next: slice 3
-   wires the forbidden-root matrix through a unique claim-accept consumer that also consumes the
-   live reservation rows; slice 4 adds the zero-caller live TransactionId create-new primitive.
-   Task 1 Steps 4-6 (shared state, deterministic locks, verification) and Tasks 2-9 follow in
-   strict sequence. Live-journal structure and interpretation stay with Task 4.
+   `tmp/grok-step3-registry-design.md`. Slices 1-3 are implemented in commits `8ab102f`,
+   `45b9510`, and `744f326` (live-namespace child contract with ordered reservation rows; the
+   `setup-finalize-required` window primitive plus the status/Apply public token; the claim-accept
+   consumer of the forbidden-root matrix). Next: slice 4 adds the zero-caller live TransactionId
+   create-new primitive. Task 1 Steps 4-6 (shared state, deterministic locks, verification) and
+   Tasks 2-9 follow in strict sequence. Live-journal structure and interpretation stay with
+   Task 4.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

@@ -848,11 +848,13 @@ the sealed `Get-SealedRegistryCanonicalSetupWindow` primitive classifies the cla
 under a held canonical locator (zero production callers; the witnessed geometry cannot present a
 missing state, so view wiring stays out), and the status/Apply wrapper promotes
 `canonical-setup-required` to the public WARN token `setup-finalize-required` when the repo's
-claim file exists under ControlBase, with Apply refusing to spawn the interlocked engine. The
-remaining Step 3 slices are (3) the unique claim-accept consumer of the forbidden-root matrix that
-also consumes the live reservation rows and (4) the zero-production-caller live TransactionId
-create-new primitive. Production Apply remains disconnected, and live-journal structure and
-interpretation remain deferred to Task 4.
+claim file exists under ControlBase, with Apply refusing to spawn the interlocked engine. Slice 3
+is implemented in commit `744f326`: `Assert-SealedRegistryClaimAccept` is the unique production
+caller of the forbidden-root matrix and routes `ExistingReservations` through the split disjoint
+helper so live-transaction-namespace rows flow correctly; the consumer stays a zero-external-caller
+gate for Step 5 D2's first-authority writer. The remaining Step 3 slice is (4) the
+zero-production-caller live TransactionId create-new primitive. Production Apply remains
+disconnected, and live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine
