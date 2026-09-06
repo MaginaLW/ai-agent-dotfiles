@@ -843,11 +843,16 @@ fails closed as `manual-recovery-required`, and each UUID directory becomes an o
 `live-transaction-namespace` reservation row parent-bound to the LiveTransactionsRoot. The fixed
 infrastructure forbidden check is split into two runs (claims vs ControlBase+BackupRoot; extended
 claims+live vs BackupRoot only) because the transaction directories legitimately live inside
-ControlBase. Remaining Step 3 slices: (2) the read-only `setup-finalize-required` window with a
-status/Apply wrapper token that does not touch the sealed `Get-CanonicalSetupStatus`, (3) the
-unique claim-accept consumer of the forbidden-root matrix that also consumes the live reservation
-rows, and (4) the zero-production-caller live TransactionId create-new primitive. Production Apply
-remains disconnected, and live-journal structure and interpretation remain deferred to Task 4.
+ControlBase. Slice 2 (`setup-finalize-required` semantics) is implemented in commit `45b9510`:
+the sealed `Get-SealedRegistryCanonicalSetupWindow` primitive classifies the claim/state window
+under a held canonical locator (zero production callers; the witnessed geometry cannot present a
+missing state, so view wiring stays out), and the status/Apply wrapper promotes
+`canonical-setup-required` to the public WARN token `setup-finalize-required` when the repo's
+claim file exists under ControlBase, with Apply refusing to spawn the interlocked engine. The
+remaining Step 3 slices are (3) the unique claim-accept consumer of the forbidden-root matrix that
+also consumes the live reservation rows and (4) the zero-production-caller live TransactionId
+create-new primitive. Production Apply remains disconnected, and live-journal structure and
+interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine

@@ -1831,6 +1831,65 @@ extended disjoint run). The definitive unified `run-tests.ps1 -All` run for this
 been executed yet and remains pending. No production Apply, backup, rollback, retirement,
 live-root mutation, or Git index/ref mutation was performed. Production Apply remains interlocked.
 
+## 2026-09-06 Phase 2 Task 1 Step 3 slice 2: setup-finalize window and public token
+
+Per the same four-slice design, slice 2 (the G4/G5 `setup-finalize-required` semantics) is
+implemented in commit `45b9510` without touching the sealed `Get-CanonicalSetupStatus`:
+
+- `scripts/root-claims-registry-common.ps1` gains `Get-SealedRegistryCanonicalSetupWindow` — the
+  read-only setup-window classification primitive: without a caller-held canonical locator it
+  returns `UNRESOLVED`; with a locator (`{RepoRoot, CanonicalRepoLockHandle}`, validated through
+  `Assert-CanonicalRepoLockHandle` against the derived contract paths) it binds the claim document
+  to the authority token SID via `OwnerSid`, the Git common directory hash, and the repo id, then
+  classifies the setup-state path. An absent state with zero unfinished canonical transactions
+  returns `SETUP_FINALIZE_REQUIRED` with the public `setup-finalize-required` token; a present
+  leaf state returns `PRESENT` and leaves the witnessed binding path unchanged; a non-leaf state
+  path, an unreadable canonical journal, or any unfinished canonical transaction throws the bare
+  `canonical-root-transition-not-supported` token. The function has zero production callers and
+  joins the seams zero-external-caller list with a unique top-level definition.
+- Recorded design deviation (accepted by the independent Grok review): the design's view wiring
+  for the window function is unreachable — the sealed witness evidence requires a setup-state
+  capture and zero unfinished transactions, so a witnessed claim can never present a missing
+  state; the window stays a zero-caller primitive for the Step 5 D1/D2 consumers, and the
+  design's "unfinished with recovery classification=finalize" refinement belongs to the
+  recover-finalize Apply consumer (G8, not this slice), so unfinished transactions fail closed
+  here.
+- `scripts/canonical-command-result.ps1` gains `Test-CanonicalSetupFinalizeClaimPresence` (pins
+  the repo id to the 64-hex shape before path composition) and
+  `Resolve-CanonicalSetupFinalizePublicToken` (only `canonical-setup-required` can promote to
+  `setup-finalize-required`). `scripts/setup-canonical-transaction.ps1` now routes both public
+  branches through the resolver: Status emits `setup-finalize-required` as WARN with exit 0 when
+  `ControlBase/canonical-roots/<repoId>.json` exists, and Apply writes a FAIL command result plus
+  the exact stderr token with exit 1 without spawning the engine; any selection or probe error
+  falls back to the previous behavior (status token unchanged, Apply spawns the interlocked
+  engine).
+- Tests: `tests/root-claims-registry.tests.ps1` gains the `[registry setup-finalize window]`
+  block (11 assertions: unresolved without a locator, malformed-locator rejection, the
+  finalize-window classification under a held locator, forged-`OwnerSid`/other-repo/repo-id
+  binding rejections, the unreadable-journal fail-closed path, the PRESENT classification after
+  the setup state is written, and the claim-presence probe on a fake ControlBase);
+  `tests/canonical-command-result.tests.ps1` gains the `[setup finalize public token]` block
+  (5 assertions over the resolver: pass-through, absence, noncanonical repo id, exact-claim
+  promotion, foreign repo id). The seams suite re-pinned the reflection-sensitive inventory
+  (count 13156 → 13180, digest
+  `ad5022ab7e62daf6678e79dbe8ad559adc0d9d04f4f9f60b1b5859b1cca5dfb6`).
+
+Validation on 2026-09-06: the parse gate accepted all 156 files;
+`canonical-production-seams.tests.ps1` passed 56/0 after the re-pin; the full
+`root-claims-registry.tests.ps1` suite passed with exit code 0 and 702 PASS lines (691 before);
+`tests/canonical-command-result.tests.ps1` passed 51/0 (46 before); `git diff --check` was clean.
+An independent read-only Grok review of the diff returned one P0, two P1s, and two P2s; all were
+adopted in the committed bytes (the P0: the window originally bound the claim's `TokenSid`, which
+the canonical-root-claim v1 schema does not carry — it now binds `OwnerSid` and a forged-OwnerSid
+negative was added; the P1s: the shared `Resolve-CanonicalSetupFinalizePublicToken` helper with
+command-result suite coverage, and the fail-closed journal path test; the P2s: the repo-id shape
+pin in the probe and the leaf-state discipline). All four recorded deviations were accepted. The
+real-ControlBase positive for the status/Apply wrapper is documented as untestable without a
+claim file only a real interlocked Apply could produce. The definitive unified
+`run-tests.ps1 -All` run for slices 1-2 has not been executed yet and remains pending. No
+production Apply, backup, rollback, retirement, live-root mutation, or Git index/ref mutation was
+performed. Production Apply remains interlocked.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2191,14 +2250,13 @@ release, remain downstream and have not started.
 ## Next actions
 
 1. Continue Phase 2 Task 1 Step 3 (Build the registry view) per the reviewed four-slice design at
-   `tmp/grok-step3-registry-design.md`. Slice 1 (live-namespace child contract and ordered
-   reservation rows) is implemented in commit `8ab102f`. Next: slice 2 defines the read-only
-   `setup-finalize-required` classification window and the status/Apply wrapper token without
-   touching the sealed `Get-CanonicalSetupStatus`; slice 3 wires the forbidden-root matrix through
-   a unique claim-accept consumer that also consumes the live reservation rows; slice 4 adds the
-   zero-caller live TransactionId create-new primitive. Task 1 Steps 4-6 (shared state,
-   deterministic locks, verification) and Tasks 2-9 follow in strict sequence. Live-journal
-   structure and interpretation stay with Task 4.
+   `tmp/grok-step3-registry-design.md`. Slices 1-2 are implemented in commits `8ab102f` and
+   `45b9510` (live-namespace child contract with ordered reservation rows; the
+   `setup-finalize-required` window primitive plus the status/Apply public token). Next: slice 3
+   wires the forbidden-root matrix through a unique claim-accept consumer that also consumes the
+   live reservation rows; slice 4 adds the zero-caller live TransactionId create-new primitive.
+   Task 1 Steps 4-6 (shared state, deterministic locks, verification) and Tasks 2-9 follow in
+   strict sequence. Live-journal structure and interpretation stay with Task 4.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
