@@ -7115,6 +7115,116 @@ try {
         Assert-CanonicalTransactionSetAllowsDocument -TransactionsRoot ([string]$recomputeUnfinishedPaths.TransactionsRoot) -DocumentHash ([string]$recomputeUnfinishedHeader.OriginalDocumentHash) -AllowedUnfinishedTransactionId $recomputeUnfinishedId | Out-Null
     } '^reviewed-plan-consumed$' 'Assert-CanonicalTransactionSetAllowsDocument consumes OriginalDocumentHash on the planted header'
 
+    Write-Host '[canonical live lock-order route contention]'
+    function Invoke-TestRegistryScriptStreams {
+        param([Parameter(Mandatory)][string]$Script,[string[]]$Arguments=@())
+        $start = [Diagnostics.ProcessStartInfo]::new()
+        $start.FileName = (Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        foreach ($argument in @('-NoProfile','-File',$Script) + @($Arguments)) {
+            [void]$start.ArgumentList.Add([string]$argument)
+        }
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $start
+        try {
+            if (-not $process.Start()) { throw "Unable to start test script: $Script" }
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(15000)) {
+                try { $process.Kill($true) } catch { }
+                throw "test script did not exit within 15s: $Script"
+            }
+            return [pscustomobject]@{
+                Code = $process.ExitCode
+                Stdout = $stdoutTask.GetAwaiter().GetResult()
+                Stderr = $stderrTask.GetAwaiter().GetResult()
+            }
+        }
+        finally { $process.Dispose() }
+    }
+
+    $routeContentionRecoverScript = Join-Path $RepoRoot 'scripts/recover-canonical-transaction.ps1'
+    $routeContentionFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-route-contention-recover'
+    $routeContentionCanonical = New-TestCanonicalClaim -Fixture $routeContentionFixture -Name 'lock-order-route-contention-recover'
+    $routeContentionCreated = Enter-CanonicalRepoLock -LockPath ([string]$routeContentionCanonical.ContractPaths.LockPath) -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $routeContentionCreated
+    $routeContentionFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$routeContentionCanonical.ContractPaths.LockPath) -Force
+    $routeContentionGit = $routeContentionCanonical.GitContext
+    $routeContentionPaths = $routeContentionCanonical.ContractPaths
+    $routeContentionPayload = $routeContentionCanonical.PlanPayload
+    $routeContentionId = [Guid]::NewGuid().ToString('D').ToLowerInvariant()
+    $routeContentionNamespace = Join-Path ([string]$routeContentionPaths.TransactionsRoot) (Join-Path $routeContentionGit.WorktreeId $routeContentionId)
+    $routeContentionHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'canonical-journal-header'
+        TransactionId = $routeContentionId
+        CanonicalOperationKind = 'setup'
+        OriginalDocumentHash = (Get-SemanticJsonHash -InputObject ([ordered]@{ TransactionId = $routeContentionId; Kind = 'setup' }))
+        OriginalPlanHash = ('2' * 64)
+        RepoId = [string]$routeContentionCanonical.RepoId
+        GitCommonDirHash = [string]$routeContentionGit.GitCommonDirHash
+        WorktreeId = [string]$routeContentionGit.WorktreeId
+        TransactionNamespace = [IO.Path]::GetFullPath($routeContentionNamespace)
+        RecoveryTransactionRoot = [IO.Path]::GetFullPath((Join-Path ([string]$routeContentionCanonical.RecoveryRoot) (Join-Path $routeContentionGit.WorktreeId $routeContentionId)))
+        ExpectedPostconditionsHash = [string]$routeContentionPayload.ExpectedPostconditionsHash
+        Targets = @()
+        SetupRecovery = [ordered]@{
+            ClaimPath = [IO.Path]::GetFullPath((Join-Path ([string]$routeContentionFixture.Context.ControlBase) (Join-Path 'canonical-roots' ([string]$routeContentionCanonical.RepoId + '.json'))))
+            StatePath = [string]$routeContentionPaths.SetupStatePath
+            ExpectedClaim = $routeContentionPayload.ExpectedRootClaim
+            ExpectedClaimHash = [string]$routeContentionPayload.ExpectedRootClaimHash
+            ExpectedStateProjection = $routeContentionPayload.ExpectedSetupStateProjection
+            ExpectedStateProjectionHash = [string]$routeContentionPayload.ExpectedSetupStateProjectionHash
+        }
+    }
+    $null = New-CanonicalJournalHeader -Document $routeContentionHeader -TransactionNamespace $routeContentionNamespace
+    $routeContentionPlan = Join-Path $workRoot 'lock-order-route-contention-recover.json'
+    $routeContentionDry = Invoke-TestRegistryScriptStreams -Script $routeContentionRecoverScript -Arguments @(
+        '-RepoRoot', [string]$routeContentionCanonical.RepoRoot,
+        '-Action', 'abandon',
+        '-TransactionId', $routeContentionId,
+        '-DryRun',
+        '-PlanPath', $routeContentionPlan
+    )
+    Assert-TestCondition ($routeContentionDry.Code -eq 0) ("COMPLETE recover DryRun publishes a reviewed abandon plan (code=$($routeContentionDry.Code); stderr=$($routeContentionDry.Stderr))")
+
+    $routeContentionBefore = Get-TestRegistryTreeHash -Fixture $routeContentionFixture
+    $routeContentionHeld = $null
+    try {
+        $routeContentionHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$routeContentionCanonical.RepoRoot) -RouteKind canonical-recover -AcquisitionMode ExistingOnly `
+            -AuthorityContext $routeContentionFixture.Context
+        Assert-TestCondition (@($routeContentionHeld).Count -eq 1 -and
+            $routeContentionHeld -is [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder] -and
+            [string]$routeContentionHeld.RouteKind -ceq 'canonical-recover' -and
+            [string]$routeContentionHeld.CloseState -ceq 'OPEN') 'COMPLETE fixture lock-order Enter for canonical-recover returns one OPEN handle'
+        $routeContentionBusy = Invoke-TestRegistryScriptStreams -Script $routeContentionRecoverScript -Arguments @(
+            '-RepoRoot', [string]$routeContentionCanonical.RepoRoot,
+            '-Action', 'abandon',
+            '-TransactionId', $routeContentionId,
+            '-Apply',
+            '-PlanPath', $routeContentionPlan
+        )
+        Assert-TestCondition ($routeContentionBusy.Code -ne 0 -and
+            $routeContentionBusy.Stderr -cmatch '\Aoperation-lock-busy(?:\r?\n)?\z') ("COMPLETE recover Apply against a held lock-order emits operation-lock-busy on stderr and exits nonzero (code=$($routeContentionBusy.Code); stderr=$($routeContentionBusy.Stderr))")
+        Assert-TestCondition ($routeContentionBefore -ceq (Get-TestRegistryTreeHash -Fixture $routeContentionFixture)) 'a recover Apply lock-order loser writes no backup or workspace in the fixture tree'
+    }
+    finally {
+        if ($null -ne $routeContentionHeld) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $routeContentionHeld }
+    }
+    $routeContentionReleased = Invoke-TestRegistryScriptStreams -Script $routeContentionRecoverScript -Arguments @(
+        '-RepoRoot', [string]$routeContentionCanonical.RepoRoot,
+        '-Action', 'abandon',
+        '-TransactionId', $routeContentionId,
+        '-Apply',
+        '-PlanPath', $routeContentionPlan
+    )
+    Assert-TestCondition ($routeContentionReleased.Code -eq 75 -and
+        $routeContentionReleased.Stderr -cmatch '\Acanonical-recovery-apply-interlocked(?:\r?\n)?\z') ("after the holder releases, recover Apply returns to canonical-recovery-apply-interlocked / exit 75 (code=$($routeContentionReleased.Code); stderr=$($routeContentionReleased.Stderr))")
+    Assert-TestCondition ($routeContentionBefore -ceq (Get-TestRegistryTreeHash -Fixture $routeContentionFixture)) 'released recover Apply interlock remains zero-write on the fixture tree'
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 
