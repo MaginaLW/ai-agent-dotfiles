@@ -3276,6 +3276,110 @@ function Read-SealedRegistryValidatedAuthorityDocuments {
     }
 }
 
+function New-SealedRegistryRootClaimsCreateNew {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$GlobalLockHandle,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$ProposedClaims,
+        [Parameter(Mandatory)][string]$PendingDirectory,
+        [Parameter(Mandatory)][string]$PendingName,
+        [AllowNull()]$CanonicalWitness,
+        [AllowNull()]$CurrentRouteRootSet,
+        [AllowEmptyCollection()][object[]]$ExistingReservations = @()
+    )
+
+    $null = Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
+    if ($null -ne $CanonicalWitness) {
+        $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -CanonicalWitness $CanonicalWitness
+    }
+
+    $proposedBytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $ProposedClaims)
+    $null = Assert-AuthoritySchemaBytes -ArtifactKind 'root-claims' -InstanceBytes $proposedBytes
+    Test-RootClaimsSemantics -Document $ProposedClaims
+    $resolvedKey = [string]$AuthorityContext.HomeAuthorityKey
+    if ([string]$ProposedClaims.HomeAuthorityKey -cne $resolvedKey) { throw 'root-claims authority directory/key mismatch' }
+    $proposedSid = [string]$ProposedClaims.TokenSid
+    $contextSid = [string]$AuthorityContext.TokenSid
+    if ($proposedSid -cne $contextSid) { throw 'root-claims token SID does not belong to this ControlBase' }
+
+    $validated = Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
+    if ([string]$validated.ClaimsStatus -cne 'MISSING') { throw 'root-claims-replace-not-supported' }
+
+    $proposedLiveTargets = [Collections.Generic.List[object]]::new()
+    foreach ($claim in @($ProposedClaims.LiveRootClaims)) {
+        $requestedPath = [string]$claim.RequestedPath
+        $proposedLiveTargets.Add([ordered]@{
+            Platform = [string]$claim.Platform
+            TargetContext = (Resolve-TargetContext -Path $requestedPath -Mode MetadataOnly)
+        })
+    }
+    $null = Assert-SealedRegistryClaimAccept -AuthorityContext $AuthorityContext -ProposedLiveTargets @($proposedLiveTargets) -ProposedCanonicalRecovery $null -CanonicalWitness $CanonicalWitness -CurrentRouteRootSet $CurrentRouteRootSet -ExistingReservations $ExistingReservations
+
+    if (-not (Test-Path -LiteralPath $PendingDirectory -PathType Container)) { throw 'authority-state-pending-directory-required' }
+    $authorityRoot = [string]$AuthorityContext.AuthorityRoot
+    if (Test-SafePathInsideRoot -Path $PendingDirectory -Root $authorityRoot) { throw 'authority-state-pending-inside-authority' }
+
+    $homesHandles = $null
+    $pendingHandles = $null
+    $created = $null
+    $existingAuthority = $null
+    $tempHandle = $null
+    try {
+        $pendingHandlesReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($PendingDirectory)) -OwnershipReceiver $pendingHandlesReceiver
+        $pendingHandles = $pendingHandlesReceiver.GetDeliveredExact()
+        $pendingParent = $pendingHandles[$pendingHandles.Count - 1]
+
+        $homesHandlesReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([string]$AuthorityContext.HomesRoot) -OwnershipReceiver $homesHandlesReceiver
+        $homesHandles = $homesHandlesReceiver.GetDeliveredExact()
+        $homesParent = $homesHandles[$homesHandles.Count - 1]
+        $existingNames = @([AiAgentDotfiles.NoFollowFile]::GetChildNames($homesParent))
+        if ($existingNames -contains $resolvedKey) {
+            $existingAuthority = [AiAgentDotfiles.NoFollowFile]::HoldChildDirectory($homesParent,$resolvedKey)
+            if (@([AiAgentDotfiles.NoFollowFile]::GetChildNames($existingAuthority)).Count -ne 0) { throw 'root-claims-replace-not-supported' }
+            $existingAuthority.Dispose()
+            $existingAuthority = $null
+        }
+        $directorySddl = ConvertTo-HomeAuthoritySecurityDescriptorSddl -SecurityTemplate (Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([string]$AuthorityContext.TokenSid) -ResourceKind Directory)
+        try {
+            $created = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectoryWithSecurityDescriptor($homesParent,$resolvedKey,$directorySddl)
+        }
+        catch [ComponentModel.Win32Exception] {
+            if ($_.Exception.NativeErrorCode -in @(80,183)) { throw 'authority-directory-must-be-create-new' }
+            throw
+        }
+
+        $tempHandle = [AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFile($pendingParent,$PendingName,$proposedBytes)
+        $heldBytes = [AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($tempHandle,[long]$proposedBytes.LongLength)
+        $null = Assert-AuthoritySchemaBytes -ArtifactKind 'root-claims' -InstanceBytes ([byte[]]$heldBytes)
+        $destinationName = [IO.Path]::GetFileName([string]$AuthorityContext.RootClaimsPath)
+        try {
+            $publishedInfo = [AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($tempHandle,$created,$destinationName)
+        }
+        catch [ComponentModel.Win32Exception] {
+            if ($_.Exception.NativeErrorCode -in @(80,183)) { throw 'root-claims-must-be-create-new' }
+            throw
+        }
+        if ([string]$publishedInfo.Identity -cne [string]$tempHandle.Info.Identity -or [long]$publishedInfo.Length -ne [long]$tempHandle.ReadResult.Length) {
+            throw 'root-claims published artifact identity differs from its held exact bytes'
+        }
+        $intent = New-AuthorityTargetContextIntent -RootClaimsDocument $ProposedClaims
+        return [pscustomobject][ordered]@{
+            HomeAuthorityKey=$resolvedKey; ClaimsBytesHash=[string]$tempHandle.ReadResult.Sha256
+            FileIdentity=[string]$publishedInfo.Identity; TargetContextIntent=$intent
+        }
+    }
+    finally {
+        if ($null -ne $tempHandle) { $tempHandle.Dispose() }
+        if ($null -ne $existingAuthority) { $existingAuthority.Dispose() }
+        if ($null -ne $created) { $created.Dispose() }
+        if ($null -ne $pendingHandles) { Close-SafeDirectoryContainmentChain -Handles $pendingHandles }
+        if ($null -ne $homesHandles) { Close-SafeDirectoryContainmentChain -Handles $homesHandles }
+    }
+}
+
 function Get-SealedHomeAuthorityRegistryView {
     [CmdletBinding()]
     param(

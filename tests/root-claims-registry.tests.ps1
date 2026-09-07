@@ -6467,6 +6467,123 @@ try {
     }
     finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $validatedReadBadLock }
 
+    Write-Host '[root-claims create-new]' -ForegroundColor Cyan
+
+    $createNewFixture = New-TestRegistryFixture -Parent $workRoot -Name 'root-claims-create-new'
+    $createNewPending = Join-Path $createNewFixture.Root 'pending-scratch'
+    [IO.Directory]::CreateDirectory($createNewPending) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $createNewPending
+    $createNewClaims = New-TestRootClaims -Context $createNewFixture.Context
+    $createNewExpectedIntent = New-AuthorityTargetContextIntent -RootClaimsDocument $createNewClaims
+    $createNewFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$createNewFixture.Context.AuthorityRoot,[string]$createNewPending) -Force
+    $createNewBefore = Get-TestRegistryTreeHash -Fixture $createNewFixture
+    $createNewLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $createNewFixture.Context
+    try {
+        $createNewResult = New-SealedRegistryRootClaimsCreateNew -AuthorityContext $createNewFixture.Context -GlobalLockHandle $createNewLock -ProposedClaims $createNewClaims -PendingDirectory $createNewPending -PendingName 'root-claims.pending.json'
+        Assert-TestCondition (@($createNewResult).Count -eq 1 -and
+            [string]$createNewResult.HomeAuthorityKey -ceq [string]$createNewFixture.Context.HomeAuthorityKey -and
+            [string]$createNewResult.ClaimsBytesHash -cmatch '\A[0-9a-f]{64}\z' -and
+            [string]$createNewResult.FileIdentity -cmatch '\A[0-9a-f]{8}:[0-9a-f]{16}\z' -and
+            [string]$createNewResult.TargetContextIntent.HomeAuthorityKey -ceq [string]$createNewClaims.HomeAuthorityKey -and
+            (Get-SemanticJsonHash -InputObject $createNewResult.TargetContextIntent) -ceq (Get-SemanticJsonHash -InputObject $createNewExpectedIntent)) 'held create-new publishes root-claims.json and returns hash, identity, and target-context intent'
+        $createNewRead = Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $createNewFixture.Context -GlobalLockHandle $createNewLock
+        Assert-TestCondition ([string]$createNewRead.ClaimsStatus -ceq 'VALID' -and
+            [string]$createNewRead.StateStatus -ceq 'MISSING' -and
+            [string]$createNewRead.ClaimsBytesHash -ceq [string]$createNewResult.ClaimsBytesHash) 'validated read after create-new returns VALID claims and MISSING state'
+        $createNewView = Get-SealedHomeAuthorityRegistryView -AuthorityContext $createNewFixture.Context -GlobalLockHandle $createNewLock
+        Assert-TestCondition (@($createNewView.Authorities).Count -eq 1 -and
+            [string]$createNewView.Authorities[0].HomeAuthorityKey -ceq [string]$createNewFixture.Context.HomeAuthorityKey -and
+            [string]$createNewView.Authorities[0].StateStatus -ceq 'MISSING' -and
+            [string]$createNewView.MutationGate -ceq 'REPAIR_ADOPT_ONLY') 'the registry view keeps MISSING state and REPAIR_ADOPT_ONLY after claims create-new'
+        Assert-ThrowsPattern {
+            New-SealedRegistryRootClaimsCreateNew -AuthorityContext $createNewFixture.Context -GlobalLockHandle $createNewLock -ProposedClaims $createNewClaims -PendingDirectory $createNewPending -PendingName 'root-claims.pending.json' | Out-Null
+        } '^root-claims-replace-not-supported$' 'a second create-new call is rejected as replace-not-supported'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $createNewLock }
+    Assert-TestCondition ($createNewBefore -ceq (Get-TestRegistryTreeHash -Fixture $createNewFixture)) 'create-new writes only the authority directory, claims file, and pending scratch'
+    $createNewOnDisk = [IO.File]::ReadAllBytes([string]$createNewFixture.Context.RootClaimsPath)
+    $createNewOnDiskHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$createNewOnDisk)).ToLowerInvariant()
+    Assert-TestCondition ($createNewOnDiskHash -ceq [string]$createNewResult.ClaimsBytesHash) 'on-disk claims file bytes SHA-256 equal the returned ClaimsBytesHash'
+
+    $createOverlapFixture = New-TestRegistryFixture -Parent $workRoot -Name 'root-claims-create-new-overlap'
+    $createOverlapPending = Join-Path $createOverlapFixture.Root 'pending-scratch'
+    [IO.Directory]::CreateDirectory($createOverlapPending) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $createOverlapPending
+    $createOverlapBase = New-TestRootClaims -Context $createOverlapFixture.Context
+    $createOverlapLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $createOverlapFixture.Context
+    try {
+        $createOverlapDir = Join-Path ([string]$createOverlapFixture.Context.ControlBase) 'nested-custom-live'
+        [IO.Directory]::CreateDirectory($createOverlapDir) | Out-Null
+        $createOverlapContext = Resolve-TargetContext -Path $createOverlapDir -Mode MetadataOnly
+        $createOverlapReasonix = [ordered]@{
+            Platform='Reasonix'; LocationKey=[string]$createOverlapContext.LocationKey; RequestedPath=[string]$createOverlapContext.RequestedPath
+            InitialState='EXISTS'; VolumeId=[string]$createOverlapContext.VolumeId
+            DeepestExistingParentPath=[string]$createOverlapContext.DeepestExistingParentPath
+            DeepestExistingParentIdentity=[string]$createOverlapContext.DeepestExistingParentIdentity
+            MissingRemainder=@(); InitialDirectoryIdentity=[string]$createOverlapContext.DeepestExistingParentIdentity
+            ExpectedPostState='EXISTS'
+        }
+        $createOverlapClaims = [ordered]@{}
+        foreach ($createOverlapKey in @($createOverlapBase.Keys)) { $createOverlapClaims[$createOverlapKey] = $createOverlapBase[$createOverlapKey] }
+        $createOverlapClaims['LiveRootClaims'] = @($createOverlapBase.LiveRootClaims[0],$createOverlapBase.LiveRootClaims[1],$createOverlapReasonix)
+        $createOverlapBefore = Get-TestRegistryTreeHash -Fixture $createOverlapFixture
+        Assert-ThrowsPattern {
+            New-SealedRegistryRootClaimsCreateNew -AuthorityContext $createOverlapFixture.Context -GlobalLockHandle $createOverlapLock -ProposedClaims $createOverlapClaims -PendingDirectory $createOverlapPending -PendingName 'root-claims.pending.json' | Out-Null
+        } '^manual-recovery-required: forbidden-root-path-overlap$' 'create-new routes a ControlBase-overlapping Reasonix live root through claim-accept'
+        Assert-TestCondition ($createOverlapBefore -ceq (Get-TestRegistryTreeHash -Fixture $createOverlapFixture) -and
+            -not (Test-Path -LiteralPath ([string]$createOverlapFixture.Context.RootClaimsPath))) 'a claim-accept overlap failure is zero-write and leaves no claims file'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $createOverlapLock }
+
+    $createInsideFixture = New-TestRegistryFixture -Parent $workRoot -Name 'root-claims-create-new-pending-inside'
+    $createInsidePending = Join-Path ([string]$createInsideFixture.Context.AuthorityRoot) 'pending-scratch'
+    [IO.Directory]::CreateDirectory($createInsidePending) | Out-Null
+    $createInsideClaims = New-TestRootClaims -Context $createInsideFixture.Context
+    $createInsideBefore = Get-TestRegistryTreeHash -Fixture $createInsideFixture
+    $createInsideLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $createInsideFixture.Context
+    try {
+        Assert-ThrowsPattern {
+            New-SealedRegistryRootClaimsCreateNew -AuthorityContext $createInsideFixture.Context -GlobalLockHandle $createInsideLock -ProposedClaims $createInsideClaims -PendingDirectory $createInsidePending -PendingName 'root-claims.pending.json' | Out-Null
+        } '^authority-state-pending-inside-authority$' 'pending inside the authority directory is rejected'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $createInsideLock }
+    Assert-TestCondition ($createInsideBefore -ceq (Get-TestRegistryTreeHash -Fixture $createInsideFixture) -and
+        -not (Test-Path -LiteralPath ([string]$createInsideFixture.Context.RootClaimsPath))) 'a pending-inside rejection is zero-write and leaves no claims file'
+
+    $createNoLockFixture = New-TestRegistryFixture -Parent $workRoot -Name 'root-claims-create-new-no-lock'
+    $createNoLockPending = Join-Path $createNoLockFixture.Root 'pending-scratch'
+    [IO.Directory]::CreateDirectory($createNoLockPending) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $createNoLockPending
+    $createNoLockClaims = New-TestRootClaims -Context $createNoLockFixture.Context
+    $createNoLockBefore = Get-TestRegistryTreeHash -Fixture $createNoLockFixture
+    Assert-ThrowsPattern {
+        New-SealedRegistryRootClaimsCreateNew -AuthorityContext $createNoLockFixture.Context -GlobalLockHandle $null -ProposedClaims $createNoLockClaims -PendingDirectory $createNoLockPending -PendingName 'root-claims.pending.json' | Out-Null
+    } 'because it is null' 'create-new without a lock fails closed'
+    $createNoLockReleased = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $createNoLockFixture.Context
+    Exit-HomeAuthorityGlobalLiveLock -LockHandle $createNoLockReleased
+    Assert-ThrowsPattern {
+        New-SealedRegistryRootClaimsCreateNew -AuthorityContext $createNoLockFixture.Context -GlobalLockHandle $createNoLockReleased -ProposedClaims $createNoLockClaims -PendingDirectory $createNoLockPending -PendingName 'root-claims.pending.json' | Out-Null
+    } '^home-authority-registry-lock-required$' 'a released genuine global lock fails create-new closed'
+    Assert-TestCondition ($createNoLockBefore -ceq (Get-TestRegistryTreeHash -Fixture $createNoLockFixture) -and
+        -not (Test-Path -LiteralPath ([string]$createNoLockFixture.Context.RootClaimsPath))) 'create-new lock failures are zero-write'
+
+    $createCollisionFixture = New-TestRegistryFixture -Parent $workRoot -Name 'root-claims-create-new-collision'
+    $createCollisionPending = Join-Path $createCollisionFixture.Root 'pending-scratch'
+    [IO.Directory]::CreateDirectory($createCollisionPending) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $createCollisionPending
+    [IO.Directory]::CreateDirectory([string]$createCollisionFixture.Context.AuthorityRoot) | Out-Null
+    $createCollisionClaims = New-TestRootClaims -Context $createCollisionFixture.Context
+    $createCollisionBefore = Get-TestRegistryTreeHash -Fixture $createCollisionFixture
+    $createCollisionLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $createCollisionFixture.Context
+    try {
+        Assert-ThrowsPattern {
+            New-SealedRegistryRootClaimsCreateNew -AuthorityContext $createCollisionFixture.Context -GlobalLockHandle $createCollisionLock -ProposedClaims $createCollisionClaims -PendingDirectory $createCollisionPending -PendingName 'root-claims.pending.json' | Out-Null
+        } '^authority-directory-must-be-create-new$' 'a pre-created authority directory collides as create-new'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $createCollisionLock }
+    Assert-TestCondition ($createCollisionBefore -ceq (Get-TestRegistryTreeHash -Fixture $createCollisionFixture) -and
+        -not (Test-Path -LiteralPath ([string]$createCollisionFixture.Context.RootClaimsPath))) 'an authority-directory collision is zero-write and leaves no claims file'
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 

@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13331
-$reviewedAllScriptsReflectionSensitiveDigest='173125cba5e2cd0c6bfbc2392c0551c7f1ee4cc815e4546985ab474c71c0c9dc'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13379
+$reviewedAllScriptsReflectionSensitiveDigest='3b622e2d2fd27b44bde1dd80d96068d536649cf4d92976f4312541c6d8418a3c'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -394,6 +394,9 @@ function Invoke-ProductionSeamAnalysis {
     $liveNamespaceAllowedCallers=[Collections.Generic.List[string]]::new()
     $liveNamespaceDisjointAllowedCallers=[Collections.Generic.List[string]]::new()
     $claimAcceptMatrixAllowedCallers=[Collections.Generic.List[string]]::new()
+    $claimAcceptAllowedCallers=[Collections.Generic.List[string]]::new()
+    $validatedReadAllowedCallers=[Collections.Generic.List[string]]::new()
+    $targetContextIntentFactoryAllowedCallers=[Collections.Generic.List[string]]::new()
     $targetContextIntentAllowedCallers=[Collections.Generic.List[string]]::new()
     $finalIdentitiesAllowedCallers=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandInventory=[Collections.Generic.List[string]]::new()
@@ -545,14 +548,33 @@ function Invoke-ProductionSeamAnalysis {
                 'Register-SealedHeldHomeAuthorityCanonicalGlobalBinding',
                 'Complete-SealedHeldCanonicalPrivateRootBootstrap',
                 'Get-SealedRegistryCanonicalSetupWindow',
-                'Assert-SealedRegistryClaimAccept',
                 'New-SealedHeldLiveTransactionNamespace',
-                'Read-SealedRegistryValidatedAuthorityDocuments',
-                'New-AuthorityTargetContextIntent',
+                'New-SealedRegistryRootClaimsCreateNew',
                 'Get-AuthorityStateIntentProjection',
                 'Assert-AuthorityControllerTransitionPreservesSelection',
                 'New-AuthorityStatePostimage')){
                 $fixedObservationBoundaryViolations.Add("canonical private-root completion caller: $($model.RelativePath):$($ownerName):$commandName")
+            }
+            if($commandName -ieq 'Assert-SealedRegistryClaimAccept'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'New-SealedRegistryRootClaimsCreateNew'){
+                    $claimAcceptAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("claim-accept caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Read-SealedRegistryValidatedAuthorityDocuments'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'New-SealedRegistryRootClaimsCreateNew'){
+                    $validatedReadAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("validated-read caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'New-AuthorityTargetContextIntent'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'New-SealedRegistryRootClaimsCreateNew'){
+                    $targetContextIntentFactoryAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("authority target-context intent factory caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'Assert-AuthorityTargetContextIntent'){
                 if([string]$model.RelativePath -ceq 'scripts/shared-authority-state-common.ps1' -and $null -ne $owner -and
@@ -914,6 +936,18 @@ function Invoke-ProductionSeamAnalysis {
     if((@($claimAcceptMatrixAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedClaimAcceptMatrixOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed forbidden-root matrix owner inventory changed')
     }
+    $reviewedClaimAcceptOwnerInventory=@('scripts/root-claims-registry-common.ps1:New-SealedRegistryRootClaimsCreateNew')
+    if((@($claimAcceptAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedClaimAcceptOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed claim-accept owner inventory changed')
+    }
+    $reviewedValidatedReadOwnerInventory=@('scripts/root-claims-registry-common.ps1:New-SealedRegistryRootClaimsCreateNew')
+    if((@($validatedReadAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedValidatedReadOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed validated-read owner inventory changed')
+    }
+    $reviewedTargetContextIntentFactoryOwnerInventory=@('scripts/root-claims-registry-common.ps1:New-SealedRegistryRootClaimsCreateNew')
+    if((@($targetContextIntentFactoryAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedTargetContextIntentFactoryOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed authority target-context intent factory owner inventory changed')
+    }
     $reviewedTargetContextIntentOwnerInventory=@(
         'scripts/shared-authority-state-common.ps1:Assert-AuthorityFinalIdentitiesDerivedFromIntent',
         'scripts/shared-authority-state-common.ps1:New-AuthorityStatePostimage')
@@ -935,6 +969,7 @@ function Invoke-ProductionSeamAnalysis {
         @('Assert-SealedRegistryClaimAccept','scripts/root-claims-registry-common.ps1'),
         @('New-SealedHeldLiveTransactionNamespace','scripts/root-claims-registry-common.ps1'),
         @('Read-SealedRegistryValidatedAuthorityDocuments','scripts/root-claims-registry-common.ps1'),
+        @('New-SealedRegistryRootClaimsCreateNew','scripts/root-claims-registry-common.ps1'),
         @('New-AuthorityTargetContextIntent','scripts/shared-authority-state-common.ps1'),
         @('Assert-AuthorityTargetContextIntent','scripts/shared-authority-state-common.ps1'),
         @('Assert-AuthorityFinalIdentitiesDerivedFromIntent','scripts/shared-authority-state-common.ps1'),
