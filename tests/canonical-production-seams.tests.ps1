@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13459
-$reviewedAllScriptsReflectionSensitiveDigest='876c2a3f807b74e2b09d23ac4939c6ed895e6c8a16875348874a10d72fd5b005'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13503
+$reviewedAllScriptsReflectionSensitiveDigest='bb2c288dbbda23490bc524595fb608c85b4da2da46e69a9e15f77998f24b34a9'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -532,6 +532,12 @@ function Invoke-ProductionSeamAnalysis {
                 'Assert-SealedHeldResolverObservation',
                 'Close-SealedHeldResolverObservation')){
                 $fixedObservationBoundaryViolations.Add("held resolver observation caller: $($model.RelativePath):$($ownerName):$commandName")
+            }
+            if($commandName -iin @(
+                'Enter-SealedHeldCanonicalLiveLockOrder',
+                'Exit-SealedHeldCanonicalLiveLockOrder',
+                'Assert-SealedHeldCanonicalLiveLockOrder')){
+                $fixedObservationBoundaryViolations.Add("canonical live lock-order caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Complete-SealedHomeAuthorityBootstrap'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
@@ -872,7 +878,10 @@ function Invoke-ProductionSeamAnalysis {
         'Close-SealedHeldObservationLifecycle',
         'Open-SealedHeldResolverObservation',
         'Assert-SealedHeldResolverObservation',
-        'Close-SealedHeldResolverObservation')){
+        'Close-SealedHeldResolverObservation',
+        'Enter-SealedHeldCanonicalLiveLockOrder',
+        'Exit-SealedHeldCanonicalLiveLockOrder',
+        'Assert-SealedHeldCanonicalLiveLockOrder')){
         $observationDefinitionKey=$observationFunctionName.ToLowerInvariant()
         $observationDefinitions=@(if($definitions.ContainsKey($observationDefinitionKey)){@($definitions[$observationDefinitionKey])})
         if($observationDefinitions.Count -ne 1 -or
@@ -1181,7 +1190,7 @@ Assert-TestCondition ($baseline.AllScriptsScriptBlockFunctionDefinitionInventory
 Assert-TestCondition ($baseline.AllScriptsLiteralProviderDriveTokenInventory.Count -eq 0 -and
     $baseline.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero literal provider-drive token baseline alongside direct named CommandAst analysis'
 Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture, route, observation, raw, and probe issuers plus the fixed validator have only their exact reviewed definitions, owners, and members'
-Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, canonical bootstrap Complete and the recovery remainder have only the private-root completion composer, the resolver observation trio and both completion primitives retain zero external production callers, and all twelve reviewed functions remain uniquely defined'
+Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, canonical bootstrap Complete and the recovery remainder have only the private-root completion composer, the resolver observation trio, both completion primitives, and the canonical live lock-order Enter/Exit/Assert trio retain zero external production callers, and all fifteen reviewed functions remain uniquely defined'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])

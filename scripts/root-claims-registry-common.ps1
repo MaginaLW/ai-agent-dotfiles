@@ -7980,6 +7980,266 @@ function Complete-SealedHeldCanonicalPrivateRootBootstrap {
     }
 }
 
+if (-not ('AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Threading;
+
+namespace AiAgentDotfiles {
+    public sealed class SealedHeldCanonicalLiveLockOrder {
+        public string RouteKind { get; private set; }
+        public string AcquisitionMode { get; private set; }
+        public string OverlayApplicability { get; private set; }
+        public string RepoRoot { get; private set; }
+        public object CanonicalLockHandle { get; private set; }
+        public object CanonicalWitness { get; private set; }
+        public object BootstrapLockHandle { get; private set; }
+        public object GlobalLockHandle { get; private set; }
+        public string CanonicalGlobalBinding { get; private set; }
+        public object AuthorityContext { get; private set; }
+        public object JournalTargets { get; private set; }
+        public object Recompute { get; private set; }
+        public object RecomputeHash { get; private set; }
+        public string DurableClaimWrite { get; private set; }
+        public string DurableSetupStateWrite { get; private set; }
+        private int closeState;
+
+        private SealedHeldCanonicalLiveLockOrder(string routeKindValue, string acquisitionModeValue,
+            string overlayApplicabilityValue, string repoRootValue, object canonicalLockHandleValue,
+            object canonicalWitnessValue, object bootstrapLockHandleValue, object globalLockHandleValue,
+            string canonicalGlobalBindingValue, object authorityContextValue, object journalTargetsValue,
+            object recomputeValue, object recomputeHashValue, string durableClaimWriteValue,
+            string durableSetupStateWriteValue) {
+            RouteKind = routeKindValue;
+            AcquisitionMode = acquisitionModeValue;
+            OverlayApplicability = overlayApplicabilityValue;
+            RepoRoot = repoRootValue;
+            CanonicalLockHandle = canonicalLockHandleValue;
+            CanonicalWitness = canonicalWitnessValue;
+            BootstrapLockHandle = bootstrapLockHandleValue;
+            GlobalLockHandle = globalLockHandleValue;
+            CanonicalGlobalBinding = canonicalGlobalBindingValue;
+            AuthorityContext = authorityContextValue;
+            JournalTargets = journalTargetsValue;
+            Recompute = recomputeValue;
+            RecomputeHash = recomputeHashValue;
+            DurableClaimWrite = durableClaimWriteValue;
+            DurableSetupStateWrite = durableSetupStateWriteValue;
+        }
+
+        public string CloseState {
+            get { return Volatile.Read(ref closeState) == 1 ? "CLOSED" : "OPEN"; }
+        }
+
+        public void MarkClosedExact() {
+            Interlocked.CompareExchange(ref closeState, 1, 0);
+        }
+
+        public static SealedHeldCanonicalLiveLockOrder CreateExact(string routeKindValue, string acquisitionModeValue,
+            string overlayApplicabilityValue, string repoRootValue, object canonicalLockHandleValue,
+            object canonicalWitnessValue, object bootstrapLockHandleValue, object globalLockHandleValue,
+            string canonicalGlobalBindingValue, object authorityContextValue, object journalTargetsValue,
+            object recomputeValue, object recomputeHashValue, string durableClaimWriteValue,
+            string durableSetupStateWriteValue) {
+            if (String.IsNullOrEmpty(routeKindValue) || String.IsNullOrEmpty(acquisitionModeValue) ||
+                String.IsNullOrEmpty(overlayApplicabilityValue) || String.IsNullOrEmpty(repoRootValue) ||
+                canonicalLockHandleValue == null || globalLockHandleValue == null || authorityContextValue == null ||
+                !String.Equals(durableClaimWriteValue, "deferred", StringComparison.Ordinal) ||
+                !String.Equals(durableSetupStateWriteValue, "deferred", StringComparison.Ordinal)) {
+                throw new InvalidOperationException("canonical-witness-required");
+            }
+            if (String.Equals(canonicalGlobalBindingValue, "BOUND", StringComparison.Ordinal)) {
+                if (canonicalWitnessValue == null)
+                    throw new InvalidOperationException("canonical-witness-required");
+            }
+            else if (String.Equals(canonicalGlobalBindingValue, "UNBOUND_SETUP_WINDOW", StringComparison.Ordinal)) {
+                if (canonicalWitnessValue != null)
+                    throw new InvalidOperationException("canonical-witness-required");
+            }
+            else {
+                throw new InvalidOperationException("canonical-witness-required");
+            }
+            return new SealedHeldCanonicalLiveLockOrder(routeKindValue, acquisitionModeValue, overlayApplicabilityValue,
+                repoRootValue, canonicalLockHandleValue, canonicalWitnessValue, bootstrapLockHandleValue,
+                globalLockHandleValue, canonicalGlobalBindingValue, authorityContextValue, journalTargetsValue,
+                recomputeValue, recomputeHashValue, durableClaimWriteValue, durableSetupStateWriteValue);
+        }
+    }
+}
+'@
+}
+
+function Enter-SealedHeldCanonicalLiveLockOrder {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][ValidateSet('setup','normalize','promote','merge','canonical-recover','live')][string]$RouteKind,
+        [Parameter(Mandatory)][ValidateSet('ExistingOnly','SetupBootstrap')][string]$AcquisitionMode,
+        [ValidateSet('NOT_APPLICABLE','REQUIRED')][string]$OverlayApplicability = 'NOT_APPLICABLE',
+        [AllowNull()]$AuthorityContext,
+        [AllowNull()]$Intent,
+        [AllowNull()]$PlanPayload,
+        [string]$ToolchainRoot
+    )
+
+    if ($OverlayApplicability -ceq 'REQUIRED') { throw 'worktree-overlay-lock-not-implemented' }
+    if ($AcquisitionMode -ceq 'SetupBootstrap') { throw 'lock-order-setup-bootstrap-not-wired' }
+    if ($null -eq $AuthorityContext) { throw 'sealed-home-authority-bootstrap-context-required' }
+
+    $nestedContext = Get-SealedRegistryObjectValue -InputObject $AuthorityContext -Name 'AuthorityContext'
+    $operationContext = if ($null -ne $nestedContext) { $nestedContext } else { $AuthorityContext }
+    if ($null -eq (Get-SealedRegistryObjectValue -InputObject $operationContext -Name 'ControlBase')) {
+        $operationContext = Resolve-HomeAuthorityContextFromIdentity -Identity $operationContext
+    }
+    $null = Assert-SealedHomeAuthorityBootstrapContext -AuthorityContext $operationContext
+
+    $resolvedRepoRoot = [IO.Path]::GetFullPath($RepoRoot)
+    $resolvedToolchainRoot = if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { [string]$script:CanonicalToolchainRoot } else { [IO.Path]::GetFullPath($ToolchainRoot) }
+    $git = Get-CanonicalGitContext -RepoRoot $resolvedRepoRoot
+    $paths = Get-CanonicalTransactionContractPaths -GitContext $git
+    $bootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $operationContext
+    if ([string]$bootstrapStatus.Status -cne 'COMPLETE' -or [long]$bootstrapStatus.CompletePrefixLength -ne 7) {
+        throw 'home-authority-bootstrap-incomplete'
+    }
+
+    $canonicalLock = $null
+    $witness = $null
+    $globalLock = $null
+    $succeeded = $false
+    try {
+        $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string]$paths.LockPath)
+        $allowUnboundWindow = $RouteKind -cin @('setup','canonical-recover')
+        $setupStatePresent = Test-Path -LiteralPath ([string]$paths.SetupStatePath) -PathType Leaf
+        if (-not $setupStatePresent -and -not $allowUnboundWindow) { throw 'canonical-setup-required' }
+
+        $canonicalGlobalBinding = 'UNBOUND_SETUP_WINDOW'
+        if ($setupStatePresent) {
+            try {
+                $witness = Open-CanonicalHeldNamespaceWitness -RepoRoot $resolvedRepoRoot -CanonicalLockHandle $canonicalLock -ToolchainRoot $resolvedToolchainRoot
+                $canonicalGlobalBinding = 'BOUND'
+            }
+            catch {
+                $witnessError = $_.Exception
+                while (($witnessError -is [Management.Automation.MethodInvocationException] -or
+                    $witnessError -is [Management.Automation.RuntimeException]) -and
+                    $null -ne $witnessError.InnerException) {
+                    $witnessError = $witnessError.InnerException
+                    if ($witnessError -is [AggregateException]) { break }
+                }
+                if ([string]$witnessError.Message -ceq 'canonical-setup-required' -and $allowUnboundWindow) {
+                    $witness = $null
+                    $canonicalGlobalBinding = 'UNBOUND_SETUP_WINDOW'
+                }
+                else { throw $witnessError }
+            }
+        }
+
+        if ($canonicalGlobalBinding -ceq 'BOUND') {
+            $globalLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $operationContext -RequiredCanonicalWitness $witness
+            $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $operationContext -GlobalLockHandle $globalLock -CanonicalWitness $witness
+        }
+        else {
+            $globalLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $operationContext
+        }
+
+        $handle = [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder]::CreateExact(
+            $RouteKind, $AcquisitionMode, $OverlayApplicability, $resolvedRepoRoot,
+            $canonicalLock, $witness, $null, $globalLock, $canonicalGlobalBinding,
+            $operationContext, $null, $null, $null, 'deferred', 'deferred')
+        $succeeded = $true
+        return $handle
+    }
+    catch {
+        $domainException = $_.Exception
+        while (($domainException -is [Management.Automation.MethodInvocationException] -or
+            $domainException -is [Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException) {
+            $domainException = $domainException.InnerException
+            if ($domainException -is [AggregateException]) { break }
+        }
+        if ($null -ne $canonicalLock -and $null -eq $globalLock -and [string]$domainException.Message -ceq 'operation-lock-busy') {
+            throw 'canonical-witness-required'
+        }
+        throw $domainException
+    }
+    finally {
+        if (-not $succeeded) {
+            if ($null -ne $globalLock) {
+                try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock } catch { }
+            }
+            if ($null -ne $witness) {
+                try { Close-CanonicalHeldNamespaceWitness -Witness $witness } catch { }
+            }
+            if ($null -ne $canonicalLock) {
+                try { Exit-CanonicalRepoLock -LockHandle $canonicalLock } catch { }
+            }
+        }
+    }
+}
+
+function Exit-SealedHeldCanonicalLiveLockOrder {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$LockOrderHandle)
+
+    if ($LockOrderHandle -isnot [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder]) { throw 'canonical-witness-required' }
+    if ([string]$LockOrderHandle.CloseState -ceq 'CLOSED') { return }
+
+    $releaseError = $null
+    try {
+        $globalLock = $LockOrderHandle.GlobalLockHandle
+        if ($null -ne $globalLock) {
+            $globalOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($globalLock)
+            if ($null -ne $globalOwner -and -not [AiAgentDotfiles.SafeLockResourceOwner]::GetIsReleasedExact($globalOwner)) {
+                Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock
+            }
+        }
+    }
+    catch { $releaseError = $_ }
+    try {
+        if ($null -ne $LockOrderHandle.CanonicalWitness) {
+            Close-CanonicalHeldNamespaceWitness -Witness $LockOrderHandle.CanonicalWitness
+        }
+    }
+    catch { if ($null -eq $releaseError) { $releaseError = $_ } }
+    try {
+        $canonicalLock = $LockOrderHandle.CanonicalLockHandle
+        if ($null -ne $canonicalLock) {
+            $canonicalOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($canonicalLock)
+            if ($null -ne $canonicalOwner -and -not [AiAgentDotfiles.SafeLockResourceOwner]::GetIsReleasedExact($canonicalOwner)) {
+                Exit-CanonicalRepoLock -LockHandle $canonicalLock
+            }
+        }
+    }
+    catch { if ($null -eq $releaseError) { $releaseError = $_ } }
+    if ($null -eq $releaseError) { $LockOrderHandle.MarkClosedExact() }
+    if ($null -ne $releaseError) { throw $releaseError }
+}
+
+function Assert-SealedHeldCanonicalLiveLockOrder {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$LockOrderHandle,
+        [Parameter(Mandatory)][string]$RepoRoot
+    )
+
+    if ($LockOrderHandle -isnot [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder]) { throw 'canonical-witness-required' }
+    if ([string]$LockOrderHandle.CloseState -cne 'OPEN') { throw 'canonical-witness-required' }
+    $expectedRepoRoot = [IO.Path]::GetFullPath($RepoRoot)
+    if ([IO.Path]::GetFullPath([string]$LockOrderHandle.RepoRoot) -cne $expectedRepoRoot) { throw 'canonical-witness-required' }
+    $git = Get-CanonicalGitContext -RepoRoot $expectedRepoRoot
+    $paths = Get-CanonicalTransactionContractPaths -GitContext $git
+    $null = Assert-CanonicalRepoLockHandle -LockHandle $LockOrderHandle.CanonicalLockHandle -ExpectedLockPath ([string]$paths.LockPath)
+    $null = Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $LockOrderHandle.AuthorityContext -GlobalLockHandle $LockOrderHandle.GlobalLockHandle
+    if ([string]$LockOrderHandle.CanonicalGlobalBinding -ceq 'BOUND') {
+        $null = Assert-CanonicalHeldNamespaceWitness -Witness $LockOrderHandle.CanonicalWitness -RepoRoot $expectedRepoRoot -CanonicalLockHandle $LockOrderHandle.CanonicalLockHandle
+        $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $LockOrderHandle.AuthorityContext -GlobalLockHandle $LockOrderHandle.GlobalLockHandle -CanonicalWitness $LockOrderHandle.CanonicalWitness
+    }
+    elseif ([string]$LockOrderHandle.CanonicalGlobalBinding -cne 'UNBOUND_SETUP_WINDOW' -or $null -ne $LockOrderHandle.CanonicalWitness) {
+        throw 'canonical-witness-required'
+    }
+    return $true
+}
+
 $sealedHeldCurrentRouteFixedEnvelopeOpenCore={
     param(
         $AuthorityContext,

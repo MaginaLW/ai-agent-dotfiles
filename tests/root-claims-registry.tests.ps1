@@ -6742,6 +6742,99 @@ try {
     Assert-TestCondition ($postimageNoLockBefore -ceq (Get-TestRegistryTreeHash -Fixture $postimageNoLockFixture) -and
         -not (Test-Path -LiteralPath ([string]$postimageNoLockFixture.Context.CurrentEnvStatePath))) 'a lock failure is zero-write and leaves no current-env.json'
 
+    Write-Host '[canonical live lock-order existing-only]'
+    $lockOrderEnterCommand = Get-Command Enter-SealedHeldCanonicalLiveLockOrder -CommandType Function -ErrorAction Stop
+    $lockOrderExitCommand = Get-Command Exit-SealedHeldCanonicalLiveLockOrder -CommandType Function -ErrorAction Stop
+    $lockOrderAssertCommand = Get-Command Assert-SealedHeldCanonicalLiveLockOrder -CommandType Function -ErrorAction Stop
+    $lockOrderEnterNames = @($lockOrderEnterCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    $lockOrderExitNames = @($lockOrderExitCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    $lockOrderAssertNames = @($lockOrderAssertCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    Assert-TestCondition (($lockOrderEnterNames -join ',') -ceq 'RepoRoot,RouteKind,AcquisitionMode,OverlayApplicability,AuthorityContext,Intent,PlanPayload,ToolchainRoot' -and
+        ($lockOrderExitNames -join ',') -ceq 'LockOrderHandle' -and
+        ($lockOrderAssertNames -join ',') -ceq 'LockOrderHandle,RepoRoot') 'lock-order CommandAst parameter names are frozen'
+    foreach ($lockOrderCommand in @($lockOrderEnterCommand,$lockOrderExitCommand,$lockOrderAssertCommand)) {
+        foreach ($publicSelector in @('Wait','LockWaitSeconds','WaitSeconds','InternalWaitSeconds','HomeRoot','BackupRoot','TestMode')) {
+            Assert-TestCondition (-not $lockOrderCommand.Parameters.ContainsKey($publicSelector)) "$($lockOrderCommand.Name) rejects public -$publicSelector"
+        }
+    }
+
+    $lockOrderCompleteFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-existing-only-complete'
+    $lockOrderCompleteCanonical = New-TestCanonicalClaim -Fixture $lockOrderCompleteFixture -Name 'lock-order-complete'
+    $null = Complete-TestCanonicalSetupState -Fixture $lockOrderCompleteFixture -CanonicalFixture $lockOrderCompleteCanonical
+    $lockOrderCompleteBefore = Get-TestRegistryTreeHash -Fixture $lockOrderCompleteFixture
+    $lockOrderHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderCompleteCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly -AuthorityContext $lockOrderCompleteFixture.Context
+    try {
+        Assert-TestCondition (@($lockOrderHeld).Count -eq 1 -and
+            $lockOrderHeld -is [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder] -and
+            [string]$lockOrderHeld.CanonicalGlobalBinding -ceq 'BOUND' -and
+            [string]$lockOrderHeld.CloseState -ceq 'OPEN' -and
+            [string]$lockOrderHeld.DurableClaimWrite -ceq 'deferred' -and
+            [string]$lockOrderHeld.DurableSetupStateWrite -ceq 'deferred' -and
+            $null -eq $lockOrderHeld.BootstrapLockHandle -and
+            $null -eq $lockOrderHeld.JournalTargets -and
+            $null -eq $lockOrderHeld.Recompute -and
+            $null -eq $lockOrderHeld.RecomputeHash) 'ExistingOnly COMPLETE fixture returns one BOUND lock-order handle'
+        $null = Assert-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $lockOrderHeld -RepoRoot ([string]$lockOrderCompleteCanonical.RepoRoot)
+        $lockOrderBusyWatch = [Diagnostics.Stopwatch]::StartNew()
+        Assert-ThrowsPattern {
+            Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderCompleteCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly -AuthorityContext $lockOrderCompleteFixture.Context | Out-Null
+        } '^operation-lock-busy$' 'a second ExistingOnly Enter on the same locks is zero-wait busy'
+        Assert-TestCondition ($lockOrderBusyWatch.ElapsedMilliseconds -lt 1000) 'ExistingOnly lock-busy returns within one second'
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $lockOrderHeld }
+    Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $lockOrderHeld
+    Assert-TestCondition ([string]$lockOrderHeld.CloseState -ceq 'CLOSED') 'Exit is idempotent and CloseState stays CLOSED'
+    Assert-ThrowsPattern {
+        Assert-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $lockOrderHeld -RepoRoot ([string]$lockOrderCompleteCanonical.RepoRoot) | Out-Null
+    } '^canonical-witness-required$' 'Assert fails after Exit'
+    $lockOrderReentered = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderCompleteCanonical.RepoRoot) -RouteKind normalize -AcquisitionMode ExistingOnly -AuthorityContext $lockOrderCompleteFixture.Context
+    try {
+        Assert-TestCondition ([string]$lockOrderReentered.CanonicalGlobalBinding -ceq 'BOUND' -and
+            [string]$lockOrderReentered.RouteKind -ceq 'normalize') 'Exit released tail-to-head so a later ExistingOnly Enter can reacquire BOUND'
+        $null = Assert-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $lockOrderReentered -RepoRoot ([string]$lockOrderCompleteCanonical.RepoRoot)
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $lockOrderReentered }
+    Assert-TestCondition ($lockOrderCompleteBefore -ceq (Get-TestRegistryTreeHash -Fixture $lockOrderCompleteFixture)) 'ExistingOnly COMPLETE Enter/Exit is zero-write outside excluded lock paths'
+
+    $lockOrderOverlayFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-overlay-required'
+    $lockOrderOverlayCanonical = New-TestCanonicalClaim -Fixture $lockOrderOverlayFixture -Name 'lock-order-overlay'
+    $lockOrderOverlayBefore = Get-TestRegistryTreeHash -Fixture $lockOrderOverlayFixture
+    Assert-ThrowsPattern {
+        Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderOverlayCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly -OverlayApplicability REQUIRED | Out-Null
+    } '^worktree-overlay-lock-not-implemented$' 'REQUIRED overlay is rejected before any lock acquisition'
+    Assert-TestCondition ($lockOrderOverlayBefore -ceq (Get-TestRegistryTreeHash -Fixture $lockOrderOverlayFixture) -and
+        -not (Test-Path -LiteralPath ([string]$lockOrderOverlayCanonical.ContractPaths.LockPath))) 'REQUIRED overlay creates no lock files'
+
+    Assert-ThrowsPattern {
+        Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderOverlayCanonical.RepoRoot) -RouteKind setup -AcquisitionMode SetupBootstrap -AuthorityContext $lockOrderOverlayFixture.Context | Out-Null
+    } '^lock-order-setup-bootstrap-not-wired$' 'SetupBootstrap is accepted as a parameter and rejected as unwired'
+
+    $lockOrderReverseFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-reverse-global'
+    $lockOrderReverseCanonical = New-TestCanonicalClaim -Fixture $lockOrderReverseFixture -Name 'lock-order-reverse'
+    $null = Complete-TestCanonicalSetupState -Fixture $lockOrderReverseFixture -CanonicalFixture $lockOrderReverseCanonical
+    $lockOrderReverseGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $lockOrderReverseFixture.Context
+    try {
+        Assert-ThrowsPattern {
+            Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderReverseCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly -AuthorityContext $lockOrderReverseFixture.Context | Out-Null
+        } '^canonical-witness-required$' 'holding unbound global first is reverse-order rejected'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $lockOrderReverseGlobal }
+
+    $lockOrderMissingStateFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-missing-setup-state'
+    $lockOrderMissingStateCanonical = New-TestCanonicalClaim -Fixture $lockOrderMissingStateFixture -Name 'lock-order-missing-state'
+    $lockOrderMissingCreated = Enter-CanonicalRepoLock -LockPath ([string]$lockOrderMissingStateCanonical.ContractPaths.LockPath) -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $lockOrderMissingCreated
+    $lockOrderMissingStateFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$lockOrderMissingStateCanonical.ContractPaths.LockPath) -Force
+    $lockOrderMissingBefore = Get-TestRegistryTreeHash -Fixture $lockOrderMissingStateFixture
+    Assert-ThrowsPattern {
+        Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderMissingStateCanonical.RepoRoot) -RouteKind normalize -AcquisitionMode ExistingOnly -AuthorityContext $lockOrderMissingStateFixture.Context | Out-Null
+    } '^canonical-setup-required$' 'normalize without setup-state is canonical-setup-required'
+    Assert-ThrowsPattern {
+        Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderMissingStateCanonical.RepoRoot) -RouteKind live -AcquisitionMode ExistingOnly -AuthorityContext $lockOrderMissingStateFixture.Context | Out-Null
+    } '^canonical-setup-required$' 'live without setup-state is canonical-setup-required'
+    Assert-TestCondition ($lockOrderMissingBefore -ceq (Get-TestRegistryTreeHash -Fixture $lockOrderMissingStateFixture) -and
+        -not (Test-Path -LiteralPath ([string]$lockOrderMissingStateCanonical.ContractPaths.SetupStatePath))) 'missing setup-state normalize/live creates no prefix or setup-state'
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 
