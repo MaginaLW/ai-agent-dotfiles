@@ -878,11 +878,11 @@ rather than being interpreted heuristically.
 
 ## Remaining work
 
-Phase 2 has 49 of 52 steps remaining. Task 1 has three remaining steps; Tasks 2-9 are unstarted:
+Phase 2 has 48 of 52 steps remaining. Task 1 has two remaining steps; Tasks 2-9 are unstarted:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
-| Task 1 | 3/6 | Shared state, locks, and verification |
+| Task 1 | 2/6 | Deterministic locks and verification |
 | Task 2 | 7/7 | Semantic plan schema 3 and environment-build v3 |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage receipts |
 | Task 4 | 7/7 | Common live-mutation state machine and journal |
