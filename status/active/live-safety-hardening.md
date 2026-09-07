@@ -822,24 +822,25 @@ stay unconnected to production mutation routes.
 
 ## Current phase
 
-Phase 2 is 0/9 Tasks and 4/52 Steps with Task 1 at 4/6. Task 1 Step 4 (Define the minimal
-shared-state and generic state-target contract) is complete as of 2026-09-07 with the
-authoritative unified validation over the final state (34/34 suites, summary SHA-256
-`741dbd345b458e451a436a94d3dd532be74afc7c6f530a04ca9160ea553cdb55`): the in-memory intent
-contract functions with the trusted serializer, the held write-side validated read (throw-on-
-invalid, deliberately forked from the view's INVALID classification), the first-authority
-root-claims create-new writer as the claim-accept gate's unique production caller, and the
-atomic create/replace/recovery-copy state postimage writer. No schema changed, no sealed script
-changed, and claims are never replaced. The implementation was Grok-executed under the updated
-delegation model (main agent orchestrates, reviews every diff, commits); one main-agent defect
-(MissingRemainder type contradiction) was caught by the Grok verification round and fixed.
+Phase 2 is 0/9 Tasks and 5/52 Steps with Task 1 at 5/6. Task 1 Step 5 (Implement deterministic
+lock semantics) is complete as of 2026-09-08 with the authoritative unified validation over the
+final state (34/34 suites, summary SHA-256
+`9f60a75cf33b615b2ced24e41670066146d6bbf28406fd83043fddce736b352f`): the
+`Enter-/Exit-/Assert-SealedHeldCanonicalLiveLockOrder` orchestrator with the typed
+`SealedHeldCanonicalLiveLockOrder` handle, the setup-only SetupBootstrap branch composing the
+reviewed bootstrap completion with the two-slot deferred journal-target manifest, the
+after-all-locks recompute gate with the backup authorization guard, and the production retrofit
+of both unsealed Apply scripts to ExistingOnly acquisition with in-lock recompute while keeping
+the interlock results and exit 75 unchanged. The enable boundary holds without lifting any
+tracked interlock: only `RouteKind='setup'` may bootstrap a MISSING prefix, other routes fail
+with `live-cannot-bootstrap-missing-canonical-claim`, and `ReleaseState=interlocked` is
+unchanged.
 
-The next implementable work is Task 1 Step 5 (Implement deterministic lock semantics): retrofit
-every production route to the strict lock order, enable only the reviewed setup Apply to
-bootstrap a MISSING ControlBase, keep public protocol v1 zero-wait, and recompute all identities
-under the held locks before any backup/workspace. Task 1 Step 6 (verification) and Tasks 2-9
-follow. Production Apply remains disconnected, and live-journal structure and interpretation
-remain deferred to Task 4.
+The next implementable work is Task 1 Step 6 (Verify identity, state shape, and locking) — the
+final Task 1 step: run both new suites to expected outcomes and re-verify the adopt/retirement
+route contention the fifth checkpoint recorded for Step 5/6 where the real routes exist (real
+retirement/sync routes stay with Task 5). Production Apply remains disconnected, and
+live-journal structure and interpretation remain deferred to Task 4.
 
 Step 3 (commits `8ab102f`/`45b9510`/`744f326`/`c107ab8`) added the shared live-transaction
 immediate-child contract with ordered live reservation rows and the split fixed-infrastructure
@@ -860,6 +861,18 @@ line-by-line diff review; the reflection inventory stands at count 13459 / diges
 unified runs over both final states passed 34/34 suites. Production Apply remains disconnected,
 and live-journal structure and interpretation remain deferred to Task 4.
 
+Step 5 (commits `4ecc3b4`/`6c8be14`/`21fece7`/`b483647`) added the deterministic lock-order
+machinery: the typed `SealedHeldCanonicalLiveLockOrder` handle with the
+`Enter-/Exit-/Assert-SealedHeldCanonicalLiveLockOrder` orchestrator (ExistingOnly first, BOUND
+witness binding versus UNBOUND_SETUP_WINDOW), the setup-only SetupBootstrap branch composing the
+reviewed bootstrap completion with the two-slot deferred journal-target manifest, the
+after-all-locks recompute gate with the backup authorization guard, and the production retrofit
+of both unsealed Apply scripts to ExistingOnly acquisition with in-lock recompute while the
+interlock results and exit 75 stay unchanged. The enable boundary holds without lifting any
+tracked interlock, and the authoritative unified run over the final state passed 34/34 suites.
+Production Apply remains disconnected, and live-journal structure and interpretation remain
+deferred to Task 4.
+
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine
 caller-held lock pair. Future production plan/Apply consumers must hold all required locks, including
@@ -878,11 +891,11 @@ rather than being interpreted heuristically.
 
 ## Remaining work
 
-Phase 2 has 48 of 52 steps remaining. Task 1 has two remaining steps; Tasks 2-9 are unstarted:
+Phase 2 has 47 of 52 steps remaining. Task 1 has one remaining step; Tasks 2-9 are unstarted:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
-| Task 1 | 2/6 | Deterministic locks and verification |
+| Task 1 | 1/6 | Verification |
 | Task 2 | 7/7 | Semantic plan schema 3 and environment-build v3 |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage receipts |
 | Task 4 | 7/7 | Common live-mutation state machine and journal |

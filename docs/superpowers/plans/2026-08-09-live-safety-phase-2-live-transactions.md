@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Task 1 Steps 1-4 are complete (Task 1 4/6; Phase 2 overall 4/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
+**Status:** In progress. Task 1 Steps 1-5 are complete (Task 1 5/6; Phase 2 overall 5/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
 
 **Goal:** Replace normal sync, explicit retirement, backup, rollback, and crash recovery with one target-bound, globally serialized, receipt-backed live transaction protocol.
 
@@ -465,9 +465,29 @@ tree-kill failures (external create-new summary SHA-256
 gate, the pinned secret scan (zero leaks), the 7/15/7 skill build, and the sync DryRun passing.
 Task 1 is 4/6 and Phase 2 is 4/52. Production Apply remains interlocked.
 
-- [ ] **Step 5: Implement deterministic lock semantics**
+- [x] **Step 5: Implement deterministic lock semantics**
 
 Retrofit every production canonical/live/authority/task/retirement/rollback/recovery route to acquire locks only in `GitCommonDir canonical → optional worktree overlay → pre-ControlBase bootstrap when needed → ControlBase global live` order. Enable only the Phase 1 reviewed `CanonicalOperationKind=setup` Apply to bootstrap MISSING ControlBase: under canonical→bootstrap it creates/validates the deterministic control prefix, then acquires global, revalidates its saved setup plan, and journals exact global-claim→canonical-setup-state targets before any initial live plan is legal. Fresh OS order is setup DryRun/review/Apply, then initial DryRun/review/Apply; live initial cannot bootstrap around a missing canonical claim. Canonical setup/other Apply/recovery validates canonical-setup-state plus its global canonical-root claim against every canonical/home/reservation claim while holding canonical+global; live routes hold canonical from repository/materialization revalidation through terminal journal completion, preventing canonical source/generated/manifests from changing mid-Apply. Public protocol v1 is always zero-wait and rejects `-LockWaitSeconds`; only the sealed isolated host accepts 1–300 seconds for bounded-wait fixtures. After all required locks are held, scan reservations/terminal records and recompute repository, unified registry, current plan, overlay (if any), and target identities before any backup/workspace. Reject a missing/tampered canonical claim, consumed DocumentHash, reverse-order acquisition, or drift. Lock metadata is diagnostic only and cannot be deleted to steal a lock.
+
+**Step 5 closure (2026-09-08):** Step 5 is complete. The deterministic lock-order machinery is
+implemented and validated per the reviewed design (`tmp/grok-step5-lock-semantics-design.md`):
+the `Enter-/Exit-/Assert-SealedHeldCanonicalLiveLockOrder` orchestrator with the typed
+`SealedHeldCanonicalLiveLockOrder` handle (`4ecc3b4`), the setup-only SetupBootstrap branch
+composing the reviewed bootstrap completion with the two-slot deferred journal-target manifest
+(`6c8be14`), the after-all-locks recompute gate with the backup authorization guard (`21fece7`),
+and the production retrofit of both unsealed Apply scripts to ExistingOnly acquisition with
+in-lock recompute while keeping `canonical-apply-interlocked` / `canonical-recovery-apply-
+interlocked` / exit 75 unchanged (`b483647`). The enable boundary was resolved without lifting
+any tracked interlock: only `RouteKind='setup'` may bootstrap a MISSING prefix, other routes
+fail with `live-cannot-bootstrap-missing-canonical-claim`, composer durable writes stay
+`deferred`, and `ReleaseState=interlocked` is unchanged. Worktree overlay locking, journal
+phases, and the task/sync route retrofit remain with Phase 3 / Task 4 / Task 5. The
+authoritative unified `run-tests.ps1 -All` run over the final state passed all 34 suites exactly
+once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures (external
+create-new summary SHA-256
+`9f60a75cf33b615b2ced24e41670066146d6bbf28406fd83043fddce736b352f`; hard-kill 318/0, seams
+56/0, root-claims 876/0, live-concurrency 221/0, command-result 66/0, transaction 64/0 inside
+the run). Task 1 is 5/6 and Phase 2 is 5/52. Production Apply remains interlocked.
 
 - [ ] **Step 6: Verify identity, state shape, and locking**
 
