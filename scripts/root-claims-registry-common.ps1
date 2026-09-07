@@ -8041,6 +8041,14 @@ namespace AiAgentDotfiles {
             JournalTargets = journalTargetsValue;
         }
 
+        public void AttachRecomputeExact(object recomputeValue, object recomputeHashValue) {
+            if (Volatile.Read(ref closeState) == 1 || recomputeValue == null || recomputeHashValue == null ||
+                Recompute != null || RecomputeHash != null)
+                throw new InvalidOperationException("canonical-witness-required");
+            Recompute = recomputeValue;
+            RecomputeHash = recomputeHashValue;
+        }
+
         public static SealedHeldCanonicalLiveLockOrder CreateExact(string routeKindValue, string acquisitionModeValue,
             string overlayApplicabilityValue, string repoRootValue, object canonicalLockHandleValue,
             object canonicalWitnessValue, object bootstrapLockHandleValue, object globalLockHandleValue,
@@ -8321,6 +8329,137 @@ function New-SealedHeldCanonicalSetupJournalTargetManifest {
         ExpectedSetupStateHash = Get-SemanticJsonHash -InputObject $finalSetupState
         Write = 'deferred'
     }
+}
+
+function Get-SealedHeldLockOrderRecompute {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$LockOrderHandle,
+        [AllowNull()]$PlanDocument,
+        [string]$ExpectedOperationKind
+    )
+
+    $null = Assert-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $LockOrderHandle -RepoRoot ([string]$LockOrderHandle.RepoRoot)
+
+    $scanGit = Get-CanonicalGitContext -RepoRoot ([string]$LockOrderHandle.RepoRoot)
+    $scanPaths = Get-CanonicalTransactionContractPaths -GitContext $scanGit
+    $states = @(Get-CanonicalAllTransactionStates -TransactionsRoot ([string]$scanPaths.TransactionsRoot))
+    $scannedCount = [long]$states.Count
+    $unfinishedCount = [long]@($states | Where-Object { -not [bool]$_.IsTerminal }).Count
+    if ($unfinishedCount -gt 0L) { throw 'canonical-recovery-required' }
+    if ($null -ne $PlanDocument) {
+        $documentHash = [string](Get-SealedRegistryObjectValue -InputObject $PlanDocument -Name 'DocumentHash')
+        $null = Assert-CanonicalTransactionSetAllowsDocument -TransactionsRoot ([string]$scanPaths.TransactionsRoot) -DocumentHash $documentHash
+    }
+
+    $registryMutationGate = $null
+    if ([string]$LockOrderHandle.CanonicalGlobalBinding -ceq 'BOUND') {
+        $view = Get-SealedHomeAuthorityRegistryView -AuthorityContext $LockOrderHandle.AuthorityContext -GlobalLockHandle $LockOrderHandle.GlobalLockHandle
+        $registryMutationGate = [string]$view.MutationGate
+    }
+    elseif ([string]$LockOrderHandle.CanonicalGlobalBinding -ceq 'UNBOUND_SETUP_WINDOW') {
+        $null = Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $LockOrderHandle.AuthorityContext -GlobalLockHandle $LockOrderHandle.GlobalLockHandle
+    }
+    else {
+        throw 'canonical-witness-required'
+    }
+
+    $git = Get-CanonicalGitContext -RepoRoot ([string]$LockOrderHandle.RepoRoot)
+    $repoId = Get-CanonicalRepoIdentity -GitContext $git
+    $expectedRepoId = $null
+    $expectedGitCommonDirHash = $null
+    if ([string]$LockOrderHandle.CanonicalGlobalBinding -ceq 'BOUND') {
+        $expectedRepoId = [string](Get-SealedRegistryObjectValue -InputObject $LockOrderHandle.CanonicalWitness -Name 'RepoId')
+        $expectedGitCommonDirHash = [string](Get-SealedRegistryObjectValue -InputObject $LockOrderHandle.CanonicalWitness -Name 'GitCommonDirHash')
+    }
+    $finalSetupState = Get-SealedRegistryObjectValue -InputObject $LockOrderHandle -Name 'FinalSetupState'
+    if ($null -ne $finalSetupState) {
+        $expectedRepoId = [string](Get-SealedRegistryObjectValue -InputObject $finalSetupState -Name 'RepoId')
+        $expectedGitCommonDirHash = [string](Get-SealedRegistryObjectValue -InputObject $finalSetupState -Name 'GitCommonDirHash')
+    }
+    if ($null -ne $PlanDocument) {
+        $planPayload = Get-SealedRegistryObjectValue -InputObject $PlanDocument -Name 'PlanPayload'
+        $planRepoId = $null
+        $planGitCommonDirHash = $null
+        $planProjection = $null
+        if ($null -ne $planPayload) {
+            $planProjection = Get-SealedRegistryObjectValue -InputObject $planPayload -Name 'ExpectedSetupStateProjection'
+            $planGitCommonDirHash = [string](Get-SealedRegistryObjectValue -InputObject $planPayload -Name 'GitCommonDirHash')
+        }
+        if ($null -ne $planProjection) {
+            $planRepoId = [string](Get-SealedRegistryObjectValue -InputObject $planProjection -Name 'RepoId')
+            if ([string]::IsNullOrWhiteSpace($planGitCommonDirHash)) {
+                $planGitCommonDirHash = [string](Get-SealedRegistryObjectValue -InputObject $planProjection -Name 'GitCommonDirHash')
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($planRepoId)) { $expectedRepoId = $planRepoId }
+        if (-not [string]::IsNullOrWhiteSpace($planGitCommonDirHash)) { $expectedGitCommonDirHash = $planGitCommonDirHash }
+    }
+    if ((-not [string]::IsNullOrWhiteSpace($expectedRepoId) -and $expectedRepoId -cne $repoId) -or
+        (-not [string]::IsNullOrWhiteSpace($expectedGitCommonDirHash) -and $expectedGitCommonDirHash -cne [string]$git.GitCommonDirHash)) {
+        throw 'canonical final setup state repository mismatch'
+    }
+
+    $planCurrent = $false
+    if ($null -ne $PlanDocument) {
+        $planPath = [string](Get-SealedRegistryObjectValue -InputObject $PlanDocument -Name 'PlanPath')
+        if ([string]::IsNullOrWhiteSpace($planPath)) {
+            $planPathProperty = $PlanDocument.PSObject.Properties['PlanPath']
+            if ($null -ne $planPathProperty) { $planPath = [string]$planPathProperty.Value }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($planPath)) {
+            $null = Assert-CanonicalPlanCurrent -Document $PlanDocument -PlanPath $planPath
+            $planCurrent = $true
+        }
+    }
+
+    if ([string]$LockOrderHandle.OverlayApplicability -cne 'NOT_APPLICABLE') { throw 'worktree-overlay-lock-not-implemented' }
+
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedOperationKind) -and
+        [string]$ExpectedOperationKind -cne [string]$LockOrderHandle.RouteKind) {
+        throw 'lock-order-route-kind-mismatch'
+    }
+
+    $projection = [ordered]@{
+        ScannedTransactionCount = $scannedCount
+        UnfinishedCount = $unfinishedCount
+        RegistryMutationGate = $registryMutationGate
+        PlanCurrent = $planCurrent
+        RepoId = $repoId
+        GitCommonDirHash = [string]$git.GitCommonDirHash
+        ComputedAtUtc = [DateTime]::UtcNow.ToString('o')
+    }
+    $recomputeHash = Get-SemanticJsonHash -InputObject $projection
+    try {
+        $LockOrderHandle.AttachRecomputeExact($projection, $recomputeHash)
+    }
+    catch {
+        $domainException = $_.Exception
+        while (($domainException -is [Management.Automation.MethodInvocationException] -or
+            $domainException -is [Management.Automation.RuntimeException]) -and
+            $null -ne $domainException.InnerException) {
+            $domainException = $domainException.InnerException
+            if ($domainException -is [AggregateException]) { break }
+        }
+        throw $domainException
+    }
+
+    return [pscustomobject][ordered]@{
+        Recompute = $projection
+        RecomputeHash = $recomputeHash
+        BackupWorkspaceAuthorized = $false
+    }
+}
+
+function Assert-LockOrderBackupAllowed {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$LockOrderHandle)
+
+    if ($LockOrderHandle -isnot [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder]) { throw 'canonical-witness-required' }
+    if ([string]$LockOrderHandle.CloseState -cne 'OPEN' -or $null -eq $LockOrderHandle.RecomputeHash) {
+        throw 'lock-order-recompute-incomplete'
+    }
+    return $true
 }
 
 $sealedHeldCurrentRouteFixedEnvelopeOpenCore={

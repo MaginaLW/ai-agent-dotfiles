@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13521
-$reviewedAllScriptsReflectionSensitiveDigest='93638d3f4be75adaeb51c83fa7472566289678cfc1a44884017b874254242798'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13563
+$reviewedAllScriptsReflectionSensitiveDigest='099456a090f2f58b8e221eab03e71288b3180b035e0753148aa7e43d162829a3'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -388,6 +388,7 @@ function Invoke-ProductionSeamAnalysis {
     $completionRemainderAllowedCallers=[Collections.Generic.List[string]]::new()
     $privateRootComposerAllowedCallers=[Collections.Generic.List[string]]::new()
     $setupJournalManifestAllowedCallers=[Collections.Generic.List[string]]::new()
+    $lockOrderAssertInternalAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerOpenAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerRegisterAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerAssertAllowedCallers=[Collections.Generic.List[string]]::new()
@@ -535,10 +536,18 @@ function Invoke-ProductionSeamAnalysis {
                 'Close-SealedHeldResolverObservation')){
                 $fixedObservationBoundaryViolations.Add("held resolver observation caller: $($model.RelativePath):$($ownerName):$commandName")
             }
-            if($commandName -iin @(
+            if($commandName -ieq 'Assert-SealedHeldCanonicalLiveLockOrder'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Get-SealedHeldLockOrderRecompute'){
+                    $lockOrderAssertInternalAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("canonical live lock-order caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            elseif($commandName -iin @(
                 'Enter-SealedHeldCanonicalLiveLockOrder',
                 'Exit-SealedHeldCanonicalLiveLockOrder',
-                'Assert-SealedHeldCanonicalLiveLockOrder')){
+                'Get-SealedHeldLockOrderRecompute',
+                'Assert-LockOrderBackupAllowed')){
                 $fixedObservationBoundaryViolations.Add("canonical live lock-order caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Complete-SealedHomeAuthorityBootstrap'){
@@ -586,7 +595,7 @@ function Invoke-ProductionSeamAnalysis {
             }
             if($commandName -ieq 'Read-SealedRegistryValidatedAuthorityDocuments'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
-                    [string]$owner.Name -cin @('New-SealedRegistryRootClaimsCreateNew','Write-SealedRegistryCurrentEnvStatePostimage')){
+                    [string]$owner.Name -cin @('New-SealedRegistryRootClaimsCreateNew','Write-SealedRegistryCurrentEnvStatePostimage','Get-SealedHeldLockOrderRecompute')){
                     $validatedReadAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("validated-read caller: $($model.RelativePath):$($ownerName):$commandName")}
@@ -897,7 +906,9 @@ function Invoke-ProductionSeamAnalysis {
         'Enter-SealedHeldCanonicalLiveLockOrder',
         'Exit-SealedHeldCanonicalLiveLockOrder',
         'Assert-SealedHeldCanonicalLiveLockOrder',
-        'New-SealedHeldCanonicalSetupJournalTargetManifest')){
+        'New-SealedHeldCanonicalSetupJournalTargetManifest',
+        'Get-SealedHeldLockOrderRecompute',
+        'Assert-LockOrderBackupAllowed')){
         $observationDefinitionKey=$observationFunctionName.ToLowerInvariant()
         $observationDefinitions=@(if($definitions.ContainsKey($observationDefinitionKey)){@($definitions[$observationDefinitionKey])})
         if($observationDefinitions.Count -ne 1 -or
@@ -965,6 +976,7 @@ function Invoke-ProductionSeamAnalysis {
     $reviewedCompletionRemainderOwnerInventory=@('scripts/root-claims-registry-common.ps1:Complete-SealedHeldCanonicalPrivateRootBootstrap')
     $reviewedPrivateRootComposerOwnerInventory=@('scripts/root-claims-registry-common.ps1:Enter-SealedHeldCanonicalLiveLockOrder')
     $reviewedSetupJournalManifestOwnerInventory=@('scripts/root-claims-registry-common.ps1:Enter-SealedHeldCanonicalLiveLockOrder')
+    $reviewedLockOrderAssertInternalOwnerInventory=@('scripts/root-claims-registry-common.ps1:Get-SealedHeldLockOrderRecompute')
     if((@($completionCompleteAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedCompletionCompleteOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed canonical bootstrap Complete owner inventory changed')
     }
@@ -976,6 +988,9 @@ function Invoke-ProductionSeamAnalysis {
     }
     if((@($setupJournalManifestAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedSetupJournalManifestOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed canonical setup journal-target manifest owner inventory changed')
+    }
+    if((@($lockOrderAssertInternalAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLockOrderAssertInternalOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed lock-order Assert internal owner inventory changed')
     }
     $reviewedLiveNamespaceOwnerInventory=@('scripts/root-claims-registry-common.ps1:Get-SealedHomeAuthorityRegistryView')
     if((@($liveNamespaceAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceOwnerInventory -join "`n")){
@@ -996,6 +1011,7 @@ function Invoke-ProductionSeamAnalysis {
         $fixedObservationBoundaryViolations.Add('reviewed claim-accept owner inventory changed')
     }
     $reviewedValidatedReadOwnerInventory=@(
+        'scripts/root-claims-registry-common.ps1:Get-SealedHeldLockOrderRecompute'
         'scripts/root-claims-registry-common.ps1:New-SealedRegistryRootClaimsCreateNew'
         'scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage'
     ) | Sort-Object -CaseSensitive

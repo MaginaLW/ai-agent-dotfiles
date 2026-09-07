@@ -6964,6 +6964,157 @@ try {
     }
     finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $setupExistingOnlyManifestHeld }
 
+    Write-Host '[lock-order recompute]'
+    $lockOrderRecomputeCommand = Get-Command Get-SealedHeldLockOrderRecompute -CommandType Function -ErrorAction Stop
+    $lockOrderBackupCommand = Get-Command Assert-LockOrderBackupAllowed -CommandType Function -ErrorAction Stop
+    $lockOrderRecomputeNames = @($lockOrderRecomputeCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    $lockOrderBackupNames = @($lockOrderBackupCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    Assert-TestCondition (($lockOrderRecomputeNames -join ',') -ceq 'LockOrderHandle,PlanDocument,ExpectedOperationKind' -and
+        ($lockOrderBackupNames -join ',') -ceq 'LockOrderHandle') 'lock-order recompute CommandAst parameter names are frozen'
+    foreach ($lockOrderRecomputeSurface in @($lockOrderRecomputeCommand,$lockOrderBackupCommand)) {
+        foreach ($publicSelector in @('Wait','LockWaitSeconds','WaitSeconds','InternalWaitSeconds','HomeRoot','BackupRoot','TestMode')) {
+            Assert-TestCondition (-not $lockOrderRecomputeSurface.Parameters.ContainsKey($publicSelector)) "$($lockOrderRecomputeSurface.Name) rejects public -$publicSelector"
+        }
+    }
+
+    $recomputeCompleteFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-recompute-complete'
+    $recomputeCompleteCanonical = New-TestCanonicalClaim -Fixture $recomputeCompleteFixture -Name 'lock-order-recompute-complete'
+    $recomputeCompleteClaimPath = Join-Path ([string]$recomputeCompleteFixture.Context.CanonicalRootsRoot) ([string]$recomputeCompleteCanonical.RepoId + '.json')
+    $null = Complete-TestCanonicalSetupState -Fixture $recomputeCompleteFixture -CanonicalFixture $recomputeCompleteCanonical
+    $recomputeCompleteHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$recomputeCompleteCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly `
+        -AuthorityContext $recomputeCompleteFixture.Context
+    try {
+        $null = Write-TestSemanticDocument -Path $recomputeCompleteClaimPath -Document $recomputeCompleteCanonical.Claim
+        Assert-TestCondition ([string]$recomputeCompleteHeld.CanonicalGlobalBinding -ceq 'BOUND' -and
+            $null -eq $recomputeCompleteHeld.RecomputeHash) 'COMPLETE+BOUND recompute fixture Enter returns an OPEN BOUND handle with no RecomputeHash'
+        Assert-ThrowsPattern {
+            Assert-LockOrderBackupAllowed -LockOrderHandle $recomputeCompleteHeld | Out-Null
+        } '^lock-order-recompute-incomplete$' 'Assert-LockOrderBackupAllowed before recompute is lock-order-recompute-incomplete'
+        $recomputeCompleteResult = Get-SealedHeldLockOrderRecompute -LockOrderHandle $recomputeCompleteHeld
+        Assert-TestCondition (@($recomputeCompleteResult).Count -eq 1 -and
+            [string]$recomputeCompleteResult.RecomputeHash -cmatch '^[0-9a-f]{64}$' -and
+            [string]$recomputeCompleteHeld.RecomputeHash -ceq [string]$recomputeCompleteResult.RecomputeHash -and
+            $null -ne $recomputeCompleteHeld.Recompute -and
+            [bool]$recomputeCompleteResult.BackupWorkspaceAuthorized -eq $false -and
+            [long]$recomputeCompleteResult.Recompute.UnfinishedCount -eq 0) 'COMPLETE+BOUND recompute writes RecomputeHash, keeps BackupWorkspaceAuthorized false, and scans zero unfinished journals'
+        Assert-TestCondition ([bool](Assert-LockOrderBackupAllowed -LockOrderHandle $recomputeCompleteHeld) -eq $true) 'Assert-LockOrderBackupAllowed after recompute returns true'
+        Assert-ThrowsPattern {
+            Get-SealedHeldLockOrderRecompute -LockOrderHandle $recomputeCompleteHeld | Out-Null
+        } '^canonical-witness-required$' 'a second AttachRecomputeExact on an OPEN handle is rejected with the existing attach token'
+        Assert-ThrowsPattern {
+            Get-SealedHeldLockOrderRecompute -LockOrderHandle $recomputeCompleteHeld -ExpectedOperationKind normalize | Out-Null
+        } '^lock-order-route-kind-mismatch$' 'ExpectedOperationKind that does not match RouteKind is lock-order-route-kind-mismatch'
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $recomputeCompleteHeld }
+    if (Test-Path -LiteralPath $recomputeCompleteClaimPath) { [IO.File]::Delete($recomputeCompleteClaimPath) }
+    Assert-ThrowsPattern {
+        Assert-LockOrderBackupAllowed -LockOrderHandle $recomputeCompleteHeld | Out-Null
+    } '^lock-order-recompute-incomplete$' 'Assert-LockOrderBackupAllowed after Exit is lock-order-recompute-incomplete'
+
+    $recomputeStalePlanPath = Join-Path ([string]$recomputeCompleteFixture.Root) 'lock-order-recompute-complete-probe/setup-plan.json'
+    $recomputeStaleDocument = Write-CanonicalTransactionPlan -PlanPayload $recomputeCompleteCanonical.PlanPayload -PlanPath $recomputeStalePlanPath -RepoRoot ([string]$recomputeCompleteCanonical.RepoRoot)
+    [IO.File]::WriteAllText((Join-Path ([string]$recomputeCompleteCanonical.RepoRoot) 'recompute-stale.txt'),'stale',[Text.UTF8Encoding]::new($false))
+    & git -C ([string]$recomputeCompleteCanonical.RepoRoot) add recompute-stale.txt
+    if ($LASTEXITCODE -ne 0) { throw 'recompute stale fixture git add failed' }
+    & git -C ([string]$recomputeCompleteCanonical.RepoRoot) -c 'user.name=Registry Fixture' -c 'user.email=registry-fixture@example.invalid' commit --quiet -m stale
+    if ($LASTEXITCODE -ne 0) { throw 'recompute stale fixture git commit failed' }
+    Assert-ThrowsPattern {
+        Assert-CanonicalPlanCurrent -Document $recomputeStaleDocument -PlanPath $recomputeStalePlanPath | Out-Null
+    } '^canonical-plan-stale$' 'Assert-CanonicalPlanCurrent after a HEAD commit is canonical-plan-stale'
+    $recomputeStaleHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$recomputeCompleteCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly `
+        -AuthorityContext $recomputeCompleteFixture.Context
+    try {
+        $recomputeStaleInput = [pscustomobject][ordered]@{
+            PlanPayload = $recomputeStaleDocument.PlanPayload
+            PlanHash = [string]$recomputeStaleDocument.PlanHash
+            DocumentHash = [string]$recomputeStaleDocument.DocumentHash
+            PlanPath = $recomputeStalePlanPath
+        }
+        Assert-ThrowsPattern {
+            Get-SealedHeldLockOrderRecompute -LockOrderHandle $recomputeStaleHeld -PlanDocument $recomputeStaleInput | Out-Null
+        } '^canonical-plan-stale$' 'lock-order recompute with a stale PlanDocument is canonical-plan-stale'
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $recomputeStaleHeld }
+
+    $recomputeTamperFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-recompute-tamper'
+    $recomputeTamperCanonical = New-TestCanonicalClaim -Fixture $recomputeTamperFixture -Name 'lock-order-recompute-tamper'
+    $null = Complete-TestCanonicalSetupState -Fixture $recomputeTamperFixture -CanonicalFixture $recomputeTamperCanonical
+    $recomputeTamperHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$recomputeTamperCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly `
+        -AuthorityContext $recomputeTamperFixture.Context
+    try {
+        $recomputeTamperClaim = Copy-TestSemanticDocument -Document $recomputeTamperCanonical.Claim
+        $recomputeTamperClaim.SetupIntentHash = if ([string]$recomputeTamperClaim.SetupIntentHash -cne ('0' * 64)) { '0' * 64 } else { 'f' * 64 }
+        $null = Write-TestSemanticDocument -Path (Join-Path ([string]$recomputeTamperFixture.Context.CanonicalRootsRoot) ([string]$recomputeTamperCanonical.RepoId + '.json')) -Document $recomputeTamperClaim
+        Assert-ThrowsPattern {
+            Get-SealedHeldLockOrderRecompute -LockOrderHandle $recomputeTamperHeld | Out-Null
+        } 'manual-recovery-required:.*setup intent graph mismatch' 'BOUND recompute of a tampered canonical-roots claim uses the existing view token family'
+        Assert-ThrowsPattern {
+            Assert-LockOrderBackupAllowed -LockOrderHandle $recomputeTamperHeld | Out-Null
+        } '^lock-order-recompute-incomplete$' 'a view-token failure leaves backup unauthorized'
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $recomputeTamperHeld }
+
+    $recomputeUnboundFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-recompute-unbound'
+    $recomputeUnboundCanonical = New-TestCanonicalClaim -Fixture $recomputeUnboundFixture -Name 'lock-order-recompute-unbound'
+    $recomputeUnboundCreated = Enter-CanonicalRepoLock -LockPath ([string]$recomputeUnboundCanonical.ContractPaths.LockPath) -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $recomputeUnboundCreated
+    $recomputeUnboundFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$recomputeUnboundCanonical.ContractPaths.LockPath) -Force
+    $recomputeUnboundClaimPath = Join-Path ([string]$recomputeUnboundFixture.Context.CanonicalRootsRoot) ([string]$recomputeUnboundCanonical.RepoId + '.json')
+    $recomputeUnboundHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$recomputeUnboundCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly `
+        -AuthorityContext $recomputeUnboundFixture.Context
+    try {
+        Assert-TestCondition ([string]$recomputeUnboundHeld.CanonicalGlobalBinding -ceq 'UNBOUND_SETUP_WINDOW' -and
+            -not (Test-Path -LiteralPath $recomputeUnboundClaimPath) -and
+            -not (Test-Path -LiteralPath ([string]$recomputeUnboundCanonical.ContractPaths.SetupStatePath))) 'UNBOUND_SETUP_WINDOW recompute fixture has no claim or setup-state file'
+        $recomputeUnboundResult = Get-SealedHeldLockOrderRecompute -LockOrderHandle $recomputeUnboundHeld
+        Assert-TestCondition (@($recomputeUnboundResult).Count -eq 1 -and
+            [string]$recomputeUnboundResult.RecomputeHash -cmatch '^[0-9a-f]{64}$' -and
+            [bool]$recomputeUnboundResult.BackupWorkspaceAuthorized -eq $false -and
+            $null -eq $recomputeUnboundResult.Recompute.RegistryMutationGate) 'UNBOUND_SETUP_WINDOW with claims MISSING skips view and still recomputes'
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $recomputeUnboundHeld }
+
+    $recomputeUnfinishedFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-recompute-unfinished'
+    $recomputeUnfinishedCanonical = New-TestCanonicalClaim -Fixture $recomputeUnfinishedFixture -Name 'lock-order-recompute-unfinished'
+    $recomputeUnfinishedCreated = Enter-CanonicalRepoLock -LockPath ([string]$recomputeUnfinishedCanonical.ContractPaths.LockPath) -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $recomputeUnfinishedCreated
+    $recomputeUnfinishedFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$recomputeUnfinishedCanonical.ContractPaths.LockPath) -Force
+    $recomputeUnfinishedGit = $recomputeUnfinishedCanonical.GitContext
+    $recomputeUnfinishedPaths = $recomputeUnfinishedCanonical.ContractPaths
+    $recomputeUnfinishedOtherWorktree = if ([string]$recomputeUnfinishedGit.WorktreeId -cne ('a' * 64)) { 'a' * 64 } else { 'b' * 64 }
+    $recomputeUnfinishedId = [Guid]::NewGuid().ToString('D').ToLowerInvariant()
+    $recomputeUnfinishedNamespace = Join-Path ([string]$recomputeUnfinishedPaths.TransactionsRoot) (Join-Path $recomputeUnfinishedOtherWorktree $recomputeUnfinishedId)
+    $recomputeUnfinishedHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'canonical-journal-header'
+        TransactionId = $recomputeUnfinishedId
+        CanonicalOperationKind = 'normalize'
+        OriginalDocumentHash = ('1' * 64)
+        OriginalPlanHash = ('2' * 64)
+        RepoId = [string]$recomputeUnfinishedCanonical.RepoId
+        GitCommonDirHash = [string]$recomputeUnfinishedGit.GitCommonDirHash
+        WorktreeId = $recomputeUnfinishedOtherWorktree
+        TransactionNamespace = [IO.Path]::GetFullPath($recomputeUnfinishedNamespace)
+        RecoveryTransactionRoot = [IO.Path]::GetFullPath((Join-Path ([string]$recomputeUnfinishedFixture.Root) (Join-Path 'recompute-unfinished-recovery' $recomputeUnfinishedId)))
+        ExpectedPostconditionsHash = ('6' * 64)
+        Targets = @()
+    }
+    $null = New-CanonicalJournalHeader -Document $recomputeUnfinishedHeader -TransactionNamespace $recomputeUnfinishedNamespace
+    $recomputeUnfinishedHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$recomputeUnfinishedCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly `
+        -AuthorityContext $recomputeUnfinishedFixture.Context
+    try {
+        Assert-ThrowsPattern {
+            Get-SealedHeldLockOrderRecompute -LockOrderHandle $recomputeUnfinishedHeld | Out-Null
+        } '^canonical-recovery-required$' 'an unfinished journal in another worktree is canonical-recovery-required'
+        Assert-ThrowsPattern {
+            Assert-LockOrderBackupAllowed -LockOrderHandle $recomputeUnfinishedHeld | Out-Null
+        } '^lock-order-recompute-incomplete$' 'unfinished recompute leaves backup unauthorized'
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $recomputeUnfinishedHeld }
+    Assert-ThrowsPattern {
+        Assert-CanonicalTransactionSetAllowsDocument -TransactionsRoot ([string]$recomputeUnfinishedPaths.TransactionsRoot) -DocumentHash ([string]$recomputeUnfinishedHeader.OriginalDocumentHash) -AllowedUnfinishedTransactionId $recomputeUnfinishedId | Out-Null
+    } '^reviewed-plan-consumed$' 'Assert-CanonicalTransactionSetAllowsDocument consumes OriginalDocumentHash on the planted header'
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 
