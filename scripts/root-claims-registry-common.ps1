@@ -3187,6 +3187,95 @@ function New-SealedHeldLiveTransactionNamespace {
     }
 }
 
+function Read-SealedRegistryValidatedAuthorityDocuments {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$GlobalLockHandle,
+        [string]$HomeAuthorityKey
+    )
+
+    $null = Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
+    $resolvedKey = [string]$HomeAuthorityKey
+    if ($resolvedKey -ceq '') { $resolvedKey = [string]$AuthorityContext.HomeAuthorityKey }
+    $tokenSid = [string]$AuthorityContext.TokenSid
+    $validatedReadInvalidPrefix = 'authority-state-validated-read-invalid'
+    $claimsStatus = 'MISSING'
+    $stateStatus = 'MISSING'
+    $claimsDocument = $null
+    $claimsBytes = $null
+    $claimsBytesHash = $null
+    $claimsFileIdentity = $null
+    $stateDocument = $null
+    $stateBytes = $null
+    $stateBytesHash = $null
+    $stateFileIdentity = $null
+    $registryCleanupStack = [Collections.Generic.List[object]]::new()
+    $registryPrimaryError = $null
+    try {
+        $homesRoot = Open-SealedRegistryDirectoryCapture -Path ([string]$AuthorityContext.HomesRoot) -TokenSid $tokenSid -Label 'Homes'
+        $registryCleanupStack.Add([pscustomobject]@{Kind='DirectoryCapture';Resource=$homesRoot})
+        if (@($homesRoot.InitialNames) -contains $resolvedKey) {
+            $authority = Open-SealedRegistryHeldDirectoryChild -ParentHandle $homesRoot.Handle -Name $resolvedKey -TokenSid $tokenSid -Label "homes/$resolvedKey"
+            $registryCleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$authority})
+            if (@($authority.InitialNames) -contains 'root-claims.json') {
+                try {
+                    $claimsCapture = Open-SealedRegistryJsonCapture -ParentHandle $authority.Handle -Name 'root-claims.json' -TokenSid $tokenSid -Label "homes/$resolvedKey/root-claims.json"
+                    $registryCleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$claimsCapture})
+                    $claimsDocument = ConvertFrom-SealedRegistryJsonCapture -Capture $claimsCapture
+                    $null = Assert-SealedRegistryRootClaimsContract -Document $claimsDocument
+                }
+                catch {
+                    throw [InvalidOperationException]::new(($validatedReadInvalidPrefix + ': ' + [string]$_.Exception.Message), $_.Exception)
+                }
+                $claimsStatus = 'VALID'
+                $claimsBytes = [byte[]]$claimsCapture.Bytes
+                $claimsBytesHash = [string]$claimsCapture.BytesHash
+                $claimsFileIdentity = [string]$claimsCapture.Identity
+                if (@($authority.InitialNames) -contains 'current-env.json') {
+                    try {
+                        $stateCapture = Open-SealedRegistryJsonCapture -ParentHandle $authority.Handle -Name 'current-env.json' -TokenSid $tokenSid -Label "homes/$resolvedKey/current-env.json"
+                        $registryCleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$stateCapture})
+                        $stateDocument = ConvertFrom-SealedRegistryJsonCapture -Capture $stateCapture
+                        $null = Assert-SealedRegistryCurrentEnvStateContract -Document $stateDocument -RootClaimsDocument $claimsDocument -RootClaimsBytes ([byte[]]$claimsCapture.Bytes)
+                    }
+                    catch {
+                        throw [InvalidOperationException]::new(($validatedReadInvalidPrefix + ': ' + [string]$_.Exception.Message), $_.Exception)
+                    }
+                    $stateStatus = 'VALID'
+                    $stateBytes = [byte[]]$stateCapture.Bytes
+                    $stateBytesHash = [string]$stateCapture.BytesHash
+                    $stateFileIdentity = [string]$stateCapture.Identity
+                }
+            }
+        }
+        return [pscustomobject][ordered]@{
+            ClaimsStatus=$claimsStatus; StateStatus=$stateStatus
+            ClaimsDocument=$claimsDocument; ClaimsBytes=$claimsBytes; ClaimsBytesHash=$claimsBytesHash; ClaimsFileIdentity=$claimsFileIdentity
+            StateDocument=$stateDocument; StateBytes=$stateBytes; StateBytesHash=$stateBytesHash; StateFileIdentity=$stateFileIdentity
+        }
+    }
+    catch {
+        $registryPrimaryError = $_
+        throw
+    }
+    finally {
+        $registryCleanupError = $null
+        for ($index=$registryCleanupStack.Count-1; $index -ge 0; $index--) {
+            $cleanup = $registryCleanupStack[$index]
+            try {
+                switch ([string]$cleanup.Kind) {
+                    'HeldHandleCapture' { if ($null -ne $cleanup.Resource.Handle) { $cleanup.Resource.Handle.Dispose() }; break }
+                    'DirectoryCapture' { Close-SealedRegistryDirectoryCapture -Capture $cleanup.Resource; break }
+                    default { throw 'registry cleanup stack contains an unsupported resource kind' }
+                }
+            }
+            catch { if ($null -eq $registryCleanupError) { $registryCleanupError = $_ } }
+        }
+        if ($null -eq $registryPrimaryError -and $null -ne $registryCleanupError) { throw $registryCleanupError }
+    }
+}
+
 function Get-SealedHomeAuthorityRegistryView {
     [CmdletBinding()]
     param(

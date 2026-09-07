@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13294
-$reviewedAllScriptsReflectionSensitiveDigest='e6b809254edc4711656082473386a13fc04319cbe880ecd1d3ba714cec70e0e2'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13331
+$reviewedAllScriptsReflectionSensitiveDigest='173125cba5e2cd0c6bfbc2392c0551c7f1ee4cc815e4546985ab474c71c0c9dc'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -547,6 +547,7 @@ function Invoke-ProductionSeamAnalysis {
                 'Get-SealedRegistryCanonicalSetupWindow',
                 'Assert-SealedRegistryClaimAccept',
                 'New-SealedHeldLiveTransactionNamespace',
+                'Read-SealedRegistryValidatedAuthorityDocuments',
                 'New-AuthorityTargetContextIntent',
                 'Get-AuthorityStateIntentProjection',
                 'Assert-AuthorityControllerTransitionPreservesSelection',
@@ -933,6 +934,7 @@ function Invoke-ProductionSeamAnalysis {
         @('Get-SealedRegistryCanonicalSetupWindow','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedRegistryClaimAccept','scripts/root-claims-registry-common.ps1'),
         @('New-SealedHeldLiveTransactionNamespace','scripts/root-claims-registry-common.ps1'),
+        @('Read-SealedRegistryValidatedAuthorityDocuments','scripts/root-claims-registry-common.ps1'),
         @('New-AuthorityTargetContextIntent','scripts/shared-authority-state-common.ps1'),
         @('Assert-AuthorityTargetContextIntent','scripts/shared-authority-state-common.ps1'),
         @('Assert-AuthorityFinalIdentitiesDerivedFromIntent','scripts/shared-authority-state-common.ps1'),

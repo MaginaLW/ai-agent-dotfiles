@@ -6389,6 +6389,84 @@ try {
     $receiptedControllerIntent['ReceiptRef'] = '73333333-3333-4333-8333-333333333333'
     Assert-ThrowsPattern { New-AuthorityStatePostimage -AuthorityStateIntent $receiptedControllerIntent -TargetContextIntent $intentProjected -FinalResolvedIdentities $intentFinalRows -RuntimeRefs $controllerRuntimeRefs } '^authority-controller-transition-receipt-shape$' 'a controller-transition intent carrying a receipt fails the receipt shape'
 
+    Write-Host '[authority-state validated read]' -ForegroundColor Cyan
+
+    $validatedReadMissing = New-TestRegistryFixture -Parent $workRoot -Name 'validated-read-missing'
+    $validatedReadMissingBefore = Get-TestRegistryTreeHash -Fixture $validatedReadMissing
+    $validatedReadMissingLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $validatedReadMissing.Context
+    try {
+        $validatedReadMissingResult = Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadMissing.Context -GlobalLockHandle $validatedReadMissingLock
+        Assert-TestCondition (@($validatedReadMissingResult).Count -eq 1 -and
+            [string]$validatedReadMissingResult.ClaimsStatus -ceq 'MISSING' -and
+            [string]$validatedReadMissingResult.StateStatus -ceq 'MISSING' -and
+            $null -eq $validatedReadMissingResult.ClaimsDocument -and
+            $null -eq $validatedReadMissingResult.ClaimsBytes -and
+            $null -eq $validatedReadMissingResult.ClaimsBytesHash -and
+            $null -eq $validatedReadMissingResult.ClaimsFileIdentity -and
+            $null -eq $validatedReadMissingResult.StateDocument -and
+            $null -eq $validatedReadMissingResult.StateBytes -and
+            $null -eq $validatedReadMissingResult.StateBytesHash -and
+            $null -eq $validatedReadMissingResult.StateFileIdentity) 'validated read without a homes child returns MISSING claims and state'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $validatedReadMissingLock }
+    Assert-TestCondition ($validatedReadMissingBefore -ceq (Get-TestRegistryTreeHash -Fixture $validatedReadMissing)) 'validated read without a homes child is zero-write'
+    Assert-ThrowsPattern { Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadMissing.Context -GlobalLockHandle $null | Out-Null } 'because it is null' 'validated read without a lock fails closed'
+    Assert-ThrowsPattern { Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadMissing.Context -GlobalLockHandle $validatedReadMissingLock | Out-Null } '^home-authority-registry-lock-required$' 'a released genuine global lock fails validated read closed'
+
+    $validatedReadValid = New-TestRegistryFixture -Parent $workRoot -Name 'validated-read-valid-pair'
+    $validatedReadValidClaims = New-TestRootClaims -Context $validatedReadValid.Context
+    $validatedReadValidClaimsBytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $validatedReadValidClaims)
+    $validatedReadValidState = New-TestCurrentEnvState -Claims $validatedReadValidClaims -ClaimsBytes $validatedReadValidClaimsBytes
+    $null = Add-TestAuthorityArtifacts -Context $validatedReadValid.Context -Claims $validatedReadValidClaims -State $validatedReadValidState
+    $validatedReadValidExpectedHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$validatedReadValidClaimsBytes)).ToLowerInvariant()
+    $validatedReadValidLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $validatedReadValid.Context
+    try {
+        $validatedReadValidResult = Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadValid.Context -GlobalLockHandle $validatedReadValidLock
+        Assert-TestCondition (@($validatedReadValidResult).Count -eq 1 -and
+            [string]$validatedReadValidResult.ClaimsStatus -ceq 'VALID' -and
+            [string]$validatedReadValidResult.StateStatus -ceq 'VALID' -and
+            [string]$validatedReadValidResult.ClaimsBytesHash -ceq $validatedReadValidExpectedHash -and
+            [string]$validatedReadValidResult.ClaimsBytesHash -ceq [string]$validatedReadValidState.RootClaimsHash) 'validated read of a bound pair returns VALID documents and the claims file-byte hash'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $validatedReadValidLock }
+
+    $validatedReadClaimsOnly = New-TestRegistryFixture -Parent $workRoot -Name 'validated-read-claims-only'
+    $validatedReadClaimsOnlyDocument = New-TestRootClaims -Context $validatedReadClaimsOnly.Context
+    $null = Add-TestAuthorityArtifacts -Context $validatedReadClaimsOnly.Context -Claims $validatedReadClaimsOnlyDocument -State $null
+    $validatedReadClaimsOnlyLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $validatedReadClaimsOnly.Context
+    try {
+        $validatedReadClaimsOnlyResult = Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadClaimsOnly.Context -GlobalLockHandle $validatedReadClaimsOnlyLock
+        Assert-TestCondition (@($validatedReadClaimsOnlyResult).Count -eq 1 -and
+            [string]$validatedReadClaimsOnlyResult.ClaimsStatus -ceq 'VALID' -and
+            [string]$validatedReadClaimsOnlyResult.StateStatus -ceq 'MISSING' -and
+            $null -eq $validatedReadClaimsOnlyResult.StateDocument -and
+            $null -eq $validatedReadClaimsOnlyResult.StateBytes -and
+            $null -eq $validatedReadClaimsOnlyResult.StateBytesHash -and
+            $null -eq $validatedReadClaimsOnlyResult.StateFileIdentity) 'validated read of claims without state returns VALID claims and MISSING state'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $validatedReadClaimsOnlyLock }
+
+    $validatedReadBadState = New-TestRegistryFixture -Parent $workRoot -Name 'validated-read-bad-state'
+    $validatedReadBadClaims = New-TestRootClaims -Context $validatedReadBadState.Context
+    $validatedReadBadClaimsBytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $validatedReadBadClaims)
+    $validatedReadBadStateDocument = New-TestCurrentEnvState -Claims $validatedReadBadClaims -ClaimsBytes $validatedReadBadClaimsBytes
+    $null = Add-TestAuthorityArtifacts -Context $validatedReadBadState.Context -Claims $validatedReadBadClaims -State $validatedReadBadStateDocument
+    $validatedReadBadStatePath = [string]$validatedReadBadState.Context.CurrentEnvStatePath
+    $validatedReadBadStateText = [Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($validatedReadBadStatePath))
+    $validatedReadOriginalHash = [string]$validatedReadBadStateDocument.RootClaimsHash
+    $validatedReadMutatedHash = if ($validatedReadOriginalHash -cne ('0' * 64)) { '0' * 64 } else { 'f' * 64 }
+    $validatedReadHashNeedle = '"RootClaimsHash":"' + $validatedReadOriginalHash + '"'
+    $validatedReadHashReplacement = '"RootClaimsHash":"' + $validatedReadMutatedHash + '"'
+    if ($validatedReadBadStateText.IndexOf($validatedReadHashNeedle,[StringComparison]::Ordinal) -lt 0) { throw 'validated-read bad-state fixture text did not contain RootClaimsHash' }
+    [IO.File]::WriteAllBytes($validatedReadBadStatePath,[Text.UTF8Encoding]::new($false).GetBytes($validatedReadBadStateText.Replace($validatedReadHashNeedle,$validatedReadHashReplacement)))
+    $validatedReadBadLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $validatedReadBadState.Context
+    try {
+        Assert-ThrowsPattern { Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadBadState.Context -GlobalLockHandle $validatedReadBadLock | Out-Null } '^authority-state-validated-read-invalid' 'tampered state bytes fail validated read instead of returning INVALID'
+        $validatedReadBadView = Get-SealedHomeAuthorityRegistryView -AuthorityContext $validatedReadBadState.Context -GlobalLockHandle $validatedReadBadLock
+        Assert-TestCondition ([string]$validatedReadBadView.Authorities[0].StateStatus -ceq 'INVALID') 'the registry view still classifies the same tampered state as INVALID'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $validatedReadBadLock }
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 
