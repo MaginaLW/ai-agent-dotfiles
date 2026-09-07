@@ -2045,6 +2045,60 @@ only for first authority and never replaced; Phase 3 owns migrate/adopt/repair-a
 activation; Task 4 owns the live-journal phases that will wrap these primitives. Production
 Apply remains interlocked, and no live root or Git index/ref was changed.
 
+## 2026-09-08 Phase 2 Task 1 Step 5: deterministic lock semantics implemented in four slices
+
+Per the reviewed four-slice design (`tmp/grok-step5-lock-semantics-design.md`, Grok), Step 5 is
+implemented with the enable boundary resolved without lifting any tracked interlock:
+"enable only the setup Apply" means the lock-order machinery plus the single legal route shape —
+only `RouteKind='setup'` with `AcquisitionMode='SetupBootstrap'` may bootstrap a MISSING prefix,
+live/normalize/promote/merge/canonical-recover reject it with
+`live-cannot-bootstrap-missing-canonical-claim`, the composer's durable writes stay `deferred`,
+`Register` stays uncalled on production paths, and `scripts/live-safety-policy.psd1` plus the
+`canonical-apply-interlocked` / `canonical-recovery-apply-interlocked` / 75 production results
+are untouched.
+
+- Slice 1 (commit `4ecc3b4`): the typed CLR handle `SealedHeldCanonicalLiveLockOrder` and the
+  `Enter-/Exit-/Assert-SealedHeldCanonicalLiveLockOrder` orchestrator (ExistingOnly): overlay
+  `REQUIRED` rejected before any lock, canonical OpenExisting (`canonical-lock-missing`),
+  bootstrap-COMPLETE gate, the BOUND witness binding versus `UNBOUND_SETUP_WINDOW`
+  (setup/canonical-recover only, non-setup with a missing setup state throws
+  `canonical-setup-required`), tail-to-head failure cleanup, idempotent Exit, and full Assert
+  revalidation. Reverse-order acquisition fails the witness binding.
+- Slice 2 (commit `6c8be14`): the SetupBootstrap branch (zero production callers) —
+  plan payload revalidation, canonical `AllowCreate` in this mode only, the reviewed composer
+  invoked for the bootstrap→prefix→unbound-global chain, `Register` not called, the two-slot
+  `New-SealedHeldCanonicalSetupJournalTargetManifest` with `Write='deferred'` attached through
+  the CLR-guarded single-shot `AttachJournalTargetsExact`; the composer's unique-caller
+  allowlist is now only the orchestrator.
+- Slice 3 (commit `21fece7`): `Get-SealedHeldLockOrderRecompute` — after all required locks are
+  held: the full worktree journal scan (unfinished → `canonical-recovery-required`, consumed
+  DocumentHash → `reviewed-plan-consumed`), the BOUND-path registry view (missing/tampered
+  claims surface with the view tokens), the UNBOUND-window validated read, repository identity
+  drift rejection, in-lock plan currency, the `lock-order-route-kind-mismatch` guard, and the
+  single-shot `AttachRecomputeExact` with `Assert-LockOrderBackupAllowed` returning
+  `lock-order-recompute-incomplete` until the recompute exists (`BackupWorkspaceAuthorized` is
+  constantly `$false` on production paths).
+- Slice 4 (commit `b483647`): the production retrofit — `canonical-transaction.ps1 -Apply` now
+  takes the ExistingOnly lock order after plan revalidation (first-run missing prefixes are
+  swallowed to `$held=$null` with zero creation; a held lock chain runs the recompute) and still
+  emits `canonical-apply-interlocked` / exit 75; `recover-canonical-transaction.ps1 -Apply`
+  assembles the handle on its already-held canonical lock (BOUND or UNBOUND_SETUP_WINDOW), runs
+  the recompute tolerating `canonical-recovery-required`, and still emits
+  `canonical-recovery-apply-interlocked` / exit 75. A contended COMPLETE fixture now observably
+  yields `operation-lock-busy` instead of silent interlock, and releases back to interlock.
+
+Focused validation per slice: root-claims-registry progressed 777 → 817 → 841 → 876 → 876 PASS
+(exit 0 each), live-concurrency passed, command-result progressed 51 → 66 PASS, canonical
+recovery stayed 104/0, seams stayed 56/0 with the reflection inventory re-pinned along the way
+(final baseline recorded in the committed suite), the parse gate accepted all 156 files, the
+pinned secret scan reported zero leaks, and `git diff --check` was clean. Two Grok
+implementation sessions reached their turn budget after writing near-complete slices; the main
+agent reviewed the left-behind diffs line by line, completed validation, and committed. The
+authoritative unified `run-tests.ps1 -All` run over the Step 5 state is executing and will be
+recorded on completion. Worktree overlay locking, journal phases, and the task/sync route
+retrofit stay with Phase 3 / Task 4 / Task 5. Production Apply remains interlocked, and no live
+root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
