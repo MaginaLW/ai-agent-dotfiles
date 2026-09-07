@@ -6308,6 +6308,87 @@ try {
         -not $acceptCommand.Parameters.ContainsKey('LockWaitSeconds') -and
         -not $acceptCommand.Parameters.ContainsKey('TestMode')) 'the claim-accept consumer exposes the exact reviewed parameter set with no public root or lock selectors'
 
+    Write-Host '[authority target-context intent]' -ForegroundColor Cyan
+
+    $intentClaimsFixture = New-TestRegistryFixture -Parent $workRoot -Name 'authority-intent'
+    $intentClaims = New-TestRootClaims -Context $intentClaimsFixture.Context
+    $intentProjected = New-AuthorityTargetContextIntent -RootClaimsDocument $intentClaims
+    $null = Assert-AuthorityTargetContextIntent -Intent $intentProjected
+    Assert-TestCondition (@($intentProjected.Rows).Count -eq 3 -and [string]$intentProjected.HomeAuthorityKey -ceq [string]$intentClaims.HomeAuthorityKey) 'the claims projection yields the three-platform target-context intent'
+    $intentClaimsBytes = ConvertTo-SemanticJsonBytes -InputObject $intentClaims
+    $intentClaimsBytesHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$intentClaimsBytes)).ToLowerInvariant()
+
+    $intentFinalRows = [Collections.Generic.List[object]]::new()
+    for ($intentRowIndex = 0; $intentRowIndex -lt 3; $intentRowIndex++) {
+        $intentRow = $intentProjected.Rows[$intentRowIndex]
+        $volumePrefix = [string]$intentRow.VolumeId
+        if ([string]$intentRow.InitialState -ceq 'EXISTS') { $finalIdentity = [string]$intentRow.InitialDirectoryIdentity }
+        else { $finalIdentity = $volumePrefix + (':deadc0de' + ('{0:x8}' -f $intentRowIndex)) }
+        $intentFinalRows.Add([ordered]@{
+            Platform=[string]$intentRow.Platform; LocationKey=[string]$intentRow.LocationKey; ResolvedPath=[string]$intentRow.RequestedPath
+            VolumeId=$volumePrefix; DirectoryIdentity=$finalIdentity; FilesystemCapabilityHash=('f' * 64)
+        })
+    }
+    $intentFinalRows = @($intentFinalRows)
+    $intentFinalHash = Get-SemanticJsonHash -InputObject $intentFinalRows
+    $null = Assert-AuthorityFinalIdentitiesDerivedFromIntent -Intent $intentProjected -FinalResolvedIdentities $intentFinalRows -FinalTargetContextHash $intentFinalHash
+    Assert-TestCondition ($intentFinalHash -ceq (Get-SemanticJsonHash -InputObject @($intentFinalRows))) 'the derived final hash reproduces over the resolved identity rows'
+    $intentAliasRow = $intentProjected.Rows[0]
+    if ([string]$intentAliasRow.InitialState -ceq 'ABSENT') {
+        $intentAliasRows = @($intentFinalRows | ForEach-Object { $_ })
+        $intentAliasRows[0] = [ordered]@{ Platform=[string]$intentFinalRows[0].Platform; LocationKey=[string]$intentFinalRows[0].LocationKey; ResolvedPath=[string]$intentFinalRows[0].ResolvedPath; VolumeId=[string]$intentFinalRows[0].VolumeId; DirectoryIdentity=[string]$intentAliasRow.DeepestExistingParentIdentity; FilesystemCapabilityHash=[string]$intentFinalRows[0].FilesystemCapabilityHash }
+        Assert-ThrowsPattern { Assert-AuthorityFinalIdentitiesDerivedFromIntent -Intent $intentProjected -FinalResolvedIdentities $intentAliasRows -FinalTargetContextHash (Get-SemanticJsonHash -InputObject $intentAliasRows) } '^authority-final-identities-drift$' 'an absent intent row resolving onto its own parent identity fails the derivation'
+    }
+    $intentPathDriftRows = @($intentFinalRows | ForEach-Object { $_ })
+    $intentPathDriftRows[2] = [ordered]@{ Platform=[string]$intentFinalRows[2].Platform; LocationKey=[string]$intentFinalRows[2].LocationKey; ResolvedPath=[string]$intentFinalRows[2].ResolvedPath + '-drift'; VolumeId=[string]$intentFinalRows[2].VolumeId; DirectoryIdentity=[string]$intentFinalRows[2].DirectoryIdentity; FilesystemCapabilityHash=[string]$intentFinalRows[2].FilesystemCapabilityHash }
+    Assert-ThrowsPattern { Assert-AuthorityFinalIdentitiesDerivedFromIntent -Intent $intentProjected -FinalResolvedIdentities $intentPathDriftRows -FinalTargetContextHash (Get-SemanticJsonHash -InputObject $intentPathDriftRows) } '^authority-final-identities-drift$' 'a resolved path that drifts from the intent row fails the derivation'
+    Assert-ThrowsPattern { Assert-AuthorityFinalIdentitiesDerivedFromIntent -Intent $intentProjected -FinalResolvedIdentities $intentFinalRows -FinalTargetContextHash ('f' * 64) } '^authority-final-identities-not-derived-from-intent$' 'a foreign final target context hash fails the derivation'
+
+    $intentState = [ordered]@{
+        SchemaVersion=3L; ArtifactKind='current-env-state'; HomeAuthorityKey=[string]$intentClaims.HomeAuthorityKey; AuthorityGeneration=1L
+        RootClaimsHash=$intentClaimsBytesHash; SelectionKind='environment'; EnvironmentName='full'; EnvironmentLockHash=('c' * 64)
+        TaskOverlayHash=('d' * 64); TaskOverlaySkills=@(
+            [ordered]@{ Platform='Claude'; Skills=@() },[ordered]@{ Platform='Codex'; Skills=@() },[ordered]@{ Platform='Reasonix'; Skills=@() })
+        ManifestHashes=@(
+            [ordered]@{ Platform='Claude'; Hash=('a' * 64) },[ordered]@{ Platform='Codex'; Hash=('b' * 64) },[ordered]@{ Platform='Reasonix'; Hash=('c' * 64) })
+        FinalManagedHashes=@(
+            [ordered]@{ Platform='Claude'; Hash=('d' * 64) },[ordered]@{ Platform='Codex'; Hash=('e' * 64) },[ordered]@{ Platform='Reasonix'; Hash=('0' * 64) })
+        ControllerRepoFingerprint=('1' * 64); ApprovedToolchainHash=('2' * 64); PlanHash=('3' * 64); DocumentHash=('4' * 64)
+        LastOperationKind='initial'
+    }
+    $intentRuntimeRefs = [ordered]@{
+        JournalId='63333333-3333-4333-8333-333333333333'; PreStatePhaseHash=('5' * 64)
+        ReceiptId='73333333-3333-4333-8333-333333333333'; ReceiptHash=('6' * 64)
+    }
+    $intentPostimage = New-AuthorityStatePostimage -AuthorityStateIntent $intentState -TargetContextIntent $intentProjected -FinalResolvedIdentities $intentFinalRows -RuntimeRefs $intentRuntimeRefs
+    $null = Test-CurrentEnvStateAgainstRootClaims -StateDocument $intentPostimage -RootClaimsDocument $intentClaims -RootClaimsBytes ([byte[]]$intentClaimsBytes)
+    $intentProjection = Get-AuthorityStateIntentProjection -StateDocument $intentPostimage
+    Assert-TestCondition ((Get-SemanticJsonHash -InputObject $intentProjection) -ceq (Get-SemanticJsonHash -InputObject $intentState)) 'the state projection strips exactly the apply-derived runtime fields'
+    $pollutedIntent = [ordered]@{}
+    foreach ($intentKey in @($intentState.Keys)) { $pollutedIntent[$intentKey] = $intentState[$intentKey] }
+    $pollutedIntent['FinalTargetContextHash'] = ('7' * 64)
+    Assert-ThrowsPattern { New-AuthorityStatePostimage -AuthorityStateIntent $pollutedIntent -TargetContextIntent $intentProjected -FinalResolvedIdentities $intentFinalRows -RuntimeRefs $intentRuntimeRefs } '^authority-state-intent-mismatch$' 'an intent polluted with an apply-derived field fails the serializer'
+    $receiptedIntent = [ordered]@{}
+    foreach ($intentKey in @($intentState.Keys)) { $receiptedIntent[$intentKey] = $intentState[$intentKey] }
+    $receiptedIntent['ReceiptId'] = '73333333-3333-4333-8333-333333333333'
+    Assert-ThrowsPattern { New-AuthorityStatePostimage -AuthorityStateIntent $receiptedIntent -TargetContextIntent $intentProjected -FinalResolvedIdentities $intentFinalRows -RuntimeRefs $intentRuntimeRefs } '^authority-state-intent-mismatch$' 'an intent carrying a receipt field fails the serializer'
+
+    $controllerIntent = [ordered]@{}
+    foreach ($intentKey in @($intentState.Keys)) { $controllerIntent[$intentKey] = $intentState[$intentKey] }
+    $controllerIntent['LastOperationKind'] = 'controller-transition'
+    $controllerIntent['ReceiptRef'] = 'NO_LIVE_MUTATION'
+    $controllerRuntimeRefs = [ordered]@{ JournalId='63333333-3333-4333-8333-333333333333'; PreStatePhaseHash=('5' * 64) }
+    $controllerPostimage = New-AuthorityStatePostimage -AuthorityStateIntent $controllerIntent -TargetContextIntent $intentProjected -FinalResolvedIdentities $intentFinalRows -RuntimeRefs $controllerRuntimeRefs
+    $null = Assert-AuthorityControllerTransitionPreservesSelection -PreviousState $intentPostimage -Postimage $controllerPostimage
+    $driftedController = [ordered]@{}
+    foreach ($postimageKey in @($controllerPostimage.Keys)) { $driftedController[$postimageKey] = $controllerPostimage[$postimageKey] }
+    $driftedController['EnvironmentName'] = 'work'
+    Assert-ThrowsPattern { Assert-AuthorityControllerTransitionPreservesSelection -PreviousState $intentPostimage -Postimage $driftedController } '^authority-controller-transition-selection-drift$' 'a controller transition that changes the environment selection fails the comparator'
+    $receiptedControllerIntent = [ordered]@{}
+    foreach ($intentKey in @($controllerIntent.Keys)) { $receiptedControllerIntent[$intentKey] = $controllerIntent[$intentKey] }
+    $receiptedControllerIntent['ReceiptRef'] = '73333333-3333-4333-8333-333333333333'
+    Assert-ThrowsPattern { New-AuthorityStatePostimage -AuthorityStateIntent $receiptedControllerIntent -TargetContextIntent $intentProjected -FinalResolvedIdentities $intentFinalRows -RuntimeRefs $controllerRuntimeRefs } '^authority-controller-transition-receipt-shape$' 'a controller-transition intent carrying a receipt fails the receipt shape'
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 

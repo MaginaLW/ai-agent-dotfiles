@@ -347,3 +347,207 @@ function Test-CurrentEnvStateAgainstRootClaims {
     Assert-AuthoritySchemaBytes -ArtifactKind 'current-env-state' -InstanceBytes $stateBytes
     Test-CurrentEnvStateAgainstRootClaimsSemanticsOnly -StateDocument $StateDocument -RootClaimsDocument $RootClaimsDocument -RootClaimsBytes $RootClaimsBytes
 }
+
+$script:AuthorityTargetContextIntentRowKeys = @('Platform','LocationKey','RequestedPath','InitialState','VolumeId','DeepestExistingParentPath','DeepestExistingParentIdentity','MissingRemainder','InitialDirectoryIdentity','ExpectedPostState')
+$script:AuthorityStateIntentFieldNames = @('SchemaVersion','ArtifactKind','HomeAuthorityKey','AuthorityGeneration','RootClaimsHash','SelectionKind','EnvironmentName','EnvironmentLockHash','TaskOverlayHash','TaskOverlaySkills','ManifestHashes','FinalManagedHashes','ControllerRepoFingerprint','ApprovedToolchainHash','PlanHash','DocumentHash','LastOperationKind')
+$script:AuthorityStateRuntimeFieldNames = @('FinalResolvedIdentities','FinalTargetContextHash','ReceiptId','ReceiptHash','JournalId','PreStatePhaseHash')
+
+function Assert-AuthorityStateExactKeys {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$InputObject,
+        [Parameter(Mandatory)][string[]]$Expected,
+        [Parameter(Mandatory)][string]$Label
+    )
+    $actual = @([string[]]$InputObject.Keys | Sort-Object { [string]$_ })
+    $wanted = @($Expected | Sort-Object { [string]$_ })
+    if (($actual -join "`0") -cne ($wanted -join "`0")) { throw "${Label} property set mismatch" }
+}
+
+function Assert-AuthorityStateString {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory)][string]$Label,
+        [string]$Pattern,
+        [string[]]$Allowed,
+        [switch]$AllowNull
+    )
+    if ($null -eq $Value) {
+        if ($AllowNull) { return }
+        throw "${Label} must be a string"
+    }
+    if ($Value -isnot [string]) { throw "${Label} must be a string" }
+    if ($Pattern -and [string]$Value -cnotmatch $Pattern) { throw "${Label} has an invalid spelling" }
+    if ($Allowed -and [string]$Value -cnotin $Allowed) { throw "${Label} has an unsupported value" }
+}
+
+function New-AuthorityTargetContextIntent {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$RootClaimsDocument)
+
+    Test-RootClaimsSemantics -Document $RootClaimsDocument
+    $rows = [Collections.Generic.List[object]]::new()
+    foreach ($claim in @($RootClaimsDocument.LiveRootClaims)) {
+        Assert-AuthorityStateExactKeys -InputObject $claim -Expected $script:AuthorityTargetContextIntentRowKeys -Label 'root-claims LiveRootClaim'
+        $row = [ordered]@{}
+        foreach ($key in $script:AuthorityTargetContextIntentRowKeys) { $row[$key] = $claim[$key] }
+        $rows.Add($row)
+    }
+    return [ordered]@{
+        HomeAuthorityKey = [string]$RootClaimsDocument.HomeAuthorityKey
+        Rows = @($rows)
+    }
+}
+
+function Assert-AuthorityTargetContextIntent {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Intent)
+
+    Assert-AuthorityStateExactKeys -InputObject $Intent -Expected @('HomeAuthorityKey','Rows') -Label 'authority target-context intent'
+    Assert-AuthorityStateString $Intent.HomeAuthorityKey 'authority target-context intent HomeAuthorityKey' '\A[0-9a-f]{64}\z'
+    $rows = @($Intent.Rows)
+    if ($rows.Count -ne 3) { throw 'authority-target-context-intent-invalid' }
+    $platforms = @('Claude','Codex','Reasonix')
+    for ($index = 0; $index -lt 3; $index++) {
+        $row = $rows[$index]
+        Assert-AuthorityStateExactKeys -InputObject $row -Expected $script:AuthorityTargetContextIntentRowKeys -Label "authority target-context intent row $index"
+        if ([string]$row.Platform -cne $platforms[$index]) { throw 'authority-target-context-intent-invalid' }
+        Assert-AuthorityStateString $row.InitialState "authority target-context intent InitialState[$index]" $null @('ABSENT','EXISTS')
+        Assert-AuthorityStateString $row.ExpectedPostState "authority target-context intent ExpectedPostState[$index]" $null @('EXISTS')
+        Assert-AuthorityStateString $row.VolumeId "authority target-context intent VolumeId[$index]" '\A[0-9a-f]{8}\z'
+        $requested = Get-AuthorityCanonicalPathProjection -Path ([string]$row.RequestedPath) -Role "authority target-context intent RequestedPath/$($row.Platform)"
+        $location = Get-AuthorityLocationKeyProjection -LocationKey ([string]$row.LocationKey) -Role "authority target-context intent LocationKey/$($row.Platform)"
+        if ([string]$requested.LocationKey -cne [string]$location.LocationKey) { throw 'authority-target-context-intent-invalid' }
+        $parent = Get-AuthorityCanonicalPathProjection -Path ([string]$row.DeepestExistingParentPath) -Role "authority target-context intent DeepestExistingParentPath/$($row.Platform)" -AllowVolumeRoot
+        if (-not [IO.Path]::GetPathRoot([string]$requested.Path).Equals([IO.Path]::GetPathRoot([string]$parent.Path), [StringComparison]::OrdinalIgnoreCase)) { throw 'authority-target-context-intent-invalid' }
+        Assert-AuthorityStateString $row.DeepestExistingParentIdentity "authority target-context intent parent identity[$index]" ('\A' + [regex]::Escape([string]$row.VolumeId) + ':[0-9a-f]{16}\z')
+        if ($row.MissingRemainder -isnot [System.Array]) { throw 'authority-target-context-intent-invalid' }
+        foreach ($segment in @($row.MissingRemainder)) { Assert-AuthorityStateString $segment "authority target-context intent remainder[$index]" '\A[^\\/:]+\z' }
+        if ([string]$row.InitialState -ceq 'ABSENT') {
+            if ($null -ne $row.InitialDirectoryIdentity -or @($row.MissingRemainder).Count -lt 1) { throw 'authority-target-context-intent-invalid' }
+            Assert-AuthorityMissingRemainder -Claim $row -RequestedProjection $requested -ParentProjection $parent
+        }
+        else {
+            Assert-AuthorityStateString $row.InitialDirectoryIdentity "authority target-context intent initial identity[$index]" ('\A' + [regex]::Escape([string]$row.VolumeId) + ':[0-9a-f]{16}\z')
+            if (@($row.MissingRemainder).Count -ne 0 -or [string]$parent.Path -cne [string]$requested.Path) { throw 'authority-target-context-intent-invalid' }
+        }
+    }
+}
+
+function Assert-AuthorityFinalIdentitiesDerivedFromIntent {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Intent,
+        [Parameter(Mandatory)][AllowNull()][object[]]$FinalResolvedIdentities,
+        [Parameter(Mandatory)][string]$FinalTargetContextHash
+    )
+
+    Assert-AuthorityTargetContextIntent -Intent $Intent
+    $finalRows = @($FinalResolvedIdentities)
+    $rowKeys = @('Platform','LocationKey','ResolvedPath','VolumeId','DirectoryIdentity','FilesystemCapabilityHash')
+    if ($finalRows.Count -ne 3) { throw 'authority-final-identities-not-derived-from-intent' }
+    if ((Get-SemanticJsonHash -InputObject $finalRows) -cne [string]$FinalTargetContextHash) { throw 'authority-final-identities-not-derived-from-intent' }
+    for ($index = 0; $index -lt 3; $index++) {
+        $row = $finalRows[$index]
+        Assert-AuthorityStateExactKeys -InputObject $row -Expected $rowKeys -Label "authority final identity row $index"
+        if ([string]$row.Platform -cne @('Claude','Codex','Reasonix')[$index]) { throw 'authority-final-identities-not-derived-from-intent' }
+        Assert-AuthorityStateString $row.FilesystemCapabilityHash "authority final identity capability hash[$index]" '\A[0-9a-f]{64}\z'
+        $intentRow = $Intent.Rows[$index]
+        if ([string]$row.LocationKey -cne [string]$intentRow.LocationKey -or
+            [string]$row.ResolvedPath -cne [string]$intentRow.RequestedPath -or
+            [string]$row.VolumeId -cne [string]$intentRow.VolumeId) { throw 'authority-final-identities-drift' }
+        if ([string]$intentRow.InitialState -ceq 'EXISTS') {
+            if ([string]$row.DirectoryIdentity -cne [string]$intentRow.InitialDirectoryIdentity) { throw 'authority-final-identities-drift' }
+        }
+        else {
+            Assert-AuthorityStateString $row.DirectoryIdentity "authority final identity[$index]" ('\A' + [regex]::Escape([string]$intentRow.VolumeId) + ':[0-9a-f]{16}\z')
+            if ([string]$row.DirectoryIdentity -ceq [string]$intentRow.DeepestExistingParentIdentity) { throw 'authority-final-identities-drift' }
+        }
+    }
+    for ($leftIndex = 0; $leftIndex -lt 3; $leftIndex++) {
+        $leftIntent = $Intent.Rows[$leftIndex]
+        $leftIdentity = [string]$finalRows[$leftIndex].DirectoryIdentity
+        if ([string]$leftIntent.InitialState -cne 'EXISTS' -and $leftIdentity -ceq [string]$leftIntent.DeepestExistingParentIdentity) { throw 'authority-final-identities-drift' }
+        for ($rightIndex = 0; $rightIndex -lt 3; $rightIndex++) {
+            if ($leftIndex -eq $rightIndex) { continue }
+            if ($leftIdentity -ceq [string]$Intent.Rows[$rightIndex].DeepestExistingParentIdentity) { throw 'authority-final-identities-drift' }
+            if ($leftIdentity -ceq [string]$finalRows[$rightIndex].DirectoryIdentity) { throw 'authority-final-identities-drift' }
+        }
+    }
+}
+
+function Get-AuthorityStateIntentProjection {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$StateDocument)
+
+    $projection = [ordered]@{}
+    foreach ($key in @($StateDocument.Keys)) {
+        if ([string]$key -cin $script:AuthorityStateRuntimeFieldNames) { continue }
+        $projection[[string]$key] = $StateDocument[$key]
+    }
+    return $projection
+}
+
+function Assert-AuthorityControllerTransitionPreservesSelection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$PreviousState,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Postimage
+    )
+
+    if ([string]$Postimage.LastOperationKind -cne 'controller-transition' -or
+        [string]$Postimage.ReceiptRef -cne 'NO_LIVE_MUTATION' -or
+        $Postimage.Contains('ReceiptId') -or $Postimage.Contains('ReceiptHash')) { throw 'authority-controller-transition-receipt-shape' }
+    $previousIsControllerTransition = [string]$PreviousState.LastOperationKind -ceq 'controller-transition' -and [string]$PreviousState.ReceiptRef -ceq 'NO_LIVE_MUTATION'
+    $previousIsReceiptBearing = $PreviousState.Contains('ReceiptId') -and $PreviousState.Contains('ReceiptHash')
+    if (-not $previousIsControllerTransition -and -not $previousIsReceiptBearing) { throw 'authority-controller-transition-receipt-shape' }
+    foreach ($field in @('SelectionKind','EnvironmentName','EnvironmentLockHash','TaskOverlayHash','TaskOverlaySkills','ManifestHashes','FinalManagedHashes','FinalResolvedIdentities','FinalTargetContextHash','RootClaimsHash','HomeAuthorityKey')) {
+        if ((Get-SemanticJsonHash -InputObject $PreviousState[$field]) -cne (Get-SemanticJsonHash -InputObject $Postimage[$field])) { throw 'authority-controller-transition-selection-drift' }
+    }
+}
+
+function New-AuthorityStatePostimage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$AuthorityStateIntent,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$TargetContextIntent,
+        [Parameter(Mandatory)][AllowNull()][object[]]$FinalResolvedIdentities,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$RuntimeRefs
+    )
+
+    foreach ($runtimeKey in $script:AuthorityStateRuntimeFieldNames) {
+        if ($AuthorityStateIntent.Contains($runtimeKey)) { throw 'authority-state-intent-mismatch' }
+    }
+    $intentKeySet = [Collections.Generic.List[string]]::new()
+    $intentKeySet.AddRange([string[]]$script:AuthorityStateIntentFieldNames)
+    $kind = [string]$AuthorityStateIntent.LastOperationKind
+    if ($kind -ceq 'controller-transition') {
+        if (-not $AuthorityStateIntent.Contains('ReceiptRef') -or [string]$AuthorityStateIntent.ReceiptRef -cne 'NO_LIVE_MUTATION') { throw 'authority-controller-transition-receipt-shape' }
+        $intentKeySet.Add('ReceiptRef')
+    }
+    else {
+        if ($AuthorityStateIntent.Contains('ReceiptRef')) { throw 'authority-state-intent-mismatch' }
+    }
+    Assert-AuthorityStateExactKeys -InputObject $AuthorityStateIntent -Expected $intentKeySet.ToArray() -Label 'authority state intent'
+    Assert-AuthorityTargetContextIntent -Intent $TargetContextIntent
+    if ([string]$AuthorityStateIntent.HomeAuthorityKey -cne [string]$TargetContextIntent.HomeAuthorityKey) { throw 'authority-state-intent-mismatch' }
+    $expectedRefKeys = @('JournalId','PreStatePhaseHash')
+    if ($kind -cne 'controller-transition') { $expectedRefKeys = @('JournalId','PreStatePhaseHash','ReceiptId','ReceiptHash') }
+    Assert-AuthorityStateExactKeys -InputObject $RuntimeRefs -Expected $expectedRefKeys -Label 'authority state runtime refs'
+    if ($kind -cne 'controller-transition') {
+        Assert-AuthorityStateString $RuntimeRefs.ReceiptId 'authority state runtime ReceiptId' '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z'
+        Assert-AuthorityStateString $RuntimeRefs.ReceiptHash 'authority state runtime ReceiptHash' '\A[0-9a-f]{64}\z'
+    }
+    Assert-AuthorityStateString $RuntimeRefs.JournalId 'authority state runtime JournalId' '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z'
+    Assert-AuthorityStateString $RuntimeRefs.PreStatePhaseHash 'authority state runtime PreStatePhaseHash' '\A[0-9a-f]{64}\z'
+    $finalTargetContextHash = Get-SemanticJsonHash -InputObject @($FinalResolvedIdentities)
+    Assert-AuthorityFinalIdentitiesDerivedFromIntent -Intent $TargetContextIntent -FinalResolvedIdentities $FinalResolvedIdentities -FinalTargetContextHash $finalTargetContextHash
+    $postimage = [ordered]@{}
+    foreach ($key in @($AuthorityStateIntent.Keys)) { $postimage[[string]$key] = $AuthorityStateIntent[$key] }
+    foreach ($key in @($RuntimeRefs.Keys)) { $postimage[[string]$key] = $RuntimeRefs[$key] }
+    $postimage['FinalResolvedIdentities'] = @($FinalResolvedIdentities)
+    $postimage['FinalTargetContextHash'] = $finalTargetContextHash
+    Test-CurrentEnvStateSemantics -Document $postimage
+    return $postimage
+}
