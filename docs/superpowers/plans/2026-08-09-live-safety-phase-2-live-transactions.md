@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Task 1 Steps 1-3 are complete (Task 1 3/6; Phase 2 overall 3/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
+**Status:** In progress. Task 1 Steps 1-4 are complete (Task 1 4/6; Phase 2 overall 4/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
 
 **Goal:** Replace normal sync, explicit retirement, backup, rollback, and crash recovery with one target-bound, globally serialized, receipt-backed live transaction protocol.
 
@@ -445,9 +445,25 @@ suites, or tree-kill failures (external create-new summary SHA-256
 gate, the pinned secret scan (zero leaks), the 7/15/7 skill build, and the sync DryRun passing.
 Task 1 is 3/6 and Phase 2 is 3/52. Production Apply remains interlocked.
 
-- [ ] **Step 4: Define the minimal shared-state and generic state-target contract**
+- [x] **Step 4: Define the minimal shared-state and generic state-target contract**
 
 Schema 3 requires `SelectionKind=environment`, one named environment lock/task baseline for all three platforms, and a `LastOperationKind` branch; no full-repo/MISSING selection exists. Receipt-bearing operations require ReceiptId/ReceiptHash; controller-transition requires `ReceiptRef=NO_LIVE_MUTATION` while preserving the prior selection. State references immutable RootClaimsHash and never stores its own hash. Define TargetContextIntent versus Apply-derived FinalResolvedIdentities/FinalTargetContextHash, including ABSENT→created fixtures, then implement validated read plus journaled create-new of proposed claims and atomic create/replace/recovery-copy of a caller-supplied state postimage; claims are created only for first authority, never replaced. Phase 3 owns migrate/adopt/repair-adopt/takeover/activation semantics.
+
+**Step 4 closure (2026-09-07):** Step 4 is complete. All four slices of the reviewed design
+(`tmp/grok-step4-shared-state-design.md`) are implemented and validated: the in-memory
+`TargetContextIntent`/state-intent contract functions with the trusted serializer (`d4e82ff`),
+the held write-side validated read forked from the view's classification (`db1af36`), the
+first-authority root-claims create-new writer that is the claim-accept gate's unique production
+caller (`94f1287`), and the atomic create/replace/recovery-copy state postimage writer over the
+serializer's bytes (`ce70ada`). No schema changed, no sealed script changed, claims are created
+only for first authority and never replaced, and Phase 3 owns migrate/adopt/repair-adopt/
+takeover/activation. The authoritative unified `run-tests.ps1 -All` run over the final state
+passed all 34 suites exactly once with zero failures, timeouts, duplicates, missing suites, or
+tree-kill failures (external create-new summary SHA-256
+`741dbd345b458e451a436a94d3dd532be74afc7c6f530a04ca9160ea553cdb55`; hard-kill 318/0, seams
+56/0, root-claims 777/0, transaction 64/0, command-result 51/0 inside the run), with the parse
+gate, the pinned secret scan (zero leaks), the 7/15/7 skill build, and the sync DryRun passing.
+Task 1 is 4/6 and Phase 2 is 4/52. Production Apply remains interlocked.
 
 - [ ] **Step 5: Implement deterministic lock semantics**
 

@@ -822,40 +822,43 @@ stay unconnected to production mutation routes.
 
 ## Current phase
 
-Phase 2 is 0/9 Tasks and 3/52 Steps with Task 1 at 3/6. Task 1 Step 3 (Build the registry view)
-is complete as of 2026-09-07 with the authoritative unified validation over the final state
-(34/34 suites, summary SHA-256 `fac9c474926389e6334c64b62897d6aad77a6bb0f9c82fd255e141c18e0ca848`):
-the read-only ordered registry view now carries the shared live-transaction immediate-child
-contract and ordered live reservation rows, the setup-finalize window primitive and the public
-`setup-finalize-required` status/Apply token, the claim-accept consumer as the unique production
-caller of the complete forbidden-root matrix, and the zero-caller TransactionId create-new mint.
-The witnessed view's read-only contract is unchanged (`HELD_METADATA_VERIFIED` /
-`UNPROBED_READ_ONLY`), live-journal structure and interpretation remain deferred to Task 4, and
-the recover-finalize Apply stays behind the recorded deferred items.
+Phase 2 is 0/9 Tasks and 4/52 Steps with Task 1 at 4/6. Task 1 Step 4 (Define the minimal
+shared-state and generic state-target contract) is complete as of 2026-09-07 with the
+authoritative unified validation over the final state (34/34 suites, summary SHA-256
+`741dbd345b458e451a436a94d3dd532be74afc7c6f530a04ca9160ea553cdb55`): the in-memory intent
+contract functions with the trusted serializer, the held write-side validated read (throw-on-
+invalid, deliberately forked from the view's INVALID classification), the first-authority
+root-claims create-new writer as the claim-accept gate's unique production caller, and the
+atomic create/replace/recovery-copy state postimage writer. No schema changed, no sealed script
+changed, and claims are never replaced. The implementation was Grok-executed under the updated
+delegation model (main agent orchestrates, reviews every diff, commits); one main-agent defect
+(MissingRemainder type contradiction) was caught by the Grok verification round and fixed.
 
-Step 3 was implemented in four slices per the reviewed design at `tmp/grok-step3-registry-design.md`.
-Slice 1 (live-namespace child contract and ordered
-reservation rows) is implemented in commit `8ab102f`: the V1 immediate-child allow table ships
-empty (Task 4 owns the journal contract), any published child of a live transaction directory
-fails closed as `manual-recovery-required`, and each UUID directory becomes an ordered
-`live-transaction-namespace` reservation row parent-bound to the LiveTransactionsRoot. The fixed
-infrastructure forbidden check is split into two runs (claims vs ControlBase+BackupRoot; extended
-claims+live vs BackupRoot only) because the transaction directories legitimately live inside
-ControlBase. Slice 2 (`setup-finalize-required` semantics) is implemented in commit `45b9510`:
-the sealed `Get-SealedRegistryCanonicalSetupWindow` primitive classifies the claim/state window
-under a held canonical locator (zero production callers; the witnessed geometry cannot present a
-missing state, so view wiring stays out), and the status/Apply wrapper promotes
-`canonical-setup-required` to the public WARN token `setup-finalize-required` when the repo's
-claim file exists under ControlBase, with Apply refusing to spawn the interlocked engine. Slice 3
-is implemented in commit `744f326`: `Assert-SealedRegistryClaimAccept` is the unique production
-caller of the forbidden-root matrix and routes `ExistingReservations` through the split disjoint
-helper so live-transaction-namespace rows flow correctly; the consumer stays a zero-external-caller
-gate for Step 5 D2's first-authority writer. Slice 4 is implemented in commit `c107ab8`:
-`New-SealedHeldLiveTransactionNamespace` mints a normalized UUID directory create-new under the
-held global lock with the current-user-only descriptor, writes no journal, and stays a
-zero-production-caller primitive. All four Step 3 slices are implemented and the authoritative
-unified run over the final state passed 34/34 suites. Production Apply remains disconnected, and
-live-journal structure and interpretation remain deferred to Task 4.
+The next implementable work is Task 1 Step 5 (Implement deterministic lock semantics): retrofit
+every production route to the strict lock order, enable only the reviewed setup Apply to
+bootstrap a MISSING ControlBase, keep public protocol v1 zero-wait, and recompute all identities
+under the held locks before any backup/workspace. Task 1 Step 6 (verification) and Tasks 2-9
+follow. Production Apply remains disconnected, and live-journal structure and interpretation
+remain deferred to Task 4.
+
+Step 3 (commits `8ab102f`/`45b9510`/`744f326`/`c107ab8`) added the shared live-transaction
+immediate-child contract with ordered live reservation rows and the split fixed-infrastructure
+disjoint runs, the sealed setup-finalize window primitive plus the public
+`setup-finalize-required` status/Apply token, the claim-accept consumer as the forbidden-root
+matrix's unique production caller, and the zero-caller TransactionId create-new mint.
+
+Step 4 (commits `d4e82ff`/`db1af36`/`94f1287`/`ce70ada`) added the in-memory
+`TargetContextIntent`/state-intent contract functions with the trusted serializer, the held
+write-side validated read (`Read-SealedRegistryValidatedAuthorityDocuments`, throw-on-invalid,
+forked from the view's INVALID classification), the first-authority root-claims create-new
+writer as the claim-accept gate's unique production caller (pending held create-new plus
+no-replace rename, claims never replaced), and the atomic create/replace/recovery-copy state
+postimage writer over the serializer's bytes (Replace's OS backup holds the old state bytes,
+asserted). Both steps were Grok-executed under the updated delegation model with main-agent
+line-by-line diff review; the reflection inventory stands at count 13459 / digest
+`876c2a3f807b74e2b09d23ac4939c6ed895e6c8a16875348874a10d72fd5b005`, and the authoritative
+unified runs over both final states passed 34/34 suites. Production Apply remains disconnected,
+and live-journal structure and interpretation remain deferred to Task 4.
 
 Pre-lock `MetadataOnly` TargetContext is discovery/planning evidence, never mutation authority.
 The sealed read-only registry now recaptures a supplied current route only under the genuine
