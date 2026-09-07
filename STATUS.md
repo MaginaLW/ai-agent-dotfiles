@@ -2107,6 +2107,37 @@ checkpoint recorded for Step 5/6. Worktree overlay locking, journal phases, and 
 route retrofit stay with Phase 3 / Task 4 / Task 5. Production Apply remains interlocked, and
 no live root or Git index/ref was changed.
 
+## 2026-09-08 Phase 2 Task 1 Step 6: verification of identity, state shape, and locking
+
+Step 6 (the final Task 1 step) is the verification pass over the plan's expected outcomes, with
+each outcome pinned to its existing test anchors plus one new route-contention block:
+
+- (a) absent→created preserves the authority namespace: home-authority
+  `[home authority artifact contracts]` and the live-root classification blocks — COVERED.
+- (b) partial overlap rejected globally: the ordered-reservation disjoint matrix, the two
+  HomeRoots ancestor/descendant rejection, and the forbidden-root pairwise nesting — COVERED.
+- (c) kill-between claim→setup-state uniquely finalizes or stops with relocation and
+  state-without-claim rejected: the hard-kill setup claim/state matrix and the recovery
+  locator/without-claim fixtures — COVERED.
+- (d) state oneOf/RootClaimsHash at the schema/semantic layers: the HA artifact-contract block
+  and the registered negative fixtures' FailureLayer matrix — COVERED.
+- (e) canonical versus live/retirement non-interleaving with a zero-write loser: the
+  live-concurrency canonical-bound contention blocks, the Step 5 setup-Apply interlocked
+  contention block, and the new `[canonical live lock-order route contention]` block added this
+  step (a recover Apply lock-order loser emits `operation-lock-busy` with a tree-hash-zero-write
+  fixture, and a released holder returns to `canonical-recovery-apply-interlocked` / 75, also
+  zero-write) — COVERED for the routes that exist; real retirement/sync routes stay with Task 5.
+- (f) OS-handle release after owner death only (durable post-kill classification stays with
+  Tasks 4/6/8): the live-concurrency owner-death assertion — COVERED.
+
+Validation on 2026-09-08: `tests/home-authority.tests.ps1` passed 207/0, `tests/live-concurrency.tests.ps1`
+passed 221/0, `tests/root-claims-registry.tests.ps1` passed 883/0 (876 + 7 new route-contention
+assertions), seams stayed 56/0 without a baseline change (tests-only diff), the pinned secret
+scan reported zero leaks, and `git diff --check` was clean. No production script changed. The
+authoritative unified `run-tests.ps1 -All` run over the Task 1-complete state is executing and
+will be recorded on completion. Production Apply remains interlocked, and no live root or Git
+index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
