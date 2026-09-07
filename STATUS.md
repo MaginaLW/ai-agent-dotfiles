@@ -1993,6 +1993,52 @@ implementable work is Task 1 Step 4 (Define the minimal shared-state and generic
 contract). No production Apply, backup, rollback, retirement, live-root mutation, or Git
 index/ref mutation was performed. Production Apply remains interlocked.
 
+## 2026-09-07 Phase 2 Task 1 Step 4: shared-state and state-target contract implemented in four slices
+
+Per the reviewed four-slice design (`tmp/grok-step4-shared-state-design.md`, Grok), Step 4 is
+implemented with Grok as the implementation agent under the updated delegation model (main agent
+orchestrates, reviews every diff line by line, and commits), in four commits, with zero schema
+changes, zero sealed-script changes, and no live-journal structure:
+
+- Slice 1 (commit `d4e82ff`): `scripts/shared-authority-state-common.ps1` gains the in-memory
+  intent contract — `New-AuthorityTargetContextIntent` (claims projection without capability),
+  `Assert-AuthorityTargetContextIntent`, `Assert-AuthorityFinalIdentitiesDerivedFromIntent`
+  (EXISTS identity freeze, ABSENT new-identity rules including the parent-alias ban,
+  `FinalTargetContextHash` reproduction), `Get-AuthorityStateIntentProjection` (strips exactly
+  the Apply-derived runtime fields), `Assert-AuthorityControllerTransitionPreservesSelection`
+  (the eleven frozen selection fields with the allowed-drift set), and the trusted serializer
+  `New-AuthorityStatePostimage` (intent runtime-pollution rejection, receipt-bearing versus
+  controller-transition `RuntimeRefs` shapes, `Test-CurrentEnvStateSemantics` on the assembled
+  postimage). The first Grok verification round caught a real main-agent defect (a string
+  assertion contradicting the array-typed `MissingRemainder` check) that was fixed before commit.
+- Slice 2 (commit `db1af36`): `Read-SealedRegistryValidatedAuthorityDocuments` — the held
+  write-side validated read (genuine global witness; MISSING states returned, contract-invalid
+  documents thrown as `authority-state-validated-read-invalid` with the inner contract message),
+  deliberately forked from the view's `INVALID` classification, which a regression pair pins.
+- Slice 3 (commit `94f1287`): `New-SealedRegistryRootClaimsCreateNew` — the first-authority
+  claims writer (proposed-claims schema/semantics/SID binding, MISSING gate, the claim-accept
+  consumer as its unique production caller, authority-directory create-new with the
+  current-user-only descriptor, pending held create-new plus no-replace rename, and the returned
+  `TargetContextIntent` with the claims file-byte hash). The seams boundary was rewritten:
+  claim-accept moved from the zero-external blanket to a unique-caller inventory.
+- Slice 4 (commit `ce70ada`): `Write-SealedRegistryCurrentEnvStatePostimage` — the atomic
+  create / replace / recovery-copy trio (Create via held create-new plus no-replace rename;
+  Replace via OS `File.Replace` with the old state bytes landing in the caller-supplied recovery
+  path and asserted; RecoveryCopy publishing the new postimage bytes create-new), all through the
+  trusted serializer's bytes with held schema revalidation, the pair semantics, the
+  controller-transition G4 comparator, and identity-checked failure cleanup.
+
+Focused validation per slice: root-claims-registry progressed 713 → 724 → 736 → 756 → 777 PASS
+with exit code 0 each time; seams stayed 56/0 with the reflection inventory re-pinned to count
+13459 / digest `876c2a3f807b74e2b09d23ac4939c6ed895e6c8a16875348874a10d72fd5b005`; the parse gate
+accepted all 156 files; the pinned secret scan reported zero leaks; `git diff --check` was clean;
+`build-skills.ps1` produced 7/15/7 and the sync DryRun changed no live file. The authoritative
+unified `run-tests.ps1 -All` run over the Step 4 state is executing and will be recorded on
+completion. Claims are created only for first authority and never replaced; Phase 3 owns
+migrate/adopt/repair-adopt/takeover/activation; Task 4 owns the live-journal phases that will
+wrap these primitives. Production Apply remains interlocked, and no live root or Git index/ref
+was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
