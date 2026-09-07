@@ -6805,10 +6805,6 @@ try {
     Assert-TestCondition ($lockOrderOverlayBefore -ceq (Get-TestRegistryTreeHash -Fixture $lockOrderOverlayFixture) -and
         -not (Test-Path -LiteralPath ([string]$lockOrderOverlayCanonical.ContractPaths.LockPath))) 'REQUIRED overlay creates no lock files'
 
-    Assert-ThrowsPattern {
-        Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$lockOrderOverlayCanonical.RepoRoot) -RouteKind setup -AcquisitionMode SetupBootstrap -AuthorityContext $lockOrderOverlayFixture.Context | Out-Null
-    } '^lock-order-setup-bootstrap-not-wired$' 'SetupBootstrap is accepted as a parameter and rejected as unwired'
-
     $lockOrderReverseFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-reverse-global'
     $lockOrderReverseCanonical = New-TestCanonicalClaim -Fixture $lockOrderReverseFixture -Name 'lock-order-reverse'
     $null = Complete-TestCanonicalSetupState -Fixture $lockOrderReverseFixture -CanonicalFixture $lockOrderReverseCanonical
@@ -6834,6 +6830,139 @@ try {
     } '^canonical-setup-required$' 'live without setup-state is canonical-setup-required'
     Assert-TestCondition ($lockOrderMissingBefore -ceq (Get-TestRegistryTreeHash -Fixture $lockOrderMissingStateFixture) -and
         -not (Test-Path -LiteralPath ([string]$lockOrderMissingStateCanonical.ContractPaths.SetupStatePath))) 'missing setup-state normalize/live creates no prefix or setup-state'
+
+    Write-Host '[canonical setup bootstrap lock-order]'
+    $setupJournalManifestCommand = Get-Command New-SealedHeldCanonicalSetupJournalTargetManifest -CommandType Function -ErrorAction Stop
+    $setupJournalManifestNames = @($setupJournalManifestCommand.ScriptBlock.Ast.Body.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    Assert-TestCondition (($setupJournalManifestNames -join ',') -ceq 'LockOrderHandle,PlanPayload') 'setup journal-target CommandAst parameter names are frozen'
+    foreach ($publicSelector in @('Wait','LockWaitSeconds','WaitSeconds','InternalWaitSeconds','HomeRoot','BackupRoot','TestMode')) {
+        Assert-TestCondition (-not $setupJournalManifestCommand.Parameters.ContainsKey($publicSelector)) "New-SealedHeldCanonicalSetupJournalTargetManifest rejects public -$publicSelector"
+    }
+
+    $setupRejectFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'lock-order-setup-bootstrap-reject'
+    $setupRejectClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $setupRejectFixture -Name 'lock-order-setup-bootstrap-reject'
+    $setupRejectBefore = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $setupRejectFixture.Context
+    foreach ($setupRejectKind in @('normalize','live')) {
+        Assert-ThrowsPattern {
+            Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$setupRejectClaim.RepoRoot) -RouteKind $setupRejectKind -AcquisitionMode SetupBootstrap `
+                -AuthorityContext $setupRejectFixture.Context -Intent $setupRejectFixture.Intent -PlanPayload $setupRejectClaim.PlanPayload | Out-Null
+        } '^live-cannot-bootstrap-missing-canonical-claim$' "$setupRejectKind + SetupBootstrap is live-cannot-bootstrap-missing-canonical-claim"
+    }
+    Assert-ThrowsPattern {
+        Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$setupRejectClaim.RepoRoot) -RouteKind setup -AcquisitionMode SetupBootstrap `
+            -AuthorityContext $setupRejectFixture.Context -Intent $setupRejectFixture.Intent | Out-Null
+    } '^live-cannot-bootstrap-missing-canonical-claim$' 'setup + SetupBootstrap with a null PlanPayload is live-cannot-bootstrap-missing-canonical-claim'
+    $setupRejectWrongKind = [ordered]@{}
+    foreach ($setupRejectKey in @($setupRejectClaim.PlanPayload.Keys)) { $setupRejectWrongKind[$setupRejectKey] = $setupRejectClaim.PlanPayload[$setupRejectKey] }
+    $setupRejectWrongKind.OperationKind = 'normalize'
+    Assert-ThrowsPattern {
+        Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$setupRejectClaim.RepoRoot) -RouteKind setup -AcquisitionMode SetupBootstrap `
+            -AuthorityContext $setupRejectFixture.Context -Intent $setupRejectFixture.Intent -PlanPayload $setupRejectWrongKind | Out-Null
+    } '^live-cannot-bootstrap-missing-canonical-claim$' 'setup + SetupBootstrap with a non-setup PlanPayload is live-cannot-bootstrap-missing-canonical-claim'
+    $setupRejectAfter = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $setupRejectFixture.Context
+    Assert-TestCondition ([string]$setupRejectBefore.SnapshotHash -ceq [string]$setupRejectAfter.SnapshotHash -and
+        [string]$setupRejectAfter.Status -ceq 'MISSING' -and
+        -not (Test-Path -LiteralPath ([string]$setupRejectFixture.Context.PrivateRootBase)) -and
+        -not (Test-Path -LiteralPath ([string]$setupRejectFixture.Context.ControlBootstrapLockPath)) -and
+        -not (Test-Path -LiteralPath ([string]$setupRejectClaim.ContractPaths.LockPath))) 'non-setup SetupBootstrap and invalid setup PlanPayload create no prefix, lock, or bootstrap files'
+
+    $setupMissingClaimFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-live-existing-only-missing-claim'
+    $setupMissingClaimCanonical = New-TestCanonicalClaim -Fixture $setupMissingClaimFixture -Name 'lock-order-live-missing-claim'
+    $setupMissingClaimLock = Enter-CanonicalRepoLock -LockPath ([string]$setupMissingClaimCanonical.ContractPaths.LockPath) -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $setupMissingClaimLock
+    $setupMissingClaimBeforeStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $setupMissingClaimFixture.Context
+    $setupMissingClaimPath = [IO.Path]::GetFullPath((Join-Path ([string]$setupMissingClaimFixture.Context.CanonicalRootsRoot) ([string]$setupMissingClaimCanonical.RepoId + '.json')))
+    Assert-ThrowsPattern {
+        Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$setupMissingClaimCanonical.RepoRoot) -RouteKind live -AcquisitionMode ExistingOnly `
+            -AuthorityContext $setupMissingClaimFixture.Context | Out-Null
+    } '^canonical-setup-required$' 'live ExistingOnly without a canonical claim is canonical-setup-required'
+    $setupMissingClaimAfterStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $setupMissingClaimFixture.Context
+    $setupMissingClaimFiles = @(Get-ChildItem -LiteralPath ([string]$setupMissingClaimFixture.Context.CanonicalRootsRoot) -File -Force -ErrorAction SilentlyContinue | Where-Object { $null -ne $_ })
+    Assert-TestCondition ([string]$setupMissingClaimBeforeStatus.SnapshotHash -ceq [string]$setupMissingClaimAfterStatus.SnapshotHash -and
+        [string]$setupMissingClaimAfterStatus.Status -ceq 'COMPLETE' -and
+        -not (Test-Path -LiteralPath $setupMissingClaimPath) -and
+        $setupMissingClaimFiles.Count -eq 0) 'live ExistingOnly missing-claim does not Complete or write a canonical-roots child'
+
+    $setupBootstrapFixture = New-TestCanonicalPrivateRootCompletionFixture -Parent $workRoot -Name 'lock-order-setup-bootstrap-missing'
+    $setupBootstrapClaim = New-TestCanonicalPrivateRootCompletionClaim -Fixture $setupBootstrapFixture -Name 'lock-order-setup-bootstrap-missing'
+    $setupBootstrapClaimPath = [IO.Path]::GetFullPath((Join-Path (Join-Path ([string]$setupBootstrapFixture.Context.ControlBase) 'canonical-roots') ([string]$setupBootstrapClaim.PlanPayload.ExpectedRootClaim.RepoId + '.json')))
+    $setupBootstrapHeld = $null
+    try {
+        Assert-TestCondition (-not (Test-Path -LiteralPath ([string]$setupBootstrapFixture.Context.ControlBootstrapLockPath)) -and
+            -not (Test-Path -LiteralPath ([string]$setupBootstrapFixture.Context.PrivateRootBase))) 'the SetupBootstrap MISSING fixture starts with no bootstrap prefix'
+        $setupBootstrapHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$setupBootstrapClaim.RepoRoot) -RouteKind setup -AcquisitionMode SetupBootstrap `
+            -AuthorityContext $setupBootstrapFixture.Context -Intent $setupBootstrapFixture.Intent -PlanPayload $setupBootstrapClaim.PlanPayload
+        $setupBootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $setupBootstrapFixture.Context
+        $setupBootstrapExpectedState = New-CanonicalFinalSetupState -PlanPayload $setupBootstrapClaim.PlanPayload -RepoRoot ([string]$setupBootstrapClaim.RepoRoot)
+        $setupBootstrapExpectedStateHash = Get-SemanticJsonHash -InputObject $setupBootstrapExpectedState
+        $setupBootstrapRootsFiles = @(Get-ChildItem -LiteralPath ([string]$setupBootstrapFixture.Context.CanonicalRootsRoot) -File -Force -ErrorAction SilentlyContinue | Where-Object { $null -ne $_ })
+        $setupBootstrapJournalFiles = @()
+        if (Test-Path -LiteralPath ([string]$setupBootstrapClaim.ContractPaths.TransactionsRoot) -PathType Container) {
+            $setupBootstrapJournalFiles = @(Get-ChildItem -LiteralPath ([string]$setupBootstrapClaim.ContractPaths.TransactionsRoot) -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $null -ne $_ })
+        }
+        Assert-TestCondition (@($setupBootstrapHeld).Count -eq 1 -and
+            $setupBootstrapHeld -is [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder] -and
+            [string]$setupBootstrapHeld.AcquisitionMode -ceq 'SetupBootstrap' -and
+            [string]$setupBootstrapHeld.CanonicalGlobalBinding -ceq 'UNBOUND_SETUP_WINDOW' -and
+            [string]$setupBootstrapHeld.CloseState -ceq 'OPEN' -and
+            [string]$setupBootstrapHeld.DurableClaimWrite -ceq 'deferred' -and
+            [string]$setupBootstrapHeld.DurableSetupStateWrite -ceq 'deferred' -and
+            [string]$setupBootstrapStatus.Status -ceq 'COMPLETE' -and
+            [long]$setupBootstrapStatus.CompletePrefixLength -eq 7) 'setup + SetupBootstrap Enter completes the prefix, stays UNBOUND_SETUP_WINDOW, and defers durable writes'
+        Assert-TestCondition ($null -ne $setupBootstrapHeld.JournalTargets -and
+            @($setupBootstrapHeld.JournalTargets).Count -eq 1 -and
+            [string]$setupBootstrapHeld.JournalTargets.Write -ceq 'deferred' -and
+            [string]$setupBootstrapHeld.JournalTargets.GlobalClaimPath -ceq $setupBootstrapClaimPath -and
+            [string]$setupBootstrapHeld.JournalTargets.CanonicalSetupStatePath -ceq [IO.Path]::GetFullPath([string]$setupBootstrapClaim.ContractPaths.SetupStatePath) -and
+            [string]$setupBootstrapHeld.JournalTargets.ExpectedClaimHash -ceq [string]$setupBootstrapClaim.PlanPayload.ExpectedRootClaimHash -and
+            [string]$setupBootstrapHeld.JournalTargets.ExpectedSetupStateHash -ceq $setupBootstrapExpectedStateHash) 'SetupBootstrap journal targets name both slots with deferred Write and the plan hashes'
+        Assert-TestCondition (-not (Test-Path -LiteralPath $setupBootstrapClaimPath) -and
+            -not (Test-Path -LiteralPath ([string]$setupBootstrapClaim.ContractPaths.SetupStatePath)) -and
+            $setupBootstrapRootsFiles.Count -eq 0 -and
+            $setupBootstrapJournalFiles.Count -eq 0) 'SetupBootstrap Enter writes no claim file, no setup-state file, and no journal records'
+        $setupBootstrapManifest = New-SealedHeldCanonicalSetupJournalTargetManifest -LockOrderHandle $setupBootstrapHeld -PlanPayload $setupBootstrapClaim.PlanPayload
+        Assert-TestCondition (@($setupBootstrapManifest).Count -eq 1 -and
+            [string]$setupBootstrapManifest.Write -ceq 'deferred' -and
+            [string]$setupBootstrapManifest.GlobalClaimPath -ceq [string]$setupBootstrapHeld.JournalTargets.GlobalClaimPath -and
+            [string]$setupBootstrapManifest.CanonicalSetupStatePath -ceq [string]$setupBootstrapHeld.JournalTargets.CanonicalSetupStatePath -and
+            [string]$setupBootstrapManifest.ExpectedClaimHash -ceq [string]$setupBootstrapHeld.JournalTargets.ExpectedClaimHash -and
+            [string]$setupBootstrapManifest.ExpectedSetupStateHash -ceq [string]$setupBootstrapHeld.JournalTargets.ExpectedSetupStateHash) 'New-SealedHeldCanonicalSetupJournalTargetManifest on a COMPLETE SetupBootstrap handle returns one deferred two-slot object'
+        $null = Assert-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $setupBootstrapHeld -RepoRoot ([string]$setupBootstrapClaim.RepoRoot)
+    }
+    finally {
+        if ($null -ne $setupBootstrapHeld) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $setupBootstrapHeld }
+    }
+    $setupBootstrapAfterExit = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $setupBootstrapFixture.Context
+    Assert-TestCondition ([string]$setupBootstrapAfterExit.Status -ceq 'COMPLETE' -and
+        [long]$setupBootstrapAfterExit.CompletePrefixLength -eq 7) 'Exit after SetupBootstrap leaves the completed prefix in place'
+
+    $setupBootstrapReentered = $null
+    try {
+        $setupBootstrapReentered = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$setupBootstrapClaim.RepoRoot) -RouteKind setup -AcquisitionMode SetupBootstrap `
+            -AuthorityContext $setupBootstrapFixture.Context -Intent $setupBootstrapFixture.Intent -PlanPayload $setupBootstrapClaim.PlanPayload
+        $setupBootstrapReentryStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $setupBootstrapFixture.Context
+        Assert-TestCondition ([string]$setupBootstrapReentered.CanonicalGlobalBinding -ceq 'UNBOUND_SETUP_WINDOW' -and
+            [string]$setupBootstrapReentered.AcquisitionMode -ceq 'SetupBootstrap' -and
+            [string]$setupBootstrapReentryStatus.Status -ceq 'COMPLETE' -and
+            [long]$setupBootstrapReentryStatus.CompletePrefixLength -eq 7 -and
+            -not (Test-Path -LiteralPath $setupBootstrapClaimPath) -and
+            -not (Test-Path -LiteralPath ([string]$setupBootstrapClaim.ContractPaths.SetupStatePath))) 'a second SetupBootstrap Enter after Exit follows the composer idempotent COMPLETE path'
+    }
+    finally {
+        if ($null -ne $setupBootstrapReentered) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $setupBootstrapReentered }
+    }
+
+    $setupExistingOnlyManifestFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-setup-journal-existing-only'
+    $setupExistingOnlyManifestCanonical = New-TestCanonicalClaim -Fixture $setupExistingOnlyManifestFixture -Name 'lock-order-setup-journal-existing-only'
+    $null = Complete-TestCanonicalSetupState -Fixture $setupExistingOnlyManifestFixture -CanonicalFixture $setupExistingOnlyManifestCanonical
+    $setupExistingOnlyManifestHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$setupExistingOnlyManifestCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly `
+        -AuthorityContext $setupExistingOnlyManifestFixture.Context
+    try {
+        Assert-ThrowsPattern {
+            New-SealedHeldCanonicalSetupJournalTargetManifest -LockOrderHandle $setupExistingOnlyManifestHeld -PlanPayload $setupExistingOnlyManifestCanonical.PlanPayload | Out-Null
+        } '^lock-order-setup-journal-targets-require-setup-bootstrap$' 'New-SealedHeldCanonicalSetupJournalTargetManifest rejects an ExistingOnly handle'
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $setupExistingOnlyManifestHeld }
 
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)

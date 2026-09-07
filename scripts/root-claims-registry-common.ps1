@@ -8035,6 +8035,12 @@ namespace AiAgentDotfiles {
             Interlocked.CompareExchange(ref closeState, 1, 0);
         }
 
+        public void AttachJournalTargetsExact(object journalTargetsValue) {
+            if (Volatile.Read(ref closeState) == 1 || journalTargetsValue == null || JournalTargets != null)
+                throw new InvalidOperationException("canonical-witness-required");
+            JournalTargets = journalTargetsValue;
+        }
+
         public static SealedHeldCanonicalLiveLockOrder CreateExact(string routeKindValue, string acquisitionModeValue,
             string overlayApplicabilityValue, string repoRootValue, object canonicalLockHandleValue,
             object canonicalWitnessValue, object bootstrapLockHandleValue, object globalLockHandleValue,
@@ -8083,7 +8089,13 @@ function Enter-SealedHeldCanonicalLiveLockOrder {
     )
 
     if ($OverlayApplicability -ceq 'REQUIRED') { throw 'worktree-overlay-lock-not-implemented' }
-    if ($AcquisitionMode -ceq 'SetupBootstrap') { throw 'lock-order-setup-bootstrap-not-wired' }
+    if ($AcquisitionMode -ceq 'SetupBootstrap') {
+        if ($RouteKind -cne 'setup') { throw 'live-cannot-bootstrap-missing-canonical-claim' }
+        if ($null -eq $PlanPayload) { throw 'live-cannot-bootstrap-missing-canonical-claim' }
+        if ([string](Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'OperationKind') -cne 'setup') {
+            throw 'live-cannot-bootstrap-missing-canonical-claim'
+        }
+    }
     if ($null -eq $AuthorityContext) { throw 'sealed-home-authority-bootstrap-context-required' }
 
     $nestedContext = Get-SealedRegistryObjectValue -InputObject $AuthorityContext -Name 'AuthorityContext'
@@ -8097,9 +8109,25 @@ function Enter-SealedHeldCanonicalLiveLockOrder {
     $resolvedToolchainRoot = if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { [string]$script:CanonicalToolchainRoot } else { [IO.Path]::GetFullPath($ToolchainRoot) }
     $git = Get-CanonicalGitContext -RepoRoot $resolvedRepoRoot
     $paths = Get-CanonicalTransactionContractPaths -GitContext $git
-    $bootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $operationContext
-    if ([string]$bootstrapStatus.Status -cne 'COMPLETE' -or [long]$bootstrapStatus.CompletePrefixLength -ne 7) {
-        throw 'home-authority-bootstrap-incomplete'
+    if ($AcquisitionMode -ceq 'ExistingOnly') {
+        $bootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $operationContext
+        if ([string]$bootstrapStatus.Status -cne 'COMPLETE' -or [long]$bootstrapStatus.CompletePrefixLength -ne 7) {
+            throw 'home-authority-bootstrap-incomplete'
+        }
+    }
+    elseif ($AcquisitionMode -ceq 'SetupBootstrap') {
+        $projection = Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'ExpectedSetupStateProjection'
+        $expectedProjectionHash = [string](Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'ExpectedSetupStateProjectionHash')
+        if ((Get-SemanticJsonHash -InputObject $projection) -cne $expectedProjectionHash) { throw 'canonical setup projection hash mismatch' }
+        if ((Get-SemanticJsonHash -InputObject (Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'PrivateRootBootstrapIntent')) -cne [string](Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'SetupIntentHash')) { throw 'canonical setup intent hash mismatch' }
+        $expectedRootClaim = Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'ExpectedRootClaim'
+        $rootClaimHash = Get-SemanticJsonHash -InputObject $expectedRootClaim
+        if ($rootClaimHash -cne [string](Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'ExpectedRootClaimHash')) { throw 'canonical root claim hash mismatch' }
+        if ([string](Get-SealedRegistryObjectValue -InputObject $projection -Name 'SetupIntentHash') -cne [string](Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'SetupIntentHash') -or
+            [string](Get-SealedRegistryObjectValue -InputObject $expectedRootClaim -Name 'SetupIntentHash') -cne [string](Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'SetupIntentHash') -or
+            [string](Get-SealedRegistryObjectValue -InputObject $expectedRootClaim -Name 'ExpectedSetupStateProjectionHash') -cne $expectedProjectionHash) { throw 'canonical final setup state intent/claim/projection link mismatch' }
+        if ([string](Get-SealedRegistryObjectValue -InputObject $projection -Name 'GitCommonDirHash') -cne [string]$git.GitCommonDirHash -or
+            [string](Get-SealedRegistryObjectValue -InputObject $projection -Name 'RepoId') -cne (Get-CanonicalRepoIdentity -GitContext $git)) { throw 'canonical final setup state repository mismatch' }
     }
 
     $canonicalLock = $null
@@ -8107,6 +8135,32 @@ function Enter-SealedHeldCanonicalLiveLockOrder {
     $globalLock = $null
     $succeeded = $false
     try {
+        if ($AcquisitionMode -ceq 'SetupBootstrap') {
+            if (Test-Path -LiteralPath ([string]$paths.LockPath) -PathType Leaf) {
+                $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string]$paths.LockPath)
+            }
+            else {
+                $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string]$paths.LockPath) -AllowCreate
+            }
+            $completion = Complete-SealedHeldCanonicalPrivateRootBootstrap -AuthorityContext $operationContext -Intent $Intent `
+                -PlanPayload $PlanPayload -CanonicalRepoLockHandle $canonicalLock -RepoRoot $resolvedRepoRoot
+            $globalLock = $completion.GlobalLockHandle
+            if ($null -eq (Get-SealedRegistryObjectValue -InputObject $globalLock -Name 'FixedEnvelopeHash')) {
+                $envelopeHash = [string](Get-SealedRegistryObjectValue -InputObject $globalLock -Name 'BootstrapSnapshotHash')
+                if ($envelopeHash -cnotmatch $script:SealedRegistryHashPattern) { throw 'canonical-witness-required' }
+                $null = Add-Member -InputObject $globalLock -NotePropertyName FixedEnvelopeHash -NotePropertyValue $envelopeHash
+            }
+            $handle = [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder]::CreateExact(
+                $RouteKind, $AcquisitionMode, $OverlayApplicability, $resolvedRepoRoot,
+                $canonicalLock, $null, $null, $globalLock, 'UNBOUND_SETUP_WINDOW',
+                $operationContext, $null, $null, $null, 'deferred', 'deferred')
+            $null = Add-Member -InputObject $handle -NotePropertyName FinalSetupState -NotePropertyValue $completion.FinalSetupState
+            $manifest = New-SealedHeldCanonicalSetupJournalTargetManifest -LockOrderHandle $handle -PlanPayload $PlanPayload
+            $handle.AttachJournalTargetsExact($manifest)
+            $succeeded = $true
+            return $handle
+        }
+
         $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string]$paths.LockPath)
         $allowUnboundWindow = $RouteKind -cin @('setup','canonical-recover')
         $setupStatePresent = Test-Path -LiteralPath ([string]$paths.SetupStatePath) -PathType Leaf
@@ -8157,7 +8211,7 @@ function Enter-SealedHeldCanonicalLiveLockOrder {
             $domainException = $domainException.InnerException
             if ($domainException -is [AggregateException]) { break }
         }
-        if ($null -ne $canonicalLock -and $null -eq $globalLock -and [string]$domainException.Message -ceq 'operation-lock-busy') {
+        if ($AcquisitionMode -ceq 'ExistingOnly' -and $null -ne $canonicalLock -and $null -eq $globalLock -and [string]$domainException.Message -ceq 'operation-lock-busy') {
             throw 'canonical-witness-required'
         }
         throw $domainException
@@ -8238,6 +8292,35 @@ function Assert-SealedHeldCanonicalLiveLockOrder {
         throw 'canonical-witness-required'
     }
     return $true
+}
+
+function New-SealedHeldCanonicalSetupJournalTargetManifest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$LockOrderHandle,
+        [Parameter(Mandatory)]$PlanPayload
+    )
+
+    if ($LockOrderHandle -isnot [AiAgentDotfiles.SealedHeldCanonicalLiveLockOrder]) { throw 'lock-order-setup-journal-targets-require-setup-bootstrap' }
+    if ([string]$LockOrderHandle.CloseState -cne 'OPEN') { throw 'lock-order-setup-journal-targets-require-setup-bootstrap' }
+    if ([string]$LockOrderHandle.AcquisitionMode -cne 'SetupBootstrap') { throw 'lock-order-setup-journal-targets-require-setup-bootstrap' }
+    if ([string]$LockOrderHandle.CanonicalGlobalBinding -cne 'UNBOUND_SETUP_WINDOW') { throw 'lock-order-setup-journal-targets-require-setup-bootstrap' }
+
+    $git = Get-CanonicalGitContext -RepoRoot ([string]$LockOrderHandle.RepoRoot)
+    $paths = Get-CanonicalTransactionContractPaths -GitContext $git
+    $controlBase = [IO.Path]::GetFullPath([string](Get-SealedRegistryObjectValue -InputObject $LockOrderHandle.AuthorityContext -Name 'ControlBase'))
+    $repoId = Get-CanonicalRepoIdentity -GitContext $git
+    $finalSetupState = Get-SealedRegistryObjectValue -InputObject $LockOrderHandle -Name 'FinalSetupState'
+    if ($null -eq $finalSetupState) {
+        $finalSetupState = New-CanonicalFinalSetupState -PlanPayload $PlanPayload -RepoRoot ([string]$LockOrderHandle.RepoRoot)
+    }
+    return [pscustomobject][ordered]@{
+        GlobalClaimPath = [IO.Path]::GetFullPath((Join-Path (Join-Path $controlBase 'canonical-roots') ($repoId + '.json')))
+        CanonicalSetupStatePath = [IO.Path]::GetFullPath([string]$paths.SetupStatePath)
+        ExpectedClaimHash = [string](Get-SealedRegistryObjectValue -InputObject $PlanPayload -Name 'ExpectedRootClaimHash')
+        ExpectedSetupStateHash = Get-SemanticJsonHash -InputObject $finalSetupState
+        Write = 'deferred'
+    }
 }
 
 $sealedHeldCurrentRouteFixedEnvelopeOpenCore={
