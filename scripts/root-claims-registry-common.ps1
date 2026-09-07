@@ -3380,6 +3380,188 @@ function New-SealedRegistryRootClaimsCreateNew {
     }
 }
 
+function Write-SealedRegistryCurrentEnvStatePostimage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$GlobalLockHandle,
+        [Parameter(Mandatory)][ValidateSet('Create','Replace','RecoveryCopy')][string]$WriteKind,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Postimage,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$TargetContextIntent,
+        [Parameter(Mandatory)][string]$PendingDirectory,
+        [Parameter(Mandatory)][string]$PendingName,
+        [string]$RecoveryCopyPath,
+        [AllowNull()][System.Collections.IDictionary]$PreviousStateDocument
+    )
+
+    $null = Assert-SealedHomeAuthorityGlobalLockWitness -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
+
+    $validated = Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle
+    if ([string]$validated.ClaimsStatus -cne 'VALID') {
+        throw ('authority-state-validated-read-invalid' + ': claims not valid')
+    }
+    if ([string]$Postimage.RootClaimsHash -cne [string]$validated.ClaimsBytesHash) {
+        throw 'current-env-state-root-claims-hash-mismatch'
+    }
+
+    $kind = [string]$Postimage.LastOperationKind
+    $projection = Get-AuthorityStateIntentProjection -StateDocument $Postimage
+    $expectedIntentKeys = [Collections.Generic.List[string]]::new()
+    $expectedIntentKeys.AddRange([string[]]$script:AuthorityStateIntentFieldNames)
+    if ($kind -ceq 'controller-transition') { $expectedIntentKeys.Add('ReceiptRef') }
+    try {
+        Assert-AuthorityStateExactKeys -InputObject $projection -Expected $expectedIntentKeys.ToArray() -Label 'authority-state-intent-mismatch'
+    }
+    catch {
+        throw 'authority-state-intent-mismatch'
+    }
+
+    $runtimeRefs = [ordered]@{
+        JournalId = $Postimage.JournalId
+        PreStatePhaseHash = $Postimage.PreStatePhaseHash
+    }
+    if ($kind -cne 'controller-transition') {
+        $runtimeRefs['ReceiptId'] = $Postimage.ReceiptId
+        $runtimeRefs['ReceiptHash'] = $Postimage.ReceiptHash
+    }
+    $serialized = New-AuthorityStatePostimage -AuthorityStateIntent $projection -TargetContextIntent $TargetContextIntent -FinalResolvedIdentities @($Postimage.FinalResolvedIdentities) -RuntimeRefs $runtimeRefs
+
+    if ($kind -ceq 'controller-transition') {
+        if ($null -eq $PreviousStateDocument) { throw 'authority-controller-transition-receipt-shape' }
+        $null = Assert-AuthorityControllerTransitionPreservesSelection -PreviousState $PreviousStateDocument -Postimage $Postimage
+    }
+
+    $postimageBytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $serialized)
+    $null = Assert-AuthoritySchemaBytes -ArtifactKind 'current-env-state' -InstanceBytes $postimageBytes
+    $null = Test-CurrentEnvStateAgainstRootClaims -StateDocument $serialized -RootClaimsDocument $validated.ClaimsDocument -RootClaimsBytes ([byte[]]$validated.ClaimsBytes)
+
+    if (-not (Test-Path -LiteralPath $PendingDirectory -PathType Container)) { throw 'authority-state-pending-directory-required' }
+    $authorityRoot = [string]$AuthorityContext.AuthorityRoot
+    if (Test-SafePathInsideRoot -Path $PendingDirectory -Root $authorityRoot) { throw 'authority-state-pending-inside-authority' }
+
+    $recoveryFull = $null
+    if ($WriteKind -cin @('Replace','RecoveryCopy')) {
+        if ([string]::IsNullOrWhiteSpace($RecoveryCopyPath)) { throw 'current-env-state-recovery-copy-must-be-create-new' }
+        $recoveryFull = [IO.Path]::GetFullPath($RecoveryCopyPath)
+    }
+
+    $homesHandles = $null
+    $pendingHandles = $null
+    $recoveryHandles = $null
+    $authorityHandle = $null
+    $tempHandle = $null
+    try {
+        $pendingHandlesReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($PendingDirectory)) -OwnershipReceiver $pendingHandlesReceiver
+        $pendingHandles = $pendingHandlesReceiver.GetDeliveredExact()
+        $pendingParent = $pendingHandles[$pendingHandles.Count - 1]
+
+        $homesHandlesReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([string]$AuthorityContext.HomesRoot) -OwnershipReceiver $homesHandlesReceiver
+        $homesHandles = $homesHandlesReceiver.GetDeliveredExact()
+        $homesParent = $homesHandles[$homesHandles.Count - 1]
+        $resolvedKey = [string]$AuthorityContext.HomeAuthorityKey
+        $authorityHandle = [AiAgentDotfiles.NoFollowFile]::HoldChildDirectory($homesParent,$resolvedKey)
+        $statePresent = @([AiAgentDotfiles.NoFollowFile]::GetChildNames($authorityHandle)) -contains 'current-env.json'
+        $destName = [IO.Path]::GetFileName([string]$AuthorityContext.CurrentEnvStatePath)
+        $destFull = [IO.Path]::GetFullPath([string]$AuthorityContext.CurrentEnvStatePath)
+
+        $recoveryParent = $null
+        $recoveryName = $null
+        if ($null -ne $recoveryFull) {
+            $recoveryParentPath = [IO.Path]::GetDirectoryName($recoveryFull)
+            $recoveryName = [IO.Path]::GetFileName($recoveryFull)
+            $recoveryHandlesReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path $recoveryParentPath -OwnershipReceiver $recoveryHandlesReceiver
+            $recoveryHandles = $recoveryHandlesReceiver.GetDeliveredExact()
+            $recoveryParent = $recoveryHandles[$recoveryHandles.Count - 1]
+            if (@([AiAgentDotfiles.NoFollowFile]::GetChildNames($recoveryParent)) -contains $recoveryName) {
+                throw 'current-env-state-recovery-copy-must-be-create-new'
+            }
+        }
+
+        if ($WriteKind -ceq 'Create' -and $statePresent) { throw 'current-env-state-must-be-create-new' }
+        if ($WriteKind -ceq 'Replace' -and -not $statePresent) { throw 'current-env-state-replace-requires-existing' }
+
+        $tempHandle = [AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFile($pendingParent,$PendingName,$postimageBytes)
+        $heldBytes = [AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($tempHandle,[long]$postimageBytes.LongLength)
+        $null = Assert-AuthoritySchemaBytes -ArtifactKind 'current-env-state' -InstanceBytes ([byte[]]$heldBytes)
+        $stagedHash = [string]$tempHandle.ReadResult.Sha256
+        $stagedIdentity = [string]$tempHandle.ReadResult.Identity
+
+        $stateBytesHash = $null
+        $fileIdentity = $null
+        $recoveryOut = $null
+        $recoveryHashOut = $null
+        if ($WriteKind -ceq 'Create') {
+            try {
+                $publishedInfo = [AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($tempHandle,$authorityHandle,$destName)
+            }
+            catch [ComponentModel.Win32Exception] {
+                if ($_.Exception.NativeErrorCode -in @(80,183)) { throw 'current-env-state-must-be-create-new' }
+                throw
+            }
+            if ([string]$publishedInfo.Identity -cne [string]$tempHandle.Info.Identity -or [long]$publishedInfo.Length -ne [long]$tempHandle.ReadResult.Length) {
+                throw 'current-env-state published artifact identity differs from its held exact bytes'
+            }
+            $stateBytesHash = $stagedHash
+            $fileIdentity = [string]$publishedInfo.Identity
+        }
+        elseif ($WriteKind -ceq 'RecoveryCopy') {
+            try {
+                $publishedInfo = [AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($tempHandle,$recoveryParent,$recoveryName)
+            }
+            catch [ComponentModel.Win32Exception] {
+                if ($_.Exception.NativeErrorCode -in @(80,183)) { throw 'current-env-state-recovery-copy-must-be-create-new' }
+                throw
+            }
+            if ([string]$publishedInfo.Identity -cne [string]$tempHandle.Info.Identity -or [long]$publishedInfo.Length -ne [long]$tempHandle.ReadResult.Length) {
+                throw 'current-env-state published artifact identity differs from its held exact bytes'
+            }
+            $stateBytesHash = $stagedHash
+            $fileIdentity = [string]$publishedInfo.Identity
+            $recoveryOut = $recoveryFull
+            $recoveryHashOut = $stagedHash
+        }
+        else {
+            $stagedPath = [IO.Path]::GetFullPath((Join-Path $PendingDirectory $PendingName))
+            $tempHandle.Dispose()
+            $tempHandle = $null
+            try {
+                [IO.File]::Replace($stagedPath,$destFull,$recoveryFull,$true)
+            }
+            catch {
+                try { [AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($pendingParent,$PendingName,$stagedIdentity) | Out-Null } catch {}
+                throw
+            }
+            $destRead = [AiAgentDotfiles.NoFollowFile]::HashChildRegularFile($authorityHandle,$destName)
+            $recoveryRead = [AiAgentDotfiles.NoFollowFile]::HashChildRegularFile($recoveryParent,$recoveryName)
+            if ([string]$destRead.Sha256 -cne $stagedHash) {
+                throw 'current-env-state published artifact identity differs from its held exact bytes'
+            }
+            if ([string]$recoveryRead.Sha256 -cne [string]$validated.StateBytesHash) {
+                throw 'current-env-state recovery copy is not the replaced dest bytes'
+            }
+            $stateBytesHash = [string]$destRead.Sha256
+            $fileIdentity = [string]$destRead.Identity
+            $recoveryOut = $recoveryFull
+            $recoveryHashOut = [string]$recoveryRead.Sha256
+        }
+
+        return [pscustomobject][ordered]@{
+            WriteKind=$WriteKind; StateBytesHash=$stateBytesHash; FileIdentity=$fileIdentity
+            RecoveryCopyPath=$recoveryOut; RecoveryCopyBytesHash=$recoveryHashOut
+        }
+    }
+    finally {
+        if ($null -ne $tempHandle) { $tempHandle.Dispose() }
+        if ($null -ne $authorityHandle) { $authorityHandle.Dispose() }
+        if ($null -ne $recoveryHandles) { Close-SafeDirectoryContainmentChain -Handles $recoveryHandles }
+        if ($null -ne $pendingHandles) { Close-SafeDirectoryContainmentChain -Handles $pendingHandles }
+        if ($null -ne $homesHandles) { Close-SafeDirectoryContainmentChain -Handles $homesHandles }
+    }
+}
+
 function Get-SealedHomeAuthorityRegistryView {
     [CmdletBinding()]
     param(

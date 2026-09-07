@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13379
-$reviewedAllScriptsReflectionSensitiveDigest='3b622e2d2fd27b44bde1dd80d96068d536649cf4d92976f4312541c6d8418a3c'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13459
+$reviewedAllScriptsReflectionSensitiveDigest='876c2a3f807b74e2b09d23ac4939c6ed895e6c8a16875348874a10d72fd5b005'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -399,6 +399,9 @@ function Invoke-ProductionSeamAnalysis {
     $targetContextIntentFactoryAllowedCallers=[Collections.Generic.List[string]]::new()
     $targetContextIntentAllowedCallers=[Collections.Generic.List[string]]::new()
     $finalIdentitiesAllowedCallers=[Collections.Generic.List[string]]::new()
+    $intentProjectionAllowedCallers=[Collections.Generic.List[string]]::new()
+    $postimageSerializerAllowedCallers=[Collections.Generic.List[string]]::new()
+    $controllerTransitionAllowedCallers=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandInventory=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandViolations=[Collections.Generic.List[string]]::new()
     $allScriptsCommandQualificationViolations=[Collections.Generic.List[string]]::new()
@@ -550,9 +553,7 @@ function Invoke-ProductionSeamAnalysis {
                 'Get-SealedRegistryCanonicalSetupWindow',
                 'New-SealedHeldLiveTransactionNamespace',
                 'New-SealedRegistryRootClaimsCreateNew',
-                'Get-AuthorityStateIntentProjection',
-                'Assert-AuthorityControllerTransitionPreservesSelection',
-                'New-AuthorityStatePostimage')){
+                'Write-SealedRegistryCurrentEnvStatePostimage')){
                 $fixedObservationBoundaryViolations.Add("canonical private-root completion caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Assert-SealedRegistryClaimAccept'){
@@ -564,7 +565,7 @@ function Invoke-ProductionSeamAnalysis {
             }
             if($commandName -ieq 'Read-SealedRegistryValidatedAuthorityDocuments'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
-                    [string]$owner.Name -ceq 'New-SealedRegistryRootClaimsCreateNew'){
+                    [string]$owner.Name -cin @('New-SealedRegistryRootClaimsCreateNew','Write-SealedRegistryCurrentEnvStatePostimage')){
                     $validatedReadAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("validated-read caller: $($model.RelativePath):$($ownerName):$commandName")}
@@ -589,6 +590,27 @@ function Invoke-ProductionSeamAnalysis {
                     $finalIdentitiesAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("authority final identities caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Get-AuthorityStateIntentProjection'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Write-SealedRegistryCurrentEnvStatePostimage'){
+                    $intentProjectionAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("authority state intent projection caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'New-AuthorityStatePostimage'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Write-SealedRegistryCurrentEnvStatePostimage'){
+                    $postimageSerializerAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("authority state postimage serializer caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Assert-AuthorityControllerTransitionPreservesSelection'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Write-SealedRegistryCurrentEnvStatePostimage'){
+                    $controllerTransitionAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("authority controller-transition comparator caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'Assert-SealedProposedClaimsForbiddenRootMatrix'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
@@ -940,7 +962,10 @@ function Invoke-ProductionSeamAnalysis {
     if((@($claimAcceptAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedClaimAcceptOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed claim-accept owner inventory changed')
     }
-    $reviewedValidatedReadOwnerInventory=@('scripts/root-claims-registry-common.ps1:New-SealedRegistryRootClaimsCreateNew')
+    $reviewedValidatedReadOwnerInventory=@(
+        'scripts/root-claims-registry-common.ps1:New-SealedRegistryRootClaimsCreateNew'
+        'scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage'
+    ) | Sort-Object -CaseSensitive
     if((@($validatedReadAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedValidatedReadOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed validated-read owner inventory changed')
     }
@@ -958,6 +983,18 @@ function Invoke-ProductionSeamAnalysis {
     if((@($finalIdentitiesAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedFinalIdentitiesOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed authority final identities owner inventory changed')
     }
+    $reviewedIntentProjectionOwnerInventory=@('scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage')
+    if((@($intentProjectionAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedIntentProjectionOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed authority state intent projection owner inventory changed')
+    }
+    $reviewedPostimageSerializerOwnerInventory=@('scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage')
+    if((@($postimageSerializerAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedPostimageSerializerOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed authority state postimage serializer owner inventory changed')
+    }
+    $reviewedControllerTransitionOwnerInventory=@('scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage')
+    if((@($controllerTransitionAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedControllerTransitionOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed authority controller-transition comparator owner inventory changed')
+    }
     foreach($completionEntry in @(
         @('Register-SealedHeldHomeAuthorityCanonicalGlobalBinding','scripts/home-authority-common.ps1'),
         @('Complete-SealedHeldCanonicalRecoveryRootRemainder','scripts/root-claims-registry-common.ps1'),
@@ -970,6 +1007,7 @@ function Invoke-ProductionSeamAnalysis {
         @('New-SealedHeldLiveTransactionNamespace','scripts/root-claims-registry-common.ps1'),
         @('Read-SealedRegistryValidatedAuthorityDocuments','scripts/root-claims-registry-common.ps1'),
         @('New-SealedRegistryRootClaimsCreateNew','scripts/root-claims-registry-common.ps1'),
+        @('Write-SealedRegistryCurrentEnvStatePostimage','scripts/root-claims-registry-common.ps1'),
         @('New-AuthorityTargetContextIntent','scripts/shared-authority-state-common.ps1'),
         @('Assert-AuthorityTargetContextIntent','scripts/shared-authority-state-common.ps1'),
         @('Assert-AuthorityFinalIdentitiesDerivedFromIntent','scripts/shared-authority-state-common.ps1'),

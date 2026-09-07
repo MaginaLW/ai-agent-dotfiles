@@ -6584,6 +6584,164 @@ try {
     Assert-TestCondition ($createCollisionBefore -ceq (Get-TestRegistryTreeHash -Fixture $createCollisionFixture) -and
         -not (Test-Path -LiteralPath ([string]$createCollisionFixture.Context.RootClaimsPath))) 'an authority-directory collision is zero-write and leaves no claims file'
 
+    Write-Host '[current-env-state postimage write]' -ForegroundColor Cyan
+
+    $postimageFixture = New-TestRegistryFixture -Parent $workRoot -Name 'current-env-state-postimage'
+    $postimagePending = Join-Path $postimageFixture.Root 'pending-scratch'
+    [IO.Directory]::CreateDirectory($postimagePending) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $postimagePending
+    $postimageRecoveryOld = Join-Path $postimageFixture.Root 'current-env.recovery-old.json'
+    $postimageRecoveryController = Join-Path $postimageFixture.Root 'current-env.recovery-controller.json'
+    $postimageRecoveryCopy = Join-Path $postimageFixture.Root 'current-env.recovery-copy.json'
+    $postimageClaims = New-TestRootClaims -Context $postimageFixture.Context
+    $null = Add-TestAuthorityArtifacts -Context $postimageFixture.Context -Claims $postimageClaims -State $null
+    $postimageIntent = New-AuthorityTargetContextIntent -RootClaimsDocument $postimageClaims
+    $postimageClaimsBytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $postimageClaims)
+    $postimageClaimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($postimageClaimsBytes)).ToLowerInvariant()
+    $postimageStateLike = New-TestCurrentEnvState -Claims $postimageClaims -ClaimsBytes $postimageClaimsBytes
+    $postimageFinalRows = @($postimageStateLike.FinalResolvedIdentities)
+    $postimageStateIntent = [ordered]@{
+        SchemaVersion=3L; ArtifactKind='current-env-state'; HomeAuthorityKey=[string]$postimageClaims.HomeAuthorityKey; AuthorityGeneration=1L
+        RootClaimsHash=$postimageClaimsHash; SelectionKind='environment'; EnvironmentName='full'; EnvironmentLockHash=('c' * 64)
+        TaskOverlayHash=('d' * 64); TaskOverlaySkills=@(
+            [ordered]@{ Platform='Claude'; Skills=@() },[ordered]@{ Platform='Codex'; Skills=@() },[ordered]@{ Platform='Reasonix'; Skills=@() })
+        ManifestHashes=@(
+            [ordered]@{ Platform='Claude'; Hash=('a' * 64) },[ordered]@{ Platform='Codex'; Hash=('b' * 64) },[ordered]@{ Platform='Reasonix'; Hash=('c' * 64) })
+        FinalManagedHashes=@(
+            [ordered]@{ Platform='Claude'; Hash=('d' * 64) },[ordered]@{ Platform='Codex'; Hash=('e' * 64) },[ordered]@{ Platform='Reasonix'; Hash=('0' * 64) })
+        ControllerRepoFingerprint=('1' * 64); ApprovedToolchainHash=('2' * 64); PlanHash=('3' * 64); DocumentHash=('4' * 64)
+        LastOperationKind='initial'
+    }
+    $postimageRuntimeRefs = [ordered]@{
+        JournalId='63333333-3333-4333-8333-333333333333'; PreStatePhaseHash=('5' * 64)
+        ReceiptId='73333333-3333-4333-8333-333333333333'; ReceiptHash=('6' * 64)
+    }
+    $postimageFirst = New-AuthorityStatePostimage -AuthorityStateIntent $postimageStateIntent -TargetContextIntent $postimageIntent -FinalResolvedIdentities $postimageFinalRows -RuntimeRefs $postimageRuntimeRefs
+    $postimageWorkIntent = [ordered]@{}
+    foreach ($postimageKey in @($postimageStateIntent.Keys)) { $postimageWorkIntent[$postimageKey] = $postimageStateIntent[$postimageKey] }
+    $postimageWorkIntent['EnvironmentName'] = 'work'
+    $postimageWorkIntent['LastOperationKind'] = 'environment'
+    $postimageWorkRuntime = [ordered]@{
+        JournalId='63333333-3333-4333-8333-333333333333'; PreStatePhaseHash=('5' * 64)
+        ReceiptId='83333333-3333-4333-8333-333333333333'; ReceiptHash=('7' * 64)
+    }
+    $postimageWork = New-AuthorityStatePostimage -AuthorityStateIntent $postimageWorkIntent -TargetContextIntent $postimageIntent -FinalResolvedIdentities $postimageFinalRows -RuntimeRefs $postimageWorkRuntime
+    $postimageControllerIntent = [ordered]@{}
+    foreach ($postimageKey in @($postimageStateIntent.Keys)) { $postimageControllerIntent[$postimageKey] = $postimageStateIntent[$postimageKey] }
+    $postimageControllerIntent['LastOperationKind'] = 'controller-transition'
+    $postimageControllerIntent['ReceiptRef'] = 'NO_LIVE_MUTATION'
+    $postimageControllerRuntime = [ordered]@{ JournalId='63333333-3333-4333-8333-333333333333'; PreStatePhaseHash=('5' * 64) }
+    $postimageController = New-AuthorityStatePostimage -AuthorityStateIntent $postimageControllerIntent -TargetContextIntent $postimageIntent -FinalResolvedIdentities $postimageFinalRows -RuntimeRefs $postimageControllerRuntime
+    $postimagePendingName = 'current-env.pending.json'
+    $postimageFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @(
+        [string]$postimageFixture.Context.AuthorityRoot,[string]$postimagePending,$postimageRecoveryOld,$postimageRecoveryController,$postimageRecoveryCopy) -Force
+    $postimageWriteBefore = Get-TestRegistryTreeHash -Fixture $postimageFixture
+    $postimageLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $postimageFixture.Context
+    try {
+        $postimageMissingView = Get-SealedHomeAuthorityRegistryView -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock
+        Assert-TestCondition (@($postimageMissingView.Authorities).Count -eq 1 -and
+            [string]$postimageMissingView.Authorities[0].StateStatus -ceq 'MISSING' -and
+            [string]$postimageMissingView.MutationGate -ceq 'REPAIR_ADOPT_ONLY') 'claims-only authority is MISSING state and REPAIR_ADOPT_ONLY before postimage create'
+        $postimageCreate = Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Create -Postimage $postimageFirst -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName
+        Assert-TestCondition (@($postimageCreate).Count -eq 1 -and
+            [string]$postimageCreate.WriteKind -ceq 'Create' -and
+            [string]$postimageCreate.StateBytesHash -cmatch '\A[0-9a-f]{64}\z' -and
+            [string]$postimageCreate.FileIdentity -cmatch '\A[0-9a-f]{8}:[0-9a-f]{16}\z' -and
+            $null -eq $postimageCreate.RecoveryCopyPath -and
+            $null -eq $postimageCreate.RecoveryCopyBytesHash) 'create-new publishes current-env.json and returns dest hash and identity'
+        $postimageCreateBytes = [IO.File]::ReadAllBytes([string]$postimageFixture.Context.CurrentEnvStatePath)
+        $postimageCreateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$postimageCreateBytes)).ToLowerInvariant()
+        Assert-TestCondition ($postimageCreateHash -ceq [string]$postimageCreate.StateBytesHash) 'on-disk create dest bytes SHA-256 equal the returned StateBytesHash'
+        $postimageCreateView = Get-SealedHomeAuthorityRegistryView -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock
+        Assert-TestCondition (@($postimageCreateView.Authorities).Count -eq 1 -and
+            [string]$postimageCreateView.Authorities[0].StateStatus -ceq 'VALID' -and
+            [string]$postimageCreateView.Authorities[0].StateBytesHash -ceq [string]$postimageCreate.StateBytesHash -and
+            [string]$postimageCreateView.MutationGate -ceq 'READY') 'the registry view classifies the created state as VALID and opens MutationGate to READY'
+        Assert-ThrowsPattern {
+            Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Create -Postimage $postimageFirst -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName | Out-Null
+        } '^current-env-state-must-be-create-new$' 'create-new is rejected when current-env.json already exists'
+        $postimageReplace = Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Replace -Postimage $postimageWork -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName -RecoveryCopyPath $postimageRecoveryOld
+        $postimageReplaceDestBytes = [IO.File]::ReadAllBytes([string]$postimageFixture.Context.CurrentEnvStatePath)
+        $postimageReplaceDestHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$postimageReplaceDestBytes)).ToLowerInvariant()
+        $postimageReplaceRecoveryBytes = [IO.File]::ReadAllBytes($postimageRecoveryOld)
+        $postimageReplaceRecoveryHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$postimageReplaceRecoveryBytes)).ToLowerInvariant()
+        Assert-TestCondition ([string]$postimageReplace.WriteKind -ceq 'Replace' -and
+            $postimageReplaceDestHash -ceq [string]$postimageReplace.StateBytesHash -and
+            $postimageReplaceRecoveryHash -ceq [string]$postimageReplace.RecoveryCopyBytesHash -and
+            $postimageReplaceRecoveryHash -ceq $postimageCreateHash -and
+            $postimageReplaceDestHash -cne $postimageCreateHash -and
+            [string]$postimageReplace.RecoveryCopyPath -ceq $postimageRecoveryOld) 'replace installs new dest bytes and leaves the previous dest bytes in the recovery copy'
+        $postimageCopy = Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind RecoveryCopy -Postimage $postimageWork -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName -RecoveryCopyPath $postimageRecoveryCopy
+        $postimageCopyBytes = [IO.File]::ReadAllBytes($postimageRecoveryCopy)
+        $postimageCopyHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$postimageCopyBytes)).ToLowerInvariant()
+        Assert-TestCondition ([string]$postimageCopy.WriteKind -ceq 'RecoveryCopy' -and
+            $postimageCopyHash -ceq $postimageReplaceDestHash -and
+            $postimageCopyHash -ceq [string]$postimageCopy.StateBytesHash -and
+            $postimageCopyHash -ceq [string]$postimageCopy.RecoveryCopyBytesHash) 'recovery-copy writes postimage bytes identical to dest'
+        Assert-ThrowsPattern {
+            Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind RecoveryCopy -Postimage $postimageWork -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName -RecoveryCopyPath $postimageRecoveryCopy | Out-Null
+        } '^current-env-state-recovery-copy-must-be-create-new$' 'recovery-copy is rejected when the caller-supplied dest already exists'
+        $postimageControllerWrite = Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Replace -Postimage $postimageController -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName -RecoveryCopyPath $postimageRecoveryController -PreviousStateDocument $postimageFirst
+        Assert-TestCondition ([string]$postimageControllerWrite.WriteKind -ceq 'Replace' -and
+            [string]$postimageControllerWrite.StateBytesHash -cmatch '\A[0-9a-f]{64}\z') 'controller-transition replace preserves selection against the first postimage'
+        $postimageDrifted = [ordered]@{}
+        foreach ($postimageKey in @($postimageController.Keys)) { $postimageDrifted[$postimageKey] = $postimageController[$postimageKey] }
+        $postimageDrifted['EnvironmentName'] = 'work'
+        Assert-ThrowsPattern {
+            Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Replace -Postimage $postimageDrifted -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName -RecoveryCopyPath $postimageRecoveryController -PreviousStateDocument $postimageFirst | Out-Null
+        } '^authority-controller-transition-selection-drift$' 'a controller-transition replace that changes EnvironmentName fails closed'
+        $postimageReceipted = [ordered]@{}
+        foreach ($postimageKey in @($postimageController.Keys)) { $postimageReceipted[$postimageKey] = $postimageController[$postimageKey] }
+        $postimageReceipted['ReceiptId'] = '73333333-3333-4333-8333-333333333333'
+        Assert-ThrowsPattern {
+            Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Replace -Postimage $postimageReceipted -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName -RecoveryCopyPath $postimageRecoveryController -PreviousStateDocument $postimageFirst | Out-Null
+        } '^authority-controller-transition-receipt-shape$' 'a controller-transition replace carrying ReceiptId fails closed'
+        Assert-ThrowsPattern {
+            Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Replace -Postimage $postimageController -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName -RecoveryCopyPath $postimageRecoveryController -PreviousStateDocument $null | Out-Null
+        } '^authority-controller-transition-receipt-shape$' 'a controller-transition replace without PreviousStateDocument fails closed'
+        $postimageHashMismatch = [ordered]@{}
+        foreach ($postimageKey in @($postimageFirst.Keys)) { $postimageHashMismatch[$postimageKey] = $postimageFirst[$postimageKey] }
+        $postimageHashMismatch['RootClaimsHash'] = '0' * 64
+        Assert-ThrowsPattern {
+            Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Create -Postimage $postimageHashMismatch -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName | Out-Null
+        } '^current-env-state-root-claims-hash-mismatch$' 'a postimage whose RootClaimsHash drifts from held claims bytes fails closed'
+        $postimagePolluted = [ordered]@{}
+        foreach ($postimageKey in @($postimageFirst.Keys)) { $postimagePolluted[$postimageKey] = $postimageFirst[$postimageKey] }
+        $postimagePolluted['AuthorityStateHash'] = '0' * 64
+        Assert-ThrowsPattern {
+            Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageLock -WriteKind Create -Postimage $postimagePolluted -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName | Out-Null
+        } '^authority-state-intent-mismatch$' 'a postimage polluted with an undefined intent key fails closed'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $postimageLock }
+    Assert-TestCondition ($postimageWriteBefore -ceq (Get-TestRegistryTreeHash -Fixture $postimageFixture) -and
+        @([IO.Directory]::GetFileSystemEntries([string]$postimageFixture.Context.LiveTransactionsRoot)).Count -eq 0 -and
+        @([IO.Directory]::GetFileSystemEntries([string]$postimageFixture.Context.BackupRoot)).Count -eq 0) 'postimage writes stay inside the authority dest and excluded pending/recovery paths'
+    $postimageFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$postimagePending,$postimageRecoveryOld,$postimageRecoveryController,$postimageRecoveryCopy) -Force
+    $postimageFailBefore = Get-TestRegistryTreeHash -Fixture $postimageFixture
+    $postimageFailLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $postimageFixture.Context
+    try {
+        Assert-ThrowsPattern {
+            Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageFixture.Context -GlobalLockHandle $postimageFailLock -WriteKind Create -Postimage $postimagePolluted -TargetContextIntent $postimageIntent -PendingDirectory $postimagePending -PendingName $postimagePendingName | Out-Null
+        } '^authority-state-intent-mismatch$' 'intent pollution remains zero-write after the success path'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $postimageFailLock }
+    Assert-TestCondition ($postimageFailBefore -ceq (Get-TestRegistryTreeHash -Fixture $postimageFixture)) 'postimage validation failures are zero-write outside pending and recovery paths'
+
+    $postimageNoLockFixture = New-TestRegistryFixture -Parent $workRoot -Name 'current-env-state-postimage-no-lock'
+    $postimageNoLockPending = Join-Path $postimageNoLockFixture.Root 'pending-scratch'
+    [IO.Directory]::CreateDirectory($postimageNoLockPending) | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $postimageNoLockPending
+    $postimageNoLockClaims = New-TestRootClaims -Context $postimageNoLockFixture.Context
+    $null = Add-TestAuthorityArtifacts -Context $postimageNoLockFixture.Context -Claims $postimageNoLockClaims -State $null
+    $postimageNoLockIntent = New-AuthorityTargetContextIntent -RootClaimsDocument $postimageNoLockClaims
+    $postimageNoLockFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$postimageNoLockPending) -Force
+    $postimageNoLockBefore = Get-TestRegistryTreeHash -Fixture $postimageNoLockFixture
+    Assert-ThrowsPattern {
+        Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageNoLockFixture.Context -GlobalLockHandle $null -WriteKind Create -Postimage $postimageFirst -TargetContextIntent $postimageNoLockIntent -PendingDirectory $postimageNoLockPending -PendingName $postimagePendingName | Out-Null
+    } 'because it is null' 'postimage write without a lock fails closed'
+    Assert-TestCondition ($postimageNoLockBefore -ceq (Get-TestRegistryTreeHash -Fixture $postimageNoLockFixture) -and
+        -not (Test-Path -LiteralPath ([string]$postimageNoLockFixture.Context.CurrentEnvStatePath))) 'a lock failure is zero-write and leaves no current-env.json'
+
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 
