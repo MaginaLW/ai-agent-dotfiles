@@ -43,10 +43,36 @@ try {
         Assert-CanonicalDocumentHashNotConsumed -DocumentHash ([string]$document.DocumentHash)
         $null=Assert-CanonicalPlanCurrent -Document $document -PlanPath $PlanPath -ToolchainRoot $ToolchainRoot
         $failureMessageId='canonical-command-failed'
-        $resultDocument=New-CanonicalPublicCommandResult -Result FAIL -CommandKind $commandKind -MessageToken canonical-apply-interlocked -PlanHash ([string]$document.PlanHash)
-        Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
-        [Console]::Error.WriteLine('canonical-apply-interlocked')
-        exit 75
+        . (Join-Path $PSScriptRoot 'root-claims-registry-common.ps1')
+        $held=$null
+        try {
+            try {
+                $selection=Get-CanonicalPrivateRootSelection -RepoRoot $RepoRoot
+                $authorityContext=Resolve-HomeAuthorityContextFromIdentity -Identity (Get-WindowsHomeAuthorityIdentity)
+                if ([System.IO.Path]::GetFullPath([string]$authorityContext.ControlBase) -cne [System.IO.Path]::GetFullPath([string]$selection.ControlBase)) {
+                    throw 'sealed-home-authority-bootstrap-path-mismatch: ControlBase'
+                }
+                $held=Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot $RepoRoot -RouteKind $OperationKind -AcquisitionMode ExistingOnly -OverlayApplicability NOT_APPLICABLE -AuthorityContext $authorityContext -ToolchainRoot $ToolchainRoot
+            }
+            catch {
+                $lockToken=[string]$_.Exception.Message
+                if ($lockToken -cin @('canonical-lock-missing','live-lock-missing','global-live-lock-missing','canonical-setup-required','home-authority-bootstrap-incomplete') -or
+                    $lockToken -like 'home-authority-bootstrap-manual-recovery-required*') {
+                    $held=$null
+                }
+                else { throw }
+            }
+            if ($held) {
+                $null=Get-SealedHeldLockOrderRecompute -LockOrderHandle $held -PlanDocument $document -ExpectedOperationKind $OperationKind
+            }
+            $resultDocument=New-CanonicalPublicCommandResult -Result FAIL -CommandKind $commandKind -MessageToken canonical-apply-interlocked -PlanHash ([string]$document.PlanHash)
+            Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
+            [Console]::Error.WriteLine('canonical-apply-interlocked')
+            exit 75
+        }
+        finally {
+            if ($held) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $held }
+        }
     }
 
     $planResolution=Resolve-PrivateArtifactPath -Path $PlanPath -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf

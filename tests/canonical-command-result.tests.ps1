@@ -153,9 +153,52 @@ function Assert-CanonicalCommandFailure {
     Assert ($Invocation.Code -eq $ExitCode -and (Test-ExactDiagnosticToken -Stderr $Invocation.Stderr -ExpectedToken $MessageToken) -and (Test-CommandResult -Document $document -Result $Result -CommandKind $CommandKind -MessageToken $MessageToken)) $Message
 }
 
+function Set-TestCurrentUserOnlyAcl {
+    param([Parameter(Mandatory)][string]$Path)
+    $sidText = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $sid = [Security.Principal.SecurityIdentifier]::new($sidText)
+    $security = [Security.AccessControl.DirectorySecurity]::new()
+    $security.SetOwner($sid)
+    $security.SetAccessRuleProtection($true, $false)
+    $inherit = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+    $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inherit, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow))
+    Set-Acl -LiteralPath $Path -AclObject $security
+}
+
+function Get-TestDirectoryTreeHash {
+    param([Parameter(Mandatory)][string]$Root, [string[]]$ExcludeRelativePaths = @())
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return 'ABSENT' }
+    return [string](Get-SafeTreeSnapshot -Root $Root -ExcludeRelativePaths $ExcludeRelativePaths).TreeHash
+}
+
+function Get-TestControlBaseHash {
+    param([Parameter(Mandatory)][string]$ControlBase)
+    $exclude = [Collections.Generic.List[string]]::new()
+    $lockPath = Join-Path $ControlBase 'live-mutation.lock'
+    if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+        $exclude.Add(([IO.Path]::GetRelativePath($ControlBase, $lockPath)).Replace([char]92, [char]47))
+    }
+    return (Get-TestDirectoryTreeHash -Root $ControlBase -ExcludeRelativePaths @($exclude))
+}
+
+function Remove-TestCreatedPrivatePrefix {
+    param($Context)
+    if ($null -eq $Context) { return }
+    $bootstrapLock = [string]$Context.ControlBootstrapLockPath
+    $privateBase = [string]$Context.PrivateRootBase
+    if (-not [string]::IsNullOrWhiteSpace($bootstrapLock) -and (Test-Path -LiteralPath $bootstrapLock)) {
+        Remove-Item -LiteralPath $bootstrapLock -Force
+    }
+    if (-not [string]::IsNullOrWhiteSpace($privateBase) -and (Test-Path -LiteralPath $privateBase)) {
+        Remove-Item -LiteralPath $privateBase -Recurse -Force
+    }
+}
+
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('ai-agent-dotfiles-command-result-' + [Guid]::NewGuid().ToString('N'))
 $evidenceRoot = Join-Path $testRoot 'evidence'
 [IO.Directory]::CreateDirectory($evidenceRoot) | Out-Null
+$script:createdRealPrivatePrefix = $false
+$script:createdRealPrivateContext = $null
 
 try {
     $setupScript = Join-Path $RepoRoot 'scripts/setup-canonical-transaction.ps1'
@@ -400,12 +443,186 @@ try {
         $aliasDocument = Get-ValidatedCanonicalCommandResult -Invocation $aliasInvocation -EvidenceRoot $evidenceRoot
         Assert ($aliasInvocation.Code -eq 0 -and (Test-ExactDiagnosticToken -Stderr $aliasInvocation.Stderr -ExpectedToken '') -and (Test-CommandResult -Document $aliasDocument -Result PASS -CommandKind canonical-merge -MessageToken canonical-plan-created) -and $aliasInvocation.Stdout -notmatch 'Invoking script|Command result') "agent-dotfiles $($alias.Name) merge alias emits only the child canonical result"
     }
+
+    Write-Host "`n[production apply lock-order interlocked]" -ForegroundColor Cyan
+    . (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/canonical-recovery-common.ps1')
+
+    $lockWait = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'status', '-RepoRoot', $setupRepo, '-LockWaitSeconds', '1')
+    Assert ($lockWait.Code -ne 0) 'public protocol still rejects -LockWaitSeconds 1'
+
+    $missingRepo = Join-Path $testRoot 'lock-order-missing-repo'
+    Initialize-TestRepo -Path $missingRepo
+    $missingPlan = Join-Path $evidenceRoot 'lock-order-missing-setup.json'
+    $missingDry = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $missingRepo, '-DryRun', '-PlanPath', $missingPlan)
+    $missingDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $missingDry -EvidenceRoot $evidenceRoot
+    Assert ($missingDry.Code -eq 0 -and (Test-CommandResult -Document $missingDryDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-plan-created)) 'lock-order MISSING fixture publishes a reviewed setup plan'
+    $missingSelection = Get-CanonicalPrivateRootSelection -RepoRoot $missingRepo
+    $missingControlBefore = Get-TestControlBaseHash -ControlBase ([string]$missingSelection.ControlBase)
+    $missingPrivateBefore = Get-TestDirectoryTreeHash -Root ([string](Split-Path -Parent $missingSelection.ControlBase))
+    $missingStatusBefore = Get-TestDirectoryTreeHash -Root $missingRepo
+    $missingStatus = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'status', '-RepoRoot', $missingRepo)
+    $missingStatusDocument = Get-ValidatedCanonicalCommandResult -Invocation $missingStatus -EvidenceRoot $evidenceRoot
+    $missingStatusAfter = Get-TestDirectoryTreeHash -Root $missingRepo
+    $missingPrivateAfterStatus = Get-TestDirectoryTreeHash -Root ([string](Split-Path -Parent $missingSelection.ControlBase))
+    Assert ($missingStatus.Code -eq 0 -and $missingStatusBefore -ceq $missingStatusAfter -and $missingPrivateBefore -ceq $missingPrivateAfterStatus -and (Test-CommandResult -Document $missingStatusDocument -Result WARN -CommandKind canonical-status -MessageToken canonical-setup-required)) 'status remains MetadataOnly: zero-write on the repo and private prefix'
+    $missingApply = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $missingRepo, '-Apply', '-PlanPath', $missingPlan)
+    $missingApplyDocument = Get-ValidatedCanonicalCommandResult -Invocation $missingApply -EvidenceRoot $evidenceRoot
+    $missingControlAfter = Get-TestControlBaseHash -ControlBase ([string]$missingSelection.ControlBase)
+    $missingPrivateAfter = Get-TestDirectoryTreeHash -Root ([string](Split-Path -Parent $missingSelection.ControlBase))
+    Assert ($missingApply.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $missingApply.Stderr -ExpectedToken canonical-apply-interlocked) -and (Test-CommandResult -Document $missingApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken canonical-apply-interlocked) -and [string]$missingApplyDocument.PlanHash -ceq [string]$missingDryDocument.PlanHash) 'MISSING setup Apply stays interlocked with the same PlanHash'
+    Assert ($missingControlBefore -ceq $missingControlAfter -and $missingPrivateBefore -ceq $missingPrivateAfter) 'MISSING setup Apply creates no ControlBase or private prefix'
+
+    $completeContext = Resolve-HomeAuthorityContextFromIdentity -Identity (Get-WindowsHomeAuthorityIdentity)
+    $completeOk = $false
+    try {
+        $liveBootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $completeContext
+        $completeOk = ([string]$liveBootstrapStatus.Status -ceq 'COMPLETE' -and [long]$liveBootstrapStatus.CompletePrefixLength -eq 7)
+    }
+    catch {
+        $completeOk = $false
+    }
+
+    $completeRepo = Join-Path $testRoot 'lock-order-complete-repo'
+    Initialize-TestRepo -Path $completeRepo
+    $completePlan = Join-Path $evidenceRoot 'lock-order-complete-setup.json'
+    $completeDry = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-DryRun', '-PlanPath', $completePlan)
+    $completeDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $completeDry -EvidenceRoot $evidenceRoot
+    Assert ($completeDry.Code -eq 0 -and (Test-CommandResult -Document $completeDryDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-plan-created)) 'COMPLETE-path fixture publishes a reviewed setup plan'
+    $completeGit = Get-CanonicalGitContext -RepoRoot $completeRepo
+    $completePaths = Get-CanonicalTransactionContractPaths -GitContext $completeGit
+    $completeCreatedLock = Enter-CanonicalRepoLock -LockPath ([string]$completePaths.LockPath) -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $completeCreatedLock
+    $completeClaimBefore = Get-TestDirectoryTreeHash -Root ([string]$completeContext.CanonicalRootsRoot)
+    $completeStateBefore = if (Test-Path -LiteralPath ([string]$completePaths.SetupStatePath) -PathType Leaf) { [Convert]::ToHexString([IO.File]::ReadAllBytes([string]$completePaths.SetupStatePath)).ToLowerInvariant() } else { 'ABSENT' }
+    $completeApply = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
+    $completeApplyDocument = Get-ValidatedCanonicalCommandResult -Invocation $completeApply -EvidenceRoot $evidenceRoot
+    $completeClaimAfter = Get-TestDirectoryTreeHash -Root ([string]$completeContext.CanonicalRootsRoot)
+    $completeStateAfter = if (Test-Path -LiteralPath ([string]$completePaths.SetupStatePath) -PathType Leaf) { [Convert]::ToHexString([IO.File]::ReadAllBytes([string]$completePaths.SetupStatePath)).ToLowerInvariant() } else { 'ABSENT' }
+    Assert ($completeApply.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $completeApply.Stderr -ExpectedToken canonical-apply-interlocked) -and (Test-CommandResult -Document $completeApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken canonical-apply-interlocked) -and [string]$completeApplyDocument.PlanHash -ceq [string]$completeDryDocument.PlanHash) 'setup Apply with an existing canonical.lock still interlocks and keeps the PlanHash'
+    Assert ($completeClaimBefore -ceq $completeClaimAfter -and $completeStateBefore -ceq $completeStateAfter) 'setup Apply is zero-write on claims and setup-state'
+
+    if ($completeOk) {
+        $holderCanonical = $null
+        $holderGlobal = $null
+        try {
+            $holderCanonical = Enter-CanonicalRepoLock -LockPath ([string]$completePaths.LockPath)
+            $holderGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $completeContext
+            $busyApply = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
+            Assert-CanonicalCommandFailure -Invocation $busyApply -EvidenceRoot $evidenceRoot -CommandKind canonical-setup -MessageToken operation-lock-busy -Message 'COMPLETE setup Apply against a canonical-global holder emits operation-lock-busy' -Result WARN -ExitCode 1
+            $holderStillBusy = $false
+            try { $null = Enter-CanonicalRepoLock -LockPath ([string]$completePaths.LockPath) }
+            catch { if ([string]$_.Exception.Message -ceq 'operation-lock-busy') { $holderStillBusy = $true } }
+            Assert $holderStillBusy 'holder canonical remains busy while the contended Apply returns'
+        }
+        finally {
+            if ($null -ne $holderGlobal) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $holderGlobal }
+            if ($null -ne $holderCanonical) { Exit-CanonicalRepoLock -LockHandle $holderCanonical }
+        }
+        $releasedApply = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
+        $releasedApplyDocument = Get-ValidatedCanonicalCommandResult -Invocation $releasedApply -EvidenceRoot $evidenceRoot
+        Assert ($releasedApply.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $releasedApply.Stderr -ExpectedToken canonical-apply-interlocked) -and (Test-CommandResult -Document $releasedApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken canonical-apply-interlocked)) 'after the holder releases, setup Apply returns to canonical-apply-interlocked'
+    }
+    else {
+        $heldCanonical = Enter-CanonicalRepoLock -LockPath ([string]$completePaths.LockPath)
+        try {
+            $nonCompleteBusy = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
+            $nonCompleteBusyDocument = Get-ValidatedCanonicalCommandResult -Invocation $nonCompleteBusy -EvidenceRoot $evidenceRoot
+            Assert ($nonCompleteBusy.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $nonCompleteBusy.Stderr -ExpectedToken canonical-apply-interlocked) -and (Test-CommandResult -Document $nonCompleteBusyDocument -Result FAIL -CommandKind canonical-setup -MessageToken canonical-apply-interlocked)) 'without a COMPLETE live prefix, a held canonical.lock does not change the interlock token'
+        }
+        finally { Exit-CanonicalRepoLock -LockHandle $heldCanonical }
+        $afterHoldApply = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
+        $afterHoldApplyDocument = Get-ValidatedCanonicalCommandResult -Invocation $afterHoldApply -EvidenceRoot $evidenceRoot
+        Assert ($afterHoldApply.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $afterHoldApply.Stderr -ExpectedToken canonical-apply-interlocked) -and (Test-CommandResult -Document $afterHoldApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken canonical-apply-interlocked)) 'after releasing the repo lock, setup Apply remains canonical-apply-interlocked'
+    }
+
+    $recoverRepo = Join-Path $testRoot 'lock-order-recover-repo'
+    Initialize-TestRepo -Path $recoverRepo
+    $recoverPrivate = Join-Path $testRoot 'lock-order-recover-private'
+    $recoverRecovery = Join-Path $recoverPrivate 'recovery'
+    $recoverControl = Join-Path $recoverPrivate 'control'
+    $recoverBackup = Join-Path $recoverPrivate 'backups'
+    $recoverProbe = Join-Path $testRoot 'lock-order-recover-probe'
+    foreach ($path in @($recoverRecovery, $recoverControl, $recoverBackup, $recoverProbe)) {
+        [IO.Directory]::CreateDirectory($path) | Out-Null
+    }
+    foreach ($path in @($recoverRecovery, $recoverControl, $recoverBackup)) { Set-TestCurrentUserOnlyAcl -Path $path }
+    $recoverPayload = New-CanonicalSetupPlanPayload -RepoRoot $recoverRepo -CanonicalRecoveryRoot $recoverRecovery -ControlBase $recoverControl -BackupRoot $recoverBackup -ProbeRoot $recoverProbe -ToolchainRoot $RepoRoot
+    $recoverGit = Get-CanonicalGitContext -RepoRoot $recoverRepo
+    $recoverPaths = Get-CanonicalTransactionContractPaths -GitContext $recoverGit
+    $recoverCreatedLock = Enter-CanonicalRepoLock -LockPath ([string]$recoverPaths.LockPath) -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $recoverCreatedLock
+    $recoverId = [Guid]::NewGuid().ToString('D').ToLowerInvariant()
+    $recoverNamespace = Join-Path $recoverPaths.TransactionsRoot (Join-Path $recoverGit.WorktreeId $recoverId)
+    $recoverHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'canonical-journal-header'
+        TransactionId = $recoverId
+        CanonicalOperationKind = 'setup'
+        OriginalDocumentHash = (Get-SemanticJsonHash -InputObject ([ordered]@{ TransactionId = $recoverId; Kind = 'setup' }))
+        OriginalPlanHash = ('2' * 64)
+        RepoId = [string]$recoverPayload.ExpectedSetupStateProjection.RepoId
+        GitCommonDirHash = [string]$recoverGit.GitCommonDirHash
+        WorktreeId = [string]$recoverGit.WorktreeId
+        TransactionNamespace = [IO.Path]::GetFullPath($recoverNamespace)
+        RecoveryTransactionRoot = Join-Path $recoverRecovery (Join-Path $recoverGit.WorktreeId $recoverId)
+        ExpectedPostconditionsHash = [string]$recoverPayload.ExpectedPostconditionsHash
+        Targets = @()
+        SetupRecovery = [ordered]@{
+            ClaimPath = Join-Path $recoverControl (Join-Path 'canonical-roots' ([string]$recoverPayload.ExpectedSetupStateProjection.RepoId + '.json'))
+            StatePath = [string]$recoverPaths.SetupStatePath
+            ExpectedClaim = $recoverPayload.ExpectedRootClaim
+            ExpectedClaimHash = [string]$recoverPayload.ExpectedRootClaimHash
+            ExpectedStateProjection = $recoverPayload.ExpectedSetupStateProjection
+            ExpectedStateProjectionHash = [string]$recoverPayload.ExpectedSetupStateProjectionHash
+        }
+    }
+    $null = New-CanonicalJournalHeader -Document $recoverHeader -TransactionNamespace $recoverNamespace
+    $recoverPlan = Join-Path $evidenceRoot 'lock-order-recover.json'
+    $recoverDry = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-DryRun', '-PlanPath', $recoverPlan)
+    $recoverDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $recoverDry -EvidenceRoot $evidenceRoot
+    Assert ($recoverDry.Code -eq 0 -and (Test-CommandResult -Document $recoverDryDocument -Result PASS -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-plan-created)) 'recover DryRun still writes one plan without taking global'
+    $recoverControlBefore = Get-TestControlBaseHash -ControlBase ([string]$completeContext.ControlBase)
+    $recoverApply = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
+    $recoverApplyDocument = Get-ValidatedCanonicalCommandResult -Invocation $recoverApply -EvidenceRoot $evidenceRoot
+    $recoverControlAfter = Get-TestControlBaseHash -ControlBase ([string]$completeContext.ControlBase)
+    Assert ($recoverApply.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $recoverApply.Stderr -ExpectedToken canonical-recovery-apply-interlocked) -and (Test-CommandResult -Document $recoverApplyDocument -Result FAIL -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-apply-interlocked)) 'recover Apply stays interlocked'
+    Assert ($recoverControlBefore -ceq $recoverControlAfter) 'recover Apply is zero-write on ControlBase claims and prefix'
+
+    if ($completeOk) {
+        $recoverHolderGlobal = $null
+        try {
+            $recoverHolderGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $completeContext
+            $recoverBusy = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
+            Assert-CanonicalCommandFailure -Invocation $recoverBusy -EvidenceRoot $evidenceRoot -CommandKind canonical-recover-abandon -MessageToken operation-lock-busy -Message 'COMPLETE recover Apply against a held global emits operation-lock-busy' -Result WARN -ExitCode 1
+        }
+        finally {
+            if ($null -ne $recoverHolderGlobal) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $recoverHolderGlobal }
+        }
+        $recoverReleased = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
+        $recoverReleasedDocument = Get-ValidatedCanonicalCommandResult -Invocation $recoverReleased -EvidenceRoot $evidenceRoot
+        Assert ($recoverReleased.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $recoverReleased.Stderr -ExpectedToken canonical-recovery-apply-interlocked) -and (Test-CommandResult -Document $recoverReleasedDocument -Result FAIL -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-apply-interlocked)) 'after the global holder releases, recover Apply returns to canonical-recovery-apply-interlocked'
+    }
+    else {
+        $recoverLockBusy = Enter-CanonicalRepoLock -LockPath ([string]$recoverPaths.LockPath)
+        try {
+            $recoverHeld = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
+            Assert-CanonicalCommandFailure -Invocation $recoverHeld -EvidenceRoot $evidenceRoot -CommandKind canonical-recover-abandon -MessageToken operation-lock-busy -Message 'recover Apply against a held canonical.lock emits operation-lock-busy' -Result WARN -ExitCode 1
+        }
+        finally { Exit-CanonicalRepoLock -LockHandle $recoverLockBusy }
+        $recoverAfterHold = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
+        $recoverAfterHoldDocument = Get-ValidatedCanonicalCommandResult -Invocation $recoverAfterHold -EvidenceRoot $evidenceRoot
+        Assert ($recoverAfterHold.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $recoverAfterHold.Stderr -ExpectedToken canonical-recovery-apply-interlocked) -and (Test-CommandResult -Document $recoverAfterHoldDocument -Result FAIL -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-apply-interlocked)) 'after releasing the repo lock, recover Apply returns to canonical-recovery-apply-interlocked'
+    }
 }
 catch {
     $script:fail++
     Write-Host "  FAIL  unexpected exception: $($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
+    if ($script:createdRealPrivatePrefix) {
+        try { Remove-TestCreatedPrivatePrefix -Context $script:createdRealPrivateContext } catch { }
+    }
     Write-Host "`ncanonical command result tests: $script:pass passed, $script:fail failed" -ForegroundColor Cyan
     if ($script:fail -eq 0 -and (Test-Path -LiteralPath $testRoot)) {
         Remove-Item -LiteralPath $testRoot -Recurse -Force

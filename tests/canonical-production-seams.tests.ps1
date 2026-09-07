@@ -266,9 +266,9 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
-$reviewedAllScriptsDynamicCommandDigest='8a3241fcb1e06aee535e2d73906d556522c041ad318023bcf9447f7f2fd745b6'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13563
-$reviewedAllScriptsReflectionSensitiveDigest='099456a090f2f58b8e221eab03e71288b3180b035e0753148aa7e43d162829a3'
+$reviewedAllScriptsDynamicCommandDigest='69aca0354d288ffb9bbf5d17c02bd20d2374c1fd72b944e10e98607af5342eae'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13584
+$reviewedAllScriptsReflectionSensitiveDigest='cad86553a3f1c08408b0e30ed664a0bee4b8d03cc403427746b610413e49e0ce'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -389,6 +389,9 @@ function Invoke-ProductionSeamAnalysis {
     $privateRootComposerAllowedCallers=[Collections.Generic.List[string]]::new()
     $setupJournalManifestAllowedCallers=[Collections.Generic.List[string]]::new()
     $lockOrderAssertInternalAllowedCallers=[Collections.Generic.List[string]]::new()
+    $lockOrderEnterAllowedCallers=[Collections.Generic.List[string]]::new()
+    $lockOrderExitAllowedCallers=[Collections.Generic.List[string]]::new()
+    $lockOrderRecomputeAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerOpenAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerRegisterAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerAssertAllowedCallers=[Collections.Generic.List[string]]::new()
@@ -543,11 +546,25 @@ function Invoke-ProductionSeamAnalysis {
                 }
                 else{$fixedObservationBoundaryViolations.Add("canonical live lock-order caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
-            elseif($commandName -iin @(
-                'Enter-SealedHeldCanonicalLiveLockOrder',
-                'Exit-SealedHeldCanonicalLiveLockOrder',
-                'Get-SealedHeldLockOrderRecompute',
-                'Assert-LockOrderBackupAllowed')){
+            elseif($commandName -ieq 'Enter-SealedHeldCanonicalLiveLockOrder'){
+                if([string]$model.RelativePath -cin @('scripts/canonical-transaction.ps1','scripts/recover-canonical-transaction.ps1') -and $null -eq $owner){
+                    $lockOrderEnterAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("canonical live lock-order caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            elseif($commandName -ieq 'Exit-SealedHeldCanonicalLiveLockOrder'){
+                if([string]$model.RelativePath -cin @('scripts/canonical-transaction.ps1','scripts/recover-canonical-transaction.ps1') -and $null -eq $owner){
+                    $lockOrderExitAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("canonical live lock-order caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            elseif($commandName -ieq 'Get-SealedHeldLockOrderRecompute'){
+                if([string]$model.RelativePath -cin @('scripts/canonical-transaction.ps1','scripts/recover-canonical-transaction.ps1') -and $null -eq $owner){
+                    $lockOrderRecomputeAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("canonical live lock-order caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            elseif($commandName -ieq 'Assert-LockOrderBackupAllowed'){
                 $fixedObservationBoundaryViolations.Add("canonical live lock-order caller: $($model.RelativePath):$($ownerName):$commandName")
             }
             if($commandName -ieq 'Complete-SealedHomeAuthorityBootstrap'){
@@ -977,6 +994,15 @@ function Invoke-ProductionSeamAnalysis {
     $reviewedPrivateRootComposerOwnerInventory=@('scripts/root-claims-registry-common.ps1:Enter-SealedHeldCanonicalLiveLockOrder')
     $reviewedSetupJournalManifestOwnerInventory=@('scripts/root-claims-registry-common.ps1:Enter-SealedHeldCanonicalLiveLockOrder')
     $reviewedLockOrderAssertInternalOwnerInventory=@('scripts/root-claims-registry-common.ps1:Get-SealedHeldLockOrderRecompute')
+    $reviewedLockOrderEnterOwnerInventory=@('scripts/canonical-transaction.ps1:<script>')
+    $reviewedLockOrderExitOwnerInventory=@(
+        'scripts/canonical-transaction.ps1:<script>'
+        'scripts/recover-canonical-transaction.ps1:<script>'
+    ) | Sort-Object -CaseSensitive
+    $reviewedLockOrderRecomputeOwnerInventory=@(
+        'scripts/canonical-transaction.ps1:<script>'
+        'scripts/recover-canonical-transaction.ps1:<script>'
+    ) | Sort-Object -CaseSensitive
     if((@($completionCompleteAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedCompletionCompleteOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed canonical bootstrap Complete owner inventory changed')
     }
@@ -991,6 +1017,15 @@ function Invoke-ProductionSeamAnalysis {
     }
     if((@($lockOrderAssertInternalAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLockOrderAssertInternalOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed lock-order Assert internal owner inventory changed')
+    }
+    if((@($lockOrderEnterAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLockOrderEnterOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed lock-order Enter owner inventory changed')
+    }
+    if((@($lockOrderExitAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLockOrderExitOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed lock-order Exit owner inventory changed')
+    }
+    if((@($lockOrderRecomputeAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLockOrderRecomputeOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed lock-order Recompute owner inventory changed')
     }
     $reviewedLiveNamespaceOwnerInventory=@('scripts/root-claims-registry-common.ps1:Get-SealedHomeAuthorityRegistryView')
     if((@($liveNamespaceAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceOwnerInventory -join "`n")){
@@ -1230,7 +1265,7 @@ Assert-TestCondition ($baseline.AllScriptsScriptBlockFunctionDefinitionInventory
 Assert-TestCondition ($baseline.AllScriptsLiteralProviderDriveTokenInventory.Count -eq 0 -and
     $baseline.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero literal provider-drive token baseline alongside direct named CommandAst analysis'
 Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture, route, observation, raw, and probe issuers plus the fixed validator have only their exact reviewed definitions, owners, and members'
-Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, canonical bootstrap Complete and the recovery remainder have only the private-root completion composer, the composer unique caller is lock-order Enter, the setup journal-target manifest is uniquely defined with Enter as its only production caller, Register remains zero-external, the resolver observation trio and the canonical live lock-order Enter/Exit/Assert trio retain zero external production callers, and all reviewed functions remain uniquely defined'
+Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, canonical bootstrap Complete and the recovery remainder have only the private-root completion composer, the composer unique caller is lock-order Enter, the setup journal-target manifest is uniquely defined with Enter as its only production caller, Register remains zero-external, the resolver observation trio retains zero external production callers, lock-order Enter/Exit/Recompute allow only the two production Apply scripts at script scope, lock-order Assert remains recompute-internal, Assert-LockOrderBackupAllowed and SetupBootstrap remain without a production caller, and all reviewed functions remain uniquely defined'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])
