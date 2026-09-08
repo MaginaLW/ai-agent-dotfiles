@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-05
+Last updated: 2026-09-09
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -24,6 +24,24 @@ started.** Tracked policy remains
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
 non-consumable preview/events plus an explicit external DryRun command. They never Apply.
+
+## 2026-09-09 ZCode lightweight adoption
+
+The owner selected this repository for continued work primarily in ZCode. The project `AGENTS.md`
+now includes the lightweight collaboration rules adapted from harness-model; `docs/ZCODE.md`
+provides the new-task handoff, existing verification entrypoints, and evidence-based closeout.
+This is a project-instruction integration, not a new ZCode skills deployment target or a full
+AI Flow installation. Global settings, model selections, skills, scripts, CI, and production
+`ReleaseState=interlocked` are unchanged. Existing live-safety roadmap records are preserved;
+the new handoff does not itself select or start the next implementation task.
+
+Runtime loading and a real ZCode coding task remain to be observed in a new ZCode task. No ZCode
+model invocation, background collection, or efficiency/defect-rate acceptance is part of this preparation.
+Future task closeout should reuse existing evidence and keep unavailable measurements `unknown`.
+
+Local preparation checks passed: the existing doctor regression, pinned secret scan, 18 local
+Markdown link targets, and whitespace checks. Independent review found no blocking issue.
+This documentation-only change did not run the full regression collection or remote CI.
 
 ## Current skill inventory
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Project instructions for Codex agents working in this repository.
+Project instructions for coding agents, including Codex and ZCode, working in this repository.
 
 ## Model selection
 
@@ -13,6 +13,33 @@ Project instructions for Codex agents working in this repository.
 - Model selection does not change permissions, concurrency limits, or independent-review requirements.
   Preserve personal overrides when maintaining templates or reviewing config deployment; see
   [config-sync boundaries](docs/README.md#14-harness-配置同步config-sync).
+
+## ZCode entry and low-intervention workflow
+
+- Open this repository root as the ZCode workspace and start a new task after instruction changes.
+  Read this file and `STATUS.md`, then explicitly read instructions relevant to the files being changed.
+  ZCode does not automatically expand linked documents or nested instruction files; see
+  [the ZCode handoff](docs/ZCODE.md).
+- Check the Git root, existing changes, and the latest task evidence before acting. Preserve other
+  work and report conflicting progress records instead of treating an old summary as authorization
+  to start or repeat a roadmap task.
+- Complete the user's authorized, recoverable work through implementation, relevant validation,
+  and fixes without repeatedly asking whether to continue. Resolve routine details independently;
+  ask only for a missing direction or a genuinely required approval, and reuse valid decisions.
+- Delegate independent work when supported, assign non-overlapping write ownership, and keep the
+  coordinator responsible for integration and final verification. Use runtime defaults and the
+  user's choices as described above; do not copy another tool's model or permission settings.
+- Use this project's PowerShell 7+ checks and required CI without reducing their scope or thresholds.
+  Report exactly which checks ran and any missing checks; local checks do not stand in for CI.
+  Make small, coherent local commits containing only reviewed changes from the current task.
+- Preserve the scope triggers, production interlock, and hard rules below. This lightweight adoption
+  adds no AI Flow task ledger, live deployment target, global configuration, or background collection.
+  Push, merge, deployment, destructive actions, credential export, and additional paid model calls
+  still require their applicable explicit authorization.
+- At task completion, summarize the task/commit range, actual checks, necessary human decisions,
+  and evidenced rework once. Reuse existing status records when appropriate; missing model identity,
+  fees, human work time, or defect evidence stays `unknown` and does not block delivery. Never infer
+  human effort from waiting time, commit raw conversations, or claim improvement from one sample.
 
 ## Scope trigger
 

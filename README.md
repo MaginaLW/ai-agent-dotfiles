@@ -13,6 +13,7 @@ This repository is intentionally conservative:
 ## Documentation
 
 - **Usage manual:** [docs/README.md](docs/README.md) — what this project is, what it syncs, how to operate it.
+- **ZCode handoff:** [docs/ZCODE.md](docs/ZCODE.md) — use ZCode to maintain this repository with project-local rules and existing checks; no new live deployment platform.
 - **Current state:** [STATUS.md](STATUS.md) — the single global status record, updated in place.
 - **Active task status:** [status/active/](status/active/) — current local-task status only.
 - **Status history:** [status/archived/](status/archived/) — completed and historical task status reports.
