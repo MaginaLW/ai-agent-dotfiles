@@ -2,6 +2,18 @@
 
 Project instructions for Codex agents working in this repository.
 
+## Model selection
+
+- Describe coordinator, implementer, and reviewer responsibilities and required capabilities without
+  binding them to a model family, version, or fixed reasoning effort.
+- Respect the user's explicit selection and existing personal settings. Otherwise use the current
+  session/runtime defaults; any task-specific override must be supported by the current runtime.
+- Keep reusable agent/config templates free of model and reasoning-effort defaults. Historical
+  model names and routing records remain evidence of their original runs, not current instructions.
+- Model selection does not change permissions, concurrency limits, or independent-review requirements.
+  Preserve personal overrides when maintaining templates or reviewing config deployment; see
+  [config-sync boundaries](docs/README.md#14-harness-配置同步config-sync).
+
 ## Scope trigger
 
 Apply the full skill-management workflow below only when the task involves any of:
