@@ -15,6 +15,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'transaction-journal-common.ps1')
 . (Join-Path $PSScriptRoot 'shared-authority-state-common.ps1')
 . (Join-Path $PSScriptRoot 'harness-env-common.ps1')
+. (Join-Path $PSScriptRoot 'live-plan-common.ps1')
 
 function Test-CanonicalPlanDocumentHashSemantics {
     param(
@@ -39,48 +40,6 @@ function Test-CanonicalTransactionPlanSemantics {
 function Test-CanonicalRecoveryPlanSemantics {
     param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
     Test-CanonicalPlanDocumentHashSemantics -Document $Document -ArtifactKind 'canonical-recovery-plan'
-}
-
-function Test-LiveSyncPlanEnvelopeSemantics {
-    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
-    Test-CanonicalPlanDocumentHashSemantics -Document $Document -ArtifactKind 'sync-plan'
-    $runtimeFieldNames = @(
-        'FinalResolvedIdentities',
-        'FinalTargetContextHash',
-        'ReceiptId',
-        'ReceiptHash',
-        'JournalId',
-        'PreStatePhaseHash'
-    )
-    $surfaces = [System.Collections.Generic.List[System.Collections.IDictionary]]::new()
-    $surfaces.Add($Document)
-    if ($Document.Contains('Metadata') -and $Document.Metadata -is [System.Collections.IDictionary]) {
-        $surfaces.Add($Document.Metadata)
-    }
-    if ($Document.Contains('PlanPayload') -and $Document.PlanPayload -is [System.Collections.IDictionary]) {
-        $payload = $Document.PlanPayload
-        $surfaces.Add($payload)
-        foreach ($childName in @('AuthorityStateIntent', 'TargetContextIntent', 'ControlBaseIntent', 'RetirementManifest', 'EnvironmentMaterializationRoot')) {
-            if ($payload.Contains($childName) -and $payload[$childName] -is [System.Collections.IDictionary]) {
-                $surfaces.Add($payload[$childName])
-            }
-        }
-    }
-    foreach ($surface in $surfaces) {
-        foreach ($runtimeName in $runtimeFieldNames) {
-            if ($surface.Contains($runtimeName)) {
-                throw "sync-plan forbids runtime field $runtimeName."
-            }
-        }
-    }
-    $operationKind = [string] $Document.PlanPayload.OperationKind
-    if ($operationKind.StartsWith('live-recover-', [System.StringComparison]::Ordinal)) {
-        throw 'sync-plan OperationKind must not be a live-recover kind.'
-    }
-    $lastOperationKind = [string] $Document.PlanPayload.AuthorityStateIntent.LastOperationKind
-    if ($lastOperationKind.StartsWith('live-recover-', [System.StringComparison]::Ordinal)) {
-        throw 'sync-plan AuthorityStateIntent.LastOperationKind must not be a live-recover kind.'
-    }
 }
 
 function Resolve-RepositoryPath {

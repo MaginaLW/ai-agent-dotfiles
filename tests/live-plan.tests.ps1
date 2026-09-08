@@ -9,10 +9,16 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+. (Join-Path $RepoRoot 'tests/helpers/sealed-live-plan-fixture.ps1')
+
+$script:pass = 0
 
 function Assert {
     param([Parameter(Mandatory)] [bool] $Condition, [Parameter(Mandatory)] [string] $Message)
     if (-not $Condition) { throw "FAIL: $Message" }
+    $script:pass++
     Write-Host "  PASS  $Message"
 }
 
@@ -29,17 +35,106 @@ function Assert-Throws {
         if ($_.Exception.Message -notmatch $Pattern) { throw "FAIL: $Message (unexpected: $($_.Exception.Message))" }
     }
     if (-not $threw) { throw "FAIL: $Message (did not throw)" }
+    $script:pass++
     Write-Host "  PASS  $Message"
 }
 
-$validatorScriptPath = Join-Path $RepoRoot 'scripts/validate-json-artifacts.ps1'
-$validatorTokens = $null
-$validatorParseErrors = $null
-$validatorAst = [System.Management.Automation.Language.Parser]::ParseFile($validatorScriptPath, [ref] $validatorTokens, [ref] $validatorParseErrors)
-Assert (@($validatorParseErrors).Count -eq 0) 'artifact validator parses before envelope-function extraction'
-foreach ($statement in @($validatorAst.EndBlock.Statements)) {
-    if ($statement -is [System.Management.Automation.Language.FunctionDefinitionAst]) {
-        . ([scriptblock]::Create($statement.Extent.Text))
+function Copy-LivePlanDocument {
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    $json = [System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $Document))
+    return ConvertFrom-SemanticJson -Json $json
+}
+
+function Update-LivePlanEnvelopeHashes {
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    $Document['PlanHash'] = Get-PlanHash -PlanPayload $Document.PlanPayload
+    $Document['DocumentHash'] = Get-DocumentHash -Document $Document
+}
+
+function New-LivePlanRepeatedHash {
+    param([Parameter(Mandatory)] [string] $Character)
+    return ($Character * 64)
+}
+
+function New-FinalIdentitiesFromIntent {
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Intent)
+    $created = @('a1b2c3d4:0000000000000f01', 'a1b2c3d4:0000000000000f02', 'a1b2c3d4:0000000000000f03')
+    $rows = @($Intent.Rows)
+    $result = [System.Collections.Generic.List[object]]::new()
+    for ($index = 0; $index -lt 3; $index++) {
+        $row = $rows[$index]
+        $identity = if ([string] $row.InitialState -ceq 'EXISTS') {
+            [string] $row.InitialDirectoryIdentity
+        }
+        else {
+            $created[$index]
+        }
+        $result.Add([ordered]@{
+            DirectoryIdentity = $identity
+            FilesystemCapabilityHash = New-LivePlanRepeatedHash -Character '9'
+            LocationKey = [string] $row.LocationKey
+            Platform = [string] $row.Platform
+            ResolvedPath = [string] $row.RequestedPath
+            VolumeId = [string] $row.VolumeId
+        })
+    }
+    return @($result)
+}
+
+function New-TestRetirementManifest {
+    param(
+        [string] $ConflictName,
+        [string] $SafeName = 'retired-skill'
+    )
+    $claudeSkills = @()
+    if ($ConflictName) { $claudeSkills = @($ConflictName) }
+    return [ordered]@{
+        CanonicalAbsenceHash = New-LivePlanRepeatedHash -Character '1'
+        CurrentManifestAbsenceHash = New-LivePlanRepeatedHash -Character '2'
+        GeneratedAbsenceHash = New-LivePlanRepeatedHash -Character '3'
+        Hash = New-LivePlanRepeatedHash -Character '4'
+        Path = 'C:\fixture\retirement\manifest.json'
+        Postset = [ordered]@{
+            EnvironmentLockHash = New-LivePlanRepeatedHash -Character 'b'
+            EnvironmentName = 'work'
+            ManifestHashes = @(
+                [ordered]@{ Hash = (New-LivePlanRepeatedHash -Character 'd'); Platform = 'Claude' }
+                [ordered]@{ Hash = (New-LivePlanRepeatedHash -Character 'e'); Platform = 'Codex' }
+                [ordered]@{ Hash = (New-LivePlanRepeatedHash -Character 'f'); Platform = 'Reasonix' }
+            )
+            TaskOverlayHash = New-LivePlanRepeatedHash -Character 'c'
+            TaskOverlaySkills = @(
+                [ordered]@{ Platform = 'Claude'; Skills = @($claudeSkills) }
+                [ordered]@{ Platform = 'Codex'; Skills = @() }
+                [ordered]@{ Platform = 'Reasonix'; Skills = @() }
+            )
+        }
+        SafeNames = @(
+            [ordered]@{ Names = @($SafeName); Platform = 'Claude' }
+            [ordered]@{ Names = @(); Platform = 'Codex' }
+            [ordered]@{ Names = @(); Platform = 'Reasonix' }
+        )
+        TargetTreeHashes = @(
+            [ordered]@{ Hash = (New-LivePlanRepeatedHash -Character '8'); Platform = 'Claude' }
+            [ordered]@{ Hash = (New-LivePlanRepeatedHash -Character '9'); Platform = 'Codex' }
+            [ordered]@{ Hash = (New-LivePlanRepeatedHash -Character 'a'); Platform = 'Reasonix' }
+        )
+    }
+}
+
+function New-TestPruneAction {
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [string] $Platform = 'Claude'
+    )
+    return [ordered]@{
+        Action = 'prune'
+        Authority = 'explicit-retirement'
+        LiveHash = New-LivePlanRepeatedHash -Character '7'
+        Name = $Name
+        Order = 0
+        Platform = $Platform
+        SourceHash = $null
     }
 }
 
@@ -47,12 +142,24 @@ $schemaPath = Join-Path $RepoRoot 'schemas/sync-plan.schema.json'
 $compatSchemaPath = Join-Path $RepoRoot 'schemas/sync-plan.v2-live-compat.schema.json'
 $positivePath = Join-Path $RepoRoot 'tests/fixtures/artifacts/sync-plan.valid.json'
 $contractsPath = Join-Path $RepoRoot 'schemas/artifact-contracts.psd1'
+$validatorScriptPath = Join-Path $RepoRoot 'scripts/validate-json-artifacts.ps1'
+$livePlanCommonPath = Join-Path $RepoRoot 'scripts/live-plan-common.ps1'
 
 Write-Host '[live-plan schema 3 contract files]'
 Assert (Test-Path -LiteralPath $schemaPath -PathType Leaf) 'sync-plan schema 3 file exists'
 Assert (Test-Path -LiteralPath $compatSchemaPath -PathType Leaf) 'v2 live-compat schema exists'
 Assert (Test-Path -LiteralPath $positivePath -PathType Leaf) 'sync-plan positive fixture exists'
-Assert ($null -ne (Get-Command -Name Test-LiveSyncPlanEnvelopeSemantics -CommandType Function -ErrorAction SilentlyContinue)) 'Test-LiveSyncPlanEnvelopeSemantics is defined'
+Assert (Test-Path -LiteralPath $livePlanCommonPath -PathType Leaf) 'live-plan-common.ps1 exists'
+Assert ($null -ne (Get-Command -Name Test-LiveSyncPlanSemantics -CommandType Function -ErrorAction SilentlyContinue)) 'Test-LiveSyncPlanSemantics is defined'
+Assert ($null -ne (Get-Command -Name Complete-LivePlanAuthorityStateIntent -CommandType Function -ErrorAction SilentlyContinue)) 'Complete-LivePlanAuthorityStateIntent is defined'
+Assert ($null -eq (Get-Command -Name Test-LiveSyncPlanEnvelopeSemantics -CommandType Function -ErrorAction SilentlyContinue)) 'Test-LiveSyncPlanEnvelopeSemantics is not defined'
+
+$validatorText = [System.IO.File]::ReadAllText($validatorScriptPath)
+Assert ($validatorText.Contains('live-plan-common.ps1')) 'artifact validator dotsources live-plan-common.ps1'
+Assert (-not $validatorText.Contains('function Test-LiveSyncPlanEnvelopeSemantics')) 'artifact validator no longer defines the thin envelope function'
+$livePlanCommonText = [System.IO.File]::ReadAllText($livePlanCommonPath)
+Assert ($livePlanCommonText.Contains('function Test-LiveSyncPlanSemantics')) 'live-plan-common uniquely defines Test-LiveSyncPlanSemantics'
+Assert ($livePlanCommonText.Contains('function Complete-LivePlanAuthorityStateIntent')) 'live-plan-common uniquely defines Complete-LivePlanAuthorityStateIntent'
 
 $compatSchema = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($compatSchemaPath, [System.Text.UTF8Encoding]::new($false, $true)))
 Assert ([string] $compatSchema['$id'] -ceq 'https://ai-agent-dotfiles.invalid/schemas/sync-plan.v2-live-compat.schema.json') 'v2 live-compat $id matches basename'
@@ -63,15 +170,15 @@ Assert ($contracts.Contracts.ContainsKey('sync-plan')) 'artifact registry includ
 $syncPlanContract = $contracts.Contracts['sync-plan']
 Assert ([long] $syncPlanContract.SchemaVersion -eq 3) 'registry SchemaVersion is 3'
 Assert ([string] $syncPlanContract.SchemaPath -ceq 'schemas/sync-plan.schema.json') 'registry SchemaPath is schema 3'
-Assert ([string] $syncPlanContract.SemanticValidator -ceq 'Test-LiveSyncPlanEnvelopeSemantics') 'registry semantic validator is the envelope function'
+Assert ([string] $syncPlanContract.SemanticValidator -ceq 'Test-LiveSyncPlanSemantics') 'registry semantic validator is the full-semantics function'
 Assert (@($syncPlanContract.NegativeFixtures).Count -eq 6) 'registry lists six negative fixtures'
 
 Write-Host '[live-plan positive envelope]'
 $null = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $positivePath
 Assert $true 'positive fixture passes schema 3'
 $positive = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($positivePath, [System.Text.UTF8Encoding]::new($false, $true)))
-Test-LiveSyncPlanEnvelopeSemantics -Document $positive
-Assert $true 'positive fixture passes envelope semantics'
+Test-LiveSyncPlanSemantics -Document $positive
+Assert $true 'positive fixture passes full plan semantics'
 Assert ([long] $positive.SchemaVersion -eq 3) 'SchemaVersion is 3'
 Assert ([string] $positive.ArtifactKind -ceq 'sync-plan') 'ArtifactKind is sync-plan'
 Assert ($positive.Contains('Metadata') -and $positive.Contains('PlanPayload') -and $positive.Contains('PlanHash') -and $positive.Contains('DocumentHash')) 'envelope has Metadata, PlanPayload, and both hashes'
@@ -101,6 +208,21 @@ Assert ([string] $positive.PlanHash -ceq (Get-PlanHash -PlanPayload $positive.Pl
 Assert ([string] $positive.DocumentHash -ceq (Get-DocumentHash -Document $positive)) 'precomputed DocumentHash matches Get-DocumentHash'
 Assert ([string] $positive.PlanPayload.RootClaimsHash -ceq (Get-SemanticJsonHash -InputObject @($positive.PlanPayload.ProposedRootClaims))) 'RootClaimsHash is the semantic hash of ProposedRootClaims'
 
+Write-Host '[live-plan complete intent]'
+$completedInitial = Complete-LivePlanAuthorityStateIntent -Document $positive
+Assert-AuthorityStateExactKeys -InputObject $completedInitial -Expected $script:AuthorityStateIntentFieldNames -Label 'completed initial intent'
+Assert ([string] $completedInitial.PlanHash -ceq [string] $positive.PlanHash) 'completed intent PlanHash matches envelope'
+Assert ([string] $completedInitial.DocumentHash -ceq [string] $positive.DocumentHash) 'completed intent DocumentHash matches envelope'
+Assert (-not $completedInitial.Contains('ReceiptRef')) 'completed initial intent omits ReceiptRef'
+$initialRuntime = [ordered]@{
+    JournalId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    PreStatePhaseHash = New-LivePlanRepeatedHash -Character '1'
+    ReceiptHash = New-LivePlanRepeatedHash -Character '2'
+    ReceiptId = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'
+}
+$initialPostimage = New-AuthorityStatePostimage -AuthorityStateIntent $completedInitial -TargetContextIntent $positive.PlanPayload.TargetContextIntent -FinalResolvedIdentities (New-FinalIdentitiesFromIntent -Intent $positive.PlanPayload.TargetContextIntent) -RuntimeRefs $initialRuntime
+Assert ([string] $initialPostimage.LastOperationKind -ceq 'initial') 'completed initial intent is accepted by New-AuthorityStatePostimage'
+
 Write-Host '[live-plan negative FailureLayer]'
 $expectedLayers = @{
     'unknown-property' = 'Schema'
@@ -121,7 +243,7 @@ foreach ($negative in @($syncPlanContract.NegativeFixtures)) {
     if (-not $failedAt) {
         try {
             $negativeDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($negativePath, [System.Text.UTF8Encoding]::new($false, $true)))
-            Test-LiveSyncPlanEnvelopeSemantics -Document $negativeDocument
+            Test-LiveSyncPlanSemantics -Document $negativeDocument
         }
         catch { $failedAt = 'Semantic' }
     }
@@ -140,4 +262,176 @@ Assert ($syncTestsText.Contains("Join-Path `$RepoRoot 'schemas/sync-plan.v2-live
 Assert ($syncTestsText.Contains('[int] $plan.SchemaVersion -eq 2')) 'content-aware dry-run still asserts emitter SchemaVersion 2'
 Assert ($syncTestsText.Contains('[int] $retirementPlanDocument.SchemaVersion -eq 2')) 'retirement dry-run still asserts emitter SchemaVersion 2'
 
-Write-Host 'Live plan contract tests: PASS'
+Write-Host '[sealed helper capability]'
+Assert-Throws {
+    $null = New-SealedLivePlanDocument -OperationKind environment
+} '^live-plan-host-resolution-required$' 'sealed helper throws when sandbox capability is missing'
+
+Write-Host '[sealed helper positives and complete intent]'
+$sandboxRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('live-plan-cap-' + [Guid]::NewGuid().ToString('N'))
+$capability = $null
+$previousRoot = $env:AI_AGENT_DOTFILES_INTERNAL_SANDBOX_ROOT
+$previousPath = $env:AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_PATH
+$previousCapability = $env:AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_TOKEN
+try {
+    $null = New-Item -ItemType Directory -Path $sandboxRoot
+    $capability = New-LiveSafetySandboxCapability -SandboxRoot $sandboxRoot
+    $env:AI_AGENT_DOTFILES_INTERNAL_SANDBOX_ROOT = $capability.Root
+    $env:AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_PATH = $capability.Path
+    $env:AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_TOKEN = $capability.Token
+
+    $environmentDocument = New-SealedLivePlanDocument -OperationKind environment
+    Test-LiveSyncPlanSemantics -Document $environmentDocument
+    Assert $true 'sealed environment document passes full plan semantics'
+    Assert ([string] $environmentDocument.PlanPayload.OperationKind -ceq 'environment') 'sealed environment OperationKind is environment'
+    Assert ([string] $environmentDocument.PlanPayload.Generator -ceq 'tests/helpers/sealed-live-plan-fixture.ps1') 'sealed environment Generator is the helper'
+    Assert ($environmentDocument.PlanPayload.Contains('EnvironmentMaterializationRoot')) 'sealed environment binds materialization'
+    Assert (-not $environmentDocument.PlanPayload.Contains('ProposedRootClaims')) 'sealed environment omits ProposedRootClaims'
+    Assert ([string] $environmentDocument.PlanPayload.AuthorityStateIntent.LastOperationKind -ceq 'environment') 'sealed environment intent LastOperationKind is environment'
+    $completedEnvironment = Complete-LivePlanAuthorityStateIntent -Document $environmentDocument
+    Assert-AuthorityStateExactKeys -InputObject $completedEnvironment -Expected $script:AuthorityStateIntentFieldNames -Label 'completed environment intent'
+    $environmentRuntime = [ordered]@{
+        JournalId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+        PreStatePhaseHash = New-LivePlanRepeatedHash -Character '1'
+        ReceiptHash = New-LivePlanRepeatedHash -Character '2'
+        ReceiptId = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'
+    }
+    $environmentPostimage = New-AuthorityStatePostimage -AuthorityStateIntent $completedEnvironment -TargetContextIntent $environmentDocument.PlanPayload.TargetContextIntent -FinalResolvedIdentities (New-FinalIdentitiesFromIntent -Intent $environmentDocument.PlanPayload.TargetContextIntent) -RuntimeRefs $environmentRuntime
+    Assert ([string] $environmentPostimage.LastOperationKind -ceq 'environment') 'completed environment intent is accepted by New-AuthorityStatePostimage'
+
+    $controllerDocument = New-SealedLivePlanDocument -OperationKind controller-transition
+    Test-LiveSyncPlanSemantics -Document $controllerDocument
+    Assert $true 'sealed controller-transition document passes full plan semantics'
+    Assert ([string] $controllerDocument.PlanPayload.OperationKind -ceq 'controller-transition') 'sealed controller-transition OperationKind is controller-transition'
+    Assert ([string] $controllerDocument.PlanPayload.Generator -ceq 'tests/helpers/sealed-live-plan-fixture.ps1') 'sealed controller-transition Generator is the helper'
+    Assert ($controllerDocument.PlanPayload.Contains('ControllerParity')) 'sealed controller-transition binds ControllerParity'
+    Assert ([string] $controllerDocument.PlanPayload.AuthorityStateIntent.ReceiptRef -ceq 'NO_LIVE_MUTATION') 'sealed controller-transition intent ReceiptRef is NO_LIVE_MUTATION'
+    Assert (-not $controllerDocument.PlanPayload.AuthorityStateIntent.Contains('ReceiptId')) 'sealed controller-transition omits ReceiptId'
+    $controllerExpected = [System.Collections.Generic.List[string]]::new()
+    $controllerExpected.AddRange([string[]] $script:AuthorityStateIntentFieldNames)
+    $controllerExpected.Add('ReceiptRef')
+    $completedController = Complete-LivePlanAuthorityStateIntent -Document $controllerDocument
+    Assert-AuthorityStateExactKeys -InputObject $completedController -Expected @($controllerExpected) -Label 'completed controller-transition intent'
+    $controllerRuntime = [ordered]@{
+        JournalId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+        PreStatePhaseHash = New-LivePlanRepeatedHash -Character '1'
+    }
+    $controllerPostimage = New-AuthorityStatePostimage -AuthorityStateIntent $completedController -TargetContextIntent $controllerDocument.PlanPayload.TargetContextIntent -FinalResolvedIdentities (New-FinalIdentitiesFromIntent -Intent $controllerDocument.PlanPayload.TargetContextIntent) -RuntimeRefs $controllerRuntime
+    Assert ([string] $controllerPostimage.ReceiptRef -ceq 'NO_LIVE_MUTATION') 'completed controller-transition intent is accepted by New-AuthorityStatePostimage'
+
+    Write-Host '[live-plan negative matrix]'
+    $crossEnvironment = Copy-LivePlanDocument -Document $environmentDocument
+    $crossEnvironment.PlanPayload['ProposedRootClaims'] = $positive.PlanPayload.ProposedRootClaims
+    Update-LivePlanEnvelopeHashes -Document $crossEnvironment
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $crossEnvironment } '^live-plan-operation-kind-mismatch$' 'environment carrying ProposedRootClaims is rejected'
+
+    $crossInitial = Copy-LivePlanDocument -Document $positive
+    $crossInitial.PlanPayload['RetirementManifest'] = New-TestRetirementManifest
+    Update-LivePlanEnvelopeHashes -Document $crossInitial
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $crossInitial } '^live-plan-operation-kind-mismatch$' 'initial carrying RetirementManifest is rejected'
+
+    $retirementHook = Copy-LivePlanDocument -Document $positive
+    $retirementHook.PlanPayload.OperationKind = 'retirement'
+    $retirementHook.PlanPayload.AuthorityStateIntent.LastOperationKind = 'retirement'
+    $null = $retirementHook.PlanPayload.Remove('ProposedRootClaims')
+    $null = $retirementHook.PlanPayload.Remove('RootClaimsHash')
+    $retirementHook.PlanPayload['RetirementManifest'] = New-TestRetirementManifest
+    $retirementHook.PlanPayload['TaskOverlayEvidence'] = [ordered]@{
+        Action = 'replace'
+        CandidateHash = New-LivePlanRepeatedHash -Character '8'
+        CandidatePath = 'C:\fixture\overlay\task-overlay.json'
+        CurrentHash = New-LivePlanRepeatedHash -Character '7'
+        RemovalReview = $true
+    }
+    $retirementHook.PlanPayload.OrderedActions = @((New-TestPruneAction -Name 'retired-skill'))
+    Update-LivePlanEnvelopeHashes -Document $retirementHook
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $retirementHook } '^live-plan-operation-kind-mismatch$' 'retirement carrying hook TaskOverlayEvidence is rejected'
+
+    $controllerReceipt = Copy-LivePlanDocument -Document $controllerDocument
+    $controllerReceipt.PlanPayload.AuthorityStateIntent['ReceiptId'] = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'
+    Update-LivePlanEnvelopeHashes -Document $controllerReceipt
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $controllerReceipt } '^live-plan-schema-unsupported$' 'controller-transition carrying ReceiptId is rejected'
+
+    $controllerLiveAction = Copy-LivePlanDocument -Document $controllerDocument
+    $controllerLiveAction.PlanPayload.OrderedActions = @(
+        [ordered]@{
+            Action = 'add'
+            LiveHash = $null
+            Name = 'brainstorming'
+            Order = 0
+            Platform = 'Claude'
+            SourceHash = New-LivePlanRepeatedHash -Character '8'
+        }
+    )
+    Update-LivePlanEnvelopeHashes -Document $controllerLiveAction
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $controllerLiveAction } '^live-plan-operation-kind-mismatch$' 'controller-transition carrying a live add action is rejected'
+
+    $repairCorruptMarker = Copy-LivePlanDocument -Document $positive
+    $repairCorruptMarker.PlanPayload.OperationKind = 'repair-adopt'
+    $repairCorruptMarker.PlanPayload.Generator = 'tests/helpers/sealed-live-plan-fixture.ps1'
+    $repairCorruptMarker.PlanPayload.AuthorityStateIntent.LastOperationKind = 'repair-adopt'
+    $null = $repairCorruptMarker.PlanPayload.Remove('ProposedRootClaims')
+    $null = $repairCorruptMarker.PlanPayload.Remove('RootClaimsHash')
+    $repairCorruptMarker.PlanPayload['StateEvidence'] = [ordered]@{
+        Kind = 'CORRUPT'
+        Marker = $true
+        Path = 'C:\fixture\control\current-env.json'
+        PreimageHash = New-LivePlanRepeatedHash -Character '6'
+        RawHash = New-LivePlanRepeatedHash -Character '5'
+    }
+    Update-LivePlanEnvelopeHashes -Document $repairCorruptMarker
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $repairCorruptMarker } '^live-plan-operation-kind-mismatch$' 'repair-adopt CORRUPT evidence carrying MISSING Marker is rejected'
+
+    $repairMissingPath = Copy-LivePlanDocument -Document $positive
+    $repairMissingPath.PlanPayload.OperationKind = 'repair-adopt'
+    $repairMissingPath.PlanPayload.Generator = 'tests/helpers/sealed-live-plan-fixture.ps1'
+    $repairMissingPath.PlanPayload.AuthorityStateIntent.LastOperationKind = 'repair-adopt'
+    $null = $repairMissingPath.PlanPayload.Remove('ProposedRootClaims')
+    $null = $repairMissingPath.PlanPayload.Remove('RootClaimsHash')
+    $repairMissingPath.PlanPayload['StateEvidence'] = [ordered]@{
+        Kind = 'MISSING'
+        Marker = $true
+        Path = 'C:\fixture\control\current-env.json'
+        RawHash = New-LivePlanRepeatedHash -Character '5'
+    }
+    Update-LivePlanEnvelopeHashes -Document $repairMissingPath
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $repairMissingPath } '^live-plan-operation-kind-mismatch$' 'repair-adopt MISSING evidence carrying Path/hash is rejected'
+
+    $repairLegacy = Copy-LivePlanDocument -Document $positive
+    $repairLegacy.PlanPayload.OperationKind = 'repair-adopt'
+    $repairLegacy.PlanPayload.Generator = 'tests/helpers/sealed-live-plan-fixture.ps1'
+    $repairLegacy.PlanPayload.AuthorityStateIntent.LastOperationKind = 'repair-adopt'
+    $null = $repairLegacy.PlanPayload.Remove('ProposedRootClaims')
+    $null = $repairLegacy.PlanPayload.Remove('RootClaimsHash')
+    $repairLegacy.PlanPayload['StateEvidence'] = [ordered]@{
+        Kind = 'MISSING'
+        Marker = $true
+    }
+    $repairLegacy.PlanPayload['LegacyEvidence'] = [ordered]@{ Status = 'UNTRUSTED' }
+    Update-LivePlanEnvelopeHashes -Document $repairLegacy
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $repairLegacy } '^live-plan-operation-kind-mismatch$' 'repair-adopt carrying adopt LegacyEvidence is rejected'
+
+    $retirementConflict = Copy-LivePlanDocument -Document $positive
+    $retirementConflict.PlanPayload.OperationKind = 'retirement'
+    $retirementConflict.PlanPayload.AuthorityStateIntent.LastOperationKind = 'retirement'
+    $null = $retirementConflict.PlanPayload.Remove('ProposedRootClaims')
+    $null = $retirementConflict.PlanPayload.Remove('RootClaimsHash')
+    $retirementConflict.PlanPayload['RetirementManifest'] = New-TestRetirementManifest -ConflictName 'brainstorming' -SafeName 'brainstorming'
+    $retirementConflict.PlanPayload.OrderedActions = @((New-TestPruneAction -Name 'brainstorming'))
+    Update-LivePlanEnvelopeHashes -Document $retirementConflict
+    Assert-Throws { Test-LiveSyncPlanSemantics -Document $retirementConflict } '^retirement-selection-conflict$' 'retirement target in Postset Skills is rejected'
+}
+finally {
+    $env:AI_AGENT_DOTFILES_INTERNAL_SANDBOX_ROOT = $previousRoot
+    $env:AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_PATH = $previousPath
+    $env:AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_TOKEN = $previousCapability
+    if ($null -ne $capability) {
+        $capability.Stream.Dispose()
+        Remove-Item -LiteralPath $capability.Path -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $sandboxRoot) {
+        Remove-Item -LiteralPath $sandboxRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Write-Host "Live plan contract tests: PASS ($script:pass)"

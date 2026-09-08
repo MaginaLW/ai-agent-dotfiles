@@ -266,9 +266,9 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
-$reviewedAllScriptsDynamicCommandDigest='39e174912992486788179c080e734b97738d5af1846636b3e50ca78e8abf3d1c'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13640
-$reviewedAllScriptsReflectionSensitiveDigest='7600aa01c297e53cfde92f07f477b45194445eb574e7122b5f9d73124558d17c'
+$reviewedAllScriptsDynamicCommandDigest='b68609942ae95256103728c01e968e0634dc2d73686a0aaa7d5288f4a5b8fb2e'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13835
+$reviewedAllScriptsReflectionSensitiveDigest='e332b0464b6872a2622a95994b4d59559a53885c6a4b2722bf612ebafa904e1a'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -603,6 +603,11 @@ function Invoke-ProductionSeamAnalysis {
                 'Write-SealedRegistryCurrentEnvStatePostimage')){
                 $fixedObservationBoundaryViolations.Add("canonical private-root completion caller: $($model.RelativePath):$($ownerName):$commandName")
             }
+            if($commandName -iin @(
+                'Test-LiveSyncPlanSemantics',
+                'Complete-LivePlanAuthorityStateIntent')){
+                $fixedObservationBoundaryViolations.Add("live-plan contract caller: $($model.RelativePath):$($ownerName):$commandName")
+            }
             if($commandName -ieq 'Assert-SealedRegistryClaimAccept'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
                     [string]$owner.Name -ceq 'New-SealedRegistryRootClaimsCreateNew'){
@@ -625,8 +630,13 @@ function Invoke-ProductionSeamAnalysis {
                 else{$fixedObservationBoundaryViolations.Add("authority target-context intent factory caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'Assert-AuthorityTargetContextIntent'){
-                if([string]$model.RelativePath -ceq 'scripts/shared-authority-state-common.ps1' -and $null -ne $owner -and
-                    [string]$owner.Name -cin @('Assert-AuthorityFinalIdentitiesDerivedFromIntent','New-AuthorityStatePostimage')){
+                $allowedAssertIntentCaller=(
+                    ([string]$model.RelativePath -ceq 'scripts/shared-authority-state-common.ps1' -and $null -ne $owner -and
+                        [string]$owner.Name -cin @('Assert-AuthorityFinalIdentitiesDerivedFromIntent','New-AuthorityStatePostimage')) -or
+                    ([string]$model.RelativePath -ceq 'scripts/live-plan-common.ps1' -and $null -ne $owner -and
+                        [string]$owner.Name -ceq 'Test-LiveSyncPlanSemantics')
+                )
+                if($allowedAssertIntentCaller){
                     $targetContextIntentAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("authority target-context intent caller: $($model.RelativePath):$($ownerName):$commandName")}
@@ -1058,6 +1068,7 @@ function Invoke-ProductionSeamAnalysis {
         $fixedObservationBoundaryViolations.Add('reviewed authority target-context intent factory owner inventory changed')
     }
     $reviewedTargetContextIntentOwnerInventory=@(
+        'scripts/live-plan-common.ps1:Test-LiveSyncPlanSemantics',
         'scripts/shared-authority-state-common.ps1:Assert-AuthorityFinalIdentitiesDerivedFromIntent',
         'scripts/shared-authority-state-common.ps1:New-AuthorityStatePostimage')
     if((@($targetContextIntentAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedTargetContextIntentOwnerInventory -join "`n")){
@@ -1097,7 +1108,9 @@ function Invoke-ProductionSeamAnalysis {
         @('Assert-AuthorityFinalIdentitiesDerivedFromIntent','scripts/shared-authority-state-common.ps1'),
         @('Get-AuthorityStateIntentProjection','scripts/shared-authority-state-common.ps1'),
         @('Assert-AuthorityControllerTransitionPreservesSelection','scripts/shared-authority-state-common.ps1'),
-        @('New-AuthorityStatePostimage','scripts/shared-authority-state-common.ps1'))){
+        @('New-AuthorityStatePostimage','scripts/shared-authority-state-common.ps1'),
+        @('Test-LiveSyncPlanSemantics','scripts/live-plan-common.ps1'),
+        @('Complete-LivePlanAuthorityStateIntent','scripts/live-plan-common.ps1'))){
         $completionDefinitionKey=$completionEntry[0].ToLowerInvariant()
         $completionDefinitions=@(if($definitions.ContainsKey($completionDefinitionKey)){@($definitions[$completionDefinitionKey])})
         if($completionDefinitions.Count -ne 1 -or

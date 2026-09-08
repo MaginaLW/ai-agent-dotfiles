@@ -135,7 +135,7 @@
                 @{ Name = 'plan-hash-mismatch'; Path = 'tests/fixtures/artifacts/sync-plan.plan-hash-mismatch.invalid.json'; FailureLayer = 'Semantic' }
                 @{ Name = 'document-hash-mismatch'; Path = 'tests/fixtures/artifacts/sync-plan.document-hash-mismatch.invalid.json'; FailureLayer = 'Semantic' }
             )
-            SemanticValidator = 'Test-LiveSyncPlanEnvelopeSemantics'
+            SemanticValidator = 'Test-LiveSyncPlanSemantics'
         }
         'harness-env-build' = @{
             SchemaVersion = 3
