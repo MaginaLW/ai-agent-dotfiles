@@ -2190,6 +2190,19 @@ exhausted with HTTP 402, recorded in project memory). The next Task 2 slice is s
 content-aware test extraction), followed by slice 5 (retirement regression). Production Apply
 remains interlocked, and no live root or Git index/ref was changed.
 
+The main agent then implemented the first half of slice 4 directly (commit `6318abe`, after the
+Grok quota exhaustion): `Write-LiveSyncPlan` (create-new with `live-plan-path-collision`),
+`Read-LiveSyncPlan`, `Assert-LiveSyncPlanDocumentIntegrity` (full semantics plus both envelope
+hashes), `Assert-LiveSyncPlanCurrent` (the bound materialization identity, both file-byte hashes,
+and the semantic `MaterializationHash` recomputed against the held `env-build.json`/`env.lock.json`),
+`Assert-LiveSyncPlanSelectionContext`, and `Assert-LiveSyncPlanDocumentHashNotConsumed` (injected
+terminal evidence with `live-plan-consumed`), with eleven live-plan assertions (105 PASS total).
+Remaining for Task 2's close-out: the `sync.ps1` producer rework (pristine-initial and retirement
+DryRun producers behind the sandbox capability gate with host injection, the emitter switched to
+`Write-LiveSyncPlan`, and the content-aware test extraction), the retirement matrix migration, and
+the authoritative unified validation. Production Apply remains interlocked, and no live root or
+Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
