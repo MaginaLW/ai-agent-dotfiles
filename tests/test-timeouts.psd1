@@ -18,6 +18,7 @@
         'doctor.tests.ps1' = 60
         'home-authority.tests.ps1' = 180
         'live-concurrency.tests.ps1' = 300
+        'live-plan.tests.ps1' = 180
         'root-claims-registry.tests.ps1' = 1800
         'harness-env.tests.ps1' = 180
         'harness-multiplatform.tests.ps1' = 210

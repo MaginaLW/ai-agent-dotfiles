@@ -123,6 +123,20 @@
             )
             SemanticValidator = 'Test-CanonicalRecoveryPlanSemantics'
         }
+        'sync-plan' = @{
+            SchemaVersion = 3
+            SchemaPath = 'schemas/sync-plan.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/sync-plan.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/sync-plan.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/sync-plan.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'live-recover-kind'; Path = 'tests/fixtures/artifacts/sync-plan.live-recover-kind.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'runtime-receipt'; Path = 'tests/fixtures/artifacts/sync-plan.runtime-receipt.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'plan-hash-mismatch'; Path = 'tests/fixtures/artifacts/sync-plan.plan-hash-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'document-hash-mismatch'; Path = 'tests/fixtures/artifacts/sync-plan.document-hash-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+            )
+            SemanticValidator = 'Test-LiveSyncPlanEnvelopeSemantics'
+        }
         'canonical-transaction-result' = @{
             SchemaVersion = 1
             SchemaPath = 'schemas/canonical-transaction-result.schema.json'

@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='69aca0354d288ffb9bbf5d17c02bd20d2374c1fd72b944e10e98607af5342eae'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13584
-$reviewedAllScriptsReflectionSensitiveDigest='cad86553a3f1c08408b0e30ed664a0bee4b8d03cc403427746b610413e49e0ce'
+$reviewedAllScriptsReflectionSensitiveSiteCount=13606
+$reviewedAllScriptsReflectionSensitiveDigest='601d541b5036a159f76de33ad8392e0dcb1d1feb2d5e559d404b7af1ff44fe28'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

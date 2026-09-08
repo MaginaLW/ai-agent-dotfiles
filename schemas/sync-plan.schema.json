@@ -3,99 +3,759 @@
   "$id": "https://ai-agent-dotfiles.invalid/schemas/sync-plan.schema.json",
   "title": "AI Agent Dotfiles Sync Plan",
   "type": "object",
-  "required": ["SchemaVersion", "GeneratedAtUtc", "PlanHash", "Plans"],
+  "required": ["SchemaVersion", "ArtifactKind", "Metadata", "PlanPayload", "PlanHash", "DocumentHash"],
   "properties": {
-    "SchemaVersion": { "const": 2 },
-    "GeneratedAtUtc": { "type": "string", "format": "date-time" },
-    "PlanHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "Plans": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["Platform", "SourceRoot", "LiveRoot", "SourceRootExists", "LiveRootExists", "ManifestHash", "ManagedNames", "CanonicalAuthorityRoot", "CanonicalRetirementEvidenceHash", "RetirementManifestPath", "RetirementManifestHash", "RetiredNames", "SourceCount", "Add", "AddEntries", "Update", "NoOp", "Prune", "PruneEntries", "Unknown", "UnknownEntries", "SystemPreserved"],
-        "properties": {
-          "Platform": { "enum": ["claude", "codex", "reasonix"] },
-          "SourceRoot": { "type": "string", "minLength": 1 },
-          "LiveRoot": { "type": "string", "minLength": 1 },
-          "SourceRootExists": { "type": "boolean" },
-          "LiveRootExists": { "type": "boolean" },
-          "ManifestHash": { "type": "string", "pattern": "^(missing|[0-9a-f]{64})$" },
-          "ManagedNames": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-          "CanonicalAuthorityRoot": { "type": "string", "minLength": 1 },
-          "CanonicalRetirementEvidenceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "RetirementManifestPath": { "type": ["string", "null"] },
-          "RetirementManifestHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-          "RetiredNames": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$", "maxLength": 128 }, "uniqueItems": true },
-          "SourceCount": { "type": "integer", "minimum": 0 },
-          "Add": { "type": "array", "items": { "type": "string" } },
-          "AddEntries": { "$ref": "#/$defs/addEntries" },
-          "Update": { "$ref": "#/$defs/hashEntries" },
-          "NoOp": { "$ref": "#/$defs/hashEntries" },
-          "Prune": { "type": "array", "items": { "type": "string" } },
-          "PruneEntries": { "$ref": "#/$defs/pruneEntries" },
-          "Unknown": { "type": "array", "items": { "type": "string" } },
-          "UnknownEntries": { "$ref": "#/$defs/unknownEntries" },
-          "SystemPreserved": { "type": "boolean" }
-        },
-        "additionalProperties": false
-      }
-    }
+    "SchemaVersion": { "const": 3 },
+    "ArtifactKind": { "const": "sync-plan" },
+    "Metadata": { "$ref": "#/$defs/metadata" },
+    "PlanPayload": { "$ref": "#/$defs/planPayload" },
+    "PlanHash": { "$ref": "#/$defs/hash" },
+    "DocumentHash": { "$ref": "#/$defs/hash" }
   },
+  "additionalProperties": false,
   "$defs": {
-    "hashEntries": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["Name", "SourceHash", "LiveHash"],
-        "properties": {
-          "Name": { "type": "string" },
-          "SourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "LiveHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sid": { "type": "string", "pattern": "^S-[0-9]+(?:-[0-9]+)+$" },
+    "locationKey": { "type": "string", "minLength": 4, "pattern": "^[a-z]:/[^/]" },
+    "volumeId": { "type": "string", "minLength": 8, "maxLength": 8, "pattern": "^[0-9a-f]{8}$" },
+    "directoryIdentity": { "type": "string", "minLength": 25, "maxLength": 25, "pattern": "^[0-9a-f]{8}:[0-9a-f]{16}$" },
+    "absolutePath": { "type": "string", "minLength": 4, "pattern": "^[A-Za-z]:\\\\" },
+    "environmentName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+    "operationKind": {
+      "enum": [
+        "initial",
+        "environment",
+        "task-overlay",
+        "migrate",
+        "adopt",
+        "repair-adopt",
+        "controller-transition",
+        "retirement"
+      ]
+    },
+    "liveRootClaim": {
+      "type": "object",
+      "required": [
+        "Platform", "LocationKey", "RequestedPath", "InitialState", "VolumeId",
+        "DeepestExistingParentPath", "DeepestExistingParentIdentity", "MissingRemainder",
+        "InitialDirectoryIdentity", "ExpectedPostState"
+      ],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "LocationKey": { "$ref": "#/$defs/locationKey" },
+        "RequestedPath": { "type": "string", "minLength": 4, "pattern": "^[A-Za-z]:\\\\" },
+        "InitialState": { "enum": ["ABSENT", "EXISTS"] },
+        "VolumeId": { "$ref": "#/$defs/volumeId" },
+        "DeepestExistingParentPath": { "type": "string", "minLength": 3, "pattern": "^[A-Za-z]:\\\\" },
+        "DeepestExistingParentIdentity": { "$ref": "#/$defs/directoryIdentity" },
+        "MissingRemainder": { "type": "array", "items": { "type": "string", "minLength": 1, "pattern": "^[^\\\\/:]+$" } },
+        "InitialDirectoryIdentity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] },
+        "ExpectedPostState": { "const": "EXISTS" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "InitialState": { "const": "ABSENT" },
+            "MissingRemainder": { "minItems": 1 },
+            "InitialDirectoryIdentity": { "type": "null" }
+          }
         },
-        "additionalProperties": false
-      }
-    }
-    ,"addEntries": {
+        {
+          "properties": {
+            "InitialState": { "const": "EXISTS" },
+            "MissingRemainder": { "maxItems": 0 },
+            "InitialDirectoryIdentity": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "proposedRootClaims": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["Name", "SourceHash", "LiveHash"],
-        "properties": {
-          "Name": { "type": "string" },
-          "SourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "LiveHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["GeneratedAtUtc"],
+      "properties": {
+        "GeneratedAtUtc": { "type": "string", "format": "date-time" },
+        "DisplayOperation": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "filesystemCapability": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["Status"],
+          "properties": { "Status": { "const": "UNPROBED" } },
+          "additionalProperties": false
         },
-        "additionalProperties": false
+        {
+          "type": "object",
+          "required": ["Status", "Hash"],
+          "properties": {
+            "Status": { "const": "PROBED" },
+            "Hash": { "$ref": "#/$defs/hash" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "controlBaseIntent": {
+      "type": "object",
+      "required": ["TargetStatus", "RequestedPath", "LocationKey", "VolumeId", "DirectoryIdentity", "FilesystemCapability"],
+      "properties": {
+        "TargetStatus": { "enum": ["EXISTS", "MISSING"] },
+        "RequestedPath": { "$ref": "#/$defs/absolutePath" },
+        "LocationKey": { "$ref": "#/$defs/locationKey" },
+        "VolumeId": { "$ref": "#/$defs/volumeId" },
+        "DirectoryIdentity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] },
+        "FilesystemCapability": { "$ref": "#/$defs/filesystemCapability" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "TargetStatus": { "const": "MISSING" },
+            "DirectoryIdentity": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "TargetStatus": { "const": "EXISTS" },
+            "DirectoryIdentity": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "preIdentity": {
+      "type": "object",
+      "required": ["TargetStatus", "LocationKey", "VolumeId", "DirectoryIdentity"],
+      "properties": {
+        "TargetStatus": { "enum": ["EXISTS", "MISSING"] },
+        "LocationKey": { "$ref": "#/$defs/locationKey" },
+        "VolumeId": { "$ref": "#/$defs/volumeId" },
+        "DirectoryIdentity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "TargetStatus": { "const": "MISSING" },
+            "DirectoryIdentity": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "TargetStatus": { "const": "EXISTS" },
+            "DirectoryIdentity": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "absentLivePlatform": {
+      "type": "object",
+      "properties": {
+        "LiveRootExists": { "const": false },
+        "LiveTreeHash": { "type": "null" },
+        "LivePreIdentity": {
+          "type": "object",
+          "properties": {
+            "TargetStatus": { "const": "MISSING" },
+            "DirectoryIdentity": { "type": "null" }
+          }
+        }
       }
     },
-    "pruneEntries": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["Name", "SourceHash", "LiveHash", "Managed", "Authority"],
-        "properties": {
-          "Name": { "type": "string" },
-          "SourceHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-          "LiveHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-          "Managed": { "type": "boolean" },
-          "Authority": { "enum": ["managed-manifest", "explicit-retirement"] }
-        },
-        "additionalProperties": false
-      }
+    "platformSlot": {
+      "type": "object",
+      "required": [
+        "Platform", "SourceRoot", "LiveRoot", "SourceRootExists", "LiveRootExists",
+        "SourcePreIdentity", "LivePreIdentity", "ManifestHash", "SourceTreeHash",
+        "LiveTreeHash", "ManagedNames"
+      ],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "SourceRoot": { "$ref": "#/$defs/absolutePath" },
+        "LiveRoot": { "$ref": "#/$defs/absolutePath" },
+        "SourceRootExists": { "type": "boolean" },
+        "LiveRootExists": { "type": "boolean" },
+        "SourcePreIdentity": { "$ref": "#/$defs/preIdentity" },
+        "LivePreIdentity": { "$ref": "#/$defs/preIdentity" },
+        "ManifestHash": { "type": "string", "pattern": "^(missing|[0-9a-f]{64})$" },
+        "SourceTreeHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "LiveTreeHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "ManagedNames": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
     },
-    "unknownEntries": {
+    "platforms": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["Name", "LiveHash", "Managed"],
-        "properties": {
-          "Name": { "type": "string" },
-          "LiveHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-          "Managed": { "const": false }
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/platformSlot" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSlot" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSlot" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "orderedAction": {
+      "type": "object",
+      "required": ["Order", "Platform", "Action", "Name", "SourceHash", "LiveHash"],
+      "properties": {
+        "Order": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Action": { "enum": ["add", "update", "no-op", "prune"] },
+        "Name": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+        "SourceHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "LiveHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "Authority": { "enum": ["managed-manifest", "explicit-retirement"] }
+      },
+      "oneOf": [
+        {
+          "properties": { "Action": { "enum": ["add", "update", "no-op"] } },
+          "not": { "required": ["Authority"] }
         },
-        "additionalProperties": false
-      }
+        {
+          "properties": { "Action": { "const": "prune" } },
+          "required": ["Authority"]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "unknownMarker": {
+      "type": "object",
+      "required": ["Platform", "Name", "LiveHash", "Managed", "Identity"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Name": { "type": "string", "minLength": 1 },
+        "LiveHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "Managed": { "const": false },
+        "Identity": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "systemMarker": {
+      "type": "object",
+      "required": ["Platform", "Name", "Present", "Identity", "Hash"],
+      "properties": {
+        "Platform": { "const": "Codex" },
+        "Name": { "const": ".system" },
+        "Present": { "type": "boolean" },
+        "Identity": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "Hash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "Present": { "const": true },
+            "Identity": { "type": "string", "minLength": 1 },
+            "Hash": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "properties": {
+            "Present": { "const": false },
+            "Identity": { "type": "null" },
+            "Hash": { "type": "null" }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "targetContextIntent": {
+      "type": "object",
+      "required": ["HomeAuthorityKey", "Rows"],
+      "properties": {
+        "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+        "Rows": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+          ],
+          "items": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "platformSkillsEntry": {
+      "type": "object",
+      "required": ["Platform", "Skills"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Skills": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "platformHashEntry": {
+      "type": "object",
+      "required": ["Platform", "Hash"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Hash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "platformSkills": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "platformHashes": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "authorityStateIntent": {
+      "type": "object",
+      "required": [
+        "SchemaVersion", "ArtifactKind", "HomeAuthorityKey", "AuthorityGeneration",
+        "RootClaimsHash", "SelectionKind", "EnvironmentName", "EnvironmentLockHash",
+        "TaskOverlayHash", "TaskOverlaySkills", "ManifestHashes", "FinalManagedHashes",
+        "ControllerRepoFingerprint", "ApprovedToolchainHash", "LastOperationKind"
+      ],
+      "properties": {
+        "SchemaVersion": { "const": 3 },
+        "ArtifactKind": { "const": "current-env-state" },
+        "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+        "AuthorityGeneration": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "RootClaimsHash": { "$ref": "#/$defs/hash" },
+        "SelectionKind": { "const": "environment" },
+        "EnvironmentName": { "$ref": "#/$defs/environmentName" },
+        "EnvironmentLockHash": { "$ref": "#/$defs/hash" },
+        "TaskOverlayHash": { "$ref": "#/$defs/hash" },
+        "TaskOverlaySkills": { "$ref": "#/$defs/platformSkills" },
+        "ManifestHashes": { "$ref": "#/$defs/platformHashes" },
+        "FinalManagedHashes": { "$ref": "#/$defs/platformHashes" },
+        "ControllerRepoFingerprint": { "$ref": "#/$defs/hash" },
+        "ApprovedToolchainHash": { "$ref": "#/$defs/hash" },
+        "LastOperationKind": { "$ref": "#/$defs/operationKind" },
+        "ReceiptRef": { "const": "NO_LIVE_MUTATION" }
+      },
+      "additionalProperties": false
+    },
+    "environmentMaterializationRoot": {
+      "type": "object",
+      "required": ["Path", "Identity", "EnvBuildPath", "EnvBuildHash", "EnvLockPath", "EnvLockHash", "MaterializationHash"],
+      "properties": {
+        "Path": { "$ref": "#/$defs/absolutePath" },
+        "Identity": { "$ref": "#/$defs/directoryIdentity" },
+        "EnvBuildPath": { "$ref": "#/$defs/absolutePath" },
+        "EnvBuildHash": { "$ref": "#/$defs/hash" },
+        "EnvLockPath": { "$ref": "#/$defs/absolutePath" },
+        "EnvLockHash": { "$ref": "#/$defs/hash" },
+        "MaterializationHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "safeNames": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {
+          "type": "object",
+          "required": ["Platform", "Names"],
+          "properties": {
+            "Platform": { "const": "Claude" },
+            "Names": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$", "maxLength": 128 }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["Platform", "Names"],
+          "properties": {
+            "Platform": { "const": "Codex" },
+            "Names": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$", "maxLength": 128 }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["Platform", "Names"],
+          "properties": {
+            "Platform": { "const": "Reasonix" },
+            "Names": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$", "maxLength": 128 }
+            }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "items": false
+    },
+    "retirementPostset": {
+      "type": "object",
+      "required": ["EnvironmentName", "EnvironmentLockHash", "TaskOverlayHash", "TaskOverlaySkills", "ManifestHashes"],
+      "properties": {
+        "EnvironmentName": { "$ref": "#/$defs/environmentName" },
+        "EnvironmentLockHash": { "$ref": "#/$defs/hash" },
+        "TaskOverlayHash": { "$ref": "#/$defs/hash" },
+        "TaskOverlaySkills": { "$ref": "#/$defs/platformSkills" },
+        "ManifestHashes": { "$ref": "#/$defs/platformHashes" }
+      },
+      "additionalProperties": false
+    },
+    "retirementManifest": {
+      "type": "object",
+      "required": [
+        "Path", "Hash", "SafeNames", "CanonicalAbsenceHash", "GeneratedAbsenceHash",
+        "CurrentManifestAbsenceHash", "TargetTreeHashes", "Postset"
+      ],
+      "properties": {
+        "Path": { "$ref": "#/$defs/absolutePath" },
+        "Hash": { "$ref": "#/$defs/hash" },
+        "SafeNames": { "$ref": "#/$defs/safeNames" },
+        "CanonicalAbsenceHash": { "$ref": "#/$defs/hash" },
+        "GeneratedAbsenceHash": { "$ref": "#/$defs/hash" },
+        "CurrentManifestAbsenceHash": { "$ref": "#/$defs/hash" },
+        "TargetTreeHashes": { "$ref": "#/$defs/platformHashes" },
+        "Postset": { "$ref": "#/$defs/retirementPostset" }
+      },
+      "additionalProperties": false
+    },
+    "taskOverlayEvidence": {
+      "type": "object",
+      "required": ["CurrentHash", "CandidateHash", "CandidatePath", "Action", "RemovalReview"],
+      "properties": {
+        "CurrentHash": { "$ref": "#/$defs/hash" },
+        "CandidateHash": { "$ref": "#/$defs/hash" },
+        "CandidatePath": { "$ref": "#/$defs/absolutePath" },
+        "Action": { "type": "string", "minLength": 1 },
+        "RemovalReview": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "legacyEvidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["Status"],
+          "properties": { "Status": { "const": "MISSING" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["Status"],
+          "properties": { "Status": { "const": "UNTRUSTED" } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "stateEvidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["Kind", "Path", "RawHash", "PreimageHash"],
+          "properties": {
+            "Kind": { "const": "CORRUPT" },
+            "Path": { "$ref": "#/$defs/absolutePath" },
+            "RawHash": { "$ref": "#/$defs/hash" },
+            "PreimageHash": { "$ref": "#/$defs/hash" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["Kind", "Marker"],
+          "properties": {
+            "Kind": { "const": "MISSING" },
+            "Marker": { "const": true }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "controllerParity": {
+      "type": "object",
+      "required": ["PreviousControllerRepoFingerprint"],
+      "properties": {
+        "PreviousControllerRepoFingerprint": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "planPayload": {
+      "type": "object",
+      "required": [
+        "OperationKind", "Generator", "RepositoryCommit", "RepoRoot",
+        "ApprovedToolchainHash", "ControllerRepoFingerprint", "ControlBaseIntent",
+        "Platforms", "OrderedActions", "UnknownMarkers", "SystemMarker",
+        "TargetContextIntent", "AuthorityStateIntent"
+      ],
+      "properties": {
+        "OperationKind": { "$ref": "#/$defs/operationKind" },
+        "Generator": { "enum": ["scripts/sync.ps1", "tests/helpers/sealed-live-plan-fixture.ps1"] },
+        "RepositoryCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+        "RepoRoot": { "$ref": "#/$defs/absolutePath" },
+        "ApprovedToolchainHash": { "$ref": "#/$defs/hash" },
+        "ControllerRepoFingerprint": { "$ref": "#/$defs/hash" },
+        "ControlBaseIntent": { "$ref": "#/$defs/controlBaseIntent" },
+        "Platforms": { "$ref": "#/$defs/platforms" },
+        "OrderedActions": { "type": "array", "items": { "$ref": "#/$defs/orderedAction" } },
+        "UnknownMarkers": { "type": "array", "items": { "$ref": "#/$defs/unknownMarker" } },
+        "SystemMarker": { "$ref": "#/$defs/systemMarker" },
+        "TargetContextIntent": { "$ref": "#/$defs/targetContextIntent" },
+        "AuthorityStateIntent": { "$ref": "#/$defs/authorityStateIntent" },
+        "EnvironmentName": { "$ref": "#/$defs/environmentName" },
+        "EnvironmentMaterializationRoot": { "$ref": "#/$defs/environmentMaterializationRoot" },
+        "ProposedRootClaims": { "$ref": "#/$defs/proposedRootClaims" },
+        "RootClaimsHash": { "$ref": "#/$defs/hash" },
+        "RetirementManifest": { "$ref": "#/$defs/retirementManifest" },
+        "TaskOverlayEvidence": { "$ref": "#/$defs/taskOverlayEvidence" },
+        "LegacyLocator": { "$ref": "#/$defs/absolutePath" },
+        "LegacyHash": { "$ref": "#/$defs/hash" },
+        "LegacyCoreHash": { "$ref": "#/$defs/hash" },
+        "OldLockHash": { "$ref": "#/$defs/hash" },
+        "LegacyEvidence": { "$ref": "#/$defs/legacyEvidence" },
+        "StateEvidence": { "$ref": "#/$defs/stateEvidence" },
+        "ControllerParity": { "$ref": "#/$defs/controllerParity" }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["EnvironmentName", "EnvironmentMaterializationRoot", "ProposedRootClaims", "RootClaimsHash"],
+          "properties": {
+            "OperationKind": { "const": "initial" },
+            "Generator": { "const": "scripts/sync.ps1" },
+            "EnvironmentName": { "const": "full" },
+            "Platforms": {
+              "prefixItems": [
+                { "$ref": "#/$defs/absentLivePlatform" },
+                { "$ref": "#/$defs/absentLivePlatform" },
+                { "$ref": "#/$defs/absentLivePlatform" }
+              ]
+            },
+            "AuthorityStateIntent": {
+              "type": "object",
+              "required": ["LastOperationKind", "EnvironmentName"],
+              "properties": {
+                "LastOperationKind": { "const": "initial" },
+                "EnvironmentName": { "const": "full" }
+              },
+              "not": { "required": ["ReceiptRef"] }
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["RetirementManifest"] },
+              { "required": ["TaskOverlayEvidence"] },
+              { "required": ["LegacyLocator"] },
+              { "required": ["LegacyHash"] },
+              { "required": ["LegacyCoreHash"] },
+              { "required": ["OldLockHash"] },
+              { "required": ["LegacyEvidence"] },
+              { "required": ["StateEvidence"] },
+              { "required": ["ControllerParity"] }
+            ]
+          }
+        },
+        {
+          "required": ["EnvironmentName", "EnvironmentMaterializationRoot"],
+          "properties": {
+            "OperationKind": { "const": "environment" },
+            "Generator": { "const": "tests/helpers/sealed-live-plan-fixture.ps1" },
+            "AuthorityStateIntent": {
+              "type": "object",
+              "required": ["LastOperationKind"],
+              "properties": { "LastOperationKind": { "const": "environment" } },
+              "not": { "required": ["ReceiptRef"] }
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["ProposedRootClaims"] },
+              { "required": ["RetirementManifest"] },
+              { "required": ["TaskOverlayEvidence"] },
+              { "required": ["LegacyLocator"] },
+              { "required": ["LegacyEvidence"] },
+              { "required": ["StateEvidence"] },
+              { "required": ["ControllerParity"] }
+            ]
+          }
+        },
+        {
+          "required": ["EnvironmentName", "EnvironmentMaterializationRoot", "TaskOverlayEvidence"],
+          "properties": {
+            "OperationKind": { "const": "task-overlay" },
+            "Generator": { "const": "tests/helpers/sealed-live-plan-fixture.ps1" },
+            "AuthorityStateIntent": {
+              "type": "object",
+              "required": ["LastOperationKind"],
+              "properties": { "LastOperationKind": { "const": "task-overlay" } },
+              "not": { "required": ["ReceiptRef"] }
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["RetirementManifest"] },
+              { "required": ["LegacyLocator"] },
+              { "required": ["LegacyEvidence"] },
+              { "required": ["StateEvidence"] },
+              { "required": ["ControllerParity"] }
+            ]
+          }
+        },
+        {
+          "required": [
+            "EnvironmentName", "EnvironmentMaterializationRoot",
+            "LegacyLocator", "LegacyHash", "LegacyCoreHash", "OldLockHash"
+          ],
+          "properties": {
+            "OperationKind": { "const": "migrate" },
+            "Generator": { "const": "tests/helpers/sealed-live-plan-fixture.ps1" },
+            "AuthorityStateIntent": {
+              "type": "object",
+              "required": ["LastOperationKind"],
+              "properties": { "LastOperationKind": { "const": "migrate" } },
+              "not": { "required": ["ReceiptRef"] }
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["LegacyEvidence"] },
+              { "required": ["StateEvidence"] },
+              { "required": ["RetirementManifest"] },
+              { "required": ["ControllerParity"] }
+            ]
+          }
+        },
+        {
+          "required": ["EnvironmentName", "LegacyEvidence"],
+          "properties": {
+            "OperationKind": { "const": "adopt" },
+            "Generator": { "const": "tests/helpers/sealed-live-plan-fixture.ps1" },
+            "AuthorityStateIntent": {
+              "type": "object",
+              "required": ["LastOperationKind"],
+              "properties": { "LastOperationKind": { "const": "adopt" } },
+              "not": { "required": ["ReceiptRef"] }
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["LegacyLocator"] },
+              { "required": ["LegacyHash"] },
+              { "required": ["LegacyCoreHash"] },
+              { "required": ["OldLockHash"] },
+              { "required": ["StateEvidence"] },
+              { "required": ["RetirementManifest"] },
+              { "required": ["ControllerParity"] }
+            ]
+          }
+        },
+        {
+          "required": ["EnvironmentName", "StateEvidence"],
+          "properties": {
+            "OperationKind": { "const": "repair-adopt" },
+            "Generator": { "const": "tests/helpers/sealed-live-plan-fixture.ps1" },
+            "AuthorityStateIntent": {
+              "type": "object",
+              "required": ["LastOperationKind"],
+              "properties": { "LastOperationKind": { "const": "repair-adopt" } },
+              "not": { "required": ["ReceiptRef"] }
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["LegacyEvidence"] },
+              { "required": ["LegacyLocator"] },
+              { "required": ["RetirementManifest"] },
+              { "required": ["ControllerParity"] }
+            ]
+          }
+        },
+        {
+          "required": ["ControllerParity"],
+          "properties": {
+            "OperationKind": { "const": "controller-transition" },
+            "Generator": { "const": "tests/helpers/sealed-live-plan-fixture.ps1" },
+            "AuthorityStateIntent": {
+              "type": "object",
+              "required": ["LastOperationKind", "ReceiptRef"],
+              "properties": {
+                "LastOperationKind": { "const": "controller-transition" },
+                "ReceiptRef": { "const": "NO_LIVE_MUTATION" }
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["RetirementManifest"] },
+              { "required": ["ProposedRootClaims"] },
+              { "required": ["TaskOverlayEvidence"] },
+              { "required": ["LegacyEvidence"] },
+              { "required": ["StateEvidence"] }
+            ]
+          }
+        },
+        {
+          "required": ["RetirementManifest"],
+          "properties": {
+            "OperationKind": { "const": "retirement" },
+            "Generator": { "const": "scripts/sync.ps1" },
+            "AuthorityStateIntent": {
+              "type": "object",
+              "required": ["LastOperationKind"],
+              "properties": { "LastOperationKind": { "const": "retirement" } },
+              "not": { "required": ["ReceiptRef"] }
+            }
+          },
+          "not": {
+            "anyOf": [
+              { "required": ["ProposedRootClaims"] },
+              { "required": ["TaskOverlayEvidence"] },
+              { "required": ["LegacyLocator"] },
+              { "required": ["LegacyEvidence"] },
+              { "required": ["StateEvidence"] },
+              { "required": ["ControllerParity"] }
+            ]
+          }
+        }
+      ]
     }
-  },
-  "additionalProperties": false
+  }
 }

@@ -100,7 +100,7 @@ try {
     finally {
         $planJson.Dispose()
     }
-    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/sync-plan.schema.json') -InstancePath $planPath
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/sync-plan.v2-live-compat.schema.json') -InstancePath $planPath
     Assert $true 'plan without retirement authority passes the pinned sync-plan schema'
 
     Write-TextFile -Path (Join-Path $fakeHome '.claude/skills/demo/SKILL.md') -Content ($skill + "changed`n")
@@ -206,7 +206,7 @@ try {
             [string] $_.RetirementManifestHash -cnotmatch '^[0-9a-f]{64}$'
         }).Count -eq 0
     ) 'every platform plan binds the exact retirement manifest bytes by SHA-256'
-    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/sync-plan.schema.json') -InstancePath $retirementPlan
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/sync-plan.v2-live-compat.schema.json') -InstancePath $retirementPlan
     Assert $true 'retirement-authorized plan passes the pinned sync-plan schema'
     Assert (@($claudeRetirementPlan.RetiredNames) -contains 'retired-claude') 'plan records platform retirement names'
     Assert ($claudeRetirementPlan.PruneEntries[0].Authority -eq 'explicit-retirement' -and -not [bool] $claudeRetirementPlan.PruneEntries[0].Managed) 'plan distinguishes explicit retirement from current manifest authority'
