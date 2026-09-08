@@ -822,25 +822,20 @@ stay unconnected to production mutation routes.
 
 ## Current phase
 
-Phase 2 is 0/9 Tasks and 5/52 Steps with Task 1 at 5/6. Task 1 Step 5 (Implement deterministic
-lock semantics) is complete as of 2026-09-08 with the authoritative unified validation over the
-final state (34/34 suites, summary SHA-256
-`9f60a75cf33b615b2ced24e41670066146d6bbf28406fd83043fddce736b352f`): the
-`Enter-/Exit-/Assert-SealedHeldCanonicalLiveLockOrder` orchestrator with the typed
-`SealedHeldCanonicalLiveLockOrder` handle, the setup-only SetupBootstrap branch composing the
-reviewed bootstrap completion with the two-slot deferred journal-target manifest, the
-after-all-locks recompute gate with the backup authorization guard, and the production retrofit
-of both unsealed Apply scripts to ExistingOnly acquisition with in-lock recompute while keeping
-the interlock results and exit 75 unchanged. The enable boundary holds without lifting any
-tracked interlock: only `RouteKind='setup'` may bootstrap a MISSING prefix, other routes fail
-with `live-cannot-bootstrap-missing-canonical-claim`, and `ReleaseState=interlocked` is
-unchanged.
+**Phase 2 Task 1 is complete (6/6; Phase 2 overall 6/52), with Tasks 2-9 not started.** Task 1
+Step 6 (Verify identity, state shape, and locking) closed on 2026-09-08 with the authoritative
+unified validation over the Task 1-complete state (34/34 suites, summary SHA-256
+`ea989bfc5c7351339f0f70265e4ec4909df3cec4d5691cdc27648a542a7cdd03`): all expected outcomes
+pinned to anchors (authority-namespace preservation, global overlap rejection, kill-between
+finalize/stop, schema/semantic layering, canonical-versus-live/retirement non-interleaving with
+zero-write losers including the new recover-Apply route-contention block, OS owner-death
+release), with real retirement/sync routes staying with Task 5.
 
-The next implementable work is Task 1 Step 6 (Verify identity, state shape, and locking) — the
-final Task 1 step: run both new suites to expected outcomes and re-verify the adopt/retirement
-route contention the fifth checkpoint recorded for Step 5/6 where the real routes exist (real
-retirement/sync routes stay with Task 5). Production Apply remains disconnected, and
-live-journal structure and interpretation remain deferred to Task 4.
+The next implementable work is Phase 2 Task 2 (Replace Sync Plan Schema 2 with the Semantic Plan
+Contract): the semantic plan contract across schema 3, environment-build v3, and the plan-facing
+surfaces, with the environment/task semantics defined in Task 1 Step 4's shared-state contract.
+Tasks 3-9 follow in strict sequence. Production Apply remains disconnected, and live-journal
+structure and interpretation remain deferred to Task 4.
 
 Step 3 (commits `8ab102f`/`45b9510`/`744f326`/`c107ab8`) added the shared live-transaction
 immediate-child contract with ordered live reservation rows and the split fixed-infrastructure
@@ -891,11 +886,11 @@ rather than being interpreted heuristically.
 
 ## Remaining work
 
-Phase 2 has 47 of 52 steps remaining. Task 1 has one remaining step; Tasks 2-9 are unstarted:
+Phase 2 has 46 of 52 steps remaining. Task 1 is complete; Tasks 2-9 are unstarted:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
-| Task 1 | 1/6 | Verification |
+| Task 1 | 0/6 | Complete |
 | Task 2 | 7/7 | Semantic plan schema 3 and environment-build v3 |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage receipts |
 | Task 4 | 7/7 | Common live-mutation state machine and journal |

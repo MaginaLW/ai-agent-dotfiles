@@ -18,9 +18,8 @@ Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete
 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
-longer served. Phase 2 Task 1 Steps 1-5 are complete (Task 1 5/6; Phase 2 overall 5/52), while
-Phases 3-4
-have not started. Tracked policy remains
+longer served. **Phase 2 Task 1 is complete (6/6); Phase 2 overall is 6/52, with Tasks 2-9 not
+started.** Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
@@ -2100,12 +2099,12 @@ create-new summary SHA-256
 `9f60a75cf33b615b2ced24e41670066146d6bbf28406fd83043fddce736b352f`, discovery hash
 `1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`; hard-kill 318/0, seams
 56/0, root-claims 876/0, live-concurrency 221/0, command-result 66/0, transaction 64/0 inside
-the run). With that authoritative validation, Step 5 is complete: Task 1 is 5/6 and Phase 2 is
-5/52, and the next implementable work is Task 1 Step 6 (Verify identity, state shape, and
-locking) — the final Task 1 step, re-verifying the adopt/retirement route contention the fifth
-checkpoint recorded for Step 5/6. Worktree overlay locking, journal phases, and the task/sync
-route retrofit stay with Phase 3 / Task 4 / Task 5. Production Apply remains interlocked, and
-no live root or Git index/ref was changed.
+the run). With that authoritative validation, Step 5 is complete: Task 1 was 5/6 and Phase 2 was
+5/52 at that checkpoint, and the next implementable work was Task 1 Step 6 (Verify identity,
+state shape, and locking) — the final Task 1 step, re-verifying the adopt/retirement route
+contention the fifth checkpoint recorded for Step 5/6. Worktree overlay locking, journal phases,
+and the task/sync route retrofit stay with Phase 3 / Task 4 / Task 5. Production Apply remains
+interlocked, and no live root or Git index/ref was changed.
 
 ## 2026-09-08 Phase 2 Task 1 Step 6: verification of identity, state shape, and locking
 
@@ -2134,8 +2133,17 @@ Validation on 2026-09-08: `tests/home-authority.tests.ps1` passed 207/0, `tests/
 passed 221/0, `tests/root-claims-registry.tests.ps1` passed 883/0 (876 + 7 new route-contention
 assertions), seams stayed 56/0 without a baseline change (tests-only diff), the pinned secret
 scan reported zero leaks, and `git diff --check` was clean. No production script changed. The
-authoritative unified `run-tests.ps1 -All` run over the Task 1-complete state is executing and
-will be recorded on completion. Production Apply remains interlocked, and no live root or Git
+authoritative unified `run-tests.ps1 -All` run over the Task 1-complete state then passed all 34
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill
+failures (external create-new summary SHA-256
+`ea989bfc5c7351339f0f70265e4ec4909df3cec4d5691cdc27648a542a7cdd03`, discovery hash
+`1c323da6ae6872e58d8a0cf9af3c6d15ef9c0b9130fbfdc178f73602f69500b0`; hard-kill 318/0, seams 56/0,
+home-authority 207/0, live-concurrency 221/0, root-claims 883/0 inside the run). With that
+authoritative validation, Step 6 is complete and **Task 1 is complete at 6/6** (Phase 2 is
+6/52): identity, state shape, and locking are verified to the plan's expected outcomes, with the
+recover-Apply route contention re-verified at route level and real retirement/sync routes
+staying with Task 5. The next implementable work is Phase 2 Task 2 (Replace Sync Plan Schema 2
+with the Semantic Plan Contract). Production Apply remains interlocked, and no live root or Git
 index/ref was changed.
 
 ## Validation status
@@ -2476,12 +2484,12 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 
 ## Remaining roadmap snapshot
 
-Phase 2 has 47 of 52 steps remaining. Task 1 has one remaining step; Tasks 2-9 have not started.
+Phase 2 has 46 of 52 steps remaining. Task 1 is complete; Tasks 2-9 have not started.
 The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
-| Task 1 | 1/6 | Verification |
+| Task 1 | 0/6 | Complete |
 | Task 2 | 7/7 | Semantic sync-plan schema 3 and environment-build v3 |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage backup receipts |
 | Task 4 | 7/7 | Live-mutation state machine, same-volume staging, journal, and failure classification |
@@ -2497,14 +2505,11 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Begin Phase 2 Task 1 Step 6 (Verify identity, state shape, and locking) — the final Task 1
-   step: run both new suites to expected outcomes (absent→created preserves the authority
-   namespace; partial overlap rejected globally; claim→setup-state kill-between uniquely
-   finalizes or stops; relocation/state-without-claim rejected; canonical and live/retirement
-   transactions cannot interleave with a loser creating no backup/workspace). Re-verify the
-   adopt/retirement route contention the fifth checkpoint recorded for Step 5/6 where the real
-   routes exist (real retirement/sync routes stay with Task 5). Production Apply remains
-   interlocked throughout.
+1. Begin Phase 2 Task 2 (Replace Sync Plan Schema 2 with the Semantic Plan Contract): the
+   semantic plan contract across schema 3, environment-build v3, and the plan-facing surfaces,
+   with the environment/task semantics defined in Task 1 Step 4's shared-state contract.
+   Tasks 3-9 follow in strict sequence. Live-journal structure and interpretation stay with
+   Task 4; production Apply remains interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Task 1 Steps 1-5 are complete (Task 1 5/6; Phase 2 overall 5/52); the remaining tasks have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
+**Status:** Complete. Task 1 is complete (6/6; Phase 2 overall 6/52); Tasks 2-9 have not started. GitHub Support ticket `#4697323` and the independently verified old-SHA privacy follow-up are closed; that closure does not relax any Phase 2 gate. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization; all public production mutation remains interlocked.
 
 **Goal:** Replace normal sync, explicit retirement, backup, rollback, and crash recovery with one target-bound, globally serialized, receipt-backed live transaction protocol.
 
@@ -489,11 +489,30 @@ create-new summary SHA-256
 56/0, root-claims 876/0, live-concurrency 221/0, command-result 66/0, transaction 64/0 inside
 the run). Task 1 is 5/6 and Phase 2 is 5/52. Production Apply remains interlocked.
 
-- [ ] **Step 6: Verify identity, state shape, and locking**
+- [x] **Step 6: Verify identity, state shape, and locking**
 
 Run both new suites.
 
 Expected: absent→created preserves authority namespace; partial overlap is rejected globally; canonical claim→setup-state kill-between uniquely finalizes or stops, and relocation/state-without-claim is rejected; state oneOf/RootClaimsHash fixtures validate at the intended schema/semantic layer; canonical and live/retirement transactions cannot interleave, and a loser creates no backup/workspace. This task proves only OS-handle release after owner death; durable post-kill reservation classification is implemented and tested in Tasks 4, 6, and 8.
+
+**Step 6 closure (2026-09-08; Task 1 complete):** Step 6 is the verification pass over the
+expected outcomes, each pinned to its anchors: absent→created preserves the authority namespace
+(home-authority contracts), partial overlap is rejected globally (ordered-reservation disjoint,
+two-HomeRoot ancestor/descendant, forbidden-root pairwise nesting), kill-between claim→setup-state
+uniquely finalizes or stops with relocation/state-without-claim rejected (hard-kill setup matrix,
+recovery fixtures), state oneOf/RootClaimsHash validate at the schema/semantic layers (HA
+artifact-contract block, FailureLayer negative fixtures), canonical versus live/retirement
+transactions cannot interleave with a zero-write loser (live-concurrency contention, the Step 5
+setup-Apply interlocked block, and the new recover-Apply route-contention block whose loser emits
+`operation-lock-busy` with a tree-hash-zero-write fixture and a released holder returns to
+`canonical-recovery-apply-interlocked` / 75), and OS-handle release after owner death is proven
+(durable post-kill classification stays with Tasks 4/6/8; real retirement/sync routes with
+Task 5). The authoritative unified `run-tests.ps1 -All` run over the Task 1-complete state passed
+all 34 suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill
+failures (external create-new summary SHA-256
+`ea989bfc5c7351339f0f70265e4ec4909df3cec4d5691cdc27648a542a7cdd03`; hard-kill 318/0, seams 56/0,
+home-authority 207/0, live-concurrency 221/0, root-claims 883/0 inside the run). Task 1 is 6/6 —
+complete — and Phase 2 is 6/52. Production Apply remains interlocked.
 
 ### Task 2: Replace Sync Plan Schema 2 with the Semantic Plan Contract
 
