@@ -26,6 +26,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
+. (Join-Path $RepoRoot 'scripts/harness-env-common.ps1')
 $listScript = Join-Path $RepoRoot 'scripts/list-harness-env.ps1'
 $statusScript = Join-Path $RepoRoot 'scripts/status-harness-env.ps1'
 $buildScript = Join-Path $RepoRoot 'scripts/build-harness-env.ps1'
@@ -233,14 +234,54 @@ Assert ($lock.PSObject.Properties.Name -contains 'TaskOverlaySkills' -and
     $lock.TaskOverlaySkills.PSObject.Properties.Name -contains 'Reasonix') 'lock records task overlay arrays for every platform'
 Assert (@($lock.TaskOverlaySkills.Reasonix) -contains 'fixture-b') 'lock records the actual Reasonix task overlay'
 $lockedFiles = @($lock.BuiltFiles.PSObject.Properties.Name)
-Assert ($lockedFiles.Count -gt 0 -and ($lockedFiles -notcontains 'env.lock.json')) 'lock covers built files but not itself'
+Assert ($lockedFiles.Count -gt 0 -and ($lockedFiles -notcontains 'env.lock.json') -and ($lockedFiles -notcontains 'env-build.json')) 'lock covers built files but not itself or the sidecar'
+Assert ($lock.PSObject.Properties.Name -notcontains 'MaterializationHash') 'lock instance has no MaterializationHash field'
+$sidecarPath = Join-Path $goodStaging 'env-build.json'
+Assert (Test-Path -LiteralPath $sidecarPath -PathType Leaf) 'env-build.json sidecar written'
+$sidecar = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($sidecarPath, [System.Text.UTF8Encoding]::new($false, $true)))
+Assert ([long] $sidecar.SchemaVersion -eq 3) 'sidecar uses schema version 3'
+Assert ([string] $sidecar.MaterializationHash -ceq (Get-HarnessEnvMaterializationHash -Document $sidecar)) 'sidecar MaterializationHash matches RFC 8785 excluding GeneratedAtUtc and itself'
+$sidecar.GeneratedAtUtc = '2099-01-01T00:00:00.0000000Z'
+Assert ([string] $sidecar.MaterializationHash -ceq (Get-HarnessEnvMaterializationHash -Document $sidecar)) 'MaterializationHash is unchanged after GeneratedAtUtc mutation'
+Test-HarnessEnvBuildSemantics -Document $sidecar
+Assert $true 'sidecar passes Test-HarnessEnvBuildSemantics after GeneratedAtUtc mutation'
+$v2Evidence = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($sidecarPath, [System.Text.UTF8Encoding]::new($false, $true)))
+$v2Evidence.SchemaVersion = 2
+$v2Rejected = $false
+try { Test-HarnessEnvBuildSemantics -Document $v2Evidence }
+catch { $v2Rejected = $_.Exception.Message -match 'env-build-schema-unsupported' }
+Assert $v2Rejected 'v2 env-build evidence is rejected'
 $stagedFiles = @(Get-ChildItem -LiteralPath $goodStaging -File -Recurse -Force |
-        Where-Object { $_.Name -ne 'env.lock.json' })
-Assert ($lockedFiles.Count -eq $stagedFiles.Count) 'lock covers every staged file'
+        Where-Object { $_.Name -ne 'env.lock.json' -and $_.Name -ne 'env-build.json' })
+Assert ($lockedFiles.Count -eq $stagedFiles.Count) 'lock covers every staged file except lock and sidecar'
 $runtimeReport = Join-Path $goodStaging 'reports/sync-report-fixture.md'
 Set-File -Path $runtimeReport -Content '# runtime report'
 $result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
 Assert ($result.Out -match 'good\s+definition=valid\s+staging=built') 'status ignores runtime reports written under staging'
+
+Write-Host 'build: empty platform root exists'
+$emptyRxPath = Join-Path $envRoot 'emptyrx.psd1'
+Set-File -Path $emptyRxPath -Content (New-EnvDefinitionText -Name 'emptyrx' -ClaudeSkills @('fixture-a') -CodexSkills @('fixture-a'))
+$result = Invoke-Script -Script $buildScript -ScriptArgs @('-Name', 'emptyrx', '-RepoRoot', $fakeRepo)
+Assert ($result.Code -eq 0) 'build succeeds with an empty Reasonix subset'
+$emptyRxStaging = Join-Path $fakeRepo 'envs/emptyrx'
+Assert (Test-Path -LiteralPath (Join-Path $emptyRxStaging 'reasonix/skills') -PathType Container) 'empty Reasonix skills root is created'
+$emptyRxSidecar = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path $emptyRxStaging 'env-build.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+Assert ([bool] $emptyRxSidecar.MaterializedRoots.Reasonix.Exists -eq $true) 'empty Reasonix MaterializedRoots.Exists is true'
+Assert ([string] $emptyRxSidecar.MaterializedRoots.Reasonix.RelativePath -ceq 'reasonix/skills') 'empty Reasonix RelativePath is reasonix/skills'
+Assert ([long] $emptyRxSidecar.MaterializedRoots.Reasonix.FileCount -eq 0) 'empty Reasonix FileCount is 0'
+Remove-Item -LiteralPath $emptyRxPath -Force
+Remove-Item -LiteralPath $emptyRxStaging -Recurse -Force
+
+Write-Host 'materialization: refuse non-empty destination'
+$blockedDest = Join-Path $work 'blocked-dest'
+New-Item -ItemType Directory -Path $blockedDest -Force | Out-Null
+Set-File -Path (Join-Path $blockedDest 'keep.txt') -Content 'keep'
+$blockedThrew = $false
+try { Invoke-HarnessEnvMaterialization -Name 'good' -Destination $blockedDest -RepoRoot $fakeRepo }
+catch { $blockedThrew = $_.Exception.Message -match 'not empty' }
+Assert $blockedThrew 'Invoke-HarnessEnvMaterialization refuses a non-empty Destination'
+Assert (Test-Path -LiteralPath (Join-Path $blockedDest 'keep.txt') -PathType Leaf) 'refused materialization does not Recurse-delete Destination'
 
 # --- 5. build idempotence -----------------------------------------------------
 Write-Host 'build: idempotence'

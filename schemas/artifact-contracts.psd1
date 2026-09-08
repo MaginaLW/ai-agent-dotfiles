@@ -137,6 +137,18 @@
             )
             SemanticValidator = 'Test-LiveSyncPlanEnvelopeSemantics'
         }
+        'harness-env-build' = @{
+            SchemaVersion = 3
+            SchemaPath = 'schemas/harness-env-build.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/harness-env-build.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/harness-env-build.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/harness-env-build.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-platform-root'; Path = 'tests/fixtures/artifacts/harness-env-build.missing-platform-root.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'hash-mismatch'; Path = 'tests/fixtures/artifacts/harness-env-build.hash-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+            )
+            SemanticValidator = 'Test-HarnessEnvBuildSemantics'
+        }
         'canonical-transaction-result' = @{
             SchemaVersion = 1
             SchemaPath = 'schemas/canonical-transaction-result.schema.json'

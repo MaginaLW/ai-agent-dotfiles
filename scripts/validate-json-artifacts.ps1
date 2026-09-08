@@ -14,6 +14,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 . (Join-Path $PSScriptRoot 'transaction-journal-common.ps1')
 . (Join-Path $PSScriptRoot 'shared-authority-state-common.ps1')
+. (Join-Path $PSScriptRoot 'harness-env-common.ps1')
 
 function Test-CanonicalPlanDocumentHashSemantics {
     param(

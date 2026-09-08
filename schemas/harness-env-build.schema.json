@@ -3,9 +3,26 @@
   "$id": "https://ai-agent-dotfiles.invalid/schemas/harness-env-build.schema.json",
   "title": "AI Agent Dotfiles Harness Environment Build",
   "type": "object",
-  "required": ["SchemaVersion", "GeneratedAtUtc", "Name", "Result", "DefinitionHash", "TaskOverlayHash", "TaskOverlaySkills", "LockHash", "RepositoryCommit", "SkillSourceEvidence", "FileCount"],
+  "required": [
+    "SchemaVersion",
+    "GeneratedAtUtc",
+    "Name",
+    "Result",
+    "DefinitionHash",
+    "TaskOverlayHash",
+    "TaskOverlaySkills",
+    "LockHash",
+    "RepositoryCommit",
+    "SkillSourceEvidence",
+    "FileCount",
+    "MaterializationHash",
+    "ManifestHashes",
+    "SkillSourceHashes",
+    "StagedSkillTreeHashes",
+    "MaterializedRoots"
+  ],
   "properties": {
-    "SchemaVersion": { "const": 2 },
+    "SchemaVersion": { "const": 3 },
     "GeneratedAtUtc": { "type": "string", "format": "date-time" },
     "Name": { "type": "string" },
     "Result": { "const": "PASS" },
@@ -24,7 +41,78 @@
     "LockHash": { "type": "string" },
     "RepositoryCommit": { "type": ["string", "null"] },
     "SkillSourceEvidence": { "enum": ["available", "not-collected"] },
-    "FileCount": { "type": "integer", "minimum": 0 }
+    "FileCount": { "type": "integer", "minimum": 0 },
+    "MaterializationHash": { "$ref": "#/$defs/hex64" },
+    "ManifestHashes": { "$ref": "#/$defs/platformHashTriple" },
+    "SkillSourceHashes": { "$ref": "#/$defs/platformSkillHashMaps" },
+    "StagedSkillTreeHashes": { "$ref": "#/$defs/platformSkillHashMaps" },
+    "MaterializedRoots": {
+      "type": "object",
+      "required": ["Claude", "Codex", "Reasonix"],
+      "properties": {
+        "Claude": {
+          "type": "object",
+          "required": ["RelativePath", "Exists", "TreeHash", "FileCount"],
+          "properties": {
+            "RelativePath": { "const": "claude/skills" },
+            "Exists": { "const": true },
+            "TreeHash": { "$ref": "#/$defs/hex64" },
+            "FileCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "Codex": {
+          "type": "object",
+          "required": ["RelativePath", "Exists", "TreeHash", "FileCount"],
+          "properties": {
+            "RelativePath": { "const": "codex/skills" },
+            "Exists": { "const": true },
+            "TreeHash": { "$ref": "#/$defs/hex64" },
+            "FileCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "Reasonix": {
+          "type": "object",
+          "required": ["RelativePath", "Exists", "TreeHash", "FileCount"],
+          "properties": {
+            "RelativePath": { "const": "reasonix/skills" },
+            "Exists": { "const": true },
+            "TreeHash": { "$ref": "#/$defs/hex64" },
+            "FileCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "hex64": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hashMap": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "null"] }
+    },
+    "platformHashTriple": {
+      "type": "object",
+      "required": ["Claude", "Codex", "Reasonix"],
+      "properties": {
+        "Claude": { "type": ["string", "null"] },
+        "Codex": { "type": ["string", "null"] },
+        "Reasonix": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "platformSkillHashMaps": {
+      "type": "object",
+      "required": ["Claude", "Codex", "Reasonix"],
+      "properties": {
+        "Claude": { "$ref": "#/$defs/hashMap" },
+        "Codex": { "$ref": "#/$defs/hashMap" },
+        "Reasonix": { "$ref": "#/$defs/hashMap" }
+      },
+      "additionalProperties": false
+    }
+  }
 }
