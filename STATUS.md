@@ -2146,6 +2146,50 @@ staying with Task 5. The next implementable work is Phase 2 Task 2 (Replace Sync
 with the Semantic Plan Contract). Production Apply remains interlocked, and no live root or Git
 index/ref was changed.
 
+## 2026-09-08 Phase 2 Task 2 slices 1-3: semantic plan contract foundation
+
+Per the reviewed five-slice design (`tmp/grok-task2-semantic-plan-design.md`, Grok; public DryRun
+narrowed to pristine initial plus retirement per adopted Alternative F; production Apply and
+`ReleaseState=interlocked` untouched; sync is not an Enter caller), the first three Task 2
+slices are implemented:
+
+- Slice 1 (commit `b51a742`): `schemas/sync-plan.schema.json` is replaced with the schema 3
+  semantic contract (const 3 envelope with `Metadata`/`PlanPayload`/`PlanHash`/`DocumentHash`,
+  `additionalProperties:false`, the frozen eight-kind OperationKind oneOf with no
+  full-repo/environment-rollback/live-recover kinds, the `TargetContextIntent` $def matching
+  Task 1's row keys, `ProposedRootClaims` reusing the root-claims $defs copies, and the
+  AuthorityStateIntent subset excluding PlanHash/DocumentHash and runtime fields), with the
+  initial positive fixture, six negative fixtures, the new `tests/live-plan.tests.ps1` (60
+  PASS), and a test-frozen `sync-plan.v2-live-compat.schema.json` so the still-v2 emitter keeps
+  the content-aware sync tests green (82 PASS).
+- Slice 2 (commit `3d3aa7f`): env-build v3 — the sidecar `env-build.json` with the
+  `MaterializationHash` (RFC 8785 excluding `GeneratedAtUtc` and itself), per-platform
+  materialized roots with empty-root `Exists=true`, the shared
+  `Invoke-HarnessEnvMaterialization` as the single skills/lock/sidecar writer that refuses a
+  non-empty destination and never recursively deletes it, and lock-file-set exclusion of both
+  the lock and the sidecar. A real build was verified (schema 3 sidecar, reproducible
+  MaterializationHash, lock shape unchanged, empty roots present).
+- Slice 3 (commit `6f0ddd3`): `scripts/live-plan-common.ps1` with the sole full-semantics
+  validator `Test-LiveSyncPlanSemantics` (the eight-kind required/forbidden matrix, intent
+  three-layer consistency, retirement manifest/postset shape with
+  `retirement-selection-conflict`, system/unknown-marker shapes) replacing the slice-1 envelope
+  function in the same commit, plus `Complete-LivePlanAuthorityStateIntent` (adds the envelope
+  hashes so the result is directly consumable by `New-AuthorityStatePostimage`; zero production
+  callers) and the sealed fixture helper. `Assert-AuthorityTargetContextIntent`'s unique-caller
+  inventory extends to the semantics validator.
+
+Focused validation: live-plan progressed 60 → 94 PASS, sync stayed 82 PASS, validate-json-
+artifacts passed 23 positive / 76 negative, seams stayed 56/0 with the reflection inventory
+re-pinned (count 13640 / digest `7600aa01…`), the parse gate accepted all 159 files, the pinned
+secret scan reported zero leaks, and `git diff --check` was clean. Grok implemented slices 1-2
+end to end; its slice-3 session exited abnormally after writing a complete, defect-free
+implementation that the main agent validated and committed (the Grok Build quota pool was then
+exhausted with HTTP 402, recorded in project memory). The next Task 2 slice is slice 4
+(immutable plan write, the pristine-initial/retirement DryRun producers, host injection via the
+`AI_AGENT_DOTFILES_INTERNAL_*` prefixed variables, the five no-lock step functions, and the
+content-aware test extraction), followed by slice 5 (retirement regression). Production Apply
+remains interlocked, and no live root or Git index/ref was changed.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2505,11 +2549,15 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Begin Phase 2 Task 2 (Replace Sync Plan Schema 2 with the Semantic Plan Contract): the
-   semantic plan contract across schema 3, environment-build v3, and the plan-facing surfaces,
-   with the environment/task semantics defined in Task 1 Step 4's shared-state contract.
-   Tasks 3-9 follow in strict sequence. Live-journal structure and interpretation stay with
-   Task 4; production Apply remains interlocked throughout.
+1. Continue Phase 2 Task 2 at slice 4 (immutable plan write and the DryRun producers): the
+   Write/Read plus the five no-lock step functions in `scripts/live-plan-common.ps1`, the
+   pristine-initial and retirement DryRun producers in `sync.ps1` behind the sandbox capability
+   gate with host injection via the `AI_AGENT_DOTFILES_INTERNAL_*` prefixed variables, the
+   content-aware test extraction to `tests/helpers/task5-environment-sync-regression.ps1`, and
+   the v2-compat removal; then slice 5 (retirement regression). **The Grok Build quota pool was
+   exhausted (HTTP 402) on 2026-09-08 — the main agent implements the remaining slices
+   directly.** Tasks 3-9 follow in strict sequence. Live-journal structure and interpretation
+   stay with Task 4; production Apply remains interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
