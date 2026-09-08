@@ -434,4 +434,66 @@ finally {
     }
 }
 
+    Write-Host '[live plan immutable write and five-step]'
+
+    $writeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('live-plan-write-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force -Path $writeRoot | Out-Null
+    $writePlanPath = Join-Path $writeRoot 'sync-plan.json'
+    $fixtureDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path $RepoRoot 'tests/fixtures/artifacts/sync-plan.valid.json')))
+
+    . (Join-Path $RepoRoot 'scripts/harness-env-common.ps1')
+    $writeMaterialization = Join-Path $writeRoot 'sync-plan.materialization'
+    Invoke-HarnessEnvMaterialization -Name 'full' -Destination $writeMaterialization
+    $writeEnvBuildPath = Join-Path $writeMaterialization 'env-build.json'
+    $writeEnvLockPath = Join-Path $writeMaterialization 'env.lock.json'
+    $writeEnvBuildBytes = [System.IO.File]::ReadAllBytes($writeEnvBuildPath)
+    $writeEnvLockBytes = [System.IO.File]::ReadAllBytes($writeEnvLockPath)
+    $writeEnvBuildHash = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($writeEnvBuildBytes)).ToLowerInvariant()
+    $writeEnvLockHash = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($writeEnvLockBytes)).ToLowerInvariant()
+    $writeEnvBuildDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($writeEnvBuildPath))
+    $writeMaterializationHash = Get-HarnessEnvMaterializationHash -Document $writeEnvBuildDocument
+
+    $payload = $fixtureDocument['PlanPayload']
+    $fixtureIdentity = [string] $payload['EnvironmentMaterializationRoot']['Identity']
+    $payload['EnvironmentMaterializationRoot'] = [ordered]@{
+        Path = [System.IO.Path]::GetFullPath($writeMaterialization)
+        Identity = $fixtureIdentity
+        EnvBuildPath = $writeEnvBuildPath
+        EnvBuildHash = $writeEnvBuildHash
+        EnvLockPath = $writeEnvLockPath
+        EnvLockHash = $writeEnvLockHash
+        MaterializationHash = $writeMaterializationHash
+    }
+    $fixtureDocument['PlanHash'] = Get-PlanHash -PlanPayload $payload
+    $fixtureDocument['DocumentHash'] = Get-DocumentHash -Document $fixtureDocument
+
+    Write-LiveSyncPlan -Path $writePlanPath -Document $fixtureDocument
+    Assert (Test-Path -LiteralPath $writePlanPath -PathType Leaf) 'the immutable write creates the plan file'
+    try { Write-LiveSyncPlan -Path $writePlanPath -Document $fixtureDocument; Assert $false 'second write on the same path is rejected' } catch { Assert ($_.Exception.Message -ceq 'live-plan-path-collision') 'second write on the same path fails with the collision token' }
+    $roundTripped = Read-LiveSyncPlan -Path $writePlanPath
+    Assert ((Get-SemanticJsonHash -InputObject $roundTripped) -ceq (Get-SemanticJsonHash -InputObject $fixtureDocument)) 'the written plan round-trips byte-equivalent'
+    $null = Assert-LiveSyncPlanDocumentIntegrity -Document $roundTripped
+    Assert $true 'an untouched plan passes document integrity'
+    $tampered = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($writePlanPath))
+    $tampered['PlanHash'] = ('f' * 64)
+    try { Assert-LiveSyncPlanDocumentIntegrity -Document $tampered; Assert $false 'a tampered envelope hash fails integrity' } catch { Assert ($_.Exception.Message -ceq 'live-plan-hash-mismatch') 'a tampered envelope hash fails with the hash-mismatch token' }
+
+    $null = Assert-LiveSyncPlanCurrent -Document $roundTripped -MaterializationDirectory $writeMaterialization
+    Assert $true 'an unchanged bound materialization passes the currency gate'
+    $driftedBuildDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($writeEnvBuildPath))
+    $driftedBuildDocument['MaterializedRoots'][0]['FileCount'] = [long] $driftedBuildDocument['MaterializedRoots'][0]['FileCount'] + 1L
+    [System.IO.File]::WriteAllBytes($writeEnvBuildPath, [byte[]] (ConvertTo-SemanticJsonBytes -InputObject $driftedBuildDocument))
+    try { Assert-LiveSyncPlanCurrent -Document $roundTripped -MaterializationDirectory $writeMaterialization; Assert $false 'a drifted materialization fails the currency gate' } catch { Assert ($_.Exception.Message -ceq 'live-plan-hash-mismatch') 'a drifted materialization fails with the hash-mismatch token' }
+    [System.IO.File]::WriteAllBytes($writeEnvBuildPath, $writeEnvBuildBytes)
+
+    $null = Assert-LiveSyncPlanSelectionContext -Document $roundTripped -ExpectedOperationKind 'initial' -ExpectedEnvironmentName 'full'
+    Assert $true 'a matching selection context passes'
+    try { Assert-LiveSyncPlanSelectionContext -Document $roundTripped -ExpectedOperationKind 'retirement' -ExpectedEnvironmentName $null; Assert $false 'a mismatched operation kind fails selection' } catch { Assert ($_.Exception.Message -ceq 'live-plan-selection-mismatch') 'a mismatched operation kind fails with the selection token' }
+
+    $null = Assert-LiveSyncPlanDocumentHashNotConsumed -Document $roundTripped -TerminalEvidence $null
+    Assert $true 'an empty terminal evidence passes the consumption gate'
+    try { Assert-LiveSyncPlanDocumentHashNotConsumed -Document $roundTripped -TerminalEvidence ([ordered]@{ [string] $roundTripped['DocumentHash'] = 'committed' }); Assert $false 'a consumed document hash fails the gate' } catch { Assert ($_.Exception.Message -ceq 'live-plan-consumed') 'a consumed document hash fails with the consumed token' }
+
+    Remove-Item -LiteralPath $writeRoot -Recurse -Force -ErrorAction SilentlyContinue
+
 Write-Host "Live plan contract tests: PASS ($script:pass)"

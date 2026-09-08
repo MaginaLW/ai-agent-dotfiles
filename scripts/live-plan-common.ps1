@@ -11,6 +11,8 @@ $script:LivePlanSelectionMismatch = 'live-plan-selection-mismatch'
 $script:LivePlanSystemMarkerDrift = 'live-plan-system-marker-drift'
 $script:LivePlanUnknownMarkerDrift = 'live-plan-unknown-marker-drift'
 $script:LivePlanRetirementSelectionConflict = 'retirement-selection-conflict'
+$script:LivePlanPathCollision = 'live-plan-path-collision'
+$script:LivePlanConsumed = 'live-plan-consumed'
 
 $script:LivePlanPlatforms = @('Claude', 'Codex', 'Reasonix')
 $script:LivePlanGeneratorSync = 'scripts/sync.ps1'
@@ -688,4 +690,95 @@ function Complete-LivePlanAuthorityStateIntent {
         throw $script:LivePlanSelectionMismatch
     }
     return $completed
+}
+
+function Write-LiveSyncPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document
+    )
+    if (Test-Path -LiteralPath $Path) { throw $script:LivePlanPathCollision }
+    $parent = Split-Path -Parent $Path
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $documentText = (ConvertTo-Json -InputObject $Document -Depth 40) + "`n"
+    [System.IO.File]::WriteAllText($Path, $documentText, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Read-LiveSyncPlan {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw $script:LivePlanPathCollision }
+    $document = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($Path))
+    if ([string] $document.SchemaVersion -cne '3' -or [string] $document.ArtifactKind -cne 'sync-plan') {
+        throw $script:LivePlanSchemaUnsupported
+    }
+    return $document
+}
+
+function Assert-LiveSyncPlanDocumentIntegrity {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    Test-LiveSyncPlanSemantics -Document $Document
+    Assert-LivePlanEnvelopeHashes -Document $Document
+}
+
+function Assert-LiveSyncPlanCurrent {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document,
+        [Parameter(Mandatory)] [string] $MaterializationDirectory
+    )
+    $payload = $Document['PlanPayload']
+    $bound = $payload['EnvironmentMaterializationRoot']
+    if ($bound -isnot [System.Collections.IDictionary]) { throw $script:LivePlanHashMismatch }
+    $materializationFull = [System.IO.Path]::GetFullPath($MaterializationDirectory)
+    if ([string] $bound['Path'] -cne $materializationFull) { throw $script:LivePlanHashMismatch }
+    $envBuildPath = [System.IO.Path]::GetFullPath((Join-Path $materializationFull 'env-build.json'))
+    $envLockPath = [System.IO.Path]::GetFullPath((Join-Path $materializationFull 'env.lock.json'))
+    if ([string] $bound['EnvBuildPath'] -cne $envBuildPath -or [string] $bound['EnvLockPath'] -cne $envLockPath) {
+        throw $script:LivePlanHashMismatch
+    }
+    if (-not (Test-Path -LiteralPath $envBuildPath -PathType Leaf) -or -not (Test-Path -LiteralPath $envLockPath -PathType Leaf)) {
+        throw $script:LivePlanHashMismatch
+    }
+    $envBuildBytes = [System.IO.File]::ReadAllBytes($envBuildPath)
+    $envLockBytes = [System.IO.File]::ReadAllBytes($envLockPath)
+    $envBuildBytesHash = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($envBuildBytes)).ToLowerInvariant()
+    $envLockBytesHash = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($envLockBytes)).ToLowerInvariant()
+    if ([string] $bound['EnvBuildHash'] -cne $envBuildBytesHash -or [string] $bound['EnvLockHash'] -cne $envLockBytesHash) {
+        throw $script:LivePlanHashMismatch
+    }
+    $envBuildDocument = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString($envBuildBytes))
+    $materializationHash = Get-HarnessEnvMaterializationHash -Document $envBuildDocument
+    if ([string] $bound['MaterializationHash'] -cne $materializationHash) { throw $script:LivePlanHashMismatch }
+}
+
+function Assert-LiveSyncPlanSelectionContext {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document,
+        [Parameter(Mandatory)] [string] $ExpectedOperationKind,
+        [AllowNull()] [string] $ExpectedEnvironmentName
+    )
+    $payload = $Document['PlanPayload']
+    if ([string] $payload['OperationKind'] -cne $ExpectedOperationKind) { throw $script:LivePlanSelectionMismatch }
+    $intent = $payload['AuthorityStateIntent']
+    if ([string] $intent['LastOperationKind'] -cne $ExpectedOperationKind) { throw $script:LivePlanSelectionMismatch }
+    if ($null -ne $ExpectedEnvironmentName -and [string] $payload['EnvironmentName'] -cne $ExpectedEnvironmentName) {
+        throw $script:LivePlanSelectionMismatch
+    }
+}
+
+function Assert-LiveSyncPlanDocumentHashNotConsumed {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document,
+        [AllowNull()] [System.Collections.IDictionary] $TerminalEvidence
+    )
+    $documentHash = [string] $Document['DocumentHash']
+    if ([string]::IsNullOrWhiteSpace($documentHash)) { throw $script:LivePlanHashMismatch }
+    if ($null -ne $TerminalEvidence -and $TerminalEvidence.Contains($documentHash)) {
+        throw $script:LivePlanConsumed
+    }
 }
