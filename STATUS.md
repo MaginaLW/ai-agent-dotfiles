@@ -18,8 +18,8 @@ Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete
 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
-longer served. **Phase 2 Task 1 is complete (6/6); Phase 2 overall is 6/52, with Tasks 2-9 not
-started.** Tracked policy remains
+longer served. **Phase 2 Task 1 (6/6) and Task 2 (7/7) are complete; Phase 2 overall is 13/52, with
+Tasks 3-9 not started.** Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
@@ -2221,6 +2221,111 @@ DryRun producers behind the sandbox capability gate with host injection, the emi
 the authoritative unified validation. Production Apply remains interlocked, and no live root or
 Git index/ref was changed.
 
+## 2026-09-09 Phase 2 Task 2 close-out: schema 3 producers, retirement regression, and unified validation
+
+Phase 2 Task 2 (Replace Sync Plan Schema 2 with the Semantic Plan Contract) is complete (7/7; Phase 2
+13/52). The main agent implemented the remaining slice 4 second half (immutable write and DryRun
+producers) and slice 5 (retirement regression) directly after the Grok quota exhaustion, as recorded
+in project memory. Commits `3831fd9` (implementation) and `0d84edf` (suite budget) carry the work;
+the earlier slices 1-3 and the slice 4 first half were commits `b51a742`, `3d3aa7f`, `6f0ddd3`, and
+`6318abe`.
+
+The public `sync.ps1` surface now has a schema 3 semantic plan face:
+
+- DryRun requires the internal sandbox: the capability must be present and the host must inject
+  `AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT`/`_BACKUP_ROOT`/`_CONTROL_BASE` (the internal host now sets
+  the three locators beside the existing ROOT/PATH/TOKEN trio and restores them in `finally`).
+  Without them the dry-run fails closed with `live-plan-host-resolution-required` and zero plan
+  bytes; it never reads USERPROFILE or an unprefixed `INTERNAL_*` variable. A create-new `-PlanPath`
+  is required, and a second run on the same path returns `live-plan-path-collision` while the bound
+  materialization is preserved.
+- Without `-RetireManifestPath` the producer is pristine-initial only (adopted Alternative F): it
+  requires absent live roots and an unoccupied control base (`live-plan-selection-mismatch` /
+  `live-plan-authority-present`), materializes the named `full` environment through the single
+  `Invoke-HarnessEnvMaterialization` writer into the create-new `<PlanStem>.materialization`
+  directory beside the plan, and binds the exact lock/build file bytes plus the sidecar
+  `MaterializationHash`. The plan's add actions and counts come from the copied definition.
+- With `-RetireManifestPath` the producer reads the seeded schema 3 authority state at the canonical
+  `<ControlBase>/homes/<HomeAuthorityKey>/current-env.json` locator (schema- and semantics-validated,
+  exact-byte capture; never a writer), reuses the reviewed staleness walk (messages unchanged), binds
+  the manifest path/bytes, canonical/generated/current-manifest absence evidence, per-platform target
+  tree hashes, and the state-derived postset, rejects a target inside the postset selection with
+  `retirement-selection-conflict`, and emits prune actions carrying `explicit-retirement`.
+- The emitter is `Write-LiveSyncPlan` (create-new schema 3), and Apply validates the reviewed
+  document through the five no-lock steps before the mandatory backup: document integrity, current
+  PlanHash recomputed from the same pure producer (no materialization recreation, `PlanPath` never
+  rewritten), bound materialization currency, selection context, and the DocumentHash-not-consumed
+  gate with an empty injected evidence map (Task 4 wires journal scanning into step six). The
+  pristine-initial live-mutation host (claims create, receipts, state postimage) stays unwired and
+  fails closed with `live-plan-initial-apply-not-wired` after full validation; retirement executes
+  its reviewed prune actions one skill directory at a time with the reviewed tree-hash gate, the
+  mandatory backup, the overwrite-style journal with `explicit-retirement` authority records, and
+  post-apply target/marker verification.
+
+Recorded deviation from the adopted design: explicitly bound `-HomeRoot`/`-BackupRoot` keep
+selecting the legacy content-aware deploy route instead of being rejected outright, because
+`activate-harness-env.ps1` Gate 4 delegates its deploy to `sync.ps1` and the roadmap deletes the
+legacy swap/journal paths only in Task 5 Step 1; the harness-env activation regression stayed green
+(140/0) through the migration. The new surface never sees a public selector, and the direct
+`live-plan-public-selector-rejected` posture returns with Task 5. The design's "no schema 2 emitter
+residue in sync.ps1" goal is likewise scoped to the public producer face: the legacy route keeps its
+plan-file binding and per-skill swap/journal behavior until Task 5, with the deviation recorded here.
+Replay protection in Task 2 comes from staleness recomputation (a retired target set is rejected
+after it is pruned, even if the same bytes are recreated) and the injected `live-plan-consumed`
+gate; a byte-identical document hash is rejected only with injected terminal evidence, and no
+live-transaction scanning exists in this task.
+
+Test-side migration: `tests/sync.tests.ps1` builds the v3 fixture (an in-sandbox git repository with
+copied harness-source, manifests, pinned tool locks, and placeholder skills counted from the copied
+`full` definition), exercises the pristine-initial producer, the authority-present and collision
+gates, the unwired initial apply, and the full retirement regression (schema and full semantics,
+OperationKind, semantic envelope hashes, zero hook evidence, `explicit-retirement` authority,
+state-array intent with the reviewed projection match against the seeded state, conflict, manifest
+path/bytes/live-root/content drift rejections all before backup, successful prunes with backup and
+journal authority, replay rejection after the targets are gone, and the Reasonix override dry-run
+and apply with an exact live-root binding). The content-aware dry-run/drift/apply/prune regression
+moved verbatim to `tests/helpers/task5-environment-sync-regression.ps1`, which `sync.tests.ps1`
+deliberately does not dot-source or invoke (reason
+`task2-pristine-initial-only-pending-environment-producer`).
+`schemas/sync-plan.v2-live-compat.schema.json` is deleted, and `tests/live-plan.tests.ps1` now pins
+the producer surface (the schema 3 producer definition, the immutable create-new emitter, the
+selector-triggered legacy route) instead of the v2 compatibility shims; its own assertions grew to
+107 PASS.
+
+Seams: the reflection-sensitive inventory was re-pinned (count 13835 to 14059, digest to
+`bbe86927339a19aaa01e3d5d0fe37163dea805c10958fae65a1fff7e2a56eda3`) together with the all-scripts
+dynamic-command digest
+(`3a8bc621a93857f9ef248c6bd294afdaaddfe2cf620f3a4e2f9a8672187cde81`), and the boundary audit exposed
+that the slice 4 first half had added `Assert-LiveSyncPlanDocumentIntegrity` as a production caller
+of `Test-LiveSyncPlanSemantics` without a seams run. The boundary now registers exactly that one
+reviewed internal caller (allowed-caller list plus reviewed owner inventory) and every other
+production call site still fails closed; seams passed 56/0.
+
+Suite budget: the migrated `sync.tests.ps1` measures about 86 seconds locally, beyond its 90-second
+bound, so its budget moved to 240 seconds and the Validate workflow timeout moved from 298 to 305
+minutes (computed requirement 17985 seconds over 35 discovered suites, outer margin 315 seconds);
+the runner budget contract passed.
+
+Focused validation on the closed state: live-plan 107 PASS, sync PASS, harness-env 140/0,
+automation-safety PASS, schema-validation PASS, json-artifact-exact-byte PASS, validate-json-
+artifacts PASS, the PowerShell parse gate accepted all 160 files, the build produced Claude/Codex/
+Reasonix 7/15/7, the pinned secret scan found no blocking findings, `git diff --check` was clean,
+and the sandbox-hosted DryRun routine gate ran the pristine-initial producer against the real
+repository (29 adds, zero live changes). The definitive unified `run-tests.ps1 -All` run then
+discovered, started, completed, and passed all 35 suites exactly once with zero failures, timeouts,
+duplicates, missing suites, or tree-kill failures; the external create-new summary SHA-256 is
+`ec0d9f1cd78768bade27cc75252ac7d64219685526be7f6c838feebde0aa0789` and the discovery hash is
+`96e6267d927bcdeca4ba56af9f4104cafc0467e43fad51f8ae5b0f8e5cae388e`, with `canonical-hard-kill` at
+318/0 and `canonical-production-seams` at 56/0 inside the run and `sync.tests.ps1` completing in
+63 seconds inside its new 240-second bound. After the run, a fresh sandbox-hosted DryRun gate
+reproduced the pristine-initial producer (plan hash
+`638258f33b700be1f788f47932e0f4a143ffaa141799f4dbc0964662f1f2be18`, plan-file SHA-256
+`5bbdda2e6213e0397c1fb92abb8ffb23bc50eeca3fd2db285374e6f84600012e`, document hash
+`213dbbcb34527473d91de2db824f9f1316e69043b1977d7e17e02cb1681bf562`, 29 adds), and the temporary
+sandbox, plan, and external summary paths were deleted after the evidence was recorded. Production
+Apply remains interlocked, and no live root or Git index/ref was changed. `docs/README.md` now
+documents the schema 3 producer contract and the sandbox-hosted dry-run invocation shape.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2559,13 +2664,14 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 
 ## Remaining roadmap snapshot
 
-Phase 2 has 46 of 52 steps remaining. Task 1 is complete; Tasks 2-9 have not started.
+Phase 2 has 39 of 52 steps remaining. Task 1 and Task 2 are complete; Tasks 3-9 have not started.
 The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
 | Task 1 | 0/6 | Complete |
-| Task 2 | 7/7 | Semantic sync-plan schema 3 and environment-build v3 |
+| Task 2 | 0/7 | Complete |
+| Task 3 | 7/7 | Unique managed-object and authority-preimage backup receipts |
 | Task 3 | 7/7 | Unique managed-object and authority-preimage backup receipts |
 | Task 4 | 7/7 | Live-mutation state machine, same-volume staging, journal, and failure classification |
 | Task 5 | 6/6 | Common transaction host for normal sync and explicit retirement |
@@ -2580,15 +2686,13 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Continue Phase 2 Task 2 at slice 4 (immutable plan write and the DryRun producers): the
-   Write/Read plus the five no-lock step functions in `scripts/live-plan-common.ps1`, the
-   pristine-initial and retirement DryRun producers in `sync.ps1` behind the sandbox capability
-   gate with host injection via the `AI_AGENT_DOTFILES_INTERNAL_*` prefixed variables, the
-   content-aware test extraction to `tests/helpers/task5-environment-sync-regression.ps1`, and
-   the v2-compat removal; then slice 5 (retirement regression). **The Grok Build quota pool was
-   exhausted (HTTP 402) on 2026-09-08 — the main agent implements the remaining slices
-   directly.** Tasks 3-9 follow in strict sequence. Live-journal structure and interpretation
-   stay with Task 4; production Apply remains interlocked throughout.
+1. Phase 2 Task 2 is complete (7/7; Phase 2 13/52) as of 2026-09-09. Continue with Phase 2 Task 3
+   (unique managed-object and authority-preimage backup receipts), followed by Tasks 4-9 in strict
+   sequence. The legacy content-aware deploy route in `sync.ps1` (explicitly bound
+   `-HomeRoot`/`-BackupRoot`, the env activation contract) and the extracted
+   `tests/helpers/task5-environment-sync-regression.ps1` regression are Task 5 migration inputs;
+   Task 4 wires the consumed-DocumentHash gate to the live-journal scan. Live-journal structure and
+   interpretation stay with Task 4; production Apply remains interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

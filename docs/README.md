@@ -18,7 +18,9 @@
 
 - 用 Git 维护**唯一可信源** `skills-source/`。
 - 用 `scripts/build-skills.ps1` 从源生成 Claude / Codex / Reasonix 的 runtime output。
-- 用 `scripts/sync.ps1` 生成并审查部署到本机 live skills 目录的 DryRun 计划；Phase 0 不 Apply。
+- 用 `scripts/sync.ps1` 生成并审查部署到本机 live skills 目录的 schema 3 语义计划；
+  公共 DryRun 面只产出 pristine-initial 与显式 retirement 两个 OperationKind，且只在
+  internal sandbox（capability + host 注入根）内运行；Phase 0 不 Apply。
 - 未来解除 interlock 后，由事务协议在 Apply 前保留可恢复副本；当前 standalone backup 仅可 DryRun。
 - 用 repo-local Git hooks 在相关 `git pull` / rebase / branch checkout 后记录 preview/event。
 
@@ -71,7 +73,7 @@
 | `scripts/build-skills.ps1` | 从源生成 runtime output，并刷新 manifest |
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
 | `scripts/backup.ps1` | 预览 live Claude/Codex/Reasonix backup；Phase 0 的 non-DryRun 调用被 interlock |
-| `scripts/sync.ps1` | manifest 限定的受控同步；支持显式、一次性的外部 retirement 授权，默认 dry-run |
+| `scripts/sync.ps1` | schema 3 语义计划 producer（pristine-initial / 显式 retirement），只在 internal sandbox 内 DryRun；显式绑定 `-HomeRoot`/`-BackupRoot` 时保留旧 content-aware 部署路由（env activation 契约，Task 5 Step 1 移除） |
 | `scripts/config-status.ps1` | 只读 config drift 报告（repo ↔ home），见 §14 |
 | `scripts/config-pull.ps1` | 部署 harness 配置 repo→home，默认 dry-run，`-Apply` gated |
 | `scripts/config-push.ps1` | 捕获 harness 配置 home→repo，双 gate（扫密 + 私有路径），默认 dry-run |
@@ -122,12 +124,23 @@ git pull --ff-only
 
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 build # 从源生成 runtime output
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 scan  # 检查 secrets
-$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -DryRun -PlanPath $plan # 生成并审查计划
+$sandbox = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-sync-sandbox-$([Guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $sandbox | Out-Null
+$plan = Join-Path $sandbox 'sync-plan.json'
+# 公共 DryRun 只在 internal sandbox 内运行：capability + 三个注入根
+# （AI_AGENT_DOTFILES_INTERNAL_{HOME_ROOT,BACKUP_ROOT,CONTROL_BASE}）齐备，
+# 否则以 live-plan-host-resolution-required 失败并零计划字节。
+# pristine-initial producer 物化 named full 环境并 create-new 写 schema 3 计划；
+# tests/sync.tests.ps1 与 tests/helpers/safety-sandbox.ps1 是可执行的调用示例。
+& pwsh -NoProfile -File scripts/internal/live-transaction-host.ps1 `
+    -SandboxRoot $sandbox `
+    -ScriptPath (Join-Path (Get-Location) 'scripts/sync.ps1') `
+    -ArgumentsBase64 ([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(
+        (ConvertTo-Json @('-SkipBuild','-SkipSecretScan','-DryRun','-PlanPath',$plan) -Compress))))
 # Phase 0 到此停止；production Apply 仍被 safety-protocol-upgrade-required 拦截
 ```
 
-`sync.ps1` 默认是 **dry-run**，只打印计划、不动 live。未来解除 interlock 后，`-Apply` 合同要求带有先前 dry-run 生成的 `-PlanPath`，并重新验证 source、manifest、source/live 根路径和 live fingerprint 后才允许修改。当前 Phase 0 的 `-Apply` 在 backup 或 mutation 前返回 `safety-protocol-upgrade-required`。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
+`sync.ps1` 的 schema 3 计划面默认是 **dry-run**，只打印计划与物化旁路，不动 live；plan 走 create-new（重跑同路径返回 `live-plan-path-collision`）。未来解除 interlock 后，`-Apply` 合同要求带有先前 dry-run 生成的 `-PlanPath`，在 backup 前重算五步门（文档完整性、当前 PlanHash、绑定物化现势、selection context、DocumentHash 未消费）。当前 Phase 0 的 `-Apply` 在 backup 或 mutation 前返回 `safety-protocol-upgrade-required`；pristine-initial 的 live mutation 宿主在 Task 4 状态机前保持 fail-closed。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
 
 如果只想跳过初始 preview diagnostic：
 
@@ -147,8 +160,8 @@ Git-private preview/event。用户必须另行把明确的 `-DryRun -PlanPath <e
 1. 只改 `skills-source/`（**不要**直接改 `claude/skills/` 或 `codex/skills/`）。
 2. `scripts/build-skills.ps1`
 3. `scripts/scan-secrets.ps1`
-4. `$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'`，再运行
-   `scripts/sync.ps1 -DryRun -PlanPath $plan` 并审查计划
+4. 在 internal sandbox 内以 pristine-initial producer 生成 schema 3 计划并审查
+   （调用形态见 §4；重跑同 `-PlanPath` 返回 `live-plan-path-collision`）
 5. Phase 0：停止；`scripts/sync.ps1 -Apply` 当前必定返回 `safety-protocol-upgrade-required`
 6. 提交 source / manifest / docs 变更（**不要**提交 generated output）。
 7. `git push`
@@ -170,9 +183,12 @@ Git-private preview/event。用户必须另行把明确的 `-DryRun -PlanPath <e
 然后把同一个文件传给 dry-run 和 apply：
 
 ```powershell
-$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-retire-plan.json'
+# 仍在 internal sandbox 内运行（见 §4 的 host 调用形态）；-RetireManifestPath
+# 选择 retirement producer：读取注入 control base 上的 schema 3 authority state，
+# 逐平台验证 stale unknown 目标 ∉ reviewed postset，绑定 manifest 字节哈希。
+$plan = Join-Path $sandbox 'retire-plan.json'
 $retire = Join-Path $env:TEMP 'ai-agent-dotfiles-retire-skills.json'
-pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan -RetireManifestPath $retire
+# 经 live-transaction-host.ps1 传参：'-DryRun','-PlanPath',$plan,'-RetireManifestPath',$retire
 # 逐平台审查 retirement-authorized prune、unknown 和 .system 状态
 # Future released contract only; do not run during Phase 0:
 # pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan -RetireManifestPath $retire
