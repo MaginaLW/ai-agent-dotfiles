@@ -266,9 +266,9 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
-$reviewedAllScriptsDynamicCommandDigest='b68609942ae95256103728c01e968e0634dc2d73686a0aaa7d5288f4a5b8fb2e'
-$reviewedAllScriptsReflectionSensitiveSiteCount=13835
-$reviewedAllScriptsReflectionSensitiveDigest='e332b0464b6872a2622a95994b4d59559a53885c6a4b2722bf612ebafa904e1a'
+$reviewedAllScriptsDynamicCommandDigest='3a8bc621a93857f9ef248c6bd294afdaaddfe2cf620f3a4e2f9a8672187cde81'
+$reviewedAllScriptsReflectionSensitiveSiteCount=14059
+$reviewedAllScriptsReflectionSensitiveDigest='bbe86927339a19aaa01e3d5d0fe37163dea805c10958fae65a1fff7e2a56eda3'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -403,6 +403,7 @@ function Invoke-ProductionSeamAnalysis {
     $claimAcceptAllowedCallers=[Collections.Generic.List[string]]::new()
     $validatedReadAllowedCallers=[Collections.Generic.List[string]]::new()
     $targetContextIntentFactoryAllowedCallers=[Collections.Generic.List[string]]::new()
+    $livePlanContractAllowedCallers=[Collections.Generic.List[string]]::new()
     $targetContextIntentAllowedCallers=[Collections.Generic.List[string]]::new()
     $finalIdentitiesAllowedCallers=[Collections.Generic.List[string]]::new()
     $intentProjectionAllowedCallers=[Collections.Generic.List[string]]::new()
@@ -606,7 +607,16 @@ function Invoke-ProductionSeamAnalysis {
             if($commandName -iin @(
                 'Test-LiveSyncPlanSemantics',
                 'Complete-LivePlanAuthorityStateIntent')){
-                $fixedObservationBoundaryViolations.Add("live-plan contract caller: $($model.RelativePath):$($ownerName):$commandName")
+                $allowedLivePlanContractCaller=(
+                    [string]$model.RelativePath -ceq 'scripts/live-plan-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Assert-LiveSyncPlanDocumentIntegrity' -and
+                    [string]$commandName -ceq 'Test-LiveSyncPlanSemantics')
+                if($allowedLivePlanContractCaller){
+                    $livePlanContractAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{
+                    $fixedObservationBoundaryViolations.Add("live-plan contract caller: $($model.RelativePath):$($ownerName):$commandName")
+                }
             }
             if($commandName -ieq 'Assert-SealedRegistryClaimAccept'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
@@ -1066,6 +1076,10 @@ function Invoke-ProductionSeamAnalysis {
     $reviewedTargetContextIntentFactoryOwnerInventory=@('scripts/root-claims-registry-common.ps1:New-SealedRegistryRootClaimsCreateNew')
     if((@($targetContextIntentFactoryAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedTargetContextIntentFactoryOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed authority target-context intent factory owner inventory changed')
+    }
+    $reviewedLivePlanContractOwnerInventory=@('scripts/live-plan-common.ps1:Assert-LiveSyncPlanDocumentIntegrity')
+    if((@($livePlanContractAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLivePlanContractOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed live-plan contract owner inventory changed')
     }
     $reviewedTargetContextIntentOwnerInventory=@(
         'scripts/live-plan-common.ps1:Test-LiveSyncPlanSemantics',

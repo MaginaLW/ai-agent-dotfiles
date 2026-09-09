@@ -144,10 +144,12 @@ $positivePath = Join-Path $RepoRoot 'tests/fixtures/artifacts/sync-plan.valid.js
 $contractsPath = Join-Path $RepoRoot 'schemas/artifact-contracts.psd1'
 $validatorScriptPath = Join-Path $RepoRoot 'scripts/validate-json-artifacts.ps1'
 $livePlanCommonPath = Join-Path $RepoRoot 'scripts/live-plan-common.ps1'
+$syncScriptPath = Join-Path $RepoRoot 'scripts/sync.ps1'
+$task5HelperPath = Join-Path $RepoRoot 'tests/helpers/task5-environment-sync-regression.ps1'
 
 Write-Host '[live-plan schema 3 contract files]'
 Assert (Test-Path -LiteralPath $schemaPath -PathType Leaf) 'sync-plan schema 3 file exists'
-Assert (Test-Path -LiteralPath $compatSchemaPath -PathType Leaf) 'v2 live-compat schema exists'
+Assert (-not (Test-Path -LiteralPath $compatSchemaPath)) 'the frozen v2 live-compat schema is removed'
 Assert (Test-Path -LiteralPath $positivePath -PathType Leaf) 'sync-plan positive fixture exists'
 Assert (Test-Path -LiteralPath $livePlanCommonPath -PathType Leaf) 'live-plan-common.ps1 exists'
 Assert ($null -ne (Get-Command -Name Test-LiveSyncPlanSemantics -CommandType Function -ErrorAction SilentlyContinue)) 'Test-LiveSyncPlanSemantics is defined'
@@ -160,10 +162,11 @@ Assert (-not $validatorText.Contains('function Test-LiveSyncPlanEnvelopeSemantic
 $livePlanCommonText = [System.IO.File]::ReadAllText($livePlanCommonPath)
 Assert ($livePlanCommonText.Contains('function Test-LiveSyncPlanSemantics')) 'live-plan-common uniquely defines Test-LiveSyncPlanSemantics'
 Assert ($livePlanCommonText.Contains('function Complete-LivePlanAuthorityStateIntent')) 'live-plan-common uniquely defines Complete-LivePlanAuthorityStateIntent'
-
-$compatSchema = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($compatSchemaPath, [System.Text.UTF8Encoding]::new($false, $true)))
-Assert ([string] $compatSchema['$id'] -ceq 'https://ai-agent-dotfiles.invalid/schemas/sync-plan.v2-live-compat.schema.json') 'v2 live-compat $id matches basename'
-Assert ([long] $compatSchema.properties.SchemaVersion.const -eq 2) 'v2 live-compat SchemaVersion remains const 2'
+$syncScriptText = [System.IO.File]::ReadAllText($syncScriptPath)
+Assert ($syncScriptText.Contains('function New-LiveSyncPlanDocument')) 'sync.ps1 defines the schema 3 producer'
+Assert ($syncScriptText.Contains('Write-LiveSyncPlan')) 'sync.ps1 emitter writes through the immutable create-new write'
+Assert ($syncScriptText.Contains('$legacyDeployRequested')) 'the legacy content-aware deploy route stays selector-triggered until Task 5'
+Assert (Test-Path -LiteralPath $task5HelperPath -PathType Leaf) 'the extracted task5 environment regression helper exists'
 
 $contracts = Import-PowerShellDataFile -LiteralPath $contractsPath
 Assert ($contracts.Contracts.ContainsKey('sync-plan')) 'artifact registry includes sync-plan'
@@ -258,9 +261,9 @@ Assert-Throws {
 
 $syncTestsPath = Join-Path $RepoRoot 'tests/sync.tests.ps1'
 $syncTestsText = [System.IO.File]::ReadAllText($syncTestsPath)
-Assert ($syncTestsText.Contains("Join-Path `$RepoRoot 'schemas/sync-plan.v2-live-compat.schema.json'")) 'sync.tests.ps1 SchemaPath sites use the v2 live-compat schema'
-Assert ($syncTestsText.Contains('[int] $plan.SchemaVersion -eq 2')) 'content-aware dry-run still asserts emitter SchemaVersion 2'
-Assert ($syncTestsText.Contains('[int] $retirementPlanDocument.SchemaVersion -eq 2')) 'retirement dry-run still asserts emitter SchemaVersion 2'
+Assert (-not $syncTestsText.Contains('sync-plan.v2-live-compat.schema.json')) 'sync.tests.ps1 no longer references the removed v2 live-compat schema'
+Assert (-not $syncTestsText.Contains('task5-environment-sync-regression')) 'sync.tests.ps1 does not invoke the extracted task5 environment helper'
+Assert ($syncTestsText.Contains("'-RetireManifestPath'")) 'sync.tests.ps1 still exercises the explicit retirement producer'
 
 Write-Host '[sealed helper capability]'
 Assert-Throws {

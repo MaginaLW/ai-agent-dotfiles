@@ -1,30 +1,45 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Manifest-scoped sync of generated skill output into the live Claude / Codex /
-    Reasonix skill directories. Safe by default (dry-run); only mutates with -Apply.
+    Schema 3 semantic sync-plan producer for the live Claude / Codex / Reasonix
+    skill directories. Safe by default (dry-run); only mutates with -Apply.
 
 .DESCRIPTION
-    Source of truth is the build output: claude/skills, codex/skills, and
-    reasonix/skills. For each platform the script computes add / update / prune
-    plans scoped to per-platform repo-managed skill manifests and operates ONE
-    skill directory at a time.
+    The public dry-run surface produces exactly two OperationKind branches of
+    the sync-plan schema 3 document:
+
+      * pristine initial  (no -RetireManifestPath): requires no shared authority
+        state on the injected control base and absent live skill roots, then
+        materializes the named `full` environment and writes a create-new plan.
+      * explicit retirement (-RetireManifestPath): reads the seeded schema 3
+        authority state, verifies every target is a stale unknown live skill
+        outside the reviewed postset, and writes a create-new plan.
+
+    Both producers run only inside the isolated internal sandbox: the capability
+    must be present and the host must inject AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT,
+    AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT, and AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE.
+    Without them the dry-run fails closed with zero plan bytes and never reads
+    USERPROFILE or an unprefixed INTERNAL_* variable. The content-aware producer
+    returns with Task 5's environment route.
+
+    -Apply keeps the tracked interlock as the first gate, then recomputes the
+    reviewed document through the five-step validation (document integrity,
+    current plan hash, bound materialization currency, selection context, and
+    DocumentHash consumption) before the mandatory backup. The pristine-initial
+    live-mutation host is not wired yet and fails closed; retirement executes
+    its reviewed prune actions one skill directory at a time.
 
     Hard safety rules:
       * Never whole-dir mirror (no robocopy /MIR) against a live skills root.
       * Never touch Codex's platform-managed .system directory.
-      * Prune only removes skill dirs whose name is in the platform's managed-skills
-        manifest, or is explicitly authorized by a reviewed one-shot retirement
-        manifest, AND is no longer present in the generated output. Other unknown
-        live dirs are reported only.
-      * -Apply always runs build + secret scan + a backup first; all must pass.
+      * -Apply always runs build + secret scan + a backup before any change.
 
 .PARAMETER Apply
-    Actually perform the sync. Without it the script is a pure dry-run.
+    Actually perform the reviewed plan. Without it the script is a pure dry-run.
 
 .PARAMETER DryRun
-    Explicitly select dry-run mode. This is equivalent to omitting -Apply and cannot
-    be combined with -Apply.
+    Explicitly select dry-run mode. Equivalent to omitting -Apply; cannot be
+    combined with -Apply.
 
 .PARAMETER SkipBuild
     Skip running scripts/build-skills.ps1 first (use the existing generated output).
@@ -33,27 +48,27 @@
     Skip running scripts/scan-secrets.ps1. Not recommended; default is to scan.
 
 .PARAMETER BackupRoot
-    Passed to scripts/backup.ps1 when -Apply creates the mandatory pre-change backup.
+    Declared for CLI compatibility only. Explicitly bound values are rejected;
+    the backup root is host-injected through
+    AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT.
 
 .PARAMETER HomeRoot
-    Home directory used to resolve live skill paths. Defaults to $env:USERPROFILE.
+    Declared for CLI compatibility only. Explicitly bound values are rejected;
+    the home root is host-injected through AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT.
 
 .PARAMETER ReasonixLiveSkillsPath
     Optional override for the Reasonix live skills target directory.
 
 .PARAMETER PlanPath
-    Optional path for a machine-readable dry-run plan. When supplied on -DryRun,
-    the plan and its SHA-256 fingerprint are written to this path. When supplied
-    on -Apply, the current plan must match the saved fingerprint before any live
-    changes are made.
+    Required create-new path of the schema 3 sync plan. DryRun writes it;
+    Apply never overwrites, refreshes, or deletes it.
 
 .PARAMETER RetireManifestPath
-    Optional path to a one-shot JSON retirement manifest. This is the explicit
-    deletion authority for reviewed skills that were removed from both generated
-    output and the current managed manifests. Its exact bytes and per-platform
-    names are bound into the dry-run plan fingerprint, so the same unchanged file
-    must be supplied again on -Apply. It never grants authority over .system or a
-    skill that is still present in generated output/current manifests.
+    Optional path to a one-shot JSON retirement manifest. Its exact bytes and
+    per-platform names are bound into the plan's PlanHash, so the same
+    unchanged file must be supplied again on -Apply. It never grants authority
+    over .system or a skill that is still present in generated output or the
+    current managed manifests.
 #>
 [CmdletBinding()]
 param(
@@ -61,9 +76,9 @@ param(
     [switch] $DryRun,
     [switch] $SkipBuild,
     [switch] $SkipSecretScan,
-    [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
+    [string] $BackupRoot,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [string] $HomeRoot = $env:USERPROFILE,
+    [string] $HomeRoot,
     [string] $ReasonixLiveSkillsPath,
     [string] $PlanPath,
     [string] $RetireManifestPath
@@ -77,12 +92,25 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 . (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+. (Join-Path $PSScriptRoot 'live-plan-common.ps1')
+. (Join-Path $PSScriptRoot 'harness-env-common.ps1')
+. (Join-Path $PSScriptRoot 'target-context-common.ps1')
+. (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
+
+$script:LiveSyncHostResolutionRequired = 'live-plan-host-resolution-required'
+$script:LiveSyncAuthorityPresent = 'live-plan-authority-present'
+$script:LiveSyncAuthorityMissing = 'live-plan-authority-missing'
+$script:LiveSyncSelectionMismatch = 'live-plan-selection-mismatch'
+$script:LiveSyncPathCollision = 'live-plan-path-collision'
+$script:LiveSyncRetirementManifestRequired = 'live-plan-retirement-manifest-required'
+$script:LiveSyncRetirementSelectionConflict = 'retirement-selection-conflict'
+$script:LiveSyncSystemMarkerDrift = 'live-plan-system-marker-drift'
+$script:LiveSyncInitialApplyNotWired = 'live-plan-initial-apply-not-wired'
+$script:LiveSyncUnsupportedApplyKind = 'live-plan-apply-kind-unsupported'
+$script:LiveSyncPlanHashMismatch = 'live-plan-hash-mismatch'
+$script:LiveSyncPlatformRank = @{ Claude = 0; Codex = 1; Reasonix = 2 }
+
 if ($Apply -and $DryRun) { throw 'Specify -DryRun or -Apply, not both.' }
-if ($Apply) {
-    Assert-LiveSafetyMutationAllowed -Operation $(if ($RetireManifestPath) { 'retirement-sync' } else { 'sync' }) -Paths @(
-        $RepoRoot, $HomeRoot, $BackupRoot, $ReasonixLiveSkillsPath, $PlanPath, $RetireManifestPath
-    )
-}
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $reportHelper = Join-Path $PSScriptRoot 'report-common.ps1'
@@ -92,15 +120,55 @@ if (Test-Path -LiteralPath $reportHelper) {
 else {
     Write-Warning "Report helper missing: $reportHelper"
 }
-$HomeRoot = if (Test-Path -LiteralPath $HomeRoot) {
-    (Resolve-Path -LiteralPath $HomeRoot).Path
-} else {
-    [System.IO.Path]::GetFullPath($HomeRoot)
-}
 $CodexSystemDirName = '.system'
 
 # ---------------------------------------------------------------------------
-# Path probing
+# Host-injected sandbox roots
+# ---------------------------------------------------------------------------
+
+function Resolve-LiveSyncInternalRoots {
+    # Only a genuine sandbox capability with all three prefixed locators may
+    # resolve the live surface. Anything else fails closed without reading
+    # USERPROFILE or an unprefixed INTERNAL_* variable.
+    if (-not (Test-LiveSafetySandboxCapability)) { throw $script:LiveSyncHostResolutionRequired }
+    $homeRoot = $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT
+    $backupRoot = $env:AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT
+    $controlBase = $env:AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE
+    foreach ($value in @($homeRoot, $backupRoot, $controlBase)) {
+        if ([string]::IsNullOrWhiteSpace($value)) { throw $script:LiveSyncHostResolutionRequired }
+    }
+    return [pscustomobject][ordered]@{
+        HomeRoot = [System.IO.Path]::GetFullPath($homeRoot)
+        BackupRoot = [System.IO.Path]::GetFullPath($backupRoot)
+        ControlBase = [System.IO.Path]::GetFullPath($controlBase)
+    }
+}
+
+function Get-LiveSyncHomeAuthorityKey {
+    param([Parameter(Mandatory)] [string] $HomeRootLocationKey)
+
+    $tokenSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    return Get-SemanticJsonHash -InputObject ([ordered]@{
+        Domain = 'ai-agent-dotfiles/home-authority/v1'
+        TokenSid = $tokenSid
+        HomeRootLocationKey = $HomeRootLocationKey
+    })
+}
+
+function Get-LiveSyncApprovedToolchainHash {
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+
+    $validatorLock = Get-PinnedToolLock -Path (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json')
+    $scannerLock = Get-PinnedToolLock -Path (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json')
+    return Get-SemanticJsonHash -InputObject ([ordered]@{
+        Domain = 'ai-agent-dotfiles/plan-approved-toolchain/v1'
+        ValidatorLock = $validatorLock
+        ScannerLock = $scannerLock
+    })
+}
+
+# ---------------------------------------------------------------------------
+# Live surface probing
 # ---------------------------------------------------------------------------
 
 function Get-ClaudeLiveSkillsPath {
@@ -124,6 +192,667 @@ function Get-ReasonixLiveSkillsPath {
         return [System.IO.Path]::GetFullPath($ReasonixLiveSkillsPath)
     }
     return (Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills')
+}
+
+function Get-PlatformLiveRoot {
+    param([Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $Platform)
+    switch ($Platform) {
+        'Claude' { return (Get-ClaudeLiveSkillsPath) }
+        'Codex' { return (Get-CodexLiveSkillsPath) }
+        'Reasonix' { return (Get-ReasonixLiveSkillsPath) }
+    }
+}
+
+function Get-LiveSyncTargetContext {
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $metadata = Get-TargetMetadataContext -Path ([System.IO.Path]::GetFullPath($Path))
+    $identity = $null
+    if ([string] $metadata.TargetStatus -ceq 'EXISTS') {
+        $identity = [string] $metadata.Ancestors[-1].Identity
+    }
+    return [pscustomobject][ordered]@{
+        LocationKey = [string] $metadata.LocationKey
+        RequestedPath = [string] $metadata.RequestedPath
+        TargetStatus = [string] $metadata.TargetStatus
+        VolumeId = [string] $metadata.VolumeId
+        DeepestExistingParentPath = [System.IO.Path]::GetFullPath([string] $metadata.DeepestExistingParentPath)
+        DeepestExistingParentIdentity = [string] $metadata.DeepestExistingParentIdentity
+        MissingRemainder = @([string[]] $metadata.MissingRemainder)
+        DirectoryIdentity = $identity
+    }
+}
+
+function New-LiveSyncRootClaimRow {
+    param(
+        [Parameter(Mandatory)] [string] $Platform,
+        [Parameter(Mandatory)] $Context,
+        [Parameter(Mandatory)] [ValidateSet('ABSENT', 'EXISTS')] [string] $InitialState
+    )
+
+    return [ordered]@{
+        Platform = $Platform
+        LocationKey = [string] $Context.LocationKey
+        RequestedPath = [string] $Context.RequestedPath
+        InitialState = $InitialState
+        VolumeId = [string] $Context.VolumeId
+        DeepestExistingParentPath = [string] $Context.DeepestExistingParentPath
+        DeepestExistingParentIdentity = [string] $Context.DeepestExistingParentIdentity
+        MissingRemainder = @([string[]] $Context.MissingRemainder)
+        InitialDirectoryIdentity = $(if ($InitialState -ceq 'EXISTS') { [string] $Context.DirectoryIdentity } else { $null })
+        ExpectedPostState = 'EXISTS'
+    }
+}
+
+function Get-LiveSyncLiveTreeHash {
+    # Hash the live root while skipping the Codex .system subtree entirely:
+    # platform-managed .system contents are never traversed.
+    param(
+        [Parameter(Mandatory)] [string] $Platform,
+        [Parameter(Mandatory)] [string] $LiveRoot
+    )
+
+    if (-not (Test-Path -LiteralPath $LiveRoot -PathType Container)) { return $null }
+    $rows = [System.Collections.Generic.List[string]]::new()
+    foreach ($file in @(Get-ChildItem -LiteralPath $LiveRoot -File -Recurse -Force)) {
+        $relative = [System.IO.Path]::GetRelativePath($LiveRoot, $file.FullName) -replace '\\', '/'
+        if ($Platform -ieq 'codex' -and ($relative -ieq $CodexSystemDirName -or $relative.StartsWith("$CodexSystemDirName/", [System.StringComparison]::OrdinalIgnoreCase))) { continue }
+        $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        $rows.Add("$relative|$($file.Length)|$hash")
+    }
+    return Get-StringSha256 -Text ((@($rows | Sort-Object) -join "`n") + "`n")
+}
+
+function Get-LiveSyncSystemMarker {
+    param([Parameter(Mandatory)] [string] $CodexLiveRoot)
+
+    $systemDir = Join-Path $CodexLiveRoot $CodexSystemDirName
+    if (-not (Test-Path -LiteralPath $systemDir -PathType Container)) {
+        return [ordered]@{ Platform = 'Codex'; Name = $CodexSystemDirName; Present = $false; Identity = $null; Hash = $null }
+    }
+    $markerPath = Join-Path $systemDir '.codex-system-skills.marker'
+    if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
+        throw $script:LiveSyncSystemMarkerDrift
+    }
+    $info = [AiAgentDotfiles.NoFollowFile]::Inspect($systemDir)
+    if ([bool] $info.IsReparsePoint) { throw $script:LiveSyncSystemMarkerDrift }
+    $markerBytes = [System.IO.File]::ReadAllBytes($markerPath)
+    return [ordered]@{
+        Platform = 'Codex'
+        Name = $CodexSystemDirName
+        Present = $true
+        Identity = [string] $info.Identity
+        Hash = (Get-BytesSha256 -Bytes ([byte[]] $markerBytes))
+    }
+}
+
+function New-LiveSyncPlatformSlot {
+    param(
+        [Parameter(Mandatory)] [string] $Platform,
+        [Parameter(Mandatory)] [string] $SourceRoot,
+        [Parameter(Mandatory)] [string] $LiveRoot,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $ManagedNames,
+        [Parameter(Mandatory)] [string] $ManifestHash
+    )
+
+    $sourceContext = Get-LiveSyncTargetContext -Path $SourceRoot
+    if ([string] $sourceContext.TargetStatus -cne 'EXISTS') { throw $script:LiveSyncSelectionMismatch }
+    $liveContext = Get-LiveSyncTargetContext -Path $LiveRoot
+    return [ordered]@{
+        Platform = $Platform
+        SourceRoot = [string] $sourceContext.RequestedPath
+        LiveRoot = [string] $liveContext.RequestedPath
+        SourceRootExists = $true
+        LiveRootExists = ([string] $liveContext.TargetStatus -ceq 'EXISTS')
+        SourcePreIdentity = [ordered]@{
+            TargetStatus = 'EXISTS'
+            LocationKey = [string] $sourceContext.LocationKey
+            VolumeId = [string] $sourceContext.VolumeId
+            DirectoryIdentity = [string] $sourceContext.DirectoryIdentity
+        }
+        LivePreIdentity = [ordered]@{
+            TargetStatus = [string] $liveContext.TargetStatus
+            LocationKey = [string] $liveContext.LocationKey
+            VolumeId = [string] $liveContext.VolumeId
+            DirectoryIdentity = $liveContext.DirectoryIdentity
+        }
+        ManifestHash = $ManifestHash
+        SourceTreeHash = (Get-SkillTreeHash -Path $SourceRoot)
+        LiveTreeHash = (Get-LiveSyncLiveTreeHash -Platform $Platform -LiveRoot $LiveRoot)
+        ManagedNames = @([string[]] ($ManagedNames | Sort-Object))
+    }
+}
+
+function New-LiveSyncControlBaseIntent {
+    param([Parameter(Mandatory)] $Context)
+
+    return [ordered]@{
+        TargetStatus = [string] $Context.TargetStatus
+        RequestedPath = [string] $Context.RequestedPath
+        LocationKey = [string] $Context.LocationKey
+        VolumeId = [string] $Context.VolumeId
+        DirectoryIdentity = $Context.DirectoryIdentity
+        FilesystemCapability = [ordered]@{ Status = 'UNPROBED' }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Environment materialization evidence
+# ---------------------------------------------------------------------------
+
+function Get-LiveSyncMaterializationPath {
+    param([Parameter(Mandatory)] [string] $PlanPath)
+
+    $planFull = [System.IO.Path]::GetFullPath($PlanPath)
+    $parent = Split-Path -Parent $planFull
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($planFull)
+    return (Join-Path $parent ($stem + '.materialization'))
+}
+
+function Get-LiveSyncPlatformTriple {
+    param(
+        [Parameter(Mandatory)] [AllowNull()] [object] $Map,
+        [Parameter(Mandatory)] [ValidateSet('Skills', 'Hash')] [string] $Kind
+    )
+
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $value = Get-HarnessJsonProperty -Object $Map -Name $platform
+        if ($Kind -ceq 'Skills') {
+            $rows.Add([ordered]@{ Platform = $platform; Skills = @([string[]] @($value)) })
+        }
+        else {
+            $rows.Add([ordered]@{ Platform = $platform; Hash = ([string] $value).ToLowerInvariant() })
+        }
+    }
+    return @($rows)
+}
+
+function Get-LiveSyncTaskOverlayHash {
+    param(
+        [AllowNull()] [string] $OverlayHash,
+        [Parameter(Mandatory)] [object[]] $TaskOverlaySkillsRows
+    )
+
+    if (-not [string]::IsNullOrEmpty($OverlayHash)) { return ([string] $OverlayHash).ToLowerInvariant() }
+    # An absent task overlay file yields a deterministic absent-overlay binding.
+    return Get-SemanticJsonHash -InputObject ([ordered]@{
+        Domain = 'ai-agent-dotfiles/plan-absent-task-overlay/v1'
+        TaskOverlaySkills = $TaskOverlaySkillsRows
+    })
+}
+
+function New-LiveSyncMaterializationEvidence {
+    # DryRun-only create-new materialization. The destination is never
+    # recursively deleted and Invoke-HarnessEnvMaterialization is the only
+    # skills/lock/sidecar writer.
+    param(
+        [Parameter(Mandatory)] [string] $MaterializationPath,
+        [Parameter(Mandatory)] [string] $RepoRoot
+    )
+
+    if (Test-Path -LiteralPath $MaterializationPath) { throw $script:LiveSyncPathCollision }
+    $materialization = Invoke-HarnessEnvMaterialization -Name 'full' -Destination $MaterializationPath -RepoRoot $RepoRoot
+    return (Get-LiveSyncBoundMaterializationEvidence -MaterializationPath ([string] $materialization.Destination) -RepoRoot $RepoRoot)
+}
+
+function Get-LiveSyncBoundMaterializationEvidence {
+    param(
+        [Parameter(Mandatory)] [string] $MaterializationPath,
+        [Parameter(Mandatory)] [string] $RepoRoot
+    )
+
+    $root = [System.IO.Path]::GetFullPath($MaterializationPath)
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw $script:LiveSyncPlanHashMismatch }
+    $context = Get-LiveSyncTargetContext -Path $root
+    if ([string] $context.TargetStatus -cne 'EXISTS') { throw $script:LiveSyncPlanHashMismatch }
+    $buildPath = Get-HarnessEnvBuildPath -StagingPath $root
+    $lockPath = Get-HarnessEnvLockPath -StagingPath $root
+    foreach ($evidencePath in @($buildPath, $lockPath)) {
+        $null = Resolve-PrivateArtifactPath -Path $evidencePath -Role EvidenceInputPath -RepoRoot $RepoRoot -EvidenceRoots @($root)
+    }
+    $build = Read-HarnessEnvBuild -StagingPath $root
+    $lock = Read-HarnessEnvLock -StagingPath $root
+    $buildBytes = [System.IO.File]::ReadAllBytes($buildPath)
+    $lockBytes = [System.IO.File]::ReadAllBytes($lockPath)
+    return [ordered]@{
+        Path = $root
+        Identity = [string] $context.DirectoryIdentity
+        EnvBuildPath = [System.IO.Path]::GetFullPath($buildPath)
+        EnvBuildHash = (Get-BytesSha256 -Bytes $buildBytes)
+        EnvLockPath = [System.IO.Path]::GetFullPath($lockPath)
+        EnvLockHash = (Get-BytesSha256 -Bytes $lockBytes)
+        MaterializationHash = [string] (Get-HarnessJsonProperty -Object $build -Name 'MaterializationHash')
+        Build = $build
+        Lock = $lock
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Retirement evidence
+# ---------------------------------------------------------------------------
+
+function Get-RetirementStalenessEvidence {
+    # Extends the reviewed staleness walk with the generated-output and
+    # current-manifest absence rows the schema 3 retirement manifest binds.
+    param(
+        [Parameter(Mandatory)] [string] $Platform,
+        [Parameter(Mandatory)] [string] $SourceRoot,
+        [Parameter(Mandatory)] [string] $LiveRoot,
+        [Parameter(Mandatory)] [string[]] $CanonicalRoots,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $ManagedNames,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $RetiredNames
+    )
+
+    $canonicalRows = [System.Collections.Generic.List[string]]::new()
+    $generatedRows = [System.Collections.Generic.List[string]]::new()
+    $manifestRows = [System.Collections.Generic.List[string]]::new()
+    $sourceNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @(Get-DirNames -Path $SourceRoot)) { [void] $sourceNames.Add($name) }
+    foreach ($canonicalRoot in @($CanonicalRoots | Sort-Object -Unique)) {
+        $canonicalRows.Add("$Platform|root|$([System.IO.Path]::GetFullPath($canonicalRoot))")
+    }
+    foreach ($name in $RetiredNames) {
+        if ($sourceNames.Contains($name)) {
+            throw "Retirement manifest cannot authorize active $Platform source skill '$name'."
+        }
+        $generatedRows.Add("$Platform|$name|$([System.IO.Path]::GetFullPath($SourceRoot))|absent")
+        foreach ($canonicalRoot in @($CanonicalRoots | Sort-Object -Unique)) {
+            $canonicalPath = Join-Path $canonicalRoot $name
+            $canonicalState = if (Test-Path -LiteralPath $canonicalPath -PathType Container) { 'directory' }
+                elseif (Test-Path -LiteralPath $canonicalPath -PathType Leaf) { 'file' }
+                else { 'missing' }
+            $canonicalRows.Add("$Platform|$name|$([System.IO.Path]::GetFullPath($canonicalPath))|$canonicalState")
+            if ($canonicalState -ne 'missing') {
+                throw "Retirement manifest cannot authorize canonical $Platform skill '$name'."
+            }
+        }
+        if ($ManagedNames.Contains($name)) {
+            throw "Retirement manifest cannot authorize current $Platform managed skill '$name'."
+        }
+        $manifestRows.Add("$Platform|$name|current-managed-manifest|absent")
+
+        $target = Join-Path $LiveRoot $name
+        Assert-SafeLiveSkillTarget -LiveRoot $LiveRoot -Path $target
+        if (-not (Test-Path -LiteralPath $target -PathType Container)) {
+            throw "Retirement manifest $Platform skill '$name' must identify an existing unknown live skill directory."
+        }
+        $targetItem = Get-Item -LiteralPath $target -Force
+        if (($targetItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Retirement manifest must not authorize a reparse-point skill directory: $Platform/$name"
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        CanonicalAbsenceHash = Get-StringSha256 -Text ((@($canonicalRows | Sort-Object) -join "`n") + "`n")
+        GeneratedAbsenceHash = Get-StringSha256 -Text ((@($generatedRows | Sort-Object) -join "`n") + "`n")
+        CurrentManifestAbsenceHash = Get-StringSha256 -Text ((@($manifestRows | Sort-Object) -join "`n") + "`n")
+    }
+}
+
+function New-LiveSyncRetirementManifestEvidence {
+    param(
+        [Parameter(Mandatory)] [string] $ManifestPath,
+        [Parameter(Mandatory)] [string] $ManifestHash,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $RetiredNames,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $StalenessEvidence,
+        [Parameter(Mandatory)] [object[]] $PostsetSkillsRows,
+        [Parameter(Mandatory)] [string] $PostsetEnvironmentName,
+        [Parameter(Mandatory)] [string] $PostsetEnvironmentLockHash,
+        [Parameter(Mandatory)] [string] $PostsetTaskOverlayHash,
+        [Parameter(Mandatory)] [object[]] $PostsetManifestHashes
+    )
+
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $postsetRow = @($PostsetSkillsRows | Where-Object { [string] $_.Platform -ceq $platform })[0]
+        $postsetSkills = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($skill in @($postsetRow.Skills)) { [void] $postsetSkills.Add([string] $skill) }
+        foreach ($name in ([string[]] $RetiredNames[$platform])) {
+            if ($postsetSkills.Contains($name)) { throw $script:LiveSyncRetirementSelectionConflict }
+        }
+    }
+
+    $safeNames = [System.Collections.Generic.List[object]]::new()
+    $targetTreeHashRows = [System.Collections.Generic.List[object]]::new()
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $platformNames = [System.Collections.Generic.List[string]]::new()
+        $treeRows = [System.Collections.Generic.List[object]]::new()
+        foreach ($name in (([string[]] $RetiredNames[$platform]) | Sort-Object)) {
+            $platformNames.Add($name)
+            $treeRows.Add([ordered]@{ Name = $name; Hash = (Get-SkillTreeHash -Path (Join-Path (Get-PlatformLiveRoot -Platform $platform) $name)) })
+        }
+        $safeNames.Add([ordered]@{ Platform = $platform; Names = @($platformNames) })
+        $targetTreeHashRows.Add([ordered]@{
+            Platform = $platform
+            Hash = (Get-SemanticJsonHash -InputObject @($treeRows))
+        })
+    }
+
+    return [ordered]@{
+        Path = [System.IO.Path]::GetFullPath($ManifestPath)
+        Hash = $ManifestHash
+        SafeNames = @($safeNames)
+        CanonicalAbsenceHash = (Get-SemanticJsonHash -InputObject ([ordered]@{
+            Domain = 'ai-agent-dotfiles/plan-retirement-absence/v1'
+            Kind = 'canonical'
+            Claude = [string] $StalenessEvidence['Claude'].CanonicalAbsenceHash
+            Codex = [string] $StalenessEvidence['Codex'].CanonicalAbsenceHash
+            Reasonix = [string] $StalenessEvidence['Reasonix'].CanonicalAbsenceHash
+        }))
+        GeneratedAbsenceHash = (Get-SemanticJsonHash -InputObject ([ordered]@{
+            Domain = 'ai-agent-dotfiles/plan-retirement-absence/v1'
+            Kind = 'generated'
+            Claude = [string] $StalenessEvidence['Claude'].GeneratedAbsenceHash
+            Codex = [string] $StalenessEvidence['Codex'].GeneratedAbsenceHash
+            Reasonix = [string] $StalenessEvidence['Reasonix'].GeneratedAbsenceHash
+        }))
+        CurrentManifestAbsenceHash = (Get-SemanticJsonHash -InputObject ([ordered]@{
+            Domain = 'ai-agent-dotfiles/plan-retirement-absence/v1'
+            Kind = 'current-managed-manifest'
+            Claude = [string] $StalenessEvidence['Claude'].CurrentManifestAbsenceHash
+            Codex = [string] $StalenessEvidence['Codex'].CurrentManifestAbsenceHash
+            Reasonix = [string] $StalenessEvidence['Reasonix'].CurrentManifestAbsenceHash
+        }))
+        TargetTreeHashes = @($targetTreeHashRows)
+        Postset = [ordered]@{
+            EnvironmentName = $PostsetEnvironmentName
+            EnvironmentLockHash = $PostsetEnvironmentLockHash
+            TaskOverlayHash = $PostsetTaskOverlayHash
+            TaskOverlaySkills = $PostsetSkillsRows
+            ManifestHashes = $PostsetManifestHashes
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Semantic plan producer
+# ---------------------------------------------------------------------------
+
+function New-LiveSyncPlanDocument {
+    # Pure producer over the current repository, live, and authority context.
+    # DryRun passes -Materialize to create the environment materialization;
+    # Apply binds the already-existing materialization and never creates one.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateSet('initial', 'retirement')] [string] $OperationKind,
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string] $ControlBase,
+        [AllowNull()] [string] $RetirementManifestPath,
+        [Parameter(Mandatory)] [string] $PlanPath,
+        [switch] $Materialize
+    )
+
+    $repo = (Resolve-Path -LiteralPath $RepoRoot).Path
+    $git = Get-CanonicalGitContext -RepoRoot $repo
+    $controllerFingerprint = Get-CanonicalRepoIdentity -GitContext $git
+    $toolchainHash = Get-LiveSyncApprovedToolchainHash -RepoRoot $repo
+
+    $homeContext = Get-LiveSyncTargetContext -Path ([System.IO.Path]::GetFullPath($HomeRoot))
+    $homeAuthorityKey = Get-LiveSyncHomeAuthorityKey -HomeRootLocationKey ([string] $homeContext.LocationKey)
+    $liveContexts = [ordered]@{}
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $liveContexts[$platform] = Get-LiveSyncTargetContext -Path (Get-PlatformLiveRoot -Platform $platform)
+    }
+
+    $managedNames = [ordered]@{
+        Claude = (Read-ManagedNames -Path (Join-Path $repo 'manifests\managed-skills.claude.txt'))
+        Codex = (Read-ManagedNames -Path (Join-Path $repo 'manifests\managed-skills.codex.txt'))
+        Reasonix = (Read-ManagedNames -Path (Join-Path $repo 'manifests\managed-skills.reasonix.txt'))
+    }
+    $manifestHashes = [ordered]@{
+        Claude = (Get-PathSha256 -Path (Join-Path $repo 'manifests\managed-skills.claude.txt'))
+        Codex = (Get-PathSha256 -Path (Join-Path $repo 'manifests\managed-skills.codex.txt'))
+        Reasonix = (Get-PathSha256 -Path (Join-Path $repo 'manifests\managed-skills.reasonix.txt'))
+    }
+
+    $controlContext = Get-LiveSyncTargetContext -Path $ControlBase
+
+    if ($OperationKind -ceq 'initial') {
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            if ([string] $liveContexts[$platform].TargetStatus -cne 'MISSING') {
+                throw $script:LiveSyncSelectionMismatch
+            }
+        }
+        # Pristine initial requires an unoccupied control base. Any existing
+        # control base content fails closed as authority-present.
+        if ([string] $controlContext.TargetStatus -cne 'MISSING') { throw $script:LiveSyncAuthorityPresent }
+
+        $materializationPath = Get-LiveSyncMaterializationPath -PlanPath $PlanPath
+        if ($Materialize) {
+            $materialization = New-LiveSyncMaterializationEvidence -MaterializationPath $materializationPath -RepoRoot $repo
+        }
+        else {
+            $materialization = Get-LiveSyncBoundMaterializationEvidence -MaterializationPath $materializationPath -RepoRoot $repo
+        }
+        $build = [System.Collections.IDictionary] $materialization['Build']
+
+        $claims = [System.Collections.Generic.List[object]]::new()
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $claims.Add((New-LiveSyncRootClaimRow -Platform $platform -Context $liveContexts[$platform] -InitialState 'ABSENT'))
+        }
+        $claimsHash = Get-SemanticJsonHash -InputObject @($claims)
+
+        $overlaySkillsRows = Get-LiveSyncPlatformTriple -Map (Get-HarnessJsonProperty -Object $build -Name 'TaskOverlaySkills') -Kind 'Skills'
+        $intent = [ordered]@{
+            SchemaVersion = 3
+            ArtifactKind = 'current-env-state'
+            HomeAuthorityKey = $homeAuthorityKey
+            AuthorityGeneration = 1
+            RootClaimsHash = $claimsHash
+            SelectionKind = 'environment'
+            EnvironmentName = 'full'
+            EnvironmentLockHash = [string] $materialization['EnvLockHash']
+            TaskOverlayHash = (Get-LiveSyncTaskOverlayHash -OverlayHash ([string] (Get-HarnessJsonProperty -Object $build -Name 'TaskOverlayHash')) -TaskOverlaySkillsRows $overlaySkillsRows)
+            TaskOverlaySkills = $overlaySkillsRows
+            ManifestHashes = (Get-LiveSyncPlatformTriple -Map (Get-HarnessJsonProperty -Object $build -Name 'ManifestHashes') -Kind 'Hash')
+            FinalManagedHashes = @(
+                foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+                    [ordered]@{
+                        Platform = $platform
+                        Hash = [string] (Get-HarnessJsonProperty -Object (Get-HarnessJsonProperty -Object (Get-HarnessJsonProperty -Object $build -Name 'MaterializedRoots') -Name $platform) -Name 'TreeHash')
+                    }
+                }
+            )
+            ControllerRepoFingerprint = $controllerFingerprint
+            ApprovedToolchainHash = $toolchainHash
+            LastOperationKind = 'initial'
+        }
+
+        $orderedActions = [System.Collections.Generic.List[object]]::new()
+        $order = 0L
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $stagedHashes = [System.Collections.IDictionary] (Get-HarnessJsonProperty -Object (Get-HarnessJsonProperty -Object $build -Name 'StagedSkillTreeHashes') -Name $platform)
+            foreach ($name in (@([string[]] $stagedHashes.Keys) | Sort-Object { [string] $_ })) {
+                $orderedActions.Add([ordered]@{
+                    Order = $order
+                    Platform = $platform
+                    Action = 'add'
+                    Name = $name
+                    SourceHash = [string] (Get-HarnessJsonProperty -Object $stagedHashes -Name $name)
+                    LiveHash = $null
+                })
+                $order++
+            }
+        }
+
+        $slots = [System.Collections.Generic.List[object]]::new()
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $slots.Add((New-LiveSyncPlatformSlot -Platform $platform -SourceRoot (Join-Path ([string] $materialization['Path']) ("$(([string] $platform).ToLowerInvariant())/skills")) -LiveRoot (Get-PlatformLiveRoot -Platform $platform) -ManagedNames $managedNames[$platform] -ManifestHash $manifestHashes[$platform]))
+        }
+
+        $materializationRoot = [ordered]@{
+            Path = [string] $materialization['Path']
+            Identity = [string] $materialization['Identity']
+            EnvBuildPath = [string] $materialization['EnvBuildPath']
+            EnvBuildHash = [string] $materialization['EnvBuildHash']
+            EnvLockPath = [string] $materialization['EnvLockPath']
+            EnvLockHash = [string] $materialization['EnvLockHash']
+            MaterializationHash = [string] $materialization['MaterializationHash']
+        }
+
+        $payload = [ordered]@{
+            OperationKind = 'initial'
+            Generator = 'scripts/sync.ps1'
+            RepositoryCommit = [string] $git.RepositoryCommit
+            RepoRoot = $repo
+            ApprovedToolchainHash = $toolchainHash
+            ControllerRepoFingerprint = $controllerFingerprint
+            ControlBaseIntent = (New-LiveSyncControlBaseIntent -Context $controlContext)
+            Platforms = @($slots)
+            OrderedActions = @($orderedActions)
+            UnknownMarkers = @()
+            SystemMarker = [ordered]@{ Platform = 'Codex'; Name = $CodexSystemDirName; Present = $false; Identity = $null; Hash = $null }
+            TargetContextIntent = [ordered]@{ HomeAuthorityKey = $homeAuthorityKey; Rows = @($claims) }
+            AuthorityStateIntent = $intent
+            EnvironmentName = 'full'
+            EnvironmentMaterializationRoot = $materializationRoot
+            ProposedRootClaims = @($claims)
+            RootClaimsHash = $claimsHash
+        }
+    }
+    else {
+        if ([string]::IsNullOrWhiteSpace($RetirementManifestPath)) { throw $script:LiveSyncRetirementManifestRequired }
+        $manifest = Read-ExplicitRetirementManifest -Path $RetirementManifestPath
+        $canonicalAuthorityRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+        Assert-RetirementManifestIsExternal -ManifestPath $manifest.Path -ProtectedRoots @($canonicalAuthorityRoot, $repo, (Get-ClaudeLiveSkillsPath), (Get-CodexLiveSkillsPath), (Get-ReasonixLiveSkillsPath))
+        $manifestEvidence = Resolve-PrivateArtifactPath -Path $manifest.Path -Role ExternalUserArtifact -RepoRoot $repo
+        if ([string] $manifest.Hash -cne (Get-BytesSha256 -Bytes ([System.IO.File]::ReadAllBytes($manifestEvidence.FullPath)))) {
+            throw $script:LiveSyncPlanHashMismatch
+        }
+
+        $retirementNames = [ordered]@{
+            Claude = $manifest.Claude
+            Codex = $manifest.Codex
+            Reasonix = $manifest.Reasonix
+        }
+
+        $staleness = [ordered]@{}
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $staleness[$platform] = Get-RetirementStalenessEvidence -Platform $platform -SourceRoot (Join-Path $repo "$(([string] $platform).ToLowerInvariant())\skills") -LiveRoot (Get-PlatformLiveRoot -Platform $platform) -CanonicalRoots @(
+                (Join-Path $repo 'skills-source\shared'), (Join-Path $repo "skills-source\$(([string] $platform).ToLowerInvariant())-only"),
+                (Join-Path $canonicalAuthorityRoot 'skills-source\shared'), (Join-Path $canonicalAuthorityRoot "skills-source\$(([string] $platform).ToLowerInvariant())-only")
+            ) -ManagedNames $managedNames[$platform] -RetiredNames $retirementNames[$platform]
+        }
+
+        # Retirement reads the seeded schema 3 authority state at the canonical
+        # locator under the injected control base; it never invokes a writer.
+        if ([string] $controlContext.TargetStatus -cne 'EXISTS') { throw $script:LiveSyncAuthorityMissing }
+        $stateLocator = Join-Path (Join-Path $ControlBase 'homes') (Join-Path $homeAuthorityKey 'current-env.json')
+        if (-not (Test-Path -LiteralPath $stateLocator -PathType Leaf)) { throw $script:LiveSyncAuthorityMissing }
+        $stateCapture = Read-ExactJsonArtifactCapture -Path $stateLocator -Role EvidenceInputPath -RepoRoot $repo -EvidenceRoots @([System.IO.Path]::GetFullPath($ControlBase))
+        $state = [System.Collections.IDictionary] $stateCapture.Document
+        Assert-AuthoritySchemaBytes -ArtifactKind 'current-env-state' -InstanceBytes ([byte[]] $stateCapture.Bytes)
+        Test-CurrentEnvStateSemantics -Document $state
+        if ([string] $state['HomeAuthorityKey'] -cne $homeAuthorityKey) { throw $script:LiveSyncSelectionMismatch }
+
+        $postsetSkillsRows = [System.Collections.Generic.List[object]]::new()
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $stateSkills = @()
+            foreach ($row in @([object[]] $state['TaskOverlaySkills'])) {
+                if ([string] $row['Platform'] -ceq $platform) { $stateSkills = @([string[]] @($row['Skills'])) }
+            }
+            $postsetSkillsRows.Add([ordered]@{ Platform = $platform; Skills = $stateSkills })
+        }
+
+        $manifestDocument = New-LiveSyncRetirementManifestEvidence -ManifestPath $manifestEvidence.FullPath -ManifestHash ([string] $manifest.Hash) -RetiredNames $retirementNames -StalenessEvidence $staleness -PostsetSkillsRows @($postsetSkillsRows) -PostsetEnvironmentName ([string] $state['EnvironmentName']) -PostsetEnvironmentLockHash ([string] $state['EnvironmentLockHash']) -PostsetTaskOverlayHash ([string] $state['TaskOverlayHash']) -PostsetManifestHashes @([object[]] $state['ManifestHashes'])
+
+        $intent = [ordered]@{
+            SchemaVersion = 3
+            ArtifactKind = 'current-env-state'
+            HomeAuthorityKey = [string] $state['HomeAuthorityKey']
+            AuthorityGeneration = [long] $state['AuthorityGeneration']
+            RootClaimsHash = [string] $state['RootClaimsHash']
+            SelectionKind = [string] $state['SelectionKind']
+            EnvironmentName = [string] $state['EnvironmentName']
+            EnvironmentLockHash = [string] $state['EnvironmentLockHash']
+            TaskOverlayHash = [string] $state['TaskOverlayHash']
+            TaskOverlaySkills = @($postsetSkillsRows)
+            ManifestHashes = @([object[]] $state['ManifestHashes'])
+            FinalManagedHashes = @([object[]] $state['FinalManagedHashes'])
+            ControllerRepoFingerprint = [string] $state['ControllerRepoFingerprint']
+            ApprovedToolchainHash = [string] $state['ApprovedToolchainHash']
+            LastOperationKind = 'retirement'
+        }
+
+        $orderedActions = [System.Collections.Generic.List[object]]::new()
+        $order = 0L
+        foreach ($platform in (@('Claude', 'Codex', 'Reasonix') | Sort-Object { $script:LiveSyncPlatformRank[[string] $_] })) {
+            foreach ($name in (([string[]] $retirementNames[$platform]) | Sort-Object)) {
+                $orderedActions.Add([ordered]@{
+                    Order = $order
+                    Platform = $platform
+                    Action = 'prune'
+                    Name = $name
+                    SourceHash = $null
+                    LiveHash = (Get-SkillTreeHash -Path (Join-Path (Get-PlatformLiveRoot -Platform $platform) $name))
+                    Authority = 'explicit-retirement'
+                })
+                $order++
+            }
+        }
+
+        $unknownMarkers = [System.Collections.Generic.List[object]]::new()
+        foreach ($platform in (@('Claude', 'Codex', 'Reasonix') | Sort-Object { $script:LiveSyncPlatformRank[[string] $_] })) {
+            if ([string] $liveContexts[$platform].TargetStatus -cne 'EXISTS') {
+                throw $script:LiveSyncSelectionMismatch
+            }
+            $liveRoot = Get-PlatformLiveRoot -Platform $platform
+            $sourceRoot = Join-Path $repo "$(([string] $platform).ToLowerInvariant())\skills"
+            $sourceNames = @(Get-DirNames -Path $sourceRoot)
+            foreach ($child in (@(Get-DirNames -Path $liveRoot) | Sort-Object)) {
+                if ($platform -ieq 'codex' -and [string] $child -ieq $CodexSystemDirName) { continue }
+                if ([string] $child -cnotin $sourceNames -and -not $managedNames[$platform].Contains([string] $child) -and -not $retirementNames[$platform].Contains([string] $child)) {
+                    $childContext = Get-LiveSyncTargetContext -Path (Join-Path $liveRoot $child)
+                    $unknownMarkers.Add([ordered]@{
+                        Platform = $platform
+                        Name = [string] $child
+                        LiveHash = (Get-SkillTreeHash -Path (Join-Path $liveRoot $child))
+                        Managed = $false
+                        Identity = [string] $childContext.DirectoryIdentity
+                    })
+                }
+            }
+        }
+
+        $claims = [System.Collections.Generic.List[object]]::new()
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $claims.Add((New-LiveSyncRootClaimRow -Platform $platform -Context $liveContexts[$platform] -InitialState 'EXISTS'))
+        }
+
+        $slots = [System.Collections.Generic.List[object]]::new()
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $slots.Add((New-LiveSyncPlatformSlot -Platform $platform -SourceRoot (Join-Path $repo "$(([string] $platform).ToLowerInvariant())\skills") -LiveRoot (Get-PlatformLiveRoot -Platform $platform) -ManagedNames $managedNames[$platform] -ManifestHash $manifestHashes[$platform]))
+        }
+
+        $payload = [ordered]@{
+            OperationKind = 'retirement'
+            Generator = 'scripts/sync.ps1'
+            RepositoryCommit = [string] $git.RepositoryCommit
+            RepoRoot = $repo
+            ApprovedToolchainHash = $toolchainHash
+            ControllerRepoFingerprint = $controllerFingerprint
+            ControlBaseIntent = (New-LiveSyncControlBaseIntent -Context $controlContext)
+            Platforms = @($slots)
+            OrderedActions = @($orderedActions)
+            UnknownMarkers = @($unknownMarkers)
+            SystemMarker = (Get-LiveSyncSystemMarker -CodexLiveRoot (Get-PlatformLiveRoot -Platform 'Codex'))
+            TargetContextIntent = [ordered]@{ HomeAuthorityKey = $homeAuthorityKey; Rows = @($claims) }
+            AuthorityStateIntent = $intent
+            EnvironmentName = [string] $state['EnvironmentName']
+            RetirementManifest = $manifestDocument
+        }
+    }
+
+    $document = [ordered]@{
+        SchemaVersion = 3
+        ArtifactKind = 'sync-plan'
+        Metadata = [ordered]@{ GeneratedAtUtc = [DateTime]::UtcNow.ToString('o') }
+        PlanPayload = $payload
+    }
+    $document['PlanHash'] = Get-PlanHash -PlanPayload $payload
+    $document['DocumentHash'] = Get-DocumentHash -Document $document
+    return $document
 }
 
 # ---------------------------------------------------------------------------
@@ -271,7 +1000,7 @@ function Remove-OneSkillDir {
 }
 
 # ---------------------------------------------------------------------------
-# Plan computation
+# Plan computation helpers
 # ---------------------------------------------------------------------------
 
 function New-CaseInsensitiveNameSet {
@@ -404,54 +1133,6 @@ function Read-ExplicitRetirementManifest {
     finally {
         $document.Dispose()
     }
-}
-
-function Assert-RetirementNamesAreStale {
-    param(
-        [Parameter(Mandatory)] [string] $Platform,
-        [Parameter(Mandatory)] [string] $SourceRoot,
-        [Parameter(Mandatory)] [string] $LiveRoot,
-        [Parameter(Mandatory)] [string[]] $CanonicalRoots,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $ManagedNames,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $RetiredNames
-    )
-
-    $evidenceRows = [System.Collections.Generic.List[string]]::new()
-    $sourceNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($name in @(Get-DirNames -Path $SourceRoot)) { [void] $sourceNames.Add($name) }
-    foreach ($canonicalRoot in @($CanonicalRoots | Sort-Object -Unique)) {
-        $evidenceRows.Add("$Platform|root|$([System.IO.Path]::GetFullPath($canonicalRoot))")
-    }
-    foreach ($name in $RetiredNames) {
-        if ($sourceNames.Contains($name)) {
-            throw "Retirement manifest cannot authorize active $Platform source skill '$name'."
-        }
-        foreach ($canonicalRoot in @($CanonicalRoots | Sort-Object -Unique)) {
-            $canonicalPath = Join-Path $canonicalRoot $name
-            $canonicalState = if (Test-Path -LiteralPath $canonicalPath -PathType Container) { 'directory' }
-                elseif (Test-Path -LiteralPath $canonicalPath -PathType Leaf) { 'file' }
-                else { 'missing' }
-            $evidenceRows.Add("$Platform|$name|$([System.IO.Path]::GetFullPath($canonicalPath))|$canonicalState")
-            if ($canonicalState -ne 'missing') {
-                throw "Retirement manifest cannot authorize canonical $Platform skill '$name'."
-            }
-        }
-        if ($ManagedNames.Contains($name)) {
-            throw "Retirement manifest cannot authorize current $Platform managed skill '$name'."
-        }
-
-        $target = Join-Path $LiveRoot $name
-        Assert-SafeLiveSkillTarget -LiveRoot $LiveRoot -Path $target
-        if (-not (Test-Path -LiteralPath $target -PathType Container)) {
-            throw "Retirement manifest $Platform skill '$name' must identify an existing unknown live skill directory."
-        }
-        $targetItem = Get-Item -LiteralPath $target -Force
-        if (($targetItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "Retirement manifest must not authorize a reparse-point skill directory: $Platform/$name"
-        }
-    }
-
-    return Get-StringSha256 -Text ((@($evidenceRows | Sort-Object) -join "`n") + "`n")
 }
 
 function Assert-RetirementManifestIsExternal {
@@ -754,93 +1435,30 @@ function Write-PlanReport {
     }
 }
 
-function Write-SyncRunReport {
-    param(
-        [Parameter(Mandatory)] [ValidateSet('PASS', 'WARN', 'FAIL')] [string] $Result,
-        [Parameter(Mandatory)] [string] $NextAction,
-        [object[]] $Plans = @(),
-        [string] $BuildResult = 'Not run',
-        [string] $SecretsScanResult = 'Not run',
-        [AllowNull()] [System.Collections.IDictionary] $AppliedCounts,
-        [string] $SystemStatus = 'Not available'
-    )
+function Write-PlanSummary {
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Payload)
 
-    if (-not (Get-Command Write-RunReport -ErrorAction SilentlyContinue)) {
-        return
+    $kind = [string] $Payload['OperationKind']
+    Write-Host "Operation kind  : $kind"
+    Write-Host "Environment     : $(if ($Payload.Contains('EnvironmentName')) { [string] $Payload['EnvironmentName'] } else { '<unchanged>' })"
+    $counts = @{}
+    foreach ($action in @([object[]] $Payload['OrderedActions'])) {
+        $verb = [string] $action['Action']
+        if (-not $counts.ContainsKey($verb)) { $counts[$verb] = 0 }
+        $counts[$verb] = $counts[$verb] + 1
     }
-
-    $planAdded = 0
-    $planModified = 0
-    $planRemoved = 0
-    $planUnknown = 0
-    $planNoOp = 0
-    $addedDetails = [System.Collections.Generic.List[string]]::new()
-    $modifiedDetails = [System.Collections.Generic.List[string]]::new()
-    $removedDetails = [System.Collections.Generic.List[string]]::new()
-    $unknownDetails = [System.Collections.Generic.List[string]]::new()
-    $noOpDetails = [System.Collections.Generic.List[string]]::new()
-    foreach ($plan in @($Plans)) {
-        $planAdded += @($plan.Add).Count
-        $planModified += @($plan.Update).Count
-        $planRemoved += @($plan.Prune).Count
-        $planUnknown += @($plan.Unknown).Count
-        $planNoOp += @($plan.NoOp).Count
-        foreach ($name in @($plan.Add)) { $addedDetails.Add("ADD: $($plan.Platform)/$name") }
-        foreach ($name in @($plan.Update)) { $modifiedDetails.Add("MODIFY: $($plan.Platform)/$name") }
-        foreach ($entry in @($plan.PruneEntries)) { $removedDetails.Add("REMOVE [$($entry.Authority)]: $($plan.Platform)/$($entry.Name)") }
-        foreach ($name in @($plan.Unknown)) { $unknownDetails.Add("SKIPPED UNKNOWN (preserved): $($plan.Platform)/$name") }
-        foreach ($name in @($plan.NoOp)) { $noOpDetails.Add("NO-OP: $($plan.Platform)/$name") }
+    foreach ($verb in @('add', 'update', 'no-op', 'prune')) {
+        $count = if ($counts.ContainsKey($verb)) { $counts[$verb] } else { 0 }
+        Write-Host "  would $verb ($count)"
     }
-
-    $addedValue = if (@($Plans).Count -gt 0) { $planAdded } else { 'Not available' }
-    $modifiedValue = if (@($Plans).Count -gt 0) { $planModified } else { 'Not available' }
-    $removedValue = if (@($Plans).Count -gt 0) { $planRemoved } else { 'Not available' }
-    if ($Apply -and $null -ne $AppliedCounts) {
-        $addedValue = [int] $AppliedCounts.ClaudeAdded + [int] $AppliedCounts.CodexAdded + [int] $AppliedCounts.ReasonixAdded
-        $modifiedValue = [int] $AppliedCounts.ClaudeUpdated + [int] $AppliedCounts.CodexUpdated + [int] $AppliedCounts.ReasonixUpdated
-        $removedValue = [int] $AppliedCounts.ClaudePruned + [int] $AppliedCounts.CodexPruned + [int] $AppliedCounts.ReasonixPruned
-    }
-
-    if ($SystemStatus -eq 'Not available') {
-        $codexPlanForReport = @($Plans | Where-Object Platform -eq 'codex' | Select-Object -First 1)
-        if ($codexPlanForReport.Count -gt 0) {
-            $SystemStatus = if ($codexPlanForReport[0].SystemPreserved) { 'PRESERVED' } else { 'Not present' }
+    $unknownTotal = @([object[]] $Payload['UnknownMarkers']).Count
+    Write-Host "  unknown dirs ($unknownTotal) (ignored, never deleted)"
+    if ([string] $kind -ceq 'retirement') {
+        $retired = [System.Collections.Generic.List[string]]::new()
+        foreach ($action in @([object[]] $Payload['OrderedActions'])) {
+            if ([string] $action['Action'] -ceq 'prune') { $retired.Add("$($action['Platform'])/$($action['Name'])") }
         }
-    }
-
-    $mode = if ($Apply) { 'apply' } else { 'dry-run' }
-    $removalSection = if (-not $Apply) { 'Removed items (planned)' }
-        elseif ($Result -eq 'PASS' -or $Result -eq 'WARN') { 'Removed items (applied or attempted)' }
-        else { 'Removed items (planned; inspect result before assuming application)' }
-
-    $summary = [ordered] @{
-        Added = $addedValue
-        Modified = $modifiedValue
-        Removed = $removedValue
-        Skipped = if (@($Plans).Count -gt 0) { $planUnknown } else { 'Not available' }
-        'Unchanged managed skills' = if (@($Plans).Count -gt 0) { $planNoOp } else { 'Not available' }
-        Conflicts = 'Not available'
-        Quarantined = 'Not available'
-        'Unknown live skills' = if (@($Plans).Count -gt 0) { $planUnknown } else { 'Not available' }
-        '.system status' = $SystemStatus
-        'Secrets scan result' = $SecretsScanResult
-        'Build result' = $BuildResult
-    }
-    $details = [ordered] @{
-        'Added items' = @($addedDetails)
-        'Modified items' = @($modifiedDetails)
-        $removalSection = @($removedDetails)
-        'Skipped and unknown live skills' = @($unknownDetails)
-        'Unchanged items' = @($noOpDetails)
-        '.system' = @("${SystemStatus}: preserved-required; sync report never contains .system contents.")
-    }
-
-    try {
-        $reportPath = Write-RunReport -RepoRoot $RepoRoot -ReportKind 'sync' -ScriptName 'scripts/sync.ps1' -Mode $mode -Summary $summary -Details $details -Result $Result -NextAction $NextAction
-        Write-Host "Sync report: $reportPath"
-    }
-    catch {
-        Write-Warning "Sync completed its original flow, but report creation failed: $($_.Exception.Message)"
+        Write-Host "  retirement-authorized targets: $([string]::Join(', ', $retired))"
     }
 }
 
@@ -931,42 +1549,169 @@ function Restore-CompletedManagedSkills {
     }
 }
 
+function Write-SyncRunReport {
+    param(
+        [Parameter(Mandatory)] [ValidateSet('PASS', 'WARN', 'FAIL')] [string] $Result,
+        [Parameter(Mandatory)] [string] $NextAction,
+        [object[]] $Plans = @(),
+        [string] $BuildResult = 'Not run',
+        [string] $SecretsScanResult = 'Not run',
+        [AllowNull()] [System.Collections.IDictionary] $AppliedCounts,
+        [string] $SystemStatus = 'Not available'
+    )
+
+    if (-not (Get-Command Write-RunReport -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $planAdded = 0
+    $planModified = 0
+    $planRemoved = 0
+    $planUnknown = 0
+    $planNoOp = 0
+    $addedDetails = [System.Collections.Generic.List[string]]::new()
+    $modifiedDetails = [System.Collections.Generic.List[string]]::new()
+    $removedDetails = [System.Collections.Generic.List[string]]::new()
+    $unknownDetails = [System.Collections.Generic.List[string]]::new()
+    $noOpDetails = [System.Collections.Generic.List[string]]::new()
+    foreach ($plan in @($Plans)) {
+        $planAdded += @($plan.Add).Count
+        $planModified += @($plan.Update).Count
+        $planRemoved += @($plan.Prune).Count
+        $planUnknown += @($plan.Unknown).Count
+        $planNoOp += @($plan.NoOp).Count
+        foreach ($name in @($plan.Add)) { $addedDetails.Add("ADD: $($plan.Platform)/$name") }
+        foreach ($name in @($plan.Update)) { $modifiedDetails.Add("MODIFY: $($plan.Platform)/$name") }
+        foreach ($entry in @($plan.PruneEntries)) { $removedDetails.Add("REMOVE [$($entry.Authority)]: $($plan.Platform)/$($entry.Name)") }
+        foreach ($name in @($plan.Unknown)) { $unknownDetails.Add("SKIPPED UNKNOWN (preserved): $($plan.Platform)/$name") }
+        foreach ($name in @($plan.NoOp)) { $noOpDetails.Add("NO-OP: $($plan.Platform)/$name") }
+    }
+
+    $addedValue = if (@($Plans).Count -gt 0) { $planAdded } else { 'Not available' }
+    $modifiedValue = if (@($Plans).Count -gt 0) { $planModified } else { 'Not available' }
+    $removedValue = if (@($Plans).Count -gt 0) { $planRemoved } else { 'Not available' }
+    if ($Apply -and $null -ne $AppliedCounts) {
+        $addedValue = [int] $AppliedCounts.ClaudeAdded + [int] $AppliedCounts.CodexAdded + [int] $AppliedCounts.ReasonixAdded
+        $modifiedValue = [int] $AppliedCounts.ClaudeUpdated + [int] $AppliedCounts.CodexUpdated + [int] $AppliedCounts.ReasonixUpdated
+        $removedValue = [int] $AppliedCounts.ClaudePruned + [int] $AppliedCounts.CodexPruned + [int] $AppliedCounts.ReasonixPruned
+    }
+
+    if ($SystemStatus -eq 'Not available') {
+        $codexPlanForReport = @($Plans | Where-Object Platform -eq 'codex' | Select-Object -First 1)
+        if ($codexPlanForReport.Count -gt 0) {
+            $SystemStatus = if ($codexPlanForReport[0].SystemPreserved) { 'PRESERVED' } else { 'Not present' }
+        }
+    }
+
+    $mode = if ($Apply) { 'apply' } else { 'dry-run' }
+    $removalSection = if (-not $Apply) { 'Removed items (planned)' }
+        elseif ($Result -eq 'PASS' -or $Result -eq 'WARN') { 'Removed items (applied or attempted)' }
+        else { 'Removed items (planned; inspect result before assuming application)' }
+
+    $summary = [ordered] @{
+        Added = $addedValue
+        Modified = $modifiedValue
+        Removed = $removedValue
+        Skipped = if (@($Plans).Count -gt 0) { $planUnknown } else { 'Not available' }
+        'Unchanged managed skills' = if (@($Plans).Count -gt 0) { $planNoOp } else { 'Not available' }
+        Conflicts = 'Not available'
+        Quarantined = 'Not available'
+        'Unknown live skills' = if (@($Plans).Count -gt 0) { $planUnknown } else { 'Not available' }
+        '.system status' = $SystemStatus
+        'Secrets scan result' = $SecretsScanResult
+        'Build result' = $BuildResult
+    }
+    $details = [ordered] @{
+        'Added items' = @($addedDetails)
+        'Modified items' = @($modifiedDetails)
+        $removalSection = @($removedDetails)
+        'Skipped and unknown live skills' = @($unknownDetails)
+        'Unchanged items' = @($noOpDetails)
+        '.system' = @("${SystemStatus}: preserved-required; sync report never contains .system contents.")
+    }
+
+    try {
+        $reportPath = Write-RunReport -RepoRoot $RepoRoot -ReportKind 'sync' -ScriptName 'scripts/sync.ps1' -Mode $mode -Summary $summary -Details $details -Result $Result -NextAction $NextAction
+        Write-Host "Sync report: $reportPath"
+    }
+    catch {
+        Write-Warning "Sync completed its original flow, but report creation failed: $($_.Exception.Message)"
+    }
+}
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 $buildRunResult = 'Not run'
 $secretsScanRunResult = 'Not run'
-$syncPlans = @()
 
-if ($Apply -and $DryRun) {
-    Write-Host 'ERROR: -Apply and -DryRun cannot be used together.'
-    Write-SyncRunReport -Result 'FAIL' -NextAction 'Choose exactly one mode: -DryRun or -Apply.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
-    exit 1
+# Explicitly bound -HomeRoot/-BackupRoot select the legacy content-aware deploy
+# route (the env activation contract, removed by Task 5 Step 1). Without them
+# the schema 3 semantic plan surface below is the only public surface and all
+# roots are host-injected sandbox locators.
+$legacyDeployRequested = $PSBoundParameters.ContainsKey('HomeRoot') -or $PSBoundParameters.ContainsKey('BackupRoot')
+
+$injectedPaths = @()
+if (-not $legacyDeployRequested -and (Test-LiveSafetySandboxCapability)) {
+    foreach ($name in @('AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT', 'AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT', 'AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE')) {
+        $value = [System.Environment]::GetEnvironmentVariable($name)
+        if (-not [string]::IsNullOrWhiteSpace($value)) { $injectedPaths += ([System.IO.Path]::GetFullPath($value)) }
+    }
+    foreach ($value in @($PlanPath, $RetireManifestPath, $ReasonixLiveSkillsPath)) {
+        if (-not [string]::IsNullOrWhiteSpace($value)) { $injectedPaths += ([System.IO.Path]::GetFullPath($value)) }
+    }
+}
+
+# The tracked interlock is the first gate of every -Apply, before the reviewed
+# plan requirement and the build/scan gates.
+if ($Apply) {
+    $interlockPaths = @($RepoRoot, $HomeRoot, $BackupRoot, $ReasonixLiveSkillsPath, $PlanPath, $RetireManifestPath)
+    if (-not $legacyDeployRequested) { $interlockPaths = @($interlockPaths) + $injectedPaths }
+    Assert-LiveSafetyMutationAllowed -Operation $(if ($RetireManifestPath) { 'retirement-sync' } else { 'sync' }) -Paths $interlockPaths
 }
 
 if ($Apply -and [string]::IsNullOrWhiteSpace($PlanPath)) {
     Write-Host 'ERROR: -Apply requires a reviewed -PlanPath generated by a prior -DryRun.'
-    Write-SyncRunReport -Result 'FAIL' -NextAction 'Run sync with -DryRun -PlanPath <external-plan.json>, review it, then rerun -Apply with the same -PlanPath.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+    Write-SyncRunReport -Result 'FAIL' -NextAction 'Run sync with -DryRun -PlanPath <external-plan.json>, review it, then rerun -Apply with the same -PlanPath.'
     exit 1
 }
 
-$claudeSource = Join-Path $RepoRoot 'claude\skills'
-$codexSource = Join-Path $RepoRoot 'codex\skills'
-$reasonixSource = Join-Path $RepoRoot 'reasonix\skills'
-$claudeLive = Get-ClaudeLiveSkillsPath
-$codexLive = Get-CodexLiveSkillsPath
-$reasonixLive = Get-ReasonixLiveSkillsPath
+if ($legacyDeployRequested) {
+    $HomeRoot = if (Test-Path -LiteralPath $HomeRoot) {
+        (Resolve-Path -LiteralPath $HomeRoot).Path
+    } else {
+        [System.IO.Path]::GetFullPath($HomeRoot)
+    }
+    $claudeSource = Join-Path $RepoRoot 'claude\skills'
+    $codexSource = Join-Path $RepoRoot 'codex\skills'
+    $reasonixSource = Join-Path $RepoRoot 'reasonix\skills'
+    $claudeLive = Get-ClaudeLiveSkillsPath
+    $codexLive = Get-CodexLiveSkillsPath
+    $reasonixLive = Get-ReasonixLiveSkillsPath
 
-Write-Host '=== sync.ps1 ==='
-Write-Host "Mode            : $(if ($Apply) { 'APPLY' } else { 'DRY-RUN (no changes)' })"
-Write-Host "Repo            : $RepoRoot"
-Write-Host "Claude source   : $claudeSource"
-Write-Host "Codex source    : $codexSource"
-Write-Host "Reasonix source  : $reasonixSource"
-Write-Host "Claude live     : $claudeLive"
-Write-Host "Codex live      : $codexLive"
-Write-Host "Reasonix live    : $reasonixLive"
+    Write-Host '=== sync.ps1 (legacy content-aware deploy) ==='
+    Write-Host "Mode            : $(if ($Apply) { 'APPLY' } else { 'DRY-RUN (no changes)' })"
+    Write-Host "Repo            : $RepoRoot"
+    Write-Host "Claude source   : $claudeSource"
+    Write-Host "Codex source    : $codexSource"
+    Write-Host "Reasonix source  : $reasonixSource"
+    Write-Host "Claude live     : $claudeLive"
+    Write-Host "Codex live      : $codexLive"
+    Write-Host "Reasonix live    : $reasonixLive"
+}
+else {
+    $internalRoots = Resolve-LiveSyncInternalRoots
+    $HomeRoot = $internalRoots.HomeRoot
+    $BackupRoot = $internalRoots.BackupRoot
+    $ControlBase = $internalRoots.ControlBase
+
+    Write-Host '=== sync.ps1 (schema 3 semantic plan) ==='
+    Write-Host "Mode            : $(if ($Apply) { 'APPLY' } else { 'DRY-RUN (no live changes)' })"
+    Write-Host "Repo            : $RepoRoot"
+    Write-Host "Home root       : $HomeRoot"
+    Write-Host "Backup root     : $BackupRoot"
+    Write-Host "Control base    : $ControlBase"
+}
 
 # --- build ---
 if ($SkipBuild) {
@@ -1002,12 +1747,17 @@ if ($SkipSecretScan) {
     Write-Host 'Secret scan     : OK'
 }
 
-if (-not (Test-Path -LiteralPath $claudeSource) -or -not (Test-Path -LiteralPath $codexSource) -or -not (Test-Path -LiteralPath $reasonixSource)) {
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'claude\skills')) -or
+    -not (Test-Path -LiteralPath (Join-Path $RepoRoot 'codex\skills')) -or
+    -not (Test-Path -LiteralPath (Join-Path $RepoRoot 'reasonix\skills'))) {
     Write-Host 'ERROR: generated output missing. Run build-skills.ps1 (do not pass -SkipBuild).'
     Write-SyncRunReport -Result 'FAIL' -NextAction 'Restore generated output by running build-skills.ps1, then rerun sync in dry-run mode.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
     exit 1
 }
 
+$syncPlans = @()
+
+if ($legacyDeployRequested) {
 # --- managed-skills manifests (per-platform) ---
 $claudeManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.claude.txt')
 $codexManagedNames = Read-ManagedNames -Path (Join-Path $RepoRoot 'manifests\managed-skills.codex.txt')
@@ -1107,7 +1857,7 @@ if (-not $Apply) {
 }
 
 # ---------------------------------------------------------------------------
-# Apply
+# Schema 3 Apply (five-step validated mutation surface)
 # ---------------------------------------------------------------------------
 
 Write-Host ''
@@ -1288,4 +2038,194 @@ else {
     'Run scripts/scan-secrets.ps1 and git status, then record the verified machine state.'
 }
 Write-SyncRunReport -Result $applyReportResult -NextAction $applyNextAction -Plans $syncPlans -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult -AppliedCounts $applied -SystemStatus $systemReportStatus
+exit 0
+}
+
+if (-not $Apply) {
+    if ([string]::IsNullOrWhiteSpace($PlanPath)) {
+        Write-Host 'ERROR: -DryRun requires a create-new -PlanPath for the schema 3 semantic plan.'
+        Write-SyncRunReport -Result 'FAIL' -NextAction 'Run sync with -DryRun -PlanPath <external-plan.json> inside the internal sandbox.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+        exit 1
+    }
+    $planFull = [System.IO.Path]::GetFullPath($PlanPath)
+    if (Test-Path -LiteralPath $planFull) { throw $script:LiveSyncPathCollision }
+    $null = Resolve-PrivateArtifactPath -Path $planFull -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf
+
+    Write-Host ''
+    $operationKind = if ($RetireManifestPath) { 'retirement' } else { 'initial' }
+    Write-Host "Producer        : $operationKind"
+    $document = New-LiveSyncPlanDocument -OperationKind $operationKind -RepoRoot $RepoRoot -HomeRoot $HomeRoot -ControlBase $ControlBase -RetirementManifestPath $RetireManifestPath -PlanPath $planFull -Materialize
+    Write-LiveSyncPlan -Path $planFull -Document $document
+    Write-Host "Plan path       : $planFull"
+    Write-Host "Plan hash       : $([string] $document['PlanHash'])"
+    Write-Host "Document hash   : $([string] $document['DocumentHash'])"
+    Write-PlanSummary -Payload ([System.Collections.IDictionary] $document['PlanPayload'])
+
+    Write-Host ''
+    Write-Host 'DRY-RUN complete. No live files were changed. Review the schema 3 plan, then rerun with -Apply.'
+    Write-SyncRunReport -Result 'PASS' -NextAction 'Review the schema 3 plan; use -Apply only when the plan is expected and a backup will be created.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
+# Apply
+# ---------------------------------------------------------------------------
+
+Write-Host ''
+Write-Host '----- APPLY -----'
+
+$planFull = [System.IO.Path]::GetFullPath($PlanPath)
+if (-not (Test-Path -LiteralPath $planFull -PathType Leaf)) {
+    Write-Host "ERROR: plan file does not exist: $planFull. Run sync in dry-run mode with -PlanPath first."
+    Write-SyncRunReport -Result 'FAIL' -NextAction 'Run sync with -DryRun -PlanPath <external-plan.json>, review it, then rerun -Apply with the same -PlanPath.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+    exit 1
+}
+$null = Resolve-PrivateArtifactPath -Path $planFull -Role ExternalUserArtifact -RepoRoot $RepoRoot
+
+$saved = Read-LiveSyncPlan -Path $planFull
+$savedPayload = [System.Collections.IDictionary] $saved['PlanPayload']
+$savedKind = [string] $savedPayload['OperationKind']
+if ($savedKind -cnotin @('initial', 'retirement')) { throw $script:LiveSyncUnsupportedApplyKind }
+if ($savedKind -ceq 'retirement' -and [string]::IsNullOrWhiteSpace($RetireManifestPath)) {
+    throw $script:LiveSyncRetirementManifestRequired
+}
+
+$current = New-LiveSyncPlanDocument -OperationKind $savedKind -RepoRoot $RepoRoot -HomeRoot $HomeRoot -ControlBase $ControlBase -RetirementManifestPath $RetireManifestPath -PlanPath $planFull
+
+Assert-LiveSyncPlanDocumentIntegrity -Document ([System.Collections.IDictionary] $saved)
+if ((Get-PlanHash -PlanPayload ([System.Collections.IDictionary] $current['PlanPayload'])) -cne [string] $saved['PlanHash']) {
+    throw $script:LiveSyncPlanHashMismatch
+}
+if ($savedPayload.Contains('EnvironmentMaterializationRoot')) {
+    $null = Assert-LiveSyncPlanCurrent -Document ([System.Collections.IDictionary] $saved) -MaterializationDirectory ([string] (([System.Collections.IDictionary] $savedPayload['EnvironmentMaterializationRoot'])['Path']))
+}
+$expectedEnvironmentName = [string] (([System.Collections.IDictionary] $current['PlanPayload'])['EnvironmentName'])
+$null = Assert-LiveSyncPlanSelectionContext -Document ([System.Collections.IDictionary] $saved) -ExpectedOperationKind $savedKind -ExpectedEnvironmentName $expectedEnvironmentName
+$null = Assert-LiveSyncPlanDocumentHashNotConsumed -Document ([System.Collections.IDictionary] $saved) -TerminalEvidence $null
+Write-Host 'Plan binding    : verified'
+Write-Host "Plan hash       : $([string] $saved['PlanHash'])"
+Write-Host "Document hash   : $([string] $saved['DocumentHash'])"
+Write-PlanSummary -Payload $savedPayload
+
+if ($savedKind -ceq 'initial') {
+    # The pristine-bootstrap live-mutation host (claims create, receipts, state
+    # postimage) arrives with the Task 4 state machine. Until then an initial
+    # Apply fails closed after the reviewed plan is fully validated.
+    throw $script:LiveSyncInitialApplyNotWired
+}
+
+# 1) Mandatory backup first.
+Write-Host 'Creating mandatory pre-change backup ...'
+$backupArguments = @('-BackupRoot', $BackupRoot, '-RepoRoot', $RepoRoot, '-HomeRoot', $HomeRoot)
+if ($ReasonixLiveSkillsPath) {
+    $backupArguments += @('-ReasonixLiveSkillsPath', (Get-ReasonixLiveSkillsPath))
+}
+$backupOut = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'backup.ps1') @backupArguments 2>&1
+$backupCode = $LASTEXITCODE
+$backupOut | ForEach-Object { Write-Host "  [backup] $_" }
+if ($backupCode -ne 0) {
+    Write-Host "ERROR: backup failed (exit $backupCode). Aborting before any change."
+    Write-SyncRunReport -Result 'FAIL' -NextAction 'Resolve the backup failure before any sync Apply.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+    exit 1
+}
+$backupLine = $backupOut | Where-Object { $_ -is [string] -and $_ -match '^BACKUP_DIR=' } | Select-Object -Last 1
+$backupDir = if ($backupLine) { ($backupLine -replace '^BACKUP_DIR=', '').Trim() } else { '<unknown>' }
+Write-Host "Backup path     : $backupDir"
+$journalPath = if ($backupDir -and $backupDir -ne '<unknown>') { Join-Path $backupDir 'sync-journal.json' } else { $null }
+$completedOperations = [System.Collections.Generic.List[object]]::new()
+if ($journalPath) {
+    Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'backup-complete' -BackupDir $backupDir
+    Write-Host "Journal path    : $journalPath"
+}
+
+$liveRootsByPlatform = [ordered]@{}
+foreach ($slot in @([object[]] $savedPayload['Platforms'])) {
+    $liveRootsByPlatform[[string] $slot['Platform']] = [string] $slot['LiveRoot']
+}
+
+# 2) Execute the reviewed retirement prune actions, one skill dir at a time.
+$appliedPruned = 0
+try {
+    foreach ($action in @([object[]] $savedPayload['OrderedActions'])) {
+        if ([string] $action['Action'] -cne 'prune') { continue }
+        $platform = [string] $action['Platform']
+        $name = [string] $action['Name']
+        Remove-OneSkillDir -LiveRoot ([string] $liveRootsByPlatform[$platform]) -Name $name -ExpectedHash ([string] $action['LiveHash'])
+        $appliedPruned++
+        $completedOperations.Add([pscustomobject]@{
+            Platform = $platform.ToLowerInvariant()
+            Name = $name
+            Action = 'prune'
+            Authority = [string] $action['Authority']
+        })
+        if ($journalPath) {
+            Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations)
+        }
+    }
+}
+catch {
+    $failure = $_.Exception.Message
+    if ($journalPath) {
+        Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'failed-before-rollback' -BackupDir $backupDir -Completed @($completedOperations) -Failure $failure
+    }
+    try {
+        if ($completedOperations.Count -gt 0) {
+            $rollbackPlans = @(
+                [pscustomobject]@{ Platform = 'claude'; LiveRoot = [string] $liveRootsByPlatform['Claude'] }
+                [pscustomobject]@{ Platform = 'codex'; LiveRoot = [string] $liveRootsByPlatform['Codex'] }
+                [pscustomobject]@{ Platform = 'reasonix'; LiveRoot = [string] $liveRootsByPlatform['Reasonix'] }
+            )
+            Restore-CompletedManagedSkills -Completed @($completedOperations) -BackupDir $backupDir -Plans $rollbackPlans
+        }
+        if ($journalPath) {
+            Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'rolled-back' -BackupDir $backupDir -Completed @($completedOperations) -Failure $failure
+        }
+        Write-Host "ERROR: apply failed and completed retirement prunes were rolled back. Backup: $backupDir"
+    }
+    catch {
+        $rollbackFailure = $_.Exception.Message
+        if ($journalPath) {
+            Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'rollback-failed' -BackupDir $backupDir -Completed @($completedOperations) -Failure "$failure Rollback: $rollbackFailure"
+        }
+        Write-Host "ERROR: apply failed and rollback failed. Backup: $backupDir"
+        Write-Host "Rollback error: $rollbackFailure"
+    }
+    Write-SyncRunReport -Result 'FAIL' -NextAction 'Inspect the sync journal and backup before retrying.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+    exit 1
+}
+
+if ($journalPath) {
+    Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'prunes-applied' -BackupDir $backupDir -Completed @($completedOperations)
+}
+Write-Host "Retirement applied: -$appliedPruned"
+
+# 3) Verification.
+$verificationFailed = $false
+foreach ($action in @([object[]] $savedPayload['OrderedActions'])) {
+    if ([string] $action['Action'] -cne 'prune') { continue }
+    $target = Join-Path ([string] $liveRootsByPlatform[[string] $action['Platform']]) ([string] $action['Name'])
+    if (Test-Path -LiteralPath $target) {
+        Write-Host "ERROR: reviewed retirement target still present: $target"
+        $verificationFailed = $true
+    }
+}
+$codexLiveRoot = [string] $liveRootsByPlatform['Codex']
+$systemOk = Test-Path -LiteralPath (Join-Path (Join-Path $codexLiveRoot $CodexSystemDirName) '.codex-system-skills.marker')
+Write-Host ".system marker preserved: $systemOk"
+if ($verificationFailed) {
+    Write-Host "ERROR: post-apply retirement verification failed. Backup is at: $backupDir"
+    if ($journalPath) {
+        Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'verification-failed' -BackupDir $backupDir -Completed @($completedOperations) -Failure 'Reviewed retirement target still present.'
+    }
+    Write-SyncRunReport -Result 'FAIL' -NextAction 'Inspect retirement targets and recover from the existing backup if necessary.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+    exit 1
+}
+
+if ($journalPath) {
+    Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'complete' -BackupDir $backupDir -Completed @($completedOperations)
+}
+
+Write-Host ''
+Write-Host "APPLY complete. Backup: $backupDir"
+Write-SyncRunReport -Result 'PASS' -NextAction 'Run scripts/scan-secrets.ps1 and git status, then record the verified machine state.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
 exit 0
