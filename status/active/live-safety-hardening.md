@@ -6,7 +6,7 @@ Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
 published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side garbage
 collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no longer served.
-Phase 2 Tasks 1-3 (6/6, 7/7, 7/7) are complete (Phase 2 overall 20/52), while Phases 3-4 have not
+Phase 2 Tasks 1-4 (6/6, 7/7, 7/7, 7/7) are complete (Phase 2 overall 27/52), while Phases 3-4 have not
 started.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
@@ -924,6 +924,49 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   receipt consumption and the minting transaction host stay with Tasks 4/6/7; production Apply
   remains interlocked, and no live root or Git index/ref was changed.
 
+- Phase 2 Task-4 close-out, live-mutation state machine, journal, and kill matrix (2026-09-09,
+  slices `6ddc1e4`/`51425ff`/`4ba7323`+`1197ed5`/`45dd69f`; slice D implemented by Grok grok-4.6
+  via Grok Build from a self-contained brief, quota probed restored, integrated and verified by the
+  main agent): the three live journal/result schemas freeze the receipt-backed versus state-only
+  mode oneOf, live target records (skill/parent-directory/state with identity, receipt snapshot
+  reference, MISSING|PRESENT old/new states), eighteen record phases with strict per-phase data
+  key contracts, and the command-versus-transaction result scope split. The journal publisher and
+  zero-write chain reader enforce dense sequences, previous-hash links, per-record phase semantics,
+  recovery intent precedence, terminal-record-last bound to the exact published result file bytes,
+  the strict closing oneOf, and unknown-namespace-entry rejection. The receipt-backed engine runs
+  the fixed record sequence (RECEIPT_COMPLETE, parent-first no-overwrite directory creation,
+  per-target staging with the destructive recheck, the same-volume rename ladder with full disk
+  tuple verification, the authority state target, POSTCONDITIONS_OK, committed result + terminal);
+  failure classification restores live targets and this-transaction-created claims in reverse
+  before the state commit boundary, publishes the failed-restored fixed result (RestorationHash
+  plus the unchanged old state hash; StateHash null is the MISSING-state sentinel) and terminal on
+  verified restoration (`apply-failed-but-restored`), and exits
+  `live-transaction-recovery-required` with retained evidence otherwise or after the state commit
+  boundary. The state-only engine runs the controller-transition sequence (claims proof, captured
+  preimage + STATE_PREIMAGE_COMPLETE, the preserves-selection proof, the FILE_* replace ladder,
+  committed result with no receipt fields); failures retain evidence and rethrow for reviewed
+  abandon/finalize (Task 6). Capability-gated failpoints at eight record boundaries feed the kill
+  matrix through the sandboxed child host (receipt-backed kills at RECEIPT_COMPLETE/PREPARED/
+  OLD_MOVED/NEW_INSTALLED/STATE_PUBLISHED, state-only kills at STATE_PREIMAGE_COMPLETE/
+  FILE_REPLACED) with restart classification, fail-closed re-entry refusal, preimage retention,
+  and the external-race restore fail-closed assertion. `tests/live-recovery.tests.ps1` (budgeted
+  300 seconds) and `tests/helpers/live-transaction-host.ps1` are new. Focused validation per slice:
+  live-recovery PASS, validate-json-artifacts PASS, parse gate 166 files, secret scan clean,
+  `git diff --check` clean, seams 56/0 after mechanical re-pins (final: dynamic
+  `4a40541a5acf86b1694619697df43d6e510eb49b6c234082130bfa81f47745e5`, reflection count 14573,
+  digest `d11b3a51c7de05a17c43f2c185198429133281e3dde6ada57b2cdd602003dbf1`); the seams boundary
+  caught the unregistered New-AuthorityStatePostimage caller on the first slice C run and the
+  reviewed second caller was registered. The definitive unified `run-tests.ps1 -All` run then
+  passed all 37 discovered suites exactly once with zero failures, timeouts, duplicates, missing
+  suites, or tree-kill failures (external create-new summary SHA-256
+  `29963be7d7215d331a3b797bc1f78c0fd9f8ea03eef5efae78668e6485fc4f8d`; discovery hash
+  `b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0`), with live-recovery passed
+  in about 41 seconds and hard-kill/seams/sync/harness-env/automation-safety all exit 0 inside the
+  run; the external summary path is deleted after this evidence was recorded. The state machines
+  stay unconnected to the public CLI until Task 5 wires sync into the global lock order. Task 4 is
+  complete (7/7; Phase 2 27/52); production Apply remains interlocked, and no live root or Git
+  index/ref was changed.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -941,7 +984,7 @@ stay unconnected to production mutation routes.
 
 ## Current phase
 
-**Phase 2 Tasks 1-3 (6/6, 7/7, 7/7) are complete (Phase 2 overall 20/52), with Tasks 4-9 not
+**Phase 2 Tasks 1-4 (6/6, 7/7, 7/7, 7/7) are complete (Phase 2 overall 27/52), with Tasks 5-9 not
 started.** Task 1 Step 6 (Verify identity, state shape, and locking) closed on 2026-09-08 with the
 authoritative
 unified validation over the Task 1-complete state (34/34 suites, summary SHA-256
@@ -951,13 +994,12 @@ finalize/stop, schema/semantic layering, canonical-versus-live/retirement non-in
 zero-write losers including the new recover-Apply route-contention block, OS owner-death
 release), with real retirement/sync routes staying with Task 5.
 
-Phase 2 Task 3 closed on 2026-09-09 with the managed backup receipts and the standalone backup
-retirement (see the close-out record above). The next implementable work is Phase 2 Task 4 (the
-live-mutation state machine, same-volume staging, journal, and failure classification), which mints
-TransactionId/ReceiptId, publishes the RESERVED header with the ReceiptIntent, appends
-RECEIPT_COMPLETE, and wires the consumed-DocumentHash gate to the live-journal scan. Tasks 5-9
-follow in strict sequence. Production Apply remains disconnected, and live-journal structure and
-interpretation are Task 4's own deliverable.
+Phase 2 Task 4 closed on 2026-09-09 with the live-mutation state machine, journal, and kill matrix
+(see the close-out record above). The next implementable work is Phase 2 Task 5 (migrate normal
+sync and retirement to the common host): wire sync into the global lock order, remove the legacy
+per-skill swap/journal paths and the sandbox-internal backup bridge, enforce the authority and
+selection guards, and re-wire the extracted content-aware regression to the environment producer.
+Tasks 6-9 follow in strict sequence. Production Apply remains disconnected.
 
 Step 3 (commits `8ab102f`/`45b9510`/`744f326`/`c107ab8`) added the shared live-transaction
 immediate-child contract with ordered live reservation rows and the split fixed-infrastructure
@@ -1008,14 +1050,14 @@ rather than being interpreted heuristically.
 
 ## Remaining work
 
-Phase 2 has 32 of 52 steps remaining. Tasks 1-3 are complete; Tasks 4-9 are unstarted:
+Phase 2 has 25 of 52 steps remaining. Tasks 1-4 are complete; Tasks 5-9 are unstarted:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
 | Task 1 | 0/6 | Complete |
 | Task 2 | 0/7 | Complete |
 | Task 3 | 0/7 | Complete |
-| Task 4 | 7/7 | Common live-mutation state machine and journal |
+| Task 4 | 0/7 | Complete |
 | Task 5 | 6/6 | Normal sync and retirement migration to the common host |
 | Task 6 | 5/5 | Crash-recovery status, transitions, failpoints, and restart verification |
 | Task 7 | 5/5 | Receipt-backed environment rollback |

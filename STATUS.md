@@ -18,8 +18,8 @@ Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete
 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
-longer served. **Phase 2 Tasks 1-3 (6/6, 7/7, 7/7) are complete; Phase 2 overall is 20/52, with
-Tasks 4-9 not started.** Tracked policy remains
+longer served. **Phase 2 Tasks 1-4 (6/6, 7/7, 7/7, 7/7) are complete; Phase 2 overall is 27/52, with
+Tasks 5-9 not started.** Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
@@ -2402,6 +2402,88 @@ was recorded. Production Apply remains interlocked, and no live root or Git inde
 classification plus verified rollback) stays with Tasks 4/6/7; the transaction host that mints
 TransactionId/ReceiptId and flushes the reservation header arrives with Task 4.
 
+## 2026-09-09 Phase 2 Task 4 close-out: live-mutation state machine, journal, and kill matrix
+
+Phase 2 Task 4 (Implement the Live Mutation State Machine) is complete (7/7; Phase 2 27/52),
+delivered in four slices across 2026-09-09: slice A `6ddc1e4` (journal schemas and chain layer),
+slice B `51425ff` (target plans, same-volume staging, and the receipt-backed engine), slice C
+`4ba7323` + `1197ed5` (authority state target and failure classification), slice D `45dd69f`
+(state-only branch and the kill matrix, implemented by Grok grok-4.6 via Grok Build from a
+self-contained brief after the quota pool was probed restored, integrated and verified by the main
+agent).
+
+`schemas/live-journal-header.schema.json`, `live-journal-record.schema.json`, and
+`live-operation-result.schema.json` freeze the live transaction contract: the receipt-backed versus
+state-only mode oneOf (ReceiptIntent with the receipt-path leaf bound to the id versus
+ReceiptRef=NO_LIVE_MUTATION), the original OperationKind set, OriginRepoId/GitCommonDirHash/
+CanonicalLockKey binding, live target records (skill/parent-directory/state with identity, receipt
+snapshot reference, MISSING|PRESENT old/new states), eighteen record phases with strict per-phase
+data key contracts, and the command-versus-transaction result scope split (command scope carries
+only CommandKind with an optional lifecycle TransactionId; transaction scope binds original
+OperationKind/DocumentHash/ResultBaseHeadHash/Outcome with receipt-state/hash consistency,
+committed/rolled-back requirements, the state-only no-receipt rule, and the nullable StateHash
+MISSING-state sentinel).
+
+`scripts/live-transaction-common.ps1` delivers the journal publisher (create-new namespace with
+_pending, held-chain pending-rename publication reused from the canonical journal primitives,
+record append with previous-hash links, the closing-COMPLETE-only-after-result rule), the zero-write
+chain reader, and the chain validator (dense sequences, hash links, per-record phase semantics,
+recovery intent precedence for applied records, terminal-record-last bound to the exact published
+result file bytes, the strict closing oneOf, and unknown-namespace-entry rejection). The receipt-
+backed engine `Invoke-SealedLiveTransactionMutation` runs the fixed record sequence:
+RECEIPT_COMPLETE, parent-first no-overwrite directory creation with captured identities
+(DIR_CREATE_INTENT/DIR_CREATED), per-target staging with the destructive recheck, the same-volume
+rename ladder with full disk tuple verification (MOVE_OLD_INTENT/OLD_MOVED/MOVE_NEW_INTENT/
+NEW_INSTALLED with MISSING no-op semantics for prune), the authority state target, POSTCONDITIONS_OK,
+and the committed fixed result and terminal record. Failure classification: before the state commit
+boundary a caught failure restores completed live targets and this-transaction-created claims in
+reverse (identity-bound, empty-only parent removal), verifies the restoration, and publishes the
+failed-restored fixed result (RestorationHash plus the unchanged old state hash; StateHash null is
+the MISSING-state sentinel) and terminal record, then exits non-zero
+`apply-failed-but-restored`; unverified restoration or any failure after the state commit boundary
+retains the evidence and exits `live-transaction-recovery-required` without rewriting live/state.
+The state-only engine `Invoke-SealedLiveTransactionStateOnly` runs the controller-transition
+sequence: immutable claims proof, the captured state preimage journaled with
+STATE_PREIMAGE_COMPLETE, the controller-transition postimage proven by
+Assert-AuthorityControllerTransitionPreservesSelection (only controller/toolchain/generation fields
+change), the FILE_* replace ladder, POSTCONDITIONS_OK, and a committed result with no receipt
+fields; failures retain the preimage/journal evidence and rethrow for reviewed
+abandon/finalize (Task 6). Capability-gated failpoints at eight record boundaries feed the kill
+matrix.
+
+Tests: `tests/live-recovery.tests.ps1` covers the journal chain semantics and publication
+(create-new refusal, hash links, phase/closing oneOf negatives, result head binding, pending-temp
+tolerance), the receipt-backed engine (update/add/prune across platforms with old-copy
+preservation), the authority state target (existing-authority claims proof, recovery copy
+retention, committed result and terminal), failure restoration (a corrupted staged copy fails the
+second target after the first installed; the old content is restored into live, the installed copy
+returns to staging as recovery material, only one NEW_INSTALLED is journaled, the failed-restored
+result binds the unchanged old state hash), the state-only branch (claims proof, preimage
+capture, controller-transition replace, committed result with no receipt fields), the kill matrix
+through the sandboxed child host (receipt-backed kills at RECEIPT_COMPLETE/PREPARED/OLD_MOVED/
+NEW_INSTALLED/STATE_PUBLISHED and state-only kills at STATE_PREIMAGE_COMPLETE/FILE_REPLACED with
+restart classification, fail-closed re-entry refusal, and preimage retention), and the external
+race assertion (Restore-SealedLiveMutationTargets fails closed on a non-empty or identity-drifted
+created parent). The suite is budgeted at 300 seconds.
+
+Focused validation at each slice: live-recovery PASS, validate-json-artifacts PASS (the three new
+contracts with positive and negative fixtures), parse gate 166 files, secret scan clean,
+`git diff --check` clean, and seams 56/0 after mechanical re-pins (final: dynamic
+`4a40541a5acf86b1694619697df43d6e510eb49b6c234082130bfa81f47745e5`, reflection count 14573, digest
+`d11b3a51c7de05a17c43f2c185198429133281e3dde6ada57b2cdd602003dbf1`); the seams boundary also
+caught the unregistered production caller of New-AuthorityStatePostimage on the first slice C run,
+registered as the second reviewed caller alongside the registry writer. The definitive unified
+`run-tests.ps1 -All` run then discovered, started, completed, and passed all 37 suites exactly once
+with zero failures, timeouts, duplicates, missing suites, or tree-kill failures; the external
+create-new summary SHA-256 is
+`29963be7d7215d331a3b797bc1f78c0fd9f8ea03eef5efae78668e6485fc4f8d` and the discovery hash is
+`b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0`, with live-recovery passed in
+about 41 seconds, hard-kill exit 0, seams 56/0, and sync/harness-env/automation-safety exit 0
+inside the run; the external summary path is deleted after this evidence was recorded. Production
+Apply remains interlocked, and no live root or Git index/ref was changed. Grok's model identity for
+slice D is evidenced by the probe and session logs; model identity for the GLM slices, fees, and
+human work time remain `unknown`.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2740,7 +2822,7 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 
 ## Remaining roadmap snapshot
 
-Phase 2 has 32 of 52 steps remaining. Tasks 1-3 are complete; Tasks 4-9 have not started.
+Phase 2 has 25 of 52 steps remaining. Tasks 1-4 are complete; Tasks 5-9 have not started.
 The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
@@ -2748,7 +2830,7 @@ The implementation order and remaining scope are:
 | Task 1 | 0/6 | Complete |
 | Task 2 | 0/7 | Complete |
 | Task 3 | 0/7 | Complete |
-| Task 4 | 7/7 | Live-mutation state machine, same-volume staging, journal, and failure classification |
+| Task 4 | 0/7 | Complete |
 | Task 5 | 6/6 | Common transaction host for normal sync and explicit retirement |
 | Task 6 | 5/5 | Read-only recovery status, reviewed recovery transitions, failpoints, and restart behavior |
 | Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
@@ -2761,13 +2843,12 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 3 is complete (7/7; Phase 2 20/52) as of 2026-09-09. Continue with Phase 2 Task 4
-   (the live-mutation state machine, same-volume staging, journal, and failure classification),
-   followed by Tasks 5-9 in strict sequence. Task 4 wires the receipt into the receipt-backed
-   reservation (TransactionId/ReceiptId minting, RESERVED header, RECEIPT_COMPLETE) and the
-   consumed-DocumentHash gate to the live-journal scan; the retired standalone backup's
-   sandbox-internal legacy bridge and the extracted content-aware regression are Task 5 migration
-   inputs. Production Apply remains interlocked throughout.
+1. Phase 2 Task 4 is complete (7/7; Phase 2 27/52) as of 2026-09-09. Continue with Phase 2 Task 5
+   (migrate normal sync and retirement to the common host), followed by Tasks 6-9 in strict
+   sequence. The state machines delivered here stay unconnected to the public CLI until Task 5
+   wires sync into the global lock order; the retired standalone backup's sandbox-internal legacy
+   bridge and the extracted content-aware regression are Task 5 removals. Production Apply remains
+   interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
