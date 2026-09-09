@@ -12,7 +12,7 @@ jobs:
   validate:
     name: Validate repository
     runs-on: windows-latest
-    timeout-minutes: 298
+    timeout-minutes: 305
 
     steps:
       - name: Checkout
