@@ -79,6 +79,61 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
 只保留脱敏摘要与必要的代码/提交引用，不保存原始会话、凭据、账户信息、本机绝对路径或
 未经清理的运行日志；不新增自动采集、后台监控或付费调用。
 
+## 任务收尾反馈闭环（harness-model）
+
+本项目是所有者登记的反馈闭环试点。每次真实任务收尾（阶段提交边界即可，不要求整任务
+完结）执行一次：汇总本次窗口的新反馈，在 harness-model 改进通用方法并按其规则验证
+提交，再按版本回灌本项目并验证提交；下次真实任务显式读取本入口并检验实际效果。这是
+Agent 显式读取后遵循的约定，不是 Hook、定时任务或后台同步；无新反馈也无适用版本差异时
+不改文件、不制造空记录，也不自行启动业务任务来凑观察样本。
+
+### 来源与实际应用版本
+
+- 来源仓库身份（每次写入前后重新核对 Git 根、远端、分支、HEAD、工作区与暂存区）：
+  远端 `github.com/MaginaLW/harness-model`，工作分支 `codex/zcode-document-pilot`，
+  本地检出为项目同级 `harness-model` 目录（目录名不作身份依据，以 Git 核对为准）。
+- 首次接入基线与实际应用的上游提交：`b567dc3`（"docs: define task-closeout feedback
+  loop for ZCode pilots"，2026-09-09 核对时即该检出 HEAD，无版本漂移）。方法文件：
+  `docs/operations/feedback-loop.md`、`docs/operations/adoption.md`（真实任务的执行与
+  收尾）、`docs/operations/effect-observations.md`、`docs/operations/zcode-adoption-feedback.md`
+  与 `examples/adoption/zcode-feedback-loop-prompt.md`。回灌时只合并适用且缺失的文字，
+  核对本次版本包含上次已应用版本（`b567dc3`）；来源分叉或验证不明时保留待核对。
+- 闭环授权边界：harness-model 的 `docs/`、`examples/`，以及本项目的规则入口、接入文档
+  与既有收尾记录。不含源码、CI、`.ai`、技能、全局/live 配置、部署、删除、推送、合并、
+  凭据导出、付费调用或后台采集；越界反馈只形成提案并记 `pending`。
+
+### 五项方法的逐条适配
+
+对照 [harness-model 五项试点反馈]（其固定窗口即本仓 `8bc666c`→`3a2ff6b`）逐条检查，
+已有等价规则不重复添加：
+
+1. **版本一致性**：涉及产物格式、Schema 版本或接口的变更，收尾时核对生产端、注册的
+   Schema、测试与 CI 消费端是否一致（本仓 Task 2 曾发现并修复 build 侧 v3 与 CI 侧 v2
+   判断的漂移；该教训已体现在既有记录，现固化为收尾核对项）。
+2. **可读取脱敏摘要**：收尾在权威记录（`STATUS.md` / `status/active/`）保留可读取的
+   逐检查摘要与定位；外部 JSON 摘要按现有约定用后即删，删除前文本摘要与 SHA 已入记录
+   （本页"留下可接续的最小事实"一节为既有等价条款，不重复添加）。
+3. **测试发现范围**：收尾对照基线列明新增、停用、改名、移入非执行目录的检查及替代验证；
+   必需检查不得静默退出（本仓 Task 2 曾把 content-aware 回归移入 `tests/helpers/` 并
+   显式固定不调用状态，属正确做法的实例；现固化为收尾核对项）。
+4. **实测耗时与预算**：分开记录实测耗时、配置上限、重跑原因与返工；提高上限不表示执行
+   更慢（本仓既有记录已按此口径写 sync/备份回执套件实测与预算，属既有等价条款）。
+5. **紧凑交接**：本仓权威交接入口为 `STATUS.md` 的 "Remaining roadmap snapshot" 与
+   "Next actions"，加接手时从 Git 实读的候选版本与工作区状态；不另建第二份进度表。
+
+### 首次闭环执行（2026-09-09）
+
+本节即首次回灌：上述五项已按本项目规则适配并入本页与 `AGENTS.md`；上游基线 `b567dc3`
+无新增未应用差异（该提交即当前检出 HEAD）。来源与本项目固定于本仓提交本次文档变更的
+实际哈希；harness-model 本轮无需改动。
+
+当前真实任务窗口（Phase 2 Task 2 收口至 Task 4 slice A/B，`3a2ff6b` 之后）的反馈筛选：
+窗口内的新教训——零调用者钉住的函数新增生产调用者须在同一切片补 seams 边界、发布原语
+返回前须释放 held 句柄、`[AllowNull()][string]` 参数把 `$null` 强制为空串——均为本仓
+seams/journal 机制内部知识，不属于 harness-model 文档/示例范围，未形成上游修订；
+预算口径类观察已被既有反馈第 4 项覆盖，不重复。待处理项：Task 4 slice C/D 尚未完成，
+无 unified run 证据；其收尾窗口的反馈按下一次闭环筛选。
+
 ## 可复制的首次接手提示词
 
 ```text
@@ -90,7 +145,8 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
 等我给出具体工作项后，在授权范围内连续完成实现、必要验证、复核和小步提交，保留无关改动。
 沿用我的模型与主会话选择，遵守产品权限及现有独立审查要求。不要因本次接手启动后续阶段、
 重启已完成阶段、解除 production interlock、部署 live skills 或修改全局配置。
-收尾复用现有状态记录，记录实际验证与限制；无法核实的数据写 unknown，不收集原始会话。
+收尾复用现有状态记录，按 docs/ZCODE.md 的任务收尾闭环筛选反馈并按版本回灌；记录实际
+验证与限制，无法核实的数据写 unknown，不收集原始会话。
 ```
 
 需要直接开始真实工作时，将提示词中的“本次工作项”替换为具体目标和验收条件；无需再增加

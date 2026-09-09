@@ -41,6 +41,16 @@ Project instructions for coding agents, including Codex and ZCode, working in th
   fees, human work time, or defect evidence stays `unknown` and does not block delivery. Never infer
   human effort from waiting time, commit raw conversations, or claim improvement from one sample.
 
+## 外部反馈闭环（harness-model）
+
+本项目是 `harness-model` ZCode 试点登记的反馈闭环成员。任务开始时显式读取本入口、
+`STATUS.md` 与 [docs/ZCODE.md](docs/ZCODE.md)；真实任务收尾（阶段提交边界即可）按
+`docs/ZCODE.md` 的任务收尾闭环执行：汇总本次窗口反馈，在 harness-model 改进通用方法并按
+其规则验证提交，再按版本回灌本项目并验证提交；无新反馈也无适用版本差异时不改文件、
+不制造空记录。方法来源、实际应用的上游版本与逐项适配记录在 `docs/ZCODE.md`。闭环只授权
+规则入口、接入文档与既有收尾记录的修改；不含源码、live 配置、部署、推送、合并、凭据导出
+或后台采集，也不放松任何原有门禁与审核要求。
+
 ## Scope trigger
 
 Apply the full skill-management workflow below only when the task involves any of:
