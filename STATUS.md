@@ -2820,10 +2820,51 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
   commits REST endpoint, and `upload-pack: not our ref` from a no-write direct-fetch dry run; local
   HEAD and refs remained unchanged. The external privacy follow-up is closed.
 
+## Task 5 progress (2026-09-10): host wiring, legacy removal, claims contract
+
+Phase 2 Task 5 slices 1-3 landed across seven commits. Slice 1 composed the public
+receipt-backed host (`Invoke-SealedLiveTransactionHost`, 84d382c): the existing-only lock order
+with under-lock authority and live-rows revalidation, receipt-backed journal header, managed
+backup receipt, and the mutation engine; the bootstrap snapshot now tolerates the legal dynamic
+authority child under HomesRoot (64-hex key directory holding only root-claims.json or
+current-env.json) and GUID-named receipt/transaction directories under BackupRoot and
+LiveTransactionsRoot, everything else still fails closed. Slice 2 wired the schema 3 apply tail
+onto that host for both initial and retirement (ec8f478): full home-authority context resolution
+from the injected sandbox home, per-platform capability probes against same-volume staging roots,
+per-platform sealed-hash action bindings, and a claims contract that binds `RootClaimsHash` to the
+exact bytes of the complete proposed root-claims document (schema, semantics validator, and
+producer updated together). Slice 3 removed the legacy content-aware deploy route (b333673):
+`Sync-OneSkillDir-Transactional`, `Remove-OneSkillDir`, the overwrite-style sync journal,
+`Restore-CompletedManagedSkills`, the whole-root backup parsing, the `-HomeRoot`/`-BackupRoot`
+selector surface, and the extracted task5 regression helper (-998 lines net).
+
+Architectural decisions recorded here: sync never bootstraps the authority prefix (activation
+does; sync requires COMPLETE and otherwise fails `live-plan-authority-missing`); canonical setup
+requires existing private roots, which is why activation owns both; initial plans are exempt from
+apply-time recomputation because the control base legitimately transitions MISSING to EXISTS
+between planning and apply, so initial staleness is guarded by materialization integrity plus the
+host's under-lock revalidation while retirement keeps the plan-hash comparison;
+`activate-harness-env` Gate 4 is a fail-closed stub (`activation-deploy-not-wired`) and
+task-skills attestations now read the candidate overlay directly instead of the removed plan
+report text; the Reasonix override retirement scenario now asserts the claims-binding rejection,
+with a claimed custom root to be covered by a dedicated sandbox in Step 5.
+
+Verification (canonical `pwsh -NoProfile -File` runs): sync.tests (initial and retirement full
+chains, re-apply fail-closed, manifest negatives, Reasonix override rejection), live-plan.tests
+(111 assertions), harness-env.tests (109), task-skills.tests (22), automation-safety.tests,
+live-recovery.tests, backup-receipt.tests, canonical-production-seams.tests (56, after baseline
+re-pins f9a2611 and the reflection inventory in the slice 3 commit), parse (166 files), secret
+scan, and `git diff --check`. The full unified run for the Task 5 closeout is pending. Known
+deferrals recorded: public `-SkipBuild`/`-SkipSecretScan` rejection under `-Apply` and in-process
+fake build/scan adapters land with the Phase 4 public-surface work; the sandbox layout now
+derives backup/control under the injected home's AppData\Local\ai-agent-dotfiles path, mirroring
+the production home-authority derivation.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 25 of 52 steps remaining. Tasks 1-4 are complete; Tasks 5-9 have not started.
-The implementation order and remaining scope are:
+Phase 2 has 21 of 52 steps remaining. Tasks 1-4 are complete; Task 5 has Steps 5 and its full
+validation closeout remaining; Tasks 6-9 have not started. The implementation order and remaining
+scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -2831,7 +2872,7 @@ The implementation order and remaining scope are:
 | Task 2 | 0/7 | Complete |
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
-| Task 5 | 6/6 | Common transaction host for normal sync and explicit retirement |
+| Task 5 | 2/6 | Common transaction host for normal sync and explicit retirement (Steps 1-4 done; Step 5 three-platform parity closeout, Step 6 standing posture held) |
 | Task 6 | 5/5 | Read-only recovery status, reviewed recovery transitions, failpoints, and restart behavior |
 | Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
@@ -2843,12 +2884,15 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 4 is complete (7/7; Phase 2 27/52) as of 2026-09-09. Continue with Phase 2 Task 5
-   (migrate normal sync and retirement to the common host), followed by Tasks 6-9 in strict
-   sequence. The state machines delivered here stay unconnected to the public CLI until Task 5
-   wires sync into the global lock order; the retired standalone backup's sandbox-internal legacy
-   bridge and the extracted content-aware regression are Task 5 removals. Production Apply remains
-   interlocked throughout.
+1. Phase 2 Task 5 is 4/6 (Phase 2 31/52) as of 2026-09-10. Steps 1-4 are done: the schema 3
+   sync route runs initial and retirement through the receipt-backed host behind the global lock
+   order, the legacy content-aware deploy route (per-skill swap/journal, whole-root backup
+   parsing, manual rollback) and its -HomeRoot/-BackupRoot selectors are removed, activate
+   Gate 4 is a fail-closed stub (activation-deploy-not-wired) until Phase 3 rebuilds activation
+   on the receipt-backed host, and task-skills attestations read the candidate overlay directly.
+   Remaining: Step 5 three-platform parity closeout (Codex .agents fallback and a claimed custom
+   Reasonix root in a dedicated sandbox) and the full-validation closeout (unified run + docs).
+   Production Apply remains interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
