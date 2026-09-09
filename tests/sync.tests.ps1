@@ -12,8 +12,10 @@ $syncScript = Join-Path $RepoRoot 'scripts/sync.ps1'
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-sync-tests-$([Guid]::NewGuid().ToString('N'))"
 $v3Repo = Join-Path $work 'v3-repo'
 $fakeHome = Join-Path $work 'home'
-$fakeBackups = Join-Path $work 'backups'
-$controlBase = Join-Path $work 'control'
+# The sandbox host derives the backup/control locators from the injected home
+# exactly like the production home-authority layout.
+$fakeBackups = Join-Path $fakeHome 'AppData\Local\ai-agent-dotfiles\backups'
+$controlBase = Join-Path $fakeHome 'AppData\Local\ai-agent-dotfiles\control'
 $plansRoot = Join-Path $work 'plans'
 . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')

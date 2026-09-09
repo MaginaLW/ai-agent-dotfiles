@@ -34,8 +34,11 @@ try {
     $env:AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_PATH = $capability.Path
     $env:AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_TOKEN = $capability.Token
     $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT = (Join-Path $capability.Root 'home')
-    $env:AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT = (Join-Path $capability.Root 'backups')
-    $env:AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE = (Join-Path $capability.Root 'control')
+    # The injected backup/control locators mirror the derived home-authority
+    # layout under the injected home so that Resolve-HomeAuthorityContextFromIdentity
+    # lands exactly on them (host rejects context/locator mismatch).
+    $env:AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT = (Join-Path $capability.Root 'home\AppData\Local\ai-agent-dotfiles\backups')
+    $env:AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE = (Join-Path $capability.Root 'home\AppData\Local\ai-agent-dotfiles\control')
     & pwsh -NoProfile -File $scriptFull @arguments
     $operationExitCode = $LASTEXITCODE
 }
