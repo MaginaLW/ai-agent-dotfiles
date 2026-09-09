@@ -1398,7 +1398,20 @@ try {
     $claimsOnly = New-TestRegistryFixture -Parent $workRoot -Name 'claims-only'
     $claimsOnlyDocument = New-TestRootClaims -Context $claimsOnly.Context
     $null = Add-TestAuthorityArtifacts -Context $claimsOnly.Context -Claims $claimsOnlyDocument
-    Assert-ThrowsPattern { Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $claimsOnly.Context | Out-Null } 'home-authority-bootstrap-manual-recovery-required:.*unexpected children' 'pristine bootstrap validator still rejects a legal dynamic authority child'
+    $claimsOnlyStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $claimsOnly.Context
+    Assert-TestCondition ([string]$claimsOnlyStatus.Status -ceq 'COMPLETE') 'completion status tolerates the legal dynamic authority child (64-hex key with whitelisted files)'
+    $driftedDir = Join-Path (Join-Path $claimsOnly.Context.ControlBase 'homes') (('c' * 63) + 'x')
+    try {
+        Assert-ThrowsPattern {
+            [IO.Directory]::CreateDirectory($driftedDir) | Out-Null
+            [IO.File]::WriteAllText((Join-Path $driftedDir 'unexpected.json'), 'drift', [System.Text.UTF8Encoding]::new($false))
+            Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $claimsOnly.Context | Out-Null
+        } 'home-authority-bootstrap-manual-recovery-required:.*unexpected children' 'a non-hex key directory under HomesRoot still fails closed'
+    }
+    finally {
+        if (Test-Path -LiteralPath (Join-Path $driftedDir 'unexpected.json')) { Remove-Item -LiteralPath (Join-Path $driftedDir 'unexpected.json') -Force }
+        if (Test-Path -LiteralPath $driftedDir) { Remove-Item -LiteralPath $driftedDir -Force }
+    }
     $claimsOnlyView = Assert-TestRegistryReadIsZeroWrite -Fixture $claimsOnly -Message 'claims-only registry read is zero-write on the fake private root' -Assertions {
         param($view)
         Assert-TestCondition (@($view.Authorities).Count -eq 1 -and [string]$view.Authorities[0].StateStatus -ceq 'MISSING') 'claims-only authority state is MISSING'

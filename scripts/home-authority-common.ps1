@@ -762,6 +762,33 @@ function Get-SealedHomeAuthorityBootstrapSnapshot {
         }
         $allowedExtra = [string[]]@()
         if ([string]$definition.Name -ceq 'ControlBase') { $allowedExtra = @('route-cleanup-recovery') }
+        # Authority-aware tolerance: after the first authority install, the
+        # HomesRoot holds one 64-hex key directory per HomeAuthority (created
+        # by the claims flow, never by the bootstrap prefix). Such children are
+        # tolerated only when each contains exactly the whitelisted authority
+        # files; anything else stays unexpected and fails closed.
+        if ([string]$definition.Name -ceq 'HomesRoot') {
+            foreach ($childName in @($state.ImmediateChildren)) {
+                if ($childName -cnotmatch '^[0-9a-f]{64}$') { continue }
+                $childPath = [IO.Path]::GetFullPath((Join-Path ([string]$definition.Path) ([string]$childName)))
+                $childInfo = [AiAgentDotfiles.NoFollowFile]::Inspect($childPath)
+                if (-not [bool]$childInfo.IsDirectory -or [bool]$childInfo.IsReparsePoint) {
+                    throw "home-authority-bootstrap-manual-recovery-required: unexpected children under $($definition.Name)"
+                }
+                $authorityChildren = @([System.IO.Directory]::GetFileSystemEntries($childPath) | ForEach-Object { [System.IO.Path]::GetFileName($_) } | Sort-Object -CaseSensitive)
+                $allowedAuthorityFiles = @('root-claims.json', 'current-env.json')
+                foreach ($authorityChild in $authorityChildren) {
+                    if ([string]$authorityChild -cnotin $allowedAuthorityFiles) {
+                        throw "home-authority-bootstrap-manual-recovery-required: unexpected children under $($definition.Name)"
+                    }
+                    $entryInfo = [AiAgentDotfiles.NoFollowFile]::Inspect((Join-Path $childPath ([string]$authorityChild)))
+                    if ([bool]$entryInfo.IsReparsePoint -or [bool]$entryInfo.IsDirectory) {
+                        throw "home-authority-bootstrap-manual-recovery-required: unexpected children under $($definition.Name)"
+                    }
+                }
+                $allowedExtra += @([string]$childName)
+            }
+        }
         $actualOrdered = @($state.ImmediateChildren | Sort-Object -CaseSensitive)
         $expectedOrdered = @($expectedChildren | Sort-Object -CaseSensitive)
         $actualRequired = @($state.ImmediateChildren | Where-Object { $_ -cnotin $allowedExtra } | Sort-Object -CaseSensitive)

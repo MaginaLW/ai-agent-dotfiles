@@ -1079,6 +1079,448 @@ try {
         } 'manual-recovery-required' "re-running the state-only engine after $($window.Checkpoint) kill fails closed"
     }
 
+    Write-Host '[live transaction host]'
+    . (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
+    . (Join-Path $RepoRoot 'tests/helpers/home-authority-test-host.ps1')
+
+    function Write-HostCreateNewFile {
+        param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [byte[]] $Bytes)
+        $parent = Split-Path -Parent $Path
+        if (-not [string]::IsNullOrWhiteSpace($parent)) {
+            New-Item -ItemType Directory -Force -Path $parent | Out-Null
+        }
+        $stream = [System.IO.File]::Open([System.IO.Path]::GetFullPath($Path), [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+        try {
+            $stream.Write($Bytes, 0, $Bytes.Length)
+            $stream.Flush($true)
+        }
+        finally { $stream.Dispose() }
+    }
+
+    function Write-HostSemanticDocument {
+        param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+        $bytes = [byte[]] (ConvertTo-SemanticJsonBytes -InputObject $Document)
+        Write-HostCreateNewFile -Path $Path -Bytes $bytes
+        return $bytes
+    }
+
+    function Set-HostDirectoryCurrentUserOnly {
+        param([Parameter(Mandatory)] [string] $Path)
+        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $security = [Security.AccessControl.DirectorySecurity]::new()
+        $security.SetOwner($sid)
+        $security.SetAccessRuleProtection($true, $false)
+        $inheritance = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+        $rule = [Security.AccessControl.FileSystemAccessRule]::new($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+        $security.AddAccessRule($rule)
+        [System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.DirectoryInfo]::new([System.IO.Path]::GetFullPath($Path)), $security)
+    }
+
+    function Get-HostLiveRootPath {
+        param($Context, [Parameter(Mandatory)] [string] $Platform)
+        foreach ($liveTarget in @($Context.LiveTargets)) {
+            if ([string] $liveTarget.Platform -ceq $Platform) {
+                return [string] $liveTarget.TargetContext.RequestedPath
+            }
+        }
+        throw "host fixture missing live root for $Platform"
+    }
+
+    function New-HostTargetContextIntent {
+        param($Context)
+        $rows = [System.Collections.Generic.List[object]]::new()
+        foreach ($liveTarget in @($Context.LiveTargets)) {
+            $path = [string] $liveTarget.TargetContext.RequestedPath
+            $meta = Get-TargetMetadataContext -Path $path
+            $exists = [string] $meta.TargetStatus -ceq 'EXISTS'
+            $identity = $null
+            if ($exists) { $identity = [string] $meta.Ancestors[-1].Identity }
+            $rows.Add([ordered]@{
+                Platform = [string] $liveTarget.Platform
+                LocationKey = [string] $meta.LocationKey
+                RequestedPath = [string] $meta.RequestedPath
+                InitialState = $(if ($exists) { 'EXISTS' } else { 'ABSENT' })
+                VolumeId = [string] $meta.VolumeId
+                DeepestExistingParentPath = [string] $meta.DeepestExistingParentPath
+                DeepestExistingParentIdentity = [string] $meta.DeepestExistingParentIdentity
+                MissingRemainder = @($meta.MissingRemainder)
+                InitialDirectoryIdentity = $identity
+                ExpectedPostState = 'EXISTS'
+            })
+        }
+        return [ordered]@{
+            HomeAuthorityKey = [string] $Context.HomeAuthorityKey
+            Rows = $rows.ToArray()
+        }
+    }
+
+    function New-HostPlatformSlot {
+        param(
+            [Parameter(Mandatory)] [string] $Platform,
+            [Parameter(Mandatory)] [string] $SourceRoot,
+            [Parameter(Mandatory)] [string] $LiveRoot
+        )
+        $sourceMeta = Get-TargetMetadataContext -Path $SourceRoot
+        $liveMeta = Get-TargetMetadataContext -Path $LiveRoot
+        $sourceExists = [string] $sourceMeta.TargetStatus -ceq 'EXISTS'
+        $liveExists = [string] $liveMeta.TargetStatus -ceq 'EXISTS'
+        return [ordered]@{
+            Platform = $Platform
+            SourceRoot = [System.IO.Path]::GetFullPath($SourceRoot)
+            LiveRoot = [System.IO.Path]::GetFullPath($LiveRoot)
+            SourceRootExists = $sourceExists
+            LiveRootExists = $liveExists
+            SourcePreIdentity = [ordered]@{
+                TargetStatus = [string] $sourceMeta.TargetStatus
+                LocationKey = [string] $sourceMeta.LocationKey
+                VolumeId = [string] $sourceMeta.VolumeId
+                DirectoryIdentity = $(if ($sourceExists) { [string] $sourceMeta.Ancestors[-1].Identity } else { $null })
+            }
+            LivePreIdentity = [ordered]@{
+                TargetStatus = [string] $liveMeta.TargetStatus
+                LocationKey = [string] $liveMeta.LocationKey
+                VolumeId = [string] $liveMeta.VolumeId
+                DirectoryIdentity = $(if ($liveExists) { [string] $liveMeta.Ancestors[-1].Identity } else { $null })
+            }
+            ManifestHash = 'missing'
+            SourceTreeHash = $(if ($sourceExists) { [string] (Get-SafeTreeSnapshot -Root $SourceRoot).TreeHash } else { $null })
+            LiveTreeHash = $(if ($liveExists) { [string] (Get-SafeTreeSnapshot -Root $LiveRoot).TreeHash } else { $null })
+            ManagedNames = @()
+        }
+    }
+
+    function New-HostAuthorityIntent {
+        param($Context, [Parameter(Mandatory)] [string] $ClaimsHash, [Parameter(Mandatory)] [string] $OperationKind)
+        return [ordered]@{
+            SchemaVersion = 3
+            ArtifactKind = 'current-env-state'
+            HomeAuthorityKey = [string] $Context.HomeAuthorityKey
+            AuthorityGeneration = 1
+            RootClaimsHash = $ClaimsHash
+            SelectionKind = 'environment'
+            EnvironmentName = 'work'
+            EnvironmentLockHash = ('6' * 64)
+            TaskOverlayHash = ('7' * 64)
+            TaskOverlaySkills = @(
+                [ordered]@{ Platform = 'Claude'; Skills = @() },
+                [ordered]@{ Platform = 'Codex'; Skills = @() },
+                [ordered]@{ Platform = 'Reasonix'; Skills = @() }
+            )
+            ManifestHashes = @(
+                [ordered]@{ Platform = 'Claude'; Hash = ('b' * 64) },
+                [ordered]@{ Platform = 'Codex'; Hash = ('c' * 64) },
+                [ordered]@{ Platform = 'Reasonix'; Hash = ('d' * 64) }
+            )
+            FinalManagedHashes = @(
+                [ordered]@{ Platform = 'Claude'; Hash = ('1' * 64) },
+                [ordered]@{ Platform = 'Codex'; Hash = ('2' * 64) },
+                [ordered]@{ Platform = 'Reasonix'; Hash = ('3' * 64) }
+            )
+            ControllerRepoFingerprint = ('5' * 64)
+            ApprovedToolchainHash = ('4' * 64)
+            LastOperationKind = $OperationKind
+        }
+    }
+
+    function New-HostPlanDocument {
+        param(
+            [Parameter(Mandatory)] $Fixture,
+            [Parameter(Mandatory)] [string] $OperationKind,
+            [Parameter(Mandatory)] [string] $ClaimsHash,
+            [AllowEmptyCollection()] [object[]] $Actions = @()
+        )
+        $context = $Fixture.Context
+        $controlMeta = Get-TargetMetadataContext -Path ([string] $context.ControlBase)
+        $payload = [ordered]@{
+            OperationKind = $OperationKind
+            Generator = 'scripts/sync.ps1'
+            RepositoryCommit = ('1' * 40)
+            RepoRoot = [string] $Fixture.Canonical.RepoRoot
+            ApprovedToolchainHash = ('4' * 64)
+            ControllerRepoFingerprint = ('5' * 64)
+            ControlBaseIntent = [ordered]@{
+                TargetStatus = 'EXISTS'
+                RequestedPath = [string] $context.ControlBase
+                LocationKey = [string] $controlMeta.LocationKey
+                VolumeId = [string] $controlMeta.VolumeId
+                DirectoryIdentity = [string] $controlMeta.Ancestors[-1].Identity
+                FilesystemCapability = [ordered]@{ Status = 'UNPROBED' }
+            }
+            Platforms = @(
+                (New-HostPlatformSlot -Platform 'Claude' -SourceRoot ([string] $Fixture.Source['Claude']) -LiveRoot (Get-HostLiveRootPath -Context $context -Platform 'Claude')),
+                (New-HostPlatformSlot -Platform 'Codex' -SourceRoot ([string] $Fixture.Source['Codex']) -LiveRoot (Get-HostLiveRootPath -Context $context -Platform 'Codex')),
+                (New-HostPlatformSlot -Platform 'Reasonix' -SourceRoot ([string] $Fixture.Source['Reasonix']) -LiveRoot (Get-HostLiveRootPath -Context $context -Platform 'Reasonix'))
+            )
+            OrderedActions = @($Actions)
+            UnknownMarkers = @()
+            SystemMarker = [ordered]@{ Platform = 'Codex'; Name = '.system'; Present = $false; Identity = $null; Hash = $null }
+            TargetContextIntent = (New-HostTargetContextIntent -Context $context)
+            AuthorityStateIntent = (New-HostAuthorityIntent -Context $context -ClaimsHash $ClaimsHash -OperationKind $OperationKind)
+        }
+        if ($OperationKind -ceq 'initial') {
+            $payload['EnvironmentName'] = 'full'
+            $payload['RootClaimsHash'] = $ClaimsHash
+        }
+        if ($OperationKind -ceq 'retirement') {
+            $payload['RetirementManifest'] = [ordered]@{
+                Path = (Join-Path ([string] $Fixture.Root) 'retire.json')
+                Hash = ('e' * 64)
+            }
+        }
+        $document = [ordered]@{
+            SchemaVersion = 3
+            ArtifactKind = 'sync-plan'
+            Metadata = [ordered]@{ GeneratedAtUtc = '2026-09-09T00:00:00Z' }
+            PlanPayload = $payload
+            PlanHash = ('0' * 64)
+            DocumentHash = ('0' * 64)
+        }
+        $document['PlanHash'] = Get-PlanHash -PlanPayload $payload
+        $document['DocumentHash'] = Get-DocumentHash -Document $document
+        return $document
+    }
+
+    function New-HostRootClaims {
+        param($Context)
+        $rows = [System.Collections.Generic.List[object]]::new()
+        foreach ($liveTarget in @($Context.LiveTargets)) {
+            $path = [string] $liveTarget.TargetContext.RequestedPath
+            $meta = Get-TargetMetadataContext -Path $path
+            $exists = [string] $meta.TargetStatus -ceq 'EXISTS'
+            $identity = $null
+            if ($exists) { $identity = [string] $meta.Ancestors[-1].Identity }
+            $rows.Add([ordered]@{
+                Platform = [string] $liveTarget.Platform
+                LocationKey = [string] $meta.LocationKey
+                RequestedPath = [string] $meta.RequestedPath
+                InitialState = $(if ($exists) { 'EXISTS' } else { 'ABSENT' })
+                VolumeId = [string] $meta.VolumeId
+                DeepestExistingParentPath = [string] $meta.DeepestExistingParentPath
+                DeepestExistingParentIdentity = [string] $meta.DeepestExistingParentIdentity
+                MissingRemainder = @($meta.MissingRemainder)
+                InitialDirectoryIdentity = $identity
+                ExpectedPostState = 'EXISTS'
+            })
+        }
+        return [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'root-claims'
+            HomeAuthorityKey = [string] $Context.HomeAuthorityKey
+            TokenSid = [string] $Context.TokenSid
+            ResolverVersion = 'windows-token-sid-known-folder-v1'
+            HomeRootLocationKey = [string] $Context.HomeRootLocationKey
+            LiveRootClaims = $rows.ToArray()
+        }
+    }
+
+    function New-HostPreviousStateDocument {
+        param(
+            [Parameter(Mandatory)] $Context,
+            [Parameter(Mandatory)] [string] $ClaimsHash,
+            [Parameter(Mandatory)] [System.Collections.IDictionary] $Capability
+        )
+        $identities = [System.Collections.Generic.List[object]]::new()
+        foreach ($liveTarget in @($Context.LiveTargets)) {
+            $path = [string] $liveTarget.TargetContext.RequestedPath
+            $meta = Get-TargetMetadataContext -Path $path
+            if ([string] $meta.TargetStatus -cne 'EXISTS') {
+                throw "host previous-state live root missing for $($liveTarget.Platform)"
+            }
+            $identities.Add([ordered]@{
+                Platform = [string] $liveTarget.Platform
+                LocationKey = [string] $meta.LocationKey
+                ResolvedPath = [string] $meta.RequestedPath
+                VolumeId = [string] $meta.VolumeId
+                DirectoryIdentity = [string] $meta.Ancestors[-1].Identity
+                FilesystemCapabilityHash = [string] $Capability[[string] $liveTarget.Platform]
+            })
+        }
+        $identityRows = @($identities)
+        $state = [ordered]@{
+            SchemaVersion = 3
+            ArtifactKind = 'current-env-state'
+            HomeAuthorityKey = [string] $Context.HomeAuthorityKey
+            AuthorityGeneration = 1
+            RootClaimsHash = $ClaimsHash
+            SelectionKind = 'environment'
+            EnvironmentName = 'full'
+            EnvironmentLockHash = ('6' * 64)
+            TaskOverlayHash = ('7' * 64)
+            TaskOverlaySkills = @(
+                [ordered]@{ Platform = 'Claude'; Skills = @() },
+                [ordered]@{ Platform = 'Codex'; Skills = @() },
+                [ordered]@{ Platform = 'Reasonix'; Skills = @() }
+            )
+            ManifestHashes = @(
+                [ordered]@{ Platform = 'Claude'; Hash = ('b' * 64) },
+                [ordered]@{ Platform = 'Codex'; Hash = ('c' * 64) },
+                [ordered]@{ Platform = 'Reasonix'; Hash = ('d' * 64) }
+            )
+            FinalManagedHashes = @(
+                [ordered]@{ Platform = 'Claude'; Hash = ('1' * 64) },
+                [ordered]@{ Platform = 'Codex'; Hash = ('2' * 64) },
+                [ordered]@{ Platform = 'Reasonix'; Hash = ('3' * 64) }
+            )
+            ControllerRepoFingerprint = ('5' * 64)
+            ApprovedToolchainHash = ('4' * 64)
+            PlanHash = ('1' * 64)
+            DocumentHash = ('2' * 64)
+            LastOperationKind = 'initial'
+            ReceiptId = [Guid]::NewGuid().ToString()
+            ReceiptHash = ('e' * 64)
+            JournalId = [Guid]::NewGuid().ToString()
+            PreStatePhaseHash = ('0' * 64)
+            FinalResolvedIdentities = $identityRows
+            FinalTargetContextHash = (Get-SemanticJsonHash -InputObject @($identityRows))
+        }
+        Test-CurrentEnvStateSemantics -Document $state
+        return $state
+    }
+
+    function Invoke-HostTransaction {
+        param($Fixture, [Parameter(Mandatory)] [System.Collections.IDictionary] $Plan)
+        return Invoke-SealedLiveTransactionHost -Plan $Plan -RepoRoot ([string] $Fixture.Canonical.RepoRoot) -ControlBase ([string] $Fixture.Context.ControlBase) -BackupRoot ([string] $Fixture.Context.BackupRoot) -StagingRootsByPlatform $Fixture.Staging -SourceRootsByPlatform $Fixture.Source -FinalCapabilityHashesByPlatform $Fixture.Capability -AuthorityContext $Fixture.Context -WorkingTreeRoots $Fixture.WorkingTreeRoots -ToolchainRoot $RepoRoot
+    }
+
+    $hostRoot = Join-Path $work 'host'
+    New-Item -ItemType Directory -Force -Path $hostRoot | Out-Null
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $profile = Join-Path $hostRoot 'profile'
+    $roaming = Join-Path $hostRoot 'roaming'
+    $local = Join-Path $hostRoot 'local'
+    foreach ($dir in @($profile, $roaming, $local)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $hostContext = Resolve-SealedHomeAuthorityTestContext -TokenSid $sid -ProfileRoot $profile -RoamingAppDataRoot $roaming -LocalAppDataRoot $local
+    $hostIntent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $hostContext -FilesystemCapabilityHash ('a' * 64)
+    $hostBootstrapLock = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $hostContext -Intent $hostIntent
+    try { Assert ($null -ne $hostBootstrapLock) 'host sandbox bootstrap returns the held global lock' }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $hostBootstrapLock }
+
+    $canonicalRepo = Join-Path $hostRoot 'repo'
+    $canonicalProbe = Join-Path $hostRoot 'probe'
+    $canonicalRecoveryParent = Join-Path $hostRoot 'recovery-parent'
+    foreach ($dir in @($canonicalRepo, $canonicalProbe, $canonicalRecoveryParent)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Set-HostDirectoryCurrentUserOnly -Path $canonicalRecoveryParent
+    [System.IO.File]::WriteAllText((Join-Path $canonicalRepo 'fixture.txt'), 'host canonical fixture', [System.Text.UTF8Encoding]::new($false))
+    & git init --quiet $canonicalRepo
+    if ($LASTEXITCODE -ne 0) { throw 'host canonical fixture git init failed' }
+    & git -C $canonicalRepo add fixture.txt
+    if ($LASTEXITCODE -ne 0) { throw 'host canonical fixture git add failed' }
+    & git -C $canonicalRepo -c 'user.name=Host Fixture' -c 'user.email=host-fixture@example.invalid' commit --quiet -m fixture
+    if ($LASTEXITCODE -ne 0) { throw 'host canonical fixture git commit failed' }
+    $canonicalRecovery = Join-Path $canonicalRecoveryParent 'recovery'
+    $canonicalPayload = New-CanonicalSetupPlanPayload -RepoRoot $canonicalRepo -CanonicalRecoveryRoot $canonicalRecovery -ControlBase ([string] $hostContext.ControlBase) -BackupRoot ([string] $hostContext.BackupRoot) -ProbeRoot $canonicalProbe -ToolchainRoot $RepoRoot
+    New-Item -ItemType Directory -Force -Path $canonicalRecovery | Out-Null
+    Set-HostDirectoryCurrentUserOnly -Path $canonicalRecovery
+    $canonicalGit = Get-CanonicalGitContext -RepoRoot $canonicalRepo
+    $canonicalPaths = Get-CanonicalTransactionContractPaths -GitContext $canonicalGit
+    $canonicalState = New-CanonicalFinalSetupState -PlanPayload $canonicalPayload -RepoRoot $canonicalRepo
+    $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $canonicalPaths.LockPath) -AllowCreate
+    try { $null = Write-HostSemanticDocument -Path ([string] $canonicalPaths.SetupStatePath) -Document $canonicalState }
+    finally { Exit-CanonicalRepoLock -LockHandle $canonicalLock }
+
+    $sourceClaude = Join-Path $hostRoot 'source/claude/skills'
+    $sourceCodex = Join-Path $hostRoot 'source/codex/skills'
+    $sourceReasonix = Join-Path $hostRoot 'source/reasonix/skills'
+    $stagingClaude = Join-Path $hostRoot 'staging/claude'
+    $stagingCodex = Join-Path $hostRoot 'staging/codex'
+    $stagingReasonix = Join-Path $hostRoot 'staging/reasonix'
+    foreach ($dir in @($sourceClaude, $sourceCodex, $sourceReasonix, $stagingClaude, $stagingCodex, $stagingReasonix)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    $hostFixture = [pscustomobject][ordered]@{
+        Root = $hostRoot
+        Context = $hostContext
+        Canonical = [pscustomobject][ordered]@{
+            RepoRoot = $canonicalRepo
+            RepoId = [string] $canonicalPayload.ExpectedRootClaim.RepoId
+            LockPath = [string] $canonicalPaths.LockPath
+        }
+        Staging = [ordered]@{ Claude = $stagingClaude; Codex = $stagingCodex; Reasonix = $stagingReasonix }
+        Source = [ordered]@{ Claude = $sourceClaude; Codex = $sourceCodex; Reasonix = $sourceReasonix }
+        Capability = [ordered]@{ Claude = ('9' * 64); Codex = ('8' * 64); Reasonix = ('7' * 64) }
+        WorkingTreeRoots = [ordered]@{ FixtureRepo = $canonicalRepo; ToolchainRoot = $RepoRoot }
+    }
+
+    $claudeLive = Get-HostLiveRootPath -Context $hostContext -Platform 'Claude'
+    $codexLive = Get-HostLiveRootPath -Context $hostContext -Platform 'Codex'
+    $reasonixLive = Get-HostLiveRootPath -Context $hostContext -Platform 'Reasonix'
+    foreach ($dir in @($claudeLive, $codexLive, $reasonixLive)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    Write-TextFile -Path (Join-Path $claudeLive 'retired-skill/SKILL.md') -Content 'retire-me'
+    $initialPlan = New-HostPlanDocument -Fixture $hostFixture -OperationKind 'initial' -ClaimsHash ('c' * 64)
+    Assert-ThrowsToken { Invoke-HostTransaction -Fixture $hostFixture -Plan $initialPlan } 'live-transaction-not-pristine' 'initial host refuses a non-empty live root before any write'
+    Assert ((@(Get-ChildItem -LiteralPath ([string] $hostContext.LiveTransactionsRoot) -Force -ErrorAction SilentlyContinue)).Count -eq 0) 'initial not-pristine leaves the journal root empty'
+    Assert (-not (Test-Path -LiteralPath ([string] $hostContext.RootClaimsPath))) 'initial not-pristine does not create claims'
+
+    $retirementMissingPlan = New-HostPlanDocument -Fixture $hostFixture -OperationKind 'retirement' -ClaimsHash ('c' * 64)
+    Assert-ThrowsToken { Invoke-HostTransaction -Fixture $hostFixture -Plan $retirementMissingPlan } 'live-transaction-authority-required' 'retirement host refuses a missing claims file before any write'
+    Assert ((@(Get-ChildItem -LiteralPath ([string] $hostContext.LiveTransactionsRoot) -Force -ErrorAction SilentlyContinue)).Count -eq 0) 'retirement authority-required leaves the journal root empty'
+
+    $hostClaims = New-HostRootClaims -Context $hostContext
+    [System.IO.Directory]::CreateDirectory([string] $hostContext.AuthorityRoot) | Out-Null
+    $hostClaimsBytes = Write-HostSemanticDocument -Path ([string] $hostContext.RootClaimsPath) -Document $hostClaims
+    $hostClaimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($hostClaimsBytes)).ToLowerInvariant()
+    $hostPreviousState = New-HostPreviousStateDocument -Context $hostContext -ClaimsHash $hostClaimsHash -Capability $hostFixture.Capability
+    $null = Write-HostSemanticDocument -Path ([string] $hostContext.CurrentEnvStatePath) -Document $hostPreviousState
+    $retiredHash = (Get-SafeTreeSnapshot -Root (Join-Path $claudeLive 'retired-skill')).TreeHash
+    $retirementActions = @(
+        [ordered]@{
+            Order = 0
+            Platform = 'Claude'
+            Action = 'prune'
+            Name = 'retired-skill'
+            SourceHash = $null
+            LiveHash = $retiredHash
+            Authority = 'explicit-retirement'
+        }
+    )
+    $retirementPlan = New-HostPlanDocument -Fixture $hostFixture -OperationKind 'retirement' -ClaimsHash $hostClaimsHash -Actions $retirementActions
+
+    $journalBeforeBusy = @(Get-ChildItem -LiteralPath ([string] $hostContext.LiveTransactionsRoot) -Force -ErrorAction SilentlyContinue)
+    $heldForBusy = Enter-CanonicalRepoLock -LockPath ([string] $canonicalPaths.LockPath)
+    try {
+        Assert-ThrowsToken { Invoke-HostTransaction -Fixture $hostFixture -Plan $retirementPlan } 'operation-lock-busy' 'a second host loses the live lock with operation-lock-busy'
+        $journalAfterBusy = @(Get-ChildItem -LiteralPath ([string] $hostContext.LiveTransactionsRoot) -Force -ErrorAction SilentlyContinue)
+        Assert ($journalAfterBusy.Count -eq $journalBeforeBusy.Count) 'a lock-busy second host publishes no journal namespace'
+        Assert (Test-Path -LiteralPath (Join-Path $claudeLive 'retired-skill/SKILL.md')) 'a lock-busy second host does not mutate live targets'
+    }
+    finally { Exit-CanonicalRepoLock -LockHandle $heldForBusy }
+
+    $reacquired = Enter-CanonicalRepoLock -LockPath ([string] $canonicalPaths.LockPath)
+    try {
+        Assert ($null -ne $reacquired) 'the live lock can be acquired again after the holder releases'
+    }
+    finally { Exit-CanonicalRepoLock -LockHandle $reacquired }
+
+    $hostResult = Invoke-HostTransaction -Fixture $hostFixture -Plan $retirementPlan
+    Assert ([string] $hostResult.TransactionId -cmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') 'the host returns a UUIDv4 TransactionId'
+    Assert ([string] $hostResult.ReceiptId -cne [string] $hostResult.TransactionId) 'the host binds a distinct ReceiptId'
+    Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $hostResult.ReceiptPath)) -ceq 'COMPLETE') 'the host receipt slot is COMPLETE'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $claudeLive 'retired-skill'))) 'the retirement host prunes the live skill'
+    Assert (Test-Path -LiteralPath (Join-Path $stagingClaude 'swap/retired-skill/SKILL.md')) 'the pruned live copy is preserved in swap-old'
+    $hostChain = Get-SealedLiveJournalChain -TransactionDirectory ([string] $hostResult.JournalDir)
+    $hostPhases = @($hostChain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+    Assert (@($hostPhases | Where-Object { $_ -ceq 'RECEIPT_COMPLETE' }).Count -eq 1) 'the host journal contains RECEIPT_COMPLETE'
+    Assert (@($hostPhases | Where-Object { $_ -ceq 'NEW_INSTALLED' }).Count -eq 1) 'the host journal contains NEW_INSTALLED'
+    Assert (@($hostPhases | Where-Object { $_ -ceq 'STATE_PUBLISHED' }).Count -eq 1) 'the host journal contains STATE_PUBLISHED'
+    Assert (@($hostPhases | Where-Object { $_ -ceq 'POSTCONDITIONS_OK' }).Count -eq 1) 'the host journal contains POSTCONDITIONS_OK'
+    Assert (@($hostPhases | Where-Object { $_ -ceq 'COMPLETE' }).Count -eq 1) 'the host journal contains the terminal COMPLETE record'
+    Assert ($null -ne $hostChain.Result -and [string] $hostChain.Result.Outcome -ceq 'committed') 'the host publishes a committed result'
+    $null = Test-SealedLiveJournalChain -Header $hostChain.Header -Records $hostChain.Records -Result $hostChain.Result -ResultFileHash $hostChain.ResultFileHash
+    Assert $true 'the host journal chain validates end to end'
+    $installedHostStateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes([string] $hostContext.CurrentEnvStatePath))).ToLowerInvariant()
+    Assert ($installedHostStateHash -ceq [string] $hostResult.StateHash) 'the installed state hash matches the host result'
+    Assert ((Get-FileByteHash -Path ([string] $hostContext.RootClaimsPath)) -ceq $hostClaimsHash) 'retirement leaves the immutable claims bytes unchanged'
+    Assert ([string] $hostResult.PostconditionsHash -cne '') 'the host returns a PostconditionsHash'
+    Assert ([string] $hostResult.ResultHash -ceq [string] $hostChain.ResultFileHash) 'the host ResultHash matches the published result file'
+
+    $afterSuccess = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $hostContext
+    try {
+        Assert ($null -ne $afterSuccess) 'the host releases the live lock before returning'
+    }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $afterSuccess }
+
     Write-Host 'live recovery tests: PASS'
 }
 finally {

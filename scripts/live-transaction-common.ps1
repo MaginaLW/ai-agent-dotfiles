@@ -1509,3 +1509,477 @@ function Invoke-SealedLiveTransactionStateOnly {
         throw
     }
 }
+
+# ---------------------------------------------------------------------------
+# Public receipt-backed host (roadmap Task 5 slice 1: initial | retirement)
+# ---------------------------------------------------------------------------
+
+function Invoke-SealedLiveTransactionHost {
+    # Acquires the existing-only live route (canonical repo lock, bound
+    # namespace witness, then the global live lock), revalidates the
+    # initial/retirement authority guards under that lock, publishes a
+    # receipt-backed journal header, produces the managed backup receipt,
+    # and runs the receipt-backed mutation engine. Other OperationKind
+    # values fail closed; lock release is tail-to-head in finally.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Plan,
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $ControlBase,
+        [Parameter(Mandatory)] [string] $BackupRoot,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $StagingRootsByPlatform,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $SourceRootsByPlatform,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $FinalCapabilityHashesByPlatform,
+        [Parameter(Mandatory)] $AuthorityContext,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $WorkingTreeRoots,
+        [string] $ToolchainRoot
+    )
+
+    if (-not (Get-Command -Name 'Open-CanonicalHeldNamespaceWitness' -CommandType Function -ErrorAction SilentlyContinue) -or
+        -not (Get-Command -Name 'Enter-HomeAuthorityGlobalLiveLock' -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot 'root-claims-registry-common.ps1')
+    }
+    if (-not (Get-Command -Name 'Invoke-SealedManagedBackupReceipt' -CommandType Function -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
+    }
+
+    $mismatch = $script:LiveTransactionIntentMismatch
+    $authorityRequired = 'live-transaction-authority-required'
+    $authorityPresent = 'live-transaction-authority-present'
+    $notPristine = 'live-transaction-not-pristine'
+    $kindUnsupported = 'live-transaction-operation-kind-unsupported'
+    $claimsBinding = 'live-transaction-claims-binding-mismatch'
+    $planStale = 'reviewed-plan-stale'
+
+    function Convert-SealedLiveTransactionHostMap {
+        param($Value)
+        if ($Value -is [System.Collections.IDictionary]) { return $Value }
+        if ($null -eq $Value) { throw $mismatch }
+        $converted = [ordered]@{}
+        foreach ($property in @($Value.PSObject.Properties)) {
+            $converted[[string] $property.Name] = $property.Value
+        }
+        return $converted
+    }
+
+    function Convert-SealedLiveTransactionHostList {
+        param($Value)
+        $items = [System.Collections.Generic.List[object]]::new()
+        if ($null -eq $Value) { return ,$items }
+        if ($Value -is [string] -or $Value -is [System.Collections.IDictionary]) {
+            $items.Add($Value)
+            return ,$items
+        }
+        foreach ($item in $Value) { $items.Add($item) }
+        return ,$items
+    }
+
+    function Get-SealedLiveTransactionHostContextValue {
+        param($Context, [Parameter(Mandatory)] [string] $Name)
+        if ($Context -is [System.Collections.IDictionary]) {
+            if ($Context.Contains($Name)) { return $Context[$Name] }
+        }
+        else {
+            $property = $Context.PSObject.Properties[$Name]
+            if ($null -ne $property) { return $property.Value }
+        }
+        throw $mismatch
+    }
+
+    function Test-SealedLiveTransactionHostPathEqual {
+        param([Parameter(Mandatory)] [string] $Left, [Parameter(Mandatory)] [string] $Right)
+        return [System.IO.Path]::GetFullPath($Left).Equals([System.IO.Path]::GetFullPath($Right), [StringComparison]::OrdinalIgnoreCase)
+    }
+
+    function Get-SealedLiveTransactionHostFileHash {
+        param([Parameter(Mandatory)] [string] $Path)
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+        return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+    }
+
+    $planMap = Convert-SealedLiveTransactionHostMap -Value $Plan
+    if (-not (Test-LiveTransactionMapHasName -Map $planMap -Name 'PlanPayload') -or
+        -not (Test-LiveTransactionMapHasName -Map $planMap -Name 'PlanHash') -or
+        -not (Test-LiveTransactionMapHasName -Map $planMap -Name 'DocumentHash')) {
+        throw $mismatch
+    }
+    Assert-LiveTransactionHashSpelling -Value $planMap['PlanHash'] -Failure $mismatch
+    Assert-LiveTransactionHashSpelling -Value $planMap['DocumentHash'] -Failure $mismatch
+    $payload = Convert-SealedLiveTransactionHostMap -Value $planMap['PlanPayload']
+    if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'OperationKind')) { throw $mismatch }
+    $operationKind = [string] $payload['OperationKind']
+    if ($operationKind -cnotin @('initial', 'retirement')) { throw $kindUnsupported }
+
+    $intent = Convert-SealedLiveTransactionHostMap -Value $payload['AuthorityStateIntent']
+    $targetIntent = Convert-SealedLiveTransactionHostMap -Value $payload['TargetContextIntent']
+    if (-not (Test-LiveTransactionMapHasName -Map $targetIntent -Name 'HomeAuthorityKey') -or
+        -not (Test-LiveTransactionMapHasName -Map $targetIntent -Name 'Rows')) {
+        throw $mismatch
+    }
+    $homeAuthorityKey = [string] $targetIntent['HomeAuthorityKey']
+    if ($homeAuthorityKey -cnotmatch $script:LiveTransactionHashPattern) { throw $mismatch }
+    if ([string] $intent['HomeAuthorityKey'] -cne $homeAuthorityKey) { throw $mismatch }
+    if ([string] $intent['LastOperationKind'] -cne $operationKind) { throw $mismatch }
+
+    $rootClaimsHash = $null
+    if (Test-LiveTransactionMapHasName -Map $payload -Name 'RootClaimsHash') {
+        $rootClaimsHash = [string] $payload['RootClaimsHash']
+    }
+    elseif (Test-LiveTransactionMapHasName -Map $intent -Name 'RootClaimsHash') {
+        $rootClaimsHash = [string] $intent['RootClaimsHash']
+    }
+    if ($rootClaimsHash -cnotmatch $script:LiveTransactionHashPattern) { throw $mismatch }
+    if ((Test-LiveTransactionMapHasName -Map $intent -Name 'RootClaimsHash') -and
+        [string] $intent['RootClaimsHash'] -cne $rootClaimsHash) {
+        throw $mismatch
+    }
+
+    $resolvedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+    $resolvedControlBase = [System.IO.Path]::GetFullPath($ControlBase)
+    $resolvedBackupRoot = [System.IO.Path]::GetFullPath($BackupRoot)
+    $contextControlBase = [System.IO.Path]::GetFullPath([string] (Get-SealedLiveTransactionHostContextValue -Context $AuthorityContext -Name 'ControlBase'))
+    $contextBackupRoot = [System.IO.Path]::GetFullPath([string] (Get-SealedLiveTransactionHostContextValue -Context $AuthorityContext -Name 'BackupRoot'))
+    $contextAuthorityKey = [string] (Get-SealedLiveTransactionHostContextValue -Context $AuthorityContext -Name 'HomeAuthorityKey')
+    $liveTransactionsRoot = [System.IO.Path]::GetFullPath([string] (Get-SealedLiveTransactionHostContextValue -Context $AuthorityContext -Name 'LiveTransactionsRoot'))
+    if (-not (Test-SealedLiveTransactionHostPathEqual -Left $resolvedControlBase -Right $contextControlBase)) { throw $mismatch }
+    if (-not (Test-SealedLiveTransactionHostPathEqual -Left $resolvedBackupRoot -Right $contextBackupRoot)) { throw $mismatch }
+    if ($contextAuthorityKey -cne $homeAuthorityKey) { throw $mismatch }
+
+    $statePaths = Get-LiveTransactionStatePaths -ControlBase $resolvedControlBase -HomeAuthorityKey $homeAuthorityKey
+    $claimsPath = [string] $statePaths['ClaimsPath']
+    $statePath = [string] $statePaths['StatePath']
+    $contextClaimsPath = [System.IO.Path]::GetFullPath([string] (Get-SealedLiveTransactionHostContextValue -Context $AuthorityContext -Name 'RootClaimsPath'))
+    $contextStatePath = [System.IO.Path]::GetFullPath([string] (Get-SealedLiveTransactionHostContextValue -Context $AuthorityContext -Name 'CurrentEnvStatePath'))
+    if (-not (Test-SealedLiveTransactionHostPathEqual -Left $claimsPath -Right $contextClaimsPath)) { throw $mismatch }
+    if (-not (Test-SealedLiveTransactionHostPathEqual -Left $statePath -Right $contextStatePath)) { throw $mismatch }
+
+    $targetRows = Convert-SealedLiveTransactionHostList -Value $targetIntent['Rows']
+    if ($targetRows.Count -ne 3) { throw $mismatch }
+
+    function Get-SealedLiveTransactionHostAuthoritySnapshot {
+        $claimsExists = Test-Path -LiteralPath $claimsPath -PathType Leaf
+        $stateExists = Test-Path -LiteralPath $statePath -PathType Leaf
+        $claimsHashObserved = $null
+        $claimsDocument = $null
+        if ($claimsExists) {
+            $claimsHashObserved = Get-SealedLiveTransactionHostFileHash -Path $claimsPath
+            $claimsJson = [System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($claimsPath))
+            $claimsDocument = ConvertFrom-SemanticJson -Json $claimsJson
+        }
+        $stateHashObserved = $null
+        if ($stateExists) {
+            $stateHashObserved = Get-SealedLiveTransactionHostFileHash -Path $statePath
+        }
+        $liveRows = [System.Collections.Generic.List[object]]::new()
+        foreach ($row in $targetRows) {
+            $rowMap = Convert-SealedLiveTransactionHostMap -Value $row
+            $platform = [string] $rowMap['Platform']
+            $requestedPath = [string] $rowMap['RequestedPath']
+            $meta = Get-TargetMetadataContext -Path $requestedPath
+            $status = [string] $meta.TargetStatus
+            $identity = $null
+            $treeHash = $null
+            if ($status -ceq 'EXISTS') {
+                $identity = [string] $meta.Ancestors[-1].Identity
+                $treeHash = [string] (Get-SafeTreeSnapshot -Root $requestedPath).TreeHash
+            }
+            $liveRows.Add([ordered]@{
+                Platform = $platform
+                RequestedPath = [System.IO.Path]::GetFullPath($requestedPath)
+                Status = $status
+                Identity = $identity
+                TreeHash = $treeHash
+            })
+        }
+        $projection = [ordered]@{
+            ClaimsExists = $claimsExists
+            ClaimsHash = $claimsHashObserved
+            StateExists = $stateExists
+            StateHash = $stateHashObserved
+            LiveRows = @($liveRows)
+        }
+        return [ordered]@{
+            ClaimsExists = $claimsExists
+            ClaimsHash = $claimsHashObserved
+            ClaimsDocument = $claimsDocument
+            StateExists = $stateExists
+            StateHash = $stateHashObserved
+            LiveRows = @($liveRows)
+            Fingerprint = (Get-SemanticJsonHash -InputObject $projection)
+        }
+    }
+
+    function Assert-SealedLiveTransactionHostGuard {
+        param([Parameter(Mandatory)] [System.Collections.IDictionary] $Snapshot)
+        if ($operationKind -ceq 'initial') {
+            if ([bool] $Snapshot['ClaimsExists'] -or [bool] $Snapshot['StateExists']) { throw $authorityPresent }
+            foreach ($liveRow in @($Snapshot['LiveRows'])) {
+                if ([string] $liveRow['Status'] -cne 'MISSING') { throw $notPristine }
+            }
+            return
+        }
+
+        if (-not [bool] $Snapshot['ClaimsExists'] -or -not [bool] $Snapshot['StateExists']) { throw $authorityRequired }
+        if ([string] $Snapshot['ClaimsHash'] -cne $rootClaimsHash) { throw $script:LiveTransactionHashMismatch }
+        $claimsDocument = Convert-SealedLiveTransactionHostMap -Value $Snapshot['ClaimsDocument']
+        if ([string] $claimsDocument['HomeAuthorityKey'] -cne $homeAuthorityKey) { throw $claimsBinding }
+        $tokenSid = [string] (Get-SealedLiveTransactionHostContextValue -Context $AuthorityContext -Name 'TokenSid')
+        if ((Test-LiveTransactionMapHasName -Map $claimsDocument -Name 'TokenSid') -and
+            [string] $claimsDocument['TokenSid'] -cne $tokenSid) {
+            throw $claimsBinding
+        }
+        $claimRows = Convert-SealedLiveTransactionHostList -Value $claimsDocument['LiveRootClaims']
+        if ($claimRows.Count -ne 3) { throw $claimsBinding }
+        $claimsByPlatform = [ordered]@{}
+        foreach ($claimRow in $claimRows) {
+            $claimMap = Convert-SealedLiveTransactionHostMap -Value $claimRow
+            $platform = [string] $claimMap['Platform']
+            if ($claimsByPlatform.Contains($platform)) { throw $claimsBinding }
+            $claimsByPlatform[$platform] = $claimMap
+        }
+        foreach ($row in $targetRows) {
+            $rowMap = Convert-SealedLiveTransactionHostMap -Value $row
+            $platform = [string] $rowMap['Platform']
+            if (-not $claimsByPlatform.Contains($platform)) { throw $claimsBinding }
+            $claimMap = $claimsByPlatform[$platform]
+            if (-not (Test-SealedLiveTransactionHostPathEqual -Left ([string] $claimMap['RequestedPath']) -Right ([string] $rowMap['RequestedPath']))) {
+                throw $claimsBinding
+            }
+            if ([string] $claimMap['LocationKey'] -cne [string] $rowMap['LocationKey']) { throw $claimsBinding }
+        }
+    }
+
+    $preLockSnapshot = Get-SealedLiveTransactionHostAuthoritySnapshot
+    Assert-SealedLiveTransactionHostGuard -Snapshot $preLockSnapshot
+
+    $stagingByPlatform = [ordered]@{}
+    $sourceByPlatform = [ordered]@{}
+    $capabilityByPlatform = [ordered]@{}
+    $liveRoots = [System.Collections.Generic.List[string]]::new()
+    $sourceRoots = [System.Collections.Generic.List[string]]::new()
+    foreach ($platform in $script:LiveTransactionPlatforms) {
+        if (-not $StagingRootsByPlatform.Contains($platform) -or -not $SourceRootsByPlatform.Contains($platform) -or
+            -not $FinalCapabilityHashesByPlatform.Contains($platform)) {
+            throw $mismatch
+        }
+        $stagingByPlatform[$platform] = [System.IO.Path]::GetFullPath([string] $StagingRootsByPlatform[$platform])
+        $sourceByPlatform[$platform] = [System.IO.Path]::GetFullPath([string] $SourceRootsByPlatform[$platform])
+        $capabilityHash = [string] $FinalCapabilityHashesByPlatform[$platform]
+        if ($capabilityHash -cnotmatch $script:LiveTransactionHashPattern) { throw $mismatch }
+        $capabilityByPlatform[$platform] = $capabilityHash
+        $sourceRoots.Add($sourceByPlatform[$platform])
+    }
+    foreach ($liveRow in @($preLockSnapshot['LiveRows'])) {
+        $liveRoots.Add([string] $liveRow['RequestedPath'])
+    }
+    $stagingForbiddenRoots = @($resolvedControlBase, $resolvedBackupRoot) + @($liveRoots) + @($sourceRoots) + @($resolvedRepoRoot)
+    $receiptForbiddenRoots = @($resolvedControlBase) + @($liveRoots) + @($sourceRoots) + @($resolvedRepoRoot)
+    $liveRootContexts = [System.Collections.Generic.List[object]]::new()
+    foreach ($row in $targetRows) {
+        $rowMap = Convert-SealedLiveTransactionHostMap -Value $row
+        $platform = [string] $rowMap['Platform']
+        $liveRoot = [System.IO.Path]::GetFullPath([string] $rowMap['RequestedPath'])
+        Assert-SealedLiveMutationStagingRoot -StagingRoot $stagingByPlatform[$platform] -LiveTargetVolumeRoot $liveRoot -ForbiddenRoots $stagingForbiddenRoots -WorkingTreeRoots $WorkingTreeRoots | Out-Null
+        $liveRootContexts.Add([ordered]@{
+            Platform = $platform
+            LiveRoot = $liveRoot
+            DeepestExistingParentPath = [string] $rowMap['DeepestExistingParentPath']
+            MissingRemainder = @($rowMap['MissingRemainder'])
+            StagingRoot = $stagingByPlatform[$platform]
+        })
+    }
+
+    $canonicalLock = $null
+    $canonicalWitness = $null
+    $globalLock = $null
+    try {
+        $git = Get-CanonicalGitContext -RepoRoot $resolvedRepoRoot
+        $contractPaths = Get-CanonicalTransactionContractPaths -GitContext $git
+        $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $contractPaths.LockPath)
+        $witnessArguments = @{
+            RepoRoot = $resolvedRepoRoot
+            CanonicalLockHandle = $canonicalLock
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ToolchainRoot)) {
+            $witnessArguments['ToolchainRoot'] = [System.IO.Path]::GetFullPath($ToolchainRoot)
+        }
+        $canonicalWitness = Open-CanonicalHeldNamespaceWitness @witnessArguments
+        $globalLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $AuthorityContext -RequiredCanonicalWitness $canonicalWitness
+
+        $underLockSnapshot = Get-SealedLiveTransactionHostAuthoritySnapshot
+        if ([string] $underLockSnapshot['Fingerprint'] -cne [string] $preLockSnapshot['Fingerprint']) {
+            throw $planStale
+        }
+        Assert-SealedLiveTransactionHostGuard -Snapshot $underLockSnapshot
+
+        $transactionId = [Guid]::NewGuid().ToString()
+        $receiptId = [Guid]::NewGuid().ToString()
+        while ($receiptId -ceq $transactionId) { $receiptId = [Guid]::NewGuid().ToString() }
+        $receiptPath = Join-Path $resolvedBackupRoot $receiptId
+        $journalDir = Join-Path $liveTransactionsRoot $transactionId
+
+        $originRepoId = Get-CanonicalRepoIdentity -GitContext $git
+        $canonicalLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [string] $contractPaths.LockPath })
+
+        $intentFieldNames = @(
+            'SchemaVersion', 'ArtifactKind', 'HomeAuthorityKey', 'AuthorityGeneration', 'RootClaimsHash',
+            'SelectionKind', 'EnvironmentName', 'EnvironmentLockHash', 'TaskOverlayHash', 'TaskOverlaySkills',
+            'ManifestHashes', 'FinalManagedHashes', 'ControllerRepoFingerprint', 'ApprovedToolchainHash',
+            'PlanHash', 'DocumentHash', 'LastOperationKind'
+        )
+        $authorityStateIntent = [ordered]@{}
+        foreach ($name in $intentFieldNames) {
+            if ($name -ceq 'PlanHash') {
+                $authorityStateIntent[$name] = [string] $planMap['PlanHash']
+                continue
+            }
+            if ($name -ceq 'DocumentHash') {
+                $authorityStateIntent[$name] = [string] $planMap['DocumentHash']
+                continue
+            }
+            if ($name -ceq 'RootClaimsHash') {
+                $authorityStateIntent[$name] = $rootClaimsHash
+                continue
+            }
+            if (-not (Test-LiveTransactionMapHasName -Map $intent -Name $name)) { throw $mismatch }
+            $authorityStateIntent[$name] = $intent[$name]
+        }
+        if (Test-LiveTransactionMapHasName -Map $intent -Name 'ReceiptRef') { throw $mismatch }
+        if ($operationKind -ceq 'initial') {
+            if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'ProposedRootClaims')) { throw $mismatch }
+            $proposedBytes = [byte[]] (ConvertTo-SemanticJsonBytes -InputObject $payload['ProposedRootClaims'])
+            $proposedHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($proposedBytes)).ToLowerInvariant()
+            if ($proposedHash -cne $rootClaimsHash) { throw $script:LiveTransactionHashMismatch }
+            $authorityStateIntent['__ProposedRootClaimsBytes'] = $proposedBytes
+        }
+
+        $platformSlots = Convert-SealedLiveTransactionHostList -Value $payload['Platforms']
+        if ($platformSlots.Count -ne 3) { throw $mismatch }
+        $actions = Convert-SealedLiveTransactionHostList -Value $payload['OrderedActions']
+        $receiptPlatforms = [System.Collections.Generic.List[object]]::new()
+        foreach ($slot in $platformSlots) {
+            $slotMap = Convert-SealedLiveTransactionHostMap -Value $slot
+            $platform = [string] $slotMap['Platform']
+            $liveRoot = [System.IO.Path]::GetFullPath([string] $slotMap['LiveRoot'])
+            $targets = [System.Collections.Generic.List[object]]::new()
+            foreach ($action in $actions) {
+                $actionMap = Convert-SealedLiveTransactionHostMap -Value $action
+                if ([string] $actionMap['Platform'] -cne $platform) { continue }
+                $verb = [string] $actionMap['Action']
+                if ($verb -cnotin @('add', 'update', 'prune')) { continue }
+                $name = [string] $actionMap['Name']
+                $plannedHash = $null
+                if ($null -ne $actionMap['LiveHash'] -and [string] $actionMap['LiveHash'] -cne '') {
+                    $plannedHash = [string] $actionMap['LiveHash']
+                }
+                $targets.Add([ordered]@{
+                    Name = $name
+                    LivePath = (Join-Path $liveRoot $name)
+                    PlannedTreeHash = $plannedHash
+                })
+            }
+            $receiptPlatforms.Add([ordered]@{
+                Platform = $platform
+                LiveRoot = $liveRoot
+                Targets = @($targets)
+            })
+        }
+
+        $receiptIntent = [ordered]@{
+            Id = $receiptId
+            Path = $receiptPath
+        }
+        $header = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'live-journal-header'
+            TransactionId = $transactionId
+            OperationKind = $operationKind
+            TransactionMode = 'receipt-backed'
+            OriginalDocumentHash = [string] $planMap['DocumentHash']
+            OriginalPlanHash = [string] $planMap['PlanHash']
+            HomeAuthorityKey = $homeAuthorityKey
+            OriginRepoId = $originRepoId
+            GitCommonDirHash = [string] $git.GitCommonDirHash
+            CanonicalLockKey = $canonicalLockKey
+            RootClaimsHash = $rootClaimsHash
+            ReceiptIntent = $receiptIntent
+            Targets = @()
+        }
+        New-SealedLiveJournalHeader -Document $header -TransactionDirectory $journalDir | Out-Null
+
+        $executionContextHash = Get-SemanticJsonHash -InputObject ([ordered]@{
+            RepoRoot = $resolvedRepoRoot
+            HomeAuthorityKey = $homeAuthorityKey
+            OperationKind = $operationKind
+            ControlBase = $resolvedControlBase
+        })
+        $controlBaseHash = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = $resolvedControlBase })
+        $filesystemCapabilityHash = Get-SemanticJsonHash -InputObject $capabilityByPlatform
+        $reservationIntent = [ordered]@{
+            TransactionId = $transactionId
+            ReceiptId = $receiptId
+            ReceiptPath = $receiptPath
+        }
+        $receiptArguments = @{
+            ReservationIntent = $reservationIntent
+            SourceOperationKind = $operationKind
+            PlanHash = [string] $planMap['PlanHash']
+            DocumentHash = [string] $planMap['DocumentHash']
+            ExecutionContextHash = $executionContextHash
+            ControlBaseHash = $controlBaseHash
+            FilesystemCapabilityHash = $filesystemCapabilityHash
+            HomeAuthorityKey = $homeAuthorityKey
+            BackupRoot = $resolvedBackupRoot
+            Platforms = $receiptPlatforms.ToArray()
+            ForbiddenRoots = $receiptForbiddenRoots
+        }
+        if ($operationKind -ceq 'retirement') {
+            $receiptArguments['AuthorityStatePath'] = $statePath
+            $receiptArguments['RootClaimsPath'] = $claimsPath
+        }
+        $receipt = Invoke-SealedManagedBackupReceipt @receiptArguments
+        if ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $receipt['ReceiptPath'])) -cne 'COMPLETE') {
+            throw 'live-transaction-receipt-not-complete'
+        }
+
+        $engineTargets = Convert-SealedLiveTransactionHostList -Value (New-SealedLiveTransactionTargetPlan -BackupRoot $resolvedBackupRoot -ReceiptIntent $receiptIntent -Platforms $receiptPlatforms.ToArray() -Actions $actions.ToArray() -LiveRootContexts $liveRootContexts.ToArray())
+        foreach ($engineTarget in $engineTargets) {
+            $targetMap = Convert-SealedLiveTransactionHostMap -Value $engineTarget
+            if ($null -eq $targetMap['PreimagePath'] -or [string] $targetMap['PreimagePath'] -ceq '') {
+                $targetMap['PreimagePath'] = [string] $targetMap['TargetPath']
+            }
+        }
+        $stateRecoveryDirectory = Join-Path $stagingByPlatform['Claude'] 'state-recovery'
+        $mutation = Invoke-SealedLiveTransactionMutation -TransactionDirectory $journalDir -Header $header -Receipt $receipt -Targets $engineTargets.ToArray() -SourceRootsByPlatform $sourceByPlatform -AuthorityStateIntent $authorityStateIntent -TargetContextIntent $targetIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $resolvedControlBase -StateRecoveryDirectory $stateRecoveryDirectory
+
+        return [pscustomobject][ordered]@{
+            TransactionId = $transactionId
+            ReceiptId = [string] $receipt['ReceiptId']
+            ReceiptPath = [string] $receipt['ReceiptPath']
+            ReceiptHash = [string] $receipt['ReceiptHash']
+            StateHash = [string] $mutation.StateHash
+            PostconditionsHash = [string] $mutation.PostconditionsHash
+            ResultHash = [string] $mutation.ResultHash
+            JournalDir = $journalDir
+        }
+    }
+    finally {
+        $releaseError = $null
+        if ($null -ne $globalLock) {
+            try { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
+            catch { $releaseError = $_ }
+            $globalLock = $null
+        }
+        if ($null -ne $canonicalWitness) {
+            try { Close-CanonicalHeldNamespaceWitness -Witness $canonicalWitness }
+            catch { if ($null -eq $releaseError) { $releaseError = $_ } }
+            $canonicalWitness = $null
+        }
+        if ($null -ne $canonicalLock) {
+            try { Exit-CanonicalRepoLock -LockHandle $canonicalLock }
+            catch { if ($null -eq $releaseError) { $releaseError = $_ } }
+            $canonicalLock = $null
+        }
+        if ($null -ne $releaseError) { throw $releaseError }
+    }
+}
