@@ -96,6 +96,9 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 . (Join-Path $PSScriptRoot 'harness-env-common.ps1')
 . (Join-Path $PSScriptRoot 'target-context-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
+. (Join-Path $PSScriptRoot 'root-claims-registry-common.ps1')
+. (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
+. (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
 
 $script:LiveSyncHostResolutionRequired = 'live-plan-host-resolution-required'
 $script:LiveSyncAuthorityPresent = 'live-plan-authority-present'
@@ -165,6 +168,37 @@ function Get-LiveSyncApprovedToolchainHash {
         ValidatorLock = $validatorLock
         ScannerLock = $scannerLock
     })
+}
+
+function New-LiveSyncAuthorityContext {
+    # Resolve the full home-authority context from the sandbox-injected home
+    # and fail closed unless its derived control/backup locators equal the
+    # injected roots; the receipt-backed host revalidates both anyway.
+    param(
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string] $ControlBase,
+        [Parameter(Mandatory)] [string] $BackupRoot
+    )
+
+    $identity = [pscustomobject][ordered]@{
+        ResolverVersion = $script:HomeAuthorityResolverVersion
+        TokenSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ProfileRoot = $HomeRoot
+        RoamingAppDataRoot = (Join-Path $HomeRoot 'AppData\Roaming')
+        LocalAppDataRoot = (Join-Path $HomeRoot 'AppData\Local')
+    }
+    # Known-folder resolution requires the standard profile layout to exist.
+    foreach ($folder in @([string] $identity.RoamingAppDataRoot, [string] $identity.LocalAppDataRoot)) {
+        if (-not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Force -Path $folder | Out-Null }
+    }
+    $context = Resolve-HomeAuthorityContextFromIdentity -Identity $identity -ForbiddenRoots @($ControlBase, $BackupRoot)
+    $derivedControl = [System.IO.Path]::GetFullPath([string] $context.ControlBase)
+    $derivedBackup = [System.IO.Path]::GetFullPath([string] $context.BackupRoot)
+    if ($derivedControl -cne [System.IO.Path]::GetFullPath($ControlBase) -or
+        $derivedBackup -cne [System.IO.Path]::GetFullPath($BackupRoot)) {
+        throw $script:LiveSyncHostResolutionRequired
+    }
+    return $context
 }
 
 # ---------------------------------------------------------------------------
@@ -1704,6 +1738,7 @@ else {
     $HomeRoot = $internalRoots.HomeRoot
     $BackupRoot = $internalRoots.BackupRoot
     $ControlBase = $internalRoots.ControlBase
+    $authorityContext = New-LiveSyncAuthorityContext -HomeRoot $HomeRoot -ControlBase $ControlBase -BackupRoot $BackupRoot
 
     Write-Host '=== sync.ps1 (schema 3 semantic plan) ==='
     Write-Host "Mode            : $(if ($Apply) { 'APPLY' } else { 'DRY-RUN (no live changes)' })"
