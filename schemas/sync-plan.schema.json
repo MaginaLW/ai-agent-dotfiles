@@ -71,15 +71,28 @@
       "additionalProperties": false
     },
     "proposedRootClaims": {
-      "type": "array",
-      "minItems": 3,
-      "maxItems": 3,
-      "prefixItems": [
-        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Claude" } } }] },
-        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Codex" } } }] },
-        { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
-      ],
-      "items": false
+      "type": "object",
+      "required": ["SchemaVersion", "ArtifactKind", "HomeAuthorityKey", "TokenSid", "ResolverVersion", "HomeRootLocationKey", "LiveRootClaims"],
+      "properties": {
+        "SchemaVersion": { "const": 1 },
+        "ArtifactKind": { "const": "root-claims" },
+        "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+        "TokenSid": { "type": "string", "minLength": 1 },
+        "ResolverVersion": { "const": "windows-token-sid-known-folder-v1" },
+        "HomeRootLocationKey": { "type": "string", "minLength": 1 },
+        "LiveRootClaims": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/liveRootClaim" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+          ],
+          "items": false
+        }
+      },
+      "additionalProperties": false
     },
     "metadata": {
       "type": "object",

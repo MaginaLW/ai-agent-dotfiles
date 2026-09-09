@@ -531,16 +531,23 @@ function Assert-LivePlanKindBody {
         'initial' {
             if ([string] $Payload.EnvironmentName -cne 'full') { throw $script:LivePlanKindMismatch }
             Assert-LivePlanMaterializationRoot -Root (Get-LivePlanMap -Value $Payload.EnvironmentMaterializationRoot -Failure $script:LivePlanKindMismatch)
-            $claims = @($Payload.ProposedRootClaims)
-            if ($claims.Count -ne 3) { throw $script:LivePlanKindMismatch }
-            $expectedClaimsHash = Get-SemanticJsonHash -InputObject @($claims)
+            # RootClaimsHash binds the exact semantic bytes of the complete
+            # root-claims document that the apply publishes.
+            $claimsDocument = Get-LivePlanMap -Value $Payload.ProposedRootClaims -Failure $script:LivePlanKindMismatch
+            if ([string] $claimsDocument.ArtifactKind -cne 'root-claims' -or [long] $claimsDocument.SchemaVersion -ne 1 -or
+                [string] $claimsDocument.HomeAuthorityKey -cne [string] $Intent.HomeAuthorityKey) {
+                throw $script:LivePlanSelectionMismatch
+            }
+            $claimsRows = @($claimsDocument.LiveRootClaims)
+            if ($claimsRows.Count -ne 3) { throw $script:LivePlanKindMismatch }
+            $expectedClaimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]] (ConvertTo-SemanticJsonBytes -InputObject $claimsDocument))).ToLowerInvariant()
             if ([string] $Payload.RootClaimsHash -cne $expectedClaimsHash -or [string] $Intent.RootClaimsHash -cne $expectedClaimsHash) {
                 throw $script:LivePlanHashMismatch
             }
             $rows = @($Payload.TargetContextIntent.Rows)
-            if ((Get-SemanticJsonHash -InputObject @($rows)) -cne $expectedClaimsHash) { throw $script:LivePlanSelectionMismatch }
+            if ((Get-SemanticJsonHash -InputObject @($rows)) -cne (Get-SemanticJsonHash -InputObject $claimsRows)) { throw $script:LivePlanSelectionMismatch }
             for ($index = 0; $index -lt 3; $index++) {
-                $claim = Get-LivePlanMap -Value $claims[$index] -Failure $script:LivePlanKindMismatch
+                $claim = Get-LivePlanMap -Value $claimsRows[$index] -Failure $script:LivePlanKindMismatch
                 if ([string] $claim.Platform -cne $script:LivePlanPlatforms[$index] -or [string] $claim.InitialState -cne 'ABSENT') {
                     throw $script:LivePlanSelectionMismatch
                 }

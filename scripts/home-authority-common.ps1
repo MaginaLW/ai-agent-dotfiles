@@ -762,6 +762,22 @@ function Get-SealedHomeAuthorityBootstrapSnapshot {
         }
         $allowedExtra = [string[]]@()
         if ([string]$definition.Name -ceq 'ControlBase') { $allowedExtra = @('route-cleanup-recovery') }
+        if ([string]$definition.Name -in @('BackupRoot', 'LiveTransactionsRoot')) {
+            # Receipt-backed transactions deposit one GUID-named directory per
+            # transaction under the backup root and the live-transactions root
+            # after bootstrap. Such children are tolerated only when they are
+            # GUID-named no-follow directories; anything else stays unexpected
+            # and fails closed.
+            foreach ($childName in @($state.ImmediateChildren)) {
+                if ($childName -cnotmatch '\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') { continue }
+                $childPath = [IO.Path]::GetFullPath((Join-Path ([string]$definition.Path) ([string]$childName)))
+                $childInfo = [AiAgentDotfiles.NoFollowFile]::Inspect($childPath)
+                if (-not [bool]$childInfo.IsDirectory -or [bool]$childInfo.IsReparsePoint) {
+                    throw "home-authority-bootstrap-manual-recovery-required: unexpected children under $($definition.Name)"
+                }
+                $allowedExtra += @([string]$childName)
+            }
+        }
         # Authority-aware tolerance: after the first authority install, the
         # HomesRoot holds one 64-hex key directory per HomeAuthority (created
         # by the claims flow, never by the bootstrap prefix). Such children are

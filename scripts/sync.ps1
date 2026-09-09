@@ -108,7 +108,6 @@ $script:LiveSyncPathCollision = 'live-plan-path-collision'
 $script:LiveSyncRetirementManifestRequired = 'live-plan-retirement-manifest-required'
 $script:LiveSyncRetirementSelectionConflict = 'retirement-selection-conflict'
 $script:LiveSyncSystemMarkerDrift = 'live-plan-system-marker-drift'
-$script:LiveSyncInitialApplyNotWired = 'live-plan-initial-apply-not-wired'
 $script:LiveSyncUnsupportedApplyKind = 'live-plan-apply-kind-unsupported'
 $script:LiveSyncPlanHashMismatch = 'live-plan-hash-mismatch'
 $script:LiveSyncPlatformRank = @{ Claude = 0; Codex = 1; Reasonix = 2 }
@@ -665,7 +664,20 @@ function New-LiveSyncPlanDocument {
         foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
             $claims.Add((New-LiveSyncRootClaimRow -Platform $platform -Context $liveContexts[$platform] -InitialState 'ABSENT'))
         }
-        $claimsHash = Get-SemanticJsonHash -InputObject @($claims)
+        # RootClaimsHash binds the exact bytes of the complete root-claims
+        # document that the apply publishes; the engine verifies and the
+        # retirement flow re-reads those bytes unchanged.
+        $claimsDocument = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'root-claims'
+            HomeAuthorityKey = $homeAuthorityKey
+            TokenSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            ResolverVersion = $script:HomeAuthorityResolverVersion
+            HomeRootLocationKey = [string] $homeContext.LocationKey
+            LiveRootClaims = @($claims)
+        }
+        $claimsBytes = [byte[]] (ConvertTo-SemanticJsonBytes -InputObject $claimsDocument)
+        $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
 
         $overlaySkillsRows = Get-LiveSyncPlatformTriple -Map (Get-HarnessJsonProperty -Object $build -Name 'TaskOverlaySkills') -Kind 'Skills'
         $intent = [ordered]@{
@@ -697,13 +709,19 @@ function New-LiveSyncPlanDocument {
         $order = 0L
         foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
             $stagedHashes = [System.Collections.IDictionary] (Get-HarnessJsonProperty -Object (Get-HarnessJsonProperty -Object $build -Name 'StagedSkillTreeHashes') -Name $platform)
+            $stagedSourceBase = Join-Path ([string] $materialization['Path']) ("$(([string] $platform).ToLowerInvariant())/skills")
             foreach ($name in (@([string[]] $stagedHashes.Keys) | Sort-Object { [string] $_ })) {
+                # The engine verifies staged copies with the sealed safe-tree
+                # hash family, so the reviewed action binds that family rather
+                # than the build-side harness tree hash.
+                $sourceHash = [string] (Get-SafeTreeSnapshot -Root (Join-Path $stagedSourceBase $name)).TreeHash
+                if ($sourceHash -cnotmatch '\A[0-9a-f]{64}\z') { throw $script:LiveSyncUnsupportedApplyKind }
                 $orderedActions.Add([ordered]@{
                     Order = $order
                     Platform = $platform
                     Action = 'add'
                     Name = $name
-                    SourceHash = [string] (Get-HarnessJsonProperty -Object $stagedHashes -Name $name)
+                    SourceHash = $sourceHash
                     LiveHash = $null
                 })
                 $order++
@@ -741,7 +759,7 @@ function New-LiveSyncPlanDocument {
             AuthorityStateIntent = $intent
             EnvironmentName = 'full'
             EnvironmentMaterializationRoot = $materializationRoot
-            ProposedRootClaims = @($claims)
+            ProposedRootClaims = $claimsDocument
             RootClaimsHash = $claimsHash
         }
     }
@@ -819,7 +837,9 @@ function New-LiveSyncPlanDocument {
                     Action = 'prune'
                     Name = $name
                     SourceHash = $null
-                    LiveHash = (Get-SkillTreeHash -Path (Join-Path (Get-PlatformLiveRoot -Platform $platform) $name))
+                    # The receipt snapshot verifies the preimage with the sealed
+                    # safe-tree hash family.
+                    LiveHash = [string] (Get-SafeTreeSnapshot -Root (Join-Path (Get-PlatformLiveRoot -Platform $platform) $name)).TreeHash
                     Authority = 'explicit-retirement'
                 })
                 $order++
@@ -2125,16 +2145,24 @@ if ($savedKind -ceq 'retirement' -and [string]::IsNullOrWhiteSpace($RetireManife
     throw $script:LiveSyncRetirementManifestRequired
 }
 
-$current = New-LiveSyncPlanDocument -OperationKind $savedKind -RepoRoot $RepoRoot -HomeRoot $HomeRoot -ControlBase $ControlBase -RetirementManifestPath $RetireManifestPath -PlanPath $planFull
+# Retirement plans are recomputed and hash-compared against the machine.
+# Initial plans cannot be: the reviewed pristine plan is produced before the
+# authority prefix exists and the apply bootstraps it, so the control-base
+# intent legitimately changes between planning and apply. Initial staleness
+# is guarded instead by the materialization integrity check below plus the
+# host's under-lock authority and live-rows revalidation.
+if ($savedKind -ceq 'retirement') {
+    $current = New-LiveSyncPlanDocument -OperationKind $savedKind -RepoRoot $RepoRoot -HomeRoot $HomeRoot -ControlBase $ControlBase -RetirementManifestPath $RetireManifestPath -PlanPath $planFull
+    if ((Get-PlanHash -PlanPayload ([System.Collections.IDictionary] $current['PlanPayload'])) -cne [string] $saved['PlanHash']) {
+        throw $script:LiveSyncPlanHashMismatch
+    }
+}
 
 Assert-LiveSyncPlanDocumentIntegrity -Document ([System.Collections.IDictionary] $saved)
-if ((Get-PlanHash -PlanPayload ([System.Collections.IDictionary] $current['PlanPayload'])) -cne [string] $saved['PlanHash']) {
-    throw $script:LiveSyncPlanHashMismatch
-}
 if ($savedPayload.Contains('EnvironmentMaterializationRoot')) {
     $null = Assert-LiveSyncPlanCurrent -Document ([System.Collections.IDictionary] $saved) -MaterializationDirectory ([string] (([System.Collections.IDictionary] $savedPayload['EnvironmentMaterializationRoot'])['Path']))
 }
-$expectedEnvironmentName = [string] (([System.Collections.IDictionary] $current['PlanPayload'])['EnvironmentName'])
+$expectedEnvironmentName = [string] $savedPayload['EnvironmentName']
 $null = Assert-LiveSyncPlanSelectionContext -Document ([System.Collections.IDictionary] $saved) -ExpectedOperationKind $savedKind -ExpectedEnvironmentName $expectedEnvironmentName
 $null = Assert-LiveSyncPlanDocumentHashNotConsumed -Document ([System.Collections.IDictionary] $saved) -TerminalEvidence $null
 Write-Host 'Plan binding    : verified'
@@ -2142,125 +2170,76 @@ Write-Host "Plan hash       : $([string] $saved['PlanHash'])"
 Write-Host "Document hash   : $([string] $saved['DocumentHash'])"
 Write-PlanSummary -Payload $savedPayload
 
-if ($savedKind -ceq 'initial') {
-    # The pristine-bootstrap live-mutation host (claims create, receipts, state
-    # postimage) arrives with the Task 4 state machine. Until then an initial
-    # Apply fails closed after the reviewed plan is fully validated.
-    throw $script:LiveSyncInitialApplyNotWired
+# ---------------------------------------------------------------------------
+# Receipt-backed host Apply (both operation kinds route identically)
+# ---------------------------------------------------------------------------
+
+# The authority prefix must already exist (it is bootstrapped by the env
+# activation flow together with the canonical setup): sync never bootstraps
+# and refuses MISSING or PARTIAL prefixes fail-closed before any mutation.
+$bootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $authorityContext
+if ([string] $bootstrapStatus.Status -cne 'COMPLETE') { throw $script:LiveSyncAuthorityMissing }
+
+# Per-platform same-volume staging roots (also the mutation-preflight probe
+# roots) and the probed filesystem capability hashes bound into the receipt
+# and the state postimage. The staging base sits directly under the home root:
+# same volume as every live target, outside the private root base whose
+# immediate children the fixed envelope pins to backups/ and control/.
+$stagingBase = Join-Path $HomeRoot '.ai-agent-dotfiles-staging'
+$stagingRootsByPlatform = [ordered]@{}
+$capabilityHashesByPlatform = [ordered]@{}
+foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+    $liveRoot = Get-PlatformLiveRoot -Platform $platform
+    $stagingRootPath = Join-Path $stagingBase $platform
+    New-Item -ItemType Directory -Force -Path $stagingRootPath | Out-Null
+    $stagingRootsByPlatform[$platform] = [System.IO.Path]::GetFullPath($stagingRootPath)
+    $preflight = Resolve-TargetContext -Path $liveRoot -Mode MutationPreflight -ProbeRoot $stagingRootPath -HomeRoot $HomeRoot -ForbiddenRoots @($ControlBase, $BackupRoot)
+    if ([string] $preflight.FilesystemCapabilityStatus -cne 'SUPPORTED' -or
+        [string] $preflight.FilesystemCapabilityHash -cnotmatch $script:LiveTransactionHashPattern) {
+        throw $script:LiveSyncUnsupportedApplyKind
+    }
+    $capabilityHashesByPlatform[$platform] = [string] $preflight.FilesystemCapabilityHash
 }
 
-# 1) Mandatory backup first.
-Write-Host 'Creating mandatory pre-change backup ...'
-$backupArguments = @('-BackupRoot', $BackupRoot, '-RepoRoot', $RepoRoot, '-HomeRoot', $HomeRoot)
-if ($ReasonixLiveSkillsPath) {
-    $backupArguments += @('-ReasonixLiveSkillsPath', (Get-ReasonixLiveSkillsPath))
-}
-$backupOut = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'backup.ps1') @backupArguments 2>&1
-$backupCode = $LASTEXITCODE
-$backupOut | ForEach-Object { Write-Host "  [backup] $_" }
-if ($backupCode -ne 0) {
-    Write-Host "ERROR: backup failed (exit $backupCode). Aborting before any change."
-    Write-SyncRunReport -Result 'FAIL' -NextAction 'Resolve the backup failure before any sync Apply.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
-    exit 1
-}
-$backupLine = $backupOut | Where-Object { $_ -is [string] -and $_ -match '^BACKUP_DIR=' } | Select-Object -Last 1
-$backupDir = if ($backupLine) { ($backupLine -replace '^BACKUP_DIR=', '').Trim() } else { '<unknown>' }
-Write-Host "Backup path     : $backupDir"
-$journalPath = if ($backupDir -and $backupDir -ne '<unknown>') { Join-Path $backupDir 'sync-journal.json' } else { $null }
-$completedOperations = [System.Collections.Generic.List[object]]::new()
-if ($journalPath) {
-    Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'backup-complete' -BackupDir $backupDir
-    Write-Host "Journal path    : $journalPath"
-}
-
+$sourceRootsByPlatform = [ordered]@{}
 $liveRootsByPlatform = [ordered]@{}
 foreach ($slot in @([object[]] $savedPayload['Platforms'])) {
-    $liveRootsByPlatform[[string] $slot['Platform']] = [string] $slot['LiveRoot']
+    $sourceRootsByPlatform[[string] $slot['Platform']] = [System.IO.Path]::GetFullPath([string] $slot['SourceRoot'])
+    $liveRootsByPlatform[[string] $slot['Platform']] = [System.IO.Path]::GetFullPath([string] $slot['LiveRoot'])
 }
 
-# 2) Execute the reviewed retirement prune actions, one skill dir at a time.
-$appliedPruned = 0
-try {
-    foreach ($action in @([object[]] $savedPayload['OrderedActions'])) {
-        if ([string] $action['Action'] -cne 'prune') { continue }
-        $platform = [string] $action['Platform']
-        $name = [string] $action['Name']
-        Remove-OneSkillDir -LiveRoot ([string] $liveRootsByPlatform[$platform]) -Name $name -ExpectedHash ([string] $action['LiveHash'])
-        $appliedPruned++
-        $completedOperations.Add([pscustomobject]@{
-            Platform = $platform.ToLowerInvariant()
-            Name = $name
-            Action = 'prune'
-            Authority = [string] $action['Authority']
-        })
-        if ($journalPath) {
-            Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'applying' -BackupDir $backupDir -Completed @($completedOperations)
-        }
-    }
-}
-catch {
-    $failure = $_.Exception.Message
-    if ($journalPath) {
-        Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'failed-before-rollback' -BackupDir $backupDir -Completed @($completedOperations) -Failure $failure
-    }
-    try {
-        if ($completedOperations.Count -gt 0) {
-            $rollbackPlans = @(
-                [pscustomobject]@{ Platform = 'claude'; LiveRoot = [string] $liveRootsByPlatform['Claude'] }
-                [pscustomobject]@{ Platform = 'codex'; LiveRoot = [string] $liveRootsByPlatform['Codex'] }
-                [pscustomobject]@{ Platform = 'reasonix'; LiveRoot = [string] $liveRootsByPlatform['Reasonix'] }
-            )
-            Restore-CompletedManagedSkills -Completed @($completedOperations) -BackupDir $backupDir -Plans $rollbackPlans
-        }
-        if ($journalPath) {
-            Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'rolled-back' -BackupDir $backupDir -Completed @($completedOperations) -Failure $failure
-        }
-        Write-Host "ERROR: apply failed and completed retirement prunes were rolled back. Backup: $backupDir"
-    }
-    catch {
-        $rollbackFailure = $_.Exception.Message
-        if ($journalPath) {
-            Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'rollback-failed' -BackupDir $backupDir -Completed @($completedOperations) -Failure "$failure Rollback: $rollbackFailure"
-        }
-        Write-Host "ERROR: apply failed and rollback failed. Backup: $backupDir"
-        Write-Host "Rollback error: $rollbackFailure"
-    }
-    Write-SyncRunReport -Result 'FAIL' -NextAction 'Inspect the sync journal and backup before retrying.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
-    exit 1
-}
+Write-Host 'Running the receipt-backed live transaction host ...'
+# The approved toolchain root is the controller repository carrying the
+# contract schemas, not the sync target repository.
+$toolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$hostResult = Invoke-SealedLiveTransactionHost -Plan ([System.Collections.IDictionary] $saved) -RepoRoot $RepoRoot -ControlBase $ControlBase -BackupRoot $BackupRoot -StagingRootsByPlatform $stagingRootsByPlatform -SourceRootsByPlatform $sourceRootsByPlatform -FinalCapabilityHashesByPlatform $capabilityHashesByPlatform -AuthorityContext $authorityContext -WorkingTreeRoots ([ordered]@{ RepoRoot = $RepoRoot; ToolchainRoot = $toolchainRoot }) -ToolchainRoot $toolchainRoot
+Write-Host "Transaction id  : $([string] $hostResult.TransactionId)"
+Write-Host "Receipt path    : $([string] $hostResult.ReceiptPath)"
+Write-Host "State hash      : $([string] $hostResult.StateHash)"
 
-if ($journalPath) {
-    Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'prunes-applied' -BackupDir $backupDir -Completed @($completedOperations)
-}
-Write-Host "Retirement applied: -$appliedPruned"
-
-# 3) Verification.
+# Post-apply verification: every planned action reaches its reviewed end
+# state and the Codex .system marker is preserved.
 $verificationFailed = $false
 foreach ($action in @([object[]] $savedPayload['OrderedActions'])) {
-    if ([string] $action['Action'] -cne 'prune') { continue }
     $target = Join-Path ([string] $liveRootsByPlatform[[string] $action['Platform']]) ([string] $action['Name'])
-    if (Test-Path -LiteralPath $target) {
+    $exists = Test-Path -LiteralPath $target
+    if (([string] $action['Action'] -ceq 'prune') -and $exists) {
         Write-Host "ERROR: reviewed retirement target still present: $target"
         $verificationFailed = $true
     }
+    if (([string] $action['Action'] -cne 'prune') -and -not $exists) {
+        Write-Host "ERROR: planned target missing after apply: $target"
+        $verificationFailed = $true
+    }
 }
-$codexLiveRoot = [string] $liveRootsByPlatform['Codex']
-$systemOk = Test-Path -LiteralPath (Join-Path (Join-Path $codexLiveRoot $CodexSystemDirName) '.codex-system-skills.marker')
+$systemOk = Test-Path -LiteralPath (Join-Path (Join-Path ([string] $liveRootsByPlatform['Codex']) $CodexSystemDirName) '.codex-system-skills.marker')
 Write-Host ".system marker preserved: $systemOk"
 if ($verificationFailed) {
-    Write-Host "ERROR: post-apply retirement verification failed. Backup is at: $backupDir"
-    if ($journalPath) {
-        Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'verification-failed' -BackupDir $backupDir -Completed @($completedOperations) -Failure 'Reviewed retirement target still present.'
-    }
-    Write-SyncRunReport -Result 'FAIL' -NextAction 'Inspect retirement targets and recover from the existing backup if necessary.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+    Write-Host 'ERROR: post-apply verification failed; inspect the transaction journal and receipt.'
+    Write-SyncRunReport -Result 'FAIL' -NextAction 'Inspect the live transaction journal and receipt before retrying.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
     exit 1
 }
 
-if ($journalPath) {
-    Write-SyncJournal -Path $journalPath -PlanHash ([string] $saved['PlanHash']) -Status 'complete' -BackupDir $backupDir -Completed @($completedOperations)
-}
-
 Write-Host ''
-Write-Host "APPLY complete. Backup: $backupDir"
-Write-SyncRunReport -Result 'PASS' -NextAction 'Run scripts/scan-secrets.ps1 and git status, then record the verified machine state.' -BuildResult $buildRunResult -SecretsScanResult $secretsScanRunResult
+Write-Host 'APPLY complete through the receipt-backed host.'
 exit 0

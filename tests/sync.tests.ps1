@@ -20,7 +20,28 @@ $plansRoot = Join-Path $work 'plans'
 . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
+. (Join-Path $RepoRoot 'scripts/target-context-common.ps1')
+. (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
 . (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
+
+function Set-TestDirectoryCurrentUserOnly {
+    param([Parameter(Mandatory)] [string] $Path)
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $security = [Security.AccessControl.DirectorySecurity]::new()
+    $security.SetOwner($sid)
+    $security.SetAccessRuleProtection($true, $false)
+    $inheritance = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+    $security.AddAccessRule($rule)
+    [System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.DirectoryInfo]::new([System.IO.Path]::GetFullPath($Path)), $security)
+}
+
+function Write-TestSemanticDocument {
+    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    [System.IO.File]::WriteAllText($Path, [System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $Document)), [System.Text.UTF8Encoding]::new($false))
+}
 
 function Assert {
     param([Parameter(Mandatory)] [bool] $Condition, [Parameter(Mandatory)] [string] $Message)
@@ -130,7 +151,7 @@ function New-SeededAuthorityState {
 }
 
 try {
-    New-Item -ItemType Directory -Force -Path $work, $fakeHome, $fakeBackups, $plansRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $work, $fakeHome, $plansRoot | Out-Null
 
     # --- schema 3 producer fixture: in-sandbox git repository ---------------
     New-Item -ItemType Directory -Force -Path (Join-Path $v3Repo 'harness-source/envs') | Out-Null
@@ -146,6 +167,9 @@ try {
     New-Item -ItemType Directory -Force -Path (Join-Path $v3Repo 'tools/schema-validator'), (Join-Path $v3Repo 'tools/gitleaks') | Out-Null
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json') -Destination (Join-Path $v3Repo 'tools/schema-validator/validator.lock.json') -Force
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $v3Repo 'tools/gitleaks/gitleaks.lock.json') -Force
+    # The sync repo carries the contract schemas; the host validates the
+    # canonical setup state against the toolchain-root copy.
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'schemas') -Destination (Join-Path $v3Repo 'schemas') -Recurse -Force
     $definitionCounts = Get-DefinitionSkillCounts -Repo $v3Repo
     foreach ($platform in @('claude', 'codex', 'reasonix')) {
         $titlePlatform = [System.Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase($platform)
@@ -200,9 +224,65 @@ try {
 
     $initialApplyPlan = Join-Path $plansRoot 'initial-apply-plan.json'
     $null = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $initialApplyPlan)
+
+    Write-Host '[canonical setup for apply]'
+    # The live transaction host requires the env-activation groundwork: the
+    # home-authority prefix bootstrapped with the production template, then the
+    # repo's canonical setup state and lock binding the sandbox locators.
+    . (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
+    $authorityIdentity = [pscustomobject][ordered]@{
+        ResolverVersion = 'windows-token-sid-known-folder-v1'
+        TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ProfileRoot = $fakeHome
+        RoamingAppDataRoot = (Join-Path $fakeHome 'AppData\Roaming')
+        LocalAppDataRoot = (Join-Path $fakeHome 'AppData\Local')
+    }
+    $authorityContext = Resolve-HomeAuthorityContextFromIdentity -Identity $authorityIdentity
+    $authorityBootstrapIntent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $authorityContext -FilesystemCapabilityHash ('a' * 64)
+    $authorityBootstrapLock = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $authorityContext -Intent $authorityBootstrapIntent
+    try { Assert ($null -ne $authorityBootstrapLock) 'sandbox authority bootstrap returns the held global lock' }
+    finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $authorityBootstrapLock }
+    $canonicalProbe = Join-Path $work 'canonical-probe'
+    $canonicalRecoveryParent = Join-Path $work 'canonical-recovery-parent'
+    foreach ($dir in @($canonicalProbe, $canonicalRecoveryParent)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Set-TestDirectoryCurrentUserOnly -Path $canonicalRecoveryParent
+    $canonicalRecovery = Join-Path $canonicalRecoveryParent 'recovery'
+    New-Item -ItemType Directory -Force -Path $canonicalRecovery | Out-Null
+    Set-TestDirectoryCurrentUserOnly -Path $canonicalRecovery
+    $canonicalPayload = New-CanonicalSetupPlanPayload -RepoRoot $v3Repo -CanonicalRecoveryRoot $canonicalRecovery -ControlBase $controlBase -BackupRoot $fakeBackups -ProbeRoot $canonicalProbe -ToolchainRoot $RepoRoot
+    $canonicalGit = Get-CanonicalGitContext -RepoRoot $v3Repo
+    $canonicalPaths = Get-CanonicalTransactionContractPaths -GitContext $canonicalGit
+    $canonicalState = New-CanonicalFinalSetupState -PlanPayload $canonicalPayload -RepoRoot $v3Repo
+    $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $canonicalPaths.LockPath) -AllowCreate
+    try { Write-TestSemanticDocument -Path ([string] $canonicalPaths.SetupStatePath) -Document $canonicalState }
+    finally { Exit-CanonicalRepoLock -LockHandle $canonicalLock }
+
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $initialApplyPlan)
-    Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-initial-apply-not-wired') 'pristine initial apply fails closed after the reviewed plan is validated'
-    Assert (@(Get-ChildItem -LiteralPath $fakeBackups -Force -ErrorAction SilentlyContinue).Count -eq 0) 'unwired initial apply creates no backup'
+    if ($result.Code -ne 0) { Write-Host "----- initial apply child output -----"; Write-Host $result.Out }
+    Assert ($result.Code -eq 0) 'pristine initial apply completes through the receipt-backed host'
+    $initialApplyHomeKey = [string] $initialPlan.PlanPayload.AuthorityStateIntent.HomeAuthorityKey
+    $initialApplyAuthorityArea = Join-Path (Join-Path $controlBase 'homes') $initialApplyHomeKey
+    Assert (Test-Path -LiteralPath (Join-Path $initialApplyAuthorityArea 'root-claims.json') -PathType Leaf) 'initial apply publishes the reviewed root claims'
+    Assert (Test-Path -LiteralPath (Join-Path $initialApplyAuthorityArea 'current-env.json') -PathType Leaf) 'initial apply publishes the schema 3 state postimage'
+    Assert (@(Get-ChildItem -LiteralPath (Join-Path $controlBase 'live-transactions') -Force -ErrorAction SilentlyContinue).Count -ge 1) 'initial apply publishes a transaction journal namespace'
+    $firstManagedSkill = $null
+    foreach ($platform in @('claude', 'codex', 'reasonix')) {
+        $liveRootForPlatform = switch ($platform) {
+            'claude' { Join-Path $fakeHome '.claude\skills' }
+            'codex' { Join-Path $fakeHome '.codex\skills' }
+            default { Join-Path $fakeHome 'AppData\Roaming\reasonix\skills' }
+        }
+        $managedNamesForPlatform = @(Get-Content -LiteralPath (Join-Path $v3Repo "manifests\managed-skills.$platform.txt") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if ($managedNamesForPlatform.Count -gt 0) {
+            $candidate = Join-Path $liveRootForPlatform ([string] $managedNamesForPlatform[0])
+            if (-not (Test-Path -LiteralPath (Join-Path $candidate 'SKILL.md'))) { $firstManagedSkill = $false }
+        }
+    }
+    Assert ($null -eq $firstManagedSkill) 'initial apply installs the planned managed skills into the live roots'
+
+    $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $initialApplyPlan)
+    if ($result.Code -ne 0) { Write-Host "----- re-apply child output -----"; Write-Host $result.Out }
+    Assert ($result.Code -ne 0 -and $result.Out -match 'live-transaction-authority-present') 're-applying a completed initial plan fails closed on the installed authority'
 
     $tamperedPlanPath = Join-Path $plansRoot 'initial-apply-plan.json'
     $tampered = Read-LivePlanDocument -Path $tamperedPlanPath
@@ -212,12 +292,12 @@ try {
     Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-hash-mismatch') 'apply rejects a tampered reviewed plan'
 
     Write-Host '[authority present gate]'
-    $initialPlanHomeKey = [string] $initialPlan.PlanPayload.AuthorityStateIntent.HomeAuthorityKey
-    New-Item -ItemType Directory -Force -Path (Join-Path (Join-Path $controlBase 'homes') $initialPlanHomeKey) | Out-Null
+    # The real initial apply initialized the machine: the live roots are
+    # populated, so a pristine initial dry-run now refuses before planning.
     $authorityPlanPath = Join-Path $plansRoot 'authority-plan.json'
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $authorityPlanPath)
-    Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-authority-present') 'initial dry-run refuses an occupied control base'
-    Assert (-not (Test-Path -LiteralPath $authorityPlanPath)) 'authority-present rejection creates zero plan bytes'
+    Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-selection-mismatch') 'initial dry-run refuses initialized live roots'
+    Assert (-not (Test-Path -LiteralPath $authorityPlanPath)) 'initialized-machine rejection creates zero plan bytes'
 
     Write-Host '[retirement producer]'
     $retiredTargets = [ordered]@{
@@ -234,9 +314,6 @@ try {
     $retirementManifest = Join-Path $plansRoot 'retire-skills.json'
     $retirementPlanPath = Join-Path $plansRoot 'retirement-plan.json'
     Write-RetirementManifest -Path $retirementManifest -Claude @('retired-claude') -Codex @('retired-codex') -Reasonix @('retired-reasonix')
-
-    $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $retirementPlanPath, '-RetireManifestPath', $retirementManifest)
-    Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-authority-missing') 'retirement dry-run requires the seeded schema 3 authority state'
 
     $statePath = New-SeededAuthorityState -InitialPlan $initialPlan -ControlBase $controlBase
 
@@ -358,17 +435,25 @@ try {
     Assert ($result.Code -eq 0) 'final retirement dry-run refreshes the bound plan'
 
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $retirementPlanPath, '-RetireManifestPath', $retirementManifest)
+    if ($result.Code -ne 0) { Write-Host '----- retirement apply child output -----'; Write-Host $result.Out }
     Assert ($result.Code -eq 0) 'retirement apply exits successfully'
     foreach ($target in $retiredTargets.Values) {
         Assert (-not (Test-Path -LiteralPath $target)) "explicit retirement prunes $target"
     }
     Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/unknown-local')) 'explicit retirement still preserves unrelated unknown skill'
     Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.codex/skills/.system/.codex-system-skills.marker')) '.system sentinel survives explicit retirement'
-    $retirementJournal = @(Get-ChildItem -LiteralPath $fakeBackups -Filter 'sync-journal.json' -File -Recurse | Sort-Object LastWriteTimeUtc)[-1]
-    $retirementJournalState = Get-Content -Raw -LiteralPath $retirementJournal.FullName | ConvertFrom-Json
-    Assert (@($retirementJournalState.Completed | Where-Object { $_.Action -eq 'prune' -and $_.Authority -eq 'explicit-retirement' }).Count -eq 3) 'sync journal records explicit retirement authority for each prune'
-    $retirementBackup = (Split-Path -Parent $retirementJournal.FullName)
-    Assert (Test-Path -LiteralPath (Join-Path $retirementBackup 'claude-skills/retired-claude/SKILL.md')) 'mandatory backup contains the exact retirement target'
+    $liveTransactionsDirs = @(Get-ChildItem -LiteralPath (Join-Path $controlBase 'live-transactions') -Directory -Force | Sort-Object LastWriteTimeUtc)
+    Assert ($liveTransactionsDirs.Count -ge 2) 'each apply publishes its own transaction journal namespace'
+    foreach ($transactionDir in $liveTransactionsDirs) {
+        Assert (Test-Path -LiteralPath (Join-Path $transactionDir.FullName 'result.json') -PathType Leaf) "transaction $($transactionDir.Name) published a fixed result"
+    }
+    $retirementTransaction = $liveTransactionsDirs[-1]
+    $retirementJournalPhases = @(Get-ChildItem -LiteralPath $retirementTransaction.FullName -Filter '*.json' -File | ForEach-Object { $_.Name })
+    Assert ($retirementJournalPhases -ccontains 'result.json') 'the retirement journal retains the fixed result file'
+    $receiptDirs = @(Get-ChildItem -LiteralPath $fakeBackups -Directory -Force | Sort-Object LastWriteTimeUtc)
+    Assert ($receiptDirs.Count -ge 2) 'each apply binds its own managed backup receipt'
+    $retirementReceipt = $receiptDirs[-1]
+    Assert (Test-Path -LiteralPath (Join-Path $retirementReceipt.FullName 'snapshot/claude/retired-claude/SKILL.md') -PathType Leaf) 'the managed backup receipt snapshots the exact retirement target'
 
     $replayPlanPath = Join-Path $plansRoot 'retirement-replay-plan.json'
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $replayPlanPath, '-RetireManifestPath', $retirementManifest)
@@ -384,11 +469,12 @@ try {
     Assert ($result.Code -eq 0) 'Reasonix override retirement dry-run exits successfully'
     $overridePlan = Read-LivePlanDocument -Path $overridePlanPath
     Assert ([string] $overridePlan.PlanPayload.Platforms[2].LiveRoot -ceq ([System.IO.Path]::GetFullPath($reasonixOverrideRoot))) 'plan binds the exact Reasonix override live root'
+    # The installed claims authorize the environment's originally reviewed
+    # roots; a retirement targeting an unclaimed root fails closed. A claimed
+    # custom Reasonix root is covered by a dedicated sandbox in Step 5.
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-ReasonixLiveSkillsPath', $reasonixOverrideRoot, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $overridePlanPath, '-RetireManifestPath', $retirementManifest)
-    Assert ($result.Code -eq 0) 'Reasonix override retirement apply exits successfully'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $reasonixOverrideRoot 'retired-reasonix-override'))) 'Reasonix override retirement target is pruned'
-    $overrideBackup = @(Get-ChildItem -LiteralPath $fakeBackups -Directory -Recurse -Force | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'reasonix-skills/retired-reasonix-override/SKILL.md') } | Select-Object -First 1)
-    Assert ($null -ne $overrideBackup) 'mandatory backup contains the exact Reasonix override retirement target'
+    Assert ($result.Code -ne 0 -and $result.Out -match 'live-transaction-claims-binding-mismatch') 'retirement targeting a root outside the claimed bindings fails closed'
+    Assert (Test-Path -LiteralPath (Join-Path $reasonixOverrideRoot 'retired-reasonix-override')) 'the rejected override retirement leaves its target untouched'
 
     Write-Host '[prune-time target verification]'
     $tokens = $null

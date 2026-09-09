@@ -1019,7 +1019,7 @@ function Invoke-SealedLiveTransactionMutation {
             ClosingKind = 'original'
             ClosingDocumentHash = [string] $Header['OriginalDocumentHash']
         }) | Out-Null
-        $wrapped = [System.InvalidOperationException]::new('apply-failed-but-restored')
+        $wrapped = [System.InvalidOperationException]::new('apply-failed-but-restored: ' + [string] $_.Exception.Message + ' (original failure at ' + $_.InvocationInfo.ScriptName + ':' + [int] $_.InvocationInfo.ScriptLineNumber + ')')
         $wrapped.Data['OriginalFailure'] = [string] $_.Exception.Message
         $wrapped.Data['OriginalFailureLine'] = [int] $_.InvocationInfo.ScriptLineNumber
         throw $wrapped
@@ -1722,7 +1722,7 @@ function Invoke-SealedLiveTransactionHost {
         if (-not [bool] $Snapshot['ClaimsExists'] -or -not [bool] $Snapshot['StateExists']) { throw $authorityRequired }
         if ([string] $Snapshot['ClaimsHash'] -cne $rootClaimsHash) { throw $script:LiveTransactionHashMismatch }
         $claimsDocument = Convert-SealedLiveTransactionHostMap -Value $Snapshot['ClaimsDocument']
-        if ([string] $claimsDocument['HomeAuthorityKey'] -cne $homeAuthorityKey) { throw $claimsBinding }
+        if ([string] $claimsDocument['HomeAuthorityKey'] -cne $homeAuthorityKey) { throw ($claimsBinding + ' (claims=' + [string] $claimsDocument['HomeAuthorityKey'] + ' plan=' + $homeAuthorityKey + ')') }
         $tokenSid = [string] (Get-SealedLiveTransactionHostContextValue -Context $AuthorityContext -Name 'TokenSid')
         if ((Test-LiveTransactionMapHasName -Map $claimsDocument -Name 'TokenSid') -and
             [string] $claimsDocument['TokenSid'] -cne $tokenSid) {
