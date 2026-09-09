@@ -666,8 +666,13 @@ function Invoke-ProductionSeamAnalysis {
                 else{$fixedObservationBoundaryViolations.Add("authority state intent projection caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'New-AuthorityStatePostimage'){
-                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
-                    [string]$owner.Name -ceq 'Write-SealedRegistryCurrentEnvStatePostimage'){
+                $allowedPostimageSerializerCaller=(
+                    ([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                        [string]$owner.Name -ceq 'Write-SealedRegistryCurrentEnvStatePostimage') -or
+                    ([string]$model.RelativePath -ceq 'scripts/live-transaction-common.ps1' -and $null -ne $owner -and
+                        [string]$owner.Name -ceq 'Invoke-SealedLiveTransactionAuthorityState')
+                )
+                if($allowedPostimageSerializerCaller){
                     $postimageSerializerAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("authority state postimage serializer caller: $($model.RelativePath):$($ownerName):$commandName")}
@@ -1096,7 +1101,9 @@ function Invoke-ProductionSeamAnalysis {
     if((@($intentProjectionAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedIntentProjectionOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed authority state intent projection owner inventory changed')
     }
-    $reviewedPostimageSerializerOwnerInventory=@('scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage')
+    $reviewedPostimageSerializerOwnerInventory=@(
+        'scripts/live-transaction-common.ps1:Invoke-SealedLiveTransactionAuthorityState',
+        'scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage')
     if((@($postimageSerializerAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedPostimageSerializerOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed authority state postimage serializer owner inventory changed')
     }
