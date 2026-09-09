@@ -181,7 +181,7 @@ jobs:
               throw "Harness environment build JSON is missing required field: $required"
             }
           }
-          if ([int]$envBuild.SchemaVersion -ne 2 -or $envBuild.Name -ne 'work' -or $envBuild.Result -ne 'PASS') {
+          if ([int]$envBuild.SchemaVersion -ne 3 -or $envBuild.Name -ne 'work' -or $envBuild.Result -ne 'PASS') {
             throw 'Harness environment build JSON is invalid.'
           }
           $envLockPath = Join-Path $env:GITHUB_WORKSPACE 'envs\work\env.lock.json'
