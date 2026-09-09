@@ -83,8 +83,10 @@ When the scope trigger applies:
    ```powershell
    pwsh -NoProfile -File scripts/build-skills.ps1
    pwsh -NoProfile -File scripts/scan-secrets.ps1
-   pwsh -NoProfile -File scripts/sync.ps1
    ```
+   The schema 3 sync DryRun runs only inside the internal sandbox with a create-new
+   `-PlanPath` (host-injected roots; a bare `sync.ps1` invocation fails closed); see
+   [docs/README.md §4](docs/README.md#4-日常同步流程) for the invocation shape.
 7. Phase 0 safety interlock: production Apply/rollback/retirement is currently unavailable and
    returns `safety-protocol-upgrade-required` before backup or mutation. The commands below describe
    the reviewed future contract only; do not attempt the Apply command until tracked policy is released:
