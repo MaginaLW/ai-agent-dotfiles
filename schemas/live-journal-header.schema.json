@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/live-journal-header.schema.json",
+  "title": "AI Agent Dotfiles Live Transaction Journal Header",
+  "type": "object",
+  "required": [
+    "SchemaVersion", "ArtifactKind", "TransactionId", "OperationKind", "TransactionMode",
+    "OriginalDocumentHash", "OriginalPlanHash", "HomeAuthorityKey", "OriginRepoId",
+    "GitCommonDirHash", "CanonicalLockKey", "Targets"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "live-journal-header" },
+    "TransactionId": { "$ref": "#/$defs/uuid" },
+    "OperationKind": {
+      "enum": ["initial", "environment", "task-overlay", "migrate", "adopt", "repair-adopt", "controller-transition", "retirement", "environment-rollback"]
+    },
+    "TransactionMode": { "enum": ["receipt-backed", "state-only"] },
+    "OriginalDocumentHash": { "$ref": "#/$defs/hash" },
+    "OriginalPlanHash": { "$ref": "#/$defs/hash" },
+    "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+    "OriginRepoId": { "$ref": "#/$defs/hash" },
+    "GitCommonDirHash": { "$ref": "#/$defs/hash" },
+    "CanonicalLockKey": { "$ref": "#/$defs/hash" },
+    "WorktreeOverlayLockKey": { "$ref": "#/$defs/hash" },
+    "RootClaimsHash": { "$ref": "#/$defs/hash" },
+    "ReceiptIntent": {
+      "type": "object",
+      "required": ["Id", "Path"],
+      "properties": {
+        "Id": { "$ref": "#/$defs/uuid" },
+        "Path": { "type": "string", "minLength": 4 }
+      },
+      "additionalProperties": false
+    },
+    "ReceiptRef": { "const": "NO_LIVE_MUTATION" },
+    "Targets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/target" }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "state": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        { "type": "object", "required": ["State", "Hash", "Identity"], "properties": { "State": { "const": "PRESENT" }, "Hash": { "$ref": "#/$defs/hash" }, "Identity": { "$ref": "#/$defs/directoryIdentity" } }, "additionalProperties": false }
+      ]
+    },
+    "receiptSnapshotRef": {
+      "type": "object",
+      "required": ["Platform", "Name"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Name": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "TargetId", "Order", "TargetKind", "Role", "TargetPath", "PreimagePath",
+        "SwapOldPath", "StagedPath", "Current", "Candidate", "TargetContextHash"
+      ],
+      "properties": {
+        "TargetId": { "$ref": "#/$defs/hash" },
+        "Order": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "TargetKind": { "enum": ["skill", "parent-directory", "state"] },
+        "Role": { "enum": ["live-target", "parent", "state"] },
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix", "Union"] },
+        "Name": { "type": "string", "minLength": 1 },
+        "TargetPath": { "type": "string", "minLength": 4 },
+        "PreimagePath": { "type": "string", "minLength": 4 },
+        "SwapOldPath": { "type": "string", "minLength": 4 },
+        "StagedPath": { "type": ["string", "null"] },
+        "LiveIdentity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] },
+        "ReceiptSnapshotRef": { "oneOf": [{ "$ref": "#/$defs/receiptSnapshotRef" }, { "type": "null" }] },
+        "Current": { "$ref": "#/$defs/state" },
+        "Candidate": { "$ref": "#/$defs/state" },
+        "TargetContextHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "directoryIdentity": { "type": "string", "minLength": 25, "maxLength": 25, "pattern": "^[0-9a-f]{8}:[0-9a-f]{16}$" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "TransactionMode": { "const": "receipt-backed" } }, "required": ["TransactionMode"] },
+      "then": { "required": ["ReceiptIntent"], "properties": { "ReceiptRef": { "not": {} } } },
+      "else": { "required": ["ReceiptRef"], "properties": { "ReceiptIntent": { "not": {} } } }
+    }
+  ],
+  "additionalProperties": false
+}

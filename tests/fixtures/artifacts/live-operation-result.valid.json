@@ -1,0 +1,18 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "live-operation-result",
+  "ResultScope": "transaction",
+  "TransactionId": "1a2b3c4d-1111-4a2b-8c3d-000000000001",
+  "OperationKind": "retirement",
+  "OriginalDocumentHash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "ResultBaseHeadHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "Outcome": "committed",
+  "ReceiptRef": {
+    "Id": "2b3c4d5e-2222-4b3c-9d4e-000000000002",
+    "Path": "C:\\fixture\\backups\\2b3c4d5e-2222-4b3c-9d4e-000000000002",
+    "State": "COMPLETE",
+    "Hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "ReceiptHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "StateHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

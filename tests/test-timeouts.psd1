@@ -5,6 +5,7 @@
     Suites = @{
         'agent-dotfiles.tests.ps1' = 150
         'backup-receipt.tests.ps1' = 300
+        'live-recovery.tests.ps1' = 300
         'approved-runner.tests.ps1' = 900
         'canonical-hard-kill.tests.ps1' = 5400
         'canonical-hard-kill-reap-semantics.tests.ps1' = 60

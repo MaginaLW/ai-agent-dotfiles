@@ -17,6 +17,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'harness-env-common.ps1')
 . (Join-Path $PSScriptRoot 'live-plan-common.ps1')
 . (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
+. (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
 
 function Test-CanonicalPlanDocumentHashSemantics {
     param(

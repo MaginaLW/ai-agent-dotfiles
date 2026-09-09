@@ -1,0 +1,69 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "live-journal-header",
+  "TransactionId": "1a2b3c4d-1111-4a2b-8c3d-000000000001",
+  "OperationKind": "retirement",
+  "TransactionMode": "receipt-backed",
+  "OriginalDocumentHash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "OriginalPlanHash": "2222222222222222222222222222222222222222222222222222222222222222",
+  "HomeAuthorityKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "OriginRepoId": "3333333333333333333333333333333333333333333333333333333333333333",
+  "GitCommonDirHash": "4444444444444444444444444444444444444444444444444444444444444444",
+  "CanonicalLockKey": "5555555555555555555555555555555555555555555555555555555555555555",
+  "ReceiptIntent": {
+    "Id": "2b3c4d5e-2222-4b3c-9d4e-000000000002",
+    "Path": "C:\\fixture\\backups\\2b3c4d5e-2222-4b3c-9d4e-000000000002"
+  },
+  "Targets": [
+    {
+      "TargetId": "6666666666666666666666666666666666666666666666666666666666666666",
+      "Order": 0,
+      "TargetKind": "skill",
+      "Role": "live-target",
+      "Platform": "Claude",
+      "Name": "kept-claude",
+      "TargetPath": "C:\\fixture\\profile\\.claude\\skills\\kept-claude",
+      "PreimagePath": "C:\\fixture\\backups\\preimage\\claude\\kept-claude",
+      "SwapOldPath": "C:\\fixture\\staging\\claude\\swap\\kept-claude",
+      "StagedPath": "C:\\fixture\\staging\\claude\\staged\\kept-claude",
+      "LiveIdentity": "a1b2c3d4:0000000000000b01",
+      "ReceiptSnapshotRef": {
+        "Platform": "Claude",
+        "Name": "kept-claude"
+      },
+      "Current": {
+        "State": "PRESENT",
+        "Hash": "7777777777777777777777777777777777777777777777777777777777777777",
+        "Identity": "a1b2c3d4:0000000000000b01"
+      },
+      "Candidate": {
+        "State": "MISSING"
+      },
+      "TargetContextHash": "8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    {
+      "TargetId": "9999999999999999999999999999999999999999999999999999999999999999",
+      "Order": 1,
+      "TargetKind": "parent-directory",
+      "Role": "parent",
+      "Platform": "Union",
+      "Name": "skills",
+      "TargetPath": "C:\\fixture\\profile\\.claude\\skills",
+      "PreimagePath": "C:\\fixture\\backups\\preimage\\claude-parent",
+      "SwapOldPath": "C:\\fixture\\staging\\claude\\swap\\parent",
+      "StagedPath": null,
+      "LiveIdentity": null,
+      "Current": {
+        "State": "PRESENT",
+        "Hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "Identity": "a1b2c3d4:0000000000000b02"
+      },
+      "Candidate": {
+        "State": "PRESENT",
+        "Hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "Identity": "a1b2c3d4:0000000000000b02"
+      },
+      "TargetContextHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
+}

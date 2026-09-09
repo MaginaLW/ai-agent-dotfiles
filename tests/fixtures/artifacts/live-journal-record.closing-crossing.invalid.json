@@ -1,0 +1,14 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "live-journal-record",
+  "TransactionId": "1a2b3c4d-1111-4a2b-8c3d-000000000001",
+  "Sequence": 3,
+  "PreviousHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "Phase": "COMPLETE",
+  "Data": {
+    "ResultHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "OriginalDocumentHash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "Outcome": "committed",
+    "ClosingKind": "recovery"
+  }
+}

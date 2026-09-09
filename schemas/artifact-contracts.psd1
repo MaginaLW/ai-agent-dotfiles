@@ -137,6 +137,36 @@
             )
             SemanticValidator = 'Test-LiveSyncPlanSemantics'
         }
+        'live-journal-header' = @{
+            SchemaVersion = 1
+            SchemaPath = 'schemas/live-journal-header.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/live-journal-header.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/live-journal-header.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'receipt-ref-crossing'; Path = 'tests/fixtures/artifacts/live-journal-header.receipt-ref-crossing.invalid.json'; FailureLayer = 'Schema' }
+            )
+            SemanticValidator = 'Test-LiveJournalHeaderSemantics'
+        }
+        'live-journal-record' = @{
+            SchemaVersion = 1
+            SchemaPath = 'schemas/live-journal-record.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/live-journal-record.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/live-journal-record.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'closing-crossing'; Path = 'tests/fixtures/artifacts/live-journal-record.closing-crossing.invalid.json'; FailureLayer = 'Semantic' }
+            )
+            SemanticValidator = 'Test-LiveJournalRecordSemantics'
+        }
+        'live-operation-result' = @{
+            SchemaVersion = 1
+            SchemaPath = 'schemas/live-operation-result.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/live-operation-result.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'scope-crossing'; Path = 'tests/fixtures/artifacts/live-operation-result.scope-crossing.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'receipt-state-crossing'; Path = 'tests/fixtures/artifacts/live-operation-result.receipt-state-crossing.invalid.json'; FailureLayer = 'Semantic' }
+            )
+            SemanticValidator = 'Test-LiveOperationResultSemantics'
+        }
         'backup-receipt' = @{
             SchemaVersion = 1
             SchemaPath = 'schemas/backup-receipt.schema.json'

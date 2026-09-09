@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/live-operation-result.schema.json",
+  "title": "AI Agent Dotfiles Live Operation Result",
+  "type": "object",
+  "required": ["SchemaVersion", "ArtifactKind", "ResultScope"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "live-operation-result" },
+    "ResultScope": { "enum": ["command", "transaction"] },
+    "CommandKind": {
+      "enum": [
+        "initial", "environment", "task-overlay", "retirement", "migrate", "adopt",
+        "repair-adopt", "controller-transition", "environment-rollback",
+        "live-recover-status", "live-recover-abandon", "live-recover-rollback", "live-recover-finalize"
+      ]
+    },
+    "TransactionId": { "$ref": "#/$defs/uuid" },
+    "OperationKind": {
+      "enum": ["initial", "environment", "task-overlay", "migrate", "adopt", "repair-adopt", "controller-transition", "retirement", "environment-rollback"]
+    },
+    "OriginalDocumentHash": { "$ref": "#/$defs/hash" },
+    "ResultBaseHeadHash": { "$ref": "#/$defs/hash" },
+    "Outcome": { "enum": ["committed", "abandoned", "rolled-back", "failed-restored"] },
+    "ReceiptRef": {
+      "type": "object",
+      "required": ["Id", "Path", "State"],
+      "properties": {
+        "Id": { "$ref": "#/$defs/uuid" },
+        "Path": { "type": "string", "minLength": 4 },
+        "State": { "enum": ["MISSING", "PARTIAL", "COMPLETE"] },
+        "Hash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "ReceiptHash": { "$ref": "#/$defs/hash" },
+    "StateHash": { "$ref": "#/$defs/hash" },
+    "ClaimsHash": { "$ref": "#/$defs/hash" },
+    "RestorationHash": { "$ref": "#/$defs/hash" },
+    "FinalStateHash": { "$ref": "#/$defs/hash" },
+    "TerminalRecord": {
+      "type": "object",
+      "required": ["Sequence", "Hash", "ClosingKind", "Outcome"],
+      "properties": {
+        "Sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "Hash": { "$ref": "#/$defs/hash" },
+        "ClosingKind": { "enum": ["original", "recovery"] },
+        "ClosingPlanKind": { "enum": ["live-recover-abandon", "live-recover-rollback", "live-recover-finalize"] },
+        "ClosingDocumentHash": { "$ref": "#/$defs/hash" },
+        "Outcome": { "enum": ["committed", "abandoned", "rolled-back", "failed-restored"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "ResultScope": { "const": "command" } }, "required": ["ResultScope"] },
+      "then": {
+        "required": ["CommandKind"],
+        "properties": {
+          "OperationKind": { "not": {} },
+          "ResultBaseHeadHash": { "not": {} },
+          "TerminalRecord": { "not": {} }
+        }
+      },
+      "else": {
+        "required": ["TransactionId", "OperationKind", "OriginalDocumentHash", "ResultBaseHeadHash", "Outcome"],
+        "properties": {
+          "CommandKind": { "not": {} }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

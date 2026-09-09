@@ -1,0 +1,31 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "live-journal-record",
+  "TransactionId": "1a2b3c4d-1111-4a2b-8c3d-000000000001",
+  "Sequence": 3,
+  "PreviousHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "Phase": "NEW_INSTALLED",
+  "Data": {
+    "TargetId": "6666666666666666666666666666666666666666666666666666666666666666",
+    "TargetKind": "skill",
+    "TargetPath": "C:\\fixture\\profile\\.claude\\skills\\kept-claude",
+    "SwapOldPath": "C:\\fixture\\staging\\claude\\swap\\kept-claude",
+    "StagedPath": "C:\\fixture\\staging\\claude\\staged\\kept-claude",
+    "TargetState": {
+      "State": "PRESENT",
+      "Type": "Directory",
+      "Hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "Identity": "a1b2c3d4:0000000000000b03"
+    },
+    "SwapOldState": {
+      "State": "PRESENT",
+      "Type": "Directory",
+      "Hash": "7777777777777777777777777777777777777777777777777777777777777777",
+      "Identity": "a1b2c3d4:0000000000000b01"
+    },
+    "StagedState": {
+      "State": "MISSING"
+    }
+  },
+  "UnexpectedField": "junk"
+}
