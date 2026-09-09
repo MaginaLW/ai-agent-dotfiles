@@ -267,8 +267,8 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='4a40541a5acf86b1694619697df43d6e510eb49b6c234082130bfa81f47745e5'
-$reviewedAllScriptsReflectionSensitiveSiteCount=14573
-$reviewedAllScriptsReflectionSensitiveDigest='d11b3a51c7de05a17c43f2c185198429133281e3dde6ada57b2cdd602003dbf1'
+$reviewedAllScriptsReflectionSensitiveSiteCount=14649
+$reviewedAllScriptsReflectionSensitiveDigest='7e3708608754459c809c602274174081b3fdbb096fdea9032934aaf958d6a381'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -670,7 +670,7 @@ function Invoke-ProductionSeamAnalysis {
                     ([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
                         [string]$owner.Name -ceq 'Write-SealedRegistryCurrentEnvStatePostimage') -or
                     ([string]$model.RelativePath -ceq 'scripts/live-transaction-common.ps1' -and $null -ne $owner -and
-                        [string]$owner.Name -ceq 'Invoke-SealedLiveTransactionAuthorityState')
+                        [string]$owner.Name -cin @('Invoke-SealedLiveTransactionAuthorityState','Invoke-SealedLiveTransactionStateOnly'))
                 )
                 if($allowedPostimageSerializerCaller){
                     $postimageSerializerAllowedCallers.Add("$($model.RelativePath):$ownerName")
@@ -678,8 +678,13 @@ function Invoke-ProductionSeamAnalysis {
                 else{$fixedObservationBoundaryViolations.Add("authority state postimage serializer caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'Assert-AuthorityControllerTransitionPreservesSelection'){
-                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
-                    [string]$owner.Name -ceq 'Write-SealedRegistryCurrentEnvStatePostimage'){
+                $allowedControllerTransitionCaller=(
+                    ([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                        [string]$owner.Name -ceq 'Write-SealedRegistryCurrentEnvStatePostimage') -or
+                    ([string]$model.RelativePath -ceq 'scripts/live-transaction-common.ps1' -and $null -ne $owner -and
+                        [string]$owner.Name -ceq 'Invoke-SealedLiveTransactionStateOnly')
+                )
+                if($allowedControllerTransitionCaller){
                     $controllerTransitionAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("authority controller-transition comparator caller: $($model.RelativePath):$($ownerName):$commandName")}
@@ -1103,11 +1108,14 @@ function Invoke-ProductionSeamAnalysis {
     }
     $reviewedPostimageSerializerOwnerInventory=@(
         'scripts/live-transaction-common.ps1:Invoke-SealedLiveTransactionAuthorityState',
+        'scripts/live-transaction-common.ps1:Invoke-SealedLiveTransactionStateOnly',
         'scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage')
     if((@($postimageSerializerAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedPostimageSerializerOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed authority state postimage serializer owner inventory changed')
     }
-    $reviewedControllerTransitionOwnerInventory=@('scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage')
+    $reviewedControllerTransitionOwnerInventory=@(
+        'scripts/live-transaction-common.ps1:Invoke-SealedLiveTransactionStateOnly',
+        'scripts/root-claims-registry-common.ps1:Write-SealedRegistryCurrentEnvStatePostimage')
     if((@($controllerTransitionAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedControllerTransitionOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed authority controller-transition comparator owner inventory changed')
     }
