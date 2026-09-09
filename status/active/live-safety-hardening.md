@@ -6,7 +6,7 @@ Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
 published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side garbage
 collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no longer served.
-Phase 2 Task 1 (6/6) and Task 2 (7/7) are complete (Phase 2 overall 13/52), while Phases 3-4 have not
+Phase 2 Tasks 1-3 (6/6, 7/7, 7/7) are complete (Phase 2 overall 20/52), while Phases 3-4 have not
 started.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
@@ -877,6 +877,53 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   complete (7/7; Phase 2 13/52); production Apply remains interlocked, and no live root or Git
   index/ref was changed.
 
+- Phase 2 Task-3 close-out, managed backup receipts and standalone backup retirement (2026-09-09,
+  commits `2be7153` + `706fed0`): implemented directly by the main agent after the user's "both"
+  instruction. `scripts/backup-receipt-common.ps1` is the transaction-internal receipt producer: it
+  validates the flushed ReceiptIntent (exact keys, canonical UUID spellings, distinct ids, receipt
+  path leaf bound to the ReceiptId and parent bound to the resolved BackupRoot), the exact
+  SourceOperationKind and both reviewed plan hashes, the context/ControlBase/FilesystemCapability
+  hashes with HomeAuthorityKey, resolved three-platform targets, and the forbidden roots; it
+  validates BackupRoot (existence, no-reparse, identity stability, Fixed/NTFS, current-user-only
+  security evidence, disjointness), creates the unique predeclared slot atomically, snapshots only
+  planned pre-change managed targets via SafeTreeWalker with the planned tree-hash gate, records
+  MISSING targets and unknown/`.system` root-entry markers without traversal, captures the
+  authority-state and root-claims preimages as exact held bytes, publishes the immutable
+  SchemaVersion=1 receipt (create-new temp, flush, rename; ReceiptHash excludes only itself), and
+  returns a structured object. The restart classifier reads only the declared slot
+  (MISSING/PARTIAL/COMPLETE); the consumer verifier re-validates schema, semantics, the COMPLETE
+  marker, intent bindings, snapshot trees, and preimage bytes; failpoints are capability-gated.
+  `schemas/backup-receipt.schema.json` registers one positive and eight negative fixtures
+  (unknown-property/wrong-version/copied-crossing/marker-crossing Schema,
+  intent-binding/self-hash/target-order/transaction-receipt-alias Semantic) with
+  `Test-BackupReceiptSemantics`; the artifact validator dotsources the module.
+  `scripts/backup.ps1` is retired: public standalone invocations fail closed with the zero-write
+  `backup-is-transaction-internal` diagnostic before traversal; recorded deviation: the
+  sandbox-internal legacy snapshot flow remains as the env-activation bridge until Task 5 Step 1,
+  mirroring the Task 2 close-out deviation. `tests/backup-receipt.tests.ps1` (plus the
+  sandbox-copied receipt host) covers the happy path with custom Reasonix roots, sentinel
+  immutability, fresh-copy link counts, and byte-identical preimages; registered validation and
+  consumer verification; fresh-process restart classification with a decoy sibling; the failure
+  matrix (slot collision, drift, reparse, missing/inside-live/broad-DACL BackupRoot, intent
+  mismatches); a genuine concurrent same-slot race with exactly one winner; all five kill windows
+  with fresh restart classification and second-create refusal; the tamper matrix; and the
+  MISSING-preimage path. Focused validation: backup-receipt PASS (~21 s locally), automation-safety
+  PASS, sync PASS, harness-env 140/0, live-plan 107 PASS, schema-validation PASS,
+  json-artifact-exact-byte PASS, validate-json-artifacts PASS, parse gate 163 files, secret scan
+  clean, `git diff --check` clean; seams re-pinned (dynamic digest `1aff69f1…`, reflection count
+  14288, digest `2580eb60…`) and 56/0. The new suite was budgeted at 300 seconds and the Validate
+  workflow moved to 310 minutes (computed requirement 18285 seconds, margin 315 seconds); the
+  runner budget contract passed. The definitive unified `run-tests.ps1 -All` run then passed all 36
+  discovered suites exactly once with zero failures, timeouts, duplicates, missing suites, or
+  tree-kill failures (external create-new summary SHA-256
+  `c35cf2594b1f2baa186dee088327acfca96f8eacb6fecd43a5758badfa593c89`; discovery hash
+  `bc2c80521319cd7e8ad8ae3c944174af14e31b823243844f8c1f34be26889e00`), with hard-kill exit 0, seams
+  56/0, backup-receipt passed in about 20.5 seconds, sync/harness-env/automation-safety exit 0
+  inside the run, and the external summary path deleted after the evidence was recorded. `docs/
+  README.md` documents the retired standalone entry. Task 3 is complete (7/7; Phase 2 20/52);
+  receipt consumption and the minting transaction host stay with Tasks 4/6/7; production Apply
+  remains interlocked, and no live root or Git index/ref was changed.
+
 ## Current checkpoint
 
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
@@ -894,7 +941,7 @@ stay unconnected to production mutation routes.
 
 ## Current phase
 
-**Phase 2 Task 1 (6/6) and Task 2 (7/7) are complete (Phase 2 overall 13/52), with Tasks 3-9 not
+**Phase 2 Tasks 1-3 (6/6, 7/7, 7/7) are complete (Phase 2 overall 20/52), with Tasks 4-9 not
 started.** Task 1 Step 6 (Verify identity, state shape, and locking) closed on 2026-09-08 with the
 authoritative
 unified validation over the Task 1-complete state (34/34 suites, summary SHA-256
@@ -904,11 +951,13 @@ finalize/stop, schema/semantic layering, canonical-versus-live/retirement non-in
 zero-write losers including the new recover-Apply route-contention block, OS owner-death
 release), with real retirement/sync routes staying with Task 5.
 
-Phase 2 Task 2 closed on 2026-09-09 with the schema 3 semantic plan contract across schema 3,
-environment-build v3, and the plan-facing surfaces (see the close-out record above). The next
-implementable work is Phase 2 Task 3 (unique managed-object and authority-preimage backup
-receipts). Tasks 4-9 follow in strict sequence. Production Apply remains disconnected, and
-live-journal structure and interpretation remain deferred to Task 4.
+Phase 2 Task 3 closed on 2026-09-09 with the managed backup receipts and the standalone backup
+retirement (see the close-out record above). The next implementable work is Phase 2 Task 4 (the
+live-mutation state machine, same-volume staging, journal, and failure classification), which mints
+TransactionId/ReceiptId, publishes the RESERVED header with the ReceiptIntent, appends
+RECEIPT_COMPLETE, and wires the consumed-DocumentHash gate to the live-journal scan. Tasks 5-9
+follow in strict sequence. Production Apply remains disconnected, and live-journal structure and
+interpretation are Task 4's own deliverable.
 
 Step 3 (commits `8ab102f`/`45b9510`/`744f326`/`c107ab8`) added the shared live-transaction
 immediate-child contract with ordered live reservation rows and the split fixed-infrastructure
@@ -959,13 +1008,13 @@ rather than being interpreted heuristically.
 
 ## Remaining work
 
-Phase 2 has 39 of 52 steps remaining. Task 1 and Task 2 are complete; Tasks 3-9 are unstarted:
+Phase 2 has 32 of 52 steps remaining. Tasks 1-3 are complete; Tasks 4-9 are unstarted:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
 | Task 1 | 0/6 | Complete |
 | Task 2 | 0/7 | Complete |
-| Task 3 | 7/7 | Unique managed-object and authority-preimage receipts |
+| Task 3 | 0/7 | Complete |
 | Task 4 | 7/7 | Common live-mutation state machine and journal |
 | Task 5 | 6/6 | Normal sync and retirement migration to the common host |
 | Task 6 | 5/5 | Crash-recovery status, transitions, failpoints, and restart verification |

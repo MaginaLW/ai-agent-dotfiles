@@ -18,8 +18,8 @@ Live-safety hardening is in progress. Baseline-reconciliation Task 1 is complete
 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
-longer served. **Phase 2 Task 1 (6/6) and Task 2 (7/7) are complete; Phase 2 overall is 13/52, with
-Tasks 3-9 not started.** Tracked policy remains
+longer served. **Phase 2 Tasks 1-3 (6/6, 7/7, 7/7) are complete; Phase 2 overall is 20/52, with
+Tasks 4-9 not started.** Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
@@ -2326,6 +2326,82 @@ sandbox, plan, and external summary paths were deleted after the evidence was re
 Apply remains interlocked, and no live root or Git index/ref was changed. `docs/README.md` now
 documents the schema 3 producer contract and the sandbox-hosted dry-run invocation shape.
 
+## 2026-09-09 Phase 2 Task 3 close-out: managed backup receipts and standalone backup retirement
+
+Phase 2 Task 3 (Create Unique Managed and Authority-Preimage Backup Receipts) is complete (7/7;
+Phase 2 20/52), implemented directly by the main agent (the user's "both" instruction after the
+read-only state report) as commits `2be7153` (implementation) and `706fed0` (suite budget), on top
+of the Task 2 close-out and the ZCode adoption docs commit `8bc666c`/`00ca8bf`.
+
+`scripts/backup-receipt-common.ps1` delivers the transaction-internal receipt producer. It receives
+the flushed ReceiptIntent (exact keys, canonical UUID spellings, distinct transaction and receipt
+ids, receipt path leaf bound to the ReceiptId and parent bound to the resolved BackupRoot), the
+exact SourceOperationKind and reviewed PlanHash/DocumentHash, the execution-context/ControlBase/
+FilesystemCapability hashes with the HomeAuthorityKey, already-resolved three-platform targets, and
+the forbidden-root set. It validates BackupRoot (existence, no-reparse ancestry, identity
+stability, Fixed/NTFS, current-user-only security evidence with the reviewed v2 owner set, and
+disjointness from the forbidden/live roots), creates the unique predeclared slot atomically
+(no-follow create-new, collision token), snapshots only the planned pre-change managed targets
+through SafeTreeWalker with the reviewed planned tree-hash gate, records planned-missing targets as
+MISSING without fake directories, records unknown and Codex `.system` root-entry markers without
+traversal, captures the authority state and root-claims preimages as exact held bytes, publishes
+the immutable SchemaVersion=1 receipt (create-new temp, flush, rename) whose ReceiptHash excludes
+only itself, and returns the structured object the host consumes directly. The restart classifier
+reads only the declared slot and reports MISSING/PARTIAL/COMPLETE; the consumer verifier re-reads
+the published receipt exact-byte, re-validates the registered schema and semantics, the COMPLETE
+marker, the intent bindings, the managed snapshot trees, and the preimage bytes (the bound source
+Identity is provenance and intentionally not re-derivable from the snapshot copy). Test-only
+failpoints are capability-gated.
+
+`schemas/backup-receipt.schema.json` registers the receipt with the artifact registry (one positive,
+eight negative fixtures: unknown-property/wrong-version/copied-crossing/marker-crossing at the
+Schema layer and intent-binding/self-hash/target-order/transaction-receipt-alias at the Semantic
+layer) and `validate-json-artifacts.ps1` dotsources the new module; the fixture set passes 25
+contracts' worth of registered validation with zero failures.
+
+`scripts/backup.ps1` is retired: a public standalone invocation now fails closed with the zero-write
+non-zero `backup-is-transaction-internal` diagnostic before any traversal or BackupRoot work.
+Recorded deviation: the sandbox-internal legacy snapshot flow remains as the bridge for the env
+activation route (`activate-harness-env.ps1` Gate 4 inside `sync.ps1`'s selector-triggered legacy
+deploy), because the roadmap deletes the legacy swap/journal paths only in Task 5 Step 1; the
+production-facing standalone entry is fully dead and the diagnostic replaces the interlock message
+that automation-safety previously asserted.
+
+`tests/backup-receipt.tests.ps1` (with the sandbox-copied receipt host helper) covers the happy path
+(custom Reasonix root, MISSING targets, unknown/`.system` sentinel bytes and write timestamps
+unchanged, fresh-copy link counts, byte-identical preimages), the registered artifact validation and
+consumer verification with and without optional bindings, restart classification in a fresh process
+with a decoy sibling slot, the producer failure matrix (same-slot collision, pre-created destination,
+planned tree-hash drift, planned-present target missing, planned-missing target now existing,
+reparse entries leaving a partial slot, missing/inside-live/broad-DACL BackupRoot, receipt-path leaf
+and parent and aliasing intent mismatches), a genuine concurrent same-slot race with exactly one
+winner, all five kill windows (slot-created, snapshot-published, preimage-published, receipt-published,
+complete-published) with fresh restart classification and second-create refusal, and the tamper
+matrix (byte-tampered document, wrong SchemaVersion, drifted SourceOperationKind and plan hashes
+against the expected bindings, tampered snapshot, missing preimage, tampered COMPLETE marker), plus
+the MISSING-preimage recording and verification path.
+
+Focused validation: backup-receipt PASS (about 21 seconds locally), automation-safety PASS,
+sync PASS, harness-env 140/0, live-plan 107 PASS, schema-validation PASS, json-artifact-exact-byte
+PASS, validate-json-artifacts PASS, the PowerShell parse gate accepted all 163 files, the pinned
+secret scan found no blocking findings, and `git diff --check` was clean; the seams boundary was
+re-pinned (all-scripts dynamic-command digest `1aff69f1842635904847dc47a6c3e0bf0fa1aed4f466156f2ce560ec414e5062`,
+reflection-sensitive inventory count 14288, digest
+`2580eb60d85f5b3e1b53f093dd009c1dbe252d877e5b3e5bbb3e571575e20dab`) and passed 56/0. The new suite
+was budgeted at 300 seconds and the Validate workflow timeout moved from 305 to 310 minutes
+(computed requirement 18285 seconds over 36 discovered suites, outer margin 315 seconds); the
+runner budget contract passed. The definitive unified `run-tests.ps1 -All` run then discovered,
+started, completed, and passed all 36 suites exactly once with zero failures, timeouts, duplicates,
+missing suites, or tree-kill failures; the external create-new summary SHA-256 is
+`c35cf2594b1f2baa186dee088327acfca96f8eacb6fecd43a5758badfa593c89` and the discovery hash is
+`bc2c80521319cd7e8ad8ae3c944174af14e31b823243844f8c1f34be26889e00`, with hard-kill exit 0, seams
+56/0, backup-receipt passed in about 20.5 seconds, sync exit 0, harness-env exit 0, and
+automation-safety exit 0 inside the run. The external summary path is deleted after this evidence
+was recorded. Production Apply remains interlocked, and no live root or Git index/ref was changed.
+`docs/README.md` documents the retired standalone backup entry. Receipt consumption (restart
+classification plus verified rollback) stays with Tasks 4/6/7; the transaction host that mints
+TransactionId/ReceiptId and flushes the reservation header arrives with Task 4.
+
 ## Validation status
 
 The fresh 2026-08-22 unified run used `scripts/run-tests.ps1 -All` and an external create-new JSON
@@ -2664,15 +2740,14 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
 
 ## Remaining roadmap snapshot
 
-Phase 2 has 39 of 52 steps remaining. Task 1 and Task 2 are complete; Tasks 3-9 have not started.
+Phase 2 has 32 of 52 steps remaining. Tasks 1-3 are complete; Tasks 4-9 have not started.
 The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
 | Task 1 | 0/6 | Complete |
 | Task 2 | 0/7 | Complete |
-| Task 3 | 7/7 | Unique managed-object and authority-preimage backup receipts |
-| Task 3 | 7/7 | Unique managed-object and authority-preimage backup receipts |
+| Task 3 | 0/7 | Complete |
 | Task 4 | 7/7 | Live-mutation state machine, same-volume staging, journal, and failure classification |
 | Task 5 | 6/6 | Common transaction host for normal sync and explicit retirement |
 | Task 6 | 5/5 | Read-only recovery status, reviewed recovery transitions, failpoints, and restart behavior |
@@ -2686,13 +2761,13 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 2 is complete (7/7; Phase 2 13/52) as of 2026-09-09. Continue with Phase 2 Task 3
-   (unique managed-object and authority-preimage backup receipts), followed by Tasks 4-9 in strict
-   sequence. The legacy content-aware deploy route in `sync.ps1` (explicitly bound
-   `-HomeRoot`/`-BackupRoot`, the env activation contract) and the extracted
-   `tests/helpers/task5-environment-sync-regression.ps1` regression are Task 5 migration inputs;
-   Task 4 wires the consumed-DocumentHash gate to the live-journal scan. Live-journal structure and
-   interpretation stay with Task 4; production Apply remains interlocked throughout.
+1. Phase 2 Task 3 is complete (7/7; Phase 2 20/52) as of 2026-09-09. Continue with Phase 2 Task 4
+   (the live-mutation state machine, same-volume staging, journal, and failure classification),
+   followed by Tasks 5-9 in strict sequence. Task 4 wires the receipt into the receipt-backed
+   reservation (TransactionId/ReceiptId minting, RESERVED header, RECEIPT_COMPLETE) and the
+   consumed-DocumentHash gate to the live-journal scan; the retired standalone backup's
+   sandbox-internal legacy bridge and the extracted content-aware regression are Task 5 migration
+   inputs. Production Apply remains interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

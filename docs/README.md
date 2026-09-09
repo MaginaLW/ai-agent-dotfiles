@@ -72,7 +72,7 @@
 | `manifests/managed-skills.txt` | 三平台 union inventory；实际 prune authority 使用各平台 manifest，旧 live 名称默认按 unknown 保留 |
 | `scripts/build-skills.ps1` | 从源生成 runtime output，并刷新 manifest |
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
-| `scripts/backup.ps1` | 预览 live Claude/Codex/Reasonix backup；Phase 0 的 non-DryRun 调用被 interlock |
+| `scripts/backup.ps1` | 公共 standalone 入口已退役：零写、非零 `backup-is-transaction-internal` 诊断；受管快照由事务宿主经 backup-receipt 创建（Task 5 前沙箱内 legacy 桥除外） |
 | `scripts/sync.ps1` | schema 3 语义计划 producer（pristine-initial / 显式 retirement），只在 internal sandbox 内 DryRun；显式绑定 `-HomeRoot`/`-BackupRoot` 时保留旧 content-aware 部署路由（env activation 契约，Task 5 Step 1 移除） |
 | `scripts/config-status.ps1` | 只读 config drift 报告（repo ↔ home），见 §14 |
 | `scripts/config-pull.ps1` | 部署 harness 配置 repo→home，默认 dry-run，`-Apply` gated |
