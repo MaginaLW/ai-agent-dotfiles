@@ -137,6 +137,22 @@
             )
             SemanticValidator = 'Test-LiveSyncPlanSemantics'
         }
+        'backup-receipt' = @{
+            SchemaVersion = 1
+            SchemaPath = 'schemas/backup-receipt.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/backup-receipt.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/backup-receipt.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/backup-receipt.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'copied-crossing'; Path = 'tests/fixtures/artifacts/backup-receipt.copied-crossing.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'marker-crossing'; Path = 'tests/fixtures/artifacts/backup-receipt.marker-crossing.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'intent-binding'; Path = 'tests/fixtures/artifacts/backup-receipt.intent-binding.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'self-hash'; Path = 'tests/fixtures/artifacts/backup-receipt.self-hash.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'target-order'; Path = 'tests/fixtures/artifacts/backup-receipt.target-order.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'transaction-receipt-alias'; Path = 'tests/fixtures/artifacts/backup-receipt.transaction-receipt-alias.invalid.json'; FailureLayer = 'Semantic' }
+            )
+            SemanticValidator = 'Test-BackupReceiptSemantics'
+        }
         'harness-env-build' = @{
             SchemaVersion = 3
             SchemaPath = 'schemas/harness-env-build.schema.json'

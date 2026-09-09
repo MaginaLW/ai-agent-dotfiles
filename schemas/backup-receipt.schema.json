@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/backup-receipt.schema.json",
+  "title": "AI Agent Dotfiles Managed Backup Receipt",
+  "type": "object",
+  "required": [
+    "SchemaVersion", "ArtifactKind", "SourceTransactionId", "ReceiptId", "ReceiptPath",
+    "SourceOperationKind", "PlanHash", "DocumentHash", "ExecutionContextHash",
+    "ControlBaseHash", "FilesystemCapabilityHash", "HomeAuthorityKey", "ReceiptIntent",
+    "ManagedSnapshots", "UnknownMarkers", "SystemMarker", "AuthorityStatePreimage",
+    "RootClaimsPreimage", "CreatedAtUtc", "ReceiptHash"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "backup-receipt" },
+    "SourceTransactionId": { "$ref": "#/$defs/uuid" },
+    "ReceiptId": { "$ref": "#/$defs/uuid" },
+    "ReceiptPath": { "$ref": "#/$defs/absolutePath" },
+    "SourceOperationKind": {
+      "enum": ["initial", "environment", "task-overlay", "migrate", "adopt", "repair-adopt", "retirement"]
+    },
+    "PlanHash": { "$ref": "#/$defs/hash" },
+    "DocumentHash": { "$ref": "#/$defs/hash" },
+    "ExecutionContextHash": { "$ref": "#/$defs/hash" },
+    "ControlBaseHash": { "$ref": "#/$defs/hash" },
+    "FilesystemCapabilityHash": { "$ref": "#/$defs/hash" },
+    "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+    "ReceiptIntent": {
+      "type": "object",
+      "required": ["Id", "Path"],
+      "properties": {
+        "Id": { "$ref": "#/$defs/uuid" },
+        "Path": { "$ref": "#/$defs/absolutePath" }
+      },
+      "additionalProperties": false
+    },
+    "ManagedSnapshots": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/platformSnapshot" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSnapshot" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSnapshot" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "UnknownMarkers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Platform", "Name", "Identity"],
+        "properties": {
+          "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+          "Name": { "type": "string", "minLength": 1 },
+          "Identity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "SystemMarker": {
+      "type": "object",
+      "required": ["Platform", "Name", "Present", "Identity"],
+      "properties": {
+        "Platform": { "const": "Codex" },
+        "Name": { "const": ".system" },
+        "Present": { "type": "boolean" },
+        "Identity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "Present": { "const": true },
+            "Identity": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "properties": {
+            "Present": { "const": false },
+            "Identity": { "type": "null" }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "AuthorityStatePreimage": { "$ref": "#/$defs/preimage" },
+    "RootClaimsPreimage": { "$ref": "#/$defs/preimage" },
+    "CreatedAtUtc": { "type": "string", "format": "date-time" },
+    "ReceiptHash": { "$ref": "#/$defs/hash" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "absolutePath": { "type": "string", "minLength": 4, "pattern": "^[A-Za-z]:\\\\" },
+    "directoryIdentity": { "type": "string", "minLength": 25, "maxLength": 25, "pattern": "^[0-9a-f]{8}:[0-9a-f]{16}$" },
+    "platformSnapshot": {
+      "type": "object",
+      "required": ["Platform", "LiveRoot", "RootHash", "Targets"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "LiveRoot": { "$ref": "#/$defs/absolutePath" },
+        "RootHash": { "$ref": "#/$defs/hash" },
+        "Targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["Name", "Status", "LiveIdentity", "SnapshotTreeHash"],
+            "properties": {
+              "Name": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+              "Status": { "enum": ["COPIED", "MISSING"] },
+              "LiveIdentity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] },
+              "SnapshotTreeHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+            },
+            "oneOf": [
+              {
+                "properties": {
+                  "Status": { "const": "COPIED" },
+                  "LiveIdentity": { "type": "string", "minLength": 1 },
+                  "SnapshotTreeHash": { "type": "string", "minLength": 1 }
+                }
+              },
+              {
+                "properties": {
+                  "Status": { "const": "MISSING" },
+                  "LiveIdentity": { "type": "null" },
+                  "SnapshotTreeHash": { "type": "null" }
+                }
+              }
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "preimage": {
+      "type": "object",
+      "required": ["Status", "SourcePath", "Hash", "Length", "Identity"],
+      "properties": {
+        "Status": { "enum": ["COPIED", "MISSING"] },
+        "SourcePath": { "oneOf": [{ "$ref": "#/$defs/absolutePath" }, { "type": "null" }] },
+        "Hash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "Length": { "oneOf": [{ "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, { "type": "null" }] },
+        "Identity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "Status": { "const": "COPIED" },
+            "SourcePath": { "type": "string", "minLength": 1 },
+            "Hash": { "type": "string", "minLength": 1 },
+            "Length": { "type": "integer", "minimum": 0 },
+            "Identity": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "properties": {
+            "Status": { "const": "MISSING" },
+            "SourcePath": { "type": "null" },
+            "Hash": { "type": "null" },
+            "Length": { "type": "null" },
+            "Identity": { "type": "null" }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

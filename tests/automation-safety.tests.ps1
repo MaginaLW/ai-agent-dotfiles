@@ -37,7 +37,7 @@ try {
         $result = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/backup.ps1') -Arguments @('-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot)
     }
     finally { $lock.Dispose() }
-    Assert-TestCondition ($result.Code -ne 0 -and $result.Out -match 'safety-protocol-upgrade-required') 'standalone backup is interlocked before protected .system traversal'
+    Assert-TestCondition ($result.Code -ne 0 -and $result.Out -match 'backup-is-transaction-internal') 'standalone backup is retired to the zero-write transaction-internal diagnostic'
     Assert-TestCondition (-not (Test-Path -LiteralPath $backupRoot)) 'interlocked calls create no backup root'
     Assert-TestCondition ((Get-FileHash -LiteralPath $systemSentinel -Algorithm SHA256).Hash -eq $beforeHash) 'protected .system sentinel remains byte-identical'
     Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'interlocked calls create no state path'

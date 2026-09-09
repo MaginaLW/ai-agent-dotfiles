@@ -1,15 +1,25 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Back up the live Claude, Codex, and Reasonix skill directories to a
-    timestamped folder outside the repository.
+    Standalone backup entry: retired to a zero-write diagnostic.
 
 .DESCRIPTION
-    Creates <BackupRoot>\sync-backup-YYYYMMDD-HHMMSS\ containing claude-skills\,
-    codex-skills\ (a FULL copy including Codex's platform-managed .system), and
-    reasonix-skills\.
-    Missing live directories are recorded with a .MISSING.txt marker rather than
-    failing. Uses robocopy /E (never /MIR) into a fresh folder.
+    The managed pre-change snapshot is transaction-internal: only the live
+    transaction host creates a mutation-bound backup receipt
+    (scripts/backup-receipt-common.ps1), and the reviewed plan already carries
+    the managed backup preview. A public standalone invocation therefore fails
+    closed with the non-zero `backup-is-transaction-internal` diagnostic and
+    writes nothing.
+
+    The only remaining caller is the legacy content-aware deploy route inside
+    scripts/sync.ps1 (the env activation contract, removed by Task 5 Step 1).
+    That route runs exclusively inside the internal sandbox, where the
+    capability gate below admits it: the snapshot keeps its pre-Task-3 shape
+    (<BackupRoot>\sync-backup-YYYYMMDD-HHMMSS\ with claude-skills\,
+    codex-skills\ including Codex's platform-managed .system, and
+    reasonix-skills\; missing live directories recorded with .MISSING.txt
+    markers; robocopy /E, never /MIR, into a fresh folder) until Task 5
+    replaces it with receipt-backed snapshots.
 
 .PARAMETER HomeRoot
     Home directory root for resolving live paths. Defaults to $env:USERPROFILE.
@@ -48,6 +58,13 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 . (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+if (-not (Test-LiveSafetySandboxCapability)) {
+    # The public standalone entry is retired (Phase 2 Task 3): zero writes,
+    # non-zero diagnostic, before any traversal or BackupRoot work.
+    Write-Host 'backup-is-transaction-internal: managed backups are created by the live transaction host from a bound ReceiptIntent.'
+    Write-Host 'The reviewed plan carries the managed backup preview; public standalone snapshots are no longer produced.'
+    exit 1
+}
 if (-not $DryRun) {
     Assert-LiveSafetyMutationAllowed -Operation 'standalone-backup' -Paths @($RepoRoot, $HomeRoot, $BackupRoot, $ReasonixLiveSkillsPath)
 }
