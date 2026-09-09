@@ -180,7 +180,7 @@ try {
 
     Write-Host '[chain validator]'
     $chainAfter = Get-SealedLiveJournalChain -TransactionDirectory $transactionDir
-    $null = Test-SealedLiveJournalChain -Header $chainAfter.Header -Records $chainAfter.Records -Result $chainAfter.Result
+    $null = Test-SealedLiveJournalChain -Header $chainAfter.Header -Records $chainAfter.Records -Result $chainAfter.Result -ResultFileHash $chainAfter.ResultFileHash
     Assert $true 'the complete chain with an original closing validates'
     $broken = @(@($chainAfter.Records[0..1]) + @($chainAfter.Records[0]))
     Assert-ThrowsToken { Test-SealedLiveJournalChain -Header $chainAfter.Header -Records $broken -Result $null } 'manual-recovery-required' 'a duplicate sequence fails the chain'
@@ -191,7 +191,7 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $pendingDir 'record-000004-deadbeef.tmp'), 'partial', [System.Text.UTF8Encoding]::new($false))
     $chainPending = Get-SealedLiveJournalChain -TransactionDirectory $transactionDir
     Assert ($chainPending.UnknownNames.Count -eq 0) 'a known _pending temp stays outside the chain namespace'
-    $null = Test-SealedLiveJournalChain -Header $chainPending.Header -Records $chainPending.Records -Result $chainPending.Result
+    $null = Test-SealedLiveJournalChain -Header $chainPending.Header -Records $chainPending.Records -Result $chainPending.Result -ResultFileHash $chainPending.ResultFileHash
     Assert $true 'a pending temp does not disturb the closed chain validation'
 
     Write-Host '[result semantic matrix]'
@@ -218,14 +218,82 @@ try {
     Assert-ThrowsToken { Test-LiveOperationResultSemantics -Document $rollbackMissingRestoration } 'live-transaction-intent-mismatch' 'a rolled-back result without restoration proof fails closed'
 
 
+
+    Write-Host '[live mutation engine: state context helpers]'
+    function New-EngineTargetContextIntent {
+        param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Platforms)
+        $rows = [System.Collections.Generic.List[object]]::new()
+        foreach ($platformRow in @($Platforms)) {
+            $platform = [string] $platformRow.Platform
+            $liveRoot = [string] $platformRow.LiveRoot
+            $context = Get-TargetMetadataContext -Path $liveRoot
+            $identity = [string] $context.Ancestors[-1].Identity
+            $rows.Add([ordered]@{
+                Platform = $platform
+                LocationKey = [string] $context.LocationKey
+                RequestedPath = [string] $context.RequestedPath
+                InitialState = 'EXISTS'
+                VolumeId = [string] $context.VolumeId
+                DeepestExistingParentPath = [string] $context.RequestedPath
+                DeepestExistingParentIdentity = $identity
+                MissingRemainder = @()
+                InitialDirectoryIdentity = $identity
+                ExpectedPostState = 'EXISTS'
+            })
+        }
+        return [ordered]@{
+            HomeAuthorityKey = ('a' * 64)
+            Rows = @($rows)
+        }
+    }
+
+    function New-EngineAuthorityStateIntent {
+        param(
+            [Parameter(Mandatory)] [string] $ClaimsHash,
+            [Parameter(Mandatory)] [string] $PlanHash,
+            [Parameter(Mandatory)] [string] $DocumentHash
+        )
+        return [ordered]@{
+            SchemaVersion = 3
+            ArtifactKind = 'current-env-state'
+            HomeAuthorityKey = ('a' * 64)
+            AuthorityGeneration = 1
+            RootClaimsHash = $ClaimsHash
+            SelectionKind = 'environment'
+            EnvironmentName = 'work'
+            EnvironmentLockHash = ('6' * 64)
+            TaskOverlayHash = ('7' * 64)
+            TaskOverlaySkills = @(
+                [ordered]@{ Platform = 'Claude'; Skills = @() },
+                [ordered]@{ Platform = 'Codex'; Skills = @() },
+                [ordered]@{ Platform = 'Reasonix'; Skills = @() }
+            )
+            ManifestHashes = @(
+                [ordered]@{ Platform = 'Claude'; Hash = ('b' * 64) },
+                [ordered]@{ Platform = 'Codex'; Hash = ('c' * 64) },
+                [ordered]@{ Platform = 'Reasonix'; Hash = ('d' * 64) }
+            )
+            FinalManagedHashes = @(
+                [ordered]@{ Platform = 'Claude'; Hash = ('1' * 64) },
+                [ordered]@{ Platform = 'Codex'; Hash = ('2' * 64) },
+                [ordered]@{ Platform = 'Reasonix'; Hash = ('3' * 64) }
+            )
+            ControllerRepoFingerprint = ('5' * 64)
+            ApprovedToolchainHash = ('4' * 64)
+            PlanHash = $PlanHash
+            DocumentHash = $DocumentHash
+            LastOperationKind = 'retirement'
+        }
+    }
+
     Write-Host '[live mutation engine: retirement sequence]'
     $engineWork = Join-Path $work 'engine'
     $liveClaude = Join-Path $engineWork 'live/claude/skills'
     $liveCodex = Join-Path $engineWork 'live/codex/skills'
+    $liveReasonix = Join-Path $engineWork 'live/reasonix/skills'
     $stagingClaude = Join-Path $engineWork 'staging/claude'
     $stagingCodex = Join-Path $engineWork 'staging/codex'
     $stagingReasonix = Join-Path $engineWork 'staging/reasonix'
-    $liveReasonix = Join-Path $engineWork 'live/reasonix/skills'
     $backupRootEngine = Join-Path $engineWork 'backups'
     foreach ($dir in @(
         (Join-Path $liveClaude 'kept-claude'),
@@ -235,12 +303,22 @@ try {
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
     }
     Write-TextFile -Path (Join-Path $liveClaude 'kept-claude/SKILL.md') -Content 'kept-old'
-    Write-TextFile -Path (Join-Path $liveClaude 'second-add/SKILL.md') -Content 'second-live'
     Write-TextFile -Path (Join-Path $liveCodex 'retired-codex/SKILL.md') -Content 'retired-old'
+    Write-TextFile -Path (Join-Path $liveClaude 'second-add/SKILL.md') -Content 'second-live'
     $sourceTree = Join-Path $engineWork 'source/claude/skills'
     New-Item -ItemType Directory -Force -Path (Join-Path $sourceTree 'kept-claude'), (Join-Path $sourceTree 'added-claude') | Out-Null
     Write-TextFile -Path (Join-Path $sourceTree 'kept-claude/SKILL.md') -Content 'kept-new'
     Write-TextFile -Path (Join-Path $sourceTree 'added-claude/SKILL.md') -Content 'added-new'
+    $engineControlBase = Join-Path $engineWork 'control'
+    $engineAuthorityKey = ('a' * 64)
+    $engineClaimsBytes = [System.Text.UTF8Encoding]::new($false).GetBytes('{"artifact":"root-claims","fixture":"engine"}')
+    $engineClaimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($engineClaimsBytes)).ToLowerInvariant()
+    $engineCapabilityHashes = [ordered]@{ Claude = ('9' * 64); Codex = ('8' * 64); Reasonix = ('7' * 64) }
+    $authorityDir = Join-Path (Join-Path $engineControlBase 'homes') $engineAuthorityKey
+    New-Item -ItemType Directory -Force -Path $authorityDir | Out-Null
+    [System.IO.File]::WriteAllBytes((Join-Path $authorityDir 'root-claims.json'), $engineClaimsBytes)
+    [System.IO.File]::WriteAllText((Join-Path $authorityDir 'current-env.json'), '{"artifact":"current-env-state","fixture":"pre-existing"}', [System.Text.UTF8Encoding]::new($false))
+
     $keptOldHash = (Get-SafeTreeSnapshot -Root (Join-Path $liveClaude 'kept-claude')).TreeHash
     $keptNewHash = (Get-SafeTreeSnapshot -Root (Join-Path $sourceTree 'kept-claude')).TreeHash
     $addedNewHash = (Get-SafeTreeSnapshot -Root (Join-Path $sourceTree 'added-claude')).TreeHash
@@ -256,10 +334,11 @@ try {
         TransactionMode = 'receipt-backed'
         OriginalDocumentHash = ('1' * 64)
         OriginalPlanHash = ('2' * 64)
-        HomeAuthorityKey = ('a' * 64)
+        HomeAuthorityKey = $engineAuthorityKey
         OriginRepoId = ('3' * 64)
         GitCommonDirHash = ('4' * 64)
         CanonicalLockKey = ('5' * 64)
+        RootClaimsHash = $engineClaimsHash
         ReceiptIntent = [ordered]@{
             Id = $engineReceiptId
             Path = (Join-Path $backupRootEngine $engineReceiptId)
@@ -274,15 +353,12 @@ try {
     $engineDir = Join-Path $engineWork 'live-transactions' $engineTransactionId
     New-SealedLiveJournalHeader -Document $engineHeader -TransactionDirectory $engineDir | Out-Null
 
-    # The receipt snapshots the pre-change managed targets exactly as the
-    # transaction targets bind them.
     $receiptPlatforms = @(
         [ordered]@{
             Platform = 'Claude'
             LiveRoot = $liveClaude
             Targets = @(
-                [ordered]@{ Name = 'kept-claude'; LivePath = (Join-Path $liveClaude 'kept-claude'); PlannedTreeHash = $keptOldHash },
-                [ordered]@{ Name = 'added-claude'; LivePath = (Join-Path $liveClaude 'added-claude'); PlannedTreeHash = $null }
+                [ordered]@{ Name = 'kept-claude'; LivePath = (Join-Path $liveClaude 'kept-claude'); PlannedTreeHash = $keptOldHash }
             )
         },
         [ordered]@{
@@ -306,7 +382,7 @@ try {
         ExecutionContextHash = ('3' * 64)
         ControlBaseHash = ('4' * 64)
         FilesystemCapabilityHash = ('5' * 64)
-        HomeAuthorityKey = ('a' * 64)
+        HomeAuthorityKey = $engineAuthorityKey
         BackupRoot = $backupRootEngine
         Platforms = $receiptPlatforms
         ForbiddenRoots = @()
@@ -326,22 +402,30 @@ try {
     $engineTargets = New-SealedLiveTransactionTargetPlan -BackupRoot $backupRootEngine -ReceiptIntent $engineHeader['ReceiptIntent'] -Platforms $receiptPlatforms -Actions $engineActions -LiveRootContexts $engineContexts
     Assert (@($engineTargets).Count -eq 3) 'the target plan binds exactly three mutation targets'
     New-Item -ItemType Directory -Force -Path (Join-Path $engineWork 'source/codex/skills') | Out-Null
-    $engineSourceRoots = [ordered]@{ Claude = $sourceTree; Codex = (Join-Path $engineWork 'source/codex/skills') }
-    $mutationResult = Invoke-SealedLiveTransactionMutation -TransactionDirectory $engineDir -Header $engineHeader -Receipt $engineReceipt -Targets $engineTargets -SourceRootsByPlatform $engineSourceRoots
+    $engineSourceRoots = [ordered]@{ Claude = $sourceTree; Codex = (Join-Path $engineWork 'source/codex/skills'); Reasonix = (Join-Path $engineWork 'live/reasonix/skills') }
+    $engineTargetContext = New-EngineTargetContextIntent -Platforms $receiptPlatforms
+    $mutationResult = Invoke-SealedLiveTransactionMutation -TransactionDirectory $engineDir -Header $engineHeader -Receipt $engineReceipt -Targets $engineTargets -SourceRootsByPlatform $engineSourceRoots -AuthorityStateIntent (New-EngineAuthorityStateIntent -ClaimsHash $engineClaimsHash -PlanHash ('1' * 64) -DocumentHash ('2' * 64)) -TargetContextIntent $engineTargetContext -FinalCapabilityHashesByPlatform $engineCapabilityHashes -ControlBase $engineControlBase -StateRecoveryDirectory (Join-Path $stagingClaude 'state-recovery')
 
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $liveClaude 'kept-claude/SKILL.md')) -eq 'kept-new') 'the update target installs the new bytes'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $liveClaude 'added-claude/SKILL.md')) -eq 'added-new') 'the add target installs the staged copy'
     Assert (-not (Test-Path -LiteralPath (Join-Path $liveCodex 'retired-codex'))) 'the prune target is removed from live'
     Assert (Test-Path -LiteralPath (Join-Path $stagingCodex 'swap/retired-codex/SKILL.md')) 'the pruned old copy is preserved in swap-old'
-    Assert ((Get-Content -Raw -LiteralPath (Join-Path $stagingClaude 'swap/kept-claude/SKILL.md')) -eq 'kept-old') 'the update old copy is preserved in swap-old'
     Assert (-not (Test-Path -LiteralPath (Join-Path $stagingClaude 'staged/added-claude'))) 'the installed add target leaves no staged copy'
     $engineChain = Get-SealedLiveJournalChain -TransactionDirectory $engineDir
     $phases = @($engineChain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
     Assert (@($phases | Where-Object { $_ -ceq 'RECEIPT_COMPLETE' }).Count -eq 1) 'the engine publishes exactly one RECEIPT_COMPLETE record'
     Assert (@($phases | Where-Object { $_ -ceq 'NEW_INSTALLED' }).Count -eq 3) 'the engine publishes three NEW_INSTALLED records'
+    Assert (@($phases | Where-Object { $_ -ceq 'STATE_PUBLISHED' }).Count -eq 1) 'the engine publishes the authority state record'
     Assert (@($phases | Where-Object { $_ -ceq 'POSTCONDITIONS_OK' }).Count -eq 1) 'the engine publishes the aggregate POSTCONDITIONS_OK record'
-    $null = Test-SealedLiveJournalChain -Header $engineChain.Header -Records $engineChain.Records -Result $null
+    Assert (@($phases | Where-Object { $_ -ceq 'COMPLETE' }).Count -eq 1) 'the engine publishes the terminal record'
+    Assert ($null -ne $engineChain.Result -and [string] $engineChain.Result.Outcome -ceq 'committed') 'the engine publishes the committed fixed result'
+    $null = Test-SealedLiveJournalChain -Header $engineChain.Header -Records $engineChain.Records -Result $engineChain.Result -ResultFileHash $engineChain.ResultFileHash
     Assert $true 'the engine journal chain validates end to end'
+    $installedStateBytes = [System.IO.File]::ReadAllBytes((Join-Path $authorityDir 'current-env.json'))
+    $installedStateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($installedStateBytes)).ToLowerInvariant()
+    Assert ($installedStateHash -ceq [string] $mutationResult.StateHash) 'the installed state bytes match the returned StateHash'
+    Assert (Test-Path -LiteralPath (Join-Path $stagingClaude 'state-recovery/current-env.preimage.json')) 'the old state recovery copy is retained'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $authorityDir 'root-claims.json')) -notmatch 'placeholder-changed') 'the immutable claims file is untouched by existing-authority transactions'
 
     Write-Host '[live mutation engine: failure restoration]'
     $restoreTransactionId = [Guid]::NewGuid().ToString()
@@ -380,7 +464,7 @@ try {
         ExecutionContextHash = ('3' * 64)
         ControlBaseHash = ('4' * 64)
         FilesystemCapabilityHash = ('5' * 64)
-        HomeAuthorityKey = ('a' * 64)
+        HomeAuthorityKey = $engineAuthorityKey
         BackupRoot = $backupRootEngine
         Platforms = $restorePlatforms
         ForbiddenRoots = @()
@@ -394,32 +478,37 @@ try {
     $keptCurrentHash = (Get-SafeTreeSnapshot -Root (Join-Path $liveClaude 'kept-claude')).TreeHash
     $restoreActions = @(
         [ordered]@{ Platform = 'Claude'; Action = 'update'; Name = 'kept-claude'; SourceHash = (Get-SafeTreeSnapshot -Root (Join-Path $engineWork 'source/claude2/skills/kept-claude')).TreeHash; LiveHash = $keptCurrentHash },
-        [ordered]@{ Platform = 'Claude'; Action = 'add'; Name = 'second-add'; SourceHash = ('9' * 64); LiveHash = $null }
+        [ordered]@{ Platform = 'Claude'; Action = 'update'; Name = 'second-add'; SourceHash = ('9' * 64); LiveHash = (Get-SafeTreeSnapshot -Root (Join-Path $liveClaude 'second-add')).TreeHash }
     )
-    $restoreTargets = New-SealedLiveTransactionTargetPlan -BackupRoot $backupRootEngine -ReceiptIntent $restoreHeader['ReceiptIntent'] -Platforms $receiptPlatforms -Actions $restoreActions -LiveRootContexts @(
+    $restoreTargets = New-SealedLiveTransactionTargetPlan -BackupRoot $backupRootEngine -ReceiptIntent $restoreHeader['ReceiptIntent'] -Platforms $restorePlatforms -Actions $restoreActions -LiveRootContexts @(
         [ordered]@{ Platform = 'Claude'; LiveRoot = $liveClaude; DeepestExistingParentPath = $liveClaude; MissingRemainder = @(); StagingRoot = $restoreStagingClaude },
         [ordered]@{ Platform = 'Codex'; LiveRoot = $liveCodex; DeepestExistingParentPath = $liveCodex; MissingRemainder = @(); StagingRoot = $restoreStagingCodex },
         [ordered]@{ Platform = 'Reasonix'; LiveRoot = $liveReasonix; DeepestExistingParentPath = $liveReasonix; MissingRemainder = @(); StagingRoot = (Join-Path $engineWork 'staging/reasonix2') }
     )
-    $engineSourceRoots2 = [ordered]@{ Claude = (Join-Path $engineWork 'source/claude2/skills'); Codex = (Join-Path $engineWork 'source/codex/skills') }
+    $engineSourceRoots2 = [ordered]@{ Claude = (Join-Path $engineWork 'source/claude2/skills'); Codex = (Join-Path $engineWork 'source/codex/skills'); Reasonix = $liveReasonix }
     $driftThrew = $false
     $driftError = $null
     try {
-        Invoke-SealedLiveTransactionMutation -TransactionDirectory $restoreDir -Header $restoreHeader -Receipt $restoreReceipt -Targets $restoreTargets -SourceRootsByPlatform $engineSourceRoots2
+        Invoke-SealedLiveTransactionMutation -TransactionDirectory $restoreDir -Header $restoreHeader -Receipt $restoreReceipt -Targets $restoreTargets -SourceRootsByPlatform $engineSourceRoots2 -AuthorityStateIntent (New-EngineAuthorityStateIntent -ClaimsHash $engineClaimsHash -PlanHash ('1' * 64) -DocumentHash ('2' * 64)) -TargetContextIntent $engineTargetContext -FinalCapabilityHashesByPlatform $engineCapabilityHashes -ControlBase $engineControlBase -StateRecoveryDirectory (Join-Path $restoreStagingClaude 'state-recovery')
     }
     catch {
         $driftThrew = $true
         $driftError = $_
     }
     Assert $driftThrew 'a drifted second target fails the sequence after the first target installed'
-    Assert ($driftError.Exception.Message -match 'live-transaction-hash-mismatch') 'the drift failure carries the hash-mismatch token'
+    Assert ($driftError.Exception.Message -match 'apply-failed-but-restored') 'the drift failure publishes failed-restored and exits apply-failed-but-restored'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $liveClaude 'kept-claude/SKILL.md')) -eq 'kept-new') 'the failed update target restores the old content into live'
     Assert (Test-Path -LiteralPath (Join-Path $restoreStagingClaude 'staged/kept-claude/SKILL.md')) 'the installed new copy returns to staging as recovery material'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $liveClaude 'second-add/SKILL.md')) -eq 'second-live') 'the drifted second target stays untouched in live'
     $restoreChain = Get-SealedLiveJournalChain -TransactionDirectory $restoreDir
     $restorePhases = @($restoreChain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
     Assert (@($restorePhases | Where-Object { $_ -ceq 'NEW_INSTALLED' }).Count -eq 1) 'only the first target reached NEW_INSTALLED before the drift failure'
-    Assert (@($restorePhases | Where-Object { $_ -ceq 'COMPLETE' }).Count -eq 0) 'the failed sequence publishes no terminal record'
+    Assert (@($restorePhases | Where-Object { $_ -ceq 'COMPLETE' }).Count -eq 1) 'the verified restoration publishes the terminal record'
+    Assert ($null -ne $restoreChain.Result -and [string] $restoreChain.Result.Outcome -ceq 'failed-restored') 'the verified restoration publishes the failed-restored fixed result'
+    $restoreStateBytes = [System.IO.File]::ReadAllBytes((Join-Path $authorityDir 'current-env.json'))
+    $restoreStateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($restoreStateBytes)).ToLowerInvariant()
+    Assert ([string] $restoreChain.Result.StateHash -ceq $restoreStateHash) 'the failed-restored result binds the unchanged old state hash'
+    Assert (Test-Path -LiteralPath (Join-Path $authorityDir 'root-claims.json')) 'existing claims are retained by failed-restored classification'
 
     Write-Host 'live recovery tests: PASS'
 }

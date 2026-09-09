@@ -34,7 +34,7 @@
       "additionalProperties": false
     },
     "ReceiptHash": { "$ref": "#/$defs/hash" },
-    "StateHash": { "$ref": "#/$defs/hash" },
+    "StateHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
     "ClaimsHash": { "$ref": "#/$defs/hash" },
     "RestorationHash": { "$ref": "#/$defs/hash" },
     "FinalStateHash": { "$ref": "#/$defs/hash" },

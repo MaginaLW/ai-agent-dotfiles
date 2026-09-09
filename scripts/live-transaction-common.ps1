@@ -6,6 +6,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 . (Join-Path $PSScriptRoot 'safe-tree-walker.ps1')
 . (Join-Path $PSScriptRoot 'transaction-journal-common.ps1')
+. (Join-Path $PSScriptRoot 'shared-authority-state-common.ps1')
 
 # The canonical journal module's publication primitives (held parent handles,
 # pending temp, flush, atomic rename, schema validation before rename) are
@@ -212,8 +213,12 @@ function Test-LiveOperationResultSemantics {
         if ($receiptBacked -and (Test-LiveTransactionMapHasName -Map $Document -Name 'ReceiptHash')) { throw $mismatch }
     }
     elseif ($outcome -ceq 'rolled-back' -or $outcome -ceq 'failed-restored') {
-        if (-not (Test-LiveTransactionMapHasName -Map $Document -Name 'RestorationHash') -or
-            -not (Test-LiveTransactionMapHasName -Map $Document -Name 'StateHash')) { throw $mismatch }
+        if (-not (Test-LiveTransactionMapHasName -Map $Document -Name 'RestorationHash')) { throw $mismatch }
+        # StateHash null is the MISSING-state sentinel: first-authority
+        # failures before state install have no state to hash.
+        if (Test-LiveTransactionMapHasName -Map $Document -Name 'StateHash') {
+            Assert-LiveTransactionHashSpelling -Value $Document['StateHash'] -Failure $mismatch
+        }
     }
     else { throw $mismatch }
 }
@@ -518,6 +523,190 @@ function Move-SealedLiveTargetToInstalled {
 }
 
 
+
+# ---------------------------------------------------------------------------
+# Generic authority state target (roadmap Task 4 step 5)
+# ---------------------------------------------------------------------------
+
+function Get-LiveTransactionStatePaths {
+    # The canonical state locator under the control base: claims are immutable
+    # create-new after first authority; the state file is replaced atomically.
+    param(
+        [Parameter(Mandatory)] [string] $ControlBase,
+        [Parameter(Mandatory)] [string] $HomeAuthorityKey
+    )
+
+    $authorityDir = Join-Path (Join-Path ([System.IO.Path]::GetFullPath($ControlBase)) 'homes') $HomeAuthorityKey
+    return [ordered]@{
+        AuthorityDirectory = $authorityDir
+        ClaimsPath = (Join-Path $authorityDir 'root-claims.json')
+        StatePath = (Join-Path $authorityDir 'current-env.json')
+    }
+}
+
+function Invoke-SealedLiveTransactionAuthorityState {
+    # Processes the authority state target after live targets install: proves
+    # or creates the immutable claims, derives and validates the complete
+    # state postimage with the trusted serializer, journals the state file
+    # records (recovery copy bound as the preimage), and installs the state
+    # atomically (create-new rename for first authority, same-directory temp
+    # replace for existing). Returns the postimage and binding hashes.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $TransactionDirectory,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Header,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Receipt,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $AuthorityStateIntent,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $TargetContextIntent,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $FinalCapabilityHashesByPlatform,
+        [Parameter(Mandatory)] [string] $ControlBase,
+        [Parameter(Mandatory)] [string] $StateRecoveryDirectory,
+        [Parameter(Mandatory)] [ref] $ClaimsCreatedRef,
+        [Parameter(Mandatory)] [ref] $StateInstalledRef
+    )
+
+    $paths = Get-LiveTransactionStatePaths -ControlBase $ControlBase -HomeAuthorityKey ([string] $Header['HomeAuthorityKey'])
+    $claimsPath = [string] $paths['ClaimsPath']
+    $statePath = [string] $paths['StatePath']
+    $claimsExisted = Test-Path -LiteralPath $claimsPath -PathType Leaf
+
+    if ($claimsExisted) {
+        # Existing authority: prove the immutable claims are unchanged.
+        $claimsBytes = [System.IO.File]::ReadAllBytes($claimsPath)
+        $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
+        if ([string] $Header['RootClaimsHash'] -cne $claimsHash) { throw $script:LiveTransactionHashMismatch }
+    }
+    else {
+        # First authority: create the proposed claims create-new from RESERVED.
+        $proposedBytes = [byte[]] $AuthorityStateIntent['__ProposedRootClaimsBytes']
+        if ($proposedBytes.Count -eq 0) { throw $script:LiveTransactionIntentMismatch }
+        $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($proposedBytes)).ToLowerInvariant()
+        if ([string] $Header['RootClaimsHash'] -cne $claimsHash) { throw $script:LiveTransactionHashMismatch }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $claimsPath) | Out-Null
+        $stream = [System.IO.File]::Open($claimsPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try {
+            $stream.Write($proposedBytes, 0, $proposedBytes.Length)
+            $stream.Flush($true)
+        }
+        finally { $stream.Dispose() }
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'CLAIMS_PUBLISHED' -Data ([ordered]@{
+            ClaimsHash = $claimsHash
+        }) | Out-Null
+        $ClaimsCreatedRef.Value = $true
+    }
+
+    # Derive the final identities from the installed live roots and the
+    # reviewed TargetContextIntent, then build and validate the postimage.
+    $finalIdentities = [System.Collections.Generic.List[object]]::new()
+    foreach ($row in @([object[]] $TargetContextIntent['Rows'])) {
+        $platform = [string] $row['Platform']
+        $resolvedPath = [string] $row['RequestedPath']
+        $context = Get-TargetMetadataContext -Path $resolvedPath
+        if ([string] $context.TargetStatus -cne 'EXISTS') { throw $script:LiveTransactionHashMismatch }
+        $identity = [string] $context.Ancestors[-1].Identity
+        $capabilityHash = [string] $FinalCapabilityHashesByPlatform[$platform]
+        if ($capabilityHash -cnotmatch $script:LiveTransactionHashPattern) { throw $script:LiveTransactionIntentMismatch }
+        $finalIdentities.Add([ordered]@{
+            Platform = $platform
+            LocationKey = [string] $row['LocationKey']
+            ResolvedPath = $resolvedPath
+            VolumeId = [string] $row['VolumeId']
+            DirectoryIdentity = $identity
+            FilesystemCapabilityHash = $capabilityHash
+        })
+    }
+    $preStatePhaseHash = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] ((Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory).Records[-1]['Document']))
+    $runtimeRefs = [ordered]@{
+        JournalId = [string] $Header['TransactionId']
+        PreStatePhaseHash = $preStatePhaseHash
+        ReceiptId = [string] $Receipt['ReceiptId']
+        ReceiptHash = [string] $Receipt['ReceiptHash']
+    }
+    $intentForPostimage = [ordered]@{}
+    foreach ($key in @($AuthorityStateIntent.Keys)) {
+        if ([string] $key -ceq '__ProposedRootClaimsBytes') { continue }
+        $intentForPostimage[[string] $key] = $AuthorityStateIntent[$key]
+    }
+    $postimage = New-AuthorityStatePostimage -AuthorityStateIntent $intentForPostimage -TargetContextIntent $TargetContextIntent -FinalResolvedIdentities @($finalIdentities) -RuntimeRefs $runtimeRefs
+    $stateBytes = ConvertTo-SemanticJsonBytes -InputObject $postimage
+    $stateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stateBytes)).ToLowerInvariant()
+
+    # Recovery copy of the old state as the preimage record.
+    $stateExisted = Test-Path -LiteralPath $statePath -PathType Leaf
+    if ($stateExisted) {
+        New-Item -ItemType Directory -Force -Path $StateRecoveryDirectory | Out-Null
+        $recoveryCopy = Join-Path $StateRecoveryDirectory 'current-env.preimage.json'
+        $oldBytes = [System.IO.File]::ReadAllBytes($statePath)
+        $stream = [System.IO.File]::Open($recoveryCopy, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try {
+            $stream.Write($oldBytes, 0, $oldBytes.Length)
+            $stream.Flush($true)
+        }
+        finally { $stream.Dispose() }
+        # The state target is a regular file; the containment walker is
+        # directory-only, so the observed state binds Inspect identity.
+        $oldObserved = [ordered]@{
+            State = 'PRESENT'
+            Type = 'File'
+            Hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($oldBytes)).ToLowerInvariant()
+            Identity = [string] ([AiAgentDotfiles.NoFollowFile]::Inspect($statePath)).Identity
+        }
+    }
+    else {
+        $recoveryCopy = $null
+        $oldObserved = [ordered]@{ State = 'MISSING' }
+    }
+    Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'FILE_PREPARED' -Data ([ordered]@{
+        TargetKind = 'state'
+        TargetPath = $statePath
+        StagedPath = $recoveryCopy
+        StagedState = $oldObserved
+    }) | Out-Null
+
+    Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'FILE_REPLACE_INTENT' -Data ([ordered]@{
+        TargetKind = 'state'
+        TargetPath = $statePath
+        TargetState = $oldObserved
+    }) | Out-Null
+
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $statePath) | Out-Null
+    $tempPath = Join-Path (Split-Path -Parent $statePath) ("current-env." + [Guid]::NewGuid().ToString('N') + ".tmp")
+    $stream = [System.IO.File]::Open($tempPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try {
+        $stream.Write($stateBytes, 0, $stateBytes.Length)
+        $stream.Flush($true)
+    }
+    finally { $stream.Dispose() }
+    if ($stateExisted) {
+        [System.IO.File]::Move($tempPath, $statePath, $true)
+    }
+    else {
+        [System.IO.File]::Move($tempPath, $statePath)
+    }
+    $StateInstalledRef.Value = $true
+    $newObserved = [ordered]@{
+        State = 'PRESENT'
+        Type = 'File'
+        Hash = $stateHash
+        Identity = [string] ([AiAgentDotfiles.NoFollowFile]::Inspect($statePath)).Identity
+    }
+    Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'FILE_REPLACED' -Data ([ordered]@{
+        TargetKind = 'state'
+        TargetPath = $statePath
+        TargetState = $newObserved
+    }) | Out-Null
+    Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'STATE_PUBLISHED' -Data ([ordered]@{
+        StateHash = $stateHash
+    }) | Out-Null
+
+    return [ordered]@{
+        StateHash = $stateHash
+        ClaimsHash = $claimsHash
+        ClaimsCreated = (-not $claimsExisted)
+        Postimage = $postimage
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Fixed record sequence engine (roadmap Task 4 steps 3-4, receipt-backed)
 # ---------------------------------------------------------------------------
@@ -536,7 +725,12 @@ function Invoke-SealedLiveTransactionMutation {
         [Parameter(Mandatory)] [System.Collections.IDictionary] $Header,
         [Parameter(Mandatory)] [System.Collections.IDictionary] $Receipt,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Targets,
-        [Parameter(Mandatory)] [System.Collections.IDictionary] $SourceRootsByPlatform
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $SourceRootsByPlatform,
+        [AllowNull()] [System.Collections.IDictionary] $AuthorityStateIntent,
+        [AllowNull()] [System.Collections.IDictionary] $TargetContextIntent,
+        [AllowNull()] [System.Collections.IDictionary] $FinalCapabilityHashesByPlatform,
+        [AllowNull()] [string] $ControlBase,
+        [AllowNull()] [string] $StateRecoveryDirectory
     )
 
     $chain = Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory
@@ -544,6 +738,15 @@ function Invoke-SealedLiveTransactionMutation {
         throw $script:LiveTransactionChainInvalid
     }
     if ([string] $chain.Header.TransactionId -cne [string] $Header.TransactionId) {
+        throw $script:LiveTransactionIntentMismatch
+    }
+    if ([string] $Header['TransactionMode'] -cne 'receipt-backed') {
+        # The state-only branch is a separate engine seam (Task 4 slice D).
+        throw $script:LiveTransactionIntentMismatch
+    }
+    if ($null -eq $AuthorityStateIntent -or $null -eq $TargetContextIntent -or
+        $null -eq $FinalCapabilityHashesByPlatform -or [string]::IsNullOrWhiteSpace($ControlBase) -or
+        [string]::IsNullOrWhiteSpace($StateRecoveryDirectory)) {
         throw $script:LiveTransactionIntentMismatch
     }
     if ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $Receipt['ReceiptPath'])) -cne 'COMPLETE') {
@@ -559,12 +762,14 @@ function Invoke-SealedLiveTransactionMutation {
     }) | Out-Null
 
     $completed = [System.Collections.Generic.List[object]]::new()
+    $claimsCreatedRef = [ref] $false
+    $stateInstalledRef = [ref] $false
     try {
         foreach ($target in @($Targets)) {
             $kind = [string] $target['TargetKind']
             if ($kind -ceq 'parent-directory') {
                 $targetPath = [string] $target['TargetPath']
-                Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'DIR_CREATE_INTENT' -Data ([ordered]@{
+                $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'DIR_CREATE_INTENT' -Data ([ordered]@{
                     TargetId = [string] $target['TargetId']
                     TargetKind = $kind
                     TargetPath = $targetPath
@@ -572,7 +777,7 @@ function Invoke-SealedLiveTransactionMutation {
                 if (Test-Path -LiteralPath $targetPath) { throw $script:LiveTransactionHashMismatch }
                 $null = New-Item -ItemType Directory -Path $targetPath -ErrorAction Stop
                 $createdIdentity = [string] ((Get-TargetMetadataContext -Path $targetPath).Ancestors[-1].Identity)
-                Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'DIR_CREATED' -Data ([ordered]@{
+                $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'DIR_CREATED' -Data ([ordered]@{
                     TargetId = [string] $target['TargetId']
                     TargetKind = $kind
                     TargetPath = $targetPath
@@ -585,7 +790,7 @@ function Invoke-SealedLiveTransactionMutation {
             $platform = [string] $target['Platform']
             $targetSource = Join-Path ([string] $SourceRootsByPlatform[$platform]) ([string] $target['Name'])
             $staged = Invoke-SealedLiveMutationStageTarget -Target $target -Receipt $Receipt -SourceRoot $targetSource
-            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'PREPARED' -Data ([ordered]@{
+            $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'PREPARED' -Data ([ordered]@{
                 TargetId = [string] $target['TargetId']
                 TargetKind = $kind
                 TargetPath = [string] $target['TargetPath']
@@ -604,7 +809,7 @@ function Invoke-SealedLiveTransactionMutation {
                 throw $script:LiveTransactionHashMismatch
             }
 
-            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'MOVE_OLD_INTENT' -Data ([ordered]@{
+            $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'MOVE_OLD_INTENT' -Data ([ordered]@{
                 TargetId = [string] $target['TargetId']
                 TargetKind = $kind
                 TargetPath = [string] $target['TargetPath']
@@ -613,7 +818,7 @@ function Invoke-SealedLiveTransactionMutation {
                 SwapOldState = [ordered]@{ State = 'MISSING' }
             }) | Out-Null
             $movedOld = Move-SealedLiveTargetToSwapOld -Target $target
-            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'OLD_MOVED' -Data ([ordered]@{
+            $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'OLD_MOVED' -Data ([ordered]@{
                 TargetId = [string] $target['TargetId']
                 TargetKind = $kind
                 TargetPath = [string] $target['TargetPath']
@@ -624,7 +829,7 @@ function Invoke-SealedLiveTransactionMutation {
             $completed.Add([ordered]@{ TargetId = [string] $target['TargetId']; Phase = 'OLD_MOVED' })
 
             $stagedObserved = Get-LiveTransactionObservedDirectory -Path ([string] $target['StagedPath']) -ExpectedHash ([string] ([System.Collections.IDictionary] $target['Candidate'])['Hash'])
-            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'MOVE_NEW_INTENT' -Data ([ordered]@{
+            $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'MOVE_NEW_INTENT' -Data ([ordered]@{
                 TargetId = [string] $target['TargetId']
                 TargetKind = $kind
                 TargetPath = [string] $target['TargetPath']
@@ -635,7 +840,7 @@ function Invoke-SealedLiveTransactionMutation {
                 StagedState = $stagedObserved
             }) | Out-Null
             $installed = Move-SealedLiveTargetToInstalled -Target $target
-            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'NEW_INSTALLED' -Data ([ordered]@{
+            $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'NEW_INSTALLED' -Data ([ordered]@{
                 TargetId = [string] $target['TargetId']
                 TargetKind = $kind
                 TargetPath = [string] $target['TargetPath']
@@ -648,6 +853,8 @@ function Invoke-SealedLiveTransactionMutation {
             $completed.Add([ordered]@{ TargetId = [string] $target['TargetId']; Phase = 'NEW_INSTALLED' })
         }
 
+        $stateOutcome = Invoke-SealedLiveTransactionAuthorityState -TransactionDirectory $TransactionDirectory -Header $Header -Receipt $Receipt -AuthorityStateIntent $AuthorityStateIntent -TargetContextIntent $TargetContextIntent -FinalCapabilityHashesByPlatform $FinalCapabilityHashesByPlatform -ControlBase $ControlBase -StateRecoveryDirectory $StateRecoveryDirectory -ClaimsCreatedRef $claimsCreatedRef -StateInstalledRef $stateInstalledRef
+
         $tuples = [System.Collections.Generic.List[object]]::new()
         foreach ($target in @($Targets)) {
             $tuples.Add([ordered]@{
@@ -655,17 +862,119 @@ function Invoke-SealedLiveTransactionMutation {
                 Final = (Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] ([System.Collections.IDictionary] $target['Candidate'])['Hash']))
             })
         }
-        Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'POSTCONDITIONS_OK' -Data ([ordered]@{
+        $postconditionsData = [ordered]@{
             PostconditionsHash = (Get-SemanticJsonHash -InputObject @($tuples))
+        }
+        if ($null -ne $stateOutcome) { $postconditionsData['StateHash'] = [string] $stateOutcome['StateHash'] }
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'POSTCONDITIONS_OK' -Data $postconditionsData | Out-Null
+        $headHash = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] ((Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory).Records[-1]['Document']))
+        $committedResult = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'live-operation-result'
+            ResultScope = 'transaction'
+            TransactionId = [string] $Header['TransactionId']
+            OperationKind = [string] $Header['OperationKind']
+            OriginalDocumentHash = [string] $Header['OriginalDocumentHash']
+            ResultBaseHeadHash = $headHash
+            Outcome = 'committed'
+            ReceiptRef = [ordered]@{
+                Id = [string] $Receipt['ReceiptId']
+                Path = [string] $Receipt['ReceiptPath']
+                State = 'COMPLETE'
+                Hash = [string] $Receipt['ReceiptHash']
+            }
+            ReceiptHash = [string] $Receipt['ReceiptHash']
+            StateHash = [string] $stateOutcome['StateHash']
+        }
+        $null = Publish-SealedLiveTransactionResult -TransactionDirectory $TransactionDirectory -Document $committedResult
+        $resultFileHash = (Get-FileHash -LiteralPath (Join-Path ([System.IO.Path]::GetFullPath($TransactionDirectory)) 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'COMPLETE' -Data ([ordered]@{
+            ResultHash = $resultFileHash
+            OriginalDocumentHash = [string] $Header['OriginalDocumentHash']
+            Outcome = 'committed'
+            ClosingKind = 'original'
+            ClosingDocumentHash = [string] $Header['OriginalDocumentHash']
         }) | Out-Null
         return [pscustomobject][ordered]@{
             Completed = @($completed)
-            PostconditionsHash = (Get-SemanticJsonHash -InputObject @($tuples))
+            PostconditionsHash = [string] $postconditionsData['PostconditionsHash']
+            StateHash = [string] $stateOutcome['StateHash']
+            ResultHash = $resultFileHash
         }
     }
     catch {
+        # Failure classification: before the state commit boundary a caught
+        # failure restores completed live/claims targets in reverse; verified
+        # full restoration publishes the failed-restored fixed result and the
+        # terminal record, then exits non-zero. Once the reviewed state
+        # postimage is installed, live/state are never rewritten — evidence is
+        # retained for reviewed finalize and the transaction stays unfinished.
+        if ($stateInstalledRef.Value) {
+            # The reviewed state postimage is installed; live/state are never
+            # rewritten after the commit boundary — evidence is retained for
+            # reviewed finalize and the transaction stays unfinished.
+            throw 'live-transaction-recovery-required'
+        }
+        $statePaths = Get-LiveTransactionStatePaths -ControlBase $ControlBase -HomeAuthorityKey ([string] $Header['HomeAuthorityKey'])
+        $claimsCreated = $claimsCreatedRef.Value
         $null = Restore-SealedLiveMutationTargets -Targets $Targets -Completed @($completed)
-        throw
+        if ($claimsCreated) {
+            $claimsPath = [string] $statePaths['ClaimsPath']
+            $claimsContext = Get-TargetMetadataContext -Path $claimsPath
+            if ([string] $claimsContext.TargetStatus -ceq 'EXISTS') {
+                $claimsIdentity = [string] $claimsContext.Ancestors[-1].Identity
+                $claimsInfo = [AiAgentDotfiles.NoFollowFile]::Inspect($claimsPath)
+                if ($claimsIdentity -cne [string] $claimsInfo.Identity) { throw $script:LiveTransactionHashMismatch }
+                $claimsChildren = @(Get-ChildItem -LiteralPath $claimsPath -Force)
+                if ($claimsChildren.Count -ne 0) { throw $script:LiveTransactionHashMismatch }
+                Remove-Item -LiteralPath $claimsPath -Force
+            }
+        }
+        $restorationVerified = $true
+        $restorationRows = [System.Collections.Generic.List[object]]::new()
+        foreach ($target in @($Targets)) {
+            $current = [System.Collections.IDictionary] $target['Current']
+            $observed = Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] $current['Hash'])
+            if ([string] $current['State'] -ceq 'PRESENT' -and $observed.State -cne 'PRESENT') { $restorationVerified = $false }
+            if ([string] $current['State'] -ceq 'MISSING' -and $observed.State -cne 'MISSING') { $restorationVerified = $false }
+            $restorationRows.Add([ordered]@{ TargetId = [string] $target['TargetId']; Restored = $observed })
+        }
+        if (-not $restorationVerified) {
+            throw 'live-transaction-recovery-required'
+        }
+        $restorationHash = Get-SemanticJsonHash -InputObject @($restorationRows)
+        $oldStateHash = $null
+        $oldStatePath = [string] $statePaths['StatePath']
+        if (Test-Path -LiteralPath $oldStatePath -PathType Leaf) {
+            $oldStateBytes = [System.IO.File]::ReadAllBytes($oldStatePath)
+            $oldStateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($oldStateBytes)).ToLowerInvariant()
+        }
+        $headHash = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] ((Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory).Records[-1]['Document']))
+        $failedResult = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'live-operation-result'
+            ResultScope = 'transaction'
+            TransactionId = [string] $Header['TransactionId']
+            OperationKind = [string] $Header['OperationKind']
+            OriginalDocumentHash = [string] $Header['OriginalDocumentHash']
+            ResultBaseHeadHash = $headHash
+            Outcome = 'failed-restored'
+            RestorationHash = $restorationHash
+        }
+        if ($null -ne $oldStateHash) { $failedResult['StateHash'] = $oldStateHash }
+        $null = Publish-SealedLiveTransactionResult -TransactionDirectory $TransactionDirectory -Document $failedResult
+        $resultFileHash = (Get-FileHash -LiteralPath (Join-Path ([System.IO.Path]::GetFullPath($TransactionDirectory)) 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'COMPLETE' -Data ([ordered]@{
+            ResultHash = $resultFileHash
+            OriginalDocumentHash = [string] $Header['OriginalDocumentHash']
+            Outcome = 'failed-restored'
+            ClosingKind = 'original'
+            ClosingDocumentHash = [string] $Header['OriginalDocumentHash']
+        }) | Out-Null
+        $wrapped = [System.InvalidOperationException]::new('apply-failed-but-restored')
+        $wrapped.Data['OriginalFailure'] = [string] $_.Exception.Message
+        $wrapped.Data['OriginalFailureLine'] = [int] $_.InvocationInfo.ScriptLineNumber
+        throw $wrapped
     }
 }
 
@@ -822,12 +1131,14 @@ function Test-SealedLiveJournalChain {
     # Chain validation: dense sequences from 1, hash links, header binding,
     # per-record phase semantics, recovery intents preceding recovery records,
     # zero-or-one result bound to a valid ancestor head, and the terminal
-    # COMPLETE record last with the strict closing oneOf.
+    # COMPLETE record last with the strict closing oneOf. The result file hash
+    # binds the terminal record to the exact published result bytes.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [System.Collections.IDictionary] $Header,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
-        [AllowNull()] [System.Collections.IDictionary] $Result
+        [AllowNull()] [System.Collections.IDictionary] $Result,
+        [AllowNull()] [string] $ResultFileHash
     )
 
     $invalid = $script:LiveTransactionChainInvalid
@@ -909,7 +1220,7 @@ function Add-SealedLiveJournalRecord {
     }
     Test-LiveJournalRecordSemantics -Document $record
     $candidateRecords = @(@($chain.Records) + @([ordered]@{ Sequence = $sequence; Document = $record; Name = ('{0:d6}.json' -f $sequence) }))
-    $null = Test-SealedLiveJournalChain -Header $chain.Header -Records $candidateRecords -Result $chain.Result
+    $null = Test-SealedLiveJournalChain -Header $chain.Header -Records $candidateRecords -Result $chain.Result -ResultFileHash $chain.ResultFileHash
 
     $handles = Open-CanonicalDirectoryContainmentChain -Path ([System.IO.Path]::GetFullPath($TransactionDirectory))
     $pendingHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldChildDirectory($handles[$handles.Count - 1], '_pending')
@@ -943,7 +1254,7 @@ function Publish-SealedLiveTransactionResult {
     if ($chain.UnknownNames.Count -gt 0) { throw $script:LiveTransactionChainInvalid }
     if ($null -ne $chain.Result) { throw $script:LiveTransactionResultExists }
     if (@($chain.Records).Count -eq 0) { throw $script:LiveTransactionChainInvalid }
-    $null = Test-SealedLiveJournalChain -Header $chain.Header -Records $chain.Records -Result $Document
+    $null = Test-SealedLiveJournalChain -Header $chain.Header -Records $chain.Records -Result $Document -ResultFileHash $chain.ResultFileHash
     $heads = @(@($chain.Records) | ForEach-Object { Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] $_['Document']) })
     if ([string] $Document['ResultBaseHeadHash'] -cnotin $heads) { throw $script:LiveTransactionChainInvalid }
 
