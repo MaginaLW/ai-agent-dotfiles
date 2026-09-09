@@ -218,6 +218,521 @@ function Test-LiveOperationResultSemantics {
     else { throw $mismatch }
 }
 
+
+
+# ---------------------------------------------------------------------------
+# Live target plan (roadmap Task 4 step 1)
+# ---------------------------------------------------------------------------
+
+function New-SealedLiveTransactionTargetPlan {
+    # Builds the ordered live target records for a reviewed plan: MISSING
+    # parent-directory components parent-first (deepest-existing-parent
+    # identity bound), then one target per mutation action (add/update/prune;
+    # no-op rows are postcondition-only and never mutation targets). Unknown
+    # live directories and Codex .system are never targets.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $BackupRoot,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $ReceiptIntent,
+        [Parameter(Mandatory)] [object[]] $Platforms,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Actions,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $LiveRootContexts
+    )
+
+    $mismatch = $script:LiveTransactionIntentMismatch
+    $receiptPath = [System.IO.Path]::GetFullPath([string] $ReceiptIntent['Path'])
+    $contextsByPlatform = [ordered]@{}
+    foreach ($context in @($LiveRootContexts)) {
+        $platform = [string] $context['Platform']
+        if ($contextsByPlatform.Contains($platform)) { throw $mismatch }
+        $contextsByPlatform[$platform] = $context
+    }
+
+    $mutationByPlatform = [ordered]@{}
+    foreach ($platform in $script:LiveTransactionPlatforms) { $mutationByPlatform[$platform] = [System.Collections.Generic.List[object]]::new() }
+    foreach ($action in @($Actions)) {
+        $platform = [string] $action['Platform']
+        if (-not $mutationByPlatform.Contains($platform)) { throw $mismatch }
+        $verb = [string] $action['Action']
+        if ($verb -cnotin @('add', 'update', 'prune')) { continue }
+        $mutationByPlatform[$platform].Add($action)
+    }
+
+    $targets = [System.Collections.Generic.List[object]]::new()
+    $order = 0L
+    foreach ($platform in $script:LiveTransactionPlatforms) {
+        $context = $contextsByPlatform[$platform]
+        if ($null -eq $context) { throw $mismatch }
+        $liveRoot = [System.IO.Path]::GetFullPath([string] $context['LiveRoot'])
+        $missing = @([string[]] $context['MissingRemainder'])
+        $cursor = [System.IO.Path]::GetFullPath([string] $context['DeepestExistingParentPath'])
+        foreach ($segment in $missing) {
+            $cursor = Join-Path $cursor $segment
+            $targets.Add([ordered]@{
+                TargetId = (Get-SemanticJsonHash -InputObject ([ordered]@{ Kind = 'parent-directory'; Path = $cursor }))
+                Order = $order
+                TargetKind = 'parent-directory'
+                Role = 'parent'
+                Platform = $platform
+                Name = [string] $segment
+                TargetPath = $cursor
+                PreimagePath = $null
+                SwapOldPath = (Join-Path (Join-Path ([string] $context['StagingRoot']) 'swap') $segment)
+                StagedPath = $null
+                LiveIdentity = $null
+                ReceiptSnapshotRef = $null
+                Current = [ordered]@{ State = 'MISSING' }
+                Candidate = [ordered]@{ State = 'MISSING' }
+                TargetContextHash = (Get-SemanticJsonHash -InputObject ([ordered]@{ Path = $cursor; Segment = $segment }))
+            })
+            $order++
+        }
+        $stagingRoot = [System.IO.Path]::GetFullPath([string] $context['StagingRoot'])
+        foreach ($action in @($mutationByPlatform[$platform])) {
+            $verb = [string] $action['Action']
+            $name = [string] $action['Name']
+            $livePath = Join-Path $liveRoot $name
+            $stagedPath = Join-Path (Join-Path $stagingRoot 'staged') $name
+            $swapOldPath = Join-Path (Join-Path $stagingRoot 'swap') $name
+            $preimagePath = Join-Path (Join-Path (Join-Path $receiptPath 'snapshot') ([string] $platform).ToLowerInvariant()) $name
+            if ($verb -ceq 'add') {
+                $current = [ordered]@{ State = 'MISSING' }
+                $candidate = [ordered]@{ State = 'PRESENT'; Hash = [string] $action['SourceHash']; Identity = $null }
+                $liveIdentity = $null
+            }
+            elseif ($verb -ceq 'update') {
+                if ($null -eq $action['LiveHash']) { throw $mismatch }
+                $current = [ordered]@{ State = 'PRESENT'; Hash = [string] $action['LiveHash']; Identity = $null }
+                $candidate = [ordered]@{ State = 'PRESENT'; Hash = [string] $action['SourceHash']; Identity = $null }
+                $liveIdentity = $null
+            }
+            else {
+                if ($null -eq $action['LiveHash']) { throw $mismatch }
+                $current = [ordered]@{ State = 'PRESENT'; Hash = [string] $action['LiveHash']; Identity = $null }
+                $candidate = [ordered]@{ State = 'MISSING' }
+                $liveIdentity = $null
+            }
+            $targets.Add([ordered]@{
+                TargetId = (Get-SemanticJsonHash -InputObject ([ordered]@{ Kind = 'skill'; Platform = $platform; Name = $name }))
+                Order = $order
+                TargetKind = 'skill'
+                Role = 'live-target'
+                Platform = $platform
+                Name = $name
+                TargetPath = $livePath
+                PreimagePath = $preimagePath
+                SwapOldPath = $swapOldPath
+                StagedPath = $stagedPath
+                LiveIdentity = $liveIdentity
+                ReceiptSnapshotRef = [ordered]@{ Platform = $platform; Name = $name }
+                Current = $current
+                Candidate = $candidate
+                TargetContextHash = (Get-SemanticJsonHash -InputObject ([ordered]@{ Path = $livePath; Old = $current; New = $candidate }))
+            })
+            $order++
+        }
+    }
+    return @($targets)
+}
+
+
+# ---------------------------------------------------------------------------
+# Same-volume staging (roadmap Task 4 step 2)
+# ---------------------------------------------------------------------------
+
+function Assert-SealedLiveMutationStagingRoot {
+    # Each LiveMutationStagingRoot must sit on the same volume as its live
+    # target, be a working-tree-external sibling location, and stay disjoint
+    # from the forbidden roots (source/live/backup/control/canonical recovery).
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $StagingRoot,
+        [Parameter(Mandatory)] [string] $LiveTargetVolumeRoot,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $ForbiddenRoots,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $WorkingTreeRoots
+    )
+
+    $invalid = $script:LiveTransactionIntentMismatch
+    try {
+        $root = [System.IO.Path]::GetFullPath($StagingRoot)
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw 'missing' }
+        Assert-NoReparseExistingChain -Path $root
+        $volume = [AiAgentDotfiles.NoFollowFile]::GetVolumeInfo($root)
+        if ([string] $volume.DriveType -cne 'Fixed' -or [string] $volume.FileSystemType -cne 'NTFS') { throw 'filesystem' }
+        $rootVolume = [System.IO.Path]::GetPathRoot($root).TrimEnd([char]92).ToLowerInvariant()
+        $liveVolume = [System.IO.Path]::GetPathRoot($LiveTargetVolumeRoot).TrimEnd([char]92).ToLowerInvariant()
+        if ($rootVolume -cne $liveVolume) { throw 'cross-volume' }
+        foreach ($forbidden in @($ForbiddenRoots | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+            $forbiddenFull = [System.IO.Path]::GetFullPath($forbidden).TrimEnd([char]92, [char]47)
+            $rootTrimmed = $root.TrimEnd([char]92, [char]47)
+            if ($rootTrimmed -ieq $forbiddenFull -or
+                $rootTrimmed.StartsWith($forbiddenFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $forbiddenFull.StartsWith($rootTrimmed + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw 'overlap'
+            }
+        }
+        foreach ($key in @($WorkingTreeRoots.Keys)) {
+            $treeRoot = [System.IO.Path]::GetFullPath([string] $WorkingTreeRoots[$key]).TrimEnd([char]92, [char]47)
+            if (-not [string]::IsNullOrWhiteSpace($treeRoot)) {
+                $rootTrimmed = $root.TrimEnd([char]92, [char]47)
+                if ($rootTrimmed.StartsWith($treeRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw 'inside working tree'
+                }
+            }
+        }
+        return $root
+    }
+    catch {
+        throw $invalid
+    }
+}
+
+function Invoke-SealedLiveMutationStageTarget {
+    # Copies the NEW bytes into StagedPath with SafeTreeWalker (create-new),
+    # requires swap-old MISSING and the immutable receipt preimage complete,
+    # and verifies the staged tree hash against the candidate before PREPARED.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Target,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Receipt,
+        [Parameter(Mandatory)] [string] $SourceRoot
+    )
+
+    $invalid = $script:LiveTransactionIntentMismatch
+    $stagedPath = [string] $Target['StagedPath']
+    $swapOldPath = [string] $Target['SwapOldPath']
+    if (Test-Path -LiteralPath $swapOldPath) { throw $invalid }
+    if ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $Receipt['ReceiptPath'])) -cne 'COMPLETE') {
+        throw 'live-transaction-receipt-not-complete'
+    }
+    $candidate = [System.Collections.IDictionary] $Target['Candidate']
+    if ($null -eq $stagedPath -or [string] $stagedPath -ceq '' -or [string] $candidate['State'] -ceq 'MISSING') {
+        # A MISSING candidate (prune) stages nothing; PREPARED records the
+        # empty tuple.
+        return [ordered]@{ StagedState = [ordered]@{ State = 'MISSING' } }
+    }
+    if (Test-Path -LiteralPath $stagedPath) { throw $invalid }
+    $candidateHash = [string] $candidate['Hash']
+    if ($candidateHash -ceq '') { throw $invalid }
+    $current = [System.Collections.IDictionary] $Target['Current']
+    if ([string] $current['State'] -ceq 'PRESENT') {
+        # Update/prune targets verify the immutable receipt snapshot preimage;
+        # add targets have no preimage (rollback removes them outright).
+        $snapshotTarget = Join-Path ([string] $Receipt['ReceiptPath']) (Join-Path 'snapshot' (([string] $Target['Platform']).ToLowerInvariant()))
+        $snapshotTarget = Join-Path $snapshotTarget ([string] $Target['Name'])
+        if ([string] (Get-SafeTreeSnapshot -Root $snapshotTarget).TreeHash -cne [string] $current['Hash']) {
+            throw $script:LiveTransactionHashMismatch
+        }
+    }
+    $parent = Split-Path -Parent $stagedPath
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+    $copy = Copy-SafeTree -SourceRoot $SourceRoot -DestinationRoot $stagedPath
+    if ([string] $copy.DestinationTreeHash -cne $candidateHash) { throw $script:LiveTransactionHashMismatch }
+    return [ordered]@{
+        StagedState = [ordered]@{ State = 'PRESENT'; Type = 'Directory'; Hash = $candidateHash; Identity = [string] ((Get-TargetMetadataContext -Path $stagedPath).Ancestors[-1].Identity) }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Same-volume rename primitives with tuple verification
+# ---------------------------------------------------------------------------
+
+function Get-LiveTransactionObservedDirectory {
+    param([Parameter(Mandatory)] [string] $Path, [string] $ExpectedHash = '')
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return [ordered]@{ State = 'MISSING' }
+    }
+    $treeHash = (Get-SafeTreeSnapshot -Root $Path).TreeHash
+    if ($ExpectedHash -ne '' -and $treeHash -cne $ExpectedHash) { throw $script:LiveTransactionHashMismatch }
+    $identity = [string] ((Get-TargetMetadataContext -Path $Path).Ancestors[-1].Identity)
+    return [ordered]@{ State = 'PRESENT'; Type = 'Directory'; Hash = $treeHash; Identity = $identity }
+}
+
+function Move-SealedLiveTargetToSwapOld {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Target)
+
+    $targetPath = [string] $Target['TargetPath']
+    $swapOldPath = [string] $Target['SwapOldPath']
+    $current = [System.Collections.IDictionary] $Target['Current']
+    if ([string] $current['State'] -ceq 'MISSING') {
+        if (Test-Path -LiteralPath $targetPath) { throw $script:LiveTransactionHashMismatch }
+        return [ordered]@{
+            TargetState = [ordered]@{ State = 'MISSING' }
+            SwapOldState = [ordered]@{ State = 'MISSING' }
+        }
+    }
+    if (-not (Test-Path -LiteralPath $targetPath -PathType Container)) { throw $script:LiveTransactionHashMismatch }
+    if (Test-Path -LiteralPath $swapOldPath) { throw $script:LiveTransactionHashMismatch }
+    $targetHash = [string] $current['Hash']
+    $before = Get-LiveTransactionObservedDirectory -Path $targetPath -ExpectedHash $targetHash
+    if ($before.State -cne 'PRESENT') { throw $script:LiveTransactionHashMismatch }
+    $swapParent = Split-Path -Parent $swapOldPath
+    if (-not (Test-Path -LiteralPath $swapParent -PathType Container)) { New-Item -ItemType Directory -Force -Path $swapParent | Out-Null }
+    [System.IO.Directory]::Move($targetPath, $swapOldPath)
+    $targetAfter = Get-LiveTransactionObservedDirectory -Path $targetPath -ExpectedHash ''
+    if ($targetAfter.State -cne 'MISSING') { throw $script:LiveTransactionHashMismatch }
+    $swapAfter = Get-LiveTransactionObservedDirectory -Path $swapOldPath -ExpectedHash $targetHash
+    if ($swapAfter.State -cne 'PRESENT') { throw $script:LiveTransactionHashMismatch }
+    return [ordered]@{
+        TargetState = $targetAfter
+        SwapOldState = $swapAfter
+    }
+}
+
+function Move-SealedLiveTargetToInstalled {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Target)
+
+    $targetPath = [string] $Target['TargetPath']
+    $swapOldPath = [string] $Target['SwapOldPath']
+    $stagedPath = [string] $Target['StagedPath']
+    $candidate = [System.Collections.IDictionary] $Target['Candidate']
+    if ([string] $candidate['State'] -ceq 'MISSING') {
+        # Prune target: after OLD_MOVED the target is already missing; verify
+        # and record the no-op install tuple.
+        if (Test-Path -LiteralPath $targetPath) { throw $script:LiveTransactionHashMismatch }
+        $swapState = Get-LiveTransactionObservedDirectory -Path $swapOldPath -ExpectedHash ([string] $Target['Current']['Hash'])
+        return [ordered]@{
+            TargetState = [ordered]@{ State = 'MISSING' }
+            SwapOldState = $swapState
+            StagedState = [ordered]@{ State = 'MISSING' }
+        }
+    }
+    if (-not (Test-Path -LiteralPath $stagedPath -PathType Container)) { throw $script:LiveTransactionHashMismatch }
+    if (Test-Path -LiteralPath $targetPath) { throw $script:LiveTransactionHashMismatch }
+    $candidateHash = [string] $candidate['Hash']
+    [System.IO.Directory]::Move($stagedPath, $targetPath)
+    $targetAfter = Get-LiveTransactionObservedDirectory -Path $targetPath -ExpectedHash $candidateHash
+    if ($targetAfter.State -cne 'PRESENT') { throw $script:LiveTransactionHashMismatch }
+    $stagedAfter = Get-LiveTransactionObservedDirectory -Path $stagedPath -ExpectedHash ''
+    if ($stagedAfter.State -cne 'MISSING') { throw $script:LiveTransactionHashMismatch }
+    $swapAfter = Get-LiveTransactionObservedDirectory -Path $swapOldPath -ExpectedHash ([string] $Target['Current']['Hash'])
+    return [ordered]@{
+        TargetState = $targetAfter
+        SwapOldState = $swapAfter
+        StagedState = $stagedAfter
+    }
+}
+
+
+# ---------------------------------------------------------------------------
+# Fixed record sequence engine (roadmap Task 4 steps 3-4, receipt-backed)
+# ---------------------------------------------------------------------------
+
+function Invoke-SealedLiveTransactionMutation {
+    # Runs the receipt-backed fixed record sequence over pre-resolved targets:
+    # RECEIPT_COMPLETE, parent-first no-overwrite directory creation with
+    # captured identities, per-target staging/PREPARED, the destructive
+    # recheck, the same-volume OLD/NEW rename ladder with disk tuple
+    # verification, and the aggregate POSTCONDITIONS_OK record. A caught
+    # failure before the state commit boundary restores completed targets in
+    # reverse and rethrows; the journal keeps every durable record.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $TransactionDirectory,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Header,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Receipt,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Targets,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $SourceRootsByPlatform
+    )
+
+    $chain = Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory
+    if ($null -eq $chain.Header -or $chain.UnknownNames.Count -gt 0 -or $null -ne $chain.Result) {
+        throw $script:LiveTransactionChainInvalid
+    }
+    if ([string] $chain.Header.TransactionId -cne [string] $Header.TransactionId) {
+        throw $script:LiveTransactionIntentMismatch
+    }
+    if ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $Receipt['ReceiptPath'])) -cne 'COMPLETE') {
+        throw 'live-transaction-receipt-not-complete'
+    }
+
+    Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'RECEIPT_COMPLETE' -Data ([ordered]@{
+        ReceiptRef = [ordered]@{
+            Id = [string] $Receipt['ReceiptId']
+            Path = [string] $Receipt['ReceiptPath']
+            Hash = [string] $Receipt['ReceiptHash']
+        }
+    }) | Out-Null
+
+    $completed = [System.Collections.Generic.List[object]]::new()
+    try {
+        foreach ($target in @($Targets)) {
+            $kind = [string] $target['TargetKind']
+            if ($kind -ceq 'parent-directory') {
+                $targetPath = [string] $target['TargetPath']
+                Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'DIR_CREATE_INTENT' -Data ([ordered]@{
+                    TargetId = [string] $target['TargetId']
+                    TargetKind = $kind
+                    TargetPath = $targetPath
+                }) | Out-Null
+                if (Test-Path -LiteralPath $targetPath) { throw $script:LiveTransactionHashMismatch }
+                $null = New-Item -ItemType Directory -Path $targetPath -ErrorAction Stop
+                $createdIdentity = [string] ((Get-TargetMetadataContext -Path $targetPath).Ancestors[-1].Identity)
+                Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'DIR_CREATED' -Data ([ordered]@{
+                    TargetId = [string] $target['TargetId']
+                    TargetKind = $kind
+                    TargetPath = $targetPath
+                    CreatedIdentity = $createdIdentity
+                }) | Out-Null
+                $completed.Add([ordered]@{ TargetId = [string] $target['TargetId']; Phase = 'DIR_CREATED'; CreatedIdentity = $createdIdentity })
+                continue
+            }
+
+            $platform = [string] $target['Platform']
+            $targetSource = Join-Path ([string] $SourceRootsByPlatform[$platform]) ([string] $target['Name'])
+            $staged = Invoke-SealedLiveMutationStageTarget -Target $target -Receipt $Receipt -SourceRoot $targetSource
+            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'PREPARED' -Data ([ordered]@{
+                TargetId = [string] $target['TargetId']
+                TargetKind = $kind
+                TargetPath = [string] $target['TargetPath']
+                StagedPath = [string] $target['StagedPath']
+                StagedState = $staged['StagedState']
+            }) | Out-Null
+
+            # Destructive recheck: the live target must still match the
+            # reviewed OLD state immediately before the swap.
+            $current = [System.Collections.IDictionary] $target['Current']
+            $observedCurrent = Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] $current['Hash'])
+            if ([string] $current['State'] -ceq 'PRESENT' -and $observedCurrent.State -cne 'PRESENT') {
+                throw $script:LiveTransactionHashMismatch
+            }
+            if ([string] $current['State'] -ceq 'MISSING' -and $observedCurrent.State -cne 'MISSING') {
+                throw $script:LiveTransactionHashMismatch
+            }
+
+            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'MOVE_OLD_INTENT' -Data ([ordered]@{
+                TargetId = [string] $target['TargetId']
+                TargetKind = $kind
+                TargetPath = [string] $target['TargetPath']
+                SwapOldPath = [string] $target['SwapOldPath']
+                TargetState = $observedCurrent
+                SwapOldState = [ordered]@{ State = 'MISSING' }
+            }) | Out-Null
+            $movedOld = Move-SealedLiveTargetToSwapOld -Target $target
+            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'OLD_MOVED' -Data ([ordered]@{
+                TargetId = [string] $target['TargetId']
+                TargetKind = $kind
+                TargetPath = [string] $target['TargetPath']
+                SwapOldPath = [string] $target['SwapOldPath']
+                TargetState = $movedOld['TargetState']
+                SwapOldState = $movedOld['SwapOldState']
+            }) | Out-Null
+            $completed.Add([ordered]@{ TargetId = [string] $target['TargetId']; Phase = 'OLD_MOVED' })
+
+            $stagedObserved = Get-LiveTransactionObservedDirectory -Path ([string] $target['StagedPath']) -ExpectedHash ([string] ([System.Collections.IDictionary] $target['Candidate'])['Hash'])
+            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'MOVE_NEW_INTENT' -Data ([ordered]@{
+                TargetId = [string] $target['TargetId']
+                TargetKind = $kind
+                TargetPath = [string] $target['TargetPath']
+                SwapOldPath = [string] $target['SwapOldPath']
+                StagedPath = [string] $target['StagedPath']
+                TargetState = $movedOld['TargetState']
+                SwapOldState = $movedOld['SwapOldState']
+                StagedState = $stagedObserved
+            }) | Out-Null
+            $installed = Move-SealedLiveTargetToInstalled -Target $target
+            Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'NEW_INSTALLED' -Data ([ordered]@{
+                TargetId = [string] $target['TargetId']
+                TargetKind = $kind
+                TargetPath = [string] $target['TargetPath']
+                SwapOldPath = [string] $target['SwapOldPath']
+                StagedPath = [string] $target['StagedPath']
+                TargetState = $installed['TargetState']
+                SwapOldState = $installed['SwapOldState']
+                StagedState = $installed['StagedState']
+            }) | Out-Null
+            $completed.Add([ordered]@{ TargetId = [string] $target['TargetId']; Phase = 'NEW_INSTALLED' })
+        }
+
+        $tuples = [System.Collections.Generic.List[object]]::new()
+        foreach ($target in @($Targets)) {
+            $tuples.Add([ordered]@{
+                TargetId = [string] $target['TargetId']
+                Final = (Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] ([System.Collections.IDictionary] $target['Candidate'])['Hash']))
+            })
+        }
+        Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'POSTCONDITIONS_OK' -Data ([ordered]@{
+            PostconditionsHash = (Get-SemanticJsonHash -InputObject @($tuples))
+        }) | Out-Null
+        return [pscustomobject][ordered]@{
+            Completed = @($completed)
+            PostconditionsHash = (Get-SemanticJsonHash -InputObject @($tuples))
+        }
+    }
+    catch {
+        $null = Restore-SealedLiveMutationTargets -Targets $Targets -Completed @($completed)
+        throw
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Reverse restoration (pre-commit-boundary failure path)
+# ---------------------------------------------------------------------------
+
+function Restore-SealedLiveMutationTargets {
+    # Restores completed targets in reverse order: installed-new targets move
+    # back to staged, moved-old targets move back from swap-old; created
+    # parent directories are removed child-first only while the captured
+    # identity is unchanged and the directory is empty. Drift stops the
+    # restoration and surfaces for manual recovery.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Targets,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Completed
+    )
+
+    $restored = [System.Collections.Generic.List[string]]::new()
+    for ($index = $Completed.Count - 1; $index -ge 0; $index--) {
+        $entry = [System.Collections.IDictionary] $Completed[$index]
+        $targetId = [string] $entry['TargetId']
+        $target = $null
+        foreach ($candidate in @($Targets)) {
+            if ([string] $candidate['TargetId'] -ceq $targetId) { $target = $candidate; break }
+        }
+        if ($null -eq $target) { throw $script:LiveTransactionIntentMismatch }
+        $phase = [string] $entry['Phase']
+        $targetPath = [string] $target['TargetPath']
+        $stagedPath = [string] $target['StagedPath']
+        $swapOldPath = [string] $target['SwapOldPath']
+        if ($phase -ceq 'NEW_INSTALLED') {
+            $candidate = [System.Collections.IDictionary] $target['Candidate']
+            if ([string] $candidate['State'] -ceq 'MISSING') {
+                if (Test-Path -LiteralPath $targetPath) { throw $script:LiveTransactionHashMismatch }
+            }
+            elseif (Test-Path -LiteralPath $targetPath -PathType Container) {
+                [System.IO.Directory]::Move($targetPath, $stagedPath)
+                if (Test-Path -LiteralPath $targetPath) { throw $script:LiveTransactionHashMismatch }
+            }
+            $restored.Add("$targetId/NEW_INSTALLED")
+        }
+        elseif ($phase -ceq 'OLD_MOVED') {
+            $current = [System.Collections.IDictionary] $target['Current']
+            if ([string] $current['State'] -ceq 'PRESENT') {
+                if (-not (Test-Path -LiteralPath $swapOldPath -PathType Container)) { throw $script:LiveTransactionHashMismatch }
+                if (Test-Path -LiteralPath $targetPath) { throw $script:LiveTransactionHashMismatch }
+                [System.IO.Directory]::Move($swapOldPath, $targetPath)
+            }
+            $restored.Add("$targetId/OLD_MOVED")
+        }
+        elseif ($phase -ceq 'DIR_CREATED') {
+            $context = Get-TargetMetadataContext -Path $targetPath
+            if ([string] $context.TargetStatus -ceq 'EXISTS') {
+                $identity = [string] $context.Ancestors[-1].Identity
+                if ($identity -cne [string] $entry['CreatedIdentity']) { throw $script:LiveTransactionHashMismatch }
+                $children = @(Get-ChildItem -LiteralPath $targetPath -Force)
+                if ($children.Count -ne 0) { throw $script:LiveTransactionHashMismatch }
+                Remove-Item -LiteralPath $targetPath -Force
+            }
+            $restored.Add("$targetId/DIR_CREATED")
+        }
+    }
+    return @($restored)
+}
+
 # ---------------------------------------------------------------------------
 # Journal publication (mirrors the canonical held-chain mechanics)
 # ---------------------------------------------------------------------------

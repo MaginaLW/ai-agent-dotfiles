@@ -451,7 +451,10 @@ function Invoke-SealedManagedBackupReceipt {
     finally { $completeStream.Dispose() }
     Invoke-SealedBackupReceiptFailpoint -Checkpoint 'complete-published'
 
-    return [pscustomobject][ordered]@{
+    # Returned as the ordered dictionary itself (property access still works
+    # through the PowerShell adapter) so transaction callers can bind it
+    # directly as an IDictionary.
+    return [ordered]@{
         SchemaVersion = 1
         ArtifactKind = 'backup-receipt'
         SourceTransactionId = [string] $document['SourceTransactionId']
