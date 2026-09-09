@@ -145,7 +145,6 @@ $contractsPath = Join-Path $RepoRoot 'schemas/artifact-contracts.psd1'
 $validatorScriptPath = Join-Path $RepoRoot 'scripts/validate-json-artifacts.ps1'
 $livePlanCommonPath = Join-Path $RepoRoot 'scripts/live-plan-common.ps1'
 $syncScriptPath = Join-Path $RepoRoot 'scripts/sync.ps1'
-$task5HelperPath = Join-Path $RepoRoot 'tests/helpers/task5-environment-sync-regression.ps1'
 
 Write-Host '[live-plan schema 3 contract files]'
 Assert (Test-Path -LiteralPath $schemaPath -PathType Leaf) 'sync-plan schema 3 file exists'
@@ -165,8 +164,11 @@ Assert ($livePlanCommonText.Contains('function Complete-LivePlanAuthorityStateIn
 $syncScriptText = [System.IO.File]::ReadAllText($syncScriptPath)
 Assert ($syncScriptText.Contains('function New-LiveSyncPlanDocument')) 'sync.ps1 defines the schema 3 producer'
 Assert ($syncScriptText.Contains('Write-LiveSyncPlan')) 'sync.ps1 emitter writes through the immutable create-new write'
-Assert ($syncScriptText.Contains('$legacyDeployRequested')) 'the legacy content-aware deploy route stays selector-triggered until Task 5'
-Assert (Test-Path -LiteralPath $task5HelperPath -PathType Leaf) 'the extracted task5 environment regression helper exists'
+Assert (-not $syncScriptText.Contains('$legacyDeployRequested')) 'the legacy content-aware deploy route is removed by Task 5'
+Assert (-not $syncScriptText.Contains('function Get-SyncPlan')) 'the legacy content-aware planner is removed by Task 5'
+Assert (-not $syncScriptText.Contains('function Sync-OneSkillDir')) 'the legacy per-skill deploy is removed by Task 5'
+Assert (-not $syncScriptText.Contains('function Write-SyncJournal')) 'the legacy overwrite-style journal is removed by Task 5'
+Assert (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'tests/helpers/task5-environment-sync-regression.ps1'))) 'the extracted task5 environment regression helper is retired with the legacy route'
 
 $contracts = Import-PowerShellDataFile -LiteralPath $contractsPath
 Assert ($contracts.Contracts.ContainsKey('sync-plan')) 'artifact registry includes sync-plan'
@@ -191,25 +193,26 @@ Assert ([string] $positive.PlanPayload.Generator -ceq 'scripts/sync.ps1') 'Gener
 Assert ([string] $positive.PlanPayload.EnvironmentName -ceq 'full') 'EnvironmentName is full'
 Assert ($positive.PlanPayload.TargetContextIntent.Contains('HomeAuthorityKey') -and $positive.PlanPayload.TargetContextIntent.Contains('Rows')) 'TargetContextIntent is the wrapper, not a bare row array'
 Assert (@($positive.PlanPayload.TargetContextIntent.Rows).Count -eq 3) 'TargetContextIntent.Rows length is 3'
-Assert (@($positive.PlanPayload.ProposedRootClaims).Count -eq 3) 'ProposedRootClaims has three rows'
+Assert ([string] $positive.PlanPayload.ProposedRootClaims.ArtifactKind -ceq 'root-claims' -and [long] $positive.PlanPayload.ProposedRootClaims.SchemaVersion -eq 1) 'ProposedRootClaims is the complete root-claims document'
+Assert (@($positive.PlanPayload.ProposedRootClaims.LiveRootClaims).Count -eq 3) 'ProposedRootClaims carries three claim rows'
 $platforms = @('Claude', 'Codex', 'Reasonix')
 for ($index = 0; $index -lt 3; $index++) {
     $row = $positive.PlanPayload.TargetContextIntent.Rows[$index]
-    $claim = $positive.PlanPayload.ProposedRootClaims[$index]
+    $claim = $positive.PlanPayload.ProposedRootClaims.LiveRootClaims[$index]
     $slot = $positive.PlanPayload.Platforms[$index]
     Assert ([string] $row.Platform -ceq $platforms[$index] -and [string] $row.InitialState -ceq 'ABSENT' -and $null -eq $row.InitialDirectoryIdentity -and @($row.MissingRemainder).Count -ge 1) "TargetContextIntent row $($platforms[$index]) is ABSENT"
     Assert ([string] $claim.Platform -ceq $platforms[$index] -and [string] $claim.InitialState -ceq 'ABSENT' -and $null -eq $claim.InitialDirectoryIdentity -and @($claim.MissingRemainder).Count -ge 1) "ProposedRootClaims $($platforms[$index]) is ABSENT"
-    Assert ($claim.RequestedPath.StartsWith('C:\fixture\', [System.StringComparison]::Ordinal)) "ProposedRootClaims $($platforms[$index]) uses C:\fixture path"
+    Assert ($claim.RequestedPath.StartsWith('C:\fixture', [System.StringComparison]::Ordinal)) "ProposedRootClaims $($platforms[$index]) uses C:\fixture path"
     Assert (-not [bool] $slot.LiveRootExists -and [string] $slot.LivePreIdentity.TargetStatus -ceq 'MISSING' -and $null -eq $slot.LivePreIdentity.DirectoryIdentity -and $null -eq $slot.LiveTreeHash) "live $($platforms[$index]) is ABSENT/MISSING"
 }
-Assert ([string] $positive.PlanPayload.ProposedRootClaims[1].InitialState -cne 'EXISTS') 'Codex ProposedRootClaims is not the EXISTS root-claims.valid.json shape'
+Assert ([string] $positive.PlanPayload.ProposedRootClaims.LiveRootClaims[1].InitialState -cne 'EXISTS') 'Codex ProposedRootClaims is not the EXISTS root-claims.valid.json shape'
 Assert ([string] $positive.PlanPayload.AuthorityStateIntent.LastOperationKind -ceq 'initial') 'intent LastOperationKind is initial'
 Assert (-not $positive.PlanPayload.AuthorityStateIntent.Contains('PlanHash')) 'intent omits envelope PlanHash'
 Assert (-not $positive.PlanPayload.AuthorityStateIntent.Contains('DocumentHash')) 'intent omits envelope DocumentHash'
 Assert (-not $positive.PlanPayload.AuthorityStateIntent.Contains('ReceiptId')) 'intent omits runtime ReceiptId'
 Assert ([string] $positive.PlanHash -ceq (Get-PlanHash -PlanPayload $positive.PlanPayload)) 'precomputed PlanHash matches Get-PlanHash'
 Assert ([string] $positive.DocumentHash -ceq (Get-DocumentHash -Document $positive)) 'precomputed DocumentHash matches Get-DocumentHash'
-Assert ([string] $positive.PlanPayload.RootClaimsHash -ceq (Get-SemanticJsonHash -InputObject @($positive.PlanPayload.ProposedRootClaims))) 'RootClaimsHash is the semantic hash of ProposedRootClaims'
+Assert ([string] $positive.PlanPayload.RootClaimsHash -ceq [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]] (ConvertTo-SemanticJsonBytes -InputObject $positive.PlanPayload.ProposedRootClaims))).ToLowerInvariant()) 'RootClaimsHash binds the exact bytes of the complete proposed root-claims document'
 
 Write-Host '[live-plan complete intent]'
 $completedInitial = Complete-LivePlanAuthorityStateIntent -Document $positive

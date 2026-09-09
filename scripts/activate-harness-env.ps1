@@ -15,14 +15,13 @@
         2. build-skills.ps1        (unless -SkipBuild)
         3. scan-secrets.ps1        (unless -SkipSecretScan)
         4. build-harness-env.ps1   (staging is always rebuilt, never stale)
-        5. sync.ps1 -RepoRoot <staging> -HomeRoot <home>
-           with -SkipBuild -SkipSecretScan (steps 2-3 already ran); sync's
-           own mandatory pre-change backup CANNOT be skipped
-        6. on -Apply success only: write state/current-env.json
+        5. activation deployment: NOT WIRED. The legacy content-aware deploy
+           route was removed from sync.ps1 by Task 5 Step 1; deployment
+           rebuilds on the receipt-backed host with the Phase 3
+           env-activation work. -Apply fails closed and -DryRun previews
+           gates 1-4 only.
 
-    This script itself never copies or deletes a live file: the ONLY write path
-    into the home directories is the existing sync.ps1, with its manifest-scoped
-    plan, unknown-dir preservation, and Codex .system protection. Home-only
+    This script itself never copies or deletes a live file. Home-only
     files, credentials, sessions, and caches never change on activation.
 
     Phase 2 scope is skills + state file. Home-level config deployment
@@ -237,89 +236,23 @@ if (-not $lockResult.Valid) {
 Write-Host "Environment lock: valid ($($lockResult.LockHash))"
 
 Write-Host ''
-Write-Host 'Gate 4/4: manifest-scoped deploy via sync.ps1 (mandatory backup on apply)'
-$syncArguments = @(
-    '-RepoRoot', $staging
-    '-HomeRoot', $homeFull
-    '-SkipBuild'
-    '-SkipSecretScan'
-)
-$planPath = Join-Path (Get-LiveSafetyTemporaryRoot) "ai-agent-dotfiles-env-$Name-$([Guid]::NewGuid().ToString('N')).json"
+Write-Host 'Gate 4/4: activation deployment'
+# The legacy content-aware deploy route was removed from sync.ps1 by Task 5
+# Step 1. Activation deployment rebuilds on the receipt-backed host with the
+# Phase 3 env-activation work; until then -Apply has no deployment mechanism
+# and -DryRun has no deployment preview to show.
+Write-Host 'Deployment preview and apply are not wired; the legacy content-aware'
+Write-Host 'deploy route was removed by Task 5 (Phase 3 rebuilds activation on the'
+Write-Host 'receipt-backed host).'
 if ($Apply) {
-    Write-Host 'Gate 4/4a: generate and bind the dry-run plan'
-    $dryArguments = @($syncArguments + @('-DryRun', '-PlanPath', $planPath))
-    $code = Invoke-GateScript -ScriptName 'sync.ps1' -Arguments $dryArguments
-    if ($code -ne 0) {
-        Write-ActivationSummary -Result 'FAIL' -BackupReference $null -LockResult $lockResult
-        Write-Error "sync.ps1 dry-run failed (exit $code). State file not written." -ErrorAction Continue
-        exit $code
-    }
-
-    Write-Host 'Gate 4/4b: apply the exact reviewed plan'
-    $applyArguments = @($syncArguments + @('-Apply', '-BackupRoot', $BackupRoot, '-PlanPath', $planPath))
-    $code = Invoke-GateScript -ScriptName 'sync.ps1' -Arguments $applyArguments
-    if ($code -ne 0) {
-        Write-ActivationSummary -Result 'FAIL' -BackupReference $null -LockResult $lockResult
-        Write-Error "sync.ps1 apply failed (exit $code). State file not written. Plan retained at $planPath" -ErrorAction Continue
-        exit $code
-    }
-    Remove-Item -LiteralPath $planPath -Force -ErrorAction SilentlyContinue
-}
-else {
-    $dryArguments = @($syncArguments + @('-DryRun', '-PlanPath', $planPath))
-    $code = Invoke-GateScript -ScriptName 'sync.ps1' -Arguments $dryArguments
-    if ($code -ne 0) {
-        Write-ActivationSummary -Result 'FAIL' -BackupReference $null -LockResult $lockResult
-        Write-Error "sync.ps1 failed (exit $code). State file not written." -ErrorAction Continue
-        exit $code
-    }
+    Write-ActivationSummary -Result 'FAIL' -BackupReference $null -LockResult $lockResult
+    Write-Error 'activation-deploy-not-wired: Activation -Apply has no deployment mechanism; the legacy content-aware deploy route was removed by Task 5 and deployment rebuilds on the receipt-backed host in Phase 3. No state file was written.' -ErrorAction Continue
+    exit 1
 }
 
 $statePath = Get-HarnessEnvStatePath -RepoRoot $repoFull
-if (-not $Apply) {
-    Write-Host ''
-    Write-Host "State file would be written: $statePath"
-    Write-Host "DRY-RUN complete. Re-run with -Apply to activate '$Name'."
-    Write-ActivationSummary -Result 'DRY-RUN' -BackupReference $null -LockResult $lockResult
-    exit 0
-}
-
-$backupReference = Get-LatestBackupReference -Root $BackupRoot
-if ([string]::IsNullOrWhiteSpace($backupReference)) {
-    Write-ActivationSummary -Result 'FAIL' -BackupReference $null -LockResult $lockResult
-    Write-Error 'Activation apply completed without a discoverable mandatory backup reference; state file was not written.' -ErrorAction Continue
-    exit 1
-}
-$backupDir = Join-Path $BackupRoot $backupReference
-Write-HarnessJsonFile -InputObject ([ordered]@{
-        SchemaVersion = 1
-        Kind = 'harness-env-activation'
-        ActivatedEnvironment = $Name
-        PreviousState = Get-PreviousStateSummary -PreviousState $previousState
-        BackupReference = $backupReference
-    }) -Path (Join-Path $backupDir 'harness-env-activation.json')
-
-$stateDir = Split-Path -Parent $statePath
-if (-not (Test-Path -LiteralPath $stateDir)) {
-    New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
-}
-Write-HarnessJsonFile -InputObject ([ordered] @{
-        SchemaVersion  = 2
-        Name           = $Name
-        DefinitionHash = Get-HarnessEnvDefinitionHash -Path $definitionPath
-        TaskOverlayHash = $lockResult.Lock.TaskOverlayHash
-        TaskOverlaySkills = $lockResult.Lock.TaskOverlaySkills
-        LockHash       = $lockResult.LockHash
-        RepositoryCommit = $lockResult.Lock.RepositoryCommit
-        ManifestHashes = $lockResult.Lock.ManifestHashes
-        ProfileOutputHash = $lockResult.Lock.ProfileOutputHash
-        BackupReference = $backupReference
-        ActivatedAtUtc = [DateTime]::UtcNow.ToString('o')
-        HomeRoot       = $homeFull
-    }) -Path $statePath
-
 Write-Host ''
-Write-Host "Activated environment: $Name"
-Write-Host "State: $statePath"
-Write-ActivationSummary -Result 'PASS' -BackupReference $backupReference -LockResult $lockResult
+Write-Host "State file would be written: $statePath"
+Write-Host "DRY-RUN complete. Re-run with -Apply to activate '$Name'."
+Write-ActivationSummary -Result 'DRY-RUN' -BackupReference $null -LockResult $lockResult
 exit 0

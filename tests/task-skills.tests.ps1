@@ -160,44 +160,49 @@ Assert ((Get-TreeSnapshot -Root (Split-Path -Parent $overlayPath)) -eq $overlayB
 Write-Host 'task overlay: addition dry-run'
 $homeOneBefore = Get-TreeSnapshot -Root $homeOne
 $result = Invoke-Script -Script $entryScript -Arguments @('env', 'task', 'ensure-skill', 'fixture-b', '-Platform', 'Codex', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-DryRun', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -eq 0 -and $result.Out -match 'would add\s+\(1\)\s*:\s*fixture-b' -and $result.Out -match 'would prune\s+\(0\)') 'addition dry-run shows exactly one Codex addition and no prune'
+if ($result.Code -ne 0) { Write-Host '----- addition dry-run output -----'; Write-Host $result.Out }
+Assert ($result.Code -eq 0) 'addition dry-run exits 0 through the activation preview gate'
 Assert ((Get-Content -Raw -LiteralPath $overlayPath) -match "Codex = @\(\)" ) 'addition dry-run leaves the tracked overlay empty'
 Assert ((Get-TreeSnapshot -Root $homeOne) -eq $homeOneBefore) 'addition dry-run leaves live home unchanged'
 
-Write-Host 'task overlay: apply and state attestation'
+Write-Host 'task overlay: apply is interlocked'
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'ensure-skill', 'fixture-b', '-Platform', 'Codex', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-Apply', '-SkipBuild', '-SkipSecretScan')
-$statePath = Join-Path $fakeRepo 'state/current-env.json'
-$state = if (Test-Path -LiteralPath $statePath) { Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json } else { $null }
-Assert ($result.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $homeOne '.codex/skills/fixture-b/SKILL.md'))) 'apply installs the requested skill'
-Assert ((Get-Content -Raw -LiteralPath $overlayPath) -match "Codex = @\('fixture-b'\)") 'apply writes the shared overlay'
-Assert ($null -ne $state -and @($state.TaskOverlaySkills.Codex) -contains 'fixture-b') 'apply records task overlay skills in state'
-Assert (Test-Path -LiteralPath $systemOne) 'apply preserves Codex .system'
-Assert (@(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue).Count -gt 0) 'apply creates a mandatory backup'
+if ($result.Code -eq 0 -or $result.Out -notmatch 'activation-deploy-not-wired') { Write-Host '----- ensure apply output -----'; Write-Host $result.Out }
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-deploy-not-wired') 'task ensure apply fails closed without a deployment mechanism'
+Assert (-not (Test-Path -LiteralPath (Join-Path $homeOne '.codex/skills/fixture-b/SKILL.md'))) 'interlocked task apply installs no skill'
+Assert ((Get-Content -Raw -LiteralPath $overlayPath) -match "Codex = @\(\)") 'interlocked task apply leaves the tracked overlay empty'
+Assert (Test-Path -LiteralPath $systemOne) 'interlocked task apply preserves Codex .system'
+Assert (@(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue).Count -eq 0) 'interlocked task apply creates no backup'
 
-Write-Host 'task overlay: second-home reconstruction'
+Write-Host 'task overlay: second-home apply is interlocked'
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'sync', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeTwo, '-BackupRoot', $backupRoot, '-Apply', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $homeTwo '.codex/skills/fixture-b/SKILL.md'))) 'a second home reconstructs the same overlay skill'
-Assert (Test-Path -LiteralPath (Join-Path $homeTwo '.codex/skills/.system/system.md')) 'second-home sync preserves Codex .system'
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-deploy-not-wired') 'second-home sync apply fails closed without a deployment mechanism'
+Assert (-not (Test-Path -LiteralPath (Join-Path $homeTwo '.codex/skills/fixture-b/SKILL.md'))) 'interlocked second-home sync installs no skill'
 
-Write-Host 'task overlay: automatic addition-only policy'
+Write-Host 'task overlay: automatic addition-only policy refuses removals pre-deploy'
+# Seed the activation-state overlay baseline that the automatic policy reads;
+# a real baseline is written by a successful activation (Phase 3 rewires it).
+Set-File -Path (Join-Path $fakeRepo 'state/current-env.json') -Content (@{
+    SchemaVersion = 2
+    Name = 'work'
+    TaskOverlaySkills = [ordered]@{ Claude = @(); Codex = @('fixture-b', 'ghost-skill'); Reasonix = @() }
+} | ConvertTo-Json -Depth 4)
 Set-File -Path $overlayPath -Content (New-OverlayText -Codex @('fixture-b', 'fixture-c'))
+$homeOneWithOverlay = Get-TreeSnapshot -Root $homeOne
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'sync', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-Apply', '-Automatic', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -eq 0 -and $result.Out -match 'addition-only' -and (Test-Path -LiteralPath (Join-Path $homeOne '.codex/skills/fixture-c/SKILL.md'))) 'automatic sync applies an addition-only overlay change'
+Assert ($result.Code -eq 0 -and $result.Out -match 'removal requires explicit review') 'automatic sync skips overlay removals without deploying'
+Assert ((Get-TreeSnapshot -Root $homeOne) -eq $homeOneWithOverlay) 'the removal refusal leaves live skills untouched'
 
 Set-File -Path $overlayPath -Content (New-OverlayText)
-$homeOneWithSkills = Get-TreeSnapshot -Root $homeOne
-$result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'sync', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-Apply', '-Automatic', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -eq 0 -and $result.Out -match 'removal requires explicit review') 'automatic sync refuses overlay removals'
-Assert ((Get-TreeSnapshot -Root $homeOne) -eq $homeOneWithSkills) 'automatic removal refusal leaves live skills untouched'
 
-Write-Host 'task overlay: close dry-run and explicit prune'
+Write-Host 'task overlay: close apply is interlocked'
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'close', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-DryRun', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -eq 0 -and $result.Out -match 'would prune\s+\(2\)') 'close dry-run shows the exact two-skill prune'
+Assert ($result.Code -eq 0) 'close dry-run exits 0 through the activation preview gate'
 Assert (Test-Path -LiteralPath $overlayPath) 'close dry-run keeps the overlay file'
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'close', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-Apply', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -eq 0 -and -not (Test-Path -LiteralPath $overlayPath)) 'close apply removes the shared overlay explicitly'
-Assert (-not (Test-Path -LiteralPath (Join-Path $homeOne '.codex/skills/fixture-b'))) 'close apply prunes the task-added managed skills'
-Assert (Test-Path -LiteralPath $systemOne) 'close apply preserves Codex .system'
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-deploy-not-wired') 'close apply fails closed without a deployment mechanism'
+Assert (Test-Path -LiteralPath $overlayPath) 'the interlocked close apply keeps the shared overlay'
+Assert (Test-Path -LiteralPath $systemOne) 'the interlocked close apply preserves Codex .system'
 
 Write-Host 'task overlay: lock drift and status recovery'
 Set-File -Path $overlayPath -Content (New-OverlayText)

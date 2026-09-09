@@ -264,29 +264,32 @@ function Invoke-TaskActivation {
     }
 }
 
-function Assert-TaskAdditionOnlyPlan {
+function Assert-TaskCandidateAdditionOnly {
+    # The legacy content-aware deploy preview (whose plan report this
+    # attestation used to parse) was removed by Task 5; the addition-only
+    # guarantee is now checked directly against the candidate overlay.
     param(
-        [Parameter(Mandatory)] [string] $Output,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Candidate,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Tracked,
         [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $TargetPlatform,
         [Parameter(Mandatory)] [string] $Name
     )
 
-    if ($Output -match '(?m)^\s*(Claude|Codex|Reasonix)\s*:.*-[1-9][0-9]*\s*$') {
-        throw 'Task addition dry-run contains a prune action; no live change was attempted. Review env task sync explicitly.'
+    $addedTotal = 0
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $candidateNames = [System.Collections.Generic.HashSet[string]]::new([string[]] @($Candidate.Skills[$platform]), [System.StringComparer]::OrdinalIgnoreCase)
+        $trackedNames = [System.Collections.Generic.HashSet[string]]::new([string[]] @($Tracked[$platform]), [System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($name in $trackedNames) {
+            if (-not $candidateNames.Contains($name)) { throw 'Task addition dry-run contains a prune action; no live change was attempted. Review env task sync explicitly.' }
+        }
+        foreach ($name in $candidateNames) {
+            if (-not $trackedNames.Contains($name)) {
+                $addedTotal++
+                if ($platform -cne $TargetPlatform -or $name -cne $Name) { throw "Task addition dry-run contains an unexpected addition: $platform/$name." }
+            }
+        }
     }
-    $totalAdds = 0
-    $targetSummary = $null
-    foreach ($line in ($Output -split "`r?`n")) {
-        $match = [regex]::Match($line, '^\s*(Claude|Codex|Reasonix)\s*:\s*\+([0-9]+)')
-        if (-not $match.Success) { continue }
-        $count = [int] $match.Groups[2].Value
-        $totalAdds += $count
-        if ($match.Groups[1].Value -ieq $TargetPlatform) { $targetSummary = $count }
-    }
-    if ($totalAdds -ne 1 -or $targetSummary -ne 1 -or
-        $Output -notmatch ('(?m)^\s*would add\s+\(1\)\s*:\s*' + [regex]::Escape($Name) + '\s*$')) {
-        throw "Task addition dry-run did not contain exactly one $TargetPlatform/$Name addition. No live change was attempted."
-    }
+    if ($addedTotal -ne 1) { throw "Task addition dry-run did not contain exactly one $TargetPlatform/$Name addition." }
 }
 
 function Invoke-TaskStatus {
@@ -353,7 +356,7 @@ function Invoke-TaskEnsureSkill {
         if ($dry.Code -ne 0) {
             throw "Task skill dry-run failed (exit $($dry.Code)); overlay was not changed."
         }
-        Assert-TaskAdditionOnlyPlan -Output $dry.Output -TargetPlatform $Platform -Name $SkillName
+        Assert-TaskCandidateAdditionOnly -Candidate $candidateData -Tracked $context.Overlay.Skills -TargetPlatform $Platform -Name $SkillName
         if ($DryRun) {
             Write-Output 'Task skill dry-run complete; tracked overlay and live home were not changed.'
             return
@@ -365,6 +368,7 @@ function Invoke-TaskEnsureSkill {
             Write-TaskOverlayAtomic -Path $overlayPath -Data $candidateData
             $changed = $true
             $apply = Invoke-TaskActivation -Mode Apply -CandidateOverlayPath $overlayPath
+            if ($apply.Output) { Write-Output $apply.Output }
             if ($apply.Code -ne 0) {
                 throw "Task skill apply failed (exit $($apply.Code)); the tracked overlay will be restored."
             }
@@ -470,6 +474,7 @@ function Invoke-TaskClose {
                 $moved = $true
             }
             $apply = Invoke-TaskActivation -Mode Apply -CandidateOverlayPath $overlayPath
+            if ($apply.Output) { Write-Output $apply.Output }
             if ($apply.Code -ne 0) {
                 throw "Task close apply failed (exit $($apply.Code)); the tracked overlay will be restored."
             }

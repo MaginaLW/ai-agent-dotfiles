@@ -351,7 +351,7 @@ if (Test-Path -LiteralPath (Join-Path $fakeRepo 'envs')) {
     Remove-Item -LiteralPath (Join-Path $fakeRepo 'envs') -Recurse -Force
 }
 if (Test-Path -LiteralPath (Join-Path $fakeRepo 'state')) {
-    Remove-Item -LiteralPath (Join-Path $fakeRepo 'state') -Recurse -Force
+    Remove-Item -LiteralPath (Join-Path $fakeRepo 'state') -Recurse -Force -ErrorAction SilentlyContinue
 }
 $snapshotBefore = Get-TreeSnapshot -Root $fakeRepo
 $null = Invoke-Script -Script $listScript -ScriptArgs @('-RepoRoot', $fakeRepo)
@@ -395,79 +395,23 @@ Assert ($result.Out -match 'State file would be written') 'dry-run announces the
 Assert ((Get-TreeSnapshot -Root $fakeHome) -eq $homeSnapshotBefore) 'dry-run changes nothing in the fake home'
 Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'dry-run creates no state/'
 
-# 9.2 apply installs skills, writes state, backs up, preserves sentinels
+# 9.2 apply is interlocked: the legacy content-aware deploy route was removed
+# by Task 5 and activation deployment rebuilds on the receipt-backed host in
+# Phase 3. Until then -Apply fails closed before any home or state write.
 $result = Invoke-Activate -EnvName 'good' -Extra @('-Apply')
-Assert ($result.Code -eq 0) 'activate apply exits 0'
-Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-a/SKILL.md')) 'apply installs claude fixture-a'
-Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-b/SKILL.md')) 'apply installs claude fixture-b'
-Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.codex/skills/fixture-a/SKILL.md')) 'apply installs codex fixture-a'
-$state = Get-Content -Raw -LiteralPath (Join-Path $fakeRepo 'state/current-env.json') | ConvertFrom-Json
-Assert ([string] $state.Name -eq 'good') 'state file records the activated env'
-Assert ($state.PSObject.Properties.Name -contains 'DefinitionHash') 'state file records the definition hash'
-Assert ($state.PSObject.Properties.Name -contains 'ActivatedAtUtc') 'state file records the activation time'
-Assert (@(Get-ChildItem -LiteralPath $fakeBackups -Directory -ErrorAction SilentlyContinue).Count -gt 0) 'mandatory backup ran before apply'
-Assert (Test-Path -LiteralPath $systemSentinel) 'codex .system sentinel untouched by apply'
-Assert (Test-Path -LiteralPath $unknownLocal) 'unmanaged live skill untouched by apply'
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-deploy-not-wired') 'activate apply fails closed without a deployment mechanism'
+Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'interlocked activation writes no state'
+Assert (@(Get-ChildItem -LiteralPath $fakeBackups -Directory -ErrorAction SilentlyContinue).Count -eq 0) 'interlocked activation creates no backup root'
+Assert (Test-Path -LiteralPath $systemSentinel) 'codex .system sentinel untouched by the refused apply'
+Assert (Test-Path -LiteralPath $unknownLocal) 'unmanaged live skill untouched by the refused apply'
 
-# 9.3 status/list integration
-$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
-Assert ($result.Out -match 'Active environment: good') 'status reports the activated env'
-$result = Invoke-Script -Script $listScript -ScriptArgs @('-RepoRoot', $fakeRepo)
-Assert ($result.Out -match '\*\s*good') 'list marks the activated env'
-
-# 9.4 re-apply adds and prunes nothing and leaves content identical
-# (content-aware sync reports identical managed skills as no-op; idempotence is
-# asserted through the no-op counts and unchanged content hashes)
-$homeSnapshotBefore = Get-TreeSnapshot -Root $fakeHome
-$result = Invoke-Activate -EnvName 'good' -Extra @('-Apply')
-Assert ($result.Code -eq 0) 're-activate exits 0'
-Assert ($result.Out -match 'Claude\s*:\s*\+0 ~0 =2 -0') 're-activate reports no-op for claude'
-Assert ($result.Out -match 'Codex\s*:\s*\+0 ~0 =1 -0') 're-activate reports no-op for codex'
-Assert ((Get-TreeSnapshot -Root $fakeHome) -eq $homeSnapshotBefore) 're-activate leaves home content identical'
-
-# 9.5 switching to a smaller env prunes managed skills, preserves the rest
-$result = Invoke-Activate -EnvName 'small' -Extra @('-Apply')
-Assert ($result.Code -eq 0) 'activate small exits 0'
-Assert (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-b'))) 'switching prunes the managed skill not in the new env'
-Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-a/SKILL.md')) 'shared skill survives the switch'
-Assert (Test-Path -LiteralPath $systemSentinel) 'codex .system sentinel survives the switch'
-Assert (Test-Path -LiteralPath $unknownLocal) 'unmanaged live skill survives the switch'
-$state = Get-Content -Raw -LiteralPath (Join-Path $fakeRepo 'state/current-env.json') | ConvertFrom-Json
-Assert ([string] $state.Name -eq 'small') 'state file follows the switch'
-
-# 9.6 status flags definition drift after activation
-$originalSmall = [System.IO.File]::ReadAllBytes($smallDefinitionPath)
-Add-Content -LiteralPath $smallDefinitionPath -Value '# post-activation edit'
-$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
-Assert ($result.Out -match 'definition changed since activation') 'status flags definition drift after activation'
-[System.IO.File]::WriteAllBytes($smallDefinitionPath, $originalSmall)
-$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
-Assert ($result.Out -notmatch 'definition changed since activation') 'drift flag clears after restore'
-
-# 9.7 rollback small -> good from the activation backup
-Write-Host 'rollback: restore the previous environment'
-$smallBackup = Get-ChildItem -LiteralPath $fakeBackups -Directory | Sort-Object LastWriteTimeUtc, Name -Descending | Select-Object -First 1
-$rollbackPlanPath = Join-Path $work 'rollback-plan.json'
-$rollbackJsonPath = Join-Path $work 'rollback.json'
-$homeSnapshotBeforeRollback = Get-TreeSnapshot -Root $fakeHome
-$result = Invoke-Script -Script (Join-Path $RepoRoot 'scripts/rollback-harness-env.ps1') -ScriptArgs @(
-    '-BackupPath', $smallBackup.FullName, '-RepoRoot', $fakeRepo, '-HomeRoot', $fakeHome,
-    '-PlanPath', $rollbackPlanPath, '-JsonPath', $rollbackJsonPath, '-DryRun')
-Assert ($result.Code -eq 0) 'rollback dry-run exits 0'
-Assert (Test-Path -LiteralPath $rollbackPlanPath) 'rollback dry-run writes an external plan'
-Assert ((Get-TreeSnapshot -Root $fakeHome) -eq $homeSnapshotBeforeRollback) 'rollback dry-run changes no live files'
-$result = Invoke-Script -Script (Join-Path $RepoRoot 'scripts/rollback-harness-env.ps1') -ScriptArgs @(
-    '-BackupPath', $smallBackup.FullName, '-RepoRoot', $fakeRepo, '-HomeRoot', $fakeHome,
-    '-PlanPath', $rollbackPlanPath, '-JsonPath', $rollbackJsonPath, '-Apply')
-Assert ($result.Code -eq 0) 'rollback apply exits 0'
-Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/fixture-b/SKILL.md')) 'rollback restores the previous managed skill'
-Assert (Test-Path -LiteralPath $systemSentinel) 'rollback preserves codex .system'
-Assert (Test-Path -LiteralPath $unknownLocal) 'rollback preserves unknown live skills'
-$state = Get-Content -Raw -LiteralPath (Join-Path $fakeRepo 'state/current-env.json') | ConvertFrom-Json
-Assert ([string] $state.Name -eq 'good') 'rollback restores the previous environment state'
+# 9.3 activation status/list integration returns with the Phase 3
+# env-activation deployment (the state file cannot be produced while -Apply is
+# interlocked); 9.4-9.7 idempotence, environment switching, drift flagging, and
+# backup rollback return alongside it (rollback rebuilds on receipts in Task 7).
 
 # 9.8 failures never write state
-Remove-Item -LiteralPath (Join-Path $fakeRepo 'state') -Recurse -Force
+Remove-Item -LiteralPath (Join-Path $fakeRepo 'state') -Recurse -Force -ErrorAction SilentlyContinue
 $result = Invoke-Activate -EnvName 'ghost' -Extra @('-Apply')
 Assert ($result.Code -ne 0) 'activating an unknown env fails'
 Assert (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'failed activation writes no state'
@@ -510,20 +454,11 @@ Assert ($result.Code -eq 0) 'project status exits 0'
 Assert ($result.Out -match "requires env 'small' - no environment activated") 'reminds when nothing is activated'
 Assert ($result.Out -match 'env activate small -DryRun') 'reminder suggests the activate command'
 
-# activate the required env -> matches
+# activation -Apply stays interlocked, so the project reminder persists
 $result = Invoke-Activate -EnvName 'small' -Extra @('-Apply')
-Assert ($result.Code -eq 0) 'activating the required env succeeds'
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-deploy-not-wired') 'activating the required env fails closed without a deployment mechanism'
 $result = Invoke-ProjectStatus
-Assert ($result.Out -match "requires env 'small' - matches active") 'reports a match after activation'
-
-# mismatch: switch active env away from the requirement
-$result = Invoke-Activate -EnvName 'good' -Extra @('-Apply')
-Assert ($result.Code -eq 0) 'switching to another env succeeds'
-$result = Invoke-ProjectStatus
-Assert ($result.Out -match "requires env 'small' - does not match active 'good'") 'reports the mismatch'
-Assert ($result.Out -match 'env activate small -DryRun') 'mismatch suggests the activate command'
-$state = Get-Content -Raw -LiteralPath (Join-Path $fakeRepo 'state/current-env.json') | ConvertFrom-Json
-Assert ([string] $state.Name -eq 'good') 'detection never auto-activates (state unchanged)'
+Assert ($result.Out -match "requires env 'small' - no environment activated") 'still reminds while activation cannot deploy'
 
 # declared env without a definition
 Set-ProjectProfile -RequiredEnvLine "    RequiredEnv = 'ghost'"

@@ -476,56 +476,6 @@ try {
     Assert ($result.Code -ne 0 -and $result.Out -match 'live-transaction-claims-binding-mismatch') 'retirement targeting a root outside the claimed bindings fails closed'
     Assert (Test-Path -LiteralPath (Join-Path $reasonixOverrideRoot 'retired-reasonix-override')) 'the rejected override retirement leaves its target untouched'
 
-    Write-Host '[prune-time target verification]'
-    $tokens = $null
-    $parseErrors = $null
-    $syncAst = [System.Management.Automation.Language.Parser]::ParseFile($syncScript, [ref] $tokens, [ref] $parseErrors)
-    Assert ($parseErrors.Count -eq 0) 'sync script parses before function-level prune tests'
-    foreach ($functionName in @('Assert-SafeLiveSkillTarget', 'Get-StringSha256', 'Get-SkillTreeHash', 'Remove-OneSkillDir')) {
-        $functionAst = $syncAst.Find({
-            param($node)
-            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName
-        }, $true)
-        Assert ($null -ne $functionAst) "sync script contains $functionName"
-        $definition = [scriptblock]::Create($functionAst.Extent.Text)
-        . $definition
-    }
-    $CodexSystemDirName = '.system'
-    $removeUnitRoot = Join-Path $work 'remove-unit-live'
-    New-Item -ItemType Directory -Force -Path $removeUnitRoot | Out-Null
-    $reviewedHash = ('0' * 64) -join ''
-
-    $missingRejected = $false
-    try {
-        Remove-OneSkillDir -LiveRoot $removeUnitRoot -Name 'missing-retired' -ExpectedHash $reviewedHash
-    }
-    catch {
-        $missingRejected = $_.Exception.Message -match 'missing or non-directory'
-    }
-    Assert $missingRejected 'reviewed prune fails closed when the target disappeared after planning'
-
-    Write-TextFile -Path (Join-Path $removeUnitRoot 'non-directory-retired') -Content "file-sentinel`n"
-    $fileRejected = $false
-    try {
-        Remove-OneSkillDir -LiveRoot $removeUnitRoot -Name 'non-directory-retired' -ExpectedHash $reviewedHash
-    }
-    catch {
-        $fileRejected = $_.Exception.Message -match 'missing or non-directory'
-    }
-    Assert $fileRejected 'reviewed prune fails closed when the target became a file after planning'
-
-    $changedTarget = Join-Path $removeUnitRoot 'changed-retired'
-    Write-TextFile -Path (Join-Path $changedTarget 'SKILL.md') -Content "changed-after-review`n"
-    $changedRejected = $false
-    try {
-        Remove-OneSkillDir -LiveRoot $removeUnitRoot -Name 'changed-retired' -ExpectedHash $reviewedHash
-    }
-    catch {
-        $changedRejected = $_.Exception.Message -match 'Refusing to prune changed skill'
-    }
-    Assert $changedRejected 'reviewed prune recomputes the moved target tree hash before deletion'
-    Assert (Test-Path -LiteralPath (Join-Path $changedTarget 'SKILL.md')) 'hash-mismatch prune restores the original target directory'
-    Assert (@(Get-ChildItem -LiteralPath $removeUnitRoot -Directory -Filter '.ai-agent-dotfiles-prune-*').Count -eq 0) 'hash-mismatch prune leaves no rollback directory behind'
 
     Write-Host 'sync tests: PASS'
 }

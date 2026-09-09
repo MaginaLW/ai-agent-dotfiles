@@ -19,8 +19,8 @@ $beforeHash = (Get-FileHash -LiteralPath $systemSentinel -Algorithm SHA256).Hash
 
 try {
     $cases = @(
-        @{ Name='sync apply'; Script='sync.ps1'; Args=@('-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan') },
-        @{ Name='retirement sync apply'; Script='sync.ps1'; Args=@('-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan','-RetireManifestPath',(Join-Path $work 'retire.json')) },
+        @{ Name='sync apply'; Script='sync.ps1'; Args=@('-RepoRoot',$fakeRepo,'-Apply','-SkipBuild','-SkipSecretScan') },
+        @{ Name='retirement sync apply'; Script='sync.ps1'; Args=@('-RepoRoot',$fakeRepo,'-Apply','-SkipBuild','-SkipSecretScan','-RetireManifestPath',(Join-Path $work 'retire.json')) },
         @{ Name='environment activate apply'; Script='activate-harness-env.ps1'; Args=@('-Name','missing','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan') },
         @{ Name='task ensure apply'; Script='task-skills.ps1'; Args=@('-Action','ensure-skill','missing','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan') },
         @{ Name='task sync automatic apply'; Script='task-skills.ps1'; Args=@('-Action','sync','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-Automatic','-SkipBuild','-SkipSecretScan') },
@@ -44,8 +44,6 @@ try {
 
     $escaped = Invoke-SafetySandboxScript -SandboxRoot $sandboxRoot -ScriptPath (Join-Path $RepoRoot 'scripts/sync.ps1') -Arguments @(
         '-RepoRoot', $fakeRepo,
-        '-HomeRoot', $fakeHome,
-        '-BackupRoot', $backupRoot,
         '-Apply',
         '-SkipBuild',
         '-SkipSecretScan'
