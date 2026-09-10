@@ -2849,6 +2849,19 @@ task-skills attestations now read the candidate overlay directly instead of the 
 report text; the Reasonix override retirement scenario now asserts the claims-binding rejection,
 with a claimed custom root to be covered by a dedicated sandbox in Step 5.
 
+Slice 4 closed Step 5 with a dedicated parity sandbox in sync.tests (0cc6ccc): a second
+full chain — authority bootstrap and canonical setup in their own process (the sealed registry
+route capture is process-global), initial transaction against a Reasonix root overridden at
+initial planning time with the claims binding that exact root, retirement pruning an explicitly
+retired skill from it, and the .agents fallback posture pinned as a fail-closed refusal
+(fallback-root machines are non-pristine and wait for Phase 3 migrate/adopt). Two authoritative
+unified runs passed 37/37 discovered suites with zero failures and zero timeouts: the first on
+the clean tree at 408da9a, the second on the final Task 5 tree including the parity sandbox
+(DiscoveryHash b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0 for both, the
+suite set is unchanged; external JSON summaries stay outside Git). The harness-model feedback
+loop was checked at closeout: no new upstream feedback since the recorded application, so
+docs/ZCODE.md is unchanged per the loop's no-repeat rule.
+
 Verification (canonical `pwsh -NoProfile -File` runs): sync.tests (initial and retirement full
 chains, re-apply fail-closed, manifest negatives, Reasonix override rejection), live-plan.tests
 (111 assertions), harness-env.tests (109), task-skills.tests (22), automation-safety.tests,
@@ -2895,9 +2908,8 @@ remains interlocked; nothing in these commits touches live roots or generated ou
 
 ## Remaining roadmap snapshot
 
-Phase 2 has 21 of 52 steps remaining. Tasks 1-4 are complete; Task 5 has Steps 5 and its full
-validation closeout remaining; Tasks 6-9 have not started. The implementation order and remaining
-scope are:
+Phase 2 has 19 of 52 steps remaining. Tasks 1-5 are complete; Tasks 6-9 have not started. The
+implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -2905,7 +2917,7 @@ scope are:
 | Task 2 | 0/7 | Complete |
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
-| Task 5 | 2/6 | Common transaction host for normal sync and explicit retirement (Steps 1-4 done; Step 5 three-platform parity closeout, Step 6 standing posture held) |
+| Task 5 | 0/6 | Complete |
 | Task 6 | 5/5 | Read-only recovery status, reviewed recovery transitions, failpoints, and restart behavior |
 | Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
@@ -2917,14 +2929,13 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 5 is 4/6 (Phase 2 31/52) as of 2026-09-10. Steps 1-4 are done: the schema 3
-   sync route runs initial and retirement through the receipt-backed host behind the global lock
-   order, the legacy content-aware deploy route (per-skill swap/journal, whole-root backup
-   parsing, manual rollback) and its -HomeRoot/-BackupRoot selectors are removed, activate
-   Gate 4 is a fail-closed stub (activation-deploy-not-wired) until Phase 3 rebuilds activation
-   on the receipt-backed host, and task-skills attestations read the candidate overlay directly.
-   Remaining: Step 5 three-platform parity closeout (Codex .agents fallback and a claimed custom
-   Reasonix root in a dedicated sandbox) and the full-validation closeout (unified run + docs).
+1. Phase 2 Task 5 is complete (6/6; Phase 2 33/52) as of 2026-09-10. The schema 3 sync route
+   runs initial and retirement through the receipt-backed host behind the global lock order, the
+   legacy content-aware deploy route is fully removed, activate Gate 4 is a fail-closed stub
+   (activation-deploy-not-wired) until Phase 3 rebuilds activation on the receipt-backed host,
+   task-skills attestations read the candidate overlay directly, and the parity sandbox pins the
+   claimed custom Reasonix root plus the .agents fallback posture (fallback-root machines are
+   non-pristine and require the Phase 3 migrate/adopt flow). Next: Tasks 6-9 in strict sequence.
    Production Apply remains interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
