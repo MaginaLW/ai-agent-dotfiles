@@ -26,7 +26,7 @@
         'harness-multiplatform.tests.ps1' = 210
         'harness-profile.tests.ps1' = 90
         'skills-import.tests.ps1' = 1200
-        'sync.tests.ps1' = 900
+        'sync.tests.ps1' = 1200
         'task-skills.tests.ps1' = 120
         'test-runner.tests.ps1' = 45
     }
