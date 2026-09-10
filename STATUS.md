@@ -2898,13 +2898,17 @@ distinct causes, both now fixed on main.
    900/600/3600/900 and the workflow bound to 380 minutes (proven total 21465 seconds over
    37 suites including the eleven 120s defaults, required bound 364.75 minutes). Verified
    with `tests/test-runner.tests.ps1`: discovery, timeout semantics fixtures, and the
-   budget contract all pass.
+   budget contract all pass. The full Validate run on `881047a` then completed green
+   (run 34430424975, 147.3 minutes, 37/37 suites, zero failures and zero timeouts),
+   ending the streak.
 
-Notes for the next closeout: the run that produced the four timeouts executed the suite set
-at `895c54f`; `tests/sync.tests.ps1` gained an in-progress parity sandbox block after that
-commit (uncommitted work from the parallel Task 5 Step 5 session), so CI has not executed
-that block and its budget impact is not yet covered by the numbers above. Production Apply
-remains interlocked; nothing in these commits touches live roots or generated output.
+Follow-up: the Task 5 parity sandbox landed in `0cc6ccc` after those numbers were taken,
+making sync heavier. Measured at `5def813` in an isolated worktree: sync.tests passes in
+321s locally (about 650s projected on CI), so its budget moved again 900 -> 1200; with the
+eleven 120s defaults the proven total is 21765 seconds and the required bound 370.25
+minutes, still inside the 380-minute workflow limit (test-runner contract re-verified).
+Production Apply remains interlocked; nothing in these commits touches live roots or
+generated output.
 
 ## Remaining roadmap snapshot
 
