@@ -477,6 +477,156 @@ try {
     Assert (Test-Path -LiteralPath (Join-Path $reasonixOverrideRoot 'retired-reasonix-override')) 'the rejected override retirement leaves its target untouched'
 
 
+    Write-Host '[parity sandbox: Codex fallback + claimed custom Reasonix root]'
+    # A dedicated second sandbox: the Codex live root resolves through the
+    # .agents fallback (no .codex/skills) and the Reasonix root is overridden
+    # at initial planning time, so the environment claims bind those exact
+    # roots and both transactions run against them through the host.
+    $work2 = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-sync-parity-$([Guid]::NewGuid().ToString('N'))"
+    $plans2 = Join-Path $work2 'plans'
+    $home2 = Join-Path $work2 'home'
+    $controlBase2 = Join-Path $home2 'AppData\Local\ai-agent-dotfiles\control'
+    $backups2 = Join-Path $home2 'AppData\Local\ai-agent-dotfiles\backups'
+    $reasonixRoot2 = Join-Path $work2 'reasonix-live'
+    foreach ($dir in @($work2, $plans2, $home2, (Join-Path $home2 '.agents\skills'))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    function Invoke-Sync2 {
+        param([string[]] $Arguments)
+        return Invoke-SafetySandboxScript -SandboxRoot $work2 -ScriptPath $syncScript -Arguments $Arguments -AuthorityRepoRoot $RepoRoot
+    }
+
+    $repo2 = Join-Path $work2 'repo'
+    foreach ($dir in @('harness-source/envs', 'manifests', 'tools/schema-validator', 'tools/gitleaks', 'schemas')) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $repo2 $dir) | Out-Null
+    }
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/profiles') -Destination (Join-Path $repo2 'harness-source/profiles') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/components') -Destination (Join-Path $repo2 'harness-source/components') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/envs/full.psd1') -Destination (Join-Path $repo2 'harness-source/envs/full.psd1') -Force
+    foreach ($platform in @('claude', 'codex', 'reasonix')) {
+        Copy-Item -LiteralPath (Join-Path $RepoRoot "manifests/managed-skills.$platform.txt") -Destination (Join-Path $repo2 "manifests/managed-skills.$platform.txt") -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json') -Destination (Join-Path $repo2 'tools/schema-validator/validator.lock.json') -Force
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $repo2 'tools/gitleaks/gitleaks.lock.json') -Force
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'schemas') -Destination (Join-Path $repo2 'schemas') -Recurse -Force
+    foreach ($platform in @('claude', 'codex', 'reasonix')) {
+        $titlePlatform = [System.Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase($platform)
+        foreach ($name in (Import-PowerShellDataFile -LiteralPath (Join-Path $repo2 'harness-source/envs/full.psd1')).Skills[$titlePlatform]) {
+            Write-FixtureSkillPlaceholder -Repo $repo2 -Platform $platform -Name ([string] $name)
+        }
+    }
+    & git -C $repo2 init --quiet
+    & git -C $repo2 add -A
+    & git -C $repo2 -c 'user.name=parity fixture' -c 'user.email=parity-fixture@ai-agent-dotfiles.invalid' commit --quiet -m 'parity fixture'
+    if ($LASTEXITCODE -ne 0) { throw 'parity fixture repo commit failed' }
+
+    $parityInitialPlan = Join-Path $plans2 'parity-initial-plan.json'
+    $result = Invoke-Sync2 -Arguments @('-RepoRoot', $repo2, '-ReasonixLiveSkillsPath', $reasonixRoot2, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $parityInitialPlan)
+    if ($result.Code -ne 0) { Write-Host '----- parity initial dry-run output -----'; Write-Host $result.Out }
+    # The existing .agents fallback root routes the Codex live target to
+    # .agents, which makes the machine non-pristine: a fallback-root machine
+    # requires the Phase 3 migrate/adopt flow, so pristine initial refuses.
+    Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-selection-mismatch') 'a Codex fallback-root machine is not pristine for initial'
+    Remove-Item -LiteralPath (Join-Path $home2 '.agents') -Recurse -Force
+    $result = Invoke-Sync2 -Arguments @('-RepoRoot', $repo2, '-ReasonixLiveSkillsPath', $reasonixRoot2, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $parityInitialPlan)
+    if ($result.Code -ne 0) { Write-Host '----- parity initial dry-run output -----'; Write-Host $result.Out }
+    Assert ($result.Code -eq 0) 'parity initial dry-run exits 0'
+    $parityInitialPlanDocument = Read-LivePlanDocument -Path $parityInitialPlan
+    $parityRows = @($parityInitialPlanDocument.PlanPayload.TargetContextIntent.Rows)
+    Assert ([string] $parityRows[2].RequestedPath -ceq ([System.IO.Path]::GetFullPath($reasonixRoot2))) 'parity plan claims the overridden Reasonix live root'
+
+    # Bootstrap + canonical setup run in their own process: the sealed registry
+    # route capture is process-global and the main sandbox already claimed it.
+    $paritySetupScript = Join-Path $work2 'setup-authority.ps1'
+    @'
+#requires -Version 7.0
+param([string] $AuthorityRepo, [string] $TargetRepo)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. (Join-Path $AuthorityRepo 'scripts/json-artifact-common.ps1')
+. (Join-Path $AuthorityRepo 'scripts/root-claims-registry-common.ps1')
+$home2 = $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT
+$controlBase2 = Join-Path $home2 'AppData\Local\ai-agent-dotfiles\control'
+$backups2 = Join-Path $home2 'AppData\Local\ai-agent-dotfiles\backups'
+foreach ($folder in @((Join-Path $home2 'AppData\Roaming'), (Join-Path $home2 'AppData\Local'))) {
+    if (-not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Force -Path $folder | Out-Null }
+}
+$identity = [pscustomobject][ordered]@{
+    ResolverVersion = 'windows-token-sid-known-folder-v1'
+    TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    ProfileRoot = $home2
+    RoamingAppDataRoot = (Join-Path $home2 'AppData\Roaming')
+    LocalAppDataRoot = (Join-Path $home2 'AppData\Local')
+}
+$context = Resolve-HomeAuthorityContextFromIdentity -Identity $identity
+$intent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $context -FilesystemCapabilityHash ('a' * 64)
+$lock = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $context -Intent $intent
+try { if ($null -eq $lock) { throw 'parity bootstrap returned no lock' } }
+finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $lock }
+$probe = Join-Path $env:AI_AGENT_DOTFILES_INTERNAL_SANDBOX_ROOT 'canonical-probe'
+$recoveryParent = Join-Path $env:AI_AGENT_DOTFILES_INTERNAL_SANDBOX_ROOT 'canonical-recovery-parent'
+foreach ($dir in @($probe, $recoveryParent)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+$recoveryTemplate = Get-CanonicalCurrentUserOnlySecurityTemplate
+$recoverySid = [Security.Principal.SecurityIdentifier]::new([string] $recoveryTemplate.OwnerSid)
+$recoverySecurity = [Security.AccessControl.DirectorySecurity]::new()
+$recoverySecurity.SetOwner($recoverySid)
+$recoverySecurity.SetAccessRuleProtection($true, $false)
+foreach ($rule in $recoveryTemplate.AccessRules) {
+    $recoverySecurity.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($recoverySid, [Security.AccessControl.FileSystemRights]([long] $rule.FileSystemRights), [Security.AccessControl.InheritanceFlags]([long] $rule.InheritanceFlags), [Security.AccessControl.PropagationFlags]([long] $rule.PropagationFlags), [Security.AccessControl.AccessControlType]([long] $rule.AccessControlType)))
+}
+[System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.DirectoryInfo]::new($recoveryParent), $recoverySecurity)
+$recovery = Join-Path $recoveryParent 'recovery'
+New-Item -ItemType Directory -Force -Path $recovery | Out-Null
+$recoverySecurity2 = [Security.AccessControl.DirectorySecurity]::new()
+$recoverySecurity2.SetOwner($recoverySid)
+$recoverySecurity2.SetAccessRuleProtection($true, $false)
+foreach ($rule in $recoveryTemplate.AccessRules) {
+    $recoverySecurity2.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($recoverySid, [Security.AccessControl.FileSystemRights]([long] $rule.FileSystemRights), [Security.AccessControl.InheritanceFlags]([long] $rule.InheritanceFlags), [Security.AccessControl.PropagationFlags]([long] $rule.PropagationFlags), [Security.AccessControl.AccessControlType]([long] $rule.AccessControlType)))
+}
+[System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.DirectoryInfo]::new($recovery), $recoverySecurity2)
+try {
+    $payload = New-CanonicalSetupPlanPayload -RepoRoot $TargetRepo -CanonicalRecoveryRoot $recovery -ControlBase $controlBase2 -BackupRoot $backups2 -ProbeRoot $probe -ToolchainRoot $AuthorityRepo
+} catch {
+    Write-Host ('SETUP-DIAG template: ' + (ConvertTo-Json -InputObject (Get-CanonicalCurrentUserOnlySecurityTemplate) -Compress))
+    Write-Host ('SETUP-DIAG evidence: ' + (ConvertTo-Json -InputObject (Get-CanonicalDirectorySecurityEvidence -Path $recovery) -Compress))
+    Write-Host ('SETUP-DIAG control exists: ' + (Test-Path -LiteralPath $controlBase2) + ' backups exists: ' + (Test-Path -LiteralPath $backups2))
+    throw
+}
+$git = Get-CanonicalGitContext -RepoRoot $TargetRepo
+$paths = Get-CanonicalTransactionContractPaths -GitContext $git
+$state = New-CanonicalFinalSetupState -PlanPayload $payload -RepoRoot $TargetRepo
+$setupLock = Enter-CanonicalRepoLock -LockPath ([string] $paths.LockPath) -AllowCreate
+try {
+    $bytes = [byte[]](ConvertTo-SemanticJsonBytes -InputObject $state)
+    [IO.File]::WriteAllText([string] $paths.SetupStatePath, [Text.UTF8Encoding]::new($false).GetString($bytes), [Text.UTF8Encoding]::new($false))
+}
+finally { Exit-CanonicalRepoLock -LockHandle $setupLock }
+Write-Host 'parity authority setup complete'
+'@ | Set-Content -LiteralPath $paritySetupScript -Encoding UTF8
+    $result = Invoke-SafetySandboxScript -SandboxRoot $work2 -ScriptPath $paritySetupScript -Arguments @('-AuthorityRepo', $RepoRoot, '-TargetRepo', $repo2) -AuthorityRepoRoot $RepoRoot
+    if ($result.Code -ne 0) { Write-Host '----- parity setup output -----'; Write-Host $result.Out }
+    Assert ($result.Code -eq 0) 'parity authority bootstrap and canonical setup succeed in their own process'
+
+    $result = Invoke-Sync2 -Arguments @('-RepoRoot', $repo2, '-ReasonixLiveSkillsPath', $reasonixRoot2, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $parityInitialPlan)
+    if ($result.Code -ne 0) { Write-Host '----- parity initial apply output -----'; Write-Host $result.Out }
+    Assert ($result.Code -eq 0) 'parity initial apply completes through the receipt-backed host'
+    Assert (Test-Path -LiteralPath (Join-Path $home2 '.codex\skills\brainstorming\SKILL.md')) 'parity initial installs codex brainstorming under the default root'
+    Assert (Test-Path -LiteralPath (Join-Path $reasonixRoot2 'brainstorming\SKILL.md')) 'parity initial installs reasonix brainstorming under the claimed custom root'
+    Assert (Test-Path -LiteralPath (Join-Path $controlBase2 'homes')) 'parity authority area exists under the derived control base'
+
+    $parityRetired = Join-Path $reasonixRoot2 'retired-parity'
+    Write-TextFile -Path (Join-Path $parityRetired 'SKILL.md') -Content "parity-retired`n"
+    $parityRetireManifest = Join-Path $plans2 'parity-retire.json'
+    Write-RetirementManifest -Path $parityRetireManifest -Reasonix @('retired-parity')
+    $parityRetirementPlan = Join-Path $plans2 'parity-retirement-plan.json'
+    $result = Invoke-Sync2 -Arguments @('-RepoRoot', $repo2, '-ReasonixLiveSkillsPath', $reasonixRoot2, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $parityRetirementPlan, '-RetireManifestPath', $parityRetireManifest)
+    if ($result.Code -ne 0) { Write-Host '----- parity retirement dry-run output -----'; Write-Host $result.Out }
+    Assert ($result.Code -eq 0) 'parity retirement dry-run exits 0'
+    $result = Invoke-Sync2 -Arguments @('-RepoRoot', $repo2, '-ReasonixLiveSkillsPath', $reasonixRoot2, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $parityRetirementPlan, '-RetireManifestPath', $parityRetireManifest)
+    if ($result.Code -ne 0) { Write-Host '----- parity retirement apply output -----'; Write-Host $result.Out }
+    Assert ($result.Code -eq 0) 'parity retirement apply exits 0'
+    Assert (-not (Test-Path -LiteralPath $parityRetired)) 'parity retirement prunes the claimed custom Reasonix root'
+    Assert (Test-Path -LiteralPath (Join-Path $reasonixRoot2 'brainstorming\SKILL.md')) 'parity retirement keeps the managed reasonix skill'
+    Remove-Item -LiteralPath $work2 -Recurse -Force -ErrorAction SilentlyContinue
+
     Write-Host 'sync tests: PASS'
 }
 finally {
