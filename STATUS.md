@@ -2863,6 +2863,36 @@ fake build/scan adapters land with the Phase 4 public-surface work; the sandbox 
 derives backup/control under the injected home's AppData\Local\ai-agent-dotfiles path, mirroring
 the production home-authority derivation.
 
+## 2026-09-10 CI validate repair: schema-3 drift and suite budgets
+
+The Validate workflow had failed 9 consecutive times since 2026-09-08 (`2bef22b`) with two
+distinct causes, both now fixed on main.
+
+1. Machine-readable evidence drift (8 consecutive failures, `2bef22b`..`408da9a`): commit
+   `3d3aa7f` moved the env-build sidecar to schema 3 but `.github/workflows/validate.yml`
+   still required `SchemaVersion -ne 2` at the evidence step, so every run died with
+   "Harness environment build JSON is invalid." before the test matrix. `git log -L` on the
+   assertion shows it was never touched between the schema bump and the fix. Fixed in
+   `895c54f` (assertion pinned to 3); run 34415557457 confirmed the step now passes. All
+   other version assertions in the step already matched their schemas at that commit
+   (secret-scan 1, build-report 1, env-lock 3, env-list 1, env-status 1).
+2. Suite budget exhaustion (run 34415557457, step 13): 33/37 suites passed with zero
+   assertion failures while four hit their exact budgets on the slower runner —
+   canonical-command-result 420s, canonical-production-seams 240s, root-claims-registry
+   1800s, sync 240s (summary `discovered=37; passed=33; failed=0; timed-out=4`). Same-tree
+   local canonical runs measured 231s/187s/1511s/197s, a roughly 2x CI multiplier, so each
+   old budget sat at or below the CI observation. Fixed in `881047a`: budgets moved to
+   900/600/3600/900 and the workflow bound to 380 minutes (proven total 21465 seconds over
+   37 suites including the eleven 120s defaults, required bound 364.75 minutes). Verified
+   with `tests/test-runner.tests.ps1`: discovery, timeout semantics fixtures, and the
+   budget contract all pass.
+
+Notes for the next closeout: the run that produced the four timeouts executed the suite set
+at `895c54f`; `tests/sync.tests.ps1` gained an in-progress parity sandbox block after that
+commit (uncommitted work from the parallel Task 5 Step 5 session), so CI has not executed
+that block and its budget impact is not yet covered by the numbers above. Production Apply
+remains interlocked; nothing in these commits touches live roots or generated output.
+
 ## Remaining roadmap snapshot
 
 Phase 2 has 21 of 52 steps remaining. Tasks 1-4 are complete; Task 5 has Steps 5 and its full
