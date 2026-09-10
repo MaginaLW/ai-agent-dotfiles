@@ -2854,7 +2854,10 @@ chains, re-apply fail-closed, manifest negatives, Reasonix override rejection), 
 (111 assertions), harness-env.tests (109), task-skills.tests (22), automation-safety.tests,
 live-recovery.tests, backup-receipt.tests, canonical-production-seams.tests (56, after baseline
 re-pins f9a2611 and the reflection inventory in the slice 3 commit), parse (166 files), secret
-scan, and `git diff --check`. The full unified run for the Task 5 closeout is pending. Known
+scan, and `git diff --check`. The authoritative unified run on the clean tree at 408da9a passed
+37/37 discovered suites with zero failures and zero timeouts (DiscoveryHash
+b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0, 2026-09-10T00:29:07Z, job
+budget 18585 seconds; the external JSON summary stays outside Git). Known
 deferrals recorded: public `-SkipBuild`/`-SkipSecretScan` rejection under `-Apply` and in-process
 fake build/scan adapters land with the Phase 4 public-surface work; the sandbox layout now
 derives backup/control under the injected home's AppData\Local\ai-agent-dotfiles path, mirroring
