@@ -1810,12 +1810,23 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
 
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-DryRun', '-PlanPath', $abandonPlan, '-RepoRoot', $dispatchRepo)
     Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-plan-path-collision') 'the second dry-run refuses to overwrite its plan'
-    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-Apply', '-PlanPath', $abandonPlan, '-RepoRoot', $dispatchRepo)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-dispatch-not-wired') 'apply validates the reviewed plan then stops at the execution stub'
-    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', 'd4e5f6a7-0004-4000-b000-000000000004', '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'unknown-plan.json'), '-RepoRoot', $dispatchRepo)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-transaction-unknown') 'an unknown transaction id fails closed'
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $dispatchTxId, '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'finalize-plan.json'), '-RepoRoot', $dispatchRepo)
     Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-action-mismatch') 'a finalize request on an abandon-eligible journal fails closed'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-Apply', '-PlanPath', $abandonPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- abandon apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: abandon') 'the abandon apply executes the reviewed transition'
+    $abandonedChain = Get-SealedLiveJournalChain -TransactionDirectory $txDir
+    $abandonedPhases = @($abandonedChain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+    Assert (@($abandonedPhases | Where-Object { $_ -ceq 'RECOVERY_ACTION_INTENT' }).Count -eq 1 -and @($abandonedPhases | Where-Object { $_ -ceq 'RECOVERY_ACTION_APPLIED' }).Count -eq 1 -and $abandonedPhases[-1] -ceq 'COMPLETE') 'the abandoned journal carries intent, applied, and the terminal record'
+    $terminalData = [System.Collections.IDictionary] ([System.Collections.IDictionary] $abandonedChain.Records[-1]['Document'])['Data']
+    Assert ([string] $terminalData['ClosingKind'] -ceq 'recovery' -and [string] $terminalData['ClosingPlanKind'] -ceq 'live-recover-abandon' -and [string] $terminalData['ClosingDocumentHash'] -ceq [string] $planDocument['DocumentHash']) 'the terminal record closes with the recovery plan binding'
+    Assert ($null -ne $abandonedChain.Result -and [string] ([System.Collections.IDictionary] $abandonedChain.Result)['Outcome'] -ceq 'abandoned') 'the abandoned result is published'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the locator reports clean after the abandon recovery'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-Apply', '-PlanPath', $abandonPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-transaction-finished') 'a second recovery of a finished transaction fails closed'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', 'd4e5f6a7-0004-4000-b000-000000000004', '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'unknown-plan.json'), '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-transaction-unknown') 'an unknown transaction id fails closed'
 
     $wrongRepo = Join-Path $dispatchWork 'wrong-clone'
     New-Item -ItemType Directory -Force -Path $wrongRepo | Out-Null
@@ -1824,6 +1835,59 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     if ($LASTEXITCODE -ne 0) { throw 'wrong clone fixture failed' }
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'wrong-plan.json'), '-RepoRoot', $wrongRepo)
     Assert ($r.Code -ne 0 -and $r.Out -match 'live journal origin identity mismatch') 'a wrong clone cannot substitute its own repository lock'
+
+    # State-only finalize: a controller-transition journal with a published
+    # committed result and no terminal record is finalize-eligible.
+    $finalizeTxId = [Guid]::NewGuid().ToString()
+    $finalizeDir = Join-Path (Join-Path $derivedControl 'live-transactions') $finalizeTxId
+    $finalizeHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-journal-header'
+        TransactionId = $finalizeTxId
+        OperationKind = 'controller-transition'
+        TransactionMode = 'state-only'
+        OriginalDocumentHash = ('3' * 64)
+        OriginalPlanHash = ('4' * 64)
+        HomeAuthorityKey = $dispatchAuthorityKey
+        OriginRepoId = $dispatchRepoId
+        GitCommonDirHash = $dispatchGit.GitCommonDirHash
+        CanonicalLockKey = $dispatchLockKey
+        ReceiptRef = 'NO_LIVE_MUTATION'
+        Targets = @()
+    }
+    New-SealedLiveJournalHeader -Document $finalizeHeader -TransactionDirectory $finalizeDir | Out-Null
+    Add-SealedLiveJournalRecord -TransactionDirectory $finalizeDir -Phase 'STATE_PREIMAGE_COMPLETE' -Data ([ordered]@{ PreStatePhaseHash = ('0' * 64); StateHash = ('9' * 64) }) | Out-Null
+    $finalizeChain = Get-SealedLiveJournalChain -TransactionDirectory $finalizeDir
+    $finalizeHead = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] @($finalizeChain.Records)[-1]['Document'])
+    $finalizeResult = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-operation-result'
+        ResultScope = 'transaction'
+        TransactionId = $finalizeTxId
+        OperationKind = 'controller-transition'
+        OriginalDocumentHash = ('3' * 64)
+        ResultBaseHeadHash = $finalizeHead
+        Outcome = 'committed'
+        StateHash = ('a' * 64)
+    }
+    $null = Publish-SealedLiveTransactionResult -TransactionDirectory $finalizeDir -Document $finalizeResult
+
+    $finalizePlan = Join-Path $dispatchWork 'plans' 'finalize-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $finalizeTxId, '-DryRun', '-PlanPath', $finalizePlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- finalize dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the state-only finalize dry-run derives the reviewed plan'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $finalizePlan
+    $finalizePlanDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($finalizePlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Test-RollbackPlanSemantics -Document $finalizePlanDocument
+    $finalizePayload = [System.Collections.IDictionary] $finalizePlanDocument['PlanPayload']
+    Assert ([string] $finalizePayload['TransactionMode'] -ceq 'state-only' -and [string] $finalizePayload['ExpectedOutcome'] -ceq 'committed') 'the finalize plan binds state-only mode and the preserved committed outcome'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $finalizeTxId, '-Apply', '-PlanPath', $finalizePlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- finalize apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: finalize .*\(outcome=committed\)') 'the finalize apply preserves the existing committed outcome'
+    $finalizedChain = Get-SealedLiveJournalChain -TransactionDirectory $finalizeDir
+    Assert ($null -ne $finalizedChain.Result -and [string] ([System.Collections.IDictionary] $finalizedChain.Records[-1]['Document'])['Data']['ResultHash'] -ceq [string] $finalizedChain.ResultFileHash) 'the finalize terminal binds the reused result file hash'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the locator reports clean after both recoveries'
 
     Write-Host 'live recovery tests: PASS'
 }

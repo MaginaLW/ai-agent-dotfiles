@@ -177,6 +177,10 @@ function Test-LiveJournalRecordSemantics {
         if (-not (Test-LiveTransactionMapHasName -Map $data -Name $name)) { throw $script:LiveTransactionIntentMismatch }
     }
     foreach ($name in ([string[]] $script:LiveRecordClosingKeys)) {
+        # ClosingPlanKind on the terminal record is governed entirely by the
+        # ClosingKind branch below: forbidden for an original close and
+        # required for a recovery close.
+        if ($phase -ceq 'COMPLETE' -and $name -ceq 'ClosingPlanKind') { continue }
         if (-not $script:LiveRecordPhaseContracts[$phase].Required.Contains($name) -and (Test-LiveTransactionMapHasName -Map $data -Name $name)) {
             throw $script:LiveTransactionIntentMismatch
         }
@@ -1364,8 +1368,9 @@ function Add-SealedLiveJournalRecord {
     $terminalPresent = @(@($chain.Records) | Where-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE' }).Count -gt 0
     if ($terminalPresent) { throw $script:LiveTransactionAlreadyTerminal }
     # The closing COMPLETE record is the only artifact that may follow the
-    # published fixed result (result bytes first, terminal record last).
-    if ($null -ne $chain.Result -and $Phase -cne 'COMPLETE') { throw $script:LiveTransactionAlreadyTerminal }
+    # published fixed result, except the recovery finalize intent: finalize
+    # reuses the published result bytes and closes with a recovery terminal.
+    if ($null -ne $chain.Result -and $Phase -cnotin @('COMPLETE', 'RECOVERY_ACTION_INTENT')) { throw $script:LiveTransactionAlreadyTerminal }
     $sequence = [long] (@($chain.Records).Count + 1)
     $record = [ordered]@{
         SchemaVersion = 1

@@ -228,7 +228,7 @@ function New-LiveRecoveryPlanPayload {
     }
     if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OverlayLockKey') { $payload['OverlayLockKey'] = [string] $headerMap['OverlayLockKey'] }
     if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'RootClaimsHash') { $payload['RootClaimsHash'] = [string] $headerMap['RootClaimsHash'] }
-    if (($Action -ne 'abandon') -and (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OriginalPlanHash')) { $payload['OriginalPlanHash'] = [string] $headerMap['OriginalPlanHash'] }
+    if ($receiptBacked -and ($Action -ne 'abandon') -and (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OriginalPlanHash')) { $payload['OriginalPlanHash'] = [string] $headerMap['OriginalPlanHash'] }
     if ($consumed.Count -gt 0) { $payload['ConsumedRecoveryDocumentHashes'] = @($consumed) }
 
     $receiptState = $null
@@ -266,7 +266,7 @@ function New-LiveRecoveryPlanPayload {
         }
     }
     else {
-        if ($Action -cne 'abandon') { throw $script:LiveRecoveryStateFormUnsupported }
+        if ($Action -ceq 'rollback') { throw $script:LiveRecoveryStateFormUnsupported }
         $payload['ReceiptRef'] = 'NO_LIVE_MUTATION'
         $observed = Get-LiveTransactionObservedDirectory -Path ([string] $AuthorityContext.AuthorityRoot)
         if ([string] $observed['State'] -ceq 'MISSING') {
@@ -430,7 +430,7 @@ else {
                 }
 
                 # Apply: validate the reviewed plan fail-closed under the held
-                # locks; the reviewed transitions execute in the next slice.
+                # locks, then execute the reviewed transition.
                 if (-not (Test-Path -LiteralPath $planFull -PathType Leaf)) { throw $script:LiveRecoveryPlanMissing }
                 $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planFull, [System.Text.UTF8Encoding]::new($false, $true)))
                 Test-RollbackPlanSemantics -Document $planDocument
@@ -443,8 +443,83 @@ else {
                 $actualHead = if ($records.Count -gt 0) {
                     Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] $records[-1]['Document'])
                 } else { Get-SealedLiveJournalHeaderHash -Header $headerMap }
+                $entryStatus = Get-RecoveryTransactionStatus -Chain $chain
+                if ($entryStatus -ceq 'finished') { throw $script:LiveRecoveryTransactionFinished }
+                $requiredStatus = @{ 'abandon' = 'abandon-eligible'; 'rollback' = 'rollback-required'; 'finalize' = 'finalize-eligible' }[$Action]
+                if ($entryStatus -cne $requiredStatus) {
+                    throw ($script:LiveRecoveryActionMismatch + ' (requested ' + $Action + ', journal is ' + $entryStatus + ')')
+                }
                 if ([string] $planPayload['DerivedJournalHeadHash'] -cne $actualHead) { throw $script:LiveRecoveryPlanStale }
-                throw $script:LiveRecoveryDispatchNotWired
+
+                $projection = [System.Collections.IDictionary] $planPayload['ExpectedTerminalProjection']
+                $null = Add-SealedLiveJournalRecord -TransactionDirectory $transactionDir -Phase 'RECOVERY_ACTION_INTENT' -Data ([ordered]@{
+                    PlanKind = [string] $planPayload['PlanKind']
+                    DocumentHash = [string] $planDocument['DocumentHash']
+                    PriorHeadHash = $actualHead
+                    ExpectedTerminalProjectionHash = (Get-SemanticJsonHash -InputObject $projection)
+                    ExpectedOutcome = [string] $planPayload['ExpectedOutcome']
+                    Action = [string] $planPayload['Action']
+                })
+                $planAction = [string] $planPayload['Action']
+                if ($planAction -ceq 'finalize') {
+                    # Finalize reuses the published result byte-for-byte and
+                    # never repeats a live/state/claims primitive; after the
+                    # finalize intent only the recovery terminal may follow.
+                    if ($null -eq $chain.Result -or
+                        [string] $chain.ResultFileHash -cne [string] (([System.Collections.IDictionary] $planPayload['ResultInventory'])['Hash'])) {
+                        throw $script:LiveRecoveryPlanStale
+                    }
+                    $finalOutcome = [string] ([System.Collections.IDictionary] $chain.Result)['Outcome']
+                    $resultFileHash = [string] $chain.ResultFileHash
+                }
+                else {
+                    # Abandon closes an untouched transaction: no live, claims,
+                    # or state primitive applies. (Rollback restores targets
+                    # and lands with the kill-window fixtures.)
+                    if ($planAction -ceq 'rollback') { throw $script:LiveRecoveryStateFormUnsupported }
+                    $null = Add-SealedLiveJournalRecord -TransactionDirectory $transactionDir -Phase 'RECOVERY_ACTION_APPLIED' -Data ([ordered]@{
+                        Action = $planAction
+                    })
+                    $receiptBackedDispatch = Test-LiveTransactionMapHasName -Map $headerMap -Name 'ReceiptIntent'
+                    $finalOutcome = [string] $planPayload['ExpectedOutcome']
+                    $appliedChain = Get-SealedLiveJournalChain -TransactionDirectory $transactionDir
+                    $appliedHead = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] @($appliedChain.Records)[-1]['Document'])
+                    $resultDocument = [ordered]@{
+                        SchemaVersion = 1
+                        ArtifactKind = 'live-operation-result'
+                        ResultScope = 'transaction'
+                        TransactionId = [string] $headerMap['TransactionId']
+                        OperationKind = [string] $headerMap['OperationKind']
+                        OriginalDocumentHash = [string] $headerMap['OriginalDocumentHash']
+                        ResultBaseHeadHash = $appliedHead
+                        Outcome = [string] $planPayload['ExpectedOutcome']
+                    }
+                    if ($receiptBackedDispatch) {
+                        # Result semantics: an abandoned result never carries a
+                        # COMPLETE-receipt block; a MISSING/PARTIAL receipt is
+                        # bound as MISSING with a null hash.
+                        if ([string] $planPayload['ReceiptState'] -ceq 'MISSING' -or [string] $planPayload['ReceiptState'] -ceq 'PARTIAL') {
+                            $resultDocument['ReceiptRef'] = [ordered]@{
+                                Id = [string] (([System.Collections.IDictionary] $headerMap['ReceiptIntent'])['Id'])
+                                Path = [string] (([System.Collections.IDictionary] $headerMap['ReceiptIntent'])['Path'])
+                                State = [string] $planPayload['ReceiptState']
+                                Hash = $null
+                            }
+                        }
+                    }
+                    $null = Publish-SealedLiveTransactionResult -TransactionDirectory $transactionDir -Document $resultDocument
+                    $resultFileHash = (Get-FileHash -LiteralPath (Join-Path $transactionDir 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+                $null = Add-SealedLiveJournalRecord -TransactionDirectory $transactionDir -Phase 'COMPLETE' -Data ([ordered]@{
+                    ResultHash = $resultFileHash
+                    OriginalDocumentHash = [string] $headerMap['OriginalDocumentHash']
+                    Outcome = $finalOutcome
+                    ClosingKind = 'recovery'
+                    ClosingPlanKind = [string] $planPayload['PlanKind']
+                    ClosingDocumentHash = [string] $planDocument['DocumentHash']
+                })
+                Write-Host "live recovery applied: $Action $TransactionId (outcome=$finalOutcome)"
+                exit 0
             }
             finally {
                 if ($null -ne $globalLock) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
