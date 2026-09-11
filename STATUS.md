@@ -2988,7 +2988,7 @@ Steps 3-5 of Task 6 and Tasks 7-9 have not started. The implementation order and
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 3/5 | Locator and plan schema 1 done; reviewed recovery transitions dispatcher, failpoints, and restart behavior remain |
+| Task 6 | 3/5 | Locator and plan schema 1 done; Step 3 in progress (dispatcher surface stubbed fail-closed at `1423b78`), failpoints, and restart behavior remain |
 | Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
@@ -3000,15 +3000,17 @@ release, remain downstream and have not started.
 ## Next actions
 
 1. Phase 2 Task 5 is complete (6/6) and Task 6 Steps 1-2 are complete (Phase 2 35/52) as of
-   2026-09-12. The schema 3 sync route
+   2026-09-12. Task 6 Step 3 is in progress: the `agent-dotfiles.ps1 live recover` route and the
+   abandon/rollback/finalize parameter sets are live as a fail-closed stub
+   (`live-recovery-dispatch-not-wired`, `1423b78`) behind the sandbox authority and complete
+   bootstrap gates; the reviewed transitions are the next slice. The schema 3 sync route
    runs initial and retirement through the receipt-backed host behind the global lock order, the
    legacy content-aware deploy route is fully removed, activate Gate 4 is a fail-closed stub
    (activation-deploy-not-wired) until Phase 3 rebuilds activation on the receipt-backed host,
    task-skills attestations read the candidate overlay directly, and the parity sandbox pins the
    claimed custom Reasonix root plus the .agents fallback posture (fallback-root machines are
    non-pristine and require the Phase 3 migrate/adopt flow). The read-only recovery locator and
-   the schema-1 rollback/recovery plan contract are live; next is Task 6 Step 3 (the fixed public
-   dispatcher and reviewed transitions), then Steps 4-5 in order. Production Apply remains
+   the schema-1 rollback/recovery plan contract are live. Production Apply remains
    interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
