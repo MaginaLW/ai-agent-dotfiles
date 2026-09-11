@@ -1,13 +1,15 @@
 # Live Safety Hardening
 
-Last updated: 2026-09-09
+Last updated: 2026-09-12
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
 published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side garbage
 collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no longer served.
-Phase 2 Tasks 1-4 (6/6, 7/7, 7/7, 7/7) are complete (Phase 2 overall 27/52), while Phases 3-4 have not
-started.
+Phase 2 Tasks 1-5 (6/6, 7/7, 7/7, 7/7, 6/6) are complete, and Task 6 Step 1 (read-only recovery
+status locator) is complete (Phase 2 overall 34/52), while Phases 3-4 have not started. The Task 5
+close-out evidence lives in the repository `STATUS.md` 2026-09-10 records; this per-task record was
+last written through Task 4 and now resumes with Task 6.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 
@@ -1048,9 +1050,37 @@ production route supplies it yet. Before Task 4 defines the live-journal contrac
 live-transaction directory is inventoried as unresolved and blocks mutation as recovery-required
 rather than being interpreted heuristically.
 
+## Task 6 progress (2026-09-12): Step 1 read-only recovery status locator
+
+Task 5's close-out (slices 1-4 across seven commits, the claims contract, legacy route removal, and
+the parity sandbox with dual authoritative unified 37/37 passes) is recorded in the repository
+`STATUS.md` 2026-09-10 sections; this record skipped Task 5 and resumes at Task 6.
+
+Task 6 Step 1 landed as commit `e384a95`: `scripts/recover-live-transaction.ps1` is a strictly
+read-only locator over every transaction journal under `<ControlBase>\live-transactions`. It reads
+chains with immediate open/close (no retained handles), validates enough header bytes to bind
+TransactionId and its OriginRepoId/GitCommonDir/canonical-lock key, and reports exactly one status
+per transaction: finished journals summarize as `clean`; receipt-only journals are
+`abandon-eligible`; applied target, claims, or state primitives before the complete postimage are
+`rollback-required`; a published result with postconditions but no terminal record is
+`finalize-eligible`; and unreadable chains, unknown namespace entries, missing header origin
+bindings, or phase shapes matching no reviewed recovery form fail closed as
+`manual-recovery-required`. Known `_pending` temps are never treated as published records. The
+overall status is the most severe unfinished transaction. The scan renames nothing, deletes nothing,
+and writes only an optional create-new JSON report (`-JsonPath` refuses to overwrite); the reviewed
+recovery transitions deliberately remain with the Task 6 Step 3 dispatcher.
+
+Verification on 2026-09-12 (this tree, canonical `pwsh -NoProfile -File` runs): focused
+`tests/live-recovery.tests.ps1` passed with every locator fixture green (each status class, pending
+temp tolerance, create-new machine-readable report, overwrite refusal);
+`tests/canonical-production-seams.tests.ps1` passed 56/0 after the all-scripts baselines were
+re-pinned inside `e384a95`; the PowerShell parse gate accepted 166 files. The unified
+`run-tests.ps1 -All` pass has not run for this slice yet and remains pending at the next stage
+boundary. Production Apply remains interlocked, and no live root was touched.
+
 ## Remaining work
 
-Phase 2 has 25 of 52 steps remaining. Tasks 1-4 are complete; Tasks 5-9 are unstarted:
+Phase 2 has 18 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Step 1 is complete:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
@@ -1058,8 +1088,8 @@ Phase 2 has 25 of 52 steps remaining. Tasks 1-4 are complete; Tasks 5-9 are unst
 | Task 2 | 0/7 | Complete |
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
-| Task 5 | 6/6 | Normal sync and retirement migration to the common host |
-| Task 6 | 5/5 | Crash-recovery status, transitions, failpoints, and restart verification |
+| Task 5 | 0/6 | Complete |
+| Task 6 | 4/5 | Steps 2-5: rollback/recovery plan schema 1, reviewed transitions dispatcher, failpoints, restart verification |
 | Task 7 | 5/5 | Receipt-backed environment rollback |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |

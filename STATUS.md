@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-09
+Last updated: 2026-09-12
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -2910,10 +2910,32 @@ minutes, still inside the 380-minute workflow limit (test-runner contract re-ver
 Production Apply remains interlocked; nothing in these commits touches live roots or
 generated output.
 
+## Task 6 Step 1 (2026-09-11): read-only recovery status locator
+
+Commit `e384a95` adds `scripts/recover-live-transaction.ps1`, the Task 6 Step 1 locator. It scans
+every transaction journal under `<ControlBase>\live-transactions` with the zero-write chain reader
+and classifies each transaction into exactly one status: finished journals summarize as `clean`;
+receipt-only journals are `abandon-eligible`; applied target, claims, or state primitives before the
+complete postimage are `rollback-required`; a published result with postconditions but no terminal
+record is `finalize-eligible`; and unreadable chains, unknown namespace entries, missing header
+origin bindings, or phase shapes matching no reviewed recovery form fail closed as
+`manual-recovery-required`. The overall status is the most severe unfinished transaction. The scan
+retains no handles, renames nothing, deletes nothing, and writes only an optional create-new JSON
+report (`-JsonPath` refuses to overwrite); the reviewed transitions deliberately stay with the Task 6
+Step 3 dispatcher.
+
+Verification (canonical `pwsh -NoProfile -File` runs on this tree, 2026-09-12): focused
+`tests/live-recovery.tests.ps1` passed with all locator fixtures green (each status class, the known
+`_pending` temp tolerance, the create-new machine-readable report, and report-overwrite refusal);
+`tests/canonical-production-seams.tests.ps1` passed 56/0 after the all-scripts baselines were
+re-pinned inside `e384a95`; the PowerShell parse gate accepted 166 files. The unified
+`run-tests.ps1 -All` pass has not been executed for this slice yet and remains pending at the next
+stage boundary. Production Apply remains interlocked, and no live root was touched.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 19 of 52 steps remaining. Tasks 1-5 are complete; Tasks 6-9 have not started. The
-implementation order and remaining scope are:
+Phase 2 has 18 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Step 1 is complete; Steps 2-5
+of Task 6 and Tasks 7-9 have not started. The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -2922,7 +2944,7 @@ implementation order and remaining scope are:
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 5/5 | Read-only recovery status, reviewed recovery transitions, failpoints, and restart behavior |
+| Task 6 | 4/5 | Read-only recovery status locator done; reviewed recovery transitions, failpoints, and restart behavior remain |
 | Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
@@ -2933,14 +2955,16 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 5 is complete (6/6; Phase 2 33/52) as of 2026-09-10. The schema 3 sync route
+1. Phase 2 Task 5 is complete (6/6) and Task 6 Step 1 is complete (Phase 2 34/52) as of
+   2026-09-11/12. The schema 3 sync route
    runs initial and retirement through the receipt-backed host behind the global lock order, the
    legacy content-aware deploy route is fully removed, activate Gate 4 is a fail-closed stub
    (activation-deploy-not-wired) until Phase 3 rebuilds activation on the receipt-backed host,
    task-skills attestations read the candidate overlay directly, and the parity sandbox pins the
    claimed custom Reasonix root plus the .agents fallback posture (fallback-root machines are
-   non-pristine and require the Phase 3 migrate/adopt flow). Next: Tasks 6-9 in strict sequence.
-   Production Apply remains interlocked throughout.
+   non-pristine and require the Phase 3 migrate/adopt flow). The read-only recovery locator
+   (`scripts/recover-live-transaction.ps1`) is live; next is Task 6 Step 2 (rollback/recovery plan
+   schema 1), then Steps 3-5 in order. Production Apply remains interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
