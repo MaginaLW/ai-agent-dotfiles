@@ -11,7 +11,7 @@
 
 .PARAMETER Command
     One of: doctor, build, scan, backup, sync, canonical, config, profile,
-    skills, inventory, analyze, merge, plans, or env.
+    skills, inventory, analyze, merge, plans, env, or live.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -50,6 +50,7 @@ function Write-Usage {
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: inventory, analyze, dedupe, merge, normalize, promote.'
     Write-Host 'Canonical actions: status, setup, recover status|abandon|rollback|finalize.'
+    Write-Host 'Live actions: recover status|abandon|rollback|finalize.'
     Write-Host 'Env actions: list, status, build, activate, rollback, task.'
     Write-Host 'Env task actions: status, ensure-skill, sync, close.'
     Write-Host 'Mutating actions require exactly one explicit mode: -DryRun or -Apply.'
@@ -109,15 +110,19 @@ $canonicalCommandMap = @{
     recover = 'recover-canonical-transaction.ps1'
 }
 
+$liveCommandMap = @{
+    recover = 'recover-live-transaction.ps1'
+}
+
 $normalizedCommand = $Command.ToLowerInvariant()
-if ($normalizedCommand -notin @('env', 'config', 'profile', 'skills', 'canonical') -and -not $commandMap.ContainsKey($normalizedCommand)) {
+if ($normalizedCommand -notin @('env', 'config', 'profile', 'skills', 'canonical', 'live') -and -not $commandMap.ContainsKey($normalizedCommand)) {
     Write-Error "Unsupported command: $Command" -ErrorAction Continue
     Write-Usage
     exit 1
 }
 
 $forwardedArguments = @($RemainingArguments)
-if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical')) {
+if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical', 'live')) {
     if ($forwardedArguments.Count -eq 0 -or $null -eq $forwardedArguments[0]) {
         Write-Error "The $normalizedCommand command requires a sub-action." -ErrorAction Continue
         Write-Usage
@@ -148,6 +153,7 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical'))
             'profile' { $profileCommandMap }
             'skills' { $skillsCommandMap }
             'canonical' { $canonicalCommandMap }
+            'live' { $liveCommandMap }
         }
         if (-not $actionMap.ContainsKey($groupAction)) {
             Write-Error "Unsupported $normalizedCommand sub-action: $($forwardedArguments[0])" -ErrorAction Continue
@@ -158,10 +164,10 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical'))
         $targetScriptName = $actionMap[$groupAction]
         $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
         if($normalizedCommand -eq 'canonical' -and $groupAction -eq 'status'){$forwardedArguments=@('-Status')+@($forwardedArguments)}
-        if($normalizedCommand -eq 'canonical' -and $groupAction -eq 'recover'){
-            if($forwardedArguments.Count -eq 0){Write-Error 'canonical recover requires status, abandon, rollback, or finalize.' -ErrorAction Continue;exit 1}
+        if($normalizedCommand -in @('canonical','live') -and $groupAction -eq 'recover'){
+            if($forwardedArguments.Count -eq 0){Write-Error "$normalizedCommand recover requires status, abandon, rollback, or finalize." -ErrorAction Continue;exit 1}
             $recoverAction=([string]$forwardedArguments[0]).ToLowerInvariant()
-            if($recoverAction -notin @('status','abandon','rollback','finalize')){Write-Error "Unsupported canonical recover action: $recoverAction" -ErrorAction Continue;exit 1}
+            if($recoverAction -notin @('status','abandon','rollback','finalize')){Write-Error "Unsupported $normalizedCommand recover action: $($forwardedArguments[0])" -ErrorAction Continue;exit 1}
             $forwardedArguments=@($forwardedArguments|Select-Object -Skip 1)
             if($recoverAction -eq 'status'){$forwardedArguments=@('-Status')+@($forwardedArguments)}else{$forwardedArguments=@('-Action',$recoverAction)+@($forwardedArguments)}
         }
@@ -171,7 +177,7 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical'))
         ($isEnvTask -and $taskAction -in @('ensure-skill', 'sync', 'close')) -or
         ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
-        ($normalizedCommand -eq 'canonical' -and ($groupAction -eq 'setup' -or ($groupAction -eq 'recover' -and $recoverAction -ne 'status'))) -or
+        ($normalizedCommand -in @('canonical', 'live') -and ($groupAction -eq 'setup' -or ($groupAction -eq 'recover' -and $recoverAction -ne 'status'))) -or
         ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'normalize', 'promote')))
     if ($requiresExplicitMode) {
         $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0

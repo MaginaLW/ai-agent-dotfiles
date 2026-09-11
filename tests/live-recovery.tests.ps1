@@ -9,6 +9,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-live-recovery-$([Guid]::NewGuid().ToString('N'))"
+$dispatchWork = $null
 $internalHost = Join-Path $RepoRoot 'scripts/internal/live-transaction-host.ps1'
 $liveTransactionHost = Join-Path $PSScriptRoot 'helpers/live-transaction-host.ps1'
 . (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
@@ -1525,7 +1526,7 @@ try {
     Write-Host '[recovery status locator]'
     $recoverScript = Join-Path $RepoRoot 'scripts/recover-live-transaction.ps1'
     # Over the finished host transactions the locator reports clean.
-    $result = & pwsh -NoProfile -File $recoverScript -ControlBase ([string] $hostContext.ControlBase) 2>&1
+    $result = & pwsh -NoProfile -File $recoverScript -Status -ControlBase ([string] $hostContext.ControlBase) 2>&1
     Assert ($LASTEXITCODE -eq 0 -and ($result | Out-String) -match 'Recovery scan: clean') 'the locator reports clean over finished transactions'
 
     function New-RecoveryFixtureJournal {
@@ -1562,7 +1563,7 @@ try {
         param([string] $FixtureName, [string] $JsonPath)
         $locatorControl = Join-Path $locatorRoot $FixtureName
         New-Item -ItemType Directory -Force -Path (Join-Path $locatorControl 'live-transactions') | Out-Null
-        $locatorArguments = @('-ControlBase', $locatorControl)
+        $locatorArguments = @('-Status', '-ControlBase', $locatorControl)
         if (-not [string]::IsNullOrWhiteSpace($JsonPath)) { $locatorArguments += @('-JsonPath', $JsonPath) }
         $lines = & pwsh -NoProfile -File $recoverScript @locatorArguments 2>&1
         return @{ Out = ($lines | Out-String); Code = $LASTEXITCODE }
@@ -1670,9 +1671,104 @@ try {
         Assert $rejected "sync-plan schema rejects OperationKind '$($fixture.Kind)'"
     }
 
+    Write-Host '[live recover dispatch surface]'
+    $cliScript = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
+    $recoveryScript = Join-Path $RepoRoot 'scripts/recover-live-transaction.ps1'
+    $dispatchTx = 'a0b1c2d3-0001-4000-8000-000000000001'
+
+    function Invoke-CliArguments {
+        param([Parameter(Mandatory)] [string] $ScriptPath, [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Arguments)
+        $output = @(& pwsh -NoProfile -File $ScriptPath @Arguments 2>&1)
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($output -join "`n") }
+    }
+
+    # Wrapper gates: every case below exits before any target process spawns,
+    # so they are safe to run outside the sandbox.
+    $r = Invoke-CliArguments -ScriptPath $cliScript -Arguments @('live')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'requires a sub-action') 'live requires a sub-action'
+    $r = Invoke-CliArguments -ScriptPath $cliScript -Arguments @('live', 'recover')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live recover requires status, abandon, rollback, or finalize') 'live recover requires a recovery action'
+    $r = Invoke-CliArguments -ScriptPath $cliScript -Arguments @('live', 'recover', 'bogus')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'Unsupported live recover action') 'an unsupported live recover action is rejected'
+    $r = Invoke-CliArguments -ScriptPath $cliScript -Arguments @('live', 'recover', 'abandon', '-TransactionId', $dispatchTx, '-PlanPath', (Join-Path $work 'gated-plan.json'))
+    Assert ($r.Code -ne 0 -and $r.Out -match 'requires an explicit -DryRun or -Apply') 'a live recover action requires an explicit mode'
+    $r = Invoke-CliArguments -ScriptPath $cliScript -Arguments @('live', 'recover', 'abandon', '-DryRun', '-Apply', '-TransactionId', $dispatchTx, '-PlanPath', (Join-Path $work 'gated-plan.json'))
+    Assert ($r.Code -ne 0 -and $r.Out -match 'accepts only one mode') 'a live recover action accepts only one mode'
+
+    # Sandbox dispatch: the injected authority gate precedes everything.
+    . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
+    $dispatchWork = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-live-dispatch-$([Guid]::NewGuid().ToString('N'))"
+    $dispatchHome = Join-Path $dispatchWork 'home'
+    New-Item -ItemType Directory -Force -Path $dispatchHome | Out-Null
+    function Invoke-RecoveryDispatch {
+        param([AllowEmptyCollection()] [string[]] $Arguments)
+        return Invoke-SafetySandboxScript -SandboxRoot $dispatchWork -ScriptPath $recoveryScript -Arguments $Arguments -AuthorityRepoRoot $RepoRoot
+    }
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-plan-authority-missing') 'the status route fails closed without a complete authority'
+    $stubPlan = Join-Path $dispatchWork 'stub-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTx, '-DryRun', '-PlanPath', $stubPlan)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-plan-authority-missing') 'the dispatch route fails closed without a complete authority'
+    Assert (-not (Test-Path -LiteralPath $stubPlan)) 'the authority gate writes no plan file'
+
+    # Bootstrap the sandbox authority in its own process, mirroring the sync
+    # parity fixture (the sealed route capture is process-global).
+    $dispatchSetup = Join-Path $dispatchWork 'setup-authority.ps1'
+    @'
+#requires -Version 7.0
+param([string] $AuthorityRepo)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. (Join-Path $AuthorityRepo 'scripts/json-artifact-common.ps1')
+. (Join-Path $AuthorityRepo 'scripts/root-claims-registry-common.ps1')
+$injectedHome = $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT
+foreach ($folder in @((Join-Path $injectedHome 'AppData\Roaming'), (Join-Path $injectedHome 'AppData\Local'))) {
+    if (-not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Force -Path $folder | Out-Null }
+}
+$identity = [pscustomobject][ordered]@{
+    ResolverVersion = 'windows-token-sid-known-folder-v1'
+    TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    ProfileRoot = $injectedHome
+    RoamingAppDataRoot = (Join-Path $injectedHome 'AppData\Roaming')
+    LocalAppDataRoot = (Join-Path $injectedHome 'AppData\Local')
+}
+$context = Resolve-HomeAuthorityContextFromIdentity -Identity $identity
+$intent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $context -FilesystemCapabilityHash ('a' * 64)
+$lock = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $context -Intent $intent
+try { if ($null -eq $lock) { throw 'bootstrap returned no lock' } }
+finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $lock }
+Write-Host 'dispatch sandbox authority bootstrap complete'
+'@ | Set-Content -LiteralPath $dispatchSetup -Encoding UTF8
+    $r = Invoke-SafetySandboxScript -SandboxRoot $dispatchWork -ScriptPath $dispatchSetup -Arguments @('-AuthorityRepo', $RepoRoot) -AuthorityRepoRoot $RepoRoot
+    if ($r.Code -ne 0) { Write-Host '----- dispatch setup output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0) 'the dispatch sandbox authority bootstrap succeeds'
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the status route resolves the injected authority and reports clean'
+    $r = Invoke-SafetySandboxScript -SandboxRoot $dispatchWork -ScriptPath $cliScript -Arguments @('live', 'recover', 'status') -AuthorityRepoRoot $RepoRoot
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the CLI live recover status route reports through the injected authority'
+
+    # Task 6 Step 3 dispatcher: both modes fail closed after the authority
+    # gate and never touch the plan path or any journal.
+    $stubPlan = Join-Path $dispatchWork 'abandon-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTx, '-DryRun', '-PlanPath', $stubPlan)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-dispatch-not-wired') 'the abandon dispatch is a fail-closed stub'
+    Assert (-not (Test-Path -LiteralPath $stubPlan)) 'the stub writes no plan file'
+    $stubPlan = Join-Path $dispatchWork 'rollback-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $dispatchTx, '-Apply', '-PlanPath', $stubPlan)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-dispatch-not-wired') 'the rollback dispatch is a fail-closed stub'
+    Assert (-not (Test-Path -LiteralPath $stubPlan)) 'the apply stub writes no plan file'
+    $stubPlan = Join-Path $dispatchWork 'finalize-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $dispatchTx, '-Apply', '-PlanPath', $stubPlan)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-dispatch-not-wired') 'the finalize dispatch is a fail-closed stub'
+
     Write-Host 'live recovery tests: PASS'
 }
 finally {
+    if ($null -ne $dispatchWork -and (Test-Path -LiteralPath $dispatchWork)) {
+        Remove-Item -LiteralPath $dispatchWork -Recurse -Force -ErrorAction SilentlyContinue
+    }
     if (Test-Path -LiteralPath $work) {
         Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
     }
