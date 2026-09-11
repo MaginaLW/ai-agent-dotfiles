@@ -14,12 +14,16 @@
     nothing is renamed, deleted, or written. Missing, ambiguous, or
     unresolvable evidence fails closed as manual-recovery-required.
 
-    The abandon/rollback/finalize modes are the Task 6 Step 3 dispatcher
-    surface. They resolve the sandbox-injected authority, require the
-    complete bootstrap prefix, and currently fail closed with
-    live-recovery-dispatch-not-wired before any lock acquisition, plan
-    publication, or mutation; the reviewed transitions land in the
-    remaining Step 3 slices.
+    The abandon/rollback/finalize modes are the Task 6 Step 3 dispatcher.
+    They resolve the caller's repository as the origin candidate, require the
+    sandbox-injected authority with its complete bootstrap prefix, acquire the
+    origin canonical/overlay/global lock order, and re-find and revalidate the
+    exact transaction under those locks. -DryRun derives the schema-1
+    rollback/recovery plan from the journal evidence and writes it create-new
+    to -PlanPath. -Apply validates the reviewed plan fail-closed under the
+    held locks (semantics, kind/transaction match, and the derived journal
+    head) and currently stops at live-recovery-dispatch-not-wired; the
+    reviewed transitions execute in the remaining Step 3 slices.
 
     All routes resolve the live surface only inside the internal sandbox;
     production resolution arrives with the reviewed live-safety release.
@@ -38,7 +42,9 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'DryRun')] [switch] $DryRun,
     [Parameter(Mandatory, ParameterSetName = 'Apply')] [switch] $Apply,
     [Parameter(Mandatory, ParameterSetName = 'DryRun')]
-    [Parameter(Mandatory, ParameterSetName = 'Apply')] [string] $PlanPath
+    [Parameter(Mandatory, ParameterSetName = 'Apply')] [string] $PlanPath,
+    [Parameter(ParameterSetName = 'DryRun')]
+    [Parameter(ParameterSetName = 'Apply')] [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 )
 
 Set-StrictMode -Version Latest
@@ -48,10 +54,21 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'home-authority-common.ps1')
 . (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
 . (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
+. (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
 
 $script:LiveRecoveryHostResolutionRequired = 'live-plan-host-resolution-required'
 $script:LiveRecoveryAuthorityMissing = 'live-plan-authority-missing'
 $script:LiveRecoveryDispatchNotWired = 'live-recovery-dispatch-not-wired'
+$script:LiveRecoveryTransactionUnknown = 'live-recovery-transaction-unknown'
+$script:LiveRecoveryOriginMismatch = 'manual-recovery-required'
+$script:LiveRecoveryActionMismatch = 'live-recovery-action-mismatch'
+$script:LiveRecoveryTransactionFinished = 'live-recovery-transaction-finished'
+$script:LiveRecoveryPlanPathCollision = 'live-recovery-plan-path-collision'
+$script:LiveRecoveryPlanMissing = 'live-recovery-plan-missing'
+$script:LiveRecoveryPlanMismatch = 'live-recovery-plan-mismatch'
+$script:LiveRecoveryPlanStale = 'live-recovery-plan-stale'
+$script:LiveRecoveryReceiptUnsupported = 'live-recovery-receipt-state-unsupported'
+$script:LiveRecoveryStateFormUnsupported = 'live-recovery-state-form-unsupported'
 
 function Resolve-LiveRecoveryInternalRoots {
     # Only a genuine sandbox capability with all three prefixed locators may
@@ -125,6 +142,156 @@ function Assert-LiveRecoveryAuthorityComplete {
 }
 
 $script:PrePrimitivePhases = @('RESERVED', 'PREPARED', 'RECEIPT_COMPLETE', 'DIR_CREATE_INTENT', 'FILE_REPLACE_INTENT')
+
+function New-LiveRecoveryPlanPayload {
+    # Derives the schema-1 rollback/recovery plan payload from the journal
+    # evidence under the held origin lock order. Every binding comes from the
+    # chain or from the verifier-revalidated receipt; nothing is invented.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Chain,
+        [Parameter(Mandatory)] $AuthorityContext,
+        [Parameter(Mandatory)] [ValidateSet('abandon', 'rollback', 'finalize')] [string] $Action
+    )
+
+    $headerMap = [System.Collections.IDictionary] $Chain.Header
+    $kind = "live-recover-$Action"
+    $receiptBacked = Test-LiveTransactionMapHasName -Map $headerMap -Name 'ReceiptIntent'
+
+    $records = @($Chain.Records)
+    $chainRows = [System.Collections.Generic.List[object]]::new()
+    foreach ($record in $records) {
+        $document = [System.Collections.IDictionary] $record['Document']
+        $chainRows.Add([ordered]@{
+            Sequence = [long] $record['Sequence']
+            Phase = [string] $document['Phase']
+            Hash = (Get-SemanticJsonHash -InputObject $document)
+        })
+    }
+    $headHash = if ($chainRows.Count -gt 0) { [string] $chainRows[$chainRows.Count - 1]['Hash'] } else { Get-SealedLiveJournalHeaderHash -Header $headerMap }
+
+    $consumed = [System.Collections.Generic.List[string]]::new()
+    foreach ($record in $records) {
+        $document = [System.Collections.IDictionary] $record['Document']
+        if ([string] $document['Phase'] -ceq 'RECOVERY_ACTION_INTENT') {
+            $data = [System.Collections.IDictionary] $document['Data']
+            if (Test-LiveTransactionMapHasName -Map $data -Name 'DocumentHash') { $consumed.Add([string] $data['DocumentHash']) }
+        }
+    }
+
+    $pendingTemps = [System.Collections.Generic.List[object]]::new()
+    $pendingRoot = Join-Path ([string] $Chain.Directory) '_pending'
+    if (Test-Path -LiteralPath $pendingRoot -PathType Container) {
+        foreach ($file in @(Get-ChildItem -LiteralPath $pendingRoot -File -Force | Sort-Object Name)) {
+            $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+            $pendingTemps.Add([ordered]@{
+                Name = $file.Name
+                Path = $file.FullName
+                Length = [long] $bytes.Length
+                Sha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+            })
+        }
+    }
+
+    $resultInventory = [ordered]@{ State = 'MISSING' }
+    $resultOutcome = $null
+    if ($null -ne $Chain.Result) {
+        $resultOutcome = [string] ([System.Collections.IDictionary] $Chain.Result)['Outcome']
+        $resultInventory = [ordered]@{ State = 'PRESENT'; Hash = [string] $Chain.ResultFileHash; Outcome = $resultOutcome }
+    }
+
+    $requiredStatus = @{ 'abandon' = 'abandon-eligible'; 'rollback' = 'rollback-required'; 'finalize' = 'finalize-eligible' }[$Action]
+    $entryStatus = Get-RecoveryTransactionStatus -Chain $Chain
+    if ($entryStatus -ceq 'finished') { throw $script:LiveRecoveryTransactionFinished }
+    if ($entryStatus -cne $requiredStatus) {
+        throw ($script:LiveRecoveryActionMismatch + ' (requested ' + $Action + ', journal is ' + $entryStatus + ')')
+    }
+
+    $payload = [ordered]@{
+        SchemaVersion = 1
+        PlanKind = $kind
+        TransactionMode = if ($receiptBacked) { 'receipt-backed' } else { 'state-only' }
+        HomeAuthorityKey = [string] $headerMap['HomeAuthorityKey']
+        OriginRepoId = [string] $headerMap['OriginRepoId']
+        GitCommonDirHash = [string] $headerMap['GitCommonDirHash']
+        CanonicalLockKey = [string] $headerMap['CanonicalLockKey']
+        TransactionId = [string] $headerMap['TransactionId']
+        OriginalOperationKind = [string] $headerMap['OperationKind']
+        OriginalDocumentHash = [string] $headerMap['OriginalDocumentHash']
+        HeaderHash = (Get-SealedLiveJournalHeaderHash -Header $headerMap)
+        DerivedJournalHeadHash = $headHash
+        ChainRecords = @($chainRows)
+        PendingTemps = @($pendingTemps)
+        ResultInventory = $resultInventory
+        Targets = @($headerMap['Targets'])
+        Action = $Action
+    }
+    if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OverlayLockKey') { $payload['OverlayLockKey'] = [string] $headerMap['OverlayLockKey'] }
+    if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'RootClaimsHash') { $payload['RootClaimsHash'] = [string] $headerMap['RootClaimsHash'] }
+    if (($Action -ne 'abandon') -and (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OriginalPlanHash')) { $payload['OriginalPlanHash'] = [string] $headerMap['OriginalPlanHash'] }
+    if ($consumed.Count -gt 0) { $payload['ConsumedRecoveryDocumentHashes'] = @($consumed) }
+
+    $receiptState = $null
+    if ($receiptBacked) {
+        $intent = [System.Collections.IDictionary] $headerMap['ReceiptIntent']
+        $payload['ReceiptIntent'] = [ordered]@{ Id = [string] $intent['Id']; Path = [string] $intent['Path'] }
+        $receiptState = Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $intent['Path'])
+        $payload['ReceiptState'] = $receiptState
+        if (($Action -ne 'abandon') -and $receiptState -cne 'COMPLETE') {
+            throw $script:LiveRecoveryReceiptUnsupported
+        }
+        if ($receiptState -ceq 'COMPLETE') {
+            $receiptDocument = Assert-SealedBackupReceiptValid `
+                -ReceiptPath ([string] $intent['Path']) `
+                -ReservationIntent ([ordered]@{ TransactionId = [string] $headerMap['TransactionId']; ReceiptId = [string] $intent['Id']; ReceiptPath = [string] $intent['Path'] }) `
+                -BackupRoot ([string] $AuthorityContext.BackupRoot) `
+                -ExpectedSourceOperationKind ([string] $headerMap['OperationKind']) `
+                -ExpectedDocumentHash ([string] $headerMap['OriginalDocumentHash'])
+            $receiptHash = $null
+            foreach ($record in $records) {
+                $document = [System.Collections.IDictionary] $record['Document']
+                if ([string] $document['Phase'] -ceq 'RECEIPT_COMPLETE') {
+                    $data = [System.Collections.IDictionary] $document['Data']
+                    if (Test-LiveTransactionMapHasName -Map $data -Name 'ReceiptRef') {
+                        $receiptHash = [string] ([System.Collections.IDictionary] $data['ReceiptRef'])['Hash']
+                    }
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace($receiptHash)) { throw $script:LiveRecoveryReceiptUnsupported }
+            $payload['ReceiptState'] = 'COMPLETE'
+            $payload['ReceiptId'] = [string] $receiptDocument.ReceiptId
+            $payload['ReceiptHash'] = $receiptHash
+            $payload['SourceTransactionId'] = [string] $receiptDocument.SourceTransactionId
+            $payload['SourceOperationKind'] = [string] $receiptDocument.SourceOperationKind
+        }
+    }
+    else {
+        if ($Action -cne 'abandon') { throw $script:LiveRecoveryStateFormUnsupported }
+        $payload['ReceiptRef'] = 'NO_LIVE_MUTATION'
+        $observed = Get-LiveTransactionObservedDirectory -Path ([string] $AuthorityContext.AuthorityRoot)
+        if ([string] $observed['State'] -ceq 'MISSING') {
+            $payload['AuthorityStatePreimage'] = [ordered]@{ State = 'MISSING' }
+            $payload['AuthorityStateExpected'] = [ordered]@{ State = 'MISSING' }
+        }
+        else {
+            $stateBinding = [ordered]@{ State = 'PRESENT'; Hash = [string] $observed['Hash']; Identity = [string] $observed['Identity'] }
+            $payload['AuthorityStatePreimage'] = $stateBinding
+            $payload['AuthorityStateExpected'] = [ordered]@{ State = 'PRESENT'; Hash = [string] $observed['Hash']; Identity = [string] $observed['Identity'] }
+        }
+    }
+
+    $expectedOutcome = switch ($Action) {
+        'abandon' { 'abandoned' }
+        'rollback' { 'rolled-back' }
+        'finalize' { if ($null -ne $resultOutcome) { $resultOutcome } else { 'committed' } }
+    }
+    $payload['ExpectedOutcome'] = $expectedOutcome
+    $projection = [ordered]@{ Outcome = $expectedOutcome; ClosingKind = 'recovery'; ClosingPlanKind = $kind }
+    if ($null -ne $receiptState) { $projection['ReceiptState'] = $receiptState }
+    $payload['ExpectedTerminalProjection'] = $projection
+    return $payload
+}
+
 $script:PrimitivePhases = @('NEW_INSTALLED', 'OLD_MOVED', 'FILE_REPLACED', 'DIR_CREATED', 'CLAIMS_PUBLISHED', 'STATE_PREIMAGE_COMPLETE', 'STATE_PUBLISHED', 'RECOVERY_ACTION_INTENT', 'RECOVERY_ACTION_APPLIED')
 
 function Get-RecoveryTransactionStatus {
@@ -179,14 +346,117 @@ if ($Status) {
     }
 }
 else {
-    # Task 6 Step 3 dispatcher surface. Resolution order is final: the
-    # sandbox-injected authority, the complete bootstrap gate, and only then
-    # the reviewed transitions (remaining slices). Until they land, nothing
-    # may be planned, locked, or mutated.
+    # Task 6 Step 3 dispatcher. Resolution order is final: the caller's
+    # repository as the origin candidate, the sandbox-injected authority, the
+    # complete bootstrap gate, and only then the origin canonical lock order.
+    $repoFull = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepoRoot).Path)
     $internalRoots = Resolve-LiveRecoveryInternalRoots
     $authorityContext = New-LiveRecoveryAuthorityContext -HomeRoot $internalRoots.HomeRoot -ControlBase $internalRoots.ControlBase -BackupRoot $internalRoots.BackupRoot
     Assert-LiveRecoveryAuthorityComplete -AuthorityContext $authorityContext
-    throw $script:LiveRecoveryDispatchNotWired
+
+    $planResolution = Resolve-PrivateArtifactPath -Path ([System.IO.Path]::GetFullPath($PlanPath)) -Role ExternalUserArtifact -RepoRoot $repoFull -AllowMissingLeaf:$DryRun
+    $planFull = [string] $planResolution.FullPath
+
+    $git = Get-CanonicalGitContext -RepoRoot $repoFull
+    $contractPaths = Get-CanonicalTransactionContractPaths -GitContext $git
+    $repoId = Get-CanonicalRepoIdentity -GitContext $git
+    $canonicalLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [string] $contractPaths.LockPath })
+
+    $transactionsRoot = Join-Path ([string] $authorityContext.ControlBase) 'live-transactions'
+    $transactionDir = Join-Path $transactionsRoot $TransactionId
+    if (-not (Test-Path -LiteralPath $transactionDir -PathType Container)) { throw $script:LiveRecoveryTransactionUnknown }
+
+    $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $contractPaths.LockPath) -AllowCreate
+    $canonicalWitness = $null
+    $globalLock = $null
+    try {
+        # The namespace witness binds the canonical setup window; a repo whose
+        # setup state is absent dispatches UNBOUND exactly like the canonical
+        # recover route, and the origin identity checks still hold.
+        try {
+            $canonicalWitness = Open-CanonicalHeldNamespaceWitness -RepoRoot $repoFull -CanonicalLockHandle $canonicalLock
+        }
+        catch {
+            if ([string] $_.Exception.Message -cin @('canonical-setup-required', 'canonical-recovery-required')) {
+                $canonicalWitness = $null
+            }
+            else { throw }
+        }
+        try {
+            $globalLock = if ($null -ne $canonicalWitness) {
+                Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $authorityContext -RequiredCanonicalWitness $canonicalWitness
+            } else {
+                Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $authorityContext
+            }
+            try {
+                $chain = Get-SealedLiveJournalChain -TransactionDirectory $transactionDir
+                $headerMap = [System.Collections.IDictionary] $chain.Header
+                if ($null -eq $headerMap) { throw ($script:LiveRecoveryOriginMismatch + ': live journal header is missing') }
+                if ([string] $headerMap['HomeAuthorityKey'] -cne [string] $authorityContext.HomeAuthorityKey) {
+                    throw ($script:LiveRecoveryOriginMismatch + ': live journal home authority mismatch')
+                }
+                # Origin candidate matching: a wrong clone fails here and never
+                # substitutes its own repository lock.
+                if ([string] $headerMap['OriginRepoId'] -cne $repoId -or
+                    [string] $headerMap['GitCommonDirHash'] -cne [string] $git.GitCommonDirHash -or
+                    [string] $headerMap['CanonicalLockKey'] -cne $canonicalLockKey) {
+                    throw ($script:LiveRecoveryOriginMismatch + ': live journal origin identity mismatch')
+                }
+                $null = Test-SealedLiveJournalChain -Header $chain.Header -Records $chain.Records -Result $chain.Result -ResultFileHash $chain.ResultFileHash
+
+                if ($DryRun) {
+                    $payload = New-LiveRecoveryPlanPayload -Chain $chain -AuthorityContext $authorityContext -Action $Action
+                    $document = [ordered]@{
+                        SchemaVersion = 1
+                        ArtifactKind = 'rollback-plan'
+                        Metadata = [ordered]@{
+                            CreatedAtUtc = [DateTime]::UtcNow.ToString('o')
+                            Generator = 'scripts/agent-dotfiles.ps1'
+                            RepositoryCommit = [string] $git.RepositoryCommit
+                        }
+                        PlanPayload = $payload
+                    }
+                    $document['PlanHash'] = Get-PlanHash -PlanPayload $payload
+                    $document['DocumentHash'] = Get-DocumentHash -Document $document
+                    if (Test-Path -LiteralPath $planFull) { throw $script:LiveRecoveryPlanPathCollision }
+                    $planParent = Split-Path -Parent $planFull
+                    if (-not [string]::IsNullOrWhiteSpace($planParent) -and -not (Test-Path -LiteralPath $planParent)) {
+                        New-Item -ItemType Directory -Force -Path $planParent | Out-Null
+                    }
+                    [IO.File]::WriteAllText($planFull, (ConvertTo-Json -InputObject $document -Depth 64) + "`n", [System.Text.UTF8Encoding]::new($false))
+                    Write-Host "live recovery plan created: $Action $TransactionId"
+                    Write-Host "PlanHash: $($document['PlanHash'])"
+                    exit 0
+                }
+
+                # Apply: validate the reviewed plan fail-closed under the held
+                # locks; the reviewed transitions execute in the next slice.
+                if (-not (Test-Path -LiteralPath $planFull -PathType Leaf)) { throw $script:LiveRecoveryPlanMissing }
+                $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planFull, [System.Text.UTF8Encoding]::new($false, $true)))
+                Test-RollbackPlanSemantics -Document $planDocument
+                $planPayload = [System.Collections.IDictionary] $planDocument['PlanPayload']
+                if ([string] $planPayload['PlanKind'] -cne "live-recover-$Action" -or
+                    [string] $planPayload['TransactionId'] -cne $TransactionId) {
+                    throw $script:LiveRecoveryPlanMismatch
+                }
+                $records = @($chain.Records)
+                $actualHead = if ($records.Count -gt 0) {
+                    Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] $records[-1]['Document'])
+                } else { Get-SealedLiveJournalHeaderHash -Header $headerMap }
+                if ([string] $planPayload['DerivedJournalHeadHash'] -cne $actualHead) { throw $script:LiveRecoveryPlanStale }
+                throw $script:LiveRecoveryDispatchNotWired
+            }
+            finally {
+                if ($null -ne $globalLock) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
+            }
+        }
+        finally {
+            if ($null -ne $canonicalWitness) { Close-CanonicalHeldNamespaceWitness -Witness $canonicalWitness }
+        }
+    }
+    finally {
+        if ($null -ne $canonicalLock) { Exit-CanonicalRepoLock -LockHandle $canonicalLock }
+    }
 }
 
 $controlFull = $resolvedControlBase

@@ -1749,19 +1749,81 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     $r = Invoke-SafetySandboxScript -SandboxRoot $dispatchWork -ScriptPath $cliScript -Arguments @('live', 'recover', 'status') -AuthorityRepoRoot $RepoRoot
     Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the CLI live recover status route reports through the injected authority'
 
-    # Task 6 Step 3 dispatcher: both modes fail closed after the authority
-    # gate and never touch the plan path or any journal.
-    $stubPlan = Join-Path $dispatchWork 'abandon-plan.json'
-    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTx, '-DryRun', '-PlanPath', $stubPlan)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-dispatch-not-wired') 'the abandon dispatch is a fail-closed stub'
-    Assert (-not (Test-Path -LiteralPath $stubPlan)) 'the stub writes no plan file'
-    $stubPlan = Join-Path $dispatchWork 'rollback-plan.json'
-    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $dispatchTx, '-Apply', '-PlanPath', $stubPlan)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-dispatch-not-wired') 'the rollback dispatch is a fail-closed stub'
-    Assert (-not (Test-Path -LiteralPath $stubPlan)) 'the apply stub writes no plan file'
-    $stubPlan = Join-Path $dispatchWork 'finalize-plan.json'
-    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $dispatchTx, '-Apply', '-PlanPath', $stubPlan)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-dispatch-not-wired') 'the finalize dispatch is a fail-closed stub'
+    # Task 6 Step 3 dispatcher: with the authority bootstrapped, DryRun
+    # derives the reviewed plan under the origin lock order and Apply
+    # validates a reviewed plan fail-closed before the execution stub.
+    . (Join-Path $RepoRoot 'scripts/home-authority-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
+    $dispatchRepo = Join-Path $dispatchWork 'repo'
+    New-Item -ItemType Directory -Force -Path $dispatchRepo | Out-Null
+    & git -C $dispatchRepo init --quiet
+    & git -C $dispatchRepo -c user.name='dispatch fixture' -c user.email='dispatch-fixture@ai-agent-dotfiles.invalid' commit --allow-empty --quiet -m 'dispatch fixture'
+    if ($LASTEXITCODE -ne 0) { throw 'dispatch fixture repo commit failed' }
+    $dispatchGit = Get-CanonicalGitContext -RepoRoot $dispatchRepo
+    $dispatchPaths = Get-CanonicalTransactionContractPaths -GitContext $dispatchGit
+    $dispatchRepoId = Get-CanonicalRepoIdentity -GitContext $dispatchGit
+    $dispatchLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [string] $dispatchPaths.LockPath })
+    $derivedControl = Join-Path $dispatchHome 'AppData\Local\ai-agent-dotfiles\control'
+    $derivedBackups = Join-Path $dispatchHome 'AppData\Local\ai-agent-dotfiles\backups'
+    $dispatchAuthorityKey = Get-SemanticJsonHash -InputObject ([ordered]@{
+        Domain = 'ai-agent-dotfiles/home-authority/v1'
+        TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        HomeRootLocationKey = (ConvertTo-HomeAuthorityLocationKey -Path $dispatchHome)
+    })
+
+    $dispatchTxId = [Guid]::NewGuid().ToString()
+    $dispatchReceiptId = [Guid]::NewGuid().ToString()
+    $txDir = Join-Path (Join-Path $derivedControl 'live-transactions') $dispatchTxId
+    $dispatchHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-journal-header'
+        TransactionId = $dispatchTxId
+        OperationKind = 'environment'
+        TransactionMode = 'receipt-backed'
+        OriginalDocumentHash = ('1' * 64)
+        OriginalPlanHash = ('2' * 64)
+        HomeAuthorityKey = $dispatchAuthorityKey
+        OriginRepoId = $dispatchRepoId
+        GitCommonDirHash = $dispatchGit.GitCommonDirHash
+        CanonicalLockKey = $dispatchLockKey
+        ReceiptIntent = [ordered]@{ Id = $dispatchReceiptId; Path = (Join-Path $derivedBackups $dispatchReceiptId) }
+        Targets = @()
+    }
+    New-SealedLiveJournalHeader -Document $dispatchHeader -TransactionDirectory $txDir | Out-Null
+    Add-SealedLiveJournalRecord -TransactionDirectory $txDir -Phase 'RECEIPT_COMPLETE' -Data ([ordered]@{
+        ReceiptRef = [ordered]@{ Id = $dispatchReceiptId; Path = (Join-Path $derivedBackups $dispatchReceiptId); Hash = ('8' * 64) }
+    }) | Out-Null
+
+    $abandonPlan = Join-Path $dispatchWork 'plans' 'abandon-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-DryRun', '-PlanPath', $abandonPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- abandon dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the abandon dry-run derives the reviewed plan under the origin locks'
+    Assert (Test-Path -LiteralPath $abandonPlan) 'the abandon plan file exists'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $abandonPlan
+    $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($abandonPlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Test-RollbackPlanSemantics -Document $planDocument
+    $planPayload = [System.Collections.IDictionary] $planDocument['PlanPayload']
+    Assert ([string] $planPayload['PlanKind'] -ceq 'live-recover-abandon') 'the plan passes schema and semantics and binds the abandon kind'
+    Assert ([string] $planPayload['TransactionId'] -ceq $dispatchTxId) 'the plan binds the transaction id'
+    Assert ([string] $planPayload['ReceiptState'] -ceq 'MISSING') 'the plan binds the declared missing receipt state'
+    Assert ([string] $planPayload['ExpectedOutcome'] -ceq 'abandoned') 'the plan binds the abandoned outcome'
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-DryRun', '-PlanPath', $abandonPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-plan-path-collision') 'the second dry-run refuses to overwrite its plan'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-Apply', '-PlanPath', $abandonPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-dispatch-not-wired') 'apply validates the reviewed plan then stops at the execution stub'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', 'd4e5f6a7-0004-4000-b000-000000000004', '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'unknown-plan.json'), '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-transaction-unknown') 'an unknown transaction id fails closed'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $dispatchTxId, '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'finalize-plan.json'), '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-action-mismatch') 'a finalize request on an abandon-eligible journal fails closed'
+
+    $wrongRepo = Join-Path $dispatchWork 'wrong-clone'
+    New-Item -ItemType Directory -Force -Path $wrongRepo | Out-Null
+    & git -C $wrongRepo init --quiet
+    & git -C $wrongRepo -c user.name='wrong clone' -c user.email='wrong-clone@ai-agent-dotfiles.invalid' commit --allow-empty --quiet -m 'wrong clone'
+    if ($LASTEXITCODE -ne 0) { throw 'wrong clone fixture failed' }
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTxId, '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'wrong-plan.json'), '-RepoRoot', $wrongRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live journal origin identity mismatch') 'a wrong clone cannot substitute its own repository lock'
 
     Write-Host 'live recovery tests: PASS'
 }
