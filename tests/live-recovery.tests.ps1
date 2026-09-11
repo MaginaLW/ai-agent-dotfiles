@@ -1521,6 +1521,90 @@ try {
     }
     finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $afterSuccess }
 
+    Write-Host '[recovery status locator]'
+    $recoverScript = Join-Path $RepoRoot 'scripts/recover-live-transaction.ps1'
+    # Over the finished host transactions the locator reports clean.
+    $result = & pwsh -NoProfile -File $recoverScript -ControlBase ([string] $hostContext.ControlBase) 2>&1
+    Assert ($LASTEXITCODE -eq 0 -and ($result | Out-String) -match 'Recovery scan: clean') 'the locator reports clean over finished transactions'
+
+    function New-RecoveryFixtureJournal {
+        param([string] $ControlRoot, [string] $Name, [string[]] $Phases, [switch] $NoResult, [string] $ExtraFile, [switch] $DropOrigin)
+        $dir = Join-Path (Join-Path $ControlRoot 'live-transactions') $Name
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $header = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'live-journal-header'
+            TransactionId = $Name
+            OriginRepoId = ('1' * 64)
+            GitCommonDirHash = ('2' * 64)
+            CanonicalLockKey = ('3' * 64)
+            HomeAuthorityKey = ('4' * 64)
+            ReceiptIntent = [ordered]@{ Id = [Guid]::NewGuid().ToString(); Path = (Join-Path $ControlRoot 'absent-receipt') }
+        }
+        if ($DropOrigin) { $header.Remove('OriginRepoId') }
+        [IO.File]::WriteAllText((Join-Path $dir 'header.json'), ((ConvertTo-Json -InputObject $header -Depth 6) + "`n"), [System.Text.UTF8Encoding]::new($false))
+        $sequence = 1
+        foreach ($phase in $Phases) {
+            $record = [ordered]@{ SchemaVersion = 1; Phase = $phase; Data = [ordered]@{} }
+            [IO.File]::WriteAllText((Join-Path $dir ('{0:d6}.json' -f $sequence)), ((ConvertTo-Json -InputObject $record -Depth 6) + "`n"), [System.Text.UTF8Encoding]::new($false))
+            $sequence++
+        }
+        if (-not $NoResult) {
+            $resultDocument = [ordered]@{ SchemaVersion = 1; ArtifactKind = 'live-operation-result'; Outcome = 'committed' }
+            [IO.File]::WriteAllText((Join-Path $dir 'result.json'), ((ConvertTo-Json -InputObject $resultDocument -Depth 6) + "`n"), [System.Text.UTF8Encoding]::new($false))
+        }
+        if ($ExtraFile) { [IO.File]::WriteAllText((Join-Path $dir $ExtraFile), 'extra', [System.Text.UTF8Encoding]::new($false)) }
+    }
+
+    $locatorRoot = Join-Path $work 'recover-locator'
+    function Invoke-Locator {
+        param([string] $FixtureName, [string] $JsonPath)
+        $locatorControl = Join-Path $locatorRoot $FixtureName
+        New-Item -ItemType Directory -Force -Path (Join-Path $locatorControl 'live-transactions') | Out-Null
+        $locatorArguments = @('-ControlBase', $locatorControl)
+        if (-not [string]::IsNullOrWhiteSpace($JsonPath)) { $locatorArguments += @('-JsonPath', $JsonPath) }
+        $lines = & pwsh -NoProfile -File $recoverScript @locatorArguments 2>&1
+        return @{ Out = ($lines | Out-String); Code = $LASTEXITCODE }
+    }
+
+    # abandon-eligible: only pre-primitive phases and no result.
+    New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'abandon') -Name ('a' * 8 + '-1111-4111-8111-111111111111') -Phases @('RESERVED', 'RECEIPT_COMPLETE') -NoResult
+    $scan = Invoke-Locator -FixtureName 'abandon'
+    Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: abandon-eligible' -and $scan.Out -match 'abandon-eligible \(outcome=, receipt=') 'the locator classifies a receipt-only journal as abandon-eligible'
+
+    # rollback-required: a target primitive was applied before the state.
+    New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'rollback') -Name ('b' * 8 + '-1111-4111-8111-222222222222') -Phases @('RESERVED', 'RECEIPT_COMPLETE', 'NEW_INSTALLED') -NoResult
+    $scan = Invoke-Locator -FixtureName 'rollback'
+    Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: rollback-required') 'the locator classifies an applied-primitive journal as rollback-required'
+
+    # finalize-eligible: result published but the terminal record is missing.
+    New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'finalize') -Name ('c' * 8 + '-1111-4111-8111-333333333333') -Phases @('RESERVED', 'RECEIPT_COMPLETE', 'STATE_PUBLISHED', 'POSTCONDITIONS_OK')
+    $scan = Invoke-Locator -FixtureName 'finalize'
+    Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: finalize-eligible') 'the locator classifies a result-without-terminal journal as finalize-eligible'
+
+    # manual-recovery-required: unknown namespace entries fail closed.
+    New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'manual-unknown') -Name ('d' * 8 + '-1111-4111-8111-444444444444') -Phases @('RESERVED') -NoResult -ExtraFile 'unexpected.bin'
+    $scan = Invoke-Locator -FixtureName 'manual-unknown'
+    Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: manual-recovery-required' -and $scan.Out -match 'unknown namespace entries') 'unknown namespace entries fail closed as manual'
+
+    # manual-recovery-required: a header without an origin binding.
+    New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'manual-origin') -Name ('e' * 8 + '-1111-4111-8111-555555555555') -Phases @('RESERVED') -NoResult -DropOrigin
+    $scan = Invoke-Locator -FixtureName 'manual-origin'
+    Assert ($scan.Code -eq 0 -and $scan.Out -match 'header field OriginRepoId missing') 'a header without an origin binding fails closed as manual'
+
+    # known _pending temps are neither records nor unknown entries.
+    New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'pending') -Name ('f' * 8 + '-1111-4111-8111-666666666666') -Phases @('RESERVED') -NoResult
+    New-Item -ItemType Directory -Force -Path (Join-Path (Join-Path (Join-Path $locatorRoot 'pending') 'live-transactions') (('f' * 8 + '-1111-4111-8111-666666666666') + '\_pending')) | Out-Null
+    $scan = Invoke-Locator -FixtureName 'pending'
+    Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: abandon-eligible' -and $scan.Out -notmatch 'unknown namespace entries') 'known pending temps do not fail the classification'
+
+    # the JSON report is create-new and carries the statuses.
+    $locatorJson = Join-Path $work 'recover-status.json'
+    $scan = Invoke-Locator -FixtureName 'report' -JsonPath $locatorJson
+    Assert ($scan.Code -eq 0 -and (Test-Path -LiteralPath $locatorJson)) 'the locator writes the machine-readable report'
+    $secondScan = Invoke-Locator -JsonPath $locatorJson
+    Assert ($secondScan.Code -ne 0 -and $secondScan.Out -match 'already exists') 'the locator refuses to overwrite its report'
+
     Write-Host 'live recovery tests: PASS'
 }
 finally {
