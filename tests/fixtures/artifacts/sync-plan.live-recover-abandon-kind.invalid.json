@@ -1,0 +1,279 @@
+{
+  "ArtifactKind": "sync-plan",
+  "DocumentHash": "829e6b3288a6d1195eaab193ada9bb6090e90eec81a269684dd08b86e45e9c6d",
+  "Metadata": {
+    "GeneratedAtUtc": "2026-09-08T00:00:00.0000000Z"
+  },
+  "PlanHash": "8c23572c72fcd39da841d15d2cc5eed47ef5363f3afd7f6beb7416772707c09b",
+  "PlanPayload": {
+    "ApprovedToolchainHash": "4444444444444444444444444444444444444444444444444444444444444444",
+    "AuthorityStateIntent": {
+      "ApprovedToolchainHash": "4444444444444444444444444444444444444444444444444444444444444444",
+      "ArtifactKind": "current-env-state",
+      "AuthorityGeneration": 1,
+      "ControllerRepoFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+      "EnvironmentLockHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "EnvironmentName": "full",
+      "FinalManagedHashes": [
+        {
+          "Hash": "1111111111111111111111111111111111111111111111111111111111111111",
+          "Platform": "Claude"
+        },
+        {
+          "Hash": "2222222222222222222222222222222222222222222222222222222222222222",
+          "Platform": "Codex"
+        },
+        {
+          "Hash": "3333333333333333333333333333333333333333333333333333333333333333",
+          "Platform": "Reasonix"
+        }
+      ],
+      "HomeAuthorityKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "LastOperationKind": "initial",
+      "ManifestHashes": [
+        {
+          "Hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "Platform": "Claude"
+        },
+        {
+          "Hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "Platform": "Codex"
+        },
+        {
+          "Hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "Platform": "Reasonix"
+        }
+      ],
+      "RootClaimsHash": "d04ff9abccfe8fac4329a2e59bf2932a957d4a2753e66eebdb51b1b257ac20f6",
+      "SchemaVersion": 3,
+      "SelectionKind": "environment",
+      "TaskOverlayHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "TaskOverlaySkills": [
+        {
+          "Platform": "Claude",
+          "Skills": []
+        },
+        {
+          "Platform": "Codex",
+          "Skills": []
+        },
+        {
+          "Platform": "Reasonix",
+          "Skills": []
+        }
+      ]
+    },
+    "ControlBaseIntent": {
+      "DirectoryIdentity": null,
+      "FilesystemCapability": {
+        "Status": "UNPROBED"
+      },
+      "LocationKey": "c:/fixture/control",
+      "RequestedPath": "C:\\fixture\\control",
+      "TargetStatus": "MISSING",
+      "VolumeId": "a1b2c3d4"
+    },
+    "ControllerRepoFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+    "EnvironmentMaterializationRoot": {
+      "EnvBuildHash": "7777777777777777777777777777777777777777777777777777777777777777",
+      "EnvBuildPath": "C:\\fixture\\plans\\sync-plan.materialization\\env-build.json",
+      "EnvLockHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "EnvLockPath": "C:\\fixture\\plans\\sync-plan.materialization\\env.lock.json",
+      "Identity": "a1b2c3d4:00000000000000aa",
+      "MaterializationHash": "6666666666666666666666666666666666666666666666666666666666666666",
+      "Path": "C:\\fixture\\plans\\sync-plan.materialization"
+    },
+    "EnvironmentName": "full",
+    "Generator": "scripts/sync.ps1",
+    "OperationKind": "live-recover-abandon",
+    "OrderedActions": [],
+    "Platforms": [
+      {
+        "LivePreIdentity": {
+          "DirectoryIdentity": null,
+          "LocationKey": "c:/fixture/profile/.claude/skills",
+          "TargetStatus": "MISSING",
+          "VolumeId": "a1b2c3d4"
+        },
+        "LiveRoot": "C:\\fixture\\profile\\.claude\\skills",
+        "LiveRootExists": false,
+        "LiveTreeHash": null,
+        "ManagedNames": [],
+        "ManifestHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "Platform": "Claude",
+        "SourcePreIdentity": {
+          "DirectoryIdentity": "a1b2c3d4:0000000000000101",
+          "LocationKey": "c:/fixture/plans/sync-plan.materialization/claude/skills",
+          "TargetStatus": "EXISTS",
+          "VolumeId": "a1b2c3d4"
+        },
+        "SourceRoot": "C:\\fixture\\plans\\sync-plan.materialization\\claude\\skills",
+        "SourceRootExists": true,
+        "SourceTreeHash": "8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      {
+        "LivePreIdentity": {
+          "DirectoryIdentity": null,
+          "LocationKey": "c:/fixture/profile/.codex/skills",
+          "TargetStatus": "MISSING",
+          "VolumeId": "a1b2c3d4"
+        },
+        "LiveRoot": "C:\\fixture\\profile\\.codex\\skills",
+        "LiveRootExists": false,
+        "LiveTreeHash": null,
+        "ManagedNames": [],
+        "ManifestHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "Platform": "Codex",
+        "SourcePreIdentity": {
+          "DirectoryIdentity": "a1b2c3d4:0000000000000102",
+          "LocationKey": "c:/fixture/plans/sync-plan.materialization/codex/skills",
+          "TargetStatus": "EXISTS",
+          "VolumeId": "a1b2c3d4"
+        },
+        "SourceRoot": "C:\\fixture\\plans\\sync-plan.materialization\\codex\\skills",
+        "SourceRootExists": true,
+        "SourceTreeHash": "9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      {
+        "LivePreIdentity": {
+          "DirectoryIdentity": null,
+          "LocationKey": "c:/fixture/roaming/reasonix/skills",
+          "TargetStatus": "MISSING",
+          "VolumeId": "a1b2c3d4"
+        },
+        "LiveRoot": "C:\\fixture\\roaming\\reasonix\\skills",
+        "LiveRootExists": false,
+        "LiveTreeHash": null,
+        "ManagedNames": [],
+        "ManifestHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "Platform": "Reasonix",
+        "SourcePreIdentity": {
+          "DirectoryIdentity": "a1b2c3d4:0000000000000103",
+          "LocationKey": "c:/fixture/plans/sync-plan.materialization/reasonix/skills",
+          "TargetStatus": "EXISTS",
+          "VolumeId": "a1b2c3d4"
+        },
+        "SourceRoot": "C:\\fixture\\plans\\sync-plan.materialization\\reasonix\\skills",
+        "SourceRootExists": true,
+        "SourceTreeHash": "abababababababababababababababababababababababababababababababab"
+      }
+    ],
+    "ProposedRootClaims": {
+      "ArtifactKind": "root-claims",
+      "HomeAuthorityKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "HomeRootLocationKey": "c:/fixture/profile",
+      "LiveRootClaims": [
+        {
+          "DeepestExistingParentIdentity": "a1b2c3d4:0000000000000001",
+          "DeepestExistingParentPath": "C:\\fixture\\profile",
+          "ExpectedPostState": "EXISTS",
+          "InitialDirectoryIdentity": null,
+          "InitialState": "ABSENT",
+          "LocationKey": "c:/fixture/profile/.claude/skills",
+          "MissingRemainder": [
+            ".claude",
+            "skills"
+          ],
+          "Platform": "Claude",
+          "RequestedPath": "C:\\fixture\\profile\\.claude\\skills",
+          "VolumeId": "a1b2c3d4"
+        },
+        {
+          "DeepestExistingParentIdentity": "a1b2c3d4:0000000000000001",
+          "DeepestExistingParentPath": "C:\\fixture\\profile",
+          "ExpectedPostState": "EXISTS",
+          "InitialDirectoryIdentity": null,
+          "InitialState": "ABSENT",
+          "LocationKey": "c:/fixture/profile/.codex/skills",
+          "MissingRemainder": [
+            ".codex",
+            "skills"
+          ],
+          "Platform": "Codex",
+          "RequestedPath": "C:\\fixture\\profile\\.codex\\skills",
+          "VolumeId": "a1b2c3d4"
+        },
+        {
+          "DeepestExistingParentIdentity": "a1b2c3d4:0000000000000003",
+          "DeepestExistingParentPath": "C:\\fixture\\roaming",
+          "ExpectedPostState": "EXISTS",
+          "InitialDirectoryIdentity": null,
+          "InitialState": "ABSENT",
+          "LocationKey": "c:/fixture/roaming/reasonix/skills",
+          "MissingRemainder": [
+            "reasonix",
+            "skills"
+          ],
+          "Platform": "Reasonix",
+          "RequestedPath": "C:\\fixture\\roaming\\reasonix\\skills",
+          "VolumeId": "a1b2c3d4"
+        }
+      ],
+      "ResolverVersion": "windows-token-sid-known-folder-v1",
+      "SchemaVersion": 1,
+      "TokenSid": "S-1-5-21-2127521184-1604012920-1887927527-1001"
+    },
+    "RepoRoot": "C:\\fixture\\repo",
+    "RepositoryCommit": "1111111111111111111111111111111111111111",
+    "RootClaimsHash": "d04ff9abccfe8fac4329a2e59bf2932a957d4a2753e66eebdb51b1b257ac20f6",
+    "SystemMarker": {
+      "Hash": null,
+      "Identity": null,
+      "Name": ".system",
+      "Platform": "Codex",
+      "Present": false
+    },
+    "TargetContextIntent": {
+      "HomeAuthorityKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "Rows": [
+        {
+          "DeepestExistingParentIdentity": "a1b2c3d4:0000000000000001",
+          "DeepestExistingParentPath": "C:\\fixture\\profile",
+          "ExpectedPostState": "EXISTS",
+          "InitialDirectoryIdentity": null,
+          "InitialState": "ABSENT",
+          "LocationKey": "c:/fixture/profile/.claude/skills",
+          "MissingRemainder": [
+            ".claude",
+            "skills"
+          ],
+          "Platform": "Claude",
+          "RequestedPath": "C:\\fixture\\profile\\.claude\\skills",
+          "VolumeId": "a1b2c3d4"
+        },
+        {
+          "DeepestExistingParentIdentity": "a1b2c3d4:0000000000000001",
+          "DeepestExistingParentPath": "C:\\fixture\\profile",
+          "ExpectedPostState": "EXISTS",
+          "InitialDirectoryIdentity": null,
+          "InitialState": "ABSENT",
+          "LocationKey": "c:/fixture/profile/.codex/skills",
+          "MissingRemainder": [
+            ".codex",
+            "skills"
+          ],
+          "Platform": "Codex",
+          "RequestedPath": "C:\\fixture\\profile\\.codex\\skills",
+          "VolumeId": "a1b2c3d4"
+        },
+        {
+          "DeepestExistingParentIdentity": "a1b2c3d4:0000000000000003",
+          "DeepestExistingParentPath": "C:\\fixture\\roaming",
+          "ExpectedPostState": "EXISTS",
+          "InitialDirectoryIdentity": null,
+          "InitialState": "ABSENT",
+          "LocationKey": "c:/fixture/roaming/reasonix/skills",
+          "MissingRemainder": [
+            "reasonix",
+            "skills"
+          ],
+          "Platform": "Reasonix",
+          "RequestedPath": "C:\\fixture\\roaming\\reasonix\\skills",
+          "VolumeId": "a1b2c3d4"
+        }
+      ]
+    },
+    "UnknownMarkers": []
+  },
+  "SchemaVersion": 3
+}

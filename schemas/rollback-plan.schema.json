@@ -1,0 +1,410 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/rollback-plan.schema.json",
+  "title": "AI Agent Dotfiles Rollback and Recovery Plan",
+  "type": "object",
+  "required": ["SchemaVersion", "ArtifactKind", "Metadata", "PlanPayload", "PlanHash", "DocumentHash"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "rollback-plan" },
+    "Metadata": {
+      "type": "object",
+      "required": ["CreatedAtUtc", "Generator", "RepositoryCommit"],
+      "properties": {
+        "CreatedAtUtc": { "type": "string", "format": "date-time" },
+        "Generator": { "enum": ["scripts/agent-dotfiles.ps1", "scripts/rollback-harness-env.ps1", "tests/helpers/sealed-live-plan-fixture.ps1"] },
+        "RepositoryCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" }
+      },
+      "additionalProperties": false
+    },
+    "PlanPayload": { "$ref": "#/$defs/payload" },
+    "PlanHash": { "$ref": "#/$defs/hash" },
+    "DocumentHash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "directoryIdentity": { "type": "string", "minLength": 25, "maxLength": 25, "pattern": "^[0-9a-f]{8}:[0-9a-f]{16}$" },
+    "operationKind": {
+      "enum": ["initial", "environment", "task-overlay", "migrate", "adopt", "repair-adopt", "controller-transition", "retirement", "environment-rollback"]
+    },
+    "recoveryPlanKind": {
+      "enum": ["environment-rollback", "live-recover-abandon", "live-recover-rollback", "live-recover-finalize"]
+    },
+    "liveRecoverPlanKind": {
+      "enum": ["live-recover-abandon", "live-recover-rollback", "live-recover-finalize"]
+    },
+    "closingPlanKind": {
+      "enum": ["live-recover-abandon", "live-recover-rollback", "live-recover-finalize"]
+    },
+    "outcome": { "enum": ["committed", "abandoned", "rolled-back", "failed-restored"] },
+    "recordPhase": {
+      "enum": [
+        "DIR_CREATE_INTENT", "DIR_CREATED", "RECEIPT_COMPLETE", "PREPARED",
+        "MOVE_OLD_INTENT", "OLD_MOVED", "MOVE_NEW_INTENT", "NEW_INSTALLED",
+        "CLAIMS_PUBLISHED", "STATE_PREIMAGE_COMPLETE", "FILE_PREPARED",
+        "FILE_REPLACE_INTENT", "FILE_REPLACED", "STATE_PUBLISHED",
+        "POSTCONDITIONS_OK", "RECOVERY_ACTION_INTENT", "RECOVERY_ACTION_APPLIED", "COMPLETE"
+      ]
+    },
+    "state": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        { "type": "object", "required": ["State", "Hash", "Identity"], "properties": { "State": { "const": "PRESENT" }, "Hash": { "$ref": "#/$defs/hash" }, "Identity": { "$ref": "#/$defs/directoryIdentity" } }, "additionalProperties": false }
+      ]
+    },
+    "observed": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        {
+          "type": "object",
+          "required": ["State", "Type", "Hash", "Identity"],
+          "properties": {
+            "State": { "const": "PRESENT" },
+            "Type": { "enum": ["File", "Directory"] },
+            "Hash": { "$ref": "#/$defs/hash" },
+            "Identity": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "receiptIntent": {
+      "type": "object",
+      "required": ["Id", "Path"],
+      "properties": {
+        "Id": { "$ref": "#/$defs/uuid" },
+        "Path": { "type": "string", "minLength": 4 }
+      },
+      "additionalProperties": false
+    },
+    "pendingTemp": {
+      "type": "object",
+      "required": ["Name", "Path", "Length", "Sha256"],
+      "properties": {
+        "Name": { "type": "string", "pattern": "^(?:header-[0-9a-f]{32}|record-[0-9]{6}-[0-9a-f]{32}|result-[0-9a-f]{32})\\.tmp$" },
+        "Path": { "type": "string", "minLength": 4 },
+        "Length": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "Sha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "resultInventory": {
+      "oneOf": [
+        { "type": "object", "required": ["State"], "properties": { "State": { "const": "MISSING" } }, "additionalProperties": false },
+        {
+          "type": "object",
+          "required": ["State", "Hash", "Outcome"],
+          "properties": {
+            "State": { "const": "PRESENT" },
+            "Hash": { "$ref": "#/$defs/hash" },
+            "Outcome": { "$ref": "#/$defs/outcome" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "chainRecord": {
+      "type": "object",
+      "required": ["Sequence", "Phase", "Hash"],
+      "properties": {
+        "Sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "Phase": { "$ref": "#/$defs/recordPhase" },
+        "Hash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "TargetId", "Order", "TargetKind", "Role", "TargetPath", "PreimagePath",
+        "SwapOldPath", "StagedPath", "Current", "Candidate", "TargetContextHash"
+      ],
+      "properties": {
+        "TargetId": { "$ref": "#/$defs/hash" },
+        "Order": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "TargetKind": { "enum": ["skill", "parent-directory", "state"] },
+        "Role": { "enum": ["live-target", "parent", "state"] },
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix", "Union"] },
+        "Name": { "type": "string", "minLength": 1 },
+        "TargetPath": { "type": "string", "minLength": 4 },
+        "PreimagePath": { "type": "string", "minLength": 4 },
+        "SwapOldPath": { "type": "string", "minLength": 4 },
+        "StagedPath": { "type": ["string", "null"] },
+        "LiveIdentity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] },
+        "ReceiptSnapshotRef": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["Platform", "Name"],
+              "properties": {
+                "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+                "Name": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "Current": { "$ref": "#/$defs/observed" },
+        "Candidate": { "$ref": "#/$defs/observed" },
+        "TargetContextHash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "terminalProjection": {
+      "type": "object",
+      "required": ["Outcome", "ClosingKind"],
+      "properties": {
+        "Outcome": { "$ref": "#/$defs/outcome" },
+        "ClosingKind": { "enum": ["original", "recovery"] },
+        "ClosingPlanKind": { "$ref": "#/$defs/closingPlanKind" },
+        "ReceiptState": { "enum": ["MISSING", "PARTIAL", "COMPLETE"] },
+        "StateHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "ClaimsHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "authorityStateIntent": {
+      "type": "object",
+      "required": [
+        "SchemaVersion", "ArtifactKind", "HomeAuthorityKey", "AuthorityGeneration",
+        "RootClaimsHash", "SelectionKind", "EnvironmentName", "EnvironmentLockHash",
+        "TaskOverlayHash", "TaskOverlaySkills", "ManifestHashes", "FinalManagedHashes",
+        "ControllerRepoFingerprint", "ApprovedToolchainHash", "LastOperationKind"
+      ],
+      "properties": {
+        "SchemaVersion": { "const": 3 },
+        "ArtifactKind": { "const": "current-env-state" },
+        "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+        "AuthorityGeneration": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "RootClaimsHash": { "$ref": "#/$defs/hash" },
+        "SelectionKind": { "const": "environment" },
+        "EnvironmentName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "EnvironmentLockHash": { "$ref": "#/$defs/hash" },
+        "TaskOverlayHash": { "$ref": "#/$defs/hash" },
+        "TaskOverlaySkills": { "$ref": "#/$defs/platformSkills" },
+        "ManifestHashes": { "$ref": "#/$defs/platformHashes" },
+        "FinalManagedHashes": { "$ref": "#/$defs/platformHashes" },
+        "ControllerRepoFingerprint": { "$ref": "#/$defs/hash" },
+        "ApprovedToolchainHash": { "$ref": "#/$defs/hash" },
+        "LastOperationKind": { "$ref": "#/$defs/operationKind" }
+      },
+      "additionalProperties": false
+    },
+    "platformSkills": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformSkillsEntry" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "platformSkillsEntry": {
+      "type": "object",
+      "required": ["Platform", "Skills"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Skills": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "platformHashes": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Claude" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Codex" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/platformHashEntry" }, { "properties": { "Platform": { "const": "Reasonix" } } }] }
+      ],
+      "items": false
+    },
+    "platformHashEntry": {
+      "type": "object",
+      "required": ["Platform", "Hash"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Hash": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "SchemaVersion", "PlanKind", "TransactionMode",
+        "HomeAuthorityKey", "OriginRepoId", "GitCommonDirHash", "CanonicalLockKey"
+      ],
+      "properties": {
+        "SchemaVersion": { "const": 1 },
+        "PlanKind": { "$ref": "#/$defs/recoveryPlanKind" },
+        "TransactionMode": { "enum": ["receipt-backed", "state-only"] },
+        "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+        "OriginRepoId": { "$ref": "#/$defs/hash" },
+        "GitCommonDirHash": { "$ref": "#/$defs/hash" },
+        "CanonicalLockKey": { "$ref": "#/$defs/hash" },
+        "OverlayLockKey": { "$ref": "#/$defs/hash" },
+        "TransactionId": { "$ref": "#/$defs/uuid" },
+        "OriginalOperationKind": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "OriginalDocumentHash": { "$ref": "#/$defs/hash" },
+        "OriginalPlanHash": { "$ref": "#/$defs/hash" },
+        "ConsumedRecoveryDocumentHashes": { "type": "array", "items": { "$ref": "#/$defs/hash" } },
+        "SourceTransactionId": { "$ref": "#/$defs/uuid" },
+        "SourceOperationKind": { "$ref": "#/$defs/operationKind" },
+        "ReceiptIntent": { "$ref": "#/$defs/receiptIntent" },
+        "ReceiptRef": { "const": "NO_LIVE_MUTATION" },
+        "ReceiptState": { "enum": ["MISSING", "PARTIAL", "COMPLETE"] },
+        "ReceiptId": { "$ref": "#/$defs/uuid" },
+        "ReceiptHash": { "$ref": "#/$defs/hash" },
+        "HeaderHash": { "$ref": "#/$defs/hash" },
+        "DerivedJournalHeadHash": { "$ref": "#/$defs/hash" },
+        "ChainRecords": { "type": "array", "items": { "$ref": "#/$defs/chainRecord" } },
+        "PendingTemps": { "type": "array", "items": { "$ref": "#/$defs/pendingTemp" } },
+        "ResultInventory": { "$ref": "#/$defs/resultInventory" },
+        "Targets": { "type": "array", "items": { "$ref": "#/$defs/target" } },
+        "RootClaimsHash": { "$ref": "#/$defs/hash" },
+        "AuthorityStatePreimage": { "$ref": "#/$defs/state" },
+        "AuthorityStateExpected": { "$ref": "#/$defs/state" },
+        "Action": { "enum": ["abandon", "rollback", "finalize"] },
+        "ExpectedOutcome": { "$ref": "#/$defs/outcome" },
+        "ExpectedTerminalProjection": { "$ref": "#/$defs/terminalProjection" },
+        "RollbackStateIntent": { "$ref": "#/$defs/authorityStateIntent" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "PlanPayload": { "properties": { "PlanKind": { "const": "environment-rollback" } }, "required": ["PlanKind"] } }, "required": ["PlanPayload"] },
+      "then": {
+        "properties": {
+          "PlanPayload": {
+            "properties": {
+              "TransactionMode": { "const": "receipt-backed" },
+              "TransactionId": { "not": {} },
+              "OriginalOperationKind": { "not": {} },
+              "Action": { "not": {} },
+              "ReceiptRef": { "not": {} },
+              "ReceiptState": { "not": {} },
+              "ConsumedRecoveryDocumentHashes": { "not": {} },
+              "HeaderHash": { "not": {} },
+              "DerivedJournalHeadHash": { "not": {} },
+              "ChainRecords": { "not": {} },
+              "PendingTemps": { "not": {} },
+              "ResultInventory": { "not": {} },
+              "ExpectedOutcome": { "not": {} },
+              "ExpectedTerminalProjection": { "not": {} }
+            },
+            "required": [
+              "ReceiptIntent", "ReceiptId", "ReceiptHash", "SourceTransactionId",
+              "SourceOperationKind", "OriginalPlanHash", "OriginalDocumentHash", "RollbackStateIntent"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "PlanPayload": { "properties": { "PlanKind": { "$ref": "#/$defs/liveRecoverPlanKind" } }, "required": ["PlanKind"] } }, "required": ["PlanPayload"] },
+      "then": {
+        "properties": {
+          "PlanPayload": {
+            "properties": {
+              "RollbackStateIntent": { "not": {} }
+            },
+            "required": [
+              "TransactionId", "OriginalOperationKind", "OriginalDocumentHash", "HeaderHash",
+              "DerivedJournalHeadHash", "ChainRecords", "PendingTemps", "ResultInventory",
+              "Targets", "Action", "ExpectedOutcome", "ExpectedTerminalProjection"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "PlanPayload": { "properties": { "TransactionMode": { "const": "state-only" } }, "required": ["TransactionMode"] } }, "required": ["PlanPayload"] },
+      "then": {
+        "properties": {
+          "PlanPayload": {
+            "properties": {
+              "PlanKind": { "$ref": "#/$defs/liveRecoverPlanKind" },
+              "ReceiptIntent": { "not": {} },
+              "ReceiptState": { "not": {} },
+              "ReceiptId": { "not": {} },
+              "ReceiptHash": { "not": {} },
+              "SourceTransactionId": { "not": {} },
+              "SourceOperationKind": { "not": {} },
+              "OriginalPlanHash": { "not": {} },
+              "Targets": { "maxItems": 0 }
+            },
+            "required": ["ReceiptRef", "AuthorityStatePreimage", "AuthorityStateExpected"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "PlanPayload": { "properties": { "TransactionMode": { "const": "receipt-backed" }, "PlanKind": { "const": "live-recover-abandon" } }, "required": ["TransactionMode", "PlanKind"] } },
+        "required": ["PlanPayload"]
+      },
+      "then": {
+        "properties": {
+          "PlanPayload": {
+            "properties": {
+              "ReceiptRef": { "not": {} },
+              "OriginalPlanHash": { "not": {} }
+            },
+            "required": ["ReceiptState"],
+            "allOf": [
+              {
+                "if": { "properties": { "ReceiptState": { "const": "COMPLETE" } }, "required": ["ReceiptState"] },
+                "then": {
+                  "required": ["ReceiptId", "ReceiptHash", "SourceTransactionId", "SourceOperationKind"]
+                },
+                "else": {
+                  "properties": {
+                    "ReceiptHash": { "not": {} },
+                    "SourceTransactionId": { "not": {} },
+                    "SourceOperationKind": { "not": {} }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "PlanPayload": {
+            "properties": {
+              "TransactionMode": { "const": "receipt-backed" },
+              "PlanKind": { "enum": ["live-recover-rollback", "live-recover-finalize"] }
+            },
+            "required": ["TransactionMode", "PlanKind"]
+          }
+        },
+        "required": ["PlanPayload"]
+      },
+      "then": {
+        "properties": {
+          "PlanPayload": {
+            "properties": {
+              "ReceiptRef": { "not": {} },
+              "ReceiptState": { "const": "COMPLETE" }
+            },
+            "required": ["ReceiptState", "ReceiptId", "ReceiptHash", "SourceTransactionId", "SourceOperationKind", "OriginalPlanHash"]
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

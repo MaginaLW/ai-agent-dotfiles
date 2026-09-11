@@ -263,7 +263,119 @@ function Test-LiveOperationResultSemantics {
     else { throw $mismatch }
 }
 
+# ---------------------------------------------------------------------------
+# Rollback/recovery plan semantics (roadmap Task 6 step 2)
+# ---------------------------------------------------------------------------
 
+$script:RollbackPlanHashMismatch = 'rollback-plan-hash-mismatch'
+$script:RollbackPlanKindMismatch = 'rollback-plan-kind-mismatch'
+$script:RollbackPlanProjectionMismatch = 'rollback-plan-projection-mismatch'
+$script:RollbackPlanChainInvalid = 'rollback-plan-chain-invalid'
+$script:RollbackPlanBindingMissing = 'rollback-plan-binding-missing'
+
+$script:RollbackPlanActionByKind = @{
+    'live-recover-abandon' = 'abandon'
+    'live-recover-rollback' = 'rollback'
+    'live-recover-finalize' = 'finalize'
+}
+$script:RollbackPlanOutcomeByAction = @{
+    'abandon' = 'abandoned'
+    'rollback' = 'rolled-back'
+}
+# The schema deliberately leaves OriginalOperationKind as a spelling-only
+# string so a live-recover substitution fails here, at the semantic layer.
+$script:RollbackPlanOperationKinds = @(
+    'initial', 'environment', 'task-overlay', 'migrate', 'adopt', 'repair-adopt',
+    'controller-transition', 'retirement', 'environment-rollback'
+)
+
+function Test-RollbackPlanSemantics {
+    # Semantic layer for the schema-1 rollback/recovery plan. The schema owns
+    # the strict TransactionMode/PlanKind/ReceiptState oneOf shapes; this
+    # layer owns the cross-artifact internal consistency the schema cannot
+    # express: PlanKind/action/outcome/projection correspondence, the
+    # live-recover substitution ban, chain ordering, and the journal-evidence
+    # bindings that individual chain phases imply.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+
+    $expectedPlanHash = Get-PlanHash -PlanPayload $Document['PlanPayload']
+    if ([string] $Document['PlanHash'] -cne $expectedPlanHash) { throw $script:RollbackPlanHashMismatch }
+    $expectedDocumentHash = Get-DocumentHash -Document $Document
+    if ([string] $Document['DocumentHash'] -cne $expectedDocumentHash) { throw $script:RollbackPlanHashMismatch }
+
+    $payload = [System.Collections.IDictionary] $Document['PlanPayload']
+    $kind = [string] $payload['PlanKind']
+
+    if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'OriginalOperationKind') -or
+        $payload['OriginalOperationKind'].StartsWith('live-recover-', [System.StringComparison]::Ordinal) -or
+        ([string] $payload['OriginalOperationKind']) -cnotin $script:RollbackPlanOperationKinds) {
+        throw $script:RollbackPlanKindMismatch
+    }
+
+    if ($kind -ceq 'environment-rollback') { return }
+
+    $action = [string] $payload['Action']
+    if ([string] $script:RollbackPlanActionByKind[$kind] -cne $action) { throw $script:RollbackPlanKindMismatch }
+
+    $projection = [System.Collections.IDictionary] $payload['ExpectedTerminalProjection']
+    if ([string] $projection['ClosingKind'] -cne 'recovery') { throw $script:RollbackPlanProjectionMismatch }
+    if (-not (Test-LiveTransactionMapHasName -Map $projection -Name 'ClosingPlanKind') -or
+        [string] $projection['ClosingPlanKind'] -cne $kind) { throw $script:RollbackPlanProjectionMismatch }
+    if (-not (Test-LiveTransactionMapHasName -Map $projection -Name 'Outcome') -or
+        [string] $projection['Outcome'] -cne [string] $payload['ExpectedOutcome']) { throw $script:RollbackPlanProjectionMismatch }
+    if (Test-LiveTransactionMapHasName -Map $script:RollbackPlanOutcomeByAction -Name $action) {
+        if ([string] $payload['ExpectedOutcome'] -cne [string] $script:RollbackPlanOutcomeByAction[$action]) {
+            throw $script:RollbackPlanProjectionMismatch
+        }
+    }
+    if (Test-LiveTransactionMapHasName -Map $projection -Name 'ReceiptState') {
+        if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'ReceiptState') -or
+            [string] $projection['ReceiptState'] -cne [string] $payload['ReceiptState']) {
+            throw $script:RollbackPlanProjectionMismatch
+        }
+    }
+
+    $records = @($payload['ChainRecords'])
+    $previousSequence = [long] 0
+    foreach ($record in $records) {
+        $row = [System.Collections.IDictionary] $record
+        $sequence = [long] $row['Sequence']
+        if ($sequence -le $previousSequence) { throw $script:RollbackPlanChainInvalid }
+        $previousSequence = $sequence
+        if ([string] $row['Phase'] -ceq 'COMPLETE') { throw $script:RollbackPlanChainInvalid }
+    }
+    if ($records.Count -gt 0) {
+        $last = [System.Collections.IDictionary] $records[-1]
+        if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'DerivedJournalHeadHash') -or
+            [string] $payload['DerivedJournalHeadHash'] -cne [string] $last['Hash']) { throw $script:RollbackPlanChainInvalid }
+    }
+
+    $phases = @($records | ForEach-Object { [string] (([System.Collections.IDictionary] $_)['Phase']) })
+    if ($phases -ccontains 'CLAIMS_PUBLISHED' -and -not (Test-LiveTransactionMapHasName -Map $payload -Name 'RootClaimsHash')) {
+        throw $script:RollbackPlanBindingMissing
+    }
+    if ($phases -ccontains 'STATE_PUBLISHED' -and -not (Test-LiveTransactionMapHasName -Map $payload -Name 'AuthorityStateExpected')) {
+        throw $script:RollbackPlanBindingMissing
+    }
+    if ($phases -ccontains 'STATE_PREIMAGE_COMPLETE' -and -not (Test-LiveTransactionMapHasName -Map $payload -Name 'AuthorityStatePreimage')) {
+        throw $script:RollbackPlanBindingMissing
+    }
+
+    if (Test-LiveTransactionMapHasName -Map $payload -Name 'ConsumedRecoveryDocumentHashes') {
+        $consumed = @([string[]] @($payload['ConsumedRecoveryDocumentHashes']))
+        if (@($consumed | Sort-Object -Unique).Count -ne $consumed.Count) { throw $script:RollbackPlanBindingMissing }
+    }
+    $tempNames = @($payload['PendingTemps'] | ForEach-Object { [string] (([System.Collections.IDictionary] $_)['Name']) })
+    if (@($tempNames | Sort-Object -Unique).Count -ne $tempNames.Count) { throw $script:RollbackPlanBindingMissing }
+
+    $targetIds = @($payload['Targets'] | ForEach-Object { [string] (([System.Collections.IDictionary] $_)['TargetId']) })
+    if (@($targetIds | Sort-Object -Unique).Count -ne $targetIds.Count) { throw $script:RollbackPlanBindingMissing }
+    $targetOrders = @($payload['Targets'] | ForEach-Object { [long] (([System.Collections.IDictionary] $_)['Order']) })
+    for ($index = 1; $index -lt $targetOrders.Count; $index++) {
+        if ($targetOrders[$index] -le $targetOrders[$index - 1]) { throw $script:RollbackPlanChainInvalid }
+    }
+}
 
 # ---------------------------------------------------------------------------
 # Live target plan (roadmap Task 4 step 1)

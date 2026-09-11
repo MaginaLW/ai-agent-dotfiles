@@ -123,6 +123,30 @@
             )
             SemanticValidator = 'Test-CanonicalRecoveryPlanSemantics'
         }
+        'rollback-plan' = @{
+            SchemaVersion = 1
+            SchemaPath = 'schemas/rollback-plan.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/rollback-plan.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/rollback-plan.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'finalize-partial-receipt'; Path = 'tests/fixtures/artifacts/rollback-plan.finalize-partial-receipt.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'environment-rollback-missing-receipt'; Path = 'tests/fixtures/artifacts/rollback-plan.environment-rollback-missing-receipt.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'state-only-receipt-crossing'; Path = 'tests/fixtures/artifacts/rollback-plan.state-only-receipt-crossing.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'state-only-missing-preimage'; Path = 'tests/fixtures/artifacts/rollback-plan.state-only-missing-preimage.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'plan-hash-tamper'; Path = 'tests/fixtures/artifacts/rollback-plan.plan-hash-tamper.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'document-hash-tamper'; Path = 'tests/fixtures/artifacts/rollback-plan.document-hash-tamper.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'plan-action-mismatch'; Path = 'tests/fixtures/artifacts/rollback-plan.plan-action-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'closing-plan-kind-mismatch'; Path = 'tests/fixtures/artifacts/rollback-plan.closing-plan-kind-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'projection-outcome-mismatch'; Path = 'tests/fixtures/artifacts/rollback-plan.projection-outcome-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'operation-kind-substitution'; Path = 'tests/fixtures/artifacts/rollback-plan.operation-kind-substitution.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'chain-order-break'; Path = 'tests/fixtures/artifacts/rollback-plan.chain-order-break.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'complete-chain-present'; Path = 'tests/fixtures/artifacts/rollback-plan.complete-chain-present.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'claims-binding-missing'; Path = 'tests/fixtures/artifacts/rollback-plan.claims-binding-missing.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'journal-head-mismatch'; Path = 'tests/fixtures/artifacts/rollback-plan.journal-head-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'duplicate-consumed-hash'; Path = 'tests/fixtures/artifacts/rollback-plan.duplicate-consumed-hash.invalid.json'; FailureLayer = 'Semantic' }
+            )
+            SemanticValidator = 'Test-RollbackPlanSemantics'
+        }
         'sync-plan' = @{
             SchemaVersion = 3
             SchemaPath = 'schemas/sync-plan.schema.json'
@@ -131,6 +155,9 @@
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/sync-plan.unknown-property.invalid.json'; FailureLayer = 'Schema' }
                 @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/sync-plan.wrong-version.invalid.json'; FailureLayer = 'Schema' }
                 @{ Name = 'live-recover-kind'; Path = 'tests/fixtures/artifacts/sync-plan.live-recover-kind.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'environment-rollback-kind'; Path = 'tests/fixtures/artifacts/sync-plan.environment-rollback-kind.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'live-recover-abandon-kind'; Path = 'tests/fixtures/artifacts/sync-plan.live-recover-abandon-kind.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'live-recover-rollback-kind'; Path = 'tests/fixtures/artifacts/sync-plan.live-recover-rollback-kind.invalid.json'; FailureLayer = 'Schema' }
                 @{ Name = 'runtime-receipt'; Path = 'tests/fixtures/artifacts/sync-plan.runtime-receipt.invalid.json'; FailureLayer = 'Schema' }
                 @{ Name = 'plan-hash-mismatch'; Path = 'tests/fixtures/artifacts/sync-plan.plan-hash-mismatch.invalid.json'; FailureLayer = 'Semantic' }
                 @{ Name = 'document-hash-mismatch'; Path = 'tests/fixtures/artifacts/sync-plan.document-hash-mismatch.invalid.json'; FailureLayer = 'Semantic' }

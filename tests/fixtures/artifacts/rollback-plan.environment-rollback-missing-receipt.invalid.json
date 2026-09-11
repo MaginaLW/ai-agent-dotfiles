@@ -1,0 +1,92 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "rollback-plan",
+  "Metadata": {
+    "CreatedAtUtc": "2026-09-12T00:00:00.0000000Z",
+    "Generator": "tests/helpers/sealed-live-plan-fixture.ps1",
+    "RepositoryCommit": "1111111111111111111111111111111111111111"
+  },
+  "PlanPayload": {
+    "SchemaVersion": 1,
+    "PlanKind": "environment-rollback",
+    "TransactionMode": "receipt-backed",
+    "HomeAuthorityKey": "a100000000000000000000000000000000000000000000000000000000000000",
+    "OriginRepoId": "a200000000000000000000000000000000000000000000000000000000000000",
+    "GitCommonDirHash": "a300000000000000000000000000000000000000000000000000000000000000",
+    "CanonicalLockKey": "a400000000000000000000000000000000000000000000000000000000000000",
+    "SourceTransactionId": "b2c3d4e5-0002-4000-9000-000000000002",
+    "SourceOperationKind": "environment",
+    "ReceiptIntent": {
+      "Id": "c3d4e5f6-0003-4000-a000-000000000003",
+      "Path": "C:\\fixture\\control\\c3d4e5f6-0003-4000-a000-000000000003.json"
+    },
+    "ReceiptId": "d4e5f6a7-0004-4000-b000-000000000004",
+    "OriginalPlanHash": "a700000000000000000000000000000000000000000000000000000000000000",
+    "OriginalDocumentHash": "a600000000000000000000000000000000000000000000000000000000000000",
+    "RollbackStateIntent": {
+      "SchemaVersion": 3,
+      "ArtifactKind": "current-env-state",
+      "HomeAuthorityKey": "a100000000000000000000000000000000000000000000000000000000000000",
+      "AuthorityGeneration": 3,
+      "RootClaimsHash": "e300000000000000000000000000000000000000000000000000000000000000",
+      "SelectionKind": "environment",
+      "EnvironmentName": "work",
+      "EnvironmentLockHash": "e400000000000000000000000000000000000000000000000000000000000000",
+      "TaskOverlayHash": "e500000000000000000000000000000000000000000000000000000000000000",
+      "TaskOverlaySkills": [
+        {
+          "Platform": "Claude",
+          "Skills": [
+            "git-review"
+          ]
+        },
+        {
+          "Platform": "Codex",
+          "Skills": [
+            "git-review",
+            "chatgpt-apps"
+          ]
+        },
+        {
+          "Platform": "Reasonix",
+          "Skills": [
+            "git-review"
+          ]
+        }
+      ],
+      "ManifestHashes": [
+        {
+          "Platform": "Claude",
+          "Hash": "e600000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "Platform": "Codex",
+          "Hash": "e700000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "Platform": "Reasonix",
+          "Hash": "e800000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "FinalManagedHashes": [
+        {
+          "Platform": "Claude",
+          "Hash": "e900000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "Platform": "Codex",
+          "Hash": "f100000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "Platform": "Reasonix",
+          "Hash": "f200000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "ControllerRepoFingerprint": "5500000000000000000000000000000000000000000000000000000000000000",
+      "ApprovedToolchainHash": "4400000000000000000000000000000000000000000000000000000000000000",
+      "LastOperationKind": "environment"
+    }
+  },
+  "PlanHash": "1f6b76513032959a2fd11af6cc7cb1aea866341131764df6bfe1d81c06362324",
+  "DocumentHash": "d1e20d34fd5ef99944795565c57f30d234e18752bc2b321c01735687df10686b"
+}

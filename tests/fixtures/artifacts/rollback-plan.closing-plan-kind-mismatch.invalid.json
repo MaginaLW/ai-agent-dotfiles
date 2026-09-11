@@ -1,0 +1,55 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "rollback-plan",
+  "Metadata": {
+    "CreatedAtUtc": "2026-09-12T00:00:00.0000000Z",
+    "Generator": "tests/helpers/sealed-live-plan-fixture.ps1",
+    "RepositoryCommit": "1111111111111111111111111111111111111111"
+  },
+  "PlanPayload": {
+    "SchemaVersion": 1,
+    "PlanKind": "live-recover-abandon",
+    "TransactionMode": "state-only",
+    "HomeAuthorityKey": "a100000000000000000000000000000000000000000000000000000000000000",
+    "OriginRepoId": "a200000000000000000000000000000000000000000000000000000000000000",
+    "GitCommonDirHash": "a300000000000000000000000000000000000000000000000000000000000000",
+    "CanonicalLockKey": "a400000000000000000000000000000000000000000000000000000000000000",
+    "TransactionId": "a0b1c2d3-0001-4000-8000-000000000001",
+    "OriginalOperationKind": "controller-transition",
+    "OriginalDocumentHash": "a600000000000000000000000000000000000000000000000000000000000000",
+    "HeaderHash": "b100000000000000000000000000000000000000000000000000000000000000",
+    "DerivedJournalHeadHash": "c100000000000000000000000000000000000000000000000000000000000000",
+    "ChainRecords": [
+      {
+        "Sequence": 1,
+        "Phase": "PREPARED",
+        "Hash": "c100000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "PendingTemps": [],
+    "ResultInventory": {
+      "State": "MISSING"
+    },
+    "Targets": [],
+    "Action": "abandon",
+    "ExpectedOutcome": "abandoned",
+    "ExpectedTerminalProjection": {
+      "Outcome": "abandoned",
+      "ClosingKind": "recovery",
+      "ClosingPlanKind": "live-recover-finalize"
+    },
+    "ReceiptRef": "NO_LIVE_MUTATION",
+    "AuthorityStatePreimage": {
+      "State": "PRESENT",
+      "Hash": "e100000000000000000000000000000000000000000000000000000000000000",
+      "Identity": "0a1b2c3d:00000000000000f1"
+    },
+    "AuthorityStateExpected": {
+      "State": "PRESENT",
+      "Hash": "e200000000000000000000000000000000000000000000000000000000000000",
+      "Identity": "0a1b2c3d:00000000000000f2"
+    }
+  },
+  "PlanHash": "c885c278e53f9edb2d401a3f47d4dad8e657c121d08e3e84d7b389429b35204a",
+  "DocumentHash": "3d70a7d9fc3ce41e4486b5fa5bbbe5b2beb75799603cccb53674f7a8864ecfac"
+}

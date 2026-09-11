@@ -1,0 +1,114 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "rollback-plan",
+  "Metadata": {
+    "CreatedAtUtc": "2026-09-12T00:00:00.0000000Z",
+    "Generator": "tests/helpers/sealed-live-plan-fixture.ps1",
+    "RepositoryCommit": "1111111111111111111111111111111111111111"
+  },
+  "PlanPayload": {
+    "SchemaVersion": 1,
+    "PlanKind": "live-recover-rollback",
+    "TransactionMode": "receipt-backed",
+    "HomeAuthorityKey": "a100000000000000000000000000000000000000000000000000000000000000",
+    "OriginRepoId": "a200000000000000000000000000000000000000000000000000000000000000",
+    "GitCommonDirHash": "a300000000000000000000000000000000000000000000000000000000000000",
+    "CanonicalLockKey": "a400000000000000000000000000000000000000000000000000000000000000",
+    "OverlayLockKey": "a500000000000000000000000000000000000000000000000000000000000000",
+    "TransactionId": "a0b1c2d3-0001-4000-8000-000000000001",
+    "OriginalOperationKind": "environment",
+    "OriginalDocumentHash": "a600000000000000000000000000000000000000000000000000000000000000",
+    "OriginalPlanHash": "a700000000000000000000000000000000000000000000000000000000000000",
+    "ConsumedRecoveryDocumentHashes": [
+      "a800000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "SourceTransactionId": "b2c3d4e5-0002-4000-9000-000000000002",
+    "SourceOperationKind": "environment",
+    "ReceiptIntent": {
+      "Id": "c3d4e5f6-0003-4000-a000-000000000003",
+      "Path": "C:\\fixture\\control\\c3d4e5f6-0003-4000-a000-000000000003.json"
+    },
+    "ReceiptState": "COMPLETE",
+    "ReceiptId": "d4e5f6a7-0004-4000-b000-000000000004",
+    "ReceiptHash": "a900000000000000000000000000000000000000000000000000000000000000",
+    "HeaderHash": "b100000000000000000000000000000000000000000000000000000000000000",
+    "DerivedJournalHeadHash": "ff00000000000000000000000000000000000000000000000000000000000000",
+    "ChainRecords": [
+      {
+        "Sequence": 1,
+        "Phase": "PREPARED",
+        "Hash": "c100000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "Sequence": 2,
+        "Phase": "RECEIPT_COMPLETE",
+        "Hash": "c200000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "Sequence": 3,
+        "Phase": "FILE_REPLACE_INTENT",
+        "Hash": "c300000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "Sequence": 4,
+        "Phase": "NEW_INSTALLED",
+        "Hash": "c400000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "PendingTemps": [
+      {
+        "Name": "record-000005-0a1b2c3d4e5f60718293a4b5c6d7e8f9.tmp",
+        "Path": "C:\\fixture\\control\\live-transactions\\a0b1c2d3-0001-4000-8000-000000000001\\record-000005-0a1b2c3d4e5f60718293a4b5c6d7e8f9.tmp",
+        "Length": 512,
+        "Sha256": "c500000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "ResultInventory": {
+      "State": "MISSING"
+    },
+    "Targets": [
+      {
+        "TargetId": "d100000000000000000000000000000000000000000000000000000000000000",
+        "Order": 0,
+        "TargetKind": "skill",
+        "Role": "live-target",
+        "Platform": "Claude",
+        "Name": "git-review",
+        "TargetPath": "C:\\fixture\\home\\.claude\\skills\\git-review",
+        "PreimagePath": "C:\\fixture\\home\\.claude\\skills\\git-review",
+        "SwapOldPath": "C:\\fixture\\home\\.claude\\skills\\git-review.old",
+        "StagedPath": "C:\\fixture\\control\\staging\\git-review",
+        "LiveIdentity": "0a1b2c3d:0123456789abcdef",
+        "ReceiptSnapshotRef": {
+          "Platform": "Claude",
+          "Name": "git-review"
+        },
+        "Current": {
+          "State": "PRESENT",
+          "Type": "Directory",
+          "Hash": "d200000000000000000000000000000000000000000000000000000000000000",
+          "Identity": "0a1b2c3d:0123456789abcdef"
+        },
+        "Candidate": {
+          "State": "PRESENT",
+          "Type": "Directory",
+          "Hash": "d300000000000000000000000000000000000000000000000000000000000000",
+          "Identity": "7650f1e2:fedcba9876543210"
+        },
+        "TargetContextHash": "d400000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "Action": "rollback",
+    "ExpectedOutcome": "rolled-back",
+    "ExpectedTerminalProjection": {
+      "Outcome": "rolled-back",
+      "ClosingKind": "recovery",
+      "ClosingPlanKind": "live-recover-rollback",
+      "ReceiptState": "COMPLETE",
+      "StateHash": null,
+      "ClaimsHash": null
+    }
+  },
+  "PlanHash": "c8afe0f5e1938e22f6be5bca3c9accbfec074ea08182c0268df8e1c66f94f53c",
+  "DocumentHash": "1e156d260a16fc1457754ed8ff34e3004334f03863882923fb24cbf5343e8433"
+}

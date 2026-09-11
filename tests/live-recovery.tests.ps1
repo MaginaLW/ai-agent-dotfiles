@@ -13,6 +13,7 @@ $internalHost = Join-Path $RepoRoot 'scripts/internal/live-transaction-host.ps1'
 $liveTransactionHost = Join-Path $PSScriptRoot 'helpers/live-transaction-host.ps1'
 . (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
 . (Join-Path $RepoRoot 'scripts/backup-receipt-common.ps1')
+. (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
 . (Join-Path $PSScriptRoot 'helpers/failpoint-controller.ps1')
 
 $script:pass = 0
@@ -1604,6 +1605,70 @@ try {
     Assert ($scan.Code -eq 0 -and (Test-Path -LiteralPath $locatorJson)) 'the locator writes the machine-readable report'
     $secondScan = Invoke-Locator -JsonPath $locatorJson
     Assert ($secondScan.Code -ne 0 -and $secondScan.Out -match 'already exists') 'the locator refuses to overwrite its report'
+
+    Write-Host '[rollback-plan contract]'
+    $fixturesRoot = Join-Path $RepoRoot 'tests/fixtures/artifacts'
+    $rollbackSchemaPath = Join-Path $RepoRoot 'schemas/rollback-plan.schema.json'
+    $syncSchemaPath = Join-Path $RepoRoot 'schemas/sync-plan.schema.json'
+
+    # The positive document passes both schema validation and the semantic layer.
+    $positivePath = Join-Path $fixturesRoot 'rollback-plan.valid.json'
+    $positiveOk = $true
+    try {
+        $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $positivePath
+        $positiveDoc = ConvertFrom-SemanticJson -Json (Get-Content -Raw -LiteralPath $positivePath)
+        Test-RollbackPlanSemantics -Document $positiveDoc
+    }
+    catch { $positiveOk = $false }
+    Assert $positiveOk 'the positive rollback-plan passes schema and semantic validation'
+
+    # Every semantic-layer negative is rejected with its reviewed token.
+    $semanticNegatives = @(
+        @{ Name = 'plan-hash-tamper'; Failure = 'rollback-plan-hash-mismatch' }
+        @{ Name = 'document-hash-tamper'; Failure = 'rollback-plan-hash-mismatch' }
+        @{ Name = 'plan-action-mismatch'; Failure = 'rollback-plan-kind-mismatch' }
+        @{ Name = 'closing-plan-kind-mismatch'; Failure = 'rollback-plan-projection-mismatch' }
+        @{ Name = 'projection-outcome-mismatch'; Failure = 'rollback-plan-projection-mismatch' }
+        @{ Name = 'operation-kind-substitution'; Failure = 'rollback-plan-kind-mismatch' }
+        @{ Name = 'chain-order-break'; Failure = 'rollback-plan-chain-invalid' }
+        @{ Name = 'complete-chain-present'; Failure = 'rollback-plan-chain-invalid' }
+        @{ Name = 'journal-head-mismatch'; Failure = 'rollback-plan-chain-invalid' }
+        @{ Name = 'claims-binding-missing'; Failure = 'rollback-plan-binding-missing' }
+        @{ Name = 'duplicate-consumed-hash'; Failure = 'rollback-plan-binding-missing' }
+    )
+    foreach ($negative in $semanticNegatives) {
+        $path = Join-Path $fixturesRoot ('rollback-plan.' + $negative.Name + '.invalid.json')
+        $document = ConvertFrom-SemanticJson -Json (Get-Content -Raw -LiteralPath $path)
+        Assert-ThrowsToken { Test-RollbackPlanSemantics -Document $document } $negative.Failure "semantic negative '$($negative.Name)' is rejected with its reviewed token"
+    }
+
+    # Every schema-layer negative is rejected before the semantic layer runs.
+    $schemaNegatives = @(
+        'unknown-property', 'finalize-partial-receipt', 'environment-rollback-missing-receipt',
+        'state-only-receipt-crossing', 'state-only-missing-preimage'
+    )
+    foreach ($name in $schemaNegatives) {
+        $path = Join-Path $fixturesRoot ('rollback-plan.' + $name + '.invalid.json')
+        $rejected = $false
+        try { $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $path }
+        catch { $rejected = $true }
+        Assert $rejected "schema negative '$name' is rejected by the rollback-plan schema"
+    }
+
+    # The schema-3 sync-plan contract rejects every rollback/recovery PlanKind.
+    $syncKindFixtures = @(
+        @{ Kind = 'environment-rollback'; Name = 'sync-plan.environment-rollback-kind.invalid.json' }
+        @{ Kind = 'live-recover-abandon'; Name = 'sync-plan.live-recover-abandon-kind.invalid.json' }
+        @{ Kind = 'live-recover-rollback'; Name = 'sync-plan.live-recover-rollback-kind.invalid.json' }
+        @{ Kind = 'live-recover-finalize'; Name = 'sync-plan.live-recover-kind.invalid.json' }
+    )
+    foreach ($fixture in $syncKindFixtures) {
+        $path = Join-Path $fixturesRoot $fixture.Name
+        $rejected = $false
+        try { $null = Invoke-FixedJsonSchemaValidation -SchemaPath $syncSchemaPath -InstancePath $path }
+        catch { $rejected = $true }
+        Assert $rejected "sync-plan schema rejects OperationKind '$($fixture.Kind)'"
+    }
 
     Write-Host 'live recovery tests: PASS'
 }
