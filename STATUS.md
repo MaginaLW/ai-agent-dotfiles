@@ -2932,10 +2932,54 @@ re-pinned inside `e384a95`; the PowerShell parse gate accepted 166 files. The un
 `run-tests.ps1 -All` pass has not been executed for this slice yet and remains pending at the next
 stage boundary. Production Apply remains interlocked, and no live root was touched.
 
+## Task 6 Step 2 (2026-09-12): rollback/recovery plan schema 1
+
+Commit `3dbe911` defines the formal schema-1 rollback/recovery plan contract
+(`schemas/rollback-plan.schema.json`, ArtifactKind `rollback-plan`) for the four PlanKinds
+`environment-rollback`, `live-recover-abandon`, `live-recover-rollback`, and
+`live-recover-finalize`. The schema layer enforces the strict TransactionMode/PlanKind/ReceiptState
+oneOf shapes from the plan: complete receipt-backed rollback/finalize require
+ReceiptId/ReceiptHash/SourceTransactionId/SourceOperationKind/OriginalPlanHash; early abandon
+declares ReceiptState MISSING/PARTIAL/COMPLETE and forbids fabricated receipt hashes outside
+COMPLETE; state-only controller recovery requires `ReceiptRef=NO_LIVE_MUTATION` plus the immutable
+state preimage/expected tuple and forbids every receipt field with empty Targets; environment-rollback
+is always complete receipt-backed, binds the Task 7 `RollbackStateIntent` (the frozen
+current-env-state v3 intent shape) plus ReceiptIntent/ReceiptId/ReceiptHash/original plan
+references, and forbids the live-recover journal machinery. The payload binds reservation/journal
+identity, OriginRepoId/GitCommonDir/canonical-lock keys, the optional overlay lock, the original
+DocumentHash and prior recovery consumption keys, header/chain-record/pending-temp/result
+inventory, target identity hashes, and the expected terminal semantic projection.
+
+`Test-RollbackPlanSemantics` (added to `scripts/live-transaction-common.ps1`, which is not
+hard-kill-sealed) owns the cross-artifact consistency the schema cannot express: the
+PlanKind/action/outcome/projection correspondence, the live-recover `OriginalOperationKind`
+substitution ban, chain-record ordering and derived-head binding, the terminal-COMPLETE ban, and
+the root-claims/authority-state bindings implied by `CLAIMS_PUBLISHED`/`STATE_PUBLISHED`/
+`STATE_PREIMAGE_COMPLETE` chain phases. The schema deliberately leaves `OriginalOperationKind` as a
+spelling-only string so the substitution negative fails at the semantic layer, as the plan requires.
+Envelope PlanHash/DocumentHash binding reuses the reviewed semantic-JSON hash functions.
+
+Fixtures: a receipt-backed `live-recover-rollback` positive, five schema-layer negatives, and ten
+semantic-layer negatives; the sync-plan contract gains three more PlanKind rejection fixtures so all
+four rejected kinds are pinned at its schema layer (joining `live-recover-finalize`). The seams
+all-scripts reflection-sensitive baseline was re-pinned for the new validator (14491 -> 14508
+sites, new digest); no suite assertion was weakened.
+
+Verification (2026-09-12, canonical `pwsh -NoProfile -File` runs): registered artifact validation
+passed 28 contracts / 28 positive / 109 negative fixtures with zero failures; the extended
+`tests/live-recovery.tests.ps1` passed with 20 new contract assertions (positive dual-pass, each
+semantic negative by reviewed token, each schema negative, all four sync-plan rejections);
+`tests/canonical-production-seams.tests.ps1` passed 56/0 after the re-pin; `tests/sync.tests.ps1`
+passed (sandbox-hosted chains including the parity sandbox); the parse gate accepted 166 files;
+`git diff --check` was clean; the pinned secret scan found no blocking findings (1023 non-blocking
+hints); and `build-skills.ps1` produced 7/15/7. The unified `run-tests.ps1 -All` pass remains
+pending and now covers the Task 6 Step 1 and Step 2 trees together at the next stage boundary.
+Production Apply remains interlocked, and no live root was touched.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 18 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Step 1 is complete; Steps 2-5
-of Task 6 and Tasks 7-9 have not started. The implementation order and remaining scope are:
+Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 are complete;
+Steps 3-5 of Task 6 and Tasks 7-9 have not started. The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -2944,7 +2988,7 @@ of Task 6 and Tasks 7-9 have not started. The implementation order and remaining
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 4/5 | Read-only recovery status locator done; reviewed recovery transitions, failpoints, and restart behavior remain |
+| Task 6 | 3/5 | Locator and plan schema 1 done; reviewed recovery transitions dispatcher, failpoints, and restart behavior remain |
 | Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
@@ -2955,16 +2999,17 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 5 is complete (6/6) and Task 6 Step 1 is complete (Phase 2 34/52) as of
-   2026-09-11/12. The schema 3 sync route
+1. Phase 2 Task 5 is complete (6/6) and Task 6 Steps 1-2 are complete (Phase 2 35/52) as of
+   2026-09-12. The schema 3 sync route
    runs initial and retirement through the receipt-backed host behind the global lock order, the
    legacy content-aware deploy route is fully removed, activate Gate 4 is a fail-closed stub
    (activation-deploy-not-wired) until Phase 3 rebuilds activation on the receipt-backed host,
    task-skills attestations read the candidate overlay directly, and the parity sandbox pins the
    claimed custom Reasonix root plus the .agents fallback posture (fallback-root machines are
-   non-pristine and require the Phase 3 migrate/adopt flow). The read-only recovery locator
-   (`scripts/recover-live-transaction.ps1`) is live; next is Task 6 Step 2 (rollback/recovery plan
-   schema 1), then Steps 3-5 in order. Production Apply remains interlocked throughout.
+   non-pristine and require the Phase 3 migrate/adopt flow). The read-only recovery locator and
+   the schema-1 rollback/recovery plan contract are live; next is Task 6 Step 3 (the fixed public
+   dispatcher and reviewed transitions), then Steps 4-5 in order. Production Apply remains
+   interlocked throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

@@ -1078,9 +1078,45 @@ re-pinned inside `e384a95`; the PowerShell parse gate accepted 166 files. The un
 `run-tests.ps1 -All` pass has not run for this slice yet and remains pending at the next stage
 boundary. Production Apply remains interlocked, and no live root was touched.
 
+## Task 6 Step 2 (2026-09-12): rollback/recovery plan schema 1
+
+Commit `3dbe911` defines `schemas/rollback-plan.schema.json` (ArtifactKind `rollback-plan`,
+SchemaVersion 1) for the four PlanKinds and registers it in the artifact contracts with
+`Test-RollbackPlanSemantics` (in `scripts/live-transaction-common.ps1`, which is not
+hard-kill-sealed). The schema layer owns the strict TransactionMode/PlanKind/ReceiptState oneOf
+shapes: complete receipt-backed rollback/finalize require the full receipt plus original-plan
+references; early `live-recover-abandon` declares ReceiptState and forbids fabricated hashes outside
+COMPLETE; state-only controller recovery requires `ReceiptRef=NO_LIVE_MUTATION`, the immutable state
+preimage/expected tuple, and empty Targets while forbidding every receipt field;
+environment-rollback is always complete receipt-backed and binds `RollbackStateIntent` (the frozen
+current-env-state v3 intent shape) for Task 7 while forbidding the live-recover journal machinery.
+The payload binds the reservation/journal identity, origin repo/GitCommonDir/canonical-lock keys,
+optional overlay lock, original DocumentHash and prior recovery consumption keys,
+header/chain/pending-temp/result inventory, target identity hashes, and the expected terminal
+semantic projection. The semantic validator owns what the schema cannot: PlanKind/action/outcome/
+projection correspondence, the live-recover `OriginalOperationKind` substitution ban (the schema
+leaves the field spelling-only so this fails at the semantic layer), chain ordering and derived-head
+binding, the terminal-COMPLETE ban, and the claims/state bindings implied by individual chain
+phases.
+
+Sixteen fixtures were added: the receipt-backed `live-recover-rollback` positive, five schema
+negatives, and ten semantic negatives; three more sync-plan PlanKind rejection fixtures pin all four
+rejected kinds at its schema layer. The seams all-scripts reflection-sensitive baseline was re-pinned
+for the validator (14491 -> 14508 sites, digest
+`278080365dd5654546d6546b2b79d9ca9e076bebc3bc26ffc456ea2fa6dcfdfc`); no assertion was weakened.
+
+Verification on 2026-09-12 (canonical `pwsh -NoProfile -File` runs): registered artifact validation
+passed 28 contracts / 28 positive / 109 negative with zero failures; `tests/live-recovery.tests.ps1`
+passed with 20 new contract assertions; `tests/canonical-production-seams.tests.ps1` passed 56/0
+after the re-pin; `tests/sync.tests.ps1` passed including the parity sandbox; the parse gate
+accepted 166 files; `git diff --check` was clean; the pinned secret scan found no blocking findings
+(1023 non-blocking hints); `build-skills.ps1` produced 7/15/7. The unified `run-tests.ps1 -All`
+pass remains pending and covers the Step 1 and Step 2 trees together at the next stage boundary.
+Production Apply remains interlocked, and no live root was touched.
+
 ## Remaining work
 
-Phase 2 has 18 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Step 1 is complete:
+Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 are complete:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
@@ -1089,7 +1125,7 @@ Phase 2 has 18 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Step 1 is c
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 4/5 | Steps 2-5: rollback/recovery plan schema 1, reviewed transitions dispatcher, failpoints, restart verification |
+| Task 6 | 3/5 | Steps 3-5: reviewed transitions dispatcher, deterministic failpoints, restart verification |
 | Task 7 | 5/5 | Receipt-backed environment rollback |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
