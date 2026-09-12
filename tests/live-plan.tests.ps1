@@ -176,7 +176,11 @@ $syncPlanContract = $contracts.Contracts['sync-plan']
 Assert ([long] $syncPlanContract.SchemaVersion -eq 3) 'registry SchemaVersion is 3'
 Assert ([string] $syncPlanContract.SchemaPath -ceq 'schemas/sync-plan.schema.json') 'registry SchemaPath is schema 3'
 Assert ([string] $syncPlanContract.SemanticValidator -ceq 'Test-LiveSyncPlanSemantics') 'registry semantic validator is the full-semantics function'
-Assert (@($syncPlanContract.NegativeFixtures).Count -eq 6) 'registry lists six negative fixtures'
+Assert (@($syncPlanContract.NegativeFixtures).Count -eq 9) 'registry lists nine negative fixtures'
+$syncPlanNegativeNames = @($syncPlanContract.NegativeFixtures | ForEach-Object { [string] $_.Name })
+foreach ($kindName in @('environment-rollback-kind', 'live-recover-kind', 'live-recover-abandon-kind', 'live-recover-rollback-kind')) {
+    Assert ($syncPlanNegativeNames -ccontains $kindName) "registry pins the '$kindName' rejection fixture"
+}
 
 Write-Host '[live-plan positive envelope]'
 $null = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $positivePath
@@ -234,6 +238,9 @@ $expectedLayers = @{
     'unknown-property' = 'Schema'
     'wrong-version' = 'Schema'
     'live-recover-kind' = 'Schema'
+    'environment-rollback-kind' = 'Schema'
+    'live-recover-abandon-kind' = 'Schema'
+    'live-recover-rollback-kind' = 'Schema'
     'runtime-receipt' = 'Schema'
     'plan-hash-mismatch' = 'Semantic'
     'document-hash-mismatch' = 'Semantic'

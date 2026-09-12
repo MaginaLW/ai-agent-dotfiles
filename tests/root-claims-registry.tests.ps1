@@ -229,11 +229,18 @@ function Assert-TestCondition([bool]$Condition,[string]$Message) {
     Write-Host "  PASS  $Message"
 }
 
-function Assert-ThrowsPattern([scriptblock]$Action,[string]$Pattern,[string]$Message) {
+function Assert-ThrowsPattern([scriptblock]$Action,[string[]]$Pattern,[string]$Message) {
     try { & $Action; throw "FAIL: $Message (did not throw)" }
     catch {
         if ($_.Exception.Message -like 'FAIL:*') { throw }
-        if ($_.Exception.Message -notmatch $Pattern) { throw "FAIL: $Message (unexpected: $($_.Exception.Message))" }
+        # Every pattern must match the message, or the stable error id, so an
+        # assertion can pin a PowerShell binder error without depending on the
+        # host's localized resource string.
+        foreach ($entry in $Pattern) {
+            if ($_.Exception.Message -notmatch $entry -and [string] $_.FullyQualifiedErrorId -notmatch $entry) {
+                throw "FAIL: $Message (unexpected: $($_.Exception.Message))"
+            }
+        }
         Write-Host "  PASS  $Message"
     }
 }
@@ -3185,7 +3192,7 @@ try {
                 @($targetLeaseOpenCommand.Parameters['OwnershipReceiver'].Attributes | Where-Object {$_ -is [Management.Automation.ParameterAttribute] -and $_.Mandatory}).Count -eq 1) 'the target lease open exposes an exact path-plus-mandatory-receiver contract'
             Assert-ThrowsPattern {
                 Open-SealedHeldTargetContextLease -Path ([string]$capabilityFixture.Context.ControlBase) | Out-Null
-            } 'missing mandatory parameters: OwnershipReceiver' 'the target lease open rejects a raw success-stream return path by requiring the ownership receiver'
+            } @('MissingMandatoryParameter', 'OwnershipReceiver') 'the target lease open rejects a raw success-stream return path by requiring the ownership receiver'
 
             $targetReadGuardReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
             Open-SealedHeldTargetContextLease -Path ([string]$capabilityFixture.Context.ControlBase) -OwnershipReceiver $targetReadGuardReceiver
@@ -3335,7 +3342,7 @@ try {
             Assert-ThrowsPattern {
                 Open-SealedHeldLiveTargetContextSet -AuthorityContext $capabilityFixture.Context `
                     -CanonicalWitness $capabilityWitness -GlobalLockHandle $capabilityGlobal | Out-Null
-            } 'missing mandatory parameters: OwnershipReceiver' 'the live-set open rejects a raw success-stream return path by requiring the ownership receiver'
+            } @('MissingMandatoryParameter', 'OwnershipReceiver') 'the live-set open rejects a raw success-stream return path by requiring the ownership receiver'
 
             $liveStopAssertOriginal=(Get-Command Assert-SealedHeldLiveTargetContextSet -CommandType Function -ErrorAction Stop).ScriptBlock
             $liveStopState=[pscustomobject]@{Calls=0L;Lease=$null}
@@ -4519,7 +4526,7 @@ try {
                 -not $lifecycleCloseCommand.Parameters.ContainsKey('Action')) 'the observation lifecycle exposes receiver-backed Open and ledger-plus-observation Assert/Close with no ScriptBlock Action'
             Assert-ThrowsPattern {
                 Open-SealedHeldObservationLifecycle -CurrentRouteCapture $observation -CapabilityProbeBindings $observationBindings | Out-Null
-            } 'missing mandatory parameters: LedgerOwnershipReceiver' 'the observation lifecycle open rejects a raw success-stream return path by requiring both ownership receivers'
+            } @('MissingMandatoryParameter', 'LedgerOwnershipReceiver') 'the observation lifecycle open rejects a raw success-stream return path by requiring both ownership receivers'
 
             $lifecycleRoute=$null
             $lifecycleLedger=$null
@@ -5390,7 +5397,7 @@ try {
             Open-SealedHeldResolverObservation -AuthorityContext $resolverSuccessFixture.Context -Intent $resolverSuccessFixture.Intent `
                 -SetupIntent $resolverSuccessSetupIntent -CanonicalWitness $resolverSuccessWitness -CurrentRouteRootSet $resolverSuccessRouteSet `
                 -CapabilityProbeBindings @() -Reservations @() | Out-Null
-        } 'missing mandatory parameters: OwnershipReceiver' 'the resolver observation open rejects a raw success-stream return path by requiring the ownership receiver'
+        } @('MissingMandatoryParameter', 'OwnershipReceiver') 'the resolver observation open rejects a raw success-stream return path by requiring the ownership receiver'
         $resolverSuccessOutput = @(Open-SealedHeldResolverObservation -AuthorityContext $resolverSuccessFixture.Context -Intent $resolverSuccessFixture.Intent `
             -SetupIntent $resolverSuccessSetupIntent -CanonicalWitness $resolverSuccessWitness -CurrentRouteRootSet $resolverSuccessRouteSet `
             -CapabilityProbeBindings $resolverSuccessBindings -Reservations @() -OwnershipReceiver $resolverSuccessReceiver)
@@ -6423,7 +6430,7 @@ try {
     }
     finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $validatedReadMissingLock }
     Assert-TestCondition ($validatedReadMissingBefore -ceq (Get-TestRegistryTreeHash -Fixture $validatedReadMissing)) 'validated read without a homes child is zero-write'
-    Assert-ThrowsPattern { Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadMissing.Context -GlobalLockHandle $null | Out-Null } 'because it is null' 'validated read without a lock fails closed'
+    Assert-ThrowsPattern { Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadMissing.Context -GlobalLockHandle $null | Out-Null } @('GlobalLockHandle', 'ParameterArgumentValidationErrorNullNotAllowed') 'validated read without a lock fails closed'
     Assert-ThrowsPattern { Read-SealedRegistryValidatedAuthorityDocuments -AuthorityContext $validatedReadMissing.Context -GlobalLockHandle $validatedReadMissingLock | Out-Null } '^home-authority-registry-lock-required$' 'a released genuine global lock fails validated read closed'
 
     $validatedReadValid = New-TestRegistryFixture -Parent $workRoot -Name 'validated-read-valid-pair'
@@ -6571,7 +6578,7 @@ try {
     $createNoLockBefore = Get-TestRegistryTreeHash -Fixture $createNoLockFixture
     Assert-ThrowsPattern {
         New-SealedRegistryRootClaimsCreateNew -AuthorityContext $createNoLockFixture.Context -GlobalLockHandle $null -ProposedClaims $createNoLockClaims -PendingDirectory $createNoLockPending -PendingName 'root-claims.pending.json' | Out-Null
-    } 'because it is null' 'create-new without a lock fails closed'
+    } @('GlobalLockHandle', 'ParameterArgumentValidationErrorNullNotAllowed') 'create-new without a lock fails closed'
     $createNoLockReleased = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $createNoLockFixture.Context
     Exit-HomeAuthorityGlobalLiveLock -LockHandle $createNoLockReleased
     Assert-ThrowsPattern {
@@ -6751,7 +6758,7 @@ try {
     $postimageNoLockBefore = Get-TestRegistryTreeHash -Fixture $postimageNoLockFixture
     Assert-ThrowsPattern {
         Write-SealedRegistryCurrentEnvStatePostimage -AuthorityContext $postimageNoLockFixture.Context -GlobalLockHandle $null -WriteKind Create -Postimage $postimageFirst -TargetContextIntent $postimageNoLockIntent -PendingDirectory $postimageNoLockPending -PendingName $postimagePendingName | Out-Null
-    } 'because it is null' 'postimage write without a lock fails closed'
+    } @('GlobalLockHandle', 'ParameterArgumentValidationErrorNullNotAllowed') 'postimage write without a lock fails closed'
     Assert-TestCondition ($postimageNoLockBefore -ceq (Get-TestRegistryTreeHash -Fixture $postimageNoLockFixture) -and
         -not (Test-Path -LiteralPath ([string]$postimageNoLockFixture.Context.CurrentEnvStatePath))) 'a lock failure is zero-write and leaves no current-env.json'
 
