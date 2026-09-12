@@ -1114,6 +1114,56 @@ accepted 166 files; `git diff --check` was clean; the pinned secret scan found n
 pass remains pending and covers the Step 1 and Step 2 trees together at the next stage boundary.
 Production Apply remains interlocked, and no live root was touched.
 
+## Task 6 Step 3 in progress (2026-09-12): recovery dispatcher slices 1-4
+
+Step 3 is four slices in; the dispatcher now executes all three reviewed transitions. Slice 1
+(`1423b78`, roadmap doc `61163cd`): the `agent-dotfiles.ps1 live recover status|abandon|rollback|
+finalize` route, the dispatcher parameter sets, sandbox-only authority resolution
+(`AI_AGENT_DOTFILES_INTERNAL_*` locators, derived-versus-injected control/backup equality), the
+complete seven-directory bootstrap gate, and a fail-closed stub. Slice 2 (`5176e8b`): DryRun derives
+the schema-1 rollback/recovery plan under the origin canonical/witness/global lock order — the
+caller's repository is the origin candidate (RepoId, GitCommonDirHash, CanonicalLockKey, and the
+header HomeAuthorityKey must all match, so a wrong clone fails closed instead of substituting its
+own lock; the namespace witness falls back to the canonical recover UNBOUND setup window), the
+exact transaction is re-found and chain-validated under the locks, the requested action must match
+the locator classification, and the plan binds the header hash, ordered chain record hashes, the
+derived journal head, consumed recovery document hashes, pending temp inventory, result inventory,
+and the receipt block (declared slot state; verifier-validated receipt identity plus the
+RECEIPT_COMPLETE-bound receipt hash when COMPLETE); Apply validates a reviewed plan fail-closed.
+Slice 3 (`b304e8f`): execution for abandon and finalize — the mandatory RECOVERY_ACTION_INTENT
+consumes the plan DocumentHash; abandon publishes RECOVERY_ACTION_APPLIED, the fixed abandoned
+result (result semantics forbid a COMPLETE-receipt block on abandoned outcomes; MISSING/PARTIAL
+binds a null-hash block), and the recovery terminal; finalize reuses the published result bytes,
+preserves the existing Outcome, and publishes only the terminal. Two Task-4-era journal gates were
+refined to this contract: the terminal ClosingPlanKind crossing check is governed by the
+ClosingKind branch (a recovery terminal had been unpublishable), and the Add gate admits the
+finalize intent after a published result. Slice 4 (`f2ff911`): rollback — recovery target rows are
+reconstructed from the chain records (the header carries no live target rows; the fullest record
+per target id binds swap-old as the preimage, created parents as MISSING; the plan schema's target
+path fields became nullable), `Restore-SealedLiveMutationTargets` replays the completed primitives
+in reverse through the production `Get-SealedLiveJournalCompletedFromChain`, observed states must
+equal the header preimage exactly, and the restoration rows hash into the rolled-back result's
+RestorationHash. A journal with a published authority state still fails closed
+(`live-recovery-state-form-unsupported`) until the state recovery slice.
+
+Verification per slice (canonical `pwsh -NoProfile -File` runs): the live-recovery suite is green
+with the full dispatch matrix — wrapper gates, authority gates, the bootstrap-only sandbox
+authority fixture, abandon dry-run and apply end to end with create-new discipline, state-only
+finalize end to end preserving the committed outcome, rollback end to end against a real engine
+transaction killed at NEW_INSTALLED with a verifier-accepted receipt (live tree restored to the
+preimage hash, locator clean afterwards), and unknown/action-mismatch/wrong-clone/collision/
+finished rejections; seams passed 56/0 after routine baseline re-pins; registered artifact
+validation passed 28/28/109 with zero failures after the target-path relaxation; the parse gate
+accepted 166 files; the pinned secret scan and `git diff --check` were clean; `tests/sync.tests.ps1`
+stayed green; `build-skills.ps1` produced 7/15/7 in the earlier slices. The unified
+`run-tests.ps1 -All` pass remains pending at the Step 3 closeout. Production Apply remains
+interlocked, and no live root was touched.
+
+Remaining for Step 3: dispatcher failpoint checkpoints with intent→primitive/result/terminal
+hard-kill and replay fixtures, linked-worktree dispatch coverage (shared GitCommonDir dispatches
+legitimately), STATE_PUBLISHED and state-only rollback through the state recovery machinery, and
+the closeout (unified run plus the close-out records). Steps 4-5 of Task 6 follow.
+
 ## Remaining work
 
 Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 are complete:
@@ -1125,7 +1175,7 @@ Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 a
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 3/5 | Steps 3-5: reviewed transitions dispatcher, deterministic failpoints, restart verification |
+| Task 6 | 3/5 | Steps 1-2 done; Step 3 in progress at `f2ff911` (failpoints/replay, worktree coverage, state-published rollback, closeout remain), Steps 4-5 remain |
 | Task 7 | 5/5 | Receipt-backed environment rollback |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |

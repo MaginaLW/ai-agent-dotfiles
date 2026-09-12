@@ -2976,10 +2976,44 @@ hints); and `build-skills.ps1` produced 7/15/7. The unified `run-tests.ps1 -All`
 pending and now covers the Task 6 Step 1 and Step 2 trees together at the next stage boundary.
 Production Apply remains interlocked, and no live root was touched.
 
+## Task 6 Step 3 in progress (2026-09-12): recovery dispatcher slices 1-4
+
+Task 6 Step 3 is four slices in with the recovery dispatcher executable for all three reviewed
+transitions; the checkpoint record lives in [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
+Landed: slice 1 `1423b78` (the `agent-dotfiles.ps1 live recover` route, dispatcher parameter sets,
+sandbox authority resolution with the complete-bootstrap gate, fail-closed stub, roadmap doc
+`61163cd`); slice 2 `5176e8b` (DryRun derives the schema-1 rollback/recovery plan under the origin
+canonical/witness/global lock order — origin candidate matching on RepoId/GitCommonDirHash/
+CanonicalLockKey/HomeAuthorityKey, under-lock chain revalidation, classification-vs-action
+eligibility, evidence bindings including verifier-validated COMPLETE receipts, create-new plan
+write; Apply validates plans fail-closed); slice 3 `b304e8f` (abandon and finalize execution:
+mandatory RECOVERY_ACTION_INTENT, abandoned result with result-semantics receipt binding, finalize
+reusing the published result bytes and preserving its Outcome; two Task-4-era journal gates refined
+— the terminal ClosingPlanKind crossing exemption and the Add gate admitting the finalize intent
+after a published result); slice 4 `f2ff911` (rollback execution: recovery targets reconstructed
+from the chain records, `Restore-SealedLiveMutationTargets` reverse replay with exact preimage
+verification, RestorationHash into the rolled-back result; a real-engine kill-window fixture with a
+verifier-accepted receipt exercises the full flow).
+
+Verification per slice: the live-recovery suite is green with the dispatch matrix (CLI gates,
+authority gates, abandon dry-run/apply end to end, state-only finalize end to end, rollback end to
+end, unknown/action-mismatch/wrong-clone/collision/finished rejections), seams passed 56/0 after
+routine baseline re-pins, registered artifact validation passed 28/28/109 with zero failures, the
+parse gate accepted 166 files, the pinned secret scan and `git diff --check` were clean, and
+`tests/sync.tests.ps1` stayed green. The unified `run-tests.ps1 -All` pass remains pending and will
+cover the whole Step 3 tree at its closeout.
+
+Remaining for Task 6 Step 3: dispatcher failpoint checkpoints with hard-kill/replay fixtures,
+linked-worktree dispatch coverage, STATE_PUBLISHED and state-only rollback (state recovery
+machinery — currently fail-closed `live-recovery-state-form-unsupported`), and the Step 3 closeout
+(unified run plus the close-out records). Production Apply remains interlocked; no live root was
+touched.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 are complete;
-Steps 3-5 of Task 6 and Tasks 7-9 have not started. The implementation order and remaining scope are:
+Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 are complete and
+Step 3 is in progress (four dispatcher slices landed; failpoints, worktree coverage, and the
+closeout remain). The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -2988,7 +3022,7 @@ Steps 3-5 of Task 6 and Tasks 7-9 have not started. The implementation order and
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 3/5 | Locator and plan schema 1 done; Step 3 in progress (dispatcher surface stubbed fail-closed at `1423b78`), failpoints, and restart behavior remain |
+| Task 6 | 3/5 | Steps 1-2 done; Step 3 in progress at `f2ff911` (failpoints/replay, worktree coverage, state-published rollback, closeout remain), Steps 4-5 remain |
 | Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
@@ -3000,18 +3034,15 @@ release, remain downstream and have not started.
 ## Next actions
 
 1. Phase 2 Task 5 is complete (6/6) and Task 6 Steps 1-2 are complete (Phase 2 35/52) as of
-   2026-09-12. Task 6 Step 3 is in progress: the `agent-dotfiles.ps1 live recover` route and the
-   abandon/rollback/finalize parameter sets are live as a fail-closed stub
-   (`live-recovery-dispatch-not-wired`, `1423b78`) behind the sandbox authority and complete
-   bootstrap gates; the reviewed transitions are the next slice. The schema 3 sync route
-   runs initial and retirement through the receipt-backed host behind the global lock order, the
-   legacy content-aware deploy route is fully removed, activate Gate 4 is a fail-closed stub
-   (activation-deploy-not-wired) until Phase 3 rebuilds activation on the receipt-backed host,
-   task-skills attestations read the candidate overlay directly, and the parity sandbox pins the
-   claimed custom Reasonix root plus the .agents fallback posture (fallback-root machines are
-   non-pristine and require the Phase 3 migrate/adopt flow). The read-only recovery locator and
-   the schema-1 rollback/recovery plan contract are live. Production Apply remains
-   interlocked throughout.
+   2026-09-12. Task 6 Step 3 is in progress at `f2ff911`: the dispatcher resolves the origin under
+   the sandbox authority and complete bootstrap gates, derives schema-1 recovery plans in DryRun,
+   and executes abandon, finalize, and target-level rollback under the origin canonical/witness/
+   global lock order with recovery terminals; remaining are dispatcher failpoints with hard-kill/
+   replay fixtures, linked-worktree dispatch coverage, STATE_PUBLISHED/state-only rollback, and the
+   Step 3 closeout (unified run plus close-out records). The read-only recovery locator and the
+   schema-1 rollback/recovery plan contract are live; Task 6 Steps 4-5 (failpoint matrix, restart
+   verification) follow, then Tasks 7-9 in strict sequence. Production Apply remains interlocked
+   throughout.
 2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
 3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
