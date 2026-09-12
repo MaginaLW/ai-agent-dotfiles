@@ -1230,6 +1230,27 @@ changed no live file (external plan and generated reports deleted after review).
 `run-tests.ps1 -All` pass has not returned yet and is the Step 3 closeout gate; its result is
 recorded below when it lands. Production Apply remains interlocked, and no live root was touched.
 
+**Step 3 closeout (2026-09-12).** The first unified run since Task 6 Step 2 discovered and started
+all 37 suites exactly once with zero timeouts, duplicates, missing suites, or tree-kill failures,
+but failed 2: `live-plan.tests.ps1` (a stale sync-plan negative-fixture count from the Step 2
+slice) and `root-claims-registry.tests.ps1` (seven assertions matching PowerShell's own English
+binder resource strings, which cannot match on this host's zh-CN UI culture; CI is en-US and never
+exposed it). Both are pre-existing test-expectation defects unrelated to this slice. Commit
+`9a29db6` repairs them without weakening any rejection: the registry count and the four PlanKind
+fixture names plus their FailureLayer rows are pinned, and `Assert-ThrowsPattern` now matches each
+pattern against the exception message or the stable `FullyQualifiedErrorId`, with the seven
+assertions pinning the parameter name plus `MissingMandatoryParameter`/
+`ParameterArgumentValidationErrorNullNotAllowed`. The definitive create-new external unified run
+then discovered, started, completed, and passed all 37 suites exactly once with zero failures,
+timeouts, duplicates, missing suites, or tree-kill failures (external summary SHA-256
+`5d21f5adb362704aa1f16ad2e123189c9eab7eaffe2784a4b23cb8132441b018`, discovery SHA-256
+`b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0`, elapsed 6281 s). Inside that
+run `canonical-hard-kill.tests.ps1` passed 318/0 in 2415 s, `canonical-production-seams.tests.ps1`
+56/0 in 217 s, `root-claims-registry.tests.ps1` in 1525 s, `live-recovery.tests.ps1` in 322 s,
+`live-plan.tests.ps1` 121 assertions in 10 s, `sync.tests.ps1` in 317 s, and
+`live-concurrency.tests.ps1` in 68 s. The external summary file was deleted after its hash and
+facts were recorded here.
+
 ## Remaining work
 
 Phase 2 has 16 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-3 are complete:

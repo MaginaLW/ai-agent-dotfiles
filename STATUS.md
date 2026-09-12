@@ -3051,9 +3051,19 @@ with the live-recovery budget raised 300 -> 900 s and the workflow timeout 380 -
 (computed requirement 22785 s); the parse gate accepted 166 files; `tests/schema-validation.tests.ps1`
 passed; `git diff --check` was clean; the pinned secret scan found no blocking findings (1009
 non-blocking hints); `build-skills.ps1` produced 7/15/7; and the sandboxed `sync.ps1 -DryRun`
-reported 29 additions with zero live mutation. The unified `run-tests.ps1 -All` pass is the Step 3
-closeout gate and its result is recorded below once it returns. Production Apply remains interlocked
-and no live root was touched.
+reported 29 additions with zero live mutation. The definitive create-new external unified
+`run-tests.ps1 -All` pass then discovered, started, completed, and passed all 37 suites exactly once
+with zero failures, timeouts, duplicates, missing suites, or tree-kill failures (external summary
+SHA-256 `5d21f5adb362704aa1f16ad2e123189c9eab7eaffe2784a4b23cb8132441b018`, discovery SHA-256
+`b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0`, elapsed 6281 s, with
+`canonical-hard-kill` 318/0 in 2415 s, seams 56/0 in 217 s, root-claims in 1525 s, live-recovery in
+322 s, live-plan 121 assertions in 10 s, and sync in 317 s). The first unified pass of this window
+had failed exactly two pre-existing test-expectation defects — a stale sync-plan negative-fixture
+count from the Step 2 slice and seven assertions matching PowerShell's English binder resource
+strings, which cannot match on this host's zh-CN UI culture while CI (en-US) stayed green; commit
+`9a29db6` repairs both by pinning the registry count and fixture names and by matching the
+exception message or the stable `FullyQualifiedErrorId`, with no rejection weakened. Production
+Apply remains interlocked and no live root was touched.
 
 ## Remaining roadmap snapshot
 

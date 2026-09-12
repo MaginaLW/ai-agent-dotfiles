@@ -98,10 +98,12 @@ Agent 显式读取后遵循的约定，不是 Hook、定时任务或后台同步
   收尾）、`docs/operations/effect-observations.md`、`docs/operations/zcode-adoption-feedback.md`
   与 `examples/adoption/zcode-feedback-loop-prompt.md`。回灌时只合并适用且缺失的文字，
   核对本次版本包含上次已应用版本（`b567dc3`）；来源分叉或验证不明时保留待核对。
-- 2026-09-12 第三次闭环后实际应用的上游提交：`68f3dcb`（"docs: add staged independent
-  review as a closeout method item"，本仓 Agent 在该检出内提交并验证；父提交 `3a0bb34`
-  即上次已应用版本，链路连续）。应用内容：`docs/operations/adoption.md` 收尾方法新增
-  第 6 项"独立评审分两段，并给评审本身设边界"，与本页第三次闭环记录的适配一致。
+- 2026-09-12 第三次闭环后实际应用的上游提交：`68f3dcb` 与 `e1e931b`（均由本仓 Agent 在该
+  检出内提交并验证）。链路核对：`3a0bb34`（上次已应用）→ `68f3dcb` →（另一窗口
+  `ed4fac3`、`1f2a2ba`）→ `e1e931b`，`68f3dcb` 经 `git merge-base --is-ancestor` 确认是
+  HEAD 的祖先，连续无分叉。应用内容：`docs/operations/adoption.md` 收尾方法新增第 6 项
+  "独立评审分两段，并给评审本身设边界"，并在第 3 项增加"验收断言不得绑定工具自身的本地化
+  文案"，与本页第三次闭环记录的适配一致。
 - 闭环授权边界：harness-model 的 `docs/`、`examples/`，以及本项目的规则入口、接入文档
   与既有收尾记录。不含源码、CI、`.ai`、技能、全局/live 配置、部署、删除、推送、合并、
   凭据导出、付费调用或后台采集；越界反馈只形成提案并记 `pending`。
@@ -185,6 +187,25 @@ python -m pytest -q --cov=aiflow --cov-branch --cov-fail-under=85` 1740 通过�
 版本回灌核对：上游 HEAD 由 `3a0bb34` 推进至 `68f3dcb`，父提交即上次已应用版本，链路
 连续，无分叉或回退；本次新增文字已按"最小完整修订"合入上游，本页无需复制其正文，
 只更新来源版本并记录本窗口适配。原五项适配仍准确适用，本仓不新增等价条款。
+
+第二条反馈（同一窗口，已提交并验证上游 `e1e931b`）：Task 6 Step 3 收尾的统一回归
+（`run-tests.ps1 -All`，37 套件）发现两处**先于本切片**的测试期望缺陷——`live-plan` 仍断言
+sync-plan 六条负例 fixture（Step 2 已增至九条），`root-claims-registry` 有 7 处断言匹配
+PowerShell 自身的英文参数绑定文案（`missing mandatory parameters`、`because it is null`），
+在本机 zh-CN UI 文化下必然不匹配而中止，CI 为 en-US 故长期未暴露。修复提交 `9a29db6`
+不削弱任何拒绝：fixture 计数与四个 PlanKind 名称、FailureLayer 行改为显式钉住；
+`Assert-ThrowsPattern` 改为"消息或稳定错误 ID"匹配，7 处断言改为钉住参数名加
+`MissingMandatoryParameter` / `ParameterArgumentValidationErrorNullNotAllowed`。
+通用教训（不依赖本仓实现）：验收断言不得绑定工具自身会被本地化的资源串，否则同一提交
+在不同系统语言的主机上会得到不同门禁结论，且本地门禁可能在 CI 长期绿灯的情况下失效。
+该结论已按收尾方法写入上游 `docs/operations/adoption.md` 第 3 项（`e1e931b`）。
+
+上游第二条验证（同一检出，候选提交 `e1e931b`）：`pytest` 1740 通过、总覆盖率 88.12%；
+`diff-cover --compare-branch HEAD^ --fail-under=90` 退出 0（仅文档改动）；`ruff check`、
+`ruff format --check`、`mypy`、`git diff --check` 全部退出 0。检出内另有三份非本任务创建
+的未跟踪方案文件（`docs/superpowers/plans/`，并行会话在制品），本仓未加入暂存、未修改、
+未删除；期间该检出出现另一窗口的两次提交（`ed4fac3`、`1f2a2ba`），已在版本链核对中记录，
+不把它们的结果当成本仓窗口的结论。
 
 ## 可复制的首次接手提示词
 
