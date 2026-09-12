@@ -9,7 +9,7 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [ValidateSet('produce', 'state-only')] [string] $Mode,
+    [Parameter(Mandatory)] [ValidateSet('produce', 'state-only', 'reserve')] [string] $Mode,
     [string] $ProducerArgsJson,
     [string] $FailpointsJson,
     [string] $RepoRoot
@@ -83,5 +83,13 @@ switch ($Mode) {
         }
         $result = Invoke-SealedLiveTransactionStateOnly @splat
         ConvertTo-Json -InputObject $result -Depth 20
+    }
+    'reserve' {
+        # Mirrors the production host's reservation step: the journal namespace
+        # and its header are published (the RESERVED checkpoint fires here) and
+        # nothing else happens.
+        $request = ConvertTo-OrderedLiveTxValue -Value (ConvertFrom-Json -InputObject $ProducerArgsJson)
+        $publication = New-SealedLiveJournalHeader -Document ([System.Collections.IDictionary] $request['Header']) -TransactionDirectory ([string] $request['TransactionDirectory'])
+        ConvertTo-Json -InputObject ([ordered]@{ Path = [string] $publication.Path; Hash = [string] $publication.Hash }) -Depth 6
     }
 }

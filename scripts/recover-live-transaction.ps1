@@ -70,6 +70,7 @@ $script:LiveRecoveryPlanMismatch = 'live-recovery-plan-mismatch'
 $script:LiveRecoveryPlanStale = 'live-recovery-plan-stale'
 $script:LiveRecoveryReceiptUnsupported = 'live-recovery-receipt-state-unsupported'
 $script:LiveRecoveryStateFormUnsupported = $script:LiveTransactionStateFormUnsupported
+$script:LiveRecoveryOverlayLockUnsupported = 'worktree-overlay-lock-not-implemented'
 
 function Resolve-LiveRecoveryInternalRoots {
     # Only a genuine sandbox capability with all three prefixed locators may
@@ -163,6 +164,19 @@ function Assert-LiveRecoveryStateUnreplaced {
     }
 }
 
+function Assert-LiveRecoveryOverlayLockSupported {
+    # The reviewed order is origin canonical -> optional origin overlay ->
+    # global. The worktree overlay lock primitive refuses REQUIRED
+    # applicability today, so a header that binds one cannot be recovered under
+    # the reviewed order: fail closed instead of silently skipping that lock.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $HeaderMap)
+
+    if ((Test-LiveTransactionMapHasName -Map $HeaderMap -Name 'WorktreeOverlayLockKey') -and $null -ne $HeaderMap['WorktreeOverlayLockKey']) {
+        throw $script:LiveRecoveryOverlayLockUnsupported
+    }
+}
+
 function New-LiveRecoveryPlanPayload {
     # Derives the schema-1 rollback/recovery plan payload from the journal
     # evidence under the held origin lock order. Every binding comes from the
@@ -246,7 +260,7 @@ function New-LiveRecoveryPlanPayload {
         Targets = $null
         Action = $Action
     }
-    if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OverlayLockKey') { $payload['OverlayLockKey'] = [string] $headerMap['OverlayLockKey'] }
+    Assert-LiveRecoveryOverlayLockSupported -HeaderMap $headerMap
     if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'RootClaimsHash') { $payload['RootClaimsHash'] = [string] $headerMap['RootClaimsHash'] }
     if ($receiptBacked -and ($Action -ne 'abandon') -and (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OriginalPlanHash')) { $payload['OriginalPlanHash'] = [string] $headerMap['OriginalPlanHash'] }
     if ($consumed.Count -gt 0) { $payload['ConsumedRecoveryDocumentHashes'] = @($consumed) }
@@ -402,6 +416,18 @@ function New-LiveRecoveryPlanPayload {
     $payload['ExpectedOutcome'] = $expectedOutcome
     $projection = [ordered]@{ Outcome = $expectedOutcome; ClosingKind = 'recovery'; ClosingPlanKind = $kind }
     if ($null -ne $receiptState) { $projection['ReceiptState'] = $receiptState }
+    if ($Action -ceq 'finalize' -and $null -eq $resultOutcome) {
+        # Committed-finalize: with no published result the only reviewed close
+        # is the complete state postimage plus the postconditions record. The
+        # installed state is compared against this projection before the fixed
+        # result bytes are published.
+        $phaseNames = @($records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+        if (-not ('STATE_PUBLISHED' -cin $phaseNames) -or -not ('POSTCONDITIONS_OK' -cin $phaseNames) -or
+            $null -eq $stateEvidence -or [string] $stateEvidence.Published['State'] -cne 'PRESENT') {
+            throw $script:LiveRecoveryStateFormUnsupported
+        }
+        $projection['StateHash'] = [string] $stateEvidence.Published['Hash']
+    }
     $payload['ExpectedTerminalProjection'] = $projection
     return $payload
 }
@@ -437,6 +463,11 @@ function Get-RecoveryTransactionStatus {
         # The complete state postimage and postconditions are published but the
         # result/terminal pair is missing: finalize after the reviewed check.
         return 'finalize-eligible'
+    }
+    if ($phases.Count -eq 0) {
+        # A header-only reservation (RESERVED) has mutated nothing; the plan
+        # names it as the abandon window regardless of its receipt slot state.
+        return 'abandon-eligible'
     }
     if (@($phases | Where-Object { $_ -cin $script:PrePrimitivePhases }).Count -gt 0 -and -not $hasPrimitive) {
         return 'abandon-eligible'
@@ -517,6 +548,7 @@ else {
                     throw ($script:LiveRecoveryOriginMismatch + ': live journal origin identity mismatch')
                 }
                 $null = Test-SealedLiveJournalChain -Header $chain.Header -Records $chain.Records -Result $chain.Result -ResultFileHash $chain.ResultFileHash
+                Assert-LiveRecoveryOverlayLockSupported -HeaderMap $headerMap
 
                 if ($DryRun) {
                     $payload = New-LiveRecoveryPlanPayload -Chain $chain -AuthorityContext $authorityContext -Action $Action
@@ -576,18 +608,19 @@ else {
                 })
                 Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RECOVERY_ACTION_INTENT'
                 $planAction = [string] $planPayload['Action']
-                if ($planAction -ceq 'finalize') {
+                $resultReused = $false
+                if ($planAction -ceq 'finalize' -and $null -ne $chain.Result) {
                     # Finalize reuses the published result byte-for-byte and
                     # never repeats a live/state/claims primitive; after the
                     # finalize intent only the recovery terminal may follow.
-                    if ($null -eq $chain.Result -or
-                        [string] $chain.ResultFileHash -cne [string] (([System.Collections.IDictionary] $planPayload['ResultInventory'])['Hash'])) {
+                    if ([string] $chain.ResultFileHash -cne [string] (([System.Collections.IDictionary] $planPayload['ResultInventory'])['Hash'])) {
                         throw $script:LiveRecoveryPlanStale
                     }
                     $finalOutcome = [string] ([System.Collections.IDictionary] $chain.Result)['Outcome']
                     $resultFileHash = [string] $chain.ResultFileHash
+                    $resultReused = $true
                 }
-                else {
+                if (-not $resultReused) {
                     $restorationRows = $null
                     $stateRestore = $null
                     if ($planAction -ceq 'rollback') {
@@ -658,6 +691,31 @@ else {
                     }
                     if ($null -ne $restorationRows) { $resultDocument['RestorationHash'] = (Get-SemanticJsonHash -InputObject @($restorationRows)) }
                     if ($null -ne $stateRestore) { $resultDocument['StateHash'] = [string] $stateRestore.RestoredState['Hash'] }
+                    if ($planAction -ceq 'finalize') {
+                        # Committed-finalize: no result was ever published, so
+                        # the complete state postimage, the immutable claims,
+                        # and the plan projection are revalidated under the
+                        # held locks before the fixed bytes are published.
+                        $resultInventory = [System.Collections.IDictionary] $planPayload['ResultInventory']
+                        if ([string] $resultInventory['State'] -cne 'MISSING') { throw $script:LiveRecoveryPlanStale }
+                        $finalizeEvidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $records
+                        if ($null -eq $finalizeEvidence) { throw $script:LiveRecoveryStateFormUnsupported }
+                        $statePaths = Get-LiveTransactionStatePaths -ControlBase ([string] $authorityContext.ControlBase) -HomeAuthorityKey ([string] $headerMap['HomeAuthorityKey'])
+                        $claimsPath = [string] $statePaths['ClaimsPath']
+                        if (-not (Test-Path -LiteralPath $claimsPath -PathType Leaf)) { throw $script:LiveRecoveryStateFormUnsupported }
+                        $claimsBytes = [System.IO.File]::ReadAllBytes($claimsPath)
+                        if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant() -cne [string] $headerMap['RootClaimsHash']) {
+                            throw $script:LiveRecoveryStateFormUnsupported
+                        }
+                        $observedState = Get-SealedLiveObservableFileState -Path ([string] $finalizeEvidence.TargetPath)
+                        if ([string] $observedState['State'] -cne 'PRESENT' -or
+                            [string] $observedState['Hash'] -cne [string] $finalizeEvidence.Published['Hash'] -or
+                            [string] $observedState['Hash'] -cne [string] $projection['StateHash']) {
+                            throw $script:LiveRecoveryStateFormUnsupported
+                        }
+                        $resultDocument['Outcome'] = 'committed'
+                        $resultDocument['StateHash'] = [string] $observedState['Hash']
+                    }
                     if ($receiptBackedDispatch) {
                         # Result semantics: an abandoned result never carries a
                         # COMPLETE-receipt block; a MISSING/PARTIAL receipt is
@@ -685,6 +743,7 @@ else {
                     $resultFileHash = (Get-FileHash -LiteralPath (Join-Path $transactionDir 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
                 }
                 Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RECOVERY_RESULT_PUBLISHED'
+                Invoke-SealedLiveTransactionFailpoint -Checkpoint 'TERMINAL_RECORD'
                 $null = Add-SealedLiveJournalRecord -TransactionDirectory $transactionDir -Phase 'COMPLETE' -Data ([ordered]@{
                     ResultHash = $resultFileHash
                     OriginalDocumentHash = [string] $headerMap['OriginalDocumentHash']

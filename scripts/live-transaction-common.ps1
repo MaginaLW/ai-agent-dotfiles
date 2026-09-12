@@ -383,6 +383,19 @@ function Test-RollbackPlanSemantics {
             if (-not (Test-LiveTransactionMapHasName -Map $payload -Name $name)) { throw $script:RollbackPlanBindingMissing }
         }
     }
+    # Committed-finalize (no published result) is only reviewed over a complete
+    # state postimage and the postconditions record, and the projection must
+    # carry the installed state hash the Apply path compares before publishing
+    # the fixed result bytes.
+    $resultInventory = [System.Collections.IDictionary] $payload['ResultInventory']
+    if ($action -ceq 'finalize' -and [string] $resultInventory['State'] -ceq 'MISSING') {
+        if (-not ($phases -ccontains 'STATE_PUBLISHED') -or -not ($phases -ccontains 'POSTCONDITIONS_OK')) {
+            throw $script:RollbackPlanChainInvalid
+        }
+        if (-not (Test-LiveTransactionMapHasName -Map $projection -Name 'StateHash') -or $null -eq $projection['StateHash']) {
+            throw $script:RollbackPlanBindingMissing
+        }
+    }
 
     if (Test-LiveTransactionMapHasName -Map $payload -Name 'ConsumedRecoveryDocumentHashes') {
         $consumed = @([string[]] @($payload['ConsumedRecoveryDocumentHashes']))
@@ -843,6 +856,9 @@ function Invoke-SealedLiveTransactionAuthorityState {
         TargetState = $oldObserved
     }) | Out-Null
 
+    # The preimage is journal-bound and the replacement has not started: a kill
+    # here leaves the authority state exactly at its recorded preimage.
+    Invoke-SealedLiveTransactionFailpoint -Checkpoint 'STATE_REPLACE_PENDING'
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $statePath) | Out-Null
     $tempPath = Join-Path (Split-Path -Parent $statePath) ("current-env." + [Guid]::NewGuid().ToString('N') + ".tmp")
     $stream = [System.IO.File]::Open($tempPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
@@ -1049,6 +1065,9 @@ function Invoke-SealedLiveTransactionMutation {
         }
         if ($null -ne $stateOutcome) { $postconditionsData['StateHash'] = [string] $stateOutcome['StateHash'] }
         $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'POSTCONDITIONS_OK' -Data $postconditionsData | Out-Null
+        # Every live and state primitive is durable and the postconditions hold;
+        # the fixed result is not published yet.
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RESULT_PUBLISH'
         $headHash = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] ((Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory).Records[-1]['Document']))
         $committedResult = [ordered]@{
             SchemaVersion = 1
@@ -1070,6 +1089,7 @@ function Invoke-SealedLiveTransactionMutation {
         }
         $null = Publish-SealedLiveTransactionResult -TransactionDirectory $TransactionDirectory -Document $committedResult
         $resultFileHash = (Get-FileHash -LiteralPath (Join-Path ([System.IO.Path]::GetFullPath($TransactionDirectory)) 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'TERMINAL_RECORD'
         $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'COMPLETE' -Data ([ordered]@{
             ResultHash = $resultFileHash
             OriginalDocumentHash = [string] $Header['OriginalDocumentHash']
@@ -1146,6 +1166,7 @@ function Invoke-SealedLiveTransactionMutation {
         if ($null -ne $oldStateHash) { $failedResult['StateHash'] = $oldStateHash }
         $null = Publish-SealedLiveTransactionResult -TransactionDirectory $TransactionDirectory -Document $failedResult
         $resultFileHash = (Get-FileHash -LiteralPath (Join-Path ([System.IO.Path]::GetFullPath($TransactionDirectory)) 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'TERMINAL_RECORD'
         $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'COMPLETE' -Data ([ordered]@{
             ResultHash = $resultFileHash
             OriginalDocumentHash = [string] $Header['OriginalDocumentHash']
@@ -1494,6 +1515,28 @@ function Restore-SealedLiveAuthorityState {
 # Journal publication (mirrors the canonical held-chain mechanics)
 # ---------------------------------------------------------------------------
 
+function Get-SealedLiveJournalUnfinishedTransactionIds {
+    # Names of every journal in the namespace that is not a finished
+    # transaction (a published result plus the terminal COMPLETE record).
+    # Unreadable journals count as unfinished, so the caller fails closed.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $TransactionsRoot)
+
+    $pending = [System.Collections.Generic.List[string]]::new()
+    if (-not (Test-Path -LiteralPath $TransactionsRoot -PathType Container)) { return @($pending) }
+    foreach ($directory in @(Get-ChildItem -LiteralPath $TransactionsRoot -Directory -Force | Sort-Object Name)) {
+        $finished = $false
+        try {
+            $chain = Get-SealedLiveJournalChain -TransactionDirectory $directory.FullName
+            $phases = @($chain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+            $finished = ($null -ne $chain.Result -and $phases.Count -gt 0 -and [string] $phases[-1] -ceq 'COMPLETE')
+        }
+        catch { $finished = $false }
+        if (-not $finished) { $pending.Add([string] $directory.Name) }
+    }
+    return @($pending)
+}
+
 function New-SealedLiveJournalHeader {
     # Creates the transaction namespace create-new with its _pending child and
     # publishes the schema-valid header as header.json (pending temp, flush,
@@ -1523,6 +1566,9 @@ function New-SealedLiveJournalHeader {
         $publication = Publish-CanonicalHeldJson -Document $Document -FinalParent $namespaceHandle -FinalPath (Join-Path $directory 'header.json') -PendingParent $pendingHandle -PendingPath (Join-Path $directory '_pending') -PendingName ("header-{0}.tmp" -f [Guid]::NewGuid().ToString('N')) -SchemaPath (Join-Path $script:LiveTransactionSchemaRoot 'live-journal-header.schema.json')
         $names = @([AiAgentDotfiles.NoFollowFile]::GetChildNames($namespaceHandle) | Sort-Object)
         if (($names -join "`0") -cne "_pending`0header.json") { throw $script:LiveTransactionPublishFailed }
+        # The reservation is durable here: the namespace and its header exist and
+        # no journal record has been published yet.
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RESERVED'
         return $publication
     }
     finally {
@@ -1704,10 +1750,22 @@ function Add-SealedLiveJournalRecord {
     $pendingHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldChildDirectory($handles[$handles.Count - 1], '_pending')
     if ($null -eq $pendingHandle) { throw $script:LiveTransactionChainInvalid }
     try {
-        $publication = Publish-CanonicalHeldJson -Document $record -FinalParent $handles[$handles.Count - 1] -FinalPath (Join-Path $TransactionDirectory ('{0:d6}.json' -f $sequence)) -PendingParent $pendingHandle -PendingPath (Join-Path $TransactionDirectory '_pending') -PendingName ("record-{0:d6}-{1}.tmp" -f $sequence, [Guid]::NewGuid().ToString('N')) -SchemaPath (Join-Path $script:LiveTransactionSchemaRoot 'live-journal-record.schema.json')
+        # The reviewed publication is composed in two steps so the pending-temp
+        # flush and the publish rename are separately killable: a kill between
+        # them leaves a known _pending temp and no published record.
+        $prepared = New-CanonicalPreparedJsonArtifact -Document $record -PendingParent $pendingHandle -PendingPath (Join-Path $TransactionDirectory '_pending') -PendingName ("record-{0:d6}-{1}.tmp" -f $sequence, [Guid]::NewGuid().ToString('N')) -SchemaPath (Join-Path $script:LiveTransactionSchemaRoot 'live-journal-record.schema.json')
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint ("RECORD_PENDING:{0}" -f $Phase)
+        try {
+            $publication = Publish-CanonicalPreparedJsonArtifact -PreparedArtifact $prepared -FinalParent $handles[$handles.Count - 1] -FinalPath (Join-Path $TransactionDirectory ('{0:d6}.json' -f $sequence))
+        }
+        catch {
+            if ($prepared -and $prepared.HeldHandle) { $prepared.HeldHandle.Dispose() }
+            throw
+        }
         # The record bytes are durably published; release the held handle so the
         # next chain read does not collide with it.
         $publication.HeldHandle.Dispose()
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint ("RECORD_PUBLISHED:{0}" -f $Phase)
         return [pscustomobject][ordered]@{
             Path = [string] $publication.Path
             Hash = [string] $publication.Hash
@@ -1870,6 +1928,9 @@ function Invoke-SealedLiveTransactionStateOnly {
             TargetState = $oldObserved
         })
 
+        # The preimage is journal-bound and the replacement has not started: a
+        # kill here leaves the authority state exactly at its recorded preimage.
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'STATE_REPLACE_PENDING'
         $tempPath = Join-Path (Split-Path -Parent $statePath) ("current-env." + [Guid]::NewGuid().ToString('N') + ".tmp")
         $stream = [System.IO.File]::Open($tempPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
         try {
@@ -1904,6 +1965,9 @@ function Invoke-SealedLiveTransactionStateOnly {
             PostconditionsHash = $postconditionsHash
             StateHash = $newStateHash
         })
+        # Every state primitive is durable and the postconditions hold; the
+        # fixed result is not published yet.
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RESULT_PUBLISH'
 
         $headHash = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] ((Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory).Records[-1]['Document']))
         $committedResult = [ordered]@{
@@ -1919,6 +1983,7 @@ function Invoke-SealedLiveTransactionStateOnly {
         }
         $null = Publish-SealedLiveTransactionResult -TransactionDirectory $TransactionDirectory -Document $committedResult
         $resultFileHash = (Get-FileHash -LiteralPath (Join-Path ([System.IO.Path]::GetFullPath($TransactionDirectory)) 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'TERMINAL_RECORD'
         $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'COMPLETE' -Data ([ordered]@{
             ResultHash = $resultFileHash
             OriginalDocumentHash = [string] $Header['OriginalDocumentHash']
@@ -2242,6 +2307,14 @@ function Invoke-SealedLiveTransactionHost {
         }
         Assert-SealedLiveTransactionHostGuard -Snapshot $underLockSnapshot
 
+        # A new live mutation must not start while any transaction in this
+        # authority's namespace is unfinished: the reviewed recovery transition
+        # closes it first.
+        $unfinishedTransactions = @(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot $liveTransactionsRoot)
+        if ($unfinishedTransactions.Count -gt 0) {
+            throw ('live-recovery-required: unfinished live transaction ' + [string] $unfinishedTransactions[0])
+        }
+
         $transactionId = [Guid]::NewGuid().ToString()
         $receiptId = [Guid]::NewGuid().ToString()
         while ($receiptId -ceq $transactionId) { $receiptId = [Guid]::NewGuid().ToString() }
@@ -2367,6 +2440,10 @@ function Invoke-SealedLiveTransactionHost {
             $receiptArguments['AuthorityStatePath'] = $statePath
             $receiptArguments['RootClaimsPath'] = $claimsPath
         }
+        # The reservation is durable and the receipt is not finalized yet: a
+        # kill here leaves the header-bound reservation with a MISSING or
+        # PARTIAL receipt slot.
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RECEIPT_FINALIZATION'
         $receipt = Invoke-SealedManagedBackupReceipt @receiptArguments
         if ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $receipt['ReceiptPath'])) -cne 'COMPLETE') {
             throw 'live-transaction-receipt-not-complete'

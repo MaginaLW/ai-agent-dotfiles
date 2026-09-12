@@ -972,7 +972,7 @@ try {
 
     function Invoke-KilledLiveTransactionHost {
         param(
-            [Parameter(Mandatory)] [ValidateSet('produce', 'state-only')] [string] $Mode,
+            [Parameter(Mandatory)] [ValidateSet('produce', 'state-only', 'reserve')] [string] $Mode,
             [Parameter(Mandatory)] [System.Collections.IDictionary] $ProducerArgs,
             [Parameter(Mandatory)] [string] $Checkpoint,
             [string] $SandboxRoot = $work
@@ -1060,6 +1060,41 @@ try {
         }
     }
 
+    # Step 4 record-boundary and pre-replacement windows: the pending-temp
+    # checkpoint leaves a known _pending temp and never a published record, and
+    # the pre-replacement checkpoint leaves the authority state untouched.
+    foreach ($window in @(
+        @{ Checkpoint = 'RECORD_PENDING:OLD_MOVED'; LastPhase = 'MOVE_OLD_INTENT'; Label = 'record-pending-old-moved' },
+        @{ Checkpoint = 'RECORD_PUBLISHED:OLD_MOVED'; LastPhase = 'OLD_MOVED'; Label = 'record-published-old-moved' },
+        @{ Checkpoint = 'STATE_REPLACE_PENDING'; LastPhase = 'FILE_REPLACE_INTENT'; Label = 'state-replace-pending' }
+    )) {
+        $fixture = New-KillReceiptBackedFixture -Label $window.Label
+        Invoke-KilledLiveTransactionHost -Mode produce -ProducerArgs $fixture.ProducerArgs -Checkpoint $window.Checkpoint
+        $killedDir = [string] $fixture.ProducerArgs['TransactionDirectory']
+        $killedChain = Get-SealedLiveJournalChain -TransactionDirectory $killedDir
+        $killedPhases = @($killedChain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+        Assert (@($killedChain.UnknownNames).Count -eq 0) "kill at $($window.Checkpoint) leaves no unknown journal entries"
+        Assert ($killedPhases[-1] -ceq $window.LastPhase) "kill at $($window.Checkpoint) stops after $($window.LastPhase)"
+        Assert ($null -eq $killedChain.Result) "kill at $($window.Checkpoint) publishes no result"
+        $pendingFiles = @(Get-ChildItem -LiteralPath (Join-Path $killedDir '_pending') -File -Force)
+        if ($window.Checkpoint -ceq 'RECORD_PENDING:OLD_MOVED') {
+            Assert ($pendingFiles.Count -eq 1) 'the pending-temp kill leaves exactly one known _pending temp'
+            Assert ($pendingFiles[0].Name -cmatch '^record-[0-9]{6}-[0-9a-f]{32}\.tmp$') 'the pending temp uses the reviewed record temp name'
+            Assert (-not ($killedPhases -contains 'OLD_MOVED')) 'the pending temp is never a published record'
+            Assert (-not (Test-Path -LiteralPath $fixture.KeptLivePath)) 'the pending-temp kill has already moved the live target aside'
+            Assert ((Get-SafeTreeSnapshot -Root $fixture.KeptSwapPath).TreeHash -ceq [string] $fixture.KeptOldHash) 'the pending-temp kill leaves the old tree in swap-old'
+        }
+        if ($window.Checkpoint -ceq 'RECORD_PUBLISHED:OLD_MOVED') {
+            Assert (@($killedPhases | Where-Object { $_ -ceq 'OLD_MOVED' }).Count -eq 1) 'the record-published kill publishes exactly one OLD_MOVED record'
+            Assert ($pendingFiles.Count -eq 0) 'the record-published kill leaves no pending temp'
+        }
+        if ($window.Checkpoint -ceq 'STATE_REPLACE_PENDING') {
+            Assert ((Get-FileByteHash -Path $fixture.StatePath) -ceq [string] $fixture.PreviousStateHash) 'the state-replace-pending kill leaves the authority state at its preimage'
+            Assert ((Get-SafeTreeSnapshot -Root $fixture.KeptLivePath).TreeHash -ceq [string] $fixture.KeptNewHash) 'the state-replace-pending kill has already installed the live target'
+            Assert (Test-Path -LiteralPath (Join-Path ([string] $fixture.ProducerArgs['StateRecoveryDirectory']) 'current-env.preimage.json') -PathType Leaf) 'the state-replace-pending kill retains the preimage copy'
+        }
+    }
+
     foreach ($window in @(
         @{ Checkpoint = 'STATE_PREIMAGE_COMPLETE' },
         @{ Checkpoint = 'FILE_REPLACED' }
@@ -1087,6 +1122,32 @@ try {
         Assert-ThrowsToken {
             Invoke-SealedLiveTransactionStateOnly -TransactionDirectory ([string] $rerunArgs['TransactionDirectory']) -Header ([System.Collections.IDictionary] $rerunArgs['Header']) -AuthorityStateIntent ([System.Collections.IDictionary] $rerunArgs['AuthorityStateIntent']) -TargetContextIntent ([System.Collections.IDictionary] $rerunArgs['TargetContextIntent']) -FinalCapabilityHashesByPlatform ([System.Collections.IDictionary] $rerunArgs['FinalCapabilityHashesByPlatform']) -ControlBase ([string] $rerunArgs['ControlBase']) -StateRecoveryDirectory ([string] $rerunArgs['StateRecoveryDirectory'])
         } 'manual-recovery-required' "re-running the state-only engine after $($window.Checkpoint) kill fails closed"
+    }
+
+    # Step 4 pre-replacement and record-boundary windows for the state-only
+    # engine: the preimage is captured, nothing was replaced yet.
+    foreach ($window in @(
+        @{ Checkpoint = 'STATE_REPLACE_PENDING'; LastPhase = 'FILE_REPLACE_INTENT'; Label = 'state-only-replace-pending' },
+        @{ Checkpoint = 'RECORD_PENDING:STATE_PUBLISHED'; LastPhase = 'FILE_REPLACED'; Label = 'state-only-record-pending-published' }
+    )) {
+        $fixture = New-KillStateOnlyFixture -Label $window.Label
+        Invoke-KilledLiveTransactionHost -Mode state-only -ProducerArgs $fixture.ProducerArgs -Checkpoint $window.Checkpoint
+        $killedDir = [string] $fixture.ProducerArgs['TransactionDirectory']
+        $killedChain = Get-SealedLiveJournalChain -TransactionDirectory $killedDir
+        $killedPhases = @($killedChain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+        Assert (@($killedChain.UnknownNames).Count -eq 0) "state-only kill at $($window.Checkpoint) leaves no unknown journal entries"
+        Assert ($killedPhases[-1] -ceq $window.LastPhase) "state-only kill at $($window.Checkpoint) stops after $($window.LastPhase)"
+        Assert ($null -eq $killedChain.Result) "state-only kill at $($window.Checkpoint) publishes no result"
+        if ($window.Checkpoint -ceq 'STATE_REPLACE_PENDING') {
+            Assert ((Get-FileByteHash -Path $fixture.StatePath) -ceq [string] $fixture.PreviousStateHash) 'the state-only pre-replacement kill leaves the previous state bytes'
+            Assert ((Get-FileByteHash -Path $fixture.RecoveryCopy) -ceq [string] $fixture.PreviousStateHash) 'the state-only pre-replacement kill retains the preimage copy'
+        }
+        if ($window.Checkpoint -ceq 'RECORD_PENDING:STATE_PUBLISHED') {
+            $pendingFiles = @(Get-ChildItem -LiteralPath (Join-Path $killedDir '_pending') -File -Force)
+            Assert ($pendingFiles.Count -eq 1) 'the state-only published-record pending kill leaves exactly one known _pending temp'
+            Assert (-not ($killedPhases -contains 'STATE_PUBLISHED')) 'the state-only pending temp is never a published record'
+            Assert ((Get-FileByteHash -Path $fixture.StatePath) -cne [string] $fixture.PreviousStateHash) 'the state-only published-record pending kill has already replaced the state bytes'
+        }
     }
 
     Write-Host '[live transaction host]'
@@ -1502,6 +1563,63 @@ try {
         Assert ($null -ne $reacquired) 'the live lock can be acquired again after the holder releases'
     }
     finally { Exit-CanonicalRepoLock -LockHandle $reacquired }
+
+    # A new live mutation is blocked while any transaction in this authority's
+    # namespace is unfinished, and it resumes once the reviewed shape closes it.
+    $gateTxId = [Guid]::NewGuid().ToString()
+    $gateDir = Join-Path ([string] $hostContext.LiveTransactionsRoot) $gateTxId
+    $gateHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-journal-header'
+        TransactionId = $gateTxId
+        OperationKind = 'controller-transition'
+        TransactionMode = 'state-only'
+        OriginalDocumentHash = ('1' * 64)
+        OriginalPlanHash = ('2' * 64)
+        HomeAuthorityKey = [string] $hostContext.HomeAuthorityKey
+        OriginRepoId = ('3' * 64)
+        GitCommonDirHash = ('4' * 64)
+        CanonicalLockKey = ('5' * 64)
+        RootClaimsHash = $hostClaimsHash
+        ReceiptRef = 'NO_LIVE_MUTATION'
+        Targets = @()
+    }
+    New-SealedLiveJournalHeader -Document $gateHeader -TransactionDirectory $gateDir | Out-Null
+    $gateRootBefore = (@(Get-ChildItem -LiteralPath ([string] $hostContext.LiveTransactionsRoot) -Force | ForEach-Object Name | Sort-Object) -join '|')
+    Assert-ThrowsToken { Invoke-HostTransaction -Fixture $hostFixture -Plan $retirementPlan } 'live-recovery-required' 'an unfinished live transaction blocks a new mutation'
+    $gateRootAfter = (@(Get-ChildItem -LiteralPath ([string] $hostContext.LiveTransactionsRoot) -Force | ForEach-Object Name | Sort-Object) -join '|')
+    Assert ($gateRootAfter -ceq $gateRootBefore) 'the blocked mutation creates no new journal namespace'
+
+    # Close the planted transaction with the reviewed finished shape (a
+    # published committed result plus the original terminal record) and prove
+    # the gate releases.
+    $gateStateHash = ('9' * 64)
+    $gateHeaderHash = Get-SemanticJsonHash -InputObject $gateHeader
+    Add-SealedLiveJournalRecord -TransactionDirectory $gateDir -Phase 'STATE_PREIMAGE_COMPLETE' -Data ([ordered]@{ PreStatePhaseHash = $gateHeaderHash; StateHash = $gateStateHash }) | Out-Null
+    Add-SealedLiveJournalRecord -TransactionDirectory $gateDir -Phase 'POSTCONDITIONS_OK' -Data ([ordered]@{ PostconditionsHash = ('8' * 64); StateHash = $gateStateHash }) | Out-Null
+    $gateChain = Get-SealedLiveJournalChain -TransactionDirectory $gateDir
+    $gateHead = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] @($gateChain.Records)[-1]['Document'])
+    $gateResult = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-operation-result'
+        ResultScope = 'transaction'
+        TransactionId = $gateTxId
+        OperationKind = 'controller-transition'
+        OriginalDocumentHash = ('1' * 64)
+        ResultBaseHeadHash = $gateHead
+        Outcome = 'committed'
+        StateHash = $gateStateHash
+    }
+    $null = Publish-SealedLiveTransactionResult -TransactionDirectory $gateDir -Document $gateResult
+    $gateResultHash = (Get-FileHash -LiteralPath (Join-Path $gateDir 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+    Add-SealedLiveJournalRecord -TransactionDirectory $gateDir -Phase 'COMPLETE' -Data ([ordered]@{
+        ResultHash = $gateResultHash
+        OriginalDocumentHash = ('1' * 64)
+        Outcome = 'committed'
+        ClosingKind = 'original'
+        ClosingDocumentHash = ('1' * 64)
+    }) | Out-Null
+    Assert (@(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot ([string] $hostContext.LiveTransactionsRoot)).Count -eq 0) 'a finished transaction releases the unfinished-transaction gate'
 
     $hostResult = Invoke-HostTransaction -Fixture $hostFixture -Plan $retirementPlan
     Assert ([string] $hostResult.TransactionId -cmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') 'the host returns a UUIDv4 TransactionId'
@@ -2269,6 +2387,165 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', [string] $unrecordedFixture.TransactionId, '-DryRun', '-PlanPath', $unrecordedPlan, '-RepoRoot', $dispatchRepo)
     Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-state-form-unsupported') 'an unrecorded state replace fails the live rollback dry-run closed'
     Assert (-not (Test-Path -LiteralPath $unrecordedPlan)) 'an unrecorded state replace writes no plan'
+
+    # The host-level receipt-finalization checkpoint sits immediately before the
+    # managed receipt producer. The production host is not child-killable with
+    # the current fixtures, so its placement is pinned at the source boundary
+    # and its observable window is the header-only reservation covered by the
+    # RESERVED window below.
+    $liveCommonSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/live-transaction-common.ps1'))
+    $receiptCheckpointIndex = $liveCommonSource.IndexOf("Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RECEIPT_FINALIZATION'", [System.StringComparison]::Ordinal)
+    $receiptCallIndex = $liveCommonSource.IndexOf('$receipt = Invoke-SealedManagedBackupReceipt @receiptArguments', [System.StringComparison]::Ordinal)
+    Assert ($receiptCheckpointIndex -gt 0 -and $receiptCallIndex -gt $receiptCheckpointIndex) 'the receipt-finalization checkpoint immediately precedes the managed receipt producer'
+
+    # Reservation-only window: the journal namespace and its header are durable
+    # and no receipt was produced, so the reviewed close is abandon.
+    Write-Host '[live dispatch: reservation-only abandon]'
+    $reserveTxId = [Guid]::NewGuid().ToString()
+    $reserveReceiptId = [Guid]::NewGuid().ToString()
+    $reserveDir = Join-Path (Join-Path $derivedControl 'live-transactions') $reserveTxId
+    $reserveHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-journal-header'
+        TransactionId = $reserveTxId
+        OperationKind = 'environment'
+        TransactionMode = 'receipt-backed'
+        OriginalDocumentHash = ('1' * 64)
+        OriginalPlanHash = ('2' * 64)
+        HomeAuthorityKey = $dispatchAuthorityKey
+        OriginRepoId = $dispatchRepoId
+        GitCommonDirHash = $dispatchGit.GitCommonDirHash
+        CanonicalLockKey = $dispatchLockKey
+        ReceiptIntent = [ordered]@{ Id = $reserveReceiptId; Path = (Join-Path $derivedBackups $reserveReceiptId) }
+        Targets = @()
+    }
+    Invoke-KilledLiveTransactionHost -Mode reserve -ProducerArgs ([ordered]@{ TransactionDirectory = $reserveDir; Header = $reserveHeader }) -Checkpoint 'RESERVED' -SandboxRoot $dispatchWork
+    $reserveChain = Get-SealedLiveJournalChain -TransactionDirectory $reserveDir
+    Assert (@($reserveChain.Records).Count -eq 0 -and $null -eq $reserveChain.Result) 'the reservation kill leaves a header-only journal'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'abandon-eligible') 'the reservation-only journal is abandon-eligible'
+    $reservePlan = Join-Path $dispatchWork 'plans' 'reserved-abandon-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $reserveTxId, '-DryRun', '-PlanPath', $reservePlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- reserved abandon dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the reservation-only journal derives the reviewed abandon plan'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $reserveTxId, '-Apply', '-PlanPath', $reservePlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- reserved abandon apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: abandon') 'the reservation-only journal closes as abandoned'
+
+    # Committed-finalize: the engine is killed after the complete state
+    # postimage and the postconditions record but before the fixed result.
+    Write-Host '[live dispatch: committed-finalize]'
+    $committedFixture = New-DispatchRollbackFixture -Label 'committed-finalize'
+    Invoke-KilledLiveTransactionHost -Mode produce -ProducerArgs $committedFixture.ProducerArgs -Checkpoint 'RESULT_PUBLISH' -SandboxRoot $dispatchWork
+    $committedTxId = [string] $committedFixture.TransactionId
+    $committedDir = [string] $committedFixture.ProducerArgs['TransactionDirectory']
+    $committedPhases = Get-RecoveryJournalPhases -TransactionDirectory $committedDir
+    Assert ($committedPhases -contains 'STATE_PUBLISHED' -and $committedPhases -contains 'POSTCONDITIONS_OK') 'the committed-finalize fixture is killed with the complete postimage'
+    Assert ($null -eq (Get-SealedLiveJournalChain -TransactionDirectory $committedDir).Result) 'the committed-finalize fixture publishes no result'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'finalize-eligible') 'the committed-finalize window is finalize-eligible'
+    $committedPlan = Join-Path $dispatchWork 'plans' 'committed-finalize-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $committedTxId, '-DryRun', '-PlanPath', $committedPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- committed finalize dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the committed-finalize dry-run derives the reviewed plan'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $committedPlan
+    $committedPlanDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($committedPlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Test-RollbackPlanSemantics -Document $committedPlanDocument
+    $committedPayload = [System.Collections.IDictionary] $committedPlanDocument['PlanPayload']
+    $installedStateHash = Get-FileByteHash -Path ([string] $committedFixture.StatePath)
+    Assert ([string] ([System.Collections.IDictionary] $committedPayload['ResultInventory'])['State'] -ceq 'MISSING') 'the committed-finalize plan binds the missing result inventory'
+    Assert ([string] ([System.Collections.IDictionary] $committedPayload['ExpectedTerminalProjection'])['StateHash'] -ceq $installedStateHash) 'the committed-finalize projection binds the installed state hash'
+    Assert ([string] $committedPayload['ExpectedOutcome'] -ceq 'committed') 'the committed-finalize plan binds the committed outcome'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $committedTxId, '-Apply', '-PlanPath', $committedPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- committed finalize apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: finalize .*\(outcome=committed\)') 'the committed-finalize apply publishes the fixed result and closes the transaction'
+    $committedChain = Get-SealedLiveJournalChain -TransactionDirectory $committedDir
+    $committedResult = [System.Collections.IDictionary] $committedChain.Result
+    Assert ($null -ne $committedResult -and [string] $committedResult['Outcome'] -ceq 'committed') 'the committed result closes with the committed outcome'
+    Assert ([string] $committedResult['StateHash'] -ceq $installedStateHash) 'the committed result binds the installed state hash'
+    Assert ([string] ([System.Collections.IDictionary] $committedResult['ReceiptRef'])['State'] -ceq 'COMPLETE' -and [string] $committedResult['ReceiptHash'] -ceq [string] ([System.Collections.IDictionary] $committedResult['ReceiptRef'])['Hash']) 'the committed result binds the complete receipt'
+    Assert (-not (Test-LiveTransactionMapHasName -Map $committedResult -Name 'RestorationHash')) 'the committed result carries no restoration binding'
+    Assert ([string] ([System.Collections.IDictionary] [System.Collections.IDictionary] $committedChain.Records[-1]['Document'])['Data']['ClosingPlanKind'] -ceq 'live-recover-finalize') 'the committed terminal closes with the finalize plan'
+    $committedReportPath = Join-Path $dispatchWork 'committed-finalize-status.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl, '-JsonPath', $committedReportPath)
+    Assert ($r.Code -eq 0) 'the locator writes its report after the committed finalize'
+    $committedReport = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($committedReportPath, [System.Text.UTF8Encoding]::new($false, $true)))
+    $committedEntry = @($committedReport.Transactions | Where-Object { [string] $_.TransactionId -ceq $committedTxId })
+    Assert ($committedEntry.Count -eq 1 -and [string] $committedEntry[0].Status -ceq 'finished') 'the committed transaction is finished in the recovery scan'
+
+    # The same window for a state-only controller transition: the reviewed close
+    # is committed-finalize and the result carries no receipt block.
+    $stateCommittedFixture = New-DispatchStateOnlyFixture -Label 'committed-finalize'
+    Invoke-KilledLiveTransactionHost -Mode state-only -ProducerArgs $stateCommittedFixture.ProducerArgs -Checkpoint 'RESULT_PUBLISH' -SandboxRoot $dispatchWork
+    $stateCommittedTxId = [string] $stateCommittedFixture.TransactionId
+    $stateCommittedDir = [string] $stateCommittedFixture.ProducerArgs['TransactionDirectory']
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'finalize-eligible') 'the state-only committed window is finalize-eligible'
+    $stateCommittedPlan = Join-Path $dispatchWork 'plans' 'state-only-committed-finalize.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $stateCommittedTxId, '-DryRun', '-PlanPath', $stateCommittedPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- state committed finalize dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the state-only committed-finalize dry-run derives the reviewed plan'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $stateCommittedPlan
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $stateCommittedTxId, '-Apply', '-PlanPath', $stateCommittedPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- state committed finalize apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: finalize .*\(outcome=committed\)') 'the state-only committed-finalize closes the transaction'
+    $stateCommittedResult = [System.Collections.IDictionary] (Get-SealedLiveJournalChain -TransactionDirectory $stateCommittedDir).Result
+    Assert ([string] $stateCommittedResult['Outcome'] -ceq 'committed' -and [string] $stateCommittedResult['StateHash'] -ceq (Get-FileByteHash -Path ([string] $stateCommittedFixture.StatePath))) 'the state-only committed result binds the installed state hash'
+    Assert (-not (Test-LiveTransactionMapHasName -Map $stateCommittedResult -Name 'ReceiptRef')) 'the state-only committed result carries no receipt block'
+
+    # Pre-replacement window from a real engine kill: the live targets are
+    # installed while the authority state still holds its preimage, so the
+    # reviewed rollback restores the live targets only.
+    Write-Host '[live dispatch: pre-replacement live-only rollback]'
+    $pendingFixture = New-DispatchRollbackFixture -Label 'state-replace-pending'
+    Invoke-KilledLiveTransactionHost -Mode produce -ProducerArgs $pendingFixture.ProducerArgs -Checkpoint 'STATE_REPLACE_PENDING' -SandboxRoot $dispatchWork
+    $pendingTxId = [string] $pendingFixture.TransactionId
+    $pendingDir = [string] $pendingFixture.ProducerArgs['TransactionDirectory']
+    $pendingPhases = Get-RecoveryJournalPhases -TransactionDirectory $pendingDir
+    Assert ($pendingPhases[-1] -ceq 'FILE_REPLACE_INTENT') 'the pre-replacement kill stops on the state replace intent'
+    Assert ((Get-FileByteHash -Path ([string] $pendingFixture.StatePath)) -ceq [string] $pendingFixture.PreviousStateHash) 'the pre-replacement kill leaves the authority state at its preimage'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'rollback-required') 'the pre-replacement kill stays rollback-required'
+    $pendingPlan = Join-Path $dispatchWork 'plans' 'state-replace-pending-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $pendingTxId, '-DryRun', '-PlanPath', $pendingPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- pre-replacement dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the pre-replacement kill derives the live rollback plan'
+    $pendingPlanDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($pendingPlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Assert (-not (Test-LiveTransactionMapHasName -Map ([System.Collections.IDictionary] $pendingPlanDocument['PlanPayload']) -Name 'AuthorityStatePreimagePath')) 'the pre-replacement plan binds no state restore'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $pendingTxId, '-Apply', '-PlanPath', $pendingPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- pre-replacement apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'outcome=rolled-back') 'the pre-replacement rollback applies'
+    Assert ((Get-SafeTreeSnapshot -Root ([string] $pendingFixture.KeptLivePath)).TreeHash -ceq [string] $pendingFixture.KeptOldHash) 'the pre-replacement rollback restored the live target'
+    Assert ((Get-FileByteHash -Path ([string] $pendingFixture.StatePath)) -ceq [string] $pendingFixture.PreviousStateHash) 'the pre-replacement rollback left the untampered preimage in place'
+    Assert (-not (@(Get-RecoveryJournalPhases -TransactionDirectory $pendingDir) -contains 'STATE_RESTORED')) 'the pre-replacement rollback never writes the state file'
+
+    # A header that binds a worktree overlay lock fails closed: the reviewed
+    # recovery lock order needs that lock and the primitive refuses REQUIRED
+    # applicability today, so the dispatcher must not silently skip it.
+    $overlayTxId = [Guid]::NewGuid().ToString()
+    $overlayReceiptId = [Guid]::NewGuid().ToString()
+    $overlayDir = Join-Path (Join-Path $derivedControl 'live-transactions') $overlayTxId
+    $overlayHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-journal-header'
+        TransactionId = $overlayTxId
+        OperationKind = 'task-overlay'
+        TransactionMode = 'receipt-backed'
+        OriginalDocumentHash = ('1' * 64)
+        OriginalPlanHash = ('2' * 64)
+        HomeAuthorityKey = $dispatchAuthorityKey
+        OriginRepoId = $dispatchRepoId
+        GitCommonDirHash = $dispatchGit.GitCommonDirHash
+        CanonicalLockKey = $dispatchLockKey
+        WorktreeOverlayLockKey = ('a' * 64)
+        ReceiptIntent = [ordered]@{ Id = $overlayReceiptId; Path = (Join-Path $derivedBackups $overlayReceiptId) }
+        Targets = @()
+    }
+    New-SealedLiveJournalHeader -Document $overlayHeader -TransactionDirectory $overlayDir | Out-Null
+    $overlayPlan = Join-Path $dispatchWork 'plans' 'overlay-abandon-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $overlayTxId, '-DryRun', '-PlanPath', $overlayPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'worktree-overlay-lock-not-implemented') 'an overlay-bound journal fails the recovery dry-run closed'
+    Assert (-not (Test-Path -LiteralPath $overlayPlan)) 'an overlay-bound journal writes no plan'
 
     Write-Host '[live dispatch: state-only rollback]'
     $stateOnlyDispatch = New-DispatchStateOnlyFixture -Label 'file-replaced'
