@@ -1251,9 +1251,72 @@ run `canonical-hard-kill.tests.ps1` passed 318/0 in 2415 s, `canonical-productio
 `live-concurrency.tests.ps1` in 68 s. The external summary file was deleted after its hash and
 facts were recorded here.
 
+## Task 6 Steps 4-5 (2026-09-12): deterministic failpoints, committed-finalize, and the restart gates
+
+Commits `528aec5` and `99a8e87` implement Step 4 and the Step 5 items that Step 4's new windows
+exposed.
+
+**Failpoints (Step 4).** Every boundary the plan names is now a configured checkpoint:
+`RESERVED` once the journal namespace and header are durable; `RECEIPT_FINALIZATION` immediately
+before the managed receipt producer; `RECORD_PENDING:<Phase>` after a journal record's pending temp
+is flushed and schema-validated and `RECORD_PUBLISHED:<Phase>` after its publish rename, implemented
+by composing the two reviewed canonical publication primitives in the live layer so the
+hard-kill-sealed shared helper stays untouched and its catch-dispose behavior is preserved;
+`STATE_REPLACE_PENDING` before the authority state move in both engines; `RESULT_PUBLISH` once the
+postconditions record is durable; and `TERMINAL_RECORD` before the final `COMPLETE` record in both
+engines, the failed-restored path, and the recovery dispatcher. The record-boundary pair gives real
+`_pending`-temp windows: a kill between them leaves exactly one reviewed record temp and never a
+published record.
+
+**Committed-finalize.** The `RESULT_PUBLISH` window (complete state postimage plus postconditions,
+no published result) is now a reviewed close instead of a fail-closed dead end. DryRun binds the
+missing result inventory, the committed outcome, and the installed state hash in the expected
+terminal projection; `Test-RollbackPlanSemantics` requires the `STATE_PUBLISHED` and
+`POSTCONDITIONS_OK` phases plus that projection hash for a result-MISSING finalize. Apply
+revalidates the postimage, the immutable claims, and the projection under the held locks and then
+publishes fixed bytes computed from the original evidence and the actual journal head: committed
+outcome, the installed state hash, and for receipt-backed transactions the verifier-revalidated
+COMPLETE receipt block, with no restoration binding. A header-only reservation is now classified
+abandon-eligible, which the plan names as its `RESERVED` window.
+
+**Restart gates (Step 5).** Two open items the new windows exposed became fail-closed rules: a live
+mutation refuses to start while any transaction in the authority's journal namespace is unfinished
+(`live-recovery-required`, zero new namespaces, released once the transaction is finished), and a
+header binding `WorktreeOverlayLockKey` fails both recovery plan derivation and apply with
+`worktree-overlay-lock-not-implemented` instead of being recovered without the overlay lock the
+header requires (the reviewed lock-order primitive refuses REQUIRED applicability until the
+Phase 3 worktree overlay lock exists; the dispatcher previously read the wrong field name and would
+have silently skipped it).
+
+**Verification (2026-09-12, canonical `pwsh -NoProfile -File` runs).** `tests/live-recovery.tests.ps1`
+green in 446 s: the engine kill matrix gains the record-boundary and pre-replacement windows with
+their `_pending`-temp and state-untouched assertions, the state-only engine gains its
+pre-replacement and pending-`STATE_PUBLISHED` windows, and the dispatcher gains reservation-only
+abandon, receipt-backed and state-only committed-finalize, the pre-replacement live-only rollback,
+the overlay rejection, the unfinished-transaction gate with its release proof, and an injected
+mid-recovery failure that retains the preimage copy, publishes no state record/result/terminal, and
+then replays to completion against the same evidence. `tests/canonical-production-seams.tests.ps1`
+56/0 after the all-scripts reflection-inventory re-pin (14689 -> 14713, digest
+`816d7205e9fdc6f39087bea148086ae3247c4d691d3ed08deecc78170bd7eb05`); registered artifact validation
+28 contracts / 28 positive / 110 negative with zero failures; the parse gate accepted 166 files;
+the pinned secret scan found no blocking findings; `build-skills.ps1` produced 7/15/7;
+`tests/sync.tests.ps1`, `tests/live-plan.tests.ps1`, `tests/live-concurrency.tests.ps1`, and
+`tests/doctor.tests.ps1` passed; `git diff --check` was clean. The unified `run-tests.ps1 -All` pass
+is the Task 6 closeout gate and its result is recorded below once it returns. Production Apply
+remains interlocked and no live root was touched.
+
+**Remaining Step 5 proofs.** Two Step 5 clauses are not covered by this slice and stay open:
+"a different HomeAuthority with overlapping custom roots" and "concurrent canonical mutation cannot
+interleave". Both need the cross-authority/root-overlap and canonical-mutation fixtures that Task 8
+already owns ("Lock-contention, hard-kill, root-overlap, and custom-target matrix"), and the
+recovery-side overlay lock itself remains the Phase 3 worktree overlay item. The `RECEIPT_FINALIZATION`
+checkpoint is emitted in the production host, which the current fixtures do not run as a killable
+child, so its placement is pinned at the source boundary and its observable window is the
+header-only reservation covered by the `RESERVED` kill.
+
 ## Remaining work
 
-Phase 2 has 16 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-3 are complete:
+Phase 2 has 15 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-4 are complete:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
@@ -1262,7 +1325,7 @@ Phase 2 has 16 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 2/5 | Steps 1-3 done at `0e04a2c` (locator, schema 1 plan contract, dispatcher with state rollback, failpoints/replay, worktree coverage); Step 4 deterministic failpoints and Step 5 restart verification remain |
+| Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
 | Task 7 | 5/5 | Receipt-backed environment rollback |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
@@ -1272,34 +1335,12 @@ The required execution order is Task 1 -> Task 2 -> Task 3 -> Task 4 -> Task 5 -
 Phase 4 schema/CI contract and safe release, have not started. Before future environment planning,
 rebuild the stale commit-bound environment staging locks; this does not authorize Apply.
 
-Known boundaries handed to later steps: the result-MISSING committed-finalize branch (complete
-state postimage plus postconditions, no published result) still fails closed with
-`live-recovery-plan-stale`, because only finalize-over-a-published-result is implemented; Step 4
-owns the "before/after authority state replacement" checkpoints that would make the
-staged-but-unreplaced window deterministically killable; and the locator deliberately stays
-phase-only, so a state file replaced without its record surfaces as a dispatcher DryRun failure
-rather than a locator status.
-
-## Remaining work
-
-Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 are complete:
-
-| Task | Remaining steps | Remaining outcome |
-|---|---:|---|
-| Task 1 | 0/6 | Complete |
-| Task 2 | 0/7 | Complete |
-| Task 3 | 0/7 | Complete |
-| Task 4 | 0/7 | Complete |
-| Task 5 | 0/6 | Complete |
-| Task 6 | 3/5 | Steps 1-2 done; Step 3 in progress at `f2ff911` (failpoints/replay, worktree coverage, state-published rollback, closeout remain), Steps 4-5 remain |
-| Task 7 | 5/5 | Receipt-backed environment rollback |
-| Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
-| Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
-
-The required execution order is Task 1 -> Task 2 -> Task 3 -> Task 4 -> Task 5 -> Task 6 -> Task 7
--> Task 8 -> Task 9. Phase 3 shared environment authority and task-overlay work, followed by the
-Phase 4 schema/CI contract and safe release, have not started. Before future environment planning,
-rebuild the stale commit-bound environment staging locks; this does not authorize Apply.
+Carried boundaries: the locator stays phase-only by design, so an authority state file replaced
+without its `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator
+status; a live-target move whose record is still a `_pending` temp classifies as manual recovery
+(the phase evidence matches no reviewed form); the recovery-side worktree overlay lock waits for
+the Phase 3 worktree overlay lock primitive; and the `RECEIPT_FINALIZATION` host checkpoint is
+placement-pinned because the production host is not yet run as a killable child.
 
 ## Safety boundary
 
