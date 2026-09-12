@@ -313,13 +313,38 @@ function Test-RollbackPlanSemantics {
     $payload = [System.Collections.IDictionary] $Document['PlanPayload']
     $kind = [string] $payload['PlanKind']
 
+    if ($kind -ceq 'environment-rollback') {
+        # An environment rollback is its own new receipt-backed transaction
+        # whose source is a committed environment activation: it binds
+        # SourceOperationKind and the source receipt/plan references instead of
+        # the live-recover OriginalOperationKind the schema forbids here.
+        if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'SourceOperationKind') -or
+            [string] $payload['SourceOperationKind'] -cne 'environment') {
+            throw $script:RollbackPlanKindMismatch
+        }
+        if (Test-LiveTransactionMapHasName -Map $payload -Name 'OriginalOperationKind') { throw $script:RollbackPlanKindMismatch }
+        if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'RollbackStateIntent') -or
+            -not (Test-LiveTransactionMapHasName -Map $payload -Name 'ReceiptIntent') -or
+            -not (Test-LiveTransactionMapHasName -Map $payload -Name 'ReceiptId')) {
+            throw $script:RollbackPlanKindMismatch
+        }
+        $intent = [System.Collections.IDictionary] $payload['RollbackStateIntent']
+        if ([string] $intent['LastOperationKind'] -cne 'environment-rollback' -or
+            [string] $intent['HomeAuthorityKey'] -cne [string] $payload['HomeAuthorityKey']) {
+            throw $script:RollbackPlanKindMismatch
+        }
+        $receiptIntent = [System.Collections.IDictionary] $payload['ReceiptIntent']
+        if ([string] $receiptIntent['Id'] -cne [string] $payload['ReceiptId']) {
+            throw $script:RollbackPlanKindMismatch
+        }
+        return
+    }
+
     if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'OriginalOperationKind') -or
         $payload['OriginalOperationKind'].StartsWith('live-recover-', [System.StringComparison]::Ordinal) -or
         ([string] $payload['OriginalOperationKind']) -cnotin $script:RollbackPlanOperationKinds) {
         throw $script:RollbackPlanKindMismatch
     }
-
-    if ($kind -ceq 'environment-rollback') { return }
 
     $action = [string] $payload['Action']
     if ([string] $script:RollbackPlanActionByKind[$kind] -cne $action) { throw $script:RollbackPlanKindMismatch }

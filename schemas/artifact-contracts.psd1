@@ -145,6 +145,9 @@
                 @{ Name = 'journal-head-mismatch'; Path = 'tests/fixtures/artifacts/rollback-plan.journal-head-mismatch.invalid.json'; FailureLayer = 'Semantic' }
                 @{ Name = 'duplicate-consumed-hash'; Path = 'tests/fixtures/artifacts/rollback-plan.duplicate-consumed-hash.invalid.json'; FailureLayer = 'Semantic' }
                 @{ Name = 'state-preimage-path-orphan'; Path = 'tests/fixtures/artifacts/rollback-plan.state-preimage-path-orphan.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'environment-rollback-source-kind'; Path = 'tests/fixtures/artifacts/rollback-plan.environment-rollback-source-kind.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'environment-rollback-intent-kind'; Path = 'tests/fixtures/artifacts/rollback-plan.environment-rollback-intent-kind.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'environment-rollback-authority-key'; Path = 'tests/fixtures/artifacts/rollback-plan.environment-rollback-authority-key.invalid.json'; FailureLayer = 'Semantic' }
             )
             SemanticValidator = 'Test-RollbackPlanSemantics'
         }

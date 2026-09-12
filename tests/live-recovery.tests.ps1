@@ -1763,12 +1763,83 @@ try {
         @{ Name = 'claims-binding-missing'; Failure = 'rollback-plan-binding-missing' }
         @{ Name = 'duplicate-consumed-hash'; Failure = 'rollback-plan-binding-missing' }
         @{ Name = 'state-preimage-path-orphan'; Failure = 'rollback-plan-binding-missing' }
+        @{ Name = 'environment-rollback-source-kind'; Failure = 'rollback-plan-kind-mismatch' }
+        @{ Name = 'environment-rollback-intent-kind'; Failure = 'rollback-plan-kind-mismatch' }
+        @{ Name = 'environment-rollback-authority-key'; Failure = 'rollback-plan-kind-mismatch' }
     )
     foreach ($negative in $semanticNegatives) {
         $path = Join-Path $fixturesRoot ('rollback-plan.' + $negative.Name + '.invalid.json')
         $document = ConvertFrom-SemanticJson -Json (Get-Content -Raw -LiteralPath $path)
         Assert-ThrowsToken { Test-RollbackPlanSemantics -Document $document } $negative.Failure "semantic negative '$($negative.Name)' is rejected with its reviewed token"
     }
+
+    # An environment rollback is its own new receipt-backed transaction over a
+    # committed environment activation: it must pass both layers without the
+    # live-recover OriginalOperationKind the schema forbids for that kind.
+    function New-EnvironmentRollbackPlanDocument {
+        $slots = @(
+            [ordered]@{ Platform = 'Claude'; Hash = ('b' * 64) }
+            [ordered]@{ Platform = 'Codex'; Hash = ('c' * 64) }
+            [ordered]@{ Platform = 'Reasonix'; Hash = ('d' * 64) }
+        )
+        $skills = @(
+            [ordered]@{ Platform = 'Claude'; Skills = @() }
+            [ordered]@{ Platform = 'Codex'; Skills = @() }
+            [ordered]@{ Platform = 'Reasonix'; Skills = @() }
+        )
+        $payload = [ordered]@{
+            SchemaVersion = 1
+            PlanKind = 'environment-rollback'
+            TransactionMode = 'receipt-backed'
+            HomeAuthorityKey = ('a' * 64)
+            OriginRepoId = ('b' * 64)
+            GitCommonDirHash = ('c' * 64)
+            CanonicalLockKey = ('d' * 64)
+            OriginalDocumentHash = ('e' * 64)
+            OriginalPlanHash = ('f' * 64)
+            SourceTransactionId = '11111111-1111-4111-8111-111111111111'
+            SourceOperationKind = 'environment'
+            ReceiptIntent = [ordered]@{ Id = '22222222-2222-4222-8222-222222222222'; Path = 'C:\fixture\backups\22222222-2222-4222-8222-222222222222' }
+            ReceiptId = '22222222-2222-4222-8222-222222222222'
+            ReceiptHash = ('1' * 64)
+            RollbackStateIntent = [ordered]@{
+                SchemaVersion = 3
+                ArtifactKind = 'current-env-state'
+                HomeAuthorityKey = ('a' * 64)
+                AuthorityGeneration = 2
+                RootClaimsHash = ('2' * 64)
+                SelectionKind = 'environment'
+                EnvironmentName = 'work'
+                EnvironmentLockHash = ('3' * 64)
+                TaskOverlayHash = ('4' * 64)
+                TaskOverlaySkills = $skills
+                ManifestHashes = $slots
+                FinalManagedHashes = $slots
+                ControllerRepoFingerprint = ('5' * 64)
+                ApprovedToolchainHash = ('6' * 64)
+                LastOperationKind = 'environment-rollback'
+            }
+        }
+        $document = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'rollback-plan'
+            Metadata = [ordered]@{
+                CreatedAtUtc = '2026-09-13T00:00:00.0000000Z'
+                Generator = 'scripts/agent-dotfiles.ps1'
+                RepositoryCommit = ('a' * 40)
+            }
+            PlanPayload = $payload
+        }
+        $document['PlanHash'] = Get-PlanHash -PlanPayload $payload
+        $document['DocumentHash'] = Get-DocumentHash -Document $document
+        return $document
+    }
+    $environmentRollbackDocument = New-EnvironmentRollbackPlanDocument
+    $environmentRollbackPath = Join-Path $work 'rollback-plan.environment-rollback.json'
+    [System.IO.File]::WriteAllText($environmentRollbackPath, (ConvertTo-Json -InputObject $environmentRollbackDocument -Depth 32), [System.Text.UTF8Encoding]::new($false))
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $environmentRollbackPath
+    Test-RollbackPlanSemantics -Document $environmentRollbackDocument
+    Assert $true 'an environment-rollback plan passes the schema and the semantic layer'
 
     # Every schema-layer negative is rejected before the semantic layer runs.
     $schemaNegatives = @(
