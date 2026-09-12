@@ -3192,6 +3192,13 @@ release, remain downstream and have not started.
    (a different HomeAuthority with overlapping custom roots; concurrent canonical mutation cannot
    interleave) that need Task 8's lock-contention and root-overlap fixtures; execute them with
    Task 8, then Tasks 8-9 in strict sequence. Production Apply remains interlocked throughout.
+   The authoritative, itemised to-do list lives in
+   [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
+   "Pending items (2026-09-13, after Task 7 slices 1-2)": Task 7 Steps 1-5 with the reviewed
+   source-graph recipe and the two fixtures the current producers cannot build, the carried Task 6
+   Step 5 proofs, the sealed-file finding whose fix needs the reviewed-load re-pin, the
+   placement-pinned `RECEIPT_FINALIZATION` checkpoint, and the Task 7 closeout unified run (38
+   suites, workflow timeout 400 minutes) that has not run yet.
 2. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; the

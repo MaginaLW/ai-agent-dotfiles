@@ -1358,6 +1358,20 @@ reviewed rules — `SourceOperationKind` must be `environment`, `OriginalOperati
 live-recover path keeps its original requirement. Three registered semantic negatives (wrong source
 kind, wrong intent kind, mismatched intent authority key) and an in-suite positive pin the shape.
 
+**Verification of slices 1-2 (2026-09-13, canonical `pwsh -NoProfile -File` runs).** The new
+`tests/backup-recovery.tests.ps1` passes (26 assertions) and `tests/live-recovery.tests.ps1` is green
+in 469 s with the environment-rollback positive and its three registered semantic negatives;
+`tests/automation-safety.tests.ps1` (its interlock case now uses the receipt surface),
+`tests/agent-dotfiles.tests.ps1`, `tests/harness-env.tests.ps1`, `tests/doctor.tests.ps1`, and
+`tests/test-runner.tests.ps1` pass; registered artifact validation passed 28 contracts / 113
+negatives with zero failures; `tests/canonical-production-seams.tests.ps1` passed 56/0 with **no**
+baseline re-pin this time (the new code adds ordinary function calls, not inventoried dispatch
+sites); the parse gate accepted 167 files; the pinned secret scan found no blocking findings;
+`build-skills.ps1` produced 7/15/7; `git diff --check` was clean. Adding the new suite moved the
+workflow timeout to 400 minutes and the runner contract still passes. **The unified
+`run-tests.ps1 -All` pass has not run for this tree yet** (it now discovers 38 suites) and belongs to
+the Task 7 closeout.
+
 **Task 7 remaining scope, from the same review (bounded to the plan text, the schema, the live
 journal/engines/host, the new entry, and the named fixtures).** The review's verified facts that the
 next slices must act on:
@@ -1393,7 +1407,8 @@ next slices must act on:
 
 ## Remaining work
 
-Phase 2 has 15 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-4 are complete:
+Phase 2 has 15 of 52 steps remaining. Tasks 1-5 are complete, Task 6 Steps 1-4 are complete, and
+Task 7 slices 1-2 are landed:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
@@ -1418,6 +1433,55 @@ status; a live-target move whose record is still a `_pending` temp classifies as
 (the phase evidence matches no reviewed form); the recovery-side worktree overlay lock waits for
 the Phase 3 worktree overlay lock primitive; and the `RECEIPT_FINALIZATION` host checkpoint is
 placement-pinned because the production host is not yet run as a killable child.
+
+## Pending items (2026-09-13, after Task 7 slices 1-2)
+
+Task 7 (receipt-backed environment rollback) — 4 of 5 steps remain, in order:
+
+1. **Step 1 completion.** Build the source graph with the reviewed recipe (sealed plan fixture for
+   the plan shape + a real header through `New-SealedLiveJournalHeader` + a real receipt through
+   `Invoke-SealedManagedBackupReceipt` with `SourceOperationKind=environment` + the test host's
+   `produce` engine mode), then add the remaining rejection cases: modified backup bytes with an
+   unchanged manifest, MISSING/tampered authority or claims preimage, missing/wrong `ReceiptPath`,
+   `PlanKind` mismatch, every private-artifact-path rejection, custom Reasonix and another HomeRoot,
+   incomplete receipt, current live/state/claims drift, source transaction missing/unfinished/
+   tampered (including terminal `Outcome=abandoned|failed-restored|rolled-back`), later
+   generation/overlay drift, and two concurrent backups. Two named cases cannot be produced with the
+   current fixtures and stay as boundaries: a committed environment→task-overlay chain (no
+   task-overlay producer; the host rejects that kind) and `abandoned`/`rolled-back` source terminals
+   (the engine publishes only `committed` or `failed-restored`).
+2. **Step 2.** Implement the ordered eligibility derivation in the rollback entry: canonical →
+   worktree overlay → global locks, receipt completeness and `SourceOperationKind=environment`, the
+   MISSING-preimage rejection, the `SourceTransactionId` chain/outcome/refs/receipt-binding checks,
+   current state bytes/hash/generation equal to the terminal poststate, the overlay triple equality,
+   the explicit staleness rejections, and the provenance/target/action bindings plus the derived
+   `RollbackStateIntent`; and reject the legacy `BackupReference`/timestamp selection.
+3. **Step 3.** Create and validate the durable pre-rollback receipt (current managed live, current
+   authority state, root claims, tracked-overlay hash marker) before any mutation.
+4. **Step 4.** Run the rollback through the common state machine with the host changes the review
+   listed (kind gate, `RollbackStateIntent`, reconstructed `TargetContextIntent`, targets mapped onto
+   add/update/prune, activation-snapshot source roots, authority-preimage receipt args) and the
+   cleanup rules. **Execution verification depends on the Phase 3 worktree overlay lock** (the
+   reviewed lock-order primitive refuses `REQUIRED` applicability); without it the execution path can
+   only be pinned as fail-closed.
+5. **Step 5.** `tests/backup-recovery.tests.ps1` and the rollback section of
+   `tests/harness-env.tests.ps1`: three-platform symmetric rollback including an already-claimed
+   custom Reasonix root, plus the rejected drift cases.
+6. **Closeout.** The unified `run-tests.ps1 -All` pass for this tree (now 38 suites, workflow
+   timeout 400 minutes) has not been executed; it belongs to the Task 7 closeout, together with the
+   status/roadmap updates and the harness-model closeout loop.
+
+Carried from Task 6:
+
+- **Step 5 proofs** for a different HomeAuthority with overlapping custom roots and for a concurrent
+  canonical mutation not interleaving: they need Task 8's lock-contention and root-overlap fixtures.
+- **Sealed-file finding**: `tests/canonical-hard-kill.tests.ps1:8256` holds a real instance of the
+  operator-as-parameter defect (three intended taint checks parse as one call, so two never run).
+  Fixing it requires the full reviewed-load re-pin, so the parse-gate exemption list
+  (`scripts/check-powershell-syntax.ps1`) intentionally keeps that one line exempt and every other
+  occurrence fatal; the exemption must be cleared once the re-pin lands.
+- **Placement-pinned checkpoint**: `RECEIPT_FINALIZATION` is pinned at the source boundary because
+  the production host is not yet run as a killable child.
 
 ## Safety boundary
 
