@@ -2547,6 +2547,38 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     Assert ($r.Code -ne 0 -and $r.Out -match 'worktree-overlay-lock-not-implemented') 'an overlay-bound journal fails the recovery dry-run closed'
     Assert (-not (Test-Path -LiteralPath $overlayPlan)) 'an overlay-bound journal writes no plan'
 
+    # An injected recovery failure retains every durable artifact, and the
+    # reviewed replay then succeeds against the same evidence.
+    Write-Host '[live dispatch: injected recovery failure retains evidence]'
+    $retainFixture = New-StatePublishedKillFixture -Label 'recovery-failure-retained'
+    $retainTxId = [string] $retainFixture.TransactionId
+    $retainDir = [string] $retainFixture.ProducerArgs['TransactionDirectory']
+    $retainPlan = Join-Path $dispatchWork 'plans' 'retain-rollback-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $retainTxId, '-DryRun', '-PlanPath', $retainPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- retained-evidence dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0) 'the evidence-retention fixture derives its rollback plan'
+    $retainCopy = [string] $retainFixture.RecoveryCopy
+    $retainLock = [System.IO.File]::Open($retainCopy, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+    try {
+        $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $retainTxId, '-Apply', '-PlanPath', $retainPlan, '-RepoRoot', $dispatchRepo)
+    }
+    finally { $retainLock.Dispose() }
+    Assert ($r.Code -ne 0) 'an injected recovery failure exits non-zero'
+    $retainPhases = Get-RecoveryJournalPhases -TransactionDirectory $retainDir
+    Assert ($retainPhases[-1] -ceq 'RECOVERY_ACTION_INTENT') 'the failed recovery stops after its intent'
+    Assert (-not ($retainPhases -contains 'STATE_RESTORED') -and -not ($retainPhases -contains 'COMPLETE')) 'the failed recovery publishes no state record and no terminal'
+    Assert ($null -eq (Get-SealedLiveJournalChain -TransactionDirectory $retainDir).Result) 'the failed recovery publishes no result'
+    Assert (Test-Path -LiteralPath $retainCopy -PathType Leaf) 'the failed recovery retains the preimage copy'
+    Assert ((Get-FileByteHash -Path ([string] $retainFixture.StatePath)) -cne [string] $retainFixture.PreviousStateHash) 'the failed recovery leaves the published authority state installed'
+    $retainReplayPlan = Join-Path $dispatchWork 'plans' 'retain-rollback-replay-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $retainTxId, '-DryRun', '-PlanPath', $retainReplayPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -eq 0) 'the reviewed replay derives against the retained evidence'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $retainTxId, '-Apply', '-PlanPath', $retainReplayPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- retained-evidence replay output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'outcome=rolled-back') 'the reviewed replay closes the interrupted rollback'
+    Assert ((Get-FileByteHash -Path ([string] $retainFixture.StatePath)) -ceq [string] $retainFixture.PreviousStateHash) 'the reviewed replay restored the authority state'
+    Assert (@((Get-RecoveryJournalPhases -TransactionDirectory $retainDir) | Where-Object { $_ -ceq 'STATE_RESTORED' }).Count -eq 1) 'the reviewed replay writes the state exactly once'
+
     Write-Host '[live dispatch: state-only rollback]'
     $stateOnlyDispatch = New-DispatchStateOnlyFixture -Label 'file-replaced'
     Invoke-KilledLiveTransactionHost -Mode state-only -ProducerArgs $stateOnlyDispatch.ProducerArgs -Checkpoint 'FILE_REPLACED' -SandboxRoot $dispatchWork
