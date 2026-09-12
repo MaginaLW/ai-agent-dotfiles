@@ -98,6 +98,10 @@ Agent 显式读取后遵循的约定，不是 Hook、定时任务或后台同步
   收尾）、`docs/operations/effect-observations.md`、`docs/operations/zcode-adoption-feedback.md`
   与 `examples/adoption/zcode-feedback-loop-prompt.md`。回灌时只合并适用且缺失的文字，
   核对本次版本包含上次已应用版本（`b567dc3`）；来源分叉或验证不明时保留待核对。
+- 2026-09-12 第三次闭环后实际应用的上游提交：`68f3dcb`（"docs: add staged independent
+  review as a closeout method item"，本仓 Agent 在该检出内提交并验证；父提交 `3a0bb34`
+  即上次已应用版本，链路连续）。应用内容：`docs/operations/adoption.md` 收尾方法新增
+  第 6 项"独立评审分两段，并给评审本身设边界"，与本页第三次闭环记录的适配一致。
 - 闭环授权边界：harness-model 的 `docs/`、`examples/`，以及本项目的规则入口、接入文档
   与既有收尾记录。不含源码、CI、`.ai`、技能、全局/live 配置、部署、删除、推送、合并、
   凭据导出、付费调用或后台采集；越界反馈只形成提案并记 `pending`。
@@ -156,6 +160,31 @@ schema 3 漂移（`895c54f`，即上次闭环记录为反馈#1 的同一处 CI �
 锚点加凭据断言）。适用性筛选：三者面向多层配置系统与证据转制工作流，本仓当前收尾
 实践无对应场景缺口，等价条款未缺失，不向本页复制文字；原五项适配仍准确适用。本页
 对应修正：adaptation 第 1 项事实更正（如上）。
+
+### 第三次闭环执行（2026-09-12）
+
+窗口任务：Phase 2 Task 6 Step 3 收尾（权威状态回滚、恢复失败注入与重放、linked
+worktree 派发），实现提交 `0e04a2c`，逐项事实记录见 `STATUS.md` 2026-09-12 节与
+`status/active/live-safety-hardening.md`。
+
+新反馈（已提交上游 `68f3dcb`）：本窗口两次引入外部只读评审——实现前的设计评审修正了
+状态恢复方案与"仅捕获 preimage 应归为 abandon"的归类规则；实现后的对抗式 diff 评审
+在同一改动里又找到两个真实缺陷（失效的交叉校验、已 staged 未替换的状态窗口）与一个
+缺失的失败注入用例。关键操作事实：两次不设范围的评审被评审方预算中途取消，收敛到
+"4 个文件、≤15 条、必须给出严重度、无缺陷需显式声明"后，第三轮在 15 个回合内完成并
+给出可执行结论。该教训按上游收尾方法写入 `docs/operations/adoption.md` 第 6 项
+（独立评审分两段，并给评审本身设边界）；反馈方法本身通用，不是本仓专有知识。
+
+上游验证（在已核对身份的本仓同级检出内执行，候选提交 `68f3dcb`）：`uv run --locked
+python -m pytest -q --cov=aiflow --cov-branch --cov-fail-under=85` 1740 通过、总覆盖率
+88.12%；`diff-cover --compare-branch HEAD^ --fail-under=90` 退出 0（仅文档改动，diff 内
+无覆盖率行）；`git diff --check`、`ruff check`、`ruff format --check`、`mypy` 全部通过。
+检出内另有一份非本任务创建的未跟踪方案文件（`docs/superpowers/plans/`，名称随时间变化，
+疑为并行会话在制品），本仓未加入暂存、未修改、未删除。
+
+版本回灌核对：上游 HEAD 由 `3a0bb34` 推进至 `68f3dcb`，父提交即上次已应用版本，链路
+连续，无分叉或回退；本次新增文字已按"最小完整修订"合入上游，本页无需复制其正文，
+只更新来源版本并记录本窗口适配。原五项适配仍准确适用，本仓不新增等价条款。
 
 ## 可复制的首次接手提示词
 

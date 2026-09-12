@@ -3009,11 +3009,57 @@ machinery — currently fail-closed `live-recovery-state-form-unsupported`), and
 (unified run plus the close-out records). Production Apply remains interlocked; no live root was
 touched.
 
+## Task 6 Step 3 completion (2026-09-12): authority state rollback, recovery failpoints, worktree dispatch
+
+Commit `0e04a2c` closes the Step 3 scope named at the previous checkpoint; the detailed record lives
+in [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md). Two
+independent read-only Grok reviews preceded the commit: the first produced the state-rollback design
+note whose findings were applied, the second found two defects and four gaps in the delta; every
+finding is fixed in this commit or recorded as an explicit boundary.
+
+Authority state recovery: `scripts/live-transaction-common.ps1` gained the journal-bound state
+evidence helpers and `Restore-SealedLiveAuthorityState`, which restores `current-env.json` from the
+`FILE_PREPARED.StagedPath` preimage copy (exact bytes, copy hash re-verified), requires the installed
+state to equal the recorded published postimage or the preimage on replay, re-proves the immutable
+claims against the header, and journals the new `STATE_RESTORED` phase only when bytes are written,
+so replays are idempotent. Rollback replays also skip completed live targets already at their
+preimage, and the rolled-back result binds the restored state hash. Plans bind
+`AuthorityStatePreimage`/`AuthorityStateExpected` for any completed state replacement and a rollback
+additionally binds the optional schema-1 `AuthorityStatePreimagePath` (verified against the copy);
+`Test-RollbackPlanSemantics` requires all three for a rollback over `FILE_REPLACED`/`STATE_PUBLISHED`
+and rejects an orphan path through the new `rollback-plan.state-preimage-path-orphan.invalid.json`
+fixture. `STATE_PREIMAGE_COMPLETE`/`FILE_PREPARED` moved to the pre-primitive set, so a captured
+preimage with zero state primitive is abandon-eligible per the plan's disjoint state-only priority.
+Two shapes fail closed with `live-recovery-state-form-unsupported`: a state file replaced on disk
+while its `FILE_REPLACED` record is missing, and a receipt-backed live-target rollback whose state
+was staged but not yet replaced — the latter now derives and applies a live-only rollback while the
+state still equals the recorded preimage.
+
+Recovery failpoints: the dispatcher publishes `RECOVERY_ACTION_INTENT`,
+`RECOVERY_ACTION_PRIMITIVES`, `RECOVERY_ACTION_APPLIED`, and `RECOVERY_RESULT_PUBLISHED`. Kill/replay
+fixtures prove the intent window replays through a plan that consumes the interrupted intent, the
+primitive and applied windows replay without repeating a live move or state write, and the result
+window is finalize-only (a rollback request fails closed and finalize reuses the rolled-back result
+bytes and preserves its outcome). A linked worktree dispatches through the shared GitCommonDir
+origin namespace and closes the transaction; the wrong-clone rejection is unchanged.
+
+Verification: `tests/live-recovery.tests.ps1` green in 310 s; `tests/canonical-production-seams.tests.ps1`
+56/0 after the all-scripts reflection-inventory re-pin (count 14616 -> 14689, digest
+`285cef6a2e221ba1cc676ce00a61260f4bd6d488e225fe8fefe6f75004211c15`); registered artifact validation
+28 contracts / 28 positive / 110 negative with zero failures; `tests/test-runner.tests.ps1` passes
+with the live-recovery budget raised 300 -> 900 s and the workflow timeout 380 -> 390 minutes
+(computed requirement 22785 s); the parse gate accepted 166 files; `tests/schema-validation.tests.ps1`
+passed; `git diff --check` was clean; the pinned secret scan found no blocking findings (1009
+non-blocking hints); `build-skills.ps1` produced 7/15/7; and the sandboxed `sync.ps1 -DryRun`
+reported 29 additions with zero live mutation. The unified `run-tests.ps1 -All` pass is the Step 3
+closeout gate and its result is recorded below once it returns. Production Apply remains interlocked
+and no live root was touched.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 are complete and
-Step 3 is in progress (four dispatcher slices landed; failpoints, worktree coverage, and the
-closeout remain). The implementation order and remaining scope are:
+Phase 2 has 16 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-3 are complete;
+Step 4 (deterministic failpoints) and Step 5 (restart verification) remain. The implementation order
+and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -3022,7 +3068,7 @@ closeout remain). The implementation order and remaining scope are:
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 3/5 | Steps 1-2 done; Step 3 in progress at `f2ff911` (failpoints/replay, worktree coverage, state-published rollback, closeout remain), Steps 4-5 remain |
+| Task 6 | 2/5 | Steps 1-3 done at `0e04a2c`; Step 4 deterministic failpoints and Step 5 restart verification remain |
 | Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
@@ -3033,20 +3079,24 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 5 is complete (6/6) and Task 6 Steps 1-2 are complete (Phase 2 35/52) as of
-   2026-09-12. Task 6 Step 3 is in progress at `f2ff911`: the dispatcher resolves the origin under
-   the sandbox authority and complete bootstrap gates, derives schema-1 recovery plans in DryRun,
-   and executes abandon, finalize, and target-level rollback under the origin canonical/witness/
-   global lock order with recovery terminals; remaining are dispatcher failpoints with hard-kill/
-   replay fixtures, linked-worktree dispatch coverage, STATE_PUBLISHED/state-only rollback, and the
-   Step 3 closeout (unified run plus close-out records). The read-only recovery locator and the
-   schema-1 rollback/recovery plan contract are live; Task 6 Steps 4-5 (failpoint matrix, restart
-   verification) follow, then Tasks 7-9 in strict sequence. Production Apply remains interlocked
-   throughout.
-2. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
+1. Phase 2 Task 5 is complete (6/6) and Task 6 Steps 1-3 are complete (Phase 2 36/52) as of
+   2026-09-12 at `0e04a2c`: the read-only locator, the schema-1 rollback/recovery plan contract, and
+   the dispatcher for abandon, rollback (live targets and the authority state restored to their
+   journal-bound preimages), and finalize (including the recovery failpoint/replay matrix and
+   linked-worktree dispatch) are live. Task 6 Step 4 (deterministic failpoints after RESERVED,
+   during/after receipt finalization, around each journal-record flush and publish rename, after
+   each target rename/replace, before/after authority state replacement, and before the terminal
+   record) and Step 5 (restart verification, wrong-clone/linked-worktree negative matrix, and the
+   global unfinished-transaction blocking proof) follow, then Tasks 7-9 in strict sequence.
+   Production Apply remains interlocked throughout.
+2. Known boundaries to carry into those steps: the result-MISSING committed-finalize branch still
+   fails closed with `live-recovery-plan-stale`; the locator stays phase-only by design, so a state
+   file replaced without its journal record surfaces as a dispatcher DryRun failure; and the
+   before/after state-replacement checkpoints belong to Step 4.
+3. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
    environment planning. This is artifact preparation only and does not authorize environment Apply.
-3. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
-4. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+4. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
+5. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.

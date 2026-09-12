@@ -1164,6 +1164,101 @@ hard-kill and replay fixtures, linked-worktree dispatch coverage (shared GitComm
 legitimately), STATE_PUBLISHED and state-only rollback through the state recovery machinery, and
 the closeout (unified run plus the close-out records). Steps 4-5 of Task 6 follow.
 
+## Task 6 Step 3 completion (2026-09-12): state rollback, recovery failpoints, worktree dispatch
+
+Commit `0e04a2c` closes the remaining Step 3 scope named at the previous checkpoint. Two
+independent read-only Grok reviews preceded it: the first produced the state-rollback design note
+whose findings were applied, the second an adversarial review of the delta that found two defects
+and four gaps; every finding is either fixed in this commit or recorded below as an explicit
+boundary.
+
+**Authority state recovery.** `scripts/live-transaction-common.ps1` gained the journal-bound state
+evidence helpers (`Get-SealedLiveAuthorityStateReplacementRows`,
+`Get-SealedLiveAuthorityStatePreimageBinding`, `Get-SealedLiveAuthorityStateReplacedHash`,
+`Get-SealedLiveAuthorityStateRecoveryEvidence`, `Get-SealedLiveObservableFileState`) and
+`Restore-SealedLiveAuthorityState`. The restore reads the exact bytes of the
+`FILE_PREPARED.StagedPath` preimage copy, requires the copy hash to equal the recorded preimage,
+requires the installed state to equal the recorded published postimage (or the preimage on
+replay), requires the destination to match `Get-LiveTransactionStatePaths`, re-proves the
+immutable claims against the header binding, and writes through the same same-directory temp
+replace the state engines use. It journals the new `STATE_RESTORED` phase only when bytes are
+written, so a replay after a kill between the write and the record is idempotent. Replays also
+skip completed live targets that already match their preimage, so a kill between the live
+restoration and the state restoration never repeats a move. The rolled-back result now binds the
+restored state hash alongside `RestorationHash`.
+
+**Plan and classification.** Plans bind `AuthorityStatePreimage`/`AuthorityStateExpected` for any
+plan over a completed state replacement; a rollback additionally binds the optional schema-1
+`AuthorityStatePreimagePath` and is only derived while that copy still reproduces the recorded
+preimage. `Test-RollbackPlanSemantics` requires all three for a rollback whose chain contains
+`FILE_REPLACED`/`STATE_PUBLISHED` (phases only the authority state file produces) and rejects an
+orphan path via the new `rollback-plan.state-preimage-path-orphan.invalid.json` fixture.
+`STATE_PREIMAGE_COMPLETE` and `FILE_PREPARED` moved to the dispatcher's pre-primitive set and
+`STATE_PREIMAGE_COMPLETE` left the primitive set, so a captured preimage with zero state
+primitive is abandon-eligible — the plan's disjoint state-only priority. Two boundaries fail
+closed with `live-recovery-state-form-unsupported`: an authority state file replaced on disk while
+its `FILE_REPLACED` record is missing (manual recovery; the locator still reports
+`rollback-required`/`abandon-eligible` because it stays phase-only by design), and a `STATE_PUBLISHED`
+value that disagrees with the `FILE_REPLACED` record or a `STATE_PREIMAGE_COMPLETE` value that
+disagrees with the staged preimage.
+
+**Recovery failpoints.** The dispatcher now publishes `RECOVERY_ACTION_INTENT`,
+`RECOVERY_ACTION_PRIMITIVES` (both restorations durable, applied record absent),
+`RECOVERY_ACTION_APPLIED`, and `RECOVERY_RESULT_PUBLISHED` checkpoints. Kill/replay fixtures prove
+the intent window replays through a new plan that consumes the interrupted intent, the primitive
+and applied windows replay without repeating a live move or a state write, and the result window is
+finalize-only: a rollback request fails closed and the reviewed finalize reuses the published
+rolled-back result bytes and preserves its outcome.
+
+**Linked worktree.** Dispatch from a linked worktree proves the shared `GitCommonDirHash`,
+repository identity, and canonical lock key (same origin namespace), closes the transaction through
+the origin locks, and the origin repository sees the worktree recovery as finished; the wrong-clone
+rejection is unchanged.
+
+**Verification (2026-09-12, canonical `pwsh -NoProfile -File` runs).** `tests/live-recovery.tests.ps1`
+green in 310 s including every new window, the tampered-copy and unrecorded-replace negatives, and
+the linked-worktree block; `tests/canonical-production-seams.tests.ps1` 56/0 after the all-scripts
+reflection-inventory re-pin (count 14616 -> 14689, digest
+`285cef6a2e221ba1cc676ce00a61260f4bd6d488e225fe8fefe6f75004211c15`); registered artifact validation
+28 contracts / 28 positive / 110 negative with zero failures; `tests/test-runner.tests.ps1` passes
+with the live-recovery budget raised 300 -> 900 s and the workflow timeout 380 -> 390 minutes
+(computed requirement 22785 s, 615 s outer difference); the parse gate accepted 166 files;
+`tests/schema-validation.tests.ps1` passed; `git diff --check` was clean; the pinned secret scan
+found no blocking findings (1009 non-blocking hints); `build-skills.ps1` produced 7/15/7; and the
+sandboxed `sync.ps1 -DryRun` reported 29 additions, zero modified/removed/unknown targets, and
+changed no live file (external plan and generated reports deleted after review). The unified
+`run-tests.ps1 -All` pass has not returned yet and is the Step 3 closeout gate; its result is
+recorded below when it lands. Production Apply remains interlocked, and no live root was touched.
+
+## Remaining work
+
+Phase 2 has 16 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-3 are complete:
+
+| Task | Remaining steps | Remaining outcome |
+|---|---:|---|
+| Task 1 | 0/6 | Complete |
+| Task 2 | 0/7 | Complete |
+| Task 3 | 0/7 | Complete |
+| Task 4 | 0/7 | Complete |
+| Task 5 | 0/6 | Complete |
+| Task 6 | 2/5 | Steps 1-3 done at `0e04a2c` (locator, schema 1 plan contract, dispatcher with state rollback, failpoints/replay, worktree coverage); Step 4 deterministic failpoints and Step 5 restart verification remain |
+| Task 7 | 5/5 | Receipt-backed environment rollback |
+| Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
+| Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
+
+The required execution order is Task 1 -> Task 2 -> Task 3 -> Task 4 -> Task 5 -> Task 6 -> Task 7
+-> Task 8 -> Task 9. Phase 3 shared environment authority and task-overlay work, followed by the
+Phase 4 schema/CI contract and safe release, have not started. Before future environment planning,
+rebuild the stale commit-bound environment staging locks; this does not authorize Apply.
+
+Known boundaries handed to later steps: the result-MISSING committed-finalize branch (complete
+state postimage plus postconditions, no published result) still fails closed with
+`live-recovery-plan-stale`, because only finalize-over-a-published-result is implemented; Step 4
+owns the "before/after authority state replacement" checkpoints that would make the
+staged-but-unreplaced window deterministically killable; and the locator deliberately stays
+phase-only, so a state file replaced without its record surfaces as a dispatcher DryRun failure
+rather than a locator status.
+
 ## Remaining work
 
 Phase 2 has 17 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-2 are complete:
