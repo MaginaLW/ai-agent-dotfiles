@@ -1644,6 +1644,7 @@ try {
         @{ Name = 'journal-head-mismatch'; Failure = 'rollback-plan-chain-invalid' }
         @{ Name = 'claims-binding-missing'; Failure = 'rollback-plan-binding-missing' }
         @{ Name = 'duplicate-consumed-hash'; Failure = 'rollback-plan-binding-missing' }
+        @{ Name = 'state-preimage-path-orphan'; Failure = 'rollback-plan-binding-missing' }
     )
     foreach ($negative in $semanticNegatives) {
         $path = Join-Path $fixturesRoot ('rollback-plan.' + $negative.Name + '.invalid.json')
@@ -1998,6 +1999,8 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
             KeptOldHash = $keptOldHash
             KeptNewHash = $keptNewHash
             StatePath = (Join-Path $authorityDir 'current-env.json')
+            PreviousStateHash = (Get-FileByteHash -Path (Join-Path $authorityDir 'current-env.json'))
+            RecoveryCopy = (Join-Path $stagingClaude 'state-recovery/current-env.preimage.json')
         }
     }
 
@@ -2028,6 +2031,432 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     Assert ($null -ne $rolledResult -and [string] $rolledResult['Outcome'] -ceq 'rolled-back' -and (Test-LiveTransactionMapHasName -Map $rolledResult -Name 'RestorationHash')) 'the rolled-back result carries the restoration binding'
     $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
     Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the locator reports clean after the rollback recovery'
+
+    # ------------------------------------------------------------------
+    # Task 6 Step 3: authority state rollback and dispatcher failpoints
+    # ------------------------------------------------------------------
+
+    function New-DispatchStateOnlyFixture {
+        # A real controller-transition journal in the dispatch sandbox: the
+        # header binds the dispatch origin, the immutable claims, and the
+        # preimage state document the engine replaces with its postimage.
+        param([Parameter(Mandatory)] [string] $Label)
+        $root = Join-Path $dispatchWork "state-only-$Label"
+        $liveClaude = Join-Path $root 'live/claude/skills'
+        $liveCodex = Join-Path $root 'live/codex/skills'
+        $liveReasonix = Join-Path $root 'live/reasonix/skills'
+        foreach ($dir in @($liveClaude, $liveCodex, $liveReasonix)) {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        }
+        Write-TextFile -Path (Join-Path $liveClaude 'kept-claude/SKILL.md') -Content 'dispatch-state-only-claude'
+        Write-TextFile -Path (Join-Path $liveCodex 'kept-codex/SKILL.md') -Content 'dispatch-state-only-codex'
+        Write-TextFile -Path (Join-Path $liveReasonix 'kept-reasonix/SKILL.md') -Content 'dispatch-state-only-reasonix'
+        $authorityDir = Join-Path (Join-Path $derivedControl 'homes') $dispatchAuthorityKey
+        New-Item -ItemType Directory -Force -Path $authorityDir | Out-Null
+        $claimsBytes = [System.Text.UTF8Encoding]::new($false).GetBytes('{"artifact":"root-claims","fixture":"dispatch-state-only"}')
+        [System.IO.File]::WriteAllBytes((Join-Path $authorityDir 'root-claims.json'), $claimsBytes)
+        $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
+        $platforms = @(
+            [ordered]@{ Platform = 'Claude'; LiveRoot = $liveClaude },
+            [ordered]@{ Platform = 'Codex'; LiveRoot = $liveCodex },
+            [ordered]@{ Platform = 'Reasonix'; LiveRoot = $liveReasonix }
+        )
+        $targetContext = Sync-EngineIntentIdentities -TargetContextIntent (New-EngineTargetContextIntent -Platforms $platforms)
+        $previous = New-EnginePreviousStateDocument -TargetContextIntent $targetContext -ClaimsHash $claimsHash -CapabilityHashes $engineCapabilityHashes
+        $previousBytes = ConvertTo-SemanticJsonBytes -InputObject $previous
+        $statePath = Join-Path $authorityDir 'current-env.json'
+        [System.IO.File]::WriteAllBytes($statePath, $previousBytes)
+        $transactionId = [Guid]::NewGuid().ToString()
+        $header = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'live-journal-header'
+            TransactionId = $transactionId
+            OperationKind = 'controller-transition'
+            TransactionMode = 'state-only'
+            OriginalDocumentHash = ('1' * 64)
+            OriginalPlanHash = ('2' * 64)
+            HomeAuthorityKey = $dispatchAuthorityKey
+            OriginRepoId = $dispatchRepoId
+            GitCommonDirHash = $dispatchGit.GitCommonDirHash
+            CanonicalLockKey = $dispatchLockKey
+            RootClaimsHash = $claimsHash
+            ReceiptRef = 'NO_LIVE_MUTATION'
+            Targets = @()
+        }
+        $transactionDir = Join-Path (Join-Path $derivedControl 'live-transactions') $transactionId
+        New-SealedLiveJournalHeader -Document $header -TransactionDirectory $transactionDir | Out-Null
+        $recovery = Join-Path $root 'state-recovery'
+        $producerArgs = [ordered]@{
+            TransactionDirectory = $transactionDir
+            Header = $header
+            AuthorityStateIntent = (New-EngineControllerAuthorityStateIntent -ClaimsHash $claimsHash -PlanHash ('a' * 64) -DocumentHash ('b' * 64))
+            TargetContextIntent = $targetContext
+            FinalCapabilityHashesByPlatform = $engineCapabilityHashes
+            ControlBase = $derivedControl
+            StateRecoveryDirectory = $recovery
+        }
+        return [ordered]@{
+            ProducerArgs = $producerArgs
+            TransactionId = $transactionId
+            StatePath = $statePath
+            PreviousStateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($previousBytes)).ToLowerInvariant()
+            RecoveryCopy = (Join-Path $recovery 'current-env.preimage.json')
+        }
+    }
+
+    function Invoke-KilledRecoveryDispatch {
+        # Runs the real dispatch route inside the sandbox and force-kills the
+        # process tree when the child reaches the requested recovery
+        # checkpoint. The failpoint plan travels through the inherited
+        # environment exactly like the engine failpoint hosts.
+        param(
+            [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Arguments,
+            [Parameter(Mandatory)] [string] $Checkpoint
+        )
+        $controller = New-FailpointController
+        $suffix = [Guid]::NewGuid().ToString('N')
+        $outFile = Join-Path $dispatchWork "dispatch-kill-out-$Checkpoint-$suffix.txt"
+        $errFile = Join-Path $dispatchWork "dispatch-kill-err-$Checkpoint-$suffix.txt"
+        $previousFailpoints = $env:AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS
+        $child = $null
+        try {
+            $failpointsJson = ConvertTo-Json -InputObject @([ordered]@{ Checkpoint = $Checkpoint; PipeName = $controller.Name }) -Compress
+            $env:AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS = $failpointsJson
+            $hostScript = Join-Path $RepoRoot 'scripts/internal/live-transaction-host.ps1'
+            $encoded = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject @($Arguments) -Compress)))
+            $child = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $hostScript, '-SandboxRoot', $dispatchWork, '-ScriptPath', $recoveryScript, '-ArgumentsBase64', $encoded) -PassThru -WindowStyle Hidden -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+            Wait-FailpointController -Controller $controller -ExpectedCheckpoint $Checkpoint -TimeoutSeconds 120
+            Stop-FailpointProcessTree -Process $child
+            Wait-Process -Id $child.Id -Timeout 30 -ErrorAction SilentlyContinue
+        }
+        catch {
+            $errText = ''
+            if (Test-Path -LiteralPath $errFile) { $errText = [System.IO.File]::ReadAllText($errFile) }
+            if ($null -ne $child -and -not $child.HasExited) {
+                Stop-FailpointProcessTree -Process $child
+                Wait-Process -Id $child.Id -Timeout 30 -ErrorAction SilentlyContinue
+            }
+            throw "FAIL: dispatch kill window '$Checkpoint': $($_.Exception.Message)`n$errText"
+        }
+        finally {
+            $env:AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS = $previousFailpoints
+            Close-FailpointController -Controller $controller
+        }
+    }
+
+    function Get-RecoveryJournalPhases {
+        param([Parameter(Mandatory)] [string] $TransactionDirectory)
+        $chain = Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory
+        return @($chain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+    }
+
+    function New-StatePublishedKillFixture {
+        param([Parameter(Mandatory)] [string] $Label)
+        $fixture = New-DispatchRollbackFixture -Label $Label
+        Invoke-KilledLiveTransactionHost -Mode produce -ProducerArgs $fixture.ProducerArgs -Checkpoint 'STATE_PUBLISHED' -SandboxRoot $dispatchWork
+        return $fixture
+    }
+
+    Write-Host '[live dispatch: receipt-backed rollback with authority state]'
+    $stateFixture = New-StatePublishedKillFixture -Label 'state-published'
+    $stateTxId = [string] $stateFixture.TransactionId
+    $stateDir = [string] $stateFixture.ProducerArgs['TransactionDirectory']
+    $statePhases = Get-RecoveryJournalPhases -TransactionDirectory $stateDir
+    Assert ($statePhases -ccontains 'STATE_PUBLISHED') 'the state fixture is killed with a published authority state'
+    $publishedStateHash = Get-FileByteHash -Path ([string] $stateFixture.StatePath)
+    Assert ($publishedStateHash -cne [string] $stateFixture.PreviousStateHash) 'the killed fixture replaced the authority state bytes'
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'rollback-required') 'the locator classifies the state-published kill as rollback-required'
+
+    $statePlan = Join-Path $dispatchWork 'plans' 'state-rollback-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $stateTxId, '-DryRun', '-PlanPath', $statePlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- state rollback dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the state rollback dry-run derives the reviewed plan'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $statePlan
+    $statePlanDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($statePlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Test-RollbackPlanSemantics -Document $statePlanDocument
+    $statePayload = [System.Collections.IDictionary] $statePlanDocument['PlanPayload']
+    Assert ([string] ([System.Collections.IDictionary] $statePayload['AuthorityStatePreimage'])['Hash'] -ceq [string] $stateFixture.PreviousStateHash) 'the rollback plan binds the journal preimage hash'
+    Assert ([string] ([System.Collections.IDictionary] $statePayload['AuthorityStateExpected'])['Hash'] -ceq $publishedStateHash) 'the rollback plan binds the published postimage it expects to find'
+    Assert ([string] $statePayload['AuthorityStatePreimagePath'] -ceq [string] $stateFixture.RecoveryCopy) 'the rollback plan binds the on-disk preimage copy'
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $stateTxId, '-Apply', '-PlanPath', $statePlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- state rollback apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: rollback .*\(outcome=rolled-back\)') 'the state rollback apply restores the preimage and closes the transaction'
+    Assert ((Get-SafeTreeSnapshot -Root ([string] $stateFixture.KeptLivePath)).TreeHash -ceq [string] $stateFixture.KeptOldHash) 'the state rollback restored the live target to its header preimage'
+    Assert ((Get-FileByteHash -Path ([string] $stateFixture.StatePath)) -ceq [string] $stateFixture.PreviousStateHash) 'the state rollback restored the authority state bytes'
+    $stateRolledChain = Get-SealedLiveJournalChain -TransactionDirectory $stateDir
+    $stateRestoredRecords = @($stateRolledChain.Records | Where-Object { [string] (([System.Collections.IDictionary] $_['Document'])['Phase']) -ceq 'STATE_RESTORED' })
+    Assert ($stateRestoredRecords.Count -eq 1) 'the rollback journals exactly one STATE_RESTORED record'
+    $stateRestoredData = [System.Collections.IDictionary] ([System.Collections.IDictionary] $stateRestoredRecords[0]['Document'])['Data']
+    Assert ([string] ([System.Collections.IDictionary] $stateRestoredData['RestoredState'])['Hash'] -ceq [string] $stateFixture.PreviousStateHash -and [string] $stateRestoredData['PublishedHash'] -ceq $publishedStateHash) 'the STATE_RESTORED record binds both reviewed state hashes'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the locator reports clean after the state rollback'
+
+    # A tampered preimage copy must not derive a rollback plan and must leave
+    # the installed state untouched.
+    $tamperFixture = New-StatePublishedKillFixture -Label 'state-tampered'
+    [System.IO.File]::AppendAllText([string] $tamperFixture.RecoveryCopy, 'tampered')
+    $tamperPlan = Join-Path $dispatchWork 'plans' 'state-tamper-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', [string] $tamperFixture.TransactionId, '-DryRun', '-PlanPath', $tamperPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-state-form-unsupported') 'a tampered preimage copy fails the rollback dry-run closed'
+    Assert (-not (Test-Path -LiteralPath $tamperPlan)) 'the tampered preimage copy writes no plan'
+    Assert ((Get-FileByteHash -Path ([string] $tamperFixture.StatePath)) -cne [string] $tamperFixture.PreviousStateHash) 'the tampered preimage copy leaves the state untouched'
+
+    function Add-DispatchStatePreparedWindow {
+        # Appends the pre-replace state records the engine would publish next:
+        # the journal-bound preimage copy plus FILE_PREPARED and
+        # FILE_REPLACE_INTENT, with the authority state file still holding the
+        # recorded preimage bytes.
+        param([Parameter(Mandatory)] $Fixture)
+        $statePath = [string] $Fixture.StatePath
+        $copy = [string] $Fixture.RecoveryCopy
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $copy) | Out-Null
+        [System.IO.File]::Copy($statePath, $copy, $false)
+        $oldBytes = [System.IO.File]::ReadAllBytes($statePath)
+        $oldObserved = [ordered]@{
+            State = 'PRESENT'
+            Type = 'File'
+            Hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($oldBytes)).ToLowerInvariant()
+            Identity = [string] ([AiAgentDotfiles.NoFollowFile]::Inspect($statePath)).Identity
+        }
+        Add-SealedLiveJournalRecord -TransactionDirectory ([string] $Fixture.ProducerArgs['TransactionDirectory']) -Phase 'FILE_PREPARED' -Data ([ordered]@{
+            TargetKind = 'state'
+            TargetPath = $statePath
+            StagedPath = $copy
+            StagedState = $oldObserved
+        }) | Out-Null
+        Add-SealedLiveJournalRecord -TransactionDirectory ([string] $Fixture.ProducerArgs['TransactionDirectory']) -Phase 'FILE_REPLACE_INTENT' -Data ([ordered]@{
+            TargetKind = 'state'
+            TargetPath = $statePath
+            TargetState = $oldObserved
+        }) | Out-Null
+        return $oldObserved
+    }
+
+    # A crash after the state was staged but before its replace is recorded:
+    # the live targets are mid-replacement, the state file still holds the
+    # preimage, and the rollback must restore the live targets only.
+    $stagedFixture = New-DispatchRollbackFixture -Label 'state-staged'
+    Invoke-KilledLiveTransactionHost -Mode produce -ProducerArgs $stagedFixture.ProducerArgs -Checkpoint 'NEW_INSTALLED' -SandboxRoot $dispatchWork
+    $stagedTxId = [string] $stagedFixture.TransactionId
+    $stagedDir = [string] $stagedFixture.ProducerArgs['TransactionDirectory']
+    $stagedObserved = Add-DispatchStatePreparedWindow -Fixture $stagedFixture
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'rollback-required') 'the staged-state window stays rollback-required'
+    $stagedPlan = Join-Path $dispatchWork 'plans' 'state-staged-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $stagedTxId, '-DryRun', '-PlanPath', $stagedPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- staged-state dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'a staged-but-unreplaced state still derives the live rollback plan'
+    $stagedPlanDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($stagedPlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Test-RollbackPlanSemantics -Document $stagedPlanDocument
+    Assert (-not (Test-LiveTransactionMapHasName -Map ([System.Collections.IDictionary] $stagedPlanDocument['PlanPayload']) -Name 'AuthorityStatePreimagePath')) 'the staged-state plan binds no state restore'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $stagedTxId, '-Apply', '-PlanPath', $stagedPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- staged-state apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'outcome=rolled-back') 'the staged-state rollback applies'
+    Assert ((Get-SafeTreeSnapshot -Root ([string] $stagedFixture.KeptLivePath)).TreeHash -ceq [string] $stagedFixture.KeptOldHash) 'the staged-state rollback restored the live target'
+    Assert ((Get-FileByteHash -Path ([string] $stagedFixture.StatePath)) -ceq [string] $stagedObserved['Hash']) 'the staged-state rollback left the untampered preimage in place'
+    Assert (-not (@(Get-RecoveryJournalPhases -TransactionDirectory $stagedDir) -contains 'STATE_RESTORED')) 'the staged-state rollback never writes the state file'
+
+    # The same window with the state file replaced on disk but no completed
+    # record is manual recovery: the derivation refuses before any mutation.
+    $unrecordedFixture = New-DispatchRollbackFixture -Label 'state-unrecorded'
+    Invoke-KilledLiveTransactionHost -Mode produce -ProducerArgs $unrecordedFixture.ProducerArgs -Checkpoint 'NEW_INSTALLED' -SandboxRoot $dispatchWork
+    $null = Add-DispatchStatePreparedWindow -Fixture $unrecordedFixture
+    [System.IO.File]::WriteAllText([string] $unrecordedFixture.StatePath, '{"artifact":"current-env-state","fixture":"unrecorded"}', [System.Text.UTF8Encoding]::new($false))
+    $unrecordedPlan = Join-Path $dispatchWork 'plans' 'state-unrecorded-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', [string] $unrecordedFixture.TransactionId, '-DryRun', '-PlanPath', $unrecordedPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-state-form-unsupported') 'an unrecorded state replace fails the live rollback dry-run closed'
+    Assert (-not (Test-Path -LiteralPath $unrecordedPlan)) 'an unrecorded state replace writes no plan'
+
+    Write-Host '[live dispatch: state-only rollback]'
+    $stateOnlyDispatch = New-DispatchStateOnlyFixture -Label 'file-replaced'
+    Invoke-KilledLiveTransactionHost -Mode state-only -ProducerArgs $stateOnlyDispatch.ProducerArgs -Checkpoint 'FILE_REPLACED' -SandboxRoot $dispatchWork
+    $stateOnlyTxId = [string] $stateOnlyDispatch.TransactionId
+    $stateOnlyDir = [string] $stateOnlyDispatch.ProducerArgs['TransactionDirectory']
+    Assert ((Get-RecoveryJournalPhases -TransactionDirectory $stateOnlyDir)[-1] -ceq 'FILE_REPLACED') 'the state-only fixture is killed after the state file replace'
+    Assert ((Get-FileByteHash -Path ([string] $stateOnlyDispatch.StatePath)) -cne [string] $stateOnlyDispatch.PreviousStateHash) 'the state-only kill has replaced the state bytes'
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'rollback-required') 'the locator classifies the state-only replace as rollback-required'
+
+    $stateOnlyPlan = Join-Path $dispatchWork 'plans' 'state-only-rollback-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $stateOnlyTxId, '-DryRun', '-PlanPath', $stateOnlyPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- state-only rollback dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the state-only rollback dry-run derives the reviewed plan'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $stateOnlyPlan
+    $stateOnlyPlanDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($stateOnlyPlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Test-RollbackPlanSemantics -Document $stateOnlyPlanDocument
+    $stateOnlyPayload = [System.Collections.IDictionary] $stateOnlyPlanDocument['PlanPayload']
+    Assert ([string] $stateOnlyPayload['TransactionMode'] -ceq 'state-only' -and [string] $stateOnlyPayload['ReceiptRef'] -ceq 'NO_LIVE_MUTATION') 'the state-only rollback plan keeps the no-receipt mode'
+    Assert ([string] ([System.Collections.IDictionary] $stateOnlyPayload['AuthorityStatePreimage'])['Hash'] -ceq [string] $stateOnlyDispatch.PreviousStateHash) 'the state-only rollback plan binds the journal preimage'
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $stateOnlyTxId, '-Apply', '-PlanPath', $stateOnlyPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- state-only rollback apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: rollback .*\(outcome=rolled-back\)') 'the state-only rollback apply restores the preimage and closes the transaction'
+    Assert ((Get-FileByteHash -Path ([string] $stateOnlyDispatch.StatePath)) -ceq [string] $stateOnlyDispatch.PreviousStateHash) 'the state-only rollback restored the authority state bytes'
+    $stateOnlyRolledChain = Get-SealedLiveJournalChain -TransactionDirectory $stateOnlyDir
+    Assert (@(Get-RecoveryJournalPhases -TransactionDirectory $stateOnlyDir) -contains 'STATE_RESTORED') 'the state-only rollback journals the state restoration'
+    Assert ($null -ne $stateOnlyRolledChain.Result -and [string] ([System.Collections.IDictionary] $stateOnlyRolledChain.Result)['Outcome'] -ceq 'rolled-back') 'the state-only rollback publishes the rolled-back result'
+
+    # A state-only journal killed right after the preimage capture has mutated
+    # nothing: the reviewed close is abandon, not rollback.
+    $preimageOnly = New-DispatchStateOnlyFixture -Label 'preimage-only'
+    Invoke-KilledLiveTransactionHost -Mode state-only -ProducerArgs $preimageOnly.ProducerArgs -Checkpoint 'STATE_PREIMAGE_COMPLETE' -SandboxRoot $dispatchWork
+    $preimageOnlyTxId = [string] $preimageOnly.TransactionId
+    $preimageOnlyDir = [string] $preimageOnly.ProducerArgs['TransactionDirectory']
+    Assert ((Get-FileByteHash -Path ([string] $preimageOnly.StatePath)) -ceq [string] $preimageOnly.PreviousStateHash) 'the preimage-only kill leaves the state bytes untouched'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'abandon-eligible') 'a captured preimage without any state primitive is abandon-eligible'
+    $preimageOnlyPlan = Join-Path $dispatchWork 'plans' 'preimage-only-abandon-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $preimageOnlyTxId, '-DryRun', '-PlanPath', $preimageOnlyPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- preimage-only abandon dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the preimage-only journal derives the reviewed abandon plan'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $preimageOnlyTxId, '-Apply', '-PlanPath', $preimageOnlyPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- preimage-only abandon apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: abandon') 'the preimage-only journal closes as abandoned'
+    Assert ((Get-FileByteHash -Path ([string] $preimageOnly.StatePath)) -ceq [string] $preimageOnly.PreviousStateHash) 'the preimage-only abandon restores nothing and changes nothing'
+    Assert (@(Get-RecoveryJournalPhases -TransactionDirectory $preimageOnlyDir) -contains 'COMPLETE') 'the preimage-only abandon publishes the recovery terminal'
+
+    Write-Host '[live dispatch: recovery failpoint replay]'
+    # Intent kill: the recovery intent is durable and no primitive ran; the
+    # replay derives a new plan that consumes the interrupted intent.
+    $intentFixture = New-StatePublishedKillFixture -Label 'fp-intent'
+    $intentTxId = [string] $intentFixture.TransactionId
+    $intentDir = [string] $intentFixture.ProducerArgs['TransactionDirectory']
+    $intentPlanOne = Join-Path $dispatchWork 'plans' 'fp-intent-1.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $intentTxId, '-DryRun', '-PlanPath', $intentPlanOne, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -eq 0) 'the intent-kill fixture derives its first rollback plan'
+    $intentPlanOneDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($intentPlanOne, [System.Text.UTF8Encoding]::new($false, $true)))
+    Invoke-KilledRecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $intentTxId, '-Apply', '-PlanPath', $intentPlanOne, '-RepoRoot', $dispatchRepo) -Checkpoint 'RECOVERY_ACTION_INTENT'
+    Assert ((Get-RecoveryJournalPhases -TransactionDirectory $intentDir)[-1] -ceq 'RECOVERY_ACTION_INTENT') 'the intent kill stops before any recovery primitive'
+    Assert ((Get-FileByteHash -Path ([string] $intentFixture.StatePath)) -cne [string] $intentFixture.PreviousStateHash) 'the intent kill leaves the published state installed'
+    $intentPlanTwo = Join-Path $dispatchWork 'plans' 'fp-intent-2.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $intentTxId, '-DryRun', '-PlanPath', $intentPlanTwo, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- intent replay dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0) 'the intent replay derives a second reviewed plan'
+    $intentPlanTwoDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($intentPlanTwo, [System.Text.UTF8Encoding]::new($false, $true)))
+    Assert (@(([System.Collections.IDictionary] $intentPlanTwoDocument['PlanPayload'])['ConsumedRecoveryDocumentHashes']).Count -eq 1 -and [string] (([System.Collections.IDictionary] $intentPlanTwoDocument['PlanPayload'])['ConsumedRecoveryDocumentHashes'])[0] -ceq [string] $intentPlanOneDocument['DocumentHash']) 'the replay plan consumes the interrupted recovery intent'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $intentTxId, '-Apply', '-PlanPath', $intentPlanTwo, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- intent replay apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'outcome=rolled-back') 'the intent replay applies the reviewed rollback'
+    Assert ((Get-FileByteHash -Path ([string] $intentFixture.StatePath)) -ceq [string] $intentFixture.PreviousStateHash) 'the intent replay restored the authority state'
+
+    # Primitive kill: both restorations are durable; the replay must not
+    # repeat a move or a state write.
+    $primitiveFixture = New-StatePublishedKillFixture -Label 'fp-primitives'
+    $primitiveTxId = [string] $primitiveFixture.TransactionId
+    $primitiveDir = [string] $primitiveFixture.ProducerArgs['TransactionDirectory']
+    $primitivePlanOne = Join-Path $dispatchWork 'plans' 'fp-primitives-1.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $primitiveTxId, '-DryRun', '-PlanPath', $primitivePlanOne, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -eq 0) 'the primitive-kill fixture derives its first rollback plan'
+    Invoke-KilledRecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $primitiveTxId, '-Apply', '-PlanPath', $primitivePlanOne, '-RepoRoot', $dispatchRepo) -Checkpoint 'RECOVERY_ACTION_PRIMITIVES'
+    Assert ((Get-RecoveryJournalPhases -TransactionDirectory $primitiveDir)[-1] -ceq 'STATE_RESTORED') 'the primitive kill stops after both restorations'
+    Assert ((Get-SafeTreeSnapshot -Root ([string] $primitiveFixture.KeptLivePath)).TreeHash -ceq [string] $primitiveFixture.KeptOldHash) 'the primitive kill left the live target at its preimage'
+    Assert ((Get-FileByteHash -Path ([string] $primitiveFixture.StatePath)) -ceq [string] $primitiveFixture.PreviousStateHash) 'the primitive kill left the authority state at its preimage'
+    $primitivePlanTwo = Join-Path $dispatchWork 'plans' 'fp-primitives-2.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $primitiveTxId, '-DryRun', '-PlanPath', $primitivePlanTwo, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -eq 0) 'the primitive replay derives a second reviewed plan'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $primitiveTxId, '-Apply', '-PlanPath', $primitivePlanTwo, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- primitive replay apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'outcome=rolled-back') 'the primitive replay closes the transaction'
+    Assert (@(Get-RecoveryJournalPhases -TransactionDirectory $primitiveDir) -contains 'STATE_RESTORED') 'the primitive replay completes the interrupted rollback'
+    Assert (@((Get-RecoveryJournalPhases -TransactionDirectory $primitiveDir) | Where-Object { $_ -ceq 'STATE_RESTORED' }).Count -eq 1) 'the primitive replay never repeats the state write'
+    Assert ((Get-SafeTreeSnapshot -Root ([string] $primitiveFixture.KeptLivePath)).TreeHash -ceq [string] $primitiveFixture.KeptOldHash) 'the primitive replay leaves the live target at its preimage'
+
+    # Applied kill: the applied record is durable without the published
+    # result; the replay must complete the same reviewed rollback without
+    # repeating a move or a state write.
+    $appliedFixture = New-StatePublishedKillFixture -Label 'fp-applied'
+    $appliedTxId = [string] $appliedFixture.TransactionId
+    $appliedDir = [string] $appliedFixture.ProducerArgs['TransactionDirectory']
+    $appliedPlanOne = Join-Path $dispatchWork 'plans' 'fp-applied-1.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $appliedTxId, '-DryRun', '-PlanPath', $appliedPlanOne, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -eq 0) 'the applied-kill fixture derives its first rollback plan'
+    Invoke-KilledRecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $appliedTxId, '-Apply', '-PlanPath', $appliedPlanOne, '-RepoRoot', $dispatchRepo) -Checkpoint 'RECOVERY_ACTION_APPLIED'
+    $appliedPhases = Get-RecoveryJournalPhases -TransactionDirectory $appliedDir
+    Assert ($appliedPhases[-1] -ceq 'RECOVERY_ACTION_APPLIED') 'the applied kill stops before the result publish'
+    Assert ($null -eq (Get-SealedLiveJournalChain -TransactionDirectory $appliedDir).Result) 'the applied kill publishes no result'
+    Assert ((Get-FileByteHash -Path ([string] $appliedFixture.StatePath)) -ceq [string] $appliedFixture.PreviousStateHash) 'the applied kill left the restored state in place'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'rollback-required') 'the applied kill stays rollback-required'
+    $appliedPlanTwo = Join-Path $dispatchWork 'plans' 'fp-applied-2.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $appliedTxId, '-DryRun', '-PlanPath', $appliedPlanTwo, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -eq 0) 'the applied replay derives a second reviewed plan'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $appliedTxId, '-Apply', '-PlanPath', $appliedPlanTwo, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- applied replay apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'outcome=rolled-back') 'the applied replay closes the transaction'
+    Assert (@((Get-RecoveryJournalPhases -TransactionDirectory $appliedDir) | Where-Object { $_ -ceq 'STATE_RESTORED' }).Count -eq 1) 'the applied replay never repeats the state write'
+    Assert ((Get-SafeTreeSnapshot -Root ([string] $appliedFixture.KeptLivePath)).TreeHash -ceq [string] $appliedFixture.KeptOldHash) 'the applied replay leaves the live target at its preimage'
+
+    # Result kill: the rolled-back result is published without the terminal.    # Only finalize may close it, reusing those exact result bytes.
+    $resultFixture = New-StatePublishedKillFixture -Label 'fp-result'
+    $resultTxId = [string] $resultFixture.TransactionId
+    $resultDir = [string] $resultFixture.ProducerArgs['TransactionDirectory']
+    $resultPlanOne = Join-Path $dispatchWork 'plans' 'fp-result-1.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $resultTxId, '-DryRun', '-PlanPath', $resultPlanOne, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -eq 0) 'the result-kill fixture derives its first rollback plan'
+    Invoke-KilledRecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $resultTxId, '-Apply', '-PlanPath', $resultPlanOne, '-RepoRoot', $dispatchRepo) -Checkpoint 'RECOVERY_RESULT_PUBLISHED'
+    $resultKilledChain = Get-SealedLiveJournalChain -TransactionDirectory $resultDir
+    $resultKilledPhases = Get-RecoveryJournalPhases -TransactionDirectory $resultDir
+    Assert ($null -ne $resultKilledChain.Result -and $resultKilledPhases[-1] -cne 'COMPLETE') 'the result kill publishes the rolled-back result without the terminal'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'finalize-eligible') 'the locator classifies the result kill as finalize-eligible'
+    $resultRollbackReplay = Join-Path $dispatchWork 'plans' 'fp-result-rollback-2.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $resultTxId, '-DryRun', '-PlanPath', $resultRollbackReplay, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-action-mismatch') 'a rollback replay after the result publish fails closed'
+    $resultFinalizePlan = Join-Path $dispatchWork 'plans' 'fp-result-finalize.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $resultTxId, '-DryRun', '-PlanPath', $resultFinalizePlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- result finalize dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0) 'the result kill is finalize-eligible for the reviewed finalize plan'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'finalize', '-TransactionId', $resultTxId, '-Apply', '-PlanPath', $resultFinalizePlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- result finalize apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: finalize .*\(outcome=rolled-back\)') 'the finalize replay preserves the published rolled-back outcome'
+    $resultClosedChain = Get-SealedLiveJournalChain -TransactionDirectory $resultDir
+    Assert ([string] ([System.Collections.IDictionary] $resultClosedChain.Records[-1]['Document'])['Data']['ResultHash'] -ceq [string] $resultClosedChain.ResultFileHash) 'the finalize terminal binds the reused rolled-back result'
+    Assert ((Get-FileByteHash -Path ([string] $resultFixture.StatePath)) -ceq [string] $resultFixture.PreviousStateHash) 'the finalize replay leaves the restored state in place'
+
+    Write-Host '[live dispatch: linked worktree origin]'
+    $worktreeRoot = Join-Path $dispatchWork 'linked-worktree'
+    & git -C $dispatchRepo worktree add --quiet --detach $worktreeRoot
+    if ($LASTEXITCODE -ne 0) { throw 'linked worktree fixture failed' }
+    $worktreeGit = Get-CanonicalGitContext -RepoRoot $worktreeRoot
+    Assert ((Get-CanonicalRepoIdentity -GitContext $worktreeGit) -ceq $dispatchRepoId) 'a linked worktree derives the shared repository identity'
+    Assert ([string] $worktreeGit.GitCommonDirHash -ceq [string] $dispatchGit.GitCommonDirHash) 'a linked worktree shares the canonical lock namespace'
+    $worktreeTxId = [Guid]::NewGuid().ToString()
+    $worktreeReceiptId = [Guid]::NewGuid().ToString()
+    $worktreeDir = Join-Path (Join-Path $derivedControl 'live-transactions') $worktreeTxId
+    $worktreeHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-journal-header'
+        TransactionId = $worktreeTxId
+        OperationKind = 'environment'
+        TransactionMode = 'receipt-backed'
+        OriginalDocumentHash = ('1' * 64)
+        OriginalPlanHash = ('2' * 64)
+        HomeAuthorityKey = $dispatchAuthorityKey
+        OriginRepoId = $dispatchRepoId
+        GitCommonDirHash = $dispatchGit.GitCommonDirHash
+        CanonicalLockKey = $dispatchLockKey
+        ReceiptIntent = [ordered]@{ Id = $worktreeReceiptId; Path = (Join-Path $derivedBackups $worktreeReceiptId) }
+        Targets = @()
+    }
+    New-SealedLiveJournalHeader -Document $worktreeHeader -TransactionDirectory $worktreeDir | Out-Null
+    Add-SealedLiveJournalRecord -TransactionDirectory $worktreeDir -Phase 'RECEIPT_COMPLETE' -Data ([ordered]@{
+        ReceiptRef = [ordered]@{ Id = $worktreeReceiptId; Path = (Join-Path $derivedBackups $worktreeReceiptId); Hash = ('7' * 64) }
+    }) | Out-Null
+    $worktreePlan = Join-Path $dispatchWork 'plans' 'worktree-abandon-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $worktreeTxId, '-DryRun', '-PlanPath', $worktreePlan, '-RepoRoot', $worktreeRoot)
+    if ($r.Code -ne 0) { Write-Host '----- worktree dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'a linked worktree dispatches through the shared origin locks'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $worktreeTxId, '-Apply', '-PlanPath', $worktreePlan, '-RepoRoot', $worktreeRoot)
+    if ($r.Code -ne 0) { Write-Host '----- worktree apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: abandon') 'the linked worktree apply closes the transaction'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $worktreeTxId, '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'plans' 'worktree-abandon-2.json'), '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-transaction-finished') 'the origin repository sees the worktree recovery as finished'
+    & git -C $dispatchRepo worktree remove --force $worktreeRoot
+    Assert ($LASTEXITCODE -eq 0 -or -not (Test-Path -LiteralPath $worktreeRoot)) 'the linked worktree fixture is removed'
 
     Write-Host 'live recovery tests: PASS'
 }

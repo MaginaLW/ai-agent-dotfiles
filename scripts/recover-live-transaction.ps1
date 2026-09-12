@@ -21,9 +21,11 @@
     exact transaction under those locks. -DryRun derives the schema-1
     rollback/recovery plan from the journal evidence and writes it create-new
     to -PlanPath. -Apply validates the reviewed plan fail-closed under the
-    held locks (semantics, kind/transaction match, and the derived journal
-    head) and currently stops at live-recovery-dispatch-not-wired; the
-    reviewed transitions execute in the remaining Step 3 slices.
+    held locks (semantics, kind/transaction match, the derived journal head,
+    and the journal-bound preimage copy) and executes the reviewed transition:
+    abandon, rollback (live targets and the authority state restored to their
+    journal-bound preimages), or finalize. The recovery checkpoints are
+    publishable failpoints for hard-kill and replay testing.
 
     All routes resolve the live surface only inside the internal sandbox;
     production resolution arrives with the reviewed live-safety release.
@@ -58,7 +60,6 @@ $ErrorActionPreference = 'Stop'
 
 $script:LiveRecoveryHostResolutionRequired = 'live-plan-host-resolution-required'
 $script:LiveRecoveryAuthorityMissing = 'live-plan-authority-missing'
-$script:LiveRecoveryDispatchNotWired = 'live-recovery-dispatch-not-wired'
 $script:LiveRecoveryTransactionUnknown = 'live-recovery-transaction-unknown'
 $script:LiveRecoveryOriginMismatch = 'manual-recovery-required'
 $script:LiveRecoveryActionMismatch = 'live-recovery-action-mismatch'
@@ -68,7 +69,7 @@ $script:LiveRecoveryPlanMissing = 'live-recovery-plan-missing'
 $script:LiveRecoveryPlanMismatch = 'live-recovery-plan-mismatch'
 $script:LiveRecoveryPlanStale = 'live-recovery-plan-stale'
 $script:LiveRecoveryReceiptUnsupported = 'live-recovery-receipt-state-unsupported'
-$script:LiveRecoveryStateFormUnsupported = 'live-recovery-state-form-unsupported'
+$script:LiveRecoveryStateFormUnsupported = $script:LiveTransactionStateFormUnsupported
 
 function Resolve-LiveRecoveryInternalRoots {
     # Only a genuine sandbox capability with all three prefixed locators may
@@ -141,7 +142,26 @@ function Assert-LiveRecoveryAuthorityComplete {
     if (-not $complete) { throw $script:LiveRecoveryAuthorityMissing }
 }
 
-$script:PrePrimitivePhases = @('RESERVED', 'PREPARED', 'RECEIPT_COMPLETE', 'DIR_CREATE_INTENT', 'FILE_REPLACE_INTENT')
+$script:PrePrimitivePhases = @('RESERVED', 'PREPARED', 'RECEIPT_COMPLETE', 'DIR_CREATE_INTENT', 'FILE_REPLACE_INTENT', 'FILE_PREPARED', 'STATE_PREIMAGE_COMPLETE')
+
+function Assert-LiveRecoveryStateUnreplaced {
+    # A staged authority-state replacement whose FILE_REPLACED record never
+    # appeared must still show the journal-bound preimage on disk (or the file
+    # absent for a first authority). Anything else is manual recovery, never a
+    # reviewed abandon or a live-only rollback.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $PreimageBinding)
+
+    $failure = $script:LiveRecoveryStateFormUnsupported
+    $observed = Get-SealedLiveObservableFileState -Path ([string] $PreimageBinding.TargetPath)
+    if ([string] $PreimageBinding.Preimage['State'] -ceq 'MISSING') {
+        if ([string] $observed['State'] -cne 'MISSING') { throw $failure }
+        return
+    }
+    if ([string] $observed['State'] -cne 'PRESENT' -or [string] $observed['Hash'] -cne [string] $PreimageBinding.Preimage['Hash']) {
+        throw $failure
+    }
+}
 
 function New-LiveRecoveryPlanPayload {
     # Derives the schema-1 rollback/recovery plan payload from the journal
@@ -315,7 +335,6 @@ function New-LiveRecoveryPlanPayload {
         }
     }
     else {
-        if ($Action -ceq 'rollback') { throw $script:LiveRecoveryStateFormUnsupported }
         $payload['ReceiptRef'] = 'NO_LIVE_MUTATION'
         $observed = Get-LiveTransactionObservedDirectory -Path ([string] $AuthorityContext.AuthorityRoot)
         if ([string] $observed['State'] -ceq 'MISSING') {
@@ -327,6 +346,52 @@ function New-LiveRecoveryPlanPayload {
             $payload['AuthorityStatePreimage'] = $stateBinding
             $payload['AuthorityStateExpected'] = [ordered]@{ State = 'PRESENT'; Hash = [string] $observed['Hash']; Identity = [string] $observed['Identity'] }
         }
+    }
+
+    # Journal-bound authority state replacement evidence: any reviewed plan
+    # whose chain completed the state replacement binds the journal preimage
+    # and the installed postimage; a rollback additionally binds the on-disk
+    # preimage copy it will read back. A staged-but-unreplaced state must still
+    # show the recorded preimage on disk, or the journal is manual recovery.
+    $stateReplaced = $null -ne (Get-SealedLiveAuthorityStateReplacedHash -Records $records)
+    $preimageBinding = $null
+    if (-not $stateReplaced) { $preimageBinding = Get-SealedLiveAuthorityStatePreimageBinding -Records $records }
+    if ($Action -ceq 'rollback' -or $Action -ceq 'finalize') {
+        if ($stateReplaced) {
+            $stateEvidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $records
+            if ($null -eq $stateEvidence) { throw $script:LiveRecoveryStateFormUnsupported }
+            if ($Action -ceq 'rollback') {
+                # The reviewed rollback plan is only derived while the
+                # journal-bound preimage copy still reproduces the recorded
+                # preimage bytes.
+                $copyFull = [System.IO.Path]::GetFullPath([string] $stateEvidence.PreimageCopy)
+                if (-not (Test-Path -LiteralPath $copyFull -PathType Leaf)) { throw $script:LiveRecoveryStateFormUnsupported }
+                $copyBytes = [System.IO.File]::ReadAllBytes($copyFull)
+                $copyHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($copyBytes)).ToLowerInvariant()
+                if ($copyHash -cne [string] $stateEvidence.Preimage.Hash) { throw $script:LiveRecoveryStateFormUnsupported }
+                $payload['AuthorityStatePreimagePath'] = [string] $stateEvidence.PreimageCopy
+            }
+            $payload['AuthorityStatePreimage'] = $stateEvidence.Preimage
+            $payload['AuthorityStateExpected'] = $stateEvidence.Published
+        }
+        elseif ($Action -ceq 'rollback') {
+            if (-not $receiptBacked) {
+                # A state-only rollback with no completed state replacement has
+                # no bytes to restore; that journal closes as abandon instead.
+                throw $script:LiveRecoveryStateFormUnsupported
+            }
+            if ($null -ne $preimageBinding) {
+                # The live targets are mid-replacement while the state replace
+                # never completed: rolling back the live targets is reviewed
+                # only while the state still equals the captured preimage.
+                Assert-LiveRecoveryStateUnreplaced -PreimageBinding $preimageBinding
+            }
+        }
+    }
+    elseif ($Action -ceq 'abandon' -and $null -ne $preimageBinding) {
+        # Abandon must not close a journal whose authority state file was
+        # already replaced on disk without its completed record.
+        Assert-LiveRecoveryStateUnreplaced -PreimageBinding $preimageBinding
     }
 
     $expectedOutcome = switch ($Action) {
@@ -341,7 +406,7 @@ function New-LiveRecoveryPlanPayload {
     return $payload
 }
 
-$script:PrimitivePhases = @('NEW_INSTALLED', 'OLD_MOVED', 'FILE_REPLACED', 'DIR_CREATED', 'CLAIMS_PUBLISHED', 'STATE_PREIMAGE_COMPLETE', 'STATE_PUBLISHED', 'RECOVERY_ACTION_INTENT', 'RECOVERY_ACTION_APPLIED')
+$script:PrimitivePhases = @('NEW_INSTALLED', 'OLD_MOVED', 'FILE_REPLACED', 'DIR_CREATED', 'CLAIMS_PUBLISHED', 'STATE_PUBLISHED', 'STATE_RESTORED', 'RECOVERY_ACTION_INTENT', 'RECOVERY_ACTION_APPLIED')
 
 function Get-RecoveryTransactionStatus {
     param([Parameter(Mandatory)] $Chain)
@@ -509,6 +574,7 @@ else {
                     ExpectedOutcome = [string] $planPayload['ExpectedOutcome']
                     Action = [string] $planPayload['Action']
                 })
+                Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RECOVERY_ACTION_INTENT'
                 $planAction = [string] $planPayload['Action']
                 if ($planAction -ceq 'finalize') {
                     # Finalize reuses the published result byte-for-byte and
@@ -523,17 +589,39 @@ else {
                 }
                 else {
                     $restorationRows = $null
+                    $stateRestore = $null
                     if ($planAction -ceq 'rollback') {
-                        # Rollback restores the journal targets to their
-                        # header-bound preimage states; a published authority
-                        # state recovers through the state machinery and stays
-                        # unsupported in this slice.
-                        $publishedStates = @($chain.Records | Where-Object { [string] (([System.Collections.IDictionary] $_['Document'])['Phase']) -ceq 'STATE_PUBLISHED' })
-                        if ($publishedStates.Count -gt 0) { throw $script:LiveRecoveryStateFormUnsupported }
-                        $completedTuples = Get-SealedLiveJournalCompletedFromChain -Chain $chain
-                        $null = Restore-SealedLiveMutationTargets -Targets @([object[]] $planPayload['Targets']) -Completed @([object[]] $completedTuples)
+                        # Rollback restores the journal targets to their header
+                        # preimage states and the authority state to its
+                        # journal-bound preimage copy. Completed targets that
+                        # already match the preimage (a replay after an
+                        # interrupted restore) are skipped, never re-moved.
+                        $targets = @($planPayload['Targets'])
+                        $completedTuples = @(Get-SealedLiveJournalCompletedFromChain -Chain $chain)
+                        $pendingTuples = [System.Collections.Generic.List[object]]::new()
+                        foreach ($entry in $completedTuples) {
+                            $target = $null
+                            foreach ($candidate in $targets) {
+                                if ([string] $candidate['TargetId'] -ceq [string] $entry['TargetId']) { $target = $candidate; break }
+                            }
+                            if ($null -eq $target) {
+                                throw ($script:LiveRecoveryOriginMismatch + ': rollback restoration target is missing from the plan')
+                            }
+                            $current = [System.Collections.IDictionary] $target['Current']
+                            if ([string] $current['State'] -ceq 'PRESENT') {
+                                $observedNow = Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath'])
+                                if ([string] $observedNow['State'] -ceq 'PRESENT' -and [string] $observedNow['Hash'] -ceq [string] $current['Hash']) { continue }
+                            }
+                            elseif (-not (Test-Path -LiteralPath ([string] $target['TargetPath']))) { continue }
+                            $pendingTuples.Add($entry)
+                        }
+                        $null = Restore-SealedLiveMutationTargets -Targets $targets -Completed @($pendingTuples)
+                        $stateRestore = Restore-SealedLiveAuthorityState -Header $headerMap -Records $records -PlanPayload $planPayload -ControlBase ([string] $authorityContext.ControlBase) -TransactionDirectory $transactionDir
+                        if ($null -eq $stateRestore -and (Test-LiveTransactionMapHasName -Map $planPayload -Name 'AuthorityStatePreimagePath')) {
+                            throw $script:LiveRecoveryStateFormUnsupported
+                        }
                         $restorationRows = [System.Collections.Generic.List[object]]::new()
-                        foreach ($target in @([object[]] $planPayload['Targets'])) {
+                        foreach ($target in $targets) {
                             $current = [System.Collections.IDictionary] $target['Current']
                             $observed = Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] $current['Hash'])
                             if (([string] $current['State'] -ceq 'PRESENT' -and [string] $observed['State'] -cne 'PRESENT') -or
@@ -542,12 +630,20 @@ else {
                             }
                             $restorationRows.Add([ordered]@{ TargetId = [string] $target['TargetId']; Restored = $observed })
                         }
+                        if ($null -ne $stateRestore) {
+                            $restorationRows.Add([ordered]@{ TargetId = 'authority-state'; Restored = $stateRestore.RestoredState })
+                        }
                     }
+                    # Recovery primitives are durable here (rollback restored
+                    # live targets and the authority state); the applied record
+                    # is the first thing a replay must not repeat blindly.
+                    Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RECOVERY_ACTION_PRIMITIVES'
                     $null = Add-SealedLiveJournalRecord -TransactionDirectory $transactionDir -Phase 'RECOVERY_ACTION_APPLIED' -Data ([ordered]@{
                         Action = $planAction
                     })
                     $receiptBackedDispatch = Test-LiveTransactionMapHasName -Map $headerMap -Name 'ReceiptIntent'
                     $finalOutcome = if ($planAction -ceq 'rollback') { 'rolled-back' } else { [string] $planPayload['ExpectedOutcome'] }
+                    Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RECOVERY_ACTION_APPLIED'
                     $appliedChain = Get-SealedLiveJournalChain -TransactionDirectory $transactionDir
                     $appliedHead = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] @($appliedChain.Records)[-1]['Document'])
                     $resultDocument = [ordered]@{
@@ -561,6 +657,7 @@ else {
                         Outcome = [string] $planPayload['ExpectedOutcome']
                     }
                     if ($null -ne $restorationRows) { $resultDocument['RestorationHash'] = (Get-SemanticJsonHash -InputObject @($restorationRows)) }
+                    if ($null -ne $stateRestore) { $resultDocument['StateHash'] = [string] $stateRestore.RestoredState['Hash'] }
                     if ($receiptBackedDispatch) {
                         # Result semantics: an abandoned result never carries a
                         # COMPLETE-receipt block; a MISSING/PARTIAL receipt is
@@ -587,6 +684,7 @@ else {
                     $null = Publish-SealedLiveTransactionResult -TransactionDirectory $transactionDir -Document $resultDocument
                     $resultFileHash = (Get-FileHash -LiteralPath (Join-Path $transactionDir 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
                 }
+                Invoke-SealedLiveTransactionFailpoint -Checkpoint 'RECOVERY_RESULT_PUBLISHED'
                 $null = Add-SealedLiveJournalRecord -TransactionDirectory $transactionDir -Phase 'COMPLETE' -Data ([ordered]@{
                     ResultHash = $resultFileHash
                     OriginalDocumentHash = [string] $headerMap['OriginalDocumentHash']

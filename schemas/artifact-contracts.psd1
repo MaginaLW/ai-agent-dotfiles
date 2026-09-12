@@ -144,6 +144,7 @@
                 @{ Name = 'claims-binding-missing'; Path = 'tests/fixtures/artifacts/rollback-plan.claims-binding-missing.invalid.json'; FailureLayer = 'Semantic' }
                 @{ Name = 'journal-head-mismatch'; Path = 'tests/fixtures/artifacts/rollback-plan.journal-head-mismatch.invalid.json'; FailureLayer = 'Semantic' }
                 @{ Name = 'duplicate-consumed-hash'; Path = 'tests/fixtures/artifacts/rollback-plan.duplicate-consumed-hash.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'state-preimage-path-orphan'; Path = 'tests/fixtures/artifacts/rollback-plan.state-preimage-path-orphan.invalid.json'; FailureLayer = 'Semantic' }
             )
             SemanticValidator = 'Test-RollbackPlanSemantics'
         }

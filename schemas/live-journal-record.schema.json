@@ -15,7 +15,7 @@
         "DIR_CREATE_INTENT", "DIR_CREATED", "RECEIPT_COMPLETE", "PREPARED",
         "MOVE_OLD_INTENT", "OLD_MOVED", "MOVE_NEW_INTENT", "NEW_INSTALLED",
         "CLAIMS_PUBLISHED", "STATE_PREIMAGE_COMPLETE", "FILE_PREPARED",
-        "FILE_REPLACE_INTENT", "FILE_REPLACED", "STATE_PUBLISHED",
+        "FILE_REPLACE_INTENT", "FILE_REPLACED", "STATE_PUBLISHED", "STATE_RESTORED",
         "POSTCONDITIONS_OK", "RECOVERY_ACTION_INTENT", "RECOVERY_ACTION_APPLIED", "COMPLETE"
       ]
     },
@@ -69,6 +69,9 @@
         "PostconditionsHash": { "$ref": "#/$defs/hash" },
         "ClaimsHash": { "$ref": "#/$defs/hash" },
         "StateHash": { "$ref": "#/$defs/hash" },
+        "RestoredState": { "$ref": "#/$defs/observed" },
+        "PreimageHash": { "$ref": "#/$defs/hash" },
+        "PublishedHash": { "$ref": "#/$defs/hash" },
         "PreStatePhaseHash": { "$ref": "#/$defs/hash" },
         "PlanKind": { "enum": ["live-recover-abandon", "live-recover-rollback", "live-recover-finalize"] },
         "DocumentHash": { "$ref": "#/$defs/hash" },

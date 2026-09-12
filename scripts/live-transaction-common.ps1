@@ -20,6 +20,7 @@ $script:LiveTransactionAlreadyTerminal = 'live-transaction-already-terminal'
 $script:LiveTransactionPublishFailed = 'live-transaction-publish-failed'
 $script:LiveTransactionResultExists = 'live-transaction-result-already-exists'
 $script:LiveTransactionChainInvalid = 'manual-recovery-required'
+$script:LiveTransactionStateFormUnsupported = 'live-recovery-state-form-unsupported'
 
 $script:LiveTransactionOperations = @(
     'initial', 'environment', 'task-overlay', 'migrate', 'adopt', 'repair-adopt',
@@ -157,6 +158,7 @@ $script:LiveRecordPhaseContracts = @{
     'FILE_REPLACED'             = @{ Required = @('TargetKind', 'TargetPath', 'TargetState') }
     'STATE_PUBLISHED'           = @{ Required = @('StateHash') }
     'POSTCONDITIONS_OK'         = @{ Required = @('PostconditionsHash') }
+    'STATE_RESTORED'            = @{ Required = @('TargetKind', 'TargetPath', 'RestoredState', 'PreimageHash', 'PublishedHash') }
     'RECOVERY_ACTION_INTENT'    = @{ Required = @('PlanKind', 'DocumentHash', 'PriorHeadHash', 'ExpectedTerminalProjectionHash', 'ExpectedOutcome', 'Action') }
     'RECOVERY_ACTION_APPLIED'   = @{ Required = @('Action') }
     'COMPLETE'                  = @{ Required = @('ResultHash', 'OriginalDocumentHash', 'Outcome', 'ClosingKind', 'ClosingDocumentHash') }
@@ -364,6 +366,22 @@ function Test-RollbackPlanSemantics {
     }
     if ($phases -ccontains 'STATE_PREIMAGE_COMPLETE' -and -not (Test-LiveTransactionMapHasName -Map $payload -Name 'AuthorityStatePreimage')) {
         throw $script:RollbackPlanBindingMissing
+    }
+    # A bound state preimage copy makes the reviewed rollback read those exact
+    # bytes: the plan must also bind the installed postimage it expects to find.
+    if (Test-LiveTransactionMapHasName -Map $payload -Name 'AuthorityStatePreimagePath') {
+        if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'AuthorityStatePreimage') -or
+            -not (Test-LiveTransactionMapHasName -Map $payload -Name 'AuthorityStateExpected')) {
+            throw $script:RollbackPlanBindingMissing
+        }
+    }
+    # FILE_REPLACED and STATE_PUBLISHED only ever describe the authority state
+    # file: a rollback over a completed replacement must bind the restorable
+    # preimage, its on-disk copy, and the installed postimage.
+    if ($action -ceq 'rollback' -and ($phases -ccontains 'FILE_REPLACED' -or $phases -ccontains 'STATE_PUBLISHED')) {
+        foreach ($name in @('AuthorityStatePreimage', 'AuthorityStateExpected', 'AuthorityStatePreimagePath')) {
+            if (-not (Test-LiveTransactionMapHasName -Map $payload -Name $name)) { throw $script:RollbackPlanBindingMissing }
+        }
     }
 
     if (Test-LiveTransactionMapHasName -Map $payload -Name 'ConsumedRecoveryDocumentHashes') {
@@ -1207,6 +1225,272 @@ function Restore-SealedLiveMutationTargets {
 }
 
 # ---------------------------------------------------------------------------
+# Authority state recovery (Task 6 Step 3 rollback)
+# ---------------------------------------------------------------------------
+
+function Get-SealedLiveAuthorityStateReplacementRows {
+    # The state-owned journal rows (TargetKind=state) in record order, or an
+    # empty list when this chain replaced no authority state file.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records
+    )
+
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($record in @($Records)) {
+        $document = [System.Collections.IDictionary] $record['Document']
+        $data = [System.Collections.IDictionary] $document['Data']
+        if (-not (Test-LiveTransactionMapHasName -Map $data -Name 'TargetKind')) { continue }
+        if ([string] $data['TargetKind'] -cne 'state') { continue }
+        $rows.Add([ordered]@{ Phase = [string] $document['Phase']; Data = $data })
+    }
+    return $rows
+}
+
+function Get-SealedLiveAuthorityStatePreimageBinding {
+    # The journal-bound preimage of a staged authority state replacement: the
+    # state target path, the recorded old-file binding (PRESENT or the
+    # first-authority MISSING form), and the on-disk preimage copy. Returns
+    # $null when the chain staged no state replacement; structurally ambiguous
+    # evidence (several target paths, no FILE_PREPARED record) fails closed.
+    # Whether the recorded preimage is restorable is the caller's gate: a
+    # completed replacement requires PRESENT bytes plus the copy, while a
+    # staged-but-unreplaced state only requires the destination to still match
+    # the recorded preimage.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records
+    )
+
+    $invalid = $script:LiveTransactionStateFormUnsupported
+    $rows = @(Get-SealedLiveAuthorityStateReplacementRows -Records $Records)
+    if ($rows.Count -eq 0) { return $null }
+
+    $targetPaths = @([string[]] @($rows | ForEach-Object { [string] (([System.Collections.IDictionary] $_.Data)['TargetPath']) } | Sort-Object -Unique))
+    if ($targetPaths.Count -ne 1 -or [string]::IsNullOrWhiteSpace($targetPaths[0])) { throw $invalid }
+    $statePath = $targetPaths[0]
+
+    $preimage = $null
+    $preimageCopy = $null
+    foreach ($row in $rows) {
+        if ([string] $row.Phase -cne 'FILE_PREPARED') { continue }
+        $staged = [System.Collections.IDictionary] $row.Data['StagedState']
+        $preimage = [ordered]@{
+            State = [string] $staged['State']
+            Hash = [string] $staged['Hash']
+            Identity = [string] $staged['Identity']
+        }
+        $preimageCopy = if ((Test-LiveTransactionMapHasName -Map $row.Data -Name 'StagedPath') -and $null -ne $row.Data['StagedPath']) { [string] $row.Data['StagedPath'] } else { $null }
+    }
+    if ($null -eq $preimage) { throw $invalid }
+    if ([string] $preimage['State'] -cne 'PRESENT' -and [string] $preimage['State'] -cne 'MISSING') { throw $invalid }
+    # The state-only engine also records the captured preimage hash before the
+    # replace; both records must agree.
+    foreach ($record in @($Records)) {
+        $document = [System.Collections.IDictionary] $record['Document']
+        if ([string] $document['Phase'] -cne 'STATE_PREIMAGE_COMPLETE') { continue }
+        $data = [System.Collections.IDictionary] $document['Data']
+        if ([string] $preimage['State'] -cne 'PRESENT' -or [string] $data['StateHash'] -cne [string] $preimage['Hash']) { throw $invalid }
+    }
+
+    return [ordered]@{
+        TargetPath = $statePath
+        Preimage = $preimage
+        PreimageCopy = $preimageCopy
+    }
+}
+
+function Get-SealedLiveAuthorityStateReplacedHash {
+    # The state hash of the completed replacement record, or $null when the
+    # chain never published FILE_REPLACED for the state target.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records
+    )
+
+    $published = $null
+    foreach ($row in @(Get-SealedLiveAuthorityStateReplacementRows -Records $Records)) {
+        if ([string] $row.Phase -cne 'FILE_REPLACED') { continue }
+        $observed = [System.Collections.IDictionary] $row.Data['TargetState']
+        if ([string] $observed['State'] -cne 'PRESENT' -or [string] $observed['Type'] -cne 'File') { throw $script:LiveTransactionStateFormUnsupported }
+        $published = $observed
+    }
+    return $published
+}
+
+function Get-SealedLiveAuthorityStateRecoveryEvidence {
+    # Extracts the journal-bound authority state replacement evidence in the
+    # shape a reviewed rollback needs: the preimage binding (with its on-disk
+    # copy) and the published postimage binding. Returns $null when the chain
+    # replaced no state file. Ambiguous or incomplete evidence fails closed.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records
+    )
+
+    $invalid = $script:LiveTransactionStateFormUnsupported
+    $binding = Get-SealedLiveAuthorityStatePreimageBinding -Records $Records
+    if ($null -eq $binding) { return $null }
+    if ([string] $binding.Preimage['State'] -cne 'PRESENT' -or
+        [string] $binding.Preimage['Hash'] -cnotmatch $script:LiveTransactionHashPattern -or
+        [string] $binding.Preimage['Identity'] -cnotmatch $script:LiveTransactionIdentityPattern -or
+        [string]::IsNullOrWhiteSpace([string] $binding.PreimageCopy)) {
+        # A completed replacement without restorable reviewed bytes is not a
+        # reviewed recovery form.
+        throw $invalid
+    }
+
+    $replaced = Get-SealedLiveAuthorityStateReplacedHash -Records $Records
+    if ($null -eq $replaced) {
+        # A captured preimage without any completed replacement has nothing to
+        # roll back.
+        throw $invalid
+    }
+    $published = [ordered]@{
+        State = 'PRESENT'
+        Hash = [string] $replaced['Hash']
+        Identity = [string] $replaced['Identity']
+    }
+    if ([string] $published['Hash'] -cnotmatch $script:LiveTransactionHashPattern -or
+        [string] $published['Identity'] -cnotmatch $script:LiveTransactionIdentityPattern) {
+        throw $invalid
+    }
+    # The published-state record must describe the same bytes as the replaced
+    # file record; a disagreement is not a reviewed state form.
+    foreach ($record in @($Records)) {
+        $document = [System.Collections.IDictionary] $record['Document']
+        if ([string] $document['Phase'] -cne 'STATE_PUBLISHED') { continue }
+        $data = [System.Collections.IDictionary] $document['Data']
+        if ([string] $data['StateHash'] -cne [string] $published['Hash']) { throw $invalid }
+    }
+
+    return [ordered]@{
+        TargetPath = [string] $binding.TargetPath
+        Preimage = $binding.Preimage
+        PreimageCopy = [string] $binding.PreimageCopy
+        Published = $published
+    }
+}
+
+function Get-SealedLiveObservableFileState {
+    # Observed binding for a regular file: PRESENT with Type, Hash, and the
+    # no-follow identity, MISSING otherwise. The directory walker is
+    # directory-only, so file observations use this shape.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return [ordered]@{ State = 'MISSING' } }
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return [ordered]@{
+        State = 'PRESENT'
+        Type = 'File'
+        Hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+        Identity = [string] ([AiAgentDotfiles.NoFollowFile]::Inspect($Path)).Identity
+    }
+}
+
+function Restore-SealedLiveAuthorityState {
+    # Rollback-only state recovery: restores the authority current-env.json
+    # bytes from the journal-bound preimage copy through the same atomic
+    # same-directory temp replace the state engines use. The plan bindings must
+    # reproduce the journal evidence exactly, the preimage copy must still hash
+    # to the recorded preimage, and the installed state must equal the recorded
+    # postimage (or already equal the preimage on replay). Every other form
+    # fails closed for manual recovery. The restoration is journalled as
+    # STATE_RESTORED only when bytes are actually written.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Header,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $PlanPayload,
+        [Parameter(Mandatory)] [string] $ControlBase,
+        [Parameter(Mandatory)] [string] $TransactionDirectory
+    )
+
+    $invalid = $script:LiveTransactionStateFormUnsupported
+    if ($null -eq (Get-SealedLiveAuthorityStateReplacedHash -Records $Records)) {
+        # No completed state replacement: there are no published bytes to roll
+        # back, so a plan that nevertheless binds a preimage copy fails closed
+        # and every other plan needs no state work.
+        if (Test-LiveTransactionMapHasName -Map $PlanPayload -Name 'AuthorityStatePreimagePath') { throw $invalid }
+        return $null
+    }
+    $evidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $Records
+    if ($null -eq $evidence) { return $null }
+    foreach ($name in @('AuthorityStatePreimage', 'AuthorityStateExpected', 'AuthorityStatePreimagePath')) {
+        if (-not (Test-LiveTransactionMapHasName -Map $PlanPayload -Name $name) -or $null -eq $PlanPayload[$name]) { throw $invalid }
+    }
+
+    $paths = Get-LiveTransactionStatePaths -ControlBase $ControlBase -HomeAuthorityKey ([string] $Header['HomeAuthorityKey'])
+    $statePath = [System.IO.Path]::GetFullPath([string] $paths['StatePath'])
+    if ($statePath -cne [System.IO.Path]::GetFullPath([string] $evidence.TargetPath)) { throw $invalid }
+    # Claims are immutable and are never rewritten by a state rollback; the
+    # on-disk claims must still reproduce the header binding.
+    $claimsPath = [string] $paths['ClaimsPath']
+    if (-not (Test-Path -LiteralPath $claimsPath -PathType Leaf)) { throw $script:LiveTransactionHashMismatch }
+    $claimsBytes = [System.IO.File]::ReadAllBytes($claimsPath)
+    $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
+    if ($claimsHash -cne [string] $Header['RootClaimsHash']) { throw $script:LiveTransactionHashMismatch }
+
+    $planPreimage = [System.Collections.IDictionary] $PlanPayload['AuthorityStatePreimage']
+    $planPublished = [System.Collections.IDictionary] $PlanPayload['AuthorityStateExpected']
+    $planCopy = [System.IO.Path]::GetFullPath([string] $PlanPayload['AuthorityStatePreimagePath'])
+    $preimage = [System.Collections.IDictionary] $evidence.Preimage
+    $published = [System.Collections.IDictionary] $evidence.Published
+    if ([string] $planPreimage['State'] -cne 'PRESENT' -or [string] $planPreimage['Hash'] -cne [string] $preimage['Hash'] -or
+        [string] $planPreimage['Identity'] -cne [string] $preimage['Identity']) { throw $invalid }
+    if ([string] $planPublished['State'] -cne 'PRESENT' -or [string] $planPublished['Hash'] -cne [string] $published['Hash'] -or
+        [string] $planPublished['Identity'] -cne [string] $published['Identity']) { throw $invalid }
+    if ($planCopy -cne [System.IO.Path]::GetFullPath([string] $evidence.PreimageCopy)) { throw $invalid }
+
+    if (-not (Test-Path -LiteralPath $planCopy -PathType Leaf)) { throw $invalid }
+    $copyBytes = [System.IO.File]::ReadAllBytes($planCopy)
+    $copyHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($copyBytes)).ToLowerInvariant()
+    if ($copyHash -cne [string] $preimage['Hash']) { throw $invalid }
+
+    $observed = Get-SealedLiveObservableFileState -Path $statePath
+    if ([string] $observed['State'] -cne 'PRESENT') { throw $invalid }
+    $restored = $false
+    $finalObserved = $observed
+    if ([string] $observed['Hash'] -ceq [string] $preimage['Hash']) {
+        # Replay of an already restored state: nothing to write.
+    }
+    elseif ([string] $observed['Hash'] -cne [string] $published['Hash']) {
+        # Neither the published postimage nor the preimage: unreviewed bytes.
+        throw $invalid
+    }
+    else {
+        $tempPath = Join-Path (Split-Path -Parent $statePath) ('current-env.' + [Guid]::NewGuid().ToString('N') + '.restore.tmp')
+        $stream = [System.IO.File]::Open($tempPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try {
+            $stream.Write($copyBytes, 0, $copyBytes.Length)
+            $stream.Flush($true)
+        }
+        finally { $stream.Dispose() }
+        [System.IO.File]::Move($tempPath, $statePath, $true)
+        $finalObserved = Get-SealedLiveObservableFileState -Path $statePath
+        if ([string] $finalObserved['State'] -cne 'PRESENT' -or [string] $finalObserved['Hash'] -cne [string] $preimage['Hash']) {
+            throw $script:LiveTransactionHashMismatch
+        }
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'STATE_RESTORED' -Data ([ordered]@{
+            TargetKind = 'state'
+            TargetPath = $statePath
+            RestoredState = $finalObserved
+            PreimageHash = [string] $preimage['Hash']
+            PublishedHash = [string] $published['Hash']
+        })
+        $restored = $true
+    }
+
+    return [ordered]@{
+        TargetPath = $statePath
+        PreimageHash = [string] $preimage['Hash']
+        PublishedHash = [string] $published['Hash']
+        Restored = $restored
+        RestoredState = $finalObserved
+    }
+}
+# ---------------------------------------------------------------------------
 # Journal publication (mirrors the canonical held-chain mechanics)
 # ---------------------------------------------------------------------------
 
@@ -1385,7 +1669,7 @@ function Add-SealedLiveJournalRecord {
             'DIR_CREATE_INTENT', 'DIR_CREATED', 'RECEIPT_COMPLETE', 'PREPARED',
             'MOVE_OLD_INTENT', 'OLD_MOVED', 'MOVE_NEW_INTENT', 'NEW_INSTALLED',
             'CLAIMS_PUBLISHED', 'STATE_PREIMAGE_COMPLETE', 'FILE_PREPARED',
-            'FILE_REPLACE_INTENT', 'FILE_REPLACED', 'STATE_PUBLISHED',
+            'FILE_REPLACE_INTENT', 'FILE_REPLACED', 'STATE_PUBLISHED', 'STATE_RESTORED',
             'POSTCONDITIONS_OK', 'RECOVERY_ACTION_INTENT', 'RECOVERY_ACTION_APPLIED', 'COMPLETE'
         )] [string] $Phase,
         [Parameter(Mandatory)] [System.Collections.IDictionary] $Data
