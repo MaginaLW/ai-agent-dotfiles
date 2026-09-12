@@ -1329,6 +1329,68 @@ checkpoint is emitted in the production host, which the current fixtures do not 
 child, so its placement is pinned at the source boundary and its observable window is the
 header-only reservation covered by the `RESERVED` kill.
 
+## Task 7 slices 1-2 (2026-09-13): receipt-based rollback entry and a plan-layer contradiction fix
+
+**Slice 1 (`00e3632`).** `scripts/rollback-harness-env.ps1` is rebuilt as the reviewed entry: only
+`-ReceiptPath` selects a rollback (with `-DryRun|-Apply`, `-PlanPath`, `-RepoRoot`, `-JsonPath`),
+the legacy `RunId`/`BackupPath`/`BackupRoot`/`HomeRoot` parameters and the legacy whole-tree
+implementation are gone, and Apply still stops at the Phase 0 interlock before any work. The
+resolution order is the sandbox-injected authority plus its complete bootstrap prefix, the
+external-artifact preflight for the receipt and plan paths, the receipt slot state, and the receipt's
+source operation kind: a missing slot is `rollback-receipt-missing`, a partial one
+`rollback-receipt-not-complete`, any source kind other than `environment`
+`rollback-source-kind-unsupported`, and a complete environment receipt reaches
+`live-rollback-dispatch-not-wired` until the remaining slices replace it. The new
+`tests/backup-recovery.tests.ps1` pins the parameter surface and legacy-switch removal, the wrapper
+mode gates, the authority gate, the missing/partial/wrong-kind rejections, the interlocked Apply, and
+the private-artifact-path rejection of a plan path inside the repository; `tests/automation-safety.tests.ps1`
+now exercises the receipt surface for its interlock case; `docs/README.md` and `docs/RESTORE.md`
+describe the new form; the new suite budget (300 s) moved the workflow timeout to 400 minutes.
+
+**Slice 2 (`50d6616`).** The bounded design review for Task 7 found a hard contradiction introduced
+by Task 6 Step 2: `Test-RollbackPlanSemantics` required `OriginalOperationKind` for every plan and
+only afterwards returned early for `environment-rollback`, while `schemas/rollback-plan.schema.json`
+forbids that field for that kind. No environment-rollback document could pass both layers, so Step 2
+had no representable plan. The validator now handles `environment-rollback` first with its own
+reviewed rules — `SourceOperationKind` must be `environment`, `OriginalOperationKind` must be absent,
+`ReceiptIntent`/`ReceiptId` must agree, and `RollbackStateIntent` must carry
+`LastOperationKind=environment-rollback` with the payload's `HomeAuthorityKey` — while the
+live-recover path keeps its original requirement. Three registered semantic negatives (wrong source
+kind, wrong intent kind, mismatched intent authority key) and an in-suite positive pin the shape.
+
+**Task 7 remaining scope, from the same review (bounded to the plan text, the schema, the live
+journal/engines/host, the new entry, and the named fixtures).** The review's verified facts that the
+next slices must act on:
+
+- `Invoke-SealedLiveTransactionHost` cannot run a rollback as written: it gates
+  `OperationKind` to `initial|retirement` (~line 2106) while a rollback plan carries `PlanKind`; it
+  loads `AuthorityStateIntent` instead of `RollbackStateIntent`; the rollback schema has no
+  `TargetContextIntent`, no `Platforms`/`OrderedActions`, and no action verbs, so the host must
+  reconstruct the context from current claims and map the plan's `Targets` Current/Candidate onto the
+  engine's add/update/prune ladder; and the engine copies NEW bytes from `SourceRoot`, which for a
+  rollback must point at the source activation's snapshot (`receipt/snapshot/<platform>/`), not at a
+  materialization root.
+- The rollback's own transaction is a **new original** transaction: header `ReceiptIntent` is the
+  pre-rollback slot, `RECEIPT_COMPLETE`/result bind that new receipt, and the terminal closes with
+  `ClosingKind=original` (never `recovery`, which belongs to `live-recover-*`); the source activation
+  stays bound on the plan (`SourceTransactionId`, `SourceOperationKind`, `ReceiptId`/`ReceiptHash`,
+  `OriginalPlanHash`/`OriginalDocumentHash`).
+- `RollbackStateIntent` copies `HomeAuthorityKey`, `RootClaimsHash`, selection/environment, overlay,
+  manifest and final-managed semantics, controller fingerprint, and toolchain hash from the
+  activation preimage; `LastOperationKind=environment-rollback`; the receipt/journal refs and the
+  final identities are regenerated at Apply.
+- The rollback requires the worktree overlay lock in the canonical→overlay→global order, and the
+  reviewed lock-order primitive still refuses `REQUIRED` applicability
+  (`worktree-overlay-lock-not-implemented`). Execution verification therefore depends on the Phase 3
+  worktree overlay lock or an explicit scope decision.
+- The Step 1 source graph cannot use the public host (it rejects `environment` too): the reviewed
+  recipe is the sealed plan fixture for the plan shape, a real header through
+  `New-SealedLiveJournalHeader`, a real receipt through `Invoke-SealedManagedBackupReceipt` with
+  `SourceOperationKind=environment`, and the engine through the test host's `produce` mode.
+- Cases the current fixtures cannot produce: a committed environment→**task-overlay**→old-receipt
+  chain (no task-overlay producer exists and the host rejects that kind), and `abandoned`/`rolled-back`
+  source terminals (the engine only publishes `committed` or `failed-restored`).
+
 ## Remaining work
 
 Phase 2 has 15 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-4 are complete:
@@ -1341,7 +1403,7 @@ Phase 2 has 15 of 52 steps remaining. Tasks 1-5 are complete and Task 6 Steps 1-
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
-| Task 7 | 5/5 | Receipt-backed environment rollback |
+| Task 7 | 4/5 | Slices 1-2 landed (`00e3632` receipt-based entry and preflight matrix, `50d6616` environment-rollback plan-layer contradiction fix); remaining: the source-graph rejection matrix, the eligibility derivation (Step 2), the pre-rollback receipt and execution (Steps 3-4, blocked on the Phase 3 worktree overlay lock for their verification), and the three-platform verification (Step 5) |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
 

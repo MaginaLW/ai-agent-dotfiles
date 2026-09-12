@@ -3124,11 +3124,43 @@ interleave. The recovery-side worktree overlay lock remains the Phase 3 item, an
 `RECEIPT_FINALIZATION` checkpoint is placement-pinned because the production host is not yet run as
 a killable child.
 
+## Task 7 slices 1-2 (2026-09-13): receipt-based rollback entry and a plan-layer contradiction fix
+
+Commits `00e3632` and `50d6616` start Task 7; the detailed record and the remaining-scope map live in
+[`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md). The rollback
+entry is rebuilt on receipts: only `-ReceiptPath` selects a rollback, the legacy
+`RunId`/`BackupPath`/`BackupRoot`/`HomeRoot` switches and the legacy whole-tree implementation are
+removed, Apply still stops at the Phase 0 interlock, and the preflight fails closed with
+`rollback-receipt-missing`, `rollback-receipt-not-complete`, or `rollback-source-kind-unsupported`
+before a complete environment receipt reaches the not-yet-wired transition stub. The new
+`tests/backup-recovery.tests.ps1` pins that surface; `docs/README.md` and `docs/RESTORE.md` describe
+the new form; the new suite's 300-second budget moved the workflow timeout to 400 minutes.
+
+A bounded design review for Task 7 then found a hard contradiction introduced by Task 6 Step 2:
+`Test-RollbackPlanSemantics` required `OriginalOperationKind` for every plan and only then returned
+early for `environment-rollback`, while the schema forbids that field for that kind — so no
+environment-rollback plan could pass both layers and Task 7 Step 2 had no representable plan. The
+validator now handles that kind first with its own rules (`SourceOperationKind=environment`,
+no `OriginalOperationKind`, receipt id agreement, and `RollbackStateIntent` carrying
+`LastOperationKind=environment-rollback` with the payload authority key); three registered semantic
+negatives and an in-suite positive pin it.
+
+The review's remaining findings are recorded as the next slices' scope: the host cannot run a
+rollback as written (kind gate, `RollbackStateIntent` instead of `AuthorityStateIntent`, a
+`TargetContextIntent` reconstructed from current claims, mapping the plan's targets onto the engine's
+add/update/prune ladder, and source roots pointing at the activation snapshot); the rollback is a new
+**original** receipt-backed transaction whose terminal closes with `ClosingKind=original`; the
+`RollbackStateIntent` copies preimage semantics while regenerating the rollback's own refs; the
+worktree overlay lock the order requires is still unimplemented, so execution verification depends on
+the Phase 3 overlay lock; and the Step 1 source graph must be composed from the sealed plan fixture,
+a real header, a real managed receipt with `SourceOperationKind=environment`, and the test host's
+`produce` engine mode rather than the public host (which rejects `environment`).
+
 ## Remaining roadmap snapshot
 
 Phase 2 has 15 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-4 are complete and
-Step 5 is complete except its two cross-authority/canonical-interleave proofs. The implementation
-order and remaining scope are:
+Step 5 is complete except its two cross-authority/canonical-interleave proofs; Task 7 has started
+with its entry and plan layer. The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -3138,7 +3170,7 @@ order and remaining scope are:
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 done (`0e04a2c`, `528aec5`, `99a8e87`); Step 5 remains open for the cross-authority overlapping-roots and canonical-interleave proofs |
-| Task 7 | 5/5 | Receipt-backed environment rollback through the common state machine |
+| Task 7 | 4/5 | Slices 1-2 done (`00e3632`, `50d6616`); remaining: the source-graph rejection matrix, Step 2's eligibility derivation, Steps 3-4 (pre-rollback receipt and execution, whose verification needs the Phase 3 worktree overlay lock), and Step 5 |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
 
@@ -3148,13 +3180,18 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 5 is complete (6/6) and Task 6 Steps 1-4 are complete (Phase 2 37/52) as of
-   2026-09-12 at `99a8e87`: the read-only locator, the schema-1 plan contract, the dispatcher with
-   state rollback and committed-finalize, the deterministic failpoint matrix with its kill/replay
-   and evidence-retention proofs, and the two restart gates are live. Task 6 Step 5 keeps two open
-   proofs (a different HomeAuthority with overlapping custom roots; concurrent canonical mutation
-   cannot interleave) that need Task 8's lock-contention and root-overlap fixtures; execute them
-   with Task 8, then Tasks 7-9 in strict sequence. Production Apply remains interlocked throughout.
+1. Phase 2 Task 5 is complete (6/6), Task 6 Steps 1-4 are complete, and Task 7 slices 1-2 are landed
+   (`00e3632`, `50d6616`) as of 2026-09-13: the read-only locator, the schema-1 plan contract, the
+   dispatcher with state rollback and committed-finalize, the deterministic failpoint matrix with its
+   kill/replay and evidence-retention proofs, the two restart gates, and the receipt-based rollback
+   entry with its preflight matrix and a satisfiable `environment-rollback` plan contract are live.
+   Next for Task 7: build the Step 1 source graph (sealed plan fixture + real header + real managed
+   receipt with `SourceOperationKind=environment` + the test host's engine mode), complete the
+   rejection matrix, implement Step 2's eligibility derivation and then Steps 3-4 (their execution
+   verification waits for the Phase 3 worktree overlay lock). Task 6 Step 5 keeps two open proofs
+   (a different HomeAuthority with overlapping custom roots; concurrent canonical mutation cannot
+   interleave) that need Task 8's lock-contention and root-overlap fixtures; execute them with
+   Task 8, then Tasks 8-9 in strict sequence. Production Apply remains interlocked throughout.
 2. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; the
