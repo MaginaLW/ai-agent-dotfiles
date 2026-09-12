@@ -1302,8 +1302,19 @@ then replays to completion against the same evidence. `tests/canonical-productio
 the pinned secret scan found no blocking findings; `build-skills.ps1` produced 7/15/7;
 `tests/sync.tests.ps1`, `tests/live-plan.tests.ps1`, `tests/live-concurrency.tests.ps1`, and
 `tests/doctor.tests.ps1` passed; `git diff --check` was clean. The unified `run-tests.ps1 -All` pass
-is the Task 6 closeout gate and its result is recorded below once it returns. Production Apply
-remains interlocked and no live root was touched.
+is the Task 6 closeout gate. Its first pass for this slice discovered, started, and completed all 37
+suites with zero timeouts, duplicates, missing suites, or tree-kill failures and passed 36 (external
+summary SHA-256 `64666e722268b9267efa2ce0389c0b247c9d34002a56f1bd274dcd7da2a6fb07`, discovery SHA-256
+`b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0`, elapsed 6470 s). The single
+failure was `root-claims-registry.tests.ps1` at `route-witness-required` from
+`scripts/root-claims-registry-common.ps1:7239` inside an observation-close block that had passed in
+the two preceding unified runs. That suite loads none of the files this slice changed (it does not
+dot-source `scripts/live-transaction-common.ps1` and does not invoke the syntax gate) and did not
+reproduce the failure standalone, where it passed in 1745 s; the run overlapped another session's
+Python coverage suite and project verification on the same machine, and this suite contains
+real-time-sensitive observation/route waits, so the failure is recorded as an interference flake
+rather than a slice defect. A definitive unified pass on a quiet machine is the remaining closeout
+step and is not yet executed. Production Apply remains interlocked and no live root was touched.
 
 **Remaining Step 5 proofs.** Two Step 5 clauses are not covered by this slice and stay open:
 "a different HomeAuthority with overlapping custom roots" and "concurrent canonical mutation cannot

@@ -98,12 +98,13 @@ Agent 显式读取后遵循的约定，不是 Hook、定时任务或后台同步
   收尾）、`docs/operations/effect-observations.md`、`docs/operations/zcode-adoption-feedback.md`
   与 `examples/adoption/zcode-feedback-loop-prompt.md`。回灌时只合并适用且缺失的文字，
   核对本次版本包含上次已应用版本（`b567dc3`）；来源分叉或验证不明时保留待核对。
-- 2026-09-12 第三次闭环后实际应用的上游提交：`68f3dcb` 与 `e1e931b`（均由本仓 Agent 在该
-  检出内提交并验证）。链路核对：`3a0bb34`（上次已应用）→ `68f3dcb` →（另一窗口
-  `ed4fac3`、`1f2a2ba`）→ `e1e931b`，`68f3dcb` 经 `git merge-base --is-ancestor` 确认是
-  HEAD 的祖先，连续无分叉。应用内容：`docs/operations/adoption.md` 收尾方法新增第 6 项
-  "独立评审分两段，并给评审本身设边界"，并在第 3 项增加"验收断言不得绑定工具自身的本地化
-  文案"，与本页第三次闭环记录的适配一致。
+- 2026-09-12 第四次闭环后实际应用的上游提交：`3688eb3`（本仓 Agent 在该检出内提交并验证）。
+  链路核对：`3a0bb34`（上次已应用前的基线）→ `68f3dcb` → `e1e931b`（两者为本仓第三窗口贡献）→
+  `3688eb3`（本窗口）为当前分支 HEAD；写入时该检出的分支已被并行会话从记录中的
+  `codex/zcode-document-pilot` 改名为 `codex/self-hosted-runner-inventory`，且该分支历史包含
+  本仓已应用的全部上游提交，故按"分支名变化、提交链连续"记录，不改写此前结论。应用内容：
+  `docs/operations/adoption.md` 收尾方法第 3 项新增"同一教训第二次出现即转成可执行检查"，
+  第 6 项新增"设计阶段评审同样设边界，取消/失败的评审按未评审处理"。
 - 闭环授权边界：harness-model 的 `docs/`、`examples/`，以及本项目的规则入口、接入文档
   与既有收尾记录。不含源码、CI、`.ai`、技能、全局/live 配置、部署、删除、推送、合并、
   凭据导出、付费调用或后台采集；越界反馈只形成提案并记 `pending`。
@@ -206,6 +207,35 @@ PowerShell 自身的英文参数绑定文案（`missing mandatory parameters`、
 的未跟踪方案文件（`docs/superpowers/plans/`，并行会话在制品），本仓未加入暂存、未修改、
 未删除；期间该检出出现另一窗口的两次提交（`ed4fac3`、`1f2a2ba`），已在版本链核对中记录，
 不把它们的结果当成本仓窗口的结论。
+
+### 第四次闭环执行（2026-09-12，Task 6 Step 4-5 窗口）
+
+窗口任务：Task 6 Step 4（确定性失败注入）与 Step 5 的到期项（committed-finalize、未完成事务
+阻塞门、overlay 键失败封闭、证据保留），实现提交 `528aec5`、`99a8e87`、`f5731b7`。
+
+新反馈（已提交上游 `3688eb3`，两条）：
+
+1. **同一教训第二次出现即转成可执行检查。** 上一窗口把 PowerShell
+   `if (Cmdlet ... -and ...)` 解析坑写进记忆与本页，本窗口写新代码时仍然复犯（直接导致
+   状态回滚派生中止）。修法不是再写一条记录，而是把它变成基于 AST 的解析门禁：命令参数中
+   出现 `and`/`or` 即判失败（本仓提交 `3b17cd4`，配合一条"文件 + 精确行号 + 原因 + 计划"的
+   显式豁免项）。该门禁当场抓到一个真实既有缺陷：硬杀套件 `tests/canonical-hard-kill.tests.ps1`
+   第 8256 行的三条件判断实际只执行了第一个检查，另两个从未被调用（该文件自密封，修复需
+   重钉，已记为下一片范围的待修项）。
+2. **设计阶段评审同样要设边界。** 本窗口的设计评审连续两次以 `error_during_execution` 中止
+   （要求先读完整方案与相关代码），而第三窗口那次限定"4 个文件、≤15 条"的短评审一次完成；
+   取消/失败的评审按"没有评审"处理，先收敛范围再发起，不在同一提示上反复重试。
+
+上游验证（同一检出，候选提交 `3688eb3`）：`uv run --locked python -m pytest` 1740 通过、
+总覆盖率 88.12%；`diff-cover --compare-branch HEAD^ --fail-under=90`、`ruff check`、
+`ruff format --check`、`mypy`、`git diff --check` 全部退出 0。检出内仍有并行会话的未跟踪
+方案文件（`docs/superpowers/plans/`），本仓未暂存、未修改、未删除；该检出写入前为干净工作区，
+提交只含 `docs/operations/adoption.md`。
+
+版本回灌核对：上游分支由 `codex/zcode-document-pilot` 改名为
+`codex/self-hosted-runner-inventory`（并行会话所改），该分支 HEAD `3688eb3` 的祖先链包含
+本仓已应用的全部上游提交，无分叉或回退。本次两条新增文字已按"最小完整修订"合入上游，
+本页不复制正文。
 
 ## 可复制的首次接手提示词
 
