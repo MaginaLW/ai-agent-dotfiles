@@ -1348,6 +1348,35 @@ function Get-SealedLiveJournalHeaderHash {
     return Get-SemanticJsonHash -InputObject $Header
 }
 
+function Get-SealedLiveJournalCompletedFromChain {
+    # Reverse-restoration input: the completed live primitives (created
+    # parents, moved-old, installed-new) in journal order, carrying exactly
+    # the identity evidence Restore-SealedLiveMutationTargets revalidates.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $Chain)
+
+    $completed = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in @($Chain.Records)) {
+        $document = [System.Collections.IDictionary] $entry['Document']
+        $phase = [string] $document['Phase']
+        $data = [System.Collections.IDictionary] $document['Data']
+        if ($phase -ceq 'DIR_CREATED') {
+            $completed.Add([ordered]@{
+                TargetId = [string] $data['TargetId']
+                Phase = $phase
+                CreatedIdentity = [string] $data['CreatedIdentity']
+            })
+        }
+        elseif ($phase -ceq 'OLD_MOVED' -or $phase -ceq 'NEW_INSTALLED') {
+            $completed.Add([ordered]@{
+                TargetId = [string] $data['TargetId']
+                Phase = $phase
+            })
+        }
+    }
+    return @($completed)
+}
+
 function Add-SealedLiveJournalRecord {
     [CmdletBinding()]
     param(

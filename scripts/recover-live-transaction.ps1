@@ -223,13 +223,62 @@ function New-LiveRecoveryPlanPayload {
         ChainRecords = @($chainRows)
         PendingTemps = @($pendingTemps)
         ResultInventory = $resultInventory
-        Targets = @($headerMap['Targets'])
+        Targets = $null
         Action = $Action
     }
     if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OverlayLockKey') { $payload['OverlayLockKey'] = [string] $headerMap['OverlayLockKey'] }
     if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'RootClaimsHash') { $payload['RootClaimsHash'] = [string] $headerMap['RootClaimsHash'] }
     if ($receiptBacked -and ($Action -ne 'abandon') -and (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OriginalPlanHash')) { $payload['OriginalPlanHash'] = [string] $headerMap['OriginalPlanHash'] }
     if ($consumed.Count -gt 0) { $payload['ConsumedRecoveryDocumentHashes'] = @($consumed) }
+
+    $headerTargets = @($headerMap['Targets'])
+    if ($headerTargets.Count -gt 0) {
+        $payload['Targets'] = $headerTargets
+    }
+    else {
+        # Live primitive targets live in the chain records, not in the header.
+        # Reconstruct each recovery target row from the fullest record data
+        # per target id, in first-appearance order; the preimage state is the
+        # swap-old state of the installed tuple, and MISSING for created
+        # parents.
+        $evidence = [ordered]::new()
+        foreach ($record in $records) {
+            $document = [System.Collections.IDictionary] $record['Document']
+            $data = [System.Collections.IDictionary] $document['Data']
+            if (-not (Test-LiveTransactionMapHasName -Map $data -Name 'TargetId')) { continue }
+            $targetIdKey = [string] $data['TargetId']
+            if (-not $evidence.Contains($targetIdKey)) { $evidence[$targetIdKey] = [System.Collections.Generic.List[System.Collections.IDictionary]]::new() }
+            $null = $evidence[$targetIdKey].Add($data)
+        }
+        $targetRows = [System.Collections.Generic.List[object]]::new()
+        $targetOrder = [long] 0
+        foreach ($targetIdKey in $evidence.Keys) {
+            $entries = @($evidence[$targetIdKey])
+            $data = [System.Collections.IDictionary] $entries[-1]
+            $targetKind = if (Test-LiveTransactionMapHasName -Map $data -Name 'TargetKind') { [string] $data['TargetKind'] } else { 'skill' }
+            $current = if (Test-LiveTransactionMapHasName -Map $data -Name 'SwapOldState') {
+                [System.Collections.IDictionary] $data['SwapOldState']
+            } else { [ordered]@{ State = 'MISSING' } }
+            $candidate = if (Test-LiveTransactionMapHasName -Map $data -Name 'TargetState') {
+                [System.Collections.IDictionary] $data['TargetState']
+            } else { [ordered]@{ State = 'MISSING' } }
+            $targetRows.Add([ordered]@{
+                TargetId = $targetIdKey
+                Order = $targetOrder
+                TargetKind = $targetKind
+                Role = if ($targetKind -ceq 'parent-directory') { 'parent' } else { 'live-target' }
+                TargetPath = [string] $data['TargetPath']
+                PreimagePath = if (Test-LiveTransactionMapHasName -Map $data -Name 'PreimagePath') { [string] $data['PreimagePath'] } else { $null }
+                SwapOldPath = if (Test-LiveTransactionMapHasName -Map $data -Name 'SwapOldPath') { [string] $data['SwapOldPath'] } else { $null }
+                StagedPath = if (Test-LiveTransactionMapHasName -Map $data -Name 'StagedPath') { [string] $data['StagedPath'] } else { $null }
+                Current = $current
+                Candidate = $candidate
+                TargetContextHash = (Get-SemanticJsonHash -InputObject $data)
+            })
+            $targetOrder++
+        }
+        $payload['Targets'] = @($targetRows)
+    }
 
     $receiptState = $null
     if ($receiptBacked) {
@@ -473,15 +522,32 @@ else {
                     $resultFileHash = [string] $chain.ResultFileHash
                 }
                 else {
-                    # Abandon closes an untouched transaction: no live, claims,
-                    # or state primitive applies. (Rollback restores targets
-                    # and lands with the kill-window fixtures.)
-                    if ($planAction -ceq 'rollback') { throw $script:LiveRecoveryStateFormUnsupported }
+                    $restorationRows = $null
+                    if ($planAction -ceq 'rollback') {
+                        # Rollback restores the journal targets to their
+                        # header-bound preimage states; a published authority
+                        # state recovers through the state machinery and stays
+                        # unsupported in this slice.
+                        $publishedStates = @($chain.Records | Where-Object { [string] (([System.Collections.IDictionary] $_['Document'])['Phase']) -ceq 'STATE_PUBLISHED' })
+                        if ($publishedStates.Count -gt 0) { throw $script:LiveRecoveryStateFormUnsupported }
+                        $completedTuples = Get-SealedLiveJournalCompletedFromChain -Chain $chain
+                        $null = Restore-SealedLiveMutationTargets -Targets @([object[]] $planPayload['Targets']) -Completed @([object[]] $completedTuples)
+                        $restorationRows = [System.Collections.Generic.List[object]]::new()
+                        foreach ($target in @([object[]] $planPayload['Targets'])) {
+                            $current = [System.Collections.IDictionary] $target['Current']
+                            $observed = Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] $current['Hash'])
+                            if (([string] $current['State'] -ceq 'PRESENT' -and [string] $observed['State'] -cne 'PRESENT') -or
+                                ([string] $current['State'] -ceq 'MISSING' -and [string] $observed['State'] -cne 'MISSING')) {
+                                throw ($script:LiveRecoveryOriginMismatch + ': rollback restoration drifted from the header preimage')
+                            }
+                            $restorationRows.Add([ordered]@{ TargetId = [string] $target['TargetId']; Restored = $observed })
+                        }
+                    }
                     $null = Add-SealedLiveJournalRecord -TransactionDirectory $transactionDir -Phase 'RECOVERY_ACTION_APPLIED' -Data ([ordered]@{
                         Action = $planAction
                     })
                     $receiptBackedDispatch = Test-LiveTransactionMapHasName -Map $headerMap -Name 'ReceiptIntent'
-                    $finalOutcome = [string] $planPayload['ExpectedOutcome']
+                    $finalOutcome = if ($planAction -ceq 'rollback') { 'rolled-back' } else { [string] $planPayload['ExpectedOutcome'] }
                     $appliedChain = Get-SealedLiveJournalChain -TransactionDirectory $transactionDir
                     $appliedHead = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] @($appliedChain.Records)[-1]['Document'])
                     $resultDocument = [ordered]@{
@@ -494,10 +560,12 @@ else {
                         ResultBaseHeadHash = $appliedHead
                         Outcome = [string] $planPayload['ExpectedOutcome']
                     }
+                    if ($null -ne $restorationRows) { $resultDocument['RestorationHash'] = (Get-SemanticJsonHash -InputObject @($restorationRows)) }
                     if ($receiptBackedDispatch) {
                         # Result semantics: an abandoned result never carries a
                         # COMPLETE-receipt block; a MISSING/PARTIAL receipt is
-                        # bound as MISSING with a null hash.
+                        # bound as MISSING with a null hash; a COMPLETE receipt
+                        # binds the verifier-revalidated receipt hash.
                         if ([string] $planPayload['ReceiptState'] -ceq 'MISSING' -or [string] $planPayload['ReceiptState'] -ceq 'PARTIAL') {
                             $resultDocument['ReceiptRef'] = [ordered]@{
                                 Id = [string] (([System.Collections.IDictionary] $headerMap['ReceiptIntent'])['Id'])
@@ -505,6 +573,15 @@ else {
                                 State = [string] $planPayload['ReceiptState']
                                 Hash = $null
                             }
+                        }
+                        elseif ([string] $planPayload['ReceiptState'] -ceq 'COMPLETE' -and $finalOutcome -cne 'abandoned') {
+                            $resultDocument['ReceiptRef'] = [ordered]@{
+                                Id = [string] (([System.Collections.IDictionary] $headerMap['ReceiptIntent'])['Id'])
+                                Path = [string] (([System.Collections.IDictionary] $headerMap['ReceiptIntent'])['Path'])
+                                State = 'COMPLETE'
+                                Hash = [string] $planPayload['ReceiptHash']
+                            }
+                            $resultDocument['ReceiptHash'] = [string] $planPayload['ReceiptHash']
                         }
                     }
                     $null = Publish-SealedLiveTransactionResult -TransactionDirectory $transactionDir -Document $resultDocument

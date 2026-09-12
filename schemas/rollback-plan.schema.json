@@ -128,8 +128,8 @@
         "Platform": { "enum": ["Claude", "Codex", "Reasonix", "Union"] },
         "Name": { "type": "string", "minLength": 1 },
         "TargetPath": { "type": "string", "minLength": 4 },
-        "PreimagePath": { "type": "string", "minLength": 4 },
-        "SwapOldPath": { "type": "string", "minLength": 4 },
+        "PreimagePath": { "type": ["string", "null"] },
+        "SwapOldPath": { "type": ["string", "null"] },
         "StagedPath": { "type": ["string", "null"] },
         "LiveIdentity": { "oneOf": [{ "$ref": "#/$defs/directoryIdentity" }, { "type": "null" }] },
         "ReceiptSnapshotRef": {

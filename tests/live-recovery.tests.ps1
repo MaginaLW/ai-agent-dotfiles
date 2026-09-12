@@ -974,7 +974,8 @@ try {
         param(
             [Parameter(Mandatory)] [ValidateSet('produce', 'state-only')] [string] $Mode,
             [Parameter(Mandatory)] [System.Collections.IDictionary] $ProducerArgs,
-            [Parameter(Mandatory)] [string] $Checkpoint
+            [Parameter(Mandatory)] [string] $Checkpoint,
+            [string] $SandboxRoot = $work
         )
         $controller = New-FailpointController
         $suffix = [Guid]::NewGuid().ToString('N')
@@ -986,14 +987,21 @@ try {
             $producerJson = ConvertTo-Json -InputObject $ProducerArgs -Depth 30 -Compress
             $hostArguments = @('-Mode', $Mode, '-ProducerArgsJson', $producerJson, '-FailpointsJson', $failpointsJson, '-RepoRoot', $RepoRoot)
             $hostArgumentsEncoded = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $hostArguments -Compress)))
-            $child = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $internalHost, '-SandboxRoot', $work, '-ScriptPath', $sandboxedLiveHost, '-ArgumentsBase64', $hostArgumentsEncoded) -PassThru -WindowStyle Hidden -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+            # The internal host accepts the engine host from the target sandbox
+            # itself, so each call copies the helper into that sandbox.
+            $targetedLiveHost = Join-Path $SandboxRoot 'live-transaction-host.ps1'
+            Copy-Item -LiteralPath $liveTransactionHost -Destination $targetedLiveHost -Force
+            $child = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $internalHost, '-SandboxRoot', $SandboxRoot, '-ScriptPath', $targetedLiveHost, '-ArgumentsBase64', $hostArgumentsEncoded) -PassThru -WindowStyle Hidden -RedirectStandardOutput $outFile -RedirectStandardError $errFile
             Wait-FailpointController -Controller $controller -ExpectedCheckpoint $Checkpoint -TimeoutSeconds 90
             Stop-FailpointProcessTree -Process $child
             Wait-Process -Id $child.Id -Timeout 30 -ErrorAction SilentlyContinue
         }
         catch {
             $errText = ''
-            if (Test-Path -LiteralPath $errFile) { $errText = [System.IO.File]::ReadAllText($errFile) }
+            if (Test-Path -LiteralPath $errFile) {
+                $errText = [System.IO.File]::ReadAllText($errFile)
+                [System.IO.File]::WriteAllText((Join-Path ([System.IO.Path]::GetTempPath()) 'dispatch-kill-last-err.txt'), $errText, [System.Text.UTF8Encoding]::new($false))
+            }
             if ($null -ne $child -and -not $child.HasExited) {
                 Stop-FailpointProcessTree -Process $child
                 Wait-Process -Id $child.Id -Timeout 30 -ErrorAction SilentlyContinue
@@ -1888,6 +1896,138 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     Assert ($null -ne $finalizedChain.Result -and [string] ([System.Collections.IDictionary] $finalizedChain.Records[-1]['Document'])['Data']['ResultHash'] -ceq [string] $finalizedChain.ResultFileHash) 'the finalize terminal binds the reused result file hash'
     $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
     Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the locator reports clean after both recoveries'
+
+    # Receipt-backed rollback: a real engine transaction bound to the dispatch
+    # repo and the derived dispatch authority, killed after the first live
+    # primitive, recovered through the dispatcher with a real receipt.
+    function New-DispatchRollbackFixture {
+        param([Parameter(Mandatory)] [string] $Label)
+        $root = Join-Path $dispatchWork "rollback-$Label"
+        $liveClaude = Join-Path $root 'live/claude/skills'
+        $liveCodex = Join-Path $root 'live/codex/skills'
+        $liveReasonix = Join-Path $root 'live/reasonix/skills'
+        $stagingClaude = Join-Path $root 'staging/claude'
+        $stagingCodex = Join-Path $root 'staging/codex'
+        $stagingReasonix = Join-Path $root 'staging/reasonix'
+        $sourceClaude = Join-Path $root 'source/claude/skills'
+        foreach ($dir in @(
+            (Join-Path $liveClaude 'kept-claude'),
+            (Join-Path $liveCodex 'kept-codex'),
+            $liveReasonix, $stagingClaude, $stagingCodex, $stagingReasonix,
+            (Join-Path $sourceClaude 'kept-claude')
+        )) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        Write-TextFile -Path (Join-Path $liveClaude 'kept-claude/SKILL.md') -Content 'dispatch-rollback-old'
+        Write-TextFile -Path (Join-Path $liveCodex 'kept-codex/SKILL.md') -Content 'dispatch-rollback-codex'
+        Write-TextFile -Path (Join-Path $sourceClaude 'kept-claude/SKILL.md') -Content 'dispatch-rollback-new'
+        $authorityDir = Join-Path (Join-Path $derivedControl 'homes') $dispatchAuthorityKey
+        New-Item -ItemType Directory -Force -Path $authorityDir | Out-Null
+        $claimsBytes = [System.Text.UTF8Encoding]::new($false).GetBytes('{"artifact":"root-claims","fixture":"dispatch-rollback"}')
+        [System.IO.File]::WriteAllBytes((Join-Path $authorityDir 'root-claims.json'), $claimsBytes)
+        $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
+        [System.IO.File]::WriteAllText((Join-Path $authorityDir 'current-env.json'), '{"artifact":"current-env-state","fixture":"dispatch-rollback"}', [System.Text.UTF8Encoding]::new($false))
+        $keptOldHash = (Get-SafeTreeSnapshot -Root (Join-Path $liveClaude 'kept-claude')).TreeHash
+        $keptNewHash = (Get-SafeTreeSnapshot -Root (Join-Path $sourceClaude 'kept-claude')).TreeHash
+        $transactionId = [Guid]::NewGuid().ToString()
+        $receiptId = [Guid]::NewGuid().ToString()
+        $header = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'live-journal-header'
+            TransactionId = $transactionId
+            OperationKind = 'environment'
+            TransactionMode = 'receipt-backed'
+            OriginalDocumentHash = ('1' * 64)
+            OriginalPlanHash = ('2' * 64)
+            HomeAuthorityKey = $dispatchAuthorityKey
+            OriginRepoId = $dispatchRepoId
+            GitCommonDirHash = $dispatchGit.GitCommonDirHash
+            CanonicalLockKey = $dispatchLockKey
+            RootClaimsHash = $claimsHash
+            ReceiptIntent = [ordered]@{ Id = $receiptId; Path = (Join-Path $derivedBackups $receiptId) }
+            Targets = @()
+        }
+        $receiptIntent = [ordered]@{
+            TransactionId = $transactionId
+            ReceiptId = $receiptId
+            ReceiptPath = (Join-Path $derivedBackups $receiptId)
+        }
+        $receiptPlatforms = @(
+            [ordered]@{ Platform = 'Claude'; LiveRoot = $liveClaude; Targets = @([ordered]@{ Name = 'kept-claude'; LivePath = (Join-Path $liveClaude 'kept-claude'); PlannedTreeHash = $keptOldHash }) },
+            [ordered]@{ Platform = 'Codex'; LiveRoot = $liveCodex; Targets = @() },
+            [ordered]@{ Platform = 'Reasonix'; LiveRoot = $liveReasonix; Targets = @() }
+        )
+        $transactionDir = Join-Path (Join-Path $derivedControl 'live-transactions') $transactionId
+        New-SealedLiveJournalHeader -Document $header -TransactionDirectory $transactionDir | Out-Null
+        # The receipt's plan/document hashes bind the header's original plan
+        # references so the dispatcher verifier accepts the pair.
+        $receipt = Invoke-SealedManagedBackupReceipt -ReservationIntent $receiptIntent -SourceOperationKind 'environment' -PlanHash ('2' * 64) -DocumentHash ('1' * 64) -ExecutionContextHash ('3' * 64) -ControlBaseHash ('4' * 64) -FilesystemCapabilityHash ('5' * 64) -HomeAuthorityKey $dispatchAuthorityKey -BackupRoot $derivedBackups -Platforms $receiptPlatforms -ForbiddenRoots @()
+        $actions = @([ordered]@{ Platform = 'Claude'; Action = 'update'; Name = 'kept-claude'; SourceHash = $keptNewHash; LiveHash = $keptOldHash })
+        $contexts = @(
+            [ordered]@{ Platform = 'Claude'; LiveRoot = $liveClaude; DeepestExistingParentPath = $liveClaude; MissingRemainder = @(); StagingRoot = $stagingClaude },
+            [ordered]@{ Platform = 'Codex'; LiveRoot = $liveCodex; DeepestExistingParentPath = $liveCodex; MissingRemainder = @(); StagingRoot = $stagingCodex },
+            [ordered]@{ Platform = 'Reasonix'; LiveRoot = $liveReasonix; DeepestExistingParentPath = $liveReasonix; MissingRemainder = @(); StagingRoot = $stagingReasonix }
+        )
+        $targets = New-SealedLiveTransactionTargetPlan -BackupRoot $derivedBackups -ReceiptIntent $header['ReceiptIntent'] -Platforms $receiptPlatforms -Actions $actions -LiveRootContexts $contexts
+        $targetContext = Sync-EngineIntentIdentities -TargetContextIntent (New-EngineTargetContextIntent -Platforms $receiptPlatforms)
+        $sourceRoots = [ordered]@{
+            Claude = $sourceClaude
+            Codex = (Join-Path $root 'source/codex/skills')
+            Reasonix = $liveReasonix
+        }
+        New-Item -ItemType Directory -Force -Path $sourceRoots['Codex'] | Out-Null
+        $producerArgs = [ordered]@{
+            TransactionDirectory = (Join-Path (Join-Path $derivedControl 'live-transactions') $transactionId)
+            Header = $header
+            Receipt = [ordered]@{
+                ReceiptId = [string] $receipt.ReceiptId
+                ReceiptPath = [string] $receipt.ReceiptPath
+                ReceiptHash = [string] $receipt.ReceiptHash
+            }
+            Targets = $targets
+            SourceRootsByPlatform = $sourceRoots
+            AuthorityStateIntent = (New-EngineAuthorityStateIntent -ClaimsHash $claimsHash -PlanHash ('1' * 64) -DocumentHash ('2' * 64))
+            TargetContextIntent = $targetContext
+            FinalCapabilityHashesByPlatform = $engineCapabilityHashes
+            ControlBase = $derivedControl
+            StateRecoveryDirectory = (Join-Path $stagingClaude 'state-recovery')
+        }
+        return [ordered]@{
+            ProducerArgs = $producerArgs
+            TransactionId = $transactionId
+            KeptLivePath = (Join-Path $liveClaude 'kept-claude')
+            KeptSwapPath = (Join-Path $stagingClaude 'swap/kept-claude')
+            KeptOldHash = $keptOldHash
+            KeptNewHash = $keptNewHash
+            StatePath = (Join-Path $authorityDir 'current-env.json')
+        }
+    }
+
+    $rollbackFixture = New-DispatchRollbackFixture -Label 'new-installed'
+    Invoke-KilledLiveTransactionHost -Mode produce -ProducerArgs $rollbackFixture.ProducerArgs -Checkpoint 'NEW_INSTALLED' -SandboxRoot $dispatchWork
+    $rollbackTxId = [string] $rollbackFixture.TransactionId
+    Assert ((Get-SafeTreeSnapshot -Root ([string] $rollbackFixture.KeptLivePath)).TreeHash -ceq [string] $rollbackFixture.KeptNewHash) 'the killed rollback fixture has installed the new tree'
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'rollback-required') 'the locator classifies the killed engine transaction as rollback-required'
+
+    $rollbackPlan = Join-Path $dispatchWork 'plans' 'rollback-plan.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $rollbackTxId, '-DryRun', '-PlanPath', $rollbackPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- rollback dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'the rollback dry-run derives the plan from the real receipt and chain'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $rollbackPlan
+    $rollbackPlanDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($rollbackPlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Test-RollbackPlanSemantics -Document $rollbackPlanDocument
+    $rollbackPayload = [System.Collections.IDictionary] $rollbackPlanDocument['PlanPayload']
+    Assert ([string] $rollbackPayload['ReceiptState'] -ceq 'COMPLETE' -and [string] $rollbackPayload['Action'] -ceq 'rollback' -and [string] $rollbackPayload['ExpectedOutcome'] -ceq 'rolled-back') 'the rollback plan binds the complete receipt and the rolled-back projection'
+
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $rollbackTxId, '-Apply', '-PlanPath', $rollbackPlan, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- rollback apply output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: rollback .*\(outcome=rolled-back\)') 'the rollback apply restores the preimage and closes the transaction'
+    Assert ((Get-SafeTreeSnapshot -Root ([string] $rollbackFixture.KeptLivePath)).TreeHash -ceq [string] $rollbackFixture.KeptOldHash) 'the rollback restored the live target to its header preimage'
+    $rolledChain = Get-SealedLiveJournalChain -TransactionDirectory ([string] $rollbackFixture.ProducerArgs['TransactionDirectory'])
+    $rolledResult = [System.Collections.IDictionary] $rolledChain.Result
+    Assert ($null -ne $rolledResult -and [string] $rolledResult['Outcome'] -ceq 'rolled-back' -and (Test-LiveTransactionMapHasName -Map $rolledResult -Name 'RestorationHash')) 'the rolled-back result carries the restoration binding'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the locator reports clean after the rollback recovery'
 
     Write-Host 'live recovery tests: PASS'
 }
