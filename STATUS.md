@@ -3108,15 +3108,15 @@ reflection-inventory re-pin (14689 -> 14713, digest
 blocking findings; `build-skills.ps1` produced 7/15/7; `tests/sync.tests.ps1`,
 `tests/live-plan.tests.ps1`, `tests/live-concurrency.tests.ps1`, and `tests/doctor.tests.ps1`
 passed; `git diff --check` was clean. The unified `run-tests.ps1 -All` pass is the Task 6 closeout
-gate: its first pass for this slice completed all 37 suites with zero timeouts and passed 36
-(external summary SHA-256 `64666e722268b9267efa2ce0389c0b247c9d34002a56f1bd274dcd7da2a6fb07`,
-discovery SHA-256 `b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0`, elapsed 6470 s).
-The single failure was `root-claims-registry.tests.ps1` at `route-witness-required` inside an
-observation-close block that passed in the two preceding unified runs; that suite loads none of the
-files this slice changed and passed standalone in 1745 s, and the run overlapped another session's
-Python coverage suite and project verification on the same machine, so it is recorded as an
-interference flake rather than a slice defect. A definitive unified pass on a quiet machine is not
-yet executed. Production Apply remains interlocked and no live root was touched.
+gate: the definitive create-new external pass discovered, started, completed, and passed all 37
+suites exactly once with zero failures, timeouts, duplicates, missing suites, or tree-kill failures
+(external summary SHA-256 `62b9797b9d46313993eac33186de7bb34a9801dd809c988f0c6bdccee8e1b71b`,
+discovery SHA-256 `b5e6d64c51d66adf878e287b29ab3773794cb8d3f95463e32b82ec488672cfd0`, elapsed
+7191 s; hard-kill 318/0 in 2721 s, seams 56/0 in 241 s, root-claims 1680 s, live-recovery 545 s,
+live-plan 121 assertions, sync 287 s). An earlier pass of the same tree reported 36/37 with a single
+`root-claims-registry` failure (`route-witness-required`) that did not reproduce standalone (1745 s)
+or in the definitive pass and is recorded as machine-load interference. Production Apply remains
+interlocked and no live root was touched.
 
 Two Step 5 clauses remain open and are assigned to Task 8's matrix fixtures: a different
 HomeAuthority with overlapping custom roots, and a concurrent canonical mutation being unable to
