@@ -18,15 +18,16 @@ putting the resulting machine paths or backup data into Git.
 
 ## 1. Environment rollback (preferred)
 
-Use `env rollback` for a previous `env activate -Apply` run. First generate a
-plan and inspect the managed action list:
+Use `env rollback` with the complete receipt of a previous `env activate`
+run. The legacy `-RunId`/`-BackupPath` selection is removed: only the receipt
+selects a rollback, and the reviewed plan is derived from it.
 
 ```powershell
-$BackupRoot = '<external-backup-root>'
+$ReceiptPath = '<complete-environment-receipt>'
 $PlanPath = '<external-plan.json>'
 
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env rollback `
-  -RunId '<reviewed-run-id>' -BackupRoot $BackupRoot `
+  -ReceiptPath $ReceiptPath `
   -DryRun -PlanPath $PlanPath
 ```
 
@@ -34,15 +35,18 @@ Only after reviewing the plan, apply the exact same plan:
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env rollback `
-  -RunId '<reviewed-run-id>' -BackupRoot $BackupRoot `
+  -ReceiptPath $ReceiptPath `
   -Apply -PlanPath $PlanPath
 ```
 
 `env rollback -Apply` requires all of the following:
 
 - exactly one explicit mode, `-DryRun` or `-Apply`;
-- a selected activation backup with valid backup and activation metadata;
-- the current environment state still matches the selected activation;
+- a COMPLETE receipt whose `SourceOperationKind` is `environment`;
+- the receipt's source transaction retained, `committed`, and byte-identical
+  to its retained header/result/terminal chain;
+- the current environment state still matches that activation's terminal
+  poststate, with an unchanged tracked overlay baseline;
 - the same external plan produced by the preceding dry-run, with no plan drift.
 
 The operation restores only skill directories named by the current

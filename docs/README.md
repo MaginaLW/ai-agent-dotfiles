@@ -469,8 +469,8 @@ pwsh -File scripts/agent-dotfiles.ps1 env status -ProjectRoot <p>  # 另检查�
 pwsh -File scripts/agent-dotfiles.ps1 env build <name>  # 构建 envs/<name>/ staging
 pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -DryRun  # 预览切换计划
 pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -Apply   # Phase 0：interlocked，不切换
-pwsh -File scripts/agent-dotfiles.ps1 env rollback -RunId <run-id> -DryRun -PlanPath <external-plan.json>
-pwsh -File scripts/agent-dotfiles.ps1 env rollback -RunId <run-id> -Apply -PlanPath <external-plan.json>
+pwsh -File scripts/agent-dotfiles.ps1 env rollback -ReceiptPath <complete-environment-receipt> -DryRun -PlanPath <external-plan.json>
+pwsh -File scripts/agent-dotfiles.ps1 env rollback -ReceiptPath <complete-environment-receipt> -Apply -PlanPath <external-plan.json>
 pwsh -NoProfile -File tests/harness-env.tests.ps1       # 回归测试（也在 CI 中运行）
 ```
 

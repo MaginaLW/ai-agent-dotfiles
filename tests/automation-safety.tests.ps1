@@ -25,7 +25,7 @@ try {
         @{ Name='task ensure apply'; Script='task-skills.ps1'; Args=@('-Action','ensure-skill','missing','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan') },
         @{ Name='task sync automatic apply'; Script='task-skills.ps1'; Args=@('-Action','sync','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-Automatic','-SkipBuild','-SkipSecretScan') },
         @{ Name='task close apply'; Script='task-skills.ps1'; Args=@('-Action','close','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan') },
-        @{ Name='environment rollback apply'; Script='rollback-harness-env.ps1'; Args=@('-BackupPath',(Join-Path $work 'missing-backup'),'-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-PlanPath',(Join-Path $work 'plan.json'),'-Apply') }
+        @{ Name='environment rollback apply'; Script='rollback-harness-env.ps1'; Args=@('-ReceiptPath',(Join-Path $work 'missing-receipt'),'-RepoRoot',$fakeRepo,'-PlanPath',(Join-Path $work 'plan.json'),'-Apply') }
     )
     foreach ($case in $cases) {
         $result = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot "scripts/$($case.Script)") -Arguments $case.Args
