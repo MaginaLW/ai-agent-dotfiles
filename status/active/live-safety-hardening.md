@@ -1745,9 +1745,15 @@ owner's own content intact.
 Step 3 (full runner and repository gates): the repository gates passed on the checkpoint tree —
 parse gate 167 files, `build-skills.ps1` 7/15/7, secret scan with no blocking findings, doctor,
 unstaged/staged `git diff --check`, and the build-clean gate with exactly the four protected
-Reasonix literal negative pathspecs on the committed tree. The definitive create-new external
-unified `run-tests.ps1 -All` pass is running and will be recorded on completion; it is the Task 9
-closeout gate.
+Reasonix literal negative pathspecs on the committed tree. The first create-new external unified
+pass (on the `95b6772` tree, 6864 s) returned 37/38 with exactly one failure —
+`canonical-production-seams` — and its cause was a process omission, not a product defect: the
+review fixes in `24dcabe` added six reflection-sensitive sites to the rollback execution
+composition and the all-scripts inventory baseline was not re-pinned in that commit (count
+14715 → 14721; the dynamic-command digest unchanged). The baseline was re-pinned in `0c348c3`
+(seams 56/0 standalone; the failed pass's external summary was recorded and deleted), and the
+authoritative unified pass reruns on that tree; its result will be recorded on completion as the
+Task 9 closeout gate.
 
 ## Pending items (2026-09-13, after Task 8 Step 4)
 
