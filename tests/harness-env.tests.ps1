@@ -26,7 +26,8 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
-. (Join-Path $RepoRoot 'scripts/harness-env-common.ps1')
+. (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
+. (Join-Path $RepoRoot 'scripts/harness-authority-status-common.ps1')
 $listScript = Join-Path $RepoRoot 'scripts/list-harness-env.ps1'
 $statusScript = Join-Path $RepoRoot 'scripts/status-harness-env.ps1'
 $buildScript = Join-Path $RepoRoot 'scripts/build-harness-env.ps1'
@@ -371,6 +372,18 @@ Assert ([string] $customDoc.Authority.IntendedRoot.Selection -eq 'explicit-initi
 Assert ([string] $customDoc.Authority.IntendedRoot.RequestedReasonixRoot -ne $customReasonixRoot) 'the status document never carries the raw custom root path'
 Assert (-not [string]::IsNullOrWhiteSpace([string] $customDoc.Authority.IntendedRoot.RequestedInitialRootContextHash)) 'the explicit intended root carries its metadata context hash'
 
+$schemaRoot = Join-Path $RepoRoot 'schemas'
+$statusSchema = Test-RepositoryJsonSchema -SchemaPath (Join-Path $schemaRoot 'harness-env-status.schema.json') -SchemaRoot $schemaRoot
+$listSchema = Test-RepositoryJsonSchema -SchemaPath (Join-Path $schemaRoot 'harness-env-list.schema.json') -SchemaRoot $schemaRoot
+$statusSchemaOk = $true
+try { $null = Invoke-FixedJsonSchemaValidationBytes -SchemaValidation $statusSchema -InstanceBytes ([System.IO.File]::ReadAllBytes($statusJson)) -InstancePath 'harness-env-status.emitted.json' }
+catch { $statusSchemaOk = $false; Write-Host "  note  emitted status failed schema validation: $($_.Exception.Message)" }
+Assert $statusSchemaOk 'the emitted status document validates against schema 2'
+$customSchemaOk = $true
+try { $null = Invoke-FixedJsonSchemaValidationBytes -SchemaValidation $statusSchema -InstanceBytes ([System.IO.File]::ReadAllBytes($customJson)) -InstancePath 'harness-env-status.emitted-custom.json' }
+catch { $customSchemaOk = $false; Write-Host "  note  emitted custom status failed schema validation: $($_.Exception.Message)" }
+Assert $customSchemaOk 'the emitted explicit-intended-root status document validates against schema 2'
+
 $listJson = Join-Path $work 'list-authority.json'
 $result = Invoke-Script -Script $listScript -ScriptArgs @('-RepoRoot', $fakeRepo, '-JsonPath', $listJson)
 Assert ($result.Code -eq 0) 'list writes its authority document'
@@ -378,6 +391,10 @@ $listDoc = Get-Content -Raw -LiteralPath $listJson | ConvertFrom-Json
 Assert ([int] $listDoc.SchemaVersion -eq 2) 'list document uses schema 2'
 Assert ($listDoc.Environments[0].PSObject.Properties.Name -contains 'ReasonixSkillCount') 'list rows carry the Reasonix skill count'
 Assert ([string] $listDoc.Authority.Route -eq [string] $statusDoc.Authority.Route) 'list and status agree on the single authority route'
+$listSchemaOk = $true
+try { $null = Invoke-FixedJsonSchemaValidationBytes -SchemaValidation $listSchema -InstanceBytes ([System.IO.File]::ReadAllBytes($listJson)) -InstancePath 'harness-env-list.emitted.json' }
+catch { $listSchemaOk = $false; Write-Host "  note  emitted list failed schema validation: $($_.Exception.Message)" }
+Assert $listSchemaOk 'the emitted list document validates against schema 2'
 
 # --- 8. read-only guarantee for list/status ------------------------------------
 Write-Host 'list/status: read-only guarantee'
