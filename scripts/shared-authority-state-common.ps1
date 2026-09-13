@@ -551,3 +551,109 @@ function New-AuthorityStatePostimage {
     Test-CurrentEnvStateSemantics -Document $postimage
     return $postimage
 }
+
+function Read-HomeAuthorityArtifact {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][ValidateSet('root-claims','current-env-state')][string]$ArtifactKind,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$EvidenceRoot
+    )
+
+    $artifact = [ordered]@{
+        Status = 'MISSING'
+        Bytes = $null
+        BytesHash = $null
+        Document = $null
+        Error = $null
+    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return [pscustomobject]$artifact }
+
+    $artifact.Status = 'CORRUPT'
+    try {
+        $capture = Read-ExactJsonArtifactCapture -Path $Path -Role EvidenceInputPath -RepoRoot $RepoRoot -EvidenceRoots @($EvidenceRoot)
+        $artifact.Bytes = [byte[]]$capture.Bytes
+        $artifact.BytesHash = [string]$capture.Sha256
+        Assert-AuthoritySchemaBytes -ArtifactKind $ArtifactKind -InstanceBytes ([byte[]]$capture.Bytes)
+        if ($ArtifactKind -ceq 'root-claims') { Test-RootClaimsSemantics -Document $capture.Document }
+        else { Test-CurrentEnvStateSemantics -Document $capture.Document }
+        $artifact.Document = $capture.Document
+        $artifact.Status = 'VALID'
+    }
+    catch {
+        $artifact.Error = [string]$_.Exception.Message
+    }
+    return [pscustomobject]$artifact
+}
+
+function Read-HomeAuthorityState {
+    <#
+    .SYNOPSIS
+        Read-only validated view of the shared ControlBase schema 3 authority state.
+
+    .DESCRIPTION
+        Reads exactly `ControlBase/homes/<HomeAuthorityKey>/root-claims.json` and its
+        separate `current-env.json`. It never reads, writes, deletes, or moves the
+        repo-local legacy `state/current-env.json`, and it never treats claims and
+        state as one another. It takes no lock and is not a mutation input: production
+        writers keep using the held validated read under the global lock.
+
+        Per-artifact status is `MISSING` (no file), `CORRUPT` (present but not valid
+        exact-byte evidence), or `VALID`. `PairStatus` is `VALID` only when both are
+        valid and the state's RootClaimsHash and final identities match the exact
+        claims bytes, `MISMATCH` when both are valid but inconsistent, `CORRUPT` when
+        either artifact is present but invalid, and `MISSING` otherwise.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ControlBase,
+        [Parameter(Mandatory)][string]$HomeAuthorityKey,
+        [string]$RepoRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $script:AuthorityStateRepoRoot }
+    if (-not [IO.Path]::IsPathFullyQualified($ControlBase)) { throw 'HomeAuthority ControlBase must be a fully-qualified path' }
+    if ($HomeAuthorityKey -cnotmatch '\A[0-9a-f]{64}\z') { throw 'HomeAuthority key must be a 64-character lowercase hex value' }
+    $controlBaseFull = [IO.Path]::GetFullPath($ControlBase)
+
+    $authorityRoot = Join-Path (Join-Path $controlBaseFull 'homes') $HomeAuthorityKey
+    $claims = Read-HomeAuthorityArtifact -Path (Join-Path $authorityRoot 'root-claims.json') -ArtifactKind 'root-claims' -RepoRoot $RepoRoot -EvidenceRoot $controlBaseFull
+    $state = Read-HomeAuthorityArtifact -Path (Join-Path $authorityRoot 'current-env.json') -ArtifactKind 'current-env-state' -RepoRoot $RepoRoot -EvidenceRoot $controlBaseFull
+
+    $pairStatus = 'MISSING'
+    $pairError = $null
+    if ($claims.Status -ceq 'CORRUPT' -or $state.Status -ceq 'CORRUPT') {
+        $pairStatus = 'CORRUPT'
+    }
+    elseif ($claims.Status -ceq 'VALID' -and $state.Status -ceq 'VALID') {
+        $pairStatus = 'MISMATCH'
+        try {
+            Test-CurrentEnvStateAgainstRootClaims -StateDocument $state.Document -RootClaimsDocument $claims.Document -RootClaimsBytes ([byte[]]$claims.Bytes)
+            $pairStatus = 'VALID'
+        }
+        catch {
+            $pairError = [string]$_.Exception.Message
+        }
+    }
+
+    $reader = [ordered]@{
+        HomeAuthorityKey = $HomeAuthorityKey
+        AuthorityRoot = $authorityRoot
+        ClaimsPath = Join-Path $authorityRoot 'root-claims.json'
+        ClaimsStatus = [string]$claims.Status
+        ClaimsBytes = $claims.Bytes
+        ClaimsBytesHash = $claims.BytesHash
+        ClaimsDocument = $claims.Document
+        ClaimsError = $claims.Error
+        StatePath = Join-Path $authorityRoot 'current-env.json'
+        StateStatus = [string]$state.Status
+        StateBytes = $state.Bytes
+        StateBytesHash = $state.BytesHash
+        StateDocument = $state.Document
+        StateError = $state.Error
+        PairStatus = $pairStatus
+        PairError = $pairError
+    }
+    return [pscustomobject]$reader
+}

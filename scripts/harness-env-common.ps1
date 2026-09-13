@@ -323,6 +323,62 @@ function Read-HarnessEnvState {
     return $state
 }
 
+function Read-LegacyHarnessEnvState {
+    <#
+    .SYNOPSIS
+        Read-only validated view of the repo-local legacy schema 2 state.
+
+    .DESCRIPTION
+        The legacy `state/current-env.json` file is the only artifact this
+        reader touches; it never reads, interprets, or writes the shared
+        ControlBase schema 3 state or its separate root-claims file, and it
+        never deletes or moves the legacy file. The exact bytes are captured so
+        a later plan can bind LegacyHash/LegacyCoreHash to what was read.
+
+        Status is `VALID` for a strict semantic-JSON object whose SchemaVersion
+        is exactly 2 and whose Name is a non-empty string, `CORRUPT` when the
+        file exists but is not that legacy evidence, and `MISSING` when no file
+        exists. Full migration-core validation (hash consistency, parity,
+        LegacyGap/LegacyDrift) belongs to the migration route and is not
+        decided here.
+    #>
+    [CmdletBinding()]
+    param([string] $RepoRoot)
+
+    $path = Get-HarnessEnvStatePath -RepoRoot $RepoRoot
+    $legacy = [ordered] @{
+        Path = $path
+        Status = 'MISSING'
+        Bytes = $null
+        BytesHash = $null
+        Document = $null
+    }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        return [pscustomobject] $legacy
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+    $legacy.Bytes = $bytes
+    $legacy.BytesHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+    $legacy.Status = 'CORRUPT'
+    try {
+        $document = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString($bytes))
+    }
+    catch {
+        return [pscustomobject] $legacy
+    }
+    if ($document -isnot [System.Collections.IDictionary] -or -not $document.Contains('SchemaVersion') -or -not $document.Contains('Name')) {
+        return [pscustomobject] $legacy
+    }
+    if ([long] $document['SchemaVersion'] -ne 2 -or [string]::IsNullOrWhiteSpace([string] $document['Name'])) {
+        return [pscustomobject] $legacy
+    }
+
+    $legacy.Document = $document
+    $legacy.Status = 'VALID'
+    return [pscustomobject] $legacy
+}
+
 function Get-HarnessEnvDefinitionHash {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $Path)
