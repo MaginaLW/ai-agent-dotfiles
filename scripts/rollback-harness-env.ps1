@@ -12,13 +12,16 @@
     Resolution order is final: the sandbox-injected authority (the same surface
     sync and live recovery use) with its complete bootstrap prefix, then the
     external-artifact preflight for the receipt and plan paths, then the
-    receipt slot state and its source operation kind, and then the Task 7
-    Step 1 source-graph evidence: receipt integrity, backup snapshot trees,
+    receipt slot state and its source operation kind, and then — under the
+    origin canonical -> worktree overlay -> global lock order — the Task 7
+    Step 1 source-graph evidence (receipt integrity, backup snapshot trees,
     authority preimages, the linked source transaction's committed chain and
-    receipt binding, and the current state/claims/overlay/live surface. Every
-    disagreement fails closed with its reviewed token. The eligibility
-    derivation and the transition itself are wired in the remaining Task 7
-    slices, so an eligible invocation currently fails closed with
+    receipt binding) and the current state/claims/overlay/live surface, plus
+    the origin identity and overlay-lock support checks. DryRun derives and
+    writes the schema-1 environment-rollback plan; Apply validates the
+    reviewed plan fail-closed. Every disagreement fails closed with its
+    reviewed token. The transition itself is wired in the remaining Task 7
+    slices, so a validated Apply currently fails closed with
     live-rollback-dispatch-not-wired.
 #>
 [CmdletBinding(DefaultParameterSetName = 'DryRun')]
@@ -41,6 +44,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 . (Join-Path $PSScriptRoot 'home-authority-common.ps1')
+. (Join-Path $PSScriptRoot 'live-plan-common.ps1')
 . (Join-Path $PSScriptRoot 'target-context-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
 . (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
@@ -54,6 +58,7 @@ $script:RollbackReceiptIncomplete = 'rollback-receipt-not-complete'
 $script:RollbackReceiptTampered = 'rollback-receipt-tampered'
 $script:RollbackSourceKindUnsupported = 'rollback-source-kind-unsupported'
 $script:RollbackHomeAuthorityMismatch = 'rollback-home-authority-mismatch'
+$script:RollbackOriginMismatch = 'rollback-origin-mismatch'
 $script:RollbackBackupDrift = 'rollback-backup-drift'
 $script:RollbackPreimageMissing = 'rollback-preimage-missing'
 $script:RollbackPreimageTampered = 'rollback-preimage-tampered'
@@ -66,6 +71,9 @@ $script:RollbackSourceReceiptMismatch = 'rollback-source-receipt-mismatch'
 $script:RollbackStateDrift = 'rollback-state-drift'
 $script:RollbackOverlayDrift = 'rollback-overlay-drift'
 $script:RollbackLiveRootDrift = 'rollback-live-root-drift'
+$script:RollbackOverlayLockUnsupported = 'worktree-overlay-lock-not-implemented'
+$script:RollbackPlanMissing = 'rollback-plan-missing'
+$script:RollbackPlanMismatch = 'rollback-plan-mismatch'
 $script:RollbackPlanPathCollision = 'live-recovery-plan-path-collision'
 
 function Resolve-RollbackInternalRoots {
@@ -359,6 +367,205 @@ function Assert-RollbackSourceEligible {
             throw ($script:RollbackLiveRootDrift + ' (' + $platform + ' identity)')
         }
     }
+
+    return $currentState
+}
+
+function Assert-RollbackOriginMatch {
+    # The rollback is derived by the origin repository: the source journal
+    # header must bind the calling clone's canonical identity, so a wrong
+    # clone can never derive (or execute) a rollback it does not own.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $HeaderMap,
+        [Parameter(Mandatory)] $GitContext,
+        [Parameter(Mandatory)] [string] $RepoId,
+        [Parameter(Mandatory)] [string] $CanonicalLockKey
+    )
+
+    if ([string] $HeaderMap['OriginRepoId'] -cne $RepoId) {
+        throw ($script:RollbackOriginMismatch + ' (repo identity)')
+    }
+    if ([string] $HeaderMap['GitCommonDirHash'] -cne [string] $GitContext.GitCommonDirHash) {
+        throw ($script:RollbackOriginMismatch + ' (git common dir)')
+    }
+    if ([string] $HeaderMap['CanonicalLockKey'] -cne $CanonicalLockKey) {
+        throw ($script:RollbackOriginMismatch + ' (canonical lock key)')
+    }
+}
+
+function Assert-RollbackOverlayLockSupported {
+    # The reviewed order is origin canonical -> optional origin overlay ->
+    # global. The worktree overlay lock primitive refuses REQUIRED
+    # applicability until the Phase 3 primitive exists, so a source header
+    # that binds one fails closed instead of deriving a plan that would run
+    # without that lock.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $HeaderMap)
+
+    if ((Test-LiveTransactionMapHasName -Map $HeaderMap -Name 'WorktreeOverlayLockKey') -and $null -ne $HeaderMap['WorktreeOverlayLockKey']) {
+        throw $script:RollbackOverlayLockUnsupported
+    }
+}
+
+function New-EnvironmentRollbackPlanDocument {
+    # Derives the schema-1 environment-rollback plan from the verified source
+    # evidence under the held origin lock order. The rollback's own receipt
+    # and journal refs are regenerated at Apply; the plan binds the source
+    # receipt identity, the origin keys, the preimage semantics as the
+    # RollbackStateIntent (generation advanced past the current state), and
+    # one restore row per receipt snapshot target with the observed current
+    # state and the exact snapshot bytes as the candidate.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Evidence,
+        [Parameter(Mandatory)] [string] $RepoId,
+        [Parameter(Mandatory)] [string] $CanonicalLockKey,
+        [Parameter(Mandatory)] $GitContext,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $CurrentState
+    )
+
+    $receiptDocument = [System.Collections.IDictionary] $Evidence.ReceiptDocument
+    $preimageState = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([byte[]] $Evidence.AuthorityStatePreimageBytes))
+
+    $intent = [ordered]@{}
+    foreach ($name in @(
+        'SchemaVersion', 'ArtifactKind', 'HomeAuthorityKey', 'RootClaimsHash', 'SelectionKind',
+        'EnvironmentName', 'EnvironmentLockHash', 'TaskOverlayHash', 'TaskOverlaySkills',
+        'ManifestHashes', 'FinalManagedHashes', 'ControllerRepoFingerprint', 'ApprovedToolchainHash'
+    )) {
+        $intent[$name] = $preimageState[$name]
+    }
+    $intent['AuthorityGeneration'] = [long] $CurrentState['AuthorityGeneration'] + 1
+    $intent['LastOperationKind'] = 'environment-rollback'
+
+    $targets = [System.Collections.Generic.List[object]]::new()
+    $order = 0L
+    foreach ($row in @([object[]] $receiptDocument['ManagedSnapshots'])) {
+        $platform = [string] $row['Platform']
+        $platformDir = Join-Path (Join-Path ([string] $Evidence.ReceiptPath) 'snapshot') $platform.ToLowerInvariant()
+        foreach ($target in @([object[]] $row['Targets'])) {
+            $name = [string] $target['Name']
+            # The receipt's snapshot rows bind the target name, snapshot tree
+            # hash, and pre-change identity; the live path is the platform's
+            # recorded root (verified equal to the current root by the
+            # eligibility gates) joined with the safe bare name.
+            $livePath = Join-Path ([string] $row['LiveRoot']) $name
+            $restored = $null
+            if ([string] $target['Status'] -ceq 'COPIED') {
+                $restored = [ordered]@{
+                    State = 'PRESENT'
+                    Type = 'Directory'
+                    Hash = [string] $target['SnapshotTreeHash']
+                    Identity = [string] $target['LiveIdentity']
+                }
+            }
+            else {
+                $restored = [ordered]@{ State = 'MISSING' }
+            }
+            $info = $null
+            try { $info = [AiAgentDotfiles.NoFollowFile]::Inspect($livePath) }
+            catch { $info = $null }
+            if ($null -ne $info -and (-not [bool] $info.IsDirectory -or [bool] $info.IsReparsePoint)) {
+                throw ($script:RollbackLiveRootDrift + ' (' + $platform + '/' + $name + ' not a directory)')
+            }
+            $current = if ($null -ne $info) {
+                [ordered]@{
+                    State = 'PRESENT'
+                    Type = 'Directory'
+                    Hash = (Get-SafeTreeSnapshot -Root $livePath).TreeHash
+                    Identity = [string] $info.Identity
+                }
+            }
+            else {
+                [ordered]@{ State = 'MISSING' }
+            }
+            $targets.Add([ordered]@{
+                TargetId = (Get-SemanticJsonHash -InputObject ([ordered]@{ Kind = 'skill'; Platform = $platform; Name = $name }))
+                Order = $order
+                TargetKind = 'skill'
+                Role = 'live-target'
+                Platform = $platform
+                Name = $name
+                TargetPath = $livePath
+                PreimagePath = $(if ([string] $target['Status'] -ceq 'COPIED') { Join-Path $platformDir $name } else { $null })
+                SwapOldPath = $null
+                StagedPath = $null
+                LiveIdentity = $(if ($null -ne $info) { [string] $info.Identity } else { $null })
+                ReceiptSnapshotRef = $(if ([string] $target['Status'] -ceq 'COPIED') {
+                        [ordered]@{ Platform = $platform; Name = $name }
+                    } else { $null })
+                Current = $current
+                Candidate = $restored
+                TargetContextHash = (Get-SemanticJsonHash -InputObject ([ordered]@{ Path = $livePath; Old = $current; New = $restored }))
+            })
+            $order++
+        }
+    }
+
+    $payload = [ordered]@{
+        SchemaVersion = 1
+        PlanKind = 'environment-rollback'
+        TransactionMode = 'receipt-backed'
+        HomeAuthorityKey = [string] $receiptDocument['HomeAuthorityKey']
+        OriginRepoId = $RepoId
+        GitCommonDirHash = [string] $GitContext.GitCommonDirHash
+        CanonicalLockKey = $CanonicalLockKey
+        SourceTransactionId = [string] $receiptDocument['SourceTransactionId']
+        SourceOperationKind = 'environment'
+        OriginalPlanHash = [string] $receiptDocument['PlanHash']
+        OriginalDocumentHash = [string] $receiptDocument['DocumentHash']
+        ReceiptIntent = [ordered]@{
+            Id = [string] $receiptDocument['ReceiptId']
+            Path = [string] $receiptDocument['ReceiptPath']
+        }
+        ReceiptId = [string] $receiptDocument['ReceiptId']
+        ReceiptHash = [string] $receiptDocument['ReceiptHash']
+        RootClaimsHash = [string] $receiptDocument['RootClaimsPreimage']['Hash']
+        Targets = @($targets)
+        RollbackStateIntent = $intent
+    }
+    $document = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'rollback-plan'
+        Metadata = [ordered]@{
+            CreatedAtUtc = [DateTime]::UtcNow.ToString('o')
+            Generator = 'scripts/rollback-harness-env.ps1'
+            RepositoryCommit = [string] $GitContext.RepositoryCommit
+        }
+        PlanPayload = $payload
+    }
+    $document['PlanHash'] = Get-PlanHash -PlanPayload $payload
+    $document['DocumentHash'] = Get-DocumentHash -Document $document
+    return $document
+}
+
+function Assert-RollbackPlanInvocationMatch {
+    # Apply-side validation: the reviewed plan at -PlanPath must be the
+    # environment-rollback plan for exactly this invocation's receipt and
+    # authority; anything else is rejected before any transition work.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $PlanDocument,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $ReceiptDocument,
+        [Parameter(Mandatory)] [string] $HomeAuthorityKey
+    )
+
+    $payload = [System.Collections.IDictionary] $PlanDocument['PlanPayload']
+    $bindings = [ordered]@{
+        'plan kind'         = ([string] $payload['PlanKind']) -ceq 'environment-rollback'
+        'home authority'    = ([string] $payload['HomeAuthorityKey']) -ceq $HomeAuthorityKey
+        'receipt id'        = ([string] $payload['ReceiptId']) -ceq [string] $ReceiptDocument['ReceiptId']
+        'receipt hash'      = ([string] $payload['ReceiptHash']) -ceq [string] $ReceiptDocument['ReceiptHash']
+        'source transaction' = ([string] $payload['SourceTransactionId']) -ceq [string] $ReceiptDocument['SourceTransactionId']
+        'original plan hash' = ([string] $payload['OriginalPlanHash']) -ceq [string] $ReceiptDocument['PlanHash']
+        'original document hash' = ([string] $payload['OriginalDocumentHash']) -ceq [string] $ReceiptDocument['DocumentHash']
+    }
+    foreach ($name in @($bindings.Keys)) {
+        if (-not [bool] $bindings[$name]) {
+            throw ($script:RollbackPlanMismatch + ' (' + $name + ')')
+        }
+    }
 }
 
 $repoFull = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepoRoot).Path)
@@ -399,10 +606,79 @@ if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {
     $null = Resolve-PrivateArtifactPath -Path ([System.IO.Path]::GetFullPath($JsonPath)) -Role ExternalUserArtifact -RepoRoot $repoFull -AllowMissingLeaf
 }
 
-# Task 7 Step 1: the source-graph evidence and the current-surface
-# eligibility comparison fail closed before the transition; an eligible
-# graph still reaches the not-yet-wired stub until the remaining slices
-# replace it with the reviewed derivation.
-$evidence = Get-RollbackSourceEvidence -ReceiptDocument $receiptDocument -ReceiptPath $receiptFull -AuthorityContext $authorityContext
-Assert-RollbackSourceEligible -Evidence $evidence -AuthorityContext $authorityContext
-throw $script:RollbackNotWired
+# Task 7 Step 2: the calling repository is the origin candidate. Under the
+# reviewed origin canonical -> worktree overlay -> global lock order, the
+# source-graph evidence and the current-surface eligibility are revalidated,
+# and DryRun derives and writes the schema-1 environment-rollback plan while
+# Apply validates the reviewed plan fail-closed. The transition itself
+# arrives with the remaining Task 7 slices.
+$gitContext = Get-CanonicalGitContext -RepoRoot $repoFull
+$contractPaths = Get-CanonicalTransactionContractPaths -GitContext $gitContext
+$repoId = Get-CanonicalRepoIdentity -GitContext $gitContext
+$canonicalLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [string] $contractPaths.LockPath })
+
+if ($Apply -and -not (Test-Path -LiteralPath $planFull -PathType Leaf)) { throw $script:RollbackPlanMissing }
+
+$canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $contractPaths.LockPath) -AllowCreate
+$canonicalWitness = $null
+$globalLock = $null
+try {
+    try {
+        $canonicalWitness = Open-CanonicalHeldNamespaceWitness -RepoRoot $repoFull -CanonicalLockHandle $canonicalLock
+    }
+    catch {
+        # A repository without its canonical setup window still dispatches
+        # under the canonical and global locks, exactly like live recovery.
+        if ([string] $_.Exception.Message -cin @('canonical-setup-required', 'canonical-recovery-required')) {
+            $canonicalWitness = $null
+        }
+        else { throw }
+    }
+    try {
+        $globalLock = if ($null -ne $canonicalWitness) {
+            Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $authorityContext -RequiredCanonicalWitness $canonicalWitness
+        }
+        else {
+            Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $authorityContext
+        }
+        try {
+            $evidence = Get-RollbackSourceEvidence -ReceiptDocument $receiptDocument -ReceiptPath $receiptFull -AuthorityContext $authorityContext
+            Assert-RollbackOriginMatch -HeaderMap $evidence.Header -GitContext $gitContext -RepoId $repoId -CanonicalLockKey $canonicalLockKey
+            $currentState = Assert-RollbackSourceEligible -Evidence $evidence -AuthorityContext $authorityContext
+            Assert-RollbackOverlayLockSupported -HeaderMap $evidence.Header
+
+            if ($DryRun) {
+                $document = New-EnvironmentRollbackPlanDocument -Evidence $evidence -RepoId $repoId -CanonicalLockKey $canonicalLockKey -GitContext $gitContext -CurrentState $currentState
+                # The derivation self-checks against the reviewed semantic
+                # layer before any byte is written.
+                Test-RollbackPlanSemantics -Document $document
+                if (Test-Path -LiteralPath $planFull) { throw $script:RollbackPlanPathCollision }
+                $planParent = Split-Path -Parent $planFull
+                if (-not [string]::IsNullOrWhiteSpace($planParent) -and -not (Test-Path -LiteralPath $planParent)) {
+                    New-Item -ItemType Directory -Force -Path $planParent | Out-Null
+                }
+                [System.IO.File]::WriteAllText($planFull, (ConvertTo-Json -InputObject $document -Depth 64) + "`n", [System.Text.UTF8Encoding]::new($false))
+                Write-Host "environment rollback plan created: $($evidence.TransactionId)"
+                Write-Host "PlanHash: $($document['PlanHash'])"
+                exit 0
+            }
+
+            # Apply validates the reviewed plan against this exact invocation
+            # before the not-yet-wired transition stub.
+            $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planFull, [System.Text.UTF8Encoding]::new($false, $true)))
+            $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $PSScriptRoot '../schemas/rollback-plan.schema.json') -InstancePath $planFull
+            Test-RollbackPlanSemantics -Document $planDocument
+            Assert-RollbackPlanInvocationMatch -PlanDocument $planDocument -ReceiptDocument $receiptDocument -HomeAuthorityKey ([string] $authorityContext.HomeAuthorityKey)
+            throw $script:RollbackNotWired
+        }
+        finally {
+            if ($null -ne $globalLock) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
+        }
+    }
+    finally {
+        if ($null -ne $canonicalWitness) { Close-CanonicalHeldNamespaceWitness -Witness $canonicalWitness }
+    }
+}
+finally {
+    Exit-CanonicalRepoLock -LockHandle $canonicalLock
+}

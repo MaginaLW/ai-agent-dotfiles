@@ -1418,7 +1418,7 @@ Task 7 slices 1-2 are landed:
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
-| Task 7 | 3/5 | Entry, plan-layer fix, and Step 1 complete (`00e3632` receipt-based entry, `50d6616` environment-rollback plan-layer fix, this slice's source graph and eligibility gates); remaining: the Step 2 derivation under the reviewed lock order, Steps 3-4 (blocked on the Phase 3 worktree overlay lock for their verification), and the three-platform verification (Step 5) |
+| Task 7 | 2/5 | Entry, plan-layer fix, Step 1, and Step 2 complete (`00e3632` receipt-based entry, `50d6616` environment-rollback plan-layer fix, the Step 1 source graph and eligibility gates, this slice's lock-ordered derivation and schema-1 plan write); remaining: the pre-rollback receipt (Step 3), execution (Step 4, blocked on the Phase 3 worktree overlay lock for its verification), and the three-platform verification (Step 5) |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
 
@@ -1495,33 +1495,89 @@ check first); both are pinned as the reviewed tokens they produce. The suite's l
 so its budget moved 300 → 900 s; the computed requirement (23685 s) still sits below the 400-minute
 workflow bound and the runner contract passes unchanged.
 
-## Pending items (2026-09-13, after Task 7 Step 1 completion)
+## Task 7 Step 2 (2026-09-13): the derived environment-rollback plan under the reviewed lock order
 
-Task 7 (receipt-backed environment rollback) — Steps 2-5 remain, in order:
+`scripts/rollback-harness-env.ps1` now performs the ordered eligibility derivation and derives the
+schema-1 `environment-rollback` plan. The calling repository is bound as the origin candidate
+(`Get-CanonicalGitContext`/`Get-CanonicalRepoIdentity`/`Get-CanonicalTransactionContractPaths`), and
+everything after the receipt preflight runs under the reviewed origin canonical → worktree overlay →
+global lock order (`Enter-CanonicalRepoLock`, the tolerated-absent canonical namespace witness,
+`Enter-HomeAuthorityGlobalLiveLock` with the optional witness). Under those locks the Step 1
+evidence and current-surface eligibility gates revalidate, two new fail-closed checks run, and the
+derivation executes:
 
-1. **Step 2.** Implement the ordered eligibility derivation in the rollback entry under the
-   canonical → worktree overlay → global lock order: reuse `Get-RollbackSourceEvidence` /
-   `Assert-RollbackSourceEligible` under those locks, then derive the provenance/target/action
-   bindings and the `RollbackStateIntent` (copying `HomeAuthorityKey`, `RootClaimsHash`,
-   selection/environment, overlay, manifest and final-managed semantics, controller fingerprint, and
-   toolchain hash from the activation preimage; `LastOperationKind=environment-rollback`; receipt and
-   journal refs regenerated at Apply), map the plan's `Targets` onto the engine's add/update/prune
-   ladder, and write the schema-1 `environment-rollback` plan on DryRun. Apply-side plan validation
-   (including the PlanKind/invocation mismatch rejections) lands here. The legacy
-   `BackupReference`/timestamp selection is already rejected at the parameter surface.
-2. **Step 3.** Create and validate the durable pre-rollback receipt (current managed live, current
-   authority state, root claims, tracked-overlay hash marker) before any mutation.
-3. **Step 4.** Run the rollback through the common state machine with the host changes the review
-   listed (kind gate, `RollbackStateIntent`, reconstructed `TargetContextIntent`, targets mapped onto
-   add/update/prune, activation-snapshot source roots, authority-preimage receipt args) and the
-   cleanup rules. **Execution verification depends on the Phase 3 worktree overlay lock** (the
-   reviewed lock-order primitive refuses `REQUIRED` applicability); without it the execution path can
-   only be pinned as fail-closed.
-4. **Step 5.** `tests/backup-recovery.tests.ps1` and the rollback section of
-   `tests/harness-env.tests.ps1`: three-platform symmetric rollback including an already-claimed
-   custom Reasonix root, plus the rejected drift cases (the backup-recovery side of this matrix is
-   now in place and green; the symmetric execution cases wait for Steps 3-4).
-5. **Closeout.** The unified `run-tests.ps1 -All` pass for this tree (38 suites, workflow timeout
+- `Assert-RollbackOriginMatch` compares the source journal header's `OriginRepoId`,
+  `GitCommonDirHash`, and `CanonicalLockKey` with the calling clone (`rollback-origin-mismatch
+  (repo identity | git common dir | canonical lock key)`), so a wrong clone can never derive or
+  execute a rollback it does not own.
+- `Assert-RollbackOverlayLockSupported` rejects a source header that binds a
+  `WorktreeOverlayLockKey` with the reviewed `worktree-overlay-lock-not-implemented` token until
+  the Phase 3 worktree overlay primitive exists.
+- `New-EnvironmentRollbackPlanDocument` derives the plan entirely from verified evidence: the
+  payload binds `SourceTransactionId`/`SourceOperationKind=environment`, the source
+  `OriginalPlanHash`/`OriginalDocumentHash`, the source receipt identity
+  (`ReceiptIntent`/`ReceiptId`/`ReceiptHash`), the origin keys, `RootClaimsHash`, and the
+  `RollbackStateIntent` — the activation preimage's semantic fields
+  (`HomeAuthorityKey`, `RootClaimsHash`, selection/environment, `TaskOverlayHash`/`TaskOverlaySkills`,
+  `ManifestHashes`, `FinalManagedHashes`, controller fingerprint, toolchain hash) with
+  `LastOperationKind=environment-rollback` and `AuthorityGeneration` advanced past the current
+  state; the rollback's own receipt and journal refs are regenerated at Apply and the schema-forbidden
+  live-recover fields are absent. One restore row per receipt snapshot target binds the observed
+  current state (`Current`), the exact snapshot bytes and pre-change identity as `Candidate`, the
+  snapshot path as `PreimagePath` with a `ReceiptSnapshotRef` for COPIED targets, and the safe bare
+  name joined under the platform's recorded (eligibility-verified) live root as `TargetPath`, so the
+  engine's add/update/prune ladder maps directly. The derivation self-checks through
+  `Test-RollbackPlanSemantics` before any byte is written, then writes the plan create-new under
+  the held locks and prints the PlanHash.
+- Apply validates the reviewed plan fail-closed under the held locks — file presence
+  (`rollback-plan-missing`), the pinned schema, the semantic layer, and
+  `Assert-RollbackPlanInvocationMatch` (`rollback-plan-mismatch (<detail>)` for plan kind, home
+  authority, receipt id/hash, source transaction, and original plan/document hash) — before the
+  still-not-wired transition stub. Apply remains behind the Phase 0 production interlock, so the
+  validation tail is reviewed code that only executes after policy release.
+
+`tests/backup-recovery.tests.ps1` grew to 135 assertions (385 s locally; the 900 s budget holds).
+The eligible graph's DryRun now derives and writes the reviewed plan, which is validated against the
+pinned schema and semantic layer in-suite and asserted for every binding: source transaction,
+receipt identity, source plan references, authority key, calling-repository origin identity, the
+absence of every schema-forbidden field, the preimage-carried intent fields, the advanced authority
+generation, and the three restore rows (restoration over the installed update bytes, removal of the
+installed add target, and restoration of the pruned target from its snapshot). Two new source-graph
+variants pin the origin mismatch (a header born with a foreign `OriginRepoId`) and the overlay-lock
+refusal, each proving zero plan bytes; the stale-receipt and derivation rejections also prove zero
+plan bytes. The fixture builder now binds the calling repository's real canonical origin identity
+into every source header.
+
+Verification (canonical `pwsh -NoProfile -File` runs): backup-recovery 135 assertions; seams 56/0
+after re-pinning the all-scripts baselines (dynamic-command digest and reflection-sensitive
+inventory 14646 → 14679 for the derivation's added dispatch sites); live-recovery;
+automation-safety; agent-dotfiles; harness-env; live-plan; doctor; registered artifact validation
+28 contracts / 28 positive / 113 negative with zero failures; parse gate 167 files; secret scan
+clean; `build-skills.ps1` 7/15/7; `git diff --check` clean. Production Apply remains interlocked
+and no live root was touched.
+
+## Pending items (2026-09-13, after Task 7 Step 2)
+
+Task 7 (receipt-backed environment rollback) — Steps 3-5 remain, in order:
+
+1. **Step 3.** Create and validate the durable pre-rollback receipt (current managed live, current
+   authority state, root claims, tracked-overlay hash marker) before any mutation, using the
+   rollback PlanHash/context. The derived plan's receipt refs are regenerated here: the rollback's
+   own header `ReceiptIntent` is the pre-rollback slot.
+2. **Step 4.** Run the rollback through the common state machine with the host changes the review
+   listed (kind gate, `RollbackStateIntent`, reconstructed `TargetContextIntent` from the current
+   claims, the plan's `Targets` mapped onto the engine's add/update/prune ladder, activation-snapshot
+   source roots for the restore copies, authority-preimage receipt args) and the cleanup rules
+   (swap-old/staged/pre-rollback copies removed only after complete success; durable receipts and
+   evidence preserved on restore failure). The rollback's own transaction closes as a new original
+   with `ClosingKind=original`. **Execution verification depends on the Phase 3 worktree overlay
+   lock** (the reviewed lock-order primitive refuses `REQUIRED` applicability); without it the
+   execution path can only be pinned as fail-closed.
+3. **Step 5.** The three-platform symmetric rollback including an already-claimed custom Reasonix
+   root, plus the rejected drift cases: `tests/backup-recovery.tests.ps1` already pins the
+   derivation and rejection matrix on a custom Reasonix root; the symmetric execution cases wait
+   for Steps 3-4. The rollback section of `tests/harness-env.tests.ps1` completes the surface.
+4. **Closeout.** The unified `run-tests.ps1 -All` pass for this tree (38 suites, workflow timeout
    400 minutes) has not been executed; it belongs to the Task 7 closeout, together with the
    status/roadmap updates and the harness-model closeout loop.
 

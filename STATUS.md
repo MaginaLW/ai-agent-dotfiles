@@ -3195,11 +3195,42 @@ validation 28 contracts / 28 positive / 113 negative with zero failures; the par
 requirement (23685 s) stays below the 400-minute workflow bound. Production Apply remains
 interlocked and no live root was touched.
 
+## Task 7 Step 2 (2026-09-13): the derived environment-rollback plan under the reviewed lock order
+
+The detailed record lives in
+[`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md). The rollback
+entry now binds the calling repository as the origin candidate and runs everything after the receipt
+preflight under the origin canonical → worktree overlay → global lock order. Under those locks the
+Step 1 evidence and eligibility gates revalidate, a wrong origin clone fails closed
+(`rollback-origin-mismatch`), a source header binding the worktree overlay lock fails closed with
+`worktree-overlay-lock-not-implemented` until the Phase 3 primitive exists, and DryRun derives the
+schema-1 `environment-rollback` plan entirely from verified evidence — source transaction, source
+receipt identity, original plan references, origin keys, `RootClaimsHash`, the `RollbackStateIntent`
+carrying the activation preimage's semantic fields with `LastOperationKind=environment-rollback` and
+the authority generation advanced past the current state, and one restore row per receipt snapshot
+target (observed `Current`, exact snapshot bytes and pre-change identity as `Candidate`, snapshot
+path and `ReceiptSnapshotRef` for COPIED targets) — self-checks through
+`Test-RollbackPlanSemantics`, writes the plan create-new, and prints the PlanHash. Apply validates
+the reviewed plan fail-closed (presence, schema, semantics, and the invocation match for plan kind,
+authority, receipt id/hash, source transaction, and original hashes) before the still-not-wired
+transition stub; Apply remains behind the Phase 0 production interlock.
+
+Verification (canonical `pwsh -NoProfile -File` runs): `tests/backup-recovery.tests.ps1` grew to 135
+assertions (385 s locally, inside its 900 s budget) with the derived plan validated against the
+pinned schema and semantic layer in-suite and asserted for every binding including the three restore
+rows; new source-graph variants pin the origin mismatch and the overlay-lock refusal, each with zero
+plan bytes; `tests/canonical-production-seams.tests.ps1` passed 56/0 after re-pinning the
+all-scripts baselines (reflection-sensitive inventory 14646 → 14679 for the derivation's added
+dispatch sites); live-recovery, automation-safety, agent-dotfiles, harness-env, live-plan, and
+doctor passed; registered artifact validation 28/28/113 with zero failures; the parse gate accepted
+167 files; the secret scan found no blocking findings; `build-skills.ps1` produced 7/15/7;
+`git diff --check` was clean. Production Apply remains interlocked and no live root was touched.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 14 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-4 are complete and
+Phase 2 has 13 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-4 are complete and
 Step 5 is complete except its two cross-authority/canonical-interleave proofs; Task 7 has its
-entry, plan layer, and Step 1 complete. The implementation order and remaining scope are:
+entry, plan layer, Step 1, and Step 2 complete. The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -3209,7 +3240,7 @@ entry, plan layer, and Step 1 complete. The implementation order and remaining s
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 done (`0e04a2c`, `528aec5`, `99a8e87`); Step 5 remains open for the cross-authority overlapping-roots and canonical-interleave proofs |
-| Task 7 | 3/5 | Entry and plan layer (`00e3632`, `50d6616`) and Step 1 complete (source graph + eligibility gates); remaining: Step 2's derivation under the reviewed lock order, Steps 3-4 (execution verification waits for the Phase 3 worktree overlay lock), and Step 5 |
+| Task 7 | 2/5 | Entry and plan layer (`00e3632`, `50d6616`), Step 1 (source graph + eligibility gates), and Step 2 (lock-ordered derivation and schema-1 plan write) complete; remaining: Step 3's pre-rollback receipt, Step 4's execution (verification waits for the Phase 3 worktree overlay lock), and Step 5 |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
 
@@ -3220,25 +3251,24 @@ release, remain downstream and have not started.
 ## Next actions
 
 1. Phase 2 Task 5 is complete (6/6), Task 6 Steps 1-4 are complete, and Task 7 has its entry, plan
-   layer, and Step 1 complete as of 2026-09-13: the read-only locator, the schema-1 plan contract,
-   the dispatcher with state rollback and committed-finalize, the deterministic failpoint matrix with
-   its kill/replay and evidence-retention proofs, the two restart gates, the receipt-based rollback
-   entry, a satisfiable `environment-rollback` plan contract, and the Step 1 source graph with the
-   fail-closed eligibility gates and its rejection matrix are live. Next for Task 7: implement
-   Step 2's eligibility derivation under the canonical → worktree overlay → global lock order
-   (reusing the landed evidence/eligibility functions, deriving the provenance/target/action
-   bindings and the `RollbackStateIntent`, and writing the schema-1 plan on DryRun), then Steps 3-4
-   (their execution verification waits for the Phase 3 worktree overlay lock), and Step 5. Task 6
-   Step 5 keeps two open proofs (a different HomeAuthority with overlapping custom roots; concurrent
-   canonical mutation cannot interleave) that need Task 8's lock-contention and root-overlap
-   fixtures; execute them with Task 8, then Tasks 8-9 in strict sequence. Production Apply remains
-   interlocked throughout.
+   layer, Step 1, and Step 2 complete as of 2026-09-13: the read-only locator, the schema-1 plan
+   contract, the dispatcher with state rollback and committed-finalize, the deterministic failpoint
+   matrix with its kill/replay and evidence-retention proofs, the two restart gates, the
+   receipt-based rollback entry, a satisfiable `environment-rollback` plan contract, the Step 1
+   source graph with the fail-closed eligibility gates and its rejection matrix, and the Step 2
+   lock-ordered derivation that writes the schema-1 `environment-rollback` plan on DryRun are live.
+   Next for Task 7: Step 3's durable pre-rollback receipt, then Step 4's execution through the
+   common state machine (its verification waits for the Phase 3 worktree overlay lock), then Step 5's
+   three-platform symmetric verification. Task 6 Step 5 keeps two open proofs (a different
+   HomeAuthority with overlapping custom roots; concurrent canonical mutation cannot interleave)
+   that need Task 8's lock-contention and root-overlap fixtures; execute them with Task 8, then
+   Tasks 8-9 in strict sequence. Production Apply remains interlocked throughout.
    The authoritative, itemised to-do list lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after Task 7 Step 1 completion)": Task 7 Steps 2-5 with the reviewed
-   source-graph recipe now landed, the carried Task 6 Step 5 proofs, the sealed-file finding whose
-   fix needs the reviewed-load re-pin, the placement-pinned `RECEIPT_FINALIZATION` checkpoint, and
-   the Task 7 closeout unified run (38 suites, workflow timeout 400 minutes) that has not run yet.
+   "Pending items (2026-09-13, after Task 7 Step 2)": Task 7 Steps 3-5, the carried Task 6 Step 5
+   proofs, the sealed-file finding whose fix needs the reviewed-load re-pin, the placement-pinned
+   `RECEIPT_FINALIZATION` checkpoint, and the Task 7 closeout unified run (38 suites, workflow
+   timeout 400 minutes) that has not run yet.
 2. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; the

@@ -11,6 +11,8 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-backup-recovery-$([Guid]::NewGuid().ToString('N'))"
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
 . (Join-Path $RepoRoot 'scripts/home-authority-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
 . (Join-Path $RepoRoot 'scripts/backup-receipt-common.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/safety-sandbox.ps1')
 
@@ -48,12 +50,13 @@ try {
     }
     $reviewedTokens = @(
         'rollback-receipt-missing', 'rollback-receipt-not-complete', 'rollback-receipt-tampered',
-        'rollback-source-kind-unsupported', 'rollback-home-authority-mismatch', 'rollback-backup-drift',
-        'rollback-preimage-missing', 'rollback-preimage-tampered', 'rollback-claims-drift',
-        'rollback-source-transaction-missing', 'rollback-source-transaction-tampered',
+        'rollback-source-kind-unsupported', 'rollback-home-authority-mismatch', 'rollback-origin-mismatch',
+        'rollback-backup-drift', 'rollback-preimage-missing', 'rollback-preimage-tampered',
+        'rollback-claims-drift', 'rollback-source-transaction-missing', 'rollback-source-transaction-tampered',
         'rollback-source-transaction-unfinished', 'rollback-source-outcome-unsupported',
         'rollback-source-receipt-mismatch', 'rollback-state-drift', 'rollback-overlay-drift',
-        'rollback-live-root-drift', 'live-rollback-dispatch-not-wired'
+        'rollback-live-root-drift', 'rollback-plan-missing', 'rollback-plan-mismatch',
+        'worktree-overlay-lock-not-implemented', 'live-rollback-dispatch-not-wired'
     )
     foreach ($token in $reviewedTokens) {
         Assert ($rollbackSource.Contains($token)) "the rollback entry pins the reviewed '$token' failure token"
@@ -241,6 +244,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $AuthorityRepo 'scripts/live-plan-common.ps1')
 . (Join-Path $AuthorityRepo 'scripts/live-transaction-common.ps1')
 . (Join-Path $AuthorityRepo 'scripts/backup-receipt-common.ps1')
+. (Join-Path $AuthorityRepo 'scripts/canonical-transaction-common.ps1')
 . (Join-Path $AuthorityRepo 'tests/helpers/sealed-live-plan-fixture.ps1')
 
 function Write-GraphTextFile {
@@ -429,6 +433,16 @@ if (-not [string]::IsNullOrEmpty([string] $spec['ReceiptHomeAuthorityKey'])) {
     $receiptHomeKey = [string] $spec['ReceiptHomeAuthorityKey']
 }
 
+# The source header binds the calling repository's canonical origin identity
+# exactly like a production activation, so the rollback derivation's origin
+# matching is exercised against real values.
+$gitContext = Get-CanonicalGitContext -RepoRoot $AuthorityRepo
+$contractPaths = Get-CanonicalTransactionContractPaths -GitContext $gitContext
+$repoId = Get-CanonicalRepoIdentity -GitContext $gitContext
+$canonicalLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [string] $contractPaths.LockPath })
+$headerOriginRepoId = $repoId
+if ([bool] $spec['OriginOverride']) { $headerOriginRepoId = ('9' * 64) }
+
 $reasonixReceiptRoot = [string] $liveRoots['Reasonix']
 if ($wrongReasonixRoot) {
     $reasonixReceiptRoot = Join-Path $graphRoot 'wrong-reasonix/skills'
@@ -493,13 +507,14 @@ $header = [ordered]@{
     OriginalDocumentHash = [string] $planDocument['DocumentHash']
     OriginalPlanHash = [string] $planDocument['PlanHash']
     HomeAuthorityKey = $authorityKey
-    OriginRepoId = ('3' * 64)
-    GitCommonDirHash = ('4' * 64)
-    CanonicalLockKey = ('5' * 64)
+    OriginRepoId = $headerOriginRepoId
+    GitCommonDirHash = [string] $gitContext.GitCommonDirHash
+    CanonicalLockKey = $canonicalLockKey
     RootClaimsHash = $claimsHash
     ReceiptIntent = [ordered]@{ Id = $receiptId; Path = $receiptPath }
     Targets = @()
 }
+if ([bool] $spec['OverlayLockHeader']) { $header['WorktreeOverlayLockKey'] = ('8' * 64) }
 $transactionDirectory = Join-Path (Join-Path $controlBase 'live-transactions') $transactionId
 New-SealedLiveJournalHeader -Document $header -TransactionDirectory $transactionDirectory | Out-Null
 
@@ -639,10 +654,59 @@ Write-Host ('SOURCE_GRAPH ' + (ConvertTo-Json -InputObject $graph -Depth 6 -Comp
     $eligibleGraph = New-SourceGraph ([ordered]@{ Label = 'custom-reasonix'; CustomReasonix = $true })
     Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $eligibleGraph.ReceiptPath)) -ceq 'COMPLETE') 'the source-graph fixture produces a complete environment receipt'
     Assert ([string] $eligibleGraph.Outcome -ceq 'committed') 'the source-graph fixture commits through the produce engine'
+
+    Write-Host '[environment rollback plan derivation]'
     $eligiblePlan = Join-Path $work 'eligible-plan.json'
     $r = Invoke-GraphRollback -Graph $eligibleGraph -PlanPath $eligiblePlan
-    Assert ($r.Code -ne 0 -and $r.Out -match 'live-rollback-dispatch-not-wired') 'a fully eligible environment source graph reaches the reviewed transition stub'
-    Assert (-not (Test-Path -LiteralPath $eligiblePlan)) 'the stub writes no plan file'
+    Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback plan created') 'the eligible graph derives and writes the reviewed rollback plan on DryRun'
+    Assert (Test-Path -LiteralPath $eligiblePlan -PathType Leaf) 'the derived plan file exists'
+    $rollbackSchemaPath = Join-Path $RepoRoot 'schemas/rollback-plan.schema.json'
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath $rollbackSchemaPath -InstancePath $eligiblePlan
+    Assert $true 'the derived plan passes the pinned schema 1'
+    $derivedPlan = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($eligiblePlan, [System.Text.UTF8Encoding]::new($false, $true)))
+    Test-RollbackPlanSemantics -Document $derivedPlan
+    Assert $true 'the derived plan passes the reviewed semantic layer'
+    $derivedPayload = [System.Collections.IDictionary] $derivedPlan['PlanPayload']
+    Assert ([string] $derivedPayload['PlanKind'] -ceq 'environment-rollback') 'the derived plan kind is environment-rollback'
+    Assert ([string] $derivedPayload['SourceTransactionId'] -ceq [string] $eligibleGraph.TransactionId) 'the plan binds the source transaction'
+    Assert ([string] $derivedPayload['ReceiptId'] -ceq [string] $eligibleGraph.ReceiptId -and
+        [string] $derivedPayload['ReceiptHash'] -ceq [string] $eligibleGraph.ReceiptHash) 'the plan binds the exact source receipt identity'
+    Assert ([string] $derivedPayload['OriginalPlanHash'] -ceq [string] $eligibleGraph.PlanHash -and
+        [string] $derivedPayload['OriginalDocumentHash'] -ceq [string] $eligibleGraph.DocumentHash) 'the plan binds the source plan references'
+    Assert ([string] $derivedPayload['HomeAuthorityKey'] -ceq $authorityKey) 'the plan binds the current authority key'
+    $derivedGit = Get-CanonicalGitContext -RepoRoot $RepoRoot
+    $derivedContractPaths = Get-CanonicalTransactionContractPaths -GitContext $derivedGit
+    $derivedRepoId = Get-CanonicalRepoIdentity -GitContext $derivedGit
+    $derivedLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [string] $derivedContractPaths.LockPath })
+    Assert ([string] $derivedPayload['OriginRepoId'] -ceq $derivedRepoId -and
+        [string] $derivedPayload['GitCommonDirHash'] -ceq [string] $derivedGit.GitCommonDirHash -and
+        [string] $derivedPayload['CanonicalLockKey'] -ceq $derivedLockKey) 'the plan binds the calling repository origin identity'
+    foreach ($forbidden in @('TransactionId', 'OriginalOperationKind', 'Action', 'ReceiptRef', 'ReceiptState', 'HeaderHash', 'DerivedJournalHeadHash', 'ChainRecords', 'ExpectedOutcome', 'ExpectedTerminalProjection')) {
+        Assert (-not $derivedPayload.Contains($forbidden)) "the derived plan omits the forbidden '$forbidden' field"
+    }
+    $derivedIntent = [System.Collections.IDictionary] $derivedPayload['RollbackStateIntent']
+    Assert ([string] $derivedIntent['LastOperationKind'] -ceq 'environment-rollback') 'the rollback intent restores under the rollback operation kind'
+    Assert ([string] $derivedIntent['HomeAuthorityKey'] -ceq [string] $derivedPayload['HomeAuthorityKey']) 'the rollback intent carries the payload authority key'
+    $receiptDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path ([string] $eligibleGraph.ReceiptPath) '_meta/receipt.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+    $preimageState = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path (Join-Path ([string] $eligibleGraph.ReceiptPath) 'authority-preimage') 'current-env.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+    foreach ($carried in @('RootClaimsHash', 'SelectionKind', 'EnvironmentName', 'EnvironmentLockHash', 'TaskOverlayHash', 'ManifestHashes', 'FinalManagedHashes', 'ControllerRepoFingerprint', 'ApprovedToolchainHash')) {
+        Assert ((Get-SemanticJsonHash -InputObject $derivedIntent[$carried]) -ceq (Get-SemanticJsonHash -InputObject $preimageState[$carried])) "the rollback intent carries the preimage '$carried'"
+    }
+    $installedState = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText([string] $eligibleGraph.StatePath, [System.Text.UTF8Encoding]::new($false, $true)))
+    Assert ([long] $derivedIntent['AuthorityGeneration'] -eq ([long] $installedState['AuthorityGeneration'] + 1)) 'the rollback intent advances the authority generation'
+    $derivedTargets = @([object[]] $derivedPayload['Targets'])
+    Assert (@($derivedTargets).Count -eq 3) 'the plan binds one restore row per receipt snapshot target'
+    $rowsByName = @{}
+    foreach ($row in $derivedTargets) { $rowsByName[[string] $row['Name']] = $row }
+    $keptRow = [System.Collections.IDictionary] $rowsByName['kept']
+    $addedRow = [System.Collections.IDictionary] $rowsByName['added-custom-reasonix']
+    $prunedRow = [System.Collections.IDictionary] $rowsByName['pruned-custom-reasonix']
+    Assert ($null -ne $keptRow -and $null -ne $addedRow -and $null -ne $prunedRow) 'the restore rows cover the update, add, and prune source targets'
+    Assert ([string] $keptRow['Current']['State'] -ceq 'PRESENT' -and [string] $keptRow['Candidate']['State'] -ceq 'PRESENT') 'the kept target is bound for restoration over its installed bytes'
+    Assert ([string] $keptRow['Candidate']['Hash'] -ceq [string] ([System.Collections.IDictionary] ([System.Collections.IDictionary] $receiptDocument['ManagedSnapshots'][0])['Targets'][0])['SnapshotTreeHash']) 'the kept restore row candidates the exact snapshot bytes'
+    Assert ([string] $addedRow['Current']['State'] -ceq 'PRESENT' -and [string] $addedRow['Candidate']['State'] -ceq 'MISSING') 'the installed add target is bound for removal'
+    Assert ([string] $prunedRow['Current']['State'] -ceq 'MISSING' -and [string] $prunedRow['Candidate']['State'] -ceq 'PRESENT') 'the pruned target is bound for restoration from its snapshot'
+    Assert (@($derivedTargets | ForEach-Object { [string] (([System.Collections.IDictionary] $_)['TargetId']) } | Sort-Object -Unique).Count -eq 3) 'the restore rows carry unique target identities'
 
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $eligibleGraph.ReceiptPath, '-DryRun', '-PlanPath', $insideRepoPlan)
     Assert ($r.Code -ne 0 -and $r.Out -match 'must be disjoint from worktree') 'a plan path inside the repository is rejected even for an eligible graph'
@@ -719,6 +783,16 @@ Write-Host ('SOURCE_GRAPH ' + (ConvertTo-Json -InputObject $graph -Depth 6 -Comp
     $r = Invoke-GraphRollback -Graph $foreignHomeGraph -PlanPath (Join-Path $work 'foreign-home-plan.json')
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-home-authority-mismatch') 'a receipt bound to another HomeRoot fails closed'
 
+    $originGraph = New-SourceGraph ([ordered]@{ Label = 'origin-mismatch'; OriginOverride = $true })
+    $r = Invoke-GraphRollback -Graph $originGraph -PlanPath (Join-Path $work 'origin-plan.json')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-origin-mismatch \(repo identity\)') 'a source transaction from another repository origin fails closed'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $work 'origin-plan.json'))) 'the origin-mismatch rejection writes no plan'
+
+    $overlayGraph = New-SourceGraph ([ordered]@{ Label = 'overlay-lock'; OverlayLockHeader = $true })
+    $r = Invoke-GraphRollback -Graph $overlayGraph -PlanPath (Join-Path $work 'overlay-lock-plan.json')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'worktree-overlay-lock-not-implemented') 'a source header that binds the worktree overlay lock fails closed until the Phase 3 primitive'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $work 'overlay-lock-plan.json'))) 'the overlay-lock rejection writes no plan'
+
     $overlayGraph = New-SourceGraph ([ordered]@{ Label = 'overlay-drift'; OverlayDrift = $true })
     $r = Invoke-GraphRollback -Graph $overlayGraph -PlanPath (Join-Path $work 'overlay-plan.json')
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-overlay-drift \(overlay hash\)') 'a source transaction whose preimage overlay baseline differs from its poststate fails closed'
@@ -749,9 +823,10 @@ Write-Host ('SOURCE_GRAPH ' + (ConvertTo-Json -InputObject $graph -Depth 6 -Comp
     $laterGraph = New-SourceGraph ([ordered]@{ Label = 'later-generation' })
     $laterPlan = Join-Path $work 'later-plan.json'
     $r = Invoke-GraphRollback -Graph $laterGraph -PlanPath $laterPlan
-    Assert ($r.Code -ne 0 -and $r.Out -match 'live-rollback-dispatch-not-wired') 'the latest receipt stays eligible while two backups exist'
+    Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback plan created') 'the latest receipt derives its rollback plan while two backups exist'
     $r = Invoke-GraphRollback -Graph $staleGraph -PlanPath (Join-Path $work 'stale-plan.json')
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-state-drift \(state hash\)') 'the superseded earlier receipt is stale against the later generation'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $work 'stale-plan.json'))) 'the stale-receipt rejection writes no plan'
 
     Write-Host '[authority drift rejections]'
     Write-TextFile -Path ([string] $laterGraph.StatePath) -Content ((Get-Content -Raw -LiteralPath ([string] $laterGraph.StatePath)) + ' ')
