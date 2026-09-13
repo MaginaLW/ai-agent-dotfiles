@@ -1084,6 +1084,7 @@ $cliSandbox = Join-Path $cliWork 'sandbox'
 New-Item -ItemType Directory -Path $cliSandbox -Force | Out-Null
 $cliRepo = New-FakeHarnessRepo -Path (Join-Path $cliSandbox 'repo')
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools') -Destination (Join-Path $cliRepo 'tools') -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'schemas') -Destination (Join-Path $cliRepo 'schemas') -Recurse -Force
 Set-File -Path (Join-Path $cliRepo 'harness-source/envs/good.psd1') -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-a', 'fixture-b') -CodexSkills @('fixture-a') -ReasonixSkills @('fixture-a'))
 Set-File -Path (Join-Path $cliRepo 'harness-source/envs/full.psd1') -Content (New-EnvDefinitionText -Name 'full' -ClaudeSkills @('fixture-a', 'fixture-b') -CodexSkills @('fixture-a') -ReasonixSkills @('fixture-a'))
 & git -C $cliRepo add -A 2>&1 | Out-Null
@@ -1197,12 +1198,14 @@ finally { Exit-CanonicalRepoLock -LockHandle $canonicalLock }
 Assert ([string] (Get-CanonicalSetupStatus -RepoRoot $cliRepo -ToolchainRoot $RepoRoot) -ceq 'canonical-ready') 'the seeded sandbox canonical setup is accepted'
 
 # The apply reaches the reviewed composition (interlock, plan gates, canonical
-# and prefix preconditions) and then stops inside the host's held canonical
-# state capture, which requires the seeded fixture state to carry the
-# current-user-only security descriptor. This boundary is asserted rather than
-# skipped; the fixture hardening is recorded in the active task record.
+# and prefix preconditions) and then stops inside the host's canonical global
+# acquisition, which requires the canonical witness binding that only the
+# (interlocked) public canonical setup Apply can create. No sandbox fixture can
+# legitimately produce it, so the boundary is asserted rather than skipped; the
+# two legitimate resolutions are recorded in the active task record.
 $applyAdopt = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
-Assert ($applyAdopt.Code -eq 1 -and $applyAdopt.Out -match 'canonical-recovery-required') 'adopt Apply passes the canonical and prefix preconditions and stops at the held-state security gate'
+if ($applyAdopt.Code -ne 0) { Write-Host "  note  adopt apply:"; Write-Host $applyAdopt.Out }
+Assert ($applyAdopt.Code -eq 1 -and $applyAdopt.Out -match 'canonical-witness-required') 'adopt Apply passes the interlock, the static plan gates, the canonical and prefix preconditions, and stops at the canonical witness binding'
 Assert (-not (Test-Path -LiteralPath (Join-Path $cliAuthorityRoot 'current-env.json'))) 'a refused apply publishes no authority state'
 Assert (-not (Test-Path -LiteralPath (Join-Path $cliAuthorityRoot 'root-claims.json'))) 'a refused apply publishes no root claims'
 $applyMismatch = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
