@@ -5,7 +5,8 @@ Last updated: 2026-09-13
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), Phase 1 is complete (44/44), and Phase 2 is complete (52/52: Tasks 1-9,
 with the one cross-authority proof recorded as a Phase 3-bound finding). Phase 3 Task 1 is complete
-(7/7) and Task 2 is complete (5/5), so Phase 3 stands at 12/47 across Tasks 1-9. The corrected privacy
+(7/7), Task 2 is complete (5/5), and Task 3 is complete (4/4), so Phase 3 stands at 16/47 across
+Tasks 1-9. The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
 longer served. Phase 3 (shared environment authority and task overlay) has started: Task 1
@@ -1939,15 +1940,67 @@ parse-gate parameter-name check (no suite invokes that script) plus additive ass
 `tests/harness-env.tests.ps1`, and that suite ran afterwards with all 131 assertions, so the pass
 holds for the final tree. The whole-phase definitive pass remains with the Task 9 checkpoint.
 
-## Pending items (2026-09-13, after Phase 3 Task 2)
+## Phase 3 Task 3 (2026-09-13/14): the `env authority` command surface
+
+Step 1 (routing/mode failures): `tests/harness-authority.tests.ps1` gains a sandbox CLI matrix over
+the dispatcher (`env authority` without an action, an unsupported action, a transition without a
+mode, both modes at once, status rejecting transition switches), over the transitions (missing name,
+missing plan path, migrate-only/repaad-adopt-only/root-switch argument rejections, a transition that
+is not the single current route), and over plan-path safety (a path inside the worktree and inside
+Git internals are both refused by the shared external-artifact resolver).
+
+Step 2 (status and planned transitions): `scripts/authority-harness-env.ps1` implements
+`status|migrate|adopt|repair-adopt|takeover`. Status is strictly read-only and prints the single
+route, its recommended next operation, and the claims/state/pair, recovery, legacy, parity and
+intended-root facts. Each transition takes exactly one `-DryRun|-Apply` with a `-PlanPath`: DryRun
+creates a new external plan (plus a create-new environment materialization for the branches that
+need one) and Apply consumes only that exact existing plan, never regenerating it. `agent-dotfiles.ps1`
+routes `env authority <action>` and gates the transitions on the explicit mode.
+
+Step 3 (operation-specific context): migrate must receive the exact repo-local legacy locator on both
+invocations and binds `LegacyLocator`/`LegacyHash`/`LegacyCoreHash`/`OldLockHash` (the core hash over
+the frozen field subset) plus the name the legacy state recorded; adopt binds `LegacyEvidence`
+MISSING or UNTRUSTED; repair-adopt binds the strict `StateEvidence` oneOf (CORRUPT: exact ControlBase
+state path plus raw and preimage hashes; MISSING: marker only, path and hashes forbidden); takeover
+maps to `OperationKind=controller-transition`, binds
+`ControllerParity.PreviousControllerRepoFingerprint`, declares `ReceiptRef=NO_LIVE_MUTATION`, and
+carries zero live actions. All four bind the complete `TargetContextIntent`, the platform slots with
+their pre-identities, the managed actions, the preserve-only unknown-dir markers, and the measured
+Codex `.system` marker; the live-root selector follows the immutable claim (or the validated
+intended root) and never the platform defaults once an authority exists.
+
+Step 4 (dispatcher behavior): the requested action must equal the route the read-only assessment
+emits (`authority-route-mismatch` otherwise), Apply refuses a plan whose operation kind differs, the
+intended-root switch is refused by the assessment once claims exist, and ordinary `sync` cannot plan
+over an existing authority context (it can only ever emit `initial`/`retirement`).
+
+Supporting refactor (`2d6bdf0`): the producer primitives sync.ps1 needed (host-root resolution,
+target contexts and claim rows, platform slots, task-overlay/manifest binding, create-new
+materialization evidence, the audited live-target guard, the hash helpers, `Write-PlanSummary`) moved
+verbatim into `scripts/live-plan-evidence-common.ps1`; `New-LiveSyncMaterializationEvidence` gained
+`-Name`; and the frozen sync-plan shape now admits `scripts/authority-harness-env.ps1` as a second
+generator for the four authority branches (schema enum + kind spec) while the sealed fixtures keep
+their own generator.
+
+Verification: authority 290/290 (sealed fake home, 38 s against the 300 s budget); agent-dotfiles
+23/23; harness-env 131/131; task-skills 22/22; live-plan 121 PASS; sync PASS; artifact validation
+31 contracts / 31 positives / 133 negatives PASS; seams 56/56 after re-pinning (reflection 15245,
+dynamic digest `26697519...`); parse gate 171 files; secret scan clean; `git diff --check` clean. The
+parameter-name gate caught three real defects in this slice (two guessed `-Path`/`-DocumentPath`
+parameters and one missing mandatory parameter hidden by a pipeline), and the seams policy required
+routing the producer's validation through the reviewed `Assert-LiveSyncPlanDocumentIntegrity` gate
+instead of calling the semantic validator directly. Commits: `2d6bdf0` the shared-module refactor,
+`bdf9073` the command surface.
+
+## Pending items (2026-09-14, after Phase 3 Task 3)
 
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are
 design-bound or downstream:
 
-1. **Phase 3 Tasks 3-9** — not started. Task 3 adds the `env authority` command surface
-   (`status|migrate|adopt|repair-adopt|takeover`) on top of the frozen v2 status and the routing;
-   Task 2's route decision and its next-operation strings are the contract Task 3 consumes. The two
-   recorded design findings still feed the phase: the two recorded design findings still feed the phase: the
+1. **Phase 3 Tasks 4-9** — not started. Task 4 implements the reviewed migration, adoption and
+   corrupt-state repair through the Phase 2 host (the Apply composition the command surface currently
+   stops short of with `authority-apply-not-wired`), plus the full branch matrix; Tasks 5-9 follow.
+   The two recorded design findings still feed the phase: the two recorded design findings still feed the phase: the
    cross-authority root-claim overlap rejection requires a machine-wide claim store (both
    authorities commit on a shared custom root today — see the Task 8 Step 4 finding), and the
    rollback execution composition's production caller waits for the Phase 3 worktree overlay lock

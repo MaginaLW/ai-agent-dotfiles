@@ -21,9 +21,10 @@ closeout section below). Baseline-reconciliation Task 1 (5/5), the Phase 0 entry
 with GitHub Support ticket `#4697323` resolved and the old object re-probe confirmed clean.
 **Phase 3 (shared environment authority and task-overlay) has started: Task 1 (lock 3 freeze,
 env-build 3 consumption, shared-state semantics, and separate legacy/shared readers) is complete at
-7/7 steps and Task 2 (authority-aware read-only status with list/status v2) is complete at 5/5
-steps** — see the Phase 3 Task 1 and Task 2 sections below (Phase 3 overall 12/47). Phase 3 Tasks
-3-9 and Phase 4 (schema/CI contract and safe release) have not started. Two design-bound findings from the Phase 2 closeout
+7/7 steps, Task 2 (authority-aware read-only status with list/status v2) is complete at 5/5 steps,
+and Task 3 (the `env authority` command surface) is complete at 4/4 steps** — see the Phase 3 Task
+1-3 sections below (Phase 3 overall 16/47). Phase 3 Tasks 4-9 and Phase 4 (schema/CI contract and
+safe release) have not started. Two design-bound findings from the Phase 2 closeout
 feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
 Tracked policy remains
@@ -3445,11 +3446,40 @@ parse-gate parameter-name check (no suite invokes that script) plus additive ass
 holds for the final tree. The whole-phase definitive pass remains with the Task 9 checkpoint. Production interlock is unchanged and no real home, authority
 state, or live root was written.
 
+## Phase 3 Task 3 (2026-09-14): the `env authority` command surface
+
+`scripts/authority-harness-env.ps1` adds `status|migrate|adopt|repair-adopt|takeover`, routed by
+`agent-dotfiles.ps1 env authority`. Status is strictly read-only and prints the single route with its
+recommended next operation plus the claims/state/pair, recovery, legacy, parity and intended-root
+facts. Each transition takes exactly one `-DryRun|-Apply` with an external `-PlanPath`: DryRun
+validates that the requested action equals the route the read-only assessment emits, binds the
+operation-specific context (migrate: exact legacy locator/hash/core hash/old lock hash and the
+legacy-recorded name; adopt: MISSING or UNTRUSTED legacy evidence; repair-adopt: the CORRUPT or
+MISSING state-evidence oneOf; takeover: `controller-transition` with the previous controller
+fingerprint and `ReceiptRef=NO_LIVE_MUTATION`), creates a create-new environment materialization
+where the branch needs one, and writes a create-new plan validated through the reviewed
+`Assert-LiveSyncPlanDocumentIntegrity` gate. Apply consumes only that exact existing plan: the
+production interlock is the first gate, then the plan path, envelope, materialization currency,
+selection context and consumption state; it currently stops at `authority-apply-not-wired`, which
+the Task 4 slice replaces with the reviewed host composition.
+
+Supporting refactor: the producer primitives moved from `sync.ps1` into
+`scripts/live-plan-evidence-common.ps1` (behavior unchanged; live-plan 121 PASS, sync PASS), and the
+frozen sync-plan shape admits `scripts/authority-harness-env.ps1` as a second generator for the four
+authority branches while the sealed fixtures keep their own.
+
+Verification: authority 290/290 (sandbox CLI matrix over the dispatcher, plan paths, DryRun/Apply
+discipline and all four transitions); agent-dotfiles 23/23; harness-env 131/131; task-skills 22/22;
+live-plan 121 PASS; sync PASS; artifact validation 31/31/133 PASS; seams 56/56 re-pinned (reflection
+15245, dynamic digest `26697519...`); parse gate 171 files; secret scan and `git diff --check` clean.
+The parameter-name gate added in Task 2 caught three real defects here. Commits: `2d6bdf0` the
+shared-module refactor, `bdf9073` the command surface.
+
 ## Remaining roadmap snapshot
 
 **Phase 2 is complete (52 of 52 steps accounted for: Tasks 1-9 all closed; the one proof that
 could not execute — Task 6 Step 5's cross-authority overlapping-roots — is recorded as a Phase
-3-bound finding rather than an open step).** **Phase 3 is in progress: Tasks 1 and 2 are complete (Phase 3 overall 12/47 across Tasks 3-9).**
+3-bound finding rather than an open step).** **Phase 3 is in progress: Tasks 1-3 are complete (Phase 3 overall 16/47 across Tasks 4-9).**
 Phase 4 schema/CI contract and safe release remains downstream and has not started. Before future environment planning, rebuild the stale commit-bound
 environment staging locks; this does not authorize Apply.
 
@@ -3462,21 +3492,21 @@ environment staging locks; this does not authorize Apply.
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Tasks 1 and 2 are complete and Tasks 3-9 remain — and the Phase 4 schema/CI contract and
+that order — Tasks 1-3 are complete and Tasks 4-9 remain — and the Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
 [`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
 
 ## Next actions
 
-1. **Phase 3 Task 2 is complete** (5/5 steps; see the Phase 3 Task 2 section above). The read-only
-   status surface is now v2 and authority-aware, and its route decision plus next-operation strings
-   are the contract the next task consumes. Tasks 3-9 of
+1. **Phase 3 Task 3 is complete** (4/4 steps; see the Phase 3 Task 3 section above). The four
+   transitions produce reviewed external plans and Apply currently stops at
+   `authority-apply-not-wired`; the next slice (Task 4) implements the apply composition through the
+   Phase 2 host for migrate/adopt/repair-adopt. Tasks 4-9 of
    [`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
-   are next, starting with Task 3 (the `env authority status|migrate|adopt|repair-adopt|takeover`
-   command surface). The authoritative, itemised record lives in
+   remain. The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after Phase 3 Task 2)".
+   "Pending items (2026-09-14, after Phase 3 Task 3)".
 2. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,
