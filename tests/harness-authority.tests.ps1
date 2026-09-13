@@ -265,6 +265,28 @@ Assert ([string] $lock['Name'] -ceq 'good') 'lock records the environment name'
 Assert (@($lock['TaskOverlaySkills']['Reasonix']).Count -eq 0) 'lock records the empty Reasonix task baseline explicitly'
 Assert (@($lock['BuiltFiles'].Keys).Count -gt 0) 'lock enumerates the built staging files'
 
+$generatedRoots = [ordered] @{ Claude = 'claude/skills'; Codex = 'codex/skills'; Reasonix = 'reasonix/skills' }
+foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+    $manifestPath = Join-Path $harnessRepo "manifests/managed-skills.$($platform.ToLowerInvariant()).txt"
+    $manifestHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($manifestPath))).ToLowerInvariant()
+    Assert ([string] $lock['ManifestHashes'][$platform] -ieq $manifestHash) "lock $platform manifest hash binds the manifest bytes"
+    foreach ($skill in @($lock['StagedSkillTreeHashes'][$platform].Keys)) {
+        $stagedSkillPath = Join-Path $goodStaging "$($generatedRoots[$platform])/$skill"
+        Assert ([string] $lock['StagedSkillTreeHashes'][$platform][$skill] -ceq (Get-HarnessTreeHash -Path $stagedSkillPath)) "lock $platform staged tree hash binds the $skill content"
+    }
+    foreach ($skill in @($lock['SkillSourceHashes'][$platform].Keys)) {
+        Assert ([string] $lock['SkillSourceHashes'][$platform][$skill] -ceq (Get-HarnessSkillSourceHash -RepoRoot $harnessRepo -Platform $platform -Name $skill)) "lock $platform source hash binds the $skill source tree"
+    }
+}
+$stagedFiles = @(Get-ChildItem -LiteralPath $goodStaging -File -Recurse -Force | Where-Object { $_.Name -ne 'env.lock.json' -and $_.Name -ne 'env-build.json' })
+Assert (@($lock['BuiltFiles'].Keys).Count -eq $stagedFiles.Count) 'lock enumerates every staged file except the lock and sidecar'
+foreach ($file in $stagedFiles) {
+    $relative = Get-HarnessRelativePath -Root $goodStaging -Path $file.FullName
+    $fileHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($file.FullName))).ToLowerInvariant()
+    Assert ([string] $lock['BuiltFiles'][$relative] -ieq $fileHash) "lock built-file hash binds $relative"
+}
+Assert ([string] $lock['ProfileOutputHash'] -ceq (Get-HarnessTreeHash -Path (Join-Path $goodStaging 'profile'))) 'lock profile output hash binds the staged profile tree'
+
 $sidecar = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($sidecarPath)))
 $sidecarLockHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($lockBytes)).ToLowerInvariant()
 Assert ([string] $sidecar['LockHash'] -ieq $sidecarLockHash) 'build sidecar binds the exact emitted lock bytes'
