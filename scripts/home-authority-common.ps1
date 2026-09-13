@@ -778,6 +778,23 @@ function Get-SealedHomeAuthorityBootstrapSnapshot {
                 $allowedExtra += @([string]$childName)
             }
         }
+        # Canonical-aware tolerance: after the reviewed canonical setup, the
+        # CanonicalRootsRoot holds one claim file per repository (`<repo-id
+        # 64-hex>.json`, written by the canonical flow, never by the bootstrap
+        # prefix). Such a child is tolerated only when it is a no-follow regular
+        # file with that exact name; anything else stays unexpected and fails
+        # closed.
+        if ([string]$definition.Name -ceq 'CanonicalRootsRoot') {
+            foreach ($childName in @($state.ImmediateChildren)) {
+                if ($childName -cnotmatch '\A[0-9a-f]{64}\.json\z') { continue }
+                $childPath = [IO.Path]::GetFullPath((Join-Path ([string]$definition.Path) ([string]$childName)))
+                $childInfo = [AiAgentDotfiles.NoFollowFile]::Inspect($childPath)
+                if ([bool]$childInfo.IsDirectory -or [bool]$childInfo.IsReparsePoint -or [long]$childInfo.LinkCount -ne 1) {
+                    throw "home-authority-bootstrap-manual-recovery-required: unexpected children under $($definition.Name)"
+                }
+                $allowedExtra += @([string]$childName)
+            }
+        }
         # Authority-aware tolerance: after the first authority install, the
         # HomesRoot holds one 64-hex key directory per HomeAuthority (created
         # by the claims flow, never by the bootstrap prefix). Such children are

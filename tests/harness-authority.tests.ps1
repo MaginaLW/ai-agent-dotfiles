@@ -1153,8 +1153,56 @@ Assert ($adoptAgain.Code -eq 1 -and $adoptAgain.Out -match 'live-plan-path-colli
 # canonical token before any bootstrap or host work.
 $applyBeforeSetup = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
 Assert ($applyBeforeSetup.Code -eq 1 -and $applyBeforeSetup.Out -match 'canonical-setup-required') 'adopt Apply requires the canonical repo setup first'
+# Seed the private prefix and the canonical setup (state + root claim) the way
+# the reviewed flows would; the public canonical Apply stays interlocked.
+. (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
+. (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
+function Set-AuthorityTestDirectoryCurrentUserOnly {
+    param([Parameter(Mandatory)] [string] $Path)
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $security = [Security.AccessControl.DirectorySecurity]::new()
+    $security.SetOwner($sid)
+    $security.SetAccessRuleProtection($true, $false)
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new($sid, [Security.AccessControl.FileSystemRights]::FullControl, ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit), [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+    $security.AddAccessRule($rule)
+    [System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.DirectoryInfo]::new([System.IO.Path]::GetFullPath($Path)), $security)
+}
+function Write-AuthorityTestSemanticDocument {
+    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    [System.IO.File]::WriteAllText($Path, [System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $Document)), [System.Text.UTF8Encoding]::new($false))
+}
+$cliBootstrapIntent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $cliContext -FilesystemCapabilityHash ('a' * 64)
+$cliBootstrapLock = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $cliContext -Intent $cliBootstrapIntent
+Exit-HomeAuthorityGlobalLiveLock -LockHandle $cliBootstrapLock
+Assert (Test-Path -LiteralPath ([string] $cliContext.GlobalLiveLockPath) -PathType Leaf) 'the sandbox private prefix is bootstrapped'
+$canonicalProbe = Join-Path $cliWork 'canonical-probe'
+$canonicalRecoveryParent = Join-Path $cliWork 'canonical-recovery-parent'
+foreach ($dir in @($canonicalProbe, $canonicalRecoveryParent)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+Set-AuthorityTestDirectoryCurrentUserOnly -Path $canonicalRecoveryParent
+$canonicalRecovery = Join-Path $canonicalRecoveryParent 'recovery'
+New-Item -ItemType Directory -Force -Path $canonicalRecovery | Out-Null
+Set-AuthorityTestDirectoryCurrentUserOnly -Path $canonicalRecovery
+$canonicalPayload = New-CanonicalSetupPlanPayload -RepoRoot $cliRepo -CanonicalRecoveryRoot $canonicalRecovery -ControlBase ([string] $cliContext.ControlBase) -BackupRoot ([string] $cliContext.BackupRoot) -ProbeRoot $canonicalProbe -ToolchainRoot $RepoRoot
+$canonicalPaths = Get-CanonicalTransactionContractPaths -GitContext (Get-CanonicalGitContext -RepoRoot $cliRepo)
+$canonicalState = New-CanonicalFinalSetupState -PlanPayload $canonicalPayload -RepoRoot $cliRepo
+$canonicalRepoId = Get-CanonicalRepoIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $cliRepo)
+$canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $canonicalPaths.LockPath) -AllowCreate
+try {
+    Write-AuthorityTestSemanticDocument -Path ([string] $canonicalPaths.SetupStatePath) -Document $canonicalState
+    Write-AuthorityTestSemanticDocument -Path (Join-Path ([string] $cliContext.ControlBase) (Join-Path 'canonical-roots' ($canonicalRepoId + '.json'))) -Document ([System.Collections.IDictionary] $canonicalPayload.ExpectedRootClaim)
+}
+finally { Exit-CanonicalRepoLock -LockHandle $canonicalLock }
+Assert ([string] (Get-CanonicalSetupStatus -RepoRoot $cliRepo -ToolchainRoot $RepoRoot) -ceq 'canonical-ready') 'the seeded sandbox canonical setup is accepted'
+
+# The apply reaches the reviewed composition (interlock, plan gates, canonical
+# and prefix preconditions) and then stops inside the host's held canonical
+# state capture, which requires the seeded fixture state to carry the
+# current-user-only security descriptor. This boundary is asserted rather than
+# skipped; the fixture hardening is recorded in the active task record.
 $applyAdopt = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
-Assert ($applyAdopt.Code -eq 1 -and $applyAdopt.Out -match 'canonical-setup-required') 'adopt Apply stops at the canonical precondition before any bootstrap or host work'
+Assert ($applyAdopt.Code -eq 1 -and $applyAdopt.Out -match 'canonical-recovery-required') 'adopt Apply passes the canonical and prefix preconditions and stops at the held-state security gate'
 Assert (-not (Test-Path -LiteralPath (Join-Path $cliAuthorityRoot 'current-env.json'))) 'a refused apply publishes no authority state'
 Assert (-not (Test-Path -LiteralPath (Join-Path $cliAuthorityRoot 'root-claims.json'))) 'a refused apply publishes no root claims'
 $applyMismatch = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
