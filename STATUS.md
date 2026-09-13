@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -3156,11 +3156,50 @@ the Phase 3 overlay lock; and the Step 1 source graph must be composed from the 
 a real header, a real managed receipt with `SourceOperationKind=environment`, and the test host's
 `produce` engine mode rather than the public host (which rejects `environment`).
 
+## Task 7 Step 1 completion (2026-09-13): source graph and eligibility gates
+
+Commit (this slice) completes Task 7 Step 1; the detailed record lives in
+[`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md). The rollback
+entry now gathers the complete source-graph evidence and fails closed before the transition stub:
+receipt field/semantics/path/marker integrity, `HomeAuthorityKey` binding, managed snapshot tree
+hashes, both authority-preimage copies, current claims bytes, the linked `SourceTransactionId`
+journal (existence, zero-write chain validation, single terminal record, `Outcome=committed`, and
+the full header/`RECEIPT_COMPLETE`/result receipt binding), and the current-surface comparison
+against the terminal poststate (state bytes hash, overlay-baseline equality between the activation
+preimage and the current state, and per-platform live-root path and directory identity). Each
+disagreement throws its own reviewed token; plan/JSON output paths are preflighted through the
+shared private-artifact-path table before the evidence gates; an eligible graph still reaches
+`live-rollback-dispatch-not-wired`.
+
+`tests/backup-recovery.tests.ps1` builds the reviewed source graph per the design recipe (sandbox
+builder + sealed `environment` plan fixture + `New-SealedLiveJournalHeader` + a real
+`Invoke-SealedManagedBackupReceipt` receipt with `SourceOperationKind=environment` + the test host's
+`produce` engine mode) and grew from 26 to 87 assertions covering the rejection matrix: relocated
+receipt path binding, backup snapshot drift, tampered preimage copies, marker/self-hash/missing-field
+tampering, another HomeRoot, preimage-vs-poststate overlay-baseline drift, a receipt against a
+different Reasonix root, header-only reservations, a real `failed-restored` terminal, tampered
+journal records, a replaced live root, a later legitimate generation staling the earlier of two
+complete receipts, current state/claims drift, the artifact-path and collision preflights, and the
+interlocked Apply. The fixture models real activation semantics: the first graph claims a custom
+Reasonix root and later graphs reuse the roots the current authority state resolves. Two named cases
+stay fixture-unbuildable boundaries (a committed environment→task-overlay chain and
+`abandoned`/`rolled-back` source terminals); PlanKind mismatch remains pinned at the plan layer
+until Step 2 adds the entry-layer Apply case. Verification (canonical `pwsh -NoProfile -File`
+runs): backup-recovery 87 assertions in 245 s locally, live-recovery, seams 56/0 after re-pinning
+the all-scripts baselines (dynamic-command digest and reflection-sensitive inventory 14591 → 14646
+for the entry's added dictionary/CLR dispatch sites), backup-receipt, automation-safety,
+agent-dotfiles, harness-env, live-plan, doctor, and test-runner all passing; registered artifact
+validation 28 contracts / 28 positive / 113 negative with zero failures; the parse gate accepted
+167 files; the pinned secret scan found no blocking findings; `build-skills.ps1` produced 7/15/7;
+`git diff --check` was clean. The backup-recovery budget moved 300 → 900 s; the computed
+requirement (23685 s) stays below the 400-minute workflow bound. Production Apply remains
+interlocked and no live root was touched.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 15 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-4 are complete and
-Step 5 is complete except its two cross-authority/canonical-interleave proofs; Task 7 has started
-with its entry and plan layer. The implementation order and remaining scope are:
+Phase 2 has 14 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-4 are complete and
+Step 5 is complete except its two cross-authority/canonical-interleave proofs; Task 7 has its
+entry, plan layer, and Step 1 complete. The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -3170,7 +3209,7 @@ with its entry and plan layer. The implementation order and remaining scope are:
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 done (`0e04a2c`, `528aec5`, `99a8e87`); Step 5 remains open for the cross-authority overlapping-roots and canonical-interleave proofs |
-| Task 7 | 4/5 | Slices 1-2 done (`00e3632`, `50d6616`); remaining: the source-graph rejection matrix, Step 2's eligibility derivation, Steps 3-4 (pre-rollback receipt and execution, whose verification needs the Phase 3 worktree overlay lock), and Step 5 |
+| Task 7 | 3/5 | Entry and plan layer (`00e3632`, `50d6616`) and Step 1 complete (source graph + eligibility gates); remaining: Step 2's derivation under the reviewed lock order, Steps 3-4 (execution verification waits for the Phase 3 worktree overlay lock), and Step 5 |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
 
@@ -3180,25 +3219,26 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 5 is complete (6/6), Task 6 Steps 1-4 are complete, and Task 7 slices 1-2 are landed
-   (`00e3632`, `50d6616`) as of 2026-09-13: the read-only locator, the schema-1 plan contract, the
-   dispatcher with state rollback and committed-finalize, the deterministic failpoint matrix with its
-   kill/replay and evidence-retention proofs, the two restart gates, and the receipt-based rollback
-   entry with its preflight matrix and a satisfiable `environment-rollback` plan contract are live.
-   Next for Task 7: build the Step 1 source graph (sealed plan fixture + real header + real managed
-   receipt with `SourceOperationKind=environment` + the test host's engine mode), complete the
-   rejection matrix, implement Step 2's eligibility derivation and then Steps 3-4 (their execution
-   verification waits for the Phase 3 worktree overlay lock). Task 6 Step 5 keeps two open proofs
-   (a different HomeAuthority with overlapping custom roots; concurrent canonical mutation cannot
-   interleave) that need Task 8's lock-contention and root-overlap fixtures; execute them with
-   Task 8, then Tasks 8-9 in strict sequence. Production Apply remains interlocked throughout.
+1. Phase 2 Task 5 is complete (6/6), Task 6 Steps 1-4 are complete, and Task 7 has its entry, plan
+   layer, and Step 1 complete as of 2026-09-13: the read-only locator, the schema-1 plan contract,
+   the dispatcher with state rollback and committed-finalize, the deterministic failpoint matrix with
+   its kill/replay and evidence-retention proofs, the two restart gates, the receipt-based rollback
+   entry, a satisfiable `environment-rollback` plan contract, and the Step 1 source graph with the
+   fail-closed eligibility gates and its rejection matrix are live. Next for Task 7: implement
+   Step 2's eligibility derivation under the canonical → worktree overlay → global lock order
+   (reusing the landed evidence/eligibility functions, deriving the provenance/target/action
+   bindings and the `RollbackStateIntent`, and writing the schema-1 plan on DryRun), then Steps 3-4
+   (their execution verification waits for the Phase 3 worktree overlay lock), and Step 5. Task 6
+   Step 5 keeps two open proofs (a different HomeAuthority with overlapping custom roots; concurrent
+   canonical mutation cannot interleave) that need Task 8's lock-contention and root-overlap
+   fixtures; execute them with Task 8, then Tasks 8-9 in strict sequence. Production Apply remains
+   interlocked throughout.
    The authoritative, itemised to-do list lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after Task 7 slices 1-2)": Task 7 Steps 1-5 with the reviewed
-   source-graph recipe and the two fixtures the current producers cannot build, the carried Task 6
-   Step 5 proofs, the sealed-file finding whose fix needs the reviewed-load re-pin, the
-   placement-pinned `RECEIPT_FINALIZATION` checkpoint, and the Task 7 closeout unified run (38
-   suites, workflow timeout 400 minutes) that has not run yet.
+   "Pending items (2026-09-13, after Task 7 Step 1 completion)": Task 7 Steps 2-5 with the reviewed
+   source-graph recipe now landed, the carried Task 6 Step 5 proofs, the sealed-file finding whose
+   fix needs the reviewed-load re-pin, the placement-pinned `RECEIPT_FINALIZATION` checkpoint, and
+   the Task 7 closeout unified run (38 suites, workflow timeout 400 minutes) that has not run yet.
 2. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; the

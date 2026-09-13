@@ -1418,7 +1418,7 @@ Task 7 slices 1-2 are landed:
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
-| Task 7 | 4/5 | Slices 1-2 landed (`00e3632` receipt-based entry and preflight matrix, `50d6616` environment-rollback plan-layer contradiction fix); remaining: the source-graph rejection matrix, the eligibility derivation (Step 2), the pre-rollback receipt and execution (Steps 3-4, blocked on the Phase 3 worktree overlay lock for their verification), and the three-platform verification (Step 5) |
+| Task 7 | 3/5 | Entry, plan-layer fix, and Step 1 complete (`00e3632` receipt-based entry, `50d6616` environment-rollback plan-layer fix, this slice's source graph and eligibility gates); remaining: the Step 2 derivation under the reviewed lock order, Steps 3-4 (blocked on the Phase 3 worktree overlay lock for their verification), and the three-platform verification (Step 5) |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
 
@@ -1434,41 +1434,95 @@ status; a live-target move whose record is still a `_pending` temp classifies as
 the Phase 3 worktree overlay lock primitive; and the `RECEIPT_FINALIZATION` host checkpoint is
 placement-pinned because the production host is not yet run as a killable child.
 
-## Pending items (2026-09-13, after Task 7 slices 1-2)
+## Task 7 Step 1 completion (2026-09-13): source-graph fixture and the fail-closed eligibility gates
 
-Task 7 (receipt-backed environment rollback) — 4 of 5 steps remain, in order:
+`scripts/rollback-harness-env.ps1` now gathers the full source-graph evidence and fails closed on
+every disagreement before the not-yet-wired transition stub. `Get-RollbackSourceEvidence` verifies,
+in order: the receipt document's required fields (`rollback-receipt-not-complete (missing <field>)`),
+the exact reviewed producer semantics and self-hash via `Test-BackupReceiptSemantics` and the
+path binding (`rollback-receipt-tampered (receipt document | receipt path)`), the `_meta/COMPLETE`
+marker bytes (`rollback-receipt-tampered (complete marker)`), the receipt `HomeAuthorityKey` against
+the derived authority (`rollback-home-authority-mismatch`), every managed snapshot tree hash and
+recorded root hash (`rollback-backup-drift (<platform> snapshot root | <platform>/<name>)`), both
+authority-preimage copies' status and bytes (`rollback-preimage-missing/-tampered
+(AuthorityStatePreimage | RootClaimsPreimage)`), the current claims bytes against the claims
+preimage (`rollback-claims-drift`), and the linked `SourceTransactionId` journal: namespace
+existence (`rollback-source-transaction-missing`), zero-write chain read plus
+`Test-SealedLiveJournalChain` (`rollback-source-transaction-tampered`), a single terminal COMPLETE
+record with a result (`rollback-source-transaction-unfinished`), terminal `Outcome=committed`
+(`rollback-source-outcome-unsupported (outcome=failed-restored | …)`), and the full receipt
+binding across header, `RECEIPT_COMPLETE` record, and committed result
+(`rollback-source-receipt-mismatch (<detail>)`). `Assert-RollbackSourceEligible` then compares the
+current surface with the terminal poststate: current state bytes against the result `StateHash`
+(`rollback-state-drift (state absent | state hash)`), the tracked overlay baseline equality between
+the activation preimage and the current state (`rollback-overlay-drift (overlay hash | overlay
+skills)`), and every platform live root against the poststate `FinalResolvedIdentities` path and
+directory identity (`rollback-live-root-drift (<platform> root | identity)`). The plan and JSON
+output paths are preflighted through the shared private-artifact-path table before the evidence
+gates, so a `PlanPath`/`JsonPath` inside the repository and a DryRun plan collision are rejected
+without interpreting receipt evidence. An eligible graph still reaches
+`live-rollback-dispatch-not-wired` — the derivation (Step 2), pre-rollback receipt (Step 3), and
+execution (Step 4) remain.
 
-1. **Step 1 completion.** Build the source graph with the reviewed recipe (sealed plan fixture for
-   the plan shape + a real header through `New-SealedLiveJournalHeader` + a real receipt through
-   `Invoke-SealedManagedBackupReceipt` with `SourceOperationKind=environment` + the test host's
-   `produce` engine mode), then add the remaining rejection cases: modified backup bytes with an
-   unchanged manifest, MISSING/tampered authority or claims preimage, missing/wrong `ReceiptPath`,
-   `PlanKind` mismatch, every private-artifact-path rejection, custom Reasonix and another HomeRoot,
-   incomplete receipt, current live/state/claims drift, source transaction missing/unfinished/
-   tampered (including terminal `Outcome=abandoned|failed-restored|rolled-back`), later
-   generation/overlay drift, and two concurrent backups. Two named cases cannot be produced with the
-   current fixtures and stay as boundaries: a committed environment→task-overlay chain (no
-   task-overlay producer; the host rejects that kind) and `abandoned`/`rolled-back` source terminals
-   (the engine publishes only `committed` or `failed-restored`).
-2. **Step 2.** Implement the ordered eligibility derivation in the rollback entry: canonical →
-   worktree overlay → global locks, receipt completeness and `SourceOperationKind=environment`, the
-   MISSING-preimage rejection, the `SourceTransactionId` chain/outcome/refs/receipt-binding checks,
-   current state bytes/hash/generation equal to the terminal poststate, the overlay triple equality,
-   the explicit staleness rejections, and the provenance/target/action bindings plus the derived
-   `RollbackStateIntent`; and reject the legacy `BackupReference`/timestamp selection.
-3. **Step 3.** Create and validate the durable pre-rollback receipt (current managed live, current
+`tests/backup-recovery.tests.ps1` builds the reviewed source graph per the design recipe: a sandbox
+builder script (run through the internal sandbox host) creates the live roots, claims, and preimage
+state; derives the plan shape from the sealed `OperationKind=environment` plan fixture; publishes a
+real receipt through `Invoke-SealedManagedBackupReceipt -SourceOperationKind environment` bound to
+the sealed plan's PlanHash/DocumentHash; publishes the real header through
+`New-SealedLiveJournalHeader` with `OperationKind=environment`; and runs the mutation engine through
+the test host's `produce` mode in a child process, verifying the committed terminal and state hash
+before printing the graph. The fixture models real environment-activation semantics: only the first
+graph creates the claimed live roots (the sandbox uses a custom Reasonix root for that first claim),
+every later graph reuses the roots the current authority state resolves, and each later environment
+transaction advances `AuthorityGeneration` from the actual current state as its preimage. The suite
+grew from 26 to 87 assertions covering: the eligible graph reaching the stub; the relocated-receipt
+path-binding rejection; modified backup bytes; both tampered preimage copies; marker, self-hash, and
+missing-field receipt tampering; another HomeRoot; the overlay-baseline drift between a source
+transaction's preimage and its terminal poststate; a receipt recorded against a different Reasonix
+root; a header-only reservation; a real `failed-restored` terminal produced by a failing produce
+run; a tampered journal record; a replaced live root with identical content; a later legitimate
+generation making the earlier of two complete receipts stale while the latest stays eligible;
+current state and claims drift; the private-artifact-path and collision preflights; and the
+interlocked Apply. Two roadmap cases remain fixture-unbuildable boundaries: a committed
+environment→task-overlay chain (no task-overlay producer; the host rejects that kind) and
+`abandoned`/`rolled-back` source terminals (the engine publishes only `committed` or
+`failed-restored`). PlanKind mismatch stays pinned at the plan layer (schema, semantic negatives,
+and the in-suite positive from the slice-2 fix); its entry-layer Apply case arrives with Step 2's
+plan validation. The layered gates also surfaced two reviewed facts recorded here: a relocated copy
+of an exact receipt is rejected by its own path binding before any tree work, and the per-target
+backup-drift detail is defense-in-depth behind the platform root hash (any byte change hits the root
+check first); both are pinned as the reviewed tokens they produce. The suite's local time is 245 s,
+so its budget moved 300 → 900 s; the computed requirement (23685 s) still sits below the 400-minute
+workflow bound and the runner contract passes unchanged.
+
+## Pending items (2026-09-13, after Task 7 Step 1 completion)
+
+Task 7 (receipt-backed environment rollback) — Steps 2-5 remain, in order:
+
+1. **Step 2.** Implement the ordered eligibility derivation in the rollback entry under the
+   canonical → worktree overlay → global lock order: reuse `Get-RollbackSourceEvidence` /
+   `Assert-RollbackSourceEligible` under those locks, then derive the provenance/target/action
+   bindings and the `RollbackStateIntent` (copying `HomeAuthorityKey`, `RootClaimsHash`,
+   selection/environment, overlay, manifest and final-managed semantics, controller fingerprint, and
+   toolchain hash from the activation preimage; `LastOperationKind=environment-rollback`; receipt and
+   journal refs regenerated at Apply), map the plan's `Targets` onto the engine's add/update/prune
+   ladder, and write the schema-1 `environment-rollback` plan on DryRun. Apply-side plan validation
+   (including the PlanKind/invocation mismatch rejections) lands here. The legacy
+   `BackupReference`/timestamp selection is already rejected at the parameter surface.
+2. **Step 3.** Create and validate the durable pre-rollback receipt (current managed live, current
    authority state, root claims, tracked-overlay hash marker) before any mutation.
-4. **Step 4.** Run the rollback through the common state machine with the host changes the review
+3. **Step 4.** Run the rollback through the common state machine with the host changes the review
    listed (kind gate, `RollbackStateIntent`, reconstructed `TargetContextIntent`, targets mapped onto
    add/update/prune, activation-snapshot source roots, authority-preimage receipt args) and the
    cleanup rules. **Execution verification depends on the Phase 3 worktree overlay lock** (the
    reviewed lock-order primitive refuses `REQUIRED` applicability); without it the execution path can
    only be pinned as fail-closed.
-5. **Step 5.** `tests/backup-recovery.tests.ps1` and the rollback section of
+4. **Step 5.** `tests/backup-recovery.tests.ps1` and the rollback section of
    `tests/harness-env.tests.ps1`: three-platform symmetric rollback including an already-claimed
-   custom Reasonix root, plus the rejected drift cases.
-6. **Closeout.** The unified `run-tests.ps1 -All` pass for this tree (now 38 suites, workflow
-   timeout 400 minutes) has not been executed; it belongs to the Task 7 closeout, together with the
+   custom Reasonix root, plus the rejected drift cases (the backup-recovery side of this matrix is
+   now in place and green; the symmetric execution cases wait for Steps 3-4).
+5. **Closeout.** The unified `run-tests.ps1 -All` pass for this tree (38 suites, workflow timeout
+   400 minutes) has not been executed; it belongs to the Task 7 closeout, together with the
    status/roadmap updates and the harness-model closeout loop.
 
 Carried from Task 6:

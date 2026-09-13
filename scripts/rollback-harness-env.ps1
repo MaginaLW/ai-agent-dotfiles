@@ -12,10 +12,14 @@
     Resolution order is final: the sandbox-injected authority (the same surface
     sync and live recovery use) with its complete bootstrap prefix, then the
     external-artifact preflight for the receipt and plan paths, then the
-    receipt slot state and its source operation kind. The eligibility
+    receipt slot state and its source operation kind, and then the Task 7
+    Step 1 source-graph evidence: receipt integrity, backup snapshot trees,
+    authority preimages, the linked source transaction's committed chain and
+    receipt binding, and the current state/claims/overlay/live surface. Every
+    disagreement fails closed with its reviewed token. The eligibility
     derivation and the transition itself are wired in the remaining Task 7
-    slices, so every invocation that passes the preflight currently fails
-    closed with live-rollback-dispatch-not-wired.
+    slices, so an eligible invocation currently fails closed with
+    live-rollback-dispatch-not-wired.
 #>
 [CmdletBinding(DefaultParameterSetName = 'DryRun')]
 param(
@@ -37,14 +41,31 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 . (Join-Path $PSScriptRoot 'home-authority-common.ps1')
+. (Join-Path $PSScriptRoot 'target-context-common.ps1')
+. (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
 . (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
+. (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
 
 $script:RollbackHostResolutionRequired = 'live-plan-host-resolution-required'
 $script:RollbackAuthorityMissing = 'live-plan-authority-missing'
 $script:RollbackNotWired = 'live-rollback-dispatch-not-wired'
 $script:RollbackReceiptMissing = 'rollback-receipt-missing'
 $script:RollbackReceiptIncomplete = 'rollback-receipt-not-complete'
+$script:RollbackReceiptTampered = 'rollback-receipt-tampered'
 $script:RollbackSourceKindUnsupported = 'rollback-source-kind-unsupported'
+$script:RollbackHomeAuthorityMismatch = 'rollback-home-authority-mismatch'
+$script:RollbackBackupDrift = 'rollback-backup-drift'
+$script:RollbackPreimageMissing = 'rollback-preimage-missing'
+$script:RollbackPreimageTampered = 'rollback-preimage-tampered'
+$script:RollbackClaimsDrift = 'rollback-claims-drift'
+$script:RollbackSourceTransactionMissing = 'rollback-source-transaction-missing'
+$script:RollbackSourceTransactionTampered = 'rollback-source-transaction-tampered'
+$script:RollbackSourceTransactionUnfinished = 'rollback-source-transaction-unfinished'
+$script:RollbackSourceOutcomeUnsupported = 'rollback-source-outcome-unsupported'
+$script:RollbackSourceReceiptMismatch = 'rollback-source-receipt-mismatch'
+$script:RollbackStateDrift = 'rollback-state-drift'
+$script:RollbackOverlayDrift = 'rollback-overlay-drift'
+$script:RollbackLiveRootDrift = 'rollback-live-root-drift'
 $script:RollbackPlanPathCollision = 'live-recovery-plan-path-collision'
 
 function Resolve-RollbackInternalRoots {
@@ -114,6 +135,232 @@ function Assert-RollbackAuthorityComplete {
     if (-not $complete) { throw $script:RollbackAuthorityMissing }
 }
 
+function Test-RollbackReceiptPathEqual {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Left, [Parameter(Mandatory)] [string] $Right)
+    return [System.IO.Path]::GetFullPath($Left).Equals([System.IO.Path]::GetFullPath($Right), [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-RollbackSourceEvidence {
+    # Task 7 Step 1: fail-closed evidence for the selected source graph. The
+    # receipt document, its complete marker, its managed snapshot trees, and
+    # its authority preimages must be exactly the reviewed producer's bytes,
+    # and the linked source transaction must be a finished, untampered,
+    # committed environment transaction that binds this exact receipt and the
+    # reviewed source plan. Every disagreement throws its own reviewed token;
+    # the returned evidence carries the parsed preimage and terminal state
+    # for the current-surface eligibility comparison.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $ReceiptDocument,
+        [Parameter(Mandatory)] [string] $ReceiptPath,
+        [Parameter(Mandatory)] $AuthorityContext
+    )
+
+    foreach ($field in @(
+        'SchemaVersion', 'ArtifactKind', 'SourceTransactionId', 'ReceiptId', 'ReceiptPath',
+        'SourceOperationKind', 'PlanHash', 'DocumentHash', 'ExecutionContextHash',
+        'ControlBaseHash', 'FilesystemCapabilityHash', 'HomeAuthorityKey', 'ReceiptIntent',
+        'ReceiptHash', 'ManagedSnapshots', 'UnknownMarkers', 'SystemMarker',
+        'AuthorityStatePreimage', 'RootClaimsPreimage', 'CreatedAtUtc'
+    )) {
+        if (-not $ReceiptDocument.Contains($field)) {
+            throw ($script:RollbackReceiptIncomplete + ' (missing ' + $field + ')')
+        }
+    }
+    try { Test-BackupReceiptSemantics -Document $ReceiptDocument }
+    catch { throw ($script:RollbackReceiptTampered + ' (receipt document)') }
+    if (-not (Test-RollbackReceiptPathEqual -Left ([string] $ReceiptDocument['ReceiptPath']) -Right $ReceiptPath)) {
+        throw ($script:RollbackReceiptTampered + ' (receipt path)')
+    }
+
+    $markerCapture = Read-CanonicalHeldRegularFileCapture -Path (Join-Path $ReceiptPath '_meta/COMPLETE')
+    $markerText = [System.Text.UTF8Encoding]::new($false, $true).GetString([byte[]] $markerCapture.Bytes)
+    if ($markerText -cne [string] $ReceiptDocument['ReceiptHash']) {
+        throw ($script:RollbackReceiptTampered + ' (complete marker)')
+    }
+
+    if ([string] $ReceiptDocument['HomeAuthorityKey'] -cne [string] $AuthorityContext.HomeAuthorityKey) {
+        throw ($script:RollbackHomeAuthorityMismatch + ' (receipt=' + [string] $ReceiptDocument['HomeAuthorityKey'] + ')')
+    }
+
+    # The backup snapshots are the restore source: every recorded tree hash
+    # must still reproduce from the exact snapshot bytes under the receipt.
+    foreach ($row in @([object[]] $ReceiptDocument['ManagedSnapshots'])) {
+        $platform = [string] $row['Platform']
+        $platformDir = Join-Path (Join-Path $ReceiptPath 'snapshot') $platform.ToLowerInvariant()
+        $rootSnapshot = Get-SafeTreeSnapshot -Root $platformDir
+        if ([string] $rootSnapshot.TreeHash -cne [string] $row['RootHash']) {
+            throw ($script:RollbackBackupDrift + ' (' + $platform + ' snapshot root)')
+        }
+        foreach ($target in @([object[]] $row['Targets'])) {
+            $targetDir = Join-Path $platformDir ([string] $target['Name'])
+            if ([string] $target['Status'] -ceq 'COPIED') {
+                $targetSnapshot = Get-SafeTreeSnapshot -Root $targetDir
+                if ([string] $targetSnapshot.TreeHash -cne [string] $target['SnapshotTreeHash']) {
+                    throw ($script:RollbackBackupDrift + ' (' + $platform + '/' + [string] $target['Name'] + ')')
+                }
+            }
+            elseif (Test-Path -LiteralPath $targetDir) {
+                throw ($script:RollbackBackupDrift + ' (' + $platform + '/' + [string] $target['Name'] + ' present)')
+            }
+        }
+    }
+
+    # The preimages are the rollback destination: both copies must exist with
+    # exactly the recorded bytes.
+    $preimageBytes = @{}
+    foreach ($entry in @(
+        @{ Name = 'AuthorityStatePreimage'; Leaf = 'current-env.json' },
+        @{ Name = 'RootClaimsPreimage'; Leaf = 'root-claims.json' }
+    )) {
+        $record = $ReceiptDocument[$entry.Name]
+        if ([string] $record['Status'] -cne 'COPIED') {
+            throw ($script:RollbackPreimageMissing + ' (' + $entry.Name + ')')
+        }
+        $copyPath = Join-Path (Join-Path $ReceiptPath 'authority-preimage') $entry.Leaf
+        $capture = Read-CanonicalHeldRegularFileCapture -Path $copyPath
+        if ([string] $capture.Sha256 -cne [string] $record['Hash'] -or [long] $capture.Length -ne [long] $record['Length']) {
+            throw ($script:RollbackPreimageTampered + ' (' + $entry.Name + ')')
+        }
+        $preimageBytes[$entry.Name] = [byte[]] $capture.Bytes
+    }
+
+    # Root claims are immutable: the current bytes must still be the exact
+    # preimage the receipt captured.
+    $claimsCapture = Read-CanonicalHeldRegularFileCapture -Path ([string] $AuthorityContext.RootClaimsPath) -AllowMissing
+    if ($null -eq $claimsCapture -or [string] $claimsCapture.Sha256 -cne [string] $ReceiptDocument['RootClaimsPreimage']['Hash']) {
+        throw ($script:RollbackClaimsDrift + ' (current root claims)')
+    }
+
+    # The linked source transaction must exist, validate end to end, and be
+    # terminally committed.
+    $transactionId = [string] $ReceiptDocument['SourceTransactionId']
+    $transactionDirectory = Join-Path ([string] $AuthorityContext.LiveTransactionsRoot) $transactionId
+    if (-not (Test-Path -LiteralPath $transactionDirectory -PathType Container)) {
+        throw $script:RollbackSourceTransactionMissing
+    }
+    $chain = Get-SealedLiveJournalChain -TransactionDirectory $transactionDirectory
+    if (@($chain.UnknownNames).Count -gt 0) {
+        throw ($script:RollbackSourceTransactionTampered + ' (unknown entries)')
+    }
+    try {
+        $null = Test-SealedLiveJournalChain -Header $chain.Header -Records $chain.Records -Result $chain.Result -ResultFileHash $chain.ResultFileHash
+    }
+    catch {
+        throw ($script:RollbackSourceTransactionTampered + ' (journal chain)')
+    }
+    $terminalRecords = @(@($chain.Records) | Where-Object {
+        [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE'
+    })
+    if ($null -eq $chain.Result -or @($terminalRecords).Count -eq 0) {
+        throw $script:RollbackSourceTransactionUnfinished
+    }
+    $terminalData = [System.Collections.IDictionary] ([System.Collections.IDictionary] $terminalRecords[0]['Document'])['Data']
+    $terminalOutcome = [string] $terminalData['Outcome']
+    if ($terminalOutcome -cne 'committed') {
+        throw ($script:RollbackSourceOutcomeUnsupported + ' (outcome=' + $terminalOutcome + ')')
+    }
+
+    # Receipt binding: the header and the committed result must reference this
+    # exact receipt and the reviewed source plan.
+    $header = $chain.Header
+    $headerBindings = [ordered]@{
+        'operation-kind'   = ([string] $header['OperationKind']) -ceq 'environment'
+        'home-authority'   = ([string] $header['HomeAuthorityKey']) -ceq [string] $ReceiptDocument['HomeAuthorityKey']
+        'receipt-id'       = ([string] $header['ReceiptIntent']['Id']) -ceq [string] $ReceiptDocument['ReceiptId']
+        'receipt-path'     = (Test-RollbackReceiptPathEqual -Left ([string] $header['ReceiptIntent']['Path']) -Right ([string] $ReceiptDocument['ReceiptPath']))
+        'plan-hash'        = ([string] $header['OriginalPlanHash']) -ceq [string] $ReceiptDocument['PlanHash']
+        'document-hash'    = ([string] $header['OriginalDocumentHash']) -ceq [string] $ReceiptDocument['DocumentHash']
+    }
+    $receiptCompleteRecords = @(@($chain.Records) | Where-Object {
+        [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'RECEIPT_COMPLETE'
+    })
+    if (@($receiptCompleteRecords).Count -eq 1) {
+        $ref = [System.Collections.IDictionary] ([System.Collections.IDictionary] $receiptCompleteRecords[0]['Document'])['Data']['ReceiptRef']
+        $headerBindings['receipt-ref-id'] = ([string] $ref['Id']) -ceq [string] $ReceiptDocument['ReceiptId']
+        $headerBindings['receipt-ref-path'] = (Test-RollbackReceiptPathEqual -Left ([string] $ref['Path']) -Right ([string] $ReceiptDocument['ReceiptPath']))
+        $headerBindings['receipt-ref-hash'] = ([string] $ref['Hash']) -ceq [string] $ReceiptDocument['ReceiptHash']
+    }
+    else {
+        $headerBindings['receipt-ref-count'] = $false
+    }
+    $result = $chain.Result
+    $headerBindings['result-transaction'] = ([string] $result['TransactionId']) -ceq $transactionId
+    $headerBindings['result-kind'] = ([string] $result['OperationKind']) -ceq 'environment'
+    $headerBindings['result-receipt-hash'] = ([string] $result['ReceiptHash']) -ceq [string] $ReceiptDocument['ReceiptHash']
+    foreach ($bindingName in @($headerBindings.Keys)) {
+        if (-not [bool] $headerBindings[$bindingName]) {
+            throw ($script:RollbackSourceReceiptMismatch + ' (' + $bindingName + ')')
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        ReceiptDocument = $ReceiptDocument
+        ReceiptPath = $ReceiptPath
+        TransactionId = $transactionId
+        TransactionDirectory = $transactionDirectory
+        Header = $header
+        Result = $result
+        TerminalOutcome = $terminalOutcome
+        AuthorityStatePreimageBytes = $preimageBytes['AuthorityStatePreimage']
+        RootClaimsPreimageBytes = $preimageBytes['RootClaimsPreimage']
+    }
+}
+
+function Assert-RollbackSourceEligible {
+    # Task 7 Step 1: the current authority surface must still be exactly the
+    # source transaction's terminal poststate. The current claims bytes, the
+    # current state bytes, the tracked overlay baseline, and every platform
+    # live root must equal the evidence the committed transaction left
+    # behind; any later generation or live drift makes the receipt ineligible.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Evidence,
+        [Parameter(Mandatory)] $AuthorityContext
+    )
+
+    $receiptDocument = [System.Collections.IDictionary] $Evidence.ReceiptDocument
+
+    $stateCapture = Read-CanonicalHeldRegularFileCapture -Path ([string] $AuthorityContext.CurrentEnvStatePath) -AllowMissing
+    if ($null -eq $stateCapture) {
+        throw ($script:RollbackStateDrift + ' (state absent)')
+    }
+    $currentState = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([byte[]] $stateCapture.Bytes))
+    if ([string] $stateCapture.Sha256 -cne [string] $Evidence.Result['StateHash']) {
+        throw ($script:RollbackStateDrift + ' (state hash)')
+    }
+
+    $preimageState = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([byte[]] $Evidence.AuthorityStatePreimageBytes))
+    if ([string] $preimageState['TaskOverlayHash'] -cne [string] $currentState['TaskOverlayHash']) {
+        throw ($script:RollbackOverlayDrift + ' (overlay hash)')
+    }
+    $preimageOverlaySkills = Get-SemanticJsonHash -InputObject @([object[]] $preimageState['TaskOverlaySkills'])
+    $currentOverlaySkills = Get-SemanticJsonHash -InputObject @([object[]] $currentState['TaskOverlaySkills'])
+    if ($preimageOverlaySkills -cne $currentOverlaySkills) {
+        throw ($script:RollbackOverlayDrift + ' (overlay skills)')
+    }
+
+    $snapshotRootsByPlatform = @{}
+    foreach ($row in @([object[]] $receiptDocument['ManagedSnapshots'])) {
+        $snapshotRootsByPlatform[[string] $row['Platform']] = [string] $row['LiveRoot']
+    }
+    foreach ($identityRow in @([object[]] $currentState['FinalResolvedIdentities'])) {
+        $platform = [string] $identityRow['Platform']
+        $resolvedPath = [string] $identityRow['ResolvedPath']
+        $snapshotRoot = [string] $snapshotRootsByPlatform[$platform]
+        if ([string]::IsNullOrEmpty($snapshotRoot) -or -not (Test-RollbackReceiptPathEqual -Left $snapshotRoot -Right $resolvedPath)) {
+            throw ($script:RollbackLiveRootDrift + ' (' + $platform + ' root)')
+        }
+        $info = $null
+        try { $info = [AiAgentDotfiles.NoFollowFile]::Inspect($resolvedPath) }
+        catch { $info = $null }
+        if ($null -eq $info -or [bool] $info.IsReparsePoint -or [string] $info.Identity -cne [string] $identityRow['DirectoryIdentity']) {
+            throw ($script:RollbackLiveRootDrift + ' (' + $platform + ' identity)')
+        }
+    }
+}
+
 $repoFull = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepoRoot).Path)
 if ($Apply) {
     # Apply stays behind the Phase 0 production interlock: the reviewed
@@ -148,7 +395,14 @@ if ([string] $receiptDocument['SourceOperationKind'] -cne 'environment') {
 $planResolution = Resolve-PrivateArtifactPath -Path ([System.IO.Path]::GetFullPath($PlanPath)) -Role ExternalUserArtifact -RepoRoot $repoFull -AllowMissingLeaf:$DryRun
 $planFull = [string] $planResolution.FullPath
 if ($DryRun -and (Test-Path -LiteralPath $planFull)) { throw $script:RollbackPlanPathCollision }
+if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {
+    $null = Resolve-PrivateArtifactPath -Path ([System.IO.Path]::GetFullPath($JsonPath)) -Role ExternalUserArtifact -RepoRoot $repoFull -AllowMissingLeaf
+}
 
-# The receipt preflight is complete; the eligibility derivation and the
-# reviewed transition arrive with the remaining Task 7 slices.
+# Task 7 Step 1: the source-graph evidence and the current-surface
+# eligibility comparison fail closed before the transition; an eligible
+# graph still reaches the not-yet-wired stub until the remaining slices
+# replace it with the reviewed derivation.
+$evidence = Get-RollbackSourceEvidence -ReceiptDocument $receiptDocument -ReceiptPath $receiptFull -AuthorityContext $authorityContext
+Assert-RollbackSourceEligible -Evidence $evidence -AuthorityContext $authorityContext
 throw $script:RollbackNotWired
