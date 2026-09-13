@@ -1091,6 +1091,17 @@ Set-File -Path (Join-Path $cliRepo 'harness-source/envs/full.psd1') -Content (Ne
 $cliHome = Join-Path $cliSandbox 'home'
 New-ManagedLiveSkill -HomeRoot $cliHome -PlatformKey 'claude' -Name 'existing-local' -Content '# existing'
 $cliControl = Join-Path $cliHome 'AppData/Local/ai-agent-dotfiles/control'
+New-Item -ItemType Directory -Path (Join-Path $cliHome 'AppData/Roaming') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $cliHome 'AppData/Local') -Force | Out-Null
+$cliIdentity = [pscustomobject][ordered]@{
+    ResolverVersion = 'sealed-home-authority-test-adapter-v1'
+    TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    ProfileRoot = $cliHome
+    RoamingAppDataRoot = (Join-Path $cliHome 'AppData/Roaming')
+    LocalAppDataRoot = (Join-Path $cliHome 'AppData/Local')
+}
+$cliContext = Resolve-HomeAuthorityContextFromIdentity -Identity $cliIdentity
+$cliAuthorityRoot = Join-Path (Join-Path ([string] $cliContext.ControlBase) 'homes') ([string] $cliContext.HomeAuthorityKey)
 
 # 1. Dispatcher routing and mode failures.
 $routed = Invoke-EntryCli -Arguments @('env', 'authority')
@@ -1138,8 +1149,14 @@ $claudeSlot = @($adoptDocument.PlanPayload.Platforms | Where-Object { [string] $
 Assert ([bool] $claudeSlot.LiveRootExists) 'adopt binds the existing live root as a platform slot'
 $adoptAgain = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
 Assert ($adoptAgain.Code -eq 1 -and $adoptAgain.Out -match 'live-plan-path-collision') 'a second DryRun at the same plan path is refused'
+# Without the canonical repo setup the apply must fail closed with the
+# canonical token before any bootstrap or host work.
+$applyBeforeSetup = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
+Assert ($applyBeforeSetup.Code -eq 1 -and $applyBeforeSetup.Out -match 'canonical-setup-required') 'adopt Apply requires the canonical repo setup first'
 $applyAdopt = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
-Assert ($applyAdopt.Code -eq 1 -and $applyAdopt.Out -match 'authority-apply-not-wired') 'Apply revalidates the exact plan and stops at the reviewed-composition boundary'
+Assert ($applyAdopt.Code -eq 1 -and $applyAdopt.Out -match 'canonical-setup-required') 'adopt Apply stops at the canonical precondition before any bootstrap or host work'
+Assert (-not (Test-Path -LiteralPath (Join-Path $cliAuthorityRoot 'current-env.json'))) 'a refused apply publishes no authority state'
+Assert (-not (Test-Path -LiteralPath (Join-Path $cliAuthorityRoot 'root-claims.json'))) 'a refused apply publishes no root claims'
 $applyMismatch = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
 Assert ($applyMismatch.Code -eq 1) 'Apply refuses a plan whose operation kind differs from the action'
 $applyMissing = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', (Join-Path $cliSandbox 'never.json'), '-RepoRoot', $cliRepo)
@@ -1176,8 +1193,6 @@ Assert ([string] $migrateDocument.PlanPayload.LegacyHash -ceq [Convert]::ToHexSt
 Assert ([string] $migrateDocument.PlanPayload.OldLockHash -ceq (Get-HarnessFileHash -Path (Join-Path $cliRepo 'envs/good/env.lock.json')).ToLowerInvariant()) 'migrate binds the preserved old lock hash'
 Assert ([string] $migrateDocument.PlanPayload.LegacyCoreHash -cmatch '\A[0-9a-f]{64}\z') 'migrate binds a core hash'
 Assert (-not $migrateDocument.PlanPayload.Contains('LegacyEvidence')) 'migrate never carries adopt evidence'
-Remove-Item -LiteralPath (Join-Path $cliRepo 'state/current-env.json') -Force
-
 # 7. Repair-adopt binds the corrupt-state evidence and the existing claims.
 $repairIdentityLocal = [pscustomobject][ordered]@{
     ResolverVersion = 'sealed-home-authority-test-adapter-v1'
@@ -1204,7 +1219,6 @@ Assert ([string] $repairDocument.PlanPayload.StateEvidence.Path -ceq $corruptSta
 Assert (-not $repairDocument.PlanPayload.Contains('LegacyEvidence')) 'repair-adopt never carries adopt evidence'
 $repairWithoutEvidence = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'repair-adopt', '-Name', 'full', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'repair-missing-evidence.json'), '-RepoRoot', $cliRepo)
 Assert ($repairWithoutEvidence.Code -eq 1 -and $repairWithoutEvidence.Out -match 'authority-state-evidence-required') 'repair-adopt requires the corrupt state path for the CORRUPT branch'
-
 # 8. Takeover binds the previous controller and carries no live actions.
 Set-File -Path (Join-Path $pairAuthorityRoot 'current-env.json') -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $stateDocumentLocal)))
 $null = New-FakeAuthorityPair -Context $repairContextLocal -ControllerFingerprint $controllerFingerprintLocal

@@ -78,6 +78,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'live-plan-evidence-common.ps1')
 . (Join-Path $PSScriptRoot 'harness-authority-status-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
+. (Join-Path $PSScriptRoot 'home-authority-common.ps1')
+. (Join-Path $PSScriptRoot 'root-claims-registry-common.ps1')
 . (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
 
 $script:AuthorityRouteMismatch = 'authority-route-mismatch'
@@ -91,7 +93,12 @@ $script:AuthorityStateEvidenceForbidden = 'authority-state-evidence-forbidden'
 $script:AuthorityArgumentUnsupported = 'authority-argument-unsupported'
 $script:AuthorityPlanKindMismatch = 'authority-plan-kind-mismatch'
 $script:AuthorityApplyNotWired = 'authority-apply-not-wired'
+$script:AuthorityUnsupportedApplyState = 'authority-apply-state-unsupported'
 $script:AuthorityGeneratorName = 'scripts/authority-harness-env.ps1'
+# Caller-supplied roots (empty means "resolve from the approved sandbox host").
+$script:AuthorityHomeRoot = $HomeRoot
+$script:AuthorityControlBase = $ControlBase
+$script:AuthorityBackupRoot = $BackupRoot
 
 function Assert-AuthorityTransitionArguments {
     param([Parameter(Mandatory)] [string] $Action)
@@ -104,6 +111,29 @@ function Assert-AuthorityTransitionArguments {
     if ($Action -cin @('repair-adopt', 'takeover') -and -not [string]::IsNullOrWhiteSpace($ReasonixLiveSkillsPath)) {
         throw "$($script:AuthorityArgumentUnsupported): -ReasonixLiveSkillsPath is not accepted by $Action."
     }
+}
+
+function Initialize-AuthoritySandboxContext {
+    # Resolves the host-injected roots and the full home-authority context.
+    # Never called before the interlock on a mutation path.
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+
+    if ([string]::IsNullOrWhiteSpace($script:AuthorityHomeRoot) -or [string]::IsNullOrWhiteSpace($script:AuthorityControlBase) -or [string]::IsNullOrWhiteSpace($script:AuthorityBackupRoot)) {
+        $internalRoots = Resolve-LiveSyncInternalRoots
+        $script:AuthorityHomeRoot = [string] $internalRoots.HomeRoot
+        $script:AuthorityControlBase = [string] $internalRoots.ControlBase
+        $script:AuthorityBackupRoot = [string] $internalRoots.BackupRoot
+    }
+    $homeFull = [System.IO.Path]::GetFullPath($script:AuthorityHomeRoot)
+    $identity = [pscustomobject][ordered]@{
+        ResolverVersion = $script:HomeAuthorityResolverVersion
+        TokenSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ProfileRoot = $homeFull
+        RoamingAppDataRoot = (Join-Path $homeFull 'AppData\Roaming')
+        LocalAppDataRoot = (Join-Path $homeFull 'AppData\Local')
+    }
+    $context = New-LiveSyncAuthorityContext -HomeRoot $homeFull -ControlBase $script:AuthorityControlBase -BackupRoot $script:AuthorityBackupRoot
+    return [pscustomobject]@{ Identity = $identity; Context = $context; HomeRoot = $homeFull }
 }
 
 function Get-AuthorityIntendedReasonixRoot {
@@ -181,30 +211,72 @@ if ($Apply) {
     }
     $null = Assert-LiveSyncPlanSelectionContext -Document $readDocument -ExpectedOperationKind $operationKind -ExpectedEnvironmentName $Name
     Assert-LiveSyncPlanDocumentHashNotConsumed -Document $readDocument
-    throw "$($script:AuthorityApplyNotWired): the reviewed apply composition for '$Action' is delivered by the Task 4/5 slices."
+
+    # Resolve the reviewed context only now: the interlock and every static plan
+    # gate above already ran.
+    $sandbox = Initialize-AuthoritySandboxContext -RepoRoot $repo
+    $authorityIdentity = $sandbox.Identity
+    $authorityContext = $sandbox.Context
+    $HomeRoot = $sandbox.HomeRoot
+    $ControlBase = [string] $authorityContext.ControlBase
+    $BackupRoot = [string] $authorityContext.BackupRoot
+
+    # Two reviewed preconditions own the ground this transition needs. The
+    # canonical repo setup is the flow that establishes the private prefix
+    # together with the canonical lock/claim (its own state creation requires
+    # those roots), so a live transition never bootstraps a second time and
+    # never composes a competing private-root creator; it fails closed with the
+    # canonical status token instead.
+    $canonicalStatus = Get-CanonicalSetupStatus -RepoRoot $repo
+    if ([string] $canonicalStatus -cne 'canonical-ready') { throw [string] $canonicalStatus }
+    $bootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $authorityContext
+    if ([string] $bootstrapStatus.Status -cne 'COMPLETE') { throw $script:LiveSyncAuthorityMissing }
+
+    # Per-platform same-volume staging roots (also the mutation-preflight probe
+    # roots) and the probed capability hashes the receipt and the state
+    # postimage bind, mirroring the reviewed sync composition.
+    $stagingRootsByPlatform = [ordered] @{}
+    $sourceRootsByPlatform = [ordered] @{}
+    $capabilityHashesByPlatform = [ordered] @{}
+    $stagingBase = Join-Path $HomeRoot '.ai-agent-dotfiles-staging'
+    foreach ($slot in @([object[]] $readDocument.PlanPayload.Platforms)) {
+        $platform = [string] $slot['Platform']
+        if ($platform -cnotin @('Claude', 'Codex', 'Reasonix')) { throw $script:LivePlanSelectionMismatch }
+        $liveRoot = [System.IO.Path]::GetFullPath([string] $slot['LiveRoot'])
+        $stagingRootPath = Join-Path $stagingBase $platform
+        New-Item -ItemType Directory -Force -Path $stagingRootPath | Out-Null
+        $stagingRootsByPlatform[$platform] = [System.IO.Path]::GetFullPath($stagingRootPath)
+        $preflight = Resolve-TargetContext -Path $liveRoot -Mode MutationPreflight -ProbeRoot $stagingRootPath -HomeRoot $HomeRoot -ForbiddenRoots @($ControlBase, $BackupRoot)
+        if ([string] $preflight.FilesystemCapabilityStatus -cne 'SUPPORTED' -or
+            ([string] $preflight.FilesystemCapabilityHash) -cnotmatch '\A[0-9a-f]{64}\z') {
+            throw $script:LiveSyncUnsupportedApplyKind
+        }
+        $capabilityHashesByPlatform[$platform] = [string] $preflight.FilesystemCapabilityHash
+        $sourceRootsByPlatform[$platform] = [System.IO.Path]::GetFullPath([string] $slot['SourceRoot'])
+    }
+
+    Write-Host 'Running the receipt-backed live transaction host ...'
+    $toolchainRoot = $repo
+    $hostResult = Invoke-SealedLiveTransactionHost -Plan ([System.Collections.IDictionary] $readDocument) -RepoRoot $repo -ControlBase $ControlBase -BackupRoot $BackupRoot -StagingRootsByPlatform $stagingRootsByPlatform -SourceRootsByPlatform $sourceRootsByPlatform -FinalCapabilityHashesByPlatform $capabilityHashesByPlatform -AuthorityContext $authorityContext -WorkingTreeRoots ([ordered] @{ RepoRoot = $repo; ToolchainRoot = $toolchainRoot }) -ToolchainRoot $toolchainRoot
+    Write-Host "Transaction id  : $([string] $hostResult.TransactionId)"
+    Write-Host "Receipt id      : $([string] $hostResult.ReceiptId)"
+    Write-Host "Result          : $([string] $hostResult.Result)"
+    exit 0
 }
 
 if (Test-Path -LiteralPath $planFull) { throw $script:LivePlanPathCollision }
 $null = Resolve-PrivateArtifactPath -Path $planFull -Role ExternalUserArtifact -RepoRoot $repo -AllowMissingLeaf
 
-if ([string]::IsNullOrWhiteSpace($HomeRoot) -or [string]::IsNullOrWhiteSpace($ControlBase) -or [string]::IsNullOrWhiteSpace($BackupRoot)) {
-    $internalRoots = Resolve-LiveSyncInternalRoots
-    $HomeRoot = [string] $internalRoots.HomeRoot
-    $ControlBase = [string] $internalRoots.ControlBase
-    $BackupRoot = [string] $internalRoots.BackupRoot
-}
-$HomeRoot = [System.IO.Path]::GetFullPath($HomeRoot)
-$ControlBase = [System.IO.Path]::GetFullPath($ControlBase)
-$BackupRoot = [System.IO.Path]::GetFullPath($BackupRoot)
+$script:AuthorityHomeRoot = $HomeRoot
+$script:AuthorityControlBase = $ControlBase
+$script:AuthorityBackupRoot = $BackupRoot
+$sandbox = Initialize-AuthoritySandboxContext -RepoRoot $repo
+$authorityIdentity = $sandbox.Identity
+$authorityContext = $sandbox.Context
+$HomeRoot = $sandbox.HomeRoot
+$ControlBase = [string] $authorityContext.ControlBase
+$BackupRoot = [string] $authorityContext.BackupRoot
 $RepoRoot = $repo
-$authorityIdentity = [pscustomobject][ordered]@{
-    ResolverVersion = $script:HomeAuthorityResolverVersion
-    TokenSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    ProfileRoot = [System.IO.Path]::GetFullPath($HomeRoot)
-    RoamingAppDataRoot = (Join-Path ([System.IO.Path]::GetFullPath($HomeRoot)) 'AppData\Roaming')
-    LocalAppDataRoot = (Join-Path ([System.IO.Path]::GetFullPath($HomeRoot)) 'AppData\Local')
-}
-$authorityContext = New-LiveSyncAuthorityContext -HomeRoot $HomeRoot -ControlBase $ControlBase -BackupRoot $BackupRoot
 $assessment = Get-HarnessEnvAuthorityAssessment -RepoRoot $repo -Identity $authorityIdentity -ReasonixLiveSkillsPath $ReasonixLiveSkillsPath
 if ([string] $assessment.Route -cne $Action) { throw "$($script:AuthorityRouteMismatch): the read-only assessment routes to '$($assessment.Route)', not '$Action'." }
 

@@ -2352,7 +2352,7 @@ function Invoke-SealedLiveTransactionHost {
     $payload = Convert-SealedLiveTransactionHostMap -Value $planMap['PlanPayload']
     if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'OperationKind')) { throw $mismatch }
     $operationKind = [string] $payload['OperationKind']
-    if ($operationKind -cnotin @('initial', 'retirement')) { throw $kindUnsupported }
+    if ($operationKind -cnotin @('initial', 'retirement', 'adopt', 'migrate', 'repair-adopt')) { throw $kindUnsupported }
 
     $intent = Convert-SealedLiveTransactionHostMap -Value $payload['AuthorityStateIntent']
     $targetIntent = Convert-SealedLiveTransactionHostMap -Value $payload['TargetContextIntent']
@@ -2453,17 +2453,11 @@ function Invoke-SealedLiveTransactionHost {
         }
     }
 
-    function Assert-SealedLiveTransactionHostGuard {
+    function Assert-SealedLiveTransactionHostClaimsBinding {
+        # The immutable claims must exist, match the plan's exact bytes, and bind
+        # the reviewed target rows.
         param([Parameter(Mandatory)] [System.Collections.IDictionary] $Snapshot)
-        if ($operationKind -ceq 'initial') {
-            if ([bool] $Snapshot['ClaimsExists'] -or [bool] $Snapshot['StateExists']) { throw $authorityPresent }
-            foreach ($liveRow in @($Snapshot['LiveRows'])) {
-                if ([string] $liveRow['Status'] -cne 'MISSING') { throw $notPristine }
-            }
-            return
-        }
-
-        if (-not [bool] $Snapshot['ClaimsExists'] -or -not [bool] $Snapshot['StateExists']) { throw $authorityRequired }
+        if (-not [bool] $Snapshot['ClaimsExists']) { throw $authorityRequired }
         if ([string] $Snapshot['ClaimsHash'] -cne $rootClaimsHash) { throw $script:LiveTransactionHashMismatch }
         $claimsDocument = Convert-SealedLiveTransactionHostMap -Value $Snapshot['ClaimsDocument']
         if ([string] $claimsDocument['HomeAuthorityKey'] -cne $homeAuthorityKey) { throw ($claimsBinding + ' (claims=' + [string] $claimsDocument['HomeAuthorityKey'] + ' plan=' + $homeAuthorityKey + ')') }
@@ -2491,6 +2485,35 @@ function Invoke-SealedLiveTransactionHost {
             }
             if ([string] $claimMap['LocationKey'] -cne [string] $rowMap['LocationKey']) { throw $claimsBinding }
         }
+        if ([string] $Snapshot['StateHash'] -cne $null -and [string] $Snapshot['StateHash'] -ceq '') { throw $mismatch }
+    }
+
+    function Assert-SealedLiveTransactionHostGuard {
+        param([Parameter(Mandatory)] [System.Collections.IDictionary] $Snapshot)
+        if ($operationKind -ceq 'initial') {
+            if ([bool] $Snapshot['ClaimsExists'] -or [bool] $Snapshot['StateExists']) { throw $authorityPresent }
+            foreach ($liveRow in @($Snapshot['LiveRows'])) {
+                if ([string] $liveRow['Status'] -cne 'MISSING') { throw $notPristine }
+            }
+            return
+        }
+
+        if ($operationKind -cin @('adopt', 'migrate')) {
+            # First authority: no claims and no state may exist yet, while the
+            # live roots may already hold content the transition preserves.
+            if ([bool] $Snapshot['ClaimsExists'] -or [bool] $Snapshot['StateExists']) { throw $authorityPresent }
+            return
+        }
+
+        if ($operationKind -ceq 'repair-adopt') {
+            # The claims are immutable and must match the plan; the state is
+            # being repaired, so it may be MISSING or CORRUPT.
+            Assert-SealedLiveTransactionHostClaimsBinding -Snapshot $Snapshot
+            return
+        }
+
+        if (-not [bool] $Snapshot['ClaimsExists'] -or -not [bool] $Snapshot['StateExists']) { throw $authorityRequired }
+        Assert-SealedLiveTransactionHostClaimsBinding -Snapshot $Snapshot
     }
 
     $preLockSnapshot = Get-SealedLiveTransactionHostAuthoritySnapshot
@@ -2597,7 +2620,7 @@ function Invoke-SealedLiveTransactionHost {
             $authorityStateIntent[$name] = $intent[$name]
         }
         if (Test-LiveTransactionMapHasName -Map $intent -Name 'ReceiptRef') { throw $mismatch }
-        if ($operationKind -ceq 'initial') {
+        if ($operationKind -cin @('initial', 'adopt', 'migrate')) {
             if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'ProposedRootClaims')) { throw $mismatch }
             $proposedBytes = [byte[]] (ConvertTo-SemanticJsonBytes -InputObject $payload['ProposedRootClaims'])
             $proposedHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($proposedBytes)).ToLowerInvariant()
@@ -2685,7 +2708,7 @@ function Invoke-SealedLiveTransactionHost {
             Platforms = $receiptPlatforms.ToArray()
             ForbiddenRoots = $receiptForbiddenRoots
         }
-        if ($operationKind -ceq 'retirement') {
+        if ($operationKind -cin @('retirement', 'adopt', 'migrate', 'repair-adopt')) {
             $receiptArguments['AuthorityStatePath'] = $statePath
             $receiptArguments['RootClaimsPath'] = $claimsPath
         }
