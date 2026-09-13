@@ -237,6 +237,32 @@ PowerShell 自身的英文参数绑定文案（`missing mandatory parameters`、
 本仓已应用的全部上游提交，无分叉或回退。本次两条新增文字已按"最小完整修订"合入上游，
 本页不复制正文。
 
+### 第五次闭环执行（2026-09-13，Phase 2 收口窗口）
+
+窗口任务：Phase 2 live-safety 硬化的 Task 7（receipt 回滚）全五步、Task 8 并发矩阵可钉部分、
+Task 9 检查点与 Phase 2 收口（实现提交 `a9cb765`..`4a99b0e`、评审修复 `24dcabe`、收口
+`074cbbc`；权威统一回归 38/38 零失败零超时，证据见 STATUS.md Phase 2 closeout 节）。
+
+新反馈筛选：
+
+1. **跨 authority 根声明重叠拒绝缺失**（双 home 探针实证：两 authority 均成功声明同一自定义
+   Reasonix 根）——本仓 live-safety 机制内部的设计发现，已按仓库纪律记录于
+   `status/active/live-safety-hardening.md` 并定为 Phase 3 设计输入，不属于 harness-model
+   文档/示例范围，不形成上游修订。
+2. **后台长运行证据须由包装器自报告可核对字段**（退出码/耗时/摘要路径/SHA/计数，并以套件数
+   与文件 mtime 交叉核对）：本窗口一次后台启动因链式命令引号损坏静默未运行，而旧残留日志
+   酷似结果，险些把"未运行"记成"已通过"。该教训通用（任何 agent 的后台长验证都适用），但
+   本窗口系首次出现——按第四窗口规则（同一教训第二次出现即转成可执行检查）先记 `pending`，
+   待复现再合入上游 adoption.md；上记提交 `cc2e08c` 的状态记录已含同款实例。
+3. **统一回归抓到 focused 运行的遗漏**（评审加固提交未随附 seams 基线重钉）：属本仓 seams
+   机制的内部流程知识，非上游范围。
+
+版本回灌核对：上游检出 HEAD 自上次核对（`44bda60`）推进至 `dc81c25`（5 个提交，另一工作流的
+`.ai/tasks/` 与 `docs/implementation/` 产物），链路连续、无分叉；**方法文件
+`docs/operations/adoption.md` 与 `docs/operations/feedback-loop.md` 无改动**，无适用版本差异，
+本页不复制其正文。该检出内仍有并行会话的未跟踪方案文件（`docs/superpowers/plans/`），本仓未
+暂存、未修改、未删除。
+
 ## 可复制的首次接手提示词
 
 ```text
