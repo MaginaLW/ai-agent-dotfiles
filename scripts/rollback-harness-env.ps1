@@ -11,18 +11,19 @@
 
     Resolution order is final: the sandbox-injected authority (the same surface
     sync and live recovery use) with its complete bootstrap prefix, then the
-    external-artifact preflight for the receipt and plan paths, then the
-    receipt slot state and its source operation kind, and then — under the
-    origin canonical -> worktree overlay -> global lock order — the Task 7
-    Step 1 source-graph evidence (receipt integrity, backup snapshot trees,
-    authority preimages, the linked source transaction's committed chain and
-    receipt binding) and the current state/claims/overlay/live surface, plus
-    the origin identity and overlay-lock support checks. DryRun derives and
-    writes the schema-1 environment-rollback plan; Apply validates the
-    reviewed plan fail-closed. Every disagreement fails closed with its
-    reviewed token. The transition itself requires the worktree overlay lock
-    (Phase 3), so a validated Apply currently fails closed with
-    worktree-overlay-lock-not-implemented.
+    external-artifact preflight for the receipt path, then the receipt slot
+    state and its source operation kind, then the external-artifact preflight
+    for the plan and report paths, and then — under the origin canonical ->
+    worktree overlay -> global lock order — the Task 7 Step 1 source-graph
+    evidence (receipt integrity, backup snapshot trees, authority preimages,
+    the linked source transaction's committed chain and receipt binding) and
+    the current state/claims/overlay/live surface, plus the origin identity
+    and overlay-lock support checks. DryRun derives and writes the schema-1
+    environment-rollback plan; Apply validates the reviewed plan fail-closed.
+    Every disagreement fails closed with its reviewed token. The transition
+    itself requires the worktree overlay lock (Phase 3): after the Phase 0
+    production interlock is released, a validated Apply currently fails
+    closed with worktree-overlay-lock-not-implemented.
 #>
 [CmdletBinding(DefaultParameterSetName = 'DryRun')]
 param(

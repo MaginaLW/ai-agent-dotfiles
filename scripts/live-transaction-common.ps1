@@ -1251,6 +1251,17 @@ function Invoke-SealedEnvironmentRollbackTransaction {
     )
 
     $mismatch = $script:LiveTransactionIntentMismatch
+
+    # Defensive source-receipt verification: the entry's evidence gates verify
+    # the full graph, and the direct tests are the interim verification
+    # surface, so the composition re-proves the slot, the self-hash marker,
+    # and the producer semantics before trusting any snapshot.
+    if ((Get-SealedBackupReceiptSlotState -ReceiptPath $SourceReceiptPath) -cne 'COMPLETE') { throw $mismatch }
+    try { Test-BackupReceiptSemantics -Document $SourceReceiptDocument }
+    catch { throw $mismatch }
+    $sourceMarker = [System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes((Join-Path $SourceReceiptPath '_meta/COMPLETE')))
+    if ($sourceMarker -cne [string] $SourceReceiptDocument['ReceiptHash']) { throw $mismatch }
+
     $null = Test-RollbackPlanSemantics -Document $PlanDocument
     $payload = [System.Collections.IDictionary] $PlanDocument['PlanPayload']
     if ([string] $payload['PlanKind'] -cne 'environment-rollback') { throw $mismatch }
@@ -1271,6 +1282,7 @@ function Invoke-SealedEnvironmentRollbackTransaction {
     $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
     if ([string] $stateIntent['RootClaimsHash'] -cne $claimsHash) { throw $mismatch }
     $stateBytes = [System.IO.File]::ReadAllBytes($StatePath)
+    $stateEvidenceHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]] $stateBytes)).ToLowerInvariant()
     $currentState = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([byte[]] $stateBytes))
 
     $liveRootsByPlatform = [ordered]@{}
@@ -1374,6 +1386,14 @@ function Invoke-SealedEnvironmentRollbackTransaction {
         ReceiptId = $receiptId
         ReceiptPath = $receiptPath
     }) -SourceOperationKind 'environment-rollback' -PlanHash ([string] $PlanDocument['PlanHash']) -DocumentHash ([string] $PlanDocument['DocumentHash']) -ExecutionContextHash $executionContextHash -ControlBaseHash $controlBaseHash -FilesystemCapabilityHash $filesystemCapabilityHash -HomeAuthorityKey ([string] $payload['HomeAuthorityKey']) -BackupRoot $BackupRoot -Platforms $receiptPlatforms.ToArray() -AuthorityStatePath $StatePath -RootClaimsPath $ClaimsPath -ForbiddenRoots @($ControlBase)
+
+    # The receipt captured the authority preimages after the header was
+    # published; both must still agree with the hashes this composition
+    # derived, so a writer between the reads cannot journal split evidence.
+    if ([string] $receipt['RootClaimsPreimage']['Hash'] -cne $claimsHash -or
+        [string] $receipt['AuthorityStatePreimage']['Hash'] -cne [string] $stateEvidenceHash) {
+        throw $mismatch
+    }
 
     $sourceRootsByPlatform = [ordered]@{}
     foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {

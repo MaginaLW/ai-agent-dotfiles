@@ -475,7 +475,8 @@ try {
         try { Enter-CanonicalRepoLock -LockPath ([string] $canonicalPaths.LockPath) | Out-Null } catch { $canonicalInterleaveRejected = ([string] $_.Exception.Message -ceq 'operation-lock-busy') }
         Assert $canonicalInterleaveRejected 'a concurrent canonical mutation cannot interleave with the mid-flight live transaction'
 
-        $null = $winner.WaitForExit(300000)
+        $winnerExited = $winner.WaitForExit(300000)
+        Assert ($winnerExited) 'the held winner exits within the contention window'
     }
     finally {
         [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', $savedFailpoints)
