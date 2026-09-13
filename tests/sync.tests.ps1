@@ -19,10 +19,13 @@ $controlBase = Join-Path $fakeHome 'AppData\Local\ai-agent-dotfiles\control'
 $plansRoot = Join-Path $work 'plans'
 . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
+. (Join-Path $PSScriptRoot 'helpers/failpoint-controller.ps1')
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
 . (Join-Path $RepoRoot 'scripts/target-context-common.ps1')
 . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
 . (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
+
+$internalHost = Join-Path $RepoRoot 'scripts/internal/live-transaction-host.ps1'
 
 function Set-TestDirectoryCurrentUserOnly {
     param([Parameter(Mandatory)] [string] $Path)
@@ -434,9 +437,60 @@ try {
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $retirementPlanPath, '-RetireManifestPath', $retirementManifest)
     Assert ($result.Code -eq 0) 'final retirement dry-run refreshes the bound plan'
 
-    $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $retirementPlanPath, '-RetireManifestPath', $retirementManifest)
+    Write-Host '[mid-flight lock contention]'
+    # Task 8 Step 1: two different plans against the same overlapping roots.
+    # The winner is held at PREPARED by a deterministic failpoint while it
+    # holds the origin canonical and global live locks; the competing plan
+    # loses with exact zero-wait busy and zero backup/staging/journal
+    # mutation, a canonical mutation cannot interleave, and the winner's
+    # failpoint deadline expires into the reviewed failed-restored terminal.
+    $loserPlanPath = Join-Path $plansRoot 'retirement-loser-plan.json'
+    $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $loserPlanPath, '-RetireManifestPath', $retirementManifest)
+    Assert ($result.Code -eq 0) 'the competing retirement plan derives against the same roots'
+    $beforeContentionBackups = @(Get-ChildItem -LiteralPath $fakeBackups -Directory -Force -ErrorAction SilentlyContinue).Count
+    $beforeContentionJournals = @(Get-ChildItem -LiteralPath (Join-Path $controlBase 'live-transactions') -Directory -Force -ErrorAction SilentlyContinue).Count
+    $controller = New-FailpointController
+    $winnerOut = Join-Path $work 'contention-winner-out.txt'
+    $winnerErr = Join-Path $work 'contention-winner-err.txt'
+    $savedFailpoints = [System.Environment]::GetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS')
+    $winner = $null
+    try {
+        [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', (ConvertTo-Json -InputObject @([ordered]@{ Checkpoint = 'PREPARED'; PipeName = $controller.Name }) -Compress))
+        $applyArguments = @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $retirementPlanPath, '-RetireManifestPath', $retirementManifest)
+        $applyArgumentsEncoded = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $applyArguments -Compress)))
+        $winner = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $internalHost, '-SandboxRoot', $work, '-ScriptPath', $syncScript, '-ArgumentsBase64', $applyArgumentsEncoded) -PassThru -WindowStyle Hidden -RedirectStandardOutput $winnerOut -RedirectStandardError $winnerErr
+        Wait-FailpointController -Controller $controller -ExpectedCheckpoint 'PREPARED' -TimeoutSeconds 150
+        Assert (-not $winner.HasExited) 'the winner transaction is held mid-flight while it owns the locks'
+        # The winner's own receipt and journal namespace exist by PREPARED;
+        # the loser must add zero of either.
+        $heldBackups = @(Get-ChildItem -LiteralPath $fakeBackups -Directory -Force -ErrorAction SilentlyContinue).Count
+        $heldJournals = @(Get-ChildItem -LiteralPath (Join-Path $controlBase 'live-transactions') -Directory -Force -ErrorAction SilentlyContinue).Count
+
+        $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $loserPlanPath, '-RetireManifestPath', $retirementManifest)
+        Assert ($result.Code -ne 0 -and $result.Out -match 'operation-lock-busy') 'a competing plan against the held roots loses with exact zero-wait busy'
+        Assert (@(Get-ChildItem -LiteralPath $fakeBackups -Directory -Force -ErrorAction SilentlyContinue).Count -eq $heldBackups) 'the zero-wait loser creates zero backup'
+        Assert (@(Get-ChildItem -LiteralPath (Join-Path $controlBase 'live-transactions') -Directory -Force -ErrorAction SilentlyContinue).Count -eq $heldJournals) 'the zero-wait loser creates zero journal namespace'
+
+        $canonicalInterleaveRejected = $false
+        try { Enter-CanonicalRepoLock -LockPath ([string] $canonicalPaths.LockPath) | Out-Null } catch { $canonicalInterleaveRejected = ([string] $_.Exception.Message -ceq 'operation-lock-busy') }
+        Assert $canonicalInterleaveRejected 'a concurrent canonical mutation cannot interleave with the mid-flight live transaction'
+
+        $null = $winner.WaitForExit(300000)
+    }
+    finally {
+        [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', $savedFailpoints)
+        Close-FailpointController -Controller $controller
+    }
+    Assert ($winner.ExitCode -ne 0) 'the held winner exits non-zero when its failpoint deadline expires'
+    Assert (Test-Path -LiteralPath (Join-Path $fakeHome '.claude/skills/retired-claude/SKILL.md') -PathType Leaf) 'the winner failure restores the live targets'
+    $contentionJournals = @(Get-ChildItem -LiteralPath (Join-Path $controlBase 'live-transactions') -Directory -Force | Sort-Object LastWriteTimeUtc)
+    Assert ($contentionJournals.Count -eq ($beforeContentionJournals + 1)) 'the held winner published exactly its own journal namespace'
+    $winnerResult = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path $contentionJournals[-1].FullName 'result.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+    Assert ([string] $winnerResult['Outcome'] -ceq 'failed-restored') 'the held winner closes with the failed-restored outcome'
+
+    $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $loserPlanPath, '-RetireManifestPath', $retirementManifest)
     if ($result.Code -ne 0) { Write-Host '----- retirement apply child output -----'; Write-Host $result.Out }
-    Assert ($result.Code -eq 0) 'retirement apply exits successfully'
+    Assert ($result.Code -eq 0) 'the competing plan completes the retirement after the winner restores'
     foreach ($target in $retiredTargets.Values) {
         Assert (-not (Test-Path -LiteralPath $target)) "explicit retirement prunes $target"
     }

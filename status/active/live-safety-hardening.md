@@ -1419,7 +1419,7 @@ complete:
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
 | Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
-| Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
+| Task 8 | 3/4 | Step 1's mid-flight zero-wait matrix and the carried canonical-interleave proof complete (sync.tests contention section); Step 2 is the recorded zero-wait-by-design boundary; Step 3's kill windows are the Task 6 Step 4 failpoint matrix; remaining: Step 4's root-claim overlap and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
 
 The required execution order is Task 1 -> Task 2 -> Task 3 -> Task 4 -> Task 5 -> Task 6 -> Task 7
@@ -1649,6 +1649,36 @@ this record), its DiscoveryHash is
 requirement is 23685 s, under the 400-minute workflow bound. Task 7 (receipt-backed environment
 rollback) is complete: all five roadmap steps implemented, verified by the focused suites and this
 definitive pass. Production Apply remains interlocked and no live root was touched.
+
+## Task 8 Step 1 (2026-09-13): mid-flight zero-wait losers and the canonical interleave proof
+
+`tests/sync.tests.ps1` gains the mid-flight lock-contention section — the Task 8 Step 1 matrix
+lives here rather than in `tests/live-concurrency.tests.ps1` because the full-chain sandbox fixture
+(authority bootstrap, canonical setup, real plans) already exists in the sync suite, while
+live-concurrency retains the lock-level contention coverage it already pins. Two different
+retirement plans derive against the same overlapping roots; the winner is held mid-flight at the
+deterministic `PREPARED` failpoint while it owns the origin canonical and global live locks; the
+competing plan loses with exact zero-wait `operation-lock-busy` and creates zero backup and zero
+journal namespace; a concurrent canonical mutation (the fixture repository's canonical lock)
+cannot interleave with the mid-flight live transaction; the winner's failpoint deadline then
+expires into the reviewed failed-restored terminal (the live targets are restored, and exactly the
+winner's own journal namespace carries the failed-restored result); and the competing plan
+completes the retirement under the fresh locks, with every existing retirement assertion
+unchanged. This also executes the carried Task 6 Step 5 proof that a concurrent canonical mutation
+cannot interleave.
+
+Recorded boundary for Step 2 (bounded-wait losers): public live routes are zero-wait by reviewed
+design — the bounded-wait surfaces are sealed-host-only and their contention semantics are pinned
+by live-concurrency's timeout-waiter tests — and the "waiter acquires the lock and recomputes"
+residue is the existing re-apply staleness pins (`live-plan-hash-mismatch` with zero backup). The
+hard-kill windows of Step 3 are the Task 6 Step 4 deterministic failpoint matrix (kill/replay
+fixtures per checkpoint with evidence retention); the Task 8 remainder is Step 4's root-claim
+overlap and custom-target matrix.
+
+Verification (canonical `pwsh -NoProfile -File` runs): sync.tests 455 s (budget 1200 s), zero
+failures; test-runner (the workflow bound is unchanged), live-plan, automation-safety, and doctor
+passing; parse gate 167 files; secret scan clean; `git diff --check` clean. Production Apply
+remains interlocked and no live root was touched.
 
 ## Pending items (2026-09-13, after the Task 7 closeout)
 
