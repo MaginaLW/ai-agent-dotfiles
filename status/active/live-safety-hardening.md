@@ -1928,7 +1928,8 @@ harness-env 131/131; task-skills 22/22 (its fake repository now copies `schemas/
 composes the authority readers and fails closed with `harness-authority-status-repo-layout-required`
 otherwise); agent-dotfiles 16/16; live-plan 121 PASS; sync PASS; artifact validation 31 contracts /
 31 positives / 133 negatives with zero failures; seams 56/56 after re-pinning (reflection-sensitive
-sites 15019, dynamic-command digest `66456c02...`); parse gate 169 files; secret scan clean;
+sites 15068 after the parse-gate extension, dynamic-command digest `66456c02...`); parse gate
+169 files; secret scan clean;
 `git diff --check` clean. The unified regression over the full catalog is recorded in `STATUS.md`.
 
 ## Pending items (2026-09-13, after Phase 3 Task 2)
