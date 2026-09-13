@@ -2033,20 +2033,33 @@ validation 31/31/133 PASS; seams 56/56 re-pinned (reflection 15262, dynamic
 digest `aafc071a...`); parse gate 171 files; secret scan and `git diff --check`
 clean.
 
-**Open item for the next window**: the apply success path is not yet exercised
-end to end. The sandbox fixture needs a canonical setup state that
-`Get-CanonicalSetupStatus` accepts; the seeding mirroring the Phase 2 suites is
-rejected as `manual-recovery-required` because the seeded root intents do not
-match `Get-CanonicalSetupRootContexts`' re-derivation for all three roots
-(diagnosed in-process on all three recovery/control/backup pairs). Next step:
-either reuse the Phase 2 suites' exact seeding sequence including their
-preceding `sync -DryRun`, or diff `New-CanonicalSetupPlanPayload`'s embedded
-contexts against the status side's re-derivation. Once seeding works, add the
-apply success assertions for adopt (claims+state published, managed skills live,
-unknown dir preserved, journal present, re-apply refused), migrate, and
-repair-adopt (claims byte-identical), plus the failure-injection cases the plan
-asks for (before receipt, during live mutation, during state create/replace,
-during the final journal record) using the Phase 2 failpoint controller.
+Integration fix that the apply composition forced (`d1ee128`): the private
+prefix envelope pinned every immediate child, so after the canonical setup wrote
+its root claim at `<ControlBase>/canonical-roots/<64-hex>.json` any later
+`Get-SealedHomeAuthorityBootstrapCompletionStatus` call failed with "unexpected
+children under CanonicalRootsRoot". The snapshot now tolerates exactly that
+shape (no-follow single-link regular `<64-hex>.json`), mirroring the existing
+authority-aware tolerance for `HomesRoot`; this also unblocks `sync`'s apply on
+a machine where the canonical setup has run.
+
+**Open item for the next window** (precise, diagnosed to the last gate): the
+seeded sandbox canonical setup is now accepted (`canonical-ready` asserted in
+the suite, and the claim file had to be written next to the state), the adopt
+apply passes the interlock, the plan gates, the canonical and prefix
+preconditions, and reaches the host; it then stops inside the host's held
+canonical-state capture with `canonical-recovery-required`, because the fixture
+writes the state file with inherited (non-current-user-only) security. The
+capture validates the file's SDDL, so the fixture must either write the state
+through the reviewed security template or set the current-user-only descriptor
+on it (the suite already has the ACL helper for the recovery roots). Once that
+lands, restore the success assertions (claims+state published, managed skills
+live, unknown dir preserved, journal terminal, re-apply refused) for adopt and
+migrate, add repair-adopt (claims byte-identical), and add the failure-injection
+cases the plan asks for (before receipt, during live mutation, during state
+create/replace, during the final journal record) with the Phase 2 failpoint
+controller. Also note the host's `controller-transition` kind is still rejected
+by its kind gate, which is the Task 5 entry point (the suite asserts that
+boundary through the unknown-parameter-free takeover apply path).
 
 ## Task 4 handoff (2026-09-14): apply-composition recon
 
