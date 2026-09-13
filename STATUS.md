@@ -3446,6 +3446,31 @@ parse-gate parameter-name check (no suite invokes that script) plus additive ass
 holds for the final tree. The whole-phase definitive pass remains with the Task 9 checkpoint. Production interlock is unchanged and no real home, authority
 state, or live root was written.
 
+## Phase 3 Task 4 (2026-09-14, in progress): the authority apply composition
+
+Settled decision: the private prefix belongs to the reviewed canonical setup
+flow (its own final setup state requires those roots), so adopt/migrate require
+a `canonical-ready` repo and a COMPLETE prefix instead of bootstrapping a second
+creator; the apply fails closed with the canonical status token. The live
+transaction host now admits `adopt`/`migrate`/`repair-adopt` with per-kind
+guards (first authority without the live-pristine requirement; repair with
+claims byte-bound and a MISSING or CORRUPT state tolerated), first-authority
+claims creation covers adopt/migrate, and the backup receipt pre-images the
+authority state and claims for every kind that changes them. The authority
+`-Apply` composes interlock, static plan gates, the canonical and prefix
+preconditions, per-platform staging/capability evidence, then the host.
+
+Verified: authority 293/293 (including "a transition apply stops at
+`canonical-setup-required` and publishes nothing"); live-plan 121 PASS; sync,
+live-recovery, live-concurrency, backup-recovery, backup-receipt all PASS; the
+host change is behavior-preserving for the existing kinds. Artifact validation
+31/31/133 PASS; seams 56/56 re-pinned (reflection 15262, dynamic digest
+`aafc071a...`); parse gate 171 files; secret scan and `git diff --check` clean.
+**Open**: the apply success path end to end awaits a canonical-setup sandbox
+fixture that the status accepts (diagnosed: the seeded root intents do not match
+`Get-CanonicalSetupRootContexts`' re-derivation); recorded with the next steps in
+the active task record. Commit `d7e81b1`.
+
 ## Phase 3 Task 3 (2026-09-14): the `env authority` command surface
 
 `scripts/authority-harness-env.ps1` adds `status|migrate|adopt|repair-adopt|takeover`, routed by

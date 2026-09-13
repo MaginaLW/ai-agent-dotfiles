@@ -1992,6 +1992,62 @@ routing the producer's validation through the reviewed `Assert-LiveSyncPlanDocum
 instead of calling the semantic validator directly. Commits: `2d6bdf0` the shared-module refactor,
 `bdf9073` the command surface.
 
+## Phase 3 Task 4 (2026-09-14, in progress): the authority apply composition
+
+Settled decision (the open question from the recon handoff below): **the private
+prefix belongs to the reviewed canonical setup flow, not to the authority
+apply.** `New-CanonicalFinalSetupState` cannot even be created without the
+ControlBase/BackupRoot roots, and the canonical host's own lock order acquires
+them existing-only, so a live transition must never bootstrap a second time or
+compose a competing private-root creator. Adopt and migrate therefore *require*
+a `canonical-ready` repo and a COMPLETE prefix, failing closed with the canonical
+status token (`canonical-setup-required` and friends) instead of a raw
+`canonical-lock-missing`.
+
+Implemented (`d7e81b1`):
+
+- `Invoke-SealedLiveTransactionHost` now admits `adopt`, `migrate` and
+  `repair-adopt` next to `initial`/`retirement`. Per-kind guards: adopt/migrate
+  require claims and state absent but keep the live-pristine requirement out
+  (they exist precisely for machines whose live roots already hold content);
+  repair-adopt requires the immutable claims to match the plan's exact bytes
+  while tolerating a MISSING or CORRUPT state. The claims-binding block is
+  extracted (`Assert-SealedLiveTransactionHostClaimsBinding`) and shared by the
+  repair and existing-authority branches.
+- First-authority claims creation covers adopt/migrate (the state step already
+  handled create-new claims versus proving existing bytes, and both a present
+  and a missing/corrupt state), and the managed backup receipt pre-images the
+  authority state and claims for every kind that changes them.
+- `scripts/authority-harness-env.ps1 -Apply` composes: interlock, plan path,
+  integrity, kind, materialization currency, selection context, consumption,
+  canonical-status gate, prefix gate, per-platform same-volume staging roots
+  with mutation-preflight capability hashes, then the host. The script imports
+  the home-authority and registry modules and no longer stops at
+  `authority-apply-not-wired`.
+
+Verified at this boundary: authority 293/293 (including the new precondition
+assertions - a transition apply stops at `canonical-setup-required` and
+publishes no claims/state); live-plan 121 PASS; sync PASS; live-recovery PASS;
+live-concurrency PASS; backup-recovery PASS; backup-receipt PASS; artifact
+validation 31/31/133 PASS; seams 56/56 re-pinned (reflection 15262, dynamic
+digest `aafc071a...`); parse gate 171 files; secret scan and `git diff --check`
+clean.
+
+**Open item for the next window**: the apply success path is not yet exercised
+end to end. The sandbox fixture needs a canonical setup state that
+`Get-CanonicalSetupStatus` accepts; the seeding mirroring the Phase 2 suites is
+rejected as `manual-recovery-required` because the seeded root intents do not
+match `Get-CanonicalSetupRootContexts`' re-derivation for all three roots
+(diagnosed in-process on all three recovery/control/backup pairs). Next step:
+either reuse the Phase 2 suites' exact seeding sequence including their
+preceding `sync -DryRun`, or diff `New-CanonicalSetupPlanPayload`'s embedded
+contexts against the status side's re-derivation. Once seeding works, add the
+apply success assertions for adopt (claims+state published, managed skills live,
+unknown dir preserved, journal present, re-apply refused), migrate, and
+repair-adopt (claims byte-identical), plus the failure-injection cases the plan
+asks for (before receipt, during live mutation, during state create/replace,
+during the final journal record) using the Phase 2 failpoint controller.
+
 ## Task 4 handoff (2026-09-14): apply-composition recon
 
 The remaining Task 4 work is the apply composition for `migrate`/`adopt`/`repair-adopt`. The recon is
