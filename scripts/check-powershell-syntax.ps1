@@ -28,6 +28,9 @@ $paths = @(& git -C $RepoRoot ls-files -co --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate current-worktree files for syntax validation.' }
 $errors = [System.Collections.Generic.List[object]]::new()
 $parsed = 0
+$parsedFiles = [System.Collections.Generic.List[object]]::new()
+$functionParameters = @{}
+$ambiguousFunctions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 foreach ($relative in @($paths | Sort-Object -Unique)) {
     $normalized = ([string]$relative).Replace([char]92, [char]47)
     if ($normalized.StartsWith('./', [System.StringComparison]::Ordinal)) { $normalized = $normalized.Substring(2) }
@@ -44,6 +47,47 @@ foreach ($relative in @($paths | Sort-Object -Unique)) {
         $errors.Add([pscustomobject]@{ File = $normalized; Line = $parseError.Extent.StartLineNumber; Column = $parseError.Extent.StartColumnNumber; Message = $parseError.Message })
     }
     if ($null -eq $parseErrors -or @($parseErrors).Count -eq 0) {
+        $parsedFiles.Add([pscustomobject]@{ Relative = $normalized; Ast = $ast })
+        # Named parameters on repository-function calls must exist on the callee.
+        # Only production scripts feed the signature map: test files define
+        # same-name local helpers and external-tool shims (for example a local
+        # `git` stub), which would make resolution wrong rather than strict.
+        if (-not $normalized.StartsWith('scripts/', [System.StringComparison]::Ordinal)) { continue }
+        foreach ($functionAst in @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))) {
+            $functionName = [string] $functionAst.Name
+            $parameterNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($commonName in @('ErrorAction', 'ErrorVariable', 'WarningAction', 'WarningVariable', 'InformationAction', 'InformationVariable', 'OutVariable', 'OutBuffer', 'PipelineVariable', 'ProgressAction', 'Verbose', 'Debug')) {
+                $null = $parameterNames.Add($commonName)
+            }
+            $dynamicParameters = $false
+            if ($null -ne $functionAst.Body.DynamicParamBlock) { $dynamicParameters = $true }
+            elseif ($null -ne $functionAst.Body.ParamBlock) {
+                foreach ($parameter in @($functionAst.Body.ParamBlock.Parameters)) {
+                    $null = $parameterNames.Add($parameter.Name.VariablePath.UserPath)
+                    foreach ($attribute in @($parameter.Attributes)) {
+                        if ($attribute -is [System.Management.Automation.Language.AttributeAst] -and [string] $attribute.TypeName.Name -ceq 'Alias') {
+                            foreach ($argument in @($attribute.PositionalArguments)) {
+                                if ($argument -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $null = $parameterNames.Add([string] $argument.Value) }
+                            }
+                        }
+                    }
+                }
+            }
+            if ($dynamicParameters) { continue }
+            if ($functionParameters.ContainsKey($functionName)) {
+                $null = $ambiguousFunctions.Add($functionName)
+            }
+            else {
+                $functionParameters[$functionName] = $parameterNames
+            }
+        }
+    }
+}
+
+foreach ($parsedFile in @($parsedFiles)) {
+    $normalized = [string] $parsedFile.Relative
+    $ast = $parsedFile.Ast
+    if ($true) {
         # A bare -and/-or inside a command invocation is a parsed argument, not
         # an operator: the command itself would receive it as a parameter and
         # fail at runtime with "a parameter cannot be found that matches
@@ -67,6 +111,33 @@ foreach ($relative in @($paths | Sort-Object -Unique)) {
         }
     }
 }
+foreach ($parsedFile in @($parsedFiles)) {
+    $normalized = [string] $parsedFile.Relative
+    # Production scripts only: test files define same-name local helpers and
+    # external-tool shims (for example a local `git` wrapper), which would make
+    # name-based resolution ambiguous rather than wrong.
+    if (-not $normalized.StartsWith('scripts/', [System.StringComparison]::Ordinal)) { continue }
+    foreach ($command in @($parsedFile.Ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))) {
+        $commandName = $command.GetCommandName()
+        if ([string]::IsNullOrWhiteSpace($commandName)) { continue }
+        $targetName = [string] $commandName
+        if (-not $functionParameters.ContainsKey($targetName)) { continue }
+        if ($ambiguousFunctions.Contains($targetName)) { continue }
+        foreach ($element in @($command.CommandElements)) {
+            if ($element -isnot [System.Management.Automation.Language.CommandParameterAst]) { continue }
+            $parameterName = [string] $element.ParameterName
+            if ($parameterName -cin @('and', 'or')) { continue }
+            if ($functionParameters[$targetName].Contains($parameterName)) { continue }
+            $errors.Add([pscustomobject]@{
+                File = $normalized
+                Line = $element.Extent.StartLineNumber
+                Column = $element.Extent.StartColumnNumber
+                Message = "unknown parameter '-$parameterName' for repository function '$targetName'"
+            })
+        }
+    }
+}
+
 if ($errors.Count -gt 0) {
     $errors | Format-Table -AutoSize | Out-String | Write-Host
     Write-Error "PowerShell syntax validation failed: $($errors.Count) parser error(s)." -ErrorAction Continue
