@@ -226,6 +226,37 @@
             )
             SemanticValidator = 'Test-HarnessEnvBuildSemantics'
         }
+        'harness-env-list' = @{
+            SchemaVersion = 2
+            SchemaPath = 'schemas/harness-env-list.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/harness-env-list.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/harness-env-list.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/harness-env-list.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-reasonix-count'; Path = 'tests/fixtures/artifacts/harness-env-list.missing-reasonix-count.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-route'; Path = 'tests/fixtures/artifacts/harness-env-list.wrong-route.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'probed-status'; Path = 'tests/fixtures/artifacts/harness-env-list.probed-status.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'capability-hash'; Path = 'tests/fixtures/artifacts/harness-env-list.capability-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'intended-root-on-claims'; Path = 'tests/fixtures/artifacts/harness-env-list.intended-root-on-claims.invalid.json'; FailureLayer = 'Schema' }
+            )
+            SemanticValidator = 'Test-HarnessEnvAuthorityDocumentSemantics'
+        }
+        'harness-env-status' = @{
+            SchemaVersion = 2
+            SchemaPath = 'schemas/harness-env-status.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/harness-env-status.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/harness-env-status.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/harness-env-status.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-reasonix-count'; Path = 'tests/fixtures/artifacts/harness-env-status.missing-reasonix-count.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-route'; Path = 'tests/fixtures/artifacts/harness-env-status.wrong-route.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'probed-status'; Path = 'tests/fixtures/artifacts/harness-env-status.probed-status.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'backup-reference'; Path = 'tests/fixtures/artifacts/harness-env-status.backup-reference.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'route-facts-mismatch'; Path = 'tests/fixtures/artifacts/harness-env-status.route-facts-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'next-operation-mismatch'; Path = 'tests/fixtures/artifacts/harness-env-status.next-operation-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+            )
+            SemanticValidator = 'Test-HarnessEnvAuthorityDocumentSemantics'
+        }
         'harness-env-lock' = @{
             SchemaVersion = 3
             SchemaPath = 'schemas/harness-env-lock.schema.json'

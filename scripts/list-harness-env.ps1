@@ -36,12 +36,17 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-. (Join-Path $PSScriptRoot 'harness-env-common.ps1')
+. (Join-Path $PSScriptRoot 'harness-authority-status-common.ps1')
 
 $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
 $definitionFiles = @(Get-HarnessEnvDefinitionFiles -RepoRoot $repo)
+$authority = Get-HarnessEnvAuthorityAssessment -RepoRoot $repo
 $state = Read-HarnessEnvState -RepoRoot $repo
-$activeName = if ($null -ne $state) { [string] $state.Name } else { $null }
+$activeName = if ([string] $authority.StateStatus -ceq 'VALID') {
+    [string] $authority.StateSummary.EnvironmentName
+}
+elseif ($null -ne $state) { [string] $state.Name }
+else { $null }
 
 Write-Output 'Harness environments (harness-source/envs):'
 
@@ -103,7 +108,7 @@ foreach ($file in $definitionFiles) {
         })
 }
 
-if ($null -eq $state) {
+if ($null -eq $state -and [string] $authority.StateStatus -cne 'VALID') {
     Write-Output ''
     Write-Output 'No environment activated.'
 }
@@ -111,20 +116,30 @@ else {
     Write-Output ''
     Write-Output "Active environment: $activeName"
 }
+Write-Output "Authority route: $($authority.Route) (next: $($authority.NextOperation))"
 
+$jsonDocument = [ordered]@{
+    SchemaVersion = 2
+    GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
+    Environments = @($rows)
+    ActiveName = $activeName
+    Authority = $authority
+}
 if ($anyInvalid) {
     if ($JsonPath) {
         $parent = Split-Path -Parent $JsonPath
         if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-        $document = [ordered]@{ SchemaVersion = 1; GeneratedAtUtc = [DateTime]::UtcNow.ToString('o'); Environments = @($rows); ActiveName = $activeName; Result = 'FAIL' }
-        [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
+        $jsonDocument.Result = 'FAIL'
+        Test-HarnessEnvAuthorityDocumentSemantics -Document $jsonDocument
+        [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $jsonDocument -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
     }
     exit 1
 }
 if ($JsonPath) {
     $parent = Split-Path -Parent $JsonPath
     if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-    $document = [ordered]@{ SchemaVersion = 1; GeneratedAtUtc = [DateTime]::UtcNow.ToString('o'); Environments = @($rows); ActiveName = $activeName; Result = 'PASS' }
-    [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
+    $jsonDocument.Result = 'PASS'
+    Test-HarnessEnvAuthorityDocumentSemantics -Document $jsonDocument
+    [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $jsonDocument -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
 }
 exit 0

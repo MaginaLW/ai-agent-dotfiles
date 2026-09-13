@@ -46,92 +46,14 @@ param(
     [string] $Name,
     [string] $HomeRoot = $env:USERPROFILE,
     [string] $ProjectRoot,
-    [string] $JsonPath
+    [string] $JsonPath,
+    [string] $ReasonixLiveSkillsPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-. (Join-Path $PSScriptRoot 'harness-env-common.ps1')
-
-function Get-HarnessEnvLiveSkillRoot {
-    param(
-        [Parameter(Mandatory)] [string] $HomeRootValue,
-        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $Platform
-    )
-
-    if ($Platform -eq 'Claude') { return Join-Path $HomeRootValue '.claude/skills' }
-    if ($Platform -eq 'Reasonix') { return Join-Path $HomeRootValue 'AppData/Roaming/reasonix/skills' }
-    $preferred = Join-Path $HomeRootValue '.codex/skills'
-    $fallback = Join-Path $HomeRootValue '.agents/skills'
-    if (Test-Path -LiteralPath $preferred -PathType Container) { return $preferred }
-    if (Test-Path -LiteralPath $fallback -PathType Container) { return $fallback }
-    return $preferred
-}
-
-function Get-HarnessEnvManifestNames {
-    param([Parameter(Mandatory)] [string] $Path)
-
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
-    return @(Get-Content -LiteralPath $Path | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-}
-
-function Get-HarnessEnvLiveParity {
-    param(
-        [Parameter(Mandatory)] [string] $RepoRoot,
-        [Parameter(Mandatory)] [string] $StagingPath,
-        [Parameter(Mandatory)] [string] $HomeRoot
-    )
-
-    $mismatches = [System.Collections.Generic.List[string]]::new()
-    if (-not (Test-Path -LiteralPath $StagingPath -PathType Container)) {
-        return [pscustomobject]@{ Status = 'not-checked'; Mismatches = @('staging-missing') }
-    }
-
-    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
-        $key = $platform.ToLowerInvariant()
-        $stagedRoot = Join-Path $StagingPath "$key/skills"
-            $liveRoot = Get-HarnessEnvLiveSkillRoot -HomeRootValue $HomeRoot -Platform $platform
-        $expectedNames = Get-HarnessEnvManifestNames -Path (Join-Path $StagingPath "manifest.$key.txt")
-        $managedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($name in (Get-HarnessEnvManifestNames -Path (Join-Path $RepoRoot "manifests/managed-skills.$key.txt"))) {
-            [void] $managedNames.Add($name)
-        }
-        $liveNames = if (Test-Path -LiteralPath $liveRoot -PathType Container) {
-            @(Get-ChildItem -LiteralPath $liveRoot -Directory -Force | Where-Object { $_.Name -ne '.system' } | ForEach-Object Name)
-        } else { @() }
-        $liveManagedNames = @($liveNames | Where-Object { $managedNames.Contains($_) })
-        $expectedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($name in $expectedNames) { [void] $expectedSet.Add($name) }
-        foreach ($name in $expectedSet) {
-            if ($name -notin $liveManagedNames) { $mismatches.Add("$platform/$name missing") ; continue }
-            $stagedHash = Get-HarnessTreeHash -Path (Join-Path $stagedRoot $name)
-            $liveHash = Get-HarnessTreeHash -Path (Join-Path $liveRoot $name)
-            if ($stagedHash -ne $liveHash) { $mismatches.Add("$platform/$name content-drift") }
-        }
-        foreach ($name in $liveManagedNames) {
-            if (-not $expectedSet.Contains($name)) { $mismatches.Add("$platform/$name unexpected-managed") }
-        }
-    }
-
-    $codexLive = Get-HarnessEnvLiveSkillRoot -HomeRootValue $HomeRoot -Platform Codex
-    $systemDir = Join-Path $codexLive '.system'
-    $systemStatus = if (-not (Test-Path -LiteralPath $systemDir -PathType Container)) {
-        'not-present'
-    }
-    elseif (Test-Path -LiteralPath (Join-Path $systemDir '.codex-system-skills.marker') -PathType Leaf) {
-        'present-marker'
-    }
-    else {
-        'present-marker-missing'
-    }
-
-    [pscustomobject]@{
-        Status = if ($mismatches.Count -eq 0) { 'pass' } else { 'mismatch' }
-        Mismatches = @($mismatches)
-        SystemStatus = $systemStatus
-    }
-}
+. (Join-Path $PSScriptRoot 'harness-authority-status-common.ps1')
 
 function Protect-HarnessEnvStatusText {
     param([AllowNull()] [string] $Text)
@@ -145,6 +67,8 @@ function Protect-HarnessEnvStatusText {
 $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
 $taskOverlayPath = Get-HarnessTaskSkillOverlayPath -RepoRoot $repo
 $definitionFiles = @(Get-HarnessEnvDefinitionFiles -RepoRoot $repo)
+$authority = Get-HarnessEnvAuthorityAssessment -RepoRoot $repo -ReasonixLiveSkillsPath $ReasonixLiveSkillsPath
+$authorityActive = [string] $authority.StateStatus -ceq 'VALID'
 
 $envNames = [System.Collections.Generic.List[string]]::new()
 $definitionByName = @{}
@@ -152,12 +76,12 @@ $statusRows = [System.Collections.Generic.List[object]]::new()
 $activeSummary = [ordered] @{
     Name = $null
     Status = 'none'
+    Source = 'none'
     LockValidity = 'not-checked'
     DefinitionDrift = $false
     TaskOverlayDrift = $false
     LiveParity = [ordered] @{ Status = 'not-checked'; Mismatches = @() }
     SystemStatus = 'not-checked'
-    BackupReference = $null
     LockHash = $null
     LockReasons = @()
 }
@@ -226,12 +150,27 @@ foreach ($envName in $envNames) {
     if ($null -ne $lockResult) {
         $lockReasons = [string[]] @($lockResult.Reasons | ForEach-Object { Protect-HarnessEnvStatusText -Text $_ })
     }
+    $reasonixCount = 0
+    if ($null -ne $definitionPath) {
+        try {
+            $definitionForCount = Read-HarnessEnvDefinition -Path $definitionPath
+            $taskOverlayForCount = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $envName -Path $taskOverlayPath
+            $effectiveForCount = Merge-HarnessTaskSkillOverlay -Definition $definitionForCount -Overlay $taskOverlayForCount
+            if ($effectiveForCount.Skills.ContainsKey('Reasonix')) {
+                $reasonixCount = @($effectiveForCount.Skills.Reasonix).Count
+            }
+        }
+        catch {
+            $reasonixCount = 0
+        }
+    }
     $statusRows.Add([pscustomobject] [ordered] @{
         Name = $envName
         DefinitionStatus = if ($definitionStatus -eq 'valid') { 'valid' } else { 'invalid' }
         StagingStatus = $stagingStatus
         LockStatus = if ($null -eq $lockResult) { 'not-checked' } elseif ($lockResult.Valid) { 'valid' } else { 'invalid' }
         LockReasons = $lockReasons
+        ReasonixSkillCount = $reasonixCount
     })
     $lockLabel = if ($null -eq $lockResult) { 'not-checked' } elseif ($lockResult.Valid) { 'valid' } else { 'invalid' }
     Write-Output ('  {0} definition={1}  staging={2}  lock={3}' -f $envName.PadRight(12), $definitionStatus, $stagingStatus, $lockLabel)
@@ -248,7 +187,52 @@ try {
 catch {
     Write-Warning ([string] $_.Exception.Message)
 }
-if ($null -eq $state) {
+if ($authorityActive) {
+    # The shared authority state is the selector; it is the only source that
+    # can describe a post-migration activation.
+    $activeName = [string] $authority.StateSummary.EnvironmentName
+    $definitionDrift = -not $definitionByName.ContainsKey($activeName)
+    $taskOverlayDrift = $false
+    $activeOverlay = $null
+    $activeLockReasons = @($authority.LockParity.Reasons) + @($authority.LockParity.Mismatches)
+    [string[]] $activeLockReasons = @($activeLockReasons | ForEach-Object { Protect-HarnessEnvStatusText -Text $_ })
+    if (-not $definitionDrift) {
+        $activeOverlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $activeName -Path $taskOverlayPath
+        $taskOverlayDrift = [string] $authority.StateSummary.TaskOverlayHash -cne [string] $activeOverlay.Hash
+        $activeLockPath = Get-HarnessEnvLockPath -StagingPath (Get-HarnessEnvStagingRoot -RepoRoot $repo -Name $activeName)
+        if (Test-Path -LiteralPath $activeLockPath -PathType Leaf) {
+            $activeLockFileHash = Get-HarnessFileHash -Path $activeLockPath
+            if ([string] $authority.StateSummary.EnvironmentLockHash -ieq $activeLockFileHash) {
+                $activeLockDocument = Read-HarnessEnvLock -Path $activeLockPath
+                $definitionDrift = [string] $activeLockDocument['DefinitionHash'] -cne (Get-HarnessEnvDefinitionHash -Path $definitionByName[$activeName])
+            }
+        }
+    }
+    $activeStatus = if ($authority.ControllerMatch -and -not $definitionDrift -and -not $taskOverlayDrift -and [string] $authority.LockParity.Status -ceq 'pass') { 'active' } else { 'drift' }
+    $suffix = if ($definitionDrift) {
+        ' (definition changed since activation - re-run env activate)'
+    } elseif ($taskOverlayDrift) {
+        ' (task skill overlay changed since activation - re-run env task sync)'
+    } elseif ($activeStatus -eq 'drift') {
+        ' (attestation drift - inspect env status)'
+    } else { '' }
+    $activeSummary = [ordered] @{
+        Name = $activeName
+        Status = $activeStatus
+        Source = 'authority'
+        LockValidity = if ([string] $authority.LockParity.Status -ceq 'pass') { 'valid' } elseif ([string] $authority.LockParity.Status -ceq 'mismatch') { 'invalid' } else { 'not-checked' }
+        DefinitionDrift = [bool] $definitionDrift
+        TaskOverlayDrift = [bool] $taskOverlayDrift
+        TaskOverlayHash = if ($null -eq $activeOverlay) { $null } else { $activeOverlay.Hash }
+        LiveParity = [ordered] @{ Status = [string] $authority.LockParity.Status; Mismatches = @($authority.LockParity.Mismatches) }
+        SystemStatus = [string] $authority.SystemStatus
+        LockHash = if ([string] $authority.LockParity.Status -ceq 'not-checked') { $null } else { [string] $authority.StateSummary.EnvironmentLockHash }
+        LockReasons = $activeLockReasons
+    }
+    Write-Output "Active environment: $activeName$suffix (shared authority)"
+    Write-Output "  lock validity: $($activeSummary.LockValidity); live parity: $($activeSummary.LiveParity.Status); .system: $($activeSummary.SystemStatus); task overlay: $(if ($activeSummary.TaskOverlayHash) { $activeSummary.TaskOverlayHash } else { 'empty' })"
+}
+elseif ($null -eq $state) {
     Write-Output 'No environment activated.'
 }
 else {
@@ -271,8 +255,12 @@ else {
             $taskOverlayDrift = $true
         }
         $activeLock = $lockByName[$activeName]
-        $activeStaging = Get-HarnessEnvStagingRoot -RepoRoot $repo -Name $activeName
-        $activeParity = Get-HarnessEnvLiveParity -RepoRoot $repo -StagingPath $activeStaging -HomeRoot $HomeRoot
+        if ($null -ne $activeLock -and $null -ne $activeLock.Lock) {
+            $activeParity = Get-HarnessEnvLockLiveParity -RepoRoot $repo -Lock ([System.Collections.IDictionary] $activeLock.Lock) -HomeRoot $HomeRoot
+        }
+        else {
+            $activeParity = [pscustomobject]@{ Status = 'not-checked'; Mismatches = @('lock-not-valid'); SystemStatus = 'not-checked' }
+        }
     }
     $lockValid = $null -ne $activeLock -and $activeLock.Valid
     $activeStatus = if (-not $definitionDrift -and -not $taskOverlayDrift -and $lockValid -and $activeParity.Status -eq 'pass') { 'active' } else { 'drift' }
@@ -292,22 +280,24 @@ else {
     $activeSummary = [ordered] @{
         Name = $activeName
         Status = $activeStatus
+        Source = 'legacy'
         LockValidity = if ($null -eq $activeLock) { 'not-checked' } elseif ($activeLock.Valid) { 'valid' } else { 'invalid' }
         DefinitionDrift = $definitionDrift
         TaskOverlayDrift = $taskOverlayDrift
         TaskOverlayHash = if ($null -eq $activeOverlay) { $null } else { $activeOverlay.Hash }
         LiveParity = [ordered] @{ Status = $activeParity.Status; Mismatches = @($activeParity.Mismatches) }
         SystemStatus = if ($activeParity.PSObject.Properties.Name -contains 'SystemStatus') { $activeParity.SystemStatus } else { 'not-checked' }
-        BackupReference = if ($state.PSObject.Properties.Name -contains 'BackupReference') { [string] $state.BackupReference } else { $null }
         LockHash = if ($null -eq $activeLock) { $null } else { $activeLock.LockHash }
         LockReasons = $activeLockReasons
     }
-    Write-Output "Active environment: $activeName$suffix"
+    Write-Output "Active environment: $activeName$suffix (local legacy state)"
     Write-Output "  lock validity: $($activeSummary.LockValidity); live parity: $($activeSummary.LiveParity.Status); .system: $($activeSummary.SystemStatus); task overlay: $(if ($activeSummary.TaskOverlayHash) { $activeSummary.TaskOverlayHash } else { 'empty' })"
-    if ($activeSummary.BackupReference) { Write-Output "  backup reference: $($activeSummary.BackupReference)" }
 }
 
 # Project linkage: detection and reminder only, never an automatic activate.
+$effectiveActiveName = if ($authorityActive) { [string] $authority.StateSummary.EnvironmentName }
+elseif ($null -ne $state) { [string] $state.Name }
+else { $null }
 if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
     Write-Output ''
     $projectProfilePath = Join-Path $ProjectRoot '.agent-harness/profile.psd1'
@@ -337,17 +327,17 @@ if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
                 $projectLinkage = 'missing-definition'
                 Write-Warning "Project requires env '$requiredEnv', which has no definition in harness-source/envs/."
             }
-            elseif ($null -eq $state) {
+            elseif ($null -eq $effectiveActiveName) {
                 $projectLinkage = 'inactive'
                 Write-Output "Project requires env '$requiredEnv' - no environment activated. Run: agent-dotfiles.ps1 env activate $requiredEnv -DryRun"
             }
-            elseif ($requiredEnv -ieq [string] $state.Name) {
+            elseif ($requiredEnv -ieq $effectiveActiveName) {
                 $projectLinkage = 'matches-active'
                 Write-Output "Project requires env '$requiredEnv' - matches active."
             }
             else {
                 $projectLinkage = 'mismatch'
-                Write-Output "Project requires env '$requiredEnv' - does not match active '$([string] $state.Name)'. Run: agent-dotfiles.ps1 env activate $requiredEnv -DryRun"
+                Write-Output "Project requires env '$requiredEnv' - does not match active '$effectiveActiveName'. Run: agent-dotfiles.ps1 env activate $requiredEnv -DryRun"
             }
         }
     }
@@ -357,12 +347,14 @@ if ($JsonPath) {
     $parent = Split-Path -Parent $JsonPath
     if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     $document = [ordered]@{
-        SchemaVersion = 1
+        SchemaVersion = 2
         GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
         Environments = @($statusRows)
         Active = $activeSummary
         ProjectLinkage = $projectLinkage
+        Authority = $authority
     }
+    Test-HarnessEnvAuthorityDocumentSemantics -Document $document
     [System.IO.File]::WriteAllText($JsonPath, (ConvertTo-Json -InputObject $document -Depth 15) + "`n", [System.Text.UTF8Encoding]::new($false))
 }
 

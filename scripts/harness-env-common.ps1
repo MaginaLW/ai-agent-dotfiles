@@ -13,6 +13,21 @@
 
 Set-StrictMode -Version Latest
 
+# The frozen route-to-next-operation map. Both the assessment and the artifact
+# semantic validator read it, so a recommended operation can never drift from
+# the route that produced it.
+$script:HarnessEnvAuthorityRouteNextOperation = [ordered] @{
+    'recovery'                         = 'live recover status'
+    'initial'                          = 'env activate full -DryRun'
+    'activate'                         = 'env activate <name> -DryRun'
+    'migrate'                          = 'env authority migrate <name> -DryRun -PlanPath <external-plan.json>'
+    'adopt'                            = 'env authority adopt <name> -DryRun -PlanPath <external-plan.json>'
+    'repair-adopt'                     = 'env authority repair-adopt <name> -DryRun -PlanPath <external-plan.json>'
+    'takeover'                         = 'env authority takeover <name> -DryRun -PlanPath <external-plan.json>'
+    'controller-owner-action-required' = 'env authority status'
+    'manual-recovery-required'         = 'env authority status'
+}
+
 . (Join-Path $PSScriptRoot 'harness-profile-common.ps1')
 . (Join-Path $PSScriptRoot 'semantic-json.ps1')
 
@@ -399,6 +414,399 @@ function Get-HarnessEnvDefinitionHash {
     param([Parameter(Mandatory)] [string] $Path)
 
     return Get-HarnessFileHash -Path $Path
+}
+
+function Get-HarnessEnvLiveSkillRoot {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $HomeRootValue,
+        [Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $Platform
+    )
+
+    if ($Platform -eq 'Claude') { return Join-Path $HomeRootValue '.claude/skills' }
+    if ($Platform -eq 'Reasonix') { return Join-Path $HomeRootValue 'AppData/Roaming/reasonix/skills' }
+    $preferred = Join-Path $HomeRootValue '.codex/skills'
+    $fallback = Join-Path $HomeRootValue '.agents/skills'
+    if (Test-Path -LiteralPath $preferred -PathType Container) { return $preferred }
+    if (Test-Path -LiteralPath $fallback -PathType Container) { return $fallback }
+    return $preferred
+}
+
+function Get-HarnessEnvCodexSystemStatus {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $HomeRoot)
+
+    $codexLive = Get-HarnessEnvLiveSkillRoot -HomeRootValue $HomeRoot -Platform Codex
+    $systemDir = Join-Path $codexLive '.system'
+    if (-not (Test-Path -LiteralPath $systemDir -PathType Container)) { return 'not-present' }
+    if (Test-Path -LiteralPath (Join-Path $systemDir '.codex-system-skills.marker') -PathType Leaf) { return 'present-marker' }
+    return 'present-marker-missing'
+}
+
+function Read-HarnessEnvNameList {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    return @(Get-Content -LiteralPath $Path | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+function Get-HarnessEnvLockLiveParity {
+    <#
+    .SYNOPSIS
+        Compares one environment lock's staged evidence against the live managed roots.
+
+    .DESCRIPTION
+        The lock is the trusted anchor: each platform's expected skill set is the
+        lock's StagedSkillTreeHashes map, and each expected skill's tree hash must
+        match the live skill directory. Live managed names outside the expected set
+        are reported as unexpected-managed; `.system` is never inspected, and the
+        Codex marker status is reported separately. The managed universe is the
+        repository manifest, so unknown live skills are never treated as managed.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [object] $Lock,
+        [Parameter(Mandatory)] [string] $HomeRoot
+    )
+
+    $mismatches = [System.Collections.Generic.List[string]]::new()
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $key = $platform.ToLowerInvariant()
+        $stagedHashes = Get-HarnessJsonProperty -Object $Lock -Name 'StagedSkillTreeHashes'
+        $expectedHashes = Get-HarnessJsonProperty -Object $stagedHashes -Name $platform
+        $expectedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        if ($expectedHashes -is [System.Collections.IDictionary]) {
+            foreach ($name in @($expectedHashes.Keys)) { [void] $expectedSet.Add([string] $name) }
+        }
+        elseif ($null -ne $expectedHashes) {
+            foreach ($property in @($expectedHashes.PSObject.Properties)) { [void] $expectedSet.Add([string] $property.Name) }
+        }
+        $overlaySkills = Get-HarnessJsonProperty -Object (Get-HarnessJsonProperty -Object $Lock -Name 'TaskOverlaySkills') -Name $platform
+        foreach ($name in @($overlaySkills)) {
+            if (-not $expectedSet.Contains([string] $name)) { $mismatches.Add("$platform/$name overlay-skill-not-staged") }
+        }
+
+        $liveRoot = Get-HarnessEnvLiveSkillRoot -HomeRootValue $HomeRoot -Platform $platform
+        $managedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($name in (Read-HarnessEnvNameList -Path (Join-Path $RepoRoot "manifests/managed-skills.$key.txt"))) {
+            [void] $managedNames.Add($name)
+        }
+        $liveNames = if (Test-Path -LiteralPath $liveRoot -PathType Container) {
+            @(Get-ChildItem -LiteralPath $liveRoot -Directory -Force | Where-Object { $_.Name -ne '.system' } | ForEach-Object Name)
+        }
+        else { @() }
+        $liveManagedNames = @($liveNames | Where-Object { $managedNames.Contains($_) })
+        foreach ($name in $expectedSet) {
+            if ($name -notin $liveManagedNames) { $mismatches.Add("$platform/$name missing"); continue }
+            $liveHash = Get-HarnessTreeHash -Path (Join-Path $liveRoot $name)
+            $expectedHash = if ($null -eq $expectedHashes) { $null } else { [string] (Get-HarnessJsonProperty -Object $expectedHashes -Name $name) }
+            if ($null -eq $expectedHash) { $mismatches.Add("$platform/$name staged-hash-missing"); continue }
+            if ($liveHash -cne $expectedHash) { $mismatches.Add("$platform/$name content-drift") }
+        }
+        foreach ($name in $liveManagedNames) {
+            if (-not $expectedSet.Contains($name)) { $mismatches.Add("$platform/$name unexpected-managed") }
+        }
+    }
+
+    return [pscustomobject]@{
+        Status = if ($mismatches.Count -eq 0) { 'pass' } else { 'mismatch' }
+        Mismatches = @($mismatches)
+        SystemStatus = Get-HarnessEnvCodexSystemStatus -HomeRoot $HomeRoot
+    }
+}
+
+function Get-HarnessLegacyEnvAssessment {
+    <#
+    .SYNOPSIS
+        Read-only assessment of the repo-local legacy schema 2 activation evidence.
+
+    .DESCRIPTION
+        Distinguishes the three routing-relevant outcomes without inventing any
+        new artifact: `MISSING` when no legacy state exists, `CORRUPT` when the
+        legacy state or its preserved old activation lock is not valid,
+        internally consistent core evidence, and `CORE` when every core field
+        validates against that preserved lock. Only a missing Reasonix baseline
+        is tolerated (LegacyGap=ReasonixBaselineMissing); any other missing or
+        mismatched core field keeps the artifact as untrusted evidence.
+
+        `OldLockStatus` is VERIFIED only when the state's LockHash equals the
+        exact bytes hash of `envs/<Name>/env.lock.json` and the lock's recorded
+        definition/task-overlay/manifest/commit evidence matches the state.
+        LiveParity is computed only for a VERIFIED old lock (per managed skill,
+        never a whole-root hash). Nothing here deletes, moves, or writes the
+        legacy evidence, and no lock is taken.
+    #>
+    [CmdletBinding()]
+    param(
+        [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string] $HomeAuthorityKey,
+        [Parameter(Mandatory)] [string] $TokenSid
+    )
+
+    $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
+    $legacy = Read-LegacyHarnessEnvState -RepoRoot $repo
+    $assessment = [ordered] @{
+        Status = 'MISSING'
+        Schema = $null
+        EnvName = $null
+        Gap = 'none'
+        Drift = 'none'
+        HomeRootMatches = $false
+        OldLockStatus = 'MISSING'
+        LiveParity = [ordered] @{ Status = 'not-checked'; Mismatches = @() }
+        Lock = $null
+        Reasons = @()
+    }
+    if ([string] $legacy.Status -ceq 'MISSING') { return [pscustomobject] $assessment }
+    $assessment.Schema = 2
+    if ([string] $legacy.Status -cne 'VALID') {
+        $assessment.Status = 'CORRUPT'
+        $assessment.Reasons = @('legacy-state-not-valid')
+        return [pscustomobject] $assessment
+    }
+
+    $legacyDocument = [System.Collections.IDictionary] $legacy.Document
+    $reasons = [System.Collections.Generic.List[string]]::new()
+    $assessment.EnvName = [string] $legacyDocument['Name']
+    foreach ($field in @('HomeRoot', 'DefinitionHash', 'TaskOverlayHash', 'LockHash', 'ManifestHashes', 'TaskOverlaySkills', 'RepositoryCommit')) {
+        if (-not $legacyDocument.Contains($field)) { $reasons.Add("legacy-$($field.ToLowerInvariant())-missing") }
+    }
+    if ($reasons.Count -eq 0) {
+        $legacyHome = [string] $legacyDocument['HomeRoot']
+        if (-not [IO.Path]::IsPathFullyQualified($legacyHome)) {
+            $reasons.Add('legacy-homeroot-not-absolute')
+        }
+        else {
+            $legacyLocationKey = ([IO.Path]::GetFullPath($legacyHome)).TrimEnd([char] 92, [char] 47).ToLowerInvariant().Replace([char] 92, [char] 47)
+            $expectedAuthorityKey = Get-SemanticJsonHash -InputObject ([ordered] @{
+                Domain = 'ai-agent-dotfiles/home-authority/v1'
+                TokenSid = $TokenSid
+                HomeRootLocationKey = $legacyLocationKey
+            })
+            if ($expectedAuthorityKey -cne $HomeAuthorityKey) { $reasons.Add('legacy-homeroot-authority-mismatch') }
+            else { $assessment.HomeRootMatches = $true }
+        }
+    }
+    if ($reasons.Count -eq 0) {
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $manifestHashes = [System.Collections.IDictionary] $legacyDocument['ManifestHashes']
+            if (-not $manifestHashes.Contains($platform) -or [string]::IsNullOrWhiteSpace([string] $manifestHashes[$platform])) {
+                if ($platform -ceq 'Reasonix') { $assessment.Gap = 'ReasonixBaselineMissing' } else { $reasons.Add("legacy-manifest-hash-missing-$($platform.ToLowerInvariant())") }
+            }
+            $overlaySkills = [System.Collections.IDictionary] $legacyDocument['TaskOverlaySkills']
+            if (-not $overlaySkills.Contains($platform)) {
+                if ($platform -ceq 'Reasonix') { $assessment.Gap = 'ReasonixBaselineMissing' } else { $reasons.Add("legacy-task-overlay-missing-$($platform.ToLowerInvariant())") }
+            }
+        }
+        foreach ($field in @('DefinitionHash', 'LockHash', 'RepositoryCommit')) {
+            if ([string]::IsNullOrWhiteSpace([string] $legacyDocument[$field])) { $reasons.Add("legacy-$($field.ToLowerInvariant())-empty") }
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string] $legacyDocument['TaskOverlayHash']) -and [string] $legacyDocument['TaskOverlayHash'] -cnotmatch '\A[0-9a-f]{64}\z') {
+            $reasons.Add('legacy-taskoverlayhash-invalid')
+        }
+    }
+
+    if ($reasons.Count -eq 0) {
+        $oldLockPath = Join-Path (Join-Path $repo 'envs') (Join-Path $assessment.EnvName 'env.lock.json')
+        if (-not (Test-Path -LiteralPath $oldLockPath -PathType Leaf)) {
+            $reasons.Add('legacy-old-lock-missing')
+        }
+        else {
+            $oldLockHash = Get-HarnessFileHash -Path $oldLockPath
+            if ([string] $legacyDocument['LockHash'] -ine $oldLockHash) {
+                $assessment.OldLockStatus = 'HASH-MISMATCH'
+                $reasons.Add('legacy-old-lock-hash-mismatch')
+            }
+            else {
+                $oldLock = $null
+                try { $oldLock = Read-HarnessEnvLock -StagingPath (Split-Path -Parent $oldLockPath) } catch { $reasons.Add('legacy-old-lock-unreadable') }
+                if ($null -ne $oldLock) {
+                    foreach ($pair in @(
+                            @{ Legacy = 'DefinitionHash'; Lock = 'DefinitionHash' }
+                            @{ Legacy = 'TaskOverlayHash'; Lock = 'TaskOverlayHash' }
+                            @{ Legacy = 'RepositoryCommit'; Lock = 'RepositoryCommit' }
+                            @{ Legacy = 'ManifestHashes'; Lock = 'ManifestHashes' })) {
+                        $legacyValue = $legacyDocument[$pair.Legacy]
+                        $lockValue = Get-HarnessJsonProperty -Object $oldLock -Name $pair.Lock
+                        if ((Get-SemanticJsonHash -InputObject $legacyValue) -cne (Get-SemanticJsonHash -InputObject $lockValue)) {
+                            $reasons.Add("legacy-old-lock-$($pair.Legacy.ToLowerInvariant())-mismatch")
+                        }
+                    }
+                    if ($reasons.Count -eq 0) {
+                        $assessment.OldLockStatus = 'VERIFIED'
+                        $parity = Get-HarnessEnvLockLiveParity -RepoRoot $repo -Lock $oldLock -HomeRoot $HomeRoot
+                        $assessment.LiveParity = [ordered] @{ Status = [string] $parity.Status; Mismatches = @($parity.Mismatches) }
+                        $assessment.Lock = $oldLock
+                    }
+                }
+            }
+        }
+    }
+
+    if ($reasons.Count -eq 0) {
+        $assessment.Status = 'CORE'
+        if ([string] $legacyDocument['RepositoryCommit'] -cne [string] (Get-HarnessRepositoryCommit -RepoRoot $repo)) {
+            $assessment.Drift = 'RepositoryCommitAdvanced'
+        }
+    }
+    else {
+        $assessment.Status = 'CORRUPT'
+    }
+    $assessment.Reasons = @($reasons)
+    return [pscustomobject] $assessment
+}
+
+function Resolve-HarnessEnvAuthorityRoute {
+    <#
+    .SYNOPSIS
+        The single frozen authority route decision.
+
+    .DESCRIPTION
+        Pure function over the read-only facts. Both the assessment and the
+        artifact semantic validator call it, so the emitted route can never
+        drift from the documented decision order: unfinished recovery first,
+        then unverifiable/corrupt claims, then the valid-pair controller
+        branches, then the state-repair branch, and finally the legacy branches
+        (migrate only for complete, consistent core evidence with passing live
+        parity; adopt for missing or untrusted evidence and for non-pristine
+        roots; initial only for fully pristine roots).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateSet('not-checked', 'clean', 'unfinished')] [string] $RecoveryStatus,
+        [Parameter(Mandatory)] [ValidateSet('not-checked', 'MISSING', 'CORRUPT', 'UNAVAILABLE', 'VALID')] [string] $ClaimsStatus,
+        [Parameter(Mandatory)] [ValidateSet('not-checked', 'MISSING', 'CORRUPT', 'UNAVAILABLE', 'VALID')] [string] $StateStatus,
+        [Parameter(Mandatory)] [ValidateSet('not-checked', 'MISSING', 'CORRUPT', 'UNAVAILABLE', 'MISMATCH', 'VALID')] [string] $PairStatus,
+        [AllowNull()] [object] $ControllerMatch,
+        [Parameter(Mandatory)] [ValidateSet('not-checked', 'pass', 'mismatch')] [string] $LockParityStatus,
+        [Parameter(Mandatory)] [ValidateSet('not-checked', 'MISSING', 'CORRUPT', 'CORE')] [string] $LegacyStatus,
+        [Parameter(Mandatory)] [ValidateSet('not-checked', 'MISSING', 'HASH-MISMATCH', 'VERIFIED')] [string] $OldLockStatus,
+        [Parameter(Mandatory)] [ValidateSet('not-checked', 'pass', 'mismatch')] [string] $LegacyLiveParityStatus,
+        [Parameter(Mandatory)] [bool] $LiveRootsPristine
+    )
+
+    if ($RecoveryStatus -ceq 'unfinished') { return 'recovery' }
+    if ($ClaimsStatus -ceq 'UNAVAILABLE' -or $StateStatus -ceq 'UNAVAILABLE' -or $ClaimsStatus -ceq 'CORRUPT') { return 'manual-recovery-required' }
+    if ($PairStatus -ceq 'VALID') {
+        if ($ControllerMatch -eq $true) { return 'activate' }
+        if ($LockParityStatus -ceq 'pass') { return 'takeover' }
+        return 'controller-owner-action-required'
+    }
+    if ($PairStatus -ceq 'MISMATCH') { return 'manual-recovery-required' }
+    if ($ClaimsStatus -ceq 'VALID' -and ($StateStatus -ceq 'CORRUPT' -or $StateStatus -ceq 'MISSING')) { return 'repair-adopt' }
+    if ($ClaimsStatus -ceq 'MISSING') {
+        if ($LegacyStatus -ceq 'CORE') {
+            if ($OldLockStatus -ceq 'VERIFIED' -and $LegacyLiveParityStatus -ceq 'pass') { return 'migrate' }
+            return 'manual-recovery-required'
+        }
+        if ($LegacyStatus -ceq 'CORRUPT') { return 'adopt' }
+        if ($LiveRootsPristine) { return 'initial' }
+        return 'adopt'
+    }
+    return 'manual-recovery-required'
+}
+
+function Test-HarnessEnvAuthorityDocumentSemantics {
+    <#
+    .SYNOPSIS
+        Semantic validator for the harness-env-list v2 and harness-env-status v2 documents.
+
+    .DESCRIPTION
+        Recomputes the route from the document's own facts with the frozen
+        decision function and checks the cross-field invariants that JSON Schema
+        cannot express: exactly one recommended next operation per route,
+        intended-root presence bound to the transitions that may establish a
+        custom Reasonix root, no capability hash or probe artifact in any status
+        branch, a state summary only for a valid state, and
+        lock/legacy/parity/recovery consistency.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+
+    $authority = Get-HarnessJsonProperty -Object $Document -Name 'Authority'
+    if ($null -eq $authority) { throw 'harness-env-authority-document-missing-authority' }
+    $authority = [System.Collections.IDictionary] $authority
+
+    $route = [string] (Get-HarnessJsonProperty -Object $authority -Name 'Route')
+    $expectedNextOperation = [string] $script:HarnessEnvAuthorityRouteNextOperation[$route]
+    if ([string]::IsNullOrWhiteSpace($expectedNextOperation)) { throw 'harness-env-authority-document-route-unsupported' }
+    if ([string] (Get-HarnessJsonProperty -Object $authority -Name 'NextOperation') -cne $expectedNextOperation) {
+        throw 'harness-env-authority-document-next-operation-mismatch'
+    }
+
+    $recoveryStatus = [string] (Get-HarnessJsonProperty -Object $authority -Name 'RecoveryStatus')
+    $claimsStatus = [string] (Get-HarnessJsonProperty -Object $authority -Name 'RootClaimsStatus')
+    $stateStatus = [string] (Get-HarnessJsonProperty -Object $authority -Name 'StateStatus')
+    $pairStatus = [string] (Get-HarnessJsonProperty -Object $authority -Name 'PairStatus')
+    $controllerMatch = Get-HarnessJsonProperty -Object $authority -Name 'ControllerMatch'
+    $lockParity = [System.Collections.IDictionary] (Get-HarnessJsonProperty -Object $authority -Name 'LockParity')
+    $lockParityStatus = [string] (Get-HarnessJsonProperty -Object $lockParity -Name 'Status')
+    $legacy = [System.Collections.IDictionary] (Get-HarnessJsonProperty -Object $authority -Name 'Legacy')
+    $legacyStatus = [string] (Get-HarnessJsonProperty -Object $legacy -Name 'Status')
+    $oldLockStatus = [string] (Get-HarnessJsonProperty -Object $legacy -Name 'OldLockStatus')
+    $legacyLiveParity = [System.Collections.IDictionary] (Get-HarnessJsonProperty -Object $legacy -Name 'LiveParity')
+    $legacyLiveParityStatus = [string] (Get-HarnessJsonProperty -Object $legacyLiveParity -Name 'Status')
+    $liveRoots = [System.Collections.IDictionary] (Get-HarnessJsonProperty -Object $authority -Name 'LiveRoots')
+    $pristine = Get-HarnessJsonProperty -Object $liveRoots -Name 'Pristine'
+
+    $recomputed = Resolve-HarnessEnvAuthorityRoute -RecoveryStatus $recoveryStatus -ClaimsStatus $claimsStatus -StateStatus $stateStatus -PairStatus $pairStatus -ControllerMatch $controllerMatch -LockParityStatus $lockParityStatus -LegacyStatus $legacyStatus -OldLockStatus $oldLockStatus -LegacyLiveParityStatus $legacyLiveParityStatus -LiveRootsPristine ([bool] $pristine)
+    if ($recomputed -cne $route) { throw 'harness-env-authority-document-route-inconsistent' }
+
+    $unfinished = @((Get-HarnessJsonProperty -Object $authority -Name 'UnfinishedTransactionIds'))
+    if ($recoveryStatus -ceq 'unfinished' -and $unfinished.Count -eq 0) { throw 'harness-env-authority-document-recovery-inconsistent' }
+    if ($recoveryStatus -ceq 'clean' -and $unfinished.Count -ne 0) { throw 'harness-env-authority-document-recovery-inconsistent' }
+    $previousId = $null
+    foreach ($transactionId in $unfinished) {
+        if ([string] $transactionId -cnotmatch '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z') {
+            throw 'harness-env-authority-document-transaction-id-invalid'
+        }
+        if ($null -ne $previousId -and [string] $transactionId -cnotmatch ('\A' + [regex]::Escape([string] $previousId) + '\z') -and
+            [string]::CompareOrdinal([string] $previousId, [string] $transactionId) -gt 0) {
+            throw 'harness-env-authority-document-transaction-ids-unsorted'
+        }
+        $previousId = $transactionId
+    }
+
+    $stateSummary = Get-HarnessJsonProperty -Object $authority -Name 'StateSummary'
+    if ($stateStatus -ceq 'VALID' -and $null -eq $stateSummary) { throw 'harness-env-authority-document-state-summary-missing' }
+    if ($stateStatus -cne 'VALID' -and $null -ne $stateSummary) { throw 'harness-env-authority-document-state-summary-unexpected' }
+
+    $reasons = @((Get-HarnessJsonProperty -Object $lockParity -Name 'Reasons'))
+    if ($lockParityStatus -ceq 'not-checked' -and $reasons.Count -eq 0) { throw 'harness-env-authority-document-lock-parity-reason-missing' }
+    if ($lockParityStatus -cne 'not-checked' -and $reasons.Count -ne 0) { throw 'harness-env-authority-document-lock-parity-reason-unexpected' }
+
+    if ($oldLockStatus -cne 'VERIFIED' -and $legacyLiveParityStatus -cne 'not-checked') { throw 'harness-env-authority-document-legacy-parity-unexpected' }
+    if ($oldLockStatus -ceq 'VERIFIED' -and $legacyLiveParityStatus -ceq 'not-checked') { throw 'harness-env-authority-document-legacy-parity-missing' }
+
+    $intendedRoot = Get-HarnessJsonProperty -Object $authority -Name 'IntendedRoot'
+    $intendedRootRoutes = @('initial', 'migrate', 'adopt')
+    if ($route -cin $intendedRootRoutes) {
+        if ($null -eq $intendedRoot) { throw 'harness-env-authority-document-intended-root-missing' }
+        $intendedRoot = [System.Collections.IDictionary] $intendedRoot
+        if ([string] (Get-HarnessJsonProperty -Object $intendedRoot -Name 'FilesystemCapabilityStatus') -cne 'UNPROBED') {
+            throw 'harness-env-authority-document-intended-root-probed'
+        }
+        if ([string] (Get-HarnessJsonProperty -Object $intendedRoot -Name 'RequestedInitialRootContextHash') -cnotmatch '\A[0-9a-f]{64}\z') {
+            throw 'harness-env-authority-document-intended-root-hash-invalid'
+        }
+        $selection = [string] (Get-HarnessJsonProperty -Object $intendedRoot -Name 'Selection')
+        $hasLabel = $intendedRoot.Contains('RequestedReasonixRoot')
+        if ($selection -ceq 'explicit-initial-claim' -and -not $hasLabel) { throw 'harness-env-authority-document-intended-root-label-missing' }
+        if ($selection -ceq 'known-folder-default' -and $hasLabel) { throw 'harness-env-authority-document-intended-root-label-unexpected' }
+    }
+    elseif ($null -ne $intendedRoot) {
+        throw 'harness-env-authority-document-intended-root-unexpected'
+    }
+
+    foreach ($forbidden in @('FilesystemCapabilityHash', 'ProbeRoot', 'CapabilityProbe')) {
+        if ($authority.Contains($forbidden)) { throw 'harness-env-authority-document-probe-artifact-present' }
+    }
+    if ([string] (Get-HarnessJsonProperty -Object $authority -Name 'HomeAuthorityKeyLabel') -cnotmatch '\A[0-9a-f]{12}\.\.\.\z') {
+        throw 'harness-env-authority-document-key-label-invalid'
+    }
 }
 
 function Get-HarnessTextSha256 {

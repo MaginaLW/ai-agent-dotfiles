@@ -102,6 +102,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize the external task fixture
 # Copy the implementation and profile sources, but use tiny fixture skill trees.
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts') -Destination (Join-Path $fakeRepo 'scripts') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source') -Destination (Join-Path $fakeRepo 'harness-source') -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'schemas') -Destination (Join-Path $fakeRepo 'schemas') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $RepoRoot '.gitleaks.toml') -Destination (Join-Path $fakeRepo '.gitleaks.toml') -Force
 
 Set-File -Path (Join-Path $fakeRepo 'manifests/managed-skills.claude.txt') -Content "fixture-a`nfixture-b`nfixture-c`n"

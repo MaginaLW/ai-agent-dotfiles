@@ -3,21 +3,22 @@
   "$id": "https://ai-agent-dotfiles.invalid/schemas/harness-env-list.schema.json",
   "title": "AI Agent Dotfiles Harness Environment List",
   "type": "object",
-  "required": ["SchemaVersion", "GeneratedAtUtc", "Environments", "ActiveName", "Result"],
+  "required": ["SchemaVersion", "GeneratedAtUtc", "Environments", "ActiveName", "Authority", "Result"],
   "properties": {
-    "SchemaVersion": { "const": 1 },
+    "SchemaVersion": { "const": 2 },
     "GeneratedAtUtc": { "type": "string", "format": "date-time" },
     "Environments": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["Name", "Description", "Profile", "ClaudeSkillCount", "CodexSkillCount", "Status", "StatusDetail", "Active"],
+        "required": ["Name", "Description", "Profile", "ClaudeSkillCount", "CodexSkillCount", "ReasonixSkillCount", "Status", "StatusDetail", "Active"],
         "properties": {
           "Name": { "type": "string" },
           "Description": { "type": "string" },
           "Profile": { "type": "string" },
           "ClaudeSkillCount": { "type": "integer", "minimum": 0 },
           "CodexSkillCount": { "type": "integer", "minimum": 0 },
+          "ReasonixSkillCount": { "type": "integer", "minimum": 0 },
           "Status": { "enum": ["ok", "invalid"] },
           "StatusDetail": { "type": ["string", "null"] },
           "Active": { "type": "boolean" }
@@ -26,7 +27,188 @@
       }
     },
     "ActiveName": { "type": ["string", "null"] },
+    "Authority": { "$ref": "#/$defs/authority" },
     "Result": { "enum": ["PASS", "FAIL"] }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["Authority"],
+        "properties": { "Authority": { "required": ["Route"], "properties": { "Route": { "enum": ["initial", "migrate", "adopt"] } } } }
+      },
+      "then": {
+        "properties": {
+          "Authority": {
+            "required": ["IntendedRoot"],
+            "properties": {
+              "RootClaimsStatus": { "const": "MISSING" },
+              "IntendedRoot": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["Authority"],
+        "properties": { "Authority": { "required": ["Route"], "properties": { "Route": { "not": { "enum": ["initial", "migrate", "adopt"] } } } } }
+      },
+      "then": {
+        "properties": {
+          "Authority": {
+            "required": ["IntendedRoot"],
+            "properties": { "IntendedRoot": { "type": "null" } }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "route": {
+      "enum": [
+        "recovery", "initial", "activate", "migrate", "adopt", "repair-adopt", "takeover",
+        "controller-owner-action-required", "manual-recovery-required"
+      ]
+    },
+    "intendedRoot": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["Selection", "RequestedInitialRootContextHash", "FilesystemCapabilityStatus"],
+          "properties": {
+            "Selection": { "enum": ["known-folder-default", "explicit-initial-claim"] },
+            "RequestedReasonixRoot": { "type": "string", "minLength": 1 },
+            "RequestedInitialRootContextHash": { "$ref": "#/$defs/hash" },
+            "FilesystemCapabilityStatus": { "const": "UNPROBED" }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "required": ["Selection"],
+                "properties": { "Selection": { "const": "known-folder-default" } }
+              },
+              "then": { "not": { "required": ["RequestedReasonixRoot"] } }
+            },
+            {
+              "if": {
+                "required": ["Selection"],
+                "properties": { "Selection": { "const": "explicit-initial-claim" } }
+              },
+              "then": { "required": ["RequestedReasonixRoot"] }
+            }
+          ]
+        }
+      ]
+    },
+    "authority": {
+      "type": "object",
+      "required": [
+        "Route", "NextOperation", "HomeAuthorityKeyLabel", "ControllerMatch", "RecoveryStatus",
+        "UnfinishedTransactionIds", "RootClaimsStatus", "StateStatus", "PairStatus", "StateSummary",
+        "SystemStatus", "LiveRoots", "LockParity", "Legacy", "IntendedRoot"
+      ],
+      "properties": {
+        "Route": { "$ref": "#/$defs/route" },
+        "NextOperation": { "type": "string", "minLength": 1 },
+        "HomeAuthorityKeyLabel": { "type": "string", "pattern": "^[0-9a-f]{12}\\.\\.\\.$" },
+        "ControllerMatch": { "type": ["boolean", "null"] },
+        "RecoveryStatus": { "enum": ["not-checked", "clean", "unfinished"] },
+        "UnfinishedTransactionIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } },
+        "RootClaimsStatus": { "enum": ["not-checked", "MISSING", "CORRUPT", "UNAVAILABLE", "VALID"] },
+        "StateStatus": { "enum": ["not-checked", "MISSING", "CORRUPT", "UNAVAILABLE", "VALID"] },
+        "PairStatus": { "enum": ["not-checked", "MISSING", "CORRUPT", "UNAVAILABLE", "MISMATCH", "VALID"] },
+        "StateSummary": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["EnvironmentName", "AuthorityGeneration", "LastOperationKind", "ReceiptReference", "ReceiptReferenceHash", "EnvironmentLockHash", "TaskOverlayHash"],
+              "properties": {
+                "EnvironmentName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+                "AuthorityGeneration": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                "LastOperationKind": {
+                  "enum": ["initial", "environment", "task-overlay", "migrate", "adopt", "repair-adopt", "retirement", "environment-rollback", "controller-transition"]
+                },
+                "ReceiptReference": { "type": ["string", "null"] },
+                "ReceiptReferenceHash": { "type": ["string", "null"] },
+                "EnvironmentLockHash": { "$ref": "#/$defs/hash" },
+                "TaskOverlayHash": { "$ref": "#/$defs/hash" }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "SystemStatus": { "enum": ["not-checked", "not-present", "present-marker", "present-marker-missing"] },
+        "LiveRoots": {
+          "type": "object",
+          "required": ["Pristine", "Platforms"],
+          "properties": {
+            "Pristine": { "type": "boolean" },
+            "Platforms": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [
+                { "$ref": "#/$defs/liveRootPlatform" },
+                { "$ref": "#/$defs/liveRootPlatform" },
+                { "$ref": "#/$defs/liveRootPlatform" }
+              ],
+              "items": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "LockParity": {
+          "type": "object",
+          "required": ["Status", "Reasons", "Mismatches"],
+          "properties": {
+            "Status": { "enum": ["not-checked", "pass", "mismatch"] },
+            "Reasons": { "type": "array", "items": { "type": "string" } },
+            "Mismatches": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "Legacy": {
+          "type": "object",
+          "required": ["Status", "Schema", "EnvName", "Gap", "Drift", "HomeRootMatches", "OldLockStatus", "LiveParity"],
+          "properties": {
+            "Status": { "enum": ["MISSING", "CORRUPT", "CORE"] },
+            "Schema": { "type": ["integer", "null"] },
+            "EnvName": { "type": ["string", "null"] },
+            "Gap": { "enum": ["none", "ReasonixBaselineMissing"] },
+            "Drift": { "enum": ["none", "RepositoryCommitAdvanced"] },
+            "HomeRootMatches": { "type": "boolean" },
+            "OldLockStatus": { "enum": ["MISSING", "HASH-MISMATCH", "VERIFIED"] },
+            "LiveParity": {
+              "type": "object",
+              "required": ["Status", "Mismatches"],
+              "properties": {
+                "Status": { "enum": ["not-checked", "pass", "mismatch"] },
+                "Mismatches": { "type": "array", "items": { "type": "string" } }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "IntendedRoot": { "$ref": "#/$defs/intendedRoot" }
+      },
+      "additionalProperties": false
+    },
+    "liveRootPlatform": {
+      "type": "object",
+      "required": ["Platform", "Status", "ManagedCount"],
+      "properties": {
+        "Platform": { "enum": ["Claude", "Codex", "Reasonix"] },
+        "Status": { "enum": ["MISSING", "EXISTS"] },
+        "ManagedCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }
