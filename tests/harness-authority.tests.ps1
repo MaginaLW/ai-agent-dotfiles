@@ -512,6 +512,426 @@ Assert ((@($controllerBranch[0].Required) -join ',') -ceq 'ReceiptRef') 'control
 Assert ((@($controllerBranch[0].ForbiddenReceiptKeys) -join ',') -ceq 'ReceiptId,ReceiptHash') 'controller-transition forbids receipt id and hash'
 Assert ([string] $stateSchema.properties.ReceiptRef.const -ceq 'NO_LIVE_MUTATION') 'the receipt reference is pinned to NO_LIVE_MUTATION'
 
+# ==============================================================================
+Write-Host 'authority routing: read-only route matrix over a sealed fake home'
+. (Join-Path $RepoRoot 'scripts/harness-authority-status-common.ps1')
+
+function New-AuthorityTestIdentity {
+    param([Parameter(Mandatory)] [string] $Path)
+
+    New-Item -ItemType Directory -Path (Join-Path $Path 'AppData/Local') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $Path 'AppData/Roaming') -Force | Out-Null
+    return [pscustomobject][ordered] @{
+        ResolverVersion = 'sealed-home-authority-test-adapter-v1'
+        TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ProfileRoot = $Path
+        RoamingAppDataRoot = (Join-Path $Path 'AppData/Roaming')
+        LocalAppDataRoot = (Join-Path $Path 'AppData/Local')
+    }
+}
+
+function New-ManagedLiveSkill {
+    param(
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string] $PlatformKey,
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $Content
+    )
+    $root = if ($PlatformKey -ceq 'reasonix') { Join-Path $HomeRoot 'AppData/Roaming/reasonix/skills' } else { Join-Path $HomeRoot ".$PlatformKey/skills" }
+    Set-File -Path (Join-Path $root "$Name/SKILL.md") -Content $Content
+}
+
+function New-LegacyActivationFixture {
+    <#
+    Builds one internally consistent legacy schema 2 activation: live managed
+    skills, the old schema 3 activation lock whose staged hashes match those live
+    trees, and the repo-local legacy state whose LockHash binds that lock.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string] $Name
+    )
+
+    $skills = [ordered] @{
+        Claude = @('fixture-a', 'fixture-b')
+        Codex = @('fixture-a')
+        Reasonix = @('fixture-a')
+    }
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $key = $platform.ToLowerInvariant()
+        foreach ($skill in $skills[$platform]) {
+            New-ManagedLiveSkill -HomeRoot $HomeRoot -PlatformKey $key -Name $skill -Content "# $skill ($key live)"
+        }
+    }
+    $staged = [ordered] @{}
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $key = $platform.ToLowerInvariant()
+        $platformHashes = [ordered] @{}
+        foreach ($skill in $skills[$platform]) {
+            $root = if ($key -ceq 'reasonix') { Join-Path $HomeRoot 'AppData/Roaming/reasonix/skills' } else { Join-Path $HomeRoot ".$key/skills" }
+            $platformHashes[$skill] = Get-HarnessTreeHash -Path (Join-Path $root $skill)
+        }
+        $staged[$platform] = $platformHashes
+    }
+
+    $commit = Get-HarnessRepositoryCommit -RepoRoot $RepoRoot
+    $definitionHash = Get-HarnessEnvDefinitionHash -Path (Join-Path $RepoRoot 'harness-source/envs/good.psd1')
+    $manifestHashes = Get-HarnessManifestHashes -RepoRoot $RepoRoot
+    $lock = [ordered] @{
+        SchemaVersion = 3
+        Name = $Name
+        DefinitionHash = $definitionHash
+        TaskOverlayHash = $null
+        TaskOverlaySkills = [ordered] @{ Claude = @(); Codex = @(); Reasonix = @() }
+        RepositoryCommit = $commit
+        ManifestHashes = $manifestHashes
+        SkillSourceEvidence = 'available'
+        SkillSourceHashes = [ordered] @{ Claude = [ordered] @{}; Codex = [ordered] @{}; Reasonix = [ordered] @{} }
+        StagedSkillTreeHashes = $staged
+        ProfileSourceHash = $null
+        ProfileOutputHash = $null
+        BuiltFiles = [ordered] @{}
+    }
+    $lockPath = Join-Path (Join-Path $RepoRoot 'envs') (Join-Path $Name 'env.lock.json')
+    Set-File -Path $lockPath -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $lock)))
+    $lockHash = Get-HarnessFileHash -Path $lockPath
+
+    $legacy = [ordered] @{
+        SchemaVersion = 2
+        Name = $Name
+        DefinitionHash = $definitionHash
+        TaskOverlayHash = $null
+        TaskOverlaySkills = [ordered] @{ Claude = @(); Codex = @(); Reasonix = @() }
+        LockHash = $lockHash
+        RepositoryCommit = $commit
+        ManifestHashes = $manifestHashes
+        ProfileOutputHash = $null
+        BackupReference = 'backup-fixture'
+        ActivatedAtUtc = '2026-09-01T00:00:00.0000000Z'
+        HomeRoot = $HomeRoot
+    }
+    Set-File -Path (Join-Path $RepoRoot 'state/current-env.json') -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $legacy)))
+    return [pscustomobject] @{ Skills = $skills; LockPath = $lockPath }
+}
+
+function New-FakeAuthorityPair {
+    <#
+    Builds one fully synthetic claims/state pair for the supplied fake context:
+    the three live-root claims are ABSENT rows under the fake home, and the
+    state binds the exact claims bytes with the supplied controller fingerprint.
+    #>
+    param(
+        [Parameter(Mandatory)] $Context,
+        [Parameter(Mandatory)] [string] $ControllerFingerprint
+    )
+
+    $volumeId = '01234567'
+    $parentIdentity = "$volumeId" + ':aaaaaaaaaaaaaaaa'
+    $homePath = [string] $Context.HomeRoot
+    $platformRows = @(
+        @{ Platform = 'Claude'; Relative = '.claude/skills'; Identity = "$volumeId" + ':bbbbbbbbbbbbbb01' }
+        @{ Platform = 'Codex'; Relative = '.codex/skills'; Identity = "$volumeId" + ':bbbbbbbbbbbbbb02' }
+        @{ Platform = 'Reasonix'; Relative = 'AppData/Roaming/reasonix/skills'; Identity = "$volumeId" + ':bbbbbbbbbbbbbb03' }
+    )
+    $claimsRows = [System.Collections.Generic.List[object]]::new()
+    foreach ($row in $platformRows) {
+        $requestedPath = Join-Path $homePath $row.Relative
+        $locationKey = $requestedPath.TrimEnd([char] 92, [char] 47).ToLowerInvariant().Replace([char] 92, [char] 47)
+        $claimsRows.Add([ordered] @{
+                Platform = $row.Platform
+                LocationKey = $locationKey
+                RequestedPath = $requestedPath
+                InitialState = 'ABSENT'
+                VolumeId = $volumeId
+                DeepestExistingParentPath = $homePath
+                DeepestExistingParentIdentity = $parentIdentity
+                MissingRemainder = @($row.Relative -split '/')
+                InitialDirectoryIdentity = $null
+                ExpectedPostState = 'EXISTS'
+            })
+    }
+    $homeLocationKey = ([IO.Path]::GetFullPath($homePath)).TrimEnd([char] 92, [char] 47).ToLowerInvariant().Replace([char] 92, [char] 47)
+    $claims = [ordered] @{
+        SchemaVersion = 1
+        ArtifactKind = 'root-claims'
+        HomeAuthorityKey = [string] $Context.HomeAuthorityKey
+        TokenSid = [string] $Context.TokenSid
+        ResolverVersion = 'windows-token-sid-known-folder-v1'
+        HomeRootLocationKey = $homeLocationKey
+        LiveRootClaims = @($claimsRows)
+    }
+    $claimsBytes = ConvertTo-SemanticJsonBytes -InputObject $claims
+    $claimsHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
+
+    $identities = [System.Collections.Generic.List[object]]::new()
+    for ($index = 0; $index -lt $platformRows.Count; $index++) {
+        $claimsRow = $claimsRows[$index]
+        $identities.Add([ordered] @{
+                Platform = [string] $claimsRow.Platform
+                LocationKey = [string] $claimsRow.LocationKey
+                ResolvedPath = [string] $claimsRow.RequestedPath
+                VolumeId = $volumeId
+                DirectoryIdentity = [string] $platformRows[$index].Identity
+                FilesystemCapabilityHash = '9' * 64
+            })
+    }
+    $state = [ordered] @{
+        SchemaVersion = 3
+        ArtifactKind = 'current-env-state'
+        HomeAuthorityKey = [string] $Context.HomeAuthorityKey
+        AuthorityGeneration = 1
+        RootClaimsHash = $claimsHash
+        SelectionKind = 'environment'
+        EnvironmentName = 'full'
+        EnvironmentLockHash = 'e' * 64
+        TaskOverlayHash = 'f' * 64
+        TaskOverlaySkills = @(
+            [ordered] @{ Platform = 'Claude'; Skills = @('fixture-a') }
+            [ordered] @{ Platform = 'Codex'; Skills = @('fixture-a') }
+            [ordered] @{ Platform = 'Reasonix'; Skills = @('fixture-a') }
+        )
+        ManifestHashes = @(
+            [ordered] @{ Platform = 'Claude'; Hash = 'a' * 64 }
+            [ordered] @{ Platform = 'Codex'; Hash = 'b' * 64 }
+            [ordered] @{ Platform = 'Reasonix'; Hash = 'c' * 64 }
+        )
+        FinalManagedHashes = @(
+            [ordered] @{ Platform = 'Claude'; Hash = 'd' * 64 }
+            [ordered] @{ Platform = 'Codex'; Hash = 'e' * 64 }
+            [ordered] @{ Platform = 'Reasonix'; Hash = 'f' * 64 }
+        )
+        FinalResolvedIdentities = @($identities)
+        FinalTargetContextHash = Get-SemanticJsonHash -InputObject @($identities)
+        ControllerRepoFingerprint = $ControllerFingerprint
+        ApprovedToolchainHash = '1' * 64
+        PlanHash = '2' * 64
+        DocumentHash = '3' * 64
+        JournalId = '0f1e2d3c-4b5a-4978-8796-a5b4c3d2e1f0'
+        PreStatePhaseHash = '4' * 64
+        LastOperationKind = 'initial'
+        ReceiptId = '2f3e4d5c-6b7a-4897-8986-1d2e3f4a5b6c'
+        ReceiptHash = '5' * 64
+    }
+    $stateBytes = ConvertTo-SemanticJsonBytes -InputObject $state
+
+    $authorityRoot = Join-Path (Join-Path ([string] $Context.ControlBase) 'homes') ([string] $Context.HomeAuthorityKey)
+    New-Item -ItemType Directory -Path $authorityRoot -Force | Out-Null
+    [System.IO.File]::WriteAllBytes((Join-Path $authorityRoot 'root-claims.json'), $claimsBytes)
+    [System.IO.File]::WriteAllBytes((Join-Path $authorityRoot 'current-env.json'), $stateBytes)
+    return [pscustomobject] @{ Key = [string] $Context.HomeAuthorityKey; Claims = $claims; State = $state }
+}
+
+$authorityRepo = New-FakeHarnessRepo -Path (Join-Path $work 'authority-repo')
+Set-File -Path (Join-Path $authorityRepo 'harness-source/envs/good.psd1') -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-a', 'fixture-b') -CodexSkills @('fixture-a') -ReasonixSkills @('fixture-a'))
+& git -C $authorityRepo add -A 2>&1 | Out-Null
+& git -C $authorityRepo -c user.email=fixture@example.invalid -c user.name=fixture commit --quiet -m 'fixture'
+Assert ($LASTEXITCODE -eq 0) 'the authority fixture repository has a commit'
+
+# 1. pristine home and roots.
+$pristineHome = Join-Path $work 'authority-home-pristine'
+$pristineIdentity = New-AuthorityTestIdentity -Path $pristineHome
+$pristine = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $pristineIdentity
+Assert ([string] $pristine.Route -ceq 'initial') 'pristine roots and no authority route to initial'
+Assert ([string] $pristine.NextOperation -ceq 'env activate full -DryRun') 'initial recommends the named full activation'
+Assert ($pristine.LiveRoots.Pristine) 'pristine live roots report Pristine'
+Assert ([string] $pristine.IntendedRoot.Selection -ceq 'known-folder-default') 'pristine status carries the default intended root'
+Assert ([string] $pristine.IntendedRoot.FilesystemCapabilityStatus -ceq 'UNPROBED') 'the intended root is metadata-only'
+Assert (-not $pristine.IntendedRoot.Contains('RequestedReasonixRoot')) 'the default intended root carries no requested-root label'
+
+# 2. non-empty roots adopt.
+$adoptHome = Join-Path $work 'authority-home-adopt'
+$adoptIdentity = New-AuthorityTestIdentity -Path $adoptHome
+New-ManagedLiveSkill -HomeRoot $adoptHome -PlatformKey 'claude' -Name 'existing-local' -Content '# existing'
+$adopt = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $adoptIdentity
+Assert ([string] $adopt.Route -ceq 'adopt') 'non-empty roots without any legacy artifact route to adopt'
+Assert ([string] $adopt.Legacy.Status -ceq 'MISSING') 'adopt without legacy evidence reports MISSING legacy evidence'
+
+# 3. an explicit custom Reasonix root before any claims.
+$customRoot = Join-Path $work 'custom-reasonix-skills'
+New-Item -ItemType Directory -Path $customRoot -Force | Out-Null
+$explicit = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $adoptIdentity -ReasonixLiveSkillsPath $customRoot
+Assert ([string] $explicit.IntendedRoot.Selection -ceq 'explicit-initial-claim') 'an explicit root selects the explicit intended-root branch'
+Assert ([string] $explicit.IntendedRoot.RequestedReasonixRoot -ceq 'C:\...\custom-reasonix-skills') 'the requested-root label is redacted'
+
+# 4. complete, consistent legacy evidence with passing live parity migrates.
+$migrateHome = Join-Path $work 'authority-home-migrate'
+$migrateIdentity = New-AuthorityTestIdentity -Path $migrateHome
+$legacyFixture = New-LegacyActivationFixture -RepoRoot $authorityRepo -HomeRoot $migrateHome -Name 'good'
+$migrate = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $migrateIdentity
+Assert ([string] $migrate.Legacy.Status -ceq 'CORE') 'internally consistent legacy evidence reports CORE'
+Assert ([string] $migrate.Legacy.OldLockStatus -ceq 'VERIFIED') 'the preserved activation lock verifies against LockHash'
+Assert ([string] $migrate.Legacy.LiveParity.Status -ceq 'pass') 'legacy live parity passes for matching live trees'
+Assert ([string] $migrate.Route -ceq 'migrate') 'core evidence with passing parity routes to migrate'
+Assert ([string] $migrate.Legacy.Gap -ceq 'none') 'a complete three-platform baseline reports no gap'
+Assert ([string] $migrate.IntendedRoot.RequestedInitialRootContextHash -ceq [string] $migrate.IntendedRoot.RequestedInitialRootContextHash) 'migrate carries the intended-root branch'
+
+# 5. live drift under a verified lock requires manual recovery.
+Set-File -Path (Join-Path $migrateHome '.claude/skills/fixture-a/SKILL.md') -Content '# drifted'
+$manual = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $migrateIdentity
+Assert ([string] $manual.Legacy.Status -ceq 'CORE') 'drifted live content keeps the core valid'
+Assert ([string] $manual.Legacy.LiveParity.Status -ceq 'mismatch') 'drifted live content fails legacy live parity'
+Assert ([string] $manual.Route -ceq 'manual-recovery-required') 'core evidence with failing parity routes to manual recovery'
+Set-File -Path (Join-Path $migrateHome '.claude/skills/fixture-a/SKILL.md') -Content '# fixture-a (claude live)'
+
+# 6. an untrustworthy legacy artifact adopts as untrusted evidence.
+$untrustedHome = Join-Path $work 'authority-home-untrusted'
+$untrustedIdentity = New-AuthorityTestIdentity -Path $untrustedHome
+Set-File -Path (Join-Path $authorityRepo 'state/current-env.json') -Content '{"SchemaVersion":2}'
+$untrusted = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $untrustedIdentity
+Assert ([string] $untrusted.Legacy.Status -ceq 'CORRUPT') 'an invalid legacy core reports CORRUPT'
+Assert ([string] $untrusted.Route -ceq 'adopt') 'an untrustworthy legacy artifact routes to adopt'
+
+# A missing old lock is a mismatched core field, so it also adopts.
+$missingLockHome = Join-Path $work 'authority-home-missing-lock'
+$missingLockIdentity = New-AuthorityTestIdentity -Path $missingLockHome
+$null = New-LegacyActivationFixture -RepoRoot $authorityRepo -HomeRoot $missingLockHome -Name 'good'
+Remove-Item -LiteralPath (Join-Path $authorityRepo 'envs/good/env.lock.json') -Force
+$missingLock = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $missingLockIdentity
+Assert ([string] $missingLock.Legacy.Status -ceq 'CORRUPT' -and [string] $missingLock.Route -ceq 'adopt') 'a missing preserved lock keeps the legacy artifact untrusted'
+Remove-Item -LiteralPath (Join-Path $authorityRepo 'state/current-env.json') -Force -ErrorAction SilentlyContinue
+
+# 7. valid claims with a missing or corrupt state repairs state.
+$repairHome = Join-Path $work 'authority-home-repair'
+$repairIdentity = New-AuthorityTestIdentity -Path $repairHome
+$repairContext = Resolve-HomeAuthorityContextFromIdentity -Identity $repairIdentity
+$controllerFingerprint = Get-CanonicalRepoIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $authorityRepo)
+$pair = New-FakeAuthorityPair -Context $repairContext -ControllerFingerprint $controllerFingerprint
+$beforeState = Read-HomeAuthorityState -ControlBase ([string] $repairContext.ControlBase) -HomeAuthorityKey $pair.Key -RepoRoot $authorityRepo
+if ([string] $beforeState.PairStatus -cne 'VALID') {
+    Write-Host "  note  pair=$($beforeState.PairStatus) claims=$($beforeState.ClaimsStatus) state=$($beforeState.StateStatus)"
+    Write-Host "  note  claimsError=$($beforeState.ClaimsError)"
+    Write-Host "  note  stateError=$($beforeState.StateError)"
+    Write-Host "  note  pairError=$($beforeState.PairError)"
+}
+Assert ([string] $beforeState.PairStatus -ceq 'VALID') 'the rebuilt fake pair validates against the real reader'
+
+Remove-Item -LiteralPath (Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'current-env.json') -Force
+$repairMissing = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $repairMissing.Route -ceq 'repair-adopt') 'valid claims with a missing state route to repair-adopt'
+Assert ([string] $repairMissing.StateStatus -ceq 'MISSING') 'the missing state is reported as MISSING'
+
+Set-File -Path (Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'current-env.json') -Content '{ corrupt'
+$repairCorrupt = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $repairCorrupt.Route -ceq 'repair-adopt') 'valid claims with a corrupt state route to repair-adopt'
+Assert ([string] $repairCorrupt.StateStatus -ceq 'CORRUPT') 'the corrupt state is reported as CORRUPT'
+
+# 8. the valid pair on the current controller activates.
+$null = New-FakeAuthorityPair -Context $repairContext -ControllerFingerprint $controllerFingerprint
+$activate = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $activate.PairStatus -ceq 'VALID' -and $activate.ControllerMatch) 'the fake pair matches the current controller'
+Assert ([string] $activate.Route -ceq 'activate') 'a valid pair on the current controller routes to activate'
+Assert ([string] $activate.StateSummary.EnvironmentName -ceq 'full') 'the state summary carries the selected environment'
+Assert ([string] $activate.NextOperation -ceq 'env activate <name> -DryRun') 'activate recommends the ordinary activation DryRun'
+
+# 9. a foreign controller needs passing parity before takeover.
+$foreignFingerprint = '0' * 64
+$null = New-FakeAuthorityPair -Context $repairContext -ControllerFingerprint $foreignFingerprint
+$foreign = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert (-not $foreign.ControllerMatch) 'a foreign fingerprint is reported as a controller mismatch'
+Assert ([string] $foreign.Route -ceq 'controller-owner-action-required') 'a foreign controller without verified parity stops at owner action'
+Assert ([string] $foreign.NextOperation -ceq 'env authority status') 'owner action recommends a status review'
+
+# Parity requires the state-bound lock file to be present and byte-identical.
+$stagingPath = Join-Path $authorityRepo 'envs/full'
+$lockFromFixture = [ordered] @{
+    SchemaVersion = 3
+    Name = 'full'
+    DefinitionHash = 'a' * 64
+    TaskOverlayHash = $null
+    TaskOverlaySkills = [ordered] @{ Claude = @(); Codex = @(); Reasonix = @() }
+    RepositoryCommit = 'b' * 40
+    ManifestHashes = [ordered] @{ Claude = 'c' * 64; Codex = 'd' * 64; Reasonix = 'e' * 64 }
+    SkillSourceEvidence = 'available'
+    SkillSourceHashes = [ordered] @{ Claude = [ordered] @{}; Codex = [ordered] @{}; Reasonix = [ordered] @{} }
+    StagedSkillTreeHashes = [ordered] @{ Claude = [ordered] @{}; Codex = [ordered] @{}; Reasonix = [ordered] @{} }
+    ProfileSourceHash = $null
+    ProfileOutputHash = $null
+    BuiltFiles = [ordered] @{}
+}
+Set-File -Path (Join-Path $stagingPath 'env.lock.json') -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $lockFromFixture)))
+$lockHash = Get-HarnessFileHash -Path (Join-Path $stagingPath 'env.lock.json')
+$stateWithLock = ConvertFrom-SemanticJson -Json (Get-Content -Raw -LiteralPath (Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'current-env.json'))
+$stateWithLock['EnvironmentLockHash'] = $lockHash.ToLowerInvariant()
+[System.IO.File]::WriteAllBytes((Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'current-env.json'), (ConvertTo-SemanticJsonBytes -InputObject $stateWithLock))
+$takeover = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $takeover.LockParity.Status -ceq 'pass') 'the state-bound lock verifies and passes live parity'
+Assert ([string] $takeover.Route -ceq 'takeover') 'a foreign controller with passing parity routes to takeover'
+
+# 10. an unfinished live journal forces the recovery route first.
+$authorityArea = Join-Path (Join-Path ([string] $repairContext.ControlBase) 'live-transactions') '11111111-1111-4111-8111-111111111111'
+New-Item -ItemType Directory -Path $authorityArea -Force | Out-Null
+$recovery = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $recovery.RecoveryStatus -ceq 'unfinished') 'an unfinished journal reports unfinished recovery'
+Assert ([string] $recovery.Route -ceq 'recovery') 'an unfinished journal routes to recovery before every other route'
+Assert ([string] $recovery.NextOperation -ceq 'live recover status') 'recovery recommends the recovery status command'
+Assert ($recovery.UnfinishedTransactionIds.Count -eq 1) 'the unfinished transaction id is reported'
+Remove-Item -LiteralPath (Split-Path -Parent $authorityArea) -Recurse -Force
+
+# 11. corrupt claims are always manual.
+Remove-Item -LiteralPath (Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'root-claims.json') -Force
+Set-File -Path (Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'root-claims.json') -Content '{"SchemaVersion":1}'
+$corruptClaims = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $corruptClaims.RootClaimsStatus -ceq 'CORRUPT') 'corrupt claims are reported as CORRUPT'
+Assert ([string] $corruptClaims.Route -ceq 'manual-recovery-required') 'corrupt claims route to manual recovery'
+
+# 12. a pair mismatch is manual, and the reader never writes.
+$null = New-FakeAuthorityPair -Context $repairContext -ControllerFingerprint $controllerFingerprint
+$mismatchState = ConvertFrom-SemanticJson -Json (Get-Content -Raw -LiteralPath (Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'current-env.json'))
+$mismatchState['RootClaimsHash'] = '0' * 64
+[System.IO.File]::WriteAllBytes((Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'current-env.json'), (ConvertTo-SemanticJsonBytes -InputObject $mismatchState))
+$mismatch = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $mismatch.PairStatus -ceq 'MISMATCH') 'a state that does not bind the claims bytes is a MISMATCH'
+Assert ([string] $mismatch.Route -ceq 'manual-recovery-required') 'a pair mismatch routes to manual recovery'
+
+$homeSnapshotBefore = Get-TreeSnapshot -Root $work
+$null = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+$homeSnapshotAfter = Get-TreeSnapshot -Root $work
+Assert ($homeSnapshotBefore -eq $homeSnapshotAfter) 'the authority assessment writes no file anywhere in the fixture tree'
+
+# 13. the frozen route/next-operation mapping is exhaustive.
+$routeNextOperations = @{
+    'recovery'                         = 'live recover status'
+    'initial'                          = 'env activate full -DryRun'
+    'activate'                         = 'env activate <name> -DryRun'
+    'migrate'                          = 'env authority migrate <name> -DryRun -PlanPath <external-plan.json>'
+    'adopt'                            = 'env authority adopt <name> -DryRun -PlanPath <external-plan.json>'
+    'repair-adopt'                     = 'env authority repair-adopt <name> -DryRun -PlanPath <external-plan.json>'
+    'takeover'                         = 'env authority takeover <name> -DryRun -PlanPath <external-plan.json>'
+    'controller-owner-action-required' = 'env authority status'
+    'manual-recovery-required'         = 'env authority status'
+}
+$routeMatrix = @()
+$routeViolations = 0
+foreach ($recoveryStatus in @('clean', 'unfinished')) {
+    foreach ($claimsStatus in @('MISSING', 'CORRUPT', 'VALID')) {
+        foreach ($stateStatus in @('MISSING', 'CORRUPT', 'VALID')) {
+            foreach ($pairStatus in @('MISSING', 'MISMATCH', 'CORRUPT', 'VALID')) {
+                foreach ($controllerMatch in @($null, $false, $true)) {
+                    foreach ($lockParityStatus in @('not-checked', 'pass')) {
+                        foreach ($legacyStatus in @('MISSING', 'CORRUPT', 'CORE')) {
+                            foreach ($oldLockStatus in @('MISSING', 'VERIFIED')) {
+                                foreach ($legacyParity in @('not-checked', 'pass')) {
+                                    foreach ($pristine in @($true, $false)) {
+                                        $route = Resolve-HarnessEnvAuthorityRoute -RecoveryStatus $recoveryStatus -ClaimsStatus $claimsStatus -StateStatus $stateStatus -PairStatus $pairStatus -ControllerMatch $controllerMatch -LockParityStatus $lockParityStatus -LegacyStatus $legacyStatus -OldLockStatus $oldLockStatus -LegacyLiveParityStatus $legacyParity -LiveRootsPristine $pristine
+                                        $routeMatrix += $route
+                                        if (-not $routeNextOperations.ContainsKey($route)) {
+                                            $routeViolations++
+                                            Write-Host "  note  route '$route' has no frozen next operation" -ForegroundColor Red
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+Assert ($routeViolations -eq 0) "every one of the $($routeMatrix.Count) fact combinations maps to a frozen route with one next operation"
+Assert (@($routeMatrix | Sort-Object -Unique).Count -eq $routeNextOperations.Count) 'the matrix reaches every frozen route exactly once per token'
+
 Write-Host ("harness-authority tests: {0} passed, {1} failed" -f $script:pass, $script:fail)
 if ($script:fail -gt 0) {
     Write-Host "Workspace kept for inspection: $work"

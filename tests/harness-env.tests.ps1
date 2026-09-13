@@ -345,6 +345,40 @@ Remove-Item -LiteralPath $statePath -Force
 $result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo)
 Assert ($result.Out -match 'No environment activated\.') 'status reports no activation after state removal'
 
+# --- 7b. authority status documents (schema 2) ---------------------------------
+Write-Host 'status/list: authority documents'
+$statusJson = Join-Path $work 'status-authority.json'
+$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo, '-JsonPath', $statusJson)
+Assert ($result.Code -eq 0) 'status writes its authority document'
+$statusDoc = Get-Content -Raw -LiteralPath $statusJson | ConvertFrom-Json
+Assert ([int] $statusDoc.SchemaVersion -eq 2) 'status document uses schema 2'
+Assert (-not [string]::IsNullOrWhiteSpace([string] $statusDoc.Authority.Route)) 'status document carries one authority route'
+Assert (-not [string]::IsNullOrWhiteSpace([string] $statusDoc.Authority.NextOperation)) 'status document carries one recommended next operation'
+Assert ($statusDoc.Environments[0].PSObject.Properties.Name -contains 'ReasonixSkillCount') 'status rows carry the Reasonix skill count'
+Assert ($statusDoc.Active.PSObject.Properties.Name -notcontains 'BackupReference') 'status Active drops the clone-local backup reference'
+if ([string] $statusDoc.Authority.RootClaimsStatus -eq 'MISSING') {
+    Assert ([string] $statusDoc.Authority.IntendedRoot.FilesystemCapabilityStatus -eq 'UNPROBED') 'the default intended root branch is metadata-only'
+    Assert (-not $statusDoc.Authority.IntendedRoot.PSObject.Properties.Name.Contains('RequestedReasonixRoot')) 'the default intended root branch carries no requested-root label'
+}
+
+$customReasonixRoot = Join-Path $work 'custom-reasonix-skills'
+New-Item -ItemType Directory -Path $customReasonixRoot -Force | Out-Null
+$customJson = Join-Path $work 'status-authority-custom.json'
+$result = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $fakeRepo, '-JsonPath', $customJson, '-ReasonixLiveSkillsPath', $customReasonixRoot)
+Assert ($result.Code -eq 0) 'status accepts a custom intended Reasonix root before any claims'
+$customDoc = Get-Content -Raw -LiteralPath $customJson | ConvertFrom-Json
+Assert ([string] $customDoc.Authority.IntendedRoot.Selection -eq 'explicit-initial-claim') 'the custom root selects the explicit intended-root branch'
+Assert ([string] $customDoc.Authority.IntendedRoot.RequestedReasonixRoot -ne $customReasonixRoot) 'the status document never carries the raw custom root path'
+Assert (-not [string]::IsNullOrWhiteSpace([string] $customDoc.Authority.IntendedRoot.RequestedInitialRootContextHash)) 'the explicit intended root carries its metadata context hash'
+
+$listJson = Join-Path $work 'list-authority.json'
+$result = Invoke-Script -Script $listScript -ScriptArgs @('-RepoRoot', $fakeRepo, '-JsonPath', $listJson)
+Assert ($result.Code -eq 0) 'list writes its authority document'
+$listDoc = Get-Content -Raw -LiteralPath $listJson | ConvertFrom-Json
+Assert ([int] $listDoc.SchemaVersion -eq 2) 'list document uses schema 2'
+Assert ($listDoc.Environments[0].PSObject.Properties.Name -contains 'ReasonixSkillCount') 'list rows carry the Reasonix skill count'
+Assert ([string] $listDoc.Authority.Route -eq [string] $statusDoc.Authority.Route) 'list and status agree on the single authority route'
+
 # --- 8. read-only guarantee for list/status ------------------------------------
 Write-Host 'list/status: read-only guarantee'
 if (Test-Path -LiteralPath (Join-Path $fakeRepo 'envs')) {
