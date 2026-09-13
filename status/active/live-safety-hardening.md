@@ -1711,6 +1711,44 @@ root-transition section green; parse gate 167 files; secret scan clean; `git dif
 test-runner passing (no budget change). Production Apply remains interlocked and no live root was
 touched.
 
+## Task 9 Phase 2 checkpoint (2026-09-13): Steps 1, 2, 4, and 5 recorded; Step 3's unified pass running
+
+Step 1 (focused suites): home-authority, live-plan, backup-receipt, sync, live-recovery,
+backup-recovery, and live-concurrency all passed standalone with exit 0. The roadmap's
+`tests/live-hard-kill.tests.ps1` filename has no counterpart in the tree — the kill-window
+coverage is `tests/canonical-hard-kill.tests.ps1` (in the unified pass) plus live-recovery's
+kill/replay fixtures (Task 6 Step 4), recorded here as the mapping.
+
+Step 2 (artifact validation): registered artifact validation passed 28 contracts / 28 positive /
+113 negative fixtures with zero failures, covering root claims v1, current-env-state v3,
+sync-plan v3 (initial/retirement), backup receipts, live journals/headers/results, and the
+rollback/recovery plan v1 with every negative fixture failing at its declared layer.
+
+Step 4 (requirements and quality review): a bounded read-only independent review (four files,
+≤15 findings, severity-rated) of the Task 7/8 delta returned **VERDICT: PASS** with six P2
+findings and no P0/P1. Checklist verdicts: lock timing, unknown/`.system` no-read behavior,
+current-retirement evidence preservation, journal durability, and recovery cleanup all explicitly
+no-defect; design compliance carried two documentation-drift notes and receipt finalization one
+internal-cross-check note. Disposition: the two documentation drifts, the missing source-receipt
+verification and claims/state preimage cross-checks in the execution composition, and the
+discarded WaitForExit result were fixed in `24dcabe` (both affected suites re-run green); the
+engine's hash-based per-target drift protection (the plan's `Current` identity binding is not
+enforced by the existing ladder) is recorded as a boundary, consistent with the reviewed
+hash-based engine ladder.
+
+Step 5 (real homes untouched): the tracked policy remains `ReleaseState=interlocked`, the working
+tree is clean at the checkpoint commits, and the public rollback surface fails closed on real
+homes with `live-plan-host-resolution-required` (pinned in harness-env 9.10); all test traffic ran
+inside sandbox homes with capability gating, and the real live roots' read-only listing shows the
+owner's own content intact.
+
+Step 3 (full runner and repository gates): the repository gates passed on the checkpoint tree —
+parse gate 167 files, `build-skills.ps1` 7/15/7, secret scan with no blocking findings, doctor,
+unstaged/staged `git diff --check`, and the build-clean gate with exactly the four protected
+Reasonix literal negative pathspecs on the committed tree. The definitive create-new external
+unified `run-tests.ps1 -All` pass is running and will be recorded on completion; it is the Task 9
+closeout gate.
+
 ## Pending items (2026-09-13, after Task 8 Step 4)
 
 Task 8's pinnable matrix is complete; the open items are design-bound:
