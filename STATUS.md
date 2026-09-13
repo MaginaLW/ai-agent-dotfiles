@@ -3398,8 +3398,10 @@ release, remain downstream and have not started.
    `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the production host is
    child-killable. The engine's per-target drift protection is hash-based; the rollback plan's
    `Current` identity binding is recorded as not enforced by the existing ladder.
-3. Rebuild the stale commit-bound `minimal`, `work`, and `full` staging locks before any future
-   environment planning. This is artifact preparation only and does not authorize environment Apply.
+3. The stale commit-bound `minimal`, `work`, and `full` staging locks were rebuilt on 2026-09-13
+   (all three report `staging=built lock=valid` under the current HEAD; the generated `envs/`
+   artifacts are gitignored machine-local state). This is artifact preparation only and does not
+   authorize environment Apply.
 4. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
 5. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,

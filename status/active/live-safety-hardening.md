@@ -1774,8 +1774,10 @@ production caller) assigned to the Phase 3/4 boundaries, and the production inte
    every production Apply/rollback/retirement returns `safety-protocol-upgrade-required`, and the
    rollback entry's validated Apply tail fails closed with
    `worktree-overlay-lock-not-implemented`.
-3. **Before any future environment planning**: rebuild the stale commit-bound environment staging
-   locks (artifact preparation only; no Apply authorization).
+3. **Before any future environment planning**: the stale commit-bound `minimal`, `work`, and `full`
+   staging locks were rebuilt on 2026-09-13 (all three report `staging=built lock=valid` under the
+   closeout HEAD; the generated `envs/` artifacts are gitignored machine-local state). This is
+   artifact preparation only and does not authorize Apply.
 
 Carried findings:
 
