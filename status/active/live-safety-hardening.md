@@ -2042,24 +2042,32 @@ shape (no-follow single-link regular `<64-hex>.json`), mirroring the existing
 authority-aware tolerance for `HomesRoot`; this also unblocks `sync`'s apply on
 a machine where the canonical setup has run.
 
-**Open item for the next window** (precise, diagnosed to the last gate): the
-seeded sandbox canonical setup is now accepted (`canonical-ready` asserted in
-the suite, and the claim file had to be written next to the state), the adopt
-apply passes the interlock, the plan gates, the canonical and prefix
-preconditions, and reaches the host; it then stops inside the host's held
-canonical-state capture with `canonical-recovery-required`, because the fixture
-writes the state file with inherited (non-current-user-only) security. The
-capture validates the file's SDDL, so the fixture must either write the state
-through the reviewed security template or set the current-user-only descriptor
-on it (the suite already has the ACL helper for the recovery roots). Once that
-lands, restore the success assertions (claims+state published, managed skills
-live, unknown dir preserved, journal terminal, re-apply refused) for adopt and
-migrate, add repair-adopt (claims byte-identical), and add the failure-injection
-cases the plan asks for (before receipt, during live mutation, during state
-create/replace, during the final journal record) with the Phase 2 failpoint
-controller. Also note the host's `controller-transition` kind is still rejected
-by its kind gate, which is the Task 5 entry point (the suite asserts that
-boundary through the unknown-parameter-free takeover apply path).
+**Open item for the next window, diagnosed to the last gate.** The sandbox
+fixture now seeds the private prefix, a canonical setup state *and* its root
+claim, plus the schema root the held capture validates against, and the suite
+asserts `canonical-ready` on that fixture. The adopt apply then passes the
+interlock, every static plan gate, the canonical and prefix preconditions, the
+staging and capability probes, and reaches the host, which stops at
+`canonical-witness-required`: the canonical global acquisition needs the witness
+binding that only the (interlocked) public canonical setup Apply can create, and
+no test helper seeds it (the concurrency suite's bootstrap host holds locks
+rather than seeding state, and the Phase 2 suites never needed it because they
+seed no claim and stop at the lock). Two legitimate resolutions, in preference
+order:
+
+1. add a reviewed internal canonical-setup seeding host (the Phase 1/2 analogue
+   of the live-transaction host) that creates the setup state, claim, and
+   canonical witness binding inside the sandbox, so the authority apply can be
+   exercised end to end without touching the tracked interlock; or
+2. treat the end-to-end apply as Phase 4 evidence: the interlock release is
+   exactly what makes the canonical setup flow runnable, and the authority
+   apply's success path is then verified on the release candidate.
+
+Until one of those lands, the suite pins the boundary (a refused apply publishes
+no claims and no state) and the host's kind/guard behaviour is verified through
+the frozen engine suites plus `live-plan` contract tests. The host's
+`controller-transition` kind is still rejected by its kind gate, which is the
+Task 5 entry point.
 
 ## Task 4 handoff (2026-09-14): apply-composition recon
 
