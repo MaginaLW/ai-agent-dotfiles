@@ -90,7 +90,8 @@ Agent 显式读取后遵循的约定，不是 Hook、定时任务或后台同步
 ### 来源与实际应用版本
 
 - 来源仓库身份（每次写入前后重新核对 Git 根、远端、分支、HEAD、工作区与暂存区）：
-  远端 `github.com/MaginaLW/harness-model`，工作分支 `codex/zcode-document-pilot`，
+  远端 `github.com/MaginaLW/harness-model`，当前工作分支 `codex/self-hosted-runner-inventory`
+  （原 `codex/zcode-document-pilot`，由并行会话改名，第四次闭环起按新名核对），
   本地检出为项目同级 `harness-model` 目录（目录名不作身份依据，以 Git 核对为准）。
 - 首次接入基线与实际应用的上游提交：`b567dc3`（"docs: define task-closeout feedback
   loop for ZCode pilots"，2026-09-09 核对时即该检出 HEAD，无版本漂移）。方法文件：
@@ -105,6 +106,14 @@ Agent 显式读取后遵循的约定，不是 Hook、定时任务或后台同步
   本仓已应用的全部上游提交，故按"分支名变化、提交链连续"记录，不改写此前结论。应用内容：
   `docs/operations/adoption.md` 收尾方法第 3 项新增"同一教训第二次出现即转成可执行检查"，
   第 6 项新增"设计阶段评审同样设边界，取消/失败的评审按未评审处理"。
+- 2026-09-13 第六次闭环后实际应用的上游提交：`44b6b03`（本仓 Agent 在该检出内提交并验证）。
+  链路核对：`dc81c25`（上次核对基线）→ `6e5b697`（并行工作流的 4 个提交，仅新增
+  `docs/implementation/task02-runtime-integration.md`）→ `44b6b03`（本窗口）。本次新增文字
+  已按"最小完整修订"合入上游 `docs/operations/adoption.md` 收尾方法第 3 项：后续阶段里
+  "只做核对"的步骤要落成可执行断言（冻结的关键集合钉进测试或契约注册表；有真实生产端时由
+  生产端产物派生断言；只有 schema、没有注册契约与 fixture 的产物视为未验证）。验证期间该
+  检出又被并行工作流追加一个提交 `fd49510`（`44b6b03` 的父链连续），本仓未修改、未暂存
+  其内容；该检出内仍有三个并行会话的未跟踪方案文件（`docs/superpowers/plans/`）。
 - 闭环授权边界：harness-model 的 `docs/`、`examples/`，以及本项目的规则入口、接入文档
   与既有收尾记录。不含源码、CI、`.ai`、技能、全局/live 配置、部署、删除、推送、合并、
   凭据导出、付费调用或后台采集；越界反馈只形成提案并记 `pending`。
@@ -124,7 +133,10 @@ Agent 显式读取后遵循的约定，不是 Hook、定时任务或后台同步
    （本页"留下可接续的最小事实"一节为既有等价条款，不重复添加）。
 3. **测试发现范围**：收尾对照基线列明新增、停用、改名、移入非执行目录的检查及替代验证；
    必需检查不得静默退出（本仓 Task 2 曾把 content-aware 回归移入 `tests/helpers/` 并
-   显式固定不调用状态，属正确做法的实例；现固化为收尾核对项）。
+   显式固定不调用状态，属正确做法的实例；现固化为收尾核对项）。后续阶段"只做核对"的步骤
+   同样落成可执行断言，而不是一次性人工复核（上游 `44b6b03` 新增；本仓 Phase 3 Task 1 将
+   锁 schema 冻结、共享状态判别分支与 authority plan 分支三条核对步骤转成生产端派生的
+   图断言与分支钉值，并为此前未注册的 env lock 补上契约与 5 条图反例，即该条实例）。
 4. **实测耗时与预算**：分开记录实测耗时、配置上限、重跑原因与返工；提高上限不表示执行
    更慢（本仓既有记录已按此口径写 sync/备份回执套件实测与预算，属既有等价条款）。
 5. **紧凑交接**：本仓权威交接入口为 `STATUS.md` 的 "Remaining roadmap snapshot" 与
@@ -262,6 +274,35 @@ Task 9 检查点与 Phase 2 收口（实现提交 `a9cb765`..`4a99b0e`、评审�
 `docs/operations/adoption.md` 与 `docs/operations/feedback-loop.md` 无改动**，无适用版本差异，
 本页不复制其正文。该检出内仍有并行会话的未跟踪方案文件（`docs/superpowers/plans/`），本仓未
 暂存、未修改、未删除。
+
+### 第六次闭环执行（2026-09-13，Phase 3 Task 1 窗口）
+
+窗口任务：Phase 3 Task 1（环境锁 schema 3 冻结核对、env-build v3 消费核对、共享状态判别分支
+与 authority plan 分支核对、独立 legacy/shared 读函数），实现提交 `8f75dda`、`b9b00d0`、
+`29e3607`；证据见 `STATUS.md` Phase 3 Task 1 节与 `status/active/live-safety-hardening.md`。
+
+新反馈（已提交并验证上游 `44b6b03`）：**后续阶段里"只做核对"的步骤要落成可执行断言。**
+本窗口 Task 1 的七步中，第 2/3/4/5 步按计划文本都只是"核对上一阶段已交付的冻结契约"。把关键
+集合（锁的必填字段集与图方向、共享状态的三条判别分支与枚举、sync-plan 四个 authority 分支的
+固定证据字段）钉进测试与契约注册表，并在隔离仓里真实生成产物后由生产端派生断言；核对因此从
+一次性人工复核变成提交即拦截。核对还发现该锁此前**只有 schema、没有注册契约与 fixture**——
+按该条判据属未验证产物，本窗口为其补上契约与 5 条图反例（`b9b00d0`）。该教训与本仓既有的
+"同一教训第二次出现即转成可执行检查"同向但触发条件不同（前者针对复发缺陷，后者针对只读核对
+步骤），故作为新条目写入上游第 3 项，而非合并进既有条目。
+
+上游验证（在本仓同级、身份已核对的检出内执行，候选提交 `44b6b03`；该检出分支
+`codex/self-hosted-runner-inventory`，写入前后均核对）：`uv run --locked python -m pytest -q
+--cov=aiflow --cov-branch --cov-fail-under=85` 1945 通过、总覆盖率 88.12%；
+`diff-cover --compare-branch 6e5b697 --fail-under=90` 退出 0（仅文档改动，diff 内无覆盖率行）；
+`ruff check`、`ruff format --check`（436 文件）、`mypy`（41 文件）、`git diff --check` 全部退出 0。
+验证期间并行工作流在同一分支追加提交 `fd49510`，`44b6b03` 仍在其祖先链上且本仓改动完好
+（已复核父链连续、内容在位）；该检出内另有三个未跟踪方案文件（`docs/superpowers/plans/`），
+本仓未暂存、未修改、未删除。
+
+版本回灌核对：上游 HEAD 由上次核对的 `dc81c25` 推进至 `6e5b697`（4 个提交，仅新增
+`docs/implementation/task02-runtime-integration.md`），再经本窗口提交到 `44b6b03`；链路连续、
+无分叉。除本窗口新增条目外，方法文件无其他适用差异，本页不复制其正文；五项适配的第 3 项已按
+本条更新为"后续阶段核对步骤须落成可执行断言"。
 
 ## 可复制的首次接手提示词
 

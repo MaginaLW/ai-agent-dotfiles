@@ -19,10 +19,13 @@ checkpoint's definitive unified pass (38/38 suites, zero failures/timeouts; see 
 closeout section below). Baseline-reconciliation Task 1 (5/5), the Phase 0 entry-interlock subplan
 (43/43), and Phase 1 (44/44) are complete; the corrected privacy rewrite is published at `bbba28f`
 with GitHub Support ticket `#4697323` resolved and the old object re-probe confirmed clean.
-**Phase 3 (shared environment authority and task-overlay) and Phase 4 (schema/CI contract and safe
-release) have not started**, and two design-bound findings from the Phase 2 closeout feed Phase 3's
-design: the cross-authority root-claim overlap rejection (a machine-wide claim store) and the
-rollback execution's production caller (the Phase 3 worktree overlay lock). Tracked policy remains
+**Phase 3 (shared environment authority and task-overlay) has started: Task 1 (lock 3 freeze,
+env-build 3 consumption, shared-state semantics, and separate legacy/shared readers) is complete at
+7/7 steps** — see the Phase 3 Task 1 section below. Phase 3 Tasks 2-9 and Phase 4 (schema/CI
+contract and safe release) have not started. Two design-bound findings from the Phase 2 closeout
+feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
+claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
+Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
@@ -3355,14 +3358,55 @@ worktree overlay lock). The production interlock is unchanged: every production
 Apply/rollback/retirement still returns `safety-protocol-upgrade-required`, and no live root was
 touched by any of this work.
 
+## Phase 3 Task 1 (2026-09-13): lock 3 freeze verified, artifact graph pinned, separate readers
+
+Phase 3 opened with Task 1 (freeze environment lock 3, consume env-build 3, and complete the
+shared-state transition semantics), completed at 7/7 steps. New work: `tests/harness-authority.tests.ps1`
+(157 assertions, 11.4 s measured against its new 300 s suite budget) with an emitter-derived lock graph (a real environment is materialized
+in an isolated fake repository), the state/claims graph, the frozen sync-plan authority branches,
+and the registered `harness-env-lock` contract (5 graph negatives, all Schema-layer). Production
+change: `Read-LegacyHarnessEnvState` (`scripts/harness-env-common.ps1`) reads only the repo-local
+schema 2 evidence with exact bytes and `MISSING`/`CORRUPT`/`VALID` status, and `Read-HomeAuthorityState`
+(`scripts/shared-authority-state-common.ps1`) read-only validates the ControlBase schema 3 state and
+its separate claims with `ClaimsStatus`/`StateStatus`/`PairStatus`; the legacy display reader is
+unchanged, and neither reader can see the other's locator family.
+
+Verification: the new suite 157/157 (including the exhaustive 64-combination pair-status matrix);
+`harness-env` 112/112; `sync` PASS; `home-authority` PASS; `test-runner` PASS; artifact validation
+29 contracts / 29 positives / 118 negatives, zero failures; seams re-pinned twice, finally to
+reflection-sensitive 14780 / digest
+`955df89694c4f60d13855e8664ce82802dcde6f7c2ab063f8017c49ce5dc6a34`, and 56/56; parse gate 168
+files; secret scan clean; `git diff --check` clean. Implementation commits:
+`8f75dda` (readers, suite, seams re-pin), `b9b00d0` (lock contract), `29e3607` (content-bound lock
+assertions), `a8f2981` (reader rationale comment), `d7fe10f` (bounded-review fixes and the second
+seams re-pin), `fa53b7c` (explicit suite budget). A bounded independent review of the delta returned nine findings with no P0/P1; the
+mis-classification of a missing schema validator, the missing directory-key binding, the accepted
+UNC ControlBase, the legacy reader's lossy casts, and the test gaps were all fixed in `d7fe10f`,
+with the remaining validator-process and reparse-point behaviours recorded as boundaries.
+
+The unified regression over the full suite catalog (launched 2026-09-13T13:31:12Z, before the bounded
+review fixes landed) reported `Test summary: PASS; discovered=39; passed=39; failed=0;
+timed-out=0` in 7859.7 s; its external summary SHA-256 is
+`a389aa306686483bf59ab9c596b83905973823b1c037370cf2d2e3857c1c0364` (deleted after this record) with
+a post-run mtime of 2026-09-13T15:42:11Z. The tree moved during the run: the production and test
+changes in the review fixes are additive for the modules the earlier suites exercise (verified zero
+deletions across both production files), and every affected suite was re-run standalone on the
+frozen tree afterwards (authority 157/157 including the pair-status matrix, harness-env 112/112,
+home-authority PASS, seams 56/56 at the final 14780 pin, artifact validation PASS, test-runner
+PASS, parse gate 168 files, secret scan clean, `git diff --check` clean). The frozen-tree definitive
+pass for the whole Phase 3 remains with the Task 9 checkpoint. Task closeout feedback loop: the
+verification-as-pinned-assertions method was contributed upstream (`harness-model` `44b6b03`) and
+re-imported into `docs/ZCODE.md`. Production interlock is unchanged, and no real home, ControlBase,
+legacy state, or live root was touched.
+
 ## Remaining roadmap snapshot
 
 **Phase 2 is complete (52 of 52 steps accounted for: Tasks 1-9 all closed; the one proof that
 could not execute — Task 6 Step 5's cross-authority overlapping-roots — is recorded as a Phase
-3-bound finding rather than an open step).** Phase 3 shared environment authority and task-overlay
-work, followed by the Phase 4 schema/CI contract and safe release, remain downstream and have not
-started. Before future environment planning, rebuild the stale commit-bound environment staging
-locks; this does not authorize Apply.
+3-bound finding rather than an open step).** **Phase 3 is in progress: Task 1 is complete (7/7
+steps; Phase 3 overall 7/47 across Tasks 2-9).** Phase 4 schema/CI contract and safe release remains
+downstream and has not started. Before future environment planning, rebuild the stale commit-bound
+environment staging locks; this does not authorize Apply.
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -3372,13 +3416,24 @@ locks; this does not authorize Apply.
 | Task 8 | 0/4 | Complete as pin-able (Step 1 mid-flight zero-wait matrix, Step 2 zero-wait-by-design boundary, Step 3 the Task 6 failpoint matrix, Step 4 the transition rejection plus the recorded cross-authority finding) |
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
-The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 shared
-environment authority and task-overlay work, followed by the Phase 4 schema/CI contract and safe
-release, remain downstream and have not started.
+The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
+that order — Task 1 is complete (7/7 steps) and Tasks 2-9 remain — and the Phase 4 schema/CI
+contract and safe release remain downstream and have not started. The Phase 3 plan and its per-task
+step lists are in
+[`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
 
 ## Next actions
 
-1. **Phase 2 live-safety hardening is complete** (Tasks 1-9; see the closeout section above for
+1. **Phase 3 Task 1 is complete** (7/7 steps; see the Phase 3 Task 1 section above). New production
+   surface is read-only: `Read-LegacyHarnessEnvState` and `Read-HomeAuthorityState`; the artifact
+   graph and frozen branch sets are pinned in `tests/harness-authority.tests.ps1`, and the
+   `harness-env-lock` contract is registered. Tasks 2-9 of
+   [`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
+   are next, starting with Task 2 (authority-aware read-only status, list/status v2). The
+   authoritative, itemised record lives in
+   [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
+   "Pending items (2026-09-13, after Phase 3 Task 1)".
+2. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,
    `2944a98` the rollback receipt producer kind, `365f8d3` Task 7 Steps 3-4 the executed rollback
@@ -3390,20 +3445,20 @@ release, remain downstream and have not started.
    authorities commit on a shared custom root today) and the rollback execution's production
    caller (the Phase 3 worktree overlay lock). The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after the Phase 2 closeout)".
-2. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
+   "Pending items (2026-09-13, after Phase 3 Task 1)".
+3. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; the
    recovery-side worktree overlay lock waits for the Phase 3 worktree overlay primitive; and the
    `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the production host is
    child-killable. The engine's per-target drift protection is hash-based; the rollback plan's
    `Current` identity binding is recorded as not enforced by the existing ladder.
-3. The stale commit-bound `minimal`, `work`, and `full` staging locks were rebuilt on 2026-09-13
+4. The stale commit-bound `minimal`, `work`, and `full` staging locks were rebuilt on 2026-09-13
    (all three report `staging=built lock=valid` under the current HEAD; the generated `envs/`
    artifacts are gitignored machine-local state). This is artifact preparation only and does not
    authorize environment Apply.
-4. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
-5. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+5. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
+6. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.

@@ -1,15 +1,17 @@
 # Live Safety Hardening
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
-subplan is complete (43/43), and Phase 1 is complete (44/44). The corrected privacy rewrite is
-published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side garbage
-collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no longer served.
-Phase 2 Tasks 1-5 (6/6, 7/7, 7/7, 7/7, 6/6) are complete, and Task 6 Step 1 (read-only recovery
-status locator) is complete (Phase 2 overall 34/52), while Phases 3-4 have not started. The Task 5
-close-out evidence lives in the repository `STATUS.md` 2026-09-10 records; this per-task record was
-last written through Task 4 and now resumes with Task 6.
+subplan is complete (43/43), Phase 1 is complete (44/44), and Phase 2 is complete (52/52: Tasks 1-9,
+with the one cross-authority proof recorded as a Phase 3-bound finding). The corrected privacy
+rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
+garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
+longer served. Phase 3 (shared environment authority and task overlay) has started: Task 1
+(environment lock 3 freeze, env-build 3 consumption, and shared-state transition semantics) is
+complete at 7/7 steps, Phase 3 overall 7/47 across Tasks 1-9 (7+5+4+5+4+8+5+4+5). The Task 5 and
+Task 9 close-out evidence lives in the repository `STATUS.md` records; this per-task record resumes
+with Phase 3 Task 1.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 
@@ -1761,15 +1763,117 @@ Phase 2 live-safety hardening are complete**: Tasks 1-9 all closed, with the two
 design-bound items (the cross-authority root-claim overlap rejection and the rollback execution's
 production caller) assigned to the Phase 3/4 boundaries, and the production interlock unchanged.
 
-## Pending items (2026-09-13, after the Phase 2 closeout)
+## Phase 3 Task 1 (2026-09-13): lock 3 freeze verified, artifact graph pinned, separate legacy/shared readers
 
-**Phase 2 (Tasks 1-9) is complete.** The remaining items are design-bound or downstream:
+Step 1 (artifact graph tests): created `tests/harness-authority.tests.ps1` (157 assertions after the
+review fixes; measured 11.4 s locally, and given an explicit 300 s suite budget alongside the other
+subprocess-heavy suites rather than the 120 s default). The lock graph
+is emitter-derived: a real environment is materialized in an isolated fake repository and the emitted
+`env.lock.json`/`env-build.json` are inspected directly.
+It asserts the lock carries exactly the frozen schema 3 field set, validates against
+`schemas/harness-env-lock.schema.json`, covers all three platforms in every hash/task map, binds its
+manifest, staged-tree, source, built-file and profile-output hashes to the real files, carries no
+self `LockHash` and no plan/receipt/journal/state hash field, and that the build sidecar binds the
+exact emitted lock bytes (sidecar→lock only; the lock never references the sidecar). The state-graph
+section asserts a schema-valid state carries exactly its branch key set, stores no
+`AuthorityStateHash`/`StateHash`/`TargetContextIntent`/`LockHash`, binds the exact claims bytes
+(`RootClaimsHash` = SHA-256 of the claims file), binds its own `FinalTargetContextHash` projection,
+and that the registered `self-hash`, `target-intent`, and `final-target-hash` negatives stay
+registered at the Schema layer.
 
-1. **Phase 3 shared environment authority and task-overlay work** — not started. Two recorded
-   findings feed its design: the cross-authority root-claim overlap rejection requires a
-   machine-wide claim store (both authorities commit on a shared custom root today — see the
-   Task 8 Step 4 finding), and the rollback execution composition's production caller waits for
-   the Phase 3 worktree overlay lock primitive.
+Step 2 (freeze lock schema 3): verified, no shape change. The schema already requires the complete
+semantic field set with `additionalProperties: false`, so no self hash or graph-forward reference is
+representable; the new emitter-derived assertions pin that behaviour.
+
+Step 3 (Phase 2 materialization producer): verified through the harness-env suite (112 assertions,
+`staging=built`/empty-root/status transitions) plus emitter-derived v3 negatives in the new suite
+(mutated sidecar `SchemaVersion=2` → `env-build-schema-unsupported`; removed Reasonix root →
+`env-build-missing-platform-root`; drifted `MaterializationHash` → `env-build-hash-mismatch`) and an
+empty-Reasonix-subset emission (root exists, `FileCount` 0, lock still schema 3).
+
+Step 4 (discriminated shared-state branches): verified, no shape change. The new suite pins the
+state schema's three branches: the initial branch requires ReceiptId/ReceiptHash and pins named
+`full`, the receipt-bearing branch enumerates exactly
+`environment|task-overlay|migrate|adopt|repair-adopt|retirement|environment-rollback`,
+`controller-transition` requires `ReceiptRef=NO_LIVE_MUTATION` and forbids receipt id/hash, and no
+`live-recover-*` kind is a committed-state branch. `tests/home-authority.tests.ps1` (its schema and
+branch sections) stays green.
+
+Step 5 (frozen authority plan branches): verified. The new suite pins the sync-plan operation-kind
+enum and the fixed evidence fields of the four authority branches: migrate
+(`LegacyLocator`/`LegacyHash`/`LegacyCoreHash`/`OldLockHash`), adopt (`LegacyEvidence`),
+repair-adopt (`StateEvidence`), controller-transition (`ControllerParity`); `environment-rollback`
+and every `live-recover-*` kind are asserted absent from sync-plan. No new authority plan is emitted
+by this task.
+
+Step 6 (separate legacy/shared readers): implemented. `Read-LegacyHarnessEnvState`
+(`scripts/harness-env-common.ps1`) captures the exact bytes of the repo-local schema 2 evidence only,
+returning `MISSING`/`CORRUPT`/`VALID` plus bytes/hash/document; it never reads or writes the shared
+ControlBase state or claims and never deletes or moves the legacy file. `Read-HomeAuthorityState`
+(`scripts/shared-authority-state-common.ps1`) reads only
+`ControlBase/homes/<HomeAuthorityKey>/{root-claims.json,current-env.json}` through the no-follow
+exact-byte capture, validates each artifact with its schema and semantics, and reports
+`ClaimsStatus`/`StateStatus`/`PairStatus` (`VALID`/`MISMATCH`/`MISSING`/`CORRUPT`) without taking a
+lock; the existing loose `Read-HarnessEnvState` display reader is unchanged so legacy consumers keep
+their current behaviour until the Task 6/7 retrofit. The new suite covers both readers end to end
+(missing/claims-only/valid/mismatch/corrupt cases, key-spelling rejection, zero-byte-change
+snapshots, and mutual blindness between the two locator families).
+
+Step 7 (verification): the new suite's state/lock sections pass (157/157, exit 0, including the
+exhaustive 64-combination pair-status matrix); `harness-env`
+112/112, `sync` PASS, `home-authority` PASS, `test-runner` PASS; registered artifact validation
+passed 29 contracts / 29 positives / 118 negatives with zero failures (the new `harness-env-lock`
+contract adds 5 graph negatives, all failing at the Schema layer); the production seams inventory
+was re-pinned twice for the new modules (finally reflection-sensitive sites 14780, digest
+`955df89694c4f60d13855e8664ce82802dcde6f7c2ab063f8017c49ce5dc6a34`) and the seams suite is 56/56;
+parse gate 168 files; secret scan clean; `git diff --check` clean. The unified regression over the
+full suite catalog (launched before the bounded-review fixes) reported
+`Test summary: PASS; discovered=39; passed=39; failed=0; timed-out=0` in 7859.7 s, external summary
+SHA-256 `a389aa306686483bf59ab9c596b83905973823b1c037370cf2d2e3857c1c0364` (deleted after the record),
+mtime 2026-09-13T15:42:11Z. The production and test changes in the review fixes are additive for the
+modules the earlier suites exercise (zero deletions across both production files), and every affected
+suite was re-run standalone on the frozen tree afterwards (see the Step 7 line above and the review
+paragraph below), so the pass transfers to the frozen tree; the whole-phase definitive pass stays
+with the Task 9 checkpoint.
+
+Review (bounded, read-only, implementation stage): a bounded independent review of the Task 1 delta
+(5 files, ≤10 findings, each with severity and a triggering scenario) returned nine findings with no
+P0/P1 and no defect in the registered lock contract or its fixtures. Disposition in `d7fe10f`: a
+missing pinned schema validator was mis-classified as CORRUPT (healthy evidence could route to
+repair-adopt) and now reports UNAVAILABLE; the directory key is bound to the claims document so a
+copied pair under a foreign key is MISMATCH; a UNC ControlBase is rejected; the legacy reader's lossy
+casts no longer accept `"2"`/non-string names, it carries an `Error`, and its byte read is guarded;
+the reader contract now states that "no lock" means no authority lock with no writes under
+ControlBase or the repository (schema validation does run the pinned validator as a child process
+with its own lease and temp files); and the test gaps were closed (inner hash-map key sets, the
+identity-drift MISMATCH half, the claims/state status-matrix cases, four tautological assertions, a
+dead variable). Residual boundaries recorded rather than fixed: a transient pinned-validator process
+failure still classifies as CORRUPT with its `Error` text (the availability pre-check covers the
+not-installed case), and the legacy reader follows reparse points because it deliberately stays
+outside the sealed json-artifact layer while the migration plan revalidates location and identity
+under its locks.
+
+Implementation commits: `8f75dda` the two readers plus the suite and the seams re-pin,
+`b9b00d0` the `harness-env-lock` contract and its five graph negatives, `29e3607` the content-bound
+lock assertions, `a8f2981` the legacy-reader rationale comment, `d7fe10f` the bounded-review fixes
+and the second seams re-pin (14771 → 14780).
+
+Production interlock is unchanged; no real home, ControlBase, legacy state, or live root was
+touched, and no plan/Apply surface was added. Task closeout feedback loop: the upstream check (see
+`docs/ZCODE.md`, sixth closeout) contributed the verification-as-pinned-assertions method to
+`harness-model` as `44b6b03` and re-imported its clause into this project's rule entry.
+
+## Pending items (2026-09-13, after Phase 3 Task 1)
+
+**Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are
+design-bound or downstream:
+
+1. **Phase 3 Tasks 2-9** — not started. Task 2 (authority-aware read-only status, list/status v2)
+   consumes the new readers; the two recorded design findings still feed the phase: the
+   cross-authority root-claim overlap rejection requires a machine-wide claim store (both
+   authorities commit on a shared custom root today — see the Task 8 Step 4 finding), and the
+   rollback execution composition's production caller waits for the Phase 3 worktree overlay lock
+   primitive.
 2. **Phase 4 schema/CI contract and safe release** — not started. Until the interlock is released,
    every production Apply/rollback/retirement returns `safety-protocol-upgrade-required`, and the
    rollback entry's validated Apply tail fails closed with
