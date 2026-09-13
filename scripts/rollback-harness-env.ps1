@@ -20,9 +20,9 @@
     the origin identity and overlay-lock support checks. DryRun derives and
     writes the schema-1 environment-rollback plan; Apply validates the
     reviewed plan fail-closed. Every disagreement fails closed with its
-    reviewed token. The transition itself is wired in the remaining Task 7
-    slices, so a validated Apply currently fails closed with
-    live-rollback-dispatch-not-wired.
+    reviewed token. The transition itself requires the worktree overlay lock
+    (Phase 3), so a validated Apply currently fails closed with
+    worktree-overlay-lock-not-implemented.
 #>
 [CmdletBinding(DefaultParameterSetName = 'DryRun')]
 param(
@@ -52,7 +52,6 @@ $ErrorActionPreference = 'Stop'
 
 $script:RollbackHostResolutionRequired = 'live-plan-host-resolution-required'
 $script:RollbackAuthorityMissing = 'live-plan-authority-missing'
-$script:RollbackNotWired = 'live-rollback-dispatch-not-wired'
 $script:RollbackReceiptMissing = 'rollback-receipt-missing'
 $script:RollbackReceiptIncomplete = 'rollback-receipt-not-complete'
 $script:RollbackReceiptTampered = 'rollback-receipt-tampered'
@@ -664,12 +663,17 @@ try {
             }
 
             # Apply validates the reviewed plan against this exact invocation
-            # before the not-yet-wired transition stub.
+            # before the transition. The execution itself requires the
+            # worktree overlay lock in the reviewed order, and the lock-order
+            # primitive refuses REQUIRED applicability until the Phase 3
+            # primitive exists — so the transition stays fail-closed here and
+            # Invoke-SealedEnvironmentRollbackTransaction gains its production
+            # caller when that primitive lands.
             $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planFull, [System.Text.UTF8Encoding]::new($false, $true)))
             $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $PSScriptRoot '../schemas/rollback-plan.schema.json') -InstancePath $planFull
             Test-RollbackPlanSemantics -Document $planDocument
             Assert-RollbackPlanInvocationMatch -PlanDocument $planDocument -ReceiptDocument $receiptDocument -HomeAuthorityKey ([string] $authorityContext.HomeAuthorityKey)
-            throw $script:RollbackNotWired
+            throw $script:RollbackOverlayLockUnsupported
         }
         finally {
             if ($null -ne $globalLock) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }

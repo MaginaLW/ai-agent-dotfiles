@@ -1207,6 +1207,210 @@ function Invoke-SealedLiveTransactionMutation {
 }
 
 # ---------------------------------------------------------------------------
+# Environment rollback execution (roadmap Task 7 Steps 3-4)
+# ---------------------------------------------------------------------------
+
+function Invoke-SealedEnvironmentRollbackTransaction {
+    # Executes a reviewed, invocation-validated environment-rollback plan as a
+    # NEW original receipt-backed transaction. The caller holds the reviewed
+    # origin canonical -> worktree overlay -> global lock order and has
+    # revalidated the plan and the current surface under those locks; the
+    # rollback entry's Apply path reaches this only after the worktree overlay
+    # lock primitive exists (Phase 3), so until then the direct tests are the
+    # reviewed verification surface.
+    #
+    # Step 3: the pre-rollback receipt snapshots the exact live bytes every
+    # plan target is about to change plus the current authority state and the
+    # immutable claims; its ReceiptIntent is the rollback's own header slot.
+    # Any drift between the plan's derived Current bindings and the live tree
+    # fails the receipt producer before any mutation.
+    # Step 4: the plan's Targets map onto the engine's add/update/prune ladder
+    # (equal Current/Candidate rows are no-ops), the restore copies stage from
+    # the source activation's receipt snapshots, the state intent is the
+    # plan's RollbackStateIntent completed with this plan's hashes, and the
+    # capability evidence comes from the current state's bound
+    # FinalResolvedIdentities — the current surface is proven equal to that
+    # terminal before this function runs. The context rows are projected from
+    # those same final identities, which the reviewed state-vs-claims
+    # validators pin to the immutable claims; the claims bytes themselves are
+    # still proven unchanged through RootClaimsHash before any mutation.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $PlanDocument,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $SourceReceiptDocument,
+        [Parameter(Mandatory)] [string] $SourceReceiptPath,
+        [Parameter(Mandatory)] [string] $ControlBase,
+        [Parameter(Mandatory)] [string] $BackupRoot,
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string] $ClaimsPath,
+        [Parameter(Mandatory)] [string] $StatePath,
+        [Parameter(Mandatory)] [string] $LiveTransactionsRoot,
+        [Parameter(Mandatory)] $GitContext,
+        [Parameter(Mandatory)] [string] $RepoId,
+        [Parameter(Mandatory)] [string] $CanonicalLockKey
+    )
+
+    $mismatch = $script:LiveTransactionIntentMismatch
+    $null = Test-RollbackPlanSemantics -Document $PlanDocument
+    $payload = [System.Collections.IDictionary] $PlanDocument['PlanPayload']
+    if ([string] $payload['PlanKind'] -cne 'environment-rollback') { throw $mismatch }
+    if ([string] $payload['ReceiptId'] -cne [string] $SourceReceiptDocument['ReceiptId'] -or
+        [string] $payload['ReceiptHash'] -cne [string] $SourceReceiptDocument['ReceiptHash'] -or
+        [string] $payload['SourceTransactionId'] -cne [string] $SourceReceiptDocument['SourceTransactionId']) { throw $mismatch }
+
+    $rollbackIntent = [System.Collections.IDictionary] $payload['RollbackStateIntent']
+    $stateIntent = [ordered]@{}
+    foreach ($name in @([string[]] $script:AuthorityStateIntentFieldNames)) {
+        if ($name -ceq 'PlanHash') { $stateIntent[$name] = [string] $PlanDocument['PlanHash']; continue }
+        if ($name -ceq 'DocumentHash') { $stateIntent[$name] = [string] $PlanDocument['DocumentHash']; continue }
+        if (-not (Test-LiveTransactionMapHasName -Map $rollbackIntent -Name $name)) { throw $mismatch }
+        $stateIntent[$name] = $rollbackIntent[$name]
+    }
+
+    $claimsBytes = [System.IO.File]::ReadAllBytes($ClaimsPath)
+    $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
+    if ([string] $stateIntent['RootClaimsHash'] -cne $claimsHash) { throw $mismatch }
+    $stateBytes = [System.IO.File]::ReadAllBytes($StatePath)
+    $currentState = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([byte[]] $stateBytes))
+
+    $liveRootsByPlatform = [ordered]@{}
+    $capabilityByPlatform = [ordered]@{}
+    foreach ($identityRow in @([object[]] $currentState['FinalResolvedIdentities'])) {
+        $liveRootsByPlatform[[string] $identityRow['Platform']] = [string] $identityRow['ResolvedPath']
+        $capabilityByPlatform[[string] $identityRow['Platform']] = [string] $identityRow['FilesystemCapabilityHash']
+    }
+
+    # Map the plan's restore rows onto the engine's add/update/prune ladder.
+    $actions = [System.Collections.Generic.List[object]]::new()
+    $receiptTargetsByPlatform = [ordered]@{
+        Claude = [System.Collections.Generic.List[object]]::new()
+        Codex = [System.Collections.Generic.List[object]]::new()
+        Reasonix = [System.Collections.Generic.List[object]]::new()
+    }
+    foreach ($row in @([object[]] $payload['Targets'])) {
+        $rowMap = [System.Collections.IDictionary] $row
+        $platform = [string] $rowMap['Platform']
+        $name = [string] $rowMap['Name']
+        $current = [System.Collections.IDictionary] $rowMap['Current']
+        $candidate = [System.Collections.IDictionary] $rowMap['Candidate']
+        $currentPresent = [string] $current['State'] -ceq 'PRESENT'
+        $candidatePresent = [string] $candidate['State'] -ceq 'PRESENT'
+        if (-not $currentPresent -and -not $candidatePresent) { throw $mismatch }
+        if ($currentPresent) {
+            $receiptTargetsByPlatform[$platform].Add([ordered]@{
+                Name = $name
+                LivePath = [string] $rowMap['TargetPath']
+                PlannedTreeHash = [string] $current['Hash']
+            })
+            if ($candidatePresent) {
+                if ([string] $current['Hash'] -ceq [string] $candidate['Hash']) { continue }
+                $actions.Add([ordered]@{ Platform = $platform; Action = 'update'; Name = $name; SourceHash = [string] $candidate['Hash']; LiveHash = [string] $current['Hash'] })
+            }
+            else {
+                $actions.Add([ordered]@{ Platform = $platform; Action = 'prune'; Name = $name; SourceHash = $null; LiveHash = [string] $current['Hash'] })
+            }
+        }
+        else {
+            $actions.Add([ordered]@{ Platform = $platform; Action = 'add'; Name = $name; SourceHash = [string] $candidate['Hash']; LiveHash = $null })
+        }
+    }
+
+    $receiptPlatforms = [System.Collections.Generic.List[object]]::new()
+    $stagingRootsByPlatform = [ordered]@{}
+    $stagingBase = Join-Path $HomeRoot '.ai-agent-dotfiles-staging'
+    $liveRootContexts = [System.Collections.Generic.List[object]]::new()
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $liveRoot = [string] $liveRootsByPlatform[$platform]
+        $stagingRoot = [System.IO.Path]::GetFullPath((Join-Path $stagingBase $platform))
+        New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
+        $stagingRootsByPlatform[$platform] = $stagingRoot
+        $receiptPlatforms.Add([ordered]@{
+            Platform = $platform
+            LiveRoot = $liveRoot
+            Targets = @([object[]] $receiptTargetsByPlatform[$platform])
+        })
+        $liveRootContexts.Add([ordered]@{
+            Platform = $platform
+            LiveRoot = $liveRoot
+            DeepestExistingParentPath = $liveRoot
+            MissingRemainder = @()
+            StagingRoot = $stagingRoot
+        })
+    }
+    $stateRecoveryDirectory = Join-Path ([string] $stagingRootsByPlatform['Claude']) 'state-recovery'
+
+    $transactionId = [Guid]::NewGuid().ToString()
+    $receiptId = [Guid]::NewGuid().ToString()
+    $receiptPath = Join-Path $BackupRoot $receiptId
+    $journalDirectory = Join-Path $LiveTransactionsRoot $transactionId
+    $header = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-journal-header'
+        TransactionId = $transactionId
+        OperationKind = 'environment-rollback'
+        TransactionMode = 'receipt-backed'
+        OriginalDocumentHash = [string] $PlanDocument['DocumentHash']
+        OriginalPlanHash = [string] $PlanDocument['PlanHash']
+        HomeAuthorityKey = [string] $payload['HomeAuthorityKey']
+        OriginRepoId = $RepoId
+        GitCommonDirHash = [string] $GitContext.GitCommonDirHash
+        CanonicalLockKey = $CanonicalLockKey
+        RootClaimsHash = $claimsHash
+        ReceiptIntent = [ordered]@{ Id = $receiptId; Path = $receiptPath }
+        Targets = @()
+    }
+    New-SealedLiveJournalHeader -Document $header -TransactionDirectory $journalDirectory | Out-Null
+
+    $executionContextHash = Get-SemanticJsonHash -InputObject ([ordered]@{
+        RepoRoot = [string] $GitContext.RepoRoot
+        HomeAuthorityKey = [string] $payload['HomeAuthorityKey']
+        OperationKind = 'environment-rollback'
+        ControlBase = $ControlBase
+    })
+    $controlBaseHash = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = $ControlBase })
+    $filesystemCapabilityHash = Get-SemanticJsonHash -InputObject $capabilityByPlatform
+    $receipt = Invoke-SealedManagedBackupReceipt -ReservationIntent ([ordered]@{
+        TransactionId = $transactionId
+        ReceiptId = $receiptId
+        ReceiptPath = $receiptPath
+    }) -SourceOperationKind 'environment-rollback' -PlanHash ([string] $PlanDocument['PlanHash']) -DocumentHash ([string] $PlanDocument['DocumentHash']) -ExecutionContextHash $executionContextHash -ControlBaseHash $controlBaseHash -FilesystemCapabilityHash $filesystemCapabilityHash -HomeAuthorityKey ([string] $payload['HomeAuthorityKey']) -BackupRoot $BackupRoot -Platforms $receiptPlatforms.ToArray() -AuthorityStatePath $StatePath -RootClaimsPath $ClaimsPath -ForbiddenRoots @($ControlBase)
+
+    $sourceRootsByPlatform = [ordered]@{}
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $sourceRootsByPlatform[$platform] = Join-Path (Join-Path $SourceReceiptPath 'snapshot') $platform.ToLowerInvariant()
+    }
+    $engineTargets = New-SealedLiveTransactionTargetPlan -BackupRoot $BackupRoot -ReceiptIntent $header['ReceiptIntent'] -Platforms $receiptPlatforms.ToArray() -Actions $actions.ToArray() -LiveRootContexts $liveRootContexts.ToArray()
+    $contextRows = [System.Collections.Generic.List[object]]::new()
+    foreach ($identityRow in @([object[]] $currentState['FinalResolvedIdentities'])) {
+        $contextRows.Add([ordered]@{
+            Platform = [string] $identityRow['Platform']
+            LocationKey = [string] $identityRow['LocationKey']
+            RequestedPath = [string] $identityRow['ResolvedPath']
+            InitialState = 'EXISTS'
+            VolumeId = [string] $identityRow['VolumeId']
+            DeepestExistingParentPath = [string] $identityRow['ResolvedPath']
+            DeepestExistingParentIdentity = [string] $identityRow['DirectoryIdentity']
+            MissingRemainder = @()
+            InitialDirectoryIdentity = [string] $identityRow['DirectoryIdentity']
+            ExpectedPostState = 'EXISTS'
+        })
+    }
+    $targetContextIntent = [ordered]@{ HomeAuthorityKey = [string] $payload['HomeAuthorityKey']; Rows = @($contextRows) }
+    $mutation = Invoke-SealedLiveTransactionMutation -TransactionDirectory $journalDirectory -Header $header -Receipt $receipt -Targets $engineTargets -SourceRootsByPlatform $sourceRootsByPlatform -AuthorityStateIntent $stateIntent -TargetContextIntent $targetContextIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $ControlBase -StateRecoveryDirectory $stateRecoveryDirectory
+
+    return [pscustomobject][ordered]@{
+        TransactionId = $transactionId
+        ReceiptId = $receiptId
+        ReceiptPath = [string] $receipt['ReceiptPath']
+        ReceiptHash = [string] $receipt['ReceiptHash']
+        JournalDirectory = $journalDirectory
+        StateHash = [string] $mutation.StateHash
+        ResultHash = [string] $mutation.ResultHash
+        PostconditionsHash = [string] $mutation.PostconditionsHash
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Reverse restoration (pre-commit-boundary failure path)
 # ---------------------------------------------------------------------------
 

@@ -56,7 +56,7 @@ try {
         'rollback-source-transaction-unfinished', 'rollback-source-outcome-unsupported',
         'rollback-source-receipt-mismatch', 'rollback-state-drift', 'rollback-overlay-drift',
         'rollback-live-root-drift', 'rollback-plan-missing', 'rollback-plan-mismatch',
-        'worktree-overlay-lock-not-implemented', 'live-rollback-dispatch-not-wired'
+        'worktree-overlay-lock-not-implemented'
     )
     foreach ($token in $reviewedTokens) {
         Assert ($rollbackSource.Contains($token)) "the rollback entry pins the reviewed '$token' failure token"
@@ -213,11 +213,11 @@ Write-Host 'rollback sandbox authority bootstrap complete'
     # repository before any receipt evidence is interpreted.
     $insideRepoPlan = Join-Path $RepoRoot 'rollback-plan-inside-repo.json'
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', $environmentReceipt, '-DryRun', '-PlanPath', $insideRepoPlan)
-    Assert ($r.Code -ne 0 -and $r.Out -notmatch 'live-rollback-dispatch-not-wired') 'a plan path inside the repository is rejected by the shared artifact-path table'
+    Assert ($r.Code -ne 0 -and $r.Out -match 'must be disjoint from worktree') 'a plan path inside the repository is rejected by the shared artifact-path table'
     Assert (-not (Test-Path -LiteralPath $insideRepoPlan)) 'the rejected plan path is never written'
     $insideRepoJson = Join-Path $RepoRoot 'rollback-report-inside-repo.json'
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', $environmentReceipt, '-DryRun', '-PlanPath', $absentPlan, '-JsonPath', $insideRepoJson)
-    Assert ($r.Code -ne 0 -and $r.Out -notmatch 'live-rollback-dispatch-not-wired') 'a report path inside the repository is rejected by the shared artifact-path table'
+    Assert ($r.Code -ne 0 -and $r.Out -match 'must be disjoint from worktree') 'a report path inside the repository is rejected by the shared artifact-path table'
     Assert (-not (Test-Path -LiteralPath $insideRepoJson)) 'the rejected report path is never written'
 
     # A plan path that already exists is a DryRun collision before the
@@ -707,6 +707,85 @@ Write-Host ('SOURCE_GRAPH ' + (ConvertTo-Json -InputObject $graph -Depth 6 -Comp
     Assert ([string] $addedRow['Current']['State'] -ceq 'PRESENT' -and [string] $addedRow['Candidate']['State'] -ceq 'MISSING') 'the installed add target is bound for removal'
     Assert ([string] $prunedRow['Current']['State'] -ceq 'MISSING' -and [string] $prunedRow['Candidate']['State'] -ceq 'PRESENT') 'the pruned target is bound for restoration from its snapshot'
     Assert (@($derivedTargets | ForEach-Object { [string] (([System.Collections.IDictionary] $_)['TargetId']) } | Sort-Object -Unique).Count -eq 3) 'the restore rows carry unique target identities'
+
+    Write-Host '[environment rollback execution]'
+    # The execution runs as a directly invoked reviewed composition (the
+    # entry's Apply tail stays fail-closed on the worktree overlay lock until
+    # the Phase 3 primitive). The eligible plan is executed immediately after
+    # its derivation, while the current surface still matches its bindings.
+    $executionScript = Join-Path $work 'invoke-environment-rollback.ps1'
+    Write-TextFile -Path $executionScript -Content @'
+#requires -Version 7.0
+param(
+    [Parameter(Mandatory)] [string] $RepoRoot,
+    [Parameter(Mandatory)] [string] $PlanPath,
+    [Parameter(Mandatory)] [string] $SourceReceiptPath,
+    [Parameter(Mandatory)] [string] $ControlBase,
+    [Parameter(Mandatory)] [string] $BackupRoot,
+    [Parameter(Mandatory)] [string] $HomeRoot,
+    [Parameter(Mandatory)] [string] $ClaimsPath,
+    [Parameter(Mandatory)] [string] $StatePath,
+    [Parameter(Mandatory)] [string] $LiveTransactionsRoot
+)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
+. (Join-Path $RepoRoot 'scripts/home-authority-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
+. (Join-Path $RepoRoot 'scripts/backup-receipt-common.ps1')
+. (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
+$planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($PlanPath, [System.Text.UTF8Encoding]::new($false, $true)))
+$sourceReceipt = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path $SourceReceiptPath '_meta/receipt.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+$gitContext = Get-CanonicalGitContext -RepoRoot $RepoRoot
+$contractPaths = Get-CanonicalTransactionContractPaths -GitContext $gitContext
+$repoId = Get-CanonicalRepoIdentity -GitContext $gitContext
+$canonicalLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [string] $contractPaths.LockPath })
+$result = Invoke-SealedEnvironmentRollbackTransaction -PlanDocument $planDocument -SourceReceiptDocument $sourceReceipt -SourceReceiptPath $SourceReceiptPath -ControlBase $ControlBase -BackupRoot $BackupRoot -HomeRoot $HomeRoot -ClaimsPath $ClaimsPath -StatePath $StatePath -LiveTransactionsRoot $LiveTransactionsRoot -GitContext $gitContext -RepoId $repoId -CanonicalLockKey $canonicalLockKey
+Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -Compress))
+'@
+    $preExecutionState = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($statePath, [System.Text.UTF8Encoding]::new($false, $true)))
+    $r = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $executionScript -Arguments @(
+        '-RepoRoot', $RepoRoot,
+        '-PlanPath', $eligiblePlan,
+        '-SourceReceiptPath', ([string] $eligibleGraph.ReceiptPath),
+        '-ControlBase', $controlBase,
+        '-BackupRoot', $backupRoot,
+        '-HomeRoot', $authorityHome,
+        '-ClaimsPath', $claimsPath,
+        '-StatePath', $statePath,
+        '-LiveTransactionsRoot', (Join-Path $controlBase 'live-transactions')
+    ) -AuthorityRepoRoot $RepoRoot
+    if ($r.Code -ne 0) { Write-Host '----- rollback execution output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0) 'the derived rollback plan executes end to end'
+    $resultLine = @($r.Out.Split("`n")) | Where-Object { $_.StartsWith('ROLLBACK_RESULT ', [System.StringComparison]::Ordinal) } | Select-Object -First 1
+    if ($null -eq $resultLine) { throw 'FAIL: the rollback execution printed no result line' }
+    $rollbackResult = ConvertFrom-Json -InputObject ([string] $resultLine.Substring('ROLLBACK_RESULT '.Length))
+
+    $graphLiveRoot = Join-Path $authorityHome 'source-graph-custom-reasonix/live'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $graphLiveRoot 'claude/skills/kept/SKILL.md')) -eq 'kept-old-custom-reasonix') 'the update target restores the pre-activation bytes'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $graphLiveRoot 'codex/skills/added-custom-reasonix'))) 'the installed add target is removed from live'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path ([string] $eligibleGraph.ReasonixLiveRoot) 'pruned-custom-reasonix/SKILL.md')) -eq 'pruned-old-custom-reasonix') 'the pruned target is restored from the activation snapshot'
+    $rollbackReceipt = [string] $rollbackResult.ReceiptPath
+    Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath $rollbackReceipt) -ceq 'COMPLETE') 'the pre-rollback receipt publishes a complete slot'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $rollbackReceipt 'snapshot/claude/kept/SKILL.md')) -eq 'kept-new-custom-reasonix') 'the pre-rollback receipt snapshots the pre-rollback live bytes'
+    Assert (Test-Path -LiteralPath (Join-Path $rollbackReceipt 'snapshot/codex/added-custom-reasonix/SKILL.md') -PathType Leaf) 'the pre-rollback receipt snapshots the target that is about to be removed'
+    $postState = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($statePath, [System.Text.UTF8Encoding]::new($false, $true)))
+    $stateBytesHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($statePath))).ToLowerInvariant()
+    Assert ($stateBytesHash -ceq [string] $rollbackResult.StateHash) 'the installed state bytes match the returned StateHash'
+    Assert ([long] $postState['AuthorityGeneration'] -eq ([long] $preExecutionState['AuthorityGeneration'] + 1)) 'the rollback advances the authority generation'
+    Assert ([string] $postState['LastOperationKind'] -ceq 'environment-rollback') 'the restored state carries the rollback operation kind'
+    Assert ((Get-SemanticJsonHash -InputObject $postState['TaskOverlayHash']) -ceq (Get-SemanticJsonHash -InputObject $preExecutionState['TaskOverlayHash'])) 'the restored state keeps the tracked overlay baseline'
+    $rollbackChain = Get-SealedLiveJournalChain -TransactionDirectory ([string] $rollbackResult.JournalDirectory)
+    $null = Test-SealedLiveJournalChain -Header $rollbackChain.Header -Records $rollbackChain.Records -Result $rollbackChain.Result -ResultFileHash $rollbackChain.ResultFileHash
+    Assert $true 'the rollback journal chain validates end to end'
+    Assert ([string] $rollbackChain.Result['Outcome'] -ceq 'committed') 'the rollback transaction publishes a committed result'
+    $rollbackTerminal = @(@($rollbackChain.Records) | Where-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE' })[0]
+    Assert ([string] ([System.Collections.IDictionary] ([System.Collections.IDictionary] $rollbackTerminal['Document'])['Data'])['ClosingKind'] -ceq 'original') 'the rollback closes as a new original transaction'
+    $stalePlan = Join-Path $work 'after-rollback-plan.json'
+    $r = Invoke-GraphRollback -Graph $eligibleGraph -PlanPath $stalePlan
+    Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-state-drift \(state hash\)') 'the executed source receipt is stale after its own rollback'
+    Assert (-not (Test-Path -LiteralPath $stalePlan)) 'the post-rollback staleness rejection writes no plan'
 
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $eligibleGraph.ReceiptPath, '-DryRun', '-PlanPath', $insideRepoPlan)
     Assert ($r.Code -ne 0 -and $r.Out -match 'must be disjoint from worktree') 'a plan path inside the repository is rejected even for an eligible graph'
