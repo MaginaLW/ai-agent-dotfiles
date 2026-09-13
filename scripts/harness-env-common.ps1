@@ -523,6 +523,27 @@ function Get-HarnessEnvLockLiveParity {
     }
 }
 
+function Get-HarnessLegacyEnvCoreHash {
+    <#
+    .SYNOPSIS
+        Semantic hash of the legacy schema 2 migration core.
+
+    .DESCRIPTION
+        The migrate plan binds this exact hash as `LegacyCoreHash`; it covers the
+        core field subset in a fixed order so a later reader can recompute it
+        from the same legacy bytes without re-deriving policy.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Document)
+
+    $core = [ordered] @{}
+    foreach ($name in @('SchemaVersion', 'Name', 'HomeRoot', 'DefinitionHash', 'TaskOverlayHash', 'LockHash', 'RepositoryCommit', 'ManifestHashes', 'TaskOverlaySkills')) {
+        if (-not $Document.Contains($name)) { throw 'legacy-core-field-missing' }
+        $core[$name] = $Document[$name]
+    }
+    return Get-SemanticJsonHash -InputObject $core
+}
+
 function Get-HarnessLegacyEnvAssessment {
     <#
     .SYNOPSIS

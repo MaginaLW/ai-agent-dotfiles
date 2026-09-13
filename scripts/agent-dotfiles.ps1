@@ -80,8 +80,10 @@ $envCommandMap = @{
     build    = 'build-harness-env.ps1'
     activate = 'activate-harness-env.ps1'
     rollback = 'rollback-harness-env.ps1'
+    authority = 'authority-harness-env.ps1'
 }
 $envTaskActions = @('status', 'ensure-skill', 'sync', 'close')
+$envAuthorityActions = @('status', 'migrate', 'adopt', 'repair-adopt', 'takeover')
 
 $configCommandMap = @{
     status = 'config-status.ps1'
@@ -131,7 +133,25 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical', 
 
     $groupAction = ([string]$forwardedArguments[0]).ToLowerInvariant()
     $isEnvTask = $normalizedCommand -eq 'env' -and $groupAction -eq 'task'
-    if ($isEnvTask) {
+    $isEnvAuthority = $normalizedCommand -eq 'env' -and $groupAction -eq 'authority'
+    if ($isEnvAuthority) {
+        if ($forwardedArguments.Count -lt 2 -or $null -eq $forwardedArguments[1]) {
+            Write-Error 'The env authority command requires an action: status, migrate, adopt, repair-adopt, or takeover.' -ErrorAction Continue
+            Write-Usage
+            exit 1
+        }
+        $authorityAction = ([string] $forwardedArguments[1]).ToLowerInvariant()
+        if ($authorityAction -notin $envAuthorityActions) {
+            Write-Error "Unsupported env authority action: $($forwardedArguments[1])" -ErrorAction Continue
+            Write-Usage
+            exit 1
+        }
+        # The authority transitions are plan-bound mutators: the dispatcher
+        # forwards the reviewed spelling and lets the script gate the mode.
+        $targetScriptName = 'authority-harness-env.ps1'
+        $forwardedArguments = @('-Action', $authorityAction) + @($forwardedArguments | Select-Object -Skip 2)
+    }
+    elseif ($isEnvTask) {
         if ($forwardedArguments.Count -lt 2 -or $null -eq $forwardedArguments[1]) {
             Write-Error 'The env task command requires a task action: status, ensure-skill, sync, or close.' -ErrorAction Continue
             Write-Usage
@@ -174,6 +194,7 @@ if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical', 
     }
 
     $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -in @('activate', 'rollback')) -or
+        ($isEnvAuthority -and $authorityAction -ne 'status') -or
         ($isEnvTask -and $taskAction -in @('ensure-skill', 'sync', 'close')) -or
         ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or

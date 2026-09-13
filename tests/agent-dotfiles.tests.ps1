@@ -74,6 +74,18 @@ foreach ($commandArgs in @(
     Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') "rejects implicit canonical mutation: $($commandArgs -join ' ')"
 }
 
+Write-Host 'unified CLI: env authority routing'
+$result = Invoke-Entry -Arguments @('env', 'authority')
+Assert ($result.Code -eq 1 -and $result.Out -match 'requires an action') 'env authority without an action fails with guidance'
+$result = Invoke-Entry -Arguments @('env', 'authority', 'promote')
+Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported env authority action') 'env authority rejects an unsupported action'
+foreach ($authorityAction in @('migrate', 'adopt', 'repair-adopt', 'takeover')) {
+    $result = Invoke-Entry -Arguments @('env', 'authority', $authorityAction, '-Name', 'work')
+    Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') "env authority $authorityAction requires an explicit mode"
+}
+$result = Invoke-Entry -Arguments @('env', 'authority', 'status', '-PlanPath', (Join-Path $fakeHome 'plan.json'))
+Assert ($result.Code -eq 1) 'env authority status rejects transition-only switches'
+
 $dispatcherText = Get-Content -Raw -LiteralPath $entry
 $mergeAdapterCount = ([regex]::Matches($dispatcherText, "merge\s*=\s*'auto-merge-skills\.ps1'")).Count
 Assert ($mergeAdapterCount -eq 2) 'top-level merge and skills merge aliases route to the same fixed merge adapter'

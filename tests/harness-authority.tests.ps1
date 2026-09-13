@@ -1023,6 +1023,244 @@ Assert ($routeViolations -eq 0) "every one of the $combinations fact combination
 Assert ((@($routeCounts.Keys | Sort-Object) -join ',') -ceq (@($routeNextOperations.Keys | Sort-Object) -join ',')) 'the matrix reaches every frozen route'
 Assert ($combinations -eq ($recoveryDomain.Count * $claimsDomain.Count * $stateDomain.Count * $pairDomain.Count * 3 * $lockParityDomain.Count * $legacyDomain.Count * $oldLockDomain.Count * $legacyParityDomain.Count * 2)) 'the matrix enumerates the complete cross product'
 
+# ==============================================================================
+Write-Host 'authority command surface: dispatcher, plan paths, and the four transitions'
+. (Join-Path $RepoRoot 'tests/helpers/safety-sandbox.ps1')
+
+$authorityScript = Join-Path $RepoRoot 'scripts/authority-harness-env.ps1'
+$entryScript = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
+
+function Invoke-AuthorityCli {
+    param(
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [Parameter(Mandatory)] [string] $SandboxRoot,
+        [switch] $Direct
+    )
+    if ($Direct) {
+        # Direct invocation outside the sandbox: the production interlock owns
+        # the outcome and no sandbox capability is present.
+        $out = & pwsh -NoProfile -File $authorityScript @Arguments 2>&1 | Out-String
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+    }
+    $result = Invoke-SafetySandboxScript -SandboxRoot $SandboxRoot -ScriptPath $authorityScript -Arguments $Arguments -AuthorityRepoRoot $RepoRoot
+    return [pscustomobject]@{ Code = $result.Code; Out = $result.Out }
+}
+
+function Invoke-EntryCli {
+    param([Parameter(Mandatory)] [string[]] $Arguments)
+    $out = & pwsh -NoProfile -File $entryScript @Arguments 2>&1 | Out-String
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+}
+
+function Test-AuthorityPlanDocument {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $ExpectedKind
+    )
+
+    . (Join-Path $RepoRoot 'scripts/semantic-json.ps1')
+    . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
+    $schemaRoot = Join-Path $RepoRoot 'schemas'
+    $validation = Test-RepositoryJsonSchema -SchemaPath (Join-Path $schemaRoot 'sync-plan.schema.json') -SchemaRoot $schemaRoot
+    $schemaOk = $true
+    try { $null = Invoke-FixedJsonSchemaValidationBytes -SchemaValidation $validation -InstanceBytes ([System.IO.File]::ReadAllBytes($Path)) -InstancePath 'authority-plan-emitted.json' }
+    catch { $schemaOk = $false; Write-Host "  note  emitted plan failed schema validation: $($_.Exception.Message)" }
+    Assert $schemaOk "$ExpectedKind plan validates against the sync-plan schema"
+    $document = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($Path)))
+    $semanticsOk = $true
+    try { Test-LiveSyncPlanSemantics -Document $document }
+    catch { $semanticsOk = $false; Write-Host "  note  emitted plan failed semantics: $($_.Exception.Message)" }
+    Assert $semanticsOk "$ExpectedKind plan passes the frozen plan semantics"
+    Assert ([string] $document.PlanPayload.OperationKind -ceq $ExpectedKind) "$ExpectedKind plan carries its own operation kind"
+    Assert ([string] $document.PlanPayload.Generator -ceq 'scripts/authority-harness-env.ps1') "$ExpectedKind plan names the authority producer"
+    return $document
+}
+
+# One sandbox hosts the whole command-surface section: the fake controller
+# repository lives inside it so every mutation path stays inside the sandbox.
+$cliWork = Join-Path $work 'authority-cli'
+$cliSandbox = Join-Path $cliWork 'sandbox'
+New-Item -ItemType Directory -Path $cliSandbox -Force | Out-Null
+$cliRepo = New-FakeHarnessRepo -Path (Join-Path $cliSandbox 'repo')
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools') -Destination (Join-Path $cliRepo 'tools') -Recurse -Force
+Set-File -Path (Join-Path $cliRepo 'harness-source/envs/good.psd1') -Content (New-EnvDefinitionText -Name 'good' -ClaudeSkills @('fixture-a', 'fixture-b') -CodexSkills @('fixture-a') -ReasonixSkills @('fixture-a'))
+Set-File -Path (Join-Path $cliRepo 'harness-source/envs/full.psd1') -Content (New-EnvDefinitionText -Name 'full' -ClaudeSkills @('fixture-a', 'fixture-b') -CodexSkills @('fixture-a') -ReasonixSkills @('fixture-a'))
+& git -C $cliRepo add -A 2>&1 | Out-Null
+& git -C $cliRepo -c user.email=fixture@example.invalid -c user.name=fixture commit --quiet -m fixture
+$cliHome = Join-Path $cliSandbox 'home'
+New-ManagedLiveSkill -HomeRoot $cliHome -PlatformKey 'claude' -Name 'existing-local' -Content '# existing'
+$cliControl = Join-Path $cliHome 'AppData/Local/ai-agent-dotfiles/control'
+
+# 1. Dispatcher routing and mode failures.
+$routed = Invoke-EntryCli -Arguments @('env', 'authority')
+Assert ($routed.Code -eq 1 -and $routed.Out -match 'requires an action') 'env authority without an action fails with guidance'
+$badAction = Invoke-EntryCli -Arguments @('env', 'authority', 'promote')
+Assert ($badAction.Code -eq 1 -and $badAction.Out -match 'Unsupported env authority action') 'an unsupported authority action is rejected'
+$noMode = Invoke-EntryCli -Arguments @('env', 'authority', 'adopt', '-Name', 'good')
+Assert ($noMode.Code -eq 1 -and $noMode.Out -match 'explicit -DryRun or -Apply') 'a transition without a mode is rejected'
+$bothModes = Invoke-EntryCli -Arguments @('env', 'authority', 'adopt', '-Name', 'good', '-DryRun', '-Apply', '-PlanPath', (Join-Path $cliSandbox 'both.json'))
+Assert ($bothModes.Code -eq 1 -and $bothModes.Out -match 'only one mode') 'a transition with both modes is rejected'
+$statusWithPlan = Invoke-EntryCli -Arguments @('env', 'authority', 'status', '-PlanPath', (Join-Path $cliSandbox 'x.json'))
+Assert ($statusWithPlan.Code -eq 1 -and $statusWithPlan.Out -match 'neither -Name nor -PlanPath') 'status rejects transition switches'
+$statusRun = Invoke-EntryCli -Arguments @('env', 'authority', 'status')
+Assert ($statusRun.Code -eq 0 -and $statusRun.Out -match 'Authority route:') 'env authority status prints exactly one route'
+
+# 2. Argument and route failures on the transitions.
+$missingName = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'p1.json'), '-RepoRoot', $cliRepo)
+Assert ($missingName.Code -eq 1 -and $missingName.Out -match 'authority-name-required') 'a transition without a name is rejected'
+$missingPlan = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-RepoRoot', $cliRepo)
+Assert ($missingPlan.Code -eq 1 -and $missingPlan.Out -match 'authority-plan-path-required') 'a transition without a plan path is rejected'
+$wrongEvidence = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'p2.json'), '-LegacyStatePath', (Join-Path $cliRepo 'state/current-env.json'), '-RepoRoot', $cliRepo)
+Assert ($wrongEvidence.Code -eq 1 -and $wrongEvidence.Out -match 'authority-argument-unsupported') 'adopt rejects migrate-only evidence switches'
+$switchOnTakeover = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'p3.json'), '-ReasonixLiveSkillsPath', (Join-Path $cliSandbox 'custom'), '-RepoRoot', $cliRepo)
+Assert ($switchOnTakeover.Code -eq 1 -and $switchOnTakeover.Out -match 'authority-argument-unsupported') 'takeover rejects the intended-root switch'
+$routeMismatch = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'p6.json'), '-RepoRoot', $cliRepo)
+Assert ($routeMismatch.Code -eq 1 -and $routeMismatch.Out -match 'authority-route-mismatch') 'a transition that is not the single current route is rejected'
+
+# 3. Plan-path safety: the produced plan must live outside the worktree and Git internals.
+$insideRepo = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $cliRepo 'plan.json'), '-RepoRoot', $cliRepo)
+Assert ($insideRepo.Code -eq 1 -and $insideRepo.Out -match 'disjoint from worktree') 'a plan path inside the worktree is rejected'
+$insideGit = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $cliRepo '.git/plan.json'), '-RepoRoot', $cliRepo)
+Assert ($insideGit.Code -eq 1 -and $insideGit.Out -match 'disjoint from worktree') 'a plan path inside Git internals is rejected'
+
+# 4. The adopt transition produces a validated plan, and Apply is idempotent-free.
+$adoptPlan = Join-Path $cliSandbox 'adopt-plan.json'
+$adopt = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
+if ($adopt.Code -ne 0) { Write-Host "  note  adopt dryrun: $($adopt.Out)" }
+Assert ($adopt.Code -eq 0) 'adopt DryRun succeeds inside the sandbox'
+$adoptDocument = Test-AuthorityPlanDocument -Path $adoptPlan -ExpectedKind 'adopt'
+Assert ([string] $adoptDocument.PlanPayload.LegacyEvidence.Status -ceq 'MISSING') 'adopt without legacy evidence binds MISSING'
+Assert (@($adoptDocument.PlanPayload.ProposedRootClaims.LiveRootClaims).Count -eq 3) 'adopt binds the three proposed root claims'
+Assert (@($adoptDocument.PlanPayload.OrderedActions).Count -gt 0) 'adopt binds the managed install actions'
+Assert (@($adoptDocument.PlanPayload.UnknownMarkers).Count -eq 1) 'adopt records the unknown live directory as a preserved marker'
+$claudeSlot = @($adoptDocument.PlanPayload.Platforms | Where-Object { [string] $_.Platform -ceq 'Claude' })[0]
+Assert ([bool] $claudeSlot.LiveRootExists) 'adopt binds the existing live root as a platform slot'
+$adoptAgain = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
+Assert ($adoptAgain.Code -eq 1 -and $adoptAgain.Out -match 'live-plan-path-collision') 'a second DryRun at the same plan path is refused'
+$applyAdopt = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
+Assert ($applyAdopt.Code -eq 1 -and $applyAdopt.Out -match 'authority-apply-not-wired') 'Apply revalidates the exact plan and stops at the reviewed-composition boundary'
+$applyMismatch = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
+Assert ($applyMismatch.Code -eq 1) 'Apply refuses a plan whose operation kind differs from the action'
+$applyMissing = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', (Join-Path $cliSandbox 'never.json'), '-RepoRoot', $cliRepo)
+Assert ($applyMissing.Code -eq 1 -and $applyMissing.Out -match 'missing') 'Apply refuses a plan path that does not exist'
+$interlockedDirect = Invoke-AuthorityCli -Direct -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
+Assert ($interlockedDirect.Code -eq 1 -and $interlockedDirect.Out -match 'safety-protocol-upgrade-required') 'production Apply stays interlocked outside the approved sandbox'
+
+# 5. Untrusted legacy evidence adopts as UNTRUSTED.
+Set-File -Path (Join-Path $cliRepo 'state/current-env.json') -Content '{"SchemaVersion":2}'
+$untrustedPlan = Join-Path $cliSandbox 'adopt-untrusted-plan.json'
+$untrusted = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-PlanPath', $untrustedPlan, '-RepoRoot', $cliRepo)
+Assert ($untrusted.Code -eq 0) 'adopt succeeds with untrustworthy legacy evidence'
+$untrustedDocument = Test-AuthorityPlanDocument -Path $untrustedPlan -ExpectedKind 'adopt'
+Assert ([string] $untrustedDocument.PlanPayload.LegacyEvidence.Status -ceq 'UNTRUSTED') 'untrustworthy legacy evidence binds UNTRUSTED'
+Remove-Item -LiteralPath (Join-Path $cliRepo 'state/current-env.json') -Force
+
+# 6. Migrate binds the exact legacy core, hash, and old lock.
+$migrateHome = Join-Path $cliSandbox 'home'
+$null = New-LegacyActivationFixture -RepoRoot $cliRepo -HomeRoot $migrateHome -Name 'good'
+$migrateWithoutLegacy = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'p4.json'), '-RepoRoot', $cliRepo)
+Assert ($migrateWithoutLegacy.Code -eq 1 -and $migrateWithoutLegacy.Out -match 'authority-legacy-locator-required') 'migrate requires the exact legacy locator once the route is migrate'
+$migrateWrongLocator = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'p5.json'), '-LegacyStatePath', (Join-Path $cliSandbox 'elsewhere.json'), '-RepoRoot', $cliRepo)
+Assert ($migrateWrongLocator.Code -eq 1 -and $migrateWrongLocator.Out -match 'authority-legacy-locator-mismatch') 'migrate rejects a legacy locator outside the exact repo path'
+$migrateWrongName = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'other', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'p7.json'), '-LegacyStatePath', (Join-Path $cliRepo 'state/current-env.json'), '-RepoRoot', $cliRepo)
+Assert ($migrateWrongName.Code -eq 1 -and $migrateWrongName.Out -match 'authority-legacy-name-mismatch') 'migrate requires the name the legacy state recorded'
+$migratePlan = Join-Path $cliSandbox 'migrate-plan.json'
+$migrate = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-DryRun', '-PlanPath', $migratePlan, '-LegacyStatePath', (Join-Path $cliRepo 'state/current-env.json'), '-RepoRoot', $cliRepo)
+if ($migrate.Code -ne 0) { Write-Host "  note  migrate dryrun: $($migrate.Out)" }
+Assert ($migrate.Code -eq 0) 'migrate DryRun succeeds for complete legacy evidence'
+$migrateDocument = Test-AuthorityPlanDocument -Path $migratePlan -ExpectedKind 'migrate'
+$legacyStatePath = Join-Path $cliRepo 'state/current-env.json'
+Assert ([string] $migrateDocument.PlanPayload.LegacyLocator -ceq [System.IO.Path]::GetFullPath($legacyStatePath)) 'migrate binds the exact legacy locator'
+Assert ([string] $migrateDocument.PlanPayload.LegacyHash -ceq [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($legacyStatePath))).ToLowerInvariant()) 'migrate binds the legacy bytes hash'
+Assert ([string] $migrateDocument.PlanPayload.OldLockHash -ceq (Get-HarnessFileHash -Path (Join-Path $cliRepo 'envs/good/env.lock.json')).ToLowerInvariant()) 'migrate binds the preserved old lock hash'
+Assert ([string] $migrateDocument.PlanPayload.LegacyCoreHash -cmatch '\A[0-9a-f]{64}\z') 'migrate binds a core hash'
+Assert (-not $migrateDocument.PlanPayload.Contains('LegacyEvidence')) 'migrate never carries adopt evidence'
+Remove-Item -LiteralPath (Join-Path $cliRepo 'state/current-env.json') -Force
+
+# 7. Repair-adopt binds the corrupt-state evidence and the existing claims.
+$repairIdentityLocal = [pscustomobject][ordered]@{
+    ResolverVersion = 'sealed-home-authority-test-adapter-v1'
+    TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    ProfileRoot = $cliHome
+    RoamingAppDataRoot = (Join-Path $cliHome 'AppData/Roaming')
+    LocalAppDataRoot = (Join-Path $cliHome 'AppData/Local')
+}
+$repairContextLocal = Resolve-HomeAuthorityContextFromIdentity -Identity $repairIdentityLocal
+$controllerFingerprintLocal = Get-CanonicalRepoIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $cliRepo)
+$pairLocal = New-FakeAuthorityPair -Context $repairContextLocal -ControllerFingerprint $controllerFingerprintLocal
+$pairAuthorityRoot = Join-Path (Join-Path ([string] $repairContextLocal.ControlBase) 'homes') $pairLocal.Key
+$claimsDocumentLocal = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes((Join-Path $pairAuthorityRoot 'root-claims.json'))))
+$stateDocumentLocal = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes((Join-Path $pairAuthorityRoot 'current-env.json'))))
+Set-File -Path (Join-Path $pairAuthorityRoot 'current-env.json') -Content '{ corrupt'
+$repairPlan = Join-Path $cliSandbox 'repair-plan.json'
+$corruptStatePath = Join-Path $pairAuthorityRoot 'current-env.json'
+$repair = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'repair-adopt', '-Name', 'full', '-DryRun', '-PlanPath', $repairPlan, '-CorruptStatePath', $corruptStatePath, '-RepoRoot', $cliRepo)
+if ($repair.Code -ne 0) { Write-Host "  note  repair dryrun: $($repair.Out)" }
+Assert ($repair.Code -eq 0) 'repair-adopt DryRun succeeds for a corrupt state with valid claims'
+$repairDocument = Test-AuthorityPlanDocument -Path $repairPlan -ExpectedKind 'repair-adopt'
+Assert ([string] $repairDocument.PlanPayload.StateEvidence.Kind -ceq 'CORRUPT') 'repair-adopt binds the CORRUPT state evidence'
+Assert ([string] $repairDocument.PlanPayload.StateEvidence.Path -ceq $corruptStatePath) 'repair-adopt binds the exact state path'
+Assert (-not $repairDocument.PlanPayload.Contains('LegacyEvidence')) 'repair-adopt never carries adopt evidence'
+$repairWithoutEvidence = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'repair-adopt', '-Name', 'full', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'repair-missing-evidence.json'), '-RepoRoot', $cliRepo)
+Assert ($repairWithoutEvidence.Code -eq 1 -and $repairWithoutEvidence.Out -match 'authority-state-evidence-required') 'repair-adopt requires the corrupt state path for the CORRUPT branch'
+
+# 8. Takeover binds the previous controller and carries no live actions.
+Set-File -Path (Join-Path $pairAuthorityRoot 'current-env.json') -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $stateDocumentLocal)))
+$null = New-FakeAuthorityPair -Context $repairContextLocal -ControllerFingerprint $controllerFingerprintLocal
+$foreignPlan = Join-Path $cliSandbox 'takeover-plan.json'
+$takeoverMismatch = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'full', '-DryRun', '-PlanPath', $foreignPlan, '-RepoRoot', $cliRepo)
+Assert ($takeoverMismatch.Code -eq 1 -and $takeoverMismatch.Out -match 'authority-route-mismatch') 'takeover is refused for the current controller'
+Remove-Item -LiteralPath (Join-Path $pairAuthorityRoot 'current-env.json') -Force
+$null = New-FakeAuthorityPair -Context $repairContextLocal -ControllerFingerprint ('0' * 64)
+# The state-bound lock must describe the current live managed trees, exactly
+# like a real activation lock would.
+$stagedLive = [ordered] @{}
+foreach ($claimRow in @($claimsDocumentLocal.LiveRootClaims)) {
+    $platform = [string] $claimRow.Platform
+    $platformHashes = [ordered] @{}
+    foreach ($skill in @('fixture-a', 'fixture-b')) {
+        $skillPath = Join-Path ([string] $claimRow.RequestedPath) $skill
+        if (Test-Path -LiteralPath $skillPath -PathType Container) { $platformHashes[$skill] = Get-HarnessTreeHash -Path $skillPath }
+    }
+    $stagedLive[$platform] = $platformHashes
+}
+Set-File -Path (Join-Path $cliRepo 'envs/full/env.lock.json') -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject ([ordered] @{
+                SchemaVersion = 3
+                Name = 'full'
+                DefinitionHash = 'a' * 64
+                TaskOverlayHash = $null
+                TaskOverlaySkills = [ordered] @{ Claude = @(); Codex = @(); Reasonix = @() }
+                RepositoryCommit = 'b' * 40
+                ManifestHashes = [ordered] @{ Claude = 'c' * 64; Codex = 'd' * 64; Reasonix = 'e' * 64 }
+                SkillSourceEvidence = 'available'
+                SkillSourceHashes = [ordered] @{ Claude = [ordered] @{}; Codex = [ordered] @{}; Reasonix = [ordered] @{} }
+                StagedSkillTreeHashes = $stagedLive
+                ProfileSourceHash = $null
+                ProfileOutputHash = $null
+                BuiltFiles = [ordered] @{}
+            }))))
+$stateForTakeover = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes((Join-Path $pairAuthorityRoot 'current-env.json'))))
+$stateForTakeover['EnvironmentLockHash'] = (Get-HarnessFileHash -Path (Join-Path $cliRepo 'envs/full/env.lock.json')).ToLowerInvariant()
+[System.IO.File]::WriteAllBytes((Join-Path $pairAuthorityRoot 'current-env.json'), (ConvertTo-SemanticJsonBytes -InputObject $stateForTakeover))
+$takeover = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'full', '-DryRun', '-PlanPath', $foreignPlan, '-RepoRoot', $cliRepo)
+if ($takeover.Code -ne 0) { Write-Host "  note  takeover dryrun:"; Write-Host $takeover.Out }
+Assert ($takeover.Code -eq 0) 'takeover DryRun succeeds for a foreign controller with verified parity'
+$takeoverDocument = Test-AuthorityPlanDocument -Path $foreignPlan -ExpectedKind 'controller-transition'
+Assert ([string] $takeoverDocument.PlanPayload.ControllerParity.PreviousControllerRepoFingerprint -ceq ('0' * 64)) 'takeover binds the previous controller fingerprint'
+Assert (@($takeoverDocument.PlanPayload.OrderedActions).Count -eq 0) 'takeover carries no live actions'
+Assert ([string] $takeoverDocument.PlanPayload.AuthorityStateIntent.ReceiptRef -ceq 'NO_LIVE_MUTATION') 'takeover declares the no-live-mutation receipt reference'
+Assert (-not $takeoverDocument.PlanPayload.Contains('EnvironmentMaterializationRoot')) 'takeover binds no materialization root'
+Remove-Item -LiteralPath (Join-Path $cliRepo 'envs/full/env.lock.json') -Force
+
+# 9. Ordinary activate/sync never reach a transition.
+$syncDryRun = Invoke-SafetySandboxScript -SandboxRoot $cliSandbox -ScriptPath (Join-Path $RepoRoot 'scripts/sync.ps1') -Arguments @('-DryRun', '-PlanPath', (Join-Path $cliSandbox 'sync-plan.json'), '-RepoRoot', $cliRepo) -AuthorityRepoRoot $RepoRoot
+Assert ($syncDryRun.Code -ne 0) 'ordinary sync cannot plan over an existing authority context'
+if (Test-Path -LiteralPath (Join-Path $cliSandbox 'sync-plan.json')) {
+    $syncDocument = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes((Join-Path $cliSandbox 'sync-plan.json'))))
+    Assert ([string] $syncDocument.PlanPayload.OperationKind -cin @('initial', 'retirement')) 'sync can only ever emit its own operation kinds'
+}
+
 Write-Host ("harness-authority tests: {0} passed, {1} failed" -f $script:pass, $script:fail)
 if ($script:fail -gt 0) {
     Write-Host "Workspace kept for inspection: $work"
