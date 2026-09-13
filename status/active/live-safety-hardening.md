@@ -1407,20 +1407,16 @@ next slices must act on:
 
 ## Remaining work
 
-Phase 2 has 10 of 52 steps remaining. Tasks 1-5 and Task 7 are complete, and Task 6 Steps 1-4 are
-complete:
+**Phase 2 (Tasks 1-9) is complete**, closing with the Task 9 checkpoint's definitive unified pass
+(38/38, zero failures/timeouts). Phase 3 shared environment authority and task-overlay work,
+followed by the Phase 4 schema/CI contract and safe release, have not started. Before future
+environment planning, rebuild the stale commit-bound environment staging locks; this does not
+authorize Apply.
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
-| Task 1 | 0/6 | Complete |
-| Task 2 | 0/7 | Complete |
-| Task 3 | 0/7 | Complete |
-| Task 4 | 0/7 | Complete |
-| Task 5 | 0/6 | Complete |
-| Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
-| Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
-| Task 8 | 0/4 | Step 1's mid-flight zero-wait matrix and the carried canonical-interleave proof complete (sync.tests); Step 2 recorded as the zero-wait-by-design boundary; Step 3's kill windows are the Task 6 Step 4 failpoint matrix; Step 4's transition rejection pinned and the cross-authority shared-root case recorded as the Phase 3 finding (both authorities commit on a shared root today) |
-| Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
+| Task 1-8 | 0 | Complete |
+| Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence all recorded |
 
 The required execution order is Task 1 -> Task 2 -> Task 3 -> Task 4 -> Task 5 -> Task 6 -> Task 7
 -> Task 8 -> Task 9. Phase 3 shared environment authority and task-overlay work, followed by the
@@ -1752,25 +1748,34 @@ review fixes in `24dcabe` added six reflection-sensitive sites to the rollback e
 composition and the all-scripts inventory baseline was not re-pinned in that commit (count
 14715 → 14721; the dynamic-command digest unchanged). The baseline was re-pinned in `0c348c3`
 (seams 56/0 standalone; the failed pass's external summary was recorded and deleted), and the
-authoritative unified pass reruns on that tree; its result will be recorded on completion as the
-Task 9 closeout gate.
+authoritative unified pass reran on that tree. **The definitive pass discovered, started,
+completed, and passed all 38 suites exactly once with zero failures, timeouts, duplicates, missing
+suites, or tree-kill failures, in 6886 s**: hard-kill 2365 s, root-claims 1567 s, live-recovery
+442 s, sync 421 s, backup-recovery 264 s, seams 218 s, live-concurrency 66 s, harness-env 40 s.
+Its external summary SHA-256 is
+`bdbe7713b20ca618bc1af4035fa8452c60dcb1dfde313f527d2ea102acc7d581` (356948 bytes, deleted after
+this record), its DiscoveryHash is
+`bca55823225ad6bfb5769b99b4cd7f4c60abcd546cab63b470b81d850d7ae137`, and its computed job
+requirement is 23685 s, under the 400-minute workflow bound. **With this the Task 9 checkpoint and
+Phase 2 live-safety hardening are complete**: Tasks 1-9 all closed, with the two recorded
+design-bound items (the cross-authority root-claim overlap rejection and the rollback execution's
+production caller) assigned to the Phase 3/4 boundaries, and the production interlock unchanged.
 
-## Pending items (2026-09-13, after Task 8 Step 4)
+## Pending items (2026-09-13, after the Phase 2 closeout)
 
-Task 8's pinnable matrix is complete; the open items are design-bound:
+**Phase 2 (Tasks 1-9) is complete.** The remaining items are design-bound or downstream:
 
-1. **Cross-authority root-claim overlap rejection (recorded finding).** The two-authority
-   shared-root case from Task 8 Step 4 is not rejected by the current implementation (both
-   authorities commit transactions claiming the same custom Reasonix root — see the Step 4
-   record's empirical finding). A machine-wide claim store is the Phase 3 shared-authority design
-   question; the carried Task 6 Step 5 cross-authority proof waits for it.
-2. **Task 9** — the Phase 2 checkpoint: focused suites, artifact validation, the full runner and
-   repository gates, requirements/quality reviews, and the real-home non-mutation proof. The
-   Task 8 closeout unified run folds into the Task 9 checkpoint pass.
-3. **Phase 3/4 wiring boundaries (recorded, not open work in Phase 2).** The rollback execution
-   composition's production caller waits for the Phase 3 worktree overlay lock primitive and for
-   the Phase 4 interlock release; until then the entry's Apply tail fails closed with
-   `worktree-overlay-lock-not-implemented` after full plan validation.
+1. **Phase 3 shared environment authority and task-overlay work** — not started. Two recorded
+   findings feed its design: the cross-authority root-claim overlap rejection requires a
+   machine-wide claim store (both authorities commit on a shared custom root today — see the
+   Task 8 Step 4 finding), and the rollback execution composition's production caller waits for
+   the Phase 3 worktree overlay lock primitive.
+2. **Phase 4 schema/CI contract and safe release** — not started. Until the interlock is released,
+   every production Apply/rollback/retirement returns `safety-protocol-upgrade-required`, and the
+   rollback entry's validated Apply tail fails closed with
+   `worktree-overlay-lock-not-implemented`.
+3. **Before any future environment planning**: rebuild the stale commit-bound environment staging
+   locks (artifact preparation only; no Apply authorization).
 
 Carried findings:
 
