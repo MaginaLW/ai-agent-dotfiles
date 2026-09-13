@@ -1407,8 +1407,8 @@ next slices must act on:
 
 ## Remaining work
 
-Phase 2 has 15 of 52 steps remaining. Tasks 1-5 are complete, Task 6 Steps 1-4 are complete, and
-Task 7 slices 1-2 are landed:
+Phase 2 has 10 of 52 steps remaining. Tasks 1-5 and Task 7 are complete, and Task 6 Steps 1-4 are
+complete:
 
 | Task | Remaining steps | Remaining outcome |
 |---|---:|---|
@@ -1418,7 +1418,7 @@ Task 7 slices 1-2 are landed:
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
-| Task 7 | 0/5 | All five roadmap steps implemented (`00e3632` receipt-based entry, `50d6616` plan-layer fix, the Step 1 source graph and eligibility gates, the Step 2 lock-ordered derivation, the rollback receipt kind, the Steps 3-4 executed rollback transaction, and the Step 5 harness-env rollback section); remaining: the closeout unified run. Production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
+| Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
 
@@ -1636,24 +1636,38 @@ Task 7's five roadmap steps are implemented; only the closeout unified `run-test
 (38 suites, workflow timeout 400 minutes) remains, together with the status/roadmap closeout and
 the harness-model loop.
 
-## Pending items (2026-09-13, after Task 7 Step 5)
+## Task 7 closeout (2026-09-13): the definitive unified pass
 
-Task 7 (receipt-backed environment rollback) — all five roadmap steps are implemented. Remaining:
+The create-new external unified `run-tests.ps1 -All` pass for the Task 7 tree (HEAD `d4b33ff`,
+clean working tree) discovered, started, completed, and passed all 38 suites exactly once with zero
+failures, timeouts, duplicates, missing suites, or tree-kill failures, in 7863 s: hard-kill 3001 s,
+root-claims 1665 s, live-recovery 472 s, sync 332 s, backup-recovery 323 s, seams 236 s, harness-env
+47 s, backup-receipt 30 s. The external create-new summary's SHA-256 is
+`14fa4d36564f9310042a5562937ee59829480eb2c09f85f64a54970683abd1c0` (355600 bytes, deleted after
+this record), its DiscoveryHash is
+`bca55823225ad6bfb5769b99b4cd7f4c60abcd546cab63b470b81d850d7ae137`, and its computed job
+requirement is 23685 s, under the 400-minute workflow bound. Task 7 (receipt-backed environment
+rollback) is complete: all five roadmap steps implemented, verified by the focused suites and this
+definitive pass. Production Apply remains interlocked and no live root was touched.
 
-1. **Closeout.** The unified `run-tests.ps1 -All` pass for this tree (38 suites, workflow timeout
-   400 minutes) has not been executed; it is the Task 7 closeout gate, together with the final
-   status/roadmap closeout and the harness-model closeout loop. The backup-recovery suite's local
-   time is 321 s against its 900 s budget, so no budget change is expected.
-2. **Phase 3/4 wiring boundaries (recorded, not open work in Phase 2).** The execution
+## Pending items (2026-09-13, after the Task 7 closeout)
+
+Task 7 is complete. The next work, in order:
+
+1. **Task 6 Step 5's two carried proofs** (a different HomeAuthority with overlapping custom roots;
+   a concurrent canonical mutation not interleaving) execute with Task 8's lock-contention and
+   root-overlap fixtures.
+2. **Task 8** — the lock-contention, hard-kill, root-claim, and custom-target concurrency matrix.
+3. **Task 9** — the Phase 2 checkpoint: focused suites, artifact validation, the full runner and
+   repository gates, requirements/quality reviews, and the real-home non-mutation proof.
+4. **Phase 3/4 wiring boundaries (recorded, not open work in Phase 2).** The execution
    composition's production caller waits for the Phase 3 worktree overlay lock primitive (the
    reviewed order refuses `REQUIRED` applicability today) and for the Phase 4 interlock release;
    until then the entry's Apply tail fails closed with
    `worktree-overlay-lock-not-implemented` after full plan validation.
 
-Carried from Task 6:
+Carried findings:
 
-- **Step 5 proofs** for a different HomeAuthority with overlapping custom roots and for a concurrent
-  canonical mutation not interleaving: they need Task 8's lock-contention and root-overlap fixtures.
 - **Sealed-file finding**: `tests/canonical-hard-kill.tests.ps1:8256` holds a real instance of the
   operator-as-parameter defect (three intended taint checks parse as one call, so two never run).
   Fixing it requires the full reviewed-load re-pin, so the parse-gate exemption list

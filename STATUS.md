@@ -3274,12 +3274,28 @@ closeout unified `run-tests.ps1 -All` pass (38 suites) remains. Verification: ha
 parse gate, secret scan, and `git diff --check` clean. Production Apply remains interlocked and no
 live root was touched.
 
+## Task 7 closeout (2026-09-13): the definitive unified pass
+
+The create-new external unified `run-tests.ps1 -All` pass for the Task 7 tree (HEAD `d4b33ff`,
+clean working tree) discovered, started, completed, and passed all 38 suites exactly once with zero
+failures, timeouts, duplicates, missing suites, or tree-kill failures, in 7863 s: hard-kill 3001 s,
+root-claims 1665 s, live-recovery 472 s, sync 332 s, backup-recovery 323 s, seams 236 s, harness-env
+47 s, backup-receipt 30 s. The external create-new summary's SHA-256 is
+`14fa4d36564f9310042a5562937ee59829480eb2c09f85f64a54970683abd1c0` (355600 bytes, deleted after
+this record), its DiscoveryHash is
+`bca55823225ad6bfb5769b99b4cd7f4c60abcd546cab63b470b81d850d7ae137`, and its computed job
+requirement is 23685 s, under the 400-minute workflow bound. Task 7 (receipt-backed environment
+rollback) is complete: all five roadmap steps implemented, verified by the focused suites and this
+definitive pass. Production Apply remains interlocked and no live root was touched. A first
+background launch attempt silently failed on a quoting error (its shell chain broke before the
+runner started and an unrelated stale log mimicked a result); the run was relaunched through an
+external wrapper that reports the summary path, SHA-256, and counts itself, and only that second
+run is recorded as definitive.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 11 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-4 are complete and
-Step 5 is complete except its two cross-authority/canonical-interleave proofs; Task 7's five
-roadmap steps are all implemented, with only its closeout unified run remaining. The implementation
-order and remaining scope are:
+Phase 2 has 10 of 52 steps remaining. Tasks 1-5 and Task 7 are complete, and Task 6 Steps 1-4 are
+complete. The implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -3289,7 +3305,7 @@ order and remaining scope are:
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 done (`0e04a2c`, `528aec5`, `99a8e87`); Step 5 remains open for the cross-authority overlapping-roots and canonical-interleave proofs |
-| Task 7 | 0/5 | All five roadmap steps implemented; remaining: the closeout unified `run-tests.ps1 -All` pass (38 suites). Production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
+| Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
 
@@ -3299,24 +3315,25 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 5 is complete (6/6), Task 6 Steps 1-4 are complete, and Task 7's five roadmap steps
-   are all implemented as of 2026-09-13: the read-only locator, the schema-1 plan contract, the
-   dispatcher with state rollback and committed-finalize, the deterministic failpoint matrix with
-   its kill/replay and evidence-retention proofs, the two restart gates, the receipt-based rollback
-   entry, the Step 1 source graph with its eligibility gates and rejection matrix, the Step 2
-   lock-ordered plan derivation, the rollback receipt producer kind, the Steps 3-4 executed
-   rollback transaction, and the Step 5 env-rollback CLI surface are live; the direct tests verify
-   the full rollback end to end while the production Apply tail stays fail-closed on the Phase 3
-   worktree overlay lock behind the Phase 4 interlock. Next: the Task 7 closeout unified
-   `run-tests.ps1 -All` pass (38 suites), then Task 6 Step 5's two open proofs (a different
-   HomeAuthority with overlapping custom roots; concurrent canonical mutation cannot interleave)
-   with Task 8's lock-contention and root-overlap fixtures, then Tasks 8-9 in strict sequence.
-   Production Apply remains interlocked throughout.
+1. **Task 7 is complete** as of 2026-09-13 (`a9cb765` Step 1 source graph and eligibility gates,
+   `56489e0` Step 2 lock-ordered plan derivation, `2944a98` the rollback receipt producer kind,
+   `365f8d3` Steps 3-4 the executed rollback transaction, `d4b33ff` Step 5 the env-rollback CLI
+   surface, and the definitive unified pass recorded in this section): the read-only locator, the
+   schema-1 plan contract, the dispatcher with state rollback and committed-finalize, the
+   deterministic failpoint matrix with its kill/replay and evidence-retention proofs, the two
+   restart gates, the receipt-based rollback entry, the Step 1 source graph with its eligibility
+   gates and rejection matrix, the Step 2 lock-ordered plan derivation, the rollback receipt
+   producer kind, the executed rollback transaction, and the env-rollback CLI surface are live; the
+   direct tests verify the full rollback end to end while the production Apply tail stays
+   fail-closed on the Phase 3 worktree overlay lock behind the Phase 4 interlock. Next: Task 6
+   Step 5's two open proofs (a different HomeAuthority with overlapping custom roots; concurrent
+   canonical mutation cannot interleave) with Task 8's lock-contention and root-overlap fixtures,
+   then Tasks 8-9 in strict sequence. Production Apply remains interlocked throughout.
    The authoritative, itemised to-do list lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after Task 7 Step 5)": the Task 7 closeout, the carried Task 6
-   Step 5 proofs, the sealed-file finding whose fix needs the reviewed-load re-pin, the
-   placement-pinned `RECEIPT_FINALIZATION` checkpoint, and the Phase 3/4 wiring boundaries.
+   "Pending items (2026-09-13, after the Task 7 closeout)": the carried Task 6 Step 5 proofs,
+   the sealed-file finding whose fix needs the reviewed-load re-pin, the placement-pinned
+   `RECEIPT_FINALIZATION` checkpoint, and the Phase 3/4 wiring boundaries.
 2. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; the
