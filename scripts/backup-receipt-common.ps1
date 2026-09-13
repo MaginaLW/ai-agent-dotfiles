@@ -208,7 +208,7 @@ function Invoke-SealedManagedBackupReceipt {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [System.Collections.IDictionary] $ReservationIntent,
-        [Parameter(Mandatory)] [ValidateSet('initial', 'environment', 'task-overlay', 'migrate', 'adopt', 'repair-adopt', 'retirement')] [string] $SourceOperationKind,
+        [Parameter(Mandatory)] [ValidateSet('initial', 'environment', 'task-overlay', 'migrate', 'adopt', 'repair-adopt', 'retirement', 'environment-rollback')] [string] $SourceOperationKind,
         [Parameter(Mandatory)] [string] $PlanHash,
         [Parameter(Mandatory)] [string] $DocumentHash,
         [Parameter(Mandatory)] [string] $ExecutionContextHash,

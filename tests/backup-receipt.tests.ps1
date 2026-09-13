@@ -219,6 +219,18 @@ try {
     $null = Assert-SealedBackupReceiptValid -ReceiptPath $result.ReceiptPath -ReservationIntent $happy.Intent -BackupRoot $backupRoot
     Assert $true 'consumer verification passes without optional bindings'
 
+    Write-Host '[environment-rollback producer kind]'
+    # The pre-rollback receipt (Task 7 Step 3) is a managed receipt whose
+    # producer kind is the rollback itself: the contract admits the kind and
+    # the produced slot is a complete, schema- and semantics-valid receipt.
+    $rollbackHappy = New-HappyReceipt -SourceOperationKind 'environment-rollback'
+    $rollbackResult = $rollbackHappy.Result
+    Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath $rollbackResult.ReceiptPath) -ceq 'COMPLETE') 'an environment-rollback receipt publishes a complete slot'
+    Assert ($rollbackResult.SourceOperationKind -ceq 'environment-rollback') 'the rollback receipt binds its own producer kind'
+    $rollbackSchemaValidation = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/backup-receipt.schema.json') -InstancePath (Join-Path $rollbackResult.ReceiptPath '_meta/receipt.json')
+    Test-BackupReceiptSemantics -Document $rollbackSchemaValidation.ArtifactCapture.Document
+    Assert $true 'the rollback receipt passes the registered schema and the semantic validator'
+
     Write-Host '[restart classification]'
     Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath (Join-Path $backupRoot 'absent-slot')) -ceq 'MISSING') 'absent declared slot classifies MISSING'
     $decoy = Join-Path $backupRoot 'decoy-slot'

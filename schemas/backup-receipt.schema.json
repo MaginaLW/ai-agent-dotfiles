@@ -17,7 +17,7 @@
     "ReceiptId": { "$ref": "#/$defs/uuid" },
     "ReceiptPath": { "$ref": "#/$defs/absolutePath" },
     "SourceOperationKind": {
-      "enum": ["initial", "environment", "task-overlay", "migrate", "adopt", "repair-adopt", "retirement"]
+      "enum": ["initial", "environment", "task-overlay", "migrate", "adopt", "repair-adopt", "retirement", "environment-rollback"]
     },
     "PlanHash": { "$ref": "#/$defs/hash" },
     "DocumentHash": { "$ref": "#/$defs/hash" },

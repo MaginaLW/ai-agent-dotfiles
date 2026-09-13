@@ -1556,6 +1556,19 @@ automation-safety; agent-dotfiles; harness-env; live-plan; doctor; registered ar
 clean; `build-skills.ps1` 7/15/7; `git diff --check` clean. Production Apply remains interlocked
 and no live root was touched.
 
+## Task 7 Step 3 prerequisite (2026-09-13): the receipt contract admits the rollback producer kind
+
+The pre-rollback receipt (roadmap Step 3) is a managed receipt whose producer kind is the rollback
+itself. `schemas/backup-receipt.schema.json` and `Invoke-SealedManagedBackupReceipt` now admit
+`SourceOperationKind=environment-rollback`, and `tests/backup-receipt.tests.ps1` pins that a
+complete rollback-kind receipt publishes a COMPLETE slot and passes both the registered schema and
+`Test-BackupReceiptSemantics`. The ordinary rollback route is unchanged: its preflight still
+selects only `environment` receipts, so a rollback receipt can never start a second ordinary
+rollback. The remaining Step 3 work — deriving the pre-rollback receipt's platforms and context
+hashes at Apply and wiring it ahead of the transition — is part of the Step 3+4 execution unit
+whose verification waits for the Phase 3 worktree overlay lock and the released production
+interlock.
+
 ## Pending items (2026-09-13, after Task 7 Step 2)
 
 Task 7 (receipt-backed environment rollback) — Steps 3-5 remain, in order:
@@ -1563,7 +1576,10 @@ Task 7 (receipt-backed environment rollback) — Steps 3-5 remain, in order:
 1. **Step 3.** Create and validate the durable pre-rollback receipt (current managed live, current
    authority state, root claims, tracked-overlay hash marker) before any mutation, using the
    rollback PlanHash/context. The derived plan's receipt refs are regenerated here: the rollback's
-   own header `ReceiptIntent` is the pre-rollback slot.
+   own header `ReceiptIntent` is the pre-rollback slot. The receipt contract already admits
+   `SourceOperationKind=environment-rollback`; the remaining work is the Apply-path derivation of
+   the receipt's platforms and context hashes and its wiring ahead of the transition (the Step 3+4
+   execution unit).
 2. **Step 4.** Run the rollback through the common state machine with the host changes the review
    listed (kind gate, `RollbackStateIntent`, reconstructed `TargetContextIntent` from the current
    claims, the plan's `Targets` mapped onto the engine's add/update/prune ladder, activation-snapshot
