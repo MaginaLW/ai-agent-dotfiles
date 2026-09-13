@@ -226,6 +226,18 @@
             )
             SemanticValidator = 'Test-HarnessEnvBuildSemantics'
         }
+        'harness-env-lock' = @{
+            SchemaVersion = 3
+            SchemaPath = 'schemas/harness-env-lock.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/harness-env-lock.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/harness-env-lock.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/harness-env-lock.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-platform'; Path = 'tests/fixtures/artifacts/harness-env-lock.missing-platform.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'self-hash'; Path = 'tests/fixtures/artifacts/harness-env-lock.self-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'runtime-ref'; Path = 'tests/fixtures/artifacts/harness-env-lock.runtime-ref.invalid.json'; FailureLayer = 'Schema' }
+            )
+        }
         'canonical-transaction-result' = @{
             SchemaVersion = 1
             SchemaPath = 'schemas/canonical-transaction-result.schema.json'
