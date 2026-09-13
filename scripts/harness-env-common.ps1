@@ -340,7 +340,10 @@ function Read-LegacyHarnessEnvState {
         file exists but is not that legacy evidence, and `MISSING` when no file
         exists. Full migration-core validation (hash consistency, parity,
         LegacyGap/LegacyDrift) belongs to the migration route and is not
-        decided here.
+        decided here. This module deliberately stays free of the sealed
+        json-artifact layer, so the capture is a plain exact-byte read; the
+        migration plan revalidates location and identity under its locks before
+        any Apply.
     #>
     [CmdletBinding()]
     param([string] $RepoRoot)
