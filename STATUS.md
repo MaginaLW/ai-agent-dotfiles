@@ -3308,10 +3308,32 @@ Task 8 remainder is Step 4's root-claim overlap and custom-target matrix. Verifi
 passing; parse gate, secret scan, and `git diff --check` clean. Production Apply remains
 interlocked and no live root was touched.
 
+## Task 8 Step 4 (2026-09-13): the transition rejection pinned, and the cross-authority gap recorded
+
+`tests/backup-recovery.tests.ps1` (155 assertions) pins the default→custom Reasonix root transition
+after a claim exists: a forged transaction whose header binds a semantically valid claims document
+for a different root is rejected by the immutable claims proof, closes `failed-restored`, leaves
+the claims bytes unchanged, never claims or populates the proposed root, restores its pruned
+target, and its receipt cannot start a rollback. The claims semantics' fixed Claude/Codex home
+paths (only Reasonix is customizable) are exercised explicitly.
+
+**Recorded finding (empirical, two-authority probe):** the other half of Step 4's Expected — two
+authorities sharing one platform root being rejected — is **not implemented**. A dedicated
+two-home probe committed full environment transactions for BOTH authorities claiming the same
+custom Reasonix root: the claims semantics validate disjointness within one document only, the
+registry's global claim lives under each authority's own control base, the canonical witness
+validates the repo identity but not the ControlBase, and the unfinished-transaction scan is
+per-authority. Cross-authority root-claim overlap rejection requires a machine-wide claim store —
+the Phase 3 shared-authority design question — so the carried Task 6 Step 5 cross-authority proof
+waits for that mechanism. Verification: backup-recovery green; parse gate, secret scan,
+`git diff --check`, and test-runner clean. Production Apply remains interlocked and no live root
+was touched.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 10 of 52 steps remaining. Tasks 1-5 and Task 7 are complete, and Task 6 Steps 1-4 are
-complete. The implementation order and remaining scope are:
+Phase 2 has 5 of 52 steps remaining: Task 6 Step 5's cross-authority proof (Phase 3-bound) and
+Task 9's five checkpoint steps. Tasks 1-5, Task 7, and Task 8's pinnable matrix are complete. The
+implementation order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -3320,9 +3342,9 @@ complete. The implementation order and remaining scope are:
 | Task 3 | 0/7 | Complete |
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
-| Task 6 | 1/5 | Steps 1-4 done (`0e04a2c`, `528aec5`, `99a8e87`); Step 5 remains open for the cross-authority overlapping-roots and canonical-interleave proofs |
+| Task 6 | 1/5 | Steps 1-4 done (`0e04a2c`, `528aec5`, `99a8e87`); the cross-authority overlapping-roots proof is recorded as Phase 3-bound (the mechanism does not exist yet — see the Task 8 Step 4 finding); the canonical-interleave proof executed in Task 8 Step 1 |
 | Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
-| Task 8 | 3/4 | Step 1's mid-flight zero-wait matrix and the carried canonical-interleave proof complete (sync.tests contention section); Step 2 is the recorded zero-wait-by-design boundary; Step 3's kill windows are the Task 6 Step 4 failpoint matrix; remaining: Step 4's root-claim overlap and custom-target matrix |
+| Task 8 | 0/4 | Steps 1-4 complete as pin-able (Step 1 mid-flight zero-wait matrix, Step 2 zero-wait-by-design boundary, Step 3 the Task 6 failpoint matrix, Step 4 the transition rejection plus the recorded cross-authority finding) |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 shared
@@ -3331,27 +3353,20 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. **Task 7 is complete** as of 2026-09-13 (`a9cb765` Step 1 source graph and eligibility gates,
-   `56489e0` Step 2 lock-ordered plan derivation, `2944a98` the rollback receipt producer kind,
-   `365f8d3` Steps 3-4 the executed rollback transaction, `d4b33ff` Step 5 the env-rollback CLI
-   surface, and the definitive unified pass recorded in this section), and **Task 8 Step 1 is
-   complete** (the mid-flight zero-wait matrix and the carried canonical-interleave proof in
-   sync.tests): the read-only locator, the schema-1 plan contract, the dispatcher with state
-   rollback and committed-finalize, the deterministic failpoint matrix with its kill/replay and
-   evidence-retention proofs, the two restart gates, the receipt-based rollback entry, the Step 1
-   source graph with its eligibility gates and rejection matrix, the Step 2 lock-ordered plan
-   derivation, the rollback receipt producer kind, the executed rollback transaction, the
-   env-rollback CLI surface, and the mid-flight contention matrix are live; the direct tests verify
+1. **Task 7 is complete** (`a9cb765` Step 1 source graph and eligibility gates, `56489e0` Step 2
+   lock-ordered plan derivation, `2944a98` the rollback receipt producer kind, `365f8d3` Steps 3-4
+   the executed rollback transaction, `d4b33ff` Step 5 the env-rollback CLI surface, and the
+   definitive unified pass recorded in this section), and **Task 8's pinnable matrix is complete**
+   (`34a943f` the mid-flight zero-wait matrix and the carried canonical-interleave proof, plus the
+   Step 4 transition rejection and the recorded cross-authority finding): the direct tests verify
    the full rollback end to end while the production Apply tail stays fail-closed on the Phase 3
-   worktree overlay lock behind the Phase 4 interlock. Next: Task 8 Step 4's root-claim overlap and
-   custom-target matrix (which also executes Task 6 Step 5's remaining cross-authority
-   overlapping-custom-roots proof), then Task 9 in strict sequence. Production Apply remains
-   interlocked throughout.
+   worktree overlay lock behind the Phase 4 interlock. Next: Task 9's Phase 2 checkpoint in strict
+   sequence; the two design-bound open items are the cross-authority root-claim overlap rejection
+   (recorded as the Phase 3 shared-authority question — both authorities commit on a shared root
+   today) and the sealed-file re-pin finding. Production Apply remains interlocked throughout.
    The authoritative, itemised to-do list lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after the Task 7 closeout)": Task 8 Step 4, the carried Task 6
-   Step 5 proofs, the sealed-file finding whose fix needs the reviewed-load re-pin, the
-   placement-pinned `RECEIPT_FINALIZATION` checkpoint, and the Phase 3/4 wiring boundaries.
+   "Pending items (2026-09-13, after Task 8 Step 4)".
 2. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; the

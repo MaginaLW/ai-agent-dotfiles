@@ -263,6 +263,8 @@ $wrongReasonixRoot = -not [string]::IsNullOrEmpty([string] $spec['WrongReasonixL
 $missingAuthorityPreimage = [bool] $spec['MissingAuthorityPreimage']
 $overlayDrift = [bool] $spec['OverlayDrift']
 $reserveOnly = [bool] $spec['ReserveOnly']
+$rootTransition = [bool] $spec['RootTransitionReasonix']
+if ($rootTransition) { $failMode = 'failed-restored' }
 
 $injectedHome = $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT
 $controlBase = $env:AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE
@@ -432,6 +434,50 @@ $receiptHomeKey = $authorityKey
 if (-not [string]::IsNullOrEmpty([string] $spec['ReceiptHomeAuthorityKey'])) {
     $receiptHomeKey = [string] $spec['ReceiptHomeAuthorityKey']
 }
+$headerClaimsHash = $claimsHash
+$rootTransition = [bool] $spec['RootTransitionReasonix']
+if ($rootTransition) {
+    # A forged root transition: the header binds the claims of a DIFFERENT
+    # (custom) Reasonix root while the immutable on-disk claims still bind
+    # the claimed one. The proposed document is semantically valid (the
+    # fixed Claude/Codex home paths plus the proposed custom Reasonix root)
+    # but is never installed; the engine's claims proof rejects the hash.
+    $transitionReasonix = Join-Path $graphRoot 'transition-reasonix/skills'
+    New-Item -ItemType Directory -Force -Path $transitionReasonix | Out-Null
+    $transitionRows = @()
+    $transitionIndex = 1
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $transitionPath = if ($platform -ceq 'Claude') { Join-Path $injectedHome '.claude/skills' }
+        elseif ($platform -ceq 'Codex') { Join-Path $injectedHome '.codex/skills' }
+        else { $transitionReasonix }
+        $meta = Get-TargetMetadataContext -Path $transitionPath
+        $identity = [string] $meta.VolumeId + ':' + ('{0:x16}' -f $transitionIndex)
+        $transitionIndex++
+        $transitionRows += [ordered]@{
+            Platform = $platform
+            LocationKey = [string] $meta.LocationKey
+            RequestedPath = [string] $meta.RequestedPath
+            InitialState = 'EXISTS'
+            VolumeId = [string] $meta.VolumeId
+            DeepestExistingParentPath = [string] $meta.RequestedPath
+            DeepestExistingParentIdentity = $identity
+            MissingRemainder = @()
+            InitialDirectoryIdentity = $identity
+            ExpectedPostState = 'EXISTS'
+        }
+    }
+    $transitionClaims = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'root-claims'
+        HomeAuthorityKey = $authorityKey
+        TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ResolverVersion = 'windows-token-sid-known-folder-v1'
+        HomeRootLocationKey = (ConvertTo-HomeAuthorityLocationKey -Path $injectedHome)
+        LiveRootClaims = @($transitionRows)
+    }
+    Test-RootClaimsSemantics -Document $transitionClaims
+    $headerClaimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]] (ConvertTo-SemanticJsonBytes -InputObject $transitionClaims))).ToLowerInvariant()
+}
 
 # The source header binds the calling repository's canonical origin identity
 # exactly like a production activation, so the rollback derivation's origin
@@ -510,7 +556,7 @@ $header = [ordered]@{
     OriginRepoId = $headerOriginRepoId
     GitCommonDirHash = [string] $gitContext.GitCommonDirHash
     CanonicalLockKey = $canonicalLockKey
-    RootClaimsHash = $claimsHash
+    RootClaimsHash = $headerClaimsHash
     ReceiptIntent = [ordered]@{ Id = $receiptId; Path = $receiptPath }
     Targets = @()
 }
@@ -888,6 +934,21 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert ([string] $restoredGraph.Outcome -ceq 'failed-restored') 'the failing produce run publishes a failed-restored terminal'
     $r = Invoke-GraphRollback -Graph $restoredGraph -PlanPath (Join-Path $work 'restored-plan.json')
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-source-outcome-unsupported \(outcome=failed-restored\)') 'a failed-restored source transaction cannot start a rollback'
+
+    Write-Host '[root transition rejection]'
+    # A forged default→custom Reasonix transition after a claim exists: the
+    # header binds the claims of a different root, and the immutable claims
+    # proof rejects the transaction after restoring every installed target.
+    $transitionGraph = New-SourceGraph ([ordered]@{ Label = 'root-transition'; RootTransitionReasonix = $true })
+    Assert ([string] $transitionGraph.Outcome -ceq 'failed-restored') 'the root transition attempt closes failed-restored'
+    $transitionClaimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($claimsPath))).ToLowerInvariant()
+    $transitionReceipt = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path ([string] $transitionGraph.ReceiptPath) '_meta/receipt.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+    Assert ($transitionClaimsHash -ceq [string] $transitionReceipt['RootClaimsPreimage']['Hash']) 'the immutable claims bytes are unchanged by the rejected transition'
+    $transitionRoot = Join-Path $authorityHome 'source-graph-root-transition/transition-reasonix/skills'
+    Assert (@(Get-ChildItem -LiteralPath $transitionRoot -Force -ErrorAction SilentlyContinue).Count -eq 0) 'the proposed transition root was never claimed or populated'
+    Assert (Test-Path -LiteralPath (Join-Path ([string] $transitionGraph.ReasonixLiveRoot) "pruned-root-transition/SKILL.md") -PathType Leaf) 'the transition attempt restores its pruned target'
+    $r = Invoke-GraphRollback -Graph $transitionGraph -PlanPath (Join-Path $work 'transition-plan.json')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-source-outcome-unsupported \(outcome=failed-restored\)') 'a rejected transition receipt cannot start a rollback'
 
     $tamperedGraph = New-SourceGraph ([ordered]@{ Label = 'chain-tamper' })
     $tamperedRecordPath = Join-Path (Join-Path (Join-Path $controlBase 'live-transactions') ([string] $tamperedGraph.TransactionId)) '000001.json'

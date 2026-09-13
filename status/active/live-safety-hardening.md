@@ -1419,7 +1419,7 @@ complete:
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
 | Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
-| Task 8 | 3/4 | Step 1's mid-flight zero-wait matrix and the carried canonical-interleave proof complete (sync.tests contention section); Step 2 is the recorded zero-wait-by-design boundary; Step 3's kill windows are the Task 6 Step 4 failpoint matrix; remaining: Step 4's root-claim overlap and custom-target matrix |
+| Task 8 | 0/4 | Step 1's mid-flight zero-wait matrix and the carried canonical-interleave proof complete (sync.tests); Step 2 recorded as the zero-wait-by-design boundary; Step 3's kill windows are the Task 6 Step 4 failpoint matrix; Step 4's transition rejection pinned and the cross-authority shared-root case recorded as the Phase 3 finding (both authorities commit on a shared root today) |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
 
 The required execution order is Task 1 -> Task 2 -> Task 3 -> Task 4 -> Task 5 -> Task 6 -> Task 7
@@ -1680,20 +1680,52 @@ failures; test-runner (the workflow bound is unchanged), live-plan, automation-s
 passing; parse gate 167 files; secret scan clean; `git diff --check` clean. Production Apply
 remains interlocked and no live root was touched.
 
-## Pending items (2026-09-13, after the Task 7 closeout)
+## Task 8 Step 4 (2026-09-13): the transition rejection pinned, and the cross-authority gap recorded
 
-Task 7 is complete. The next work, in order:
+The default→custom Reasonix root transition after a claim exists is now pinned in
+`tests/backup-recovery.tests.ps1` (155 assertions): a forged transaction whose header binds a
+semantically valid claims document for a DIFFERENT (custom) Reasonix root is rejected by the
+immutable claims proof and closes `failed-restored` — the on-disk claims bytes are unchanged, the
+proposed transition root is never claimed or populated, the pruned target is restored, and the
+rejected receipt cannot start a rollback (`rollback-source-outcome-unsupported`). The claims
+semantics also pin the Claude/Codex locations to the fixed HomeRoot paths (only the Reasonix root
+is customizable), which the fixture now exercises explicitly.
 
-1. **Task 6 Step 5's two carried proofs** (a different HomeAuthority with overlapping custom roots;
-   a concurrent canonical mutation not interleaving) execute with Task 8's lock-contention and
-   root-overlap fixtures.
-2. **Task 8** — the lock-contention, hard-kill, root-claim, and custom-target concurrency matrix.
-3. **Task 9** — the Phase 2 checkpoint: focused suites, artifact validation, the full runner and
-   repository gates, requirements/quality reviews, and the real-home non-mutation proof.
-4. **Phase 3/4 wiring boundaries (recorded, not open work in Phase 2).** The execution
-   composition's production caller waits for the Phase 3 worktree overlay lock primitive (the
-   reviewed order refuses `REQUIRED` applicability today) and for the Phase 4 interlock release;
-   until then the entry's Apply tail fails closed with
+**Recorded finding (empirical, two-authority probe).** The other half of the roadmap's Step 4
+Expected — "two authorities sharing only one platform root are rejected" — is **not implemented**:
+a dedicated two-home probe built two complete authorities (independent bootstrap, claims, state,
+and committed environment transactions) whose custom Reasonix root was the SAME directory, and both
+transactions committed successfully. Every candidate mechanism is authority-local by construction:
+the claims semantics validate disjointness within one document; the registry's global claim lives
+under each authority's own control base (`canonical-roots/<repoId>.json`); the canonical namespace
+witness validates the repo identity but not the ControlBase binding; and the host's unfinished
+transaction scan is per-authority namespace. Cross-authority root-claim overlap rejection therefore
+requires a machine-wide claim store — which is the Phase 3 shared-authority design question (where
+that store lives and how it is locked), not something to invent inside a Phase 2 test slice. The
+carried Task 6 Step 5 proof ("the unfinished-transaction scan blocks normal mutation — including a
+different HomeAuthority with overlapping custom roots") is likewise only executable up to its
+same-authority half; its cross-authority half waits for that Phase 3 mechanism.
+
+Verification (canonical `pwsh -NoProfile -File` runs): backup-recovery 155 assertions with the new
+root-transition section green; parse gate 167 files; secret scan clean; `git diff --check` clean;
+test-runner passing (no budget change). Production Apply remains interlocked and no live root was
+touched.
+
+## Pending items (2026-09-13, after Task 8 Step 4)
+
+Task 8's pinnable matrix is complete; the open items are design-bound:
+
+1. **Cross-authority root-claim overlap rejection (recorded finding).** The two-authority
+   shared-root case from Task 8 Step 4 is not rejected by the current implementation (both
+   authorities commit transactions claiming the same custom Reasonix root — see the Step 4
+   record's empirical finding). A machine-wide claim store is the Phase 3 shared-authority design
+   question; the carried Task 6 Step 5 cross-authority proof waits for it.
+2. **Task 9** — the Phase 2 checkpoint: focused suites, artifact validation, the full runner and
+   repository gates, requirements/quality reviews, and the real-home non-mutation proof. The
+   Task 8 closeout unified run folds into the Task 9 checkpoint pass.
+3. **Phase 3/4 wiring boundaries (recorded, not open work in Phase 2).** The rollback execution
+   composition's production caller waits for the Phase 3 worktree overlay lock primitive and for
+   the Phase 4 interlock release; until then the entry's Apply tail fails closed with
    `worktree-overlay-lock-not-implemented` after full plan validation.
 
 Carried findings:
