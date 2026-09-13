@@ -3433,8 +3433,16 @@ findings (one P1: a healthy-authority crash in the status surface, now fixed and
 extracted `Get-HarnessEnvAuthorityActiveSummary`; two P2: parity ignoring the claim's resolved roots
 and malformed legacy evidence throwing instead of reporting CORRUPT) — all ten are fixed in
 `fac75cc`. Implementation commits: `2e6cb85` the v2 contracts and producers, `46e447b` the
-route-matrix and CLI tests, `fac75cc` the review fixes. The unified regression over the full catalog
-ran separately and is recorded below. Production interlock is unchanged and no real home, authority
+route-matrix and CLI tests, `fac75cc` the review fixes.
+
+The unified regression over the full catalog (launched on the `fac75cc` tree at
+2026-09-13T17:22:11Z) reported `Test summary: PASS; discovered=39; passed=39; failed=0;
+timed-out=0` in 7105.4 s; its external summary SHA-256 is
+`61c766f0dcc03391fe47262106eecb19f6ce330e951891e9548727b8846e55e7` (deleted after this record) with
+a post-run mtime of 2026-09-13T19:20:35Z. The only production change made while it ran was the
+parse-gate parameter-name check (no suite invokes that script) plus additive assertions in
+`tests/harness-env.tests.ps1`, and that suite ran afterwards with all 131 assertions, so the pass
+holds for the final tree. The whole-phase definitive pass remains with the Task 9 checkpoint. Production interlock is unchanged and no real home, authority
 state, or live root was written.
 
 ## Remaining roadmap snapshot

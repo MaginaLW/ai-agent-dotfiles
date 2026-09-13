@@ -1930,7 +1930,14 @@ otherwise); agent-dotfiles 16/16; live-plan 121 PASS; sync PASS; artifact valida
 31 positives / 133 negatives with zero failures; seams 56/56 after re-pinning (reflection-sensitive
 sites 15068 after the parse-gate extension, dynamic-command digest `66456c02...`); parse gate
 169 files; secret scan clean;
-`git diff --check` clean. The unified regression over the full catalog is recorded in `STATUS.md`.
+`git diff --check` clean. The unified regression over the full catalog (launched on the `fac75cc` tree at
+2026-09-13T17:22:11Z) reported `Test summary: PASS; discovered=39; passed=39; failed=0;
+timed-out=0` in 7105.4 s; its external summary SHA-256 is
+`61c766f0dcc03391fe47262106eecb19f6ce330e951891e9548727b8846e55e7` (deleted after this record) with
+a post-run mtime of 2026-09-13T19:20:35Z. The only production change made while it ran was the
+parse-gate parameter-name check (no suite invokes that script) plus additive assertions in
+`tests/harness-env.tests.ps1`, and that suite ran afterwards with all 131 assertions, so the pass
+holds for the final tree. The whole-phase definitive pass remains with the Task 9 checkpoint.
 
 ## Pending items (2026-09-13, after Phase 3 Task 2)
 
