@@ -468,7 +468,8 @@ function Get-HarnessEnvLockLiveParity {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [object] $Lock,
-        [Parameter(Mandatory)] [string] $HomeRoot
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [AllowNull()] [System.Collections.IDictionary] $LiveRoots
     )
 
     $mismatches = [System.Collections.Generic.List[string]]::new()
@@ -488,7 +489,12 @@ function Get-HarnessEnvLockLiveParity {
             if (-not $expectedSet.Contains([string] $name)) { $mismatches.Add("$platform/$name overlay-skill-not-staged") }
         }
 
-        $liveRoot = Get-HarnessEnvLiveSkillRoot -HomeRootValue $HomeRoot -Platform $platform
+        $liveRoot = if ($null -ne $LiveRoots -and $LiveRoots.Contains($platform) -and -not [string]::IsNullOrWhiteSpace([string] $LiveRoots[$platform])) {
+            [string] $LiveRoots[$platform]
+        }
+        else {
+            Get-HarnessEnvLiveSkillRoot -HomeRootValue $HomeRoot -Platform $platform
+        }
         $managedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($name in (Read-HarnessEnvNameList -Path (Join-Path $RepoRoot "manifests/managed-skills.$key.txt"))) {
             [void] $managedNames.Add($name)
@@ -574,31 +580,37 @@ function Get-HarnessLegacyEnvAssessment {
     foreach ($field in @('HomeRoot', 'DefinitionHash', 'TaskOverlayHash', 'LockHash', 'ManifestHashes', 'TaskOverlaySkills', 'RepositoryCommit')) {
         if (-not $legacyDocument.Contains($field)) { $reasons.Add("legacy-$($field.ToLowerInvariant())-missing") }
     }
-    if ($reasons.Count -eq 0) {
-        $legacyHome = [string] $legacyDocument['HomeRoot']
-        if (-not [IO.Path]::IsPathFullyQualified($legacyHome)) {
-            $reasons.Add('legacy-homeroot-not-absolute')
-        }
-        else {
-            $legacyLocationKey = ([IO.Path]::GetFullPath($legacyHome)).TrimEnd([char] 92, [char] 47).ToLowerInvariant().Replace([char] 92, [char] 47)
-            $expectedAuthorityKey = Get-SemanticJsonHash -InputObject ([ordered] @{
-                Domain = 'ai-agent-dotfiles/home-authority/v1'
-                TokenSid = $TokenSid
-                HomeRootLocationKey = $legacyLocationKey
-            })
-            if ($expectedAuthorityKey -cne $HomeAuthorityKey) { $reasons.Add('legacy-homeroot-authority-mismatch') }
-            else { $assessment.HomeRootMatches = $true }
-        }
+    if ([string] $assessment.EnvName -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9._-]*\z') { $reasons.Add('legacy-name-invalid') }
+    $legacyHome = [string] $legacyDocument['HomeRoot']
+    if (-not [IO.Path]::IsPathFullyQualified($legacyHome)) {
+        $reasons.Add('legacy-homeroot-not-absolute')
+    }
+    elseif ($legacyHome.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) {
+        $reasons.Add('legacy-homeroot-invalid')
     }
     if ($reasons.Count -eq 0) {
-        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
-            $manifestHashes = [System.Collections.IDictionary] $legacyDocument['ManifestHashes']
-            if (-not $manifestHashes.Contains($platform) -or [string]::IsNullOrWhiteSpace([string] $manifestHashes[$platform])) {
-                if ($platform -ceq 'Reasonix') { $assessment.Gap = 'ReasonixBaselineMissing' } else { $reasons.Add("legacy-manifest-hash-missing-$($platform.ToLowerInvariant())") }
-            }
-            $overlaySkills = [System.Collections.IDictionary] $legacyDocument['TaskOverlaySkills']
-            if (-not $overlaySkills.Contains($platform)) {
-                if ($platform -ceq 'Reasonix') { $assessment.Gap = 'ReasonixBaselineMissing' } else { $reasons.Add("legacy-task-overlay-missing-$($platform.ToLowerInvariant())") }
+        $legacyLocationKey = ([IO.Path]::GetFullPath($legacyHome)).TrimEnd([char] 92, [char] 47).ToLowerInvariant().Replace([char] 92, [char] 47)
+        $expectedAuthorityKey = Get-SemanticJsonHash -InputObject ([ordered] @{
+            Domain = 'ai-agent-dotfiles/home-authority/v1'
+            TokenSid = $TokenSid
+            HomeRootLocationKey = $legacyLocationKey
+        })
+        if ($expectedAuthorityKey -cne $HomeAuthorityKey) { $reasons.Add('legacy-homeroot-authority-mismatch') }
+        else { $assessment.HomeRootMatches = $true }
+    }
+    if ($reasons.Count -eq 0) {
+        $manifestHashes = $null
+        $overlaySkills = $null
+        if ($legacyDocument['ManifestHashes'] -is [System.Collections.IDictionary]) { $manifestHashes = $legacyDocument['ManifestHashes'] } else { $reasons.Add('legacy-manifesthashes-invalid') }
+        if ($legacyDocument['TaskOverlaySkills'] -is [System.Collections.IDictionary]) { $overlaySkills = $legacyDocument['TaskOverlaySkills'] } else { $reasons.Add('legacy-taskoverlayskills-invalid') }
+        if ($null -ne $manifestHashes -and $null -ne $overlaySkills) {
+            foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+                if (-not $manifestHashes.Contains($platform) -or [string]::IsNullOrWhiteSpace([string] $manifestHashes[$platform])) {
+                    if ($platform -ceq 'Reasonix') { $assessment.Gap = 'ReasonixBaselineMissing' } else { $reasons.Add("legacy-manifest-hash-missing-$($platform.ToLowerInvariant())") }
+                }
+                if (-not $overlaySkills.Contains($platform)) {
+                    if ($platform -ceq 'Reasonix') { $assessment.Gap = 'ReasonixBaselineMissing' } else { $reasons.Add("legacy-task-overlay-missing-$($platform.ToLowerInvariant())") }
+                }
             }
         }
         foreach ($field in @('DefinitionHash', 'LockHash', 'RepositoryCommit')) {
@@ -760,7 +772,9 @@ function Test-HarnessEnvAuthorityDocumentSemantics {
     if ($recoveryStatus -ceq 'clean' -and $unfinished.Count -ne 0) { throw 'harness-env-authority-document-recovery-inconsistent' }
     $previousId = $null
     foreach ($transactionId in $unfinished) {
-        if ([string] $transactionId -cnotmatch '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z') {
+        # The scan reports namespace directory names verbatim, so a stray or
+        # unreadable entry must stay reportable; only its shape is pinned.
+        if ([string] $transactionId -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z') {
             throw 'harness-env-authority-document-transaction-id-invalid'
         }
         if ($null -ne $previousId -and [string] $transactionId -cnotmatch ('\A' + [regex]::Escape([string] $previousId) + '\z') -and

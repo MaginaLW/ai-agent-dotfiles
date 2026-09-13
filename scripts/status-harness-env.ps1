@@ -69,6 +69,13 @@ $taskOverlayPath = Get-HarnessTaskSkillOverlayPath -RepoRoot $repo
 $definitionFiles = @(Get-HarnessEnvDefinitionFiles -RepoRoot $repo)
 $authority = Get-HarnessEnvAuthorityAssessment -RepoRoot $repo -ReasonixLiveSkillsPath $ReasonixLiveSkillsPath
 $authorityActive = [string] $authority.StateStatus -ceq 'VALID'
+$state = $null
+try {
+    $state = Read-HarnessEnvState -RepoRoot $repo
+}
+catch {
+    Write-Warning ([string] $_.Exception.Message)
+}
 
 $envNames = [System.Collections.Generic.List[string]]::new()
 $definitionByName = @{}
@@ -180,56 +187,13 @@ foreach ($envName in $envNames) {
 }
 
 Write-Output ''
-$state = $null
-try {
-    $state = Read-HarnessEnvState -RepoRoot $repo
-}
-catch {
-    Write-Warning ([string] $_.Exception.Message)
-}
 if ($authorityActive) {
-    # The shared authority state is the selector; it is the only source that
-    # can describe a post-migration activation.
-    $activeName = [string] $authority.StateSummary.EnvironmentName
-    $definitionDrift = -not $definitionByName.ContainsKey($activeName)
-    $taskOverlayDrift = $false
-    $activeOverlay = $null
-    $activeLockReasons = @($authority.LockParity.Reasons) + @($authority.LockParity.Mismatches)
-    [string[]] $activeLockReasons = @($activeLockReasons | ForEach-Object { Protect-HarnessEnvStatusText -Text $_ })
-    if (-not $definitionDrift) {
-        $activeOverlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $activeName -Path $taskOverlayPath
-        $taskOverlayDrift = [string] $authority.StateSummary.TaskOverlayHash -cne [string] $activeOverlay.Hash
-        $activeLockPath = Get-HarnessEnvLockPath -StagingPath (Get-HarnessEnvStagingRoot -RepoRoot $repo -Name $activeName)
-        if (Test-Path -LiteralPath $activeLockPath -PathType Leaf) {
-            $activeLockFileHash = Get-HarnessFileHash -Path $activeLockPath
-            if ([string] $authority.StateSummary.EnvironmentLockHash -ieq $activeLockFileHash) {
-                $activeLockDocument = Read-HarnessEnvLock -Path $activeLockPath
-                $definitionDrift = [string] $activeLockDocument['DefinitionHash'] -cne (Get-HarnessEnvDefinitionHash -Path $definitionByName[$activeName])
-            }
-        }
-    }
-    $activeStatus = if ($authority.ControllerMatch -and -not $definitionDrift -and -not $taskOverlayDrift -and [string] $authority.LockParity.Status -ceq 'pass') { 'active' } else { 'drift' }
-    $suffix = if ($definitionDrift) {
-        ' (definition changed since activation - re-run env activate)'
-    } elseif ($taskOverlayDrift) {
-        ' (task skill overlay changed since activation - re-run env task sync)'
-    } elseif ($activeStatus -eq 'drift') {
-        ' (attestation drift - inspect env status)'
-    } else { '' }
-    $activeSummary = [ordered] @{
-        Name = $activeName
-        Status = $activeStatus
-        Source = 'authority'
-        LockValidity = if ([string] $authority.LockParity.Status -ceq 'pass') { 'valid' } elseif ([string] $authority.LockParity.Status -ceq 'mismatch') { 'invalid' } else { 'not-checked' }
-        DefinitionDrift = [bool] $definitionDrift
-        TaskOverlayDrift = [bool] $taskOverlayDrift
-        TaskOverlayHash = if ($null -eq $activeOverlay) { $null } else { $activeOverlay.Hash }
-        LiveParity = [ordered] @{ Status = [string] $authority.LockParity.Status; Mismatches = @($authority.LockParity.Mismatches) }
-        SystemStatus = [string] $authority.SystemStatus
-        LockHash = if ([string] $authority.LockParity.Status -ceq 'not-checked') { $null } else { [string] $authority.StateSummary.EnvironmentLockHash }
-        LockReasons = $activeLockReasons
-    }
-    Write-Output "Active environment: $activeName$suffix (shared authority)"
+    # The shared authority state is the selector; the summary builder is the
+    # single implementation of this branch and pins its own tests.
+    $authoritySummary = Get-HarnessEnvAuthorityActiveSummary -RepoRoot $repo -Authority $authority -DefinitionByName $definitionByName -TaskOverlayPath $taskOverlayPath -HomeRoot $HomeRoot
+    $activeName = [string] $authoritySummary.Active.Name
+    $activeSummary = $authoritySummary.Active
+    Write-Output "Active environment: $activeName$($authoritySummary.Suffix) (shared authority)"
     Write-Output "  lock validity: $($activeSummary.LockValidity); live parity: $($activeSummary.LiveParity.Status); .system: $($activeSummary.SystemStatus); task overlay: $(if ($activeSummary.TaskOverlayHash) { $activeSummary.TaskOverlayHash } else { 'empty' })"
 }
 elseif ($null -eq $state) {

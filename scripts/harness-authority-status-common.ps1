@@ -108,6 +108,85 @@ function Get-HarnessEnvAuthorityLiveRoots {
     }
 }
 
+function Get-HarnessEnvAuthorityActiveSummary {
+    <#
+    .SYNOPSIS
+        Builds the schema 2 Active summary for a valid shared authority state.
+
+    .DESCRIPTION
+        Single implementation of the authority-active branch so the status
+        surface and its tests agree: the state's environment name is the active
+        name, definition and task-overlay drift compare against the current
+        repository evidence, the verified state-bound lock supplies the
+        definition hash for drift detection, and the human suffix explains the
+        drift. Reads only; the returned reasons are redacted.
+    #>
+    [CmdletBinding()]
+    param(
+        [string] $RepoRoot,
+        [Parameter(Mandatory)] $Authority,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $DefinitionByName,
+        [Parameter(Mandatory)] [string] $TaskOverlayPath,
+        [Parameter(Mandatory)] [string] $HomeRoot
+    )
+
+    $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
+    $name = [string] $Authority.StateSummary.EnvironmentName
+    $definitionDrift = -not $DefinitionByName.ContainsKey($name)
+    $taskOverlayDrift = $false
+    $overlayHash = $null
+    if (-not $definitionDrift) {
+        $overlay = Get-HarnessTaskSkillOverlayForEnvironment -RepoRoot $repo -BaseEnvName $name -Path $TaskOverlayPath
+        $overlayHash = $overlay.Hash
+        $taskOverlayDrift = [string] $Authority.StateSummary.TaskOverlayHash -cne [string] $overlayHash
+        $stagingPath = Get-HarnessEnvStagingRoot -RepoRoot $repo -Name $name
+        $lockPath = Get-HarnessEnvLockPath -StagingPath $stagingPath
+        if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+            $lockFileHash = Get-HarnessFileHash -Path $lockPath
+            if ([string] $Authority.StateSummary.EnvironmentLockHash -ieq $lockFileHash) {
+                try {
+                    $lock = Read-HarnessEnvLock -StagingPath $stagingPath
+                    $definitionDrift = [string] (Get-HarnessJsonProperty -Object $lock -Name 'DefinitionHash') -cne (Get-HarnessEnvDefinitionHash -Path ([string] $DefinitionByName[$name]))
+                }
+                catch {
+                    $definitionDrift = $false
+                }
+            }
+        }
+    }
+    $status = if ($Authority.ControllerMatch -and -not $definitionDrift -and -not $taskOverlayDrift -and [string] $Authority.LockParity.Status -ceq 'pass') { 'active' } else { 'drift' }
+    $suffix = if ($definitionDrift) {
+        ' (definition changed since activation - re-run env activate)'
+    }
+    elseif ($taskOverlayDrift) {
+        ' (task skill overlay changed since activation - re-run env task sync)'
+    }
+    elseif ($status -eq 'drift') {
+        ' (attestation drift - inspect env status)'
+    }
+    else { '' }
+    $rawReasons = @(@($Authority.LockParity.Reasons) + @($Authority.LockParity.Mismatches))
+    $repoFull = [IO.Path]::GetFullPath($repo)
+    $homeFull = [IO.Path]::GetFullPath($HomeRoot)
+    $redactedReasons = @($rawReasons | ForEach-Object {
+            ([string] $_).Replace($repoFull, '<repo>').Replace($homeFull, '<home>')
+        })
+    $active = [ordered] @{
+        Name = $name
+        Status = $status
+        Source = 'authority'
+        LockValidity = if ([string] $Authority.LockParity.Status -ceq 'pass') { 'valid' } elseif ([string] $Authority.LockParity.Status -ceq 'mismatch') { 'invalid' } else { 'not-checked' }
+        DefinitionDrift = [bool] $definitionDrift
+        TaskOverlayDrift = [bool] $taskOverlayDrift
+        TaskOverlayHash = if ($null -eq $overlayHash) { $null } else { [string] $overlayHash }
+        LiveParity = [ordered] @{ Status = [string] $Authority.LockParity.Status; Mismatches = @($Authority.LockParity.Mismatches) }
+        SystemStatus = [string] $Authority.SystemStatus
+        LockHash = if ([string] $Authority.LockParity.Status -ceq 'not-checked') { $null } else { [string] $Authority.StateSummary.EnvironmentLockHash }
+        LockReasons = $redactedReasons
+    }
+    return [pscustomobject] @{ Active = $active; Suffix = $suffix }
+}
+
 function Get-HarnessEnvAuthorityAssessment {
     <#
     .SYNOPSIS
@@ -178,6 +257,12 @@ function Get-HarnessEnvAuthorityAssessment {
         Mismatches = @()
     }
     if ($stateStatus -ceq 'VALID') {
+        # Live parity must follow the immutable claim's resolved roots, not the
+        # current defaults: a first activation may have claimed a custom root.
+        $liveRootsByPlatform = [ordered] @{}
+        foreach ($identity in @($authorityState.StateDocument['FinalResolvedIdentities'])) {
+            $liveRootsByPlatform[[string] $identity.Platform] = [string] $identity.ResolvedPath
+        }
         $lockReasons = [System.Collections.Generic.List[string]]::new()
         $stagingPath = Get-HarnessEnvStagingRoot -RepoRoot $repo -Name ([string] $stateSummary.EnvironmentName)
         $lockPath = Get-HarnessEnvLockPath -StagingPath $stagingPath
@@ -192,10 +277,16 @@ function Get-HarnessEnvAuthorityAssessment {
                 $lockReasons.Add('lock-drift')
             }
             else {
-                $lock = Read-HarnessEnvLock -StagingPath $stagingPath
-                $parity = Get-HarnessEnvLockLiveParity -RepoRoot $repo -Lock $lock -HomeRoot ([string] $context.HomeRoot)
-                $lockParity.Status = [string] $parity.Status
-                $lockParity.Mismatches = @($parity.Mismatches)
+                try {
+                    $lock = Read-HarnessEnvLock -StagingPath $stagingPath
+                    $parity = Get-HarnessEnvLockLiveParity -RepoRoot $repo -Lock $lock -HomeRoot ([string] $context.HomeRoot) -LiveRoots $liveRootsByPlatform
+                    $lockParity.Status = [string] $parity.Status
+                    $lockParity.Mismatches = @($parity.Mismatches)
+                }
+                catch {
+                    $lockParity.Status = 'not-checked'
+                    $lockReasons.Add('lock-unreadable')
+                }
             }
         }
         $lockParity.Reasons = @($lockReasons)

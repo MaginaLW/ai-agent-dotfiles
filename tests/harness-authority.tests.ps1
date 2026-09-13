@@ -764,7 +764,7 @@ Assert ([string] $migrate.Legacy.OldLockStatus -ceq 'VERIFIED') 'the preserved a
 Assert ([string] $migrate.Legacy.LiveParity.Status -ceq 'pass') 'legacy live parity passes for matching live trees'
 Assert ([string] $migrate.Route -ceq 'migrate') 'core evidence with passing parity routes to migrate'
 Assert ([string] $migrate.Legacy.Gap -ceq 'none') 'a complete three-platform baseline reports no gap'
-Assert ([string] $migrate.IntendedRoot.RequestedInitialRootContextHash -ceq [string] $migrate.IntendedRoot.RequestedInitialRootContextHash) 'migrate carries the intended-root branch'
+Assert ([string] $migrate.IntendedRoot.RequestedInitialRootContextHash -cmatch '\A[0-9a-f]{64}\z') 'migrate carries a metadata-only intended-root context hash'
 
 # 5. live drift under a verified lock requires manual recovery.
 Set-File -Path (Join-Path $migrateHome '.claude/skills/fixture-a/SKILL.md') -Content '# drifted'
@@ -789,6 +789,29 @@ $null = New-LegacyActivationFixture -RepoRoot $authorityRepo -HomeRoot $missingL
 Remove-Item -LiteralPath (Join-Path $authorityRepo 'envs/good/env.lock.json') -Force
 $missingLock = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $missingLockIdentity
 Assert ([string] $missingLock.Legacy.Status -ceq 'CORRUPT' -and [string] $missingLock.Route -ceq 'adopt') 'a missing preserved lock keeps the legacy artifact untrusted'
+Remove-Item -LiteralPath (Join-Path $authorityRepo 'state/current-env.json') -Force -ErrorAction SilentlyContinue
+
+# 6b. malformed legacy evidence stays reportable instead of throwing.
+$malformedHome = Join-Path $work 'authority-home-malformed'
+$malformedIdentity = New-AuthorityTestIdentity -Path $malformedHome
+$null = New-LegacyActivationFixture -RepoRoot $authorityRepo -HomeRoot $malformedHome -Name 'good'
+$malformedDocument = ConvertFrom-SemanticJson -Json (Get-Content -Raw -LiteralPath (Join-Path $authorityRepo 'state/current-env.json'))
+$malformedDocument['ManifestHashes'] = 'oops'
+Set-File -Path (Join-Path $authorityRepo 'state/current-env.json') -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $malformedDocument)))
+$malformed = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $malformedIdentity
+Assert ([string] $malformed.Legacy.Status -ceq 'CORRUPT' -and [string] $malformed.Route -ceq 'adopt') 'malformed legacy manifest hashes stay untrusted evidence'
+
+$malformedDocument['ManifestHashes'] = [ordered] @{}
+$malformedDocument['Name'] = '../escape'
+Set-File -Path (Join-Path $authorityRepo 'state/current-env.json') -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $malformedDocument)))
+$unsafeName = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $malformedIdentity
+Assert ([string] $unsafeName.Legacy.Status -ceq 'CORRUPT' -and [string] $unsafeName.Route -ceq 'adopt') 'a legacy name outside the bare-identifier shape stays untrusted evidence'
+
+$malformedDocument['Name'] = 'good'
+$malformedDocument['HomeRoot'] = 'C:\bad<path>'
+Set-File -Path (Join-Path $authorityRepo 'state/current-env.json') -Content ([System.Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $malformedDocument)))
+$badHome = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $malformedIdentity
+Assert ([string] $badHome.Legacy.Status -ceq 'CORRUPT' -and [string] $badHome.Route -ceq 'adopt') 'an invalid legacy HomeRoot stays untrusted evidence'
 Remove-Item -LiteralPath (Join-Path $authorityRepo 'state/current-env.json') -Force -ErrorAction SilentlyContinue
 
 # 7. valid claims with a missing or corrupt state repairs state.
@@ -833,6 +856,15 @@ Assert ([string] $foreign.Route -ceq 'controller-owner-action-required') 'a fore
 Assert ([string] $foreign.NextOperation -ceq 'env authority status') 'owner action recommends a status review'
 
 # Parity requires the state-bound lock file to be present and byte-identical.
+$switchRejected = $false
+try { $null = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity -ReasonixLiveSkillsPath $customRoot }
+catch { $switchRejected = $_.Exception.Message -match 'authority-reasonix-root-switch-forbidden-after-claims' }
+Assert $switchRejected 'the intended-root switch is rejected once schema 3 claims exist'
+$switchRejectedSamePath = $false
+try { $null = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity -ReasonixLiveSkillsPath (Join-Path $repairHome 'AppData/Roaming/reasonix/skills') }
+catch { $switchRejectedSamePath = $_.Exception.Message -match 'authority-reasonix-root-switch-forbidden-after-claims' }
+Assert $switchRejectedSamePath 'the switch is rejected even when its text matches the claim default'
+
 $stagingPath = Join-Path $authorityRepo 'envs/full'
 $lockFromFixture = [ordered] @{
     SchemaVersion = 3
@@ -858,6 +890,19 @@ $takeover = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity
 Assert ([string] $takeover.LockParity.Status -ceq 'pass') 'the state-bound lock verifies and passes live parity'
 Assert ([string] $takeover.Route -ceq 'takeover') 'a foreign controller with passing parity routes to takeover'
 
+# 9b. an unreadable state-bound lock is not-checked, never a raw error.
+$null = New-FakeAuthorityPair -Context $repairContext -ControllerFingerprint $controllerFingerprint
+$brokenLockPath = Join-Path $stagingPath 'env.lock.json'
+Set-File -Path $brokenLockPath -Content '{"broken":true}'
+$brokenLockHash = (Get-HarnessFileHash -Path $brokenLockPath).ToLowerInvariant()
+$stateWithBrokenLock = ConvertFrom-SemanticJson -Json (Get-Content -Raw -LiteralPath (Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'current-env.json'))
+$stateWithBrokenLock['EnvironmentLockHash'] = $brokenLockHash
+[System.IO.File]::WriteAllBytes((Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'current-env.json'), (ConvertTo-SemanticJsonBytes -InputObject $stateWithBrokenLock))
+$unreadableLock = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $unreadableLock.LockParity.Status -ceq 'not-checked') 'an unreadable state-bound lock is reported as not-checked'
+Assert (@($unreadableLock.LockParity.Reasons) -contains 'lock-unreadable') 'the unreadable lock carries a stable reason'
+Remove-Item -LiteralPath $brokenLockPath -Force
+
 # 10. an unfinished live journal forces the recovery route first.
 $authorityArea = Join-Path (Join-Path ([string] $repairContext.ControlBase) 'live-transactions') '11111111-1111-4111-8111-111111111111'
 New-Item -ItemType Directory -Path $authorityArea -Force | Out-Null
@@ -867,6 +912,15 @@ Assert ([string] $recovery.Route -ceq 'recovery') 'an unfinished journal routes 
 Assert ([string] $recovery.NextOperation -ceq 'live recover status') 'recovery recommends the recovery status command'
 Assert ($recovery.UnfinishedTransactionIds.Count -eq 1) 'the unfinished transaction id is reported'
 Remove-Item -LiteralPath (Split-Path -Parent $authorityArea) -Recurse -Force
+
+# A stray non-UUID namespace must stay reportable rather than breaking the document.
+$strayArea = Join-Path (Join-Path ([string] $repairContext.ControlBase) 'live-transactions') 'leftover-namespace'
+New-Item -ItemType Directory -Path $strayArea -Force | Out-Null
+$stray = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $stray.Route -ceq 'recovery') 'a stray namespace still routes to recovery'
+Assert (@($stray.UnfinishedTransactionIds) -contains 'leftover-namespace') 'the stray namespace is reported verbatim'
+Assert (@($stray.UnfinishedTransactionIds).Count -eq 1) 'the stray namespace is the only unfinished entry'
+Remove-Item -LiteralPath (Split-Path -Parent $strayArea) -Recurse -Force
 
 # 11. corrupt claims are always manual.
 Remove-Item -LiteralPath (Join-Path (Join-Path ([string] $repairContext.ControlBase) (Join-Path 'homes' $pair.Key)) 'root-claims.json') -Force
@@ -883,6 +937,22 @@ $mismatchState['RootClaimsHash'] = '0' * 64
 $mismatch = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
 Assert ([string] $mismatch.PairStatus -ceq 'MISMATCH') 'a state that does not bind the claims bytes is a MISMATCH'
 Assert ([string] $mismatch.Route -ceq 'manual-recovery-required') 'a pair mismatch routes to manual recovery'
+
+# The authority-active status branch: definition map, overlay path and the
+# state-bound lock drive the summary the schema 2 status document carries.
+$definitionByName = @{}
+foreach ($file in @(Get-HarnessEnvDefinitionFiles -RepoRoot $authorityRepo)) {
+    $definitionByName[[System.IO.Path]::GetFileNameWithoutExtension($file.Name)] = $file.FullName
+}
+$activeSummary = Get-HarnessEnvAuthorityActiveSummary -RepoRoot $authorityRepo -Authority $mismatch -DefinitionByName $definitionByName -TaskOverlayPath (Get-HarnessTaskSkillOverlayPath -RepoRoot $authorityRepo) -HomeRoot $repairHome
+Assert ([string] $activeSummary.Active.Source -ceq 'authority') 'the active summary reports the shared authority source'
+Assert ([string] $activeSummary.Active.Name -ceq 'full') 'the active summary takes the name from the state'
+Assert ([string] $activeSummary.Active.Status -ceq 'drift') 'a pair mismatch keeps the active summary in drift'
+$activateSummary = Get-HarnessEnvAuthorityActiveSummary -RepoRoot $authorityRepo -Authority $takeover -DefinitionByName $definitionByName -TaskOverlayPath (Get-HarnessTaskSkillOverlayPath -RepoRoot $authorityRepo) -HomeRoot $repairHome
+Assert ([string] $activateSummary.Active.LockValidity -ceq 'valid') 'a verified state-bound lock reports valid lock validity'
+Assert ([string] $activateSummary.Active.LockHash -ceq [string] $takeover.StateSummary.EnvironmentLockHash) 'the active summary carries the verified lock hash'
+Assert ([string] $activateSummary.Active.LiveParity.Status -ceq 'pass') 'the active summary carries the lock-bound live parity'
+Assert ($null -eq $activateSummary.Active.LockReasons.Count -or $activateSummary.Active.LockReasons.Count -eq 0) 'a clean authority carries no lock reasons'
 
 $homeSnapshotBefore = Get-TreeSnapshot -Root $work
 $null = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
@@ -901,23 +971,43 @@ $routeNextOperations = @{
     'controller-owner-action-required' = 'env authority status'
     'manual-recovery-required'         = 'env authority status'
 }
-$routeMatrix = @()
+$routeCounts = @{}
 $routeViolations = 0
-foreach ($recoveryStatus in @('clean', 'unfinished')) {
-    foreach ($claimsStatus in @('MISSING', 'CORRUPT', 'VALID')) {
-        foreach ($stateStatus in @('MISSING', 'CORRUPT', 'VALID')) {
-            foreach ($pairStatus in @('MISSING', 'MISMATCH', 'CORRUPT', 'VALID')) {
+$resolverCommand = Get-Command Resolve-HarnessEnvAuthorityRoute
+function Get-ResolverDomain {
+    param([Parameter(Mandatory)] [string] $Name)
+    $attribute = @($resolverCommand.Parameters[$Name].Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })
+    if ($attribute.Count -ne 1) { throw "resolver parameter $Name has no single ValidateSet" }
+    return @($attribute[0].ValidValues)
+}
+# The matrix is driven by the decision function's own accepted domains, so a new
+# token cannot be added without extending the pinned coverage.
+$recoveryDomain = Get-ResolverDomain -Name 'RecoveryStatus'
+$claimsDomain = Get-ResolverDomain -Name 'ClaimsStatus'
+$stateDomain = Get-ResolverDomain -Name 'StateStatus'
+$pairDomain = Get-ResolverDomain -Name 'PairStatus'
+$lockParityDomain = Get-ResolverDomain -Name 'LockParityStatus'
+$legacyDomain = Get-ResolverDomain -Name 'LegacyStatus'
+$oldLockDomain = Get-ResolverDomain -Name 'OldLockStatus'
+$legacyParityDomain = Get-ResolverDomain -Name 'LegacyLiveParityStatus'
+$combinations = 0
+foreach ($recoveryStatus in $recoveryDomain) {
+    foreach ($claimsStatus in $claimsDomain) {
+        foreach ($stateStatus in $stateDomain) {
+            foreach ($pairStatus in $pairDomain) {
                 foreach ($controllerMatch in @($null, $false, $true)) {
-                    foreach ($lockParityStatus in @('not-checked', 'pass')) {
-                        foreach ($legacyStatus in @('MISSING', 'CORRUPT', 'CORE')) {
-                            foreach ($oldLockStatus in @('MISSING', 'VERIFIED')) {
-                                foreach ($legacyParity in @('not-checked', 'pass')) {
+                    foreach ($lockParityStatus in $lockParityDomain) {
+                        foreach ($legacyStatus in $legacyDomain) {
+                            foreach ($oldLockStatus in $oldLockDomain) {
+                                foreach ($legacyParity in $legacyParityDomain) {
                                     foreach ($pristine in @($true, $false)) {
+                                        $combinations++
                                         $route = Resolve-HarnessEnvAuthorityRoute -RecoveryStatus $recoveryStatus -ClaimsStatus $claimsStatus -StateStatus $stateStatus -PairStatus $pairStatus -ControllerMatch $controllerMatch -LockParityStatus $lockParityStatus -LegacyStatus $legacyStatus -OldLockStatus $oldLockStatus -LegacyLiveParityStatus $legacyParity -LiveRootsPristine $pristine
-                                        $routeMatrix += $route
-                                        if (-not $routeNextOperations.ContainsKey($route)) {
+                                        if ($routeNextOperations.ContainsKey($route)) {
+                                            $routeCounts[$route] = 1 + ($routeCounts[$route] ?? 0)
+                                        }
+                                        else {
                                             $routeViolations++
-                                            Write-Host "  note  route '$route' has no frozen next operation" -ForegroundColor Red
                                         }
                                     }
                                 }
@@ -929,8 +1019,9 @@ foreach ($recoveryStatus in @('clean', 'unfinished')) {
         }
     }
 }
-Assert ($routeViolations -eq 0) "every one of the $($routeMatrix.Count) fact combinations maps to a frozen route with one next operation"
-Assert (@($routeMatrix | Sort-Object -Unique).Count -eq $routeNextOperations.Count) 'the matrix reaches every frozen route exactly once per token'
+Assert ($routeViolations -eq 0) "every one of the $combinations fact combinations over the resolver's own domains maps to a frozen route"
+Assert ((@($routeCounts.Keys | Sort-Object) -join ',') -ceq (@($routeNextOperations.Keys | Sort-Object) -join ',')) 'the matrix reaches every frozen route'
+Assert ($combinations -eq ($recoveryDomain.Count * $claimsDomain.Count * $stateDomain.Count * $pairDomain.Count * 3 * $lockParityDomain.Count * $legacyDomain.Count * $oldLockDomain.Count * $legacyParityDomain.Count * 2)) 'the matrix enumerates the complete cross product'
 
 Write-Host ("harness-authority tests: {0} passed, {1} failed" -f $script:pass, $script:fail)
 if ($script:fail -gt 0) {

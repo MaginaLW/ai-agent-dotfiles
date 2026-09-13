@@ -41,7 +41,13 @@ $ErrorActionPreference = 'Stop'
 $repo = Resolve-HarnessRepoRoot -RepoRoot $RepoRoot
 $definitionFiles = @(Get-HarnessEnvDefinitionFiles -RepoRoot $repo)
 $authority = Get-HarnessEnvAuthorityAssessment -RepoRoot $repo
-$state = Read-HarnessEnvState -RepoRoot $repo
+$state = $null
+try {
+    $state = Read-HarnessEnvState -RepoRoot $repo
+}
+catch {
+    Write-Warning ([string] $_.Exception.Message)
+}
 $activeName = if ([string] $authority.StateStatus -ceq 'VALID') {
     [string] $authority.StateSummary.EnvironmentName
 }

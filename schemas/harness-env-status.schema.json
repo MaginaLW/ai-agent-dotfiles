@@ -88,6 +88,7 @@
   "$defs": {
     "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "transactionName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
     "route": {
       "enum": [
         "recovery", "initial", "activate", "migrate", "adopt", "repair-adopt", "takeover",
@@ -139,7 +140,7 @@
         "HomeAuthorityKeyLabel": { "type": "string", "pattern": "^[0-9a-f]{12}\\.\\.\\.$" },
         "ControllerMatch": { "type": ["boolean", "null"] },
         "RecoveryStatus": { "enum": ["not-checked", "clean", "unfinished"] },
-        "UnfinishedTransactionIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } },
+        "UnfinishedTransactionIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/transactionName" } },
         "RootClaimsStatus": { "enum": ["not-checked", "MISSING", "CORRUPT", "UNAVAILABLE", "VALID"] },
         "StateStatus": { "enum": ["not-checked", "MISSING", "CORRUPT", "UNAVAILABLE", "VALID"] },
         "PairStatus": { "enum": ["not-checked", "MISSING", "CORRUPT", "UNAVAILABLE", "MISMATCH", "VALID"] },
@@ -200,7 +201,7 @@
           "properties": {
             "Status": { "enum": ["MISSING", "CORRUPT", "CORE"] },
             "Schema": { "type": ["integer", "null"] },
-            "EnvName": { "type": ["string", "null"] },
+            "EnvName": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
             "Gap": { "enum": ["none", "ReasonixBaselineMissing"] },
             "Drift": { "enum": ["none", "RepositoryCommitAdvanced"] },
             "HomeRootMatches": { "type": "boolean" },
