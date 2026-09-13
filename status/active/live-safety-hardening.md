@@ -4,7 +4,8 @@ Last updated: 2026-09-13
 
 Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
 subplan is complete (43/43), Phase 1 is complete (44/44), and Phase 2 is complete (52/52: Tasks 1-9,
-with the one cross-authority proof recorded as a Phase 3-bound finding). The corrected privacy
+with the one cross-authority proof recorded as a Phase 3-bound finding). Phase 3 Task 1 is complete
+(7/7) and Task 2 is complete (5/5), so Phase 3 stands at 12/47 across Tasks 1-9. The corrected privacy
 rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
 garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
 longer served. Phase 3 (shared environment authority and task overlay) has started: Task 1
@@ -1863,13 +1864,82 @@ touched, and no plan/Apply surface was added. Task closeout feedback loop: the u
 `docs/ZCODE.md`, sixth closeout) contributed the verification-as-pinned-assertions method to
 `harness-model` as `44b6b03` and re-imported its clause into this project's rule entry.
 
-## Pending items (2026-09-13, after Phase 3 Task 1)
+## Phase 3 Task 2 (2026-09-13): authority-aware read-only status (list/status v2)
+
+Step 1 (status-route fixtures): fifteen registered fixtures cover the route matrix: the list and
+status positives, plus Schema-layer negatives for `unknown-property`, `wrong-version`,
+`missing-reasonix-count`, `wrong-route`, `probed-status`, `capability-hash` and
+`intended-root-on-claims` (list) / `backup-reference` (status), and Semantic-layer negatives for a
+route/facts contradiction and a next-operation mismatch. The emitter positives are exercised
+directly: `tests/harness-authority.tests.ps1` validates real assessment output against the schema
+through the contract validator, and `tests/harness-env.tests.ps1` asserts the CLI-level documents.
+
+Step 2 (list/status schemas to version 2): both documents now carry one shared `Authority` object -
+route, one recommended next operation, redacted `HomeAuthorityKeyLabel`, controller match, recovery
+status with the unfinished transaction ids, root-claims/state/pair statuses, a state summary
+(environment name, generation, last operation kind, receipt reference and hash, lock and overlay
+hashes), per-platform live-root purity, lock-bound live parity with reasons and mismatches, the
+legacy schema/gap/drift/old-lock/parity block, and the intended-root branch. Status rows carry
+`ReasonixSkillCount`; `Active` gains `Source` and drops the clone-local `BackupReference`; the
+intended-root branch is frozen here (required `RequestedInitialRootContextHash` and
+`FilesystemCapabilityStatus=UNPROBED`, optional redacted `RequestedReasonixRoot` only for
+`explicit-initial-claim`, present only for initial/migrate/adopt, and no branch may contain a
+capability hash or probe artifact). Both kinds are registered with
+`SemanticValidator = Test-HarnessEnvAuthorityDocumentSemantics`, which recomputes the route with the
+same frozen decision function and checks the cross-field invariants. The CI env list/status
+assertions moved to schema 2 and additionally assert the metadata-only intended-root branch.
+
+Step 3 (status stays read-only): the new assessment takes no lock, creates no authority, writes no
+plan, and its only writes are the requested `-JsonPath` documents. A whole-fixture-tree snapshot
+test proves an assessment call changes no byte anywhere; the intended root is resolved through the
+MetadataOnly target context (no probe, no temp file, no capability hash); production interlock
+untouched.
+
+Step 4 (deterministic routing): `Resolve-HarnessEnvAuthorityRoute` is the single decision function,
+shared by the assessment and the artifact validator. Recovery wins over everything when a live
+journal is unfinished. Unvalidatable or corrupt claims are manual; a valid pair is activate on the
+current controller, takeover on a foreign controller only with passing state-bound live parity, and
+`controller-owner-action-required` otherwise; valid claims with a corrupt or missing state are
+repair-adopt; with no claims, complete internally consistent legacy evidence plus a byte-verified
+old lock and passing old-live parity migrates, untrustworthy or inconsistent evidence adopts as
+untrusted, and only fully pristine roots start initial. Live parity compares per-skill staged trees
+from the verified lock and follows the immutable claim's resolved roots after migration; unknown
+live skills are never treated as managed and `.system` is never traversed.
+
+Step 5 (verification): six route groups are pinned end to end in the sealed fake-home matrix
+(pristine, non-empty, explicit custom root, verified legacy migrate, legacy drift manual,
+untrustworthy legacy adopt, missing/corrupt state repair-adopt, activate, owner action, takeover,
+recovery, corrupt claims, pair mismatch) plus the exhaustive 388,800-combination matrix over the
+resolver's own `ValidateSet` domains. Commits: `2e6cb85` the v2 contracts and producers, `46e447b`
+the route-matrix and CLI tests, `fac75cc` the bounded-review fixes.
+
+Review (bounded, read-only, implementation stage): ten findings, one P1 and two P2. The P1 was a
+healthy-authority crash in the status surface (a nonexistent `-Path` parameter plus dictionary
+indexing of the parsed lock) with no covering test; the branch was extracted into the shared
+`Get-HarnessEnvAuthorityActiveSummary` and now has its own tests. The P2s were parity ignoring the
+claim's resolved custom roots and malformed legacy evidence throwing instead of reporting CORRUPT;
+both are fixed. The seven P3s (unsanitized legacy name in a path join, non-UUID transaction
+namespace names breaking the document, unreadable state-bound locks escaping as exceptions, `list`
+aborting on a corrupt legacy state, a tautological test assertion, an incomplete exhaustive matrix,
+and a missing post-claims switch-rejection test) are all fixed in the same commit.
+
+Verification (canonical `pwsh -NoProfile -File` runs): authority 223/223 in 31 s (300 s budget);
+harness-env 131/131; task-skills 22/22 (its fake repository now copies `schemas/` because status
+composes the authority readers and fails closed with `harness-authority-status-repo-layout-required`
+otherwise); agent-dotfiles 16/16; live-plan 121 PASS; sync PASS; artifact validation 31 contracts /
+31 positives / 133 negatives with zero failures; seams 56/56 after re-pinning (reflection-sensitive
+sites 15019, dynamic-command digest `66456c02...`); parse gate 169 files; secret scan clean;
+`git diff --check` clean. The unified regression over the full catalog is recorded in `STATUS.md`.
+
+## Pending items (2026-09-13, after Phase 3 Task 2)
 
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are
 design-bound or downstream:
 
-1. **Phase 3 Tasks 2-9** — not started. Task 2 (authority-aware read-only status, list/status v2)
-   consumes the new readers; the two recorded design findings still feed the phase: the
+1. **Phase 3 Tasks 3-9** — not started. Task 3 adds the `env authority` command surface
+   (`status|migrate|adopt|repair-adopt|takeover`) on top of the frozen v2 status and the routing;
+   Task 2's route decision and its next-operation strings are the contract Task 3 consumes. The two
+   recorded design findings still feed the phase: the two recorded design findings still feed the phase: the
    cross-authority root-claim overlap rejection requires a machine-wide claim store (both
    authorities commit on a shared custom root today — see the Task 8 Step 4 finding), and the
    rollback execution composition's production caller waits for the Phase 3 worktree overlay lock

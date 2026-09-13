@@ -21,8 +21,9 @@ closeout section below). Baseline-reconciliation Task 1 (5/5), the Phase 0 entry
 with GitHub Support ticket `#4697323` resolved and the old object re-probe confirmed clean.
 **Phase 3 (shared environment authority and task-overlay) has started: Task 1 (lock 3 freeze,
 env-build 3 consumption, shared-state semantics, and separate legacy/shared readers) is complete at
-7/7 steps** — see the Phase 3 Task 1 section below. Phase 3 Tasks 2-9 and Phase 4 (schema/CI
-contract and safe release) have not started. Two design-bound findings from the Phase 2 closeout
+7/7 steps and Task 2 (authority-aware read-only status with list/status v2) is complete at 5/5
+steps** — see the Phase 3 Task 1 and Task 2 sections below (Phase 3 overall 12/47). Phase 3 Tasks
+3-9 and Phase 4 (schema/CI contract and safe release) have not started. Two design-bound findings from the Phase 2 closeout
 feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
 Tracked policy remains
@@ -3399,13 +3400,49 @@ verification-as-pinned-assertions method was contributed upstream (`harness-mode
 re-imported into `docs/ZCODE.md`. Production interlock is unchanged, and no real home, ControlBase,
 legacy state, or live root was touched.
 
+## Phase 3 Task 2 (2026-09-13): authority-aware read-only status (list/status v2)
+
+`list-harness-env.ps1` and `status-harness-env.ps1` now emit schema 2 documents carrying one shared
+read-only `Authority` object: the route, exactly one recommended next operation, a redacted
+`HomeAuthorityKeyLabel`, controller match, recovery status with unfinished transaction ids,
+root-claims/state/pair statuses, a state summary (environment, generation, last operation kind,
+receipt reference and hash, lock and overlay hashes), per-platform live-root purity, lock-bound live
+parity, the legacy schema/gap/drift/old-lock/parity block, and the frozen intended-root branch
+(MetadataOnly, `UNPROBED`, redacted requested-root label, present only for initial/migrate/adopt).
+Rows carry `ReasonixSkillCount`, `Active` gains `Source` and drops the clone-local `BackupReference`,
+and status accepts `-ReasonixLiveSkillsPath` only while no claims exist. Both kinds are registered
+artifacts with fifteen fixtures and the `Test-HarnessEnvAuthorityDocumentSemantics` validator, which
+recomputes the route with the same frozen decision function used by the producer.
+
+Routing is a single pure function: unfinished live journals win first; corrupt or unvalidatable
+claims are manual; a valid pair is activate on the current controller, takeover on a foreign
+controller only with passing state-bound live parity, and `controller-owner-action-required`
+otherwise; valid claims with a corrupt or missing state repair-adopt; with no claims, complete
+internally consistent legacy evidence with a byte-verified old lock and passing old-live parity
+migrates, untrustworthy evidence adopts as untrusted, and only fully pristine roots start initial.
+The new `harness-authority-status-common.ps1` composes the readers, controller fingerprint, parity,
+legacy assessment and the lock-free journal scan; it takes no lock and writes nothing but the
+requested `-JsonPath` document.
+
+Verification: authority 223/223 in 31 s (including a 388,800-combination route matrix and a
+whole-tree zero-write snapshot); harness-env 131/131; task-skills 22/22; agent-dotfiles 16/16;
+live-plan 121 PASS; sync PASS; artifact validation 31 contracts / 31 positives / 133 negatives PASS;
+seams 56/56 after re-pinning (reflection-sensitive 15068 after the parse-gate extension, dynamic digest `66456c02...`); parse gate
+169 files; secret scan clean; `git diff --check` clean. A bounded read-only review returned ten
+findings (one P1: a healthy-authority crash in the status surface, now fixed and covered by the
+extracted `Get-HarnessEnvAuthorityActiveSummary`; two P2: parity ignoring the claim's resolved roots
+and malformed legacy evidence throwing instead of reporting CORRUPT) — all ten are fixed in
+`fac75cc`. Implementation commits: `2e6cb85` the v2 contracts and producers, `46e447b` the
+route-matrix and CLI tests, `fac75cc` the review fixes. The unified regression over the full catalog
+ran separately and is recorded below. Production interlock is unchanged and no real home, authority
+state, or live root was written.
+
 ## Remaining roadmap snapshot
 
 **Phase 2 is complete (52 of 52 steps accounted for: Tasks 1-9 all closed; the one proof that
 could not execute — Task 6 Step 5's cross-authority overlapping-roots — is recorded as a Phase
-3-bound finding rather than an open step).** **Phase 3 is in progress: Task 1 is complete (7/7
-steps; Phase 3 overall 7/47 across Tasks 2-9).** Phase 4 schema/CI contract and safe release remains
-downstream and has not started. Before future environment planning, rebuild the stale commit-bound
+3-bound finding rather than an open step).** **Phase 3 is in progress: Tasks 1 and 2 are complete (Phase 3 overall 12/47 across Tasks 3-9).**
+Phase 4 schema/CI contract and safe release remains downstream and has not started. Before future environment planning, rebuild the stale commit-bound
 environment staging locks; this does not authorize Apply.
 
 | Phase 2 task | Remaining steps | Scope |
@@ -3417,22 +3454,21 @@ environment staging locks; this does not authorize Apply.
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Task 1 is complete (7/7 steps) and Tasks 2-9 remain — and the Phase 4 schema/CI
-contract and safe release remain downstream and have not started. The Phase 3 plan and its per-task
+that order — Tasks 1 and 2 are complete and Tasks 3-9 remain — and the Phase 4 schema/CI contract and
+safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
 [`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
 
 ## Next actions
 
-1. **Phase 3 Task 1 is complete** (7/7 steps; see the Phase 3 Task 1 section above). New production
-   surface is read-only: `Read-LegacyHarnessEnvState` and `Read-HomeAuthorityState`; the artifact
-   graph and frozen branch sets are pinned in `tests/harness-authority.tests.ps1`, and the
-   `harness-env-lock` contract is registered. Tasks 2-9 of
+1. **Phase 3 Task 2 is complete** (5/5 steps; see the Phase 3 Task 2 section above). The read-only
+   status surface is now v2 and authority-aware, and its route decision plus next-operation strings
+   are the contract the next task consumes. Tasks 3-9 of
    [`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
-   are next, starting with Task 2 (authority-aware read-only status, list/status v2). The
-   authoritative, itemised record lives in
+   are next, starting with Task 3 (the `env authority status|migrate|adopt|repair-adopt|takeover`
+   command surface). The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after Phase 3 Task 1)".
+   "Pending items (2026-09-13, after Phase 3 Task 2)".
 2. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,
