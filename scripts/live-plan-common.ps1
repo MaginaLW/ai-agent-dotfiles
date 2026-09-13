@@ -17,6 +17,7 @@ $script:LivePlanConsumed = 'live-plan-consumed'
 $script:LivePlanPlatforms = @('Claude', 'Codex', 'Reasonix')
 $script:LivePlanGeneratorSync = 'scripts/sync.ps1'
 $script:LivePlanGeneratorSealed = 'tests/helpers/sealed-live-plan-fixture.ps1'
+$script:LivePlanGeneratorAuthority = 'scripts/authority-harness-env.ps1'
 $script:LivePlanKinds = @(
     'initial',
     'environment',
@@ -114,14 +115,14 @@ function Get-LivePlanKindSpec {
         }
         'migrate' {
             return [ordered]@{
-                Generator = $script:LivePlanGeneratorSealed
+                Generator = @($script:LivePlanGeneratorAuthority, $script:LivePlanGeneratorSealed)
                 Required = @('EnvironmentName', 'EnvironmentMaterializationRoot', 'LegacyLocator', 'LegacyHash', 'LegacyCoreHash', 'OldLockHash')
                 Forbidden = @('LegacyEvidence', 'StateEvidence', 'RetirementManifest', 'ControllerParity')
             }
         }
         'adopt' {
             return [ordered]@{
-                Generator = $script:LivePlanGeneratorSealed
+                Generator = @($script:LivePlanGeneratorAuthority, $script:LivePlanGeneratorSealed)
                 Required = @('EnvironmentName', 'LegacyEvidence')
                 Forbidden = @(
                     'LegacyLocator', 'LegacyHash', 'LegacyCoreHash', 'OldLockHash', 'StateEvidence',
@@ -131,14 +132,14 @@ function Get-LivePlanKindSpec {
         }
         'repair-adopt' {
             return [ordered]@{
-                Generator = $script:LivePlanGeneratorSealed
+                Generator = @($script:LivePlanGeneratorAuthority, $script:LivePlanGeneratorSealed)
                 Required = @('EnvironmentName', 'StateEvidence')
                 Forbidden = @('LegacyEvidence', 'LegacyLocator', 'RetirementManifest', 'ControllerParity')
             }
         }
         'controller-transition' {
             return [ordered]@{
-                Generator = $script:LivePlanGeneratorSealed
+                Generator = @($script:LivePlanGeneratorAuthority, $script:LivePlanGeneratorSealed)
                 Required = @('ControllerParity')
                 Forbidden = @('RetirementManifest', 'ProposedRootClaims', 'TaskOverlayEvidence', 'LegacyEvidence', 'StateEvidence')
             }
@@ -624,7 +625,7 @@ function Test-LiveSyncPlanSemantics {
         throw $script:LivePlanKindMismatch
     }
     $spec = Get-LivePlanKindSpec -Kind $kind
-    if ([string] $payload.Generator -cne [string] $spec.Generator) { throw $script:LivePlanKindMismatch }
+    if (@($spec.Generator) -notcontains [string] $payload.Generator) { throw $script:LivePlanKindMismatch }
     Assert-LivePlanFieldsPresent -Map $payload -Names @($spec.Required) -Failure $script:LivePlanKindMismatch
     Assert-LivePlanFieldsAbsent -Map $payload -Names @($spec.Forbidden) -Failure $script:LivePlanKindMismatch
     if ([string] $payload.RepositoryCommit -cnotmatch $script:LivePlanCommitPattern) { throw $script:LivePlanSelectionMismatch }
