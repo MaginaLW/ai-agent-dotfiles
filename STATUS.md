@@ -3504,8 +3504,10 @@ step lists are in
    `authority-apply-not-wired`; the next slice (Task 4) implements the apply composition through the
    Phase 2 host for migrate/adopt/repair-adopt. Tasks 4-9 of
    [`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
-   remain. The authoritative, itemised record lives in
-   [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
+   remain — the authoritative, itemised record (including the Task 4 apply-composition recon and the
+   open bootstrap-composition decision) lives in
+   [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under the
+   "Phase 3 Task 3" and "Task 4 handoff" sections and
    "Pending items (2026-09-14, after Phase 3 Task 3)".
 2. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1

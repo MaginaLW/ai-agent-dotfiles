@@ -1992,6 +1992,46 @@ routing the producer's validation through the reviewed `Assert-LiveSyncPlanDocum
 instead of calling the semantic validator directly. Commits: `2d6bdf0` the shared-module refactor,
 `bdf9073` the command surface.
 
+## Task 4 handoff (2026-09-14): apply-composition recon
+
+The remaining Task 4 work is the apply composition for `migrate`/`adopt`/`repair-adopt`. The recon is
+done; the facts a next window needs:
+
+- Single host entry: `Invoke-SealedLiveTransactionHost` (`scripts/live-transaction-common.ps1:2261`)
+  takes the reviewed plan plus repo/control/backup roots, per-platform staging/source roots, the
+  probed `FinalCapabilityHashesByPlatform`, the authority context, the working-tree roots and the
+  toolchain root; it acquires the existing-only live route (canonical repo lock, namespace witness,
+  global live lock), revalidates the authority guards under that lock, publishes the receipt-backed
+  journal header, runs the managed backup receipt, then the mutation engine.
+- Kind gate: `$operationKind -cnotin @('initial','retirement')` → `live-transaction-operation-kind-unsupported`
+  (`:2360`). Extending it to `adopt`/`migrate`/`repair-adopt` is the Task 4 entry point.
+- Guard model (`Assert-SealedLiveTransactionHostGuard`, `:2470`): `initial` requires claims+state
+  absent **and** every live root MISSING; the else branch requires claims+state present, the claims
+  bytes hash equal to the plan's `RootClaimsHash`, and the claim rows to bind the target rows. For
+  Task 4 the `adopt`/`migrate` branch must require claims+state absent **without** the pristine
+  requirement (adopt exists for non-empty live roots), and `repair-adopt` must require the claims
+  present and hash-bound while tolerating a MISSING or CORRUPT state. The claims-binding block is
+  currently inline in the else branch and should be extracted for reuse.
+- First-authority claims creation already exists in the state step
+  (`Invoke-SealedLiveTransactionAuthorityState`, `:759`): claims absent → create-new from
+  `AuthorityStateIntent['__ProposedRootClaimsBytes']` (`CLAIMS_PUBLISHED`), claims present → prove the
+  bytes hash unchanged; the state step also handles both a present state (recovery-copy preimage plus
+  replace) and a missing state (create-new), which covers the repair-adopt CORRUPT/MISSING branches.
+  The host only feeds `__ProposedRootClaimsBytes` when the kind is `initial` (`:2600`); Task 4 must
+  extend that to `adopt`/`migrate`.
+- The public apply template is `sync.ps1`'s apply block (`~:955-1010`): bootstrap-status gate,
+  per-platform staging roots under `<home>/.ai-agent-dotfiles-staging/<platform>` used as the
+  mutation-preflight probe roots, `Resolve-TargetContext -Mode MutationPreflight` capability hashes,
+  source/live roots from the plan slots, and `$toolchainRoot` = the controller repository.
+- **The gap the next window must decide**: sync requires the authority prefix to be COMPLETE before
+  applying, because activation bootstraps it. `adopt`/`migrate` are by definition the transitions
+  that establish the first authority, so their composition must run the Phase 2 sealed bootstrap
+  (`New-SealedHomeAuthorityBootstrapIntent` + `Complete-SealedHomeAuthorityBootstrap`, currently
+  unreferenced by any production CLI) before the host can take the existing-only route. `repair-adopt`
+  and `takeover` need only a COMPLETE prefix. This decision (bootstrap inside the authority apply vs a
+  separate reviewed setup step) is the first thing Task 4 must settle, because it defines what
+  `-Apply` composes and what the branch tests inject around.
+
 ## Pending items (2026-09-14, after Phase 3 Task 3)
 
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are
