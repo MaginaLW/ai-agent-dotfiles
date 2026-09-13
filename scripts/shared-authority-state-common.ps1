@@ -552,6 +552,20 @@ function New-AuthorityStatePostimage {
     return $postimage
 }
 
+function Test-AuthoritySchemaValidationAvailable {
+    [CmdletBinding()]
+    param()
+
+    try {
+        $lockPath = Join-Path (Join-Path $script:AuthorityStateRepoRoot 'tools/schema-validator') 'validator.lock.json'
+        $null = Assert-PinnedToolInstalled -LockPath $lockPath
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 function Read-HomeAuthorityArtifact {
     [CmdletBinding()]
     param(
@@ -583,8 +597,25 @@ function Read-HomeAuthorityArtifact {
     }
     catch {
         $artifact.Error = [string]$_.Exception.Message
+        if (-not (Test-AuthoritySchemaValidationAvailable)) { $artifact.Status = 'UNAVAILABLE' }
     }
     return [pscustomobject]$artifact
+}
+
+function Resolve-HomeAuthorityPairStatus {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('MISSING','CORRUPT','UNAVAILABLE','VALID')][string]$ClaimsStatus,
+        [Parameter(Mandatory)][ValidateSet('MISSING','CORRUPT','UNAVAILABLE','VALID')][string]$StateStatus,
+        [Parameter(Mandatory)][bool]$KeyMatches,
+        [Parameter(Mandatory)][bool]$ArtifactsMatch
+    )
+
+    if ($ClaimsStatus -ceq 'UNAVAILABLE' -or $StateStatus -ceq 'UNAVAILABLE') { return 'UNAVAILABLE' }
+    if ($ClaimsStatus -ceq 'CORRUPT' -or $StateStatus -ceq 'CORRUPT') { return 'CORRUPT' }
+    if ($ClaimsStatus -cne 'VALID' -or $StateStatus -cne 'VALID') { return 'MISSING' }
+    if (-not $KeyMatches -or -not $ArtifactsMatch) { return 'MISMATCH' }
+    return 'VALID'
 }
 
 function Read-HomeAuthorityState {
@@ -596,14 +627,20 @@ function Read-HomeAuthorityState {
         Reads exactly `ControlBase/homes/<HomeAuthorityKey>/root-claims.json` and its
         separate `current-env.json`. It never reads, writes, deletes, or moves the
         repo-local legacy `state/current-env.json`, and it never treats claims and
-        state as one another. It takes no lock and is not a mutation input: production
-        writers keep using the held validated read under the global lock.
+        state as one another. It takes no authority or mutation lock and writes
+        nothing under ControlBase or the repository; schema validation runs the
+        pinned schema validator as a child process with its own tool lease and
+        temporary files. It is not a mutation input: production writers keep using
+        the held validated read under the global lock.
 
         Per-artifact status is `MISSING` (no file), `CORRUPT` (present but not valid
-        exact-byte evidence), or `VALID`. `PairStatus` is `VALID` only when both are
-        valid and the state's RootClaimsHash and final identities match the exact
-        claims bytes, `MISMATCH` when both are valid but inconsistent, `CORRUPT` when
-        either artifact is present but invalid, and `MISSING` otherwise.
+        exact-byte evidence), `UNAVAILABLE` (present, but the pinned schema validator
+        is not installed, so nothing can be validated), or `VALID`. `PairStatus` is
+        `VALID` only when both are valid, the directory key matches the claims
+        document, and the state's RootClaimsHash and final identities match the exact
+        claims bytes; `MISMATCH` when both are valid but inconsistent, `CORRUPT` when
+        either artifact is present but invalid, `UNAVAILABLE` when either could not
+        be validated, and `MISSING` otherwise.
     #>
     [CmdletBinding()]
     param(
@@ -613,7 +650,9 @@ function Read-HomeAuthorityState {
     )
 
     if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $script:AuthorityStateRepoRoot }
-    if (-not [IO.Path]::IsPathFullyQualified($ControlBase)) { throw 'HomeAuthority ControlBase must be a fully-qualified path' }
+    if (-not [IO.Path]::IsPathFullyQualified($ControlBase) -or $ControlBase.StartsWith('\\', [StringComparison]::Ordinal)) {
+        throw 'HomeAuthority ControlBase must be a fully-qualified local path'
+    }
     if ($HomeAuthorityKey -cnotmatch '\A[0-9a-f]{64}\z') { throw 'HomeAuthority key must be a 64-character lowercase hex value' }
     $controlBaseFull = [IO.Path]::GetFullPath($ControlBase)
 
@@ -621,33 +660,43 @@ function Read-HomeAuthorityState {
     $claims = Read-HomeAuthorityArtifact -Path (Join-Path $authorityRoot 'root-claims.json') -ArtifactKind 'root-claims' -RepoRoot $RepoRoot -EvidenceRoot $controlBaseFull
     $state = Read-HomeAuthorityArtifact -Path (Join-Path $authorityRoot 'current-env.json') -ArtifactKind 'current-env-state' -RepoRoot $RepoRoot -EvidenceRoot $controlBaseFull
 
-    $pairStatus = 'MISSING'
+    $claimsStatus = [string]$claims.Status
+    $stateStatus = [string]$state.Status
     $pairError = $null
-    if ($claims.Status -ceq 'CORRUPT' -or $state.Status -ceq 'CORRUPT') {
-        $pairStatus = 'CORRUPT'
-    }
-    elseif ($claims.Status -ceq 'VALID' -and $state.Status -ceq 'VALID') {
-        $pairStatus = 'MISMATCH'
-        try {
-            Test-CurrentEnvStateAgainstRootClaims -StateDocument $state.Document -RootClaimsDocument $claims.Document -RootClaimsBytes ([byte[]]$claims.Bytes)
-            $pairStatus = 'VALID'
+    $keyMatches = $false
+    $artifactsMatch = $false
+    if ($claimsStatus -ceq 'VALID' -and $stateStatus -ceq 'VALID') {
+        $keyMatches = [string]$claims.Document['HomeAuthorityKey'] -ceq $HomeAuthorityKey
+        if ($keyMatches) {
+            try {
+                Test-CurrentEnvStateAgainstRootClaims -StateDocument $state.Document -RootClaimsDocument $claims.Document -RootClaimsBytes ([byte[]]$claims.Bytes)
+                $artifactsMatch = $true
+            }
+            catch {
+                $pairError = [string]$_.Exception.Message
+                if (-not (Test-AuthoritySchemaValidationAvailable)) { $stateStatus = 'UNAVAILABLE' }
+            }
         }
-        catch {
-            $pairError = [string]$_.Exception.Message
+        else {
+            $pairError = 'the directory key does not match the claims document'
         }
     }
+    if ($claimsStatus -ceq 'UNAVAILABLE' -or $stateStatus -ceq 'UNAVAILABLE') {
+        if ([string]::IsNullOrWhiteSpace($pairError)) { $pairError = 'the pinned schema validator is unavailable' }
+    }
+    $pairStatus = Resolve-HomeAuthorityPairStatus -ClaimsStatus $claimsStatus -StateStatus $stateStatus -KeyMatches $keyMatches -ArtifactsMatch $artifactsMatch
 
     $reader = [ordered]@{
         HomeAuthorityKey = $HomeAuthorityKey
         AuthorityRoot = $authorityRoot
         ClaimsPath = Join-Path $authorityRoot 'root-claims.json'
-        ClaimsStatus = [string]$claims.Status
+        ClaimsStatus = $claimsStatus
         ClaimsBytes = $claims.Bytes
         ClaimsBytesHash = $claims.BytesHash
         ClaimsDocument = $claims.Document
         ClaimsError = $claims.Error
         StatePath = Join-Path $authorityRoot 'current-env.json'
-        StateStatus = [string]$state.Status
+        StateStatus = $stateStatus
         StateBytes = $state.Bytes
         StateBytesHash = $state.BytesHash
         StateDocument = $state.Document

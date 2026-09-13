@@ -155,13 +155,17 @@ Assert ([string] $legacyCorrupt.Status -ceq 'CORRUPT') 'legacy reader reports CO
 Assert ($null -ne $legacyCorrupt.Bytes) 'CORRUPT legacy read still returns the captured bytes'
 Assert (Test-Path -LiteralPath $legacyStatePath -PathType Leaf) 'legacy reader never deletes or moves the legacy file'
 
-# A shared ControlBase state is invisible to the legacy reader.
+# A valid shared ControlBase state is invisible to the legacy reader: were it to
+# fall back to the shared locator, this read would report VALID instead of MISSING.
 $sharedControlBase = Join-Path $work 'control'
 $sharedKey = 'a' * 64
 $sharedAuthorityRoot = Join-Path (Join-Path $sharedControlBase 'homes') $sharedKey
 New-Item -ItemType Directory -Path $sharedAuthorityRoot -Force | Out-Null
-Set-File -Path (Join-Path $sharedAuthorityRoot 'current-env.json') -Content '{"SchemaVersion":3}'
-Assert ([string] (Read-LegacyHarnessEnvState -RepoRoot $legacyRepo).Status -ceq 'CORRUPT') 'legacy reader sees only the repo-local file'
+Set-File -Path (Join-Path $sharedAuthorityRoot 'current-env.json') -Content '{"SchemaVersion":2,"Name":"shared-stub"}'
+Remove-Item -LiteralPath $legacyStatePath -Force
+$legacyBlind = Read-LegacyHarnessEnvState -RepoRoot $legacyRepo
+Assert ([string] $legacyBlind.Status -ceq 'MISSING') 'legacy reader never falls back to the shared ControlBase state'
+Assert ($null -eq $legacyBlind.Document) 'legacy reader returns no document when only a shared state exists'
 Remove-Item -LiteralPath (Join-Path $sharedAuthorityRoot 'current-env.json') -Force
 
 # ==============================================================================
@@ -175,7 +179,6 @@ $validAuthorityRoot = Join-Path (Join-Path $sharedControlBase 'homes') $validKey
 New-Item -ItemType Directory -Path $validAuthorityRoot -Force | Out-Null
 $sharedStatePath = Join-Path $validAuthorityRoot 'current-env.json'
 $sharedClaimsPath = Join-Path $validAuthorityRoot 'root-claims.json'
-$sharedSnapshotBefore = Get-TreeSnapshot -Root $sharedControlBase
 
 $sharedMissing = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeAuthorityKey $validKey -RepoRoot $RepoRoot
 Assert ([string] $sharedMissing.ClaimsStatus -ceq 'MISSING' -and [string] $sharedMissing.StateStatus -ceq 'MISSING') 'shared reader reports MISSING claims and state without files'
@@ -202,6 +205,19 @@ $sharedMismatch = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeA
 Assert ([string] $sharedMismatch.StateStatus -ceq 'VALID') 'schema-valid state binding other claims stays VALID per artifact'
 Assert ([string] $sharedMismatch.PairStatus -ceq 'MISMATCH') 'state that does not bind the exact claims bytes is a MISMATCH'
 
+# The identity half of the pair contract: identical claims bytes, drifted identity,
+# and a recomputed FinalTargetContextHash so only the binding to root-claims is wrong.
+$identityDriftState = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString($stateBytes))
+$driftedIdentities = @($identityDriftState['FinalResolvedIdentities'])
+$driftedIdentities[2]['ResolvedPath'] = 'C:\fixture\drifted\reasonix\skills'
+$driftedIdentities[2]['LocationKey'] = 'c:/fixture/drifted/reasonix/skills'
+$identityDriftState['FinalResolvedIdentities'] = $driftedIdentities
+$identityDriftState['FinalTargetContextHash'] = Get-SemanticJsonHash -InputObject @($identityDriftState['FinalResolvedIdentities'])
+[System.IO.File]::WriteAllBytes($sharedStatePath, (ConvertTo-SemanticJsonBytes -InputObject $identityDriftState))
+$identityDrift = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeAuthorityKey $validKey -RepoRoot $RepoRoot
+Assert ([string] $identityDrift.StateStatus -ceq 'VALID') 'identity-drifted state stays valid per artifact'
+Assert ([string] $identityDrift.PairStatus -ceq 'MISMATCH') 'state whose final identities do not match claims is a MISMATCH'
+
 Set-File -Path $sharedStatePath -Content '{ corrupt'
 $sharedCorruptState = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeAuthorityKey $validKey -RepoRoot $RepoRoot
 Assert ([string] $sharedCorruptState.ClaimsStatus -ceq 'VALID' -and [string] $sharedCorruptState.StateStatus -ceq 'CORRUPT') 'shared reader reports corrupt state with valid claims'
@@ -214,10 +230,40 @@ $sharedCorruptClaims = Read-HomeAuthorityState -ControlBase $sharedControlBase -
 Assert ([string] $sharedCorruptClaims.ClaimsStatus -ceq 'CORRUPT') 'shared reader reports corrupt claims'
 Assert ([string] $sharedCorruptClaims.PairStatus -ceq 'CORRUPT') 'corrupt claims are never a valid authority pair'
 
+Remove-Item -LiteralPath $sharedStatePath -Force
+$claimsCorruptStateMissing = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeAuthorityKey $validKey -RepoRoot $RepoRoot
+Assert ([string] $claimsCorruptStateMissing.ClaimsStatus -ceq 'CORRUPT' -and [string] $claimsCorruptStateMissing.StateStatus -ceq 'MISSING') 'corrupt claims with a missing state stay two independent statuses'
+Assert ([string] $claimsCorruptStateMissing.PairStatus -ceq 'CORRUPT') 'corrupt claims with a missing state is never a valid authority pair'
+
+[System.IO.File]::WriteAllBytes($sharedStatePath, $stateBytes)
+Remove-Item -LiteralPath $sharedClaimsPath -Force
+$claimsMissingStateValid = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeAuthorityKey $validKey -RepoRoot $RepoRoot
+Assert ([string] $claimsMissingStateValid.ClaimsStatus -ceq 'MISSING' -and [string] $claimsMissingStateValid.StateStatus -ceq 'VALID') 'state without claims stays a valid state artifact with missing claims'
+Assert ([string] $claimsMissingStateValid.PairStatus -ceq 'MISSING') 'state without claims is never a valid authority pair'
+[System.IO.File]::WriteAllBytes($sharedClaimsPath, $claimsBytes)
+
 $badKeyRejected = $false
 try { $null = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeAuthorityKey '../escape' -RepoRoot $RepoRoot }
 catch { $badKeyRejected = $true }
 Assert $badKeyRejected 'shared reader rejects a non-hash authority key'
+$relativeBaseRejected = $false
+try { $null = Read-HomeAuthorityState -ControlBase 'relative/control' -HomeAuthorityKey $validKey -RepoRoot $RepoRoot }
+catch { $relativeBaseRejected = $true }
+Assert $relativeBaseRejected 'shared reader rejects a non-fully-qualified ControlBase'
+$uncBaseRejected = $false
+try { $null = Read-HomeAuthorityState -ControlBase '\\server\share\control' -HomeAuthorityKey $validKey -RepoRoot $RepoRoot }
+catch { $uncBaseRejected = $true }
+Assert $uncBaseRejected 'shared reader rejects a UNC ControlBase'
+
+# The directory key must match the claims document, not just name the path segment.
+$foreignRoot = Join-Path (Join-Path $sharedControlBase 'homes') ('b' * 64)
+New-Item -ItemType Directory -Path $foreignRoot -Force | Out-Null
+[System.IO.File]::WriteAllBytes((Join-Path $foreignRoot 'root-claims.json'), $claimsBytes)
+[System.IO.File]::WriteAllBytes((Join-Path $foreignRoot 'current-env.json'), $stateBytes)
+$keyMismatch = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeAuthorityKey ('b' * 64) -RepoRoot $RepoRoot
+Assert ([string] $keyMismatch.ClaimsStatus -ceq 'VALID' -and [string] $keyMismatch.StateStatus -ceq 'VALID') 'a copied pair under a foreign key stays valid per artifact'
+Assert ([string] $keyMismatch.PairStatus -ceq 'MISMATCH') 'the directory key must match the claims document'
+Remove-Item -LiteralPath $foreignRoot -Recurse -Force
 
 # The reader is read-only for both artifacts and never touches the legacy locator.
 [System.IO.File]::WriteAllBytes($sharedClaimsPath, $claimsBytes)
@@ -227,6 +273,31 @@ $null = Read-HomeAuthorityState -ControlBase $sharedControlBase -HomeAuthorityKe
 $sharedSnapshotAfter = Get-TreeSnapshot -Root $sharedControlBase
 Assert ($sharedSnapshotBefore -eq $sharedSnapshotAfter) 'shared reader leaves every ControlBase file byte-identical'
 Assert ([string] (Read-LegacyHarnessEnvState -RepoRoot $validAuthorityRoot).Status -ceq 'MISSING') 'legacy reader sees no legacy state under a ControlBase tree'
+
+# ==============================================================================
+Write-Host 'shared reader: exhaustive pair-status matrix'
+$statusMatrixCases = 0
+foreach ($claimsStatus in @('MISSING', 'CORRUPT', 'UNAVAILABLE', 'VALID')) {
+    foreach ($stateStatus in @('MISSING', 'CORRUPT', 'UNAVAILABLE', 'VALID')) {
+        foreach ($keyMatches in @($false, $true)) {
+            foreach ($artifactsMatch in @($false, $true)) {
+                $expected = 'MISSING'
+                if ($claimsStatus -ceq 'UNAVAILABLE' -or $stateStatus -ceq 'UNAVAILABLE') { $expected = 'UNAVAILABLE' }
+                elseif ($claimsStatus -ceq 'CORRUPT' -or $stateStatus -ceq 'CORRUPT') { $expected = 'CORRUPT' }
+                elseif ($claimsStatus -ceq 'VALID' -and $stateStatus -ceq 'VALID') {
+                    $expected = if ($keyMatches -and $artifactsMatch) { 'VALID' } else { 'MISMATCH' }
+                }
+                $actual = Resolve-HomeAuthorityPairStatus -ClaimsStatus $claimsStatus -StateStatus $stateStatus -KeyMatches $keyMatches -ArtifactsMatch $artifactsMatch
+                if ([string] $actual -cne $expected) {
+                    Write-Host "  FAIL  pair matrix $claimsStatus/$stateStatus key=$keyMatches artifacts=$artifactsMatch expected $expected got $actual" -ForegroundColor Red
+                    $script:fail++
+                }
+                $statusMatrixCases++
+            }
+        }
+    }
+}
+Assert ($script:fail -eq 0) "pair-status matrix: all $statusMatrixCases combinations map to their documented status"
 
 # ==============================================================================
 Write-Host 'lock graph: emitter-derived environment lock and build sidecar'
@@ -249,8 +320,10 @@ $lockSchema = Read-SchemaDocument 'harness-env-lock.schema.json'
 $expectedLockKeys = @($lockSchema.required | Sort-Object { [string] $_ })
 Assert (($lockKeys -join ',') -ceq ($expectedLockKeys -join ',')) 'emitted lock carries exactly the frozen schema 3 semantic field set'
 $lockValidation = Test-RepositoryJsonSchema -SchemaPath $lockSchemaPath -SchemaRoot $schemaRoot
-$null = Invoke-FixedJsonSchemaValidationBytes -SchemaValidation $lockValidation -InstanceBytes $lockBytes -InstancePath 'harness-authority.lock.in-memory.json'
-Assert $true 'emitted lock validates against the frozen schema 3'
+$lockSchemaOk = $true
+try { $null = Invoke-FixedJsonSchemaValidationBytes -SchemaValidation $lockValidation -InstanceBytes $lockBytes -InstancePath 'harness-authority.lock.in-memory.json' }
+catch { $lockSchemaOk = $false; Write-Host "  note  emitted lock failed schema validation: $($_.Exception.Message)" }
+Assert $lockSchemaOk 'emitted lock validates against the frozen schema 3'
 
 foreach ($forbidden in @('LockHash', 'MaterializationHash', 'PlanHash', 'DocumentHash', 'ReceiptId', 'ReceiptHash', 'JournalId', 'PreStatePhaseHash', 'AuthorityStateHash', 'TargetContextIntent')) {
     Assert ($lockKeys -notcontains $forbidden) "lock carries no $forbidden graph field"
@@ -259,6 +332,13 @@ foreach ($forbidden in @('LockHash', 'MaterializationHash', 'PlanHash', 'Documen
 foreach ($mapName in @('ManifestHashes', 'SkillSourceHashes', 'StagedSkillTreeHashes', 'TaskOverlaySkills')) {
     $platforms = @($lock[$mapName].Keys | Sort-Object { [string] $_ })
     Assert (($platforms -join ',') -ceq 'Claude,Codex,Reasonix') "lock $mapName covers all three platforms"
+}
+$expectedSkillsByPlatform = [ordered] @{ Claude = 'fixture-a,fixture-b'; Codex = 'fixture-a'; Reasonix = 'fixture-a' }
+foreach ($mapName in @('SkillSourceHashes', 'StagedSkillTreeHashes')) {
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $skillKeys = @($lock[$mapName][$platform].Keys | Sort-Object { [string] $_ })
+        Assert (($skillKeys -join ',') -ceq $expectedSkillsByPlatform[$platform]) "lock $mapName $platform enumerates exactly the selected skills"
+    }
 }
 Assert ([string] $lock['SkillSourceEvidence'] -ceq 'available') 'lock records available skill-source evidence'
 Assert ([string] $lock['Name'] -ceq 'good') 'lock records the environment name'
@@ -291,8 +371,10 @@ $sidecar = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($fals
 $sidecarLockHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($lockBytes)).ToLowerInvariant()
 Assert ([string] $sidecar['LockHash'] -ieq $sidecarLockHash) 'build sidecar binds the exact emitted lock bytes'
 Assert ([string] $sidecar['MaterializationHash'] -ceq (Get-HarnessEnvMaterializationHash -Document $sidecar)) 'build sidecar self-hash excludes GeneratedAtUtc and itself'
-Test-HarnessEnvBuildSemantics -Document $sidecar
-Assert $true 'emitted build sidecar passes the v3 semantic gate'
+$sidecarGateOk = $true
+try { Test-HarnessEnvBuildSemantics -Document $sidecar }
+catch { $sidecarGateOk = $false; Write-Host "  note  emitted build sidecar failed the semantic gate: $($_.Exception.Message)" }
+Assert $sidecarGateOk 'emitted build sidecar passes the v3 semantic gate'
 foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
     Assert ([bool] $sidecar['MaterializedRoots'][$platform]['Exists'] -eq $true) "build sidecar records a materialized $platform root"
 }
@@ -326,14 +408,18 @@ Assert ([bool] $emptySidecar['MaterializedRoots']['Reasonix']['Exists'] -eq $tru
 Assert ([long] $emptySidecar['MaterializedRoots']['Reasonix']['FileCount'] -eq 0) 'empty Reasonix subset reports zero files'
 $emptyLockBytes = [System.IO.File]::ReadAllBytes((Get-HarnessEnvLockPath -StagingPath $emptyStaging))
 $emptyLock = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString($emptyLockBytes))
-$null = Invoke-FixedJsonSchemaValidationBytes -SchemaValidation $lockValidation -InstanceBytes $emptyLockBytes -InstancePath 'harness-authority.empty-lock.in-memory.json'
-Assert $true 'lock for an empty platform subset validates against schema 3'
+$emptyLockSchemaOk = $true
+try { $null = Invoke-FixedJsonSchemaValidationBytes -SchemaValidation $lockValidation -InstanceBytes $emptyLockBytes -InstancePath 'harness-authority.empty-lock.in-memory.json' }
+catch { $emptyLockSchemaOk = $false; Write-Host "  note  empty-subset lock failed schema validation: $($_.Exception.Message)" }
+Assert $emptyLockSchemaOk 'lock for an empty platform subset validates against schema 3'
 Assert (@($emptyLock['StagedSkillTreeHashes']['Reasonix'].Keys).Count -eq 0) 'lock records the empty Reasonix staged map'
 
 # ==============================================================================
 Write-Host 'state graph: state references only pre-state artifacts'
-Test-CurrentEnvStateAgainstRootClaims -StateDocument $stateDocument -RootClaimsDocument $claimsDocument -RootClaimsBytes $claimsBytes
-Assert $true 'registered valid claims/state fixtures pass the exact-byte pair contract'
+$fixturePairOk = $true
+try { Test-CurrentEnvStateAgainstRootClaims -StateDocument $stateDocument -RootClaimsDocument $claimsDocument -RootClaimsBytes $claimsBytes }
+catch { $fixturePairOk = $false; Write-Host "  note  fixture pair failed the pair contract: $($_.Exception.Message)" }
+Assert $fixturePairOk 'registered valid claims/state fixtures pass the exact-byte pair contract'
 
 $stateKeys = @($stateDocument.Keys)
 $stateSchema = Read-SchemaDocument 'current-env-state.schema.json'

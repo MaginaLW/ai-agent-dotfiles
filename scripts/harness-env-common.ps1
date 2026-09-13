@@ -355,25 +355,37 @@ function Read-LegacyHarnessEnvState {
         Bytes = $null
         BytesHash = $null
         Document = $null
+        Error = $null
     }
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         return [pscustomobject] $legacy
     }
 
-    $bytes = [System.IO.File]::ReadAllBytes($path)
+    $legacy.Status = 'CORRUPT'
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+    }
+    catch {
+        $legacy.Error = [string] $_.Exception.Message
+        return [pscustomobject] $legacy
+    }
     $legacy.Bytes = $bytes
     $legacy.BytesHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
-    $legacy.Status = 'CORRUPT'
     try {
         $document = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString($bytes))
     }
     catch {
+        $legacy.Error = [string] $_.Exception.Message
         return [pscustomobject] $legacy
     }
     if ($document -isnot [System.Collections.IDictionary] -or -not $document.Contains('SchemaVersion') -or -not $document.Contains('Name')) {
+        $legacy.Error = 'the legacy state is not an object with SchemaVersion and Name'
         return [pscustomobject] $legacy
     }
-    if ([long] $document['SchemaVersion'] -ne 2 -or [string]::IsNullOrWhiteSpace([string] $document['Name'])) {
+    $schemaVersion = $document['SchemaVersion']
+    $name = $document['Name']
+    if ($schemaVersion -isnot [long] -or $schemaVersion -ne 2 -or $name -isnot [string] -or [string]::IsNullOrWhiteSpace($name)) {
+        $legacy.Error = 'the legacy state must use integer SchemaVersion 2 and a non-empty string Name'
         return [pscustomobject] $legacy
     }
 
