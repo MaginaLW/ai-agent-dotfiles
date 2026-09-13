@@ -3262,12 +3262,24 @@ agent-dotfiles, harness-env, doctor, and test-runner passing; registered artifac
 parse gate (167 files), secret scan, `build-skills.ps1` (7/15/7), and `git diff --check` clean.
 Production Apply remains interlocked and no live root was touched.
 
+## Task 7 Step 5 (2026-09-13): the env rollback CLI surface
+
+`tests/harness-env.tests.ps1` section 9.10 completes Step 5: `env rollback` without a receipt path
+fails closed on the missing mandatory parameter, the legacy `RunId` token no longer selects a
+rollback, and the public non-sandbox surface fails closed with `live-plan-host-resolution-required`
+before any authority or receipt work, writing no plan. The three-platform symmetric execution
+substance on the already-claimed custom Reasonix root is pinned by the backup-recovery suite's
+derivation and execution sections. With this, Task 7's five roadmap steps are implemented; only the
+closeout unified `run-tests.ps1 -All` pass (38 suites) remains. Verification: harness-env 112/0;
+parse gate, secret scan, and `git diff --check` clean. Production Apply remains interlocked and no
+live root was touched.
+
 ## Remaining roadmap snapshot
 
-Phase 2 has 12 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-4 are complete and
-Step 5 is complete except its two cross-authority/canonical-interleave proofs; Task 7 has its
-entry, plan layer, Steps 1-4, and the receipt contract complete. The implementation order and
-remaining scope are:
+Phase 2 has 11 of 52 steps remaining. Tasks 1-5 are complete; Task 6 Steps 1-4 are complete and
+Step 5 is complete except its two cross-authority/canonical-interleave proofs; Task 7's five
+roadmap steps are all implemented, with only its closeout unified run remaining. The implementation
+order and remaining scope are:
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -3277,7 +3289,7 @@ remaining scope are:
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 done (`0e04a2c`, `528aec5`, `99a8e87`); Step 5 remains open for the cross-authority overlapping-roots and canonical-interleave proofs |
-| Task 7 | 1/5 | Entry, plan layer, Steps 1-4, and the receipt contract complete; remaining: the Step 5 harness-env rollback section and the closeout unified run. Production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
+| Task 7 | 0/5 | All five roadmap steps implemented; remaining: the closeout unified `run-tests.ps1 -All` pass (38 suites). Production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
 | Task 8 | 4/4 | Lock contention, hard-kill, root-claim, and custom-target concurrency matrix |
 | Task 9 | 5/5 | Phase 2 focused/full validation, requirements review, and real-home non-mutation proof |
 
@@ -3287,23 +3299,23 @@ release, remain downstream and have not started.
 
 ## Next actions
 
-1. Phase 2 Task 5 is complete (6/6), Task 6 Steps 1-4 are complete, and Task 7 has its entry, plan
-   layer, Steps 1-4, and the receipt contract complete as of 2026-09-13: the read-only locator, the
-   schema-1 plan contract, the dispatcher with state rollback and committed-finalize, the
-   deterministic failpoint matrix with its kill/replay and evidence-retention proofs, the two
-   restart gates, the receipt-based rollback entry, the Step 1 source graph with its eligibility
-   gates and rejection matrix, the Step 2 lock-ordered plan derivation, the rollback receipt
-   producer kind, and the executed rollback transaction composition are live; the direct tests
-   verify the full rollback end to end while the production Apply tail stays fail-closed on the
-   Phase 3 worktree overlay lock behind the Phase 4 interlock. Next for Task 7: the Step 5
-   harness-env rollback section, then the closeout unified run. Task 6 Step 5 keeps two open proofs
-   (a different HomeAuthority with overlapping custom roots; concurrent canonical mutation cannot
-   interleave) that need Task 8's lock-contention and root-overlap fixtures; execute them with
-   Task 8, then Tasks 8-9 in strict sequence. Production Apply remains interlocked throughout.
+1. Phase 2 Task 5 is complete (6/6), Task 6 Steps 1-4 are complete, and Task 7's five roadmap steps
+   are all implemented as of 2026-09-13: the read-only locator, the schema-1 plan contract, the
+   dispatcher with state rollback and committed-finalize, the deterministic failpoint matrix with
+   its kill/replay and evidence-retention proofs, the two restart gates, the receipt-based rollback
+   entry, the Step 1 source graph with its eligibility gates and rejection matrix, the Step 2
+   lock-ordered plan derivation, the rollback receipt producer kind, the Steps 3-4 executed
+   rollback transaction, and the Step 5 env-rollback CLI surface are live; the direct tests verify
+   the full rollback end to end while the production Apply tail stays fail-closed on the Phase 3
+   worktree overlay lock behind the Phase 4 interlock. Next: the Task 7 closeout unified
+   `run-tests.ps1 -All` pass (38 suites), then Task 6 Step 5's two open proofs (a different
+   HomeAuthority with overlapping custom roots; concurrent canonical mutation cannot interleave)
+   with Task 8's lock-contention and root-overlap fixtures, then Tasks 8-9 in strict sequence.
+   Production Apply remains interlocked throughout.
    The authoritative, itemised to-do list lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after Task 7 Steps 3-4)": Task 7 Step 5 and the closeout, the carried
-   Task 6 Step 5 proofs, the sealed-file finding whose fix needs the reviewed-load re-pin, the
+   "Pending items (2026-09-13, after Task 7 Step 5)": the Task 7 closeout, the carried Task 6
+   Step 5 proofs, the sealed-file finding whose fix needs the reviewed-load re-pin, the
    placement-pinned `RECEIPT_FINALIZATION` checkpoint, and the Phase 3/4 wiring boundaries.
 2. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a

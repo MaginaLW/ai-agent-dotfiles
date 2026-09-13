@@ -407,8 +407,9 @@ Assert (Test-Path -LiteralPath $unknownLocal) 'unmanaged live skill untouched by
 
 # 9.3 activation status/list integration returns with the Phase 3
 # env-activation deployment (the state file cannot be produced while -Apply is
-# interlocked); 9.4-9.7 idempotence, environment switching, drift flagging, and
-# backup rollback return alongside it (rollback rebuilds on receipts in Task 7).
+# interlocked); 9.4-9.7 idempotence, environment switching, and drift flagging
+# return alongside it. The receipt-based rollback surface is pinned in 9.10
+# and exhaustively covered by tests/backup-recovery.tests.ps1.
 
 # 9.8 failures never write state
 Remove-Item -LiteralPath (Join-Path $fakeRepo 'state') -Recurse -Force -ErrorAction SilentlyContinue
@@ -425,8 +426,18 @@ $result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'activate', 'g
 Assert ($result.Code -eq 1) 'entry point rejects activate without an explicit mode'
 $result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'activate', 'good', '-DryRun', '-Apply')
 Assert ($result.Code -eq 1) 'entry point rejects activate with both modes'
-$result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'rollback', 'RunId', '-Apply')
-Assert ($result.Code -eq 1) 'entry point rejects rollback without a reviewed plan/valid selection'
+
+# 9.10 env rollback CLI surface: the receipt selects a rollback, the legacy
+# selection names are gone, and the public (non-sandbox) surface fails closed
+# at the host-resolution gate before any authority or receipt work.
+$result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'rollback')
+Assert ($result.Code -eq 1) 'entry point rejects env rollback without a receipt path'
+$legacyRollback = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'rollback', 'RunId', '-Apply')
+Assert ($legacyRollback.Code -eq 1) 'the legacy RunId token no longer selects a rollback and fails closed'
+$publicRollback = Invoke-Script -Script $entryScript -ScriptArgs @(
+    'env', 'rollback', '-ReceiptPath', (Join-Path $work 'absent-receipt'), '-DryRun', '-PlanPath', (Join-Path $work 'public-plan.json'))
+Assert ($publicRollback.Code -ne 0 -and $publicRollback.Out -match 'live-plan-host-resolution-required') 'the public rollback surface fails closed without the sandbox authority'
+Assert (-not (Test-Path -LiteralPath (Join-Path $work 'public-plan.json'))) 'the host-resolution rejection writes no plan'
 
 # --- 10. project linkage: RequiredEnv detection (never auto-activates) ---------
 Write-Host 'status: project RequiredEnv linkage'

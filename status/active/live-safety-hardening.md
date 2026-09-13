@@ -1418,7 +1418,7 @@ Task 7 slices 1-2 are landed:
 | Task 4 | 0/7 | Complete |
 | Task 5 | 0/6 | Complete |
 | Task 6 | 1/5 | Steps 1-4 complete (`0e04a2c` locator/schema/dispatcher rollback, `528aec5` failpoints and the restart gates, `99a8e87` evidence retention); Step 5 is complete except its cross-authority overlapping-roots and canonical-interleave proofs, which wait for Task 8's matrix fixtures |
-| Task 7 | 1/5 | Entry, plan layer, Steps 1-2, the receipt contract, and the Steps 3-4 execution composition complete (`00e3632`, `50d6616`, the Step 1 source graph and gates, the Step 2 lock-ordered derivation, the rollback receipt kind, the executed rollback transaction); remaining: the Step 5 harness-env rollback section and the closeout unified run. Production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
+| Task 7 | 0/5 | All five roadmap steps implemented (`00e3632` receipt-based entry, `50d6616` plan-layer fix, the Step 1 source graph and eligibility gates, the Step 2 lock-ordered derivation, the rollback receipt kind, the Steps 3-4 executed rollback transaction, and the Step 5 harness-env rollback section); remaining: the closeout unified run. Production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
 | Task 8 | 4/4 | Lock-contention, hard-kill, root-overlap, and custom-target matrix |
 | Task 9 | 5/5 | Phase 2 checkpoint and real-home non-mutation proof |
 
@@ -1623,18 +1623,28 @@ automation-safety, agent-dotfiles, harness-env, doctor, and test-runner passing;
 files; secret scan clean; `build-skills.ps1` 7/15/7; `git diff --check` clean. Production Apply
 remains interlocked and no live root was touched.
 
-## Pending items (2026-09-13, after Task 7 Steps 3-4)
+## Task 7 Step 5 (2026-09-13): the env rollback CLI surface in harness-env
 
-Task 7 (receipt-backed environment rollback) — Step 5 and the closeout remain:
+`tests/harness-env.tests.ps1` section 9.10 completes the Step 5 surface: `env rollback` without a
+receipt path fails closed on the missing mandatory parameter; the legacy `RunId` token no longer
+selects a rollback and fails closed (it binds as a receipt path and is rejected); and the public
+non-sandbox surface fails closed with `live-plan-host-resolution-required` before any authority or
+receipt work, writing no plan. The three-platform symmetric execution substance — including the
+already-claimed custom Reasonix root and the rejected drift matrix — is pinned by
+`tests/backup-recovery.tests.ps1`'s derivation and execution sections (150 assertions). With this,
+Task 7's five roadmap steps are implemented; only the closeout unified `run-tests.ps1 -All` pass
+(38 suites, workflow timeout 400 minutes) remains, together with the status/roadmap closeout and
+the harness-model loop.
 
-1. **Step 5.** The three-platform symmetric rollback surface is now exercised end to end on an
-   already-claimed custom Reasonix root by the backup-recovery execution section; the remaining
-   Step 5 work is the rollback section of `tests/harness-env.tests.ps1` (the `env rollback` CLI
-   surface) and any residual drift cases it needs.
-2. **Closeout.** The unified `run-tests.ps1 -All` pass for this tree (38 suites, workflow timeout
-   400 minutes) has not been executed; it belongs to the Task 7 closeout, together with the
-   status/roadmap updates and the harness-model closeout loop.
-3. **Phase 3/4 wiring boundaries (recorded, not open work in Phase 2).** The execution
+## Pending items (2026-09-13, after Task 7 Step 5)
+
+Task 7 (receipt-backed environment rollback) — all five roadmap steps are implemented. Remaining:
+
+1. **Closeout.** The unified `run-tests.ps1 -All` pass for this tree (38 suites, workflow timeout
+   400 minutes) has not been executed; it is the Task 7 closeout gate, together with the final
+   status/roadmap closeout and the harness-model closeout loop. The backup-recovery suite's local
+   time is 321 s against its 900 s budget, so no budget change is expected.
+2. **Phase 3/4 wiring boundaries (recorded, not open work in Phase 2).** The execution
    composition's production caller waits for the Phase 3 worktree overlay lock primitive (the
    reviewed order refuses `REQUIRED` applicability today) and for the Phase 4 interlock release;
    until then the entry's Apply tail fails closed with
