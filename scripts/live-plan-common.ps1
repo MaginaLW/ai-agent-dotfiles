@@ -18,6 +18,7 @@ $script:LivePlanPlatforms = @('Claude', 'Codex', 'Reasonix')
 $script:LivePlanGeneratorSync = 'scripts/sync.ps1'
 $script:LivePlanGeneratorSealed = 'tests/helpers/sealed-live-plan-fixture.ps1'
 $script:LivePlanGeneratorAuthority = 'scripts/authority-harness-env.ps1'
+$script:LivePlanGeneratorActivation = 'scripts/activate-harness-env.ps1'
 $script:LivePlanKinds = @(
     'initial',
     'environment',
@@ -98,7 +99,7 @@ function Get-LivePlanKindSpec {
         }
         'environment' {
             return [ordered]@{
-                Generator = $script:LivePlanGeneratorSealed
+                Generator = @($script:LivePlanGeneratorActivation, $script:LivePlanGeneratorSealed)
                 Required = @('EnvironmentName', 'EnvironmentMaterializationRoot')
                 Forbidden = @(
                     'ProposedRootClaims', 'RetirementManifest', 'TaskOverlayEvidence', 'LegacyLocator',
@@ -558,7 +559,15 @@ function Assert-LivePlanKindBody {
             Assert-LivePlanLiveSlots -Platforms $Payload.Platforms -ExpectedStatus 'MISSING'
         }
         'environment' {
-            Assert-LivePlanMaterializationRoot -Root (Get-LivePlanMap -Value $Payload.EnvironmentMaterializationRoot -Failure $script:LivePlanKindMismatch)
+            $materializationRoot = Get-LivePlanMap -Value $Payload.EnvironmentMaterializationRoot -Failure $script:LivePlanKindMismatch
+            Assert-LivePlanMaterializationRoot -Root $materializationRoot
+            # An activation publishes the environment lock it materialized: the
+            # planned state may only carry the exact lock bytes the bound
+            # materialization root holds, so a substituted lock hash is refused
+            # here instead of becoming a committed selection.
+            if ([string] $Intent.EnvironmentLockHash -cne [string] $materializationRoot.EnvLockHash) {
+                throw $script:LivePlanHashMismatch
+            }
             Assert-LivePlanControlBase -Intent $control -ExpectedStatus 'EXISTS'
             Assert-LivePlanLiveSlots -Platforms $Payload.Platforms -ExpectedStatus 'EXISTS'
         }

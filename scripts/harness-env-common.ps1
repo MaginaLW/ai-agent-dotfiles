@@ -1251,6 +1251,36 @@ function Assert-HarnessEnvDestinationEmpty {
     return $destinationFull
 }
 
+function Assert-HarnessEnvMaterializedSourceRoots {
+    <#
+    .SYNOPSIS
+        Requires a v3 materialization to expose all three platform source roots.
+
+    .DESCRIPTION
+        A platform whose managed-skill subset is empty still owns a materialized
+        `<platform>/skills` root: env-build v3 records `Exists=$true` for it and
+        the frozen lock records an empty staged map. Because the lock and the
+        sidecar cannot prove an empty root still exists once the materialization
+        is consumed, every consumer that binds a materialization to a plan or an
+        apply revalidates the three roots on disk first; today that is the
+        activation producer and consumer, while the sync and authority
+        compositions inherit the same guarantee from their copy/hash checks.
+
+        Throws `env-source-root-missing` naming the missing root.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $StagingPath)
+
+    $root = [System.IO.Path]::GetFullPath($StagingPath)
+    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+        $sourceRoot = Join-Path (Join-Path $root ($platform.ToLowerInvariant())) 'skills'
+        if (-not (Test-Path -LiteralPath $sourceRoot -PathType Container)) {
+            throw "env-source-root-missing: $sourceRoot"
+        }
+    }
+    return $root
+}
+
 function Invoke-HarnessEnvMaterialization {
     [CmdletBinding()]
     param(

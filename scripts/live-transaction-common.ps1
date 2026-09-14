@@ -1827,6 +1827,38 @@ function New-SealedLiveJournalHeader {
     }
 }
 
+function Get-SealedLiveTransactionTerminalDocumentHashes {
+    # Original plan document hashes of this authority's TERMINAL live
+    # transactions, as consumed-evidence input for the plan-consumption gate.
+    # A namespace counts only when its header parses and its record chain
+    # carries the final COMPLETE record; missing, unreadable and unfinished
+    # namespaces are skipped, because an unfinished transaction is refused by
+    # the host's recovery gate and must never look like terminal evidence.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $TransactionsRoot)
+
+    # Returned as a dictionary because the consumption gate takes an
+    # IDictionary and asks only Contains(documentHash).
+    $hashes = [ordered]@{}
+    if (-not (Test-Path -LiteralPath $TransactionsRoot -PathType Container)) { return $hashes }
+    foreach ($directory in @(Get-ChildItem -LiteralPath $TransactionsRoot -Directory -Force -ErrorAction SilentlyContinue)) {
+        try {
+            $chain = Get-SealedLiveJournalChain -TransactionDirectory $directory.FullName
+            if ($null -eq $chain.Header -or @($chain.UnknownNames).Count -gt 0) { continue }
+            $terminal = $false
+            foreach ($record in @($chain.Records)) {
+                $document = [System.Collections.IDictionary] $record['Document']
+                if ([string] $document['Phase'] -ceq 'COMPLETE') { $terminal = $true }
+            }
+            if (-not $terminal) { continue }
+            $originalDocumentHash = [string] $chain.Header.OriginalDocumentHash
+            if ($originalDocumentHash -cmatch '\A[0-9a-f]{64}\z') { $hashes[$originalDocumentHash] = $true }
+        }
+        catch { continue }
+    }
+    return $hashes
+}
+
 function Get-SealedLiveJournalChain {
     # Zero-write enumeration of the transaction namespace: header, numbered
     # published records, the zero-or-one result.json, and unknown entries.
@@ -2357,7 +2389,10 @@ function Invoke-SealedLiveTransactionHost {
     $payload = Convert-SealedLiveTransactionHostMap -Value $planMap['PlanPayload']
     if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'OperationKind')) { throw $mismatch }
     $operationKind = [string] $payload['OperationKind']
-    if ($operationKind -cnotin @('initial', 'retirement', 'adopt', 'migrate', 'repair-adopt', 'controller-transition')) { throw $kindUnsupported }
+    # An activation re-publishes the selection of an existing authority: it
+    # runs the same existing-authority guard (claims plus state present, exact
+    # claims bytes bound, claim rows binding the reviewed target rows).
+    if ($operationKind -cnotin @('initial', 'environment', 'retirement', 'adopt', 'migrate', 'repair-adopt', 'controller-transition')) { throw $kindUnsupported }
 
     $intent = Convert-SealedLiveTransactionHostMap -Value $payload['AuthorityStateIntent']
     $targetIntent = Convert-SealedLiveTransactionHostMap -Value $payload['TargetContextIntent']
@@ -2811,12 +2846,14 @@ function Invoke-SealedLiveTransactionHost {
             Platforms = $receiptPlatforms.ToArray()
             ForbiddenRoots = $receiptForbiddenRoots
         }
-        # Only kinds whose guard requires an existing authority pre-image the
-        # authority files, and only while the state file exists: a first
-        # authority (adopt/migrate) has nothing to preserve, and a
+        # Every kind whose guard requires an existing authority pre-images the
+        # authority files, and the state path only while that file exists: a
+        # first authority (adopt/migrate) has nothing to preserve, and a
         # repair-adopt with a MISSING state has no bytes to preimage. The
-        # claims always exist on the kinds that preimage them.
-        if ($operationKind -cin @('retirement', 'repair-adopt')) {
+        # claims always exist on the kinds that preimage them, and the
+        # environment rollback surface requires both records for the kinds it
+        # can roll back.
+        if ($operationKind -cin @('environment', 'retirement', 'repair-adopt')) {
             if (Test-Path -LiteralPath $statePath -PathType Leaf) { $receiptArguments['AuthorityStatePath'] = $statePath }
             $receiptArguments['RootClaimsPath'] = $claimsPath
         }

@@ -220,7 +220,6 @@ if ($Apply) {
         [string] $readDocument.PlanPayload.AuthorityStateIntent.EnvironmentName -cne $Name) {
         throw $script:AuthoritySelectionNameMismatch
     }
-    Assert-LiveSyncPlanDocumentHashNotConsumed -Document $readDocument
 
     # Resolve the reviewed context only now: the interlock and every static plan
     # gate above already ran.
@@ -241,6 +240,12 @@ if ($Apply) {
     if ([string] $canonicalStatus -cne 'canonical-ready') { throw [string] $canonicalStatus }
     $bootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $authorityContext
     if ([string] $bootstrapStatus.Status -cne 'COMPLETE') { throw $script:LiveSyncAuthorityMissing }
+
+    # One plan may mutate once: the reviewed document hash of every terminal
+    # transaction in this authority's namespace is consumed evidence, so a
+    # replayed plan is refused here, before any staging work.
+    $terminalDocuments = Get-SealedLiveTransactionTerminalDocumentHashes -TransactionsRoot ([string] $authorityContext.LiveTransactionsRoot)
+    Assert-LiveSyncPlanDocumentHashNotConsumed -Document $readDocument -TerminalEvidence $terminalDocuments
 
     # Per-platform same-volume staging roots (also the mutation-preflight probe
     # roots) and the probed capability hashes the receipt and the state

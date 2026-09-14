@@ -329,15 +329,23 @@ function Get-LiveSyncTaskOverlayHash {
 function New-LiveSyncMaterializationEvidence {
     # DryRun-only create-new materialization. The destination is never
     # recursively deleted and Invoke-HarnessEnvMaterialization is the only
-    # skills/lock/sidecar writer.
+    # skills/lock/sidecar writer. The optional task overlay path defaults to
+    # the repository's tracked overlay, exactly as before the parameter existed.
     param(
         [Parameter(Mandatory)] [string] $MaterializationPath,
         [Parameter(Mandatory)] [string] $RepoRoot,
-        [string] $Name = 'full'
+        [string] $Name = 'full',
+        [string] $TaskOverlayPath
     )
 
     if (Test-Path -LiteralPath $MaterializationPath) { throw $script:LiveSyncPathCollision }
-    $materialization = Invoke-HarnessEnvMaterialization -Name $Name -Destination $MaterializationPath -RepoRoot $RepoRoot
+    $materializationArguments = @{
+        Name = $Name
+        Destination = $MaterializationPath
+        RepoRoot = $RepoRoot
+    }
+    if (-not [string]::IsNullOrWhiteSpace($TaskOverlayPath)) { $materializationArguments['TaskOverlayPath'] = $TaskOverlayPath }
+    $materialization = Invoke-HarnessEnvMaterialization @materializationArguments
     return (Get-LiveSyncBoundMaterializationEvidence -MaterializationPath ([string] $materialization.Destination) -RepoRoot $RepoRoot)
 }
 

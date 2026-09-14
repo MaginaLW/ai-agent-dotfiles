@@ -89,7 +89,7 @@
 | `scripts/list-harness-env.ps1` | 只读枚举环境定义并标记激活环境，见 §16 |
 | `scripts/status-harness-env.ps1` | 只读环境状态/staging 新旧报告，见 §16 |
 | `scripts/build-harness-env.ps1` | 构建 `envs/<name>/` staging，只写该目录，见 §16 |
-| `scripts/activate-harness-env.ps1` | gated 环境切换，默认 dry-run，部署只经 `sync.ps1`，见 §16 |
+| `scripts/activate-harness-env.ps1` | gated 环境切换：dry-run 产出外部 `environment` 计划，apply 消费同一计划并经 receipt-backed host 部署，见 §16 |
 | `scripts/task-skills.ps1` | task overlay 的校验、dry-run、preview/event 和显式 close 合同，见 §16 |
 | `scripts/auto-sync-after-git.ps1` | Git-private approved runner；只写 non-consumable preview/event 和外部 DryRun 命令 |
 | `scripts/apply-hooks.ps1` | 显式批准 runner 后安装 preview-only hooks |
@@ -455,9 +455,9 @@ pwsh -NoProfile -File tests/task-skills.tests.ps1
   但不能强制应用层未公开的 catalog reload。
 
 `list` / `status` 只读；`build` 只写可删除、可重建的 `envs/<name>/` staging，不写 home。
-`activate` 默认 dry-run；未来解除 interlock 后，`-Apply` 才可动 live，且部署只能经由事务化
-`sync.ps1`。Phase 0 当前不会进入 backup 或 live mutation。
-**Phase 2 范围收窄**：activate 只切换 skills 子集并写状态文件；home 级配置部署
+`activate` 默认 dry-run 且必须显式给 `-PlanPath` 写外部计划；未来解除 interlock 后，`-Apply` 才可动 live，
+且只消费该计划并经 receipt-backed live transaction host 部署（Phase 3 Task 6 收窄）。Phase 0 当前不会进入 backup 或 live mutation。
+**Phase 2 范围收窄**：activate 只切换 skills 子集并写共享 authority 状态；home 级配置部署
 （config-pull 接入）因当前没有任何环境差异化的 home 配置组件而暂缓，接入需单独评审。
 
 常用命令：
@@ -474,9 +474,9 @@ pwsh -File scripts/agent-dotfiles.ps1 env rollback -ReceiptPath <complete-enviro
 pwsh -NoProfile -File tests/harness-env.tests.ps1       # 回归测试（也在 CI 中运行）
 ```
 
-未来解除 interlock 后，`env activate` 的 gate 链（任一步失败即止、不写状态文件）为：
-build-skills → scan-secrets → staging 重建 → transaction-bound backup/sync →
-成功后写 `state/current-env.json`。入口层强制显式 `-DryRun` 或 `-Apply`（与 sync 同款）；
+未来解除 interlock 后，`env activate` 的 dry-run gate 链（任一步失败即止、不写状态文件）为：
+build-skills → scan-secrets → staging 重建 → 绑定 materialization 并写外部 `environment` 计划；
+apply 只消费该计划并经 host 写 shared authority 状态（repo-local `state/current-env.json` 保持 legacy 证据、永不写入）。入口层强制显式 `-DryRun` 或 `-Apply`（与 sync 同款）；
 当前 `-Apply` 只到 Phase 0 interlock，不能把 apply 当作默认动作。
 切换语义：staging 携带全量 manifest 副本而 skills 只含环境子集，sync 的
 manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 skills；
@@ -496,9 +496,9 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
   用它判定 lock validity 和 built/stale，而不是只看文件是否存在）。
    `envs/<name>/reports/` 是 activation 期间 `sync.ps1` 写入的运行证据，不属于构建
    产物，lock attestation 会忽略它。
-- `state/current-env.json`：当前激活环境记录（名字、定义哈希、激活时间），机器私有、
-  Git-ignored。未来只有解除 interlock 后的 `env activate -Apply` 成功才写；除定义哈希外还记录 task overlay
-  hash/skill attestation，`status` 用它们检测“激活后定义或任务 overlay 又变了”。
+- `state/current-env.json`：legacy（Phase 3 起不再写入，保留为机器私有、Git-ignored 的迁移证据）；
+  当前激活环境记录在 shared authority 状态（`ControlBase/homes/<key>/current-env.json`，schema 3），由激活 apply 的事务安装，
+  记录定义/锁/task overlay hash 与 final managed hashes，`status` 用它们检测“激活后定义或任务 overlay 又变了”。
 
 安全规则：
 
@@ -567,8 +567,8 @@ standalone non-DryRun backup 在 Phase 0 被 interlock。
 经审查的 `-PlanPath`。`config pull/push`、`profile apply`、`skills merge/promote`
 也保持默认 dry-run/显式 apply 的保守边界。
 
-`env activate` 和 `env rollback` 的 apply 需要更严格的计划绑定：activate 在 apply
-内部生成并绑定 sync 计划，rollback 则要求外部 dry-run 生成的同一 `-PlanPath`，并在
+`env activate` 和 `env rollback` 的 apply 需要更严格的计划绑定：两者都要求外部 dry-run 生成的同一 `-PlanPath`，
+激活计划是 `OperationKind=environment`（Phase 3 Task 6），并在
 执行前重新验证环境状态、备份元数据和计划哈希。`config pull` 是独立的 home-level
 配置同步入口；the underlying `config-pull` is not part of `env activate`，环境切换当前
 只处理受 manifest 管理的 Claude/Codex/Reasonix skills 和环境状态。

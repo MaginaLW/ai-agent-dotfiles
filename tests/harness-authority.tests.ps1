@@ -1326,9 +1326,9 @@ $publishedClaims = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::n
 Assert ([string] $publishedClaims.HomeAuthorityKey -ceq [string] $cliContext.HomeAuthorityKey) 'the published claims carry the derived authority key'
 Assert (@(Get-ChildItem -LiteralPath ([string] $cliContext.LiveTransactionsRoot) -Directory -Force -ErrorAction SilentlyContinue).Count -ge 1) 'adopt Apply publishes a live transaction namespace'
 $applyAdoptAgain = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
-# The first-authority guard owns this refusal; binding terminal journal evidence
-# to the document hash is the Task 6 plan-consumption work.
-Assert ($applyAdoptAgain.Code -eq 1 -and $applyAdoptAgain.Out -match 'live-transaction-authority-present') 'a completed authority refuses a replayed first-authority plan'
+# The terminal journal evidence now consumes the document hash: a completed
+# plan cannot mutate twice, whatever kind produced it.
+Assert ($applyAdoptAgain.Code -eq 1 -and $applyAdoptAgain.Out -match 'live-plan-consumed') 'a completed authority consumes its plan so a replay is refused'
 $migrateOnExistingAuthority = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'migrate-after.json'), '-LegacyStatePath', (Join-Path $cliRepo 'state/current-env.json'), '-RepoRoot', $cliRepo)
 Assert ($migrateOnExistingAuthority.Code -eq 1) 'a first-authority transition is refused once an authority exists'
 
@@ -1354,6 +1354,8 @@ Assert ([Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([
 $repairedState = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($corruptStatePath)))
 Assert ([string] $repairedState.LastOperationKind -ceq 'repair-adopt') 'the repaired state records the repair-adopt operation kind'
 Assert ([string] $repairedState.HomeAuthorityKey -ceq [string] $cliContext.HomeAuthorityKey) 'the repaired state keeps the authority key'
+$repairReplay = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'repair-adopt', '-Name', 'good', '-Apply', '-PlanPath', $repairPlan, '-CorruptStatePath', $corruptStatePath, '-RepoRoot', $cliRepo)
+Assert ($repairReplay.Code -eq 1 -and $repairReplay.Out -match 'live-plan-consumed') 'a completed repair consumes its plan so a replay is refused'
 # The state is valid again after the repair; the missing-evidence refusal needs
 # its own corrupt precondition.
 Set-File -Path $corruptStatePath -Content '{ corrupt'
@@ -1449,7 +1451,7 @@ Assert (-not $takeoverResult.Contains('ReceiptRef')) 'the state-only result carr
 # A replayed takeover is refused: under the lock the state no longer names the
 # plan's previous controller, so parity fails closed.
 $takeoverReplay = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-Apply', '-PlanPath', $takeoverPlan, '-RepoRoot', $cliRepo)
-Assert ($takeoverReplay.Code -eq 1 -and $takeoverReplay.Out -match 'controller-transition-parity-mismatch') 'a replayed takeover is refused on parity'
+Assert ($takeoverReplay.Code -eq 1 -and $takeoverReplay.Out -match 'live-plan-consumed') 'a completed takeover consumes its plan so a replay is refused'
 # A receipt-bearing controller-transition plan and a NO_LIVE_MUTATION live plan
 # are both rejected by the frozen plan contract. Each tampered copy recomputes
 # its envelope hashes so the semantic layer, not the integrity gate, decides.

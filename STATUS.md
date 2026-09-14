@@ -25,8 +25,10 @@ env-build 3 consumption, shared-state semantics, and separate legacy/shared read
 Task 3 (the `env authority` command surface) is complete at 4/4 steps, Task 4 (reviewed
 migration, adoption and corrupt-state repair through the Phase 2 host, with the four failure
 injection windows) is complete at 5/5 steps, and Task 5 (controller identity, valid-parity
-requirements and the state-only controller takeover) is complete at 4/4 steps** — see the Phase 3
-Task 1-5 sections below (Phase 3 overall 25/47). Phase 3 Tasks 6-9 and Phase 4 (schema/CI contract and
+requirements and the state-only controller takeover) is complete at 4/4 steps, plus Task 6
+(external-plan environment activation with the exact receipt and plan consumption) is complete at
+8/8 steps** — see the Phase 3
+Task 1-6 sections below (Phase 3 overall 33/47). Phase 3 Tasks 7-9 and Phase 4 (schema/CI contract and
 safe release) have not started. Two design-bound findings from the Phase 2 closeout
 feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
@@ -3551,6 +3553,58 @@ read-only review of the delta confirmed the identity projection, the host
 branch and the reclaim, and produced five findings, all adopted. Production Apply
 remains interlocked.
 
+## Phase 3 Task 6 (2026-09-14): external-plan activation, exact receipt, plan consumption
+
+`scripts/activate-harness-env.ps1` is now a plan producer + plan consumer. DryRun
+(mandatory `-PlanPath`) resolves the authority root trio (explicit or
+host-injected; partial selection fails closed), runs the gate chain (build-skills,
+scan-secrets, build-harness-env, `Test-HarnessEnvLock`), creates and revalidates
+the reviewed create-new materialization (three platform source roots including
+empty subsets, env-build v3 sidecar, frozen lock schema 3), requires the
+read-only route to be exactly `activate`, and writes one
+`OperationKind=environment` plan bound to the live claims bytes, the
+materialization lock, generation+1 and fresh observed target rows (with the
+claim-identity drift refusal). Apply consumes only that plan: interlock first
+(the first gate), then path/integrity/kind/generator/currency/selection/
+controller gates, a pre-host `prune` refusal, the canonical and prefix gates,
+the consumption gate, staging + capability hashes, then the Phase 2 host,
+reporting the host's exact `ReceiptId`/`ReceiptPath`/`ReceiptHash`/state hash.
+`Get-LatestBackupReference`, every `sync-backup-*` scan and every repo-local
+`state/current-env.json` write/preview are gone; the legacy file stays
+byte-identical while the shared authority state is what the transaction
+installs. The `environment` kind gained its public generator in the plan spec
+and schema, the host admits it, and its receipt now pre-images the authority
+files so the receipt-based rollback surface is eligible.
+
+Plan consumption landed here (the carried Task 4/5 item):
+`Get-SealedLiveTransactionTerminalDocumentHashes` collects the
+`OriginalDocumentHash` of every terminal journal namespace, and the activation,
+authority and sync apply paths pass it to
+`Assert-LiveSyncPlanDocumentHashNotConsumed` after the canonical/prefix gates and
+before staging, so a completed plan cannot mutate twice; the replay refusals in
+all three surfaces assert `live-plan-consumed`.
+
+Recorded narrowing for Task 7: the task-overlay CLI's preview/apply paths fail
+closed (`activation-root-selection-incomplete`, `overlay-plan-required`) instead
+of delegating a gate-chain preview that no longer exists; the task-overlay plan
+producer, its roots and the worktree overlay lock are Task 7 Step 3 work.
+`docs/README.md` §16 now documents the producer/consumer contract and the
+legacy-state change.
+
+Verified: harness-env 311/0 (producer/consumer matrix for empty/single/multi
+subsets across all three platforms plus the full failure matrix and the
+consumption replay), harness-authority 406/0, task-skills 22/0, live-plan 121,
+sync/live-recovery/live-concurrency/backup-recovery/backup-receipt PASS,
+canonical-transaction 64/0, transaction-journal-exact-byte 12/0,
+agent-dotfiles 23/0, home-authority PASS, private-path-boundary PASS, artifact
+validation 31/31/133 PASS, seams 56/56 re-pinned (reflection 15423, digest
+`3e19718c...`), parse gate 171 files, secret scan clean (a token whose `sk-`
+substring tripped the OpenAI-key pattern was renamed), `git diff --check` clean.
+An independent read-only review produced nine findings; all adopted except one
+recorded item (an activation plan is not bound to a specific authority
+generation, mirroring the reviewed Task 4/5 transitions). Production Apply
+remains interlocked.
+
 ## Phase 3 Task 3 (2026-09-14): the `env authority` command surface
 
 `scripts/authority-harness-env.ps1` adds `status|migrate|adopt|repair-adopt|takeover`, routed by
@@ -3597,27 +3651,26 @@ environment staging locks; this does not authorize Apply.
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Tasks 1-5 are complete and Tasks 6-9 remain — and the Phase 4 schema/CI contract and
+that order — Tasks 1-6 are complete and Tasks 7-9 remain — and the Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
 [`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
 
 ## Next actions
 
-1. **Phase 3 Task 5 is complete** (4/4 steps; see the Phase 3 Task 5 section above): controller
-   identity normalization, the valid-parity requirements with the
-   `controller-owner-action-required` dead end, the state-only `controller-transition` apply, and
-   the public success/failure matrix (replay, wrong name, plan-layer receipt fields,
-   state-preimage disappearance, and a `STATE_REPLACE_PENDING` kill window). The next slice
-   (Task 6) makes environment activation consume an external plan and its exact receipt, which is
-   also where the carried plan-consumption binding lands (a completed plan still passes its guard
-   on replay because `Assert-LiveSyncPlanDocumentHashNotConsumed` is called without terminal
-   evidence) together with the rollback composition's own post-success staging cleanup. Tasks 6-9
-   of
+1. **Phase 3 Task 6 is complete** (8/8 steps; see the Phase 3 Task 6 section above): activation is
+   an external-plan producer + consumer through the receipt-backed host, the exact receipt is
+   reported and no latest-backup scan or repo-local state write remains, and the carried
+   plan-consumption binding landed for the activation, authority and sync apply paths. The next
+   slice (Task 7) makes task overlay changes three-platform and plan-bound, binds the worktree
+   overlay lock, and restores the task-overlay CLI's preview/apply paths that this task narrowed
+   to fail-closed (`activation-root-selection-incomplete`, `overlay-plan-required`); Task 7's Step 3
+   also picks up the rollback composition's own post-success staging cleanup where its spec
+   requires it. Tasks 7-9 of
    [`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
    remain — the authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under the
-   "Phase 3 Task 5" section and the pending-items list there.
+   "Phase 3 Task 6" section and the pending-items list there.
 2. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,

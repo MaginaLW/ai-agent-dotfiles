@@ -162,14 +162,14 @@ Write-Host 'task overlay: addition dry-run'
 $homeOneBefore = Get-TreeSnapshot -Root $homeOne
 $result = Invoke-Script -Script $entryScript -Arguments @('env', 'task', 'ensure-skill', 'fixture-b', '-Platform', 'Codex', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-DryRun', '-SkipBuild', '-SkipSecretScan')
 if ($result.Code -ne 0) { Write-Host '----- addition dry-run output -----'; Write-Host $result.Out }
-Assert ($result.Code -eq 0) 'addition dry-run exits 0 through the activation preview gate'
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-root-selection-incomplete') 'the task preview fails closed until Task 7 supplies its overlay plan and roots'
 Assert ((Get-Content -Raw -LiteralPath $overlayPath) -match "Codex = @\(\)" ) 'addition dry-run leaves the tracked overlay empty'
 Assert ((Get-TreeSnapshot -Root $homeOne) -eq $homeOneBefore) 'addition dry-run leaves live home unchanged'
 
 Write-Host 'task overlay: apply is interlocked'
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'ensure-skill', 'fixture-b', '-Platform', 'Codex', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-Apply', '-SkipBuild', '-SkipSecretScan')
 if ($result.Code -eq 0 -or $result.Out -notmatch 'activation-deploy-not-wired') { Write-Host '----- ensure apply output -----'; Write-Host $result.Out }
-Assert ($result.Code -ne 0 -and $result.Out -match 'activation-deploy-not-wired') 'task ensure apply fails closed without a deployment mechanism'
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-root-selection-incomplete') 'task ensure apply fails closed at the preview gate until Task 7 binds its plan'
 Assert (-not (Test-Path -LiteralPath (Join-Path $homeOne '.codex/skills/fixture-b/SKILL.md'))) 'interlocked task apply installs no skill'
 Assert ((Get-Content -Raw -LiteralPath $overlayPath) -match "Codex = @\(\)") 'interlocked task apply leaves the tracked overlay empty'
 Assert (Test-Path -LiteralPath $systemOne) 'interlocked task apply preserves Codex .system'
@@ -177,7 +177,7 @@ Assert (@(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction Silentl
 
 Write-Host 'task overlay: second-home apply is interlocked'
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'sync', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeTwo, '-BackupRoot', $backupRoot, '-Apply', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -ne 0 -and $result.Out -match 'activation-deploy-not-wired') 'second-home sync apply fails closed without a deployment mechanism'
+Assert ($result.Code -ne 0 -and $result.Out -match 'overlay-plan-required') 'second-home sync apply fails closed until its plan is bound'
 Assert (-not (Test-Path -LiteralPath (Join-Path $homeTwo '.codex/skills/fixture-b/SKILL.md'))) 'interlocked second-home sync installs no skill'
 
 Write-Host 'task overlay: automatic addition-only policy refuses removals pre-deploy'
@@ -198,10 +198,10 @@ Set-File -Path $overlayPath -Content (New-OverlayText)
 
 Write-Host 'task overlay: close apply is interlocked'
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'close', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-DryRun', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -eq 0) 'close dry-run exits 0 through the activation preview gate'
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-root-selection-incomplete') 'the close preview fails closed until Task 7 supplies its overlay plan and roots'
 Assert (Test-Path -LiteralPath $overlayPath) 'close dry-run keeps the overlay file'
 $result = Invoke-Script -Script $taskScript -Arguments @('-Action', 'close', '-RepoRoot', $fakeRepo, '-HomeRoot', $homeOne, '-BackupRoot', $backupRoot, '-Apply', '-SkipBuild', '-SkipSecretScan')
-Assert ($result.Code -ne 0 -and $result.Out -match 'activation-deploy-not-wired') 'close apply fails closed without a deployment mechanism'
+Assert ($result.Code -ne 0 -and $result.Out -match 'activation-root-selection-incomplete') 'close apply fails closed at the preview gate until Task 7 binds its plan'
 Assert (Test-Path -LiteralPath $overlayPath) 'the interlocked close apply keeps the shared overlay'
 Assert (Test-Path -LiteralPath $systemOne) 'the interlocked close apply preserves Codex .system'
 

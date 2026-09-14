@@ -285,7 +285,7 @@ try {
 
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply', '-PlanPath', $initialApplyPlan)
     if ($result.Code -ne 0) { Write-Host "----- re-apply child output -----"; Write-Host $result.Out }
-    Assert ($result.Code -ne 0 -and $result.Out -match 'live-transaction-authority-present') 're-applying a completed initial plan fails closed on the installed authority'
+    Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-consumed') 're-applying a completed initial plan fails closed on the consumed document hash'
 
     $tamperedPlanPath = Join-Path $plansRoot 'initial-apply-plan.json'
     $tampered = Read-LivePlanDocument -Path $tamperedPlanPath

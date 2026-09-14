@@ -245,13 +245,35 @@ function Invoke-TaskActivation {
     )
 
     $activateScript = Join-Path $PSScriptRoot 'activate-harness-env.ps1'
+    if ($Mode -ceq 'Apply') {
+        # Activation consumes the exact external plan a preview wrote. The task
+        # overlay's own plan producer and worktree overlay lock are the Phase 3
+        # Task 7 work; until then the apply path fails closed instead of
+        # inventing a plan, and -SkipBuild/-SkipSecretScan stay preview-only.
+        return [pscustomobject]@{
+            Code = 1
+            Output = 'overlay-plan-required: the task overlay apply needs the exact external activation plan a preview produced; Task 7 binds the worktree overlay plan.'
+        }
+    }
+    # The preview delegates to the activation producer, which needs the
+    # authority roots: this CLI carries no -ControlBase, so the preview fails
+    # closed with `activation-root-selection-incomplete` until Task 7 binds the
+    # task-overlay plan (and its roots) here. A preview that is not bound to an
+    # exact plan must not look like a successful deployment.
+    # A preview writes its own scratch plan outside the worktree, Git internals,
+    # the home and the safety roots; the plan and its materialization are
+    # disposable preview artifacts.
+    $planDirectory = Join-Path ([System.IO.Path]::GetTempPath()) 'ai-agent-dotfiles-task-plans'
+    New-Item -ItemType Directory -Force -Path $planDirectory | Out-Null
+    $planPath = Join-Path $planDirectory ("task-$BaseEnv-$([Guid]::NewGuid().ToString('N')).json")
     $arguments = @(
         '-Name', $BaseEnv,
         '-RepoRoot', $repo,
         '-HomeRoot', $HomeRoot,
         '-BackupRoot', $BackupRoot,
         '-TaskOverlayPath', $CandidateOverlayPath,
-        "-$Mode"
+        '-PlanPath', $planPath,
+        '-DryRun'
     )
     if ($SkipBuild) { $arguments += '-SkipBuild' }
     if ($SkipSecretScan) { $arguments += '-SkipSecretScan' }

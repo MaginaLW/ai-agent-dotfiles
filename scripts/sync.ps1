@@ -959,7 +959,6 @@ if ($savedPayload.Contains('EnvironmentMaterializationRoot')) {
 }
 $expectedEnvironmentName = [string] $savedPayload['EnvironmentName']
 $null = Assert-LiveSyncPlanSelectionContext -Document ([System.Collections.IDictionary] $saved) -ExpectedOperationKind $savedKind -ExpectedEnvironmentName $expectedEnvironmentName
-$null = Assert-LiveSyncPlanDocumentHashNotConsumed -Document ([System.Collections.IDictionary] $saved) -TerminalEvidence $null
 Write-Host 'Plan binding    : verified'
 Write-Host "Plan hash       : $([string] $saved['PlanHash'])"
 Write-Host "Document hash   : $([string] $saved['DocumentHash'])"
@@ -974,6 +973,12 @@ Write-PlanSummary -Payload $savedPayload
 # and refuses MISSING or PARTIAL prefixes fail-closed before any mutation.
 $bootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $authorityContext
 if ([string] $bootstrapStatus.Status -cne 'COMPLETE') { throw $script:LiveSyncAuthorityMissing }
+
+# One plan may mutate once: the reviewed document hash of every terminal
+# transaction in this authority's namespace is consumed evidence, so a replayed
+# plan is refused here, before any staging work.
+$terminalDocuments = Get-SealedLiveTransactionTerminalDocumentHashes -TransactionsRoot ([string] $authorityContext.LiveTransactionsRoot)
+Assert-LiveSyncPlanDocumentHashNotConsumed -Document ([System.Collections.IDictionary] $saved) -TerminalEvidence $terminalDocuments
 
 # Per-platform same-volume staging roots (also the mutation-preflight probe
 # roots) and the probed filesystem capability hashes bound into the receipt

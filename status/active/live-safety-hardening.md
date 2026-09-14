@@ -2261,6 +2261,99 @@ controller binding above, the local-path projection bypassing the shared
 trim/`.git` step, query/fragment text surviving the projection (and no remote-form
 coverage at all — now tested), and the reclaim being broader than necessary.
 
+## Phase 3 Task 6 (2026-09-14, complete): external-plan activation and the exact receipt
+
+Task 6 is complete at 8/8 steps. `scripts/activate-harness-env.ps1` is now a
+plan producer + plan consumer instead of a gate chain that stopped at
+`activation-deploy-not-wired`:
+
+- DryRun (mandatory `-PlanPath`) resolves the authority root trio (explicit or
+  host-injected; a partial selection fails closed and there is no USERPROFILE
+  default), runs the unchanged gate chain (build-skills, scan-secrets,
+  build-harness-env, `Test-HarnessEnvLock`), creates and revalidates the
+  reviewed create-new `<plan-stem>.materialization` (three platform source roots
+  including empty subsets, env-build v3 sidecar, frozen lock schema 3), requires
+  the read-only authority route to be exactly `activate`, reads the shared pair,
+  selects the live roots from the immutable claims (with the reviewed
+  `authority-claim-identity-drift` refusal), and writes one
+  `OperationKind=environment` plan whose intent carries the live claims-bytes
+  hash, the materialization lock hash, generation+1, fresh observed target rows
+  and `LastOperationKind=environment`. The document passes
+  `Assert-LiveSyncPlanDocumentIntegrity` before a byte is written; a path
+  collision fails closed.
+- Apply consumes only that exact plan: the production interlock is the first
+  gate, then path/private-artifact rules, integrity, kind, generator,
+  materialization currency, source-root revalidation, build/lock shape reread,
+  `Test-HarnessEnvLock` against the current repository, selection context,
+  controller identity, a pre-host `prune` refusal (an activation plan only adds
+  or updates), the canonical and prefix gates, the consumption gate, staging
+  roots + `MutationPreflight` capability hashes, then the Phase 2 host. It never
+  builds, scans or rewrites the plan, refuses the preview-only skip switches,
+  reports the host's exact `ReceiptId`/`ReceiptPath`/`ReceiptHash`/`StateHash`/
+  `TransactionId`/`JournalDir` (SchemaVersion 2 summary), and no longer contains
+  `Get-LatestBackupReference`, any `sync-backup-*` scan, or any repo-local
+  `state/current-env.json` resolution: the legacy file stays byte-identical as
+  migration evidence while the shared authority state is what the transaction
+  installs.
+- The `environment` kind got its public generator (`scripts/activate-harness-env.ps1`)
+  in the plan spec and the sync-plan schema, and the host admits it (the
+  existing-authority guard already covered it). It requires the materialization
+  root with an EXISTS control base and all three live slots EXISTS, forbids
+  `ProposedRootClaims` and the legacy/task/parity evidence branches, and binds
+  `AuthorityStateIntent.EnvironmentLockHash` to the bound materialization lock.
+
+**Plan consumption landed here** (the carried item from Task 4/5):
+`Get-SealedLiveTransactionTerminalDocumentHashes` (read-only, in
+live-transaction-common) collects the `OriginalDocumentHash` of every journal
+namespace whose chain carries the final `COMPLETE` record; unfinished,
+unreadable or unknown-entry namespaces are skipped because the host's recovery
+gate already refuses them. The activation, authority and sync apply paths pass
+that evidence to `Assert-LiveSyncPlanDocumentHashNotConsumed` after the
+canonical/prefix gates and before any staging work, so a completed plan cannot
+mutate twice. The replay refusals in all three surfaces now assert the
+`live-plan-consumed` token.
+
+The environment receipt also pre-images the authority files now (`environment`
+joined `retirement`/`repair-adopt` in the host's receipt arguments), which the
+receipt-based rollback surface requires (`rollback-preimage-missing` otherwise)
+and which activation — the only real producer of `SourceOperationKind=environment`
+— needs to be rollback-eligible.
+
+Recorded narrowing (Task 7 handoff): the task-overlay CLI's preview and apply
+paths fail closed (`activation-root-selection-incomplete` and
+`overlay-plan-required`) instead of delegating a gate-chain preview that no
+longer exists; the task-overlay plan producer, its roots and the worktree
+overlay lock are exactly Task 7's Step 3 work. `docs/README.md` §16 was updated
+to describe the producer/consumer contract and the legacy-state change.
+
+Verified: harness-env 311/0 (producer/consumer matrix for the empty, single and
+multi subsets across all three platforms, plus the failure matrix: missing
+`-PlanPath`, path collision, in-worktree/in-Git plan paths, non-environment plan,
+wrong name/lock/controller, changed materialization, changed task overlay,
+v2 sidecar, skip switches on apply, root-transition request, a foreign
+latest-directory decoy under the receipt root, a `STATE_REPLACE_PENDING` kill
+leaving the previous state byte-identical with `live-recovery-required` next, and
+the legacy-state/claims byte-identity plus no-scan/no-legacy-write text bans);
+harness-authority 406/0; task-skills 22/0; live-plan 121 PASS; sync PASS;
+live-recovery PASS; live-concurrency PASS; backup-recovery PASS; backup-receipt
+PASS; canonical-transaction 64/0; transaction-journal-exact-byte 12/0;
+agent-dotfiles 23/0; artifact validation 31/31/133 PASS; seams 56/56 re-pinned
+(reflection 15423, digest `3e19718cadcce53292a777652ad2e9811d3df05eaf77cd95d409d9918405cdba`);
+parse gate 171 files; secret scan clean after renaming a token whose
+`sk-` substring tripped the OpenAI-key pattern; `git diff --check` clean.
+
+An independent read-only review of the delta confirmed the producer binding, the
+apply gate order and the failure matrix and produced nine findings; all adopted
+except where noted: the environment receipt preimages above; the plan-consumption
+binding above; the pre-host `prune` refusal; the README/records updates; the
+task-skills narrowing comment; the summary writer's unreadable-lock guard; two
+test-quality fixes (the vacuous unknown-env assertion and the reinstated
+inside-the-repository home refusal); and the helper comment scope. One finding is
+recorded rather than fixed: an activation plan produced against authority
+generation N can still be applied against generation N+1 (nothing enforces
+monotonicity), which mirrors the reviewed Task 4/5 transitions and mutates only
+the plan's own reviewed selection.
+
 ## Pending items (2026-09-14, after Phase 3 Task 3)
 
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are
