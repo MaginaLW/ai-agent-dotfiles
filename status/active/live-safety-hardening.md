@@ -2354,6 +2354,91 @@ generation N can still be applied against generation N+1 (nothing enforces
 monotonicity), which mirrors the reviewed Task 4/5 transitions and mutates only
 the plan's own reviewed selection.
 
+## Phase 3 Task 7 (2026-09-14, complete): three-platform, plan-bound task overlays
+
+Task 7 is complete at 5/5 steps. `scripts/task-skills.ps1` is now a plan
+producer + plan consumer for the task overlay:
+
+- All three platform baselines are required in the shared state and the bound
+  lock; a missing or legacy (schema 2) baseline produces a migration/manual-review
+  refusal and is never treated as an empty addition-only overlay. The public
+  `-Automatic` routing and the `-SkipBuild`/`-SkipSecretScan` gates are refusals
+  after the interlock (their spellings stay so the automation-safety interlock
+  pins remain meaningful), and `-TaskOverlayPath` other than the tracked
+  `.agent-harness/task-skills.psd1` is refused.
+- ensure/sync/close DryRun writes one external create-new `OperationKind=task-overlay`
+  plan (generator `scripts/task-skills.ps1`, spec and schema now agree on the
+  generator set) plus the `<plan-stem>.candidate.psd1` artifact; the payload's
+  `TaskOverlayEvidence` binds the current and candidate hashes, the exact tracked
+  path, the action and the removal-review flag, and the intent binds the
+  materialization lock. Apply consumes only that plan: interlock, plan
+  path/integrity, kind/generator, materialization currency, selection context,
+  controller, canonical setup/authority, the consumption gate, the reviewed
+  overlay pre-state + candidate artifact (a missing candidate is refused
+  with the candidate-artifact mismatch token, never a rewrite from memory), capability
+  probes, then the host.
+- The tracked overlay file is journalled as a planned atomic file target:
+  candidate staged beside the plan, an immutable preimage copy in the
+  transaction scratch, then FILE_PREPARED → FILE_REPLACE_INTENT (re-observed
+  immediately before the destructive move) → swap-old capture with hash
+  verification (a raced editor/checkout change is put back and fails closed) →
+  the staged candidate installed → FILE_REPLACED → postcondition re-hash.
+  Failure before install restores the captured bytes; after install the
+  transaction enters `live-transaction-recovery-required` with preimage and
+  swap evidence retained.
+- Lock order is canonical (GitCommonDir) → worktree overlay (new lock file
+  inside the worktree's own Git directory, distinct per worktree) → global live
+  lock, all zero-wait; the header binds `WorktreeOverlayLockKey` (frozen
+  optional field) and the reviewed recovery dispatcher derives and revalidates
+  it, so a dispatch from another worktree fails closed as
+  `manual-recovery-required`. The recovery plan binds the overlay lock identity
+  (also for a mutation-free abandon, because the lock order still acquires it),
+  one overlay restore row per overlay/published pair, the preimage copy and the
+  swap-old locator; rollback restores the preimage bytes. `schemas/artifact-contracts.psd1`
+  needed no change and the frozen journal/rollback schemas were reused without
+  shape changes (the overlay records reuse the allowlisted `TargetKind=state`
+  and are distinguished by their exact path).
+
+Three integration defects found while making the first apply pass and fixed
+here: (1) the overlay swap scratch was created inside the canonical contract
+root (`<GitCommonDir>/ai-agent-dotfiles/live-overlay-swap`), whose immediate
+children the held namespace witness pins, so the release then failed with
+`canonical contract-root inventory drift`; the swap now lives under the
+worktree Git directory beside the overlay lock (same volume, outside the pinned
+inventory). (2) `Restore-SealedLiveOverlayFile` rejected a state-rollback plan
+that bound the authority-state preimage path (a legitimate Phase 2 field), which
+broke the state rollback recovery; the no-overlay branch now refuses only a plan
+that binds the overlay lock identity. (3) the recovery dispatcher used
+`$authorityStatePath` without deriving it (StrictMode failure on the
+committed-finalize path), and it now derives it once under the locks. Plus the
+candidate-artifact path resolution tolerates the missing leaf so the dedicated
+candidate check owns the refusal.
+
+Verified: task-skills 92/0 (the three-platform baseline matrix and status, the
+Reasonix ensure → baseline → sync → close path, missing/legacy baseline
+refusals, plan producer/consumer semantics and schema, the tracked-file journal
+records with preimage/swap retention, the consumed-plan replay refusal, the
+changed-overlay-after-preview refusal, stale materialization, the missing
+candidate artifact, the missing candidate check, a `FILE_REPLACED` hard-kill
+window, recovery dispatch from a linked worktree, second-holder overlay-lock
+`operation-lock-busy`, lock-free status, and preview never waiting on the overlay
+lock); live-recovery PASS; harness-env 311/0; harness-authority 406/0; sync
+PASS; agent-dotfiles 23/0; automation-safety PASS; live-concurrency PASS;
+canonical-transaction 64/0; canonical-transaction-apply 21/0;
+transaction-journal-exact-byte 12/0; backup-recovery PASS;
+canonical-hard-kill-reap-semantics 27/0; `canonical-hard-kill` **is still red:
+12 self-seal digest pins remain stale** after re-sealing its reviewed-load
+manifest hashes and part of the derived prelude/controller/cleanup digests (the
+harness derives those digests from its own file text, so every re-seal pass
+moves them; only expectation values were changed, never a check, and no
+assertion was removed or loosened). The pins had already drifted when Tasks 5/6
+added production functions to `canonical-transaction-common.ps1` and
+`transaction-journal-common.ps1` — that suite was not re-run at those boundaries
+— so finishing the re-seal is the carried item for the Task 9 checkpoint, where
+the definitive unified run must be green; artifact validation 31/31/133 PASS; seams 56/56 re-pinned
+(reflection 15668, digest `81bacf1b4fc984d19aad9205b51cf9470eae0efb9fd16bcad0173c04d076c807`);
+parse gate 171 files; secret scan clean; `git diff --check` clean.
+
 ## Pending items (2026-09-14, after Phase 3 Task 3)
 
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are

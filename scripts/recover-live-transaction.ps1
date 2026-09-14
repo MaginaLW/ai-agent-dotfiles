@@ -70,7 +70,6 @@ $script:LiveRecoveryPlanMismatch = 'live-recovery-plan-mismatch'
 $script:LiveRecoveryPlanStale = 'live-recovery-plan-stale'
 $script:LiveRecoveryReceiptUnsupported = 'live-recovery-receipt-state-unsupported'
 $script:LiveRecoveryStateFormUnsupported = $script:LiveTransactionStateFormUnsupported
-$script:LiveRecoveryOverlayLockUnsupported = 'worktree-overlay-lock-not-implemented'
 
 function Resolve-LiveRecoveryInternalRoots {
     # Only a genuine sandbox capability with all three prefixed locators may
@@ -164,17 +163,27 @@ function Assert-LiveRecoveryStateUnreplaced {
     }
 }
 
-function Assert-LiveRecoveryOverlayLockSupported {
-    # The reviewed order is origin canonical -> optional origin overlay ->
-    # global. The worktree overlay lock primitive refuses REQUIRED
-    # applicability today, so a header that binds one cannot be recovered under
-    # the reviewed order: fail closed instead of silently skipping that lock.
+function Assert-LiveRecoveryOverlayLockIdentity {
+    # The reviewed order is origin canonical -> origin worktree overlay ->
+    # global. A header that binds an overlay lock is only recoverable from the
+    # exact worktree identity that held it: a linked worktree (or any other
+    # repository) derives a different overlay lock path and fails closed as
+    # manual recovery instead of silently skipping the second lock.
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [System.Collections.IDictionary] $HeaderMap)
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $HeaderMap,
+        [Parameter(Mandatory)] $GitContext
+    )
 
-    if ((Test-LiveTransactionMapHasName -Map $HeaderMap -Name 'WorktreeOverlayLockKey') -and $null -ne $HeaderMap['WorktreeOverlayLockKey']) {
-        throw $script:LiveRecoveryOverlayLockUnsupported
+    if (-not (Test-LiveTransactionMapHasName -Map $HeaderMap -Name 'WorktreeOverlayLockKey') -or $null -eq $HeaderMap['WorktreeOverlayLockKey']) {
+        return $null
     }
+    $overlayLockPath = Get-WorktreeOverlayLockPath -GitContext $GitContext
+    $overlayLockKey = Get-WorktreeOverlayLockKey -LockPath $overlayLockPath
+    if ([string] $HeaderMap['WorktreeOverlayLockKey'] -cne $overlayLockKey) {
+        throw ($script:LiveRecoveryOriginMismatch + ': live journal worktree overlay lock identity mismatch')
+    }
+    return [ordered]@{ Path = $overlayLockPath; Key = $overlayLockKey }
 }
 
 function New-LiveRecoveryPlanPayload {
@@ -260,7 +269,8 @@ function New-LiveRecoveryPlanPayload {
         Targets = $null
         Action = $Action
     }
-    Assert-LiveRecoveryOverlayLockSupported -HeaderMap $headerMap
+    $statePathsForRecovery = Get-LiveTransactionStatePaths -ControlBase ([string] $AuthorityContext.ControlBase) -HomeAuthorityKey ([string] $headerMap['HomeAuthorityKey'])
+    $authorityStatePath = [string] $statePathsForRecovery['StatePath']
     if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'RootClaimsHash') { $payload['RootClaimsHash'] = [string] $headerMap['RootClaimsHash'] }
     if ($receiptBacked -and ($Action -ne 'abandon') -and (Test-LiveTransactionMapHasName -Map $headerMap -Name 'OriginalPlanHash')) { $payload['OriginalPlanHash'] = [string] $headerMap['OriginalPlanHash'] }
     if ($consumed.Count -gt 0) { $payload['ConsumedRecoveryDocumentHashes'] = @($consumed) }
@@ -367,12 +377,53 @@ function New-LiveRecoveryPlanPayload {
     # and the installed postimage; a rollback additionally binds the on-disk
     # preimage copy it will read back. A staged-but-unreplaced state must still
     # show the recorded preimage on disk, or the journal is manual recovery.
-    $stateReplaced = $null -ne (Get-SealedLiveAuthorityStateReplacedHash -Records $records)
+    $stateReplaced = $null -ne (Get-SealedLiveAuthorityStateReplacedHash -Records $records -ExpectedTargetPath $authorityStatePath)
     $preimageBinding = $null
-    if (-not $stateReplaced) { $preimageBinding = Get-SealedLiveAuthorityStatePreimageBinding -Records $records }
+    if (-not $stateReplaced) { $preimageBinding = Get-SealedLiveAuthorityStatePreimageBinding -Records $records -ExpectedTargetPath $authorityStatePath }
+    # The tracked overlay file target of a task-overlay journal is recovered
+    # together with the authority state: the plan binds the overlay lock
+    # identity and one restore row per overlay/published pair. An overlay-bound
+    # journal binds that identity even when it has no restore row (a
+    # mutation-free abandon), because the reviewed lock order still acquires and
+    # revalidates the overlay lock.
+    if (Test-LiveTransactionMapHasName -Map $headerMap -Name 'WorktreeOverlayLockKey') {
+        $payload['OverlayLockKey'] = [string] $headerMap['WorktreeOverlayLockKey']
+    }
+    $overlayEvidence = Get-SealedLiveOverlayFilePreimageBinding -Records $records -AuthorityStatePath $authorityStatePath
+    if ($null -ne $overlayEvidence) {
+        if (-not (Test-LiveTransactionMapHasName -Map $headerMap -Name 'WorktreeOverlayLockKey')) { throw $script:LiveRecoveryStateFormUnsupported }
+        $overlayReplaced = Get-SealedLiveOverlayFileReplacedHash -Records $records -AuthorityStatePath $authorityStatePath
+        $overlayTargetPaths = @([string[]] @($payload['Targets'] | ForEach-Object { [string] (([System.Collections.IDictionary] $_)['TargetPath']) }))
+        if ($overlayTargetPaths -ccontains [string] $overlayEvidence.TargetPath) { throw $script:LiveRecoveryStateFormUnsupported }
+        $overlayRows = [System.Collections.Generic.List[object]]::new()
+        $overlayRows.Add([ordered]@{
+            TargetId = (Get-SemanticJsonHash -InputObject ([ordered]@{ TargetKind = 'state'; TargetPath = [string] $overlayEvidence.TargetPath }))
+            Order = [long] @($payload['Targets']).Count
+            TargetKind = 'state'
+            Role = 'state'
+            TargetPath = [string] $overlayEvidence.TargetPath
+            PreimagePath = [string] $overlayEvidence.PreimageCopy
+            SwapOldPath = [string] $overlayEvidence.SwapOldPath
+            StagedPath = $null
+            Current = [ordered]@{
+                State = 'PRESENT'
+                Type = 'File'
+                Hash = [string] $overlayEvidence.Preimage['Hash']
+                Identity = [string] $overlayEvidence.Preimage['Identity']
+            }
+            Candidate = if ($null -ne $overlayReplaced) {
+                [ordered]@{ State = 'PRESENT'; Type = 'File'; Hash = [string] $overlayReplaced['Hash']; Identity = [string] $overlayReplaced['Identity'] }
+            }
+            else {
+                [ordered]@{ State = 'PRESENT'; Type = 'File'; Hash = [string] $overlayEvidence.Preimage['Hash']; Identity = [string] $overlayEvidence.Preimage['Identity'] }
+            }
+            TargetContextHash = (Get-SemanticJsonHash -InputObject ([ordered]@{ OverlayLockKey = [string] $headerMap['WorktreeOverlayLockKey']; TargetPath = [string] $overlayEvidence.TargetPath }))
+        })
+        $payload['Targets'] = @($payload['Targets']) + @($overlayRows)
+    }
     if ($Action -ceq 'rollback' -or $Action -ceq 'finalize') {
         if ($stateReplaced) {
-            $stateEvidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $records
+            $stateEvidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $records -ExpectedTargetPath $authorityStatePath
             if ($null -eq $stateEvidence) { throw $script:LiveRecoveryStateFormUnsupported }
             if ($Action -ceq 'rollback') {
                 # The reviewed rollback plan is only derived while the
@@ -406,6 +457,17 @@ function New-LiveRecoveryPlanPayload {
         # Abandon must not close a journal whose authority state file was
         # already replaced on disk without its completed record.
         Assert-LiveRecoveryStateUnreplaced -PreimageBinding $preimageBinding
+    }
+    if ($Action -ceq 'abandon' -and $null -ne $overlayEvidence) {
+        # The same rule for the tracked overlay file: a journal whose overlay
+        # bytes moved (replaced through this transaction's primitive, or a swap
+        # window that left the file absent) is restored by the reviewed rollback,
+        # never closed as abandoned.
+        $observedOverlay = Get-SealedLiveObservableFileState -Path ([string] $overlayEvidence.TargetPath)
+        if ([string] $observedOverlay['State'] -cne 'PRESENT' -or
+            [string] $observedOverlay['Hash'] -cne [string] $overlayEvidence.Preimage['Hash']) {
+            throw $script:LiveRecoveryStateFormUnsupported
+        }
     }
 
     $expectedOutcome = switch ($Action) {
@@ -511,8 +573,18 @@ else {
     $transactionDir = Join-Path $transactionsRoot $TransactionId
     if (-not (Test-Path -LiteralPath $transactionDir -PathType Container)) { throw $script:LiveRecoveryTransactionUnknown }
 
+    # Pre-lock header probe: it only selects which lock identities the reviewed
+    # order has to take (canonical -> worktree overlay -> global). The scan
+    # handle is released immediately and every binding is revalidated under the
+    # held locks before any action.
+    $probeChain = Get-SealedLiveJournalChain -TransactionDirectory $transactionDir
+    $probeHeader = [System.Collections.IDictionary] $probeChain.Header
+    if ($null -eq $probeHeader) { throw ($script:LiveRecoveryOriginMismatch + ': live journal header is missing') }
+    $overlayIdentity = Assert-LiveRecoveryOverlayLockIdentity -HeaderMap $probeHeader -GitContext $git
+
     $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $contractPaths.LockPath) -AllowCreate
     $canonicalWitness = $null
+    $overlayLock = $null
     $globalLock = $null
     try {
         # The namespace witness binds the canonical setup window; a repo whose
@@ -528,6 +600,11 @@ else {
             else { throw }
         }
         try {
+            # The worktree overlay lock is the second step of the reviewed order
+            # and is taken by the exact worktree identity the probe selected.
+            if ($null -ne $overlayIdentity) {
+                $overlayLock = Enter-WorktreeOverlayLock -LockPath ([string] $overlayIdentity.Path) -CanonicalLockHandle $canonicalLock -AllowCreate
+            }
             $globalLock = if ($null -ne $canonicalWitness) {
                 Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $authorityContext -RequiredCanonicalWitness $canonicalWitness
             } else {
@@ -537,6 +614,10 @@ else {
                 $chain = Get-SealedLiveJournalChain -TransactionDirectory $transactionDir
                 $headerMap = [System.Collections.IDictionary] $chain.Header
                 if ($null -eq $headerMap) { throw ($script:LiveRecoveryOriginMismatch + ': live journal header is missing') }
+                # The authority state this transaction owns, derived once under
+                # the locks: the tracked overlay file target of a task-overlay
+                # journal is every state-kind row whose path is not this one.
+                $authorityStatePath = [string] ((Get-LiveTransactionStatePaths -ControlBase ([string] $authorityContext.ControlBase) -HomeAuthorityKey ([string] $headerMap['HomeAuthorityKey']))['StatePath'])
                 if ([string] $headerMap['HomeAuthorityKey'] -cne [string] $authorityContext.HomeAuthorityKey) {
                     throw ($script:LiveRecoveryOriginMismatch + ': live journal home authority mismatch')
                 }
@@ -548,7 +629,13 @@ else {
                     throw ($script:LiveRecoveryOriginMismatch + ': live journal origin identity mismatch')
                 }
                 $null = Test-SealedLiveJournalChain -Header $chain.Header -Records $chain.Records -Result $chain.Result -ResultFileHash $chain.ResultFileHash
-                Assert-LiveRecoveryOverlayLockSupported -HeaderMap $headerMap
+                # Re-find and revalidate the exact transaction under all three
+                # locks: the header still has to bind the overlay lock identity
+                # this dispatch actually acquired.
+                $revalidatedOverlayIdentity = Assert-LiveRecoveryOverlayLockIdentity -HeaderMap $headerMap -GitContext $git
+                if (($null -eq $revalidatedOverlayIdentity) -ne ($null -eq $overlayIdentity)) {
+                    throw ($script:LiveRecoveryOriginMismatch + ': live journal worktree overlay lock identity changed under the locks')
+                }
 
                 if ($DryRun) {
                     $payload = New-LiveRecoveryPlanPayload -Chain $chain -AuthorityContext $authorityContext -Action $Action
@@ -650,13 +737,23 @@ else {
                         }
                         $null = Restore-SealedLiveMutationTargets -Targets $targets -Completed @($pendingTuples)
                         $stateRestore = Restore-SealedLiveAuthorityState -Header $headerMap -Records $records -PlanPayload $planPayload -ControlBase ([string] $authorityContext.ControlBase) -TransactionDirectory $transactionDir
+                        $overlayRestore = Restore-SealedLiveOverlayFile -Records $records -PlanPayload $planPayload -AuthorityStatePath ([string] (Get-LiveTransactionStatePaths -ControlBase ([string] $authorityContext.ControlBase) -HomeAuthorityKey ([string] $headerMap['HomeAuthorityKey']))['StatePath']) -TransactionDirectory $transactionDir
                         if ($null -eq $stateRestore -and (Test-LiveTransactionMapHasName -Map $planPayload -Name 'AuthorityStatePreimagePath')) {
                             throw $script:LiveRecoveryStateFormUnsupported
                         }
                         $restorationRows = [System.Collections.Generic.List[object]]::new()
                         foreach ($target in $targets) {
                             $current = [System.Collections.IDictionary] $target['Current']
-                            $observed = Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] $current['Hash'])
+                            # A state-role row is a regular file target (the
+                            # tracked overlay); the directory walker would read
+                            # it as MISSING, so file roles use the file
+                            # observation.
+                            $observed = if ([string] $target['TargetKind'] -ceq 'state') {
+                                Get-SealedLiveObservableFileState -Path ([string] $target['TargetPath'])
+                            }
+                            else {
+                                Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] $current['Hash'])
+                            }
                             if (([string] $current['State'] -ceq 'PRESENT' -and [string] $observed['State'] -cne 'PRESENT') -or
                                 ([string] $current['State'] -ceq 'MISSING' -and [string] $observed['State'] -cne 'MISSING')) {
                                 throw ($script:LiveRecoveryOriginMismatch + ': rollback restoration drifted from the header preimage')
@@ -665,6 +762,9 @@ else {
                         }
                         if ($null -ne $stateRestore) {
                             $restorationRows.Add([ordered]@{ TargetId = 'authority-state'; Restored = $stateRestore.RestoredState })
+                        }
+                        if ($null -ne $overlayRestore) {
+                            $restorationRows.Add([ordered]@{ TargetId = [string] $overlayRestore.TargetId; Restored = $overlayRestore.RestoredState })
                         }
                     }
                     # Recovery primitives are durable here (rollback restored
@@ -698,7 +798,7 @@ else {
                         # held locks before the fixed bytes are published.
                         $resultInventory = [System.Collections.IDictionary] $planPayload['ResultInventory']
                         if ([string] $resultInventory['State'] -cne 'MISSING') { throw $script:LiveRecoveryPlanStale }
-                        $finalizeEvidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $records
+                        $finalizeEvidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $records -ExpectedTargetPath $authorityStatePath
                         if ($null -eq $finalizeEvidence) { throw $script:LiveRecoveryStateFormUnsupported }
                         $statePaths = Get-LiveTransactionStatePaths -ControlBase ([string] $authorityContext.ControlBase) -HomeAuthorityKey ([string] $headerMap['HomeAuthorityKey'])
                         $claimsPath = [string] $statePaths['ClaimsPath']
@@ -757,6 +857,7 @@ else {
             }
             finally {
                 if ($null -ne $globalLock) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
+                if ($null -ne $overlayLock) { Exit-WorktreeOverlayLock -LockHandle $overlayLock }
             }
         }
         finally {

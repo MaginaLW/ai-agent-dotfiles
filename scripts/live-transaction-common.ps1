@@ -117,6 +117,15 @@ function Test-LiveJournalHeaderSemantics {
         if (Test-LiveTransactionMapHasName -Map $Document -Name 'ReceiptIntent') { throw $mismatch }
     }
 
+    # The worktree overlay lock identity is optional in the frozen header shape
+    # and mandatory for the kind that owns a repository overlay file target; a
+    # journal that carries overlay file records without the lock identity fails
+    # closed in the overlay evidence layer.
+    if (Test-LiveTransactionMapHasName -Map $Document -Name 'WorktreeOverlayLockKey') {
+        Assert-LiveTransactionHashSpelling -Value $Document['WorktreeOverlayLockKey'] -Failure $mismatch
+    }
+    elseif ([string] $Document['OperationKind'] -ceq 'task-overlay') { throw $mismatch }
+
     $orders = [System.Collections.Generic.HashSet[long]]::new()
     foreach ($target in @([object[]] $Document['Targets'])) {
         $order = [long] $target['Order']
@@ -400,12 +409,24 @@ function Test-RollbackPlanSemantics {
             throw $script:RollbackPlanBindingMissing
         }
     }
-    # FILE_REPLACED and STATE_PUBLISHED only ever describe the authority state
-    # file: a rollback over a completed replacement must bind the restorable
-    # preimage, its on-disk copy, and the installed postimage.
+    # FILE_REPLACED and STATE_PUBLISHED describe an atomic file replacement:
+    # either the authority state file (the plan must bind the restorable state
+    # preimage, its on-disk copy and the installed postimage) or the tracked
+    # overlay file (the plan must bind that file's restore row). A replacement
+    # with neither binding is not a reviewed rollback.
     if ($action -ceq 'rollback' -and ($phases -ccontains 'FILE_REPLACED' -or $phases -ccontains 'STATE_PUBLISHED')) {
+        $stateReplacementBound = $true
         foreach ($name in @('AuthorityStatePreimage', 'AuthorityStateExpected', 'AuthorityStatePreimagePath')) {
-            if (-not (Test-LiveTransactionMapHasName -Map $payload -Name $name)) { throw $script:RollbackPlanBindingMissing }
+            if (-not (Test-LiveTransactionMapHasName -Map $payload -Name $name)) { $stateReplacementBound = $false }
+        }
+        if (-not $stateReplacementBound) {
+            $overlayReplacementBound = $false
+            foreach ($row in @($payload['Targets'])) {
+                $rowMap = [System.Collections.IDictionary] $row
+                $rowNames = @('PreimagePath', 'SwapOldPath', 'Current') | Where-Object { -not (Test-LiveTransactionMapHasName -Map $rowMap -Name $_) }
+                if (@($rowNames).Count -eq 0) { $overlayReplacementBound = $true }
+            }
+            if (-not $overlayReplacementBound) { throw $script:RollbackPlanBindingMissing }
         }
     }
     # Committed-finalize (no published result) is only reviewed over a complete
@@ -945,7 +966,9 @@ function Invoke-SealedLiveTransactionMutation {
         [AllowNull()] [System.Collections.IDictionary] $TargetContextIntent,
         [AllowNull()] [System.Collections.IDictionary] $FinalCapabilityHashesByPlatform,
         [AllowNull()] [string] $ControlBase,
-        [AllowNull()] [string] $StateRecoveryDirectory
+        [AllowNull()] [string] $StateRecoveryDirectory,
+        [AllowNull()] [System.Collections.IDictionary] $OverlayTarget,
+        [AllowNull()] [string] $OverlayRecoveryDirectory
     )
 
     $chain = Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory
@@ -967,6 +990,18 @@ function Invoke-SealedLiveTransactionMutation {
         [string]::IsNullOrWhiteSpace($StateRecoveryDirectory)) {
         throw $script:LiveTransactionIntentMismatch
     }
+    # The tracked overlay target is planned exactly by the task-overlay kind, and
+    # a chain that carries one must also bind the worktree overlay lock it held.
+    $overlayPlanned = $null -ne $OverlayTarget
+    if ($overlayPlanned) {
+        if ([string] $Header['OperationKind'] -cne 'task-overlay' -or [string]::IsNullOrWhiteSpace($OverlayRecoveryDirectory)) {
+            throw $script:LiveTransactionIntentMismatch
+        }
+        if (-not (Test-LiveTransactionMapHasName -Map $Header -Name 'WorktreeOverlayLockKey')) { throw $script:LiveTransactionIntentMismatch }
+    }
+    elseif ([string] $Header['OperationKind'] -ceq 'task-overlay') {
+        throw $script:LiveTransactionIntentMismatch
+    }
     if ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $Receipt['ReceiptPath'])) -cne 'COMPLETE') {
         throw 'live-transaction-receipt-not-complete'
     }
@@ -983,6 +1018,8 @@ function Invoke-SealedLiveTransactionMutation {
     $completed = [System.Collections.Generic.List[object]]::new()
     $claimsCreatedRef = [ref] $false
     $stateInstalledRef = [ref] $false
+    $overlayInstalledRef = [ref] $false
+    $overlayOutcome = $null
     try {
         foreach ($target in @($Targets)) {
             $kind = [string] $target['TargetKind']
@@ -1075,6 +1112,13 @@ function Invoke-SealedLiveTransactionMutation {
             $completed.Add([ordered]@{ TargetId = [string] $target['TargetId']; Phase = 'NEW_INSTALLED' })
         }
 
+        # The tracked overlay file is planned between the live targets and the
+        # authority state: the overlay bytes and the state postimage that binds
+        # them are either both installed or both recoverable from the journal.
+        if ($overlayPlanned) {
+            $overlayOutcome = Invoke-SealedLiveTransactionOverlayFile -TransactionDirectory $TransactionDirectory -Target $OverlayTarget -OverlayRecoveryDirectory $OverlayRecoveryDirectory -InstalledRef $overlayInstalledRef
+        }
+
         $stateOutcome = Invoke-SealedLiveTransactionAuthorityState -TransactionDirectory $TransactionDirectory -Header $Header -Receipt $Receipt -AuthorityStateIntent $AuthorityStateIntent -TargetContextIntent $TargetContextIntent -FinalCapabilityHashesByPlatform $FinalCapabilityHashesByPlatform -ControlBase $ControlBase -StateRecoveryDirectory $StateRecoveryDirectory -ClaimsCreatedRef $claimsCreatedRef -StateInstalledRef $stateInstalledRef
         Invoke-SealedLiveTransactionFailpoint -Checkpoint 'STATE_PUBLISHED'
 
@@ -1083,6 +1127,19 @@ function Invoke-SealedLiveTransactionMutation {
             $tuples.Add([ordered]@{
                 TargetId = [string] $target['TargetId']
                 Final = (Get-LiveTransactionObservedDirectory -Path ([string] $target['TargetPath']) -ExpectedHash ([string] ([System.Collections.IDictionary] $target['Candidate'])['Hash']))
+            })
+        }
+        if ($null -ne $overlayOutcome) {
+            # Postcondition for the tracked overlay file: the reviewed candidate
+            # bytes are installed and the captured raced bytes are preserved.
+            $overlayFinal = Get-SealedLiveObservableFileState -Path ([string] $overlayOutcome['TargetPath'])
+            if ([string] $overlayFinal['State'] -cne 'PRESENT' -or
+                [string] $overlayFinal['Hash'] -cne [string] $overlayOutcome['PublishedHash']) {
+                throw $script:LiveTransactionHashMismatch
+            }
+            $tuples.Add([ordered]@{
+                TargetId = (Get-SemanticJsonHash -InputObject ([ordered]@{ TargetKind = 'state'; TargetPath = [string] $overlayOutcome['TargetPath'] }))
+                Final = [ordered]@{ TargetKind = 'state'; TargetPath = [string] $overlayOutcome['TargetPath']; Final = $overlayFinal }
             })
         }
         $postconditionsData = [ordered]@{
@@ -1136,10 +1193,13 @@ function Invoke-SealedLiveTransactionMutation {
         # terminal record, then exits non-zero. Once the reviewed state
         # postimage is installed, live/state are never rewritten — evidence is
         # retained for reviewed finalize and the transaction stays unfinished.
-        if ($stateInstalledRef.Value) {
-            # The reviewed state postimage is installed; live/state are never
-            # rewritten after the commit boundary — evidence is retained for
-            # reviewed finalize and the transaction stays unfinished.
+        if ($stateInstalledRef.Value -or $overlayInstalledRef.Value -or $null -ne $overlayOutcome) {
+            # The reviewed state postimage is installed, or the tracked overlay
+            # file already carries the candidate bytes (the flag is set at the
+            # install instant, so a failure between the install and its record
+            # cannot read as a clean restore); live/state/overlay are never
+            # rewritten after that boundary — evidence is retained for reviewed
+            # recovery and the transaction stays unfinished.
             throw 'live-transaction-recovery-required'
         }
         $statePaths = Get-LiveTransactionStatePaths -ControlBase $ControlBase -HomeAuthorityKey ([string] $Header['HomeAuthorityKey'])
@@ -1500,21 +1560,120 @@ function Restore-SealedLiveMutationTargets {
 
 function Get-SealedLiveAuthorityStateReplacementRows {
     # The state-owned journal rows (TargetKind=state) in record order, or an
-    # empty list when this chain replaced no authority state file.
+    # empty list when this chain replaced no authority state file. A chain may
+    # carry more than one state-kind file target (a task overlay replaces the
+    # tracked overlay file next to the authority state), so callers that own the
+    # authority state path filter by it explicitly.
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [string] $ExpectedTargetPath
     )
 
+    $expected = if ([string]::IsNullOrWhiteSpace($ExpectedTargetPath)) { $null } else { [System.IO.Path]::GetFullPath($ExpectedTargetPath) }
     $rows = [System.Collections.Generic.List[object]]::new()
     foreach ($record in @($Records)) {
         $document = [System.Collections.IDictionary] $record['Document']
         $data = [System.Collections.IDictionary] $document['Data']
         if (-not (Test-LiveTransactionMapHasName -Map $data -Name 'TargetKind')) { continue }
         if ([string] $data['TargetKind'] -cne 'state') { continue }
+        if ($null -ne $expected -and [System.IO.Path]::GetFullPath([string] $data['TargetPath']) -cne $expected) { continue }
         $rows.Add([ordered]@{ Phase = [string] $document['Phase']; Data = $data })
     }
     return $rows
+}
+
+function Get-SealedLiveOverlayFileRows {
+    # The tracked-overlay journal rows: every state-kind row whose target path is
+    # not the authority state path this chain also owns. The overlay path is
+    # never caller-selected, and ambiguous evidence (several paths, no target
+    # path, or no FILE_PREPARED record) fails closed for manual recovery.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [Parameter(Mandatory)] [string] $AuthorityStatePath
+    )
+
+    $invalid = $script:LiveTransactionStateFormUnsupported
+    $statePath = [System.IO.Path]::GetFullPath($AuthorityStatePath)
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($record in @($Records)) {
+        $document = [System.Collections.IDictionary] $record['Document']
+        $data = [System.Collections.IDictionary] $document['Data']
+        if (-not (Test-LiveTransactionMapHasName -Map $data -Name 'TargetKind')) { continue }
+        if ([string] $data['TargetKind'] -cne 'state') { continue }
+        if (-not (Test-LiveTransactionMapHasName -Map $data -Name 'TargetPath')) { throw $invalid }
+        if ([System.IO.Path]::GetFullPath([string] $data['TargetPath']) -ceq $statePath) { continue }
+        $rows.Add([ordered]@{ Phase = [string] $document['Phase']; Data = $data })
+    }
+    if ($rows.Count -eq 0) { return $rows }
+    $paths = @([string[]] @($rows | ForEach-Object { [System.IO.Path]::GetFullPath([string] (([System.Collections.IDictionary] $_.Data)['TargetPath'])) } | Sort-Object -Unique))
+    if ($paths.Count -ne 1) { throw $invalid }
+    return $rows
+}
+
+function Get-SealedLiveOverlayFilePreimageBinding {
+    # The journal-bound preimage of the tracked overlay replacement: the overlay
+    # path, the recorded old-file binding (PRESENT or the absent-overlay MISSING
+    # form), the on-disk immutable preimage copy, and the swap-old locator the
+    # OS primitive captured the raced bytes into.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [Parameter(Mandatory)] [string] $AuthorityStatePath
+    )
+
+    $invalid = $script:LiveTransactionStateFormUnsupported
+    $rows = @(Get-SealedLiveOverlayFileRows -Records $Records -AuthorityStatePath $AuthorityStatePath)
+    if ($rows.Count -eq 0) { return $null }
+
+    $targetPath = [string] (([System.Collections.IDictionary] $rows[0].Data)['TargetPath'])
+    $preimage = $null
+    $preimageCopy = $null
+    $swapOldPath = $null
+    foreach ($row in $rows) {
+        $data = [System.Collections.IDictionary] $row.Data
+        if ([string]::IsNullOrWhiteSpace($swapOldPath) -and (Test-LiveTransactionMapHasName -Map $data -Name 'SwapOldPath') -and -not [string]::IsNullOrWhiteSpace([string] $data['SwapOldPath'])) {
+            $swapOldPath = [string] $data['SwapOldPath']
+        }
+        if ([string] $row.Phase -cne 'FILE_PREPARED') { continue }
+        $staged = [System.Collections.IDictionary] $data['StagedState']
+        $preimage = [ordered]@{
+            State = [string] $staged['State']
+            Type = 'File'
+            Hash = [string] $staged['Hash']
+            Identity = [string] $staged['Identity']
+        }
+        $preimageCopy = if ((Test-LiveTransactionMapHasName -Map $data -Name 'StagedPath') -and $null -ne $data['StagedPath']) { [string] $data['StagedPath'] } else { $null }
+    }
+    if ($null -eq $preimage -or [string]::IsNullOrWhiteSpace($preimageCopy) -or [string]::IsNullOrWhiteSpace($swapOldPath)) { throw $invalid }
+    if ([string] $preimage['State'] -cne 'PRESENT') { throw $invalid }
+    if ([string] $preimage['Hash'] -cnotmatch $script:LiveTransactionHashPattern) { throw $invalid }
+    return [ordered]@{
+        TargetPath = $targetPath
+        Preimage = $preimage
+        PreimageCopy = $preimageCopy
+        SwapOldPath = $swapOldPath
+    }
+}
+
+function Get-SealedLiveOverlayFileReplacedHash {
+    # The installed overlay hash of the completed replacement record, or $null
+    # when the chain never published FILE_REPLACED for the overlay target.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [Parameter(Mandatory)] [string] $AuthorityStatePath
+    )
+
+    $published = $null
+    foreach ($row in @(Get-SealedLiveOverlayFileRows -Records $Records -AuthorityStatePath $AuthorityStatePath)) {
+        if ([string] $row.Phase -cne 'FILE_REPLACED') { continue }
+        $observed = [System.Collections.IDictionary] $row.Data['TargetState']
+        if ([string] $observed['State'] -cne 'PRESENT' -or [string] $observed['Type'] -cne 'File') { throw $script:LiveTransactionStateFormUnsupported }
+        $published = $observed
+    }
+    return $published
 }
 
 function Get-SealedLiveAuthorityStatePreimageBinding {
@@ -1529,11 +1688,12 @@ function Get-SealedLiveAuthorityStatePreimageBinding {
     # the recorded preimage.
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [string] $ExpectedTargetPath
     )
 
     $invalid = $script:LiveTransactionStateFormUnsupported
-    $rows = @(Get-SealedLiveAuthorityStateReplacementRows -Records $Records)
+    $rows = @(Get-SealedLiveAuthorityStateReplacementRows -Records $Records -ExpectedTargetPath $ExpectedTargetPath)
     if ($rows.Count -eq 0) { return $null }
 
     $targetPaths = @([string[]] @($rows | ForEach-Object { [string] (([System.Collections.IDictionary] $_.Data)['TargetPath']) } | Sort-Object -Unique))
@@ -1575,11 +1735,12 @@ function Get-SealedLiveAuthorityStateReplacedHash {
     # chain never published FILE_REPLACED for the state target.
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [string] $ExpectedTargetPath
     )
 
     $published = $null
-    foreach ($row in @(Get-SealedLiveAuthorityStateReplacementRows -Records $Records)) {
+    foreach ($row in @(Get-SealedLiveAuthorityStateReplacementRows -Records $Records -ExpectedTargetPath $ExpectedTargetPath)) {
         if ([string] $row.Phase -cne 'FILE_REPLACED') { continue }
         $observed = [System.Collections.IDictionary] $row.Data['TargetState']
         if ([string] $observed['State'] -cne 'PRESENT' -or [string] $observed['Type'] -cne 'File') { throw $script:LiveTransactionStateFormUnsupported }
@@ -1595,11 +1756,12 @@ function Get-SealedLiveAuthorityStateRecoveryEvidence {
     # replaced no state file. Ambiguous or incomplete evidence fails closed.
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [string] $ExpectedTargetPath
     )
 
     $invalid = $script:LiveTransactionStateFormUnsupported
-    $binding = Get-SealedLiveAuthorityStatePreimageBinding -Records $Records
+    $binding = Get-SealedLiveAuthorityStatePreimageBinding -Records $Records -ExpectedTargetPath $ExpectedTargetPath
     if ($null -eq $binding) { return $null }
     if ([string] $binding.Preimage['State'] -cne 'PRESENT' -or
         [string] $binding.Preimage['Hash'] -cnotmatch $script:LiveTransactionHashPattern -or
@@ -1610,7 +1772,7 @@ function Get-SealedLiveAuthorityStateRecoveryEvidence {
         throw $invalid
     }
 
-    $replaced = Get-SealedLiveAuthorityStateReplacedHash -Records $Records
+    $replaced = Get-SealedLiveAuthorityStateReplacedHash -Records $Records -ExpectedTargetPath $ExpectedTargetPath
     if ($null -eq $replaced) {
         # A captured preimage without any completed replacement has nothing to
         # roll back.
@@ -1674,18 +1836,19 @@ function Restore-SealedLiveAuthorityState {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
         [Parameter(Mandatory)] [System.Collections.IDictionary] $PlanPayload,
         [Parameter(Mandatory)] [string] $ControlBase,
-        [Parameter(Mandatory)] [string] $TransactionDirectory
+        [Parameter(Mandatory)] [string] $TransactionDirectory,
+        [string] $ExpectedTargetPath
     )
 
     $invalid = $script:LiveTransactionStateFormUnsupported
-    if ($null -eq (Get-SealedLiveAuthorityStateReplacedHash -Records $Records)) {
+    if ($null -eq (Get-SealedLiveAuthorityStateReplacedHash -Records $Records -ExpectedTargetPath $ExpectedTargetPath)) {
         # No completed state replacement: there are no published bytes to roll
         # back, so a plan that nevertheless binds a preimage copy fails closed
         # and every other plan needs no state work.
         if (Test-LiveTransactionMapHasName -Map $PlanPayload -Name 'AuthorityStatePreimagePath') { throw $invalid }
         return $null
     }
-    $evidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $Records
+    $evidence = Get-SealedLiveAuthorityStateRecoveryEvidence -Records $Records -ExpectedTargetPath $ExpectedTargetPath
     if ($null -eq $evidence) { return $null }
     foreach ($name in @('AuthorityStatePreimage', 'AuthorityStateExpected', 'AuthorityStatePreimagePath')) {
         if (-not (Test-LiveTransactionMapHasName -Map $PlanPayload -Name $name) -or $null -eq $PlanPayload[$name]) { throw $invalid }
@@ -1756,6 +1919,293 @@ function Restore-SealedLiveAuthorityState {
         TargetPath = $statePath
         PreimageHash = [string] $preimage['Hash']
         PublishedHash = [string] $published['Hash']
+        Restored = $restored
+        RestoredState = $finalObserved
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Tracked task-overlay file target (Phase 3 Task 7 step 4)
+# ---------------------------------------------------------------------------
+
+function Invoke-SealedLiveTransactionOverlayFile {
+    # Replaces the repository's tracked task-overlay file as a planned atomic
+    # file target, using the shared FILE_PREPARED -> FILE_REPLACE_INTENT ->
+    # FILE_REPLACED machine: the candidate bytes are staged in the target
+    # directory, the immutable preimage copy is create-new in the transaction's
+    # recovery scratch, the OS primitive moves the exact raced bytes into
+    # swap-old, and the staged candidate is installed by a same-volume rename.
+    # A non-cooperating editor/checkout change is detected before the swap (the
+    # observed bytes must equal the reviewed current hash), from the captured
+    # swap-old bytes, and again in the postconditions; a failed install restores
+    # the captured bytes and never deletes preimage/swap-old evidence.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $TransactionDirectory,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Target,
+        [Parameter(Mandatory)] [string] $OverlayRecoveryDirectory,
+        [Parameter(Mandatory)] [ref] $InstalledRef
+    )
+
+    $mismatch = $script:LiveTransactionHashMismatch
+    $targetPath = [System.IO.Path]::GetFullPath([string] $Target['TargetPath'])
+    $candidatePath = [System.IO.Path]::GetFullPath([string] $Target['CandidatePath'])
+    $candidateHash = [string] $Target['CandidateHash']
+    $currentHash = [string] $Target['CurrentHash']
+    $swapOldPath = [System.IO.Path]::GetFullPath([string] $Target['SwapOldPath'])
+    if ($candidateHash -cnotmatch $script:LiveTransactionHashPattern -or $currentHash -cnotmatch $script:LiveTransactionHashPattern) { throw $mismatch }
+    if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf)) { throw $mismatch }
+    $candidateBytes = [System.IO.File]::ReadAllBytes($candidatePath)
+    if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($candidateBytes)).ToLowerInvariant() -cne $candidateHash) { throw $mismatch }
+    $targetParent = Split-Path -Parent $targetPath
+    if (-not (Test-Path -LiteralPath $targetParent -PathType Container)) { throw $mismatch }
+    if (Test-Path -LiteralPath $swapOldPath) { throw $mismatch }
+
+    # Reviewed pre-state: the tracked file must still carry the exact bytes the
+    # plan bound, and the immutable preimage copy is captured before the intent.
+    $current = Get-SealedLiveObservableFileState -Path $targetPath
+    if ([string] $current['State'] -cne 'PRESENT' -or [string] $current['Hash'] -cne $currentHash) { throw $mismatch }
+    New-Item -ItemType Directory -Force -Path $OverlayRecoveryDirectory | Out-Null
+    $preimageCopy = Join-Path $OverlayRecoveryDirectory 'task-skills.preimage.psd1'
+    if (Test-Path -LiteralPath $preimageCopy) { Remove-Item -LiteralPath $preimageCopy -Force }
+    $preimageBytes = [System.IO.File]::ReadAllBytes($targetPath)
+    if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($preimageBytes)).ToLowerInvariant() -cne $currentHash) { throw $mismatch }
+    $stream = [System.IO.File]::Open($preimageCopy, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try {
+        $stream.Write($preimageBytes, 0, $preimageBytes.Length)
+        $stream.Flush($true)
+    }
+    finally { $stream.Dispose() }
+
+    $stagedPath = Join-Path $targetParent ('.task-skills-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $stream = [System.IO.File]::Open($stagedPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try {
+        $stream.Write($candidateBytes, 0, $candidateBytes.Length)
+        $stream.Flush($true)
+    }
+    finally { $stream.Dispose() }
+    $stagedState = Get-SealedLiveObservableFileState -Path $stagedPath
+    if ([string] $stagedState['Hash'] -cne $candidateHash) { throw $mismatch }
+
+    $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'FILE_PREPARED' -Data ([ordered]@{
+        TargetKind = 'state'
+        TargetPath = $targetPath
+        StagedPath = $preimageCopy
+        StagedState = $current
+        SwapOldPath = $swapOldPath
+        PreimageState = $current
+        PreimageHash = $currentHash
+    })
+
+    # Non-cooperating change check immediately before the destructive move.
+    $beforeSwap = Get-SealedLiveObservableFileState -Path $targetPath
+    if ([string] $beforeSwap['State'] -cne 'PRESENT' -or [string] $beforeSwap['Hash'] -cne $currentHash) {
+        throw (('task-overlay-raced' + '-change: ') + $targetPath)
+    }
+    $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'FILE_REPLACE_INTENT' -Data ([ordered]@{
+        TargetKind = 'state'
+        TargetPath = $targetPath
+        TargetState = $beforeSwap
+        SwapOldPath = $swapOldPath
+        PreimageHash = $currentHash
+    })
+
+    $installed = $false
+    try {
+        $swapParent = Split-Path -Parent $swapOldPath
+        if (-not (Test-Path -LiteralPath $swapParent -PathType Container)) { New-Item -ItemType Directory -Force -Path $swapParent | Out-Null }
+        # The OS primitive captures whatever bytes are present at this instant.
+        [System.IO.File]::Move($targetPath, $swapOldPath)
+        $swapOldState = Get-SealedLiveObservableFileState -Path $swapOldPath
+        if ([string] $swapOldState['State'] -cne 'PRESENT' -or [string] $swapOldState['Hash'] -cne $currentHash) {
+            # A raced editor/checkout wrote unreviewed bytes between the intent
+            # and the swap: put those exact bytes back, keep the evidence, and
+            # fail closed without overwriting them.
+            [System.IO.File]::Move($swapOldPath, $targetPath)
+            throw (('task-overlay-raced' + '-change: ') + $targetPath)
+        }
+        if (Test-Path -LiteralPath $targetPath) { throw $mismatch }
+        [System.IO.File]::Move($stagedPath, $targetPath)
+        $installed = $true
+        # The outer classification owns the post-install boundary: a failure in
+        # the observation/journal window below must not read as a clean restore.
+        $InstalledRef.Value = $true
+        $newObserved = Get-SealedLiveObservableFileState -Path $targetPath
+        if ([string] $newObserved['State'] -cne 'PRESENT' -or [string] $newObserved['Hash'] -cne $candidateHash) { throw $mismatch }
+        $swapAfter = Get-SealedLiveObservableFileState -Path $swapOldPath
+        if ([string] $swapAfter['State'] -cne 'PRESENT' -or [string] $swapAfter['Hash'] -cne $currentHash) { throw $mismatch }
+        Invoke-SealedLiveTransactionFailpoint -Checkpoint 'FILE_REPLACED'
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'FILE_REPLACED' -Data ([ordered]@{
+            TargetKind = 'state'
+            TargetPath = $targetPath
+            TargetState = $newObserved
+            SwapOldPath = $swapOldPath
+            SwapOldState = $swapAfter
+            StagedPath = $preimageCopy
+            PreimageHash = $currentHash
+            PublishedHash = $candidateHash
+        })
+        return [ordered]@{
+            TargetPath = $targetPath
+            PreimageHash = $currentHash
+            PublishedHash = $candidateHash
+            PreimageCopy = $preimageCopy
+            SwapOldPath = $swapOldPath
+            InstalledState = $newObserved
+        }
+    }
+    catch {
+        $failure = $_
+        if ($installed) {
+            # The replacement is on disk; recovery owns it from here and nothing
+            # is restored or deleted by this path.
+            throw 'live-transaction-recovery-required'
+        }
+        # Pre-install failure: the exact captured bytes go back, and the staged
+        # candidate plus the immutable preimage copy stay as evidence. The
+        # staged temp never survives a pre-install failure.
+        if ((Test-Path -LiteralPath $swapOldPath -PathType Leaf) -and -not (Test-Path -LiteralPath $targetPath)) {
+            [System.IO.File]::Move($swapOldPath, $targetPath)
+        }
+        if (Test-Path -LiteralPath $stagedPath) { Remove-Item -LiteralPath $stagedPath -Force }
+        throw $failure
+    }
+}
+
+function Write-SealedLiveOverlayRestore {
+    # Atomic same-directory restore of the tracked overlay file from the
+    # journal-bound immutable copy, with a post-write hash proof.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $TargetPath,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [byte[]] $CopyBytes,
+        [Parameter(Mandatory)] [string] $ExpectedHash
+    )
+
+    $tempPath = Join-Path (Split-Path -Parent $TargetPath) ('.task-skills-' + [Guid]::NewGuid().ToString('N') + '.restore.tmp')
+    $stream = [System.IO.File]::Open($tempPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try {
+        $stream.Write($CopyBytes, 0, $CopyBytes.Length)
+        $stream.Flush($true)
+    }
+    finally { $stream.Dispose() }
+    [System.IO.File]::Move($tempPath, $TargetPath, $true)
+    $observed = Get-SealedLiveObservableFileState -Path $TargetPath
+    if ([string] $observed['State'] -cne 'PRESENT' -or [string] $observed['Hash'] -cne $ExpectedHash) {
+        throw $script:LiveTransactionHashMismatch
+    }
+    return $observed
+}
+
+function Restore-SealedLiveOverlayFile {
+    # Rollback-only overlay recovery: restores the tracked overlay file from the
+    # journal-bound immutable preimage copy, exactly like the authority state
+    # restore, and journals STATE_RESTORED with the overlay target path. The
+    # plan bindings must reproduce the journal evidence, the preimage copy must
+    # still hash to the recorded preimage, and the installed file must equal the
+    # published postimage (or already equal the preimage on replay). A chain
+    # with no tracked-overlay rows needs no overlay work, and a kill inside the
+    # swap window (the tracked file absent while the captured bytes reproduce
+    # the recorded preimage) is restored from the immutable copy.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Records,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $PlanPayload,
+        [Parameter(Mandatory)] [string] $AuthorityStatePath,
+        [Parameter(Mandatory)] [string] $TransactionDirectory
+    )
+
+    $invalid = $script:LiveTransactionStateFormUnsupported
+    $mismatch = $script:LiveTransactionHashMismatch
+    $binding = Get-SealedLiveOverlayFilePreimageBinding -Records $Records -AuthorityStatePath $AuthorityStatePath
+    if ($null -eq $binding) { return $null }
+    $planOverlayRow = $null
+    foreach ($row in @([object[]] $PlanPayload['Targets'])) {
+        $rowMap = [System.Collections.IDictionary] $row
+        if ([System.IO.Path]::GetFullPath([string] $rowMap['TargetPath']) -ceq [System.IO.Path]::GetFullPath([string] $binding.TargetPath)) { $planOverlayRow = $rowMap }
+    }
+    $published = Get-SealedLiveOverlayFileReplacedHash -Records $Records -AuthorityStatePath $AuthorityStatePath
+    if ($null -eq $published) {
+        # Staged but never recorded as replaced. Three reviewed forms exist: the
+        # tracked file still carries the journal-bound preimage (nothing to do),
+        # the replacement happened through this transaction's own primitive and
+        # was killed before its record — proven by the captured swap-old bytes,
+        # which still hash to the recorded preimage, or the kill happened inside
+        # the swap window (target MISSING, both the swap-old and the immutable
+        # copy reproduce the recorded preimage).
+        $observedUnreplaced = Get-SealedLiveObservableFileState -Path ([string] $binding.TargetPath)
+        if ([string] $observedUnreplaced['State'] -ceq 'PRESENT' -and [string] $observedUnreplaced['Hash'] -ceq [string] $binding.Preimage['Hash']) {
+            return [ordered]@{
+                TargetId = (Get-SemanticJsonHash -InputObject ([ordered]@{ TargetKind = 'state'; TargetPath = [string] $binding.TargetPath }))
+                TargetPath = [string] $binding.TargetPath
+                PreimageHash = [string] $binding.Preimage['Hash']
+                PublishedHash = $null
+                Restored = $false
+                RestoredState = $observedUnreplaced
+            }
+        }
+        $swapObserved = Get-SealedLiveObservableFileState -Path ([string] $binding.SwapOldPath)
+        if ([string] $swapObserved['State'] -cne 'PRESENT' -or [string] $swapObserved['Hash'] -cne [string] $binding.Preimage['Hash']) { throw $invalid }
+        if ([string] $observedUnreplaced['State'] -ceq 'PRESENT') {
+            $published = [ordered]@{ State = 'PRESENT'; Type = 'File'; Hash = [string] $observedUnreplaced['Hash']; Identity = [string] $observedUnreplaced['Identity'] }
+        }
+        else {
+            $published = $null
+        }
+    }
+    if (-not (Test-Path -LiteralPath ([string] $binding.PreimageCopy) -PathType Leaf)) { throw $invalid }
+    $copyBytes = [System.IO.File]::ReadAllBytes([string] $binding.PreimageCopy)
+    $copyHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($copyBytes)).ToLowerInvariant()
+    if ($copyHash -cne [string] $binding.Preimage['Hash']) { throw $invalid }
+    # The reviewed plan row, when it carries the overlay target, must reproduce
+    # the journal-derived binding it authorises.
+    if ($null -ne $planOverlayRow) {
+        if ([System.IO.Path]::GetFullPath([string] $planOverlayRow['PreimagePath']) -cne [System.IO.Path]::GetFullPath([string] $binding.PreimageCopy) -or
+            [System.IO.Path]::GetFullPath([string] $planOverlayRow['SwapOldPath']) -cne [System.IO.Path]::GetFullPath([string] $binding.SwapOldPath) -or
+            [string] (([System.Collections.IDictionary] $planOverlayRow['Current'])['Hash']) -cne [string] $binding.Preimage['Hash']) {
+            throw $invalid
+        }
+    }
+
+    $targetPath = [string] $binding.TargetPath
+    $observed = Get-SealedLiveObservableFileState -Path $targetPath
+    $restored = $false
+    $finalObserved = $observed
+    if ([string] $observed['State'] -ceq 'PRESENT' -and [string] $observed['Hash'] -ceq [string] $binding.Preimage['Hash']) {
+        # Replay of an already restored overlay: nothing to write.
+    }
+    elseif ($null -eq $published) {
+        # Swap-window kill: nothing was installed, so the immutable copy is the
+        # only source and the restore writes it back.
+        $finalObserved = Write-SealedLiveOverlayRestore -TargetPath $targetPath -CopyBytes $copyBytes -ExpectedHash ([string] $binding.Preimage['Hash'])
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'STATE_RESTORED' -Data ([ordered]@{
+            TargetKind = 'state'
+            TargetPath = $targetPath
+            RestoredState = $finalObserved
+            PreimageHash = [string] $binding.Preimage['Hash']
+            PublishedHash = $null
+        })
+        $restored = $true
+    }
+    elseif ([string] $observed['State'] -cne 'PRESENT' -or [string] $observed['Hash'] -cne [string] $published['Hash']) {
+        throw $invalid
+    }
+    else {
+        $finalObserved = Write-SealedLiveOverlayRestore -TargetPath $targetPath -CopyBytes $copyBytes -ExpectedHash ([string] $binding.Preimage['Hash'])
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $TransactionDirectory -Phase 'STATE_RESTORED' -Data ([ordered]@{
+            TargetKind = 'state'
+            TargetPath = $targetPath
+            RestoredState = $finalObserved
+            PreimageHash = [string] $binding.Preimage['Hash']
+            PublishedHash = [string] $published['Hash']
+        })
+        $restored = $true
+    }
+    return [ordered]@{
+        TargetId = (Get-SemanticJsonHash -InputObject ([ordered]@{ TargetKind = 'state'; TargetPath = $targetPath }))
+        TargetPath = $targetPath
+        PreimageHash = [string] $binding.Preimage['Hash']
+        PublishedHash = if ($null -eq $published) { $null } else { [string] $published['Hash'] }
         Restored = $restored
         RestoredState = $finalObserved
     }
@@ -2312,7 +2762,8 @@ function Invoke-SealedLiveTransactionHost {
         [Parameter(Mandatory)] [System.Collections.IDictionary] $FinalCapabilityHashesByPlatform,
         [Parameter(Mandatory)] $AuthorityContext,
         [Parameter(Mandatory)] [System.Collections.IDictionary] $WorkingTreeRoots,
-        [string] $ToolchainRoot
+        [string] $ToolchainRoot,
+        [AllowNull()] [System.Collections.IDictionary] $OverlayTarget
     )
 
     if (-not (Get-Command -Name 'Open-CanonicalHeldNamespaceWitness' -CommandType Function -ErrorAction SilentlyContinue) -or
@@ -2392,7 +2843,12 @@ function Invoke-SealedLiveTransactionHost {
     # An activation re-publishes the selection of an existing authority: it
     # runs the same existing-authority guard (claims plus state present, exact
     # claims bytes bound, claim rows binding the reviewed target rows).
-    if ($operationKind -cnotin @('initial', 'environment', 'retirement', 'adopt', 'migrate', 'repair-adopt', 'controller-transition')) { throw $kindUnsupported }
+    if ($operationKind -cnotin @('initial', 'environment', 'task-overlay', 'retirement', 'adopt', 'migrate', 'repair-adopt', 'controller-transition')) { throw $kindUnsupported }
+    # The tracked overlay file target exists exactly for the task-overlay kind:
+    # a plan that carries one for another kind, or a task-overlay plan without
+    # one, is a substituted plan and fails closed before any lock.
+    $overlayTargetPlanned = $null -ne $OverlayTarget
+    if ($overlayTargetPlanned -ne ($operationKind -ceq 'task-overlay')) { throw $mismatch }
 
     $intent = Convert-SealedLiveTransactionHostMap -Value $payload['AuthorityStateIntent']
     $targetIntent = Convert-SealedLiveTransactionHostMap -Value $payload['TargetContextIntent']
@@ -2606,11 +3062,24 @@ function Invoke-SealedLiveTransactionHost {
 
     $canonicalLock = $null
     $canonicalWitness = $null
+    $overlayLock = $null
+    $overlayLockPath = $null
+    $overlayLockKey = $null
     $globalLock = $null
     try {
         $git = Get-CanonicalGitContext -RepoRoot $resolvedRepoRoot
         $contractPaths = Get-CanonicalTransactionContractPaths -GitContext $git
         $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $contractPaths.LockPath)
+        # Lock order (Phase 3 Task 7 step 4): Git-common-dir canonical lock ->
+        # worktree/repo overlay lock -> global live lock. The overlay lock is
+        # taken by the same held-handle primitive with zero wait, so a busy
+        # overlay identity fails closed instead of queueing behind the global
+        # lock.
+        if ($overlayTargetPlanned) {
+            $overlayLockPath = Get-WorktreeOverlayLockPath -GitContext $git
+            $overlayLockKey = Get-WorktreeOverlayLockKey -LockPath $overlayLockPath
+            $overlayLock = Enter-WorktreeOverlayLock -LockPath $overlayLockPath -CanonicalLockHandle $canonicalLock -AllowCreate
+        }
         $witnessArguments = @{
             RepoRoot = $resolvedRepoRoot
             CanonicalLockHandle = $canonicalLock
@@ -2643,6 +3112,54 @@ function Invoke-SealedLiveTransactionHost {
 
         $originRepoId = Get-CanonicalRepoIdentity -GitContext $git
         $canonicalLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [string] $contractPaths.LockPath })
+        $overlayRecoveryDirectory = Join-Path ([string] $stagingByPlatform['Claude']) 'overlay-recovery'
+        $overlayTargetForEngine = $null
+        if ($overlayTargetPlanned) {
+            $overlayMap = Convert-SealedLiveTransactionHostMap -Value $OverlayTarget
+            foreach ($name in @('TargetPath', 'CandidateSourcePath', 'CandidateHash', 'CurrentHash')) {
+                if (-not (Test-LiveTransactionMapHasName -Map $overlayMap -Name $name) -or [string]::IsNullOrWhiteSpace([string] $overlayMap[$name])) {
+                    throw $mismatch
+                }
+            }
+            $overlayEvidence = Convert-SealedLiveTransactionHostMap -Value $payload['TaskOverlayEvidence']
+            $overlayPath = [System.IO.Path]::GetFullPath([string] $overlayMap['TargetPath'])
+            $expectedOverlayPath = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $resolvedRepoRoot '.agent-harness') 'task-skills.psd1'))
+            if ($overlayPath -cne $expectedOverlayPath -or [System.IO.Path]::GetFullPath([string] $overlayEvidence['CandidatePath']) -cne $expectedOverlayPath) {
+                throw $mismatch
+            }
+            if ([string] $overlayMap['CandidateHash'] -cne [string] $overlayEvidence['CandidateHash'] -or
+                [string] $overlayMap['CurrentHash'] -cne [string] $overlayEvidence['CurrentHash']) {
+                throw $script:LiveTransactionHashMismatch
+            }
+            $candidateSource = [System.IO.Path]::GetFullPath([string] $overlayMap['CandidateSourcePath'])
+            $null = Resolve-PrivateArtifactPath -Path $candidateSource -Role ExternalUserArtifact -RepoRoot $resolvedRepoRoot
+            if (-not (Test-Path -LiteralPath $candidateSource -PathType Leaf)) { throw $mismatch }
+            $candidateBytes = [System.IO.File]::ReadAllBytes($candidateSource)
+            if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($candidateBytes)).ToLowerInvariant() -cne [string] $overlayMap['CandidateHash']) {
+                throw $script:LiveTransactionHashMismatch
+            }
+            # The reviewed pre-state is re-observed under both repository locks:
+            # a non-cooperating editor/checkout that changed the tracked overlay
+            # after the plan was reviewed fails here, before any mutation.
+            $observedOverlay = Get-SealedLiveObservableFileState -Path $overlayPath
+            if ([string] $observedOverlay['State'] -cne 'PRESENT' -or [string] $observedOverlay['Hash'] -cne [string] $overlayMap['CurrentHash']) {
+                throw (('task-overlay-current' + '-mismatch: ') + $overlayPath)
+            }
+            # The overlay swap scratch must be on the same volume as the tracked
+            # file (the replace is an atomic rename) and outside the canonical
+            # contract root, whose immediate children the held namespace witness
+            # pins. The worktree Git directory satisfies both and already hosts
+            # the worktree overlay lock.
+            $swapOldRoot = Join-Path ([System.IO.Path]::GetFullPath([string] $git.GitDir)) 'ai-agent-dotfiles-overlay-swap'
+            $overlayTargetForEngine = [ordered]@{
+                TargetPath = $overlayPath
+                CandidateSourcePath = $candidateSource
+                CandidatePath = $candidateSource
+                CandidateHash = [string] $overlayMap['CandidateHash']
+                CurrentHash = [string] $overlayMap['CurrentHash']
+                SwapOldPath = Join-Path (Join-Path $swapOldRoot $transactionId) 'task-skills.psd1'
+            }
+        }
 
         $intentFieldNames = @(
             'SchemaVersion', 'ArtifactKind', 'HomeAuthorityKey', 'AuthorityGeneration', 'RootClaimsHash',
@@ -2818,6 +3335,7 @@ function Invoke-SealedLiveTransactionHost {
             ReceiptIntent = $receiptIntent
             Targets = @()
         }
+        if ($overlayTargetPlanned) { $header['WorktreeOverlayLockKey'] = $overlayLockKey }
         New-SealedLiveJournalHeader -Document $header -TransactionDirectory $journalDir | Out-Null
 
         $executionContextHash = Get-SemanticJsonHash -InputObject ([ordered]@{
@@ -2874,7 +3392,7 @@ function Invoke-SealedLiveTransactionHost {
             }
         }
         $stateRecoveryDirectory = Join-Path $stagingByPlatform['Claude'] 'state-recovery'
-        $mutation = Invoke-SealedLiveTransactionMutation -TransactionDirectory $journalDir -Header $header -Receipt $receipt -Targets $engineTargets.ToArray() -SourceRootsByPlatform $sourceByPlatform -AuthorityStateIntent $authorityStateIntent -TargetContextIntent $targetIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $resolvedControlBase -StateRecoveryDirectory $stateRecoveryDirectory
+        $mutation = Invoke-SealedLiveTransactionMutation -TransactionDirectory $journalDir -Header $header -Receipt $receipt -Targets $engineTargets.ToArray() -SourceRootsByPlatform $sourceByPlatform -AuthorityStateIntent $authorityStateIntent -TargetContextIntent $targetIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $resolvedControlBase -StateRecoveryDirectory $stateRecoveryDirectory -OverlayTarget $overlayTargetForEngine -OverlayRecoveryDirectory $overlayRecoveryDirectory
 
         return [pscustomobject][ordered]@{
             TransactionId = $transactionId
@@ -2894,6 +3412,11 @@ function Invoke-SealedLiveTransactionHost {
             catch { $releaseError = $_ }
             $globalLock = $null
         }
+        if ($null -ne $overlayLock) {
+            try { Exit-WorktreeOverlayLock -LockHandle $overlayLock }
+            catch { if ($null -eq $releaseError) { $releaseError = $_ } }
+            $overlayLock = $null
+        }
         if ($null -ne $canonicalWitness) {
             try { Close-CanonicalHeldNamespaceWitness -Witness $canonicalWitness }
             catch { if ($null -eq $releaseError) { $releaseError = $_ } }
@@ -2904,6 +3427,10 @@ function Invoke-SealedLiveTransactionHost {
             catch { if ($null -eq $releaseError) { $releaseError = $_ } }
             $canonicalLock = $null
         }
-        if ($null -ne $releaseError) { throw $releaseError }
+        if ($null -ne $releaseError) {
+            $releaseMessage = [string] $releaseError.Exception.Message
+            $releaseSite = if ($releaseError.InvocationInfo) { "$($releaseError.InvocationInfo.ScriptName):$($releaseError.InvocationInfo.ScriptLineNumber)" } else { 'unknown' }
+            throw [System.InvalidOperationException]::new("live-transaction-lock-release-failed: $releaseMessage (original failure at $releaseSite)")
+        }
     }
 }

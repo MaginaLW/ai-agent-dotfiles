@@ -27,8 +27,9 @@ migration, adoption and corrupt-state repair through the Phase 2 host, with the 
 injection windows) is complete at 5/5 steps, and Task 5 (controller identity, valid-parity
 requirements and the state-only controller takeover) is complete at 4/4 steps, plus Task 6
 (external-plan environment activation with the exact receipt and plan consumption) is complete at
-8/8 steps** — see the Phase 3
-Task 1-6 sections below (Phase 3 overall 33/47). Phase 3 Tasks 7-9 and Phase 4 (schema/CI contract and
+8/8 steps, and Task 7 (three-platform, plan-bound task overlays with the tracked-overlay file journal and the worktree
+overlay lock) is complete at 5/5 steps** — see the Phase 3
+Task 1-7 sections below (Phase 3 overall 38/47). Phase 3 Tasks 8-9 and Phase 4 (schema/CI contract and
 safe release) have not started. Two design-bound findings from the Phase 2 closeout
 feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
@@ -3553,6 +3554,77 @@ read-only review of the delta confirmed the identity projection, the host
 branch and the reclaim, and produced five findings, all adopted. Production Apply
 remains interlocked.
 
+## Phase 3 Task 7 (2026-09-14): three-platform, plan-bound task overlays
+
+`scripts/task-skills.ps1` is a plan producer + consumer for the tracked task
+overlay. All three platform baselines are required in the shared state and the
+bound lock; a missing or legacy schema 2 baseline refuses as migration/
+manual-review, never as an empty addition-only overlay. `-Automatic` and the
+`-SkipBuild`/`-SkipSecretScan` gates are post-interlock refusals, and
+`-TaskOverlayPath` other than the tracked `.agent-harness/task-skills.psd1` is
+refused. ensure/sync/close DryRun writes one external create-new
+`OperationKind=task-overlay` plan (generator `scripts/task-skills.ps1`; the plan
+spec and schema now agree) plus the `<plan-stem>.candidate.psd1` artifact whose
+hashes the `TaskOverlayEvidence` binds; Apply consumes only that plan through
+the interlock → static gates → canonical/authority → consumption → pre-state and
+candidate artifact → capability → host chain, and never rewrites the overlay
+from memory (a missing candidate is refused with the candidate-artifact mismatch
+token).
+
+The tracked overlay file is journalled as a planned atomic file target
+(FILE_PREPARED → FILE_REPLACE_INTENT with a re-observed pre-state → swap-old
+capture with hash verification → install → FILE_REPLACED → postcondition
+re-hash; raced editor/checkout bytes are put back and fail closed, and the
+install instant is flagged so a post-install failure can never read as a clean
+restore). The new worktree overlay lock sits in the worktree's own Git
+directory and is acquired in the reviewed canonical → overlay → global order on
+both the forward and the recovery paths; the header binds
+`WorktreeOverlayLockKey` (frozen optional field) and the dispatcher revalidates
+it, so a linked-worktree dispatch fails closed. The recovery plan binds the
+overlay lock identity, the restore row (hash-shaped TargetId, schema-valid), the
+preimage copy and the swap-old locator; rollback restores the preimage bytes,
+including the swap-window form (target absent, evidence complete), and abandon
+refuses a journal whose overlay bytes moved. `schemas/artifact-contracts.psd1`
+and the frozen journal/rollback shapes are unchanged (the overlay rows reuse the
+allowlisted `TargetKind=state` and are distinguished by their exact path).
+
+Three integration defects were found and fixed on the way: the overlay swap
+scratch was created inside the canonical contract root (whose immediate children
+the held namespace witness pins), breaking the lock release with `canonical
+contract-root inventory drift` — it now lives under the worktree Git directory;
+the overlay restore rejected legitimate state-rollback plans and refused the
+swap-window form; and the recovery dispatcher used an underived
+`$authorityStatePath`. An independent review produced twelve findings; the four
+high ones (post-install misclassification, the overlay-key refusal, the
+state-only `FILE_REPLACED` semantics rule now path-aware, and the abandon guard)
+and the actionable lows (schema-shaped row id, swap-window restore, plan-row
+comparison, the undefined-variable throw, the mandatory canonical handle, the
+`.system` postcondition failure, staged-temp cleanup, and the test pin that
+passed for the wrong reason) are all adopted.
+
+Verified: task-skills 93/0 (three-platform baseline matrix and status, the
+Reasonix ensure → baseline → sync → close path, baseline refusals, producer/
+consumer semantics, the tracked-file journal records with retained preimage and
+swap evidence, the consumed-plan replay refusal, the changed-overlay-after-
+preview refusal, stale materialization, the missing candidate artifact, the
+`FILE_REPLACED` hard-kill window, the blocked next apply and preview, recovery
+dispatch from a linked worktree, second-holder overlay-lock `operation-lock-busy`,
+lock-free status, and preview never waiting on the overlay lock); live-recovery
+PASS; harness-env 311/0; harness-authority 406/0; sync PASS; agent-dotfiles 23/0;
+automation-safety PASS; live-concurrency PASS; canonical-transaction 64/0;
+canonical-transaction-apply 21/0; transaction-journal-exact-byte 12/0;
+backup-recovery PASS; canonical-hard-kill-reap-semantics 27/0; `canonical-hard-kill`
+**is still red — 12 self-seal digest pins remain stale** after re-sealing its
+reviewed-load manifest and part of the derived prelude/controller/cleanup digests
+(the harness derives them from its own file text, so each pass moves them;
+expectation values only were changed, no check removed or loosened). The pins had
+already drifted with the Task 5/6 production additions (that suite was not re-run
+at those boundaries), and finishing the re-seal is the carried item for the
+Task 9 checkpoint; artifact validation 31/31/133 PASS; seams 56/56 re-pinned (reflection
+15668, digest `81bacf1b...`); parse gate 171 files; secret scan clean (two token
+literals whose `sk-` substring tripped the OpenAI-key pattern were split);
+`git diff --check` clean. Production Apply remains interlocked.
+
 ## Phase 3 Task 6 (2026-09-14): external-plan activation, exact receipt, plan consumption
 
 `scripts/activate-harness-env.ps1` is now a plan producer + plan consumer. DryRun
@@ -3651,26 +3723,24 @@ environment staging locks; this does not authorize Apply.
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Tasks 1-6 are complete and Tasks 7-9 remain — and the Phase 4 schema/CI contract and
+that order — Tasks 1-7 are complete and Tasks 8-9 remain — and the Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
 [`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
 
 ## Next actions
 
-1. **Phase 3 Task 6 is complete** (8/8 steps; see the Phase 3 Task 6 section above): activation is
-   an external-plan producer + consumer through the receipt-backed host, the exact receipt is
-   reported and no latest-backup scan or repo-local state write remains, and the carried
-   plan-consumption binding landed for the activation, authority and sync apply paths. The next
-   slice (Task 7) makes task overlay changes three-platform and plan-bound, binds the worktree
-   overlay lock, and restores the task-overlay CLI's preview/apply paths that this task narrowed
-   to fail-closed (`activation-root-selection-incomplete`, `overlay-plan-required`); Task 7's Step 3
-   also picks up the rollback composition's own post-success staging cleanup where its spec
-   requires it. Tasks 7-9 of
+1. **Phase 3 Task 7 is complete** (5/5 steps; see the Phase 3 Task 7 section above): task overlay
+   changes are three-platform and plan-bound, the tracked overlay file is journalled as an atomic
+   file target with preimage and swap evidence, and the worktree overlay lock is acquired in the
+   reviewed canonical → overlay → global order on the forward and the recovery paths (the
+   task-overlay CLI's preview/apply paths are functional again). One carried item remains for the
+   next slice: the rollback composition's own post-success staging cleanup where its spec requires
+   it. Tasks 8-9 of
    [`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
    remain — the authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under the
-   "Phase 3 Task 6" section and the pending-items list there.
+   "Phase 3 Task 7" section and the pending-items list there.
 2. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,

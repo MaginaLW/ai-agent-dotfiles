@@ -541,7 +541,7 @@
       ],
       "properties": {
         "OperationKind": { "$ref": "#/$defs/operationKind" },
-        "Generator": { "enum": ["scripts/sync.ps1", "tests/helpers/sealed-live-plan-fixture.ps1", "scripts/authority-harness-env.ps1", "scripts/activate-harness-env.ps1"] },
+        "Generator": { "enum": ["scripts/sync.ps1", "tests/helpers/sealed-live-plan-fixture.ps1", "scripts/authority-harness-env.ps1", "scripts/activate-harness-env.ps1", "scripts/task-skills.ps1"] },
         "RepositoryCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
         "RepoRoot": { "$ref": "#/$defs/absolutePath" },
         "ApprovedToolchainHash": { "$ref": "#/$defs/hash" },
@@ -634,7 +634,7 @@
           "required": ["EnvironmentName", "EnvironmentMaterializationRoot", "TaskOverlayEvidence"],
           "properties": {
             "OperationKind": { "const": "task-overlay" },
-            "Generator": { "enum": ["tests/helpers/sealed-live-plan-fixture.ps1", "scripts/authority-harness-env.ps1"] },
+            "Generator": { "enum": ["tests/helpers/sealed-live-plan-fixture.ps1", "scripts/task-skills.ps1"] },
             "AuthorityStateIntent": {
               "type": "object",
               "required": ["LastOperationKind"],

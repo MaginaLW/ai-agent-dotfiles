@@ -2613,10 +2613,50 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
         Targets = @()
     }
     New-SealedLiveJournalHeader -Document $overlayHeader -TransactionDirectory $overlayDir | Out-Null
+    # The worktree overlay lock primitive now exists, so the refusal is no
+    # longer `not implemented`: a header that binds a foreign worktree overlay
+    # lock identity (this dispatch runs in the origin worktree, whose identity
+    # is derived, not 'a'*64) fails closed as manual recovery instead of
+    # silently skipping the second step of the reviewed lock order.
     $overlayPlan = Join-Path $dispatchWork 'plans' 'overlay-abandon-plan.json'
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $overlayTxId, '-DryRun', '-PlanPath', $overlayPlan, '-RepoRoot', $dispatchRepo)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'worktree-overlay-lock-not-implemented') 'an overlay-bound journal fails the recovery dry-run closed'
+    Assert ($r.Code -ne 0 -and $r.Out -match 'manual-recovery-required') 'a foreign worktree overlay lock identity fails the recovery dry-run closed'
+    Assert ($r.Code -ne 0 -and $r.Out -notmatch 'worktree-overlay-lock-not-implemented') 'the worktree overlay lock is implemented, not refused as a missing primitive'
     Assert (-not (Test-Path -LiteralPath $overlayPlan)) 'an overlay-bound journal writes no plan'
+
+    # The same journal shape with the origin worktree's exact overlay lock
+    # identity is dispatchable: the lock identity is derived from this
+    # worktree's Git directory, and abandoning a mutation-free journal needs no
+    # overlay restore row. A journal namespace is create-new (a second header in
+    # one namespace fails closed), so this is its own transaction.
+    $derivedOverlayKey = Get-WorktreeOverlayLockKey -LockPath (Get-WorktreeOverlayLockPath -GitContext $dispatchGit)
+    $overlayExactTxId = [Guid]::NewGuid().ToString()
+    $overlayExactReceiptId = [Guid]::NewGuid().ToString()
+    $overlayExactDir = Join-Path (Join-Path $derivedControl 'live-transactions') $overlayExactTxId
+    $overlayExactHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'live-journal-header'
+        TransactionId = $overlayExactTxId
+        OperationKind = 'task-overlay'
+        TransactionMode = 'receipt-backed'
+        OriginalDocumentHash = ('1' * 64)
+        OriginalPlanHash = ('2' * 64)
+        HomeAuthorityKey = $dispatchAuthorityKey
+        OriginRepoId = $dispatchRepoId
+        GitCommonDirHash = $dispatchGit.GitCommonDirHash
+        CanonicalLockKey = $dispatchLockKey
+        WorktreeOverlayLockKey = $derivedOverlayKey
+        ReceiptIntent = [ordered]@{ Id = $overlayExactReceiptId; Path = (Join-Path $derivedBackups $overlayExactReceiptId) }
+        Targets = @()
+    }
+    New-SealedLiveJournalHeader -Document $overlayExactHeader -TransactionDirectory $overlayExactDir | Out-Null
+    $overlayPlanExact = Join-Path $dispatchWork 'plans' 'overlay-abandon-plan-exact.json'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $overlayExactTxId, '-DryRun', '-PlanPath', $overlayPlanExact, '-RepoRoot', $dispatchRepo)
+    if ($r.Code -ne 0) { Write-Host '----- exact-overlay-identity dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0) 'the origin worktree overlay lock identity dispatches the reviewed dry-run'
+    $overlayPlanDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($overlayPlanExact, [System.Text.UTF8Encoding]::new($false, $true)))
+    Assert ([string] $overlayPlanDocument.PlanPayload.OverlayLockKey -ceq $derivedOverlayKey) 'the recovery plan binds the exact worktree overlay lock identity'
+    Assert ([string] $overlayPlanDocument.PlanPayload.OriginalOperationKind -ceq 'task-overlay') 'the recovery plan keeps the task-overlay original kind'
 
     # An injected recovery failure retains every durable artifact, and the
     # reviewed replay then succeeds against the same evidence.

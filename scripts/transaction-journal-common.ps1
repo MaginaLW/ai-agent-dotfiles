@@ -448,6 +448,53 @@ function Exit-CanonicalRepoLock {
     if (-not $displayValid) { throw 'canonical-witness-required' }
 }
 
+function Get-WorktreeOverlayLockPath {
+    # The worktree/repo overlay lock identity: a distinct lock file inside the
+    # worktree's own Git directory (never the shared common dir, never the
+    # tracked worktree). Linked worktrees therefore carry different overlay
+    # lock identities, while one worktree keeps a stable one.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $GitContext)
+
+    $gitDir = [System.IO.Path]::GetFullPath([string] $GitContext.GitDir)
+    Assert-NoReparseExistingChain -Path $gitDir
+    return (Join-Path $gitDir 'ai-agent-dotfiles-worktree-overlay.lock')
+}
+
+function Get-WorktreeOverlayLockKey {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $LockPath)
+
+    return Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [System.IO.Path]::GetFullPath($LockPath) })
+}
+
+function Enter-WorktreeOverlayLock {
+    # The reviewed lock order is canonical repo lock -> worktree overlay lock ->
+    # global live lock. This entry point is the second step and never the first:
+    # the caller must already hold the canonical repo lock. Acquisition is
+    # exact-zero-wait on the same held-handle primitive the canonical lock uses,
+    # so a busy overlay lock throws `operation-lock-busy` instead of waiting.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $LockPath,
+        [Parameter(Mandatory)] $CanonicalLockHandle,
+        [switch] $AllowCreate
+    )
+
+    # The prerequisite is structural, not caller discipline: the overlay lock is
+    # only ever acquired while the canonical repo lock is held and live.
+    $canonicalPath = [AiAgentDotfiles.SafeLockResourceOwner]::GetPathExact([AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($CanonicalLockHandle))
+    $null = Assert-CanonicalRepoLockHandle -LockHandle $CanonicalLockHandle -ExpectedLockPath $canonicalPath
+    return Enter-CanonicalRepoLock -LockPath $LockPath -AllowCreate:$AllowCreate
+}
+
+function Exit-WorktreeOverlayLock {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $LockHandle)
+
+    Exit-CanonicalRepoLock -LockHandle $LockHandle
+}
+
 function Read-CanonicalJsonContractFile {
     [CmdletBinding()]
     param(

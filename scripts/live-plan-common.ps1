@@ -19,6 +19,7 @@ $script:LivePlanGeneratorSync = 'scripts/sync.ps1'
 $script:LivePlanGeneratorSealed = 'tests/helpers/sealed-live-plan-fixture.ps1'
 $script:LivePlanGeneratorAuthority = 'scripts/authority-harness-env.ps1'
 $script:LivePlanGeneratorActivation = 'scripts/activate-harness-env.ps1'
+$script:LivePlanGeneratorTaskOverlay = 'scripts/task-skills.ps1'
 $script:LivePlanKinds = @(
     'initial',
     'environment',
@@ -108,8 +109,12 @@ function Get-LivePlanKindSpec {
             }
         }
         'task-overlay' {
+            # The public producer is the task-overlay CLI; the sealed fixture
+            # stays admitted for the frozen contract fixtures. The authority
+            # producer is not a task-overlay generator (Phase 3 Task 7): the
+            # schema enum is kept in lockstep with this spec.
             return [ordered]@{
-                Generator = $script:LivePlanGeneratorSealed
+                Generator = @($script:LivePlanGeneratorTaskOverlay, $script:LivePlanGeneratorSealed)
                 Required = @('EnvironmentName', 'EnvironmentMaterializationRoot', 'TaskOverlayEvidence')
                 Forbidden = @('RetirementManifest', 'LegacyLocator', 'LegacyEvidence', 'StateEvidence', 'ControllerParity')
             }
@@ -572,8 +577,23 @@ function Assert-LivePlanKindBody {
             Assert-LivePlanLiveSlots -Platforms $Payload.Platforms -ExpectedStatus 'EXISTS'
         }
         'task-overlay' {
-            Assert-LivePlanMaterializationRoot -Root (Get-LivePlanMap -Value $Payload.EnvironmentMaterializationRoot -Failure $script:LivePlanKindMismatch)
+            $materializationRoot = Get-LivePlanMap -Value $Payload.EnvironmentMaterializationRoot -Failure $script:LivePlanKindMismatch
+            Assert-LivePlanMaterializationRoot -Root $materializationRoot
             Assert-LivePlanTaskOverlayEvidence -Evidence (Get-LivePlanMap -Value $Payload.TaskOverlayEvidence -Failure $script:LivePlanKindMismatch)
+            # A task overlay re-publishes the selection of the environment the
+            # materialization bound: the planned state may only carry the exact
+            # lock bytes that the bound materialization root holds.
+            if ([string] $Intent.EnvironmentLockHash -cne [string] $materializationRoot.EnvLockHash) {
+                throw $script:LivePlanHashMismatch
+            }
+            # The replaced file is the repository's tracked overlay, never a
+            # caller-selected path: the candidate locator must be exactly
+            # <RepoRoot>/.agent-harness/task-skills.psd1.
+            $evidence = [System.Collections.IDictionary] $Payload['TaskOverlayEvidence']
+            $expectedOverlay = [System.IO.Path]::GetFullPath((Join-Path (Join-Path ([string] $Payload['RepoRoot']) '.agent-harness') 'task-skills.psd1'))
+            if ([System.IO.Path]::GetFullPath([string] $evidence['CandidatePath']) -cne $expectedOverlay) {
+                throw $script:LivePlanSelectionMismatch
+            }
             Assert-LivePlanControlBase -Intent $control -ExpectedStatus 'EXISTS'
             Assert-LivePlanLiveSlots -Platforms $Payload.Platforms -ExpectedStatus 'EXISTS'
         }
