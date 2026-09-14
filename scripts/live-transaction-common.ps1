@@ -2255,16 +2255,20 @@ function Invoke-SealedLiveTransactionStateOnly {
 }
 
 # ---------------------------------------------------------------------------
-# Public receipt-backed host (roadmap Task 5 slice 1: initial | retirement)
+# Public live-transaction host (receipt-backed kinds and the state-only
+# controller transition)
 # ---------------------------------------------------------------------------
 
 function Invoke-SealedLiveTransactionHost {
     # Acquires the existing-only live route (canonical repo lock, bound
-    # namespace witness, then the global live lock), revalidates the
-    # initial/retirement authority guards under that lock, publishes a
-    # receipt-backed journal header, produces the managed backup receipt,
-    # and runs the receipt-backed mutation engine. Other OperationKind
-    # values fail closed; lock release is tail-to-head in finally.
+    # namespace witness, then the global live lock), revalidates the per-kind
+    # authority guards under that lock, reclaims this plan's stale home-scoped
+    # staging scratch, and then either publishes a receipt-backed journal
+    # header, produces the managed backup receipt and runs the receipt-backed
+    # mutation engine, or -- for the controller transition -- proves parity
+    # under the lock and runs the state-only engine with a
+    # `ReceiptRef=NO_LIVE_MUTATION` header and no live targets. Other
+    # OperationKind values fail closed; lock release is tail-to-head in finally.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [System.Collections.IDictionary] $Plan,
@@ -2293,6 +2297,7 @@ function Invoke-SealedLiveTransactionHost {
     $notPristine = 'live-transaction-not-pristine'
     $kindUnsupported = 'live-transaction-operation-kind-unsupported'
     $claimsBinding = 'live-transaction-claims-binding-mismatch'
+    $parityMismatch = 'controller-transition-parity-mismatch'
     $planStale = 'reviewed-plan-stale'
 
     function Convert-SealedLiveTransactionHostMap {
@@ -2352,7 +2357,7 @@ function Invoke-SealedLiveTransactionHost {
     $payload = Convert-SealedLiveTransactionHostMap -Value $planMap['PlanPayload']
     if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'OperationKind')) { throw $mismatch }
     $operationKind = [string] $payload['OperationKind']
-    if ($operationKind -cnotin @('initial', 'retirement', 'adopt', 'migrate', 'repair-adopt')) { throw $kindUnsupported }
+    if ($operationKind -cnotin @('initial', 'retirement', 'adopt', 'migrate', 'repair-adopt', 'controller-transition')) { throw $kindUnsupported }
 
     $intent = Convert-SealedLiveTransactionHostMap -Value $payload['AuthorityStateIntent']
     $targetIntent = Convert-SealedLiveTransactionHostMap -Value $payload['TargetContextIntent']
@@ -2522,6 +2527,11 @@ function Invoke-SealedLiveTransactionHost {
     $preLockSnapshot = Get-SealedLiveTransactionHostAuthoritySnapshot
     Assert-SealedLiveTransactionHostGuard -Snapshot $preLockSnapshot
 
+    # A controller transition mutates no live content and stages nothing; it
+    # still binds the probed capability hashes because the postimage carries the
+    # preserved final identity rows, and it still proves its state-recovery
+    # scratch path lies on the live volume outside the reviewed roots.
+    $stateOnlyTransition = [string] $operationKind -ceq 'controller-transition'
     $stagingByPlatform = [ordered]@{}
     $sourceByPlatform = [ordered]@{}
     $capabilityByPlatform = [ordered]@{}
@@ -2622,7 +2632,16 @@ function Invoke-SealedLiveTransactionHost {
             if (-not (Test-LiveTransactionMapHasName -Map $intent -Name $name)) { throw $mismatch }
             $authorityStateIntent[$name] = $intent[$name]
         }
-        if (Test-LiveTransactionMapHasName -Map $intent -Name 'ReceiptRef') { throw $mismatch }
+        if (Test-LiveTransactionMapHasName -Map $intent -Name 'ReceiptRef') {
+            # A controller transition is the only kind whose intent carries the
+            # no-live-mutation reference, and it may carry nothing else of the
+            # receipt shape.
+            if (-not $stateOnlyTransition -or [string] $intent['ReceiptRef'] -cne 'NO_LIVE_MUTATION' -or
+                $intent.Contains('ReceiptId') -or $intent.Contains('ReceiptHash')) {
+                throw $mismatch
+            }
+            $authorityStateIntent['ReceiptRef'] = 'NO_LIVE_MUTATION'
+        }
         if ($operationKind -cin @('initial', 'adopt', 'migrate')) {
             if (-not (Test-LiveTransactionMapHasName -Map $payload -Name 'ProposedRootClaims')) { throw $mismatch }
             $proposedBytes = [byte[]] (ConvertTo-SemanticJsonBytes -InputObject $payload['ProposedRootClaims'])
@@ -2642,7 +2661,9 @@ function Invoke-SealedLiveTransactionHost {
         # name would fail its staging preconditions. The namespace above showed
         # no unfinished transaction, so the entries this plan is about to stage
         # cannot belong to live recovery evidence; only those names are
-        # reclaimed, never unknown or foreign content.
+        # reclaimed, never unknown or foreign content. The state-recovery
+        # preimage copy is scratch of the same kind: a closed transaction's copy
+        # is never read again, and the next state replace needs the name free.
         foreach ($action in $actions) {
             $actionMap = Convert-SealedLiveTransactionHostMap -Value $action
             $platform = [string] $actionMap['Platform']
@@ -2651,6 +2672,65 @@ function Invoke-SealedLiveTransactionHost {
             foreach ($area in @('staged', 'swap')) {
                 $stale = Join-Path (Join-Path ([string] $stagingByPlatform[$platform]) $area) $name
                 if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Recurse -Force }
+            }
+        }
+        foreach ($platform in $script:LiveTransactionPlatforms) {
+            $staleStatePreimage = Join-Path (Join-Path ([string] $stagingByPlatform[$platform]) 'state-recovery') 'current-env.preimage.json'
+            if (Test-Path -LiteralPath $staleStatePreimage) { Remove-Item -LiteralPath $staleStatePreimage -Force }
+        }
+
+        # Controller transitions run the state-only sequence: no receipt, no
+        # live targets, and a postimage that preserves the selection and final
+        # identity rows while it republishes only the controller metadata.
+        if ($stateOnlyTransition) {
+            if (-not (Test-LiveTransactionMapHasName -Map $intent -Name 'ReceiptRef') -or
+                [string] $intent['ReceiptRef'] -cne 'NO_LIVE_MUTATION' -or
+                $intent.Contains('ReceiptId') -or $intent.Contains('ReceiptHash')) {
+                throw $mismatch
+            }
+            $parity = Convert-SealedLiveTransactionHostMap -Value $payload['ControllerParity']
+            if (-not (Test-LiveTransactionMapHasName -Map $parity -Name 'PreviousControllerRepoFingerprint')) { throw $mismatch }
+            $previousController = [string] $parity['PreviousControllerRepoFingerprint']
+            Assert-LiveTransactionHashSpelling -Value $previousController -Failure $mismatch
+            # Parity is re-proved under both locks: the plan's previous
+            # controller must still be the state's controller, and this
+            # repository must be a different controller, because a takeover
+            # that changes nothing is not a transition.
+            $stateJson = [System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($statePath))
+            $stateMap = Convert-SealedLiveTransactionHostMap -Value (ConvertFrom-SemanticJson -Json $stateJson)
+            if ([string] $stateMap['ControllerRepoFingerprint'] -cne $previousController) { throw $parityMismatch }
+            $controllerIdentity = Get-CanonicalControllerIdentity -GitContext $git
+            if ($controllerIdentity -ceq $previousController) { throw $parityMismatch }
+            if ([string] $authorityStateIntent['ControllerRepoFingerprint'] -cne $controllerIdentity) { throw $parityMismatch }
+
+            $authorityStateIntent['ReceiptRef'] = 'NO_LIVE_MUTATION'
+            $header = [ordered]@{
+                SchemaVersion = 1
+                ArtifactKind = 'live-journal-header'
+                TransactionId = $transactionId
+                OperationKind = $operationKind
+                TransactionMode = 'state-only'
+                OriginalDocumentHash = [string] $planMap['DocumentHash']
+                OriginalPlanHash = [string] $planMap['PlanHash']
+                HomeAuthorityKey = $homeAuthorityKey
+                OriginRepoId = $originRepoId
+                GitCommonDirHash = [string] $git.GitCommonDirHash
+                CanonicalLockKey = $canonicalLockKey
+                RootClaimsHash = $rootClaimsHash
+                ReceiptRef = 'NO_LIVE_MUTATION'
+                Targets = @()
+            }
+            New-SealedLiveJournalHeader -Document $header -TransactionDirectory $journalDir | Out-Null
+            $stateRecoveryDirectory = Join-Path ([string] $stagingByPlatform['Claude']) 'state-recovery'
+            $stateOutcome = Invoke-SealedLiveTransactionStateOnly -TransactionDirectory $journalDir -Header $header -AuthorityStateIntent $authorityStateIntent -TargetContextIntent $targetIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $resolvedControlBase -StateRecoveryDirectory $stateRecoveryDirectory
+            return [pscustomobject][ordered]@{
+                TransactionId = $transactionId
+                ReceiptId = $null
+                ReceiptPath = $null
+                StateHash = [string] $stateOutcome.StateHash
+                ResultHash = [string] $stateOutcome.ResultHash
+                PostconditionsHash = [string] $stateOutcome.PostconditionsHash
+                JournalDir = $journalDir
             }
         }
 

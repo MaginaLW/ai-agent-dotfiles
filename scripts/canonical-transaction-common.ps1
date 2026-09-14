@@ -377,6 +377,89 @@ function Get-CanonicalRepoIdentityFromHeldGitCommonDir {
     })
 }
 
+function Get-CanonicalNormalizedRemoteIdentity {
+    <#
+    .SYNOPSIS
+        Credential-free projection of the `origin` remote URL.
+
+    .DESCRIPTION
+        Reads only `git config --get remote.origin.url` and returns a normalized
+        string: userinfo is stripped and any query/fragment text is dropped (no
+        user name, token, or password text survives the projection), scheme and
+        host are lowercased, a trailing `.git` and trailing separators are
+        dropped, scp-like `[user@]host:path` forms normalize to `host:path`, and
+        a repository without an `origin` remote reports `none`. A local-path
+        remote keeps its path form with separators normalized to `/` and
+        lowercased. The value feeds a hash, never an artifact.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+
+    $raw = ((& git -C $RepoRoot config --get remote.origin.url 2>$null) | Select-Object -First 1)
+    if ([string]::IsNullOrWhiteSpace([string]$raw)) { return 'none' }
+    $text = ([string]$raw).Trim()
+    $normalized = $null
+    if ($text -match '\A[A-Za-z]:[\\/]') {
+        # A local directory remote: normalize separators, keep the path shape.
+        $normalized = $text.Replace([char]92, [char]47)
+        $normalized = ([System.IO.Path]::GetFullPath($normalized)).Replace([char]92, [char]47).ToLowerInvariant()
+    }
+    elseif ($text -match '\A(?<scheme>[A-Za-z][A-Za-z0-9+.-]*)://(?<rest>.*)\z') {
+        $scheme = $Matches['scheme'].ToLowerInvariant()
+        $rest = [string]$Matches['rest']
+        $cut = $rest.IndexOfAny([char[]]@([char]63, [char]35))
+        if ($cut -ge 0) { $rest = $rest.Substring(0, $cut) }
+        $separator = $rest.IndexOfAny([char[]]@([char]47, [char]92))
+        if ($separator -lt 0) {
+            $authority = $rest
+            $path = ''
+        }
+        else {
+            $authority = $rest.Substring(0, $separator)
+            $path = $rest.Substring($separator)
+        }
+        $at = $authority.LastIndexOf('@')
+        if ($at -ge 0) { $authority = $authority.Substring($at + 1) }
+        $normalized = "${scheme}://$($authority.ToLowerInvariant())$path"
+    }
+    elseif ($text -match '\A(?<user>[^/@:]+@)?(?<host>[^/:]+):(?<path>.*)\z') {
+        $normalized = "$($Matches['host'].ToLowerInvariant()):$($Matches['path'])"
+    }
+    else {
+        $normalized = $text
+    }
+    $normalized = $normalized.TrimEnd([char]47, [char]92)
+    if ($normalized.EndsWith('.git', [StringComparison]::OrdinalIgnoreCase)) {
+        $normalized = $normalized.Substring(0, $normalized.Length - 4)
+    }
+    return $normalized
+}
+
+function Get-CanonicalControllerIdentity {
+    <#
+    .SYNOPSIS
+        Controller identity: the credential-free remote projection combined with
+        the Git-common-dir stable private repository identity.
+
+    .DESCRIPTION
+        Linked worktrees share the Git common directory and therefore share one
+        controller; a fresh clone has its own common-directory identity and is a
+        different controller even when it tracks the same remote. A toolchain-hash
+        change is a plan/state precondition, not a controller change, so it is not
+        an input here.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$GitContext)
+
+    $repoId = Get-CanonicalRepoIdentity -GitContext $GitContext
+    $remote = Get-CanonicalNormalizedRemoteIdentity -RepoRoot ([string]$GitContext.RepoRoot)
+    return Get-SemanticJsonHash -InputObject ([ordered]@{
+        Domain='ai-agent-dotfiles/canonical-controller/v1'
+        RepoId=$repoId
+        RemoteIdentity=$remote
+    })
+}
+
 function Test-CanonicalHeldPathEqual {
     param([Parameter(Mandatory)][string]$Left,[Parameter(Mandatory)][string]$Right)
     return [IO.Path]::GetFullPath($Left).Equals([IO.Path]::GetFullPath($Right),[StringComparison]::OrdinalIgnoreCase)

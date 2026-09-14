@@ -91,6 +91,7 @@ $script:AuthorityLegacyNameMismatch = 'authority-legacy-name-mismatch'
 $script:AuthorityStateEvidenceRequired = 'authority-state-evidence-required'
 $script:AuthorityStateEvidenceForbidden = 'authority-state-evidence-forbidden'
 $script:AuthorityClaimIdentityDrift = 'authority-claim-identity-drift'
+$script:AuthoritySelectionNameMismatch = 'authority-selection-name-mismatch'
 $script:AuthorityArgumentUnsupported = 'authority-argument-unsupported'
 $script:AuthorityPlanKindMismatch = 'authority-plan-kind-mismatch'
 $script:AuthorityApplyNotWired = 'authority-apply-not-wired'
@@ -210,7 +211,15 @@ if ($Apply) {
     if ($readDocument.PlanPayload.Contains('EnvironmentMaterializationRoot')) {
         $null = Assert-LiveSyncPlanCurrent -Document $readDocument -MaterializationDirectory ([string] $readDocument.PlanPayload.EnvironmentMaterializationRoot.Path)
     }
-    $null = Assert-LiveSyncPlanSelectionContext -Document $readDocument -ExpectedOperationKind $operationKind -ExpectedEnvironmentName $Name
+    # A controller transition binds no environment name of its own: it
+    # re-publishes the selection the authority already carries, and the requested
+    # name must still be that selection.
+    $expectedSelectionName = if ($operationKind -ceq 'controller-transition') { $null } else { $Name }
+    $null = Assert-LiveSyncPlanSelectionContext -Document $readDocument -ExpectedOperationKind $operationKind -ExpectedEnvironmentName $expectedSelectionName
+    if ($operationKind -ceq 'controller-transition' -and
+        [string] $readDocument.PlanPayload.AuthorityStateIntent.EnvironmentName -cne $Name) {
+        throw $script:AuthoritySelectionNameMismatch
+    }
     Assert-LiveSyncPlanDocumentHashNotConsumed -Document $readDocument
 
     # Resolve the reviewed context only now: the interlock and every static plan
@@ -256,13 +265,16 @@ if ($Apply) {
         $sourceRootsByPlatform[$platform] = [System.IO.Path]::GetFullPath([string] $slot['SourceRoot'])
     }
 
-    Write-Host 'Running the receipt-backed live transaction host ...'
+    $mode = if ($operationKind -ceq 'controller-transition') { 'state-only' } else { 'receipt-backed' }
+    Write-Host "Running the $mode live transaction host ..."
     # The approved toolchain root is the repository carrying the reviewed
     # scripts and schemas, not the controller/target repository.
     $toolchainRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
     $hostResult = Invoke-SealedLiveTransactionHost -Plan ([System.Collections.IDictionary] $readDocument) -RepoRoot $repo -ControlBase $ControlBase -BackupRoot $BackupRoot -StagingRootsByPlatform $stagingRootsByPlatform -SourceRootsByPlatform $sourceRootsByPlatform -FinalCapabilityHashesByPlatform $capabilityHashesByPlatform -AuthorityContext $authorityContext -WorkingTreeRoots ([ordered] @{ RepoRoot = $repo; ToolchainRoot = $toolchainRoot }) -ToolchainRoot $toolchainRoot
     Write-Host "Transaction id  : $([string] $hostResult.TransactionId)"
-    Write-Host "Receipt id      : $([string] $hostResult.ReceiptId)"
+    if (-not [string]::IsNullOrWhiteSpace([string] $hostResult.ReceiptId)) {
+        Write-Host "Receipt id      : $([string] $hostResult.ReceiptId)"
+    }
     Write-Host "State hash      : $([string] $hostResult.StateHash)"
     Write-Host "Result hash     : $([string] $hostResult.ResultHash)"
     Write-Host "Journal         : $([string] $hostResult.JournalDir)"
@@ -348,7 +360,10 @@ switch ($Action) {
     }
     'takeover' {
         if ([string] $authorityState.PairStatus -cne 'VALID') { throw $script:LivePlanSelectionMismatch }
-        $currentController = Get-CanonicalRepoIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $repo)
+        # The takeover selects nothing: it can only re-publish the selection the
+        # authority already carries, so the requested name must be that name.
+        if ([string] $authorityState.StateDocument['EnvironmentName'] -cne $Name) { throw $script:AuthoritySelectionNameMismatch }
+        $currentController = Get-CanonicalControllerIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $repo)
         $controllerParity = [ordered] @{ PreviousControllerRepoFingerprint = [string] $authorityState.StateDocument['ControllerRepoFingerprint'] }
         if ([string] $controllerParity.PreviousControllerRepoFingerprint -ceq $currentController) { throw $script:AuthorityRouteMismatch }
     }
@@ -358,7 +373,7 @@ switch ($Action) {
 # Plan assembly (mirrors the reviewed initial producer; branch evidence differs)
 
 $git = Get-CanonicalGitContext -RepoRoot $repo
-$controllerFingerprint = Get-CanonicalRepoIdentity -GitContext $git
+$controllerFingerprint = Get-CanonicalControllerIdentity -GitContext $git
 $toolchainHash = Get-LiveSyncApprovedToolchainHash -RepoRoot $repo
 $homeContext = Get-LiveSyncTargetContext -Path ([System.IO.Path]::GetFullPath($authorityContext.HomeRoot))
 $homeAuthorityKey = [string] $authorityContext.HomeAuthorityKey

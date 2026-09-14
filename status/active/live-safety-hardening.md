@@ -2180,6 +2180,87 @@ dynamic digest unchanged); parse gate 171 files; secret scan and
 `git diff --check` clean. The unified `run-tests.ps1 -All` pass stays Phase 3
 Task 9's checkpoint.
 
+## Phase 3 Task 5 (2026-09-14, complete): controller takeover
+
+Task 5 is complete at 4/4 steps: the controller identity, the valid-parity
+requirements, the state-only `controller-transition` apply, and the public
+success/failure matrix.
+
+Controller identity (`scripts/canonical-transaction-common.ps1`):
+`Get-CanonicalNormalizedRemoteIdentity` projects `remote.origin.url` without
+credentials — userinfo is stripped, scheme and host are lowercased, query and
+fragment text is dropped, a trailing `.git` and trailing separators are
+removed, scp-like `[user@]host:path` normalizes to `host:path`, a local-path
+remote keeps its lowercased `/`-separated path form, and a repository without an
+origin reports `none`. `Get-CanonicalControllerIdentity` combines that
+projection with the Git-common-dir private repository identity, so linked
+worktrees share one controller while a fresh clone of the same remote is a
+different controller. Every controller-fingerprint producer and consumer now
+uses it (`sync.ps1`, `authority-harness-env.ps1`, `harness-authority-status-common.ps1`,
+and the host's under-lock parity proof); the canonical repo identity itself is
+unchanged and still owns journal/claim/recovery identity.
+
+Parity requirements: takeover DryRun still routes through the read-only
+assessment (valid claims+state pair, passing state-bound lock parity against the
+live managed trees, no pending recovery, unknown/`.system` markers bound, no
+materialization root), refuses a takeover while the current controller owns the
+authority (`authority-route-mismatch`), refuses a name the authority does not
+select (`authority-selection-name-mismatch`, new token), and a foreign
+controller with failing parity keeps routing to
+`controller-owner-action-required` (pinned by the route-matrix assertions). The
+retirement producer now refuses to plan when the state names another controller
+(`controller-owner-action-required`), which closes a forward-migration trap:
+its payload binds the current controller while its intent copies the state's,
+so a foreign or pre-normalization state could otherwise only fail later at
+apply.
+
+State-only apply: the host admits `controller-transition`, still acquires the
+canonical repo lock → namespace witness → global live lock in that order, and
+after the unfinished-transaction gate proves parity under the lock — the plan's
+previous fingerprint must equal the locked state's controller, this repository's
+controller identity must differ, and the plan's intent fingerprint must be that
+identity — before it publishes a `TransactionMode=state-only` header with
+`ReceiptRef=NO_LIVE_MUTATION` and no receipt intent, runs
+`Invoke-SealedLiveTransactionStateOnly`, and returns the committed state/result
+hashes with no receipt. The engine's frozen preservation contract
+(`Assert-AuthorityControllerTransitionPreservesSelection`) keeps the selection,
+lock, task, final-managed, final-identity and claims fields intact.
+
+Two engine-side scratch defects surfaced while making consecutive state
+transitions work, both fixed in the host's transaction-start reclaim (under both
+locks, after the namespace showed no unfinished transaction, and limited to this
+plan's own target names): a completed predecessor's `swap`/`staged` content
+blocked the next transaction's staging, and its
+`state-recovery/current-env.preimage.json` copy blocked the next state replace
+(both are `FileMode::CreateNew` scratch names). The engine's post-commit
+preservation of swap-old and its pinned assertions are unchanged, and the
+reclaim deletes only the preimage file, not the recovery directory.
+
+Verified: authority 405/405 (new: takeover Apply state-only, replayed
+takeover parity refusal, wrong-name refusal, plan-layer `ReceiptRef`/`ReceiptId`
+rejections, state-preimage disappearance refusal with no journal namespace, and
+the public `STATE_REPLACE_PENDING` kill window leaving the previous controller
+bytes byte-identical with `FILE_REPLACE_INTENT` as the last durable record and
+the next apply refused as `live-recovery-required`); canonical-recovery 118/0
+(new controller-identity and remote-projection assertions: worktree sharing,
+clone distinctness, credential-free projections for https/userinfo, scp-like,
+ssh, query/fragment and local forms); live-recovery PASS (engine-level state-only
+kill/recovery matrix reused unchanged); sync PASS; live-concurrency PASS;
+backup-recovery PASS; backup-receipt PASS; canonical-transaction 64/0;
+canonical-transaction-apply 21/0; transaction-journal-exact-byte 12/0; live-plan
+121 PASS; artifact validation 31/31/133 PASS; seams 56/56 re-pinned (reflection
+15321, digest `9f1b3bc9c835d316942b8ed61781018663076267b2836d6b2945283e14dab0a3`);
+parse gate 171 files; secret scan and `git diff --check` clean. The unified
+`run-tests.ps1 -All` pass stays Phase 3 Task 9's checkpoint.
+
+An independent read-only review of the delta confirmed the identity projection
+and its consumers, the host branch's lock ordering and gate coverage, the reclaim
+safety and the new tests, and produced five findings, all adopted: the kill-window
+journal lookup is order-dependent (now sorted by write time), the retirement
+controller binding above, the local-path projection bypassing the shared
+trim/`.git` step, query/fragment text surviving the projection (and no remote-form
+coverage at all — now tested), and the reclaim being broader than necessary.
+
 ## Pending items (2026-09-14, after Phase 3 Task 3)
 
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are

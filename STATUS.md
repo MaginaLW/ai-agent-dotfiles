@@ -22,10 +22,11 @@ with GitHub Support ticket `#4697323` resolved and the old object re-probe confi
 **Phase 3 (shared environment authority and task-overlay) has started: Task 1 (lock 3 freeze,
 env-build 3 consumption, shared-state semantics, and separate legacy/shared readers) is complete at
 7/7 steps, Task 2 (authority-aware read-only status with list/status v2) is complete at 5/5 steps,
-Task 3 (the `env authority` command surface) is complete at 4/4 steps, and Task 4 (reviewed
+Task 3 (the `env authority` command surface) is complete at 4/4 steps, Task 4 (reviewed
 migration, adoption and corrupt-state repair through the Phase 2 host, with the four failure
-injection windows) is complete at 5/5 steps** — see the Phase 3 Task 1-4 sections below (Phase 3
-overall 21/47). Phase 3 Tasks 5-9 and Phase 4 (schema/CI contract and
+injection windows) is complete at 5/5 steps, and Task 5 (controller identity, valid-parity
+requirements and the state-only controller takeover) is complete at 4/4 steps** — see the Phase 3
+Task 1-5 sections below (Phase 3 overall 25/47). Phase 3 Tasks 6-9 and Phase 4 (schema/CI contract and
 safe release) have not started. Two design-bound findings from the Phase 2 closeout
 feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
@@ -3498,6 +3499,58 @@ preimage, dead-branch and takeover-coverage findings, all adopted. Commits
 `d7e81b1`, `d1ee128`, `0959a80`, `9676c7b`, `7ab55df`, and this window's fixes.
 Production Apply remains interlocked.
 
+## Phase 3 Task 5 (2026-09-14): controller takeover
+
+The controller identity is now `Get-CanonicalControllerIdentity`: the
+credential-free `origin` projection (`Get-CanonicalNormalizedRemoteIdentity`
+strips userinfo and query/fragment text, lowercases scheme/host, drops a trailing
+`.git`, normalizes scp-like and local forms, and reports `none` without a
+remote) combined with the Git-common-dir private repository identity, so linked
+worktrees share one controller and a fresh clone of the same remote is a
+different controller. Every controller-fingerprint producer and consumer uses
+it; the canonical repo identity keeps owning journals/claims/recovery.
+
+Takeover requirements: the DryRun keeps routing through the read-only
+assessment (valid pair, passing state-bound lock parity against the live managed
+trees, no pending recovery, unknown/`.system` markers bound, no materialization
+root), refuses while the current controller owns the authority, and refuses a
+name the authority does not select (`authority-selection-name-mismatch`). A
+foreign controller with failing parity still routes to
+`controller-owner-action-required`. The retirement producer now refuses a state
+that names another controller (`controller-owner-action-required`), closing a
+forward-migration trap where its payload (current controller) and its intent
+(state's controller) could only disagree later at apply.
+
+The state-only apply is wired: the host admits `controller-transition`, keeps the
+canonical → witness → global lock order, re-proves parity under the lock (plan's
+previous fingerprint equals the locked state's, this repository's controller
+differs, and the plan's intent fingerprint is that identity), publishes a
+`TransactionMode=state-only` header with `ReceiptRef=NO_LIVE_MUTATION` and no
+receipt intent, runs `Invoke-SealedLiveTransactionStateOnly`, and returns the
+committed hashes with no receipt. The host also reclaims this plan's own
+home-scoped staging scratch at transaction start (after the namespace proved no
+unfinished transaction), which fixed two real consecutive-transition defects: a
+completed predecessor's `swap`/`staged` content and its
+`state-recovery/current-env.preimage.json` copy both blocked the next
+transaction's staging/state-replace preconditions while the engine's post-commit
+preservation contract stays intact.
+
+Verified: authority 405/405 (takeover Apply state-only, replayed-takeover parity
+refusal, wrong-name refusal, plan-layer `ReceiptRef`/`ReceiptId` rejections,
+state-preimage disappearance refusal without a journal namespace, and a public
+`STATE_REPLACE_PENDING` kill window leaving the previous controller bytes
+byte-identical with `FILE_REPLACE_INTENT` as the last durable record); the
+engine-level state-only kill/recovery matrix stays with the Phase 2 live-recovery
+suite (PASS); canonical-recovery 118/0 with the new controller-identity and
+credential-free projection tests; sync, live-concurrency, backup-recovery,
+backup-receipt, canonical-transaction 64/0, canonical-transaction-apply 21/0,
+transaction-journal-exact-byte 12/0, live-plan 121 all PASS; artifact validation
+31/31/133 PASS; seams 56/56 re-pinned (reflection 15321, digest `9f1b3bc9...`);
+parse gate 171 files; secret scan and `git diff --check` clean. An independent
+read-only review of the delta confirmed the identity projection, the host
+branch and the reclaim, and produced five findings, all adopted. Production Apply
+remains interlocked.
+
 ## Phase 3 Task 3 (2026-09-14): the `env authority` command surface
 
 `scripts/authority-harness-env.ps1` adds `status|migrate|adopt|repair-adopt|takeover`, routed by
@@ -3544,28 +3597,27 @@ environment staging locks; this does not authorize Apply.
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Tasks 1-4 are complete and Tasks 5-9 remain — and the Phase 4 schema/CI contract and
+that order — Tasks 1-5 are complete and Tasks 6-9 remain — and the Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
 [`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
 
 ## Next actions
 
-1. **Phase 3 Task 4 is complete** (5/5 steps; see the Phase 3 Task 4 section above). Adopt,
-   migrate and repair-adopt run through the Phase 2 host end to end in the sandbox, including the
-   CORRUPT and MISSING state branches and the four failure-injection windows. The next slice
-   (Task 5) implements controller takeover: controller identity normalization, valid-parity
-   requirements with the `controller-owner-action-required` dead end, and the state-only
-   `controller-transition` apply whose host kind gate is still refused today. Tasks 5-9 of
+1. **Phase 3 Task 5 is complete** (4/4 steps; see the Phase 3 Task 5 section above): controller
+   identity normalization, the valid-parity requirements with the
+   `controller-owner-action-required` dead end, the state-only `controller-transition` apply, and
+   the public success/failure matrix (replay, wrong name, plan-layer receipt fields,
+   state-preimage disappearance, and a `STATE_REPLACE_PENDING` kill window). The next slice
+   (Task 6) makes environment activation consume an external plan and its exact receipt, which is
+   also where the carried plan-consumption binding lands (a completed plan still passes its guard
+   on replay because `Assert-LiveSyncPlanDocumentHashNotConsumed` is called without terminal
+   evidence) together with the rollback composition's own post-success staging cleanup. Tasks 6-9
+   of
    [`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
    remain — the authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under the
-   "Phase 3 Task 4" section and the pending-items list there.
-   Two carried items belong to the next tasks: the plan-consumption binding (a completed
-   repair-adopt plan still passes its guard on replay, because `Assert-LiveSyncPlanDocumentHashNotConsumed`
-   is called without terminal evidence) is Task 6's external-plan consumption step, and the
-   rollback composition's post-success staging cleanup (its own spec, Phase 3 Task 6) is not yet
-   implemented for the rollback path; the forward path reclaims stale staging at transaction start.
+   "Phase 3 Task 5" section and the pending-items list there.
 2. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,

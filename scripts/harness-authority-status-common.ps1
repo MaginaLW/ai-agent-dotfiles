@@ -230,7 +230,7 @@ function Get-HarnessEnvAuthorityAssessment {
     $controllerMatch = $null
     $stateSummary = $null
     if ($stateStatus -ceq 'VALID') {
-        $controllerFingerprint = Get-CanonicalRepoIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $repo)
+        $controllerFingerprint = Get-CanonicalControllerIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $repo)
         $controllerMatch = [string] $authorityState.StateDocument['ControllerRepoFingerprint'] -ceq $controllerFingerprint
         $receiptReference = $null
         $receiptReferenceHash = $null

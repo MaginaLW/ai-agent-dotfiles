@@ -29,6 +29,7 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
 . (Join-Path $RepoRoot 'scripts/shared-authority-state-common.ps1')
 . (Join-Path $RepoRoot 'scripts/harness-env-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
 # The sealed route registry accepts exactly one initialization per runspace and
 # refuses a reload built from fresh script blocks, so the registry home (which
 # carries the canonical-transaction surface too) loads once here, in script
@@ -823,7 +824,7 @@ Remove-Item -LiteralPath (Join-Path $authorityRepo 'state/current-env.json') -Fo
 $repairHome = Join-Path $work 'authority-home-repair'
 $repairIdentity = New-AuthorityTestIdentity -Path $repairHome
 $repairContext = Resolve-HomeAuthorityContextFromIdentity -Identity $repairIdentity
-$controllerFingerprint = Get-CanonicalRepoIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $authorityRepo)
+$controllerFingerprint = Get-CanonicalControllerIdentity -GitContext (Get-CanonicalGitContext -RepoRoot $authorityRepo)
 $pair = New-FakeAuthorityPair -Context $repairContext -ControllerFingerprint $controllerFingerprint
 $beforeState = Read-HomeAuthorityState -ControlBase ([string] $repairContext.ControlBase) -HomeAuthorityKey $pair.Key -RepoRoot $authorityRepo
 if ([string] $beforeState.PairStatus -cne 'VALID') {
@@ -1200,6 +1201,29 @@ function New-AuthorityCliSandbox {
     }
 }
 
+function Set-AuthorityForeignControllerState {
+    # Makes a valid authority look like it belongs to another controller: the
+    # state records a foreign controller fingerprint and binds the state-bound
+    # activation lock the assessment verifies against the live trees (the plan's
+    # materialization lock stands in for the Task 6 activation publication).
+    param(
+        [Parameter(Mandatory)] [string] $AuthorityRoot,
+        [Parameter(Mandatory)] [string] $Repo,
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $PlanPath,
+        [string] $ControllerFingerprint = ('0' * 64)
+    )
+    $materialization = Join-Path (Split-Path -Parent $PlanPath) (([System.IO.Path]::GetFileNameWithoutExtension($PlanPath)) + '.materialization')
+    $lockDir = Join-Path $Repo "envs/$Name"
+    New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
+    Copy-Item -LiteralPath (Get-HarnessEnvLockPath -StagingPath $materialization) -Destination (Join-Path $lockDir 'env.lock.json') -Force
+    $statePath = Join-Path $AuthorityRoot 'current-env.json'
+    $state = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($statePath)))
+    $state['ControllerRepoFingerprint'] = $ControllerFingerprint
+    $state['EnvironmentLockHash'] = (Get-HarnessFileHash -Path (Join-Path $lockDir 'env.lock.json')).ToLowerInvariant()
+    [System.IO.File]::WriteAllBytes($statePath, (ConvertTo-SemanticJsonBytes -InputObject $state))
+}
+
 function Set-AuthorityTestDirectoryCurrentUserOnly {
     param([Parameter(Mandatory)] [string] $Path)
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -1362,13 +1386,7 @@ Assert ($sameController.Code -eq 1 -and $sameController.Out -match 'authority-ro
 # The state-bound activation lock is what the assessment verifies against the
 # live trees; publishing the plan's materialization lock into the repository's
 # env staging stands in for the activation publication that Task 6 wires.
-$takeoverMaterialization = Join-Path (Split-Path -Parent $missingPlan) (([System.IO.Path]::GetFileNameWithoutExtension($missingPlan)) + '.materialization')
-$repoLockDir = Join-Path $cliRepo 'envs/good'
-New-Item -ItemType Directory -Force -Path $repoLockDir | Out-Null
-Copy-Item -LiteralPath (Get-HarnessEnvLockPath -StagingPath $takeoverMaterialization) -Destination (Join-Path $repoLockDir 'env.lock.json') -Force
-$stateForTakeover['ControllerRepoFingerprint'] = '0' * 64
-$stateForTakeover['EnvironmentLockHash'] = (Get-HarnessFileHash -Path (Join-Path $repoLockDir 'env.lock.json')).ToLowerInvariant()
-[System.IO.File]::WriteAllBytes($corruptStatePath, (ConvertTo-SemanticJsonBytes -InputObject $stateForTakeover))
+Set-AuthorityForeignControllerState -AuthorityRoot $cliAuthorityRoot -Repo $cliRepo -Name 'good' -PlanPath $missingPlan
 $takeoverPlan = Join-Path $cliSandbox 'takeover-plan.json'
 $takeover = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-DryRun', '-PlanPath', $takeoverPlan, '-RepoRoot', $cliRepo)
 if ($takeover.Code -ne 0) { Write-Host "  note  takeover dryrun:"; Write-Host $takeover.Out }
@@ -1379,8 +1397,124 @@ Assert (@($takeoverDocument.PlanPayload.OrderedActions).Count -eq 0) 'takeover c
 Assert ([string] $takeoverDocument.PlanPayload.AuthorityStateIntent.ReceiptRef -ceq 'NO_LIVE_MUTATION') 'takeover declares the no-live-mutation receipt reference'
 Assert (-not $takeoverDocument.PlanPayload.Contains('EnvironmentMaterializationRoot')) 'takeover binds no materialization root'
 Assert ([string] $currentControllerFingerprint -cne ('0' * 64)) 'the fixture starts from the real controller fingerprint'
+# The name is not a selector for a takeover: only the selection the authority
+# already carries is accepted. This runs while the state still names a foreign
+# controller, because after the transition the route is no longer takeover.
+$wrongNameTakeover = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'other', '-DryRun', '-PlanPath', (Join-Path $cliSandbox 'takeover-wrong-name.json'), '-RepoRoot', $cliRepo)
+Assert ($wrongNameTakeover.Code -eq 1 -and $wrongNameTakeover.Out -match 'authority-selection-name-mismatch') 'takeover refuses a name the authority does not select'
 
-# 6. Claim identity drift fails closed: a claimed root that was deleted and
+# The takeover Apply runs the state-only sequence: controller metadata is the
+# only committed change, no receipt is created, and every live tree plus the
+# immutable claims stay byte-identical.
+$takeoverClaimsBefore = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($claimsPathRepair))).ToLowerInvariant()
+$takeoverLiveRoots = [ordered]@{
+    Claude = (Join-Path $cliHome '.claude/skills')
+    Codex = (Join-Path $cliHome '.codex/skills')
+    Reasonix = (Join-Path $cliHome 'AppData/Roaming/reasonix/skills')
+}
+$takeoverLiveBefore = [ordered]@{}
+foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+    $takeoverLiveBefore[$platform] = Get-HarnessTreeHash -Path ([string] $takeoverLiveRoots[$platform])
+}
+$takeoverBackupsBefore = @(Get-ChildItem -LiteralPath ([string] $cliContext.BackupRoot) -Directory -Force -ErrorAction SilentlyContinue).Count
+$takeoverApply = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-Apply', '-PlanPath', $takeoverPlan, '-RepoRoot', $cliRepo)
+if ($takeoverApply.Code -ne 0) { Write-Host "  note  takeover apply:"; Write-Host $takeoverApply.Out }
+Assert ($takeoverApply.Code -eq 0) 'takeover Apply commits the controller transition state-only'
+$takeoverState = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($corruptStatePath)))
+Assert ([string] $takeoverState.LastOperationKind -ceq 'controller-transition') 'the takeover state records the controller-transition kind'
+Assert ([string] $takeoverState.ReceiptRef -ceq 'NO_LIVE_MUTATION') 'the takeover state declares no live mutation'
+Assert (-not $takeoverState.Contains('ReceiptId') -and -not $takeoverState.Contains('ReceiptHash')) 'the takeover state carries no receipt fields'
+Assert ([string] $takeoverState.ControllerRepoFingerprint -ceq [string] $takeoverDocument.PlanPayload.ControllerRepoFingerprint) 'the takeover state adopts the planning controller'
+Assert ([string] $takeoverState.ControllerRepoFingerprint -cne ('0' * 64)) 'the takeover state no longer names the previous controller'
+Assert ([string] $takeoverState.EnvironmentName -ceq 'good') 'the takeover preserves the environment selection'
+Assert ([string] $takeoverState.RootClaimsHash -ceq $takeoverClaimsBefore) 'the takeover state keeps the claims bytes hash'
+Assert ([Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($claimsPathRepair))).ToLowerInvariant() -ceq $takeoverClaimsBefore) 'takeover keeps the immutable claims byte-identical'
+foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+    Assert ((Get-HarnessTreeHash -Path ([string] $takeoverLiveRoots[$platform])) -ceq $takeoverLiveBefore[$platform]) "takeover leaves the $platform live tree byte-identical"
+}
+Assert (Test-Path -LiteralPath (Join-Path $cliHome '.claude/skills/existing-local/SKILL.md') -PathType Leaf) 'takeover preserves the unknown live directory'
+Assert (@(Get-ChildItem -LiteralPath ([string] $cliContext.BackupRoot) -Directory -Force -ErrorAction SilentlyContinue).Count -eq $takeoverBackupsBefore) 'a state-only takeover creates no backup receipt'
+$takeoverTransactions = @(Get-ChildItem -LiteralPath ([string] $cliContext.LiveTransactionsRoot) -Directory -Force | Sort-Object LastWriteTimeUtc)
+$takeoverJournalDir = $takeoverTransactions[-1].FullName
+$takeoverJournal = Get-InjectionJournalSummary -TransactionDirectory $takeoverJournalDir
+Assert ($takeoverJournal.LastPhase -ceq 'COMPLETE' -and $takeoverJournal.HasResult) 'the takeover journal closes with a result and the terminal record'
+$takeoverHeader = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes((Join-Path $takeoverJournalDir 'header.json'))))
+Assert ([string] $takeoverHeader.TransactionMode -ceq 'state-only') 'the takeover journal header is state-only'
+Assert ([string] $takeoverHeader.ReceiptRef -ceq 'NO_LIVE_MUTATION') 'the takeover journal header names no live mutation'
+Assert (-not $takeoverHeader.Contains('ReceiptIntent')) 'the takeover journal header carries no receipt intent'
+$takeoverResult = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes((Join-Path $takeoverJournalDir 'result.json'))))
+Assert ([string] $takeoverResult.Outcome -ceq 'committed' -and [string] $takeoverResult.OperationKind -ceq 'controller-transition') 'the takeover result commits the controller transition'
+Assert (-not $takeoverResult.Contains('ReceiptRef')) 'the state-only result carries no receipt reference'
+
+# A replayed takeover is refused: under the lock the state no longer names the
+# plan's previous controller, so parity fails closed.
+$takeoverReplay = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-Apply', '-PlanPath', $takeoverPlan, '-RepoRoot', $cliRepo)
+Assert ($takeoverReplay.Code -eq 1 -and $takeoverReplay.Out -match 'controller-transition-parity-mismatch') 'a replayed takeover is refused on parity'
+# A receipt-bearing controller-transition plan and a NO_LIVE_MUTATION live plan
+# are both rejected by the frozen plan contract. Each tampered copy recomputes
+# its envelope hashes so the semantic layer, not the integrity gate, decides.
+function New-TamperedPlanDocument {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Field,
+        [Parameter(Mandatory)] [string] $Value
+    )
+    $document = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($Path)))
+    $document['PlanPayload']['AuthorityStateIntent'][$Field] = $Value
+    $document['PlanHash'] = Get-PlanHash -PlanPayload $document['PlanPayload']
+    $document['DocumentHash'] = Get-DocumentHash -Document $document
+    return $document
+}
+$livePlanWithNoMutation = New-TamperedPlanDocument -Path $adoptPlan -Field 'ReceiptRef' -Value 'NO_LIVE_MUTATION'
+$noMutationRejected = $false
+try { Test-LiveSyncPlanSemantics -Document $livePlanWithNoMutation } catch { $noMutationRejected = ([string] $_.Exception.Message -ceq 'live-plan-operation-kind-mismatch') }
+Assert $noMutationRejected 'a live transition plan cannot declare NO_LIVE_MUTATION'
+$receiptBearingTransition = New-TamperedPlanDocument -Path $takeoverPlan -Field 'ReceiptId' -Value '00000000-0000-0000-0000-000000000000'
+$receiptBearingRejected = $false
+try { Test-LiveSyncPlanSemantics -Document $receiptBearingTransition } catch { $receiptBearingRejected = ([string] $_.Exception.Message -ceq 'live-plan-schema-unsupported') }
+Assert $receiptBearingRejected 'a plan document cannot carry a runtime receipt field'
+
+# A state-preimage failure fails closed: when the bound state file disappears
+# between the plan and the apply, the host refuses before it writes anything.
+Set-AuthorityForeignControllerState -AuthorityRoot $cliAuthorityRoot -Repo $cliRepo -Name 'good' -PlanPath $missingPlan -ControllerFingerprint ('1' * 64)
+$preimagePlan = Join-Path $cliSandbox 'takeover-preimage-plan.json'
+$preimageDryRun = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-DryRun', '-PlanPath', $preimagePlan, '-RepoRoot', $cliRepo)
+Assert ($preimageDryRun.Code -eq 0) 'the state-preimage case plans against the foreign controller'
+$preimageStateBytes = [System.IO.File]::ReadAllBytes($corruptStatePath)
+Remove-Item -LiteralPath $corruptStatePath -Force
+$preimageApply = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-Apply', '-PlanPath', $preimagePlan, '-RepoRoot', $cliRepo)
+Assert ($preimageApply.Code -eq 1 -and $preimageApply.Out -match 'live-transaction-authority-required') 'a takeover whose state disappeared is refused before any mutation'
+Assert (-not (Test-Path -LiteralPath $corruptStatePath)) 'the refused takeover does not recreate the state'
+[System.IO.File]::WriteAllBytes($corruptStatePath, $preimageStateBytes)
+Assert (@(Get-ChildItem -LiteralPath ([string] $cliContext.LiveTransactionsRoot) -Directory -Force).Count -eq $takeoverTransactions.Count) 'the refused takeover publishes no journal namespace'
+
+# 6. The state-only transition's public kill window: a hard kill before the
+#    state replace leaves the previous controller byte-identical on disk with an
+#    unfinished journal that blocks every later mutation (the engine-level kill
+#    matrix for the remaining windows stays with the Phase 2 live-recovery suite).
+$sandboxK = New-AuthorityCliSandbox -Root (Join-Path $work 'authority-cli-takeover-kill')
+$killAdoptPlan = Join-Path $sandboxK.Sandbox 'adopt-plan.json'
+$killAdopt = Invoke-AuthorityCli -SandboxRoot $sandboxK.Sandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-DryRun', '-PlanPath', $killAdoptPlan, '-RepoRoot', $sandboxK.Repo)
+Assert ($killAdopt.Code -eq 0) 'the kill-window machine plans its first authority'
+$killAdoptApply = Invoke-AuthorityCli -SandboxRoot $sandboxK.Sandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $killAdoptPlan, '-RepoRoot', $sandboxK.Repo)
+Assert ($killAdoptApply.Code -eq 0) 'the kill-window machine establishes its authority'
+Set-AuthorityForeignControllerState -AuthorityRoot $sandboxK.AuthorityRoot -Repo $sandboxK.Repo -Name 'good' -PlanPath $killAdoptPlan
+$killTakeoverPlan = Join-Path $sandboxK.Sandbox 'takeover-kill-plan.json'
+$killTakeoverDryRun = Invoke-AuthorityCli -SandboxRoot $sandboxK.Sandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-DryRun', '-PlanPath', $killTakeoverPlan, '-RepoRoot', $sandboxK.Repo)
+Assert ($killTakeoverDryRun.Code -eq 0) 'the kill-window takeover plans against a foreign controller'
+$killStatePath = Join-Path $sandboxK.AuthorityRoot 'current-env.json'
+$killStateHashBefore = Get-HarnessFileHash -Path $killStatePath
+$killedTakeover = Invoke-AuthorityCliKilledAtCheckpoint -SandboxRoot $sandboxK.Sandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-Apply', '-PlanPath', $killTakeoverPlan, '-RepoRoot', $sandboxK.Repo) -Checkpoint 'STATE_REPLACE_PENDING'
+Assert ($killedTakeover.Code -ne 0) 'the takeover host is killed before the state replace'
+Assert ((Get-HarnessFileHash -Path $killStatePath) -ceq $killStateHashBefore) 'a kill before the state replace leaves the previous controller bytes in place'
+$killJournalDir = (@(Get-ChildItem -LiteralPath ([string] $sandboxK.Context.LiveTransactionsRoot) -Directory -Force) | Sort-Object LastWriteTimeUtc)[-1].FullName
+$killJournal = Get-InjectionJournalSummary -TransactionDirectory $killJournalDir
+Assert ($killJournal.UnknownCount -eq 0) 'the killed takeover leaves no unknown journal entries'
+Assert ($killJournal.LastPhase -ceq 'FILE_REPLACE_INTENT' -and -not $killJournal.HasResult) 'the killed takeover stops before the state replace with no result'
+$killReplay = Invoke-AuthorityCli -SandboxRoot $sandboxK.Sandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-Apply', '-PlanPath', $killTakeoverPlan, '-RepoRoot', $sandboxK.Repo)
+Assert ($killReplay.Code -eq 1 -and $killReplay.Out -match 'live-recovery-required') 'the unfinished takeover blocks the next apply'
+
+# 7. Claim identity drift fails closed: a claimed root that was deleted and
 #    recreated carries a new identity, and publishing a state with it would
 #    contradict the immutable claim that no later repair could satisfy.
 Set-File -Path $corruptStatePath -Content '{ corrupt'
@@ -1391,7 +1525,7 @@ $drift = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'r
 Assert ($drift.Code -eq 1 -and $drift.Out -match 'authority-claim-identity-drift') 'a recreated claimed root fails closed before any plan exists'
 Assert (-not (Test-Path -LiteralPath $driftPlan)) 'the drift refusal writes no plan'
 
-# 7. Migrate: its own first-authority machine with complete legacy evidence.
+# 8. Migrate: its own first-authority machine with complete legacy evidence.
 $sandboxB = New-AuthorityCliSandbox -Root (Join-Path $work 'authority-cli-b')
 $migrateRepo = $sandboxB.Repo
 $migrateHome = $sandboxB.Home
@@ -1422,7 +1556,7 @@ Assert ([string] $migrateState.LastOperationKind -ceq 'migrate') 'the migrated s
 Assert (Test-Path -LiteralPath (Join-Path $migrateHome '.claude/skills/fixture-a/SKILL.md') -PathType Leaf) 'migrate Apply keeps the managed live skills installed'
 Assert (Test-Path -LiteralPath $legacyStatePath -PathType Leaf) 'migrate never deletes the only legacy evidence'
 
-# 8. Failure injection: one hard-killed window per required class (before the
+# 9. Failure injection: one hard-killed window per required class (before the
 #    receipt, during live mutation, during state create/replace, during the final
 #    journal record). Every window gets its own machine: a hard-killed receipt-
 #    backed transaction deliberately leaves an unfinished journal, and the next
@@ -1474,13 +1608,13 @@ foreach ($window in $injectionWindows) {
     Assert ($refused.Code -eq 1 -and $refused.Out -match $expectedRefusal) "the $checkpoint window refuses the next Apply with $expectedRefusal"
 }
 
-# 9. Takeover (Task 5 boundary): the route exists but the host still refuses the
-#    controller-transition kind, and a valid authority is required.
+# 10. Takeover still requires a valid authority pair: a machine without one
+#     routes elsewhere and the transition is refused.
 $sandboxC = New-AuthorityCliSandbox -Root (Join-Path $work 'authority-cli-c')
 $takeoverRefused = Invoke-AuthorityCli -SandboxRoot $sandboxC.Sandbox -Arguments @('-Action', 'takeover', '-Name', 'good', '-DryRun', '-PlanPath', (Join-Path $sandboxC.Sandbox 'takeover.json'), '-RepoRoot', $sandboxC.Repo)
 Assert ($takeoverRefused.Code -eq 1 -and $takeoverRefused.Out -match 'authority-route-mismatch') 'takeover is refused without a valid authority pair'
 
-# 10. Ordinary activate/sync never reach a transition.
+# 11. Ordinary activate/sync never reach a transition.
 $syncDryRun = Invoke-SafetySandboxScript -SandboxRoot $cliSandbox -ScriptPath (Join-Path $RepoRoot 'scripts/sync.ps1') -Arguments @('-DryRun', '-PlanPath', (Join-Path $cliSandbox 'sync-plan.json'), '-RepoRoot', $cliRepo) -AuthorityRepoRoot $RepoRoot
 Assert ($syncDryRun.Code -ne 0) 'ordinary sync cannot plan over an existing authority context'
 if (Test-Path -LiteralPath (Join-Path $cliSandbox 'sync-plan.json')) {

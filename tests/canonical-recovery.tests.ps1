@@ -165,6 +165,29 @@ try{
     if($LASTEXITCODE -ne 0){throw 'Unable to create fresh clone fixture.'}
     Assert ((Get-CanonicalRepoIdentity (Get-CanonicalGitContext $fresh)) -cne (Get-CanonicalRepoIdentity $mainGit)) 'setup: fresh clone receives a distinct RepoId'
 
+    # The controller identity combines the credential-free remote projection
+    # with the private repository identity: linked worktrees share one
+    # controller, a fresh clone of the same remote is a different one, and no
+    # credential text survives any remote form.
+    Assert ((Get-CanonicalControllerIdentity $mainGit) -ceq (Get-CanonicalControllerIdentity $linkedGit)) 'controller: linked worktrees share one controller identity'
+    Assert ((Get-CanonicalControllerIdentity (Get-CanonicalGitContext $fresh)) -cne (Get-CanonicalControllerIdentity $mainGit)) 'controller: a fresh clone of the same remote is a different controller'
+    Assert ((Get-CanonicalNormalizedRemoteIdentity -RepoRoot $fixture) -ceq 'none') 'controller: a repository without an origin projects to none'
+    foreach ($remoteCase in @(
+            @{ Remote = 'https://user:secret-token@GitHub.com/Owner/Repo.git?private_token=hidden#frag'; Expected = 'https://github.com/Owner/Repo' },
+            @{ Remote = 'http://token@example.invalid/team/repo/'; Expected = 'http://example.invalid/team/repo' },
+            @{ Remote = 'ssh://git@example.invalid:22/team/repo.git'; Expected = 'ssh://example.invalid:22/team/repo' },
+            @{ Remote = 'git@example.invalid:team/repo.git'; Expected = 'example.invalid:team/repo' },
+            @{ Remote = 'user@example.invalid:team/repo'; Expected = 'example.invalid:team/repo' }
+        )) {
+        & git -C $fixture remote remove origin 2>$null | Out-Null
+        & git -C $fixture remote add origin $remoteCase.Remote
+        $projected = Get-CanonicalNormalizedRemoteIdentity -RepoRoot $fixture
+        Assert ($projected -ceq $remoteCase.Expected) "controller: '$($remoteCase.Remote)' projects without credentials"
+        Assert ($projected -notmatch 'secret-token|token@|hidden|private_token') "controller: '$($remoteCase.Remote)' leaves no credential text"
+    }
+    & git -C $fixture remote remove origin 2>$null | Out-Null
+    Assert ((Get-CanonicalNormalizedRemoteIdentity -RepoRoot $fixture) -ceq 'none') 'controller: removing the origin remote returns to none'
+
     $planRoot=Join-Path $root 'plans';[IO.Directory]::CreateDirectory($planRoot)|Out-Null;$plan=Join-Path $planRoot 'setup.json'
     $dry=Invoke-Script $agentScript @('canonical','setup','-RepoRoot',$fixture,'-DryRun','-PlanPath',$plan)
     Assert ($dry.Code -eq 0 -and (Test-Path -LiteralPath $plan)) 'setup: public DryRun publishes one external create-new setup plan'

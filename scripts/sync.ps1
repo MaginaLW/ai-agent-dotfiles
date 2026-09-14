@@ -270,7 +270,7 @@ function New-LiveSyncPlanDocument {
 
     $repo = (Resolve-Path -LiteralPath $RepoRoot).Path
     $git = Get-CanonicalGitContext -RepoRoot $repo
-    $controllerFingerprint = Get-CanonicalRepoIdentity -GitContext $git
+    $controllerFingerprint = Get-CanonicalControllerIdentity -GitContext $git
     $toolchainHash = Get-LiveSyncApprovedToolchainHash -RepoRoot $repo
 
     $homeContext = Get-LiveSyncTargetContext -Path ([System.IO.Path]::GetFullPath($HomeRoot))
@@ -449,6 +449,12 @@ function New-LiveSyncPlanDocument {
         Assert-AuthoritySchemaBytes -ArtifactKind 'current-env-state' -InstanceBytes ([byte[]] $stateCapture.Bytes)
         Test-CurrentEnvStateSemantics -Document $state
         if ([string] $state['HomeAuthorityKey'] -cne $homeAuthorityKey) { throw $script:LiveSyncSelectionMismatch }
+        # Retirement mutates the live content of an existing authority, so it is
+        # legal only for the controller that owns that authority: a state naming
+        # another controller (or one written before the controller identity was
+        # normalized) routes to takeover instead of planning a plan whose
+        # controller fields cannot agree.
+        if ([string] $state['ControllerRepoFingerprint'] -cne $controllerFingerprint) { throw 'controller-owner-action-required' }
 
         $postsetSkillsRows = [System.Collections.Generic.List[object]]::new()
         foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
