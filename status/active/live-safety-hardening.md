@@ -1992,7 +1992,7 @@ routing the producer's validation through the reviewed `Assert-LiveSyncPlanDocum
 instead of calling the semantic validator directly. Commits: `2d6bdf0` the shared-module refactor,
 `bdf9073` the command surface.
 
-## Phase 3 Task 4 (2026-09-14, in progress): the authority apply composition
+## Phase 3 Task 4 (2026-09-14, complete): the authority apply composition
 
 Settled decision (the open question from the recon handoff below): **the private
 prefix belongs to the reviewed canonical setup flow, not to the authority
@@ -2042,30 +2042,15 @@ shape (no-follow single-link regular `<64-hex>.json`), mirroring the existing
 authority-aware tolerance for `HomesRoot`; this also unblocks `sync`'s apply on
 a machine where the canonical setup has run.
 
-**Open item for the next window, diagnosed to the last gate.** The sandbox
-fixture now seeds the private prefix, a canonical setup state *and* its root
-claim, plus the schema root the held capture validates against, and the suite
-asserts `canonical-ready` on that fixture. The adopt apply then passes the
-interlock, every static plan gate, the canonical and prefix preconditions, the
-staging and capability probes, and reaches the host, which stops at
-`canonical-witness-required`: the canonical global acquisition needs the witness
-binding that only the (interlocked) public canonical setup Apply can create, and
-no test helper seeds it (the concurrency suite's bootstrap host holds locks
-rather than seeding state, and the Phase 2 suites never needed it because they
-seed no claim and stop at the lock). Two legitimate resolutions, in preference
-order:
-
-1. add a reviewed internal canonical-setup seeding host (the Phase 1/2 analogue
-   of the live-transaction host) that creates the setup state, claim, and
-   canonical witness binding inside the sandbox, so the authority apply can be
-   exercised end to end without touching the tracked interlock; or
-2. treat the end-to-end apply as Phase 4 evidence: the interlock release is
-   exactly what makes the canonical setup flow runnable, and the authority
-   apply's success path is then verified on the release candidate.
-
-Until one of those lands, the suite pins the boundary (a refused apply publishes
-no claims and no state) and the host's kind/guard behaviour is verified through
-the frozen engine suites plus `live-plan` contract tests. The host's
+**Resolved (see the Task 4 closeout below).** The blocker was the canonical
+witness binding: the resolved path was to seed the canonical setup state, its
+root claim, *and* the held witness inside the sandbox from the reviewed scripts
+(the suite now dot-sources `root-claims-registry-common.ps1` once per process —
+the sealed route registry accepts exactly one initialization per runspace and
+refuses a reload built from fresh script blocks — and calls
+`New-CanonicalSetupPlanPayload`/`New-CanonicalFinalSetupState` plus
+`Enter-CanonicalRepoLock` with the correct toolchain root). The authority apply
+then runs end to end for adopt, migrate and repair-adopt. The host's
 `controller-transition` kind is still rejected by its kind gate, which is the
 Task 5 entry point.
 
@@ -2108,6 +2093,92 @@ done; the facts a next window needs:
   and `takeover` need only a COMPLETE prefix. This decision (bootstrap inside the authority apply vs a
   separate reviewed setup step) is the first thing Task 4 must settle, because it defines what
   `-Apply` composes and what the branch tests inject around.
+
+## Phase 3 Task 4 closeout (2026-09-14): end-to-end transitions and the four failure windows
+
+Task 4 is complete at 5/5 steps. Adopt, migrate and repair-adopt now run through
+`Invoke-SealedLiveTransactionHost` end to end inside the sandbox; the four
+required failure classes are pinned as hard-killed windows; and the unit
+boundary (a refused apply publishes neither claims nor state) stays covered.
+
+Branch matrix now pinned by `tests/harness-authority.tests.ps1` (369 assertions):
+
+- adopt on a machine whose live roots already hold content: publishes the
+  immutable claims and the schema 3 state, installs the managed skills,
+  preserves the unknown live directory, materializes the absent Reasonix root,
+  publishes a journal namespace, and refuses a replayed plan.
+- migrate on its own first-authority machine: binds the exact legacy
+  locator/bytes/core hash and the preserved old-lock hash, installs the current
+  build, and never deletes the only legacy evidence.
+- repair-adopt: CORRUPT state replaced with claims byte-identical, state
+  rebuilt, and — newly covered — the MISSING branch (marker-only evidence,
+  `-CorruptStatePath` forbidden, state created new next to the claims).
+- takeover DryRun for a foreign controller with verified parity (the previous
+  controller fingerprint, zero live actions, `ReceiptRef=NO_LIVE_MUTATION`, no
+  materialization root), plus the route refusal while the current controller
+  still owns the authority.
+- claim-identity drift: a claimed root that was deleted and recreated refuses
+  the plan with `authority-claim-identity-drift` and writes no plan file.
+
+Failure injection (Step 5) — one fresh machine per window, hard-killed through
+the Phase 2 failpoint controller, each pinning the last durable record, the
+live/claims/state/result evidence and the next apply's refusal:
+
+| Window | Last durable record | Live | Claims | State | Result | Next apply |
+| --- | --- | --- | --- | --- | --- | --- |
+| `RECEIPT_FINALIZATION` (before the receipt) | none | absent | absent | absent | none | `live-recovery-required` |
+| `PREPARED` (during live mutation) | `PREPARED` | absent | absent | absent | none | `live-recovery-required` |
+| `STATE_REPLACE_PENDING` (state create/replace) | `FILE_REPLACE_INTENT` | installed | published | absent | none | `live-transaction-authority-present` |
+| `TERMINAL_RECORD` (final journal record) | `POSTCONDITIONS_OK` | installed | published | published | published | `live-transaction-authority-present` |
+
+Defects found and fixed by exercising the success paths (all in this window):
+
+1. **Stale target rows** (`scripts/authority-harness-env.ps1`): the producer
+   fed the immutable claim rows into `TargetContextIntent.Rows`, so the host
+   derived a stale `MissingRemainder` and tried to create `~/.codex`, which the
+   adopt apply had already created; the engine failed closed and the restore
+   verification then raised `live-transaction-recovery-required`. Rows are now
+   one fresh observation per platform, shared with the first-authority claim
+   rows; the live trees themselves were restored intact (verified by comparing
+   every plan `LiveHash` against the on-disk tree hash).
+2. **Claims branch keyed on the wrong status**: repair-adopt selected the
+   existing claims only when `PairStatus -eq 'VALID'`, but its pair is CORRUPT,
+   so it silently proposed new claims and bound their hash. It now keys on
+   `ClaimsStatus -eq 'VALID'`, and the live roots are selected from the claim
+   (the state is not readable while being repaired).
+3. **Claims-identity drift**: with fresh rows, a deleted-and-recreated claimed
+   root would have published a state whose final identity contradicts the
+   immutable claim — a pair no later repair could fix. The producer now
+   requires the observed identity to equal the claim's for every
+   `InitialState=EXISTS` row and fails closed with
+   `authority-claim-identity-drift` before any plan exists.
+4. **Staging blocked consecutive updates**: the engine preserves swap-old as
+   durable evidence after a terminal commit, and nothing reclaimed it, so the
+   *next* transaction for the same skill name failed its staging precondition
+   (`Test-Path swapOldPath`). The host now reclaims `staged/<name>` and
+   `swap/<name>` for this plan's own target names at transaction start, after
+   the namespace proved no unfinished transaction exists (so no live recovery
+   evidence can be involved). The engine's post-commit preservation contract
+   and its pinned assertion stay unchanged; the rollback composition's own
+   post-success cleanup remains Task 6 work.
+5. **MISSING-state guard**: `Assert-SealedLiveTransactionHostClaimsBinding`
+   tripped on `''` vs `$null` for an absent state file, so the repair-adopt
+   MISSING branch could never start. The check now accepts an absent state hash
+   and still requires a 64-hex digest when the file exists.
+
+Two smaller fixes from the independent review: the receipt pre-images the
+authority state only when the file exists (a MISSING repair state has no bytes
+to preserve, and the held capture throws on a missing path), and the dead
+`PairStatus` fallback in the live-root selector was removed.
+
+Verification: authority 369/369; live-plan 121 PASS; sync, live-recovery,
+live-concurrency, backup-recovery, backup-receipt PASS; canonical-transaction
+64/0; canonical-transaction-apply 21/0; transaction-journal-exact-byte 12/0;
+artifact validation 31/31/133 PASS; seams 56/56 re-pinned (reflection 15281,
+digest `ace4d87820a264b7d6300dde8190e7d33d9afc4566c2936516144c0bfa51ccc0`,
+dynamic digest unchanged); parse gate 171 files; secret scan and
+`git diff --check` clean. The unified `run-tests.ps1 -All` pass stays Phase 3
+Task 9's checkpoint.
 
 ## Pending items (2026-09-14, after Phase 3 Task 3)
 

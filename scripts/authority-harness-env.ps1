@@ -90,6 +90,7 @@ $script:AuthorityLegacyLocatorMismatch = 'authority-legacy-locator-mismatch'
 $script:AuthorityLegacyNameMismatch = 'authority-legacy-name-mismatch'
 $script:AuthorityStateEvidenceRequired = 'authority-state-evidence-required'
 $script:AuthorityStateEvidenceForbidden = 'authority-state-evidence-forbidden'
+$script:AuthorityClaimIdentityDrift = 'authority-claim-identity-drift'
 $script:AuthorityArgumentUnsupported = 'authority-argument-unsupported'
 $script:AuthorityPlanKindMismatch = 'authority-plan-kind-mismatch'
 $script:AuthorityApplyNotWired = 'authority-apply-not-wired'
@@ -256,11 +257,15 @@ if ($Apply) {
     }
 
     Write-Host 'Running the receipt-backed live transaction host ...'
-    $toolchainRoot = $repo
+    # The approved toolchain root is the repository carrying the reviewed
+    # scripts and schemas, not the controller/target repository.
+    $toolchainRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
     $hostResult = Invoke-SealedLiveTransactionHost -Plan ([System.Collections.IDictionary] $readDocument) -RepoRoot $repo -ControlBase $ControlBase -BackupRoot $BackupRoot -StagingRootsByPlatform $stagingRootsByPlatform -SourceRootsByPlatform $sourceRootsByPlatform -FinalCapabilityHashesByPlatform $capabilityHashesByPlatform -AuthorityContext $authorityContext -WorkingTreeRoots ([ordered] @{ RepoRoot = $repo; ToolchainRoot = $toolchainRoot }) -ToolchainRoot $toolchainRoot
     Write-Host "Transaction id  : $([string] $hostResult.TransactionId)"
     Write-Host "Receipt id      : $([string] $hostResult.ReceiptId)"
-    Write-Host "Result          : $([string] $hostResult.Result)"
+    Write-Host "State hash      : $([string] $hostResult.StateHash)"
+    Write-Host "Result hash     : $([string] $hostResult.ResultHash)"
+    Write-Host "Journal         : $([string] $hostResult.JournalDir)"
     exit 0
 }
 
@@ -376,33 +381,60 @@ $liveRootsByPlatform = [ordered] @{
     Codex = (Get-CodexLiveSkillsPath)
     Reasonix = (Get-ReasonixLiveSkillsPath)
 }
-if ($Action -cne 'takeover') {
-    # The claim (existing authority) or the intended selection (first authority)
-    # is the only live-root selector; the platform defaults are never assumed
-    # once an authority exists.
-    if ([string] $authorityState.PairStatus -ceq 'VALID') {
-        foreach ($identity in @($authorityState.StateDocument['FinalResolvedIdentities'])) {
-            $liveRootsByPlatform[[string] $identity.Platform] = [string] $identity.ResolvedPath
-        }
+# The immutable claim (existing authority) or the intended selection (first
+# authority) is the only live-root selector; the platform defaults are never
+# assumed once an authority exists. A repaired state is not readable, so the
+# claim is the selector that survives it.
+if ([string] $authorityState.ClaimsStatus -ceq 'VALID') {
+    foreach ($claimRow in @($authorityState.ClaimsDocument['LiveRootClaims'])) {
+        $liveRootsByPlatform[[string] $claimRow['Platform']] = [string] $claimRow['RequestedPath']
     }
-    elseif (-not [string]::IsNullOrWhiteSpace($ReasonixLiveSkillsPath)) {
-        $liveRootsByPlatform.Reasonix = [System.IO.Path]::GetFullPath($ReasonixLiveSkillsPath)
+}
+elseif (-not [string]::IsNullOrWhiteSpace($ReasonixLiveSkillsPath)) {
+    $liveRootsByPlatform.Reasonix = [System.IO.Path]::GetFullPath($ReasonixLiveSkillsPath)
+}
+
+# One observation per platform serves both the published claim rows (a first
+# authority) and the reviewed target rows. The target rows are never taken from
+# an existing claim document: the claim records the roots as they were when it
+# was published, while a transition needs the roots as they are now.
+$observedRows = [System.Collections.Generic.List[object]]::new()
+foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+    $liveContext = Get-LiveSyncTargetContext -Path ([System.IO.Path]::GetFullPath([string] $liveRootsByPlatform[$platform]))
+    $initialState = if ([string] $liveContext.TargetStatus -ceq 'EXISTS') { 'EXISTS' } else { 'ABSENT' }
+    $observedRows.Add((New-LiveSyncRootClaimRow -Platform $platform -Context $liveContext -InitialState $initialState))
+}
+
+if ([string] $authorityState.ClaimsStatus -ceq 'VALID') {
+    # A claim records the identity of every root that already existed when it
+    # was published, and the read side requires the state to carry exactly that
+    # identity. A transition that observed a different directory would publish
+    # a pair that contradicts its own immutable claim, which no later repair
+    # could fix; drift fails closed here, before any plan exists.
+    $claimRows = @($authorityState.ClaimsDocument['LiveRootClaims'])
+    for ($index = 0; $index -lt $claimRows.Count; $index++) {
+        $claimRow = $claimRows[$index]
+        if ([string] $claimRow['InitialState'] -cne 'EXISTS') { continue }
+        $observedRow = $observedRows[$index]
+        if ([string] $observedRow.Platform -cne [string] $claimRow['Platform'] -or
+            [string] $observedRow.InitialState -cne 'EXISTS' -or
+            [string] $observedRow.RequestedPath -cne [string] $claimRow['RequestedPath'] -or
+            [string] $observedRow.InitialDirectoryIdentity -cne [string] $claimRow['InitialDirectoryIdentity']) {
+            throw $script:AuthorityClaimIdentityDrift
+        }
     }
 }
 
-$claims = [System.Collections.Generic.List[object]]::new()
 $claimsDocument = $null
 $claimsHash = $null
-if ([string] $authorityState.PairStatus -ceq 'VALID') {
+if ([string] $authorityState.ClaimsStatus -ceq 'VALID') {
+    # An existing authority keeps its immutable claims: repair-adopt and
+    # takeover bind those exact bytes even though the pair is not valid (the
+    # state is what is being repaired).
     $claimsDocument = $authorityState.ClaimsDocument
     $claimsHash = [string] $authorityState.ClaimsBytesHash
 }
 else {
-    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
-        $liveContext = Get-LiveSyncTargetContext -Path ([System.IO.Path]::GetFullPath([string] $liveRootsByPlatform[$platform]))
-        $initialState = if ([string] $liveContext.TargetStatus -ceq 'EXISTS') { 'EXISTS' } else { 'ABSENT' }
-        $claims.Add((New-LiveSyncRootClaimRow -Platform $platform -Context $liveContext -InitialState $initialState))
-    }
     $claimsDocument = [ordered]@{
         SchemaVersion = 1
         ArtifactKind = 'root-claims'
@@ -410,7 +442,7 @@ else {
         TokenSid = $tokenSid
         ResolverVersion = $script:HomeAuthorityResolverVersion
         HomeRootLocationKey = [string] $homeContext.LocationKey
-        LiveRootClaims = @($claims)
+        LiveRootClaims = @($observedRows)
     }
     $claimsBytes = [byte[]] (ConvertTo-SemanticJsonBytes -InputObject $claimsDocument)
     $claimsHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($claimsBytes)).ToLowerInvariant()
@@ -436,13 +468,25 @@ if ($Action -cne 'takeover') {
         foreach ($skillName in (@([string[]] $stagedHashes.Keys) | Sort-Object { [string] $_ })) {
             $sourceHash = [string] (Get-SafeTreeSnapshot -Root (Join-Path $stagedSourceBase $skillName)).TreeHash
             if ($sourceHash -cnotmatch '\A[0-9a-f]{64}\z') { throw $script:LiveSyncUnsupportedApplyKind }
+            # The observed live pre-state is part of the reviewed action: an
+            # existing managed target binds its current tree hash and is updated,
+            # an absent one binds null and is added. Adopt/migrate/repair-adopt
+            # all run on machines whose live roots may already hold content.
+            $liveSkillPath = Join-Path ([string] $liveRootsByPlatform[$platform]) $skillName
+            $liveHash = $null
+            $verb = 'add'
+            if (Test-Path -LiteralPath $liveSkillPath -PathType Container) {
+                $liveHash = [string] (Get-SafeTreeSnapshot -Root $liveSkillPath).TreeHash
+                if ($liveHash -cnotmatch '\A[0-9a-f]{64}\z') { throw $script:LiveSyncUnsupportedApplyKind }
+                $verb = 'update'
+            }
             $orderedActions.Add([ordered]@{
                 Order = $order
                 Platform = $platform
-                Action = 'add'
+                Action = $verb
                 Name = $skillName
                 SourceHash = $sourceHash
-                LiveHash = $null
+                LiveHash = $liveHash
             })
             $order++
         }
@@ -532,7 +576,7 @@ $payload = [ordered]@{
     OrderedActions = @($orderedActions)
     UnknownMarkers = @($unknownMarkers)
     SystemMarker = $systemMarker
-    TargetContextIntent = [ordered]@{ HomeAuthorityKey = $homeAuthorityKey; Rows = @($claimsDocument.LiveRootClaims) }
+    TargetContextIntent = [ordered]@{ HomeAuthorityKey = $homeAuthorityKey; Rows = @($observedRows) }
     AuthorityStateIntent = $intent
 }
 if ($Action -cin @('migrate', 'adopt', 'repair-adopt')) {
@@ -541,7 +585,9 @@ if ($Action -cin @('migrate', 'adopt', 'repair-adopt')) {
 if ($Action -cin @('migrate', 'adopt', 'repair-adopt')) {
     $payload['EnvironmentMaterializationRoot'] = $materializationRoot
 }
-if ([string] $authorityState.PairStatus -cne 'VALID' -and $Action -cin @('migrate', 'adopt')) {
+if ($Action -cin @('migrate', 'adopt') -and [string] $authorityState.ClaimsStatus -cne 'VALID') {
+    # First authority only: the plan publishes the proposed claims and binds
+    # their exact bytes; an existing authority never re-proposes them.
     $payload['ProposedRootClaims'] = $claimsDocument
     $payload['RootClaimsHash'] = $claimsHash
 }

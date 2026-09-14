@@ -22,8 +22,10 @@ with GitHub Support ticket `#4697323` resolved and the old object re-probe confi
 **Phase 3 (shared environment authority and task-overlay) has started: Task 1 (lock 3 freeze,
 env-build 3 consumption, shared-state semantics, and separate legacy/shared readers) is complete at
 7/7 steps, Task 2 (authority-aware read-only status with list/status v2) is complete at 5/5 steps,
-and Task 3 (the `env authority` command surface) is complete at 4/4 steps** — see the Phase 3 Task
-1-3 sections below (Phase 3 overall 16/47). Phase 3 Tasks 4-9 and Phase 4 (schema/CI contract and
+Task 3 (the `env authority` command surface) is complete at 4/4 steps, and Task 4 (reviewed
+migration, adoption and corrupt-state repair through the Phase 2 host, with the four failure
+injection windows) is complete at 5/5 steps** — see the Phase 3 Task 1-4 sections below (Phase 3
+overall 21/47). Phase 3 Tasks 5-9 and Phase 4 (schema/CI contract and
 safe release) have not started. Two design-bound findings from the Phase 2 closeout
 feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
@@ -3446,30 +3448,55 @@ parse-gate parameter-name check (no suite invokes that script) plus additive ass
 holds for the final tree. The whole-phase definitive pass remains with the Task 9 checkpoint. Production interlock is unchanged and no real home, authority
 state, or live root was written.
 
-## Phase 3 Task 4 (2026-09-14, in progress): the authority apply composition
+## Phase 3 Task 4 (2026-09-14): the authority apply composition
 
 Settled decision: the private prefix belongs to the reviewed canonical setup
 flow (its own final setup state requires those roots), so adopt/migrate require
 a `canonical-ready` repo and a COMPLETE prefix instead of bootstrapping a second
 creator; the apply fails closed with the canonical status token. The live
-transaction host now admits `adopt`/`migrate`/`repair-adopt` with per-kind
-guards (first authority without the live-pristine requirement; repair with
-claims byte-bound and a MISSING or CORRUPT state tolerated), first-authority
-claims creation covers adopt/migrate, and the backup receipt pre-images the
-authority state and claims for every kind that changes them. The authority
+transaction host admits `adopt`/`migrate`/`repair-adopt` with per-kind guards
+(first authority without the live-pristine requirement; repair with claims
+byte-bound and a MISSING or CORRUPT state tolerated), first-authority claims
+creation covers adopt/migrate, and the backup receipt pre-images the authority
+state and claims for the kinds that still have those bytes. The authority
 `-Apply` composes interlock, static plan gates, the canonical and prefix
 preconditions, per-platform staging/capability evidence, then the host.
 
-Verified: authority 293/293 (including "a transition apply stops at
-`canonical-setup-required` and publishes nothing"); live-plan 121 PASS; sync,
-live-recovery, live-concurrency, backup-recovery, backup-receipt all PASS; the
-host change is behavior-preserving for the existing kinds. Artifact validation
-31/31/133 PASS; seams 56/56 re-pinned (reflection 15262, dynamic digest
-`aafc071a...`); parse gate 171 files; secret scan and `git diff --check` clean.
-**Open**: the apply success path end to end awaits a canonical-setup sandbox
-fixture that the status accepts (diagnosed: the seeded root intents do not match
-`Get-CanonicalSetupRootContexts`' re-derivation); recorded with the next steps in
-the active task record. Commit `d7e81b1`.
+All three transitions run end to end in the sandbox: adopt publishes the
+immutable claims and the schema 3 state and materializes the absent Reasonix
+root while preserving unknown live directories; migrate binds the exact legacy
+locator/bytes/lock hashes and installs the current build; repair-adopt replaces
+a CORRUPT state **and** creates a MISSING state next to byte-identical claims.
+Step 5's four failure classes are pinned as hard-killed windows
+(`RECEIPT_FINALIZATION`, `PREPARED`, `STATE_REPLACE_PENDING`, `TERMINAL_RECORD`)
+with their live/claims/state/result evidence and the fail-closed refusal of the
+next apply. Four real defects were found and fixed on the way: the producer fed
+the immutable claim rows into `TargetContextIntent.Rows` (stale
+`MissingRemainder` → the host re-created an existing parent directory and the
+verification then failed closed), the claims branch keyed on `PairStatus`
+instead of `ClaimsStatus` (so repair-adopt never took the existing claims), a
+MISSING-state snapshot tripped a null-vs-empty guard, and a completed
+predecessor's swap-old blocked the next transaction's staging (reclaimed at
+transaction start, only for this plan's own target names, after the namespace
+showed no unfinished transaction). The reviewed delta also added the
+claim-identity drift refusal (`authority-claim-identity-drift`) and the receipt
+preimage existence guard; the engine's evidence-preserving swap-old contract is
+unchanged.
+
+Verified: authority 369/369 (fixture seeds the private prefix, a canonical setup
+state and its root claim, the schema root; covers adopt/migrate/repair-adopt
+CORRUPT+MISSING, the takeover DryRun for a foreign controller with verified
+parity, the drift refusal, and the four injection windows); live-plan 121 PASS;
+sync, live-recovery, live-concurrency, backup-recovery, backup-receipt,
+canonical-transaction 64/0, canonical-transaction-apply 21/0,
+transaction-journal-exact-byte 12/0 all PASS; artifact validation 31/31/133
+PASS; seams 56/56 re-pinned (reflection 15281, digest `ace4d878...`, dynamic
+digest unchanged `aafc071a...`); parse gate 171 files; secret scan and
+`git diff --check` clean. An independent read-only review of the delta confirmed
+the row/claims/action bindings and the injection windows and produced the drift,
+preimage, dead-branch and takeover-coverage findings, all adopted. Commits
+`d7e81b1`, `d1ee128`, `0959a80`, `9676c7b`, `7ab55df`, and this window's fixes.
+Production Apply remains interlocked.
 
 ## Phase 3 Task 3 (2026-09-14): the `env authority` command surface
 
@@ -3517,23 +3544,28 @@ environment staging locks; this does not authorize Apply.
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Tasks 1-3 are complete and Tasks 4-9 remain — and the Phase 4 schema/CI contract and
+that order — Tasks 1-4 are complete and Tasks 5-9 remain — and the Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
 [`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
 
 ## Next actions
 
-1. **Phase 3 Task 3 is complete** (4/4 steps; see the Phase 3 Task 3 section above). The four
-   transitions produce reviewed external plans and Apply currently stops at
-   `authority-apply-not-wired`; the next slice (Task 4) implements the apply composition through the
-   Phase 2 host for migrate/adopt/repair-adopt. Tasks 4-9 of
+1. **Phase 3 Task 4 is complete** (5/5 steps; see the Phase 3 Task 4 section above). Adopt,
+   migrate and repair-adopt run through the Phase 2 host end to end in the sandbox, including the
+   CORRUPT and MISSING state branches and the four failure-injection windows. The next slice
+   (Task 5) implements controller takeover: controller identity normalization, valid-parity
+   requirements with the `controller-owner-action-required` dead end, and the state-only
+   `controller-transition` apply whose host kind gate is still refused today. Tasks 5-9 of
    [`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
-   remain — the authoritative, itemised record (including the Task 4 apply-composition recon and the
-   open bootstrap-composition decision) lives in
+   remain — the authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under the
-   "Phase 3 Task 3" and "Task 4 handoff" sections and
-   "Pending items (2026-09-14, after Phase 3 Task 3)".
+   "Phase 3 Task 4" section and the pending-items list there.
+   Two carried items belong to the next tasks: the plan-consumption binding (a completed
+   repair-adopt plan still passes its guard on replay, because `Assert-LiveSyncPlanDocumentHashNotConsumed`
+   is called without terminal evidence) is Task 6's external-plan consumption step, and the
+   rollback composition's post-success staging cleanup (its own spec, Phase 3 Task 6) is not yet
+   implemented for the rollback path; the forward path reclaims stale staging at transaction start.
 2. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,

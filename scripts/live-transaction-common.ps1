@@ -2485,7 +2485,10 @@ function Invoke-SealedLiveTransactionHost {
             }
             if ([string] $claimMap['LocationKey'] -cne [string] $rowMap['LocationKey']) { throw $claimsBinding }
         }
-        if ([string] $Snapshot['StateHash'] -cne $null -and [string] $Snapshot['StateHash'] -ceq '') { throw $mismatch }
+        # The state hash is absent while no state file exists (a repair-adopt
+        # MISSING branch) and a 64-hex digest otherwise.
+        $snapshotStateHash = [string] $Snapshot['StateHash']
+        if (-not [string]::IsNullOrEmpty($snapshotStateHash) -and $snapshotStateHash -cnotmatch $script:LiveTransactionHashPattern) { throw $mismatch }
     }
 
     function Assert-SealedLiveTransactionHostGuard {
@@ -2631,6 +2634,26 @@ function Invoke-SealedLiveTransactionHost {
         $platformSlots = Convert-SealedLiveTransactionHostList -Value $payload['Platforms']
         if ($platformSlots.Count -ne 3) { throw $mismatch }
         $actions = Convert-SealedLiveTransactionHostList -Value $payload['OrderedActions']
+
+        # Home-scoped staging is scratch shared by consecutive transactions. A
+        # terminal predecessor leaves its swap-old content behind as durable
+        # evidence (the engine contract preserves it), and nothing reclaims it
+        # once the transaction is closed, so the next transaction for the same
+        # name would fail its staging preconditions. The namespace above showed
+        # no unfinished transaction, so the entries this plan is about to stage
+        # cannot belong to live recovery evidence; only those names are
+        # reclaimed, never unknown or foreign content.
+        foreach ($action in $actions) {
+            $actionMap = Convert-SealedLiveTransactionHostMap -Value $action
+            $platform = [string] $actionMap['Platform']
+            if ([string] $actionMap['Action'] -cnotin @('add', 'update', 'prune') -or -not $stagingByPlatform.Contains($platform)) { continue }
+            $name = [string] $actionMap['Name']
+            foreach ($area in @('staged', 'swap')) {
+                $stale = Join-Path (Join-Path ([string] $stagingByPlatform[$platform]) $area) $name
+                if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Recurse -Force }
+            }
+        }
+
         $receiptPlatforms = [System.Collections.Generic.List[object]]::new()
         foreach ($slot in $platformSlots) {
             $slotMap = Convert-SealedLiveTransactionHostMap -Value $slot
@@ -2708,8 +2731,13 @@ function Invoke-SealedLiveTransactionHost {
             Platforms = $receiptPlatforms.ToArray()
             ForbiddenRoots = $receiptForbiddenRoots
         }
-        if ($operationKind -cin @('retirement', 'adopt', 'migrate', 'repair-adopt')) {
-            $receiptArguments['AuthorityStatePath'] = $statePath
+        # Only kinds whose guard requires an existing authority pre-image the
+        # authority files, and only while the state file exists: a first
+        # authority (adopt/migrate) has nothing to preserve, and a
+        # repair-adopt with a MISSING state has no bytes to preimage. The
+        # claims always exist on the kinds that preimage them.
+        if ($operationKind -cin @('retirement', 'repair-adopt')) {
+            if (Test-Path -LiteralPath $statePath -PathType Leaf) { $receiptArguments['AuthorityStatePath'] = $statePath }
             $receiptArguments['RootClaimsPath'] = $claimsPath
         }
         # The reservation is durable and the receipt is not finalized yet: a
