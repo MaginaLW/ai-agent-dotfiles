@@ -3949,10 +3949,13 @@ step lists are in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
    This window's own `-All` run passed 36 of 39 suites with zero failures and three timeouts
    (`harness-authority` 300 s, `harness-env` 180 s, `task-skills` 120 s) while a second full run
-   held the machine. Re-run serially on a quiet machine both measured suites pass clean but do not
-   fit their original budgets: `harness-env` 311/0 in 312 s against a 180 s budget and `task-skills`
-   93/0 in 195 s against 120 s, so those two budgets were simply too small for this machine and the
-   timeouts were not purely contention. `harness-authority` passed standalone at 430/0.
+   held the machine. Re-run serially on a quiet machine all three suites pass clean but do not fit
+   their original budgets, so those budgets were simply too small for this machine and the timeouts
+   were not purely contention: `harness-env` 311/0 in 312 s against 180 s, `task-skills` 93/0 in
+   195 s against 120 s, and `harness-authority` 435/0 in 458 s against 300 s (the assertion count
+   moved from 430 to 435 with the concurrent session's exact-equality route pin). The
+   failure-injection flake seen once under load — the killed CLI's output file still held when the
+   reader opens it, at `Invoke-AuthorityCliKilledAtCheckpoint` — did not recur on the quiet machine.
    **The definitive full-runner pass is now green**: 39 of 39 suites, zero failures, zero timeouts
    (summary `phase3-task9-unified-rerun-20260915-123558.json`), with `canonical-hard-kill` 2393 s,
    `harness-authority` 450 s, `harness-env` 303 s and `task-skills` 197 s against the raised
