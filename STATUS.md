@@ -4003,16 +4003,15 @@ step lists are in
    transaction, `d4b33ff` Task 7 Step 5 the env-rollback CLI surface, `34a943f` Task 8 Step 1 the
    mid-flight zero-wait matrix and the canonical-interleave proof, `4a99b0e` Task 8 Step 4 the
    transition rejection plus the recorded cross-authority finding, `24dcabe` the bounded
-   independent review fixes, and the re-pin/closeout commits. The two design-bound open items feed
-   Phase 3: the cross-authority root-claim overlap rejection (a machine-wide claim store — both
-   authorities commit on a shared custom root today) and the rollback execution's production
-   caller (the Phase 3 worktree overlay lock). The authoritative, itemised record lives in
+   independent review fixes, and the re-pin/closeout commits. The one design-bound open item feeds
+   Phase 4: the cross-authority root-claim overlap rejection (a machine-wide claim store — both
+   authorities commit on a shared custom root today). The rollback execution's production caller is
+   closed by `976d0fe`. The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-13, after Phase 3 Task 1)".
+   "Pending items (2026-09-15, after the Phase 3 checkpoint and its review follow-ups)".
 4. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
-   live-target move whose record is still a `_pending` temp classifies as manual recovery; the
-   recovery-side worktree overlay lock waits for the Phase 3 worktree overlay primitive; and the
+   live-target move whose record is still a `_pending` temp classifies as manual recovery; and the
    `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the production host is
    child-killable. The engine's per-target drift protection is hash-based; the rollback plan's
    `Current` identity binding is recorded as not enforced by the existing ladder.
@@ -4025,3 +4024,12 @@ step lists are in
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.
+8. **Operational, needs a human decision.** Two agents wrote this repository concurrently through
+   the whole 2026-09-15 window: one stashed and reverted the other's in-flight files, `HEAD` moved
+   under the other five times, and two overlapping full runs caused three mutual suite timeouts.
+   The work converged and nothing was lost, but if one owner per repository is intended, that is a
+   scheduling decision this record cannot make. The transferable lessons are held in agent memory
+   as the concurrent-session hazard note, not here. The window's ordered list is closed: items 1-4
+   above record what was delivered, and the current pending set is in
+   [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
+   "Pending items (2026-09-15, after the Phase 3 checkpoint and its review follow-ups)".
