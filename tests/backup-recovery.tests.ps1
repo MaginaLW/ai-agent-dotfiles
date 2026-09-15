@@ -790,18 +790,23 @@ $canonicalLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [strin
 $result = Invoke-SealedEnvironmentRollbackTransaction -PlanDocument $planDocument -SourceReceiptDocument $sourceReceipt -SourceReceiptPath $SourceReceiptPath -ControlBase $ControlBase -BackupRoot $BackupRoot -HomeRoot $HomeRoot -ClaimsPath $ClaimsPath -StatePath $StatePath -LiveTransactionsRoot $LiveTransactionsRoot -GitContext $gitContext -RepoId $repoId -CanonicalLockKey $canonicalLockKey
 Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -Compress))
 '@
+    function Invoke-RollbackExecution {
+        param([Parameter(Mandatory)] [string] $PlanPath, [Parameter(Mandatory)] [string] $SourceReceiptPath)
+        return Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $executionScript -Arguments @(
+            '-RepoRoot', $RepoRoot,
+            '-PlanPath', $PlanPath,
+            '-SourceReceiptPath', $SourceReceiptPath,
+            '-ControlBase', $controlBase,
+            '-BackupRoot', $backupRoot,
+            '-HomeRoot', $authorityHome,
+            '-ClaimsPath', $claimsPath,
+            '-StatePath', $statePath,
+            '-LiveTransactionsRoot', (Join-Path $controlBase 'live-transactions')
+        ) -AuthorityRepoRoot $RepoRoot
+    }
+
     $preExecutionState = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($statePath, [System.Text.UTF8Encoding]::new($false, $true)))
-    $r = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $executionScript -Arguments @(
-        '-RepoRoot', $RepoRoot,
-        '-PlanPath', $eligiblePlan,
-        '-SourceReceiptPath', ([string] $eligibleGraph.ReceiptPath),
-        '-ControlBase', $controlBase,
-        '-BackupRoot', $backupRoot,
-        '-HomeRoot', $authorityHome,
-        '-ClaimsPath', $claimsPath,
-        '-StatePath', $statePath,
-        '-LiveTransactionsRoot', (Join-Path $controlBase 'live-transactions')
-    ) -AuthorityRepoRoot $RepoRoot
+    $r = Invoke-RollbackExecution -PlanPath $eligiblePlan -SourceReceiptPath ([string] $eligibleGraph.ReceiptPath)
     if ($r.Code -ne 0) { Write-Host '----- rollback execution output -----'; Write-Host $r.Out }
     Assert ($r.Code -eq 0) 'the derived rollback plan executes end to end'
     $resultLine = @($r.Out.Split("`n")) | Where-Object { $_.StartsWith('ROLLBACK_RESULT ', [System.StringComparison]::Ordinal) } | Select-Object -First 1
@@ -828,6 +833,27 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert ([string] $rollbackChain.Result['Outcome'] -ceq 'committed') 'the rollback transaction publishes a committed result'
     $rollbackTerminal = @(@($rollbackChain.Records) | Where-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE' })[0]
     Assert ([string] ([System.Collections.IDictionary] ([System.Collections.IDictionary] $rollbackTerminal['Document'])['Data'])['ClosingKind'] -ceq 'original') 'the rollback closes as a new original transaction'
+
+    # Step 4 cleanup contract: the proven committed terminal reclaims exactly
+    # this composition's own scratch -- the staged/swap-old entries of its
+    # target ladder and the pre-rollback state-recovery copy -- and nothing
+    # else. The journal, the rollback's own pre-rollback receipt, the source
+    # activation receipt and the source receipt's snapshot trees are durable
+    # evidence and survive.
+    $stagingBase = Join-Path $authorityHome '.ai-agent-dotfiles-staging'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $stagingBase 'Claude/swap/kept'))) 'the committed rollback reclaims the swap-old entry of its update target'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $stagingBase 'Codex/swap/added-custom-reasonix'))) 'the committed rollback reclaims the swap-old entry of its prune target'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $stagingBase 'Claude/state-recovery/current-env.preimage.json'))) 'the committed rollback reclaims the pre-rollback state-recovery copy'
+    Assert (@(Get-ChildItem -LiteralPath $stagingBase -Recurse -Force -File).Count -eq 0) 'no staging file of the committed rollback survives under the home staging base'
+    $rollbackJournal = [string] $rollbackResult.JournalDirectory
+    Assert (Test-Path -LiteralPath (Join-Path $rollbackJournal 'header.json') -PathType Leaf) 'the committed rollback keeps its journal header'
+    Assert (Test-Path -LiteralPath (Join-Path $rollbackJournal 'result.json') -PathType Leaf) 'the committed rollback keeps its published result'
+    Assert (Test-Path -LiteralPath (Join-Path $rollbackReceipt 'authority-preimage/current-env.json') -PathType Leaf) 'the committed rollback keeps its own pre-rollback state preimage'
+    $sourceReceiptPath = [string] $eligibleGraph.ReceiptPath
+    Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath $sourceReceiptPath) -ceq 'COMPLETE') 'the committed rollback keeps the source activation receipt complete'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $sourceReceiptPath 'snapshot/claude/kept/SKILL.md')) -eq 'kept-old-custom-reasonix') 'the committed rollback never removes the source snapshot bytes it staged from'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $sourceReceiptPath 'snapshot/reasonix/pruned-custom-reasonix/SKILL.md')) -eq 'pruned-old-custom-reasonix') 'the committed rollback keeps the source snapshot of its add target'
+
     $stalePlan = Join-Path $work 'after-rollback-plan.json'
     $r = Invoke-GraphRollback -Graph $eligibleGraph -PlanPath $stalePlan
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-state-drift \(state hash\)') 'the executed source receipt is stale after its own rollback'
@@ -836,6 +862,90 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $eligibleGraph.ReceiptPath, '-DryRun', '-PlanPath', $insideRepoPlan)
     Assert ($r.Code -ne 0 -and $r.Out -match 'must be disjoint from worktree') 'a plan path inside the repository is rejected even for an eligible graph'
     Assert (-not (Test-Path -LiteralPath $insideRepoPlan)) 'the eligible-graph rejection writes no plan'
+
+    Write-Host '[rollback failure preservation]'
+    function Get-RollbackTransactionChain {
+        param([Parameter(Mandatory)] [string] $PlanPath)
+        $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($PlanPath, [System.Text.UTF8Encoding]::new($false, $true)))
+        foreach ($directory in @(Get-ChildItem -LiteralPath (Join-Path $controlBase 'live-transactions') -Directory -Force)) {
+            $candidateChain = Get-SealedLiveJournalChain -TransactionDirectory $directory.FullName
+            if ($null -eq $candidateChain.Header) { continue }
+            if ([string] $candidateChain.Header['OperationKind'] -ceq 'environment-rollback' -and
+                [string] $candidateChain.Header['OriginalDocumentHash'] -ceq [string] $planDocument['DocumentHash']) {
+                return $candidateChain
+            }
+        }
+        throw 'FAIL: no environment-rollback journal was published for the plan'
+    }
+
+    # (a) A restore-path failure runs no cleanup at all. The restore source of
+    # the add target is removed from the source receipt after the plan was
+    # derived, so the engine fails while staging that target -- after the
+    # update and prune targets completed -- restores every installed target in
+    # reverse and closes with failed-restored. The staged copy the restoration
+    # moved back, the journal, the pre-rollback receipt and both receipts stay
+    # on disk.
+    $restoreFailureGraph = New-SourceGraph ([ordered]@{ Label = 'restore-failure' })
+    $restoreFailurePlan = Join-Path $work 'restore-failure-plan.json'
+    $r = Invoke-GraphRollback -Graph $restoreFailureGraph -PlanPath $restoreFailurePlan
+    Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback plan created') 'the restore-failure source graph derives its rollback plan'
+    Remove-Item -LiteralPath (Join-Path ([string] $restoreFailureGraph.ReceiptPath) 'snapshot/reasonix/pruned-restore-failure') -Recurse -Force
+    $r = Invoke-RollbackExecution -PlanPath $restoreFailurePlan -SourceReceiptPath ([string] $restoreFailureGraph.ReceiptPath)
+    if ($r.Code -eq 0 -or $r.Out -notmatch 'apply-failed-but-restored') {
+        Write-Host '----- restore-failure execution output -----'
+        Write-Host $r.Out
+    }
+    Assert ($r.Code -ne 0 -and $r.Out -match 'apply-failed-but-restored') 'the failed rollback restores the surface and reports apply-failed-but-restored'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $graphLiveRoot 'claude/skills/kept/SKILL.md')) -eq 'kept-new-restore-failure') 'the failed rollback restores its update target to the pre-rollback bytes'
+    Assert (Test-Path -LiteralPath (Join-Path $graphLiveRoot 'codex/skills/added-restore-failure/SKILL.md') -PathType Leaf) 'the failed rollback restores its pruned target'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $stagingBase 'Claude/staged/kept/SKILL.md')) -eq 'kept-old-restore-failure') 'the failed rollback keeps the staged copy its restoration moved back'
+    Assert (@(Get-ChildItem -LiteralPath $stagingBase -Recurse -Force -File).Count -gt 0) 'the failed rollback leaves its staging evidence on disk'
+    $restoreFailureChain = Get-RollbackTransactionChain -PlanPath $restoreFailurePlan
+    $null = Test-SealedLiveJournalChain -Header $restoreFailureChain.Header -Records @($restoreFailureChain.Records) -Result $restoreFailureChain.Result -ResultFileHash $restoreFailureChain.ResultFileHash
+    Assert ([string] $restoreFailureChain.Result['Outcome'] -ceq 'failed-restored') 'the failed rollback publishes the failed-restored result'
+    Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $restoreFailureChain.Header['ReceiptIntent']['Path'])) -ceq 'COMPLETE') 'the failed rollback keeps its own complete pre-rollback receipt'
+    Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $restoreFailureGraph.ReceiptPath)) -ceq 'COMPLETE') 'the failed rollback keeps the source activation receipt'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path ([string] $restoreFailureGraph.ReceiptPath) 'snapshot/claude/kept/SKILL.md')) -eq 'kept-old-restore-failure') 'the failed rollback keeps the source snapshot bytes it staged from'
+
+    # The retained scratch is exactly the evidence just asserted, and it is
+    # test-owned sandbox scratch: the next case needs a scratch-free staging
+    # base for the same target names (the engine refuses to stage over an
+    # existing staged/swap-old leaf, which is the defect the committed
+    # transaction's own reclamation now prevents).
+    Remove-Item -LiteralPath $stagingBase -Recurse -Force
+
+    # (b) A failure after the authority state boundary is recovery-required:
+    # the engine never rewrites live/state again and restores nothing, so the
+    # swap-old entries and the pre-rollback state-recovery copy must all
+    # survive. The injected checkpoint fails the transaction inside the window
+    # after STATE_PUBLISHED through an unreachable failpoint pipe.
+    $recoveryGraph = New-SourceGraph ([ordered]@{ Label = 'recovery-required' })
+    $recoveryPlan = Join-Path $work 'recovery-required-plan.json'
+    $r = Invoke-GraphRollback -Graph $recoveryGraph -PlanPath $recoveryPlan
+    Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback plan created') 'the recovery-required source graph derives its rollback plan'
+    $savedFailpoints = [System.Environment]::GetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS')
+    try {
+        [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', (ConvertTo-Json -InputObject @([ordered]@{ Checkpoint = 'STATE_PUBLISHED'; PipeName = ('ai-agent-dotfiles-absent-' + [Guid]::NewGuid().ToString('N')) }) -Compress))
+        $r = Invoke-RollbackExecution -PlanPath $recoveryPlan -SourceReceiptPath ([string] $recoveryGraph.ReceiptPath)
+    }
+    finally {
+        [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', $savedFailpoints)
+    }
+    if ($r.Code -eq 0 -or $r.Out -notmatch 'live-transaction-recovery-required') {
+        Write-Host '----- recovery-required execution output -----'
+        Write-Host $r.Out
+    }
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-transaction-recovery-required') 'a failure after the state boundary requires recovery instead of a restore'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $graphLiveRoot 'claude/skills/kept/SKILL.md')) -eq 'kept-old-recovery-required') 'the recovery-required rollback keeps the live targets it installed'
+    Assert (Test-Path -LiteralPath (Join-Path $stagingBase 'Claude/swap/kept')) 'the recovery-required rollback keeps the swap-old entry of its update target'
+    Assert (Test-Path -LiteralPath (Join-Path $stagingBase 'Codex/swap/added-recovery-required')) 'the recovery-required rollback keeps the swap-old entry of its prune target'
+    Assert (Test-Path -LiteralPath (Join-Path $stagingBase 'Claude/state-recovery/current-env.preimage.json') -PathType Leaf) 'the recovery-required rollback keeps the pre-rollback state-recovery copy'
+    $recoveryChain = Get-RollbackTransactionChain -PlanPath $recoveryPlan
+    Assert ($null -eq $recoveryChain.Result) 'the recovery-required rollback publishes no result'
+    Assert (@(@($recoveryChain.Records) | Where-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE' }).Count -eq 0) 'the recovery-required rollback publishes no terminal record'
+    Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $recoveryChain.Header['ReceiptIntent']['Path'])) -ceq 'COMPLETE') 'the recovery-required rollback keeps its own complete pre-rollback receipt'
+    Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $recoveryGraph.ReceiptPath)) -ceq 'COMPLETE') 'the recovery-required rollback keeps the source activation receipt'
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path ([string] $recoveryGraph.ReceiptPath) 'snapshot/claude/kept/SKILL.md')) -eq 'kept-old-recovery-required') 'the recovery-required rollback keeps the source snapshot bytes it staged from'
 
     # A receipt whose linked source transaction never existed is rejected even
     # though its own marker and hashes are valid.

@@ -1478,6 +1478,43 @@ function Invoke-SealedEnvironmentRollbackTransaction {
     $targetContextIntent = [ordered]@{ HomeAuthorityKey = [string] $payload['HomeAuthorityKey']; Rows = @($contextRows) }
     $mutation = Invoke-SealedLiveTransactionMutation -TransactionDirectory $journalDirectory -Header $header -Receipt $receipt -Targets $engineTargets -SourceRootsByPlatform $sourceRootsByPlatform -AuthorityStateIntent $stateIntent -TargetContextIntent $targetContextIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $ControlBase -StateRecoveryDirectory $stateRecoveryDirectory
 
+    # The engine returns only after the terminal COMPLETE record and the fixed
+    # result are durably published for this rolled-back surface; every other
+    # exit throws (verified restoration, or an unfinished recovery-required
+    # transaction) and therefore never reaches this cleanup. Re-prove that
+    # closure from the journal before any scratch is reclaimed, and only then
+    # drop this composition's own swap-old/staged entries and its pre-rollback
+    # state-recovery copy. An unproven closure is never a license to delete:
+    # nothing is reclaimed and every durable byte stays where it is, and a
+    # closure or reclamation error must never turn a committed transaction into
+    # a reported failure.
+    $closed = $false
+    try {
+        $closure = Get-SealedLiveJournalChain -TransactionDirectory $journalDirectory
+        $terminalRecords = @(@($closure.Records) | Where-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE' })
+        if ($null -ne $closure.Header -and @($closure.UnknownNames).Count -eq 0 -and
+            $null -ne $closure.Result -and $terminalRecords.Count -eq 1) {
+            $terminalData = [System.Collections.IDictionary] ([System.Collections.IDictionary] $terminalRecords[0]['Document'])['Data']
+            $closed = [string] $terminalData['Outcome'] -ceq 'committed' -and
+                [string] $terminalData['ClosingKind'] -ceq 'original' -and
+                [string] $closure.Result['Outcome'] -ceq 'committed' -and
+                [string] $closure.Header['OperationKind'] -ceq 'environment-rollback' -and
+                [string] $closure.Header['TransactionId'] -ceq $transactionId -and
+                [string] $closure.Header['OriginalPlanHash'] -ceq [string] $PlanDocument['PlanHash'] -and
+                [string] $closure.Header['OriginalDocumentHash'] -ceq [string] $PlanDocument['DocumentHash']
+            if ($closed) {
+                Test-SealedLiveJournalChain -Header $closure.Header -Records @($closure.Records) -Result $closure.Result -ResultFileHash $closure.ResultFileHash
+            }
+        }
+    }
+    catch { $closed = $false }
+    if ($closed) {
+        try {
+            Remove-SealedEnvironmentRollbackStaging -Targets $engineTargets -StagingRootsByPlatform $stagingRootsByPlatform -StateRecoveryDirectory $stateRecoveryDirectory
+        }
+        catch {}
+    }
+
     return [pscustomobject][ordered]@{
         TransactionId = $transactionId
         ReceiptId = $receiptId
@@ -1487,6 +1524,80 @@ function Invoke-SealedEnvironmentRollbackTransaction {
         StateHash = [string] $mutation.StateHash
         ResultHash = [string] $mutation.ResultHash
         PostconditionsHash = [string] $mutation.PostconditionsHash
+    }
+}
+
+function Remove-SealedEnvironmentRollbackStaging {
+    # Post-success scratch reclamation for the environment-rollback composition
+    # (roadmap Task 7 step 4): "cleanup swap-old/staged/pre-rollback copies
+    # only after complete success". The only artifacts in scope are this
+    # composition's own home-scoped staging scratch -- the staged and swap-old
+    # entries of its engine target ladder and the pre-rollback state-recovery
+    # copy written through its StateRecoveryDirectory. Every candidate path is
+    # derived from a reviewed engine target row (the exact staged/swap-old leaf
+    # for that platform and name) or from the composition's own state-recovery
+    # directory proven inside its own staging roots -- never from a scan, a
+    # wildcard, or an unknown child -- and is proven reparse-free along its
+    # whole existing chain before the literal-path reclamation the live
+    # transaction host already uses for its staging scratch. A path that fails
+    # either proof, and any removal error, is left on disk: this is scratch
+    # reclamation after a committed terminal and never a recovery or evidence
+    # step. The journal,
+    # the pre-rollback receipt, the source activation receipt, and the source
+    # receipt's snapshot trees are durable evidence and are not in scope here.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Targets,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $StagingRootsByPlatform,
+        [Parameter(Mandatory)] [string] $StateRecoveryDirectory
+    )
+
+    $stagingRoots = [System.Collections.Generic.List[string]]::new()
+    foreach ($platform in $script:LiveTransactionPlatforms) {
+        if (-not (Test-LiveTransactionMapHasName -Map $StagingRootsByPlatform -Name $platform)) { continue }
+        $root = $StagingRootsByPlatform[$platform]
+        if ($null -eq $root -or [string]::IsNullOrWhiteSpace([string] $root)) { continue }
+        $stagingRoots.Add([System.IO.Path]::GetFullPath([string] $root))
+    }
+    if ($stagingRoots.Count -eq 0) { return }
+
+    # A target-ladder path is in scope only when it is exactly the leaf this
+    # composition's own target plan derives for that platform, area, and name;
+    # a row that names any other location is skipped, never deleted.
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    foreach ($target in @($Targets)) {
+        if ($target -isnot [System.Collections.IDictionary]) { continue }
+        if (-not (Test-LiveTransactionMapHasName -Map $target -Name 'Platform') -or
+            -not (Test-LiveTransactionMapHasName -Map $target -Name 'Name')) { continue }
+        $platform = [string] $target['Platform']
+        $name = [string] $target['Name']
+        if ([string]::IsNullOrWhiteSpace($name) -or -not (Test-LiveTransactionMapHasName -Map $StagingRootsByPlatform -Name $platform)) { continue }
+        $targetStagingRoot = $StagingRootsByPlatform[$platform]
+        if ($null -eq $targetStagingRoot -or [string]::IsNullOrWhiteSpace([string] $targetStagingRoot)) { continue }
+        foreach ($row in @(@('staged', 'StagedPath'), @('swap', 'SwapOldPath'))) {
+            if (-not (Test-LiveTransactionMapHasName -Map $target -Name $row[1])) { continue }
+            $value = $target[$row[1]]
+            if ($null -eq $value -or [string]::IsNullOrWhiteSpace([string] $value)) { continue }
+            $expected = [System.IO.Path]::GetFullPath((Join-Path (Join-Path ([System.IO.Path]::GetFullPath([string] $targetStagingRoot)) $row[0]) $name))
+            $observed = [System.IO.Path]::GetFullPath([string] $value)
+            if ($observed.Equals($expected, [System.StringComparison]::OrdinalIgnoreCase)) { $candidates.Add($observed) }
+        }
+    }
+
+    # The pre-rollback state-recovery copy is in scope only inside this
+    # composition's own staging roots.
+    $stateRecoveryCopy = [System.IO.Path]::GetFullPath((Join-Path $StateRecoveryDirectory 'current-env.preimage.json'))
+    foreach ($root in $stagingRoots) {
+        if (Test-SafePathInsideRoot -Path $stateRecoveryCopy -Root $root) { $candidates.Add($stateRecoveryCopy); break }
+    }
+
+    foreach ($candidate in $candidates) {
+        try {
+            if (-not (Test-Path -LiteralPath $candidate)) { continue }
+            Assert-NoReparseExistingChain -Path $candidate
+            Remove-Item -LiteralPath $candidate -Recurse -Force -ErrorAction Stop
+        }
+        catch { continue }
     }
 }
 
