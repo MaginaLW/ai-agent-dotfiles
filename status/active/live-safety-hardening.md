@@ -2444,6 +2444,30 @@ uncommitted Task 8 draft below was present;artifact validation 31/31/133 PASS; s
 (reflection 15668, digest `81bacf1b4fc984d19aad9205b51cf9470eae0efb9fd16bcad0173c04d076c807`);
 parse gate 171 files; secret scan clean; `git diff --check` clean.
 
+## Phase 3 Task 8 (2026-09-15, complete): selection-aware preview routing
+
+Committed as `2ca0488` (implementation by the concurrent 2026-09-15 session). The
+approved toolchain bundle now pins the authority/status/materialization/planner
+dependencies plus a frozen `PreviewRouteActions` table keyed exactly by the
+authority routes; explicit `setup.ps1 -ApproveRunner` refuses a table that
+diverges from the frozen route set or that would materialize a build for a
+diagnostic route, and drift over the extended bundle fails the hooks closed with
+`runner-review-required`. The Git hook routes every trigger from the shared
+authority state: pristine home → non-consumable `full` preview from an env-build
+v3 materialization in Git-private scratch plus the exact external DryRun command;
+non-pristine → adoption diagnostic only; recovery/manual/repair-adopt/takeover/
+migrate/owner-action → diagnostic-only with zero materialization; controller
+mismatch decisions come from the authority route, not from clone-local state.
+Drifted prior previews gain a stale sidecar and stay byte-identical; no branch
+invokes Apply or exposes an internal Apply plan path. The matrix fixtures drive
+the controller checkout and a linked worktree.
+
+Verification: approved-runner PASS; automation-safety PASS; harness-authority
+430/0; backup-recovery PASS (with `d6211c9` reclaiming the environment-rollback
+staging scratch — the Task 6 carried item); task-skills 93/0; live-recovery PASS;
+sync PASS; agent-dotfiles 23/0; canonical-hard-kill 318/0; reap-semantics 27/0;
+artifact validation 31/31/133 PASS; seams 56/56; parse gate 171 files; secret
+scan and `git diff --check` clean.
 ## Pending items (2026-09-14, after Phase 3 Task 3)
 
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are

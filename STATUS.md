@@ -29,7 +29,7 @@ requirements and the state-only controller takeover) is complete at 4/4 steps, p
 (external-plan environment activation with the exact receipt and plan consumption) is complete at
 8/8 steps, and Task 7 (three-platform, plan-bound task overlays with the tracked-overlay file journal and the worktree
 overlay lock) is complete at 5/5 steps** — see the Phase 3
-Task 1-7 sections below (Phase 3 overall 38/47). Phase 3 Tasks 8-9 and Phase 4 (schema/CI contract and
+Task 1-8 sections below (Phase 3 overall 42/47). Phase 3 Task 9 and Phase 4 (schema/CI contract and
 safe release) have not started. Two design-bound findings from the Phase 2 closeout
 feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
@@ -3708,6 +3708,48 @@ live-plan 121 PASS; sync PASS; artifact validation 31/31/133 PASS; seams 56/56 r
 The parameter-name gate added in Task 2 caught three real defects here. Commits: `2d6bdf0` the
 shared-module refactor, `bdf9073` the command surface.
 
+## Phase 3 Task 8 (2026-09-15): selection-aware preview routing for the pinned runner
+
+Task 8 is complete at 4/4 steps and committed as `2ca0488` (implementation by the
+concurrent 2026-09-15 session, integrated and verified by the coordinator):
+
+- **Step 1 — extended approved toolchain bundle.** `scripts/runner-policy.psd1`
+  now pins the authority/status/materialization/planner dependencies
+  (`harness-profile-common`, `harness-authority-status-common`,
+  `live-transaction-common`, `backup-receipt-common`, `status-harness-env`,
+  `list-harness-env` plus the harness-env-build/-lock/-list/-status and
+  live-journal schemas) and carries a frozen `PreviewRouteActions` table whose
+  keys are exactly the authority routes. `scripts/setup.ps1` refuses to approve a
+  runner whose table differs from `$script:HarnessEnvAuthorityRouteNextOperation`
+  or whose row would materialize a build for a diagnostic route, so the hooks
+  never self-approve and toolchain drift keeps failing closed with
+  `runner-review-required`.
+- **Step 2 — routing from shared authority.** `scripts/auto-sync-after-git.ps1`
+  routes each trigger from the canonical/authority state: a pristine home
+  materializes the named `full` environment through env-build v3 into Git-private
+  scratch and emits only the non-consumable initial preview plus the exact
+  external `env activate full -DryRun -PlanPath <external-user-artifact>`
+  command; a non-pristine home emits only the adoption diagnostic with the
+  user-selected-name placeholder; recovery/manual/repair-adopt/takeover/migrate
+  and `controller-owner-action-required` routes are diagnostic-only with zero
+  materialization; drift in the extended bundle fails closed before any routing.
+- **Step 3 — preview/event-only triggers.** Every routed change writes a
+  validated non-consumable pending preview/diagnostic event (never `-Apply`, never
+  an internal Apply plan path) and marks drifted prior previews stale through
+  sidecars while the prior preview file stays byte-identical.
+- **Step 4 — clones/worktrees.** The fixtures drive the routing from the
+  controller checkout and from a linked worktree (`git worktree add`), asserting
+  zero home writes and no repository materialization on the diagnostic branches.
+
+Verified after `2ca0488`: approved-runner PASS, automation-safety PASS (the
+routing matrix incl. the setup refusals, the initial preview, the stale sidecar,
+the adoption diagnostic and the zero-write fingerprints), harness-authority 430/0
+(the route-table/bundle assertions), backup-recovery PASS (`d6211c9`, which also
+reclaimed the environment-rollback staging scratch after success — the Task 6
+carried item), task-skills 93/0, live-recovery PASS, sync PASS, agent-dotfiles
+23/0, canonical-hard-kill 318/0, reap-semantics 27/0, artifact validation
+31/31/133 PASS, seams 56/56, parse gate 171 files, secret scan and
+`git diff --check` clean. Production Apply remains interlocked.
 ## Session wrap-up (2026-09-15): Task 7 landed, Task 8 draft parked, hard-kill re-seal open
 
 Task 7 is committed as `b86b8b1` (production, tests, and records, with its twelve
@@ -3771,7 +3813,7 @@ lessons) and no upstream method-file drift since `194f294`, so no loop edits wer
 
 **Phase 2 is complete (52 of 52 steps accounted for: Tasks 1-9 all closed; the one proof that
 could not execute — Task 6 Step 5's cross-authority overlapping-roots — is recorded as a Phase
-3-bound finding rather than an open step).** **Phase 3 is in progress: Tasks 1-7 are complete (Task 7 with one carried cleanup item); Task 8 exists as a broken uncommitted working-tree draft and Task 9 remains (see the 2026-09-15 wrap-up section).**
+3-bound finding rather than an open step).** **Phase 3 is in progress: Tasks 1-8 are complete (Task 7 carried cleanup item closed by `d6211c9`) and Task 9 remains (see the Phase 3 Task 8 section and the 2026-09-15 wrap-up section).**
 Phase 4 schema/CI contract and safe release remains downstream and has not started. Before future environment planning, rebuild the stale commit-bound
 environment staging locks; this does not authorize Apply.
 
@@ -3784,7 +3826,7 @@ environment staging locks; this does not authorize Apply.
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Tasks 1-7 are complete, Task 8 currently exists only as an uncommitted working-tree
+that order — Tasks 1-8 are complete and Task 9 remains; the earlier note here that Task 8 was only an uncommitted working-tree
 draft (see the 2026-09-15 wrap-up section), and Task 9 remains — and the Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
