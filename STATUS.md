@@ -3952,8 +3952,12 @@ step lists are in
    held the machine. Re-run serially on a quiet machine both measured suites pass clean but do not
    fit their original budgets: `harness-env` 311/0 in 312 s against a 180 s budget and `task-skills`
    93/0 in 195 s against 120 s, so those two budgets were simply too small for this machine and the
-   timeouts were not purely contention. `harness-authority` passed standalone at 430/0; its
-   contended 300 s timeout is being re-measured after that suite's own budget was raised.
+   timeouts were not purely contention. `harness-authority` passed standalone at 430/0.
+   **The definitive full-runner pass is now green**: 39 of 39 suites, zero failures, zero timeouts
+   (summary `phase3-task9-unified-rerun-20260915-123558.json`), with `canonical-hard-kill` 2393 s,
+   `harness-authority` 450 s, `harness-env` 303 s and `task-skills` 197 s against the raised
+   budgets. That run covers the tree including the concurrent session's then-uncommitted
+   enhancements, so it is a superset of the commits recorded here rather than a per-commit verdict.
 2. **Carried finding, now unblocked**: `tests/canonical-hard-kill.tests.ps1:8256` holds the
    operator-as-parameter defect (three intended taint checks parse as one call, so two never run).
    Its documented precondition — the full reviewed-load re-pin — has landed, so the fix plus the
