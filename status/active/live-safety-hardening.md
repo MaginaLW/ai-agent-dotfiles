@@ -2580,14 +2580,52 @@ Five steps, all evidenced on the committed tree:
    replacement/recovery, route exclusivity, controller identity, root
    immutability, overlay transactionality, selection-aware pinned planning) with
    four low findings; the migrate apply-locator gap and the setup command pin
-   were fixed here, the record inaccuracies were corrected, and G4 (the Phase 2
-   environment-rollback caller still refuses with
-   `worktree-overlay-lock-not-implemented` although the primitive exists) is
-   recorded as the next item. G2 was fixed right after the checkpoint: an orphan
-   schema-3 state without claims now routes to `manual-recovery-required`
-   instead of recommending initial/adopt, pinned by three new assertions in
-   `harness-authority` (435/0). The Task 8 change set was reviewed separately;
+   were fixed here, the record inaccuracies were corrected, and G2 plus G4 were
+   fixed right after the checkpoint (see the two sections at the end of this
+   record). The Task 8 change set was reviewed separately;
    all four of its findings are addressed.
 5. Real authority/live state untouched: all runs used sandbox homes/repos; no
    production Apply/rollback/retirement ran; `scripts/live-safety-policy.psd1`
    (`ProtocolVersion=3`, `ReleaseState=interlocked`) is unchanged.
+
+## Review follow-ups after the Phase 3 checkpoint (2026-09-15)
+
+**G2 — orphan state without claims (fixed, `872ad03`).** An orphan schema-3
+state whose immutable claims are gone fell through the route resolver's
+claims-MISSING branch and was recommended initial/adopt, which every
+first-authority transition refuses (the host requires claims and state both
+absent and fails closed with `live-transaction-authority-present`). The resolver
+now returns `manual-recovery-required` whenever claims are MISSING while the
+state is VALID or CORRUPT, so the status recommendation and the runner's routed
+diagnostic stay actionable. Pinned by three new `harness-authority` assertions
+(the orphan fixture facts, the route, and the recommended `env authority status`
+operation); harness-authority 435/0, seams 56/56, harness-env 311/0, task-skills
+93/0, automation-safety PASS, approved-runner PASS.
+
+**G4 — the environment-rollback production caller (fixed).**
+`scripts/rollback-harness-env.ps1` no longer refuses with
+`worktree-overlay-lock-not-implemented` (the token and its declaration are
+gone). The entry now probes the source transaction's journal header read-only
+before the lock order starts (a namespace that does not exist stays owned by the
+under-lock evidence checks, so the missing/tampered/unfinished tokens are
+unchanged), derives the worktree overlay identity
+(`Resolve-RollbackOverlayLockIdentity`), and acquires the reviewed origin
+canonical -> worktree overlay -> global order with the canonical handle
+mandatory for the overlay step. Under the locks the identity is re-derived from
+the freshly read header and compared with the pre-lock binding (no TOCTOU), a
+foreign identity fails closed as `rollback-origin-mismatch (overlay lock)` with
+no plan written, and releases are tail-to-head. Apply validates the reviewed
+plan and then runs it through `Invoke-SealedEnvironmentRollbackTransaction`; the
+production interlock still owns the refusal because the composition always
+passes its `-RepoRoot`, which is outside the sandbox root — so the transition
+becomes reachable exactly when the protocol is released, and the transaction
+itself stays covered by the live-recovery suite's direct engine tests.
+
+Verified after the wiring: backup-recovery PASS (191 assertions, including the
+rewritten foreign-overlay refusal, the new origin-identity DryRun derivation
+under the full lock order, the token-inventory update, and the interlock pin
+that also asserts the obsolete token can never appear), live-recovery PASS,
+seams 56/56 re-pinned (reflection 15784, digest
+`90cdfd7c18faeeca64819e28f5ccce7ea1fcb32e80fb28bc154450322fc8e031`), parse gate
+171 files, artifact validation 31/31/133 PASS, secret scan and `git diff --check`
+clean. Production Apply remains interlocked.

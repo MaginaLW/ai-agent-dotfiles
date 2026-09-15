@@ -55,8 +55,7 @@ try {
         'rollback-claims-drift', 'rollback-source-transaction-missing', 'rollback-source-transaction-tampered',
         'rollback-source-transaction-unfinished', 'rollback-source-outcome-unsupported',
         'rollback-source-receipt-mismatch', 'rollback-state-drift', 'rollback-overlay-drift',
-        'rollback-live-root-drift', 'rollback-plan-missing', 'rollback-plan-mismatch',
-        'worktree-overlay-lock-not-implemented'
+        'rollback-live-root-drift', 'rollback-plan-missing', 'rollback-plan-mismatch'
     )
     foreach ($token in $reviewedTokens) {
         Assert ($rollbackSource.Contains($token)) "the rollback entry pins the reviewed '$token' failure token"
@@ -561,6 +560,11 @@ $header = [ordered]@{
     Targets = @()
 }
 if ([bool] $spec['OverlayLockHeader']) { $header['WorktreeOverlayLockKey'] = ('8' * 64) }
+elseif ([bool] $spec['OverlayLockHeaderOrigin']) {
+    # Bind the exact worktree overlay identity this repository derives, so the
+    # rollback dispatch (running against the same -RepoRoot) can acquire it.
+    $header['WorktreeOverlayLockKey'] = Get-WorktreeOverlayLockKey -LockPath (Get-WorktreeOverlayLockPath -GitContext $gitContext)
+}
 $transactionDirectory = Join-Path (Join-Path $controlBase 'live-transactions') $transactionId
 New-SealedLiveJournalHeader -Document $header -TransactionDirectory $transactionDirectory | Out-Null
 
@@ -1023,10 +1027,32 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-origin-mismatch \(repo identity\)') 'a source transaction from another repository origin fails closed'
     Assert (-not (Test-Path -LiteralPath (Join-Path $work 'origin-plan.json'))) 'the origin-mismatch rejection writes no plan'
 
+    # A source header that binds a FOREIGN worktree overlay identity can only be
+    # rolled back from the worktree that held that lock: refused as an origin
+    # mismatch, never skipping the second lock.
     $overlayGraph = New-SourceGraph ([ordered]@{ Label = 'overlay-lock'; OverlayLockHeader = $true })
     $r = Invoke-GraphRollback -Graph $overlayGraph -PlanPath (Join-Path $work 'overlay-lock-plan.json')
-    Assert ($r.Code -ne 0 -and $r.Out -match 'worktree-overlay-lock-not-implemented') 'a source header that binds the worktree overlay lock fails closed until the Phase 3 primitive'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $work 'overlay-lock-plan.json'))) 'the overlay-lock rejection writes no plan'
+    Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-origin-mismatch \(overlay lock\)') 'a source header that binds a foreign worktree overlay lock fails closed as an origin mismatch'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $work 'overlay-lock-plan.json'))) 'the foreign-overlay rejection writes no plan'
+
+    # The same source transaction with THIS worktree's exact overlay identity is
+    # rollback-able: DryRun derives the reviewed plan under the full lock order
+    # (canonical -> worktree overlay -> global).
+    $originOverlayGraph = New-SourceGraph ([ordered]@{ Label = 'overlay-origin'; OverlayLockHeaderOrigin = $true })
+    $originOverlayPlan = Join-Path $work 'overlay-origin-plan.json'
+    $r = Invoke-GraphRollback -Graph $originOverlayGraph -PlanPath $originOverlayPlan
+    if ($r.Code -ne 0) { Write-Host '----- origin overlay rollback dry-run output -----'; Write-Host $r.Out }
+    Assert ($r.Code -eq 0) 'a source header that binds this worktree overlay identity derives the reviewed plan'
+    Assert (Test-Path -LiteralPath $originOverlayPlan -PathType Leaf) 'the origin-overlay dry-run writes its plan'
+
+    # The transition itself needs the released protocol: the composition always
+    # passes its -RepoRoot, which is outside the sandbox root, so the interlock
+    # owns the Apply refusal here. The refusal must be the interlock and never
+    # the obsolete overlay-lock token; the transaction it will run is covered by
+    # the live-recovery suite's direct Invoke-SealedEnvironmentRollbackTransaction
+    # tests.
+    $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $originOverlayGraph.ReceiptPath, '-Apply', '-PlanPath', $originOverlayPlan)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required' -and $r.Out -notmatch 'worktree-overlay-lock-not-implemented') 'the origin-overlay Apply stays behind the production interlock and never refuses on the obsolete overlay token'
 
     $overlayGraph = New-SourceGraph ([ordered]@{ Label = 'overlay-drift'; OverlayDrift = $true })
     $r = Invoke-GraphRollback -Graph $overlayGraph -PlanPath (Join-Path $work 'overlay-plan.json')

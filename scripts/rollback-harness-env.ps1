@@ -18,12 +18,12 @@
     evidence (receipt integrity, backup snapshot trees, authority preimages,
     the linked source transaction's committed chain and receipt binding) and
     the current state/claims/overlay/live surface, plus the origin identity
-    and overlay-lock support checks. DryRun derives and writes the schema-1
-    environment-rollback plan; Apply validates the reviewed plan fail-closed.
-    Every disagreement fails closed with its reviewed token. The transition
-    itself requires the worktree overlay lock (Phase 3): after the Phase 0
-    production interlock is released, a validated Apply currently fails
-    closed with worktree-overlay-lock-not-implemented.
+    overlay-lock identity, the source transaction probe and every binding
+    revalidated under the locks. DryRun derives and writes the schema-1
+    environment-rollback plan; Apply validates the reviewed plan and then runs
+    it as a new receipt-backed transaction. Every disagreement fails closed
+    with its reviewed token. A source transaction that held the worktree
+    overlay lock is rollback-able only from that exact worktree identity.
 #>
 [CmdletBinding(DefaultParameterSetName = 'DryRun')]
 param(
@@ -71,7 +71,6 @@ $script:RollbackSourceReceiptMismatch = 'rollback-source-receipt-mismatch'
 $script:RollbackStateDrift = 'rollback-state-drift'
 $script:RollbackOverlayDrift = 'rollback-overlay-drift'
 $script:RollbackLiveRootDrift = 'rollback-live-root-drift'
-$script:RollbackOverlayLockUnsupported = 'worktree-overlay-lock-not-implemented'
 $script:RollbackPlanMissing = 'rollback-plan-missing'
 $script:RollbackPlanMismatch = 'rollback-plan-mismatch'
 $script:RollbackPlanPathCollision = 'live-recovery-plan-path-collision'
@@ -394,18 +393,29 @@ function Assert-RollbackOriginMatch {
     }
 }
 
-function Assert-RollbackOverlayLockSupported {
-    # The reviewed order is origin canonical -> optional origin overlay ->
-    # global. The worktree overlay lock primitive refuses REQUIRED
-    # applicability until the Phase 3 primitive exists, so a source header
-    # that binds one fails closed instead of deriving a plan that would run
-    # without that lock.
+function Resolve-RollbackOverlayLockIdentity {
+    # The reviewed order is origin canonical -> origin worktree overlay ->
+    # global. A source header that binds an overlay lock is only rollback-able
+    # from the exact worktree identity that held it: a linked worktree (or any
+    # other repository) derives a different overlay lock path and fails closed
+    # as an origin mismatch instead of silently skipping the second lock. A
+    # header that binds none needs no overlay lock.
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [System.Collections.IDictionary] $HeaderMap)
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $HeaderMap,
+        [Parameter(Mandatory)] $GitContext
+    )
 
-    if ((Test-LiveTransactionMapHasName -Map $HeaderMap -Name 'WorktreeOverlayLockKey') -and $null -ne $HeaderMap['WorktreeOverlayLockKey']) {
-        throw $script:RollbackOverlayLockUnsupported
+    if (-not (Test-LiveTransactionMapHasName -Map $HeaderMap -Name 'WorktreeOverlayLockKey') -or
+        $null -eq $HeaderMap['WorktreeOverlayLockKey']) {
+        return $null
     }
+    $overlayLockPath = Get-WorktreeOverlayLockPath -GitContext $GitContext
+    $overlayLockKey = Get-WorktreeOverlayLockKey -LockPath $overlayLockPath
+    if ([string] $HeaderMap['WorktreeOverlayLockKey'] -cne $overlayLockKey) {
+        throw ($script:RollbackOriginMismatch + ' (overlay lock)')
+    }
+    return [ordered]@{ Path = $overlayLockPath; Key = $overlayLockKey }
 }
 
 function New-EnvironmentRollbackPlanDocument {
@@ -619,8 +629,28 @@ $canonicalLockKey = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = [strin
 
 if ($Apply -and -not (Test-Path -LiteralPath $planFull -PathType Leaf)) { throw $script:RollbackPlanMissing }
 
+# The source transaction's header is probed read-only before the lock order
+# starts, exactly like the reviewed recovery dispatcher: the worktree overlay
+# lock identity it binds decides the second lock, and every binding is
+# revalidated under the held locks before any action.
+$sourceTransactionId = [string] $receiptDocument['SourceTransactionId']
+if ([string]::IsNullOrWhiteSpace($sourceTransactionId)) { throw $script:RollbackSourceKindUnsupported }
+$sourceTransactionDirectory = Join-Path ([string] $authorityContext.LiveTransactionsRoot) $sourceTransactionId
+# A receipt that names no readable source namespace is owned by the under-lock
+# evidence checks (which report the missing/tampered/unfinished tokens), so the
+# probe only inspects a namespace that actually exists.
+$overlayIdentity = $null
+if (Test-Path -LiteralPath $sourceTransactionDirectory -PathType Container) {
+    $probeChain = Get-SealedLiveJournalChain -TransactionDirectory $sourceTransactionDirectory
+    $probeHeader = [System.Collections.IDictionary] $probeChain.Header
+    if ($null -ne $probeHeader) {
+        $overlayIdentity = Resolve-RollbackOverlayLockIdentity -HeaderMap $probeHeader -GitContext $gitContext
+    }
+}
+
 $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $contractPaths.LockPath) -AllowCreate
 $canonicalWitness = $null
+$overlayLock = $null
 $globalLock = $null
 try {
     try {
@@ -635,6 +665,9 @@ try {
         else { throw }
     }
     try {
+        if ($null -ne $overlayIdentity) {
+            $overlayLock = Enter-WorktreeOverlayLock -LockPath ([string] $overlayIdentity.Path) -CanonicalLockHandle $canonicalLock -AllowCreate
+        }
         $globalLock = if ($null -ne $canonicalWitness) {
             Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $authorityContext -RequiredCanonicalWitness $canonicalWitness
         }
@@ -645,7 +678,13 @@ try {
             $evidence = Get-RollbackSourceEvidence -ReceiptDocument $receiptDocument -ReceiptPath $receiptFull -AuthorityContext $authorityContext
             Assert-RollbackOriginMatch -HeaderMap $evidence.Header -GitContext $gitContext -RepoId $repoId -CanonicalLockKey $canonicalLockKey
             $currentState = Assert-RollbackSourceEligible -Evidence $evidence -AuthorityContext $authorityContext
-            Assert-RollbackOverlayLockSupported -HeaderMap $evidence.Header
+            $lockedOverlayIdentity = Resolve-RollbackOverlayLockIdentity -HeaderMap $evidence.Header -GitContext $gitContext
+            if (($null -eq $lockedOverlayIdentity) -ne ($null -eq $overlayIdentity)) {
+                throw ($script:RollbackOriginMismatch + ' (overlay lock)')
+            }
+            if ($null -ne $lockedOverlayIdentity -and [string] $lockedOverlayIdentity.Key -cne [string] $overlayIdentity.Key) {
+                throw ($script:RollbackOriginMismatch + ' (overlay lock)')
+            }
 
             if ($DryRun) {
                 $document = New-EnvironmentRollbackPlanDocument -Evidence $evidence -RepoId $repoId -CanonicalLockKey $canonicalLockKey -GitContext $gitContext -CurrentState $currentState
@@ -664,20 +703,22 @@ try {
             }
 
             # Apply validates the reviewed plan against this exact invocation
-            # before the transition. The execution itself requires the
-            # worktree overlay lock in the reviewed order, and the lock-order
-            # primitive refuses REQUIRED applicability until the Phase 3
-            # primitive exists — so the transition stays fail-closed here and
-            # Invoke-SealedEnvironmentRollbackTransaction gains its production
-            # caller when that primitive lands.
+            # and then runs it as a NEW receipt-backed transaction under the
+            # held origin canonical -> worktree overlay -> global lock order.
             $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planFull, [System.Text.UTF8Encoding]::new($false, $true)))
             $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $PSScriptRoot '../schemas/rollback-plan.schema.json') -InstancePath $planFull
             Test-RollbackPlanSemantics -Document $planDocument
             Assert-RollbackPlanInvocationMatch -PlanDocument $planDocument -ReceiptDocument $receiptDocument -HomeAuthorityKey ([string] $authorityContext.HomeAuthorityKey)
-            throw $script:RollbackOverlayLockUnsupported
+            $statePaths = Get-LiveTransactionStatePaths -ControlBase ([string] $authorityContext.ControlBase) -HomeAuthorityKey ([string] $authorityContext.HomeAuthorityKey)
+            $rollbackOutcome = Invoke-SealedEnvironmentRollbackTransaction -PlanDocument $planDocument -SourceReceiptDocument $receiptDocument -SourceReceiptPath $receiptFull -ControlBase ([string] $authorityContext.ControlBase) -BackupRoot ([string] $authorityContext.BackupRoot) -HomeRoot ([string] $authorityContext.HomeRoot) -ClaimsPath ([string] $statePaths['ClaimsPath']) -StatePath ([string] $statePaths['StatePath']) -LiveTransactionsRoot ([string] $authorityContext.LiveTransactionsRoot) -GitContext $gitContext -RepoId $repoId -CanonicalLockKey $canonicalLockKey
+            Write-Host "environment rollback applied: $([string] $rollbackOutcome.TransactionId)"
+            Write-Host "State hash: $([string] $rollbackOutcome.StateHash)"
+            Write-Host "Result hash: $([string] $rollbackOutcome.ResultHash)"
+            exit 0
         }
         finally {
             if ($null -ne $globalLock) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
+            if ($null -ne $overlayLock) { Exit-WorktreeOverlayLock -LockHandle $overlayLock }
         }
     }
     finally {

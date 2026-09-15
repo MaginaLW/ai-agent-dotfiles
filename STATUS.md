@@ -3826,12 +3826,17 @@ locator is now required and validated against the exact repo-local path (with
 two new refusals pinned in `harness-authority`), the setup approval path now
 pins the route *command* to the frozen next operation (not just the action
 class), the Task 4 record's apply-order sentence was corrected, and the stale
-`Current checkpoint` section is marked as Phase 1 history. Fixed right after this
-checkpoint: (G2) an orphan schema-3 state without claims now routes to
+`Current checkpoint` section is marked as Phase 1 history. Both fixed right
+after this checkpoint: (G2) an orphan schema-3 state without claims now routes to
 `manual-recovery-required` instead of recommending initial/adopt (which the host
-refuses), pinned by three new `harness-authority` assertions at 435/0. Still
-recorded: (G4) the Phase 2 environment-rollback production
-caller still fails closed with `worktree-overlay-lock-not-implemented` although
+refuses), pinned by three new `harness-authority` assertions at 435/0; and (G4)
+the environment-rollback entry now acquires the worktree overlay lock in the
+reviewed canonical -> overlay -> global order (a foreign identity fails closed
+as `rollback-origin-mismatch (overlay lock)`) and runs the reviewed plan through
+`Invoke-SealedEnvironmentRollbackTransaction`, with the obsolete token gone and
+backup-recovery/live-recovery/seams re-verified. The transition itself still
+waits behind the production interlock, which owns the Apply refusal because the
+composition always passes its `-RepoRoot`, which is outside the sandbox root; the earlier note that it failed closed with `worktree-overlay-lock-not-implemented` although
 the worktree overlay primitive now exists — wiring that caller is the next
 production item outside the Task 1-8 artifact lists. The Phase 3 Task 8 change
 set was reviewed separately (four findings, all addressed: the command pin, the
