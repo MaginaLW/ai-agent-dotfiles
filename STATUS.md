@@ -19,18 +19,19 @@ checkpoint's definitive unified pass (38/38 suites, zero failures/timeouts; see 
 closeout section below). Baseline-reconciliation Task 1 (5/5), the Phase 0 entry-interlock subplan
 (43/43), and Phase 1 (44/44) are complete; the corrected privacy rewrite is published at `bbba28f`
 with GitHub Support ticket `#4697323` resolved and the old object re-probe confirmed clean.
-**Phase 3 (shared environment authority and task-overlay) has started: Task 1 (lock 3 freeze,
-env-build 3 consumption, shared-state semantics, and separate legacy/shared readers) is complete at
-7/7 steps, Task 2 (authority-aware read-only status with list/status v2) is complete at 5/5 steps,
-Task 3 (the `env authority` command surface) is complete at 4/4 steps, Task 4 (reviewed
-migration, adoption and corrupt-state repair through the Phase 2 host, with the four failure
-injection windows) is complete at 5/5 steps, and Task 5 (controller identity, valid-parity
-requirements and the state-only controller takeover) is complete at 4/4 steps, plus Task 6
-(external-plan environment activation with the exact receipt and plan consumption) is complete at
-8/8 steps, and Task 7 (three-platform, plan-bound task overlays with the tracked-overlay file journal and the worktree
-overlay lock) is complete at 5/5 steps** — see the Phase 3
-Task 1-9 sections below (Phase 3 complete, 47/47). Phase 4 (schema/CI contract and
-safe release) have not started. One design-bound finding from the Phase 2 closeout
+**Phase 3 (shared environment authority and task-overlay) is complete (47/47): Tasks 1-9 are all
+closed** — Task 1 (lock 3 freeze, env-build 3 consumption, shared-state semantics, and separate
+legacy/shared readers) at 7/7 steps, Task 2 (authority-aware read-only status with list/status v2)
+at 5/5, Task 3 (the `env authority` command surface) at 4/4, Task 4 (reviewed migration, adoption
+and corrupt-state repair through the Phase 2 host, with the four failure injection windows) at 5/5,
+Task 5 (controller identity, valid-parity requirements and the state-only controller takeover) at
+4/4, Task 6 (external-plan environment activation with the exact receipt and plan consumption) at
+8/8, Task 7 (three-platform, plan-bound task overlays with the tracked-overlay file journal and the
+worktree overlay lock) at 5/5, Task 8 (selection-aware preview routing for the pinned runner,
+`2ca0488`) at 4/4, and Task 9 (the Phase 3 checkpoint, `e57c608`, with its review follow-ups
+`872ad03` and `976d0fe`) at 5/5** — see the Phase 3
+Task 1-9 sections below. Phase 4 (schema/CI contract and
+safe release) has not started. One design-bound finding from the Phase 2 closeout
 feeds the later Phase 4 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store). The second, the rollback execution's production caller, is closed: `976d0fe` wired
 it to the Phase 3 worktree overlay lock.
@@ -3694,8 +3695,8 @@ fingerprint and `ReceiptRef=NO_LIVE_MUTATION`), creates a create-new environment
 where the branch needs one, and writes a create-new plan validated through the reviewed
 `Assert-LiveSyncPlanDocumentIntegrity` gate. Apply consumes only that exact existing plan: the
 production interlock is the first gate, then the plan path, envelope, materialization currency,
-selection context and consumption state; it currently stops at `authority-apply-not-wired`, which
-the Task 4 slice replaces with the reviewed host composition.
+selection context and consumption state; at the Task 3 boundary it still stopped at
+`authority-apply-not-wired`, which the Task 4 slice replaced with the reviewed host composition.
 
 Supporting refactor: the producer primitives moved from `sync.ps1` into
 `scripts/live-plan-evidence-common.ps1` (behavior unchanged; live-plan 121 PASS, sync PASS), and the
@@ -3734,7 +3735,8 @@ restore path and the recovery-required path, where live bytes, swap-old and stag
 pre-rollback copy and both receipts all survive. Verification: backup-recovery PASS 188;
 harness-env 311/0; canonical-production-seams 56/56 at this commit, its re-pin derived by
 reproducing the suite's all-scripts inventory (byte-identical to the tracked baseline at the
-previous commit) and reviewed site by site — reflection-sensitive 15668 → 15701 with all 33 added
+previous commit) and reviewed site by site — reflection-sensitive 15668 → 15701 (the then-current
+pin; later commits moved it to 15784, see the G4 record) with all 33 added
 sites being member/dispatch inventory entries of the new code, zero new reflection types and zero
 new `Add-Type`/`Get-Command`/`Invoke-Expression` sites, and the dynamic-command digest unchanged.
 
@@ -3837,9 +3839,9 @@ as `rollback-origin-mismatch (overlay lock)`) and runs the reviewed plan through
 `Invoke-SealedEnvironmentRollbackTransaction`, with the obsolete token gone and
 backup-recovery/live-recovery/seams re-verified. The transition itself still
 waits behind the production interlock, which owns the Apply refusal because the
-composition always passes its `-RepoRoot`, which is outside the sandbox root; the earlier note that it failed closed with `worktree-overlay-lock-not-implemented` although
-the worktree overlay primitive now exists — wiring that caller is the next
-production item outside the Task 1-8 artifact lists. The Phase 3 Task 8 change
+composition always passes its `-RepoRoot`, which is outside the sandbox root. The `worktree-overlay-lock-not-implemented` token this step still observed was removed by
+the G4 follow-up recorded below, so the rollback entry is now reachable rather
+than token-refused and the remaining refusal is the interlock itself. The Phase 3 Task 8 change
 set was reviewed separately (four findings, all addressed: the command pin, the
 user-temp scratch wording, and two test-coverage tightenings).
 
@@ -3870,7 +3872,13 @@ With these closed, the only remaining roadmap item is **Phase 4** (schema/CI
 contract and safe release): it needs the production interlock released and the
 real-machine read-only/dry-run validation, which is reserved for the user's
 explicit authorization.
-## Session wrap-up (2026-09-15): Task 7 landed, Task 8 draft parked, hard-kill re-seal open
+## Session wrap-up (2026-09-15 morning; superseded later the same day)
+
+> **Superseded.** This section is the red-state snapshot of the 2026-09-15 morning sessions. Every
+> item it lists as open was closed the same day: the `canonical-hard-kill` re-seal by `06d1902`
+> (318/0), the Task 8 draft by `2ca0488`, and the Task 9 checkpoint by `e57c608`. The inline
+> corrections inside the section mark which sentences are the morning snapshot and which are the
+> later findings; read them as history, not as open work.
 
 Task 7 is committed as `b86b8b1` (production, tests, and records, with its twelve
 independent-review findings adopted); see the Phase 3 Task 7 section above. This section is the
@@ -3889,9 +3897,9 @@ result set and fails its eleven dependent assertions); the re-seal committed in 
 already correct, and `canonical-production-seams` is 56/56 in a pristine `git archive HEAD` copy
 (the working tree read 36/20 only while the uncommitted Task 8 draft was present, which is now
 stashed). The account below is the red-state snapshot as it stood before that verification:
-**The `canonical-hard-kill` re-seal is still open and the suite is still red** (12 stale
-self-seal digest pins at the Task 7 boundary; the pins had drifted since Task 5/6, where the
-suite was not re-run). A breakpoint-instrumented diagnostic run of the unmodified suite,
+**Red-state snapshot (superseded by `06d1902`): the `canonical-hard-kill` re-seal was open and the
+suite was red** (12 stale self-seal digest pins at the Task 7 boundary; the pins had drifted since
+Task 5/6, where the suite was not re-run). A breakpoint-instrumented diagnostic run of the unmodified suite,
 launched 2026-09-15 06:47 +0800 by the prior session, was found dead at ~08:04 without writing
 its completion marker — the second vanishing run that day. Its surviving value is the dump
 written through 07:29 to the machine-local `%TEMP%\hk-bp-out.txt`: the live behavior probe
@@ -3917,8 +3925,9 @@ window's `-All` run). The re-seal helper was rewritten from the proven `tmp/rese
 than patched — `tmp/reseal-hard-kill.ps1` now parses cleanly (12 errors → 0) and offers a `-Verify`
 mode that reports mismatches without writing plus the full ordered fixpoint re-seal.
 
-**Phase 3 Task 8 ("Upgrade the Pinned Runner to Selection-Aware Preview Routing", roadmap line
-270) exists only as an uncommitted, broken working-tree draft**: six files last edited
+**Red-state snapshot (superseded by `2ca0488`): Phase 3 Task 8 ("Upgrade the Pinned Runner to
+Selection-Aware Preview Routing", roadmap line 270) existed at this point only as an uncommitted,
+broken working-tree draft**: six files last edited
 05:00-05:21 +0800 — `scripts/auto-sync-after-git.ps1` (+265), `scripts/runner-policy.psd1` (+30:
 the frozen `PreviewRouteActions` route table plus six toolchain and six schema pins),
 `scripts/setup.ps1` (+27: explicit setup pins the route table against the frozen authority route
@@ -3953,7 +3962,7 @@ environment staging locks; this does not authorize Apply.
 |---|---:|---|
 | Task 1-5 | 0 | Complete |
 | Task 6 | 0/5 | Complete — the cross-authority overlapping-roots proof is recorded as Phase 3-bound (the mechanism does not exist yet — see the Task 8 Step 4 finding); the canonical-interleave proof executed in Task 8 Step 1 |
-| Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 3 overlay lock and the Phase 4 interlock release |
+| Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 4 interlock release (the Phase 3 overlay lock it depended on is wired, `976d0fe`) |
 | Task 8 | 0/4 | Complete as pin-able (Step 1 mid-flight zero-wait matrix, Step 2 zero-wait-by-design boundary, Step 3 the Task 6 failpoint matrix, Step 4 the transition rejection plus the recorded cross-authority finding) |
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
@@ -3991,7 +4000,9 @@ step lists are in
    budgets. That run covers the tree including the concurrent session's then-uncommitted
    enhancements, so it is a superset of the commits recorded here rather than a per-commit verdict.
 2. **Carried finding — closed (`bbfa6d5`)**: `tests/canonical-hard-kill.tests.ps1:8256` held the
-   operator-as-parameter defect (three intended taint checks parsed as one call, so two never ran).
+   operator-as-parameter defect — the condition degenerated to the first check's result, the middle
+   check never ran, and the parenthesised third check ran but had its boolean consumed as an
+   argument (a marker-file probe, so "two never ran" was the wrong shorthand).
    Each call is now parenthesised, the parse-gate exemption in `scripts/check-powershell-syntax.ps1`
    is retired (the reviewed table is empty), and the four self-referential pins the edit moves were
    re-sealed. Verified: `-Section primitives` 95/0 and the full hard-kill suite 318/0, both equal to
@@ -3999,7 +4010,8 @@ step lists are in
    31/31/133 PASS, seams 56/56 and `git diff --check` clean, with the two seams all-scripts
    baselines independently reproduced (`tmp/seams-delta.ps1 -WorktreeOnly
    scripts/check-powershell-syntax.ps1`) as byte-identical to their pinned values, so no re-pin was
-   applied. The itemised record is in
+   applied. The raw run output for those gates is machine-local and gitignored (`tmp/hk-*-repin-20260915.log`);
+   this entry is what the repository carries. The itemised record is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
 3. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
@@ -4021,7 +4033,8 @@ step lists are in
    child-killable. The engine's per-target drift protection is hash-based; the rollback plan's
    `Current` identity binding is recorded as not enforced by the existing ladder.
 5. The stale commit-bound `minimal`, `work`, and `full` staging locks were rebuilt on 2026-09-13
-   (all three report `staging=built lock=valid` under the current HEAD; the generated `envs/`
+   (all three reported `staging=built lock=valid` under the then-current HEAD, which `HEAD` has since
+   moved away from; the generated `envs/`
    artifacts are gitignored machine-local state). This is artifact preparation only and does not
    authorize environment Apply.
 6. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.

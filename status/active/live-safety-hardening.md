@@ -1,19 +1,19 @@
 # Live Safety Hardening
 
-Last updated: 2026-09-13
+Last updated: 2026-09-15
 
-Status: In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock
-subplan is complete (43/43), Phase 1 is complete (44/44), and Phase 2 is complete (52/52: Tasks 1-9,
-with the one cross-authority proof recorded as a Phase 3-bound finding). Phase 3 Task 1 is complete
-(7/7), Task 2 is complete (5/5), and Task 3 is complete (4/4), so Phase 3 stands at 16/47 across
-Tasks 1-9. The corrected privacy
-rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after server-side
-garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the object is no
-longer served. Phase 3 (shared environment authority and task overlay) has started: Task 1
-(environment lock 3 freeze, env-build 3 consumption, and shared-state transition semantics) is
-complete at 7/7 steps, Phase 3 overall 7/47 across Tasks 1-9 (7+5+4+5+4+8+5+4+5). The Task 5 and
-Task 9 close-out evidence lives in the repository `STATUS.md` records; this per-task record resumes
-with Phase 3 Task 1.
+Status: Complete through Phase 3. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0
+entry-interlock subplan is complete (43/43), Phase 1 is complete (44/44), Phase 2 is complete
+(52/52: Tasks 1-9, with the one cross-authority proof recorded as a Phase 3-bound finding), and
+Phase 3 is complete (47/47: Tasks 1-9, the checkpoint at `e57c608`, its two review findings closed
+by `872ad03` and `976d0fe`, and the carried sealed-file slice closed by `bbfa6d5`). Phase 4
+(schema/CI contract and safe release) has not started and owns the interlock release. The corrected
+privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after
+server-side garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the
+object is no longer served. This per-task record is a dated log: the sections below run in
+completion order and several of them carry their own superseded markers, so read a section as
+current only where it says so. The authoritative current list is the 2026-09-15 Pending items
+section at the end of this file.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 
@@ -976,7 +976,7 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 ## Current checkpoint
 
 > Historical snapshot (Phase 1/privacy era). The authoritative current status is in
-> `STATUS.md` (Phase 3 Tasks 1-8 complete, Task 9 checkpoint in progress) and in the dated
+> `STATUS.md` (Phase 3 complete, 47/47) and in the dated
 > Phase 3 sections below; this section is retained only as history and must not be read as
 > the current state.
 
@@ -994,6 +994,11 @@ Step 1 is complete (Task 1 1/6); these capability layers advance Step 2 without 
 stay unconnected to production mutation routes.
 
 ## Current phase
+
+> Historical snapshot (2026-09-08/09, Phase 2 mid-flight). Phase 2 closed at 52/52 and Phase 3 at
+> 47/47; do not read the counts below as current, and do not start from the "next implementable
+> work" sentence they point at. The authoritative current list is the 2026-09-15 Pending items
+> section at the end of this file.
 
 **Phase 2 Tasks 1-4 (6/6, 7/7, 7/7, 7/7) are complete (Phase 2 overall 27/52), with Tasks 5-9 not
 started.** Task 1 Step 6 (Verify identity, state shape, and locking) closed on 2026-09-08 with the
@@ -1415,6 +1420,10 @@ next slices must act on:
   source terminals (the engine only publishes `committed` or `failed-restored`).
 
 ## Remaining work
+
+> Historical snapshot (2026-09-13, Phase 2 closeout). The Phase 3 sentences below were current
+> then; Phase 3 has since completed at 47/47. Read the 2026-09-15 Pending items section at the end
+> of this file for the live list.
 
 **Phase 2 (Tasks 1-9) is complete**, closing with the Task 9 checkpoint's definitive unified pass
 (38/38, zero failures/timeouts). Phase 3 shared environment authority and task-overlay work,
@@ -2646,7 +2655,16 @@ if((Test-RegionAstTainted $commonArgument) -or (Test-RegionPsVariableProvider $c
 The shape is that of the sibling three-way condition at line 8264 of the same analysis, which
 already parenthesises each call. Static proof: parsing line 8256 yields three `CommandAst`
 invocations inside a `BinaryExpressionAst` chain and zero command-parameter nodes — the defect
-signature the parse gate keys on. The single reviewed exemption in
+signature the parse gate keys on.
+
+What the broken form actually did, re-measured rather than assumed: the whole condition was one
+`Test-RegionAstTainted` invocation whose extra elements (`-or`, the bare name
+`Test-RegionPsVariableProvider`, `$commonArgument`, `-or`, and the parenthesised
+`(Test-RegionRefExpression $commonArgument)`) were silently accepted as arguments of a simple
+function. The condition therefore degenerated to the first check's result, and a marker-file probe
+confirms the runtime shape: the first check ran, the third ran (its boolean was consumed as an
+argument instead of contributing to the condition), and the middle check never ran at all. The
+earlier phrasing "two never run" is therefore imprecise for the parenthesised third call. The single reviewed exemption in
 `scripts/check-powershell-syntax.ps1` is retired and the table is empty; the mechanism is kept so a
 future reviewed exemption has a declared home.
 
@@ -2655,17 +2673,22 @@ changes: 0` after the fixpoint run. It re-pinned exactly four self-referential v
 `Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract'`
 (`274c57a7…` → `e9732456…`), the cleanup-gate self digest (`9f8b86c9…` → `e9db46ea…`), the function
 inventory digest (`1a631d31…` → `bffb370c…`) and the controller surface sha (`16888889…` →
-`4e101dda…`). The diff contains only those four pin lines plus the fixed line: the reviewed-load
-manifest, the actual-prelude rows and digest, the pre-section region, the main-try digest and the
-top-level execution digest (`94bb53a8…`) are unchanged, which is the expected footprint for an edit
-inside a single function body.
+`4e101dda…`). Within the hard-kill file the diff contains only those four pin lines plus the fixed
+line — the companion change empties the parse-gate exemption table, and nothing else: the
+reviewed-load manifest, the actual-prelude rows and digest, the pre-section region, the main-try
+digest and the top-level execution digest (`94bb53a8…`) are unchanged, which is the expected
+footprint for an edit inside a single function body. An independent re-derivation (not this file's
+probe) recomputed the containing-function pin and the cleanup-gate self digest and reproduced both
+from the committed bytes.
 
 Verification: `-Section primitives` **95 passed, 0 failed** and the full suite
 `tests/canonical-hard-kill.tests.ps1 -Section all` **318 passed, 0 failed**, both equal to their
 pre-change baselines — the now-live taint checks reject no existing positive control. Parse gate
 171 files pass with the exemption table empty, the secret scan is clean, artifact validation
 reports 31 contracts / 31 positives / 133 negatives PASS, seams is 56/56, and `git diff --check` is
-clean. The seams all-scripts baselines were independently reproduced rather than re-stamped
+clean. The raw run output for these gates is machine-local and gitignored
+(`tmp/hk-primitives-repin-20260915.log`, `tmp/hk-full-repin-20260915.log`,
+`tmp/hk-gates-repin-20260915.log`); what the commits carry is this record, not those logs. The seams all-scripts baselines were independently reproduced rather than re-stamped
 (`tmp/seams-delta.ps1 -WorktreeOnly scripts/check-powershell-syntax.ps1`): both are byte-identical
 to their pinned values (reflection-sensitive 15784 / `90cdfd7c…`, dynamic 168 / `4fc1bb2d…`),
 because retiring a hashtable entry adds neither a reflection-sensitive site nor a dynamic command,
