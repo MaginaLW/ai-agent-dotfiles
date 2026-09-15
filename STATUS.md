@@ -30,9 +30,10 @@ requirements and the state-only controller takeover) is complete at 4/4 steps, p
 8/8 steps, and Task 7 (three-platform, plan-bound task overlays with the tracked-overlay file journal and the worktree
 overlay lock) is complete at 5/5 steps** — see the Phase 3
 Task 1-9 sections below (Phase 3 complete, 47/47). Phase 4 (schema/CI contract and
-safe release) have not started. Two design-bound findings from the Phase 2 closeout
-feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
-claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
+safe release) have not started. One design-bound finding from the Phase 2 closeout
+feeds the later Phase 4 design: the cross-authority root-claim overlap rejection (a machine-wide
+claim store). The second, the rollback execution's production caller, is closed: `976d0fe` wired
+it to the Phase 3 worktree overlay lock.
 Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
 and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
@@ -3847,6 +3848,28 @@ transition ran inside sandbox homes/repos under the injected capability; no
 production Apply/rollback/retirement ran, `scripts/live-safety-policy.psd1` is
 unchanged (`ProtocolVersion=3`, `ReleaseState=interlocked`), and no tracked file
 under the live home or the machine-private paths was written by this work.
+### Post-checkpoint follow-ups (2026-09-15)
+
+Both review follow-ups are fixed and committed, and a fresh definitive run on
+the resulting tree reads `Test summary: PASS; discovered=39; passed=39;
+failed=0; timed-out=0` (external create-new summary
+`phase3-followups-unified-20260915-160911.json`, SHA-256 `f382edfb...`).
+
+- **G2** (`872ad03`): an orphan schema-3 state without claims routes to
+  `manual-recovery-required` instead of recommending initial/adopt.
+- **G4** (`976d0fe`): the environment-rollback entry acquires the worktree
+  overlay lock in the reviewed canonical → overlay → global order and runs its
+  reviewed plan through `Invoke-SealedEnvironmentRollbackTransaction`; the
+  obsolete `worktree-overlay-lock-not-implemented` refusal is gone, a foreign
+  overlay identity fails closed as `rollback-origin-mismatch (overlay lock)`, and
+  the transition itself stays behind the production interlock (which owns the
+  Apply refusal because the composition passes its `-RepoRoot`, outside the
+  sandbox root) until the protocol is released.
+
+With these closed, the only remaining roadmap item is **Phase 4** (schema/CI
+contract and safe release): it needs the production interlock released and the
+real-machine read-only/dry-run validation, which is reserved for the user's
+explicit authorization.
 ## Session wrap-up (2026-09-15): Task 7 landed, Task 8 draft parked, hard-kill re-seal open
 
 Task 7 is committed as `b86b8b1` (production, tests, and records, with its twelve

@@ -2509,6 +2509,13 @@ digest unchanged.
 
 ## Pending items (2026-09-14, after Phase 3 Task 3)
 
+> **Superseded (2026-09-15).** This section is the position as it stood after Phase 3 Task 3.
+> Everything it lists as "not started" has since landed, and the two items it names as waiting are
+> both closed: Phase 3 Tasks 4-9 are complete (the checkpoint is `e57c608`) and the rollback
+> execution's production caller was wired to the worktree overlay lock by `976d0fe`. The current
+> list is "Pending items (2026-09-15, after the Phase 3 checkpoint and its review follow-ups)" at
+> the end of this file. The text is kept as history.
+
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are
 design-bound or downstream:
 
@@ -2629,3 +2636,56 @@ seams 56/56 re-pinned (reflection 15784, digest
 `90cdfd7c18faeeca64819e28f5ccce7ea1fcb32e80fb28bc154450322fc8e031`), parse gate
 171 files, artifact validation 31/31/133 PASS, secret scan and `git diff --check`
 clean. Production Apply remains interlocked.
+
+## Pending items (2026-09-15, after the Phase 3 checkpoint and its review follow-ups)
+
+**Phase 2 and Phase 3 are both complete** (Phase 3 at 47/47: the checkpoint is `e57c608`, and the
+two review findings it raised are closed — G2 by `872ad03`, G4 by `976d0fe`). Nothing in this
+window's ordered list is still open. What remains is downstream, design-bound, or operational:
+
+1. **The sealed-file slice at `tests/canonical-hard-kill.tests.ps1:8256`.** Three intended taint
+   checks parse as one call so two never run. The precondition — the full reviewed-load re-pin —
+   has landed, so the line fix plus the removal of the one-line exemption in
+   `scripts/check-powershell-syntax.ps1` can be taken now, as its own slice: it changes a sealed
+   analysis's accept/reject surface, so it needs the re-seal (`tmp/reseal-hard-kill.ps1 -Verify`
+   must report zero mismatches afterwards, then a real re-seal if it does not), the
+   `-Section primitives` signal (95 assertions), and a full-suite verdict.
+2. **Phase 4 — schema/CI contract and safe release — not started.** It owns the interlock release.
+   Until it lands, every production sync/environment/task/rollback Apply, standalone backup, and
+   explicit retirement stops with `safety-protocol-upgrade-required` before traversal or mutation.
+   The rollback entry is now *reachable* rather than token-refused (G4), and its refusal at Apply
+   is the interlock itself.
+3. **Design-bound finding still feeding Phase 4**: the cross-authority root-claim overlap rejection
+   needs a machine-wide claim store — both authorities commit on a shared custom root today (the
+   Phase 2 Task 8 Step 4 finding).
+4. **Carried boundaries**, unchanged: the locator stays phase-only by design, so a state file
+   replaced without its `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a
+   locator status; a live-target move whose record is still a `_pending` temp classifies as manual
+   recovery; the `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the production
+   host is child-killable; the engine's per-target drift protection is hash-based; and the rollback
+   plan's `Current` identity binding is recorded as not enforced by the existing ladder.
+5. **Before any future environment planning**, rebuild the stale commit-bound staging locks. They
+   were last rebuilt on 2026-09-13 and have since moved several HEADs; the generated `envs/`
+   artifacts are gitignored machine-local state. This is artifact preparation only and never
+   authorizes Apply.
+6. **Per-machine revalidation after any reviewed release**: revalidate each managed machine
+   independently, and for retired skills still present elsewhere use a new machine-local retirement
+   JSON with a reviewed bound plan — never this machine's deleted authorization files.
+7. **Coordination**: any other clone or fork should re-clone or rebase rather than merge the old
+   history.
+8. **Operational, needs a human decision**: two agents were writing this repository concurrently
+   through the whole 2026-09-15 window — one of them stashed and reverted the other's in-flight
+   files, `HEAD` moved under the other five times, and two overlapping full runs caused three
+   mutual suite timeouts. The work converged and nothing was lost, but if one owner per repository
+   is intended, that is a scheduling decision this record cannot make. The window's operational
+   lessons are recorded in the agent memory (`concurrent-session-hazard`), not here.
+Both follow-up changes were then re-validated by a fresh definitive run on the
+resulting tree: ``pwsh -NoProfile -File scripts/run-tests.ps1 -All
+-JsonSummaryPath <external create-new path>`` reads **``Test summary: PASS;
+discovered=39; passed=39; failed=0; timed-out=0``** (external create-new summary
+``phase3-followups-unified-20260915-160911.json``, SHA-256
+``f382edfbb3bf9362517b84364efb9bda4ceea2f584171de172e11f82608dbca3``). With G2
+and G4 closed, the only remaining item in the roadmap is Phase 4 (the schema/CI
+contract and the safe release), which requires releasing the production
+interlock and running the real-machine read-only/dry-run validation — an action
+reserved for the user's explicit authorization.
