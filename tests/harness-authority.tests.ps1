@@ -1550,6 +1550,12 @@ Assert ([string] $migrateDocument.PlanPayload.LegacyHash -ceq [Convert]::ToHexSt
 Assert ([string] $migrateDocument.PlanPayload.OldLockHash -ceq (Get-HarnessFileHash -Path (Join-Path $migrateRepo 'envs/good/env.lock.json')).ToLowerInvariant()) 'migrate binds the preserved old lock hash'
 Assert ([string] $migrateDocument.PlanPayload.LegacyCoreHash -cmatch '\A[0-9a-f]{64}\z') 'migrate binds a core hash'
 Assert (-not $migrateDocument.PlanPayload.Contains('LegacyEvidence')) 'migrate never carries adopt evidence'
+# The legacy locator is part of the contract on both invocations: an apply that
+# names no locator, or a different one, is refused before it consumes the plan.
+$migrateApplyNoLocator = Invoke-AuthorityCli -SandboxRoot $sandboxB.Sandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-Apply', '-PlanPath', $migratePlan, '-RepoRoot', $migrateRepo)
+Assert ($migrateApplyNoLocator.Code -eq 1 -and $migrateApplyNoLocator.Out -match 'authority-legacy-locator-required') 'migrate Apply requires the exact legacy locator'
+$migrateApplyWrongLocator = Invoke-AuthorityCli -SandboxRoot $sandboxB.Sandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-Apply', '-PlanPath', $migratePlan, '-LegacyStatePath', (Join-Path $sandboxB.Sandbox 'elsewhere.json'), '-RepoRoot', $migrateRepo)
+Assert ($migrateApplyWrongLocator.Code -eq 1 -and $migrateApplyWrongLocator.Out -match 'authority-legacy-locator-mismatch') 'migrate Apply rejects a locator outside the exact repo path'
 $migrateApply = Invoke-AuthorityCli -SandboxRoot $sandboxB.Sandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-Apply', '-PlanPath', $migratePlan, '-LegacyStatePath', $legacyStatePath, '-RepoRoot', $migrateRepo)
 if ($migrateApply.Code -ne 0) { Write-Host "  note  migrate apply:"; Write-Host $migrateApply.Out }
 Assert ($migrateApply.Code -eq 0) 'migrate Apply runs the reviewed composition'
@@ -1637,7 +1643,7 @@ foreach ($route in $authorityRoutes) {
     $nextOperation = [string] $script:HarnessEnvAuthorityRouteNextOperation[$route]
     $expectedAction = if ($nextOperation -clike 'env activate*') { 'environment-preview' } else { 'diagnostic' }
     Assert (([string] $row['Action']) -ceq $expectedAction -and -not [string]::IsNullOrWhiteSpace([string] $row['Command'])) "the $route route is pinned to its $expectedAction action"
-    Assert (([string] $row['Command']).StartsWith(($nextOperation -replace ' -DryRun$', ''), [System.StringComparison]::Ordinal)) "the $route route command agrees with the frozen next operation"
+    Assert (([string] $row['Command']) -ceq $nextOperation) "the $route route command is exactly the frozen next operation"
 }
 $environmentPreviewRoutes = @($policyRoutes | Where-Object { [string] $previewRoutes[$_]['Action'] -ceq 'environment-preview' })
 Assert (($environmentPreviewRoutes -join ',') -ceq 'activate,initial') 'only the activate and initial routes may materialize a build'

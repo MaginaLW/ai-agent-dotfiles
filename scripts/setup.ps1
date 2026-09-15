@@ -39,6 +39,13 @@ foreach ($route in $policyRoutes) {
     if ($action -cne $expectedAction -or [string]::IsNullOrWhiteSpace($command)) {
         throw "runner-review-required: preview route action for '$route' is not a pinned row."
     }
+    # The command is what the hook prints and records as the exact external
+    # DryRun route: approving a row whose command is not the frozen next
+    # operation (or that carries an internal plan path or -Apply) would pin a
+    # non-reviewed action into the approved runner.
+    if ($command -cne [string] $script:HarnessEnvAuthorityRouteNextOperation[$route]) {
+        throw "runner-review-required: preview route command for '$route' is not the pinned next operation."
+    }
 }
 
 $state = Approve-RunnerSnapshot -RepoRoot $RepoRoot

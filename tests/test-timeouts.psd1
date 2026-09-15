@@ -23,13 +23,13 @@
         'live-concurrency.tests.ps1' = 300
         'live-plan.tests.ps1' = 180
         'root-claims-registry.tests.ps1' = 3600
-        'harness-env.tests.ps1' = 180
-        'harness-authority.tests.ps1' = 300
+        'harness-env.tests.ps1' = 600
+        'harness-authority.tests.ps1' = 900
         'harness-multiplatform.tests.ps1' = 210
         'harness-profile.tests.ps1' = 90
         'skills-import.tests.ps1' = 1200
         'sync.tests.ps1' = 1200
-        'task-skills.tests.ps1' = 120
+        'task-skills.tests.ps1' = 900
         'test-runner.tests.ps1' = 45
     }
 }

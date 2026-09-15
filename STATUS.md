@@ -29,7 +29,7 @@ requirements and the state-only controller takeover) is complete at 4/4 steps, p
 (external-plan environment activation with the exact receipt and plan consumption) is complete at
 8/8 steps, and Task 7 (three-platform, plan-bound task overlays with the tracked-overlay file journal and the worktree
 overlay lock) is complete at 5/5 steps** — see the Phase 3
-Task 1-8 sections below (Phase 3 overall 42/47). Phase 3 Task 9 and Phase 4 (schema/CI contract and
+Task 1-9 sections below (Phase 3 complete, 47/47). Phase 4 (schema/CI contract and
 safe release) have not started. Two design-bound findings from the Phase 2 closeout
 feed the later Phase 3 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store) and the rollback execution's production caller (the Phase 3 worktree overlay lock).
@@ -3779,6 +3779,69 @@ carried item), task-skills 93/0, live-recovery PASS, sync PASS, agent-dotfiles
 23/0, canonical-hard-kill 318/0, reap-semantics 27/0, artifact validation
 31/31/133 PASS, seams 56/56, parse gate 171 files, secret scan and
 `git diff --check` clean. Production Apply remains interlocked.
+## Phase 3 Task 9 (2026-09-15): the Phase 3 checkpoint
+
+Task 9 is complete at 5/5 steps on the tree committed here (the checkpoint commit
+follows `2ca0488`/`d6211c9`; the working state is otherwise unchanged).
+
+**Step 1 — focused suites** (all green before and after the checkpoint edits):
+`harness-authority` 432/0, `harness-env` 311/0, `task-skills` 93/0,
+`automation-safety` PASS, `agent-dotfiles` 23/0, plus `approved-runner` PASS,
+`backup-recovery` PASS, `live-recovery` PASS, `sync` PASS,
+`canonical-hard-kill` 318/0 and `canonical-hard-kill-reap-semantics` 27/0.
+
+**Step 2 — emitted artifacts**: `scripts/validate-json-artifacts.ps1 -All` PASS
+(31 contracts, 31 positives, 133 negatives) over env-build 3, lock 3, state 3
+`oneOf`, root claims, list/status 2, the environment/task-overlay/authority/
+retirement plans, receipts, journals and live-operation-result v1; the negative
+fixtures fail at their declared layer.
+
+**Step 3 — the full runner and the non-suite gates**:
+`pwsh -NoProfile -File scripts/run-tests.ps1 -All -JsonSummaryPath <external
+create-new path>` → **`Test summary: PASS; discovered=39; passed=39; failed=0;
+timed-out=0`** (external create-new summary phase3-task9-unified-rerun-20260915-123558.json, SHA-256 `033daf312a9a0bb38bb71326d4ce966150d6589108f4d283066aa2f29dec77b1`, requiredJobTimeoutSeconds 25785) (the first attempt of this checkpoint read
+`passed=36; failed=0; timed-out=3` because `harness-authority` (300 s),
+`harness-env` (180 s) and `task-skills` (120 s) had budgets smaller than their
+post-Task-8 runtime; the budgets were raised to 900/600/900 s and the CI job
+timeout from 400 to 460 minutes — the runner's own
+`SetupAndNonSuiteBudgetSeconds + Σsuite budgets + margin` computation demands
+430 — and the rerun is the PASS above). Non-suite gates: parse gate 171 files;
+`doctor.ps1 -HomeRoot <isolated> -SkipSecretsScan` PASS (19 PASS/10 WARN/0 FAIL);
+`build-skills.ps1` PASS with the build-leaves-Git-clean proof (0 unexpected
+untracked files, 0 tracked generated output); secret scan clean; artifact
+validation PASS; dangerous tracked-file scan 0 violations over 569 files; and
+`git diff --check` run with exactly the four protected Reasonix literal negative
+pathspecs (`.reasonix/desktop-topic-auto-title-meta.json`,
+`-created-at.json`, `-title-sources.json`, `-titles.json`), which are untracked
+leaves whose contents were never opened, hashed or committed (the same scan sees
+no tracked `.reasonix` entry, and the adjacent-file probe stayed visible).
+
+**Step 4 — requirements and quality reviews.** An independent read-only Phase 3
+requirements review covered design compliance, the artifact DAG, state
+replacement/recovery (including the new overlay file target), route exclusivity
+(388,800-combination matrix), controller identity, root immutability, overlay
+transactionality and selection-aware pinned planning, and reported compliance on
+all eight axes with four low findings. Adopted here: the migrate `-Apply` legacy
+locator is now required and validated against the exact repo-local path (with
+two new refusals pinned in `harness-authority`), the setup approval path now
+pins the route *command* to the frozen next operation (not just the action
+class), the Task 4 record's apply-order sentence was corrected, and the stale
+`Current checkpoint` section is marked as Phase 1 history. Recorded rather than
+fixed: (G2) an orphan schema-3 state without claims still routes to
+initial/adopt while the host refuses it fail-closed as
+`live-transaction-authority-present` (unactionable status recommendation, no
+test constructs the pair), and (G4) the Phase 2 environment-rollback production
+caller still fails closed with `worktree-overlay-lock-not-implemented` although
+the worktree overlay primitive now exists — wiring that caller is the next
+production item outside the Task 1-8 artifact lists. The Phase 3 Task 8 change
+set was reviewed separately (four findings, all addressed: the command pin, the
+user-temp scratch wording, and two test-coverage tightenings).
+
+**Step 5 — real authority/live state untouched**: every suite and every
+transition ran inside sandbox homes/repos under the injected capability; no
+production Apply/rollback/retirement ran, `scripts/live-safety-policy.psd1` is
+unchanged (`ProtocolVersion=3`, `ReleaseState=interlocked`), and no tracked file
+under the live home or the machine-private paths was written by this work.
 ## Session wrap-up (2026-09-15): Task 7 landed, Task 8 draft parked, hard-kill re-seal open
 
 Task 7 is committed as `b86b8b1` (production, tests, and records, with its twelve
@@ -3867,7 +3930,7 @@ environment staging locks; this does not authorize Apply.
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
 The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Tasks 1-8 are complete and Task 9 remains; the earlier note here that Task 8 was only an uncommitted working-tree
+that order — Tasks 1-9 are complete; the earlier note here that Task 8 was only an uncommitted working-tree
 draft (see the 2026-09-15 wrap-up section), and Task 9 remains — and the Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in

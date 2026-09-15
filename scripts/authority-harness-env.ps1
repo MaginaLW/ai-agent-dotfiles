@@ -208,6 +208,14 @@ if ($Apply) {
     $readDocument = Read-LiveSyncPlan -Path $planFull
     Assert-LiveSyncPlanDocumentIntegrity -Document $readDocument
     if ([string] $readDocument.PlanPayload.OperationKind -cne $operationKind) { throw $script:AuthorityPlanKindMismatch }
+    if ($operationKind -ceq 'migrate') {
+        # The legacy locator is part of the migrate contract on both invocations:
+        # an apply that does not name the exact repo-local legacy state it
+        # re-validates is not the reviewed migrate composition.
+        if ([string]::IsNullOrWhiteSpace($LegacyStatePath)) { throw $script:AuthorityLegacyLocatorRequired }
+        $expectedLegacyPath = [System.IO.Path]::GetFullPath((Get-HarnessEnvStatePath -RepoRoot $repo))
+        if ([System.IO.Path]::GetFullPath($LegacyStatePath) -cne $expectedLegacyPath) { throw $script:AuthorityLegacyLocatorMismatch }
+    }
     if ($readDocument.PlanPayload.Contains('EnvironmentMaterializationRoot')) {
         $null = Assert-LiveSyncPlanCurrent -Document $readDocument -MaterializationDirectory ([string] $readDocument.PlanPayload.EnvironmentMaterializationRoot.Path)
     }

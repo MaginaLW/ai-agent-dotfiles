@@ -975,6 +975,11 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 
 ## Current checkpoint
 
+> Historical snapshot (Phase 1/privacy era). The authoritative current status is in
+> `STATUS.md` (Phase 3 Tasks 1-8 complete, Task 9 checkpoint in progress) and in the dated
+> Phase 3 sections below; this section is retained only as history and must not be read as
+> the current state.
+
 Phase 1 Task 9 and roadmap Task 1 are complete. The branch/tag rewrite is published; Support completed
 server-side garbage collection/cache clearing, and the old head is no longer available through the
 web, REST, raw-content, or direct Git SHA probes. Ticket `#4697323` and the external privacy follow-up
@@ -2019,11 +2024,14 @@ Implemented (`d7e81b1`):
   and a missing/corrupt state), and the managed backup receipt pre-images the
   authority state and claims for every kind that changes them.
 - `scripts/authority-harness-env.ps1 -Apply` composes: interlock, plan path,
-  integrity, kind, materialization currency, selection context, consumption,
-  canonical-status gate, prefix gate, per-platform same-volume staging roots
+  integrity, kind (with the exact legacy locator re-required for `migrate`),
+  materialization currency, selection context, the canonical-status gate, the
+  prefix gate, the plan-consumption gate, per-platform same-volume staging roots
   with mutation-preflight capability hashes, then the host. The script imports
   the home-authority and registry modules and no longer stops at
-  `authority-apply-not-wired`.
+  `authority-apply-not-wired`. (The ordering sentence here originally placed
+  consumption before the canonical/prefix gates; the code — and the Task 6
+  section — runs the gates first.)
 
 Verified at this boundary: authority 293/293 (including the new precondition
 assertions - a transition apply stops at `canonical-setup-required` and
@@ -2540,3 +2548,44 @@ Carried findings:
 
 Do not run production Apply, backup, rollback, retirement, or live mutation.
 `safety-protocol-upgrade-required` remains the expected production result.
+
+## Phase 3 Task 9 (2026-09-15, complete): the Phase 3 checkpoint
+
+Five steps, all evidenced on the committed tree:
+
+1. Focused suites: harness-authority 432/0, harness-env 311/0, task-skills 93/0,
+   automation-safety PASS, agent-dotfiles 23/0, approved-runner PASS,
+   backup-recovery PASS, live-recovery PASS, sync PASS, canonical-hard-kill
+   318/0, reap-semantics 27/0.
+2. Artifacts: `validate-json-artifacts.ps1 -All` 31/31/133 PASS across the
+   Phase 3 artifact set (env-build 3, lock 3, state 3 `oneOf`, root claims,
+   list/status 2, the four plan kinds, receipts, journals, live-operation-result
+   v1) with the negative fixtures failing at their declared layer.
+3. Runner + non-suite gates: the definitive
+   `run-tests.ps1 -All -JsonSummaryPath <external create-new>` run reads
+   `PASS; discovered=39; passed=39; failed=0; timed-out=0` (external create-new
+   summary `phase3-task9-unified-rerun-20260915-123558.json`, SHA-256
+   `033daf312a9a0bb38bb71326d4ce966150d6589108f4d283066aa2f29dec77b1`). The first attempt
+   read `passed=36; failed=0; timed-out=3`: harness-authority (300 s),
+   harness-env (180 s) and task-skills (120 s) had budgets below their
+   post-Task-8 runtime, so the budgets became 900/600/900 s and the CI job
+   timeout 400 → 460 minutes (the runner's own required-budget computation is
+   430). Non-suite gates: parse 171 files, doctor PASS (19/10/0 in an isolated
+   home), build-skills PASS with zero untracked/tracked-generated output, secret
+   scan clean, dangerous-file scan 0 violations over 569 tracked files, and
+   `git diff --check` with exactly the four protected Reasonix literal negative
+   pathspecs (untracked leaves, never opened or hashed).
+4. Reviews: an independent Phase 3 requirements/quality review reported
+   compliance on all eight requested axes (design, artifact DAG, state
+   replacement/recovery, route exclusivity, controller identity, root
+   immutability, overlay transactionality, selection-aware pinned planning) with
+   four low findings; the migrate apply-locator gap and the setup command pin
+   were fixed here, the record inaccuracies were corrected, and G2 (orphan
+   state without claims → unactionable status recommendation, fail-closed in the
+   host) plus G4 (the Phase 2 environment-rollback caller still refuses with
+   `worktree-overlay-lock-not-implemented` although the primitive exists) are
+   recorded as the next items. The Task 8 change set was reviewed separately;
+   all four of its findings are addressed.
+5. Real authority/live state untouched: all runs used sandbox homes/repos; no
+   production Apply/rollback/retirement ran; `scripts/live-safety-policy.psd1`
+   (`ProtocolVersion=3`, `ReleaseState=interlocked`) is unchanged.
