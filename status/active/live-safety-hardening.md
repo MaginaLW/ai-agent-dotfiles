@@ -2426,16 +2426,21 @@ lock); live-recovery PASS; harness-env 311/0; harness-authority 406/0; sync
 PASS; agent-dotfiles 23/0; automation-safety PASS; live-concurrency PASS;
 canonical-transaction 64/0; canonical-transaction-apply 21/0;
 transaction-journal-exact-byte 12/0; backup-recovery PASS;
-canonical-hard-kill-reap-semantics 27/0; `canonical-hard-kill` **is still red:
-12 self-seal digest pins remain stale** after re-sealing its reviewed-load
-manifest hashes and part of the derived prelude/controller/cleanup digests (the
-harness derives those digests from its own file text, so every re-seal pass
-moves them; only expectation values were changed, never a check, and no
-assertion was removed or loosened). The pins had already drifted when Tasks 5/6
-added production functions to `canonical-transaction-common.ps1` and
-`transaction-journal-common.ps1` — that suite was not re-run at those boundaries
-— so finishing the re-seal is the carried item for the Task 9 checkpoint, where
-the definitive unified run must be green; artifact validation 31/31/133 PASS; seams 56/56 re-pinned
+canonical-hard-kill-reap-semantics 27/0; `canonical-hard-kill` **is green:
+318/0**. The re-seal in this commit (expectation values only, no check removed
+or loosened) had already brought the reviewed-load manifest, the 24-row prelude
+rows and digest, the pre-section token digest, the transport/transport-mutations
+extent pins, the cleanup-gate self digest, the main-try extent, the top-level
+execution digest, the function-inventory digest and the controller-surface sha
+to their current values; the 12 failures I saw were the poisoning from runs that
+predated the final file write (a single stale pin invalidates the cleanup
+contract, which empties the behaviour-probe result set and fails its eleven
+dependent assertions). Re-verified after the fact: full suite 318/0, primitives
+section 95/0, reap-semantics 27/0, an isolated re-derivation of every
+self-referential pin matches, and the behaviour probe runs its exact 20-case set
+with zero residue. A pristine `git archive HEAD` copy of the repository shows
+`canonical-production-seams` 56/56; the working tree showed 36/20 only while the
+uncommitted Task 8 draft below was present;artifact validation 31/31/133 PASS; seams 56/56 re-pinned
 (reflection 15668, digest `81bacf1b4fc984d19aad9205b51cf9470eae0efb9fd16bcad0173c04d076c807`);
 parse gate 171 files; secret scan clean; `git diff --check` clean.
 

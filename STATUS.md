@@ -3614,13 +3614,15 @@ PASS; harness-env 311/0; harness-authority 406/0; sync PASS; agent-dotfiles 23/0
 automation-safety PASS; live-concurrency PASS; canonical-transaction 64/0;
 canonical-transaction-apply 21/0; transaction-journal-exact-byte 12/0;
 backup-recovery PASS; canonical-hard-kill-reap-semantics 27/0; `canonical-hard-kill`
-**is still red — 12 self-seal digest pins remain stale** after re-sealing its
-reviewed-load manifest and part of the derived prelude/controller/cleanup digests
-(the harness derives them from its own file text, so each pass moves them;
-expectation values only were changed, no check removed or loosened). The pins had
-already drifted with the Task 5/6 production additions (that suite was not re-run
-at those boundaries), and finishing the re-seal is the carried item for the
-Task 9 checkpoint; artifact validation 31/31/133 PASS; seams 56/56 re-pinned (reflection
+**is green: 318/0.** The re-seal committed here already carried the correct
+derived values (expectation values only, no check removed or loosened); the
+twelve failures came from runs that predated the file's final write, and the
+full suite, the primitives section (95/0), an isolated re-derivation of every
+self-referential pin and the 20-case behaviour probe with zero residue all
+re-verified green afterwards. `canonical-production-seams` is 56/56 in a
+pristine `git archive HEAD` copy; the working tree showed 36/20 only while the
+uncommitted Task 8 draft was present, so that draft is now stashed instead of
+left dirty. The carried item — finishing that re-seal — is therefore closed;Task 9 checkpoint; artifact validation 31/31/133 PASS; seams 56/56 re-pinned (reflection
 15668, digest `81bacf1b...`); parse gate 171 files; secret scan clean (two token
 literals whose `sk-` substring tripped the OpenAI-key pattern were split);
 `git diff --check` clean. Production Apply remains interlocked.
@@ -3713,6 +3715,18 @@ independent-review findings adopted); see the Phase 3 Task 7 section above. This
 wrap-up snapshot of the 2026-09-15 sessions that followed; the interim cross-session handoff file
 was folded in here and removed.
 
+**The `canonical-hard-kill` re-seal is resolved (2026-09-15, later the same day): the suite is
+green at 318/0.** Verified by a full run, the `-Section primitives` subset (95/0), the
+reap-semantics suite (27/0), an isolated re-derivation of every self-referential pin (24 prelude
+rows and digest, the 27-root pre-section token digest, all 28 `Require-ReviewedFunctionHash` extent
+pins, the function-inventory digest, the cleanup-gate self digest, the controller-surface sha and
+the header digest - all matching) and the behaviour probe's exact 20-case set with zero residue.
+The twelve failures reported at the Task 7 boundary came from runs that predated the test file's
+final write (one stale pin invalidates the cleanup contract, which empties the behaviour-probe
+result set and fails its eleven dependent assertions); the re-seal committed in `b86b8b1` was
+already correct, and `canonical-production-seams` is 56/56 in a pristine `git archive HEAD` copy
+(the working tree read 36/20 only while the uncommitted Task 8 draft was present, which is now
+stashed). The account below is the red-state snapshot as it stood before that verification:
 **The `canonical-hard-kill` re-seal is still open and the suite is still red** (12 stale
 self-seal digest pins at the Task 7 boundary; the pins had drifted since Task 5/6, where the
 suite was not re-run). A breakpoint-instrumented diagnostic run of the unmodified suite,
@@ -3778,14 +3792,17 @@ step lists are in
 
 ## Next actions
 
-1. **Finish the `canonical-hard-kill` re-seal first** — the suite is still red (12 stale self-seal
-   digest pins at the Task 7 boundary, drifted since Task 5/6) and the Task 9 checkpoint depends on
-   it. Fix or rewrite the gitignored helper `tmp/reseal-hard-kill.ps1` (parse error around its
-   lines 100/107), then run the suite with captured output for the real verdict. The instrumented
-   06:47 run died without a verdict; its dumps through 07:29 (machine-local
-   `%TEMP%\hk-bp-out.txt`) show the live behavior probe passing 20/20 while the held engine/host
-   validation probes refuse to launch on static preflight gates — see the 2026-09-15 wrap-up
-   section above.
+1. **Finish Phase 3 Task 8** (pinned runner selection-aware preview routing): its
+   four roadmap steps are unimplemented. A partial draft exists and is **stashed**
+   (`scripts/auto-sync-after-git.ps1`, `scripts/runner-policy.psd1`, `scripts/setup.ps1`,
+   `tests/automation-safety.tests.ps1`, `tests/approved-runner.tests.ps1`,
+   `tests/harness-authority.tests.ps1`) — it carries a sound `PreviewRouteActions`
+   route table keyed exactly by the frozen authority routes and a setup-time
+   approval pin, but its fixtures never create `manifests/managed-skills.claude.txt`,
+   so its own suites fail during setup and it also dragged
+   `canonical-production-seams` to 36/20 in the working tree. Recover it with
+   `git stash list` / `git stash show -p stash@{0}`, or rewrite it from the
+   roadmap; do not commit it as-is.
 2. **Finish Phase 3 Task 8**
    ([`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
    line 270): the uncommitted six-file draft fails its own suites — two fixture
