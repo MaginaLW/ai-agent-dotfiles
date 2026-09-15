@@ -3708,6 +3708,35 @@ live-plan 121 PASS; sync PASS; artifact validation 31/31/133 PASS; seams 56/56 r
 The parameter-name gate added in Task 2 caught three real defects here. Commits: `2d6bdf0` the
 shared-module refactor, `bdf9073` the command surface.
 
+## Task 7 carry-over closed (2026-09-15): the rollback composition reclaims its own staging scratch
+
+Committed as `d6211c9`. Phase 2 Task 7 Step 4 requires "cleanup swap-old/staged/pre-rollback copies
+only after complete success; preserve all durable receipts/evidence on restore failure", and the
+rollback composition reclaimed nothing. `Invoke-SealedEnvironmentRollbackTransaction` now calls a
+new private `Remove-SealedEnvironmentRollbackStaging` after the engine returns, so deletion is gated
+on three re-proven facts rather than on the call simply returning: the engine returned normally; a
+fresh journal-chain read shows exactly one terminal `Phase=COMPLETE` record (`Outcome=committed`,
+`ClosingKind=original`) with a matching committed result and this plan's
+`OriginalPlanHash`/`OriginalDocumentHash`; and the reviewed chain validator accepts
+header+records+result. Anything else reclaims nothing and still returns the committed result, so a
+reclamation error can never turn a committed transaction into a reported failure.
+
+In scope are only this composition's own leaves: the `staged`/`swap` entry of each reviewed engine
+target row, the path derived from the row as `<own platform staging root>/<area>/<target name>`
+rather than discovered by scanning, and its own state-recovery preimage copy, admitted only after
+`Test-SafePathInsideRoot` proves it sits inside the composition's own staging roots.
+`Assert-NoReparseExistingChain` refuses to follow a reparse point, and the journal, both receipts
+(including the source activation receipt and its snapshot trees) and the authority state/claims are
+never touched. `tests/backup-recovery.tests.ps1` grew from 155 to 188 assertions: the success-path
+reclamation assertions plus a failure-preservation section covering both the `failed-restored`
+restore path and the recovery-required path, where live bytes, swap-old and staged entries, the
+pre-rollback copy and both receipts all survive. Verification: backup-recovery PASS 188;
+harness-env 311/0; canonical-production-seams 56/56 at this commit, its re-pin derived by
+reproducing the suite's all-scripts inventory (byte-identical to the tracked baseline at the
+previous commit) and reviewed site by site — reflection-sensitive 15668 → 15701 with all 33 added
+sites being member/dispatch inventory entries of the new code, zero new reflection types and zero
+new `Add-Type`/`Get-Command`/`Invoke-Expression` sites, and the dynamic-command digest unchanged.
+
 ## Phase 3 Task 8 (2026-09-15): selection-aware preview routing for the pinned runner
 
 Task 8 is complete at 4/4 steps and committed as `2ca0488` (implementation by the
@@ -3726,7 +3755,7 @@ concurrent 2026-09-15 session, integrated and verified by the coordinator):
   `runner-review-required`.
 - **Step 2 — routing from shared authority.** `scripts/auto-sync-after-git.ps1`
   routes each trigger from the canonical/authority state: a pristine home
-  materializes the named `full` environment through env-build v3 into Git-private
+  materializes the named `full` environment through env-build v3 into user-temp
   scratch and emits only the non-consumable initial preview plus the exact
   external `env activate full -DryRun -PlanPath <external-user-artifact>`
   command; a non-pristine home emits only the adoption diagnostic with the
@@ -3785,6 +3814,18 @@ The dependency-ordered re-seal helper `tmp/reseal-hard-kill.ps1` (gitignored, ma
 still has the pre-existing parse error around its lines 100/107 and must be fixed or rewritten
 before the next re-seal attempt.
 
+Correction (2026-09-15, later the same day). The "found dead" reading above is wrong, and so is
+the sentence it supports: the tree was already consistent, and a run that is said to be dead is
+not evidence about the current tree until it is re-verified. The 06:47 run's successor was launched
+at 07:49 and was still alive and actively starting checkpoint hosts at 08:20 +0800 — an orphan whose
+parent process had exited, writing progress to the machine-local `%TEMP%\hk-progress2.txt` while its
+stdout went to an unrecoverable broken pipe, so its verdict could never have been recovered. It was
+terminated so the controlled runs could proceed. Independently: every self-referential pin
+re-derives clean, `-Section primitives` is 95/0, and two full runs read 318/0 (`06d1902`, and this
+window's `-All` run). The re-seal helper was rewritten from the proven `tmp/reseal-safe.ps1` rather
+than patched — `tmp/reseal-hard-kill.ps1` now parses cleanly (12 errors → 0) and offers a `-Verify`
+mode that reports mismatches without writing plus the full ordered fixpoint re-seal.
+
 **Phase 3 Task 8 ("Upgrade the Pinned Runner to Selection-Aware Preview Routing", roadmap line
 270) exists only as an uncommitted, broken working-tree draft**: six files last edited
 05:00-05:21 +0800 — `scripts/auto-sync-after-git.ps1` (+265), `scripts/runner-policy.psd1` (+30:
@@ -3834,32 +3875,30 @@ step lists are in
 
 ## Next actions
 
-1. **Finish Phase 3 Task 8** (pinned runner selection-aware preview routing): its
-   four roadmap steps are unimplemented. A partial draft exists and is **stashed**
-   (`scripts/auto-sync-after-git.ps1`, `scripts/runner-policy.psd1`, `scripts/setup.ps1`,
-   `tests/automation-safety.tests.ps1`, `tests/approved-runner.tests.ps1`,
-   `tests/harness-authority.tests.ps1`) — it carries a sound `PreviewRouteActions`
-   route table keyed exactly by the frozen authority routes and a setup-time
-   approval pin, but its fixtures never create `manifests/managed-skills.claude.txt`,
-   so its own suites fail during setup and it also dragged
-   `canonical-production-seams` to 36/20 in the working tree. Recover it with
-   `git stash list` / `git stash show -p stash@{0}`, or rewrite it from the
-   roadmap; do not commit it as-is.
-2. **Finish Phase 3 Task 8**
-   ([`the Phase 3 plan`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md)
-   line 270): the uncommitted six-file draft fails its own suites — two fixture
-   directory-creation defects (`manifests/`, `harness-source/envs/`) and five
-   route-table/toolchain-pin assertion failures in harness-authority — and covers only the Step 1
-   shape. Finish Steps 2-4 or revert the draft deliberately; never `git add -A` while it is
-   parked. Own commit per roadmap.
-3. **Task 7's carried item**: the rollback composition's own post-success staging cleanup where
-   its spec requires it.
-4. **Task 9 checkpoint** (roadmap line 297): focused suites, artifact validation, the definitive
-   full-runner pass, the non-suite gates including `git diff --check` with the four protected
-   Reasonix pathspecs, and the requirements/quality reviews — after items 1-2. The authoritative,
+1. **Task 9 checkpoint** (roadmap line 297) — now the head of the queue. Run the focused suites
+   (`harness-authority`, `harness-env`, `task-skills`, `automation-safety`, `agent-dotfiles`), the
+   registered artifact validation, the definitive full-runner pass, and the non-suite gates: parse,
+   secret scan, doctor, the generated-skill build leaving Git clean, machine-readable schema/build
+   evidence, the dangerous-tracked-file check, and `git diff --check` with exactly the four
+   protected Reasonix literal negative pathspecs. Then the requirements and quality reviews, keeping
+   the real authority/live state untouched and the interlock policy unchanged. The authoritative,
    itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
-5. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
+   This window's own `-All` run passed 36 of 39 suites with zero failures and three timeouts
+   (`harness-authority` 300 s, `harness-env` 180 s, `task-skills` 120 s) while a second full run
+   held the machine. Re-run serially on a quiet machine both measured suites pass clean but do not
+   fit their original budgets: `harness-env` 311/0 in 312 s against a 180 s budget and `task-skills`
+   93/0 in 195 s against 120 s, so those two budgets were simply too small for this machine and the
+   timeouts were not purely contention. `harness-authority` passed standalone at 430/0; its
+   contended 300 s timeout is being re-measured after that suite's own budget was raised.
+2. **Carried finding, now unblocked**: `tests/canonical-hard-kill.tests.ps1:8256` holds the
+   operator-as-parameter defect (three intended taint checks parse as one call, so two never run).
+   Its documented precondition — the full reviewed-load re-pin — has landed, so the fix plus the
+   removal of the `scripts/check-powershell-syntax.ps1` exemption can be taken as its own slice.
+   It is deliberately not bundled into this window's commits: it changes a sealed analysis's
+   accept/reject surface and needs its own re-seal, `-Section primitives` signal and full-suite
+   verdict.
+3. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,
    `2944a98` the rollback receipt producer kind, `365f8d3` Task 7 Steps 3-4 the executed rollback
@@ -3872,19 +3911,19 @@ step lists are in
    caller (the Phase 3 worktree overlay lock). The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
    "Pending items (2026-09-13, after Phase 3 Task 1)".
-6. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
+4. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; the
    recovery-side worktree overlay lock waits for the Phase 3 worktree overlay primitive; and the
    `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the production host is
    child-killable. The engine's per-target drift protection is hash-based; the rollback plan's
    `Current` identity binding is recorded as not enforced by the existing ladder.
-7. The stale commit-bound `minimal`, `work`, and `full` staging locks were rebuilt on 2026-09-13
+5. The stale commit-bound `minimal`, `work`, and `full` staging locks were rebuilt on 2026-09-13
    (all three report `staging=built lock=valid` under the current HEAD; the generated `envs/`
    artifacts are gitignored machine-local state). This is artifact preparation only and does not
    authorize environment Apply.
-8. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
-9. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
+6. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
+7. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
    use a new machine-local retirement JSON and reviewed bound plan; do not reuse this machine's
    deleted authorization files.

@@ -2454,7 +2454,7 @@ diverges from the frozen route set or that would materialize a build for a
 diagnostic route, and drift over the extended bundle fails the hooks closed with
 `runner-review-required`. The Git hook routes every trigger from the shared
 authority state: pristine home → non-consumable `full` preview from an env-build
-v3 materialization in Git-private scratch plus the exact external DryRun command;
+v3 materialization in user-temp scratch (removed in a finally block) plus the exact external DryRun command;
 non-pristine → adoption diagnostic only; recovery/manual/repair-adopt/takeover/
 migrate/owner-action → diagnostic-only with zero materialization; controller
 mismatch decisions come from the authority route, not from clone-local state.
@@ -2468,6 +2468,37 @@ staging scratch — the Task 6 carried item); task-skills 93/0; live-recovery PA
 sync PASS; agent-dotfiles 23/0; canonical-hard-kill 318/0; reap-semantics 27/0;
 artifact validation 31/31/133 PASS; seams 56/56; parse gate 171 files; secret
 scan and `git diff --check` clean.
+
+## Task 7 carry-over closed (2026-09-15, complete): the rollback staging reclaim
+
+Committed as `d6211c9`. Phase 2 Task 7 Step 4 requires "cleanup swap-old/staged/pre-rollback copies
+only after complete success; preserve all durable receipts/evidence on restore failure", and the
+rollback composition reclaimed nothing. `Invoke-SealedEnvironmentRollbackTransaction` now calls a
+new private `Remove-SealedEnvironmentRollbackStaging` after the engine returns, gating deletion on
+three re-proven facts rather than on the call returning: the engine returned normally; a fresh
+journal-chain read shows exactly one terminal `Phase=COMPLETE` record (`Outcome=committed`,
+`ClosingKind=original`) with a matching committed result and this plan's
+`OriginalPlanHash`/`OriginalDocumentHash`; and the reviewed chain validator accepts
+header+records+result. Anything else reclaims nothing and still returns the committed result, so a
+reclamation error can never turn a committed transaction into a reported failure.
+
+Only this composition's own leaves are in scope: the `staged`/`swap` entry of each reviewed engine
+target row, the path derived from the row as `<own platform staging root>/<area>/<target name>` and
+never discovered by scanning, plus its own state-recovery preimage copy admitted only after
+`Test-SafePathInsideRoot` proves containment in the composition's own staging roots.
+`Assert-NoReparseExistingChain` refuses to follow a reparse point, and the journal, both receipts
+(including the source activation receipt and its snapshot trees) and the authority state/claims are
+untouched. `tests/backup-recovery.tests.ps1` grew from 155 to 188 assertions, adding the
+success-path reclamation assertions and a failure-preservation section for both the
+`failed-restored` restore path and the recovery-required path.
+
+Verification: backup-recovery PASS 188; harness-env 311/0; canonical-production-seams 56/56 at
+this commit, its re-pin derived by reproducing the suite's all-scripts inventory (byte-identical to
+the tracked baseline at the previous commit) and reviewed site by site — reflection-sensitive
+15668 → 15701, every added site a member/dispatch inventory entry of the new code, zero new
+reflection types, zero new `Add-Type`/`Get-Command`/`Invoke-Expression` sites, dynamic-command
+digest unchanged.
+
 ## Pending items (2026-09-14, after Phase 3 Task 3)
 
 **Phase 2 (Tasks 1-9) is complete and Phase 3 Task 1 is complete.** The remaining items are
@@ -2496,7 +2527,12 @@ Carried findings:
   operator-as-parameter defect (three intended taint checks parse as one call, so two never run).
   Fixing it requires the full reviewed-load re-pin, so the parse-gate exemption list
   (`scripts/check-powershell-syntax.ps1`) intentionally keeps that one line exempt and every other
-  occurrence fatal; the exemption must be cleared once the re-pin lands.
+  occurrence fatal; the exemption must be cleared once the re-pin lands. **Update 2026-09-15: the
+  precondition has landed** — the re-seal is resolved and every self-referential pin re-derives
+  clean — so the line fix plus the exemption removal is now unblocked and queued ahead of the
+  Phase 4 work. It was deliberately not bundled into `d6211c9`/`2ca0488`, because it changes a
+  sealed analysis's accept/reject surface and needs its own re-seal, `-Section primitives` signal
+  and full-suite verdict.
 - **Placement-pinned checkpoint**: `RECEIPT_FINALIZATION` is pinned at the source boundary because
   the production host is not yet run as a killable child.
 
