@@ -3826,11 +3826,11 @@ locator is now required and validated against the exact repo-local path (with
 two new refusals pinned in `harness-authority`), the setup approval path now
 pins the route *command* to the frozen next operation (not just the action
 class), the Task 4 record's apply-order sentence was corrected, and the stale
-`Current checkpoint` section is marked as Phase 1 history. Recorded rather than
-fixed: (G2) an orphan schema-3 state without claims still routes to
-initial/adopt while the host refuses it fail-closed as
-`live-transaction-authority-present` (unactionable status recommendation, no
-test constructs the pair), and (G4) the Phase 2 environment-rollback production
+`Current checkpoint` section is marked as Phase 1 history. Fixed right after this
+checkpoint: (G2) an orphan schema-3 state without claims now routes to
+`manual-recovery-required` instead of recommending initial/adopt (which the host
+refuses), pinned by three new `harness-authority` assertions at 435/0. Still
+recorded: (G4) the Phase 2 environment-rollback production
 caller still fails closed with `worktree-overlay-lock-not-implemented` although
 the worktree overlay primitive now exists — wiring that caller is the next
 production item outside the Task 1-8 artifact lists. The Phase 3 Task 8 change

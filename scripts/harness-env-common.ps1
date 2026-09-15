@@ -731,6 +731,13 @@ function Resolve-HarnessEnvAuthorityRoute {
     if ($PairStatus -ceq 'MISMATCH') { return 'manual-recovery-required' }
     if ($ClaimsStatus -ceq 'VALID' -and ($StateStatus -ceq 'CORRUPT' -or $StateStatus -ceq 'MISSING')) { return 'repair-adopt' }
     if ($ClaimsStatus -ceq 'MISSING') {
+        # An orphan state without claims is not a first-authority situation: a
+        # valid or corrupt schema 3 state proves an authority existed while its
+        # immutable claims are gone, and every first-authority transition
+        # (initial/migrate/adopt) requires claims and state both absent. Such a
+        # machine routes to manual recovery instead of recommending a transition
+        # the host refuses.
+        if ($StateStatus -cin @('VALID', 'CORRUPT')) { return 'manual-recovery-required' }
         if ($LegacyStatus -ceq 'CORE') {
             if ($OldLockStatus -ceq 'VERIFIED' -and $LegacyLiveParityStatus -ceq 'pass') { return 'migrate' }
             return 'manual-recovery-required'

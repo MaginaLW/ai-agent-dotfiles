@@ -2580,11 +2580,13 @@ Five steps, all evidenced on the committed tree:
    replacement/recovery, route exclusivity, controller identity, root
    immutability, overlay transactionality, selection-aware pinned planning) with
    four low findings; the migrate apply-locator gap and the setup command pin
-   were fixed here, the record inaccuracies were corrected, and G2 (orphan
-   state without claims → unactionable status recommendation, fail-closed in the
-   host) plus G4 (the Phase 2 environment-rollback caller still refuses with
-   `worktree-overlay-lock-not-implemented` although the primitive exists) are
-   recorded as the next items. The Task 8 change set was reviewed separately;
+   were fixed here, the record inaccuracies were corrected, and G4 (the Phase 2
+   environment-rollback caller still refuses with
+   `worktree-overlay-lock-not-implemented` although the primitive exists) is
+   recorded as the next item. G2 was fixed right after the checkpoint: an orphan
+   schema-3 state without claims now routes to `manual-recovery-required`
+   instead of recommending initial/adopt, pinned by three new assertions in
+   `harness-authority` (435/0). The Task 8 change set was reviewed separately;
    all four of its findings are addressed.
 5. Real authority/live state untouched: all runs used sandbox homes/repos; no
    production Apply/rollback/retirement ran; `scripts/live-safety-policy.psd1`

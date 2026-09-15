@@ -944,6 +944,19 @@ $mismatch = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity
 Assert ([string] $mismatch.PairStatus -ceq 'MISMATCH') 'a state that does not bind the claims bytes is a MISMATCH'
 Assert ([string] $mismatch.Route -ceq 'manual-recovery-required') 'a pair mismatch routes to manual recovery'
 
+# An orphan schema 3 state without its immutable claims is not a first-authority
+# situation: the route must be manual recovery, never the initial/adopt
+# recommendation its legacy branch would otherwise emit (the host refuses those,
+# so the status recommendation would be unactionable).
+$orphanClaimsPath = [System.IO.Path]::Combine([string] $repairContext.ControlBase, 'homes', [string] $pair.Key, 'root-claims.json')
+$orphanClaimsBytes = [System.IO.File]::ReadAllBytes($orphanClaimsPath)
+Remove-Item -LiteralPath $orphanClaimsPath -Force
+$orphan = Get-HarnessEnvAuthorityAssessment -RepoRoot $authorityRepo -Identity $repairIdentity
+Assert ([string] $orphan.RootClaimsStatus -ceq 'MISSING' -and [string] $orphan.StateStatus -ceq 'VALID') 'the orphan-state fixture is claims-MISSING with a valid state'
+Assert ([string] $orphan.Route -ceq 'manual-recovery-required') 'an orphan state without claims routes to manual recovery'
+Assert ([string] $orphan.NextOperation -ceq 'env authority status') 'the orphan-state route recommends the status review'
+[System.IO.File]::WriteAllBytes($orphanClaimsPath, $orphanClaimsBytes)
+
 # The authority-active status branch: definition map, overlay path and the
 # state-bound lock drive the summary the schema 2 status document carries.
 $definitionByName = @{}
