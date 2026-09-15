@@ -14,6 +14,33 @@ if (-not $ApproveRunner) { throw 'runner-review-required: explicit -ApproveRunne
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $PSScriptRoot 'approved-runner-common.ps1')
 
+# Phase 3 Task 8: explicit setup pins the selection-aware preview routing
+# contract, not just the toolchain bytes. The approved runner never self-approves
+# this table: a checkout whose route table differs from the frozen authority
+# route set is refused here, and after approval any toolchain drift — including
+# this file or the route table — fails the hooks closed with
+# runner-review-required until a new explicit approval.
+. (Join-Path $PSScriptRoot 'harness-env-common.ps1')
+$policy = Get-RunnerPolicy -RepoRoot $RepoRoot
+$routeTable = $policy.PreviewRouteActions
+if ($routeTable -isnot [System.Collections.IDictionary] -or @($routeTable.Keys).Count -eq 0) {
+    throw 'runner-review-required: runner policy carries no preview route table.'
+}
+$authorityRoutes = @($script:HarnessEnvAuthorityRouteNextOperation.Keys | Sort-Object { [string] $_ })
+$policyRoutes = @($routeTable.Keys | Sort-Object { [string] $_ })
+if (@(Compare-Object $authorityRoutes $policyRoutes).Count -ne 0) {
+    throw 'runner-review-required: the preview route table does not match the frozen authority route set.'
+}
+foreach ($route in $policyRoutes) {
+    $row = $routeTable[$route]
+    $action = if ($row -is [System.Collections.IDictionary] -and $row.Contains('Action')) { [string] $row['Action'] } else { $null }
+    $command = if ($row -is [System.Collections.IDictionary] -and $row.Contains('Command')) { [string] $row['Command'] } else { $null }
+    $expectedAction = if ([string] $script:HarnessEnvAuthorityRouteNextOperation[$route] -clike 'env activate*') { 'environment-preview' } else { 'diagnostic' }
+    if ($action -cne $expectedAction -or [string]::IsNullOrWhiteSpace($command)) {
+        throw "runner-review-required: preview route action for '$route' is not a pinned row."
+    }
+}
+
 $state = Approve-RunnerSnapshot -RepoRoot $RepoRoot
 $entry = Publish-ApprovedHookEntry -RepoRoot $RepoRoot -State $state
 $hooksRoot = ((& git -C $RepoRoot rev-parse --path-format=absolute --git-path hooks 2>$null) | Select-Object -First 1).Trim()

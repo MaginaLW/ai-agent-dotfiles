@@ -1624,6 +1624,50 @@ if (Test-Path -LiteralPath (Join-Path $cliSandbox 'sync-plan.json')) {
     Assert ([string] $syncDocument.PlanPayload.OperationKind -cin @('initial', 'retirement')) 'sync can only ever emit its own operation kinds'
 }
 
+# ==============================================================================
+Write-Host 'Phase 3 Task 8: the pinned runner preview route table and its bundle closure'
+$runnerPolicy = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'scripts/runner-policy.psd1')
+$previewRoutes = $runnerPolicy.PreviewRouteActions
+Assert ($previewRoutes -is [System.Collections.IDictionary]) 'the runner policy carries a preview route table'
+$authorityRoutes = @($script:HarnessEnvAuthorityRouteNextOperation.Keys | Sort-Object { [string] $_ })
+$policyRoutes = @($previewRoutes.Keys | Sort-Object { [string] $_ })
+Assert (@(Compare-Object $authorityRoutes $policyRoutes).Count -eq 0) 'the preview route table covers exactly the frozen authority route set'
+foreach ($route in $authorityRoutes) {
+    $row = $previewRoutes[$route]
+    $nextOperation = [string] $script:HarnessEnvAuthorityRouteNextOperation[$route]
+    $expectedAction = if ($nextOperation -clike 'env activate*') { 'environment-preview' } else { 'diagnostic' }
+    Assert (([string] $row['Action']) -ceq $expectedAction -and -not [string]::IsNullOrWhiteSpace([string] $row['Command'])) "the $route route is pinned to its $expectedAction action"
+    Assert (([string] $row['Command']).StartsWith(($nextOperation -replace ' -DryRun$', ''), [System.StringComparison]::Ordinal)) "the $route route command agrees with the frozen next operation"
+}
+$environmentPreviewRoutes = @($policyRoutes | Where-Object { [string] $previewRoutes[$_]['Action'] -ceq 'environment-preview' })
+Assert (($environmentPreviewRoutes -join ',') -ceq 'activate,initial') 'only the activate and initial routes may materialize a build'
+
+$task8BundlePins = @(
+    'scripts/harness-profile-common.ps1'
+    'scripts/harness-authority-status-common.ps1'
+    'scripts/live-transaction-common.ps1'
+    'scripts/backup-receipt-common.ps1'
+    'scripts/status-harness-env.ps1'
+    'scripts/list-harness-env.ps1'
+    'schemas/harness-env-build.schema.json'
+    'schemas/harness-env-lock.schema.json'
+    'schemas/harness-env-list.schema.json'
+    'schemas/harness-env-status.schema.json'
+    'schemas/live-journal-header.schema.json'
+    'schemas/live-journal-record.schema.json'
+)
+$missingPins = @($task8BundlePins | Where-Object { @($runnerPolicy.ToolchainPaths) -cnotcontains $_ })
+Assert ($missingPins.Count -eq 0) 'the approved toolchain bundle pins the authority/status/materialization dependencies of the routing'
+# The bundle's shape has always included two root-level toolchain entrypoints
+# (the scanner config and the bootstrap entrypoint) next to the scripts/,
+# schemas/, and tools/ trees; anything else — and any overlap with the data
+# pathspecs — would mean the pinned bundle started selecting working data.
+$rootLevelToolchainEntries = @('.gitleaks.toml', 'bootstrap.ps1')
+$outsideBundleRoots = @($runnerPolicy.ToolchainPaths | Where-Object { $_ -cnotmatch '\Ascripts/|schemas/|tools/' -and $rootLevelToolchainEntries -cnotcontains $_ })
+Assert ($outsideBundleRoots.Count -eq 0) 'the toolchain bundle keeps selecting only toolchain and schema paths'
+$dataPathspecOverlap = @($runnerPolicy.ToolchainPaths | Where-Object { @($runnerPolicy.DataPathspecs) -ccontains $_ })
+Assert ($dataPathspecOverlap.Count -eq 0) 'the toolchain bundle never overlaps the data pathspecs'
+
 Write-Host ("harness-authority tests: {0} passed, {1} failed" -f $script:pass, $script:fail)
 if ($script:fail -gt 0) {
     Write-Host "Workspace kept for inspection: $work"

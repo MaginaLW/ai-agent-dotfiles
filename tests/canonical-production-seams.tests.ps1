@@ -266,9 +266,9 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
-$reviewedAllScriptsDynamicCommandDigest='963bd7f2d4b2d339b59169469be9f08ed1c840fc6620cac82b8e4f54c1a9b71d'
-$reviewedAllScriptsReflectionSensitiveSiteCount=15701
-$reviewedAllScriptsReflectionSensitiveDigest='ff390cb59649400f873abbb3cc5e01acc6817a87ddaa50d870239db53135aac0'
+$reviewedAllScriptsDynamicCommandDigest='4fc1bb2dad5f2a53946465da07606e5fb00ff8ba4978586879b7200d5addc791'
+$reviewedAllScriptsReflectionSensitiveSiteCount=15766
+$reviewedAllScriptsReflectionSensitiveDigest='f6085678517c7216f59ac1e60c62d11a5a4d448a0279022236d0a8dc7498d68f'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

@@ -6,6 +6,24 @@
         'harness-source'
         '.agent-harness/task-skills.psd1'
     )
+    # The frozen selection-aware preview routing table (Phase 3 Task 8). The
+    # keys are exactly the authority routes emitted by
+    # Resolve-HarnessEnvAuthorityRoute; 'environment-preview' is the only action
+    # that may materialize a build (always from the committed data snapshot into
+    # Git-private scratch, always non-consumable), every other route is
+    # diagnostic-only with zero materialization. Explicit setup refuses to
+    # approve a runner whose route table differs from the authority route set.
+    PreviewRouteActions = @{
+        'recovery'                         = @{ Action = 'diagnostic'; Command = 'live recover status' }
+        'initial'                          = @{ Action = 'environment-preview'; Command = 'env activate full -DryRun' }
+        'activate'                         = @{ Action = 'environment-preview'; Command = 'env activate <name> -DryRun' }
+        'migrate'                          = @{ Action = 'diagnostic'; Command = 'env authority migrate <name> -DryRun -PlanPath <external-plan.json>' }
+        'adopt'                            = @{ Action = 'diagnostic'; Command = 'env authority adopt <name> -DryRun -PlanPath <external-plan.json>' }
+        'repair-adopt'                     = @{ Action = 'diagnostic'; Command = 'env authority repair-adopt <name> -DryRun -PlanPath <external-plan.json>' }
+        'takeover'                         = @{ Action = 'diagnostic'; Command = 'env authority takeover <name> -DryRun -PlanPath <external-plan.json>' }
+        'controller-owner-action-required' = @{ Action = 'diagnostic'; Command = 'env authority status' }
+        'manual-recovery-required'         = @{ Action = 'diagnostic'; Command = 'env authority status' }
+    }
     ToolchainPaths = @(
         '.gitleaks.toml'
         'bootstrap.ps1'
@@ -48,6 +66,12 @@
         'scripts/home-authority-common.ps1'
         'scripts/shared-authority-state-common.ps1'
         'scripts/root-claims-registry-common.ps1'
+        'scripts/harness-profile-common.ps1'
+        'scripts/harness-authority-status-common.ps1'
+        'scripts/live-transaction-common.ps1'
+        'scripts/backup-receipt-common.ps1'
+        'scripts/status-harness-env.ps1'
+        'scripts/list-harness-env.ps1'
         'scripts/scan-secrets.ps1'
         'scripts/semantic-json.ps1'
         'scripts/install-gitleaks.ps1'
@@ -65,6 +89,12 @@
         'schemas/canonical-setup-state.schema.json'
         'schemas/root-claims.schema.json'
         'schemas/current-env-state.schema.json'
+        'schemas/harness-env-build.schema.json'
+        'schemas/harness-env-lock.schema.json'
+        'schemas/harness-env-list.schema.json'
+        'schemas/harness-env-status.schema.json'
+        'schemas/live-journal-header.schema.json'
+        'schemas/live-journal-record.schema.json'
         'schemas/canonical-journal-header.schema.json'
         'schemas/canonical-journal-record.schema.json'
         'schemas/canonical-journal-manifest.schema.json'

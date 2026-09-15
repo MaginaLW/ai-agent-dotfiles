@@ -180,19 +180,57 @@ try {
     $dataFile = Join-Path $approvalRepo 'skills-source/shared/fixture/SKILL.md'
     [System.IO.Directory]::CreateDirectory((Split-Path -Parent $dataFile)) | Out-Null
     [System.IO.File]::WriteAllText($dataFile, "---`nname: fixture`ndescription: fixture`n---`n", [System.Text.UTF8Encoding]::new($false))
-    & git -C $approvalRepo add -- skills-source/shared/fixture/SKILL.md
+    # Phase 3 Task 8: the routing preview materializes the named environment
+    # from the committed data snapshot, so the fixture also commits the data
+    # allowlist inputs (manifests, env definitions, profiles/components, and
+    # the tracked task overlay) the preview build consumes.
+    [System.IO.Directory]::CreateDirectory((Join-Path $approvalRepo 'manifests')) | Out-Null
+    foreach ($platform in @('claude', 'codex', 'reasonix')) {
+        [System.IO.File]::WriteAllText((Join-Path $approvalRepo "manifests/managed-skills.$platform.txt"), "fixture`n", [System.Text.UTF8Encoding]::new($false))
+    }
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/profiles') -Destination (Join-Path $approvalRepo 'harness-source/profiles') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/components') -Destination (Join-Path $approvalRepo 'harness-source/components') -Recurse -Force
+    [System.IO.Directory]::CreateDirectory((Join-Path $approvalRepo 'harness-source/envs')) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $approvalRepo 'harness-source/envs/full.psd1'), "@{`n    SchemaVersion = 1`n    Name = 'full'`n    Description = 'approval fixture env'`n    Profile = 'base'`n    Skills = @{ Claude = @('fixture'); Codex = @(); Reasonix = @() }`n}`n", [System.Text.UTF8Encoding]::new($false))
+    [System.IO.Directory]::CreateDirectory((Join-Path $approvalRepo '.agent-harness')) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $approvalRepo '.agent-harness/task-skills.psd1'), "@{`n    SchemaVersion = 1`n    BaseEnv = 'full'`n    Skills = @{ Claude = @(); Codex = @(); Reasonix = @() }`n}`n", [System.Text.UTF8Encoding]::new($false))
+    & git -C $approvalRepo add -- skills-source manifests harness-source .agent-harness
     & git -C $approvalRepo commit -qm 'data-only change'
     $newCommit = ((& git -C $approvalRepo rev-parse HEAD) | Select-Object -First 1).Trim()
+
+    # The routing reads the shared authority under a sealed fake-home identity
+    # so the route never depends on this machine's real authority state.
+    $routingHome = Join-Path $work 'routing-home'
+    foreach ($directory in @((Join-Path $routingHome 'AppData/Local'), (Join-Path $routingHome 'AppData/Roaming'))) { [System.IO.Directory]::CreateDirectory($directory) | Out-Null }
+    $identityPath = Join-Path $external 'authority-identity.json'
+    $identityDocument = [ordered]@{
+        ResolverVersion = 'sealed-home-authority-test-adapter-v1'
+        TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ProfileRoot = $routingHome
+        RoamingAppDataRoot = (Join-Path $routingHome 'AppData/Roaming')
+        LocalAppDataRoot = (Join-Path $routingHome 'AppData/Local')
+    }
+    [System.IO.File]::WriteAllText($identityPath, (ConvertTo-Json -InputObject ([pscustomobject] $identityDocument) -Depth 4), [System.Text.UTF8Encoding]::new($false))
+    $env:AI_AGENT_DOTFILES_AUTHORITY_IDENTITY = $identityPath
+    $previewsBefore = @(Get-ChildItem -LiteralPath $approvedContext.PendingPreviewsRoot -File -ErrorAction SilentlyContinue).Count
     $preview = Invoke-TestProcess -ScriptPath $approvedContext.ApprovedHookEntryPath -Arguments @('-RepoRoot',$approvalRepo,'-Trigger','post-checkout','-OldRev',$oldCommit,'-NewRev',$newCommit,'-CheckoutFlag','1')
-    Assert-TestCondition ($preview.Code -eq 0 -and $preview.Out -match 'pending-preview-only') 'data-only change creates a non-consumable preview event'
+    Assert-TestCondition ($preview.Code -eq 0 -and $preview.Out -match 'pending-preview-only') 'data-only change routes to a non-consumable environment preview'
     Assert-TestCondition ($preview.Out -match 'External actionable plan requires an explicit command') 'preview prints an explicit external DryRun command'
-    Assert-TestCondition (@(Get-ChildItem -LiteralPath $approvedContext.PendingEventsRoot -File).Count -eq ($pendingBeforeBootstrap + 1)) 'source-only hook writes one immutable pending event'
+    Assert-TestCondition ($preview.Out -match 'env activate full') 'a pristine fake home routes the initial preview to the named full environment'
+    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $approvalRepo 'envs'))) 'the routed preview materializes nothing into the repository'
+    Assert-TestCondition (@(Get-ChildItem -LiteralPath $approvedContext.PendingEventsRoot -File).Count -eq $pendingBeforeBootstrap) 'the routed preview writes no registered event'
+    $previewsAfter = @(Get-ChildItem -LiteralPath $approvedContext.PendingPreviewsRoot -File)
+    Assert-TestCondition ($previewsAfter.Count -eq ($previewsBefore + 1)) 'the routed preview writes one immutable pending preview'
+    $previewDocument = ConvertFrom-SemanticJson -Json ([System.Text.UTF8Encoding]::new($false, $true).GetString([System.IO.File]::ReadAllBytes($previewsAfter[0].FullName)))
+    Assert-TestCondition ([string] $previewDocument.RedactedContext -match 'route=initial env=full build=env-build-v3-verified' -and [string] $previewDocument.PreviewStatus -ceq 'non-consumable') 'the routed preview binds the verified build and stays non-consumable'
     $previewRepeat = Invoke-TestProcess -ScriptPath $approvedContext.ApprovedHookEntryPath -Arguments @('-RepoRoot',$approvalRepo,'-Trigger','post-checkout','-OldRev',$oldCommit,'-NewRev',$newCommit,'-CheckoutFlag','1')
-    Assert-TestCondition ($previewRepeat.Code -eq 0 -and @(Get-ChildItem -LiteralPath $approvedContext.PendingEventsRoot -File).Count -eq ($pendingBeforeBootstrap + 1)) 'identical preview context is deduplicated without rewriting the original event'
+    Assert-TestCondition ($previewRepeat.Code -eq 0 -and @(Get-ChildItem -LiteralPath $approvedContext.PendingPreviewsRoot -File).Count -eq ($previewsBefore + 1)) 'identical preview context is deduplicated without rewriting the original preview'
+    $env:AI_AGENT_DOTFILES_AUTHORITY_IDENTITY = $null
     $snapshotRoot = Join-Path $external 'data-snapshot'
     $snapshotManifestPath = Join-Path $external 'data-snapshot-manifest.json'
     $snapshotManifest = New-CommittedDataSnapshot -RepoRoot $approvalRepo -DestinationRoot $snapshotRoot -ManifestPath $snapshotManifestPath
-    Assert-TestCondition ($snapshotManifest.Files.Count -eq 1 -and $snapshotManifest.Files[0].RelativePath -eq 'skills-source/shared/fixture/SKILL.md') 'committed-data snapshot contains only the explicit policy allowlist content'
+    Assert-TestCondition (@($snapshotManifest.Files | Where-Object { $_.RelativePath -ceq 'skills-source/shared/fixture/SKILL.md' }).Count -eq 1) 'committed-data snapshot contains the explicit policy allowlist content'
+    Assert-TestCondition (@($snapshotManifest.Files | Where-Object { $_.RelativePath -notmatch '\A(skills-source/|manifests/|harness-source/|\.agent-harness/task-skills\.psd1)' }).Count -eq 0) 'committed-data snapshot contains only policy allowlist paths'
     Assert-TestCondition (@($snapshotManifest.Files | Where-Object { $_.RelativePath -like '.reasonix/*' }).Count -eq 0) 'committed-data snapshot never includes protected Reasonix state'
     Assert-TestCondition (Test-Path -LiteralPath $snapshotManifestPath -PathType Leaf) 'committed-data snapshot publishes a validated external manifest'
 
