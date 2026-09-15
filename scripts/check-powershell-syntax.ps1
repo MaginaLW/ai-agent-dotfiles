@@ -17,13 +17,12 @@ foreach ($path in @(
 $excludedPrefixes = @('claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/')
 
 # Reviewed exemptions for the operator-as-parameter guard below. Each entry is
-# a file plus its exact reviewed line numbers. The only current entry is a
-# self-sealed hard-kill analysis line where the intended three-call condition
-# parses as one call; the fix requires the full reviewed-load re-pin, so the
-# finding stays visible here until that slice lands and this list becomes empty.
-$reviewedOperatorParameterExemptions = @{
-    'tests/canonical-hard-kill.tests.ps1' = @(8256)
-}
+# a file plus its exact reviewed line numbers. The table is empty: its only
+# entry was a self-sealed hard-kill analysis line whose intended three-call
+# condition parsed as a single call, retired once that slice landed its
+# reviewed re-seal. Keep the mechanism so a future reviewed exemption has a
+# declared home rather than an ad-hoc allowlist.
+$reviewedOperatorParameterExemptions = @{}
 $paths = @(& git -C $RepoRoot ls-files -co --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate current-worktree files for syntax validation.' }
 $errors = [System.Collections.Generic.List[object]]::new()

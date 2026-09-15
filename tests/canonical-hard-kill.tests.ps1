@@ -5361,7 +5361,7 @@ try{
         if(-not[object]::ReferenceEquals($owner.Parent,$ast.EndBlock)){throw 'preimage-transport-session-owner-scope'}
         if((Get-HardKillTokenFingerprint -Source ([string]$owner.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldOwner.Extent.Text))){throw 'preimage-transport-session-owner-shape'}
         if($Profile -ceq 'Actual'){
-            $reviewedActualControllerSurfaceSha='168888898aefe3d1aa53a0d92d1fd9fb288fa97d9814d3f83a4fc0b57fa6bb87'
+            $reviewedActualControllerSurfaceSha='4e101dda61a936d7d80071c58bdec14792721fb81f56e2145a7de6ea9417a759'
             $surfacePattern='(?m)(\$reviewedActualControllerSurfaceSha\s*=\s*'')[0-9a-f]{64}('')'
             $surfaceMatches=[regex]::Matches($ControllerSource,$surfacePattern,[Text.RegularExpressions.RegexOptions]::CultureInvariant)
             if($surfaceMatches.Count -ne 1 -or $reviewedActualControllerSurfaceSha -ceq ('0'*64)){throw 'preimage-transport-reviewed-controller-surface'}
@@ -8253,7 +8253,7 @@ try{
                                 if($null -eq $commonArgument){throw 'preimage-transport-owner-shadow'}
                                 if($commonArgument -is [Management.Automation.Language.ScriptBlockExpressionAst] -or
                                     ($commonArgument -is [Management.Automation.Language.ConvertExpressionAst] -and [string]$commonArgument.Type.TypeName.FullName -iin @('scriptblock','System.Management.Automation.ScriptBlock'))){throw 'preimage-transport-owner-shadow'}
-                                if(Test-RegionAstTainted $commonArgument -or Test-RegionPsVariableProvider $commonArgument -or (Test-RegionRefExpression $commonArgument)){throw 'preimage-transport-owner-shadow'}
+                                if((Test-RegionAstTainted $commonArgument) -or (Test-RegionPsVariableProvider $commonArgument) -or (Test-RegionRefExpression $commonArgument)){throw 'preimage-transport-owner-shadow'}
                                 if($null -eq $element.Argument){$null=$consumedCommonArgumentOffsets.Add([int]$commonArgument.Extent.StartOffset)}
                                 continue
                             }
@@ -10210,7 +10210,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $preimageTransportAuthority=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityPreflight' '936f6d772d39806426f3f5f81adc5a3436de2ee578f7d3c507a3a224a14b9ee2' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntime=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContract' '4d43f6b9416b05c04785c4fa46df104bfa650af03611f1b9477d720e4fc2ac05' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntimeMutations=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContractMutations' '4c962df050a1ae4fb9768d7fbfcc14425d407512b0d634b1c8ab8814fed514d5' 'cleanup-trust-closure'
-        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' '274c57a74d2404d893643aecc03c42c52851572db42ad7a94b7fcdd188bf2779' 'cleanup-trust-closure'
+        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' 'e973245675fe9d06d1d5f1ea7fdf9cfb36ddb6aeb59598e3f87f487dd11d14d5' 'cleanup-trust-closure'
         $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' 'e0798d428bc08101aec96241ec9cb75410c5fef5456f36d4c0baf3fded598262' 'cleanup-trust-closure'
         $afterPreimageLadderContract=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContract' 'bb2b6518ac32f530466e7f8a0a6a3e9b2cf2a26f0800911cc9bc7c1abe18262a' 'cleanup-trust-closure'
         $afterPreimageLadderMutations=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContractMutations' '96767d13f1a11cbcd42030e6f7ff1de02b0337a0a7fe98638a3d5129a4cb9a3e' 'cleanup-trust-closure'
@@ -10226,7 +10226,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $normalizedSelfSource=[regex]::new($selfDigestPattern).Replace($selfSource,"        `$reviewedSelfDigest='__CLEANUP_GATE_SELF_DIGEST__'",1)
         $normalizedSelfSource=$normalizedSelfSource -replace "`r`n?","`n"
         $actualSelfDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalizedSelfSource))).ToLowerInvariant()
-        $reviewedSelfDigest='9f8b86c99996d601950c3853ce6df7b8fa3e9afdde6a38ed29c2f8ccc45637f6'
+        $reviewedSelfDigest='e9db46ead278fdbcf518e32b8f05f2a7624e21b87020c04e839a7ff82ffd0cbf'
         if($actualSelfDigest -cne $reviewedSelfDigest){throw 'cleanup-gate-self-definition'}
         $result.SelfDefinitionPinned=$true
         $functionRows=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|
@@ -10380,7 +10380,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         })
         $topExecutionDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($topExecutionRows -join "`n")))).ToLowerInvariant()
         if($topExecutionDigest -cne '94bb53a8ea923e99010292eb53698986b1900f24bbb192b6c5c8cc9727c38180'){throw 'cleanup-top-level-execution'}
-        if($functionInventoryDigest -cne '1a631d3166a6a6692dfb5a8fa6447dc3cf9f88ccbb5d19652a8c5b2223072fc9'){throw 'cleanup-function-inventory'}
+        if($functionInventoryDigest -cne 'bffb370c12734d00763818048ddc36c18ad85bf4abaedb327d8f16f0e09f5c39'){throw 'cleanup-function-inventory'}
         $result.FunctionInventoryPinned=$true
         $result.MainExecutionPinned=$true
         $result.OuterForensicGuardPinned=$true
