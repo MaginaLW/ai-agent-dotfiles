@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-13
+Last updated: 2026-09-15
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -3957,9 +3957,10 @@ environment staging locks; this does not authorize Apply.
 | Task 8 | 0/4 | Complete as pin-able (Step 1 mid-flight zero-wait matrix, Step 2 zero-wait-by-design boundary, Step 3 the Task 6 failpoint matrix, Step 4 the transition rejection plus the recorded cross-authority finding) |
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |
 
-The required execution order is Task 1 through Task 9, strictly in sequence. Phase 3 is executing in
-that order — Tasks 1-9 are complete; the earlier note here that Task 8 was only an uncommitted working-tree
-draft (see the 2026-09-15 wrap-up section), and Task 9 remains — and the Phase 4 schema/CI contract and
+The required execution order was Task 1 through Task 9, strictly in sequence, and Phase 3 executed in
+that order: Tasks 1-9 are complete. The earlier note here that Task 8 was only an uncommitted working-tree
+draft and that Task 9 remained (see the 2026-09-15 wrap-up section) is superseded — Task 8 is committed as
+`2ca0488` and Task 9 as `e57c608`. The Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
 [`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
@@ -3989,13 +3990,17 @@ step lists are in
    `harness-authority` 450 s, `harness-env` 303 s and `task-skills` 197 s against the raised
    budgets. That run covers the tree including the concurrent session's then-uncommitted
    enhancements, so it is a superset of the commits recorded here rather than a per-commit verdict.
-2. **Carried finding, now unblocked**: `tests/canonical-hard-kill.tests.ps1:8256` holds the
-   operator-as-parameter defect (three intended taint checks parse as one call, so two never run).
-   Its documented precondition — the full reviewed-load re-pin — has landed, so the fix plus the
-   removal of the `scripts/check-powershell-syntax.ps1` exemption can be taken as its own slice.
-   It is deliberately not bundled into this window's commits: it changes a sealed analysis's
-   accept/reject surface and needs its own re-seal, `-Section primitives` signal and full-suite
-   verdict.
+2. **Carried finding — closed (`bbfa6d5`)**: `tests/canonical-hard-kill.tests.ps1:8256` held the
+   operator-as-parameter defect (three intended taint checks parsed as one call, so two never ran).
+   Each call is now parenthesised, the parse-gate exemption in `scripts/check-powershell-syntax.ps1`
+   is retired (the reviewed table is empty), and the four self-referential pins the edit moves were
+   re-sealed. Verified: `-Section primitives` 95/0 and the full hard-kill suite 318/0, both equal to
+   their pre-change baselines; parse gate 171 files, secret scan, artifact validation
+   31/31/133 PASS, seams 56/56 and `git diff --check` clean, with the two seams all-scripts
+   baselines independently reproduced (`tmp/seams-delta.ps1 -WorktreeOnly
+   scripts/check-powershell-syntax.ps1`) as byte-identical to their pinned values, so no re-pin was
+   applied. The itemised record is in
+   [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
 3. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,

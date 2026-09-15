@@ -2538,16 +2538,13 @@ design-bound or downstream:
 
 Carried findings:
 
-- **Sealed-file finding**: `tests/canonical-hard-kill.tests.ps1:8256` holds a real instance of the
-  operator-as-parameter defect (three intended taint checks parse as one call, so two never run).
-  Fixing it requires the full reviewed-load re-pin, so the parse-gate exemption list
-  (`scripts/check-powershell-syntax.ps1`) intentionally keeps that one line exempt and every other
-  occurrence fatal; the exemption must be cleared once the re-pin lands. **Update 2026-09-15: the
-  precondition has landed** — the re-seal is resolved and every self-referential pin re-derives
-  clean — so the line fix plus the exemption removal is now unblocked and queued ahead of the
-  Phase 4 work. It was deliberately not bundled into `d6211c9`/`2ca0488`, because it changes a
-  sealed analysis's accept/reject surface and needs its own re-seal, `-Section primitives` signal
-  and full-suite verdict.
+- **Sealed-file finding — closed 2026-09-15.** `tests/canonical-hard-kill.tests.ps1:8256` held a
+  real instance of the operator-as-parameter defect (three intended taint checks parsed as one
+  call, so two never ran). It was deliberately not bundled into `d6211c9`/`2ca0488`, because it
+  changes a sealed analysis's accept/reject surface and needs its own re-seal, `-Section
+  primitives` signal and full-suite verdict. The line fix, the retirement of the single parse-gate
+  exemption and the re-seal are recorded in "Sealed-file operator-as-parameter slice closed
+  (2026-09-15)" below.
 - **Placement-pinned checkpoint**: `RECEIPT_FINALIZATION` is pinned at the source boundary because
   the production host is not yet run as a killable child.
 
@@ -2637,43 +2634,77 @@ seams 56/56 re-pinned (reflection 15784, digest
 171 files, artifact validation 31/31/133 PASS, secret scan and `git diff --check`
 clean. Production Apply remains interlocked.
 
+## Sealed-file operator-as-parameter slice closed (2026-09-15)
+
+The carried sealed-file finding is closed. `tests/canonical-hard-kill.tests.ps1:8256` now runs all
+three of its intended taint checks:
+
+```powershell
+if((Test-RegionAstTainted $commonArgument) -or (Test-RegionPsVariableProvider $commonArgument) -or (Test-RegionRefExpression $commonArgument)){throw 'preimage-transport-owner-shadow'}
+```
+
+The shape is that of the sibling three-way condition at line 8264 of the same analysis, which
+already parenthesises each call. Static proof: parsing line 8256 yields three `CommandAst`
+invocations inside a `BinaryExpressionAst` chain and zero command-parameter nodes — the defect
+signature the parse gate keys on. The single reviewed exemption in
+`scripts/check-powershell-syntax.ps1` is retired and the table is empty; the mechanism is kept so a
+future reviewed exemption has a declared home.
+
+Re-seal: `tmp/reseal-hard-kill.ps1 -Verify` reported the drift before the change and `total
+changes: 0` after the fixpoint run. It re-pinned exactly four self-referential values —
+`Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract'`
+(`274c57a7…` → `e9732456…`), the cleanup-gate self digest (`9f8b86c9…` → `e9db46ea…`), the function
+inventory digest (`1a631d31…` → `bffb370c…`) and the controller surface sha (`16888889…` →
+`4e101dda…`). The diff contains only those four pin lines plus the fixed line: the reviewed-load
+manifest, the actual-prelude rows and digest, the pre-section region, the main-try digest and the
+top-level execution digest (`94bb53a8…`) are unchanged, which is the expected footprint for an edit
+inside a single function body.
+
+Verification: `-Section primitives` **95 passed, 0 failed** and the full suite
+`tests/canonical-hard-kill.tests.ps1 -Section all` **318 passed, 0 failed**, both equal to their
+pre-change baselines — the now-live taint checks reject no existing positive control. Parse gate
+171 files pass with the exemption table empty, the secret scan is clean, artifact validation
+reports 31 contracts / 31 positives / 133 negatives PASS, seams is 56/56, and `git diff --check` is
+clean. The seams all-scripts baselines were independently reproduced rather than re-stamped
+(`tmp/seams-delta.ps1 -WorktreeOnly scripts/check-powershell-syntax.ps1`): both are byte-identical
+to their pinned values (reflection-sensitive 15784 / `90cdfd7c…`, dynamic 168 / `4fc1bb2d…`),
+because retiring a hashtable entry adds neither a reflection-sensitive site nor a dynamic command,
+so no re-pin was needed and none was applied.
+
+No production authority was touched: `scripts/live-safety-policy.psd1`, the interlock and the live
+roots are unchanged.
+
 ## Pending items (2026-09-15, after the Phase 3 checkpoint and its review follow-ups)
 
 **Phase 2 and Phase 3 are both complete** (Phase 3 at 47/47: the checkpoint is `e57c608`, and the
-two review findings it raised are closed — G2 by `872ad03`, G4 by `976d0fe`). Nothing in this
-window's ordered list is still open. What remains is downstream, design-bound, or operational:
+two review findings it raised are closed — G2 by `872ad03`, G4 by `976d0fe`; the carried sealed-file
+slice is closed as recorded above). Nothing in this window's ordered list is still open. What
+remains is downstream, design-bound, or operational:
 
-1. **The sealed-file slice at `tests/canonical-hard-kill.tests.ps1:8256`.** Three intended taint
-   checks parse as one call so two never run. The precondition — the full reviewed-load re-pin —
-   has landed, so the line fix plus the removal of the one-line exemption in
-   `scripts/check-powershell-syntax.ps1` can be taken now, as its own slice: it changes a sealed
-   analysis's accept/reject surface, so it needs the re-seal (`tmp/reseal-hard-kill.ps1 -Verify`
-   must report zero mismatches afterwards, then a real re-seal if it does not), the
-   `-Section primitives` signal (95 assertions), and a full-suite verdict.
-2. **Phase 4 — schema/CI contract and safe release — not started.** It owns the interlock release.
+1. **Phase 4 — schema/CI contract and safe release — not started.** It owns the interlock release.
    Until it lands, every production sync/environment/task/rollback Apply, standalone backup, and
    explicit retirement stops with `safety-protocol-upgrade-required` before traversal or mutation.
    The rollback entry is now *reachable* rather than token-refused (G4), and its refusal at Apply
    is the interlock itself.
-3. **Design-bound finding still feeding Phase 4**: the cross-authority root-claim overlap rejection
+2. **Design-bound finding still feeding Phase 4**: the cross-authority root-claim overlap rejection
    needs a machine-wide claim store — both authorities commit on a shared custom root today (the
    Phase 2 Task 8 Step 4 finding).
-4. **Carried boundaries**, unchanged: the locator stays phase-only by design, so a state file
+3. **Carried boundaries**, unchanged: the locator stays phase-only by design, so a state file
    replaced without its `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a
    locator status; a live-target move whose record is still a `_pending` temp classifies as manual
    recovery; the `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the production
    host is child-killable; the engine's per-target drift protection is hash-based; and the rollback
    plan's `Current` identity binding is recorded as not enforced by the existing ladder.
-5. **Before any future environment planning**, rebuild the stale commit-bound staging locks. They
+4. **Before any future environment planning**, rebuild the stale commit-bound staging locks. They
    were last rebuilt on 2026-09-13 and have since moved several HEADs; the generated `envs/`
    artifacts are gitignored machine-local state. This is artifact preparation only and never
    authorizes Apply.
-6. **Per-machine revalidation after any reviewed release**: revalidate each managed machine
+5. **Per-machine revalidation after any reviewed release**: revalidate each managed machine
    independently, and for retired skills still present elsewhere use a new machine-local retirement
    JSON with a reviewed bound plan — never this machine's deleted authorization files.
-7. **Coordination**: any other clone or fork should re-clone or rebase rather than merge the old
+6. **Coordination**: any other clone or fork should re-clone or rebase rather than merge the old
    history.
-8. **Operational, needs a human decision**: two agents were writing this repository concurrently
+7. **Operational, needs a human decision**: two agents were writing this repository concurrently
    through the whole 2026-09-15 window — one of them stashed and reverted the other's in-flight
    files, `HEAD` moved under the other five times, and two overlapping full runs caused three
    mutual suite timeouts. The work converged and nothing was lost, but if one owner per repository
