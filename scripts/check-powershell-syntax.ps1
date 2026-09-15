@@ -94,7 +94,9 @@ foreach ($parsedFile in @($parsedFiles)) {
         foreach ($command in @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))) {
             foreach ($element in @($command.CommandElements)) {
                 if ($element -isnot [System.Management.Automation.Language.CommandParameterAst]) { continue }
-                if ([string] $element.ParameterName -cnotin @('and', 'or')) { continue }
+                # Case-insensitive on purpose: PowerShell parameter binding is case-insensitive,
+                # so `-AND` collapses the same way and must not slip through the gate.
+                if ([string] $element.ParameterName -notin @('and', 'or')) { continue }
                 $exempt = $false
                 if ($reviewedOperatorParameterExemptions.ContainsKey($normalized)) {
                     $exempt = ([int] $element.Extent.StartLineNumber) -in $reviewedOperatorParameterExemptions[$normalized]
@@ -125,7 +127,7 @@ foreach ($parsedFile in @($parsedFiles)) {
         foreach ($element in @($command.CommandElements)) {
             if ($element -isnot [System.Management.Automation.Language.CommandParameterAst]) { continue }
             $parameterName = [string] $element.ParameterName
-            if ($parameterName -cin @('and', 'or')) { continue }
+            if ($parameterName -in @('and', 'or')) { continue }
             if ($functionParameters[$targetName].Contains($parameterName)) { continue }
             $errors.Add([pscustomobject]@{
                 File = $normalized
