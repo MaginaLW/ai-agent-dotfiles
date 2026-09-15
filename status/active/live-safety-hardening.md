@@ -2688,7 +2688,21 @@ pre-change baselines — the now-live taint checks reject no existing positive c
 reports 31 contracts / 31 positives / 133 negatives PASS, seams is 56/56, and `git diff --check` is
 clean. The raw run output for these gates is machine-local and gitignored
 (`tmp/hk-primitives-repin-20260915.log`, `tmp/hk-full-repin-20260915.log`,
-`tmp/hk-gates-repin-20260915.log`); what the commits carry is this record, not those logs. The seams all-scripts baselines were independently reproduced rather than re-stamped
+`tmp/hk-gates-repin-20260915.log`); what the commits carry is this record, not those logs.
+
+Definitive unified pass: `pwsh -NoProfile -File scripts/run-tests.ps1 -All -JsonSummaryPath
+<external create-new path>` reads **`Test summary: PASS; discovered=39; passed=39; failed=0;
+timed-out=0`** (external create-new summary `repin8256-unified-rerun-20260915.json`, SHA-256
+`3b3134d6d05ac0411690984ff9e05a71c4184b3a406d10be8a0664b3c817b1ed`; 8485 s of suite time and the
+runner's own `requiredJobTimeoutSeconds` 25785; longest suites `canonical-hard-kill` 2742 s of
+5400, `root-claims-registry` 1647 s of 3600, `harness-authority` 477 s of 900, `sync` 441 s of
+1200, `harness-env` 321 s of 600). An earlier attempt at the same run was truncated by the
+operator's own 150-minute cap: it had reported zero failures across the ~30 suites that completed
+but wrote no summary, so it is not a verdict — the cap now derives from the runner's declared
+requirement instead of a remembered runtime. That run started on the tree at `cfb3db6` and finished
+on the tree that also carries the gate hardening (`b791bda`); every suite that reads `scripts/**`
+content — `canonical-production-seams` (56/56, including the two all-scripts baselines) and
+`harness-env` — ran after that change, so the pass covers the final bytes. The seams all-scripts baselines were independently reproduced rather than re-stamped
 (`tmp/seams-delta.ps1 -WorktreeOnly scripts/check-powershell-syntax.ps1`): both are byte-identical
 to their pinned values (reflection-sensitive 15784 / `90cdfd7c…`, dynamic 168 / `4fc1bb2d…`),
 because retiring a hashtable entry adds neither a reflection-sensitive site nor a dynamic command,

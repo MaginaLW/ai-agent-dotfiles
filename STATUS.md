@@ -4010,7 +4010,9 @@ step lists are in
    31/31/133 PASS, seams 56/56 and `git diff --check` clean, with the two seams all-scripts
    baselines independently reproduced (`tmp/seams-delta.ps1 -WorktreeOnly
    scripts/check-powershell-syntax.ps1`) as byte-identical to their pinned values, so no re-pin was
-   applied. The raw run output for those gates is machine-local and gitignored (`tmp/hk-*-repin-20260915.log`);
+   applied, and a definitive unified rerun on the resulting tree reads `discovered=39; passed=39;
+   failed=0; timed-out=0` (summary `repin8256-unified-rerun-20260915.json`, SHA-256
+   `3b3134d6…`). The raw run output for those gates is machine-local and gitignored (`tmp/hk-*-repin-20260915.log`);
    this entry is what the repository carries. The itemised record is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
 3. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
