@@ -3917,7 +3917,7 @@ lessons) and no upstream method-file drift since `194f294`, so no loop edits wer
 
 **Phase 2 is complete (52 of 52 steps accounted for: Tasks 1-9 all closed; the one proof that
 could not execute — Task 6 Step 5's cross-authority overlapping-roots — is recorded as a Phase
-3-bound finding rather than an open step).** **Phase 3 is in progress: Tasks 1-8 are complete (Task 7 carried cleanup item closed by `d6211c9`) and Task 9 remains (see the Phase 3 Task 8 section and the 2026-09-15 wrap-up section).**
+3-bound finding rather than an open step).** **Phase 3 is complete (47/47: Tasks 1-9 all closed; the Task 7 carried cleanup item closed by `d6211c9` and the Task 9 checkpoint by `e57c608` — see the Phase 3 Task 8 section, the Task 7 carry-over section and the 2026-09-15 wrap-up section).**
 Phase 4 schema/CI contract and safe release remains downstream and has not started. Before future environment planning, rebuild the stale commit-bound
 environment staging locks; this does not authorize Apply.
 
@@ -3938,14 +3938,14 @@ step lists are in
 
 ## Next actions
 
-1. **Task 9 checkpoint** (roadmap line 297) — now the head of the queue. Run the focused suites
+1. **Task 9 checkpoint — complete** (`e57c608`, 5/5 steps). The focused suites ran
    (`harness-authority`, `harness-env`, `task-skills`, `automation-safety`, `agent-dotfiles`), the
-   registered artifact validation, the definitive full-runner pass, and the non-suite gates: parse,
-   secret scan, doctor, the generated-skill build leaving Git clean, machine-readable schema/build
-   evidence, the dangerous-tracked-file check, and `git diff --check` with exactly the four
-   protected Reasonix literal negative pathspecs. Then the requirements and quality reviews, keeping
-   the real authority/live state untouched and the interlock policy unchanged. The authoritative,
-   itemised record lives in
+   registered artifact validation passed 31/31/133, and the non-suite gates were reproduced: parse
+   gate 171 files, secret scan clean, doctor PASS, the generated-skill build leaving the tree
+   byte-identical, the machine-readable schema/build-evidence gate PASS, the pinned schema-validator
+   and gitleaks caches verified, the dangerous-tracked-file check 0 violations over 569 tracked
+   files, and `git diff --check` clean with exactly the four protected Reasonix literal negative
+   pathspecs. The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
    This window's own `-All` run passed 36 of 39 suites with zero failures and three timeouts
    (`harness-authority` 300 s, `harness-env` 180 s, `task-skills` 120 s) while a second full run
