@@ -88,9 +88,13 @@ foreach ($parsedFile in @($parsedFiles)) {
     $ast = $parsedFile.Ast
     if ($true) {
         # A bare -and/-or inside a command invocation is a parsed argument, not
-        # an operator: the command itself would receive it as a parameter and
-        # fail at runtime with "a parameter cannot be found that matches
-        # parameter name 'and'". Parenthesise the command call instead.
+        # an operator. What happens next depends on the callee: an advanced
+        # function rejects the unknown parameter ("a parameter cannot be found
+        # that matches parameter name 'and'"), but a simple function accepts it
+        # as one more positional value and the condition silently degrades to
+        # the first check alone. The silent form is the one that shipped in
+        # tests/canonical-hard-kill.tests.ps1:8256, so treat every hit as fatal.
+        # Parenthesise the command call instead.
         foreach ($command in @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))) {
             foreach ($element in @($command.CommandElements)) {
                 if ($element -isnot [System.Management.Automation.Language.CommandParameterAst]) { continue }
