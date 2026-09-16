@@ -7,10 +7,12 @@ entry-interlock subplan is complete (43/43), Phase 1 is complete (44/44), Phase 
 (52/52: Tasks 1-9, with the one cross-authority proof recorded as a Phase 4-bound design input), and
 Phase 3 is complete (47/47: Tasks 1-9, the checkpoint at `e57c608`, its two review findings closed
 by `872ad03` and `976d0fe`, and the carried sealed-file slice closed by `bbfa6d5`). Phase 4
-(schema/CI contract and safe release) has not started and owns the interlock release. The corrected
-privacy rewrite is published at `bbba28f` (this sentence is unverified — `bbba28f` is a
-`.gitignore` commit and the SHA resolves to no rewrite; pending item 8 records what the owner must
-settle); GitHub Support ticket `#4697323` is resolved after
+(schema/CI contract and safe release) has not started and owns the interlock release. The rewrite
+record anchors the force-with-lease publish head at `bbba28f` (verified: that commit is
+`chore(privacy): ignore local Reasonix desktop state` and its own diff is a `.gitignore` change
+only; which commit actually carries the privacy-rewrite content remains open for the owner — a
+rewritten history cannot resolve pre-rewrite SHAs; pending item 8); GitHub Support ticket
+`#4697323` is resolved after
 server-side garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the
 object is no longer served. This per-task record is a dated log: the sections below run in
 completion order and several of them carry their own superseded markers, so read a section as
@@ -85,6 +87,13 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
   317/0 and the registry suite emitted 159 PASS assertions with exit code 0. Build (7/15/7), secret
   scan, and sync DryRun passed without production Apply, live-root mutation, Git index/ref mutation,
   or new hard-kill temporary-directory residue.
+
+> **Superseded (2026-09-16).** The repeated closing line "Task 1 remains 1/6 and Phase 2 remains
+> 1/52" (and the variant "Phase 2 1/52") in the 2026-08-29 through 2026-09-06 Phase 2 Task 1
+> bullets below recorded the state before Phase 2 closed on 2026-09-13 (Tasks 1-9). Phase 3 later
+> closed at 47/47 (checkpoint `e57c608`, review follow-ups `872ad03` and `976d0fe`). The
+> "Production Apply remains interlocked" clause in those same sentences is still true. The text
+> is kept as history.
 
 - Phase 2 Task 1 Step 1 failure-matrix completion (2026-08-29, test-only): the remaining
   identity/concurrency failure cases were written with no production script change. Registry tests
@@ -542,12 +551,15 @@ Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
 
 - Execution state (2026-09-02, parallel batch): staging locks rebuilt fresh (three environments
   built+valid against current HEAD, harness-env regression 126/0, working tree clean, no interlock
-  impact). External design batch under the Grok/Luna/main-agent routing rule produced the durable
+  impact). **Superseded:** those locks are stale again (last rebuilt on 2026-09-13; HEAD has since
+  moved). External design batch under the Grok/Luna/main-agent routing rule produced the durable
   recovery ticket design, the ledger-wiring owner-trio design, and the ticket test-block draft;
   the main-agent correction requires `route-cleanup-recovery` to join the envelope
   `ControlBase` children whitelist in the same commit as ticket publication. Remaining queue:
   slice 1 (ticket), slice A (wiring), slice B (failure matrix), then the resolver consumer layer,
   `PrivateRootBootstrapIntent`, protocol-v1 dispatch, and the forbidden-root matrix.
+  **Superseded:** every slice in this remaining queue was implemented in Phase 2 (closed
+  2026-09-13).
 
 - Phase 2 Task 1 slice 1, durable recovery ticket (2026-09-02): `ReleaseExact` failures now publish
   `<ControlBase>\route-cleanup-recovery\<CaptureId>\ticket.json` atomically (immutable descriptor
@@ -1130,7 +1142,12 @@ accepted 166 files; `git diff --check` was clean; the pinned secret scan found n
 pass remains pending and covers the Step 1 and Step 2 trees together at the next stage boundary.
 Production Apply remains interlocked, and no live root was touched.
 
-## Task 6 Step 3 in progress (2026-09-12): recovery dispatcher slices 1-4
+## Task 6 Step 3 in progress (2026-09-12, superseded): recovery dispatcher slices 1-4
+
+> **Superseded.** This section records Task 6 Step 3 mid-flight on 2026-09-12. Task 6 and Phase 2
+> closed on 2026-09-13 (Phase 2 Tasks 1-9). Phase 3 later closed at 47/47 (checkpoint `e57c608`).
+> The completion record is the "Task 6 Step 3 completion" section immediately below. The text is
+> kept as history.
 
 Step 3 is four slices in; the dispatcher now executes all three reviewed transitions. Slice 1
 (`1423b78`, roadmap doc `61163cd`): the `agent-dotfiles.ps1 live recover status|abandon|rollback|
@@ -1302,7 +1319,9 @@ header binding `WorktreeOverlayLockKey` fails both recovery plan derivation and 
 `worktree-overlay-lock-not-implemented` instead of being recovered without the overlay lock the
 header requires (the reviewed lock-order primitive refuses REQUIRED applicability until the
 Phase 3 worktree overlay lock exists; the dispatcher previously read the wrong field name and would
-have silently skipped it).
+have silently skipped it). **Superseded by G4 (`976d0fe`):** the rollback entry now acquires the
+worktree overlay lock in the reviewed order, and the live-recovery suite asserts the token can no
+longer appear. Do not re-implement this refusal. Production Apply remains interlocked.
 
 **Verification (2026-09-12, canonical `pwsh -NoProfile -File` runs).** `tests/live-recovery.tests.ps1`
 green in 446 s: the engine kill matrix gains the record-boundary and pre-replacement windows with
@@ -1412,7 +1431,10 @@ next slices must act on:
 - The rollback requires the worktree overlay lock in the canonical→overlay→global order, and the
   reviewed lock-order primitive still refuses `REQUIRED` applicability
   (`worktree-overlay-lock-not-implemented`). Execution verification therefore depends on the Phase 3
-  worktree overlay lock or an explicit scope decision.
+  worktree overlay lock or an explicit scope decision. **Superseded by G4 (`976d0fe`):** the
+  rollback entry now acquires the worktree overlay lock in the reviewed order, and the
+  live-recovery suite asserts the token can no longer appear. Do not re-implement this refusal.
+  Production Apply remains interlocked.
 - The Step 1 source graph cannot use the public host (it rejects `environment` too): the reviewed
   recipe is the sealed plan fixture for the plan shape, a real header through
   `New-SealedLiveJournalHeader`, a real receipt through `Invoke-SealedManagedBackupReceipt` with
@@ -1586,9 +1608,14 @@ selects only `environment` receipts, so a rollback receipt can never start a sec
 rollback. The remaining Step 3 work — deriving the pre-rollback receipt's platforms and context
 hashes at Apply and wiring it ahead of the transition — is part of the Step 3+4 execution unit
 whose verification waits for the Phase 3 worktree overlay lock and the released production
-interlock.
+interlock. **Superseded by G4 (`976d0fe`):** the overlay lock is wired; production Apply still
+waits on the interlock.
 
 ## Task 7 Steps 3-4 (2026-09-13): the executed rollback transaction, verified directly until Phase 3
+
+> **Superseded (2026-09-16).** The overlay-lock refusal this section records is closed: `976d0fe`
+> wired the rollback entry to the Phase 3 worktree overlay lock (Phase 3 closed at 47/47,
+> checkpoint `e57c608`). Production Apply remains interlocked. The text is kept as history.
 
 `scripts/live-transaction-common.ps1` gains `Invoke-SealedEnvironmentRollbackTransaction`, the
 reviewed composition that executes a derived, invocation-validated `environment-rollback` plan as a
@@ -2754,21 +2781,23 @@ window that closed on 2026-09-16, and Phase 4 remains the only open roadmap item
    is intended, that is a scheduling decision this record cannot make. The window's operational
    lessons are recorded in the agent memory (`concurrent-session-hazard`), not here.
 8. **Privacy-narrative verification — needs the owner.** An independent check of 103 cited short
-   SHAs found 99 present and consistent, but two do not corroborate their sentences: `bbba28f` is
-   described in both this file and `STATUS.md` as "the corrected privacy rewrite is published",
-   while the commit is `chore(privacy): ignore local Reasonix desktop state`; the Phase 0
-   implementation SHA `0a6c16e` does not exist in the current history (consistent with the rewrite
-   removing it, but not evidence that the rewrite is what is claimed); and a third unresolvable SHA,
-   `91e871e`, is cited in `STATUS.md` as the published Phase 2 checkpoint. Those sentences sit in the
-   privacy/rewrite record, where an inference is not evidence, so they were left untouched and need
-   the owner's knowledge — either corrected to the commit that actually carries the rewrite, or
-   marked as a pre-rewrite SHA that the current tree cannot resolve.
+   SHAs found 99 present and consistent. Re-verified in this tree: `bbba28f` resolves as
+   `chore(privacy): ignore local Reasonix desktop state` (`.gitignore` only, ancestor of HEAD) —
+   it is the force-with-lease publish head the rewrite record anchors on (roadmap `:5` and `:118`),
+   not itself the rewrite content; `91e871e` resolves as
+   `feat(live-safety): add phase 2 authority registry foundations` (Thu Aug 27 2026), is an
+   ancestor of HEAD, and is contained in `remotes/origin/main` (the earlier claim that it does not
+   exist was false); and `0a6c16e` (the Phase 0 implementation SHA) genuinely does not resolve,
+   consistent with a history rewrite having removed it. Which commit actually carries the
+   privacy-rewrite content remains open for the owner — a rewritten history cannot resolve
+   pre-rewrite SHAs.
 9. **Dated history sections still carry superseded present-tense claims.** The file header now
    states that this is a dated log and the most misleading sections (the 2026-09-08/09 `Current
    phase`, the pre-Phase-3 `Remaining work`, the `Current checkpoint` pointer, the `STATUS.md`
-   wrap-up) were corrected or banner-marked this window. A systematic sweep of the remaining
-   2026-09-14-and-earlier sections — several still say Phase 3 "have not started" or that the
-   rollback entry waits on the overlay lock — has not been done.
+   wrap-up) were corrected or banner-marked this window. **Sweep done (2026-09-16):** the remaining
+   2026-09-14-and-earlier sections named here were banner-marked or given inline superseded
+   markers; history text was left intact. Production Apply remains interlocked; Phase 4 has still
+   not started; the staging locks are stale again.
 10. **Push and CI coverage — read Git before acting on this item.** The owner pushes this repository
    (the `cfb3db6` push during the 2026-09-15 slice window was the owner's, not an unexplained event).
    The window-close snapshot said `b791bda`, `996986a`, `fe149f9` and `5807727` were local-only; the

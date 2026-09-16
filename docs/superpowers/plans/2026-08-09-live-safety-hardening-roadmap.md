@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
-**Status:** In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The separately authorized privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` and the independently verified old-SHA follow-up are closed. Phase 2 Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52), and Phases 3-4 have not started. This roadmap grants no permission to run a real live Apply/rollback or to perform any further Git staging, commit, or publication. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not live-mutation authorization.
+**Status:** In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The separately authorized privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` and the independently verified old-SHA follow-up are closed. Phase 2 Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52), and Phases 3-4 have not started. **Superseded:** Phase 3 closed at 47/47 (checkpoint `e57c608`); Phase 4 has still not started. This roadmap grants no permission to run a real live Apply/rollback or to perform any further Git staging, commit, or publication. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not live-mutation authorization.
 
 **Goal:** Replace the repository's current live and canonical mutation paths with the reviewed, plan-bound, process-crash/hard-kill-recoverable safety protocol without discarding the current skill/MCP cleanup or retirement work.
 
@@ -42,7 +42,7 @@ The baseline choice means “preserve and build on these bytes”; it does not a
 Current execution boundary: roadmap Task 1 is complete at 5/5, the Phase 0 entry-interlock subplan
 is complete at 43/43, and Phase 1 is complete at 44/44. GitHub Support ticket `#4697323` and the
 old-SHA external privacy follow-up are closed. Phase 2 Task 1 Step 1 is complete at 1/6 steps (Phase 2
-overall 1/52), and Phases 3-4 have not started.
+overall 1/52), and Phases 3-4 have not started. **Superseded:** Phase 3 closed at 47/47 (checkpoint `e57c608`); Phase 4 has still not started.
 
 The latest 2026-08-29 intermediate checkpoint makes the sealed capability preflight
 target-specific and volume-correct, binds each target to a captured ProbeRoot identity, and replaces
