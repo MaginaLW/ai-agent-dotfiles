@@ -2917,6 +2917,18 @@ Combined-tree verification (code `2a90261`, `fc6e173`, `0c68ee3`; docs `23d2d37`
   pass; `canonical-preflight` 27/27 and `skills-import` 42/42 (worktree runs, untouched by
   integration); `-Section primitives` 95 passed / 0 failed.
 
+Definitive unified pass: ``pwsh -NoProfile -File scripts/run-tests.ps1 -All -JsonSummaryPath
+<external create-new path>`` reads **``Test summary: PASS; discovered=40; passed=40; failed=0;
+timed-out=0``** (summary `unified-parallel-grok-window-20260916.json`, SHA-256
+`31d31ab9e3df7b17e83858747d64ec6118d0b9b7b600c1964014e3a87e684acd`, DiscoveryHash
+`42eb47e7ec4a4f6d32ff8346e7f58b2db4960b8ecc64e6b1f87a72673ac8d2f0`, the runner's own
+`RequiredJobTimeoutSeconds` 25875; 8470 s of suite time, longest suites `canonical-hard-kill`
+2539 s of 5400, `root-claims-registry` 1543 s of 3600, `harness-authority` 511 s of 900,
+`live-recovery` 469 s of 900, `sync` 452 s of 1200 and `backup-recovery` 431 s of 900). The 40th
+suite is the new `powershell-syntax-gate` one, and the run covers exactly the committed bytes of
+`d5a3cda`; the summary itself is machine-local and gitignored (`tmp/`), so the commit carries this
+record rather than the JSON.
+
 ## Pending items (2026-09-16, after the parallel-grok window)
 
 The parse-gate RED gap and the record sweep named by the 2026-09-15 list are closed above, so this

@@ -52,7 +52,9 @@ the `:8256` taint arms have independent RED, `0c68ee3`; the record sweep and the
 correction, `23d2d37`; and the global Grok invocation guide) and published the Phase 4 decision
 package at
 [`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md),
-which the owner has not yet reviewed.
+which the owner has not yet reviewed. The window closes with its definitive unified pass on the
+committed bytes of `d5a3cda`: 40 of 40 suites, zero failures, zero timeouts (the 40th is the new
+parse-gate suite).
 Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply and explicit retirement
 stop with `safety-protocol-upgrade-required` before traversal or mutation, while two public
