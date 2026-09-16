@@ -4053,3 +4053,13 @@ step lists are in
    above record what was delivered, and the current pending set is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
    "Pending items (2026-09-15, after the Phase 3 checkpoint and its review follow-ups)".
+9. **Added by the sealed-file slice window (2026-09-15, closed 2026-09-16).** Four items join that pending set: the
+   privacy narrative still needs verification (`bbba28f` is described as the corrected privacy
+   rewrite but is a `.gitignore` commit, and the pre-rewrite Phase 0 SHA `0a6c16e` is not in the
+   current history — both left for the owner, because an inference is not evidence); the
+   pre-2026-09-15 sections that still assert superseded states need a sweep, not just the banner
+   the header now carries; four commits (`b791bda`, `996986a`, `fe149f9`, `5807727`) were still
+   local-only at the window close, so remote CI covers `cfb3db6` at most and could not be queried
+   from this machine (`gh` unauthenticated); and the global Grok invocation guide is out of step
+   with its wrapper (per-directory mutex forbids the parallel read-only calls it advertises, and
+   read-only mode cancels the commands a review needs).

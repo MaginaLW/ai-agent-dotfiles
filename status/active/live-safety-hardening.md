@@ -2747,6 +2747,35 @@ remains is downstream, design-bound, or operational:
    mutual suite timeouts. The work converged and nothing was lost, but if one owner per repository
    is intended, that is a scheduling decision this record cannot make. The window's operational
    lessons are recorded in the agent memory (`concurrent-session-hazard`), not here.
+8. **Privacy-narrative verification — needs the owner.** An independent check of 103 cited short
+   SHAs found 99 present and consistent, but two do not corroborate their sentences: `bbba28f` is
+   described in both this file and `STATUS.md` as "the corrected privacy rewrite is published",
+   while the commit is `chore(privacy): ignore local Reasonix desktop state`; and the Phase 0
+   implementation SHA `0a6c16e` does not exist in the current history (consistent with the rewrite
+   removing it, but not evidence that the rewrite is what is claimed). Both sentences sit in the
+   privacy/rewrite record, where an inference is not evidence, so they were left untouched and need
+   the owner's knowledge — either corrected to the commit that actually carries the rewrite, or
+   marked as a pre-rewrite SHA that the current tree cannot resolve.
+9. **Dated history sections still carry superseded present-tense claims.** The file header now
+   states that this is a dated log and the most misleading sections (the 2026-09-08/09 `Current
+   phase`, the pre-Phase-3 `Remaining work`, the `Current checkpoint` pointer, the `STATUS.md`
+   wrap-up) were corrected or banner-marked this window. A systematic sweep of the remaining
+   2026-09-14-and-earlier sections — several still say Phase 3 "have not started" or that the
+   rollback entry waits on the overlay lock — has not been done.
+10. **Push and CI coverage.** The owner pushes this repository (the `cfb3db6` push during the
+   2026-09-15 slice window was the owner's, not an unexplained event). At the close of that window
+   `b791bda`, `996986a`, `fe149f9` and `5807727` were still local-only, so remote CI — which this
+   window could not query at all, since `gh` is unauthenticated on this machine and no token is set
+   — does not cover the gate hardening or the record updates. Any CI verdict for `cfb3db6` and
+   later must be read from the workflow, not inferred from the local `-All` pass.
+11. **Tooling note outside this repository.** The global agent instruction that documents the Grok
+   wrapper states that a read-only call may run in parallel with same-directory work, but the
+   wrapper enforces a per-directory named mutex and refuses the second process
+   (`grok-already-running-for-working-directory`); it also cancels terminal commands under the
+   read-only (plan) mode, so a review that must execute `git show`, AST parsing or hashing has to
+   run in its own throwaway checkout with full permission. Four parallel reviews ran that way this
+   window and left their checkouts byte-clean. The instruction text is due an update; the working
+   recipe is recorded in agent memory until then.
 Both follow-up changes were then re-validated by a fresh definitive run on the
 resulting tree: ``pwsh -NoProfile -File scripts/run-tests.ps1 -All
 -JsonSummaryPath <external create-new path>`` reads **``Test summary: PASS;
