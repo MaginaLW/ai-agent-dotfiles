@@ -86,33 +86,31 @@ foreach ($relative in @($paths | Sort-Object -Unique)) {
 foreach ($parsedFile in @($parsedFiles)) {
     $normalized = [string] $parsedFile.Relative
     $ast = $parsedFile.Ast
-    if ($true) {
-        # A bare -and/-or inside a command invocation is a parsed argument, not
-        # an operator. What happens next depends on the callee: an advanced
-        # function rejects the unknown parameter ("a parameter cannot be found
-        # that matches parameter name 'and'"), but a simple function accepts it
-        # as one more positional value and the condition silently degrades to
-        # the first check alone. The silent form is the one that shipped in
-        # tests/canonical-hard-kill.tests.ps1:8256, so treat every hit as fatal.
-        # Parenthesise the command call instead.
-        foreach ($command in @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))) {
-            foreach ($element in @($command.CommandElements)) {
-                if ($element -isnot [System.Management.Automation.Language.CommandParameterAst]) { continue }
-                # Case-insensitive on purpose: PowerShell parameter binding is case-insensitive,
-                # so `-AND` collapses the same way and must not slip through the gate.
-                if ([string] $element.ParameterName -notin @('and', 'or')) { continue }
-                $exempt = $false
-                if ($reviewedOperatorParameterExemptions.ContainsKey($normalized)) {
-                    $exempt = ([int] $element.Extent.StartLineNumber) -in $reviewedOperatorParameterExemptions[$normalized]
-                }
-                if ($exempt) { continue }
-                $errors.Add([pscustomobject]@{
-                    File = $normalized
-                    Line = $element.Extent.StartLineNumber
-                    Column = $element.Extent.StartColumnNumber
-                    Message = "operator '-$($element.ParameterName)' parsed as a command parameter; wrap the command call in parentheses"
-                })
+    # A bare -and/-or inside a command invocation is a parsed argument, not
+    # an operator. What happens next depends on the callee: an advanced
+    # function rejects the unknown parameter ("a parameter cannot be found
+    # that matches parameter name 'and'"), but a simple function accepts it
+    # as one more positional value and the condition silently degrades to
+    # the first check alone. The silent form is the one that shipped in
+    # tests/canonical-hard-kill.tests.ps1:8256, so treat every hit as fatal.
+    # Parenthesise the command call instead.
+    foreach ($command in @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))) {
+        foreach ($element in @($command.CommandElements)) {
+            if ($element -isnot [System.Management.Automation.Language.CommandParameterAst]) { continue }
+            # Case-insensitive on purpose: PowerShell parameter binding is case-insensitive,
+            # so `-AND` collapses the same way and must not slip through the gate.
+            if ([string] $element.ParameterName -notin @('and', 'or')) { continue }
+            $exempt = $false
+            if ($reviewedOperatorParameterExemptions.ContainsKey($normalized)) {
+                $exempt = ([int] $element.Extent.StartLineNumber) -in $reviewedOperatorParameterExemptions[$normalized]
             }
+            if ($exempt) { continue }
+            $errors.Add([pscustomobject]@{
+                File = $normalized
+                Line = $element.Extent.StartLineNumber
+                Column = $element.Extent.StartColumnNumber
+                Message = "operator '-$($element.ParameterName)' parsed as a command parameter; wrap the command call in parentheses"
+            })
         }
     }
 }

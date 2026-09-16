@@ -22,6 +22,7 @@
         'home-authority.tests.ps1' = 180
         'live-concurrency.tests.ps1' = 300
         'live-plan.tests.ps1' = 180
+        'powershell-syntax-gate.tests.ps1' = 90
         'root-claims-registry.tests.ps1' = 3600
         'harness-env.tests.ps1' = 600
         'harness-authority.tests.ps1' = 900
