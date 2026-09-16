@@ -23,8 +23,10 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $preflightHelper = Join-Path $PSScriptRoot 'canonical-preflight-common.ps1'
+$skillsHelper = Join-Path $PSScriptRoot 'skills-common.ps1'
 $reportHelper = Join-Path $PSScriptRoot 'report-common.ps1'
 . $preflightHelper
+. $skillsHelper
 if (Test-Path -LiteralPath $reportHelper) { . $reportHelper }
 else { Write-Warning "Report helper missing: $reportHelper" }
 
@@ -146,12 +148,6 @@ function Write-BuildRunReport {
     catch { Write-Warning "Build completed its original flow, but report creation failed: $($_.Exception.Message)" }
 }
 
-function Get-SkillDirectories {
-    param([Parameter(Mandatory)] [string] $Path)
-    if (-not (Test-Path -LiteralPath $Path)) { return @() }
-    return @(Get-ChildItem -LiteralPath $Path -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'SKILL.md') })
-}
-
 $script:RuntimeExcludePatterns = @('MERGE_NOTES.md', 'CREATION-LOG.md', '*.magina-laptop.*')
 function Copy-SkillDirectory {
     param([Parameter(Mandatory)] [System.IO.DirectoryInfo] $Source, [Parameter(Mandatory)] [string] $DestinationRoot)
@@ -179,10 +175,10 @@ $sharedSource = Join-Path $SourceRoot 'shared'
 $claudeOnlySource = Join-Path $SourceRoot 'claude-only'
 $codexOnlySource = Join-Path $SourceRoot 'codex-only'
 $reasonixOnlySource = Join-Path $SourceRoot 'reasonix-only'
-$sharedSkills = Get-SkillDirectories -Path $sharedSource
-$claudeOnlySkills = Get-SkillDirectories -Path $claudeOnlySource
-$codexOnlySkills = Get-SkillDirectories -Path $codexOnlySource
-$reasonixOnlySkills = Get-SkillDirectories -Path $reasonixOnlySource
+$sharedSkills = Get-SkillDirectories -RootPath $sharedSource
+$claudeOnlySkills = Get-SkillDirectories -RootPath $claudeOnlySource
+$codexOnlySkills = Get-SkillDirectories -RootPath $codexOnlySource
+$reasonixOnlySkills = Get-SkillDirectories -RootPath $reasonixOnlySource
 $sharedNames = @($sharedSkills | ForEach-Object Name)
 $claudeOnlyNames = @($claudeOnlySkills | ForEach-Object Name)
 $codexOnlyNames = @($codexOnlySkills | ForEach-Object Name)
@@ -243,9 +239,9 @@ Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.codex.tx
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.reasonix.txt') -Names $reasonixSet
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.txt') -Names $unionSet
 
-$builtClaudeSkills = @(Get-SkillDirectories -Path $ClaudeOutputRoot)
-$builtCodexSkills = @(Get-SkillDirectories -Path $CodexOutputRoot)
-$builtReasonixSkills = @(Get-SkillDirectories -Path $ReasonixOutputRoot)
+$builtClaudeSkills = @(Get-SkillDirectories -RootPath $ClaudeOutputRoot)
+$builtCodexSkills = @(Get-SkillDirectories -RootPath $CodexOutputRoot)
+$builtReasonixSkills = @(Get-SkillDirectories -RootPath $ReasonixOutputRoot)
 Write-Host "Built Claude skills: $($builtClaudeSkills.Count)"
 Write-Host "Built Codex skills: $($builtCodexSkills.Count)"
 Write-Host "Built Reasonix skills: $($builtReasonixSkills.Count)"
