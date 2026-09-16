@@ -2958,10 +2958,12 @@ is the reference for text written after this window. Items 1-3 and 5-7 carry ove
    production host is child-killable; the engine's per-target drift protection is hash-based; and
    the rollback plan's `Current` identity binding is recorded as not enforced by the existing
    ladder.
-4. **Rebuild the stale commit-bound staging locks after this window's commits.** They were last
-   rebuilt on 2026-09-13 and still bind `505f57d`/`12b1f52` while `HEAD` has moved; the generated
-   `envs/` artifacts are gitignored machine-local state and `env build` is artifact preparation
-   only that never authorizes Apply.
+4. **Staging locks rebuilt in this window; they bind the window's final commit and go stale again
+   by design.** `scripts/build-skills.ps1` then `env build minimal|work|full` rebuilt all three
+   (`definition=valid staging=built lock=valid`, `Files: 32/40/145`), and each `env.lock.json`
+   now carries the commit that closed this window instead of `505f57d`/`12b1f52`. Any later commit
+   makes them stale again — the next rebuild is artifact preparation before environment planning
+   and never authorizes Apply.
 5. **Per-machine revalidation after any reviewed release**: revalidate each managed machine
    independently, and for retired skills still present elsewhere use a new machine-local retirement
    JSON with a reviewed bound plan — never this machine's deleted authorization files.
