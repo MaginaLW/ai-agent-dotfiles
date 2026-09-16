@@ -1,10 +1,18 @@
 # Project Status
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
 [`status/archived/`](status/archived/).
+
+**Read this file as a dated log, not as a manual.** Most sections below record what was true when
+they were written and are never rewritten; section titles that still read "current", "next",
+"remaining" or "in progress" are the ones most likely to be stale, and the ones already known to be
+superseded carry a Superseded banner. The live state is only: the `Purpose and current phase`
+summary above, and the two tail sections `Remaining roadmap snapshot` and `Next actions`. The
+authoritative task list is the `Pending items` section at the end of
+[`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
 
 ## Purpose and current phase
 
@@ -1138,7 +1146,13 @@ oute-cleanup-recovery` conflicts with the envelope projection's exact immediate-
   commit**; the sibling directory does not affect the read-only registry's `recovery-required`
   inventory of `live-transactions` itself.
 
-### Remaining queue (in dependency order)
+### Remaining queue (2026-09-02, superseded)
+
+> **Superseded.** This is the 2026-09-02 dependency-ordered queue. Every slice it lists was
+> implemented in Phase 2 (Slice 1 is recorded as implemented immediately below this list, and
+> Phase 2 closed at 52/52 on 2026-09-13). Do not start work from this list; the authoritative
+> pending set is at the end of
+> [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
 
 1. **Slice 1 — durable recovery ticket** (Luna's 7-step list): descriptor + sibling root with the
    whitelist coupling above, canonical JSON/ContentHash/atomic protocol, `ReleaseExact` firstError
@@ -2828,7 +2842,10 @@ inventory remained 7/15/7, and the hard-kill suite added no temporary-directory 
   outside this repair. The fresh 2026-08-25 filtered working-tree scan passed without blocking findings
   (750 non-blocking keyword hints).
 - Corrected rewritten state through `bbba28f` and the Phase 2 checkpoint through `91e871e` are
-  published. Branch/tag history and fresh clones contain no protected-path records or targeted STATUS
+  published **(both SHAs are unresolvable in the current history — `bbba28f` is now
+  `chore(privacy): ignore local Reasonix desktop state`, and `91e871e` does not exist at all; see
+  pending item 8 in the active record, which needs the owner to say which commit carries the
+  rewrite)**. Branch/tag history and fresh clones contain no protected-path records or targeted STATUS
   exposure.
   GitHub Support ticket `#4697323` is resolved after server-side garbage collection and cache clearing.
   The 2026-08-27 independent re-probe of old SHA
@@ -3961,7 +3978,7 @@ environment staging locks; this does not authorize Apply.
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
 | Task 1-5 | 0 | Complete |
-| Task 6 | 0/5 | Complete — the cross-authority overlapping-roots proof is recorded as Phase 3-bound (the mechanism does not exist yet — see the Task 8 Step 4 finding); the canonical-interleave proof executed in Task 8 Step 1 |
+| Task 6 | 0/5 | Complete — the cross-authority overlapping-roots proof could not execute and is recorded as a Phase 4-bound design input, not as Phase 3 work (Phase 3 is closed at 47/47; the mechanism does not exist yet — see the Task 8 Step 4 finding); the canonical-interleave proof executed in Task 8 Step 1 |
 | Task 7 | 0/5 | Complete — all five roadmap steps implemented and the definitive unified pass (38/38, zero failures/timeouts) recorded; production execution waits for the Phase 4 interlock release (the Phase 3 overlay lock it depended on is wired, `976d0fe`) |
 | Task 8 | 0/4 | Complete as pin-able (Step 1 mid-flight zero-wait matrix, Step 2 zero-wait-by-design boundary, Step 3 the Task 6 failpoint matrix, Step 4 the transition rejection plus the recorded cross-authority finding) |
 | Task 9 | 0/5 | Complete — focused suites, artifact validation, the definitive unified pass, the bounded independent review with its fixes, and the real-home non-mutation evidence |

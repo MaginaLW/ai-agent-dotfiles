@@ -1,14 +1,16 @@
 # Live Safety Hardening
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 Status: Complete through Phase 3. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0
 entry-interlock subplan is complete (43/43), Phase 1 is complete (44/44), Phase 2 is complete
-(52/52: Tasks 1-9, with the one cross-authority proof recorded as a Phase 3-bound finding), and
+(52/52: Tasks 1-9, with the one cross-authority proof recorded as a Phase 4-bound design input), and
 Phase 3 is complete (47/47: Tasks 1-9, the checkpoint at `e57c608`, its two review findings closed
 by `872ad03` and `976d0fe`, and the carried sealed-file slice closed by `bbfa6d5`). Phase 4
 (schema/CI contract and safe release) has not started and owns the interlock release. The corrected
-privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` is resolved after
+privacy rewrite is published at `bbba28f` (this sentence is unverified — `bbba28f` is a
+`.gitignore` commit and the SHA resolves to no rewrite; pending item 8 records what the owner must
+settle); GitHub Support ticket `#4697323` is resolved after
 server-side garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the
 object is no longer served. This per-task record is a dated log: the sections below run in
 completion order and several of them carry their own superseded markers, so read a section as
@@ -1524,9 +1526,12 @@ derivation executes:
   `GitCommonDirHash`, and `CanonicalLockKey` with the calling clone (`rollback-origin-mismatch
   (repo identity | git common dir | canonical lock key)`), so a wrong clone can never derive or
   execute a rollback it does not own.
-- `Assert-RollbackOverlayLockSupported` rejects a source header that binds a
+- `Assert-RollbackOverlayLockSupported` rejected a source header that binds a
   `WorktreeOverlayLockKey` with the reviewed `worktree-overlay-lock-not-implemented` token until
-  the Phase 3 worktree overlay primitive exists.
+  the Phase 3 worktree overlay primitive existed. **Superseded by G4 (`976d0fe`):** that helper is
+  gone from `scripts/rollback-harness-env.ps1`, the entry now acquires the worktree overlay lock in
+  the reviewed order, and the live-recovery suite asserts the token can no longer appear. Do not
+  re-implement this refusal.
 - `New-EnvironmentRollbackPlanDocument` derives the plan entirely from verified evidence: the
   payload binds `SourceTransactionId`/`SourceOperationKind=environment`, the source
   `OriginalPlanHash`/`OriginalDocumentHash`, the source receipt identity
@@ -2715,8 +2720,9 @@ roots are unchanged.
 
 **Phase 2 and Phase 3 are both complete** (Phase 3 at 47/47: the checkpoint is `e57c608`, and the
 two review findings it raised are closed — G2 by `872ad03`, G4 by `976d0fe`; the carried sealed-file
-slice is closed as recorded above). Nothing in this window's ordered list is still open. What
-remains is downstream, design-bound, or operational:
+slice is closed by `bbfa6d5` as recorded above). Items 1-7 are what the 2026-09-15 checkpoint window
+left open — downstream, design-bound, or operational; items 8-11 were added by the sealed-file slice
+window that closed on 2026-09-16, and Phase 4 remains the only open roadmap item:
 
 1. **Phase 4 — schema/CI contract and safe release — not started.** It owns the interlock release.
    Until it lands, every production sync/environment/task/rollback Apply, standalone backup, and
@@ -2750,9 +2756,10 @@ remains is downstream, design-bound, or operational:
 8. **Privacy-narrative verification — needs the owner.** An independent check of 103 cited short
    SHAs found 99 present and consistent, but two do not corroborate their sentences: `bbba28f` is
    described in both this file and `STATUS.md` as "the corrected privacy rewrite is published",
-   while the commit is `chore(privacy): ignore local Reasonix desktop state`; and the Phase 0
+   while the commit is `chore(privacy): ignore local Reasonix desktop state`; the Phase 0
    implementation SHA `0a6c16e` does not exist in the current history (consistent with the rewrite
-   removing it, but not evidence that the rewrite is what is claimed). Both sentences sit in the
+   removing it, but not evidence that the rewrite is what is claimed); and a third unresolvable SHA,
+   `91e871e`, is cited in `STATUS.md` as the published Phase 2 checkpoint. Those sentences sit in the
    privacy/rewrite record, where an inference is not evidence, so they were left untouched and need
    the owner's knowledge — either corrected to the commit that actually carries the rewrite, or
    marked as a pre-rewrite SHA that the current tree cannot resolve.
@@ -2762,12 +2769,14 @@ remains is downstream, design-bound, or operational:
    wrap-up) were corrected or banner-marked this window. A systematic sweep of the remaining
    2026-09-14-and-earlier sections — several still say Phase 3 "have not started" or that the
    rollback entry waits on the overlay lock — has not been done.
-10. **Push and CI coverage.** The owner pushes this repository (the `cfb3db6` push during the
-   2026-09-15 slice window was the owner's, not an unexplained event). At the close of that window
-   `b791bda`, `996986a`, `fe149f9` and `5807727` were still local-only, so remote CI — which this
-   window could not query at all, since `gh` is unauthenticated on this machine and no token is set
-   — does not cover the gate hardening or the record updates. Any CI verdict for `cfb3db6` and
-   later must be read from the workflow, not inferred from the local `-All` pass.
+10. **Push and CI coverage — read Git before acting on this item.** The owner pushes this repository
+   (the `cfb3db6` push during the 2026-09-15 slice window was the owner's, not an unexplained event).
+   The window-close snapshot said `b791bda`, `996986a`, `fe149f9` and `5807727` were local-only; the
+   owner then pushed through `5807727`, so `b791bda` and the gate hardening are already on the
+   remote. Treat that sentence as a dated snapshot, not as current state: `git log origin/main..main`
+   is the authority. What does not age is the other half — this machine cannot query CI at all
+   (`gh` unauthenticated, no token), so any CI verdict must be read from the workflow, never inferred
+   from a local `-All` pass.
 11. **Tooling note outside this repository.** The global agent instruction that documents the Grok
    wrapper states that a read-only call may run in parallel with same-directory work, but the
    wrapper enforces a per-directory named mutex and refuses the second process
@@ -2776,6 +2785,32 @@ remains is downstream, design-bound, or operational:
    run in its own throwaway checkout with full permission. Four parallel reviews ran that way this
    window and left their checkouts byte-clean. The instruction text is due an update; the working
    recipe is recorded in agent memory until then.
+12. **The parse gate has no in-repo regression test — highest-value follow-up.** Two of the four
+   reviews reached this independently. The gate is a CI *non-suite* step: `scripts/run-tests.ps1`
+   never invokes it, so re-filling the exemption table, or turning the check's `if ($true)` wrapper
+   into an off switch, leaves all 39 suites green and only the explicit run or remote CI catches it.
+   The fixtures they propose: lower-case `-or` rejected, upper-case `-AND` rejected, the
+   parenthesised form accepted, a genuine expression operator accepted, the exemption table asserted
+   empty, and the `scripts/` unknown-parameter pass asserted not to double-report `-AND`. Adding it
+   means a new `tests/*.tests.ps1`, which the runner auto-discovers, so it needs a budget entry in
+   `tests/test-timeouts.psd1` and a re-verified runner bound. Do the gate script's remaining tidy-up
+   in the same slice, so the new fixtures can prove it: the operator check still sits inside a
+   vestigial `if ($true)` wrapper (about line 90) that can be flipped into a silent off switch, and
+   that wrapper was left in place this window precisely because nothing in the suite set exercises
+   this file.
+13. **The 8256 rejection surface has no independent RED.** The existing common-parameter mutations
+   fail earlier — `:8254-8255`'s scriptblock check or `:8245-8249` — so nothing exercises
+   "provider only" or "`[ref]` only" on an unmatched common parameter, which is exactly the surface
+   the fix made live. A mutation that reaches it changes the sealed function body, so it needs its
+   own re-seal, `-Section primitives` signal and full-suite verdict; the reviewer supplied the three
+   candidate cases, including the warning that the probe's variable must sit outside `$regionTaint`
+   or the first check masks the other two.
+14. **Pre-existing inconsistency found while scanning for item 12**: `Get-SkillDirectories` is
+   defined twice with different signatures — `scripts/build-skills.ps1:149` takes only `-Path`, while
+   `scripts/skills-common.ps1:84` takes `-RootPath`/`-ExcludeNames`. This is the defect class the
+   gate's unknown-parameter pass deliberately skips (six colliding names are skipped today), so it
+   is invisible to it; not a regression, but it should be settled the next time that collision
+   handling is touched.
 Both follow-up changes were then re-validated by a fresh definitive run on the
 resulting tree: ``pwsh -NoProfile -File scripts/run-tests.ps1 -All
 -JsonSummaryPath <external create-new path>`` reads **``Test summary: PASS;
@@ -2785,4 +2820,7 @@ discovered=39; passed=39; failed=0; timed-out=0``** (external create-new summary
 and G4 closed, the only remaining item in the roadmap is Phase 4 (the schema/CI
 contract and the safe release), which requires releasing the production
 interlock and running the real-machine read-only/dry-run validation — an action
-reserved for the user's explicit authorization.
+reserved for the user's explicit authorization. Items 8-11 above are the
+operational and documentation follow-ups on top of that, and item 9 (the sweep of
+superseded present-tense sections) is the one to finish before any text written for
+a release or for a new session leans on those sections.
