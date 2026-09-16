@@ -46,9 +46,19 @@ safe release) has not started. One design-bound finding from the Phase 2 closeou
 feeds the later Phase 4 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store). The second, the rollback execution's production caller, is closed: `976d0fe` wired
 it to the Phase 3 worktree overlay lock.
+The 2026-09-16 parallel-grok window closed the six actionable follow-ups (the parse gate now has an
+in-repo regression suite, `2a90261`; the duplicated `Get-SkillDirectories` is settled, `fc6e173`;
+the `:8256` taint arms have independent RED, `0c68ee3`; the record sweep and the rewrite-SHA
+correction, `23d2d37`; and the global Grok invocation guide) and published the Phase 4 decision
+package at
+[`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md),
+which the owner has not yet reviewed.
 Tracked policy remains
-`ReleaseState=interlocked`: production sync/environment/task/rollback Apply, standalone backup,
-and explicit retirement stop with `safety-protocol-upgrade-required` before traversal or mutation.
+`ReleaseState=interlocked`: production sync/environment/task/rollback Apply and explicit retirement
+stop with `safety-protocol-upgrade-required` before traversal or mutation, while two public
+surfaces stop earlier still — standalone `backup.ps1` exits `backup-is-transaction-internal`
+(`backup.ps1:61-67`) and canonical `-Apply` ends `canonical-apply-interlocked` / exit 75 with no
+production engine (`canonical-transaction.ps1:62-71`).
 Bootstrap and Git hooks use an explicitly approved Git-private runner and may emit only validated,
 non-consumable preview/events plus an explicit external DryRun command. They never Apply.
 
@@ -4079,7 +4089,7 @@ step lists are in
    authorities commit on a shared custom root today). The rollback execution's production caller is
    closed by `976d0fe`. The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-15, after the Phase 3 checkpoint and its review follow-ups)".
+   "Pending items (2026-09-16, after the parallel-grok window)".
 4. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; and the
@@ -4089,8 +4099,9 @@ step lists are in
 5. The stale commit-bound `minimal`, `work`, and `full` staging locks were rebuilt on 2026-09-13
    (all three reported `staging=built lock=valid` under the then-current HEAD, which `HEAD` has since
    moved away from; the generated `envs/`
-   artifacts are gitignored machine-local state). This is artifact preparation only and does not
-   authorize environment Apply.
+   artifacts are gitignored machine-local state). They are stale again after this window's commits
+   and must be rebuilt before any future environment planning; `env build` is artifact preparation
+   only and does not authorize environment Apply.
 6. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
 7. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
@@ -4104,14 +4115,18 @@ step lists are in
    as the concurrent-session hazard note, not here. The window's ordered list is closed: items 1-4
    above record what was delivered, and the current pending set is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-15, after the Phase 3 checkpoint and its review follow-ups)".
-9. **Added by the sealed-file slice window (2026-09-15, closed 2026-09-16).** Four items join that pending set: the
-   privacy narrative still needs verification (`bbba28f` is described as the corrected privacy
-   rewrite but is a `.gitignore` commit, and the pre-rewrite Phase 0 SHA `0a6c16e` is not in the
-   current history — both left for the owner, because an inference is not evidence); the
-   pre-2026-09-15 sections that still assert superseded states need a sweep, not just the banner
-   the header now carries; four commits (`b791bda`, `996986a`, `fe149f9`, `5807727`) were still
-   local-only at the window close, so remote CI covers `cfb3db6` at most and could not be queried
-   from this machine (`gh` unauthenticated); and the global Grok invocation guide is out of step
-   with its wrapper (per-directory mutex forbids the parallel read-only calls it advertises, and
-   read-only mode cancels the commands a review needs).
+   "Pending items (2026-09-16, after the parallel-grok window)".
+9. **Added by the sealed-file slice window (2026-09-15) — closed by the parallel-grok window
+   (2026-09-16).** All four items are done: the privacy narrative is corrected against the tree
+   (item 8: `91e871e` does resolve and is an ancestor of `HEAD`, `bbba28f` is the
+   force-with-lease publish head the rewrite record anchors on rather than the rewrite content, and
+   `0a6c16e` does not resolve; which commit carries the rewrite stays open for the owner —
+   `23d2d37`); the superseded present-tense sections are banner-marked or inline-corrected instead
+   of rewritten (`23d2d37`); push/CI coverage remains the owner's action with
+   `git log origin/main..main` as the only authority this machine can read; and the global Grok
+   invocation guide now matches its wrapper (per-directory mutex, plan-mode command cancellation,
+   `-MaxTurns` ≤ 100). The same window closed the parse-gate RED gap (`2a90261`), the duplicated
+   `Get-SkillDirectories` (`fc6e173`) and the `:8256` independent RED (`0c68ee3`). The current
+   pending set, including the new Phase 4 decision package, is in
+   [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
+   "Pending items (2026-09-16, after the parallel-grok window)".

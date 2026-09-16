@@ -2853,3 +2853,122 @@ reserved for the user's explicit authorization. Items 8-11 above are the
 operational and documentation follow-ups on top of that, and item 9 (the sweep of
 superseded present-tense sections) is the one to finish before any text written for
 a release or for a new session leans on those sections.
+
+## Parallel-grok follow-up window (2026-09-16, complete)
+
+The actionable half of the 2026-09-15 pending list was executed by five independent workers
+(grok-4.6 at `xhigh` with full permission, each in its own detached `git worktree` at `71b8e74`)
+running concurrently, and integrated one stream at a time: W12 the parse-gate follow-up, W13 the
+hard-kill taint RED, W14 the duplicated helper, W9 the record sweep, WP4 the Phase 4 proposal.
+The coordinator reviewed each diff, re-verified it in the main checkout, re-derived the combined
+seam baselines, and owns the commits below. Closed by this window: items 8, 9, 11, 12, 13 and 14.
+
+- **Item 12 — the parse gate now has an in-repo regression suite (`2a90261`).**
+  `tests/powershell-syntax-gate.tests.ps1` drives the real gate as a child process against
+  throwaway `git init` fixture roots: lower-case `-or` and upper-case `-AND` rejected, the
+  parenthesised form and a genuine expression operator accepted, the exemption table asserted
+  empty by AST, and the `scripts/` unknown-parameter pass asserted not to double-report a bare
+  `-AND`; plus the repository-as-is pass and a structural check that the operator `foreach` is not
+  nested in a constant `if`. RED was proved both ways in the worktree — one exemption entry and an
+  `if ($false)` wrapper each made the suite fail — and the exact gate bytes (SHA-256
+  `7dbd9c9cec3a904950b92d17df5e985a9fdeb3a6364b647cb9d3b3df14f7ae79`) were restored afterwards.
+  The vestigial `if ($true)` wrapper is gone and the check is unconditional. Measured 9.71 s,
+  budget entry 90 s; `tests/test-runner.tests.ps1` still proves the workflow bound.
+- **Item 14 — `Get-SkillDirectories` is defined once (`fc6e173`).** `build-skills.ps1` dot-sources
+  `skills-common.ps1` and its seven call sites use `-RootPath`; the local duplicate is deleted and
+  no other name of the shared library collides with a local one. Behavior is preserved by
+  evidence: `build-skills.ps1` exit 0 with the 7/15/7 summary and the same manifest line in both
+  runs, and a SHA-256 inventory of all 140 generated files plus the four manifests is identical.
+  The gate's skipped-collision set shrank from six names to five.
+- **Item 13 — the `:8256` taint surface has independent RED (`0c68ee3`).** Three mutation cases
+  reach that line through an unmatched `-ErrorAction`: provider-only, `[ref]`-only and ast-only
+  probes, with the first two held outside `$regionTaint` per the reviewer's warning. Arm-by-arm
+  neutralization made exactly the corresponding case slip through (`Valid=True codes=[]`) while the
+  other two stayed rejected with `preimage-transport-owner-shadow`. The mutation inventory is now
+  302 rows and the static-boundary assertion text moves with it. Ten self-referential pins moved
+  (both reviewed function hashes, the cleanup-gate self digest, the function-inventory digest, the
+  controller surface sha, and the execution/region/self-test digests) and were re-sealed to a
+  fixpoint; `-Verify` reports `total changes: 0` in the worktree and again in this checkout.
+- **Items 9 and 8 — the sweep and the SHA correction (`23d2d37`).** One banner per repeated claim
+  run plus inline G4 markers; history text is kept as history. Item 8's own claim that `91e871e`
+  "does not exist at all" was itself false: it resolves
+  (`91e871e271c21c4cac382b8a3f4ac6e04032658d`, `feat(live-safety): add phase 2 authority registry
+  foundations`, 2026-08-27), is an ancestor of `HEAD` and is contained in `remotes/origin/main`;
+  `bbba28f` resolves as the `.gitignore`-only commit and is the force-with-lease publish head the
+  rewrite record anchors on, not the rewrite content; `0a6c16e` does not resolve. What the tree
+  cannot settle — which commit carries the rewrite — is now marked open instead of inferred.
+- **Item 11 — the Grok invocation guide matches its wrapper.** The global instruction files
+  (`AGENTS.md` and `instructions/grok-build.md`, outside this repository) now state that the
+  per-directory named mutex refuses a second process even for read-only calls, that `-ReadOnly` is
+  plan mode and cancels terminal commands, and that reviews needing `git show`, AST parsing or
+  hashing must run in their own throwaway checkout with full permission. The wrapper also caps
+  `-MaxTurns` at 100, which this window hit as a pre-launch parameter error.
+
+Combined-tree verification (code `2a90261`, `fc6e173`, `0c68ee3`; docs `23d2d37`):
+
+- The seams baselines were re-derived on the combined tree rather than taken from either worker:
+  dynamic command digest `4fc1bb2d…` → `2f518abc…`, reflection-sensitive count 15784 → 15782,
+  reflection-sensitive digest `90cdfd7c…` → `c901fb35…`. The row list contains exactly four
+  mutations — one `InvokeMember` row whose extent text changed because the gate tidy-up dedented a
+  hashtable literal (the baseline hashes extent whitespace, not only semantics), two rows removed
+  with the deleted helper, and one dynamic command added for `. $skillsHelper` — and the
+  `canonical-production-seams` suite then passes 56/56 in this checkout.
+- Parse gate passes with 172 files (171 before the new suite); the new suite and `test-runner`
+  pass; `canonical-preflight` 27/27 and `skills-import` 42/42 (worktree runs, untouched by
+  integration); `-Section primitives` 95 passed / 0 failed.
+
+## Pending items (2026-09-16, after the parallel-grok window)
+
+The parse-gate RED gap and the record sweep named by the 2026-09-15 list are closed above, so this
+is the reference for text written after this window. Items 1-3 and 5-7 carry over unchanged; item
+4 is the post-commit rebuild; items 8-11 are new or refreshed.
+
+1. **Phase 4 — schema/CI contract and safe release — the only open roadmap item; it now has a
+   decision package.**
+   [`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md)
+   stages the release (read-only CLIs → external create-new DryRun → per-machine revalidation →
+   owner-authorized policy commit plus a disposable-identity lab → protocol rollback), names the
+   contract gaps, and marks its own claims as proposal analysis rather than repository evidence.
+   Until a reviewed release lands, every production sync/environment/task/rollback Apply and
+   explicit retirement still stops with `safety-protocol-upgrade-required` before traversal or
+   mutation. Two adjacent facts were re-verified in the tree this window and are recorded in the
+   proposal: the public standalone `backup.ps1` exits earlier with `backup-is-transaction-internal`
+   (`backup.ps1:61-67`), and canonical `-Apply` ends in `canonical-apply-interlocked` / exit 75
+   with no production engine (`canonical-transaction.ps1:62-71`).
+2. **Design-bound finding still feeding Phase 4**: the cross-authority root-claim overlap rejection
+   needs a machine-wide claim store — both authorities commit on a shared custom root today (the
+   Phase 2 Task 8 Step 4 finding; the proposal's §4 recommends a SID-scoped occupancy index that is
+   not ControlBase-relative and is never written into live skill trees).
+3. **Carried boundaries**, unchanged: the locator stays phase-only by design, so a state file
+   replaced without its `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than
+   a locator status; a live-target move whose record is still a `_pending` temp classifies as
+   manual recovery; the `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the
+   production host is child-killable; the engine's per-target drift protection is hash-based; and
+   the rollback plan's `Current` identity binding is recorded as not enforced by the existing
+   ladder.
+4. **Rebuild the stale commit-bound staging locks after this window's commits.** They were last
+   rebuilt on 2026-09-13 and still bind `505f57d`/`12b1f52` while `HEAD` has moved; the generated
+   `envs/` artifacts are gitignored machine-local state and `env build` is artifact preparation
+   only that never authorizes Apply.
+5. **Per-machine revalidation after any reviewed release**: revalidate each managed machine
+   independently, and for retired skills still present elsewhere use a new machine-local retirement
+   JSON with a reviewed bound plan — never this machine's deleted authorization files.
+6. **Coordination**: any other clone or fork should re-clone or rebase rather than merge the old
+   history.
+7. **Operational, needs a human decision**: whether one owner per repository is intended. The
+   2026-09-15 window's concurrency incident is recorded in the agent memory
+   (`concurrent-session-hazard`); this window avoided it with one writer per worktree and a single
+   integrator.
+8. **Push and CI coverage — read Git before acting.** The owner pushes; `git log origin/main..main`
+   is the authority, and this machine still cannot query CI (`gh` unauthenticated, no token), so a
+   local `-All` pass is never a CI verdict. At this window's close the new commits (`2a90261`,
+   `fc6e173`, `0c68ee3`, `23d2d37`, the proposal and this record) are local-only.
+9. **The Phase 4 proposal is unreviewed by the owner.** Its §1.13 contradictions, its unregistered
+   `doctor-report` schema, the live-recover Apply that is sandbox-root-gated without the interlock,
+   and the claim-store options all need an owner read before any §7 decision is adopted.
+10. **The gate's ambiguous-name skip list still hides five names** (`Get-CodexLiveSkillsPath`,
+    `Get-FileHashHex`, `Get-PlannedCopies`, `Get-StringSha256`, `Test-Excluded`); item 14 settled
+    one of six.
+11. **The parse gate remains a CI non-suite step.** Its regression suite is now in-repo, but
+    `scripts/run-tests.ps1` still never invokes the gate, so a local `-All` pass cannot detect a
+    disabled gate; the proposal's Task 3 (repository validation orchestrator) is where that closes.
