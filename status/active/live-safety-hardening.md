@@ -3041,11 +3041,35 @@ exactly the five new dot-source edges, none removed). The new pins are in `117a5
 the touched files is in the hard-kill reviewed load manifest and the reseal verifier reports
 `total changes: 0`, so no re-seal was applied.
 
+## CI failure-rules window (2026-09-17)
+
+A read-only diagnosis window read every non-success `Validate` run through the repository's own
+GitHub API (123 runs, 57 non-success, 2026-06-20..2026-09-17) and distilled the reusable rules
+into [`docs/CI_FAILURE_RULES.md`](../../docs/CI_FAILURE_RULES.md) (`ff9dbb3`), pointed at from
+`AGENTS.md` and the `docs/README.md` index. The extraction corrected a working assumption: this
+machine **can** query CI read-only through the stored Git credential (`git credential fill`, token
+held in a process variable and never printed or persisted); the unauthenticated `gh` state and the
+anonymous-API 403 were the only blockers. Two retrieval facts are now recorded in the rules file:
+the page annotation carries only `Process completed with exit code 1.` (55 of 57), and the job-log
+endpoint redirects to object storage, so a client that carries the `Authorization` header across
+the redirect (Python `urllib`) gets a misleading `401` while `curl -L` succeeds.
+
+The 57 non-success runs split into: test matrix 36 (22 of them suite-level timeouts over 10
+distinct suites), machine-readable evidence 10, doctor 5, the retired MCP step 2, secret scan 2,
+and runner loss 2. Each class carries its real message and fixing commit in the rules file
+(`9583aed`/`6540681` elevated owner, `881047a`/`5e99c07`/`fa53b7c` budgets, `895c54f` schema drift,
+`c25fdd4` untracked directory, `8b859e5` secret-gate false positive). Window checks, all green:
+`git diff --check`, `scripts/scan-secrets.ps1` (the first draft was itself blocked by the
+`Literal secret assignment` pattern it quoted; the rule now requires describing that form without
+reproducing it), `scripts/check-powershell-syntax.ps1` (173 files) and `tests/doctor.tests.ps1`.
+No `-All` run was made because the change is documentation only.
+
 ## Pending items (2026-09-17, after the skip-list settlement window)
 
 Item 10 of the previous list — the five names hidden from the gate's unknown-parameter pass —
 is closed by the window above. Items 1-3 and 5-9 carry over; item 4 is refreshed for this
-window's commits; former item 11 is renumbered to 10.
+window's commits; former item 11 is renumbered to 10. Item 8 is corrected and item 11 appended
+by the CI failure-rules window recorded above.
 
 1. **Phase 4 — schema/CI contract and safe release — the only open roadmap item; it now has a
    decision package.**
@@ -3084,10 +3108,12 @@ window's commits; former item 11 is renumbered to 10.
    (`concurrent-session-hazard`); the parallel-grok window avoided it with one writer per
    worktree and a single integrator.
 8. **Push and CI coverage — read Git before acting.** The owner pushes; `git log origin/main..main`
-   is the authority, and this machine still cannot query CI (`gh` unauthenticated, no token), so a
-   local `-All` pass is never a CI verdict. At the start of this window `origin/main` matched
-   `0c5ca92`, the pre-window `HEAD`; the owner has not pushed this window's commits yet. That is a
-   dated snapshot, not current state.
+   is the authority. CI itself **is** queryable read-only from this machine through the stored Git
+   credential (`docs/CI_FAILURE_RULES.md` §1); the earlier "this machine cannot query CI" note
+   described only the unauthenticated `gh` state and no longer holds. A local `-All` pass is still
+   never a CI verdict. As of the CI failure-rules window's close, `origin/main` matched `0c5ca92`
+   and three commits are unpushed (`117a556`, `0e0cb7f`, `ff9dbb3`). That is a dated snapshot, not
+   current state.
 9. **The Phase 4 proposal is unreviewed by the owner.** Its §1.13 contradictions, its unregistered
    `doctor-report` schema, the live-recover Apply that is sandbox-root-gated without the interlock,
    and the claim-store options all need an owner read before any §7 decision is adopted.
@@ -3095,3 +3121,11 @@ window's commits; former item 11 is renumbered to 10.
     ambiguous-name skip set is now empty, but `scripts/run-tests.ps1` still never invokes the
     gate, so a local `-All` pass cannot detect a disabled gate; the proposal's Task 3
     (repository validation orchestrator) is where that closes.
+11. **CI reliability gaps found by the failure-rules window, not yet fixed.** `automation-safety.tests.ps1`
+    has no entry in `tests/test-timeouts.psd1`, so it runs on the 120 s default and timed out in
+    runs `34957472014`, `34991068832` and `35086695635`; the established remedy is an explicit
+    budget derived from a CI-doubled local measurement (`fa53b7c` precedent), not a smaller test.
+    `task-skills` carries one unroot-caused failure (`Task skill dry-run failed (exit 1)`; run
+    `34851206631`), and the two 2026-09-17 runner-loss runs (`35166625038`, `35166789288`) have not
+    been retried on their commit. Fixing these is ordinary follow-up work under the existing gates
+    and budgets, not a new authorization.
