@@ -4,6 +4,7 @@
     MarginSeconds = 120
     Suites = @{
         'agent-dotfiles.tests.ps1' = 150
+        'automation-safety.tests.ps1' = 600
         'backup-receipt.tests.ps1' = 300
         'backup-recovery.tests.ps1' = 900
         'live-recovery.tests.ps1' = 900
