@@ -31,6 +31,8 @@ Project instructions for coding agents, including Codex and ZCode, working in th
   user's choices as described above; do not copy another tool's model or permission settings.
 - Use this project's PowerShell 7+ checks and required CI without reducing their scope or thresholds.
   Report exactly which checks ran and any missing checks; local checks do not stand in for CI.
+  Diagnose a red `Validate` run by
+  [the CI failure rules](docs/CI_FAILURE_RULES.md) instead of guessing from the GitHub annotation.
   Make small, coherent local commits containing only reviewed changes from the current task.
 - Preserve the scope triggers, production interlock, and hard rules below. This lightweight adoption
   adds no AI Flow task ledger, live deployment target, global configuration, or background collection.
