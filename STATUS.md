@@ -4100,7 +4100,7 @@ step lists are in
    authorities commit on a shared custom root today). The rollback execution's production caller is
    closed by `976d0fe`. The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-17, after the parallel-grok window)".
+   "Pending items (2026-09-17, after the skip-list settlement window)".
 4. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; and the
@@ -4125,7 +4125,7 @@ step lists are in
    as the concurrent-session hazard note, not here. The window's ordered list is closed: items 1-4
    above record what was delivered, and the current pending set is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-17, after the parallel-grok window)".
+   "Pending items (2026-09-17, after the skip-list settlement window)".
 9. **Added by the sealed-file slice window (2026-09-15) — closed by the parallel-grok window
    (2026-09-16).** All four items are done: the privacy narrative is corrected against the tree
    (item 8: `91e871e` does resolve and is an ancestor of `HEAD`, `bbba28f` is the
@@ -4139,4 +4139,19 @@ step lists are in
    `Get-SkillDirectories` (`fc6e173`) and the `:8256` independent RED (`0c68ee3`). The current
    pending set, including the new Phase 4 decision package, is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-17, after the parallel-grok window)".
+   "Pending items (2026-09-17, after the skip-list settlement window)".
+10. **Gate skip-list settlement — complete (`117a556`, 2026-09-17).** All five names the parse
+    gate's unknown-parameter pass still skipped are now single definitions: the platform getters
+    and `Get-StringSha256` live once in `skills-common.ps1` (explicitly dot-sourced by
+    `live-plan-evidence-common.ps1` and `backup.ps1`), and `Test-Excluded` / `Get-FileHashHex` /
+    `Get-PlannedCopies` moved into a new `scripts/config-common.ps1` shared by the three
+    config-sync CLIs, with pull's call form renamed to the direction-neutral `-SrcItem/-DstItem`.
+    Verified: zero duplicate function names in `scripts/` (the gate's ambiguous set is empty),
+    parse gate 173 files, secret scan PASS, byte-identical `build-skills.ps1` output, eleven
+    focused suites green including `config-sync` 17/0 and `harness-env` 311/0, the two seams
+    all-scripts baselines independently re-derived, reviewed row by row, and re-pinned
+    (`canonical-production-seams` 56/0), and the hard-kill reseal verifier reports
+    `total changes: 0`. The itemised record is in
+    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
+    "Gate skip-list settlement window (2026-09-17, complete)"; the current pending set is in the
+    same file under "Pending items (2026-09-17, after the skip-list settlement window)".

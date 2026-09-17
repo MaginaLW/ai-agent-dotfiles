@@ -2997,3 +2997,101 @@ is the reference for text written after this window. Items 1-3 and 5-7 carry ove
 11. **The parse gate remains a CI non-suite step.** Its regression suite is now in-repo, but
     `scripts/run-tests.ps1` still never invokes the gate, so a local `-All` pass cannot detect a
     disabled gate; the proposal's Task 3 (repository validation orchestrator) is where that closes.
+
+## Gate skip-list settlement window (2026-09-17, complete)
+
+Pending item 10 of the 2026-09-17 list is closed by `117a556`: the syntax gate's ambiguous-name
+skip set is empty, so its unknown-parameter pass now checks every repository-function call site
+it can resolve. The five names each collapsed to one definition, following the `fc6e173`
+precedent of keeping the shared-library copy instead of adding new surface:
+
+- The three platform getters (`Get-ClaudeLiveSkillsPath`, `Get-CodexLiveSkillsPath`,
+  `Get-ReasonixLiveSkillsPath`) moved verbatim from `live-plan-evidence-common.ps1` into
+  `skills-common.ps1`, which every live-plan session already loads transitively via
+  `canonical-transaction-common` → `build-skills.ps1`. `live-plan-evidence-common.ps1` now
+  dot-sources `skills-common.ps1` explicitly and keeps `Get-PlatformLiveRoot`; `backup.ps1`
+  dot-sources it too and loses its inline `Get-CodexLiveSkillsPath` (the two bodies differed
+  only in comments).
+- `Get-StringSha256` keeps its `skills-common.ps1` definition; the byte-identical
+  `live-plan-evidence-common.ps1` copy is deleted.
+- `Test-Excluded`, `Get-FileHashHex`, and `Get-PlannedCopies` moved into a new
+  `scripts/config-common.ps1` dot-sourced by `config-status.ps1`, `config-push.ps1`, and
+  `config-pull.ps1`; pull's `-RepoItem/-HomeItem` call form joined push's direction-neutral
+  `-SrcItem/-DstItem` form and `config-pull.ps1`'s single call site was renamed. The
+  single-definition locals (`Get-ItemKind`, `Get-DirFileMap`, `Find-MachinePrivatePaths`)
+  stayed in their scripts.
+
+Verification: an AST probe over all `scripts/*.ps1` reports zero duplicate function names (the
+gate derives its ambiguous set from exactly those files); parse gate passes with 173 files
+(172 plus the new `config-common.ps1`); secret scan PASS; `build-skills.ps1` exit 0 with the
+same 7/15/7 summary and a byte-identical generated tree and manifests (git status carried
+exactly the eight touched files); backup's retired public path still exits
+`backup-is-transaction-internal` before traversal; config status/push/pull dry-run smoke output
+unchanged. Focused suites, all green: `config-sync` 17/0, `powershell-syntax-gate` PASS,
+`automation-safety` PASS, `skills-import` 42/0, `sync` PASS, `harness-env` 311/0,
+`backup-recovery` PASS, `canonical-preflight` 27/0, `agent-dotfiles` 23/0, `task-skills` 93/0,
+`harness-authority` 435/0, and `canonical-production-seams` 56/0 on the re-pinned baselines.
+
+Baselines: the two all-scripts seams baselines were re-derived on this tree with the
+independent reproduction tool and reviewed row by row — reflection-sensitive 15782 → 15763
+(+13/−32; the additions are the moved function bodies re-attributed to `config-common.ps1`
+and `skills-common.ps1`, the removals are the deleted local copies, and there are no new
+reflection-type or reflection-sensitive command rows) and dynamic commands 169 → 174 (+5:
+exactly the five new dot-source edges, none removed). The new pins are in `117a556`. None of
+the touched files is in the hard-kill reviewed load manifest and the reseal verifier reports
+`total changes: 0`, so no re-seal was applied.
+
+## Pending items (2026-09-17, after the skip-list settlement window)
+
+Item 10 of the previous list — the five names hidden from the gate's unknown-parameter pass —
+is closed by the window above. Items 1-3 and 5-9 carry over; item 4 is refreshed for this
+window's commits; former item 11 is renumbered to 10.
+
+1. **Phase 4 — schema/CI contract and safe release — the only open roadmap item; it now has a
+   decision package.**
+   [`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md)
+   stages the release (read-only CLIs → external create-new DryRun → per-machine revalidation →
+   owner-authorized policy commit plus a disposable-identity lab → protocol rollback), names the
+   contract gaps, and marks its own claims as proposal analysis rather than repository evidence.
+   Until a reviewed release lands, every production sync/environment/task/rollback Apply and
+   explicit retirement still stops with `safety-protocol-upgrade-required` before traversal or
+   mutation. Two adjacent facts were re-verified in the tree this window and are recorded in the
+   proposal: the public standalone `backup.ps1` exits earlier with `backup-is-transaction-internal`
+   (`backup.ps1:61-67`), and canonical `-Apply` ends in `canonical-apply-interlocked` / exit 75
+   with no production engine (`canonical-transaction.ps1:62-71`).
+2. **Design-bound finding still feeding Phase 4**: the cross-authority root-claim overlap rejection
+   needs a machine-wide claim store — both authorities commit on a shared custom root today (the
+   Phase 2 Task 8 Step 4 finding; the proposal's §4 recommends a SID-scoped occupancy index that is
+   not ControlBase-relative and is never written into live skill trees).
+3. **Carried boundaries**, unchanged: the locator stays phase-only by design, so a state file
+   replaced without its `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than
+   a locator status; a live-target move whose record is still a `_pending` temp classifies as
+   manual recovery; the `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the
+   production host is child-killable; the engine's per-target drift protection is hash-based; and
+   the rollback plan's `Current` identity binding is recorded as not enforced by the existing
+   ladder.
+4. **Staging locks are stale again by design**: the 2026-09-16 rebuild binds that window's final
+   commit, and this window's later commits supersede it. The next `scripts/build-skills.ps1` plus
+   `env build minimal|work|full` rebuild is artifact preparation before environment planning and
+   never authorizes Apply.
+5. **Per-machine revalidation after any reviewed release**: revalidate each managed machine
+   independently, and for retired skills still present elsewhere use a new machine-local retirement
+   JSON with a reviewed bound plan — never this machine's deleted authorization files.
+6. **Coordination**: any other clone or fork should re-clone or rebase rather than merge the old
+   history.
+7. **Operational, needs a human decision**: whether one owner per repository is intended. The
+   2026-09-15 window's concurrency incident is recorded in the agent memory
+   (`concurrent-session-hazard`); the parallel-grok window avoided it with one writer per
+   worktree and a single integrator.
+8. **Push and CI coverage — read Git before acting.** The owner pushes; `git log origin/main..main`
+   is the authority, and this machine still cannot query CI (`gh` unauthenticated, no token), so a
+   local `-All` pass is never a CI verdict. At the start of this window `origin/main` matched
+   `0c5ca92`, the pre-window `HEAD`; the owner has not pushed this window's commits yet. That is a
+   dated snapshot, not current state.
+9. **The Phase 4 proposal is unreviewed by the owner.** Its §1.13 contradictions, its unregistered
+   `doctor-report` schema, the live-recover Apply that is sandbox-root-gated without the interlock,
+   and the claim-store options all need an owner read before any §7 decision is adopted.
+10. **The parse gate remains a CI non-suite step.** Its regression suite is in-repo and its
+    ambiguous-name skip set is now empty, but `scripts/run-tests.ps1` still never invokes the
+    gate, so a local `-All` pass cannot detect a disabled gate; the proposal's Task 3
+    (repository validation orchestrator) is where that closes.
