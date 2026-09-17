@@ -3064,8 +3064,9 @@ and a second full run would repeat the mutual-timeout incident held in the agent
 
 State at close: `HEAD` is the commit carrying this paragraph and the working tree is clean;
 the three staging locks were rebuilt last and bind that same commit (any later commit makes
-them stale again by design). The push authority stays `git log origin/main..main`; at this
-close it holds this window's two commits and the CI failure-rules window's five.
+them stale again by design). The push authority stays `git log origin/main..main`: the owner
+pushed the window through `0a1675a` overnight, and a follow-up check found only the record
+commit carrying this paragraph still local — a dated snapshot, not current state.
 
 ## CI failure-rules window (2026-09-17)
 
@@ -3182,8 +3183,9 @@ by the CI failure-rules window recorded above; item 12 is appended by its review
    credential (`docs/CI_FAILURE_RULES.md` §1); the earlier "this machine cannot query CI" note
    described only the unauthenticated `gh` state and no longer holds. A local `-All` pass is still
    never a CI verdict. As of the CI failure-rules window's close, `origin/main` matched `0c5ca92`
-   and three commits are unpushed (`117a556`, `0e0cb7f`, `ff9dbb3`). That is a dated snapshot, not
-   current state.
+   and three commits were unpushed (`117a556`, `0e0cb7f`, `ff9dbb3`); a later check the same
+   night found the owner had pushed through `0a1675a`, leaving only the skip-list settlement
+   window's record commits local. These are dated snapshots, not current state.
 9. **The Phase 4 proposal is unreviewed by the owner.** Its §1.13 contradictions, its unregistered
    `doctor-report` schema, the live-recover Apply that is sandbox-root-gated without the interlock,
    and the claim-store options all need an owner read before any §7 decision is adopted.
