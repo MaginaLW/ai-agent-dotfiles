@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -46,15 +46,17 @@ safe release) has not started. One design-bound finding from the Phase 2 closeou
 feeds the later Phase 4 design: the cross-authority root-claim overlap rejection (a machine-wide
 claim store). The second, the rollback execution's production caller, is closed: `976d0fe` wired
 it to the Phase 3 worktree overlay lock.
-The 2026-09-16 parallel-grok window closed the six actionable follow-ups (the parse gate now has an
-in-repo regression suite, `2a90261`; the duplicated `Get-SkillDirectories` is settled, `fc6e173`;
+The 2026-09-16/17 parallel-grok window closed the six actionable follow-ups (the parse gate now has
+an in-repo regression suite, `2a90261`; the duplicated `Get-SkillDirectories` is settled, `fc6e173`;
 the `:8256` taint arms have independent RED, `0c68ee3`; the record sweep and the rewrite-SHA
 correction, `23d2d37`; and the global Grok invocation guide) and published the Phase 4 decision
 package at
 [`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md),
 which the owner has not yet reviewed. The window closes with its definitive unified pass on the
 committed bytes of `d5a3cda`: 40 of 40 suites, zero failures, zero timeouts (the 40th is the new
-parse-gate suite).
+parse-gate suite). Everything committed after that pass is documentation plus the staging-lock
+rebuild, so the three locks now bind the window's final commit and the window's commits are
+local-only until the owner pushes.
 Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply and explicit retirement
 stop with `safety-protocol-upgrade-required` before traversal or mutation, while two public
@@ -4019,8 +4021,13 @@ lessons) and no upstream method-file drift since `194f294`, so no loop edits wer
 **Phase 2 is complete (52 of 52 steps accounted for: Tasks 1-9 all closed; the one proof that
 could not execute — Task 6 Step 5's cross-authority overlapping-roots — is recorded as a Phase
 3-bound finding rather than an open step).** **Phase 3 is complete (47/47: Tasks 1-9 all closed; the Task 7 carried cleanup item closed by `d6211c9` and the Task 9 checkpoint by `e57c608` — see the Phase 3 Task 8 section, the Task 7 carry-over section and the 2026-09-15 wrap-up section).**
-Phase 4 schema/CI contract and safe release remains downstream and has not started. Before future environment planning, rebuild the stale commit-bound
-environment staging locks; this does not authorize Apply.
+Phase 4 schema/CI contract and safe release remains downstream and has not started; it now has a
+decision package at
+[`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md)
+that awaits the owner's review, and releasing the interlock stays explicitly authorized-only. The
+commit-bound environment staging locks were rebuilt in the 2026-09-16/17 window and bind that
+window's final commit; any later commit makes them stale again, and rebuilding them before future
+environment planning is artifact preparation only that does not authorize Apply.
 
 | Phase 2 task | Remaining steps | Scope |
 |---|---:|---|
@@ -4091,7 +4098,7 @@ step lists are in
    authorities commit on a shared custom root today). The rollback execution's production caller is
    closed by `976d0fe`. The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-16, after the parallel-grok window)".
+   "Pending items (2026-09-17, after the parallel-grok window)".
 4. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; and the
@@ -4116,7 +4123,7 @@ step lists are in
    as the concurrent-session hazard note, not here. The window's ordered list is closed: items 1-4
    above record what was delivered, and the current pending set is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-16, after the parallel-grok window)".
+   "Pending items (2026-09-17, after the parallel-grok window)".
 9. **Added by the sealed-file slice window (2026-09-15) — closed by the parallel-grok window
    (2026-09-16).** All four items are done: the privacy narrative is corrected against the tree
    (item 8: `91e871e` does resolve and is an ancestor of `HEAD`, `bbba28f` is the
@@ -4130,4 +4137,4 @@ step lists are in
    `Get-SkillDirectories` (`fc6e173`) and the `:8256` independent RED (`0c68ee3`). The current
    pending set, including the new Phase 4 decision package, is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-16, after the parallel-grok window)".
+   "Pending items (2026-09-17, after the parallel-grok window)".

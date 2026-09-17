@@ -1,6 +1,6 @@
 # Live Safety Hardening
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 Status: Complete through Phase 3. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0
 entry-interlock subplan is complete (43/43), Phase 1 is complete (44/44), Phase 2 is complete
@@ -2854,7 +2854,7 @@ operational and documentation follow-ups on top of that, and item 9 (the sweep o
 superseded present-tense sections) is the one to finish before any text written for
 a release or for a new session leans on those sections.
 
-## Parallel-grok follow-up window (2026-09-16, complete)
+## Parallel-grok follow-up window (2026-09-16/17, complete)
 
 The actionable half of the 2026-09-15 pending list was executed by five independent workers
 (grok-4.6 at `xhigh` with full permission, each in its own detached `git worktree` at `71b8e74`)
@@ -2929,7 +2929,14 @@ suite is the new `powershell-syntax-gate` one, and the run covers exactly the co
 `d5a3cda`; the summary itself is machine-local and gitignored (`tmp/`), so the commit carries this
 record rather than the JSON.
 
-## Pending items (2026-09-16, after the parallel-grok window)
+State at close (2026-09-17): `HEAD` is the commit carrying this record and the working tree is
+clean; the three staging locks were rebuilt last and bind that same commit (any later commit makes
+them stale again by design); all five worker worktrees and their scratch parent directory were
+removed after integration; the window's commits are local-only, and the owner pushes (item 8). The
+machine-local evidence — the unified summary and log, the build reports — stays gitignored under
+`tmp/` and `reports/`; nothing else was left in the tree.
+
+## Pending items (2026-09-17, after the parallel-grok window)
 
 The parse-gate RED gap and the record sweep named by the 2026-09-15 list are closed above, so this
 is the reference for text written after this window. Items 1-3 and 5-7 carry over unchanged; item
