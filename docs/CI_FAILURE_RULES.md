@@ -1,57 +1,64 @@
 # CI 失败诊断规则
 
 本文件把 GitHub 上可查的 `Validate` 工作流失败提炼成**规则**，供后续任务直接套用。
-[`STATUS.md`](../STATUS.md) 是带日期的日志（只记当时发生什么），本文件是可复用的判据与处置；
-两者冲突时以实际代码、当前工作流和当次运行日志为准。
+[`STATUS.md`](../STATUS.md) 是带日期的日志（只记当时发生什么），本文件是判据与处置；
+冲突时以实际代码、当前工作流和当次运行日志为准。
 
-适用范围：任何一次 `Validate` 红灯的定位与处置；以及会改动 CI 门禁、测试预算、schema 产物、
-`tests/` 夹具或 `.github/workflows/validate.yml` 的工作。**本文件不授权重跑以外的任何写操作**，
-推送、合并、部署、解除联锁仍按 `AGENTS.md` 与受控 Policy 执行。
+**授权边界：本文件只授权「读取日志并分类」。** 重跑 CI、改动测试或门禁、改动预算、推送、
+解除 Phase 0 联锁、导出或使用凭据，都要按 `AGENTS.md` 与受控 Policy 各自取得授权。
+历史频数是窗口观察，**不能替代当次日志**。
 
-统计窗口：2026-06-20 首次运行至 2026-09-17，共 123 次运行、57 次非成功。
+统计窗口：2026-06-20 首次运行至 2026-09-17，共 123 次运行、**57 次 failure**（其余 66 次 success，
+全部 `completed`、全部 `push` 事件；窗口内没有 cancelled/skipped）。窗口数据已由独立复算核对。
 
 ## 1. GitHub 上能看到什么
 
-一个 run 只有 3 层：run → job（固定唯一 `Validate repository`）→ step（15 个）。
+一个 run 只有 3 层：run → job（固定唯一 `Validate repository`）→ step。当前工作流有 **13 个
+named step**（Checkout、Show PowerShell version、两个 install-verify、Validate registered JSON
+artifacts、Run repository doctor、Scan for secrets、Build generated skills、Verify build leaves Git
+clean、Validate machine-readable schemas and build evidence、Parse every current-worktree PowerShell
+file、Run every root regression suite exactly once、Reject dangerous tracked files）。
 
-- **annotations 只有一行 `Process completed with exit code 1.`**（57 次里 55 次如此）。
-  它说明不了任何根因；真实错误只存在于 job 日志。**不要用 GitHub 页面的红色标注做定位。**
-- runner 进程失联类给的是基础设施说明文字，且**没有日志可下载**（见 R1）。
-- 失败步骤分布（57 次）：
+- **annotations 不含根因**：57 次非成功里 **55 次**含 `Process completed with exit code 1.`
+  （其中 54 条的 annotation 恰好只有这一行；run `29331454091` 另有 1 条 Node.js 20 deprecation
+  warning），另 2 条是 hosted runner 失联说明。**不要用页面标注做定位，尤其是不要用它下结论。**
+- 失联那两次的 job 日志返回 **HTTP 404**，即根本没有日志可读（curl exit 22）。
+- 失败步骤分布（**窗口历史频数，不是完整门禁清单**）：
 
   | 失败步骤 | 次数 | 类别 |
   |---|---|---|
   | `Run every root regression suite exactly once` | 36 | 测试矩阵：断言失败、超时、夹具抖动 |
   | `Validate machine-readable schemas and build evidence` | 10 | 产物契约漂移（R5） |
   | `Run repository doctor` | 5 | 全新检出缺目录（R6） |
-  | `Run MCP tests` | 2 | 已退休步骤，不再适用 |
+  | `Run MCP tests` | 2 | 已验证退休的步骤，不再适用 |
   | `Scan for secrets` | 2 | secret 门禁命中（R8） |
   | （无失败步骤） | 2 | runner 失联（R1） |
 
-取数用 GitHub API（`GET /repos/<owner>/<repo>/actions/runs`、`.../runs/<id>/jobs`、
-`.../jobs/<id>/logs`）：
+  表外步骤（JSON artifacts、syntax、build clean、dangerous files 等）在窗口内没有失败样本：
+  **它们若失败，本文件的 R1–R3 不适用**，按第 3 节读该步日志。
 
-- `gh` 现在未认证；要长期可用先 `gh auth login`。替代方式是用本机已存的 Git 凭据做只读取数
-  （`git credential fill` 取令牌，**只放进进程环境变量，不打印、不落盘、不入库**）。
-- **日志端点会 302 到对象存储，必须用 `curl -L`**：会保留 `Authorization` 头跟随重定向的客户端
-  （例如 Python `urllib`）会被对象存储以 401 `Server failed to authenticate` 拒绝，看起来像没权限。
+取数（`GET /repos/<owner>/<repo>/actions/runs`、`.../runs/<id>/jobs`、`.../jobs/<id>/logs`）：
+
+- 首选 `gh auth login`（交互式、可撤销）。**如需改用本机已存的 Git 凭据做只读取数，先取得所有者
+  同意**；本文件不记录凭据获取配方，凭据不得打印、落盘或入库。
+- **日志端点会 302 到对象存储，必须用 `curl -L`**：保留 `Authorization` 头跟随重定向的客户端
+  （例如 Python `urllib`）会被对象存储以 401 `Server failed to authenticate` 拒绝，看着像没权限。
   ```bash
   curl -sSL -f -H "Authorization: Bearer $TOK" \
     "https://api.github.com/repos/<owner>/<repo>/actions/jobs/<job_id>/logs" -o log.txt
   ```
-- 老 run 引用的 SHA 可能是重写前的对象，本地 `git show` 与 GitHub 对象 API 都报不可解析（R10）。
 
 ## 2. 规则
 
 ### R1 先分流：基建失败不要改代码
 
 **判据**：annotation 是 `The hosted runner lost communication with the server. ...`，`failed_steps`
-为空，日志下不到。
+为空，日志 404 取不到。
 
-**规则**：这是 runner 侧失联（资源/网络/进程被杀），不是代码缺陷。**同一提交重跑**；只有同一提交
-反复失联才升级为资源问题排查。
+**规则**：这是 runner 侧失联（资源/网络/进程被杀），不是代码缺陷。**同一 SHA 重跑**；只有同一
+SHA 反复失联才升级为资源问题排查，并在记录里写清是重跑。
 
-**证据**：runs `35166789288`、`35166625038`（2026-09-17，提交 `0c5ca92`/`6488182`）。
+**证据**（独立核验）：runs `35166789288`、`35166625038`（2026-09-17，提交 `0c5ca92`/`6488182`）。
 
 ### R2 套件超时不是断言失败（`failed=0; timed-out>0`）
 
@@ -65,151 +72,189 @@
 
 - 超时**不代表断言失败**；不要按失败用例去改断言。
 - **先确认该套件的「生效」上限**：`tests/test-timeouts.psd1` 里没有显式条目的套件走
-  `DefaultTimeoutSeconds = 120`，于是个别套件会悄悄挂在最短档上。把本机实测与生效上限对照，
-  才能分开「预算不足」与「实现变慢」——不要拿记忆里的耗时推断。
-- 新套件或加重的套件必须给显式预算；CI 时长约为本机 **2 倍**，按本地实测乘 2 再留余量，
-  本仓既有预算大致落在本地实测的 3–4 倍。
-- 改预算后 `tests/test-runner.tests.ps1` 会校验发现集与预算契约；默认档也算进总额，
-  workflow `timeout-minutes` 必须同步抬高（含默认档的总预算 > 工作流上限即失败）。
+  `DefaultTimeoutSeconds = 120`，个别套件会因此悄悄挂在最短档上。把本机实测与生效上限对照，
+  才能分开「预算不足」与「实现变慢」——**实现变慢时不得先抬预算**，也不得用记忆里的耗时推断。
+- 本仓 CI 与本地耗时之比是**窗口观察**（`881047a` 那组重套件曾约 2×；`automation-safety` 实测
+  约 1.3×），**不是配额**。定档时以该套件自己的实测与 CI 墙钟为准，并参考同类既有档位。
+- 改预算后 `tests/test-runner.tests.ps1` 会校验发现集与预算契约：`timeout-minutes × 60` 必须
+  **严格大于** `SetupAndNonSuiteBudgetSeconds + Σ生效超时 + MarginSeconds`（默认档计入 Σ）。
+  **仅当该不等式不再成立时才需要抬高 `timeout-minutes`**；不是每次改预算都要改工作流。
+- **平台另有硬上限**：GitHub 文档规定「Each job in a workflow can run for up to 6 hours of
+  execution time. If a job reaches this limit, the job is terminated and fails.」——托管 runner 的
+  作业上限是 **360 分钟**，工作流里写 `timeout-minutes: 460` 高于平台上限，平台不会执行到 460。
+  当前 40 个套件的已证预算合计 **439.25 分钟 > 360 分钟**（2026-09-17 复算），即合同对 460 的
+  依赖已经架在平台上限之外；这是既有结构问题，见第 4 节未决项。
 - 反复超时的套件应给显式预算并记录实测，而不是压缩测试内容。
 
-**证据**：`881047a`（四套件预算 420/240/1800/240 → 900/600/3600/900，工作流 380 分钟；本地同树实测
-231/187/1511/197 秒）、`5e99c07`（sync 900 → 1200）、`fa53b7c`（给 harness-authority 显式预算）、
-`6db9760`（automation-safety：本地实测 80.1 秒，继承的 120 秒默认档不足 → 600 秒；改后合同复算
-40 套件、所需 439.25 分钟 < 工作流 460 分钟，无需改工作流）。
-本窗口 22 次套件级超时分布在：canonical-command-result 4、automation-safety 3、
-canonical-production-seams 3、root-claims-registry 3、harness-authority 3、harness-env 2，其余各 1。
+**证据**（CI 侧已独立核验）：`881047a` 的预算改动本身（`git show 881047a`：420/240/1800/240 →
+900/600/3600/900，工作流 310 → 380 分钟），以及 run `34415557457` 里四个套件在 runner 上**恰好
+打满旧预算**（420.05/240.02/1800.16/240.02 秒）。该提交信息与 `STATUS.md` 里的**本地**实测
+（231/187/1511/197 秒）属**本仓自述，未独立复现**，不要当作可核验证据引用。
+另：`5e99c07`（sync 900 → 1200）、`fa53b7c`（给 harness-authority 显式预算）、`6db9760`
+（automation-safety：本机实测 80.1/86.5 秒，CI 绿那次 112.6 秒、失败三次恰好 120.0 秒被杀 →
+600 秒；改后合同 40 套件、25935 秒总预算、所需 439.25 分钟）。
+窗口内 22 次套件级超时的分布（**窗口历史**）：canonical-command-result 4；automation-safety、
+canonical-production-seams、root-claims-registry、harness-authority 各 3；harness-env 2；
+harness-profile、live-recovery、sync、task-skills 各 1。
+同窗口的**接近预算**信号（下一次红灯的候选）：`harness-authority` 绿 584 秒、一次 849 秒，对
+900 秒档占用到 94%；`harness-env` 最大 526/600（88%）。给这三类套件加测试前先重估预算。
 
-### R3 时序/占用类红灯：同代码重跑即绿，不要防御性改码
+### R3 占用/时序类红灯：先按同一 SHA 对照，复发就修夹具
 
 **判据**：错误是 `Exception calling "ReadAllText" with "N" argument(s): "The process cannot access the
-file '<fixture 输出或 header 文件>' because it is being used by another process."` —— 夹具在刚被杀掉的
-子进程还没释放句柄时去读它的输出/头文件。
+file '<夹具输出或 header 文件>' because it is being used by another process."`，通常出现在读刚被杀
+掉的子进程留下的输出/头文件的夹具辅助函数里（如 `Invoke-AuthorityCliKilledAtCheckpoint`、
+`Get-SealedLiveJournalChain`）。
 
-**规则**：判定为抖动前先做**对照**：`git diff <红提交> <绿提交> -- tests/` 为空（只有文档/无关脚本变化）
-且下一次运行直接绿，即可认定与代码无关。**不要把重试、`Start-Sleep`、抢占式重读写进生产代码**来
-掩盖抖动；如需稳健化，只改夹具本身的同步语义（等句柄释放后再读）。
+**规则**：
 
-**证据**：`34991068832`（harness-authority.tests.ps1:1522 与 live-recovery.tests.ps1:2494 两处同因）、
-`35086695635`（harness-authority.tests.ps1:1605）；`5807727a` → `71b8e74` 两次运行之间只改了文档与
-`scripts/check-powershell-syntax.ps1`，下一次运行即绿。
+- **红灯仍是失败，不得据此忽略。** 判定「与当前提交无关」需要**同一 SHA 重跑**才成立；跨提交
+  对照（例如红提交与绿提交之间 `tests/` 无差异）只是弱证据，不足以结案。
+- **同一次红灯里若还有别的失败腿（断言失败、其他套件），必须先处置那一条**——超时或占用可能
+  只是伴随现象（run `34991068832`、`35086695635` 都同时有真实失败）。
+- 复发即按夹具自身的同步语义修（等句柄释放、明确 `FileShare`、按发布顺序读），**禁止**把重试、
+  `Start-Sleep`、抢占式重读写进生产脚本。
+- 本仓已有故意制造并断言发布竞争的夹具（`b1fe6e1`），这类领域是本仓的正常建模对象，不要一概
+  当作抖动。
+
+**证据**（独立核验）：`34991068832`（harness-authority.tests.ps1:1522 与 live-recovery.tests.ps1:2494
+两处同因）、`35086695635`（harness-authority.tests.ps1:1605）；`5807727a` → `71b8e74` 之间
+`git diff --name-only ... -- tests/` 为空（只动 STATUS/ZCODE/`check-powershell-syntax.ps1`），
+且两次运行 run `35086695635`（failure）→ `35097541381`（success）。
 
 ### R4 本地绿不等于 CI 绿：环境差异要先假设
 
-两类已实证的差异，新增夹具时按 CI 约束设计：
+两类已实证的差异，新增夹具/断言时按 CI 约束设计：
 
 - **owner 语义**：hosted runner 以提权管理员令牌运行，新建对象默认 owner 是
   `BUILTIN\Administrators`（`S-1-5-32-544`），而 `current-user-only` 校验比对的是 access-token 用户
-  SID，于是 CI 上 fail-closed、本地（非提权）全绿。修复 `9583aed` 改为接受 token 默认 owner。
+  SID，于是 CI 上 fail-closed、本地（非提权）全绿。`9583aed` 的修法是**放宽 owner 集合**为
+  {用户 SID, token 默认 owner}（`WindowsIdentity.Owner` 语义）；**DACL 与私有性拒绝语义不变，
+  仍是 fail-closed**——不要把这条读成「生产校验可以放宽」。
 - **路径长度**：CI 用户名为 `runneradmin`，比本地长；registry 夹具名过长会让 ADS 文件超 MAX_PATH。
   **常规 .NET I/O 在 runner 上走长路径，PowerShell provider 的 `Set-Content -Stream`（ADS）仍受
-  MAX_PATH 限制**。修复 `6540681`（缩短夹具名、预热父租约攻击探测）。
+  MAX_PATH 限制**（`6540681` 缩短夹具名）。对毫秒级竞争窗口的攻击夹具要先预热一轮探测——这只
+  适用于这类短窗口夹具，不是普遍夹具写法。
+- **本地化**：断言要钉稳定的错误 ID/令牌，不要钉 PowerShell 本地化资源串——本机 UI 文化是
+  zh-CN 而 CI 是 en-US，绑资源串会出现「本机红、CI 绿」的反向差异。
 
-**规则**：夹具名保持短且唯一；不要依赖「当前用户即对象 owner」；对毫秒级竞争窗口的夹具要先预热。
+**证据**：`9583aed`、`6540681`（2026-08-28 修复，终结 2026-08-09 起的连红）。
+owner/路径两条已由仓库记录交叉印证；本地化一条来自仓库既有教训。
 
-### R5 硬编码断言与产物契约必须同源（最易连续红的类）
+### R5 产物契约漂移：版本断言、必填字段与 schema 必须同源
 
 **判据**：`Harness environment build JSON is invalid.`（9 次）或
 `Harness environment lock is missing required field: <字段>`（1 次）。
 
 **根因**：产物 schema/必填字段升级，而 `.github/workflows/validate.yml` 的断言没跟着改
-（`3d3aa7f` 把 env-build sidecar 升到 schema 3，断言仍写 `SchemaVersion -ne 2`，从而每次都在测试矩阵前就死）。
+（`3d3aa7f` 把 env-build sidecar 升到 schema 3，断言仍写 `SchemaVersion -ne 2`，于是每次都在测试
+矩阵之前就死）。
 
-**规则**：
+**规则**：改产物格式的**同一个提交**里同步四处——`SchemaVersion` 断言、**必填字段列表**、
+schema 文件本身、以及注册契约（该步骤还调 `scripts/validate-json-artifacts.ps1`，并检查
+build-report 与 env-lock/env-list/env-status 的版本与字段）。只搜 `SchemaVersion` 会漏掉字段类漂移。
+本地按 CI 同一断言链重放（`build-harness-env.ps1` → lock → `list-harness-env.ps1` →
+`status-harness-env.ps1`）后再提交。修复声明必须绑定修复提交。
 
-- **改 schema 版本或必填字段的同一个提交里**，grep 工作流中全部 `SchemaVersion -ne/-eq` 断言与必填字段
-  列表并同步；不要留给 CI 告诉你。
-- 本地按 CI 的同一断言链重放（build → lock → list → status 四段），不要只跑单元测试。
-- 修复声明必须绑定修复提交：曾出现过「文档写已修复、代码未改」的记录错误。
+**证据**（独立核验）：9 次 `build JSON is invalid`（`34245344523` … `34415191929`）与 1 次
+`lock is missing required field: ManagedPluginDeclaration`（`30925873505`）；修复 `895c54f`。
 
-**证据**：`895c54f`（断言改 3）；对照 run `34415191929`（红，失败于该步骤）与 `34415557457`
-（同步骤通过，失败点后移到测试矩阵）。更早一例为 `30925873505`（env-lock 必填字段漂移）。
-
-### R6 Git 不跟踪空目录：新增目录必须带 tracked 文件
+### R6 doctor 只在它的必需清单上 FAIL
 
 **判据**：doctor 步骤输出 `[FAIL] status\active is missing or is not a Directory.` 且
 `Doctor result: FAIL`。
 
-**根因**：该目录当时只有本机未跟踪文件（或为空），**Git 不跟踪空目录**，CI 全新 checkout 后目录不存在；
-本机因为目录一直在而看不到问题。
+**根因**：该目录当时只有本机未跟踪文件，**Git 不跟踪空目录**，CI 全新检出后目录不存在；本机因为
+目录一直在而看不到问题。
 
-**规则**：新增或依赖某个目录时，**同一次提交里放入一个 tracked 文件**（如 `README.md`）作为占位；
-不要依赖本机既有目录、也不要依赖构建产物创建它。
+**规则**：`scripts/doctor.ps1` 只对它的必需结构清单判 FAIL——命中本条说明**清单里的**某个目录在
+全新检出里不存在。修法是在同一次提交里给该目录放一个 tracked 占位文件（`c25fdd4` 加入
+`status/active/README.md`）。**不要**把这条推广成「任何新目录都必须有 tracked 文件」：清单外目录
+不会以本规则红灯出现。
 
-**证据**：5 次同因失败（`31304804911`、`31507208506`、`32032684310`、`32109626676`、`32130048501`，
-2026-08-09 至 08-18）；`c25fdd4` 加入 `status/active/README.md` 后消除。
+**证据**（独立核验）：5 次同因失败（`31304804911`、`31507208506`、`32032684310`、`32109626676`、
+`32130048501`，2026-08-09 至 08-18），每次日志里 `[FAIL]` 只有这一条。
 
-### R7 机器私有状态与临时诊断脚本不入库
+### R7 机器私有状态与临时诊断脚本不入库（配套规则，不是步骤失败类）
 
-**规则**：本机运行状态（如 Reasonix 任务状态）、临时诊断 `ps1`、缓存与日志一律不入库；新增工具产生
-此类文件时**同提交更新 `.gitignore`**。
+本条的实例来自同一窗口的修复提交，但它不是某个 step 的失败：`c25fdd4` 在修 R6 的同时删除了已入库的
+Reasonix 任务状态与 `.tmp-*.ps1` 诊断脚本，并补 `.gitignore`。维护要求见 `AGENTS.md` 的 hard rules：
+本机运行状态、临时脚本、缓存与日志一律不入库；新增工具产生此类文件时同提交更新忽略规则。
 
-**证据**：`c25fdd4` 在修 R6 的同时删除了已入库的 `.reasonix/tasks/**` 与 `.tmp-*.ps1`，并补
-`/.reasonix/tasks/`、`/.tmp-*` 忽略规则。
-
-### R8 secret 门禁命中：改代码结构，绝不改扫描器
+### R8 secret 门禁命中：判定真伪，只改被拦内容
 
 **判据**：`ERROR: gitleaks reported one or more findings.`（日志里只有 `leaks found: N`，不显示明细）。
 
 **根因（本次实例）**：`scripts/scan-secrets.ps1`（模式名 `Literal secret assignment`）与 `.gitleaks.toml`
 （规则 id `quoted-secret-value`）使用同一条正则，要求「`api_key`/`token`/`secret`/`password` 等关键字 +
-赋值号 + 引号字面值（长度 ≥ 8 且不以 `$` 开头）」。
-`root-claims-registry-common.ps1` 当时把消息串直接写成了 `MessageToken` 属性上的引号字面值，于是被命中
-——与它是不是真密钥无关。
+赋值号 + 引号字面值（长度 ≥ 8 且不以 `$` 开头）」。`root-claims-registry-common.ps1` 当时把消息串直接
+写成了 `MessageToken` 属性上的引号字面值，于是被命中——与它是不是真密钥无关。
 
-**修法**：把字面值先赋给**非关键字变量名**，该属性右侧改成以 `$` 开头的变量引用（被规则排除），语义不变。
+**规则**：
 
-**注意**：文档、注释与提交信息里也不要照抄这一命中形态，否则门禁会拦下文档本身
-（本文件初稿即被 `scan-secrets.ps1` 拦下，改为拆开描述后通过）。需要引用时拆开写，不要给出完整赋值形态。
+- 先判真伪。**误报只改被拦内容**；修法是让那个值先经非关键字变量再引用，语义不变。
+- **不得为了过门禁而改结构把真实密钥藏起来，也不得新增白名单、放宽正则或绕过扫描器**——那需要
+  所有者明确批准（`AGENTS.md` hard rules）。本仓既有的 `[allowlist]` 与 `# scan-ok` 是**受控机制**，
+  只在人工复核后按各自规则使用。
+- 判定与取证走仓库入口 `pwsh -NoProfile -File ./scripts/scan-secrets.ps1 -RepoRoot <root>`。
+  需要隔离复现单个模式时可用钉住的 8.30.0（`gitleaks dir <目录> --config .gitleaks.toml --no-banner
+  --redact -v`，该子命令在 8.30.0 存在），但**结论以 `scan-secrets.ps1` 为准**。
+- **写诊断记录时不要复现被拦的字面形态**：门禁按模式扫描，记录里的示例同样会被扫到。本文件初稿
+  即因照抄该形态被 `scan-secrets.ps1` 拦下，改为拆开描述后通过。
 
-**本地复现**（钉住的 8.30.0，改前 1 处命中、改后 `no leaks found`）：
-```bash
-"$LOCALAPPDATA/ai-agent-dotfiles/tool-cache/secret-scanner/8.30.0/bin/gitleaks.exe" \
-  dir <目录> --config .gitleaks.toml --no-banner --redact -v
-```
-
-**规则**：**永不白名单、永不削弱或绕过 `scripts/scan-secrets.ps1` 与 `.gitleaks.toml`**；命中先判真伪，
-再用代码结构规避（例如变量间接、拆分字面值）；确属真密钥走轮换并按既定流程处置。
-
-**证据**：`8b859e5`（runs `34044662672`、`34044956596`）。
+**证据**（独立核验）：runs `34044662672`、`34044956596`（提交 `45b95102`、`cf9d6b36`，日志均为
+`leaks found: 1`）；修复 `8b859e5`；误报形态已用钉住的 8.30.0 隔离复现（改前 1 处命中、改后
+`no leaks found`）。
 
 ### R9 计数/清单断言必须由清单派生
 
 **判据**：`FAIL: registry lists six negative fixtures`（live-plan.tests.ps1）。
 
 **规则**：断言不要写死条目数量，从被验证的清单本身派生；改清单的提交必须同步检查这类断言。
-写死数量时，新增一条负例就会让整条链变红。
 
-**证据**：5 次同因失败（2026-09-12，如 `34670776794`、`34672767004`、`34674850024`、`34676257352`）。
+**证据**：5 次同因失败（2026-09-12，`34670776794`、`34672767004`、`34674850024`、`34676257352`、
+`34677219278`）。
 
-### R10 重写前的 SHA 不可解析
+### R10 重写前的 SHA 才会不可解析
 
-**规则**：诊断老 run 时**只用 run 日志与 run 页面**，不要承诺用该 SHA 在本地复现或 diff；引用老 SHA 时
-注明不可解析原因（已授权的隐私重写，publish head `bbba28f`）。
+**判据**：对该 run 的 `head_sha` 执行 `git cat-file -t <sha>` 失败，且该提交早于已授权的隐私重写
+publish head `bbba28f`。
 
-**证据**：2026-08 前后 run 引用的 SHA 在本地 `git show` 与 GitHub 对象 API 双双报不可解析，而本地
-同期历史存在（同一时间窗、不同 SHA）。
+**规则**：仅此时跳过本地复现，改用 run 日志与页面作为证据。「老」不是判据——重写之后的 SHA
+（含本窗口的全部提交）在本地完全可解析，照常 `git show`/`git diff`。
+
+**证据**：2026-08 前后的 run 引用的 SHA 在本地 `git show` 与 GitHub 对象 API 双双报不可解析，
+而本地同期历史存在（同一时间窗、不同 SHA）；重写记录见 `STATUS.md` 与待办 8。
 
 ## 3. 处置流程
 
-1. **取失败步骤名**（`.../runs/<id>/jobs`）→ 按第 1 节分布表归类。
-2. 若是 runner 失联（无失败步骤）→ 走 R1，同提交重跑，不要改代码。
-3. **拉日志**（`.../jobs/<id>/logs`，注意 R1 末尾的 `curl -L` 要求）。
-4. 在日志里依次看：`Test summary:` 行 → `timed-out` 数 → 该套件块内的失败记录。
-   `failed=0; timed-out>0` 直接走 R2；`ReadAllText ... being used by another process` 走 R3。
-5. 有真实断言失败时，按日志给出的 `tests/<套件>.ps1:<行号>` 定位断言，再改代码或夹具；
-   改动落到 `tests/`（尤其新增/加重套件）时同步核对预算（R2）与工作流断言（R5）。
-6. 本地验证：相关套件单独跑，必要时 `scripts/run-tests.ps1 -All`；本地通过**不能**替代 CI。
+**按失败步骤名分流**，不要对所有红灯套同一套动作：
+
+1. 取失败步骤名（`.../runs/<id>/jobs`）。
+2. **无失败步骤 + runner 失联** → R1（同 SHA 重跑，不改代码）。
+3. **`Scan for secrets`** → R8；**`Run repository doctor`** → R6；
+   **`Validate machine-readable schemas and build evidence`** → R5；
+   **`Run every root regression suite exactly once`** → 先读该步日志的 `Test summary:` 行：
+   `failed=0; timed-out>0` 走 R2，`ReadAllText ... being used by another process` 走 R3，
+   否则是真实断言失败（第 5 步）。
+4. **表外步骤**（JSON artifacts、syntax、build clean、dangerous files 等）→ 读该步自己的日志定位，
+   不要把 R1–R3 套上去。
+5. 有真实断言失败时，按日志给出的 `tests/<套件>.ps1:<行号>` 定位断言再改代码或夹具；改动落在
+   `tests/`（尤其新增/加重套件）时按 R2 重估预算、按 R5 核对同提交的契约断言。
+6. 本地验证走仓库既有入口：`git diff --check`、`scripts/scan-secrets.ps1`、
+   `scripts/check-powershell-syntax.ps1`；涉及套件预算时加 `tests/test-runner.tests.ps1`；
+   需要全量时 `scripts/run-tests.ps1 -All -JsonSummaryPath <外部临时路径>`。**本地通过不能替代 CI。**
 
 ## 4. 未决项
 
-（本文件初稿记录的「`automation-safety.tests.ps1` 无显式预算而反复超时」已由 `6db9760` 修复，
-预算与合同复算见 R2。）
-
+- **聚合预算已越过平台作业上限**（R2）：40 套件的已证预算 439.25 分钟 > 托管 runner 的 360 分钟
+  硬上限，工作流里写的 460 分钟平台不会执行到。要真正成立，需要所有者决定方向（拆分测试矩阵到
+  多个 job、或下调/重排预算），本文件不授权单方面改动。
 - `task-skills.tests.ps1` 的 `Task skill dry-run failed (exit 1); overlay was not changed.`
-  （run `34851206631`）只到外层提示，未定位到根因。
-- 2026-09-17 两次 runner 失联尚未在同一提交上重跑确认。
-- 早期 `Run MCP tests` 步骤已随 MCP 工具退休从工作流移除，其历史失败不再适用。
+  （run `34851206631`）只到外层提示，未定位到根因；该 run 同时还有 automation-safety 超时与
+  harness-authority/harness-env 超时，**不是**单一超时样本。
+- 2026-09-17 两次 runner 失联尚未在同一 SHA 上重跑确认。
+- 早期 `Run MCP tests` 步骤已随 MCP 工具退休从工作流移除，其历史失败不再适用（不是未决）。
 
 ## 5. 证据索引
 
@@ -223,10 +268,13 @@ file '<fixture 输出或 header 文件>' because it is being used by another pro
 | `34044662672` `34044956596` | 2026-09-06 | Scan for secrets | `quoted-secret-value` 误报 | R8 | `8b859e5` |
 | `34245344523` … `34415191929` | 2026-09-08~09-09 | schema/build evidence | env-build schema 2 → 3 断言未同步 | R5 | `895c54f` |
 | `34159245642` `34163548245` `34169118876` | 2026-09-07 | 测试矩阵 | canonical-command-result 预算不足（超时） | R2 | `881047a` |
-| `34415557457` | 2026-09-09 | 测试矩阵 | 四套件预算不足（超时） | R2 | `881047a`、`5e99c07` |
+| `34415557457` | 2026-09-09 | 测试矩阵 | 四套件在 runner 上恰好打满旧预算 | R2 | `881047a`、`5e99c07` |
 | `34670776794` … `34677219278` | 2026-09-12 | 测试矩阵 | 负例计数断言漂移 + 夹具 PID 竞争 | R9、R3 | 已修 |
-| `34770673201` `34771649051` | 2026-09-13 | 测试矩阵 | production-seams 反射清单/摘要未重钉 | — | 随该窗口修复 |
-| `34788238413` `34851206631` `34909047517` | 2026-09-13~09-14 | 测试矩阵 | 套件超时（harness-* / task-skills） | R2 | `fa53b7c` 等 |
-| `34957472014` `34991068832` `35086695635` | 2026-09-15~09-16 | 测试矩阵 | automation-safety 超时；killed 进程夹具共享冲突 | R2、R3 | 未决 / 重跑即绿 |
-| `35097541381` | 2026-09-16 | — | 绿（40 套件） | — | 参考基线 |
-| `35166625038` `35166789288` | 2026-09-17 | 无 | hosted runner 失联 | R1 | 待重跑 |
+| `34770673201` `34771649051` | 2026-09-13 | 测试矩阵 | production-seams 反射清单/摘要未重钉；live-recovery 超时 | — | 随该窗口修复 |
+| `34788238413` `34851206631` `34909047517` | 2026-09-13~09-14 | 测试矩阵 | harness-* / task-skills 超时；`34851206631` 另有 task-skills 激活失败 | R2、未决 | `fa53b7c` 等 |
+| `34957472014` `34991068832` `35086695635` | 2026-09-15~09-16 | 测试矩阵 | automation-safety 恰好 120.0 秒被杀；`34991068832`/`35086695635` 另有 killed 进程夹具共享冲突 | R2、R3 | `6db9760`（预算）/ 共享冲突待同 SHA 复核 |
+| `35097541381` | 2026-09-16 | — | 绿（40 套件，automation-safety 112.6 秒） | — | 参考基线 |
+| `35166625038` `35166789288` | 2026-09-17 | 无 | hosted runner 失联 | R1 | 待同 SHA 重跑 |
+
+窗口数据由三路独立复算核对（2026-09-17）：run/step/annotation 计数与 22 次超时的套件分布均一致；
+唯一被判「不可独立核验」的是 R2 证据里那组本地实测秒数，现已标注来源。

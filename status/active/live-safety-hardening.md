@@ -3066,23 +3066,54 @@ No `-All` run was made because the change is documentation only.
 
 Follow-up on the owner's instruction, later the same day: item 11's first gap closed with
 `6db9760`, which gives `automation-safety.tests.ps1` an explicit 600 s budget in
-`tests/test-timeouts.psd1`. The suite measured 80.1 s locally (one run, exit 0), roughly 160 s on a
-CI runner at this repository's observed multiplier — which is why the inherited 120 s default
-produced three marker-only timeouts (`34957472014`, `34991068832`, `35086695635`) with no test
-records at all. 600 s follows this file's own calibration (roughly 3-4x the local measurement for
-subprocess-heavy suites; `fa53b7c` precedent). The runner contract was recomputed with the runner's
-own functions on the changed tree: 40 suites, total budget 25935 s, required 26355 s (439.25 min)
-against the 460-minute workflow bound, so no workflow change was needed. Checks: `git diff --check`,
-`scripts/scan-secrets.ps1`, `scripts/check-powershell-syntax.ps1` (173 files) and
-`tests/test-runner.tests.ps1` all green; no `-All` run, and the effective budget only grows
-(120 -> 600 s), so no suite can newly time out.
+`tests/test-timeouts.psd1`. CI evidence: the three failures were killed at exactly 120.0 s with a
+marker-only block, while the green run of `71b8e74` completed the same suite in 112.6 s — a **1.30x**
+multiplier against the 86.5 s local measurement, i.e. the suite sat on the knife edge of the
+inherited default. **This corrects what this section first recorded**: "roughly 2x CI" and "3-4x
+local calibration" are window observations, not rules, and 600 s is a tier alignment with the
+existing subprocess-heavy budgets (`canonical-production-seams`, `canonical-mutation-blockers`,
+`harness-env`), not a 3-4x derivation — `fa53b7c`'s own precedent (11.4 s local -> 300 s) shows that
+ratio was never the rule. The runner contract was recomputed with the runner's own functions:
+40 suites, total budget 25935 s, required 26355 s (439.25 min) against the declared 460-minute
+workflow bound, so no workflow change was needed.
+
+Three independent reviews (grok-4.6, one-shot detached worktrees at `92d3561`, full permission,
+reports kept outside the repository) were run on this window's output:
+
+- **Fact re-derivation** confirmed every count from the API and job logs independently: 123 runs /
+  57 failures, the failure-step distribution, the 55 + 2 annotation split, the 22 timeouts over the
+  same 10 suites, `[FAIL] status\active` in all five doctor runs, the 9 + 1 schema messages, the two
+  gitleaks runs with their commits, and the empty `tests/` diff between `5807727a` and `71b8e74`.
+  The only claim it could not verify is the local-measurement quartet 231/187/1511/197 s, which is
+  sourced only from that commit message and this file; the rules file now marks it as repo
+  self-report rather than evidence.
+- **Budget review** reproduced the contract arithmetic with the runner's own functions (before
+  25455/25875 s, after 25935/26355 s, discovery hash unchanged), confirmed `tests/test-runner.tests.ps1`
+  green and 600 s sound, and noted two adjacent facts: `harness-authority` ran 584 s green and 849 s
+  once against its 900 s budget, and ten suites still ride the 120 s default (all at or below 41.2 s
+  across four full CI matrices — low risk, high evidence).
+- **Adversarial text review** produced 16 findings; the accepted ones are now in the rules file:
+  R3 requires a same-SHA rerun and no longer reads as "ignore this class" (a run can carry a real
+  failure leg beside the timeout), R8 no longer offers structural evasion and reconciles with the
+  repository's existing `[allowlist]`/`# scan-ok` mechanisms, and R2's workflow clause is
+  conditional instead of mandatory. Two of its claims did not survive checking and were not adopted:
+  gitleaks 8.30.0 does have the `dir` subcommand, and `b1fe6e1` is a deliberate publication-race
+  fixture, not a former flake of that class.
+
+New fact from this window, recorded as decision item 12: GitHub's limits page states each job may run
+6 hours, so the hosted-runner ceiling is **360 minutes**. The workflow declares `timeout-minutes: 460`,
+which the platform will not honor, and the recomputed proved budget (439.25 min) already exceeds that
+ceiling — the contract assertion passes against a bound the platform cannot execute.
+
+Window checks: `git diff --check`, `scripts/scan-secrets.ps1`, `scripts/check-powershell-syntax.ps1`
+(173 files) and `tests/test-runner.tests.ps1` all green; no `-All` run was made.
 
 ## Pending items (2026-09-17, after the skip-list settlement window)
 
 Item 10 of the previous list — the five names hidden from the gate's unknown-parameter pass —
 is closed by the window above. Items 1-3 and 5-9 carry over; item 4 is refreshed for this
 window's commits; former item 11 is renumbered to 10. Item 8 is corrected and item 11 appended
-by the CI failure-rules window recorded above.
+by the CI failure-rules window recorded above; item 12 is appended by its review follow-up.
 
 1. **Phase 4 — schema/CI contract and safe release — the only open roadmap item; it now has a
    decision package.**
@@ -3137,7 +3168,15 @@ by the CI failure-rules window recorded above.
 11. **CI reliability gaps found by the failure-rules window.** The first gap is closed by `6db9760`:
     `automation-safety.tests.ps1` now carries an explicit 600 s budget in `tests/test-timeouts.psd1`
     (see the follow-up paragraph in the CI failure-rules window). Still open: `task-skills` carries
-    one unroot-caused failure (`Task skill dry-run failed (exit 1)`; run `34851206631`), and the two
-    2026-09-17 runner-loss runs (`35166625038`, `35166789288`) have not been retried on their commit.
-    Closing these is ordinary follow-up work under the existing gates and budgets, not a new
-    authorization.
+    one unroot-caused failure (`Task skill dry-run failed (exit 1)` in run `34851206631` — which also
+    carries the automation-safety, harness-authority and harness-env timeouts, so it is not a
+    single-timeout sample), and the two 2026-09-17 runner-loss runs (`35166625038`, `35166789288`)
+    have not been retried on their commit. Closing these is ordinary follow-up work under the
+    existing gates and budgets, not a new authorization.
+12. **The declared CI job bound exceeds the platform ceiling — needs an owner decision.** GitHub's
+    limits page states a 6-hour (360-minute) job limit for hosted runners, so `timeout-minutes: 460`
+    in `.github/workflows/validate.yml` cannot be executed as declared, and the 40-suite proved budget
+    recomputed this window (439.25 min) already sits above that ceiling. The contract test only
+    compares the declared bound against the proved budget, so it passes regardless. Closing this needs
+    either a split of the suite matrix across jobs or re-derived budgets; both are structural changes
+    that the CI failure-rules window does not authorize.

@@ -75,6 +75,12 @@ When the scope trigger applies:
    retirement manifests, do not expect auto-sync hooks to consume them, and delete the external plan
    and retirement JSON after a successful Apply to prevent later replay.
 
+## Repository validation and CI
+
+- Use this project's PowerShell 7+ checks and required CI without reducing their scope or thresholds.
+  Diagnose a red `Validate` run by [the CI failure rules](docs/CI_FAILURE_RULES.md) instead of
+  guessing from the GitHub annotation; local checks do not stand in for CI.
+
 ## Hard rules
 
 - Never delete, move, overwrite, or modify `~/.codex/skills/.system`.
