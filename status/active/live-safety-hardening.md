@@ -2932,9 +2932,11 @@ record rather than the JSON.
 State at close (2026-09-17): `HEAD` is the commit carrying this record and the working tree is
 clean; the three staging locks were rebuilt last and bind that same commit (any later commit makes
 them stale again by design); all five worker worktrees and their scratch parent directory were
-removed after integration; the window's commits are local-only, and the owner pushes (item 8). The
-machine-local evidence — the unified summary and log, the build reports — stays gitignored under
-`tmp/` and `reports/`; nothing else was left in the tree.
+removed after integration. The owner pushed the window through `6488182` while it was closing, so at
+the close-out check `git log origin/main..main` showed only the record commit carrying this
+paragraph; item 8's rule stands — read Git rather than this snapshot, and remote CI still cannot be
+queried from this machine. The machine-local evidence — the unified summary and log, the build
+reports — stays gitignored under `tmp/` and `reports/`; nothing else was left in the tree.
 
 ## Pending items (2026-09-17, after the parallel-grok window)
 
@@ -2982,8 +2984,10 @@ is the reference for text written after this window. Items 1-3 and 5-7 carry ove
    integrator.
 8. **Push and CI coverage — read Git before acting.** The owner pushes; `git log origin/main..main`
    is the authority, and this machine still cannot query CI (`gh` unauthenticated, no token), so a
-   local `-All` pass is never a CI verdict. At this window's close the new commits (`2a90261`,
-   `fc6e173`, `0c68ee3`, `23d2d37`, the proposal and this record) are local-only.
+   local `-All` pass is never a CI verdict. The owner pushed this window's commits through
+   `6488182` — implementation `2a90261`/`fc6e173`/`0c68ee3`, records `23d2d37`/`d5a3cda`/`d5aac9f`,
+   the ZCODE closeout `3f9ded1` and the lock record `6488182` — and only the closing record commit
+   was local at the close-out check; that is a dated snapshot, not current state.
 9. **The Phase 4 proposal is unreviewed by the owner.** Its §1.13 contradictions, its unregistered
    `doctor-report` schema, the live-recover Apply that is sandbox-root-gated without the interlock,
    and the claim-store options all need an owner read before any §7 decision is adopted.

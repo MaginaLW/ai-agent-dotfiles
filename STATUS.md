@@ -55,8 +55,10 @@ package at
 which the owner has not yet reviewed. The window closes with its definitive unified pass on the
 committed bytes of `d5a3cda`: 40 of 40 suites, zero failures, zero timeouts (the 40th is the new
 parse-gate suite). Everything committed after that pass is documentation plus the staging-lock
-rebuild, so the three locks now bind the window's final commit and the window's commits are
-local-only until the owner pushes.
+rebuild, so the three locks now bind the window's final commit. The owner pushed the window through
+`6488182` while it was closing (only the closing record commit stayed local), and CI for those
+pushes still cannot be queried from this machine — read `git log origin/main..main` rather than this
+snapshot.
 Tracked policy remains
 `ReleaseState=interlocked`: production sync/environment/task/rollback Apply and explicit retirement
 stop with `safety-protocol-upgrade-required` before traversal or mutation, while two public
