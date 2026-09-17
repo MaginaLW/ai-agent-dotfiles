@@ -3063,10 +3063,11 @@ and a second full run would repeat the mutual-timeout incident held in the agent
 (`concurrent-session-hazard`).
 
 State at close: `HEAD` is the commit carrying this paragraph and the working tree is clean;
-the three staging locks were rebuilt last and bind that same commit (any later commit makes
-them stale again by design). The push authority stays `git log origin/main..main`: the owner
-pushed the window through `0a1675a` overnight, and a follow-up check found only the record
-commit carrying this paragraph still local — a dated snapshot, not current state.
+the three staging locks were rebuilt after this final record commit and bind it (`env status`
+reads `lock=valid` at the rebuild; any later commit stales them again by design). The push
+authority stays `git log origin/main..main`: the owner
+pushed the window through `0a1675a` overnight, and a follow-up check found only this window's
+record commits still local — a dated snapshot, not current state.
 
 ## CI failure-rules window (2026-09-17)
 

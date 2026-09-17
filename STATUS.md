@@ -4108,10 +4108,11 @@ step lists are in
    child-killable. The engine's per-target drift protection is hash-based; the rollback plan's
    `Current` identity binding is recorded as not enforced by the existing ladder.
 5. The `minimal`, `work`, and `full` staging locks were rebuilt after the skip-list settlement
-   window's record commit and bind it (`definition=valid staging=built lock=valid`), replacing the
-   2026-09-16 bindings that this window's commits had already made stale; any later commit makes
-   them stale again (the generated `envs/` artifacts are gitignored machine-local state, and `env build`
-   is artifact preparation only that does not authorize environment Apply).
+   window's final record commit and bind it (`definition=valid staging=built lock=valid`),
+   replacing the 2026-09-16 bindings that this window's commits had already made stale; any
+   later commit makes them stale again (the generated `envs/` artifacts are gitignored
+   machine-local state, and `env build` is artifact preparation only that does not authorize
+   environment Apply).
 6. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
 7. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
    machine independently. For retired skills still present elsewhere,
