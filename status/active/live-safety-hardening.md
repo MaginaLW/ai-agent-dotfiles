@@ -3041,6 +3041,32 @@ exactly the five new dot-source edges, none removed). The new pins are in `117a5
 the touched files is in the hard-kill reviewed load manifest and the reseal verifier reports
 `total changes: 0`, so no re-seal was applied.
 
+Unified-pass evidence: a full ``pwsh -NoProfile -File scripts/run-tests.ps1 -All
+-JsonSummaryPath <external create-new path>`` run launched against the `0e0cb7f` tree reads
+**``Test summary: PASS; discovered=40; passed=40; failed=0; timed-out=0``** (summary
+`unified-skip-list-settlement-20260917.json`, SHA-256
+`a66028d1893575999befef84122e12c89946b7bb3447efc5dda598d0b20c3130`, DiscoveryHash
+`42eb47e7ec4a4f6d32ff8346e7f58b2db4960b8ecc64e6b1f87a72673ac8d2f0` — unchanged from the
+previous window because the suite set did not change; `RequiredJobTimeoutSeconds` 25875 as
+read at launch; 9867 s of suite time, longest `canonical-hard-kill` 3134 s of 5400,
+`root-claims-registry` 1801 s of 3600, `harness-authority` 605 s of 900). It is **not a
+frozen-tree per-commit verdict**: the concurrent CI failure-rules window committed its five
+documentation/budget commits (`ff9dbb3` through `0a1675a`) while the run was in flight. No
+`scripts/` file and no suite's own bytes changed under the run — the only test-side delta is
+the `automation-safety` budget in `tests/test-timeouts.psd1`, which is runner configuration
+read at launch and asserted by `tests/test-runner.tests.ps1` (green in the run) — so the run
+does exercise this window's implementation bytes as committed, and the inflated suite time
+(9867 s against the previous window's 8470 s) is consistent with the shared machine rather
+than the change. A frozen-tree unified pass over the combined tree is left for a quiet
+window: at this record's close the concurrent session was still running its own workloads,
+and a second full run would repeat the mutual-timeout incident held in the agent memory
+(`concurrent-session-hazard`).
+
+State at close: `HEAD` is the commit carrying this paragraph and the working tree is clean;
+the three staging locks were rebuilt last and bind that same commit (any later commit makes
+them stale again by design). The push authority stays `git log origin/main..main`; at this
+close it holds this window's two commits and the CI failure-rules window's five.
+
 ## CI failure-rules window (2026-09-17)
 
 A read-only diagnosis window read every non-success `Validate` run through the repository's own
@@ -3138,10 +3164,10 @@ by the CI failure-rules window recorded above; item 12 is appended by its review
    production host is child-killable; the engine's per-target drift protection is hash-based; and
    the rollback plan's `Current` identity binding is recorded as not enforced by the existing
    ladder.
-4. **Staging locks are stale again by design**: the 2026-09-16 rebuild binds that window's final
-   commit, and this window's later commits supersede it. The next `scripts/build-skills.ps1` plus
-   `env build minimal|work|full` rebuild is artifact preparation before environment planning and
-   never authorizes Apply.
+4. **Staging locks rebuilt in this window**: the rebuild after this record binds the record
+   commit and goes stale again with any later commit — the 2026-09-16 bindings it replaces were
+   already stale under this window's commits. A rebuild is artifact preparation before
+   environment planning and never authorizes Apply.
 5. **Per-machine revalidation after any reviewed release**: revalidate each managed machine
    independently, and for retired skills still present elsewhere use a new machine-local retirement
    JSON with a reviewed bound plan — never this machine's deleted authorization files.

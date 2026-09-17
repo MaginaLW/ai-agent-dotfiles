@@ -4107,10 +4107,10 @@ step lists are in
    `RECEIPT_FINALIZATION` host checkpoint stays placement-pinned until the production host is
    child-killable. The engine's per-target drift protection is hash-based; the rollback plan's
    `Current` identity binding is recorded as not enforced by the existing ladder.
-5. The stale commit-bound `minimal`, `work`, and `full` staging locks were rebuilt in the
-   2026-09-16 window (`definition=valid staging=built lock=valid`, `Files: 32/40/145`), replacing
-   the 2026-09-13 bindings; they bind that window's final commit and any later commit makes them
-   stale again (the generated `envs/` artifacts are gitignored machine-local state, and `env build`
+5. The `minimal`, `work`, and `full` staging locks were rebuilt after the skip-list settlement
+   window's record commit and bind it (`definition=valid staging=built lock=valid`), replacing the
+   2026-09-16 bindings that this window's commits had already made stale; any later commit makes
+   them stale again (the generated `envs/` artifacts are gitignored machine-local state, and `env build`
    is artifact preparation only that does not authorize environment Apply).
 6. Coordinate any other clones/forks to re-clone or rebase rather than merge the old history.
 7. Keep production Apply interlocked. After a reviewed policy release, revalidate each managed
@@ -4151,7 +4151,13 @@ step lists are in
     focused suites green including `config-sync` 17/0 and `harness-env` 311/0, the two seams
     all-scripts baselines independently re-derived, reviewed row by row, and re-pinned
     (`canonical-production-seams` 56/0), and the hard-kill reseal verifier reports
-    `total changes: 0`. The itemised record is in
+    "total changes: 0". The window's full-runner evidence is a 40/40 zero-failure zero-timeout
+    `-All` pass launched on the `0e0cb7f` tree while the concurrent CI failure-rules window was
+    committing its five documentation/budget commits mid-run; no `scripts/` file and no suite's
+    own bytes changed under the run, so it exercises this window's implementation as committed,
+    but it is recorded with that caveat rather than as a frozen-tree per-commit verdict, and a
+    quiet-machine rerun over the combined tree is left for the next window. The itemised record
+    is in
     [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
     "Gate skip-list settlement window (2026-09-17, complete)"; the current pending set is in the
     same file under "Pending items (2026-09-17, after the skip-list settlement window)".
