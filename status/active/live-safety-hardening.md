@@ -3064,6 +3064,19 @@ and runner loss 2. Each class carries its real message and fixing commit in the 
 reproducing it), `scripts/check-powershell-syntax.ps1` (173 files) and `tests/doctor.tests.ps1`.
 No `-All` run was made because the change is documentation only.
 
+Follow-up on the owner's instruction, later the same day: item 11's first gap closed with
+`6db9760`, which gives `automation-safety.tests.ps1` an explicit 600 s budget in
+`tests/test-timeouts.psd1`. The suite measured 80.1 s locally (one run, exit 0), roughly 160 s on a
+CI runner at this repository's observed multiplier — which is why the inherited 120 s default
+produced three marker-only timeouts (`34957472014`, `34991068832`, `35086695635`) with no test
+records at all. 600 s follows this file's own calibration (roughly 3-4x the local measurement for
+subprocess-heavy suites; `fa53b7c` precedent). The runner contract was recomputed with the runner's
+own functions on the changed tree: 40 suites, total budget 25935 s, required 26355 s (439.25 min)
+against the 460-minute workflow bound, so no workflow change was needed. Checks: `git diff --check`,
+`scripts/scan-secrets.ps1`, `scripts/check-powershell-syntax.ps1` (173 files) and
+`tests/test-runner.tests.ps1` all green; no `-All` run, and the effective budget only grows
+(120 -> 600 s), so no suite can newly time out.
+
 ## Pending items (2026-09-17, after the skip-list settlement window)
 
 Item 10 of the previous list — the five names hidden from the gate's unknown-parameter pass —
@@ -3121,11 +3134,10 @@ by the CI failure-rules window recorded above.
     ambiguous-name skip set is now empty, but `scripts/run-tests.ps1` still never invokes the
     gate, so a local `-All` pass cannot detect a disabled gate; the proposal's Task 3
     (repository validation orchestrator) is where that closes.
-11. **CI reliability gaps found by the failure-rules window, not yet fixed.** `automation-safety.tests.ps1`
-    has no entry in `tests/test-timeouts.psd1`, so it runs on the 120 s default and timed out in
-    runs `34957472014`, `34991068832` and `35086695635`; the established remedy is an explicit
-    budget derived from a CI-doubled local measurement (`fa53b7c` precedent), not a smaller test.
-    `task-skills` carries one unroot-caused failure (`Task skill dry-run failed (exit 1)`; run
-    `34851206631`), and the two 2026-09-17 runner-loss runs (`35166625038`, `35166789288`) have not
-    been retried on their commit. Fixing these is ordinary follow-up work under the existing gates
-    and budgets, not a new authorization.
+11. **CI reliability gaps found by the failure-rules window.** The first gap is closed by `6db9760`:
+    `automation-safety.tests.ps1` now carries an explicit 600 s budget in `tests/test-timeouts.psd1`
+    (see the follow-up paragraph in the CI failure-rules window). Still open: `task-skills` carries
+    one unroot-caused failure (`Task skill dry-run failed (exit 1)`; run `34851206631`), and the two
+    2026-09-17 runner-loss runs (`35166625038`, `35166789288`) have not been retried on their commit.
+    Closing these is ordinary follow-up work under the existing gates and budgets, not a new
+    authorization.

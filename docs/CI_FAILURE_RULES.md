@@ -64,19 +64,21 @@
 **规则**：
 
 - 超时**不代表断言失败**；不要按失败用例去改断言。
-- `tests/test-timeouts.psd1` 里没有显式条目的套件走 `DefaultTimeoutSeconds = 120`。新套件或加重的
-  套件必须给显式预算；CI 时长约为本机 **2 倍**，按本地实测乘 2 再留余量。
-- 改预算后 `tests/test-runner.tests.ps1` 会校验发现集与预算契约；`default` 档也算进总额，
+- **先确认该套件的「生效」上限**：`tests/test-timeouts.psd1` 里没有显式条目的套件走
+  `DefaultTimeoutSeconds = 120`，于是个别套件会悄悄挂在最短档上。把本机实测与生效上限对照，
+  才能分开「预算不足」与「实现变慢」——不要拿记忆里的耗时推断。
+- 新套件或加重的套件必须给显式预算；CI 时长约为本机 **2 倍**，按本地实测乘 2 再留余量，
+  本仓既有预算大致落在本地实测的 3–4 倍。
+- 改预算后 `tests/test-runner.tests.ps1` 会校验发现集与预算契约；默认档也算进总额，
   workflow `timeout-minutes` 必须同步抬高（含默认档的总预算 > 工作流上限即失败）。
 - 反复超时的套件应给显式预算并记录实测，而不是压缩测试内容。
 
 **证据**：`881047a`（四套件预算 420/240/1800/240 → 900/600/3600/900，工作流 380 分钟；本地同树实测
-231/187/1511/197 秒）、`5e99c07`（sync 900 → 1200）、`fa53b7c`（给 harness-authority 显式预算）。
+231/187/1511/197 秒）、`5e99c07`（sync 900 → 1200）、`fa53b7c`（给 harness-authority 显式预算）、
+`6db9760`（automation-safety：本地实测 80.1 秒，继承的 120 秒默认档不足 → 600 秒；改后合同复算
+40 套件、所需 439.25 分钟 < 工作流 460 分钟，无需改工作流）。
 本窗口 22 次套件级超时分布在：canonical-command-result 4、automation-safety 3、
 canonical-production-seams 3、root-claims-registry 3、harness-authority 3、harness-env 2，其余各 1。
-
-**未决**：`automation-safety.tests.ps1` 至今**没有显式预算**，却在 2026-09-15/16 三次运行中超时
-（runs `34957472014`、`34991068832`、`35086695635`）。
 
 ### R3 时序/占用类红灯：同代码重跑即绿，不要防御性改码
 
@@ -201,7 +203,9 @@ file '<fixture 输出或 header 文件>' because it is being used by another pro
 
 ## 4. 未决项
 
-- `automation-safety.tests.ps1` 无显式预算而反复超时（R2 未决）。
+（本文件初稿记录的「`automation-safety.tests.ps1` 无显式预算而反复超时」已由 `6db9760` 修复，
+预算与合同复算见 R2。）
+
 - `task-skills.tests.ps1` 的 `Task skill dry-run failed (exit 1); overlay was not changed.`
   （run `34851206631`）只到外层提示，未定位到根因。
 - 2026-09-17 两次 runner 失联尚未在同一提交上重跑确认。
