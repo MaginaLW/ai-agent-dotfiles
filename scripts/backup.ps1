@@ -58,6 +58,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 . (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+. (Join-Path $PSScriptRoot 'skills-common.ps1')
 if (-not (Test-LiveSafetySandboxCapability)) {
     # The public standalone entry is retired (Phase 2 Task 3): zero writes,
     # non-zero diagnostic, before any traversal or BackupRoot work.
@@ -75,15 +76,8 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 # Helpers
 # ---------------------------------------------------------------------------
 
-function Get-CodexLiveSkillsPath {
-    # Probe order: ~/.codex/skills, then ~/.agents/skills. If neither exists,
-    # report ~/.codex/skills as the conventional path (without creating it).
-    $codex = Join-Path $HomeRoot '.codex\skills'
-    $agents = Join-Path $HomeRoot '.agents\skills'
-    if (Test-Path -LiteralPath $codex) { return $codex }
-    if (Test-Path -LiteralPath $agents) { return $agents }
-    return $codex
-}
+# Get-CodexLiveSkillsPath is defined once in skills-common.ps1, which this
+# script dot-sources above.
 
 function Get-DirStats {
     param([Parameter(Mandatory)] [string] $Path)

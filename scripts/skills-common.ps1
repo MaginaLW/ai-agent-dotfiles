@@ -41,6 +41,34 @@ function Get-CodexLiveSkillsInfo {
     }
 }
 
+# Live skills-root probing for the sync/backup CLIs. Unlike the helpers above,
+# these read $HomeRoot and $ReasonixLiveSkillsPath from the caller's scope.
+# Each name must keep exactly one definition in the repository: the syntax
+# gate's unknown-parameter pass skips names defined in more than one script.
+
+function Get-ClaudeLiveSkillsPath {
+    return (Join-Path $HomeRoot '.claude\skills')
+}
+
+function Get-CodexLiveSkillsPath {
+    # Probe ~/.codex/skills first, then ~/.agents/skills; do not assume the latter.
+    $codex = Join-Path $HomeRoot '.codex\skills'
+    $agents = Join-Path $HomeRoot '.agents\skills'
+    if (Test-Path -LiteralPath $codex) { return $codex }
+    if (Test-Path -LiteralPath $agents) { return $agents }
+    return $codex  # conventional default; created on -Apply if needed
+}
+
+function Get-ReasonixLiveSkillsPath {
+    if ($ReasonixLiveSkillsPath) {
+        if (Test-Path -LiteralPath $ReasonixLiveSkillsPath) {
+            return (Resolve-Path -LiteralPath $ReasonixLiveSkillsPath).Path
+        }
+        return [System.IO.Path]::GetFullPath($ReasonixLiveSkillsPath)
+    }
+    return (Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills')
+}
+
 function Get-PlatformSkillSources {
     param(
         [Parameter(Mandatory)] [string] $HomeRoot,

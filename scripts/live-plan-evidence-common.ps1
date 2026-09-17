@@ -21,6 +21,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'harness-env-common.ps1')
 . (Join-Path $PSScriptRoot 'target-context-common.ps1')
 . (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
+. (Join-Path $PSScriptRoot 'skills-common.ps1')
 
 $script:LiveSyncHostResolutionRequired = 'live-plan-host-resolution-required'
 $script:LiveSyncAuthorityPresent = 'live-plan-authority-present'
@@ -115,28 +116,8 @@ function New-LiveSyncAuthorityContext {
 # Live surface probing
 # ---------------------------------------------------------------------------
 
-function Get-ClaudeLiveSkillsPath {
-    return (Join-Path $HomeRoot '.claude\skills')
-}
-
-function Get-CodexLiveSkillsPath {
-    # Probe ~/.codex/skills first, then ~/.agents/skills; do not assume the latter.
-    $codex = Join-Path $HomeRoot '.codex\skills'
-    $agents = Join-Path $HomeRoot '.agents\skills'
-    if (Test-Path -LiteralPath $codex) { return $codex }
-    if (Test-Path -LiteralPath $agents) { return $agents }
-    return $codex  # conventional default; created on -Apply if needed
-}
-
-function Get-ReasonixLiveSkillsPath {
-    if ($ReasonixLiveSkillsPath) {
-        if (Test-Path -LiteralPath $ReasonixLiveSkillsPath) {
-            return (Resolve-Path -LiteralPath $ReasonixLiveSkillsPath).Path
-        }
-        return [System.IO.Path]::GetFullPath($ReasonixLiveSkillsPath)
-    }
-    return (Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills')
-}
+# Get-ClaudeLiveSkillsPath / Get-CodexLiveSkillsPath / Get-ReasonixLiveSkillsPath
+# are defined once in skills-common.ps1, which this file dot-sources above.
 
 function Get-PlatformLiveRoot {
     param([Parameter(Mandatory)] [ValidateSet('Claude', 'Codex', 'Reasonix')] [string] $Platform)
@@ -496,19 +477,6 @@ function Get-DirNames {
     param([Parameter(Mandatory)] [string] $Path)
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     return @(Get-ChildItem -LiteralPath $Path -Directory -Force | ForEach-Object Name)
-}
-
-function Get-StringSha256 {
-    param([Parameter(Mandatory)] [string] $Text)
-
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
-        return ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
-    }
-    finally {
-        $sha.Dispose()
-    }
 }
 
 function Get-BytesSha256 {

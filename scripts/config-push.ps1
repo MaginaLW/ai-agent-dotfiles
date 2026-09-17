@@ -91,30 +91,14 @@ $whitelist = Import-PowerShellDataFile -LiteralPath $whitelistPath
 $commonExcluded = @($whitelist.CommonExcludedItems)
 
 # ---------------------------------------------------------------------------
-# Helpers (kept self-contained, matching the repo's per-script style)
+# Helpers
 # ---------------------------------------------------------------------------
 
-function Test-Excluded {
-    param(
-        [Parameter(Mandatory)] [string] $RelativePath,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Patterns
-    )
-    $rel = $RelativePath -replace '\\', '/'
-    foreach ($pattern in $Patterns) {
-        $pat = $pattern -replace '\\', '/'
-        if ($rel -like $pat) { return $true }
-        if ($rel -like "$pat/*") { return $true }
-        foreach ($segment in ($rel -split '/')) {
-            if ($segment -like $pat) { return $true }
-        }
-    }
-    return $false
-}
+# Test-Excluded / Get-FileHashHex / Get-PlannedCopies are defined once in
+# config-common.ps1; dot-sourcing it keeps the syntax gate's unknown-parameter
+# pass active for their call sites.
 
-function Get-FileHashHex {
-    param([Parameter(Mandatory)] [string] $Path)
-    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
-}
+. (Join-Path $PSScriptRoot 'config-common.ps1')
 
 function Find-MachinePrivatePaths {
     # Scan only the just-captured files (not the whole tree, which legitimately
@@ -142,43 +126,6 @@ function Find-MachinePrivatePaths {
         }
     }
     return $findings
-}
-
-function Get-PlannedCopies {
-    # Returns a list of @{ Src; Dst; Rel; Action } capturing Src (home) into Dst (repo).
-    param(
-        [Parameter(Mandatory)] [string] $SrcItem,
-        [Parameter(Mandatory)] [string] $DstItem,
-        [Parameter(Mandatory)] [string] $ItemLabel,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Excluded
-    )
-    $ops = [System.Collections.Generic.List[object]]::new()
-    if (-not (Test-Path -LiteralPath $SrcItem)) { return $ops }   # nothing in home to capture
-
-    if (Test-Path -LiteralPath $SrcItem -PathType Leaf) {
-        $action = if (-not (Test-Path -LiteralPath $DstItem)) { 'add' }
-        elseif ((Get-FileHashHex $SrcItem) -ne (Get-FileHashHex $DstItem)) { 'update' }
-        else { 'noop' }
-        if ($action -ne 'noop') {
-            $ops.Add(@{ Src = $SrcItem; Dst = $DstItem; Rel = $ItemLabel; Action = $action })
-        }
-        return $ops
-    }
-
-    $srcFull = (Resolve-Path -LiteralPath $SrcItem).Path
-    $files = Get-ChildItem -LiteralPath $srcFull -File -Recurse -Force -ErrorAction SilentlyContinue
-    foreach ($file in $files) {
-        $rel = $file.FullName.Substring($srcFull.Length).TrimStart('\', '/')
-        if (Test-Excluded -RelativePath $rel -Patterns $Excluded) { continue }
-        $dst = Join-Path $DstItem $rel
-        $action = if (-not (Test-Path -LiteralPath $dst)) { 'add' }
-        elseif ((Get-FileHashHex $file.FullName) -ne (Get-FileHashHex $dst)) { 'update' }
-        else { 'noop' }
-        if ($action -ne 'noop') {
-            $ops.Add(@{ Src = $file.FullName; Dst = $dst; Rel = "$ItemLabel/$($rel -replace '\\','/')"; Action = $action })
-        }
-    }
-    return $ops
 }
 
 # ---------------------------------------------------------------------------

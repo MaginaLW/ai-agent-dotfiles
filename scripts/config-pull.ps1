@@ -72,68 +72,14 @@ $whitelist = Import-PowerShellDataFile -LiteralPath $whitelistPath
 $commonExcluded = @($whitelist.CommonExcludedItems)
 
 # ---------------------------------------------------------------------------
-# Helpers (kept self-contained, matching the repo's per-script style)
+# Helpers
 # ---------------------------------------------------------------------------
 
-function Test-Excluded {
-    param(
-        [Parameter(Mandatory)] [string] $RelativePath,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Patterns
-    )
-    $rel = $RelativePath -replace '\\', '/'
-    foreach ($pattern in $Patterns) {
-        $pat = $pattern -replace '\\', '/'
-        if ($rel -like $pat) { return $true }
-        if ($rel -like "$pat/*") { return $true }
-        foreach ($segment in ($rel -split '/')) {
-            if ($segment -like $pat) { return $true }
-        }
-    }
-    return $false
-}
+# Test-Excluded / Get-FileHashHex / Get-PlannedCopies are defined once in
+# config-common.ps1; dot-sourcing it keeps the syntax gate's unknown-parameter
+# pass active for their call sites.
 
-function Get-FileHashHex {
-    param([Parameter(Mandatory)] [string] $Path)
-    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
-}
-
-function Get-PlannedCopies {
-    # Returns a list of @{ Src; Dst; Rel; Action } for one managed item.
-    param(
-        [Parameter(Mandatory)] [string] $RepoItem,
-        [Parameter(Mandatory)] [string] $HomeItem,
-        [Parameter(Mandatory)] [string] $ItemLabel,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Excluded
-    )
-    $ops = [System.Collections.Generic.List[object]]::new()
-    if (-not (Test-Path -LiteralPath $RepoItem)) { return $ops }   # nothing in repo to deploy
-
-    if (Test-Path -LiteralPath $RepoItem -PathType Leaf) {
-        $action = if (-not (Test-Path -LiteralPath $HomeItem)) { 'add' }
-        elseif ((Get-FileHashHex $RepoItem) -ne (Get-FileHashHex $HomeItem)) { 'update' }
-        else { 'noop' }
-        if ($action -ne 'noop') {
-            $ops.Add(@{ Src = $RepoItem; Dst = $HomeItem; Rel = $ItemLabel; Action = $action })
-        }
-        return $ops
-    }
-
-    # directory: copy file-by-file, never prune
-    $repoFull = (Resolve-Path -LiteralPath $RepoItem).Path
-    $files = Get-ChildItem -LiteralPath $repoFull -File -Recurse -Force -ErrorAction SilentlyContinue
-    foreach ($file in $files) {
-        $rel = $file.FullName.Substring($repoFull.Length).TrimStart('\', '/')
-        if (Test-Excluded -RelativePath $rel -Patterns $Excluded) { continue }
-        $dst = Join-Path $HomeItem $rel
-        $action = if (-not (Test-Path -LiteralPath $dst)) { 'add' }
-        elseif ((Get-FileHashHex $file.FullName) -ne (Get-FileHashHex $dst)) { 'update' }
-        else { 'noop' }
-        if ($action -ne 'noop') {
-            $ops.Add(@{ Src = $file.FullName; Dst = $dst; Rel = "$ItemLabel/$($rel -replace '\\','/')"; Action = $action })
-        }
-    }
-    return $ops
-}
+. (Join-Path $PSScriptRoot 'config-common.ps1')
 
 # ---------------------------------------------------------------------------
 # Plan
@@ -148,8 +94,8 @@ foreach ($name in $Platform) {
     $excluded = @($cfg.ExcludedItems) + $commonExcluded
     foreach ($item in (@($cfg.PullItems) | Select-Object -Unique)) {
         $ops = Get-PlannedCopies `
-            -RepoItem (Join-Path $repoRootP $item) `
-            -HomeItem (Join-Path $homeRootP $item) `
+            -SrcItem (Join-Path $repoRootP $item) `
+            -DstItem (Join-Path $homeRootP $item) `
             -ItemLabel "$name/$item" `
             -Excluded $excluded
         foreach ($op in $ops) { $plan.Add($op) }

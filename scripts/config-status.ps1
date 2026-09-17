@@ -66,37 +66,17 @@ $commonExcluded = @($whitelist.CommonExcludedItems)
 # Helpers
 # ---------------------------------------------------------------------------
 
-function Test-Excluded {
-    # True if a repo/home-relative path matches any exclusion pattern, either as the
-    # whole path, as a path prefix, or as any single path segment. Patterns may be
-    # exact names ('projects'), globs ('history*', '*.local.json'), or nested paths
-    # ('plugins/repos').
-    param(
-        [Parameter(Mandatory)] [string] $RelativePath,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Patterns
-    )
-    $rel = $RelativePath -replace '\\', '/'
-    foreach ($pattern in $Patterns) {
-        $pat = $pattern -replace '\\', '/'
-        if ($rel -like $pat) { return $true }
-        if ($rel -like "$pat/*") { return $true }
-        foreach ($segment in ($rel -split '/')) {
-            if ($segment -like $pat) { return $true }
-        }
-    }
-    return $false
-}
+# Test-Excluded / Get-FileHashHex are defined once in config-common.ps1;
+# dot-sourcing it keeps the syntax gate's unknown-parameter pass active for
+# their call sites.
+
+. (Join-Path $PSScriptRoot 'config-common.ps1')
 
 function Get-ItemKind {
     param([Parameter(Mandatory)] [string] $Path)
     if (-not (Test-Path -LiteralPath $Path)) { return 'absent' }
     if (Test-Path -LiteralPath $Path -PathType Container) { return 'dir' }
     return 'file'
-}
-
-function Get-FileHashHex {
-    param([Parameter(Mandatory)] [string] $Path)
-    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
 function Get-DirFileMap {
