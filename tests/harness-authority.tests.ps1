@@ -1104,7 +1104,29 @@ function Invoke-AuthorityCliKilledAtCheckpoint {
     }
     $out = ''
     foreach ($file in @($outFile, $errFile)) {
-        if (Test-Path -LiteralPath $file) { $out += [System.IO.File]::ReadAllText($file) }
+        if (-not (Test-Path -LiteralPath $file)) { continue }
+        # R3 fixture sync (docs/CI_FAILURE_RULES.md): an orphan of the killed
+        # tree can hold the redirect handle after WaitForExit returns. Read
+        # with explicit sharing and a bounded release wait instead of letting
+        # the assertion fail on the race; this bounded wait lives in the
+        # fixture only and never in a production script.
+        $releaseDeadline = [DateTime]::UtcNow.AddSeconds(10)
+        while ($true) {
+            try {
+                $stream = [System.IO.File]::Open($file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+                try {
+                    $reader = [System.IO.StreamReader]::new($stream)
+                    $out += $reader.ReadToEnd()
+                    $reader.Dispose()
+                }
+                finally { $stream.Dispose() }
+                break
+            }
+            catch [System.IO.IOException] {
+                if ([DateTime]::UtcNow -gt $releaseDeadline) { throw }
+                Start-Sleep -Milliseconds 100
+            }
+        }
     }
     return [pscustomobject]@{ Code = $child.ExitCode; Out = $out }
 }
