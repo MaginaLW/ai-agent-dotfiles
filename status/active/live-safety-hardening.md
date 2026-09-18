@@ -3237,3 +3237,127 @@ by the CI failure-rules window recorded above; item 12 is appended by its review
     compares the declared bound against the proved budget, so it passes regardless. Closing this needs
     either a split of the suite matrix across jobs or re-derived budgets; both are structural changes
     that the CI failure-rules window does not authorize.
+
+## Phase 4 implementation window (2026-09-18/19, Tasks 1-6+10 and Task 7 Step 2 landed)
+
+Under the owner's authorization to complete the pending items, Phase 4's interlocked
+implementation landed through eight reviewed slices, each independently validated and committed
+(policy stays `ReleaseState=interlocked`; no production Apply anywhere):
+
+- Task 1 / PR-A (`62465fa`): the artifact registry freeze - `doctor-report` registered against the
+  current emitter shape with no ArtifactKind field, `repository-validation-summary` v1 with the
+  children-DAG rules, the harness-profile schemas carried in a tracked exclusion list, the nested
+  payload allowlist, negative sentinels for the 13 single-negative kinds, and the
+  producer-registry completeness tests; registry 31/31/133 → 33/33/197.
+- Task 2 / PR-B (`4803347`) plus the doctor slice (`9361290`): sync-plan, rollback-plan, and
+  live-recover publishes route through one schema-validating create-new/atomic-move adapter
+  (`Publish-ValidatedLiveArtifactJson`, designed home `json-artifact-common.ps1`), Apply
+  schema-validates before mutate, and the doctor report publishes with the explicit kind under a
+  validated-overwrite switch; fail-closed vectors for missing validator, wrong hash, invalid
+  schema, invalid JSON, and hash mismatch; editing the pinned `json-artifact-common.ps1` moved 15
+  self-seal pin lines (fixpoint re-seal, `-Verify` 0, primitives 95/0).
+- Task 4 / PR-C (`e4bbaed`): the repository-policy suite (~90 assertions) - static doc pins,
+  three-platform generated-root symmetry, no MCP/OpenClaw revival, hooks/bootstrap never Apply,
+  the no-public-Apply-bypass net with the missing `authority-harness-env -Apply` case added, and
+  the canonical exit-75 contract pinned as the INTERLOCKED public token (PR-G owns the post-Assert
+  delta).
+- Task 5 / PR-E (`d16b359`): the docs now describe the post-Phase-3 interlocked contract - the
+  "Phase 0" banners are gone, the standalone-backup story is corrected everywhere
+  (`backup-is-transaction-internal` before any interlock), the four bare `sync -DryRun` shapes
+  route through the sandbox host, `.system` is marker-only, and the two superseded designs carry
+  banners.
+- Task 6 / PR-F (`e2a81bd`): the four Reasonix desktop-topic literals are pinned untracked at
+  HEAD and in the index, metadata-only.
+- Task 10 / PR-I (`b02e1d4`): the SID-scoped occupancy index
+  (`scripts/root-claims-occupancy-common.ps1`, `<LocalAppDataRoot>\ai-agent-dotfiles.occupancy\<TokenSid>\`
+  entries, create-new/no-follow/exact-byte/current-user-only) gated into the single claim-accept
+  site (`root-claims-registry-common.ps1:3324`) - same-authority re-claim is a no-op, a different
+  authority claiming the same (VolumeId, directory identity) fails
+  `root-claims-occupancy-conflict`.
+- Task 3 / PR-D (`833fd3f`): `scripts/run-repository-validation.ps1` orchestrates the eleven named
+  gates (every YAML gate preserved exactly once, the env-build-list-status gate kept) and emits the
+  validated child→summary→final artifact chain; CI's 13 inline steps became 5 with the orchestrator
+  called once. **This closes the old pending item 10**: the parse gate is now a named orchestrator
+  gate, though CI has not yet run the new workflow.
+- Task 7 Step 2 (`04c554a`): live-recover Apply asserts
+  `Assert-LiveSafetyMutationAllowed -Operation live-recover-<action>` before the resolver, so the
+  interlocked-no-sandbox path refuses with the interlock token and zero writes; DryRun stays
+  plan-only.
+
+Each slice re-derived the seams all-scripts baselines on its own tree with row-level review
+(15763 → 15785 → 15915 → 16086; dynamic 174 → 175 → 180 → 182) and carried its own re-pin;
+`canonical-hard-kill` stayed at `-Verify 0` except the single pinned-file edit documented above.
+
+The same window's CI rerun decisions (authorized) produced: run `35166625038` attempt 2 -
+harness-authority failed at the `Invoke-AuthorityCliKilledAtCheckpoint` read race, the exact R3
+site the rules file already cited; the fixture now reads with `FileShare ReadWrite|Delete` and a
+bounded release wait (`e0bb9d7`), suite 435/0. Run `35291382501` attempts 1-2 on `c0f1475` - the
+root-claims-registry contention probe failed once at its 1000 ms bound and passed on the same SHA
+in attempt 2 (timing-sensitive, no recurrence; the probe is the known next-hardening candidate).
+Runs `35166789288` and `35291382501` also produced pure startup stalls (a suite killed with zero
+output records at its budget - automation-safety 600 s, harness-authority 900 s - on trees where
+the same suites pass everywhere else); third attempts are in flight.
+
+**Handoff**: Task 7 Steps 1 and 3 remain - Step 3, the shared production host resolver per §3.d.1
+(wrap the three `Resolve-*InternalRoots` copies with sandbox-wins/released-identity/no-mkdir
+semantics, make the authority trio complete-or-none, align `Get-CanonicalPrivateRootSelection`
+with the identity's LocalAppDataRoot - that file is hard-kill-pinned), and Step 1, the production
+canonical Apply engines (promote the two sealed engine bodies without lock re-entry, setup via the
+SetupBootstrap Enter sequence with Complete inside Enter, wire both CLIs to branch after Assert:
+throw keeps the exit-75 interlocked contract, return runs the engine under the held order), plus
+the seams owner-inventory updates. The external-model worker quota reset at 2026-09-19 00:15; the
+work resumes there or in a fresh session, on top of the commits above. Task 8 (the
+`ReleaseState=released` commit) stays behind its owner gate: the disposable-identity lab is the
+owner's to run, and per the proposal's risk register the flip is not autonomous work.
+
+## Pending items (2026-09-19, after the Phase 4 implementation window)
+
+The skip-list window's list is superseded by this one. Items 3-8 carry; items 1, 2, 9, 10, and 11
+are updated below; item 12 gains the new budget arithmetic.
+
+1. **Phase 4 — Tasks 1-6, 10, and Task 7 Step 2 are landed (see the window record above); Task 7
+   Steps 1 and 3 are the remaining interlocked implementation, with their full spec in the
+   proposal's Task 7 and §3.d.1; Task 8 (`ReleaseState=released`) stays behind its owner gate —
+   the disposable-identity lab is the owner's to run and the flip is not autonomous work.** Until
+   a reviewed release lands, every production sync/environment/authority/task/rollback/retirement
+   and canonical Apply still stops with `safety-protocol-upgrade-required` before traversal or
+   mutation, and live-recover now also Asserts before its resolver.
+2. **Design-bound finding closed (`b02e1d4`)**: the cross-authority root-claim overlap rejection is
+   implemented as the SID-scoped occupancy index (owner decision §7.1 option 2) gated into the
+   single claim-accept site; `root-claims-occupancy-conflict` fails a second authority closed.
+3. **Carried boundaries**, unchanged: the locator stays phase-only by design; a live-target move
+   whose record is still a `_pending` temp classifies as manual recovery; the engine's per-target
+   drift protection is hash-based; and the rollback plan's `Current` identity binding is recorded
+   as not enforced by the existing ladder. (The `RECEIPT_FINALIZATION` placement-pinned boundary
+   was exercised again by the harness-authority R3 fix above.)
+4. **Staging locks**: rebuilt after this window's final record commit and binding it; any later
+   commit stales them by design. A rebuild is artifact preparation and never authorizes Apply.
+5. **Per-machine revalidation after any reviewed release**: revalidate each managed machine
+   independently; never reuse this machine's deleted authorization files.
+6. **Coordination**: any other clone or fork should re-clone or rebase rather than merge the old
+   history.
+7. **Operational, needs a human decision**: whether one owner per repository is intended. This
+   window ran one writer (the coordinator) plus isolated per-PR worktree workers with serial
+   integration — the pattern held without contention.
+8. **Push and CI coverage — read Git before acting.** The owner pushed through `833fd3f` during
+   the window; `04c554a` and the record commits are local at this writing. The new orchestrator
+   workflow has NOT been exercised by CI yet — the next push is its first run. These are dated
+   snapshots, not current state.
+9. **Phase 4 §7 decisions**: the owner's authorization to complete the pending items adopted the
+   proposal's recommendations as recorded here — §7.1 option 2 (landed), §7.8 register/carve-out
+   (landed), §7.9-7.12 land with Task 7 Step 3. The proposal itself remains the decision record;
+   any later deviation from its recommendations is an owner decision.
+10. **The parse gate is now a named orchestrator gate (`833fd3f`), closing this item's substance;
+    the residual is that CI has not run the new workflow yet (item 8), and the local unified
+    runner still does not invoke the gate directly — the orchestrator does.**
+11. **CI reliability**: the R3 harness-authority read race is fixed in the fixture (`e0bb9d7`).
+    The root-claims contention probe is classified timing-sensitive (one same-SHA red, one green;
+    a diagnosability hardening of its four-conjunct assertion is the sanctioned next step if it
+    recurs). Third-attempt reruns for the two startup-stall runs (`35166789288`,
+    `35291382501`) were in flight at this record's commit; their verdicts belong to the next
+    record. Same-SHA rerun authority came from the owner's completion authorization.
+12. **The declared CI job bound exceeds the platform ceiling — owner decision, now sharper**: with
+    the two Phase 4 suites the proved budget is 27555 s required against the 27600 s declared bound
+    (a 45 s margin), while the hosted-runner ceiling stays 360 minutes. Closing this needs the
+    matrix split or re-derived budgets; the proposal's Task 3 says do not shard, the failure-rules
+    window said a split is structural — the two documents conflict and the owner decides.

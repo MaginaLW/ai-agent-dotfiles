@@ -4100,7 +4100,7 @@ step lists are in
    authorities commit on a shared custom root today). The rollback execution's production caller is
    closed by `976d0fe`. The authoritative, itemised record lives in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-17, after the skip-list settlement window)".
+   "Pending items (2026-09-19, after the Phase 4 implementation window)".
 4. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
    live-target move whose record is still a `_pending` temp classifies as manual recovery; and the
@@ -4126,7 +4126,7 @@ step lists are in
    as the concurrent-session hazard note, not here. The window's ordered list is closed: items 1-4
    above record what was delivered, and the current pending set is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-17, after the skip-list settlement window)".
+   "Pending items (2026-09-19, after the Phase 4 implementation window)".
 9. **Added by the sealed-file slice window (2026-09-15) — closed by the parallel-grok window
    (2026-09-16).** All four items are done: the privacy narrative is corrected against the tree
    (item 8: `91e871e` does resolve and is an ancestor of `HEAD`, `bbba28f` is the
@@ -4140,7 +4140,7 @@ step lists are in
    `Get-SkillDirectories` (`fc6e173`) and the `:8256` independent RED (`0c68ee3`). The current
    pending set, including the new Phase 4 decision package, is in
    [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
-   "Pending items (2026-09-17, after the skip-list settlement window)".
+   "Pending items (2026-09-19, after the Phase 4 implementation window)".
 10. **Gate skip-list settlement — complete (`117a556`, 2026-09-17).** All five names the parse
     gate's unknown-parameter pass still skipped are now single definitions: the platform getters
     and `Get-StringSha256` live once in `skills-common.ps1` (explicitly dot-sourced by
@@ -4164,4 +4164,20 @@ step lists are in
     is in
     [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
     "Gate skip-list settlement window (2026-09-17, complete)"; the current pending set is in the
-    same file under "Pending items (2026-09-17, after the skip-list settlement window)".
+    same file under "Pending items (2026-09-19, after the Phase 4 implementation window)".
+11. **Phase 4 interlocked implementation — Tasks 1-6, 10, and Task 7 Step 2 landed (2026-09-18/19,
+    owner-authorized).** The registry freeze (33/33/197), the fail-closed emitter adapter for
+    sync-plan/rollback-plan/live-recover/doctor, the repository-policy suite (~90 assertions with
+    the authority Apply case and the interlocked exit-75 pins), the docs rewrite to the
+    interlocked contract, the desktop-topic tracking pins, the SID-scoped occupancy index gated
+    into claim-accept, the repository-validation orchestrator with CI reduced to five steps
+    (closing the parse-gate-as-non-suite item), and live-recover Apply asserting behind the
+    interlock before its resolver. Each slice carried its own row-reviewed seams re-pin
+    (15763 → 16086); the pinned json-artifact edit moved 15 self-seal lines (fixpoint, `-Verify`
+    0, primitives 95/0); the CI R3 read-race recurrence got its fixture fix (`e0bb9d7`, 435/0).
+    **Remaining**: Task 7 Steps 1 and 3 (production canonical engines; shared host resolver) —
+    handed off with the full spec reference; then the owner-gated Task 8. The itemised record is
+    in [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
+    "Phase 4 implementation window (2026-09-18/19, Tasks 1-6+10 and Task 7 Step 2 landed)"; the
+    current pending set is in the same file under "Pending items (2026-09-19, after the Phase 4
+    implementation window)".
