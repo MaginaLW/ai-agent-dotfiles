@@ -3361,3 +3361,48 @@ are updated below; item 12 gains the new budget arithmetic.
     (a 45 s margin), while the hosted-runner ceiling stays 360 minutes. Closing this needs the
     matrix split or re-derived budgets; the proposal's Task 3 says do not shard, the failure-rules
     window said a split is structural — the two documents conflict and the owner decides.
+
+### Phase 4 window completion (2026-09-19): Task 7 landed; Task 8 gate ahead
+
+Task 7 Steps 1 and 3 landed as `d30360f` after integration review: the shared host resolver
+(`Resolve-LiveSafetyHostAuthority` — sandbox wins on any ReleaseState, released identity branch
+with no mkdir and no builder re-wrap, interlocked-no-sandbox keeps each caller's
+host-resolution token; all six consumers rewired; the authority trio is complete-or-none; the
+canonical locator derives from the identity's LocalAppDataRoot) and the production canonical
+Apply engines (`Invoke-CanonicalProductionSkillTransaction` / `...RecoveryTransaction` /
+`...SetupTransaction`, promoted without lock re-entry, setup via the SetupBootstrap Enter
+sequence with Complete inside Enter; both CLIs branch after Assert — throw keeps the exit-75
+interlocked contract byte-for-byte, return runs the engine under the held order). Two worker
+deviations are recorded as accepted: the Assert paths are repo+plan only (adding the
+identity-derived roots would make the sandbox capability permanently false — they stay gated by
+the identity-match check), and setup binds the runtime sealed intent rather than the proposal's
+named plan-payload object (the sealed machinery asserts the binding between the two).
+Integration: seams re-derived and row-reviewed (16086 → 16246, dynamic 182 → 191; the engine
+file's two `Get-Command` load-order guards are the explained new sensitive rows); the pinned
+`canonical-transaction-common.ps1` re-seal moved 15 pin-value lines (fixpoint, `-Verify` 0);
+combined-tree re-validation: canonical-transaction-apply 21/0, canonical-command-result 72/0,
+canonical-recovery 118/0, repository-policy PASS, parse gate 178 files.
+
+Definitive unified pass: ``run-tests.ps1 -All`` over exactly the committed bytes of `d30360f`
+reads **``Test summary: PASS; discovered=42; passed=42; failed=0; timed-out=0``** (summary
+`unified-phase4-window.json`, SHA-256
+`49a6165fbc6082cfae5d449bdc41cde2fbe08e22516eb11507005e0703b79484`, DiscoveryHash
+`ca6f66f4724edcf1672f5124155b36120763e02453810cb136e9c16b0d6f6a9d` — changed by the two new
+suites; `RequiredJobTimeoutSeconds` 27555; 8424 s of suite time, uncontended: `canonical-hard-kill`
+2575 s, `root-claims-registry` 1555 s, `harness-authority` 482 s, `live-recovery` 480 s).
+
+Rerun verdicts closing the CI item: `35166789288` attempt 3 on `0c5ca92` is **success** (the
+automation-safety startup stall did not recur; the runner-loss run's same-SHA rerun is green).
+`35291382501` attempt 3 on `c0f1475`: the contention probe passed again (green twice of three
+same-SHA attempts — timing-sensitive, closed), while harness-authority failed with the same R3
+redirect-handle read race — recurrence confirmed on the tree WITHOUT `e0bb9d7`, whose fixture
+fix therefore addresses exactly this defect; its verification rides the next push, which is also
+the new orchestrator workflow's first CI run.
+
+State at close: `HEAD` is the commit carrying this paragraph and the working tree is clean; the
+three staging locks were rebuilt after this final record commit and bind it. Phase 4's
+interlocked implementation (Tasks 1-7) is complete; **Task 8 is the owner gate** — the
+`ReleaseState=released` commit, the disposable-identity lab that proves each positive route, and
+the real-machine read-only/DryRun pass are the owner's to authorize and run; the lab clones the
+policy-only commit, STATUS follows as a later commit, and per the proposal's risk register none
+of it is autonomous work.
