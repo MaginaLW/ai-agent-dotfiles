@@ -67,6 +67,25 @@ try {
     Assert-Throws { Resolve-PrivateArtifactPath -Path (Join-Path $junction 'new.json') -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf } 'reparse' 'external output through a junction is rejected before creation'
     Remove-Item -LiteralPath $junction -Force
 
+    Write-Host '[reasonix desktop-topic tracking state]'
+    # Metadata-only probes (ls-files/ls-tree/check-ignore): the four protected
+    # Reasonix desktop-topic literals are never opened, and their on-disk
+    # presence is environment state that a fresh checkout does not have.
+    $desktopTopicLiterals = @(
+        '.reasonix/desktop-topic-auto-title-meta.json',
+        '.reasonix/desktop-topic-created-at.json',
+        '.reasonix/desktop-topic-title-sources.json',
+        '.reasonix/desktop-topic-titles.json'
+    )
+    $indexedEntries = @(& git -C $RepoRoot ls-files --stage -- $desktopTopicLiterals)
+    Assert ($indexedEntries.Count -eq 0) 'none of the four Reasonix desktop-topic literals is tracked in the index'
+    $headEntries = @(& git -C $RepoRoot ls-tree HEAD -- $desktopTopicLiterals)
+    Assert ($headEntries.Count -eq 0) 'none of the four Reasonix desktop-topic literals is tracked at HEAD'
+    foreach ($literal in $desktopTopicLiterals) {
+        $null = & git -C $RepoRoot check-ignore -v --no-index -- $literal
+        Assert ($LASTEXITCODE -eq 0) "the $literal path is covered by a .gitignore rule"
+    }
+
     Write-Host 'private path boundary tests: PASS'
 }
 finally {
