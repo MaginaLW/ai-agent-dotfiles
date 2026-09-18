@@ -25,6 +25,7 @@
         'live-plan.tests.ps1' = 180
         'powershell-syntax-gate.tests.ps1' = 90
         'repository-policy.tests.ps1' = 600
+        'repository-validation.tests.ps1' = 600
         'root-claims-registry.tests.ps1' = 3600
         'harness-env.tests.ps1' = 600
         'harness-authority.tests.ps1' = 900
