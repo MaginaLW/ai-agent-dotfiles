@@ -4156,8 +4156,11 @@ step lists are in
     `-All` pass launched on the `0e0cb7f` tree while the concurrent CI failure-rules window was
     committing its five documentation/budget commits mid-run; no `scripts/` file and no suite's
     own bytes changed under the run, so it exercises this window's implementation as committed,
-    but it is recorded with that caveat rather than as a frozen-tree per-commit verdict, and a
-    quiet-machine rerun over the combined tree is left for the next window. The itemised record
+    but it is recorded with that caveat rather than as a frozen-tree per-commit verdict. The
+    deferred quiet-machine rerun over the combined tree `c0f1475` has since passed 40/40
+    (2026-09-18, summary hash in the window record), while CI run `35291382501` on the same
+    commit failed once in the root-claims-registry contention probe's 1000 ms bound — recorded
+    under pending item 11. The itemised record
     is in
     [`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md) under
     "Gate skip-list settlement window (2026-09-17, complete)"; the current pending set is in the

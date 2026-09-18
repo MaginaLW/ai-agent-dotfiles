@@ -3069,6 +3069,24 @@ authority stays `git log origin/main..main`: the owner
 pushed the window through `0a1675a` overnight, and a follow-up check found only this window's
 record commits still local — a dated snapshot, not current state.
 
+Frozen-tree pass (2026-09-18, quiet machine): the rerun the paragraph above deferred reads
+**``Test summary: PASS; discovered=40; passed=40; failed=0; timed-out=0``** over exactly the
+committed bytes of `c0f1475` (summary `unified-combined-tree-20260918.json`, SHA-256
+`951d31ea4fa35b3363108978088f4769b4fe6229e2122f2fb46b1964a9093897`, DiscoveryHash unchanged,
+`RequiredJobTimeoutSeconds` 26355 — the runner read the post-`6db9760` budget file; 8644 s of
+suite time, back at the uncontended baseline: `canonical-hard-kill` 2762 s of 5400,
+`root-claims-registry` 1660 s of 3600, `harness-authority` 489 s of 900). This closes the
+caveat above: last night's 9867 s suite total was machine contention, as hypothesized there.
+
+CI on the same commit (run `35291382501`, started 2026-09-18 08:29 +0800): **failure**, one
+assertion — the root-claims-registry resolver-contention probe
+(`root-claims-registry.tests.ps1:5810`) requires a child runscape's contending Open to return
+`operation-lock-busy` with `State=EMPTY` in **under 1000 ms**, and the log cannot tell which of
+the four conjuncts failed. The suite bytes are identical to run `35244737608`'s green three
+hours earlier (the intervening commits are docs-only), and the same commit passed the
+frozen-tree local pass above, so the class is timing variance versus a real zero-wait miss;
+per the rules it stays open until an authorized same-SHA rerun or a recurrence.
+
 ## CI failure-rules window (2026-09-17)
 
 A read-only diagnosis window read every non-success `Validate` run through the repository's own
@@ -3196,12 +3214,22 @@ by the CI failure-rules window recorded above; item 12 is appended by its review
     (repository validation orchestrator) is where that closes.
 11. **CI reliability gaps found by the failure-rules window.** The first gap is closed by `6db9760`:
     `automation-safety.tests.ps1` now carries an explicit 600 s budget in `tests/test-timeouts.psd1`
-    (see the follow-up paragraph in the CI failure-rules window). Still open: `task-skills` carries
-    one unroot-caused failure (`Task skill dry-run failed (exit 1)` in run `34851206631` — which also
-    carries the automation-safety, harness-authority and harness-env timeouts, so it is not a
-    single-timeout sample), and the two 2026-09-17 runner-loss runs (`35166625038`, `35166789288`)
-    have not been retried on their commit. Closing these is ordinary follow-up work under the
-    existing gates and budgets, not a new authorization.
+    (see the follow-up paragraph in the CI failure-rules window). The `task-skills` sub-item closed
+    by the 2026-09-18 read-only diagnosis as a **mis-attribution**: run `34851206631`'s one failed
+    suite was `canonical-hard-kill`, which threw at load
+    (`canonical-hard-kill.tests.ps1:333`, reviewed-load hash mismatch for
+    `scripts/canonical-transaction-common.ps1`) because `45e9a50` changed the pinned script
+    without re-sealing the manifest; the very next commit `b86b8b1` carried the re-seal and
+    `06d1902` recorded the resolution (318/0). The `Task skill dry-run failed (exit 1)` text in
+    that log is expected negative-path output (`scripts/task-skills.ps1:379` at that commit) and
+    the suite itself passed 22/0; the same run's real timeouts were exactly two —
+    `harness-authority` killed at 300.0 s and `harness-env` at 180.0 s against their then-budgets,
+    both since raised (`881047a`) — while `automation-safety` passed in that run. Still open: the
+    same-SHA rerun for the two 2026-09-17 runner-loss runs (`35166625038`, `35166789288`; their
+    descendant `0a1675aa` has a green run, `35244737608`, which is weak evidence only), and the
+    same-SHA rerun decision for run `35291382501` on `c0f1475` (see the skip-list settlement
+    window's CI paragraph: the root-claims-registry contention probe's 1000 ms bound). Closing
+    these is ordinary follow-up work under the existing gates and budgets, not a new authorization.
 12. **The declared CI job bound exceeds the platform ceiling — needs an owner decision.** GitHub's
     limits page states a 6-hour (360-minute) job limit for hosted runners, so `timeout-minutes: 460`
     in `.github/workflows/validate.yml` cannot be executed as declared, and the 40-suite proved budget
