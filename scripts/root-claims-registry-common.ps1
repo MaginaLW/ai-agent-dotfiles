@@ -4,6 +4,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'home-authority-common.ps1')
 . (Join-Path $PSScriptRoot 'shared-authority-state-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
+. (Join-Path $PSScriptRoot 'root-claims-occupancy-common.ps1')
 
 $script:SealedRegistryArtifactKind = 'sealed-root-claims-registry-view'
 $script:SealedRegistryResolverVersion = 'sealed-held-global-lock-registry-v2'
@@ -3315,6 +3316,12 @@ function New-SealedRegistryRootClaimsCreateNew {
         })
     }
     $null = Assert-SealedRegistryClaimAccept -AuthorityContext $AuthorityContext -ProposedLiveTargets @($proposedLiveTargets) -ProposedCanonicalRecovery $null -CanonicalWitness $CanonicalWitness -CurrentRouteRootSet $CurrentRouteRootSet -ExistingReservations $ExistingReservations
+
+    # Cross-authority occupancy gate (phase 4 Task 10): a custom Reasonix live
+    # root is claimed for this authority only when the SID-scoped index does
+    # not already bind its (VolumeId, directory identity) to a different
+    # ControlBase. Runs before any durable claim bytes; failure is zero-write.
+    $null = Assert-RootClaimsOccupancyAvailable -AuthorityContext $AuthorityContext -GlobalLockHandle $GlobalLockHandle -ProposedClaims $ProposedClaims
 
     if (-not (Test-Path -LiteralPath $PendingDirectory -PathType Container)) { throw 'authority-state-pending-directory-required' }
     $authorityRoot = [string]$AuthorityContext.AuthorityRoot

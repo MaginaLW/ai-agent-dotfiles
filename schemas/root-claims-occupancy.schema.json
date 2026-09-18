@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/root-claims-occupancy.schema.json",
+  "title": "SID-scoped Root Claims Occupancy Entry",
+  "type": "object",
+  "required": [
+    "SchemaVersion", "ArtifactKind", "EntryKey", "VolumeId",
+    "DirectoryIdentity", "ClaimedLocationKey", "HomeAuthorityKey", "ControlBase"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ArtifactKind": { "const": "root-claims-occupancy" },
+    "EntryKey": { "$ref": "#/$defs/hash" },
+    "VolumeId": { "$ref": "#/$defs/volumeId" },
+    "DirectoryIdentity": { "$ref": "#/$defs/directoryIdentity" },
+    "ClaimedLocationKey": { "$ref": "#/$defs/locationKey" },
+    "HomeAuthorityKey": { "$ref": "#/$defs/hash" },
+    "ControlBase": { "type": "string", "minLength": 3 }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "locationKey": { "type": "string", "minLength": 4, "pattern": "^[a-z]:/[^/]" },
+    "volumeId": { "type": "string", "minLength": 8, "maxLength": 8, "pattern": "^[0-9a-f]{8}$" },
+    "directoryIdentity": { "type": "string", "minLength": 25, "maxLength": 25, "pattern": "^[0-9a-f]{8}:[0-9a-f]{16}$" }
+  },
+  "additionalProperties": false
+}

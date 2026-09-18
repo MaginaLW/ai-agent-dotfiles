@@ -85,6 +85,17 @@
             )
             SemanticValidator = 'Test-RootClaimsSemantics'
         }
+        'root-claims-occupancy' = @{
+            SchemaVersion = 1
+            SchemaPath = 'schemas/root-claims-occupancy.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/root-claims-occupancy.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/root-claims-occupancy.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/root-claims-occupancy.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'identity-mismatch'; Path = 'tests/fixtures/artifacts/root-claims-occupancy.identity-mismatch.invalid.json'; FailureLayer = 'Semantic' }
+            )
+            SemanticValidator = 'Test-RootClaimsOccupancySemantics'
+        }
         'canonical-setup-state' = @{
             SchemaVersion = 1
             SchemaPath = 'schemas/canonical-setup-state.schema.json'

@@ -6604,6 +6604,141 @@ try {
     Assert-TestCondition ($createCollisionBefore -ceq (Get-TestRegistryTreeHash -Fixture $createCollisionFixture) -and
         -not (Test-Path -LiteralPath ([string]$createCollisionFixture.Context.RootClaimsPath))) 'an authority-directory collision is zero-write and leaves no claims file'
 
+    Write-Host '[root-claims occupancy index]' -ForegroundColor Cyan
+
+    # The index is scoped to the current token's LocalAppData, so the suite
+    # redirects the one identity seam to a fixture-local root (the same
+    # override idiom the home-authority suite uses) and restores it below.
+    $occupancyOriginalIdentity = (Get-Command Get-RootClaimsOccupancyIdentity -CommandType Function -ErrorAction Stop).ScriptBlock
+    $occupancyIdentityRoot = Join-Path $workRoot 'occupancy-identity-local'
+    [IO.Directory]::CreateDirectory($occupancyIdentityRoot) | Out-Null
+    try {
+        Set-Item -LiteralPath Function:\Get-RootClaimsOccupancyIdentity -Value {
+            [pscustomobject][ordered]@{
+                ResolverVersion = 'windows-token-sid-known-folder-v1'
+                TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+                ProfileRoot = $occupancyIdentityRoot
+                RoamingAppDataRoot = $occupancyIdentityRoot
+                LocalAppDataRoot = $occupancyIdentityRoot
+            }
+        }.GetNewClosure()
+        $occupancyProjection = Get-RootClaimsOccupancyRootPath -OccupancyIdentity (Get-RootClaimsOccupancyIdentity)
+
+        # Two complete ControlBases on one Windows identity sharing one custom
+        # Reasonix directory: the recorded two-home probe shape.
+        $occupancySharedRoot = Join-Path $workRoot 'occupancy-shared-custom-reasonix'
+        [IO.Directory]::CreateDirectory($occupancySharedRoot) | Out-Null
+        function New-OccupancyAuthorityContext([string]$Name) {
+            $profile = Join-Path $workRoot ($Name + '-profile')
+            $roaming = Join-Path $workRoot ($Name + '-roaming')
+            $local = Join-Path $workRoot ($Name + '-local')
+            foreach ($path in @($profile,$roaming,$local)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
+            $context = Resolve-SealedHomeAuthorityTestContext -TokenSid ([string]$occupancyProjection.TokenSid) -ProfileRoot $profile -RoamingAppDataRoot $roaming -LocalAppDataRoot $local -ReasonixLiveSkillsPath $occupancySharedRoot
+            $intent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $context -FilesystemCapabilityHash ('a' * 64)
+            $bootstrap = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $context -Intent $intent
+            Exit-HomeAuthorityGlobalLiveLock -LockHandle $bootstrap
+            return $context
+        }
+        $occupancyContextA = New-OccupancyAuthorityContext 'occupancy-authority-a'
+        $occupancyContextB = New-OccupancyAuthorityContext 'occupancy-authority-b'
+        Assert-TestCondition ([string]$occupancyContextA.ControlBase -cne [string]$occupancyContextB.ControlBase -and
+            [string]$occupancyContextA.HomeAuthorityKey -cne [string]$occupancyContextB.HomeAuthorityKey -and
+            [string]$occupancyContextA.TokenSid -ceq [string]$occupancyContextB.TokenSid) 'fixture precondition: the two occupancy authorities are distinct ControlBases of one Windows identity'
+        Assert-TestCondition ([string]$occupancyContextA.LiveTargets[2].TargetContext.RequestedPath -ceq [string]$occupancySharedRoot -and
+            [string]$occupancyContextB.LiveTargets[2].TargetContext.RequestedPath -ceq [string]$occupancySharedRoot) 'fixture precondition: both authorities claim the same custom Reasonix directory'
+
+        $occupancyIndexPath = Get-RootClaimsOccupancyIndexPath -OccupancyIdentity (Get-RootClaimsOccupancyIdentity) -EntryKey (Get-RootClaimsOccupancyEntryKey -VolumeId ([string]$occupancyContextA.LiveTargets[2].TargetContext.VolumeId) -DirectoryIdentity ([string]$occupancyContextA.LiveTargets[2].TargetContext.DeepestExistingParentIdentity))
+        Assert-TestCondition ([IO.Path]::GetFullPath($occupancyIndexPath).StartsWith(([string]$occupancyProjection.RootPath + [IO.Path]::DirectorySeparatorChar),[StringComparison]::OrdinalIgnoreCase) -and
+            [string]$occupancyProjection.RootPath.StartsWith((Join-Path ([string]$occupancyProjection.LocalAppDataRoot) 'ai-agent-dotfiles.occupancy') + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) 'the index path is the LocalAppData-derived well-known per-user location'
+        Assert-TestCondition (-not (Test-SafePathInsideRoot -Path $occupancyIndexPath -Root ([string]$occupancyContextA.ControlBase)) -and
+            -not (Test-SafePathInsideRoot -Path $occupancyIndexPath -Root ([string]$occupancyContextB.ControlBase))) 'the index path is never inside a ControlBase'
+        $occupancyInsideLiveRoot = $false
+        foreach ($occupancyLiveTarget in @($occupancyContextA.LiveTargets)) {
+            if (Test-SafePathInsideRoot -Path $occupancyIndexPath -Root ([string]$occupancyLiveTarget.TargetContext.RequestedPath)) { $occupancyInsideLiveRoot = $true }
+        }
+        Assert-TestCondition (-not $occupancyInsideLiveRoot) 'the index path is never inside a live skills tree'
+
+        # The default known-folder Reasonix root and a not-yet-created custom
+        # root carry no occupancy: the gate is a no-op and records nothing.
+        $occupancyContextDefault = Resolve-SealedHomeAuthorityTestContext -TokenSid ([string]$occupancyProjection.TokenSid) -ProfileRoot ([string]$occupancyContextA.HomeRoot) -RoamingAppDataRoot ([string]$occupancyContextA.RoamingAppDataRoot) -LocalAppDataRoot ([string]$occupancyContextA.LocalAppDataRoot)
+        $occupancyDefaultClaims = New-TestRootClaims -Context $occupancyContextDefault
+        $occupancyMissingPath = Join-Path $workRoot 'occupancy-missing-custom-reasonix'
+        $occupancyContextMissing = Resolve-SealedHomeAuthorityTestContext -TokenSid ([string]$occupancyProjection.TokenSid) -ProfileRoot ([string]$occupancyContextA.HomeRoot) -RoamingAppDataRoot ([string]$occupancyContextA.RoamingAppDataRoot) -LocalAppDataRoot ([string]$occupancyContextA.LocalAppDataRoot) -ReasonixLiveSkillsPath $occupancyMissingPath
+        $occupancyMissingClaims = New-TestRootClaims -Context $occupancyContextMissing
+        $occupancySidMarker = Get-NoFollowRootEntryMarker -Path ([string]$occupancyProjection.RootPath)
+        $occupancyEntriesBefore = if ([string]$occupancySidMarker.EntryType -ceq 'MISSING') { @() } else { @([AiAgentDotfiles.NoFollowFile]::GetChildNames((Get-Item -LiteralPath ([string]$occupancyProjection.RootPath)).FullName)) }
+        $occupancyGateLock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $occupancyContextA
+        try {
+            $null = Assert-RootClaimsOccupancyAvailable -AuthorityContext $occupancyContextA -GlobalLockHandle $occupancyGateLock -ProposedClaims $occupancyDefaultClaims
+            $null = Assert-RootClaimsOccupancyAvailable -AuthorityContext $occupancyContextA -GlobalLockHandle $occupancyGateLock -ProposedClaims $occupancyMissingClaims
+            Assert-ThrowsPattern {
+                $occupancyRowlessClaims = [ordered]@{}
+                foreach ($occupancyRowlessKey in @($occupancyDefaultClaims.Keys)) { $occupancyRowlessClaims[$occupancyRowlessKey] = $occupancyDefaultClaims[$occupancyRowlessKey] }
+                $occupancyRowlessClaims['LiveRootClaims'] = @($occupancyDefaultClaims.LiveRootClaims | Where-Object { [string]$_.Platform -cne 'Reasonix' })
+                Assert-RootClaimsOccupancyAvailable -AuthorityContext $occupancyContextA -GlobalLockHandle $occupancyGateLock -ProposedClaims $occupancyRowlessClaims | Out-Null
+            } '^root-claims-occupancy-reasonix-row-required$' 'the occupancy gate requires exactly one Reasonix claim row'
+        }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $occupancyGateLock }
+        $occupancyEntriesAfterNoop = if ([string]$occupancySidMarker.EntryType -ceq 'MISSING') { @() } else { @([AiAgentDotfiles.NoFollowFile]::GetChildNames((Get-Item -LiteralPath ([string]$occupancyProjection.RootPath)).FullName)) }
+        Assert-TestCondition (@($occupancyEntriesAfterNoop).Count -eq @($occupancyEntriesBefore).Count) 'default and missing Reasonix roots record no occupancy entry'
+
+        $occupancyPendingA = Join-Path $workRoot 'occupancy-pending-a'
+        [IO.Directory]::CreateDirectory($occupancyPendingA) | Out-Null
+        Set-TestDirectoryCurrentUserOnly -Path $occupancyPendingA
+        $occupancyPendingB = Join-Path $workRoot 'occupancy-pending-b'
+        [IO.Directory]::CreateDirectory($occupancyPendingB) | Out-Null
+        Set-TestDirectoryCurrentUserOnly -Path $occupancyPendingB
+        $occupancyClaimsA = New-TestRootClaims -Context $occupancyContextA
+        $occupancyClaimsB = New-TestRootClaims -Context $occupancyContextB
+
+        $occupancyLockA = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $occupancyContextA
+        try {
+            $occupancyRecordedA = New-SealedRegistryRootClaimsCreateNew -AuthorityContext $occupancyContextA -GlobalLockHandle $occupancyLockA -ProposedClaims $occupancyClaimsA -PendingDirectory $occupancyPendingA -PendingName 'root-claims.pending.json'
+            Assert-TestCondition ([string]$occupancyRecordedA.HomeAuthorityKey -ceq [string]$occupancyContextA.HomeAuthorityKey) 'the first authority records its custom Reasonix claim'
+            $occupancyRecordedEntry = Read-RootClaimsOccupancyEntryByPath -EntryPath $occupancyIndexPath -EntryKey (Get-RootClaimsOccupancyEntryKey -VolumeId ([string]$occupancyContextA.LiveTargets[2].TargetContext.VolumeId) -DirectoryIdentity ([string]$occupancyContextA.LiveTargets[2].TargetContext.DeepestExistingParentIdentity)) -TokenSid ([string]$occupancyProjection.TokenSid)
+            Assert-TestCondition ($null -ne $occupancyRecordedEntry -and
+                [string]$occupancyRecordedEntry.Document.HomeAuthorityKey -ceq [string]$occupancyContextA.HomeAuthorityKey -and
+                [string]$occupancyRecordedEntry.Document.ControlBase -ceq [IO.Path]::GetFullPath([string]$occupancyContextA.ControlBase)) 'the recorded entry binds the custom directory identity to the first authority'
+
+            # Same authority re-claiming its own recorded entry is a no-op success.
+            $null = Assert-RootClaimsOccupancyAvailable -AuthorityContext $occupancyContextA -GlobalLockHandle $occupancyLockA -ProposedClaims $occupancyClaimsA
+            Assert-TestCondition ($true) 'the same authority re-claiming its recorded entry is a no-op success'
+
+            # A second ControlBase claiming the same custom directory fails closed.
+            $occupancyLockB = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $occupancyContextB
+            try {
+                Assert-ThrowsPattern {
+                    New-SealedRegistryRootClaimsCreateNew -AuthorityContext $occupancyContextB -GlobalLockHandle $occupancyLockB -ProposedClaims $occupancyClaimsB -PendingDirectory $occupancyPendingB -PendingName 'root-claims.pending.json' | Out-Null
+                } '^root-claims-occupancy-conflict$' 'a second ControlBase claiming the same custom Reasonix directory fails closed at claim-accept'
+                Assert-ThrowsPattern {
+                    Assert-RootClaimsOccupancyAvailable -AuthorityContext $occupancyContextB -GlobalLockHandle $occupancyLockB -ProposedClaims $occupancyClaimsB | Out-Null
+                } '^root-claims-occupancy-conflict$' 'the occupancy gate itself rejects the second authority with the stable conflict token'
+                Assert-TestCondition (-not (Test-Path -LiteralPath ([string]$occupancyContextB.RootClaimsPath))) 'the occupancy conflict is zero-write on the second authority'
+            }
+            finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $occupancyLockB }
+        }
+        finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $occupancyLockA }
+        Assert-TestCondition (-not (Test-Path -LiteralPath ([string]$occupancyContextB.RootClaimsPath))) 'the second authority still has no claims file after the occupancy conflict'
+
+        $occupancySchemaPath = Join-Path $RepoRoot 'schemas/root-claims-occupancy.schema.json'
+        $null = Invoke-FixedJsonSchemaValidation -SchemaPath $occupancySchemaPath -InstancePath (Join-Path $RepoRoot 'tests/fixtures/artifacts/root-claims-occupancy.valid.json')
+        Assert-TestCondition ($true) 'the occupancy entry schema validates its positive fixture'
+        foreach ($occupancyNegative in @('unknown-property','wrong-version','identity-mismatch')) {
+            if ($occupancyNegative -ceq 'identity-mismatch') {
+                $semanticDocument = ConvertFrom-SemanticJson -Json ([Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes((Join-Path $RepoRoot ('tests/fixtures/artifacts/root-claims-occupancy.' + $occupancyNegative + '.invalid.json')))))
+                Assert-ThrowsPattern { Test-RootClaimsOccupancySemantics -Document $semanticDocument | Out-Null } 'EntryKey does not bind' 'the identity-mismatch negative fixture fails the semantic validator'
+            }
+            else {
+                Assert-ThrowsPattern {
+                    Invoke-FixedJsonSchemaValidation -SchemaPath $occupancySchemaPath -InstancePath (Join-Path $RepoRoot ('tests/fixtures/artifacts/root-claims-occupancy.' + $occupancyNegative + '.invalid.json')) | Out-Null
+                } 'validation failed' "the $occupancyNegative negative fixture fails the pinned schema validation"
+            }
+        }
+    }
+    finally {
+        Set-Item -LiteralPath Function:\Get-RootClaimsOccupancyIdentity -Value $occupancyOriginalIdentity
+    }
+
     Write-Host '[current-env-state postimage write]' -ForegroundColor Cyan
 
     $postimageFixture = New-TestRegistryFixture -Parent $workRoot -Name 'current-env-state-postimage'
