@@ -56,6 +56,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 . (Join-Path $PSScriptRoot 'home-authority-common.ps1')
 . (Join-Path $PSScriptRoot 'live-plan-common.ps1')
+. (Join-Path $PSScriptRoot 'live-plan-evidence-common.ps1')
 . (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
 . (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
@@ -74,24 +75,12 @@ $script:LiveRecoveryReceiptUnsupported = 'live-recovery-receipt-state-unsupporte
 $script:LiveRecoveryStateFormUnsupported = $script:LiveTransactionStateFormUnsupported
 
 function Resolve-LiveRecoveryInternalRoots {
-    # Only a genuine sandbox capability with all three prefixed locators may
-    # resolve the live surface. Anything else fails closed without reading
-    # USERPROFILE or an unprefixed INTERNAL_* variable.
+    # Thin wrapper: the shared production resolver owns sandbox-vs-identity
+    # selection; this producer only pins its failure token.
     [CmdletBinding()]
     param()
 
-    if (-not (Test-LiveSafetySandboxCapability)) { throw $script:LiveRecoveryHostResolutionRequired }
-    $homeRoot = $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT
-    $backupRoot = $env:AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT
-    $controlBase = $env:AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE
-    foreach ($value in @($homeRoot, $backupRoot, $controlBase)) {
-        if ([string]::IsNullOrWhiteSpace($value)) { throw $script:LiveRecoveryHostResolutionRequired }
-    }
-    return [pscustomobject][ordered]@{
-        HomeRoot = [System.IO.Path]::GetFullPath($homeRoot)
-        BackupRoot = [System.IO.Path]::GetFullPath($backupRoot)
-        ControlBase = [System.IO.Path]::GetFullPath($controlBase)
-    }
+    return (Resolve-LiveSafetyHostAuthority -FailureToken $script:LiveRecoveryHostResolutionRequired)
 }
 
 function New-LiveRecoveryAuthorityContext {
@@ -542,9 +531,15 @@ function Get-RecoveryTransactionStatus {
 if ($Status) {
     if ([string]::IsNullOrWhiteSpace($ControlBase)) {
         # The public CLI route resolves the control base from the
-        # sandbox-injected authority and requires the complete bootstrap.
+        # host authority and requires the complete bootstrap. Only the
+        # sandbox branch re-wraps the injected home; the identity branch
+        # already carries the full context (the builders mkdir).
         $internalRoots = Resolve-LiveRecoveryInternalRoots
-        $authorityContext = New-LiveRecoveryAuthorityContext -HomeRoot $internalRoots.HomeRoot -ControlBase $internalRoots.ControlBase -BackupRoot $internalRoots.BackupRoot
+        $authorityContext = if ([string] $internalRoots.ResolutionSource -ceq 'sandbox') {
+            New-LiveRecoveryAuthorityContext -HomeRoot ([string] $internalRoots.HomeRoot) -ControlBase ([string] $internalRoots.ControlBase) -BackupRoot ([string] $internalRoots.BackupRoot)
+        } else {
+            [object] $internalRoots.AuthorityContext
+        }
         Assert-LiveRecoveryAuthorityComplete -AuthorityContext $authorityContext
         $resolvedControlBase = [string] $authorityContext.ControlBase
     }
@@ -568,7 +563,13 @@ else {
         Assert-LiveSafetyMutationAllowed -Operation "live-recover-$Action" -Paths @($repoFull)
     }
     $internalRoots = Resolve-LiveRecoveryInternalRoots
-    $authorityContext = New-LiveRecoveryAuthorityContext -HomeRoot $internalRoots.HomeRoot -ControlBase $internalRoots.ControlBase -BackupRoot $internalRoots.BackupRoot
+    # Only the sandbox branch may re-wrap the injected home: the builder mkdirs
+    # under it, while the identity branch already carries the full context.
+    $authorityContext = if ([string] $internalRoots.ResolutionSource -ceq 'sandbox') {
+        New-LiveRecoveryAuthorityContext -HomeRoot ([string] $internalRoots.HomeRoot) -ControlBase ([string] $internalRoots.ControlBase) -BackupRoot ([string] $internalRoots.BackupRoot)
+    } else {
+        [object] $internalRoots.AuthorityContext
+    }
     Assert-LiveRecoveryAuthorityComplete -AuthorityContext $authorityContext
 
     $planResolution = Resolve-PrivateArtifactPath -Path ([System.IO.Path]::GetFullPath($PlanPath)) -Role ExternalUserArtifact -RepoRoot $repoFull -AllowMissingLeaf:$DryRun

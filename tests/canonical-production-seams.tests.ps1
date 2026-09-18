@@ -266,9 +266,9 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
-$reviewedAllScriptsDynamicCommandDigest='7c13393764f6e47fd4c29ab7e3e18c42d167067315a63ae55e3488cf6257410f'
-$reviewedAllScriptsReflectionSensitiveSiteCount=16086
-$reviewedAllScriptsReflectionSensitiveDigest='585734664ddd94ab869d67e7cda4d6acf97f780c0ce64a35d53b6aef9c2790ef'
+$reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a50ab3e0655bf2cf01292521c63'
+$reviewedAllScriptsReflectionSensitiveSiteCount=16246
+$reviewedAllScriptsReflectionSensitiveDigest='75ce2c28838dea9d973b349933b37ee47d6744db8ed780ab0c959a8e19c11905'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -1024,7 +1024,10 @@ function Invoke-ProductionSeamAnalysis {
     $reviewedPrivateRootComposerOwnerInventory=@('scripts/root-claims-registry-common.ps1:Enter-SealedHeldCanonicalLiveLockOrder')
     $reviewedSetupJournalManifestOwnerInventory=@('scripts/root-claims-registry-common.ps1:Enter-SealedHeldCanonicalLiveLockOrder')
     $reviewedLockOrderAssertInternalOwnerInventory=@('scripts/root-claims-registry-common.ps1:Get-SealedHeldLockOrderRecompute')
-    $reviewedLockOrderEnterOwnerInventory=@('scripts/canonical-transaction.ps1:<script>')
+    $reviewedLockOrderEnterOwnerInventory=@(
+        'scripts/canonical-transaction.ps1:<script>'
+        'scripts/canonical-transaction.ps1:<script>'
+    ) | Sort-Object -CaseSensitive
     $reviewedLockOrderExitOwnerInventory=@(
         'scripts/canonical-transaction.ps1:<script>'
         'scripts/recover-canonical-transaction.ps1:<script>'

@@ -22,6 +22,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'target-context-common.ps1')
 . (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
 . (Join-Path $PSScriptRoot 'skills-common.ps1')
+. (Join-Path $PSScriptRoot 'home-authority-common.ps1')
 
 $script:LiveSyncHostResolutionRequired = 'live-plan-host-resolution-required'
 $script:LiveSyncAuthorityPresent = 'live-plan-authority-present'
@@ -40,22 +41,59 @@ $CodexSystemDirName = '.system'
 # Host-injected sandbox roots
 # ---------------------------------------------------------------------------
 
+function Resolve-LiveSafetyHostAuthority {
+    # Shared production host resolver (Phase 4 §3.d.1). Selection order is
+    # final: a genuine sandbox capability wins on ANY ReleaseState and must
+    # carry all three injected locators; otherwise a released policy resolves
+    # the real Windows identity through the home-authority machinery, which
+    # fails closed on missing known folders with its own token and never
+    # creates directories; anything else throws the caller's pinned token.
+    # The identity branch returns the Resolve-HomeAuthorityContextFromIdentity
+    # object; callers must never re-wrap it in a New-*AuthorityContext builder
+    # because those builders re-synthesize the AppData layout and mkdir.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $FailureToken
+    )
+
+    if (Test-LiveSafetySandboxCapability) {
+        $homeRoot = $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT
+        $backupRoot = $env:AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT
+        $controlBase = $env:AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE
+        foreach ($value in @($homeRoot, $backupRoot, $controlBase)) {
+            if ([string]::IsNullOrWhiteSpace($value)) { throw $FailureToken }
+        }
+        return [pscustomobject][ordered]@{
+            ResolutionSource = 'sandbox'
+            HomeRoot = [System.IO.Path]::GetFullPath($homeRoot)
+            BackupRoot = [System.IO.Path]::GetFullPath($backupRoot)
+            ControlBase = [System.IO.Path]::GetFullPath($controlBase)
+            AuthorityContext = $null
+        }
+    }
+
+    $policy = Get-LiveSafetyPolicy
+    if ([string] $policy.ReleaseState -eq 'released') {
+        $context = Resolve-HomeAuthorityContextFromIdentity -Identity (Get-WindowsHomeAuthorityIdentity)
+        return [pscustomobject][ordered]@{
+            ResolutionSource = 'identity'
+            HomeRoot = [string] $context.HomeRoot
+            BackupRoot = [string] $context.BackupRoot
+            ControlBase = [string] $context.ControlBase
+            AuthorityContext = $context
+        }
+    }
+
+    throw $FailureToken
+}
+
 function Resolve-LiveSyncInternalRoots {
-    # Only a genuine sandbox capability with all three prefixed locators may
-    # resolve the live surface. Anything else fails closed without reading
-    # USERPROFILE or an unprefixed INTERNAL_* variable.
-    if (-not (Test-LiveSafetySandboxCapability)) { throw $script:LiveSyncHostResolutionRequired }
-    $homeRoot = $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT
-    $backupRoot = $env:AI_AGENT_DOTFILES_INTERNAL_BACKUP_ROOT
-    $controlBase = $env:AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE
-    foreach ($value in @($homeRoot, $backupRoot, $controlBase)) {
-        if ([string]::IsNullOrWhiteSpace($value)) { throw $script:LiveSyncHostResolutionRequired }
-    }
-    return [pscustomobject][ordered]@{
-        HomeRoot = [System.IO.Path]::GetFullPath($homeRoot)
-        BackupRoot = [System.IO.Path]::GetFullPath($backupRoot)
-        ControlBase = [System.IO.Path]::GetFullPath($controlBase)
-    }
+    # Thin wrapper: the shared production resolver owns sandbox-vs-identity
+    # selection; this producer only pins its failure token.
+    [CmdletBinding()]
+    param()
+
+    return (Resolve-LiveSafetyHostAuthority -FailureToken $script:LiveSyncHostResolutionRequired)
 }
 
 function Get-LiveSyncHomeAuthorityKey {

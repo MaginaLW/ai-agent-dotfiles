@@ -7,6 +7,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
 . (Join-Path $RepoRoot 'scripts/canonical-command-result.ps1')
+. (Join-Path $RepoRoot 'tests/helpers/safety-sandbox.ps1')
 
 $script:pass = 0
 $script:fail = 0
@@ -94,6 +95,17 @@ function Invoke-ScriptStreams {
     finally { $process.Dispose() }
 }
 
+function Confirm-CanonicalCommandResultJson {
+    param([Parameter(Mandatory)] [string] $Json, [Parameter(Mandatory)] [string] $EvidenceRoot)
+    $instancePath = Join-Path $EvidenceRoot ("result-{0}.json" -f [Guid]::NewGuid().ToString('N'))
+    [IO.File]::WriteAllText($instancePath, $Json, [Text.UTF8Encoding]::new($false))
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/canonical-transaction-result.schema.json') -InstancePath $instancePath
+    $document = ConvertFrom-SemanticJson -Json $Json
+    $semantic = [Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $document))
+    if ($Json -cne $semantic) { throw 'stdout is not the exact semantic JSON encoding' }
+    return $document
+}
+
 function Get-ValidatedCanonicalCommandResult {
     param([Parameter(Mandatory)] $Invocation, [Parameter(Mandatory)] [string] $EvidenceRoot)
     $script:lastValidationError = ''
@@ -101,13 +113,26 @@ function Get-ValidatedCanonicalCommandResult {
         $match = [regex]::Match([string] $Invocation.Stdout, '\A(\{[^\r\n]*\})(?:\r?\n)?\z')
         if (-not $match.Success) { throw 'stdout is not exactly one compact JSON line' }
         $json = $match.Groups[1].Value
-        $instancePath = Join-Path $EvidenceRoot ("result-{0}.json" -f [Guid]::NewGuid().ToString('N'))
-        [IO.File]::WriteAllText($instancePath, $json, [Text.UTF8Encoding]::new($false))
-        $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/canonical-transaction-result.schema.json') -InstancePath $instancePath
-        $document = ConvertFrom-SemanticJson -Json $json
-        $semantic = [Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $document))
-        if ($json -cne $semantic) { throw 'stdout is not the exact semantic JSON encoding' }
-        return $document
+        return (Confirm-CanonicalCommandResultJson -Json $json -EvidenceRoot $EvidenceRoot)
+    }
+    catch {
+        $script:lastValidationError = $_.Exception.Message
+        return $null
+    }
+}
+
+function Get-ValidatedSandboxCanonicalCommandResult {
+    # The sandbox host merges the child's stdout and stderr into one stream
+    # (Out): exactly one compact semantic JSON line plus an optional trailing
+    # public diagnostic token line (typed failures write that token to stderr).
+    param([Parameter(Mandatory)] $Invocation, [Parameter(Mandatory)] [string] $EvidenceRoot)
+    $script:lastValidationError = ''
+    $script:lastSandboxDiagnostic = ''
+    try {
+        $match = [regex]::Match([string] $Invocation.Out, '\A(\{[^\r\n]*\})(?:\r?\n([A-Za-z0-9-]+))?(?:\r?\n)?\z')
+        if (-not $match.Success) { throw 'sandbox output is not one compact JSON line with an optional diagnostic token' }
+        if ($match.Groups[2].Success) { $script:lastSandboxDiagnostic = $match.Groups[2].Value }
+        return (Confirm-CanonicalCommandResultJson -Json $match.Groups[1].Value -EvidenceRoot $EvidenceRoot)
     }
     catch {
         $script:lastValidationError = $_.Exception.Message
@@ -613,6 +638,157 @@ try {
         $recoverAfterHold = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
         $recoverAfterHoldDocument = Get-ValidatedCanonicalCommandResult -Invocation $recoverAfterHold -EvidenceRoot $evidenceRoot
         Assert ($recoverAfterHold.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $recoverAfterHold.Stderr -ExpectedToken canonical-recovery-apply-interlocked) -and (Test-CommandResult -Document $recoverAfterHoldDocument -Result FAIL -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-apply-interlocked)) 'after releasing the repo lock, recover Apply returns to canonical-recovery-apply-interlocked'
+    }
+
+    Write-Host "`n[production engines under a held sandbox capability]" -ForegroundColor Cyan
+    # Task 7 Step 1: while the policy stays interlocked, a held internal
+    # capability is the only route from the public CLIs to the promoted
+    # production engines. The fixture repository, every reviewed plan, and the
+    # recovery fixture roots live inside the sandbox so the capability
+    # containment passes. The first-time setup route additionally bootstraps
+    # the real identity-derived private roots exactly like the
+    # disposable-identity lab; when such a base already exists this machine's
+    # setup Apply fails closed instead, and that typed contract is asserted
+    # rather than the committed sequence.
+    $engineSandboxRoot = Join-Path ([IO.Path]::GetTempPath()) ('canonical-engine-sandbox-' + [Guid]::NewGuid().ToString('N'))
+    $engineRepo = Join-Path $engineSandboxRoot 'repo'
+    [IO.Directory]::CreateDirectory($engineSandboxRoot) | Out-Null
+    Initialize-TestRepo -Path $engineRepo -SkillLayout
+    New-TestSkill -Path (Join-Path $engineRepo 'skills-source/shared/engine-skill') -Name engine-skill -Body "## Steps`n`n- before"
+    & git -C $engineRepo add -- .
+    & git -C $engineRepo commit --quiet -m engine-fixture
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to commit the engine sandbox fixture.' }
+
+    Write-Host '  [recover apply engine]' -ForegroundColor DarkCyan
+    $engineRecoverPrivate = Join-Path $engineSandboxRoot 'recover-private'
+    $engineRecoverRecovery = Join-Path $engineRecoverPrivate 'recovery'
+    $engineRecoverControl = Join-Path $engineRecoverPrivate 'control'
+    $engineRecoverBackup = Join-Path $engineRecoverPrivate 'backups'
+    $engineRecoverProbe = Join-Path $engineSandboxRoot 'recover-probe'
+    foreach ($path in @($engineRecoverRecovery, $engineRecoverControl, $engineRecoverBackup, $engineRecoverProbe)) {
+        [IO.Directory]::CreateDirectory($path) | Out-Null
+    }
+    foreach ($path in @($engineRecoverRecovery, $engineRecoverControl, $engineRecoverBackup)) { Set-TestCurrentUserOnlyAcl -Path $path }
+    $engineRecoverPayload = New-CanonicalSetupPlanPayload -RepoRoot $engineRepo -CanonicalRecoveryRoot $engineRecoverRecovery -ControlBase $engineRecoverControl -BackupRoot $engineRecoverBackup -ProbeRoot $engineRecoverProbe -ToolchainRoot $RepoRoot
+    $engineRecoverGit = Get-CanonicalGitContext -RepoRoot $engineRepo
+    $engineRecoverPaths = Get-CanonicalTransactionContractPaths -GitContext $engineRecoverGit
+    $engineRecoverCreatedLock = Enter-CanonicalRepoLock -LockPath ([string]$engineRecoverPaths.LockPath) -AllowCreate
+    Exit-CanonicalRepoLock -LockHandle $engineRecoverCreatedLock
+    $engineRecoverId = [Guid]::NewGuid().ToString('D').ToLowerInvariant()
+    $engineRecoverNamespace = Join-Path $engineRecoverPaths.TransactionsRoot (Join-Path $engineRecoverGit.WorktreeId $engineRecoverId)
+    $engineRecoverHeader = [ordered]@{
+        SchemaVersion = 1
+        ArtifactKind = 'canonical-journal-header'
+        TransactionId = $engineRecoverId
+        CanonicalOperationKind = 'setup'
+        OriginalDocumentHash = ('1' * 64)
+        OriginalPlanHash = ('2' * 64)
+        RepoId = [string]$engineRecoverPayload.ExpectedSetupStateProjection.RepoId
+        GitCommonDirHash = [string]$engineRecoverGit.GitCommonDirHash
+        WorktreeId = [string]$engineRecoverGit.WorktreeId
+        TransactionNamespace = [IO.Path]::GetFullPath($engineRecoverNamespace)
+        RecoveryTransactionRoot = Join-Path $engineRecoverRecovery (Join-Path $engineRecoverGit.WorktreeId $engineRecoverId)
+        ExpectedPostconditionsHash = [string]$engineRecoverPayload.ExpectedPostconditionsHash
+        Targets = @()
+        SetupRecovery = [ordered]@{
+            ClaimPath = Join-Path $engineRecoverControl (Join-Path 'canonical-roots' ([string]$engineRecoverPayload.ExpectedSetupStateProjection.RepoId + '.json'))
+            StatePath = [string]$engineRecoverPaths.SetupStatePath
+            ExpectedClaim = $engineRecoverPayload.ExpectedRootClaim
+            ExpectedClaimHash = [string]$engineRecoverPayload.ExpectedRootClaimHash
+            ExpectedStateProjection = $engineRecoverPayload.ExpectedSetupStateProjection
+            ExpectedStateProjectionHash = [string]$engineRecoverPayload.ExpectedSetupStateProjectionHash
+        }
+    }
+    $null = New-CanonicalJournalHeader -Document $engineRecoverHeader -TransactionNamespace $engineRecoverNamespace
+    $engineRecoverPlan = Join-Path $engineSandboxRoot 'recover-abandon-plan.json'
+    $engineRecoverDry = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $engineRepo, '-Action', 'abandon', '-TransactionId', $engineRecoverId, '-DryRun', '-PlanPath', $engineRecoverPlan)
+    $engineRecoverDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $engineRecoverDry -EvidenceRoot $evidenceRoot
+    Assert ($engineRecoverDry.Code -eq 0 -and (Test-CommandResult -Document $engineRecoverDryDocument -Result PASS -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-plan-created)) 'the sandboxed fixture publishes a reviewed recovery plan'
+    $engineRecoverApply = Invoke-SafetySandboxScript -SandboxRoot $engineSandboxRoot -ScriptPath $recoveryScript -Arguments @('-RepoRoot', $engineRepo, '-Action', 'abandon', '-TransactionId', $engineRecoverId, '-Apply', '-PlanPath', $engineRecoverPlan)
+    $engineRecoverApplyDocument = Get-ValidatedSandboxCanonicalCommandResult -Invocation $engineRecoverApply -EvidenceRoot $evidenceRoot
+    Assert ($engineRecoverApply.Code -eq 0 -and (Test-CommandResult -Document $engineRecoverApplyDocument -Result PASS -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-applied) -and [string]$engineRecoverApplyDocument.PlanHash -ceq [string]$engineRecoverDryDocument.PlanHash) 'recover Apply under a held capability reaches the promoted recovery engine and publishes the committed PASS result'
+    $engineRecoverStates = @(Get-CanonicalAllTransactionStates -TransactionsRoot ([string]$engineRecoverPaths.TransactionsRoot))
+    Assert (@($engineRecoverStates | Where-Object { -not [bool]$_.IsTerminal }).Count -eq 0 -and @($engineRecoverStates | Where-Object { [string]$_.Outcome -ceq 'abandoned' }).Count -eq 1) 'the recovery engine closed the reviewed transaction terminal and abandoned under the held repo lock'
+    $engineRecoverStatus = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $engineRepo, '-Status')
+    $engineRecoverStatusDocument = Get-ValidatedCanonicalCommandResult -Invocation $engineRecoverStatus -EvidenceRoot $evidenceRoot
+    Assert ($engineRecoverStatus.Code -eq 0 -and (Test-CommandResult -Document $engineRecoverStatusDocument -Result PASS -CommandKind canonical-recover-status -MessageToken no-canonical-transaction)) 'after the engine run, recover status reports no unfinished transaction'
+
+    Write-Host '  [setup apply engine]' -ForegroundColor DarkCyan
+    $engineContext = Resolve-HomeAuthorityContextFromIdentity -Identity (Get-WindowsHomeAuthorityIdentity)
+    $enginePrivateBase = [string]$engineContext.PrivateRootBase
+    $engineBootstrapLock = [string]$engineContext.ControlBootstrapLockPath
+    $enginePrivateBaseExistedBefore = (Test-Path -LiteralPath $enginePrivateBase) -or (Test-Path -LiteralPath $engineBootstrapLock)
+    $engineClaimPath = $null
+    try {
+        $engineSetupPlan = Join-Path $engineSandboxRoot 'setup-plan.json'
+        $engineSetupDry = Invoke-ScriptStreams -Script $setupScript -Arguments @('-DryRun', '-RepoRoot', $engineRepo, '-PlanPath', $engineSetupPlan)
+        $engineSetupDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $engineSetupDry -EvidenceRoot $evidenceRoot
+        Assert ($engineSetupDry.Code -eq 0 -and (Test-CommandResult -Document $engineSetupDryDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-plan-created)) 'engine fixture publishes a reviewed setup plan'
+        $engineSetupApply = Invoke-SafetySandboxScript -SandboxRoot $engineSandboxRoot -ScriptPath $setupScript -Arguments @('-Apply', '-RepoRoot', $engineRepo, '-PlanPath', $engineSetupPlan)
+        $engineSetupApplyDocument = Get-ValidatedSandboxCanonicalCommandResult -Invocation $engineSetupApply -EvidenceRoot $evidenceRoot
+        if ($engineSetupApply.Code -eq 0) {
+            Assert ((Test-CommandResult -Document $engineSetupApplyDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-apply-committed) -and [string]$engineSetupApplyDocument.PlanHash -ceq [string]$engineSetupDryDocument.PlanHash) 'first-time setup Apply under a held capability completes the SetupBootstrap sequence with a committed PASS result'
+            $engineBootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $engineContext
+            Assert (([string]$engineBootstrapStatus.Status -ceq 'COMPLETE') -and ([long]$engineBootstrapStatus.CompletePrefixLength -eq 7)) 'the sandboxed setup Apply bootstrapped the complete seven-directory private prefix'
+            $engineGit = Get-CanonicalGitContext -RepoRoot $engineRepo
+            $enginePaths = Get-CanonicalTransactionContractPaths -GitContext $engineGit
+            $engineRepoId = Get-CanonicalRepoIdentity -GitContext $engineGit
+            $engineClaimPath = Join-Path (Join-Path ([string]$engineContext.ControlBase) 'canonical-roots') ($engineRepoId + '.json')
+            $enginePlanDocument = Read-CanonicalTransactionPlan -PlanPath $engineSetupPlan -RepoRoot $engineRepo -ExpectedOperationKind setup
+            $engineClaimDocument = if (Test-Path -LiteralPath $engineClaimPath -PathType Leaf) { ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($engineClaimPath, [Text.UTF8Encoding]::new($false, $true))) } else { $null }
+            Assert (($null -ne $engineClaimDocument) -and ((Get-SemanticJsonHash -InputObject $engineClaimDocument) -ceq [string]$enginePlanDocument.PlanPayload.ExpectedRootClaimHash)) 'the deferred root claim is published exactly at the journal-bound control-base locator'
+            Assert ((Test-Path -LiteralPath ([string]$enginePaths.SetupStatePath) -PathType Leaf) -and ((Get-CanonicalSetupStatus -RepoRoot $engineRepo) -ceq 'canonical-ready')) 'the final setup state is published and the repository reports canonical-ready'
+            $engineSetupStates = @(Get-CanonicalAllTransactionStates -TransactionsRoot ([string]$enginePaths.TransactionsRoot))
+            Assert (@($engineSetupStates | Where-Object { -not [bool]$_.IsTerminal }).Count -eq 0 -and @($engineSetupStates | Where-Object { [string]$_.Outcome -ceq 'committed' }).Count -eq 1) 'the setup journal closes terminal and committed'
+            # With the complete bootstrap held by this section, the skill route
+            # can also prove the promoted engine end to end.
+            $engineCandidate = Join-Path $engineSandboxRoot 'normalize-candidate'
+            $null = Copy-SafeTree -SourceRoot (Join-Path $engineRepo 'skills-source') -DestinationRoot (Join-Path $engineCandidate 'skills-source')
+            New-TestSkill -Path (Join-Path $engineCandidate 'skills-source/shared/engine-new') -Name engine-new
+            $engineNormalizePlan = Join-Path $engineSandboxRoot 'normalize-plan.json'
+            $engineNormalizePreflight = Join-Path $engineSandboxRoot 'normalize-preflight'
+            $engineNormalizeDry = Invoke-ScriptStreams -Script $transactionScript -Arguments @(
+                '-RepoRoot', $engineRepo, '-OperationKind', 'normalize', '-DryRun', '-PlanPath', $engineNormalizePlan,
+                '-CandidateWorkspace', $engineCandidate, '-InputPath', (Join-Path $engineCandidate 'skills-source/shared/engine-new'),
+                '-CanonicalPreflightOutputRoot', $engineNormalizePreflight
+            )
+            $engineNormalizeDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $engineNormalizeDry -EvidenceRoot $evidenceRoot
+            Assert ($engineNormalizeDry.Code -eq 0 -and (Test-CommandResult -Document $engineNormalizeDryDocument -Result PASS -CommandKind canonical-normalize -MessageToken canonical-plan-created)) 'engine fixture publishes a reviewed normalize plan'
+            $engineNormalizeApply = Invoke-SafetySandboxScript -SandboxRoot $engineSandboxRoot -ScriptPath $transactionScript -Arguments @(
+                '-Apply', '-RepoRoot', $engineRepo, '-OperationKind', 'normalize', '-PlanPath', $engineNormalizePlan
+            )
+            $engineNormalizeApplyDocument = Get-ValidatedSandboxCanonicalCommandResult -Invocation $engineNormalizeApply -EvidenceRoot $evidenceRoot
+            Assert ($engineNormalizeApply.Code -eq 0 -and (Test-CommandResult -Document $engineNormalizeApplyDocument -Result PASS -CommandKind canonical-normalize -MessageToken canonical-apply-committed) -and [string]$engineNormalizeApplyDocument.PlanHash -ceq [string]$engineNormalizeDryDocument.PlanHash) 'skill Apply under a held capability reaches the promoted engine and publishes the committed PASS result'
+            Assert ((Test-Path -LiteralPath (Join-Path $engineRepo 'skills-source/shared/engine-new/SKILL.md')) -and (Test-Path -LiteralPath (Join-Path $engineRepo 'codex/skills/engine-new/SKILL.md'))) 'the promoted engine installed the reviewed canonical and generated bytes together'
+            $engineNormalizeStates = @(Get-CanonicalAllTransactionStates -TransactionsRoot ([string]$enginePaths.TransactionsRoot))
+            Assert (@($engineNormalizeStates | Where-Object { -not [bool]$_.IsTerminal }).Count -eq 1 -and @($engineNormalizeStates | Where-Object { [string]$_.Outcome -ceq 'committed' -and [string]$_.Header.CanonicalOperationKind -ceq 'normalize' }).Count -eq 1) 'the skill journal closes exactly one terminal committed normalize transaction under the held lock order'
+        }
+        else {
+            # A pre-existing private base that cannot accept this bootstrap is
+            # the reviewed manual-recovery window: the interlock returned (the
+            # run reached the authority machinery past it) and the CLI still
+            # emits exactly one typed FAIL result with the reviewed plan hash.
+            $blockedToken = [string] $script:lastSandboxDiagnostic
+            $blockedPlanHash = ''
+            if ($null -ne $engineSetupApplyDocument) {
+                if ([string]::IsNullOrEmpty($blockedToken)) { $blockedToken = [string]$engineSetupApplyDocument.MessageToken }
+                $blockedPlanHash = [string]$engineSetupApplyDocument.PlanHash
+            }
+            Assert (($engineSetupApply.Code -eq 1) -and ($blockedToken -cin @('manual-recovery-required', 'canonical-setup-already-complete')) -and (Test-CommandResult -Document $engineSetupApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken $blockedToken) -and ($blockedPlanHash -ceq [string]$engineSetupDryDocument.PlanHash)) 'a blocked first-time setup Apply under a held capability fails closed with one typed result and the reviewed plan hash'
+        }
+    }
+    finally {
+        try {
+            if ($null -ne $engineClaimPath -and (Test-Path -LiteralPath $engineClaimPath -PathType Leaf)) {
+                Remove-Item -LiteralPath $engineClaimPath -Force
+            }
+        }
+        catch { }
+        if (-not $enginePrivateBaseExistedBefore) {
+            if (Test-Path -LiteralPath $enginePrivateBase) { Remove-Item -LiteralPath $enginePrivateBase -Recurse -Force }
+            if (Test-Path -LiteralPath $engineBootstrapLock) { Remove-Item -LiteralPath $engineBootstrapLock -Force }
+        }
+        if (Test-Path -LiteralPath $engineSandboxRoot) { Remove-Item -LiteralPath $engineSandboxRoot -Recurse -Force }
     }
 }
 catch {

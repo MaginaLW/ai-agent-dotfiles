@@ -175,6 +175,7 @@ function Initialize-ActivationContext {
     param([Parameter(Mandatory)] [string] $RepoRoot)
 
     $supplied = @(@($HomeRoot, $ControlBase, $BackupRoot) | Where-Object { -not [string]::IsNullOrWhiteSpace([string] $_) })
+    $resolvedContext = $null
     if ($supplied.Count -eq 3) {
         $homeFull = [System.IO.Path]::GetFullPath($HomeRoot)
         $controlFull = [System.IO.Path]::GetFullPath($ControlBase)
@@ -185,6 +186,11 @@ function Initialize-ActivationContext {
         $homeFull = [System.IO.Path]::GetFullPath([string] $internalRoots.HomeRoot)
         $controlFull = [System.IO.Path]::GetFullPath([string] $internalRoots.ControlBase)
         $backupFull = [System.IO.Path]::GetFullPath([string] $internalRoots.BackupRoot)
+        # The identity branch already carries the full context; only the
+        # sandbox branch may re-wrap the injected home (the builder mkdirs).
+        if ([string] $internalRoots.ResolutionSource -cne 'sandbox') {
+            $resolvedContext = [object] $internalRoots.AuthorityContext
+        }
     }
     else {
         throw "$($script:ActivationRootSelectionIncomplete): supply -HomeRoot, -ControlBase, and -BackupRoot together, or none so the approved sandbox host injects them."
@@ -204,7 +210,7 @@ function Initialize-ActivationContext {
         RoamingAppDataRoot = (Join-Path $homeFull 'AppData\Roaming')
         LocalAppDataRoot = (Join-Path $homeFull 'AppData\Local')
     }
-    $authorityContext = New-LiveSyncAuthorityContext -HomeRoot $homeFull -ControlBase $controlFull -BackupRoot $backupFull
+    $authorityContext = if ($null -ne $resolvedContext) { $resolvedContext } else { New-LiveSyncAuthorityContext -HomeRoot $homeFull -ControlBase $controlFull -BackupRoot $backupFull }
     return [pscustomobject]@{ HomeRoot = $homeFull; Identity = $identity; Context = $authorityContext }
 }
 

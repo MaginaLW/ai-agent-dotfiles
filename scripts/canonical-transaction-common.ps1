@@ -6,6 +6,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'target-context-common.ps1')
 . (Join-Path $PSScriptRoot 'transaction-journal-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-mutation-common.ps1')
+. (Join-Path $PSScriptRoot 'home-authority-common.ps1')
 
 $script:CanonicalToolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
@@ -1093,7 +1094,12 @@ function Get-CanonicalPrivateRootSelection {
 
     $git=Get-CanonicalGitContext -RepoRoot $RepoRoot
     $repoId=Get-CanonicalRepoIdentity -GitContext $git
-    $localAppData=[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    # Task 7 alignment: derive the private base from the Windows known-folder
+    # identity so DryRun plan roots == resolver roots == Apply roots, instead
+    # of re-reading LocalApplicationData from the environment. The resolver
+    # fails closed with home-authority-known-folder-unavailable when the
+    # known folder is missing.
+    $localAppData=[string](Get-WindowsHomeAuthorityIdentity).LocalAppDataRoot
     if([string]::IsNullOrWhiteSpace($localAppData) -or -not(Test-Path -LiteralPath $localAppData -PathType Container)){throw 'canonical-known-folder-unavailable'}
     $privateBase=Join-Path $localAppData 'ai-agent-dotfiles'
     $repoParent=Split-Path -Parent $git.RepoRoot

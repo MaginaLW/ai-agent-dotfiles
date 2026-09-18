@@ -96,6 +96,7 @@ $script:AuthorityArgumentUnsupported = 'authority-argument-unsupported'
 $script:AuthorityPlanKindMismatch = 'authority-plan-kind-mismatch'
 $script:AuthorityApplyNotWired = 'authority-apply-not-wired'
 $script:AuthorityUnsupportedApplyState = 'authority-apply-state-unsupported'
+$script:AuthorityRootSelectionIncomplete = 'authority-root-selection-incomplete'
 $script:AuthorityGeneratorName = 'scripts/authority-harness-env.ps1'
 # Caller-supplied roots (empty means "resolve from the approved sandbox host").
 $script:AuthorityHomeRoot = $HomeRoot
@@ -116,17 +117,32 @@ function Assert-AuthorityTransitionArguments {
 }
 
 function Initialize-AuthoritySandboxContext {
-    # Resolves the host-injected roots and the full home-authority context.
-    # Never called before the interlock on a mutation path.
+    # The caller supplies the complete root trio or none of it: a partial
+    # selection is refused (complete-or-none, like activation) so a partial
+    # trio can never silently take identity-derived roots. The bare route
+    # resolves through the shared production host resolver.
     param([Parameter(Mandatory)] [string] $RepoRoot)
 
-    if ([string]::IsNullOrWhiteSpace($script:AuthorityHomeRoot) -or [string]::IsNullOrWhiteSpace($script:AuthorityControlBase) -or [string]::IsNullOrWhiteSpace($script:AuthorityBackupRoot)) {
+    $supplied = @(@($script:AuthorityHomeRoot, $script:AuthorityControlBase, $script:AuthorityBackupRoot) | Where-Object { -not [string]::IsNullOrWhiteSpace([string] $_) })
+    $resolvedContext = $null
+    if ($supplied.Count -eq 3) {
+        $homeFull = [System.IO.Path]::GetFullPath($script:AuthorityHomeRoot)
+    }
+    elseif ($supplied.Count -eq 0) {
         $internalRoots = Resolve-LiveSyncInternalRoots
         $script:AuthorityHomeRoot = [string] $internalRoots.HomeRoot
         $script:AuthorityControlBase = [string] $internalRoots.ControlBase
         $script:AuthorityBackupRoot = [string] $internalRoots.BackupRoot
+        $homeFull = [System.IO.Path]::GetFullPath($script:AuthorityHomeRoot)
+        # The identity branch already carries the full context; only the
+        # sandbox branch may re-wrap the injected home (the builder mkdirs).
+        if ([string] $internalRoots.ResolutionSource -cne 'sandbox') {
+            $resolvedContext = [object] $internalRoots.AuthorityContext
+        }
     }
-    $homeFull = [System.IO.Path]::GetFullPath($script:AuthorityHomeRoot)
+    else {
+        throw "$($script:AuthorityRootSelectionIncomplete): supply -HomeRoot, -ControlBase, and -BackupRoot together, or none so the approved sandbox host injects them."
+    }
     $identity = [pscustomobject][ordered]@{
         ResolverVersion = $script:HomeAuthorityResolverVersion
         TokenSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -134,7 +150,7 @@ function Initialize-AuthoritySandboxContext {
         RoamingAppDataRoot = (Join-Path $homeFull 'AppData\Roaming')
         LocalAppDataRoot = (Join-Path $homeFull 'AppData\Local')
     }
-    $context = New-LiveSyncAuthorityContext -HomeRoot $homeFull -ControlBase $script:AuthorityControlBase -BackupRoot $script:AuthorityBackupRoot
+    $context = if ($null -ne $resolvedContext) { $resolvedContext } else { New-LiveSyncAuthorityContext -HomeRoot $homeFull -ControlBase $script:AuthorityControlBase -BackupRoot $script:AuthorityBackupRoot }
     return [pscustomobject]@{ Identity = $identity; Context = $context; HomeRoot = $homeFull }
 }
 

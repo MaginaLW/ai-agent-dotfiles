@@ -94,6 +94,9 @@ function Get-CanonicalPublicCommandFailure {
     elseif ($message -cmatch 'canonical-setup-required|canonical-lock-missing') {
         $messageId = 'canonical-setup-required'
     }
+    elseif ($message -cmatch 'canonical-setup-already-complete') {
+        $messageId = 'canonical-setup-already-complete'
+    }
     elseif ($message -cmatch 'canonical-transaction-not-found') {
         $messageId = 'canonical-transaction-not-found'
     }

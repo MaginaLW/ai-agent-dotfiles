@@ -833,11 +833,17 @@ if ($Apply -and [string]::IsNullOrWhiteSpace($PlanPath)) {
     exit 1
 }
 
-$internalRoots = Resolve-LiveSyncInternalRoots
-$HomeRoot = $internalRoots.HomeRoot
-$BackupRoot = $internalRoots.BackupRoot
-$ControlBase = $internalRoots.ControlBase
-$authorityContext = New-LiveSyncAuthorityContext -HomeRoot $HomeRoot -ControlBase $ControlBase -BackupRoot $BackupRoot
+$hostAuthority = Resolve-LiveSyncInternalRoots
+$HomeRoot = [string] $hostAuthority.HomeRoot
+$BackupRoot = [string] $hostAuthority.BackupRoot
+$ControlBase = [string] $hostAuthority.ControlBase
+# Only the sandbox branch may re-wrap the injected home: the builder mkdirs
+# under it, while the identity branch already carries the full context.
+$authorityContext = if ([string] $hostAuthority.ResolutionSource -ceq 'sandbox') {
+    New-LiveSyncAuthorityContext -HomeRoot $HomeRoot -ControlBase $ControlBase -BackupRoot $BackupRoot
+} else {
+    [object] $hostAuthority.AuthorityContext
+}
 
 Write-Host '=== sync.ps1 (schema 3 semantic plan) ==='
 Write-Host "Mode            : $(if ($Apply) { 'APPLY' } else { 'DRY-RUN (no live changes)' })"

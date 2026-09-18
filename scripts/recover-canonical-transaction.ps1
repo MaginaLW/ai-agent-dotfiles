@@ -20,6 +20,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $ToolchainRoot=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'canonical-recovery-common.ps1')
+. (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
 . (Join-Path $PSScriptRoot 'canonical-command-result.ps1')
 $commandKind=if($Status){'canonical-recover-status'}else{"canonical-recover-$Action"}
 $document=$null
@@ -64,6 +65,7 @@ try{
     $null=Assert-CanonicalRecoveryPlanCurrent -Document $document -State $state -RepoRoot $RepoRoot
     $failureMessageId='canonical-command-failed'
     . (Join-Path $PSScriptRoot 'root-claims-registry-common.ps1')
+    . (Join-Path $PSScriptRoot 'canonical-production-engine-common.ps1')
     $selection=Get-CanonicalPrivateRootSelection -RepoRoot $RepoRoot
     $authorityContext=Resolve-HomeAuthorityContextFromIdentity -Identity (Get-WindowsHomeAuthorityIdentity)
     if([System.IO.Path]::GetFullPath([string]$authorityContext.ControlBase) -cne [System.IO.Path]::GetFullPath([string]$selection.ControlBase)){throw 'sealed-home-authority-bootstrap-path-mismatch: ControlBase'}
@@ -116,10 +118,27 @@ try{
             throw
         }
     }
-    $resultDocument=New-CanonicalPublicCommandResult -Result FAIL -CommandKind ("canonical-recover-{0}" -f $Action) -MessageToken ('canonical-recovery-apply-interlocked') -PlanHash ([string]$document.PlanHash)
+    # The tracked interlock is the mutation gate, not the engine: while
+    # interlocked with no sandbox capability this throws and the public CLI
+    # contract below stays byte-for-byte. When it returns (sandbox capability
+    # now, released policy later), the promoted production recovery engine
+    # runs under the locks this CLI already holds; it never re-enters them.
+    # The private-root selection is not listed as a capability path: the
+    # real-identity roots can never sit inside an OS-temp sandbox root, and
+    # they stay gated by the sealed-home-authority-bootstrap-path-mismatch
+    # match above plus the engine's own sealed binding checks.
+    try{
+        Assert-LiveSafetyMutationAllowed -Operation $commandKind -Paths @($RepoRoot,$PlanPath)
+    }
+    catch{
+        $resultDocument=New-CanonicalPublicCommandResult -Result FAIL -CommandKind ("canonical-recover-{0}" -f $Action) -MessageToken ('canonical-recovery-apply-interlocked') -PlanHash ([string]$document.PlanHash)
+        Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
+        [Console]::Error.WriteLine('canonical-recovery-apply-interlocked')
+        exit 75
+    }
+    $engineState=Invoke-CanonicalProductionRecoveryTransaction -Document $document -State $state -RepoRoot $RepoRoot
+    $resultDocument=New-CanonicalPublicCommandResult -Result PASS -CommandKind ("canonical-recover-{0}" -f $Action) -MessageToken ('canonical-recovery-applied') -PlanHash ([string]$document.PlanHash)
     Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
-    [Console]::Error.WriteLine('canonical-recovery-apply-interlocked')
-    exit 75
 }
 catch{
     $planHash=$null

@@ -43,8 +43,13 @@ try {
         Assert-CanonicalDocumentHashNotConsumed -DocumentHash ([string]$document.DocumentHash)
         $null=Assert-CanonicalPlanCurrent -Document $document -PlanPath $PlanPath -ToolchainRoot $ToolchainRoot
         $failureMessageId='canonical-command-failed'
+        . (Join-Path $PSScriptRoot 'live-safety-interlock.ps1')
         . (Join-Path $PSScriptRoot 'root-claims-registry-common.ps1')
+        . (Join-Path $PSScriptRoot 'canonical-recovery-common.ps1')
+        . (Join-Path $PSScriptRoot 'canonical-production-engine-common.ps1')
         $held=$null
+        $selection=$null
+        $authorityContext=$null
         try {
             try {
                 $selection=Get-CanonicalPrivateRootSelection -RepoRoot $RepoRoot
@@ -65,10 +70,40 @@ try {
             if ($held) {
                 $null=Get-SealedHeldLockOrderRecompute -LockOrderHandle $held -PlanDocument $document -ExpectedOperationKind $OperationKind
             }
-            $resultDocument=New-CanonicalPublicCommandResult -Result FAIL -CommandKind $commandKind -MessageToken canonical-apply-interlocked -PlanHash ([string]$document.PlanHash)
+            # The tracked interlock is the mutation gate, not the engine: while
+            # interlocked with no sandbox capability this throws and the public
+            # CLI contract below stays byte-for-byte. When it returns (sandbox
+            # capability now, released policy later), the promoted production
+            # engine runs under the held live lock order. The private-root
+            # selection is not listed as a capability path: the real-identity
+            # roots can never sit inside an OS-temp sandbox root, and they stay
+            # gated by the sealed-home-authority-bootstrap-path-mismatch match
+            # above plus the engine's own sealed binding checks.
+            try {
+                Assert-LiveSafetyMutationAllowed -Operation $commandKind -Paths @($RepoRoot,$PlanPath)
+            }
+            catch {
+                $resultDocument=New-CanonicalPublicCommandResult -Result FAIL -CommandKind $commandKind -MessageToken canonical-apply-interlocked -PlanHash ([string]$document.PlanHash)
+                Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
+                [Console]::Error.WriteLine('canonical-apply-interlocked')
+                exit 75
+            }
+            if ($OperationKind -ceq 'setup') {
+                if ($held) {
+                    # A complete live prefix cannot re-run SetupBootstrap; the
+                    # claim/state crash window belongs to canonical recovery.
+                    throw 'canonical-setup-already-complete'
+                }
+                $held=Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot $RepoRoot -RouteKind setup -AcquisitionMode SetupBootstrap -OverlayApplicability NOT_APPLICABLE -AuthorityContext $authorityContext -PlanPayload $document.PlanPayload -Intent (New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $authorityContext -FilesystemCapabilityHash ([string]$document.PlanPayload.FilesystemCapabilityHash)) -ToolchainRoot $ToolchainRoot
+                $null=Invoke-CanonicalProductionSetupTransaction -RepoRoot $RepoRoot -LockOrderHandle $held -Document $document
+            }
+            else {
+                if (-not $held) { throw 'canonical-setup-required' }
+                $applyTransactionId=[Guid]::NewGuid().ToString('D').ToLowerInvariant()
+                $null=Invoke-CanonicalProductionSkillTransaction -RepoRoot $RepoRoot -PlanPath $PlanPath -OperationKind $OperationKind -TransactionId $applyTransactionId -Document $document
+            }
+            $resultDocument=New-CanonicalPublicCommandResult -Result PASS -CommandKind $commandKind -MessageToken canonical-apply-committed -PlanHash ([string]$document.PlanHash)
             Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
-            [Console]::Error.WriteLine('canonical-apply-interlocked')
-            exit 75
         }
         finally {
             if ($held) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $held }
