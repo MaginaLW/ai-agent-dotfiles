@@ -1,5 +1,16 @@
 @{
     SchemaVersion = 1
+    # Deliberately unregistered schema files: the producer/registry completeness test
+    # fails for any schemas/*.schema.json that is neither registered below nor listed here.
+    UnregisteredSchemas = @(
+        @{ SchemaPath = 'schemas/harness-component.schema.json'; Reason = 'project-profile component contract, outside the live-protocol table' }
+        @{ SchemaPath = 'schemas/harness-platform-output.schema.json'; Reason = 'project-profile platform output contract, outside the live-protocol table' }
+    )
+    # Fixture files referenced as nested payloads by registered fixtures; they are not
+    # contract rows and must never be flagged as orphans by the completeness test.
+    NestedPayloadFixtures = @(
+        'tests/fixtures/artifacts/manifest-target.json'
+    )
     Contracts = @{
         'canonical-journal-header' = @{
             SchemaVersion = 1
@@ -7,6 +18,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/canonical-journal-header.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/canonical-journal-header.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/canonical-journal-header.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/canonical-journal-header.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/canonical-journal-header.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/canonical-journal-header.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'canonical-journal-record' = @{
@@ -15,6 +30,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/canonical-journal-record.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/canonical-journal-record.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/canonical-journal-record.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/canonical-journal-record.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/canonical-journal-record.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/canonical-journal-record.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'canonical-journal-manifest' = @{
@@ -37,6 +56,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/canonical-root-claim.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/canonical-root-claim.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/canonical-root-claim.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/canonical-root-claim.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/canonical-root-claim.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/canonical-root-claim.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'root-claims' = @{
@@ -68,6 +91,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/canonical-setup-state.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/canonical-setup-state.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/canonical-setup-state.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/canonical-setup-state.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/canonical-setup-state.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/canonical-setup-state.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'current-env-state' = @{
@@ -275,6 +302,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/canonical-transaction-result.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/canonical-transaction-result.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/canonical-transaction-result.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/canonical-transaction-result.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/canonical-transaction-result.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/canonical-transaction-result.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'canonical-build-result' = @{
@@ -283,6 +314,9 @@
             PositiveFixture = 'tests/fixtures/artifacts/canonical-build-result.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/canonical-build-result.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/canonical-build-result.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/canonical-build-result.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/canonical-build-result.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'canonical-secret-scan-result' = @{
@@ -291,6 +325,21 @@
             PositiveFixture = 'tests/fixtures/artifacts/canonical-secret-scan-result.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/canonical-secret-scan-result.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/canonical-secret-scan-result.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/canonical-secret-scan-result.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/canonical-secret-scan-result.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
+            )
+        }
+        'doctor-report' = @{
+            SchemaVersion = 1
+            SchemaPath = 'schemas/doctor-report.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/doctor-report.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/doctor-report.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'artifact-kind-field'; Path = 'tests/fixtures/artifacts/doctor-report.artifact-kind-field.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/doctor-report.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/doctor-report.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/doctor-report.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'scan-input-manifest' = @{
@@ -308,6 +357,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/test-run-summary.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/test-run-summary.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/test-run-summary.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/test-run-summary.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/test-run-summary.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/test-run-summary.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
             SemanticValidator = 'Test-TestRunSummarySemantics'
         }
@@ -329,12 +382,32 @@
             )
             SemanticValidator = 'Test-ArtifactValidationSummarySemantics'
         }
+        'repository-validation-summary' = @{
+            SchemaVersion = 1
+            SchemaPath = 'schemas/repository-validation-summary.schema.json'
+            PositiveFixture = 'tests/fixtures/artifacts/repository-validation-summary.valid.json'
+            NegativeFixtures = @(
+                @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/repository-validation-summary.unknown-property.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/repository-validation-summary.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/repository-validation-summary.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-report-kind'; Path = 'tests/fixtures/artifacts/repository-validation-summary.wrong-report-kind.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'final-role-reference'; Path = 'tests/fixtures/artifacts/repository-validation-summary.final-role-reference.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forward-final-reference'; Path = 'tests/fixtures/artifacts/repository-validation-summary.forward-final-reference.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/repository-validation-summary.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/repository-validation-summary.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'duplicate-gate'; Path = 'tests/fixtures/artifacts/repository-validation-summary.duplicate-gate.invalid.json'; FailureLayer = 'Schema' }
+            )
+        }
         'pending-sync-event' = @{
             SchemaVersion = 1
             SchemaPath = 'schemas/pending-sync-event.schema.json'
             PositiveFixture = 'tests/fixtures/artifacts/pending-sync-event.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/pending-sync-event.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/pending-sync-event.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/pending-sync-event.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/pending-sync-event.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/pending-sync-event.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'runner-approval-event' = @{
@@ -343,6 +416,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/runner-approval-event.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/runner-approval-event.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/runner-approval-event.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/runner-approval-event.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/runner-approval-event.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/runner-approval-event.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'approved-runner-state' = @{
@@ -351,6 +428,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/approved-runner-state.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/approved-runner-state.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/approved-runner-state.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/approved-runner-state.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/approved-runner-state.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/approved-runner-state.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'committed-data-snapshot-manifest' = @{
@@ -359,6 +440,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/committed-data-snapshot-manifest.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/committed-data-snapshot-manifest.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/committed-data-snapshot-manifest.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/committed-data-snapshot-manifest.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/committed-data-snapshot-manifest.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/committed-data-snapshot-manifest.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
         'pending-prune-plan' = @{
@@ -367,6 +452,10 @@
             PositiveFixture = 'tests/fixtures/artifacts/pending-prune-plan.valid.json'
             NegativeFixtures = @(
                 @{ Name = 'unknown-property'; Path = 'tests/fixtures/artifacts/pending-prune-plan.unknown.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'wrong-version'; Path = 'tests/fixtures/artifacts/pending-prune-plan.wrong-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'missing-schema-version'; Path = 'tests/fixtures/artifacts/pending-prune-plan.missing-schema-version.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'malformed-hash'; Path = 'tests/fixtures/artifacts/pending-prune-plan.malformed-hash.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'forbidden-null'; Path = 'tests/fixtures/artifacts/pending-prune-plan.forbidden-null.invalid.json'; FailureLayer = 'Schema' }
             )
         }
     }

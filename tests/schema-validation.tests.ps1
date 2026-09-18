@@ -296,6 +296,89 @@ try {
         @($tamperedSummary.Failures | Where-Object { [string]$_ -match 'canonical-transaction-plan PlanHash' }).Count -eq 1
     ) 'manifest mode dispatches canonical plan artifacts through the same named semantic hash validator'
 
+    Write-Host '[producer-registry completeness]'
+    Assert ($contracts.ContainsKey('UnregisteredSchemas')) 'registry declares an explicit unregistered-schema exclusion list'
+    $excludedSchemas = @($contracts.UnregisteredSchemas)
+    $excludedSchemaPaths = @($excludedSchemas | ForEach-Object { [string] $_.SchemaPath })
+    Assert ($excludedSchemas.Count -gt 0 -and $excludedSchemaPaths -ccontains 'schemas/harness-component.schema.json' -and $excludedSchemaPaths -ccontains 'schemas/harness-platform-output.schema.json') 'exclusion list names the project-profile schemas as deliberately unregistered'
+    foreach ($excluded in $excludedSchemas) {
+        $excludedPath = [string] $excluded.SchemaPath
+        Assert (
+            ($excludedPath -like 'schemas/*.schema.json') -and
+            (-not [string]::IsNullOrWhiteSpace([string] $excluded.Reason)) -and
+            (Test-Path -LiteralPath (Join-Path $RepoRoot $excludedPath) -PathType Leaf)
+        ) "exclusion list entry names an existing schema file with a reason: $excludedPath"
+    }
+
+    $registeredSchemaPaths = @($contracts.Contracts.Values | ForEach-Object { [string] $_.SchemaPath })
+    $schemaFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'schemas') -Filter '*.schema.json' -File | ForEach-Object { "schemas/$($_.Name)" })
+    $uncoveredSchemas = @($schemaFiles | Where-Object { $registeredSchemaPaths -cnotcontains $_ -and $excludedSchemaPaths -cnotcontains $_ })
+    Assert ($uncoveredSchemas.Count -eq 0) "every schema file under schemas/ is registered or explicitly excluded (uncovered: $($uncoveredSchemas -join ', '))"
+
+    Assert (
+        [long] $contracts.Contracts['harness-env-build'].SchemaVersion -eq 3 -and
+        [long] $contracts.Contracts['harness-env-lock'].SchemaVersion -eq 3 -and
+        [long] $contracts.Contracts['harness-env-list'].SchemaVersion -eq 2 -and
+        [long] $contracts.Contracts['harness-env-status'].SchemaVersion -eq 2 -and
+        [string] $contracts.Contracts['harness-env-build'].SchemaPath -ceq 'schemas/harness-env-build.schema.json' -and
+        [string] $contracts.Contracts['harness-env-lock'].SchemaPath -ceq 'schemas/harness-env-lock.schema.json' -and
+        [string] $contracts.Contracts['harness-env-list'].SchemaPath -ceq 'schemas/harness-env-list.schema.json' -and
+        [string] $contracts.Contracts['harness-env-status'].SchemaPath -ceq 'schemas/harness-env-status.schema.json'
+    ) 'env-build v3, env-lock v3, env-list v2, and env-status v2 keep their producer schema versions and paths without reinterpretation'
+
+    Assert ($contracts.Contracts.ContainsKey('doctor-report')) 'registry registers doctor-report as an ArtifactKind resolved from the registry, not the filename'
+    $doctorSchema = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path $RepoRoot 'schemas/doctor-report.schema.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+    $doctorPropertyNames = @($doctorSchema['properties'].Keys)
+    Assert (
+        [long] $contracts.Contracts['doctor-report'].SchemaVersion -eq 1 -and
+        ($doctorPropertyNames -cnotcontains 'ArtifactKind') -and
+        [long] $doctorSchema['properties']['SchemaVersion']['const'] -eq 1 -and
+        ($doctorPropertyNames -ccontains 'GeneratedAtUtc') -and
+        ($doctorPropertyNames -ccontains 'Result') -and
+        ($doctorPropertyNames -ccontains 'Counts') -and
+        ($doctorPropertyNames -ccontains 'SecretsScanSkipped')
+    ) 'doctor-report registers the current emitter JSON shape without adding an ArtifactKind field'
+
+    Assert ($contracts.Contracts.ContainsKey('repository-validation-summary')) 'registry registers repository-validation-summary v1'
+    $summarySchema = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText((Join-Path $RepoRoot 'schemas/repository-validation-summary.schema.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+    $summaryPropertyNames = @($summarySchema['properties'].Keys)
+    Assert (
+        [long] $contracts.Contracts['repository-validation-summary'].SchemaVersion -eq 1 -and
+        [string] $summarySchema['properties']['ReportKind']['const'] -ceq 'repository-validation' -and
+        [string] $summarySchema['properties']['ChildArtifactManifest']['properties']['ManifestRole']['const'] -ceq 'children' -and
+        (-not $summarySchema['additionalProperties']) -and
+        ($summaryPropertyNames -cnotcontains 'FinalArtifactManifest')
+    ) 'repository-validation-summary v1 pins ReportKind and the acyclic children-role binding with no forward reference to a final manifest'
+
+    $referencedFixtures = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($artifactKind in @($contracts.Contracts.Keys)) {
+        $completenessContract = $contracts.Contracts[$artifactKind]
+        $positivePath = [string] $completenessContract.PositiveFixture
+        Assert (Test-Path -LiteralPath (Join-Path $RepoRoot $positivePath) -PathType Leaf) "$artifactKind positive fixture exists: $positivePath"
+        $null = $referencedFixtures.Add($positivePath)
+        foreach ($negative in @($completenessContract.NegativeFixtures)) {
+            $negativePath = [string] $negative.Path
+            Assert (Test-Path -LiteralPath (Join-Path $RepoRoot $negativePath) -PathType Leaf) "$artifactKind/$($negative.Name) negative fixture exists: $negativePath"
+            $null = $referencedFixtures.Add($negativePath)
+        }
+    }
+
+    Assert ($contracts.ContainsKey('NestedPayloadFixtures')) 'registry declares a tracked nested-payload fixture allowlist'
+    $nestedPayloads = @($contracts.NestedPayloadFixtures | ForEach-Object { [string] $_ })
+    foreach ($nested in $nestedPayloads) {
+        $nestedExists = Test-Path -LiteralPath (Join-Path $RepoRoot $nested) -PathType Leaf
+        $nestedReferenced = $false
+        foreach ($fixtureReference in @($referencedFixtures)) {
+            $fixtureText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot $fixtureReference))
+            if ($fixtureText.Contains($nested)) { $nestedReferenced = $true; break }
+        }
+        Assert ($nestedExists -and $nestedReferenced) "listed nested payload exists and is referenced by a registered fixture: $nested"
+    }
+
+    $fixtureFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'tests/fixtures/artifacts') -Filter '*.json' -File | ForEach-Object { "tests/fixtures/artifacts/$($_.Name)" })
+    $orphanedFixtures = @($fixtureFiles | Where-Object { -not $referencedFixtures.Contains($_) -and ($nestedPayloads -cnotcontains $_) })
+    Assert ($orphanedFixtures.Count -eq 0) "no orphaned fixture outside registry rows and the tracked nested-payload list (orphans: $($orphanedFixtures -join ', '))"
+
     Write-Host 'schema validation tests: PASS'
 }
 finally {

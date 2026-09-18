@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-agent-dotfiles.invalid/schemas/repository-validation-summary.schema.json",
+  "title": "AI Agent Dotfiles Repository Validation Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "ReportKind", "GeneratedAtUtc", "ChildArtifactManifest", "Gates", "Result"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "ReportKind": { "const": "repository-validation" },
+    "GeneratedAtUtc": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+    "ChildArtifactManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ManifestRole", "Path", "Sha256"],
+      "properties": {
+        "ManifestRole": { "const": "children" },
+        "Path": { "type": "string", "minLength": 1 },
+        "Sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "Gates": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["Name", "Result"],
+        "properties": {
+          "Name": { "type": "string", "minLength": 1 },
+          "Result": { "enum": ["PASS", "FAIL"] }
+        }
+      }
+    },
+    "Result": { "enum": ["PASS", "FAIL"] }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

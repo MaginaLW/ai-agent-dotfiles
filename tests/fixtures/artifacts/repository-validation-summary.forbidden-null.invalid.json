@@ -1,0 +1,1 @@
+{"SchemaVersion":1,"ReportKind":"repository-validation","GeneratedAtUtc":"2026-08-11T00:00:00Z","ChildArtifactManifest":{"ManifestRole":"children","Path":"C:/fixture/repository-validation/children-manifest.json","Sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"Gates":[{"Name":"syntax","Result":"PASS"}],"Result":null}
