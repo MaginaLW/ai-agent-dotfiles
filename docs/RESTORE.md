@@ -1,6 +1,6 @@
 # Restore and Environment Rollback
 
-> **Phase 0 interlock:** `safety-protocol-upgrade-required` is the only valid production rollback
+> **Production interlock (`ReleaseState=interlocked`):** `safety-protocol-upgrade-required` is the only valid production rollback
 > result at present. Do not run the Apply examples below; they document the future reviewed contract.
 > Hooks and bootstrap never perform rollback or retirement.
 

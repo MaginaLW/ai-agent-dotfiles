@@ -99,11 +99,15 @@ When the scope trigger applies:
    The schema 3 sync DryRun runs only inside the internal sandbox with a create-new
    `-PlanPath` (host-injected roots; a bare `sync.ps1` invocation fails closed); see
    [docs/README.md §4](docs/README.md#4-日常同步流程) for the invocation shape.
-7. Phase 0 safety interlock: production Apply/rollback/retirement is currently unavailable and
-   returns `safety-protocol-upgrade-required` before backup or mutation. The commands below describe
-   the reviewed future contract only; do not attempt the Apply command until tracked policy is released:
+7. Production interlock (`ReleaseState=interlocked`): production Apply/rollback/retirement is
+   currently unavailable and returns `safety-protocol-upgrade-required` before traversal or
+   mutation; the public standalone backup entry is retired and exits
+   `backup-is-transaction-internal`. The commands below describe the reviewed future contract only;
+   do not attempt the Apply command until tracked policy is released:
    ```powershell
    $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
+   # The DryRun must run under scripts/internal/live-transaction-host.ps1 (item 6);
+   # a bare invocation fails closed with live-plan-host-resolution-required.
    pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
    # Review the plan, then apply the same fingerprint-bound plan.
    pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan

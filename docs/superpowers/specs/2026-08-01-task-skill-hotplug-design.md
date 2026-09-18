@@ -1,5 +1,9 @@
 # Task-Level Skill Hot-Plug Design
 
+> **Superseded design (已被取代)**：task overlay 的现行契约由 Phase 3 Task 7 的
+> plan-bound task overlays（`.agent-harness/task-skills.psd1` 与
+> `scripts/task-skills.ps1`）承载；本文保留为历史设计记录。
+
 **Status:** Approved by user; implementation complete
 
 **Goal:** Keep each task on a small `work` baseline while allowing an agent to add a known repository-managed skill during the task, with the requested task skill set shareable across computers using the project.

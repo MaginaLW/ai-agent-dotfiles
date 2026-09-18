@@ -1,8 +1,14 @@
 # ai-agent-dotfiles 使用说明
 
-> **Phase 0:** production sync (including retirement)/environment/task/rollback `-Apply` and standalone backup without
-> `-DryRun` remain interlocked and return `safety-protocol-upgrade-required` before backup or
-> mutation. DryRun/status remain available, and Git hooks emit preview/event only. The explicit
+> **生产联锁（`ReleaseState=interlocked`）：** production sync (including retirement)/environment/
+> authority/task/rollback `-Apply` and canonical setup/recover `-Apply` remain interlocked and return
+> `safety-protocol-upgrade-required` before traversal or mutation. The public standalone
+> `backup.ps1` entry is retired: it writes nothing and exits `backup-is-transaction-internal`
+> (exit 1) with or without `-DryRun`; managed snapshots are created only by the live transaction
+> host from a bound ReceiptIntent. sync/rollback/live-recover DryRun requires the internal sandbox
+> host (capability + host-injected roots) and fails closed with
+> `live-plan-host-resolution-required` elsewhere. DryRun/status remain available, and Git hooks
+> emit preview/event only. The explicit
 > exception is `apply-harness-profile.ps1 -Apply`, whose writes stay within allowlisted project
 > outputs and project-local rollback backups.
 
@@ -20,8 +26,9 @@
 - 用 `scripts/build-skills.ps1` 从源生成 Claude / Codex / Reasonix 的 runtime output。
 - 用 `scripts/sync.ps1` 生成并审查部署到本机 live skills 目录的 schema 3 语义计划；
   公共 DryRun 面只产出 pristine-initial 与显式 retirement 两个 OperationKind，且只在
-  internal sandbox（capability + host 注入根）内运行；Phase 0 不 Apply。
-- 未来解除 interlock 后，由事务协议在 Apply 前保留可恢复副本；当前 standalone backup 仅可 DryRun。
+  internal sandbox（capability + host 注入根）内运行；interlock 下不 Apply。
+- 可恢复副本由事务协议经 backup-receipt 在 Apply 前创建；公共 standalone backup 入口已退役
+  （`backup-is-transaction-internal`，零写退出）。
 - 用 repo-local Git hooks 在相关 `git pull` / rebase / branch checkout 后记录 preview/event。
 
 设计原则：保守、可审计、默认 dry-run、绝不整目录覆盖、绝不碰平台内置目录。
@@ -113,7 +120,7 @@ pwsh -NoProfile -File .\bootstrap.ps1
 
 `bootstrap.ps1` 先安装 inert wrappers，然后依次检查 pinned validator、pinned gitleaks 和
 Git-private approved runner。缺失时只输出一个固定 token 和一条绝对安装/批准命令；执行该命令
-后再次运行 bootstrap。Phase 0 最终只返回 `safety-protocol-upgrade-required`，不会生成可消费
+后再次运行 bootstrap。联锁下最终只返回 `safety-protocol-upgrade-required`，不会生成可消费
 plan，更不会 Apply。Git hooks 也只能写 non-consumable preview/event，并打印显式外部 DryRun 命令。
 
 手动维护流程仍然可用：
@@ -137,10 +144,10 @@ $plan = Join-Path $sandbox 'sync-plan.json'
     -ScriptPath (Join-Path (Get-Location) 'scripts/sync.ps1') `
     -ArgumentsBase64 ([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(
         (ConvertTo-Json @('-SkipBuild','-SkipSecretScan','-DryRun','-PlanPath',$plan) -Compress))))
-# Phase 0 到此停止；production Apply 仍被 safety-protocol-upgrade-required 拦截
+# 联锁下到此停止；production Apply 仍被 safety-protocol-upgrade-required 拦截
 ```
 
-`sync.ps1` 的 schema 3 计划面默认是 **dry-run**，只打印计划与物化旁路，不动 live；plan 走 create-new（重跑同路径返回 `live-plan-path-collision`）。未来解除 interlock 后，`-Apply` 合同要求带有先前 dry-run 生成的 `-PlanPath`，在 backup 前重算五步门（文档完整性、当前 PlanHash、绑定物化现势、selection context、DocumentHash 未消费）。当前 Phase 0 的 `-Apply` 在 backup 或 mutation 前返回 `safety-protocol-upgrade-required`；pristine-initial 的 live mutation 宿主在 Task 4 状态机前保持 fail-closed。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
+`sync.ps1` 的 schema 3 计划面默认是 **dry-run**，只打印计划与物化旁路，不动 live；plan 走 create-new（重跑同路径返回 `live-plan-path-collision`）。未来解除 interlock 后，`-Apply` 合同要求带有先前 dry-run 生成的 `-PlanPath`，在 backup 前重算五步门（文档完整性、当前 PlanHash、绑定物化现势、selection context、DocumentHash 未消费）。当前 `ReleaseState=interlocked` 的 `-Apply` 在 backup 或 mutation 前返回 `safety-protocol-upgrade-required`；pristine-initial 的 live mutation 宿主在 Task 4 状态机前保持 fail-closed。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
 
 如果只想跳过初始 preview diagnostic：
 
@@ -162,10 +169,10 @@ Git-private preview/event。用户必须另行把明确的 `-DryRun -PlanPath <e
 3. `scripts/scan-secrets.ps1`
 4. 在 internal sandbox 内以 pristine-initial producer 生成 schema 3 计划并审查
    （调用形态见 §4；重跑同 `-PlanPath` 返回 `live-plan-path-collision`）
-5. Phase 0：停止；`scripts/sync.ps1 -Apply` 当前必定返回 `safety-protocol-upgrade-required`
+5. 联锁下停止；`scripts/sync.ps1 -Apply` 当前必定返回 `safety-protocol-upgrade-required`
 6. 提交 source / manifest / docs 变更（**不要**提交 generated output）。
 7. `git push`
-8. 其它电脑的 hook 只生成 non-consumable preview/event；每台机器都必须显式生成外部 DryRun 计划，Phase 0 不允许 Apply。
+8. 其它电脑的 hook 只生成 non-consumable preview/event；每台机器都必须显式生成外部 DryRun 计划，interlock 不允许 Apply。
 
 如果这次修改是**删除 canonical skill**，build 会同时从 generated output 和当前 manifest
 移除名称；旧 live 目录因此会按 unknown 保留，不会被普通 sync 猜测性删除。完成逐项审查后，
@@ -241,7 +248,7 @@ consumption ledger 的密码学防重放协议。如果将来在完全相同路�
 
 - `.system` 是 Codex CLI **平台内置目录**（标记文件 `.codex-system-skills.marker`）。
 - 含平台能力：`imagegen`、`openai-docs`、`plugin-creator`、`skill-creator`、`skill-installer`。
-- backup 会**完整备份**它。
+- backup 不会复制它：受管快照只记录 `.system` 根条目标记（marker-only），从不遍历或完整备份。
 - sync **永远跳过**它（不更新、不删除）。
 - 它**不属于** repo-managed skill。
 - 删除它可能破坏 Codex 原生能力。
@@ -250,13 +257,11 @@ consumption ledger 的密码学防重放协议。如果将来在完全相同路�
 
 ## 9. backup / restore
 
-- Future released `sync.ps1 -Apply` contract includes a pre-change backup; Phase 0 interlocks it first.
-- 当前 standalone `scripts/backup.ps1` 不带 `-DryRun` 时返回
-  `safety-protocol-upgrade-required`，不会创建 backup。
-- 预览备份（不复制）：
-  ```powershell
-  pwsh -NoProfile -File scripts/backup.ps1 -DryRun
-  ```
+- Future released `sync.ps1 -Apply` contract includes a pre-change backup; the production
+  interlock refuses Apply first.
+- 公共 standalone `scripts/backup.ps1` 已退役：带不带 `-DryRun` 都是零写退出，诊断为
+  `backup-is-transaction-internal`（exit 1），不创建任何 backup；受管快照由 live transaction
+  host 从绑定的 ReceiptIntent 创建，其 preview 来自审查过的计划（见 §4），不是公共入口。
 - 默认备份位置（repo 外）：
   ```text
   %USERPROFILE%\.ai-agent-dotfiles-backups
@@ -275,14 +280,15 @@ pwsh -NoProfile -File .\bootstrap.ps1                  # 每个 clone 运行一�
 git pull --ff-only                                     # hooks 只记录 preview/event，不 Apply
 ```
 
-如果没有安装 auto-sync hooks，仍可使用手动流程：
+如果没有安装 auto-sync hooks，仍可使用手动流程（build/scan 同 §4；生产 DryRun 不能裸跑——
+没有 sandbox capability 与三个注入根时会以 `live-plan-host-resolution-required` 零计划字节
+失败——必须按 §4 的 `scripts/internal/live-transaction-host.ps1` 形态调用）：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 build
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 scan
-$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-pwsh -NoProfile -File scripts/agent-dotfiles.ps1 sync -DryRun -PlanPath $plan
-# Phase 0 到此停止；sync -Apply 仍返回 safety-protocol-upgrade-required
+# 生产 sync DryRun：按 §4 的 host 调用形态生成外部计划（plan 走 create-new）
+# 联锁下到此停止；sync -Apply 仍返回 safety-protocol-upgrade-required
 ```
 
 ---

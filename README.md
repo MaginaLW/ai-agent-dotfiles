@@ -34,7 +34,7 @@ pwsh -NoProfile -File .\bootstrap.ps1
 Bootstrap installs inert/approved Git-private wrappers and checks dependencies in this order:
 the pinned JSON Schema validator, pinned gitleaks scanner, then explicit runner approval. If a
 dependency or approval is missing, run the exact absolute command bootstrap prints and invoke
-bootstrap again. During Phase 0 the final invocation stops with
+bootstrap again. Under the production interlock the final invocation stops with
 `safety-protocol-upgrade-required`; hooks produce only non-consumable preview/events and an
 explicit external DryRun command. They never create an actionable plan or Apply live changes.
 
@@ -70,9 +70,12 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialPlan
 
 ## Sync & Backup
 
-`sync.ps1` describes deployment to the live skill dirs. Phase 0 currently interlocks every
-production `-Apply`, rollback, retirement, and standalone backup before traversal or mutation;
-they return `safety-protocol-upgrade-required`. DryRun/status remain available for review.
+`sync.ps1` describes deployment to the live skill dirs. The production interlock
+(`ReleaseState=interlocked`) currently refuses every production `-Apply` (sync, retirement,
+environment, authority, task), rollback, and canonical Apply before traversal or mutation;
+they return `safety-protocol-upgrade-required`. The public standalone backup entry is retired:
+it writes nothing and exits `backup-is-transaction-internal` instead. DryRun/status remain
+available for review.
 Sync is manifest-scoped (`manifests/managed-skills.txt`), operates one skill dir at a time
 (never a whole-dir mirror), and never touches Codex's `.system`.
 If a reviewed deletion has already disappeared from the current manifest, the old live
@@ -81,7 +84,10 @@ directory remains unknown by default. It can only be removed with an external, o
 never grant that extra deletion authority.
 
 ```powershell
-# Generate and review an external plan. Apply remains interlocked in Phase 0.
+# Generate and review an external plan. Apply remains interlocked.
+# The DryRun must run under scripts/internal/live-transaction-host.ps1
+# (docs/README.md §4); a bare sync.ps1 -DryRun fails closed with
+# live-plan-host-resolution-required and zero plan bytes.
 $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
 pwsh -NoProfile -File .\scripts\sync.ps1 -DryRun -PlanPath $plan
 ```

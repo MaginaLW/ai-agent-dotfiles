@@ -4,7 +4,7 @@
 
 **Goal:** Safely connect a second or later Windows computer to this repository without losing local skills, overwriting the canonical source, exposing private data, or damaging Codex `.system`.
 
-**Approach:** Clone first, identify the machine, verify a clean baseline, and keep live mutation interlocked. Import local skills only into the machine-specific inbox, then build, scan, and review dry-run evidence. Production backup/apply/rollback/retirement remains unavailable during Phase 0.
+**Approach:** Clone first, identify the machine, verify a clean baseline, and keep live mutation interlocked. Import local skills only into the machine-specific inbox, then build, scan, and review dry-run evidence. Production backup/apply/rollback/retirement remains unavailable under the production interlock (`ReleaseState=interlocked`).
 
 **Materials:** Git, PowerShell 7, access to the private GitHub repository, this repository's `STATUS.md` and `docs/README.md`, and the scripts under `scripts/`.
 
@@ -16,7 +16,7 @@
 
 This is a controlled migration, not a blind bootstrap. Bare `bootstrap.ps1` installs only inert or
 approved wrappers and checks the pinned validator, scanner, and runner in order. Follow the one exact
-command it prints, then invoke bootstrap again. It never applies live changes; Phase 0 ends with
+command it prints, then invoke bootstrap again. It never applies live changes; the interlock ends with
 `safety-protocol-upgrade-required` after approval.
 
 Use these repository roles consistently:
@@ -47,11 +47,12 @@ env list | status | build | activate | rollback
 Read-only actions include `doctor`, `scan`, `config status`, `profile status`,
 `skills inventory`, `skills analyze`, `skills dedupe`, `env list`, and `env
 status`. `build`, `profile build`, and `env build` materialize disposable
-generated/staging output; standalone `backup` is interlocked in Phase 0. None of these
+generated/staging output; the public standalone `backup` entry is retired
+(`backup-is-transaction-internal`). None of these
 actions writes arbitrary live-home state or changes `skills-source/` by
 reverse-copy.
 
-All live, canonical-source, and project-target writes start in dry-run mode; Phase 0 rejects
+All live, canonical-source, and project-target writes start in dry-run mode; the interlock rejects
 production Apply before traversal, backup, or mutation.
 For actions that expose a mode, choose exactly one of `-DryRun` or `-Apply`;
 omitting the mode is rejected by the unified entry point rather than treated
@@ -347,7 +348,7 @@ $TargetType = Read-Host 'Enter exactly one target: shared, claude-only, or codex
 pwsh -NoProfile -File .\scripts\promote-skill.ps1 -RepoRoot $RepoRoot -InputSkillPath $SkillPath -TargetType $TargetType -DryRun
 ```
 
-During Phase 0, stop after reviewing that preview; `-Apply` remains interlocked. Any future released source promotion still requires a fresh build and secret scan. Never run `auto-merge-skills.ps1 -Apply` as an unreviewed shortcut.
+Under the interlock, stop after reviewing that preview; `-Apply` remains interlocked. Any future released source promotion still requires a fresh build and secret scan. Never run `auto-merge-skills.ps1 -Apply` as an unreviewed shortcut.
 
 ## 10. Run sync in dry-run mode
 
@@ -397,7 +398,7 @@ if ($LASTEXITCODE -ne 0) { throw "Post-apply secret scan failed with exit code $
 git status --short --branch --untracked-files=all
 ```
 
-The future released `sync.ps1 -Apply -PlanPath <plan>` contract rechecks source, manifest, live fingerprints, build, scan, and backup. Phase 0 stops before that step with `safety-protocol-upgrade-required`.
+The future released `sync.ps1 -Apply -PlanPath <plan>` contract rechecks source, manifest, live fingerprints, build, scan, and backup. The interlock stops before that step with `safety-protocol-upgrade-required`.
 
 ## 12. Reproduce and verify a named environment
 
@@ -475,7 +476,7 @@ If onboarding produces no tracked canonical, manifest, status, or documentation 
 - Do not use `robocopy /MIR` or any whole-directory mirror against live skill roots.
 - Do not reverse-copy live skills over `skills-source/`.
 - Do not edit `claude/skills/`, `codex/skills/` to resolve source problems.
-- Do not run `sync.ps1 -Apply` during Phase 0; after release it still requires a reviewed dry-run.
+- Do not run `sync.ps1 -Apply` under the interlock; after release it still requires a reviewed dry-run.
 - Do not run `env activate -Apply` or `env rollback -Apply` without the required
   explicit mode and plan-binding checks.
 - Do not weaken or bypass `scripts/scan-secrets.ps1` to make onboarding appear successful.

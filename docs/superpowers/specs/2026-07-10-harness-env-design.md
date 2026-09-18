@@ -1,5 +1,9 @@
 # Harness Environments（conda 式环境管理）设计
 
+> **已被取代的设计稿（superseded）**：环境管理的现行契约以 Phase 2/3 落地的协议 v3
+> live-safety 栈与 `docs/README.md` §16 为准；本文保留为历史设计记录，其 Phase/Apply
+> 表述描述的是写作时点，不是当前行为。
+
 日期：2026-07-10
 状态：已与用户对齐的设计稿，待审阅
 范围：方案 C —— 分阶段混合（薄环境层 + 复用现有 gated 部署机制）
