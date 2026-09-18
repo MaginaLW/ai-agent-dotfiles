@@ -161,7 +161,9 @@ Assert (-not $validatorText.Contains('function Test-LiveSyncPlanEnvelopeSemantic
 $livePlanCommonText = [System.IO.File]::ReadAllText($livePlanCommonPath)
 Assert ($livePlanCommonText.Contains('function Test-LiveSyncPlanSemantics')) 'live-plan-common uniquely defines Test-LiveSyncPlanSemantics'
 Assert ($livePlanCommonText.Contains('function Complete-LivePlanAuthorityStateIntent')) 'live-plan-common uniquely defines Complete-LivePlanAuthorityStateIntent'
-Assert ($livePlanCommonText.Contains('function Publish-ValidatedLiveArtifactJson')) 'live-plan-common uniquely defines the schema-validating live publish helper'
+Assert (-not $livePlanCommonText.Contains('function Publish-ValidatedLiveArtifactJson')) 'live-plan-common no longer defines the live publish helper (it lives once in json-artifact-common.ps1)'
+$sharedArtifactText = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts/json-artifact-common.ps1'))
+Assert ($sharedArtifactText.Contains('function Publish-ValidatedLiveArtifactJson')) 'json-artifact-common.ps1 uniquely defines the schema-validating live publish helper'
 Assert (-not $livePlanCommonText.Contains('[System.IO.File]::WriteAllText')) 'the live plan emitter publishes only through the schema-validating write'
 $syncScriptText = [System.IO.File]::ReadAllText($syncScriptPath)
 Assert ($syncScriptText.Contains('function New-LiveSyncPlanDocument')) 'sync.ps1 defines the schema 3 producer'

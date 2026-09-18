@@ -43,8 +43,6 @@ $script:InfoCount = 0
 function Write-DoctorJson {
     param([Parameter(Mandatory = $true)] [string] $Path)
 
-    $parent = Split-Path -Parent $Path
-    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     $result = if ($script:FailCount -gt 0) { 'FAIL' } elseif ($script:WarnCount -gt 0) { 'WARN' } else { 'PASS' }
     $document = [ordered]@{
         SchemaVersion = 1
@@ -58,7 +56,12 @@ function Write-DoctorJson {
         }
         SecretsScanSkipped = [bool] $SkipSecretsScan
     }
-    [System.IO.File]::WriteAllText($Path, (ConvertTo-Json -InputObject $document -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
+    # Phase 4 Task 2: the status report publishes through the shared
+    # schema-validating adapter with the explicit registered ArtifactKind
+    # 'doctor-report'. The reviewed rerun contract replaces the previous
+    # report, so the validated overwrite switch is on; the bytes on disk are
+    # still only ever validated temp bytes moved atomically into place.
+    $null = Publish-ValidatedLiveArtifactJson -Document $document -Path $Path -ArtifactKind 'doctor-report' -JsonDepth 10 -AllowExistingReplace
 }
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
@@ -282,6 +285,7 @@ $systemCandidates = @(
 )
 $systemFound = 0
 . (Join-Path $PSScriptRoot 'scan-input-common.ps1')
+. (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 foreach ($candidate in $systemCandidates) {
     if ([string]::IsNullOrWhiteSpace($candidate.Path)) {
         continue

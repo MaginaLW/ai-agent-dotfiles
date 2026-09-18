@@ -1294,3 +1294,69 @@ function Invoke-FixedJsonSchemaValidation {
     $result | Add-Member -NotePropertyName SchemaCapture -NotePropertyValue $schemaValidation.ArtifactCapture
     return $result
 }
+
+function Publish-ValidatedLiveArtifactJson {
+    # Phase 4 Task 2: the fail-closed publish shape for the emitters that
+    # used to write JSON without schema validation. The document is serialized
+    # to a create-new temp file, validated with the pinned schema validator,
+    # and only moved into place when the validated bytes are exactly the
+    # intended bytes; the published file is revalidated against the same
+    # capture-bound state. ArtifactKind is an explicit argument that selects
+    # the registered schema; the artifact filename is never consulted.
+    # -AllowExistingReplace keeps the same validate-then-atomic-move contract
+    # for status-style reports (doctor) whose reviewed rerun contract replaces
+    # the previous report instead of refusing a second publish.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document,
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [ValidateSet('sync-plan', 'rollback-plan', 'doctor-report')] [string] $ArtifactKind,
+        [Parameter(Mandatory)] [ValidateRange(1, 100)] [int] $JsonDepth,
+        [string] $SchemaRoot,
+        [string] $ValidatorCacheRoot,
+        [string] $CollisionFailure,
+        [switch] $AllowExistingReplace
+    )
+
+    $full = [System.IO.Path]::GetFullPath($Path)
+    if (Test-Path -LiteralPath $full) {
+        if (-not $AllowExistingReplace) {
+            throw $(if ($CollisionFailure) { $CollisionFailure } else { 'live-plan-path-collision' })
+        }
+    }
+    $parent = Split-Path -Parent $full
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+    $schemaDirectory = if ([string]::IsNullOrWhiteSpace($SchemaRoot)) { Join-Path $script:JsonArtifactRepoRoot 'schemas' } else { $SchemaRoot }
+    $schemaPath = Join-Path $schemaDirectory ($ArtifactKind + '.schema.json')
+    $temp = Join-Path $parent ('.' + [System.IO.Path]::GetFileName($full) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $Document -Depth $JsonDepth) + "`n")
+        $intendedHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+        $stream = [System.IO.File]::Open($temp, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        }
+        finally { $stream.Dispose() }
+        $tempValidation = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $temp -ValidatorCacheRoot $ValidatorCacheRoot
+        $tempCapture = Assert-ExactJsonArtifactCapture -Capture $tempValidation.ArtifactCapture
+        if ([string] $tempCapture.Sha256 -cne $intendedHash) { throw 'Validated live artifact temp bytes differ from the intended exact bytes.' }
+        if ($AllowExistingReplace) {
+            [System.IO.File]::Move($temp, $full, $true)
+        }
+        else {
+            [System.IO.File]::Move($temp, $full)
+        }
+        $finalValidation = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $full -ValidatorCacheRoot $ValidatorCacheRoot
+        $finalCapture = Assert-ExactJsonArtifactCapture -Capture $finalValidation.ArtifactCapture
+        if ([string] $finalCapture.Sha256 -cne $intendedHash -or [string] $finalCapture.Sha256 -cne [string] $tempCapture.Sha256) {
+            throw 'Published live artifact differs from the validated intended exact bytes.'
+        }
+        return [pscustomobject][ordered]@{ Path = $finalCapture.FullPath; ContentHash = $finalCapture.Sha256; Identity = $finalCapture.Identity }
+    }
+    finally {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+    }
+}

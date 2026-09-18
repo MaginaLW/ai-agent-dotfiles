@@ -730,59 +730,6 @@ function Complete-LivePlanAuthorityStateIntent {
     return $completed
 }
 
-function Publish-ValidatedLiveArtifactJson {
-    # Phase 4 Task 2: the fail-closed publish shape for the live emitters that
-    # used to write JSON without schema validation. The document is serialized
-    # to a create-new temp file, validated with the pinned schema validator,
-    # and only moved into place when the validated bytes are exactly the
-    # intended bytes; the published file is revalidated against the same
-    # capture-bound state. ArtifactKind is an explicit argument that selects
-    # the registered schema; the artifact filename is never consulted.
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [System.Collections.IDictionary] $Document,
-        [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [ValidateSet('sync-plan', 'rollback-plan')] [string] $ArtifactKind,
-        [Parameter(Mandatory)] [ValidateRange(1, 100)] [int] $JsonDepth,
-        [string] $SchemaRoot,
-        [string] $ValidatorCacheRoot,
-        [string] $CollisionFailure
-    )
-
-    $full = [System.IO.Path]::GetFullPath($Path)
-    if (Test-Path -LiteralPath $full) { throw $(if ($CollisionFailure) { $CollisionFailure } else { $script:LivePlanPathCollision }) }
-    $parent = Split-Path -Parent $full
-    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
-        New-Item -ItemType Directory -Force -Path $parent | Out-Null
-    }
-    $schemaDirectory = if ([string]::IsNullOrWhiteSpace($SchemaRoot)) { Join-Path $script:LivePlanRepoRoot 'schemas' } else { $SchemaRoot }
-    $schemaPath = Join-Path $schemaDirectory ($ArtifactKind + '.schema.json')
-    $temp = Join-Path $parent ('.' + [System.IO.Path]::GetFileName($full) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
-    try {
-        $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $Document -Depth $JsonDepth) + "`n")
-        $intendedHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
-        $stream = [System.IO.File]::Open($temp, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-        try {
-            $stream.Write($bytes, 0, $bytes.Length)
-            $stream.Flush($true)
-        }
-        finally { $stream.Dispose() }
-        $tempValidation = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $temp -ValidatorCacheRoot $ValidatorCacheRoot
-        $tempCapture = Assert-ExactJsonArtifactCapture -Capture $tempValidation.ArtifactCapture
-        if ([string] $tempCapture.Sha256 -cne $intendedHash) { throw 'Validated live artifact temp bytes differ from the intended exact bytes.' }
-        [System.IO.File]::Move($temp, $full)
-        $finalValidation = Invoke-FixedJsonSchemaValidation -SchemaPath $schemaPath -InstancePath $full -ValidatorCacheRoot $ValidatorCacheRoot
-        $finalCapture = Assert-ExactJsonArtifactCapture -Capture $finalValidation.ArtifactCapture
-        if ([string] $finalCapture.Sha256 -cne $intendedHash -or [string] $finalCapture.Sha256 -cne [string] $tempCapture.Sha256) {
-            throw 'Published live artifact differs from the validated intended exact bytes.'
-        }
-        return [pscustomobject][ordered]@{ Path = $finalCapture.FullPath; ContentHash = $finalCapture.Sha256; Identity = $finalCapture.Identity }
-    }
-    finally {
-        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
-    }
-}
-
 function Write-LiveSyncPlan {
     # The sync-plan publisher: schema-validating, create-new, and atomic. The
     # ArtifactKind argument is pinned to the registered 'sync-plan' kind and
