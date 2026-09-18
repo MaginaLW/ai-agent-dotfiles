@@ -559,6 +559,14 @@ else {
     # repository as the origin candidate, the sandbox-injected authority, the
     # complete bootstrap gate, and only then the origin canonical lock order.
     $repoFull = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepoRoot).Path)
+    # Phase 4 Task 7 Step 2: Apply asserts against the production interlock
+    # before any resolver or root work, so while ReleaseState=interlocked with
+    # no sandbox capability the mutation refuses here with
+    # safety-protocol-upgrade-required and zero writes. DryRun stays
+    # plan-only and asserts nothing.
+    if ($Apply) {
+        Assert-LiveSafetyMutationAllowed -Operation "live-recover-$Action" -Paths @($repoFull)
+    }
     $internalRoots = Resolve-LiveRecoveryInternalRoots
     $authorityContext = New-LiveRecoveryAuthorityContext -HomeRoot $internalRoots.HomeRoot -ControlBase $internalRoots.ControlBase -BackupRoot $internalRoots.BackupRoot
     Assert-LiveRecoveryAuthorityComplete -AuthorityContext $authorityContext

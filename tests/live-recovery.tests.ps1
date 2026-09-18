@@ -1893,6 +1893,15 @@ try {
     $r = Invoke-CliArguments -ScriptPath $cliScript -Arguments @('live', 'recover', 'abandon', '-DryRun', '-Apply', '-TransactionId', $dispatchTx, '-PlanPath', (Join-Path $work 'gated-plan.json'))
     Assert ($r.Code -ne 0 -and $r.Out -match 'accepts only one mode') 'a live recover action accepts only one mode'
 
+    # Phase 4 Task 7 Step 2: a public live recover Apply asserts the production
+    # interlock BEFORE the resolver runs, so the interlocked-no-sandbox path
+    # refuses with the interlock token instead of the resolver's
+    # host-resolution token, and writes nothing.
+    $publicApplyPlan = Join-Path $work 'public-apply-plan.json'
+    $r = Invoke-CliArguments -ScriptPath $recoveryScript -Arguments @('-Action', 'abandon', '-Apply', '-TransactionId', $dispatchTx, '-PlanPath', $publicApplyPlan, '-RepoRoot', $RepoRoot)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'a public live recover Apply asserts the interlock before the resolver'
+    Assert (-not (Test-Path -LiteralPath $publicApplyPlan)) 'the interlocked public Apply writes no plan file'
+
     # Sandbox dispatch: the injected authority gate precedes everything.
     . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
     $dispatchWork = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-live-dispatch-$([Guid]::NewGuid().ToString('N'))"

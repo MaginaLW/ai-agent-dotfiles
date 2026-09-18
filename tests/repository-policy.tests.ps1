@@ -282,13 +282,14 @@ try {
     Assert-TestCondition (($authorityResult.Code -ne 0) -and ($authorityResult.Out -match 'safety-protocol-upgrade-required')) 'authority-harness-env -Apply is interlocked before any traversal or plan consumption'
 
     Write-Host '[live recovery public surface stays fail-closed]'
-    # Live-recover Apply currently has NO Assert-LiveSafetyMutationAllowed call:
-    # it is gated only by the sandbox resolver. That shape is NOT pinned as
-    # permanent: Phase 4 PR-G must make Apply Assert-first BEFORE the resolver,
-    # and only then may a suite pin the Assert-first order. What is pinned here
-    # is the cheap public DryRun fact: outside the internal sandbox it fails
-    # closed at the resolver and writes no plan at all (zero live writes). The
-    # sandbox-hosted plan-only derivation is covered by tests/live-recovery.tests.ps1.
+    # Phase 4 PR-G Step 2 landed: live-recover Apply now calls Assert-
+    # LiveSafetyMutationAllowed BEFORE the resolver, and that Assert-first
+    # order is pinned behaviorally by tests/live-recovery.tests.ps1 (a public
+    # Apply refuses with safety-protocol-upgrade-required and writes no plan).
+    # Pinned here is the cheap public DryRun fact: outside the internal sandbox
+    # it fails closed at the resolver and writes no plan at all (zero live
+    # writes). The sandbox-hosted plan-only derivation is covered by
+    # tests/live-recovery.tests.ps1.
     $liveRecoverPlanPath = Join-Path $work 'live-recovery-plan.json'
     $liveRecoverResult = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/recover-live-transaction.ps1') -Arguments @(
         '-Action', 'abandon', '-TransactionId', ([Guid]::NewGuid().ToString('D')),
