@@ -161,6 +161,8 @@ Assert (-not $validatorText.Contains('function Test-LiveSyncPlanEnvelopeSemantic
 $livePlanCommonText = [System.IO.File]::ReadAllText($livePlanCommonPath)
 Assert ($livePlanCommonText.Contains('function Test-LiveSyncPlanSemantics')) 'live-plan-common uniquely defines Test-LiveSyncPlanSemantics'
 Assert ($livePlanCommonText.Contains('function Complete-LivePlanAuthorityStateIntent')) 'live-plan-common uniquely defines Complete-LivePlanAuthorityStateIntent'
+Assert ($livePlanCommonText.Contains('function Publish-ValidatedLiveArtifactJson')) 'live-plan-common uniquely defines the schema-validating live publish helper'
+Assert (-not $livePlanCommonText.Contains('[System.IO.File]::WriteAllText')) 'the live plan emitter publishes only through the schema-validating write'
 $syncScriptText = [System.IO.File]::ReadAllText($syncScriptPath)
 Assert ($syncScriptText.Contains('function New-LiveSyncPlanDocument')) 'sync.ps1 defines the schema 3 producer'
 Assert ($syncScriptText.Contains('Write-LiveSyncPlan')) 'sync.ps1 emitter writes through the immutable create-new write'
@@ -506,6 +508,84 @@ finally {
     $null = Assert-LiveSyncPlanDocumentHashNotConsumed -Document $roundTripped -TerminalEvidence $null
     Assert $true 'an empty terminal evidence passes the consumption gate'
     try { Assert-LiveSyncPlanDocumentHashNotConsumed -Document $roundTripped -TerminalEvidence ([ordered]@{ [string] $roundTripped['DocumentHash'] = 'committed' }); Assert $false 'a consumed document hash fails the gate' } catch { Assert ($_.Exception.Message -ceq 'live-plan-consumed') 'a consumed document hash fails with the consumed token' }
+
+    Write-Host '[live plan self-validating publish]'
+    # Task 2 Step 5: every publish failure mode leaves the plan path absent
+    # and leaves no temp file behind.
+
+    # A missing pinned validator binary fails the publish closed.
+    $missingToolCache = Join-Path $writeRoot 'missing-validator-cache'
+    New-Item -ItemType Directory -Force -Path $missingToolCache | Out-Null
+    $missingToolPlan = Join-Path $writeRoot 'missing-validator-plan.json'
+    Assert-Throws {
+        Write-LiveSyncPlan -Path $missingToolPlan -Document $fixtureDocument -ValidatorCacheRoot $missingToolCache
+    } 'Pinned json-schema-validator is not installed' 'a missing pinned validator binary fails the publish closed'
+    Assert (-not (Test-Path -LiteralPath $missingToolPlan)) 'a missing validator binary writes no plan bytes'
+
+    # Cached validator bytes that do not match the pinned hashes fail closed.
+    $validatorLock = ConvertFrom-Json ([System.IO.File]::ReadAllText((Join-Path $RepoRoot 'tools/schema-validator/validator.lock.json'), [System.Text.UTF8Encoding]::new($false, $true)))
+    $wrongHashCacheRoot = Join-Path $writeRoot 'wrong-hash-cache'
+    $wrongHashToolRoot = Join-Path $wrongHashCacheRoot (Join-Path ([string] $validatorLock.ToolKind) ([string] $validatorLock.Version))
+    New-Item -ItemType Directory -Force -Path (Join-Path $wrongHashToolRoot 'bin') | Out-Null
+    foreach ($corruptName in @([string] $validatorLock.AssetName, (Join-Path 'bin' ([string] $validatorLock.ExecutableName)))) {
+        [System.IO.File]::WriteAllText((Join-Path $wrongHashToolRoot $corruptName), 'not the pinned validator bytes', [System.Text.UTF8Encoding]::new($false))
+    }
+    $wrongHashPlan = Join-Path $writeRoot 'wrong-hash-plan.json'
+    Assert-Throws {
+        Write-LiveSyncPlan -Path $wrongHashPlan -Document $fixtureDocument -ValidatorCacheRoot $wrongHashCacheRoot
+    } 'Pinned json-schema-validator (archive|executable) hash mismatch' 'a wrong pinned validator hash fails the publish closed'
+    Assert (-not (Test-Path -LiteralPath $wrongHashPlan)) 'a wrong pinned validator hash writes no plan bytes'
+
+    # An invalid schema document fails the publish closed.
+    $corruptSchemaRoot = Join-Path $writeRoot 'corrupt-schemas'
+    New-Item -ItemType Directory -Force -Path $corruptSchemaRoot | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $corruptSchemaRoot 'sync-plan.schema.json'), '{"$schema":"https://json-schema.org/draft/2020-12/schema"}', [System.Text.UTF8Encoding]::new($false))
+    $invalidSchemaPlan = Join-Path $writeRoot 'invalid-schema-plan.json'
+    Assert-Throws {
+        Publish-ValidatedLiveArtifactJson -Document $fixtureDocument -Path $invalidSchemaPlan -ArtifactKind 'sync-plan' -JsonDepth 40 -SchemaRoot $corruptSchemaRoot
+    } 'Repository schema identifier must exactly match its basename' 'an invalid schema document fails the publish closed'
+    Assert (-not (Test-Path -LiteralPath $invalidSchemaPlan)) 'an invalid schema document writes no plan bytes'
+
+    # A same-length, still-schema-valid temp edit between serialization and
+    # validation is refused by the intended-bytes binding before the plan path
+    # is touched.
+    $racePlan = Join-Path $writeRoot 'race-plan.json'
+    $realFixedValidator = ${function:Invoke-FixedJsonSchemaValidation}
+    function Invoke-FixedJsonSchemaValidation {
+        [CmdletBinding()]
+        param([Parameter(Mandatory)] [string] $SchemaPath, [Parameter(Mandatory)] [string] $InstancePath, [string] $ValidatorCacheRoot)
+        if ([System.IO.Path]::GetExtension($InstancePath) -ceq '.tmp') {
+            # Flip one SID digit inside the unconstrained ProposedRootClaims
+            # TokenSid string: same length, still schema-valid, different bytes.
+            $encoding = [System.Text.UTF8Encoding]::new($false, $true)
+            $raceText = $encoding.GetString([System.IO.File]::ReadAllBytes($InstancePath))
+            $raceAnchor = '"S-1-'
+            $anchorIndex = $raceText.IndexOf($raceAnchor, [System.StringComparison]::Ordinal)
+            if ($anchorIndex -lt 0) { throw 'the temp race fixture lost its TokenSid anchor' }
+            $flipIndex = $anchorIndex + $raceAnchor.Length
+            $flippedChar = if ($raceText[$flipIndex] -ceq '9') { '8' } else { '9' }
+            $raceText = $raceText.Remove($flipIndex, 1).Insert($flipIndex, $flippedChar)
+            [System.IO.File]::WriteAllBytes($InstancePath, $encoding.GetBytes($raceText))
+        }
+        $arguments = @{ SchemaPath = $SchemaPath; InstancePath = $InstancePath }
+        if ($PSBoundParameters.ContainsKey('ValidatorCacheRoot')) { $arguments.ValidatorCacheRoot = $ValidatorCacheRoot }
+        return & $realFixedValidator @arguments
+    }
+    try {
+        Assert-Throws {
+            Write-LiveSyncPlan -Path $racePlan -Document $fixtureDocument
+        } 'intended exact bytes' 'a same-length schema-valid temp edit before binding fails the publish closed'
+        Assert (-not (Test-Path -LiteralPath $racePlan)) 'a tampered temp binds no plan file'
+    }
+    finally {
+        Set-Item -LiteralPath Function:Invoke-FixedJsonSchemaValidation -Value $realFixedValidator
+    }
+    $selfValidateLeftovers = @(Get-ChildItem -LiteralPath $writeRoot -Force -File | Where-Object { $_.Name.StartsWith('.', [System.StringComparison]::Ordinal) -and $_.Name.EndsWith('.tmp') })
+    Assert ($selfValidateLeftovers.Count -eq 0) 'the failed publishes leave no temp files behind'
+    $republishPath = Join-Path $writeRoot 'race-plan.json'
+    Write-LiveSyncPlan -Path $republishPath -Document $fixtureDocument
+    Assert (Test-Path -LiteralPath $republishPath -PathType Leaf) 'a publish after the failure modes still succeeds'
+    Assert ((Get-SemanticJsonHash -InputObject (Read-LiveSyncPlan -Path $republishPath)) -ceq (Get-SemanticJsonHash -InputObject $fixtureDocument)) 'the republished plan matches the document'
 
     Remove-Item -LiteralPath $writeRoot -Recurse -Force -ErrorAction SilentlyContinue
 

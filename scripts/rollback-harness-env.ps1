@@ -19,11 +19,14 @@
     the linked source transaction's committed chain and receipt binding) and
     the current state/claims/overlay/live surface, plus the origin identity
     overlay-lock identity, the source transaction probe and every binding
-    revalidated under the locks. DryRun derives and writes the schema-1
-    environment-rollback plan; Apply validates the reviewed plan and then runs
-    it as a new receipt-backed transaction. Every disagreement fails closed
-    with its reviewed token. A source transaction that held the worktree
-    overlay lock is rollback-able only from that exact worktree identity.
+    revalidated under the locks. DryRun derives the schema-1
+    environment-rollback plan and publishes it create-new only after the
+    registered rollback-plan schema and the reviewed semantics accept its
+    exact bytes; Apply validates the reviewed plan (schema and semantics) and
+    then runs it as a new receipt-backed transaction. Every disagreement
+    fails closed with its reviewed token. A source transaction that held the
+    worktree overlay lock is rollback-able only from that exact worktree
+    identity.
 #>
 [CmdletBinding(DefaultParameterSetName = 'DryRun')]
 param(
@@ -689,14 +692,10 @@ try {
             if ($DryRun) {
                 $document = New-EnvironmentRollbackPlanDocument -Evidence $evidence -RepoId $repoId -CanonicalLockKey $canonicalLockKey -GitContext $gitContext -CurrentState $currentState
                 # The derivation self-checks against the reviewed semantic
-                # layer before any byte is written.
+                # layer, and the schema-validating publish then fails closed
+                # before any byte reaches the plan path.
                 Test-RollbackPlanSemantics -Document $document
-                if (Test-Path -LiteralPath $planFull) { throw $script:RollbackPlanPathCollision }
-                $planParent = Split-Path -Parent $planFull
-                if (-not [string]::IsNullOrWhiteSpace($planParent) -and -not (Test-Path -LiteralPath $planParent)) {
-                    New-Item -ItemType Directory -Force -Path $planParent | Out-Null
-                }
-                [System.IO.File]::WriteAllText($planFull, (ConvertTo-Json -InputObject $document -Depth 64) + "`n", [System.Text.UTF8Encoding]::new($false))
+                Publish-ValidatedLiveArtifactJson -Document $document -Path $planFull -ArtifactKind 'rollback-plan' -JsonDepth 64 -CollisionFailure $script:RollbackPlanPathCollision
                 Write-Host "environment rollback plan created: $($evidence.TransactionId)"
                 Write-Host "PlanHash: $($document['PlanHash'])"
                 exit 0

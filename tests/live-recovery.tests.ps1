@@ -2211,6 +2211,37 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     $rollbackPayload = [System.Collections.IDictionary] $rollbackPlanDocument['PlanPayload']
     Assert ([string] $rollbackPayload['ReceiptState'] -ceq 'COMPLETE' -and [string] $rollbackPayload['Action'] -ceq 'rollback' -and [string] $rollbackPayload['ExpectedOutcome'] -ceq 'rolled-back') 'the rollback plan binds the complete receipt and the rolled-back projection'
 
+    # Schema-before-mutate: a reviewed plan that fails the registered
+    # rollback-plan schema (or is not JSON at all) fails the apply closed
+    # before the journal records any recovery intent.
+    $rollbackTxDirectory = [string] $rollbackFixture.ProducerArgs['TransactionDirectory']
+    function Get-RollbackJournalPhaseInventory {
+        param([Parameter(Mandatory)] [string] $TransactionDirectory)
+        $pendingChain = Get-SealedLiveJournalChain -TransactionDirectory $TransactionDirectory
+        return @(@($pendingChain.Records) | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+    }
+    $phasesBeforeFailedApplies = Get-RollbackJournalPhaseInventory -TransactionDirectory $rollbackTxDirectory
+
+    $corruptJsonPlan = Join-Path $dispatchWork 'plans' 'rollback-plan.corrupt-json.json'
+    [System.IO.File]::WriteAllText($corruptJsonPlan, '{"PlanPayload": ', [System.Text.UTF8Encoding]::new($false))
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $rollbackTxId, '-Apply', '-PlanPath', $corruptJsonPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0) 'an apply over a non-JSON reviewed plan fails closed'
+    $phasesAfterCorruptJson = Get-RollbackJournalPhaseInventory -TransactionDirectory $rollbackTxDirectory
+    Assert ((@($phasesAfterCorruptJson | Where-Object { $_ -cin @('RECOVERY_ACTION_INTENT', 'RECOVERY_ACTION_APPLIED', 'COMPLETE') }).Count -eq 0) -and (@(Compare-Object $phasesBeforeFailedApplies $phasesAfterCorruptJson).Count -eq 0)) 'a non-JSON reviewed plan writes no journal record'
+
+    $unknownPropertyPlan = Join-Path $dispatchWork 'plans' 'rollback-plan.unknown-property.json'
+    $rollbackPlanText = [System.IO.File]::ReadAllText($rollbackPlan)
+    $firstBrace = $rollbackPlanText.IndexOf('{', [System.StringComparison]::Ordinal)
+    if ($firstBrace -lt 0) { throw 'FAIL: the derived rollback plan has no JSON object' }
+    $unknownPropertyText = $rollbackPlanText.Insert($firstBrace + 1, "`n  `"ExtraUnknownProperty`": 1,")
+    [System.IO.File]::WriteAllText($unknownPropertyPlan, $unknownPropertyText, [System.Text.UTF8Encoding]::new($false))
+    $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $rollbackTxId, '-Apply', '-PlanPath', $unknownPropertyPlan, '-RepoRoot', $dispatchRepo)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'JSON Schema validation failed') 'a schema-invalid reviewed plan fails the apply at the schema layer'
+    $phasesAfterUnknownProperty = Get-RollbackJournalPhaseInventory -TransactionDirectory $rollbackTxDirectory
+    Assert (@(Compare-Object $phasesBeforeFailedApplies $phasesAfterUnknownProperty).Count -eq 0) 'a schema-invalid reviewed plan writes no journal record'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-ControlBase', $derivedControl)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'rollback-required') 'the failed applies leave the transaction rollback-required'
+
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'rollback', '-TransactionId', $rollbackTxId, '-Apply', '-PlanPath', $rollbackPlan, '-RepoRoot', $dispatchRepo)
     if ($r.Code -ne 0) { Write-Host '----- rollback apply output -----'; Write-Host $r.Out }
     Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: rollback .*\(outcome=rolled-back\)') 'the rollback apply restores the preimage and closes the transaction'

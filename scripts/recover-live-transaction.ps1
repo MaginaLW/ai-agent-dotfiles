@@ -21,7 +21,8 @@
     exact transaction under those locks. -DryRun derives the schema-1
     rollback/recovery plan from the journal evidence and writes it create-new
     to -PlanPath. -Apply validates the reviewed plan fail-closed under the
-    held locks (semantics, kind/transaction match, the derived journal head,
+    held locks (registered rollback-plan schema, semantics, kind/transaction
+    match, the derived journal head,
     and the journal-bound preimage copy) and executes the reviewed transition:
     abandon, rollback (live targets and the authority state restored to their
     journal-bound preimages), or finalize. The recovery checkpoints are
@@ -54,6 +55,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 . (Join-Path $PSScriptRoot 'home-authority-common.ps1')
+. (Join-Path $PSScriptRoot 'live-plan-common.ps1')
 . (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
 . (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
@@ -651,21 +653,20 @@ else {
                     }
                     $document['PlanHash'] = Get-PlanHash -PlanPayload $payload
                     $document['DocumentHash'] = Get-DocumentHash -Document $document
-                    if (Test-Path -LiteralPath $planFull) { throw $script:LiveRecoveryPlanPathCollision }
-                    $planParent = Split-Path -Parent $planFull
-                    if (-not [string]::IsNullOrWhiteSpace($planParent) -and -not (Test-Path -LiteralPath $planParent)) {
-                        New-Item -ItemType Directory -Force -Path $planParent | Out-Null
-                    }
-                    [IO.File]::WriteAllText($planFull, (ConvertTo-Json -InputObject $document -Depth 64) + "`n", [System.Text.UTF8Encoding]::new($false))
+                    # The schema-validating publish fails closed: an invalid
+                    # plan writes no bytes at the plan path.
+                    Publish-ValidatedLiveArtifactJson -Document $document -Path $planFull -ArtifactKind 'rollback-plan' -JsonDepth 64 -CollisionFailure $script:LiveRecoveryPlanPathCollision
                     Write-Host "live recovery plan created: $Action $TransactionId"
                     Write-Host "PlanHash: $($document['PlanHash'])"
                     exit 0
                 }
 
                 # Apply: validate the reviewed plan fail-closed under the held
-                # locks, then execute the reviewed transition.
+                # locks, then execute the reviewed transition. The schema gate
+                # runs before the semantic layer and before any mutation.
                 if (-not (Test-Path -LiteralPath $planFull -PathType Leaf)) { throw $script:LiveRecoveryPlanMissing }
                 $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planFull, [System.Text.UTF8Encoding]::new($false, $true)))
+                $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $PSScriptRoot '../schemas/rollback-plan.schema.json') -InstancePath $planFull
                 Test-RollbackPlanSemantics -Document $planDocument
                 $planPayload = [System.Collections.IDictionary] $planDocument['PlanPayload']
                 if ([string] $planPayload['PlanKind'] -cne "live-recover-$Action" -or
