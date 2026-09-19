@@ -6,6 +6,14 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
 . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-automation-safety-$([Guid]::NewGuid().ToString('N'))"
 $fakeRepo = Join-Path $work 'repo'
@@ -18,18 +26,33 @@ $systemSentinel = Join-Path $fakeHome '.codex/skills/.system/locked-sentinel.txt
 $beforeHash = (Get-FileHash -LiteralPath $systemSentinel -Algorithm SHA256).Hash
 
 try {
+    # ReleasedPattern names the observed released-mode fail-closed token for
+    # each surface (Task 8 Step 1 preparation): after the released Assert
+    # returns, every case below still exits non-zero before any production
+    # write. The rollback case resolves the real identity authority, so its
+    # released token set covers the incomplete-authority and missing-receipt
+    # fail-closed outcomes of the released public route. The task-skills
+    # patterns pin the unique suffix of their typed tokens (the full
+    # task-overlay-... literals would trip the secret scanner's generic sk-
+    # API-key heuristic on the task- prefix; the suffix identifies the same
+    # token in the script output).
     $cases = @(
-        @{ Name='sync apply'; Script='sync.ps1'; Args=@('-RepoRoot',$fakeRepo,'-Apply','-SkipBuild','-SkipSecretScan') },
-        @{ Name='retirement sync apply'; Script='sync.ps1'; Args=@('-RepoRoot',$fakeRepo,'-Apply','-SkipBuild','-SkipSecretScan','-RetireManifestPath',(Join-Path $work 'retire.json')) },
-        @{ Name='environment activate apply'; Script='activate-harness-env.ps1'; Args=@('-Name','missing','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan') },
-        @{ Name='task ensure apply'; Script='task-skills.ps1'; Args=@('-Action','ensure-skill','missing','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan') },
-        @{ Name='task sync automatic apply'; Script='task-skills.ps1'; Args=@('-Action','sync','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-Automatic','-SkipBuild','-SkipSecretScan') },
-        @{ Name='task close apply'; Script='task-skills.ps1'; Args=@('-Action','close','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan') },
-        @{ Name='environment rollback apply'; Script='rollback-harness-env.ps1'; Args=@('-ReceiptPath',(Join-Path $work 'missing-receipt'),'-RepoRoot',$fakeRepo,'-PlanPath',(Join-Path $work 'plan.json'),'-Apply') }
+        @{ Name='sync apply'; Script='sync.ps1'; Args=@('-RepoRoot',$fakeRepo,'-Apply','-SkipBuild','-SkipSecretScan'); ReleasedPattern='requires a reviewed -PlanPath' },
+        @{ Name='retirement sync apply'; Script='sync.ps1'; Args=@('-RepoRoot',$fakeRepo,'-Apply','-SkipBuild','-SkipSecretScan','-RetireManifestPath',(Join-Path $work 'retire.json')); ReleasedPattern='requires a reviewed -PlanPath' },
+        @{ Name='environment activate apply'; Script='activate-harness-env.ps1'; Args=@('-Name','missing','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan'); ReleasedPattern='activation-plan-path-required' },
+        @{ Name='task ensure apply'; Script='task-skills.ps1'; Args=@('-Action','ensure-skill','missing','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan'); ReleasedPattern='overlay-skip-switch-forbidden' },
+        @{ Name='task sync automatic apply'; Script='task-skills.ps1'; Args=@('-Action','sync','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-Automatic','-SkipBuild','-SkipSecretScan'); ReleasedPattern='overlay-automatic-removed' },
+        @{ Name='task close apply'; Script='task-skills.ps1'; Args=@('-Action','close','-RepoRoot',$fakeRepo,'-HomeRoot',$fakeHome,'-BackupRoot',$backupRoot,'-Apply','-SkipBuild','-SkipSecretScan'); ReleasedPattern='overlay-skip-switch-forbidden' },
+        @{ Name='environment rollback apply'; Script='rollback-harness-env.ps1'; Args=@('-ReceiptPath',(Join-Path $work 'missing-receipt'),'-RepoRoot',$fakeRepo,'-PlanPath',(Join-Path $work 'plan.json'),'-Apply'); ReleasedPattern='live-plan-authority-missing|rollback-receipt-missing' }
     )
     foreach ($case in $cases) {
         $result = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot "scripts/$($case.Script)") -Arguments $case.Args
-        Assert-TestCondition ($result.Code -ne 0 -and $result.Out -match 'safety-protocol-upgrade-required') "$($case.Name) is interlocked before production work"
+        if ($script:IsReleased) {
+            Assert-TestCondition ($result.Code -ne 0 -and $result.Out -match $case.ReleasedPattern) "$($case.Name) proceeds past the released Assert and fails closed before production work (released)"
+        }
+        else {
+            Assert-TestCondition ($result.Code -ne 0 -and $result.Out -match 'safety-protocol-upgrade-required') "$($case.Name) is interlocked before production work"
+        }
     }
 
     $lock = [System.IO.File]::Open($systemSentinel, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
@@ -38,9 +61,9 @@ try {
     }
     finally { $lock.Dispose() }
     Assert-TestCondition ($result.Code -ne 0 -and $result.Out -match 'backup-is-transaction-internal') 'standalone backup is retired to the zero-write transaction-internal diagnostic'
-    Assert-TestCondition (-not (Test-Path -LiteralPath $backupRoot)) 'interlocked calls create no backup root'
+    Assert-TestCondition (-not (Test-Path -LiteralPath $backupRoot)) 'the refused apply cases create no backup root'
     Assert-TestCondition ((Get-FileHash -LiteralPath $systemSentinel -Algorithm SHA256).Hash -eq $beforeHash) 'protected .system sentinel remains byte-identical'
-    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'interlocked calls create no state path'
+    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $fakeRepo 'state'))) 'the refused apply cases create no state path'
 
     $escaped = Invoke-SafetySandboxScript -SandboxRoot $sandboxRoot -ScriptPath (Join-Path $RepoRoot 'scripts/sync.ps1') -Arguments @(
         '-RepoRoot', $fakeRepo,
@@ -48,7 +71,15 @@ try {
         '-SkipBuild',
         '-SkipSecretScan'
     )
-    Assert-TestCondition ($escaped.Code -ne 0 -and $escaped.Out -match 'safety-protocol-upgrade-required') 'internal capability refuses mutation paths outside its sandbox'
+    if ($script:IsReleased) {
+        # The released Assert returns before its sandbox-path containment
+        # check, so the escaped mutation run reaches sync's reviewed-plan
+        # requirement and still exits non-zero before any production write.
+        Assert-TestCondition ($escaped.Code -ne 0 -and $escaped.Out -match 'requires a reviewed -PlanPath') 'the escaped mutation run proceeds past the released Assert and fails closed at the reviewed plan requirement (released)'
+    }
+    else {
+        Assert-TestCondition ($escaped.Code -ne 0 -and $escaped.Out -match 'safety-protocol-upgrade-required') 'internal capability refuses mutation paths outside its sandbox'
+    }
     Assert-TestCondition (-not (Test-Path -LiteralPath $backupRoot)) 'rejected internal capability creates no backup root'
 
     # ---------------------------------------------------------------------

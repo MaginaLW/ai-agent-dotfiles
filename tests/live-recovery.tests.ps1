@@ -15,7 +15,15 @@ $liveTransactionHost = Join-Path $PSScriptRoot 'helpers/live-transaction-host.ps
 . (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
 . (Join-Path $RepoRoot 'scripts/backup-receipt-common.ps1')
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
 . (Join-Path $PSScriptRoot 'helpers/failpoint-controller.ps1')
+
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and the public recover Apply's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
 
 $script:pass = 0
 
@@ -1896,11 +1904,21 @@ try {
     # Phase 4 Task 7 Step 2: a public live recover Apply asserts the production
     # interlock BEFORE the resolver runs, so the interlocked-no-sandbox path
     # refuses with the interlock token instead of the resolver's
-    # host-resolution token, and writes nothing.
+    # host-resolution token, and writes nothing. On a released commit the
+    # Assert returns, the shared resolver resolves the real Windows identity,
+    # and the run still fails closed before any plan derivation or write: at
+    # the released identity authority check (incomplete home-authority
+    # bootstrap) or, on a host with a complete authority, at the reviewed
+    # plan requirement (no plan exists at the create-new path).
     $publicApplyPlan = Join-Path $work 'public-apply-plan.json'
     $r = Invoke-CliArguments -ScriptPath $recoveryScript -Arguments @('-Action', 'abandon', '-Apply', '-TransactionId', $dispatchTx, '-PlanPath', $publicApplyPlan, '-RepoRoot', $RepoRoot)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'a public live recover Apply asserts the interlock before the resolver'
-    Assert (-not (Test-Path -LiteralPath $publicApplyPlan)) 'the interlocked public Apply writes no plan file'
+    if ($script:IsReleased) {
+        Assert ($r.Code -ne 0 -and $r.Out -match 'live-plan-authority-missing|Artifact or evidence path is missing') 'a public live recover Apply proceeds past the released Assert and fails closed on the released host authority path (released)'
+    }
+    else {
+        Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'a public live recover Apply asserts the interlock before the resolver'
+    }
+    Assert (-not (Test-Path -LiteralPath $publicApplyPlan)) 'the public recover Apply writes no plan file'
 
     # Sandbox dispatch: the injected authority gate precedes everything.
     . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')

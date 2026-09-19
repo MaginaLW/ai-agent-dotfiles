@@ -10,16 +10,28 @@ $ErrorActionPreference = 'Stop'
 # automation surface, and the "no public Apply bypass" net. The parse-gate
 # regression half of Task 4 lives in tests/powershell-syntax-gate.tests.ps1.
 #
-# Interlocked public contract note: the canonical Apply and canonical recovery
-# Apply pins below pin the INTERLOCKED public CLI contract (the hard stop with
-# `canonical-apply-interlocked` / `canonical-recovery-apply-interlocked` and
-# exit 75). Phase 4 PR-G owns the post-Assert delta: once Assert-LiveSafety-
-# MutationAllowed RETURNS for a reviewed release, those CLIs must call the
-# production engine instead of exiting 75, and these two pins must be updated
-# in the same slice.
+# Interlocked public contract note: the behavioral pins below are POLICY-STATE-
+# AWARE (Phase 4 Task 8 Step 1 preparation). While `ReleaseState=interlocked`
+# they pin the hard-stop interlocked contract (`canonical-apply-interlocked` /
+# `canonical-recovery-apply-interlocked` with exit 75, the interlock token on
+# the public mutation surfaces). Once the reviewed release candidate flips the
+# policy, the same committed bytes pin the observed released post-Assert
+# contract instead: every surface still exits fail-closed before any production
+# write, and the canonical recovery engine runs under its own sealed binding
+# checks. The SOURCE pins on the tracked docs, the interlock function's two
+# early returns, and the hard-closed runner/backup tokens are policy-
+# independent and stay unconditional.
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-repository-policy-$([Guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $work -Force | Out-Null
@@ -231,13 +243,20 @@ try {
     Assert-TestCondition (-not (Test-LiveSafetySandboxCapability -Paths @($work))) 'a plain test process holds no sandbox capability'
     $interlockThrew = $null
     try { Assert-LiveSafetyMutationAllowed -Operation 'repository-policy-self-check' -Paths @($work) } catch { $interlockThrew = $_.Exception.Message }
-    Assert-TestCondition (($null -ne $interlockThrew) -and ($interlockThrew -cmatch 'safety-protocol-upgrade-required')) 'without release or a held capability, a mutation operation throws the interlock token'
+    if ($script:IsReleased) {
+        Assert-TestCondition ($null -eq $interlockThrew) 'the mutation self-check returns without throwing under the released policy (released)'
+    }
+    else {
+        Assert-TestCondition (($null -ne $interlockThrew) -and ($interlockThrew -cmatch 'safety-protocol-upgrade-required')) 'without release or a held capability, a mutation operation throws the interlock token'
+    }
 
     # -------------------------------------------------------------------------
     # Step 6: the no-public-Apply-bypass net
     #
     # Every production mutation entry is one of:
-    #   1. Assert-LiveSafetyMutationAllowed on -Apply:
+    #   1. Assert-LiveSafetyMutationAllowed on -Apply (policy-state-aware pins:
+    #      interlocked token while interlocked, observed released fail-closed
+    #      token after the reviewed release):
     #      - sync.ps1 -Apply (plain)            -> pinned by tests/automation-safety.tests.ps1
     #      - sync.ps1 -Apply -RetireManifestPath -> pinned by tests/automation-safety.tests.ps1
     #      - activate-harness-env.ps1 -Apply     -> pinned by tests/automation-safety.tests.ps1
@@ -246,14 +265,14 @@ try {
     #      - task-skills.ps1 -Apply close        -> pinned by tests/automation-safety.tests.ps1
     #      - rollback-harness-env.ps1 -Apply     -> pinned by tests/automation-safety.tests.ps1
     #      - authority-harness-env.ps1 -Apply    -> pinned BELOW (was missing from automation-safety)
-    #   2. A named hard-closed token:
+    #   2. A named hard-closed token (policy-independent):
     #      - backup.ps1 public standalone: backup-is-transaction-internal, exit 1
     #        before traversal -> pinned by tests/automation-safety.tests.ps1
     #      - auto-sync-after-git manual/Force: safety-protocol-upgrade-required,
     #        exit 73 -> pinned above and behaviorally below
     #      - canonical-transaction.ps1 -Apply and recover-canonical-transaction.ps1
-    #        -Apply: canonical-apply-interlocked / canonical-recovery-apply-interlocked,
-    #        exit 75 -> pinned BELOW (interlocked public contract; PR-G owns the delta)
+    #        -Apply: policy-state-aware pins BELOW (interlocked exit 75 hard stop;
+    #        released post-Assert engine/lock contract per the header note)
     #   3. Classified non-live (profile apply writes only project-local allowlist
     #      output) -> covered by tests/harness-profile.tests.ps1.
     # -------------------------------------------------------------------------
@@ -279,23 +298,41 @@ try {
         '-Action', 'adopt', '-Name', 'missing', '-RepoRoot', $fakeRepo,
         '-PlanPath', (Join-Path $work 'authority-plan.json'), '-Apply'
     )
-    Assert-TestCondition (($authorityResult.Code -ne 0) -and ($authorityResult.Out -match 'safety-protocol-upgrade-required')) 'authority-harness-env -Apply is interlocked before any traversal or plan consumption'
+    if ($script:IsReleased) {
+        # The released Assert returns, so the run reaches the first post-Assert
+        # gate: resolving the reviewed plan artifact (the fixture repo is not a
+        # Git repository, so the artifact resolution itself fails closed before
+        # any traversal or plan consumption).
+        Assert-TestCondition (($authorityResult.Code -ne 0) -and ($authorityResult.Out -match 'Resolve-PrivateArtifactPath') -and ($authorityResult.Out -notmatch 'safety-protocol-upgrade-required')) 'authority-harness-env -Apply proceeds past the released Assert and fails closed at the reviewed plan artifact gate (released)'
+    }
+    else {
+        Assert-TestCondition (($authorityResult.Code -ne 0) -and ($authorityResult.Out -match 'safety-protocol-upgrade-required')) 'authority-harness-env -Apply is interlocked before any traversal or plan consumption'
+    }
 
     Write-Host '[live recovery public surface stays fail-closed]'
     # Phase 4 PR-G Step 2 landed: live-recover Apply now calls Assert-
     # LiveSafetyMutationAllowed BEFORE the resolver, and that Assert-first
     # order is pinned behaviorally by tests/live-recovery.tests.ps1 (a public
-    # Apply refuses with safety-protocol-upgrade-required and writes no plan).
-    # Pinned here is the cheap public DryRun fact: outside the internal sandbox
-    # it fails closed at the resolver and writes no plan at all (zero live
-    # writes). The sandbox-hosted plan-only derivation is covered by
+    # Apply refuses with safety-protocol-upgrade-required while interlocked and
+    # writes no plan). Pinned here is the cheap public DryRun fact: outside the
+    # internal sandbox it fails closed before any plan derivation and writes no
+    # plan at all (zero live writes). While interlocked the resolver itself
+    # refuses; on a released commit the shared resolver resolves the real
+    # Windows identity and the run fails closed at the released identity
+    # authority check (or, on a host with a complete authority, at the next
+    # reviewed gate). The sandbox-hosted plan-only derivation is covered by
     # tests/live-recovery.tests.ps1.
     $liveRecoverPlanPath = Join-Path $work 'live-recovery-plan.json'
     $liveRecoverResult = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/recover-live-transaction.ps1') -Arguments @(
         '-Action', 'abandon', '-TransactionId', ([Guid]::NewGuid().ToString('D')),
         '-DryRun', '-PlanPath', $liveRecoverPlanPath, '-RepoRoot', $fakeRepo
     )
-    Assert-TestCondition (($liveRecoverResult.Code -ne 0) -and ($liveRecoverResult.Out -match 'live-plan-host-resolution-required')) 'the public live-recovery DryRun fails closed without the sandbox capability'
+    if ($script:IsReleased) {
+        Assert-TestCondition (($liveRecoverResult.Code -ne 0) -and ($liveRecoverResult.Out -match 'live-plan-authority-missing|Canonical transaction requires a Git repository')) 'the public live-recovery DryRun fails closed on the released host authority path (released)'
+    }
+    else {
+        Assert-TestCondition (($liveRecoverResult.Code -ne 0) -and ($liveRecoverResult.Out -match 'live-plan-host-resolution-required')) 'the public live-recovery DryRun fails closed without the sandbox capability'
+    }
     Assert-TestCondition (-not (Test-Path -LiteralPath $liveRecoverPlanPath)) 'the refused live-recovery DryRun writes no plan file'
 
     Write-Host '[approved runner manual trigger is hard-closed]'
@@ -335,8 +372,8 @@ try {
     Assert-TestCondition (($manualRun.Code -eq 73) -and ($manualRun.Out -match 'safety-protocol-upgrade-required')) 'the approved runner manual trigger returns the interlock token with exit 73 and zero routing'
 
     Write-Host '[canonical public apply stays interlocked]'
-    # These two pins pin the INTERLOCKED public contract; Phase 4 PR-G owns the
-    # post-Assert delta (see the header note).
+    # Policy-state-aware pin (see the header note): interlocked hard stop below;
+    # released post-Assert contract in the branched assertion.
     $canonicalRepo = Join-Path $work 'canonical-repo'
     foreach ($root in @('skills-source/shared', 'skills-source/claude-only', 'skills-source/codex-only', 'skills-source/reasonix-only', 'claude/skills', 'codex/skills', 'reasonix/skills', 'manifests')) {
         [System.IO.Directory]::CreateDirectory((Join-Path $canonicalRepo $root)) | Out-Null
@@ -373,10 +410,20 @@ try {
     $canonicalApply = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/canonical-transaction.ps1') -Arguments @(
         '-RepoRoot', $canonicalRepo, '-OperationKind', 'normalize', '-Apply', '-PlanPath', $canonicalPlan
     )
-    Assert-TestCondition (($canonicalApply.Code -eq 75) -and ($canonicalApply.Out -match 'canonical-apply-interlocked')) 'canonical public Apply revalidates the reviewed plan and hard-stops interlocked with exit 75'
+    if ($script:IsReleased) {
+        # Observed released contract: the Assert returns, the lock-order
+        # acquisition fails closed for a repo without canonical setup
+        # (filtered to held=$null), and the skill route refuses with the typed
+        # canonical-setup-required WARN result (exit 1) before any mutation.
+        Assert-TestCondition (($canonicalApply.Code -eq 1) -and ($canonicalApply.Out -match 'canonical-setup-required')) 'canonical public Apply proceeds past the released Assert and fails closed on the missing canonical setup (released)'
+    }
+    else {
+        Assert-TestCondition (($canonicalApply.Code -eq 75) -and ($canonicalApply.Out -match 'canonical-apply-interlocked')) 'canonical public Apply revalidates the reviewed plan and hard-stops interlocked with exit 75'
+    }
 
     Write-Host '[canonical recovery public apply stays interlocked]'
-    # Interlocked public contract pin; PR-G owns the post-Assert delta.
+    # Policy-state-aware pin (see the header note); the released branch pins the
+    # observed post-Assert production recovery engine outcome.
     $canonicalGit = Initialize-CanonicalReadyFixture -Path $canonicalRepo -SlotRoot (Join-Path $work 'canonical-slot')
     Assert-TestCondition ((Get-CanonicalSetupStatus -RepoRoot $canonicalRepo -ToolchainRoot $RepoRoot) -ceq 'canonical-ready') 'the canonical recovery fixture reports canonical-ready'
     $transactionId = [Guid]::NewGuid().ToString('D')
@@ -401,7 +448,17 @@ try {
     $recoveryApply = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/recover-canonical-transaction.ps1') -Arguments @(
         '-RepoRoot', $canonicalRepo, '-Action', 'abandon', '-TransactionId', $transactionId, '-Apply', '-PlanPath', $recoveryPlan
     )
-    Assert-TestCondition (($recoveryApply.Code -eq 75) -and ($recoveryApply.Out -match 'canonical-recovery-apply-interlocked')) 'canonical public recovery Apply revalidates the reviewed plan and hard-stops interlocked with exit 75'
+    if ($script:IsReleased) {
+        # Observed released contract on a host whose home-authority bootstrap
+        # is not complete: the Assert returns, the lock order is skipped (the
+        # bootstrap gate stays fail-closed), and the production recovery engine
+        # runs the reviewed abandon to completion against the fixture's own
+        # sealed journal namespace.
+        Assert-TestCondition (($recoveryApply.Code -eq 0) -and ($recoveryApply.Out -match 'canonical-recovery-applied')) 'canonical public recovery Apply proceeds past the released Assert and the production engine completes the reviewed abandon (released)'
+    }
+    else {
+        Assert-TestCondition (($recoveryApply.Code -eq 75) -and ($recoveryApply.Out -match 'canonical-recovery-apply-interlocked')) 'canonical public recovery Apply revalidates the reviewed plan and hard-stops interlocked with exit 75'
+    }
 
     Write-Host 'repository policy tests: PASS'
 }

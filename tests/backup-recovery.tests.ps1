@@ -14,7 +14,19 @@ $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-backup-re
 . (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
 . (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
 . (Join-Path $RepoRoot 'scripts/backup-receipt-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/safety-sandbox.ps1')
+
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+# The sandboxed dispatches keep working in both modes because a genuine
+# capability wins the Assert on any ReleaseState; only the three sandbox
+# dispatches whose -RepoRoot sits outside the sandbox (so the interlocked
+# Assert refuses them) branch on the policy state.
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
 
 $script:pass = 0
 
@@ -198,10 +210,20 @@ Write-Host 'rollback sandbox authority bootstrap complete'
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', $initialReceipt, '-DryRun', '-PlanPath', $absentPlan)
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-source-kind-unsupported \(source=initial\)') 'an initial receipt cannot start an ordinary rollback'
 
-    # -Apply stays behind the Phase 0 production interlock.
+    # -Apply stays behind the Phase 0 production interlock while the policy is
+    # interlocked: the composition always passes its real -RepoRoot, which sits
+    # outside the sandbox root, so the interlocked Assert refuses before the
+    # receipt is interpreted. On a released commit the Assert returns and the
+    # same dispatch fails closed at the reviewed plan requirement (Apply
+    # consumes an existing reviewed plan; none exists here).
     $environmentReceipt = New-PreflightReceipt -SourceOperationKind 'environment' -Label 'environment'
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', $environmentReceipt, '-Apply', '-PlanPath', $absentPlan)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'the rollback Apply remains interlocked'
+    if ($script:IsReleased) {
+        Assert ($r.Code -ne 0 -and $r.Out -match 'Artifact or evidence path is missing') 'the rollback Apply proceeds past the released Assert and fails closed on the missing reviewed plan (released)'
+    }
+    else {
+        Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'the rollback Apply remains interlocked'
+    }
 
     # A complete environment receipt without a captured authority preimage
     # cannot name a rollback destination even though its own marker is valid.
@@ -1045,14 +1067,23 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert ($r.Code -eq 0) 'a source header that binds this worktree overlay identity derives the reviewed plan'
     Assert (Test-Path -LiteralPath $originOverlayPlan -PathType Leaf) 'the origin-overlay dry-run writes its plan'
 
-    # The transition itself needs the released protocol: the composition always
-    # passes its -RepoRoot, which is outside the sandbox root, so the interlock
-    # owns the Apply refusal here. The refusal must be the interlock and never
-    # the obsolete overlay-lock token; the transaction it will run is covered by
-    # the live-recovery suite's direct Invoke-SealedEnvironmentRollbackTransaction
-    # tests.
+    # The transition itself is policy-state-aware: while interlocked, the
+    # composition always passes its -RepoRoot, which is outside the sandbox
+    # root, so the interlock owns the Apply refusal here, and the refusal must
+    # never be the obsolete overlay-lock token. On a released commit the Assert
+    # returns and the mutation machinery runs inside the sandbox under the full
+    # lock order; this synthetic graph fixture is not a reviewed staging
+    # intent, so the engine fails closed with the typed apply-failed-but-
+    # restored wrapper (restored, zero partial application). The real
+    # transaction it guards is covered by the live-recovery suite's direct
+    # Invoke-SealedEnvironmentRollbackTransaction tests.
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $originOverlayGraph.ReceiptPath, '-Apply', '-PlanPath', $originOverlayPlan)
-    Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required' -and $r.Out -notmatch 'worktree-overlay-lock-not-implemented') 'the origin-overlay Apply stays behind the production interlock and never refuses on the obsolete overlay token'
+    if ($script:IsReleased) {
+        Assert ($r.Code -ne 0 -and $r.Out -match 'apply-failed-but-restored: live-transaction-intent-mismatch') 'the origin-overlay Apply proceeds past the released Assert and the mutation engine fails closed to a restored terminal for the unreviewable synthetic intent (released)'
+    }
+    else {
+        Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required' -and $r.Out -notmatch 'worktree-overlay-lock-not-implemented') 'the origin-overlay Apply stays behind the production interlock and never refuses on the obsolete overlay token'
+    }
 
     $overlayGraph = New-SourceGraph ([ordered]@{ Label = 'overlay-drift'; OverlayDrift = $true })
     $r = Invoke-GraphRollback -Graph $overlayGraph -PlanPath (Join-Path $work 'overlay-plan.json')
@@ -1127,10 +1158,17 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-live-root-drift \(Reasonix identity\)') 'a replaced live root fails closed even with identical content'
 
     Write-Host '[final interlock]'
-    # The interlocked Apply still rejects a valid eligible graph before any
-    # of the source-graph evidence is interpreted.
+    # While interlocked, the Apply still rejects a valid eligible graph before
+    # any of the source-graph evidence is interpreted. On a released commit the
+    # Assert returns and the same dispatch fails closed at the reviewed plan
+    # requirement (no plan exists at the create-new path).
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $laterGraph.ReceiptPath, '-Apply', '-PlanPath', (Join-Path $work 'apply-plan.json'))
-    Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'the rollback Apply remains interlocked for an eligible graph'
+    if ($script:IsReleased) {
+        Assert ($r.Code -ne 0 -and $r.Out -match 'Artifact or evidence path is missing') 'the rollback Apply proceeds past the released Assert and fails closed on the missing reviewed plan for an eligible graph (released)'
+    }
+    else {
+        Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'the rollback Apply remains interlocked for an eligible graph'
+    }
 
     Write-Host 'backup recovery tests: PASS'
 }
