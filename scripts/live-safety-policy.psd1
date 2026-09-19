@@ -1,6 +1,6 @@
 @{
     SchemaVersion = 1
     ProtocolVersion = 3
-    ReleaseState = 'interlocked'
+    ReleaseState = 'released'
     InterlockDiagnostic = 'safety-protocol-upgrade-required'
 }
