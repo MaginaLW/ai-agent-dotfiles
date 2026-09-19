@@ -55,6 +55,77 @@ function Get-RootTestSuitePaths {
         ForEach-Object { $_.FullName })
 }
 
+function Get-TestShardPartition {
+    # Validates the tracked static shard partition (tests/test-shards.psd1) against the
+    # discovered suite id set and returns it as an ordered map of shard number (string)
+    # -> sorted suite id array. Fails closed on any drift: a key outside 1..ShardCount,
+    # a missing or empty shard, a suite listed twice, a suite the discovery never
+    # produced, or a discovered suite no shard covers. Only the -ShardCount/-ShardIndex
+    # path of scripts/run-tests.ps1 loads the file; the local -All path never does.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [int] $ShardCount,
+        [Parameter(Mandatory)] [string] $ShardConfigPath,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $DiscoveredSuiteIds
+    )
+
+    if ($ShardCount -lt 1) { throw 'test-shard-partition-invalid-count: ShardCount must be at least 1.' }
+    if (-not (Test-Path -LiteralPath $ShardConfigPath -PathType Leaf)) { throw "test-shard-partition-missing-config: $ShardConfigPath" }
+    $data = Import-PowerShellDataFile -LiteralPath $ShardConfigPath
+    $shardEntries = @{}
+    foreach ($key in @($data.Keys)) {
+        $shardNumber = 0
+        if (-not [int]::TryParse([string] $key, [ref] $shardNumber)) {
+            throw "test-shard-partition-invalid-key: shard configuration key '$key' is not a shard number."
+        }
+        if ($shardNumber -lt 1 -or $shardNumber -gt $ShardCount) {
+            throw "test-shard-partition-key-out-of-range: shard configuration key '$key' is outside 1..$ShardCount."
+        }
+        if ($shardEntries.ContainsKey($shardNumber)) {
+            throw "test-shard-partition-duplicate-key: shard $shardNumber is defined more than once."
+        }
+        $shardEntries[$shardNumber] = @($data[$key])
+    }
+    $coveredIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $partition = [ordered]@{}
+    for ($number = 1; $number -le $ShardCount; $number++) {
+        if (-not $shardEntries.ContainsKey($number)) {
+            throw "test-shard-partition-missing-shard: shard configuration is missing shard $number."
+        }
+        $shardIds = [System.Collections.Generic.List[string]]::new()
+        foreach ($entry in $shardEntries[$number]) {
+            if ([string]::IsNullOrWhiteSpace([string] $entry)) {
+                throw "test-shard-partition-invalid-entry: shard $number carries a blank suite id."
+            }
+            $suiteId = ([string] $entry).Replace([char]92, [char]47).ToLowerInvariant()
+            if (-not $coveredIds.Add($suiteId)) {
+                throw "test-shard-partition-duplicate-suite: '$suiteId' is assigned to more than one shard."
+            }
+            $shardIds.Add($suiteId)
+        }
+        if ($shardIds.Count -eq 0) {
+            throw "test-shard-partition-empty-shard: shard $number lists no suites."
+        }
+        $partition[[string] $number] = @($shardIds | Sort-Object)
+    }
+    $discoveredSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($suiteId in $DiscoveredSuiteIds) { $null = $discoveredSet.Add([string] $suiteId) }
+    if ($discoveredSet.Count -ne @($DiscoveredSuiteIds).Count) {
+        throw 'test-shard-partition-duplicate-discovery: discovery returned the same suite id twice.'
+    }
+    foreach ($suiteId in @($coveredIds)) {
+        if (-not $discoveredSet.Contains($suiteId)) {
+            throw "test-shard-partition-unknown-suite: '$suiteId' is not a discovered suite."
+        }
+    }
+    foreach ($suiteId in @($discoveredSet)) {
+        if (-not $coveredIds.Contains($suiteId)) {
+            throw "test-shard-partition-uncovered-suite: '$suiteId' is not assigned to any shard."
+        }
+    }
+    return $partition
+}
+
 function Get-TestSuiteId {
     param([Parameter(Mandatory)] [string] $SuitePath, [Parameter(Mandatory)] [string] $SuiteRoot)
 
@@ -178,8 +249,15 @@ function Invoke-TestSuiteCollection {
         [Parameter(Mandatory)] [string] $SuiteRoot,
         [Parameter(Mandatory)] [string] $TimeoutConfigPath,
         [Parameter(Mandatory)] [string] $JsonSummaryPath,
-        [hashtable] $Environment = @{}
+        [hashtable] $Environment = @{},
+        [int] $ShardCount = 0,
+        [int] $ShardIndex = 0
     )
+
+    $shardRequested = ($ShardCount -ne 0) -or ($ShardIndex -ne 0)
+    if ($shardRequested -and ($ShardCount -le 0 -or $ShardIndex -le 0 -or $ShardIndex -gt $ShardCount)) {
+        throw 'test-run-summary-invalid-shard-fields: ShardCount and ShardIndex must both be positive with 1 <= ShardIndex <= ShardCount.'
+    }
 
     $configuration = Get-TestRunnerConfiguration -Path $TimeoutConfigPath
     $descriptors = @($SuitePaths | ForEach-Object {
@@ -246,6 +324,12 @@ function Invoke-TestSuiteCollection {
         }
         Result = $result
     }
+    if ($shardRequested) {
+        # Insert the shard binding next to the job-contract fields so sharded summaries
+        # are self-describing; the unsharded summary bytes stay exactly as before.
+        $summary.Insert(7, 'ShardCount', $ShardCount)
+        $summary.Insert(8, 'ShardIndex', $ShardIndex)
+    }
     $json = (ConvertTo-Json -InputObject $summary -Depth 20) + "`n"
     Write-CreateNewUtf8File -Path $JsonSummaryPath -Content $json
     $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'schemas/test-run-summary.schema.json') -InstancePath $JsonSummaryPath
@@ -256,6 +340,15 @@ function Invoke-TestSuiteCollection {
 function Test-TestRunSummaryForRunner {
     param([Parameter(Mandatory)] [System.Collections.IDictionary] $Summary)
 
+    $summaryKeys = @($Summary.Keys)
+    if ($summaryKeys -ccontains 'ShardCount' -or $summaryKeys -ccontains 'ShardIndex') {
+        if ($summaryKeys -cnotcontains 'ShardCount' -or $summaryKeys -cnotcontains 'ShardIndex') {
+            throw 'test-run-summary ShardCount and ShardIndex must be recorded together.'
+        }
+        if ([int] $Summary['ShardCount'] -lt 1 -or [int] $Summary['ShardIndex'] -lt 1 -or [int] $Summary['ShardIndex'] -gt [int] $Summary['ShardCount']) {
+            throw 'test-run-summary shard fields must satisfy 1 <= ShardIndex <= ShardCount.'
+        }
+    }
     $counts = $Summary.Counts
     if ([long] $counts.Started -ne ([long] $counts.Passed + [long] $counts.Failed + [long] $counts.TimedOut)) { throw 'test-run-summary Started count is inconsistent.' }
     if ([long] $counts.Completed -ne ([long] $counts.Passed + [long] $counts.Failed)) { throw 'test-run-summary Completed count is inconsistent.' }

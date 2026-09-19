@@ -9,10 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    name: Validate repository
+  validate-gates:
+    name: Validate repository gates
     runs-on: windows-latest
-    timeout-minutes: 460
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -39,6 +39,14 @@ jobs:
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
           if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
 
+      # Reviewed operational decision (owner, 2026-09-19): CI passes the test-only
+      # -SkipGates parameter to exclude the unified-test-runner gate from this job.
+      # The proven 42-suite budget (RequiredJobTimeoutSeconds 27555 s = 459.25 min)
+      # exceeds the 360-minute GitHub hosted-runner job ceiling, so the suite matrix
+      # runs in the parallel validate-tests-1..3 shard jobs below instead (static
+      # partition: tests/test-shards.psd1; per-shard contract asserted by
+      # tests/test-runner.tests.ps1). All other gates and the artifact chain run here,
+      # exactly once, as before.
       - name: Run repository validation orchestrator
         shell: pwsh
         run: |
@@ -46,5 +54,113 @@ jobs:
           $childManifestPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-validation-children-manifest.json'
           $finalManifestPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-validation-final-manifest.json'
           $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-repository-validation-summary.json'
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-repository-validation.ps1') -OutputRoot $outputRoot -ChildArtifactManifestPath $childManifestPath -FinalArtifactManifestPath $finalManifestPath -JsonSummaryPath $summaryPath
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-repository-validation.ps1') -OutputRoot $outputRoot -ChildArtifactManifestPath $childManifestPath -FinalArtifactManifestPath $finalManifestPath -JsonSummaryPath $summaryPath -SkipGates unified-test-runner
           if ($LASTEXITCODE -ne 0) { throw "Repository validation orchestrator failed with exit code $LASTEXITCODE." }
+
+  validate-tests-1:
+    name: Validate test shard 1 of 3
+    runs-on: windows-latest
+    # Shard 1 budget 8280 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
+    # = 8700 s = 145 min; headroom to 170 min, below the 360-minute platform ceiling.
+    timeout-minutes: 170
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install and verify pinned JSON Schema validator
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator install failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator verification failed with exit code $LASTEXITCODE." }
+
+      - name: Install and verify pinned gitleaks
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
+
+      - name: Run test shard 1 of 3
+        shell: pwsh
+        run: |
+          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-1-summary.json'
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 1
+          if ($LASTEXITCODE -ne 0) { throw "Test shard 1 failed with exit code $LASTEXITCODE." }
+          $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 1 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered)." }
+
+  validate-tests-2:
+    name: Validate test shard 2 of 3
+    runs-on: windows-latest
+    # Shard 2 budget 9180 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
+    # = 9600 s = 160 min; headroom to 185 min, below the 360-minute platform ceiling.
+    timeout-minutes: 185
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install and verify pinned JSON Schema validator
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator install failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator verification failed with exit code $LASTEXITCODE." }
+
+      - name: Install and verify pinned gitleaks
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
+
+      - name: Run test shard 2 of 3
+        shell: pwsh
+        run: |
+          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-2-summary.json'
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 2
+          if ($LASTEXITCODE -ne 0) { throw "Test shard 2 failed with exit code $LASTEXITCODE." }
+          $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 2 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered)." }
+
+  validate-tests-3:
+    name: Validate test shard 3 of 3
+    runs-on: windows-latest
+    # Shard 3 budget 9675 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
+    # = 10095 s = 168.25 min; headroom to 195 min, below the 360-minute platform ceiling.
+    timeout-minutes: 195
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install and verify pinned JSON Schema validator
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator install failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator verification failed with exit code $LASTEXITCODE." }
+
+      - name: Install and verify pinned gitleaks
+        shell: pwsh
+        run: |
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
+
+      - name: Run test shard 3 of 3
+        shell: pwsh
+        run: |
+          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-3-summary.json'
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 3
+          if ($LASTEXITCODE -ne 0) { throw "Test shard 3 failed with exit code $LASTEXITCODE." }
+          $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 3 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered)." }

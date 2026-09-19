@@ -13,11 +13,13 @@
 
 ## 1. GitHub 上能看到什么
 
-一个 run 只有 3 层：run → job（固定唯一 `Validate repository`）→ step。当前工作流有 **13 个
-named step**（Checkout、Show PowerShell version、两个 install-verify、Validate registered JSON
+一个 run 只有 3 层：run → job（固定唯一 `Validate repository`）→ step。统计窗口内的工作流有
+**13 个 named step**（Checkout、Show PowerShell version、两个 install-verify、Validate registered JSON
 artifacts、Run repository doctor、Scan for secrets、Build generated skills、Verify build leaves Git
 clean、Validate machine-readable schemas and build evidence、Parse every current-worktree PowerShell
 file、Run every root regression suite exactly once、Reject dangerous tracked files）。
+**2026-09-19 起工作流改为 `validate-gates` + `validate-tests-1..3` 四个作业**（详见 R2 与第 4 节），
+本节与下表的步骤名对应旧单作业结构。
 
 - **annotations 不含根因**：57 次非成功里 **55 次**含 `Process completed with exit code 1.`
   （其中 54 条的 annotation 恰好只有这一行；run `29331454091` 另有 1 条 Node.js 20 deprecation
@@ -76,14 +78,23 @@ SHA 反复失联才升级为资源问题排查，并在记录里写清是重跑�
   才能分开「预算不足」与「实现变慢」——**实现变慢时不得先抬预算**，也不得用记忆里的耗时推断。
 - 本仓 CI 与本地耗时之比是**窗口观察**（`881047a` 那组重套件曾约 2×；`automation-safety` 实测
   约 1.3×），**不是配额**。定档时以该套件自己的实测与 CI 墙钟为准，并参考同类既有档位。
-- 改预算后 `tests/test-runner.tests.ps1` 会校验发现集与预算契约：`timeout-minutes × 60` 必须
-  **严格大于** `SetupAndNonSuiteBudgetSeconds + Σ生效超时 + MarginSeconds`（默认档计入 Σ）。
-  **仅当该不等式不再成立时才需要抬高 `timeout-minutes`**；不是每次改预算都要改工作流。
-- **平台另有硬上限**：GitHub 文档规定「Each job in a workflow can run for up to 6 hours of
-  execution time. If a job reaches this limit, the job is terminated and fails.」——托管 runner 的
-  作业上限是 **360 分钟**，工作流里写 `timeout-minutes: 460` 高于平台上限，平台不会执行到 460。
-  当前 40 个套件的已证预算合计 **439.25 分钟 > 360 分钟**（2026-09-17 复算），即合同对 460 的
-  依赖已经架在平台上限之外；这是既有结构问题，见第 4 节未决项。
+- 改预算后 `tests/test-runner.tests.ps1` 会校验发现集与预算契约（2026-09-19 起为 **per-shard**
+  形式）：每个测试 shard 作业的 `timeout-minutes × 60` 必须**严格大于**
+  `SetupAndNonSuiteBudgetSeconds + Σ该shard生效超时 + MarginSeconds`（默认档计入 Σ），且低于
+  360 分钟平台上限。**仅当该不等式不再成立时才需要抬高对应作业的 `timeout-minutes`**；不是每次
+  改预算都要改工作流。
+- **平台另有硬上限，2026-09-19 起由 shard 结构消解**：GitHub 文档规定「Each job in a workflow
+  can run for up to 6 hours of execution time. If a job reaches this limit, the job is terminated
+  and fails.」——托管 runner 的作业上限是 **360 分钟**。旧结构里单一作业声明 `timeout-minutes: 460`
+  高于平台上限，而已证预算合计 459.25 分钟（27555 秒，2026-09-19 的 42 套件复算）本就放不进一个
+  作业；所有者已裁决**拆分测试矩阵**：`validate-gates`（非套件门禁与产物链，orchestrator 以
+  test-only `-SkipGates unified-test-runner` 运行，这是该参数的一次受评审的 CI 用法）+
+  `validate-tests-1..3`（静态分区 `tests/test-shards.psd1`，按套件预算配平，canonical-hard-kill
+  单独占 shard 1）。每个 shard 作业的 `timeout-minutes` 取「该 shard 预算 + 300 + 120 向上取整 +
+  余量」，必须 < 360 分钟；`tests/test-runner.tests.ps1` 断言该 per-shard 合同，
+  `scripts/run-tests.ps1 -ShardCount/-ShardIndex` 在分区与发现集不一致时失败关闭——**新增套件必须
+  同步 `tests/test-shards.psd1`**（文件头有重平衡步骤）。本地 `run-tests.ps1 -All` 与 orchestrator
+  的非 shard 调用不受影响。
 - 反复超时的套件应给显式预算并记录实测，而不是压缩测试内容。
 
 **证据**（CI 侧已独立核验）：`881047a` 的预算改动本身（`git show 881047a`：420/240/1800/240 →
@@ -247,14 +258,18 @@ publish head `bbba28f`。
 
 ## 4. 未决项
 
-- **聚合预算已越过平台作业上限**（R2）：40 套件的已证预算 439.25 分钟 > 托管 runner 的 360 分钟
-  硬上限，工作流里写的 460 分钟平台不会执行到。要真正成立，需要所有者决定方向（拆分测试矩阵到
-  多个 job、或下调/重排预算），本文件不授权单方面改动。
+- ~~**聚合预算已越过平台作业上限**（R2）~~ **已收口（2026-09-19，所有者裁决拆分测试矩阵）**：
+  工作流改为 `validate-gates` + `validate-tests-1..3` 三路 shard（静态分区 `tests/test-shards.psd1`），
+  42 套件的已证预算 27555 秒（459.25 分钟）被拆进三个并行作业，每个作业的合同秒数
+  （shard 预算 + 300 + 120）分别为 8700/9600/10095 秒（145/160/168.25 分钟），对应声明
+  `timeout-minutes` 170/185/195，全部低于 360 分钟平台上限。现行规则见 R2。
 - `task-skills.tests.ps1` 的 `Task skill dry-run failed (exit 1); overlay was not changed.`
   （run `34851206631`）只到外层提示，未定位到根因；该 run 同时还有 automation-safety 超时与
   harness-authority/harness-env 超时，**不是**单一超时样本。
 - 2026-09-17 两次 runner 失联尚未在同一 SHA 上重跑确认。
 - 早期 `Run MCP tests` 步骤已随 MCP 工具退休从工作流移除，其历史失败不再适用（不是未决）。
+- 2026-09-19 起 shard 工作流尚无一次真实 CI 运行样本；首次运行后按第 1 节重新取数核对
+  per-shard 失败分布（本文件窗口统计对应旧单作业结构）。
 
 ## 5. 证据索引
 

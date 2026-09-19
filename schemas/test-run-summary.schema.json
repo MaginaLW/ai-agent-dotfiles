@@ -4,6 +4,10 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["SchemaVersion", "ReportKind", "GeneratedAtUtc", "DiscoveryHash", "SetupAndNonSuiteBudgetSeconds", "MarginSeconds", "RequiredJobTimeoutSeconds", "Suites", "Counts", "Result"],
+  "dependentRequired": {
+    "ShardCount": ["ShardIndex"],
+    "ShardIndex": ["ShardCount"]
+  },
   "properties": {
     "SchemaVersion": { "const": 1 },
     "ReportKind": { "const": "test-run" },
@@ -12,6 +16,8 @@
     "SetupAndNonSuiteBudgetSeconds": { "type": "integer", "minimum": 1 },
     "MarginSeconds": { "type": "integer", "minimum": 1 },
     "RequiredJobTimeoutSeconds": { "type": "integer", "minimum": 1 },
+    "ShardCount": { "type": "integer", "minimum": 1 },
+    "ShardIndex": { "type": "integer", "minimum": 1 },
     "Suites": { "type": "array", "items": { "$ref": "#/$defs/suite" } },
     "Counts": { "$ref": "#/$defs/counts" },
     "Result": { "enum": ["PASS", "FAIL"] }

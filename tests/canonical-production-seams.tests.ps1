@@ -267,8 +267,15 @@ $reviewedExceptionInventory=@(
 ) | Sort-Object
 
 $reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a50ab3e0655bf2cf01292521c63'
-$reviewedAllScriptsReflectionSensitiveSiteCount=16246
-$reviewedAllScriptsReflectionSensitiveDigest='75ce2c28838dea9d973b349933b37ee47d6744db8ed780ab0c959a8e19c11905'
+# Re-pinned 2026-09-19 for the CI shard slice: +27 reflection-sensitive sites, all in
+# scripts/test-runner-common.ps1 (Get-TestShardPartition, the shard fields of
+# Invoke-TestSuiteCollection and Test-TestRunSummaryForRunner) and scripts/run-tests.ps1
+# (shard selection glue). Row-reviewed delta: 16 InvokeMember rows (BCL collection and
+# [int]/[string] static dispatches, two OrderedDictionary Insert calls), 8 Member rows
+# (.Count/.Keys reads and [System.StringComparer]::Ordinal), 2 ForEach-Object command
+# sites, 1 Sort-Object command site. No dynamic invocation, alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16273
+$reviewedAllScriptsReflectionSensitiveDigest='d0aac3045fb08ace37d0044ebbdad9b913eb9ef98121c520d2e1e6453c100174'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
