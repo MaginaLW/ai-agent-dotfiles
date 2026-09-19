@@ -3406,3 +3406,50 @@ interlocked implementation (Tasks 1-7) is complete; **Task 8 is the owner gate**
 the real-machine read-only/DryRun pass are the owner's to authorize and run; the lab clones the
 policy-only commit, STATUS follows as a later commit, and per the proposal's risk register none
 of it is autonomous work.
+
+### Task 8 Step 1 complete (2026-09-19): the release candidate exists, local-only
+
+Under the owner's explicit authorization ("1. 已提交；2. 你允许下？3. 允许分片" — push confirmed,
+Task 8 delegated to the agent's judgment, sharding approved), the remaining preparation landed and
+the candidate was cut:
+
+- **Sharding decision implemented (`57e2ecb`, worker slice with a row-reviewed seams re-pin)**:
+  `run-tests.ps1` gains `-ShardCount`/`-ShardIndex` over a static three-way partition
+  (`tests/test-shards.psd1`, union == discovery exactly once, fail-closed tokens); CI becomes one
+  gates job (orchestrator minus the runner gate) plus three shard jobs at 170/185/195 minutes —
+  every job under the 360-minute platform ceiling, parallel wall clock ~195 minutes against the
+  old 459-minute single job. `docs/CI_FAILURE_RULES.md` R2 now states the per-shard contract and
+  item 12 is closed as owner-resolved. The slice's smoke also found and fixed a real single-suite
+  array-unroll bug in the shard path (`-All` was never affected). CI has not run the sharded
+  workflow yet — the owner's next push is its first run.
+- **Release-aware interlock pins (`15deede`, worker slice)**: the four suites whose behavioral
+  pins assert the interlocked contract now read `ReleaseState` and branch — interlocked assertions
+  stay byte-for-byte today's pins (zero weakening; CI keeps proving fail-closed), and the released
+  branches pin the OBSERVED post-flip contracts per surface (verified by a temporary flip-revert
+  cycle, both modes green). Notable observed facts recorded as pins: public canonical recovery
+  Apply under released mode actually COMPLETES the reviewed abandon on an incomplete-bootstrap
+  host (exit 0, `canonical-recovery-applied`), and sync/activate/task fail at their own
+  reviewed-plan gates before the resolver, not at host resolution.
+- **Task 8 Step 1 (`bffa7d7`)**: the policy-only release candidate — `ReleaseState: 'interlocked'`
+  → `'released'`, exactly one file, created by the scripted generator (`tmp/lab8/make-candidate.ps1`,
+  machine-local) after the four focused suites passed on the flipped tree. ToolchainPolicyHash
+  `085fbce7db84b94c00d568e460a28d4f6cabf75bbb14c5619fa835e23a600ce2` (it binds the runner toolchain
+  bundle and is unchanged by the flip, as its definition implies). The candidate worktree
+  (`ai-agent-dotfiles-release-candidate`, detached at `bffa7d7`) and the stamped
+  `tmp/lab8/lab8.wsb` are the sandbox mapping inputs. **The candidate is LOCAL and MUST NOT be
+  pushed before the lab**; push order is owner's (sharding + pins first, candidate per Task 8
+  Step 5 after lab evidence, or as the owner directs).
+- **The lab kit** (`tmp/lab8/`, machine-local, gitignored): `lab8.wsb`, the PowerShell 5.1
+  bootstrapper, the core route-exercise script (clone → pinned-tool verify → runner approval →
+  canonical setup / sync / env activate / task ensure / rollback, each DryRun→Apply with per-step
+  JSON evidence, first unexpected non-zero stops), and the README runbook. Every file is
+  parse-checked but the kit is UNTESTED — this machine has no Windows Sandbox (`wsb.exe` absent);
+  enabling it requires elevation and a reboot (owner action), or the owner picks another
+  disposable identity. First rehearsal must pin the rollback receipt flag shape and the sandbox
+  path mappings before relying on a full pass.
+
+State at close: `HEAD` is the commit carrying this paragraph; the candidate sits directly below it;
+the working tree is clean; the three staging locks were rebuilt after this final record commit and
+bind it. Run #128 (`68e9903`) was still in flight at this commit — its verdict and the first
+sharded-workflow run belong to the next record. Task 8 Steps 2-5 (lab, gates-on-candidate,
+reject-or-proceed, STATUS) are the owner's.
