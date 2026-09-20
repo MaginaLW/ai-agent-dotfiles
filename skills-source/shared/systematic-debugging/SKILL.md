@@ -176,7 +176,9 @@ You MUST complete each phase before proceeding to the next.
    - Automated test if possible
    - One-off test script if no framework
    - MUST have before fixing
-   - Use the `superpowers:test-driven-development` skill for writing proper failing tests
+   - Capture the smallest input and observable expected result that expose the defect
+   - Run the case before the fix and confirm it fails for the investigated reason, not a setup error
+   - Keep a useful automated regression in the existing test suite; for a non-automatable issue, record reproducible steps and the observed failure
 
 2. **Implement Single Fix**
    - Address the root cause identified
@@ -284,8 +286,7 @@ These techniques are part of systematic debugging and available in this director
 - **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
 
 **Related skills:**
-- **superpowers:test-driven-development** - For creating failing test case (Phase 4, Step 1)
-- **superpowers:verification-before-completion** - Verify fix worked before claiming success
+- **verification-before-completion** - When available, verify the fix worked before claiming success; Phase 4 above provides the essential checks without another skill
 
 ## Real-World Impact
 

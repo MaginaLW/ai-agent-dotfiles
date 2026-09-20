@@ -1,69 +1,55 @@
 ---
 name: brainstorming
-description: "Use before creative, strategic, design, planning, or exploratory work where the user's intent and success criteria need to be shaped before execution."
+description: "Explore design alternatives when the user's goal, success criteria, or consequential design choices are unclear. Use for requested brainstorming; proceed directly on clear, already-authorized implementation or routine edits."
 ---
 
 # Brainstorming Ideas Into Designs
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
-Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
+Start by understanding the current project context, then resolve the decisions that materially affect the result. Present the proposed direction and trade-offs at a level appropriate to the task.
 
-<HARD-GATE>
-Do NOT start producing the final artifact, changing files, executing a plan, publishing, sending, or applying irreversible actions until you have presented the proposed direction and the user has approved it. Scale this gate to the task: a small request may need only a short design, but it still needs explicit alignment.
-</HARD-GATE>
+## Scope and Authorization
 
-## Anti-Pattern: "This Is Too Simple To Need A Design"
+Use this workflow when exploration will resolve a meaningful uncertainty, not for every creative task, config change, or simple utility. Reuse explicit choices and valid authorization from the conversation; do not ask the user to approve the same direction again.
 
-Every project goes through this process. A todo list, a single-function utility, a config change — all of them. "Simple" projects are where unexamined assumptions cause the most wasted work. The design can be short (a few sentences for truly simple projects), but you MUST present it and get approval.
+If a missing user decision determines the outcome and cannot reasonably be inferred, ask before doing dependent work and continue independent preparation. Honor an explicit design-only phase stop. A design or plan does not authorize publishing, sending messages, deployment, destructive changes, or other actions outside the user's authorized scope; obtain any required authorization at the action boundary.
 
 ## Checklist
 
-You MUST create a task for each of these items and complete them in order:
+Adapt these steps to the unresolved decisions; do not create a separate task or approval checkpoint for every item:
 
 1. **Explore project context** — check relevant files, docs, notes, examples, constraints, or recent decisions
-2. **Offer visual companion** (if topic will involve visual questions) — this is its own message, not combined with a clarifying question. See the Visual Companion section below.
-3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
-4. **Propose 2-3 approaches** — with trade-offs and your recommendation
-5. **Present design** — in sections scaled to their complexity, get user approval after each section
-6. **Write design note if useful** — save to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` in repos, or another user-approved location
+2. **Use visuals if helpful** — see the Visual Companion section below
+3. **Ask necessary clarifying questions** — understand unresolved purpose/constraints/success criteria
+4. **Compare plausible approaches** — with trade-offs and your recommendation when alternatives matter
+5. **Present design** — scale detail to complexity and surface any decisions that still require user input
+6. **Write design note if useful** — follow the project's document location and naming conventions
 7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-8. **User reviews written spec** — ask user to review the spec file before proceeding
-9. **Transition to the next step** — create an execution plan, continue drafting, research, or act only after approval
+8. **Resolve remaining decisions** — request review only when needed or explicitly required by the user or project
+9. **Transition to the next step** — continue within the authorized scope; stop at any explicit phase boundary
 
 ## Process Flow
 
 ```dot
 digraph brainstorming {
     "Explore project context" [shape=box];
-    "Visual questions ahead?" [shape=diamond];
-    "Offer Visual Companion\n(own message, no other content)" [shape=box];
-    "Ask clarifying questions" [shape=box];
-    "Propose 2-3 approaches" [shape=box];
-    "Present design sections" [shape=box];
-    "User approves design?" [shape=diamond];
-    "Write design doc" [shape=box];
-    "Spec self-review\n(fix inline)" [shape=box];
-    "User reviews spec?" [shape=diamond];
-    "Choose approved next step" [shape=doublecircle];
+    "Explore unresolved design choices" [shape=box];
+    "Present direction; document if useful" [shape=box];
+    "Missing required decision or authorization?" [shape=diamond];
+    "Ask; continue independent preparation" [shape=box];
+    "Proceed within scope or honor phase stop" [shape=doublecircle];
 
-    "Explore project context" -> "Visual questions ahead?";
-    "Visual questions ahead?" -> "Offer Visual Companion\n(own message, no other content)" [label="yes"];
-    "Visual questions ahead?" -> "Ask clarifying questions" [label="no"];
-    "Offer Visual Companion\n(own message, no other content)" -> "Ask clarifying questions";
-    "Ask clarifying questions" -> "Propose 2-3 approaches";
-    "Propose 2-3 approaches" -> "Present design sections";
-    "Present design sections" -> "User approves design?";
-    "User approves design?" -> "Present design sections" [label="no, revise"];
-    "User approves design?" -> "Write design doc" [label="yes"];
-    "Write design doc" -> "Spec self-review\n(fix inline)";
-    "Spec self-review\n(fix inline)" -> "User reviews spec?";
-    "User reviews spec?" -> "Write design doc" [label="changes requested"];
-    "User reviews spec?" -> "Choose approved next step" [label="approved"];
+    "Explore project context" -> "Explore unresolved design choices";
+    "Explore unresolved design choices" -> "Present direction; document if useful";
+    "Present direction; document if useful" -> "Missing required decision or authorization?";
+    "Missing required decision or authorization?" -> "Ask; continue independent preparation" [label="yes"];
+    "Ask; continue independent preparation" -> "Explore unresolved design choices" [label="decision received"];
+    "Missing required decision or authorization?" -> "Proceed within scope or honor phase stop" [label="no"];
 }
 ```
 
-**The terminal state is an approved next step.** For multi-step execution, invoke `writing-plans`. For simpler work, continue directly with the approved direction. Do not jump into a specialized implementation skill before the design is approved.
+**The outcome is a clear direction and any remaining decision boundaries.** Use `writing-plans` when a detailed implementation plan adds value and the skill is available. Otherwise continue directly within the user's authorized scope.
 
 ## The Process
 
@@ -72,14 +58,14 @@ digraph brainstorming {
 - Check out the current project state first (files, docs, notes, examples, recent decisions)
 - Before asking detailed questions, assess scope: if the request describes multiple independent subsystems (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately. Don't spend questions refining details of a project that needs to be decomposed first.
 - If the project is too large for a single design, help the user decompose it: what are the independent pieces, how do they relate, what order should they happen in? Then brainstorm the first piece through the normal design flow.
-- For appropriately-scoped projects, ask questions one at a time to refine the idea
+- Ask only questions whose answers materially affect the design and cannot be inferred from context
 - Prefer multiple choice questions when possible, but open-ended is fine too
-- Only one question per message - if a topic needs more exploration, break it into multiple questions
+- Keep questions focused; bundle closely related questions when that reduces back-and-forth
 - Focus on understanding: purpose, constraints, success criteria
 
 **Exploring approaches:**
 
-- Propose 2-3 different approaches with trade-offs
+- Compare 2-3 plausible approaches when there are meaningful alternatives; do not invent alternatives for a settled choice
 - Present options conversationally with your recommendation and reasoning
 - Lead with your recommended option and explain why
 
@@ -87,7 +73,7 @@ digraph brainstorming {
 
 - Once you believe you understand what you're building, present the design
 - Scale each section to its complexity: a few sentences if straightforward, up to 200-300 words if nuanced
-- Ask after each section whether it looks right so far
+- Ask for input on unresolved consequential choices, not approval after every section
 - Cover the relevant dimensions: structure, components or sections, inputs and outputs, risks, decision points, review method, and validation
 - Be ready to go back and clarify if something doesn't make sense
 
@@ -108,8 +94,7 @@ digraph brainstorming {
 
 **Documentation:**
 
-- Write the validated design note to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` in repos, or another user-approved location
-  - (User preferences for spec location override this default)
+- Write a design note when the complexity or requested deliverable warrants one; follow existing project conventions and user preferences
 - Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit only if this is git-tracked work and the user or repo workflow expects commits
 
@@ -123,43 +108,36 @@ After writing the spec document, look at it with fresh eyes:
 
 Fix any issues inline. No need to re-review — just fix and move on.
 
-**User Review Gate:**
-After the spec review loop passes, ask the user to review the written spec before proceeding:
-
-> "Design note written to `<path>`. Please review it and let me know if you want changes before we move to the next step."
-
-Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
+**Review and Remaining Decisions:**
+Share the design note when one was written. Ask for review when the user requested a design review, the project requires it, or an unresolved decision blocks dependent work. Otherwise continue the authorized task without adding a written-spec approval gate. Incorporate requested changes and check their effect on scope and consistency.
 
 **Next Step:**
 
-- For multi-step execution, invoke `writing-plans` to create a detailed execution plan.
-- For simple approved work, proceed directly.
+- Use `writing-plans` when a detailed execution plan is useful and the skill is available.
+- For clear, authorized work, proceed directly.
 - For research or writing, continue with the approved direction and validation method.
 
 ## Key Principles
 
-- **One question at a time** - Don't overwhelm with multiple questions
+- **Focused questions** - Resolve material uncertainty without unnecessary back-and-forth
 - **Multiple choice preferred** - Easier to answer than open-ended when possible
 - **YAGNI ruthlessly** - Remove unnecessary extras from all designs
-- **Explore alternatives** - Always propose 2-3 approaches before settling
-- **Incremental validation** - Present design, get approval before moving on
+- **Explore alternatives** - Compare options when they affect the outcome
+- **Proportional validation** - Reuse existing decisions and request input only where needed
 - **Be flexible** - Go back and clarify when something doesn't make sense
 
 ## Visual Companion
 
 A browser-based companion for showing mockups, diagrams, and visual options during brainstorming. Available as a tool — not a mode. Accepting the companion means it's available for questions that benefit from visual treatment; it does NOT mean every question goes through the browser.
 
-**Offering the companion:** When you anticipate that upcoming questions will involve visual content (mockups, layouts, diagrams), offer it once for consent:
-> "Some of what we're working on might be easier to explain if I can show it to you in a web browser. I can put together mockups, diagrams, comparisons, and other visuals as we go. This feature is still new and can be token-intensive. Want to try it? (Requires opening a local URL)"
+**Choosing visuals:** Use an available inline visualization or a simple diagram when it helps resolve a design choice. The optional browser companion is useful for interactive mockups; check its setup requirements and the user's preferences before launching it. Do not make visual setup a prerequisite for unrelated design work.
 
-**This offer MUST be its own message.** Do not combine it with clarifying questions, context summaries, or any other content. The message should contain ONLY the offer above and nothing else. Wait for the user's response before continuing. If they decline, proceed with text-only brainstorming.
-
-**Per-question decision:** Even after the user accepts, decide FOR EACH QUESTION whether to use the browser or the terminal. The test: **would the user understand this better by seeing it than reading it?**
+**Per-question decision:** Decide whether the user would understand this better by seeing it than reading it.
 
 - **Use the browser** for content that IS visual — mockups, wireframes, layout comparisons, architecture diagrams, side-by-side visual designs
 - **Use the terminal** for content that is text — requirements questions, conceptual choices, tradeoff lists, A/B/C/D text options, scope decisions
 
 A question about a UI topic is not automatically a visual question. "What does personality mean in this context?" is a conceptual question — use the terminal. "Which wizard layout works better?" is a visual question — use the browser.
 
-If they agree to the companion, read the detailed guide before proceeding:
+If using the browser companion, read its setup and consent instructions before launching it:
 `./visual-companion.md`

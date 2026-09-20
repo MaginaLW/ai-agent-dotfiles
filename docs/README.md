@@ -1,16 +1,16 @@
 # ai-agent-dotfiles 使用说明
 
-> **生产联锁（`ReleaseState=interlocked`）：** production sync (including retirement)/environment/
-> authority/task/rollback `-Apply` and canonical setup/recover `-Apply` remain interlocked and return
-> `safety-protocol-upgrade-required` before traversal or mutation. The public standalone
-> `backup.ps1` entry is retired: it writes nothing and exits `backup-is-transaction-internal`
-> (exit 1) with or without `-DryRun`; managed snapshots are created only by the live transaction
-> host from a bound ReceiptIntent. sync/rollback/live-recover DryRun requires the internal sandbox
-> host (capability + host-injected roots) and fails closed with
-> `live-plan-host-resolution-required` elsewhere. DryRun/status remain available, and Git hooks
-> emit preview/event only. The explicit
-> exception is `apply-harness-profile.ps1 -Apply`, whose writes stay within allowlisted project
-> outputs and project-local rollback backups.
+> **发布与验收边界：** 以 [STATUS.md 当前状态](../STATUS.md#current-state) 和
+> [受控 policy](../scripts/live-safety-policy.psd1) 为准。代码可进入 released 路径不等于
+> 完成 lab 验收或获得 live 部署授权；不得依赖历史 Phase 0 的机械联锁承诺。
+> production sync（含 retirement）/environment/authority/task/rollback 与 canonical setup/recover
+> 的 Apply 仍须满足当前验收、授权、计划审查及适用 host/identity/扫密门禁。
+> 公共 `backup.ps1` 已退役：无论是否带 `-DryRun`，均零写退出并返回
+> `backup-is-transaction-internal`（exit 1）；受管快照只由事务宿主从绑定 ReceiptIntent 创建。
+> host resolver 优先接受有效 sandbox capability 和注入根；released 分支可解析真实 Windows
+> identity，不能把裸调用当作安全隔离。本项目仍按 `AGENTS.md` 要求在 internal sandbox 中运行 DryRun。
+> Git hooks 只生成 preview/event。`apply-harness-profile.ps1 -Apply` 仅写允许清单中的项目输出
+> 和项目本地 rollback backup，不提供 production live 部署权限。
 
 面向"未来的我"和"接手的 Claude Code / Codex agent"。看完这份手册即可独立维护本项目。
 
@@ -25,8 +25,8 @@
 - 用 Git 维护**唯一可信源** `skills-source/`。
 - 用 `scripts/build-skills.ps1` 从源生成 Claude / Codex / Reasonix 的 runtime output。
 - 用 `scripts/sync.ps1` 生成并审查部署到本机 live skills 目录的 schema 3 语义计划；
-  公共 DryRun 面只产出 pristine-initial 与显式 retirement 两个 OperationKind，且只在
-  internal sandbox（capability + host 注入根）内运行；interlock 下不 Apply。
+  公共 DryRun 面只产出 pristine-initial 与显式 retirement 两个 OperationKind；
+  本手册采用 internal sandbox（capability + host 注入根）验证，不据此执行 production Apply。
 - 可恢复副本由事务协议经 backup-receipt 在 Apply 前创建；公共 standalone backup 入口已退役
   （`backup-is-transaction-internal`，零写退出）。
 - 用 repo-local Git hooks 在相关 `git pull` / rebase / branch checkout 后记录 preview/event。
@@ -79,8 +79,8 @@
 | `manifests/managed-skills.txt` | 三平台 union inventory；实际 prune authority 使用各平台 manifest，旧 live 名称默认按 unknown 保留 |
 | `scripts/build-skills.ps1` | 从源生成 runtime output，并刷新 manifest |
 | `scripts/scan-secrets.ps1` | secret 扫描（gitleaks + 自定义回退扫描器） |
-| `scripts/backup.ps1` | 公共 standalone 入口已退役：零写、非零 `backup-is-transaction-internal` 诊断；受管快照由事务宿主经 backup-receipt 创建（Task 5 前沙箱内 legacy 桥除外） |
-| `scripts/sync.ps1` | schema 3 语义计划 producer（pristine-initial / 显式 retirement），只在 internal sandbox 内 DryRun；显式绑定 `-HomeRoot`/`-BackupRoot` 时保留旧 content-aware 部署路由（env activation 契约，Task 5 Step 1 移除） |
+| `scripts/backup.ps1` | 公共 standalone 入口已退役：零写、非零 `backup-is-transaction-internal` 诊断；受管快照由事务宿主经 backup-receipt 创建 |
+| `scripts/sync.ps1` | schema 3 语义计划 producer（pristine-initial / 显式 retirement）；由 host resolver 解析 sandbox 或受控 Windows identity，Apply 消费审查过的同一计划 |
 | `scripts/config-status.ps1` | 只读 config drift 报告（repo ↔ home），见 §14 |
 | `scripts/config-pull.ps1` | 部署 harness 配置 repo→home，默认 dry-run，`-Apply` gated |
 | `scripts/config-push.ps1` | 捕获 harness 配置 home→repo，双 gate（扫密 + 私有路径），默认 dry-run |
@@ -120,8 +120,8 @@ pwsh -NoProfile -File .\bootstrap.ps1
 
 `bootstrap.ps1` 先安装 inert wrappers，然后依次检查 pinned validator、pinned gitleaks 和
 Git-private approved runner。缺失时只输出一个固定 token 和一条绝对安装/批准命令；执行该命令
-后再次运行 bootstrap。联锁下最终只返回 `safety-protocol-upgrade-required`，不会生成可消费
-plan，更不会 Apply。Git hooks 也只能写 non-consumable preview/event，并打印显式外部 DryRun 命令。
+后再次运行 bootstrap。获准 runner 只生成 preview/diagnostic，不生成可消费 plan 或执行 Apply。
+Git hooks 也只能写 non-consumable preview/event，并打印显式外部 DryRun 命令。
 
 手动维护流程仍然可用：
 
@@ -134,9 +134,9 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 scan  # 检查 secrets
 $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-sync-sandbox-$([Guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $sandbox | Out-Null
 $plan = Join-Path $sandbox 'sync-plan.json'
-# 公共 DryRun 只在 internal sandbox 内运行：capability + 三个注入根
-# （AI_AGENT_DOTFILES_INTERNAL_{HOME_ROOT,BACKUP_ROOT,CONTROL_BASE}）齐备，
-# 否则以 live-plan-host-resolution-required 失败并零计划字节。
+# 本示例通过 internal sandbox 运行：capability + 三个注入根
+# （AI_AGENT_DOTFILES_INTERNAL_{HOME_ROOT,BACKUP_ROOT,CONTROL_BASE}）必须齐备。
+# released policy 下裸调用可能解析真实 identity，不可用它代替 sandbox。
 # pristine-initial producer 物化 named full 环境并 create-new 写 schema 3 计划；
 # tests/sync.tests.ps1 与 tests/helpers/safety-sandbox.ps1 是可执行的调用示例。
 & pwsh -NoProfile -File scripts/internal/live-transaction-host.ps1 `
@@ -144,10 +144,10 @@ $plan = Join-Path $sandbox 'sync-plan.json'
     -ScriptPath (Join-Path (Get-Location) 'scripts/sync.ps1') `
     -ArgumentsBase64 ([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(
         (ConvertTo-Json @('-SkipBuild','-SkipSecretScan','-DryRun','-PlanPath',$plan) -Compress))))
-# 联锁下到此停止；production Apply 仍被 safety-protocol-upgrade-required 拦截
+# 本验证流程到此停止；production Apply 另须满足当前验收与授权要求。
 ```
 
-`sync.ps1` 的 schema 3 计划面默认是 **dry-run**，只打印计划与物化旁路，不动 live；plan 走 create-new（重跑同路径返回 `live-plan-path-collision`）。未来解除 interlock 后，`-Apply` 合同要求带有先前 dry-run 生成的 `-PlanPath`，在 backup 前重算五步门（文档完整性、当前 PlanHash、绑定物化现势、selection context、DocumentHash 未消费）。当前 `ReleaseState=interlocked` 的 `-Apply` 在 backup 或 mutation 前返回 `safety-protocol-upgrade-required`；pristine-initial 的 live mutation 宿主在 Task 4 状态机前保持 fail-closed。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
+`sync.ps1` 的 schema 3 计划面默认是 **dry-run**，只打印计划与物化旁路，不动 live；plan 走 create-new（重跑同路径返回 `live-plan-path-collision`）。`-Apply` 合同要求带有先前 dry-run 生成的 `-PlanPath`，在 backup 前重算五步门（文档完整性、当前 PlanHash、绑定物化现势、selection context、DocumentHash 未消费），并通过事务宿主执行。执行资格以 [当前状态](../STATUS.md#current-state) 为准，不以历史联锁保证无写入。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
 
 如果只想跳过初始 preview diagnostic：
 
@@ -158,7 +158,7 @@ pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialPlan
 安装后，`post-merge`、`post-checkout`、`post-rewrite` 只调用已批准的 Git-private runner。
 toolchain 漂移返回 `runner-review-required`；data-only 变化最多产生不可作为 `-PlanPath` 的
 Git-private preview/event。用户必须另行把明确的 `-DryRun -PlanPath <external>` 命令写到 repo/Git
-私有目录之外，才会得到未来可审查的 actionable plan。hook 永不自动 backup/apply/prune/rollback。
+私有目录之外，并满足 host 条件，才会得到可审查的 actionable plan。hook 永不自动 backup/apply/prune/rollback。
 
 ---
 
@@ -169,10 +169,10 @@ Git-private preview/event。用户必须另行把明确的 `-DryRun -PlanPath <e
 3. `scripts/scan-secrets.ps1`
 4. 在 internal sandbox 内以 pristine-initial producer 生成 schema 3 计划并审查
    （调用形态见 §4；重跑同 `-PlanPath` 返回 `live-plan-path-collision`）
-5. 联锁下停止；`scripts/sync.ps1 -Apply` 当前必定返回 `safety-protocol-upgrade-required`
+5. 本流程停在计划审查；Apply 必须另行满足[当前验收与授权要求](../STATUS.md#current-state)，不能用试跑 Apply 检测联锁。
 6. 提交 source / manifest / docs 变更（**不要**提交 generated output）。
 7. `git push`
-8. 其它电脑的 hook 只生成 non-consumable preview/event；每台机器都必须显式生成外部 DryRun 计划，interlock 不允许 Apply。
+8. 其它电脑的 hook 只生成 non-consumable preview/event；每台机器都必须显式生成并审查自己的外部 DryRun 计划，满足验收与授权后才能 Apply。
 
 如果这次修改是**删除 canonical skill**，build 会同时从 generated output 和当前 manifest
 移除名称；旧 live 目录因此会按 unknown 保留，不会被普通 sync 猜测性删除。完成逐项审查后，
@@ -197,7 +197,7 @@ $plan = Join-Path $sandbox 'retire-plan.json'
 $retire = Join-Path $env:TEMP 'ai-agent-dotfiles-retire-skills.json'
 # 经 live-transaction-host.ps1 传参：'-DryRun','-PlanPath',$plan,'-RetireManifestPath',$retire
 # 逐平台审查 retirement-authorized prune、unknown 和 .system 状态
-# Future released contract only; do not run during Phase 0:
+# 仅描述合同；执行前须满足 STATUS.md 当前验收、授权及 host 要求：
 # pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan -RetireManifestPath $retire
 ```
 
@@ -257,14 +257,13 @@ consumption ledger 的密码学防重放协议。如果将来在完全相同路�
 
 ## 9. backup / restore
 
-- Future released `sync.ps1 -Apply` contract includes a pre-change backup; the production
-  interlock refuses Apply first.
+- 受管 `sync.ps1 -Apply` 合同包含变更前备份；能否执行以[当前验收与授权状态](../STATUS.md#current-state)为准。
 - 公共 standalone `scripts/backup.ps1` 已退役：带不带 `-DryRun` 都是零写退出，诊断为
   `backup-is-transaction-internal`（exit 1），不创建任何 backup；受管快照由 live transaction
   host 从绑定的 ReceiptIntent 创建，其 preview 来自审查过的计划（见 §4），不是公共入口。
 - 默认备份位置（repo 外）：
   ```text
-  %USERPROFILE%\.ai-agent-dotfiles-backups
+  %LOCALAPPDATA%\ai-agent-dotfiles\backups
   ```
 - 恢复操作详见 [RESTORE.md](RESTORE.md)。
 
@@ -280,15 +279,14 @@ pwsh -NoProfile -File .\bootstrap.ps1                  # 每个 clone 运行一�
 git pull --ff-only                                     # hooks 只记录 preview/event，不 Apply
 ```
 
-如果没有安装 auto-sync hooks，仍可使用手动流程（build/scan 同 §4；生产 DryRun 不能裸跑——
-没有 sandbox capability 与三个注入根时会以 `live-plan-host-resolution-required` 零计划字节
-失败——必须按 §4 的 `scripts/internal/live-transaction-host.ps1` 形态调用）：
+如果没有安装 auto-sync hooks，仍可使用手动流程（build/scan 同 §4；离线验证按 §4 的
+`scripts/internal/live-transaction-host.ps1` 形态隔离调用，不能假定裸调用会被拒绝）：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 build
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 scan
-# 生产 sync DryRun：按 §4 的 host 调用形态生成外部计划（plan 走 create-new）
-# 联锁下到此停止；sync -Apply 仍返回 safety-protocol-upgrade-required
+# sandbox sync DryRun：按 §4 的 host 调用形态生成外部计划（plan 走 create-new）
+# 本验证流程到此停止；production Apply 另须满足当前验收与授权要求。
 ```
 
 ---
@@ -313,7 +311,7 @@ A：`.system` 是 Codex 平台自带目录，不由本仓库管理。live 校验
 A：`claude/skills/`、`codex/skills/` 是由 `build-skills.ps1` 从 `skills-source/` 生成的，属派生物，已 Git-ignored；提交它会造成源与产物双份维护和漂移。
 
 **Q：新电脑第一次部署怎么办？**
-A：`git clone` → `bootstrap.ps1` → 按输出依次安装 validator/scanner、显式批准 runner → 再次 bootstrap 得到 Phase 0 interlock。`-SkipInitialSync` 仅为 `-SkipInitialPlan` 的弃用警告别名。hook 只生成 preview/event；显式外部 DryRun 可审查，但当前不 Apply。
+A：`git clone` → `bootstrap.ps1` → 按输出依次安装 validator/scanner、显式批准 runner → 再次 bootstrap 生成 preview/diagnostic。`-SkipInitialSync` 仅为 `-SkipInitialPlan` 的弃用警告别名。hook 只生成 preview/event；实际部署须满足[当前验收与授权要求](../STATUS.md#current-state)，并先审查该机器的外部 DryRun 计划。
 
 **Q：scan-secrets 报 false positive 怎么办？**
 A：优先**改写源文档/示例措辞**让它不再像真实密钥——例如把"给 `secret` 键直接赋一个带引号的明文字符串"这类示例，改写成描述性文字（说明应从环境变量或密钥管理器读取）。**不要** whitelist，**不要**削弱 scan gate。改完重新 build + scan。
@@ -377,9 +375,9 @@ pwsh -NoProfile -File tests/harness-profile.tests.ps1
 - `scripts/apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写 allowlisted 项目输出以及
   `.agent-harness/backups/` 下的项目本地 rollback backup/manifest。
 
-这是 Phase 0 的显式例外：该 `-Apply` 不写 home 或 live skills，也不触发 repo 外
+这是项目本地操作边界：该 `-Apply` 不写 home 或 live skills，也不触发 repo 外
 production backup、production rollback 或 production transaction state；其 rollback 数据
-只位于目标项目内，因此不受 production live-mutation interlock 的含义扩张。
+只位于目标项目内，不扩展为 production live 部署权限。
 
 当前受控输出类型包括 Claude `.claude/commands/` 与 `.claude/agents/`、Codex
 `.codex/prompts/` 与 `.codex/agents/`。
@@ -411,13 +409,15 @@ Harness Environments 是 conda 式的命名环境层：每个环境声明一个 
 并可经门控的 `env activate` 切换到 live home。
 设计见 `docs/superpowers/specs/2026-07-10-harness-env-design.md`。
 
-> 本节保留的 environment/task `-Apply` 命令描述的是受审查的未来接口合同。Phase 0 中这些
-> 调用均在 backup 或 mutation 前返回 `safety-protocol-upgrade-required`；Git hook 也不会代为
-> Apply，只记录 non-consumable preview/event。当前可执行边界是 status/build/DryRun。
+> 本节的 environment/task `-Apply` 命令描述接口合同，不提供执行授权；执行前须核对
+> [当前发布与验收状态](../STATUS.md#current-state)。Git hook 不代为 Apply，
+> 只记录 non-consumable preview/event。日常离线维护停在 status/build/sandbox DryRun。
 
 ### 16.1 Task skill overlay（按任务热插拔）
 
-`work.psd1` 是稳定的基础集合；任务临时需要的已管理 skill 不会被永久写回基础环境，
+`work.psd1` 是稳定的基础集合，Claude/Codex/Reasonix 各保留 `systematic-debugging` 一个 skill；
+其余源 skill 保留在 `full` 中，按任务需要选择，`minimal` 保留测试样例选集。
+任务临时需要的已管理 skill 不会被永久写回基础环境，
 而是记录在当前分支/worktree 的 `.agent-harness/task-skills.psd1`。它是 Git 可审查的请求，
 不是 generated output，也不是 live home 状态；默认空文件形状为：
 
@@ -451,18 +451,18 @@ pwsh -NoProfile -File tests/task-skills.tests.ps1
 - `ensure-skill` 只接受对应平台 manifest、`skills-source/` 和 generated output 都存在的 skill；
   未管理、隔离、路径型或扫密失败的内容会在 live 写入前拒绝。
 - 每次变更都先构造临时 overlay，运行 build → scan → 环境 staging → fingerprint-bound sync dry-run；
-  未来解除 interlock 后，`-Apply` 才可原子更新 tracked overlay 并进入事务部署。
-- `close` 会删除 overlay 并可能 prune 任务增加的 managed skill；当前只审查 DryRun，Phase 0 不 Apply。
+  `-Apply` 合同原子更新 tracked overlay 并进入事务部署，执行须满足当前验收与授权要求。
+- `close` 会删除 overlay 并可能 prune 任务增加的 managed skill；必须显式 DryRun、审查后再按授权 Apply。
 - Git hook 在其它电脑 checkout/pull 后只记录 non-consumable preview/event，不自动重建或应用
-  addition/removal；人工也必须停在 `env task sync -DryRun` 的审查边界。
+  addition/removal；人工必须先完成 `env task sync -DryRun` 审查并满足当前执行要求。
 - 共享范围是提交该 overlay 的 branch/worktree；机器只根据 source + overlay 重建，不复制另一台机器的 home。
   新 clone 仍需先运行 `bootstrap.ps1` 安装 hooks；Git 不会自动安装仓库内 hook。
 - Codex 应用已经缓存的 skill catalog 可能需要新 task/thread 才刷新。仓库可以热插拔文件、环境和状态，
   但不能强制应用层未公开的 catalog reload。
 
 `list` / `status` 只读；`build` 只写可删除、可重建的 `envs/<name>/` staging，不写 home。
-`activate` 默认 dry-run 且必须显式给 `-PlanPath` 写外部计划；未来解除 interlock 后，`-Apply` 才可动 live，
-且只消费该计划并经 receipt-backed live transaction host 部署（Phase 3 Task 6 收窄）。Phase 0 当前不会进入 backup 或 live mutation。
+`activate` 的 DryRun 必须显式给 `-PlanPath` 写外部计划；`-Apply` 只消费该计划并经
+receipt-backed live transaction host 部署。执行前须满足当前验收与授权要求，不可假定 Apply 无副作用。
 **Phase 2 范围收窄**：activate 只切换 skills 子集并写共享 authority 状态；home 级配置部署
 （config-pull 接入）因当前没有任何环境差异化的 home 配置组件而暂缓，接入需单独评审。
 
@@ -473,17 +473,18 @@ pwsh -File scripts/agent-dotfiles.ps1 env list          # 枚举环境 + 标记�
 pwsh -File scripts/agent-dotfiles.ps1 env status        # 定义有效性 + staging 新旧 + 激活漂移
 pwsh -File scripts/agent-dotfiles.ps1 env status -ProjectRoot <p>  # 另检查项目 RequiredEnv 是否匹配
 pwsh -File scripts/agent-dotfiles.ps1 env build <name>  # 构建 envs/<name>/ staging
-pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -DryRun  # 预览切换计划
-pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -Apply   # Phase 0：interlocked，不切换
+pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -DryRun -PlanPath <external-plan.json>  # 在 sandbox 中预览
+# 以下 Apply 仅描述合同；满足当前验收、授权和 host 要求后才可执行
+pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -Apply -PlanPath <external-plan.json>
 pwsh -File scripts/agent-dotfiles.ps1 env rollback -ReceiptPath <complete-environment-receipt> -DryRun -PlanPath <external-plan.json>
 pwsh -File scripts/agent-dotfiles.ps1 env rollback -ReceiptPath <complete-environment-receipt> -Apply -PlanPath <external-plan.json>
 pwsh -NoProfile -File tests/harness-env.tests.ps1       # 回归测试（也在 CI 中运行）
 ```
 
-未来解除 interlock 后，`env activate` 的 dry-run gate 链（任一步失败即止、不写状态文件）为：
+`env activate` 的 dry-run gate 链（任一步失败即止、不写状态文件）为：
 build-skills → scan-secrets → staging 重建 → 绑定 materialization 并写外部 `environment` 计划；
 apply 只消费该计划并经 host 写 shared authority 状态（repo-local `state/current-env.json` 保持 legacy 证据、永不写入）。入口层强制显式 `-DryRun` 或 `-Apply`（与 sync 同款）；
-当前 `-Apply` 只到 Phase 0 interlock，不能把 apply 当作默认动作。
+不能把 Apply 当作默认动作，也不能以历史 Phase 0 描述代替当前验收判断。
 切换语义：staging 携带全量 manifest 副本而 skills 只含环境子集，sync 的
 manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 skills；
 未知 live 目录与 Codex `.system` 一如既往永不触碰。
@@ -509,7 +510,7 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 安全规则：
 
 - `env build` 只写 `envs/<name>/`，删除重建前有前缀断言；`list`/`status` 不写任何文件。
-- 未来解除 interlock 后，`env activate` 是唯一受批准的环境切换路径：默认 dry-run；
+- `env activate` 是受管环境切换路径：先显式 DryRun 并审查计划；
   `-Apply` 进入同一事务协议且不能跳过 backup；home-only 文件（credentials、sessions、缓存、
   Codex `.system`、Codex `config.toml`）永不随切换变动；拒绝 `HomeRoot` 位于仓库内。
 - `env status` 对当前环境报告 `lock validity`、`definition drift`、`live parity`、
@@ -517,14 +518,14 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 - `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex/Reasonix manifest
   管理的 skills 和环境状态。它永不触碰 unknown live 目录、Codex `.system`、
   credentials、sessions、cache、Codex `config.toml`。
-  未来的 `-Apply` 必须带同一 DryRun 生成的 `-PlanPath`，并通过选定 activation
+  `-Apply` 必须带同一 DryRun 生成的 `-PlanPath`，并通过选定 activation
   backup 的元数据校验。
-- 未来每台机器首次真实 `-Apply` 前必须人工审查 DryRun 计划（prune 列表尤其要过目）；
-  Phase 0 不以完成审查为由绕过 interlock。
-- task overlay 当前无自动 Apply 路径；任何 addition/removal/prune 都停在 status/build/DryRun。
+- 每台机器首次真实 `-Apply` 前必须人工审查 DryRun 计划（prune 列表尤其要过目）；
+  计划审查不代替当前验收和部署授权。
+- task overlay 无自动 Apply 路径；任何 addition/removal/prune 都须显式审查和授权。
 - `envs/` 与 `state/` 永不提交；环境定义变更后先跑 `env status` 和回归测试。
-- 环境层永远只做编排：写 home 的代码路径只有现有 `sync.ps1`（未来接入 config 部署
-  时也只能复用 `config-pull.ps1`），不新增第二条。
+- 环境层只做编排：受管 skills 写入统一经 receipt-backed live transaction host；
+  不新增旁路写 home 的实现。未来接入配置部署需单独评审并复用 `config-pull.ps1`。
 
 项目联动（Phase 3）：
 
@@ -563,8 +564,8 @@ env list | status | build | activate | rollback | task status | task ensure-skil
 
 读操作包括 `doctor`、`scan`、`config status`、`profile status`、`skills inventory`、
 `skills analyze`、`skills dedupe`、`env list` 和 `env status`。`build`、`profile build`
-和 `env build` 只生成可重建的派生/staging 输出；`backup -DryRun` 只预览仓库外快照，
-standalone non-DryRun backup 在 Phase 0 被 interlock。
+和 `env build` 只生成可重建的派生/staging 输出；standalone `backup` 已退役，
+带不带 `-DryRun` 都零写返回 `backup-is-transaction-internal`，不提供快照预览。
 它们都不把 live home 或 canonical source 当作任意写入目标。
 
 所有会改变 live、canonical source 或项目目标的动作都必须先走 dry-run；统一入口不会
@@ -579,7 +580,8 @@ standalone non-DryRun backup 在 Phase 0 被 interlock。
 配置同步入口；the underlying `config-pull` is not part of `env activate`，环境切换当前
 只处理受 manifest 管理的 Claude/Codex/Reasonix skills 和环境状态。
 
-以上 production sync/environment/task/rollback 合同尚未释放：Phase 0 的 `-Apply` 仍在
-backup 或 mutation 前返回 `safety-protocol-upgrade-required`，hook 只写 preview/event。
-`apply-harness-profile.ps1 -Apply` 是 allowlisted 项目输出与项目本地 rollback backup 的例外，
-不代表 production live Apply 已开放。
+以上 production sync/environment/task/rollback 的执行边界统一见
+[当前发布与验收状态](../STATUS.md#current-state)及[受控 policy](../scripts/live-safety-policy.psd1)；
+policy 值不代表验收通过或部署授权，hook 仍只写 preview/event。
+`apply-harness-profile.ps1 -Apply` 只写 allowlisted 项目输出与项目本地 rollback backup，
+不提供 production live Apply 授权。

@@ -1,22 +1,17 @@
 @{
     SchemaVersion = 1
     Name = 'work'
-    Description = '日常编码环境'
+    Description = '精简日常编码环境；计划与审查沿用项目规则，专用 skills 按需选择'
     Profile = 'coding'
 
     Skills = @{
         Claude = @(
-            'git-review',
             'systematic-debugging'
         )
         Codex = @(
-            'brainstorming',
-            'git-review',
-            'systematic-debugging',
-            'writing-plans'
+            'systematic-debugging'
         )
         Reasonix = @(
-            'git-review',
             'systematic-debugging'
         )
     }

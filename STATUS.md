@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-20 (current-state entry only)
+Last updated: 2026-09-21 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -21,6 +21,11 @@ Do not rely on older claims that production Apply is mechanically interlocked: t
 can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected
 directory requirements. Hooks remain preview/event-only. Consult the policy for code behavior
 and the linked task record for acceptance evidence; a policy value alone is not acceptance.
+
+The [skills reduction record](status/archived/2026-09-21-skills-reduction.md) tracks the
+latest source-only cleanup: `work` selects `systematic-debugging` on each platform
+(1/1/1), while all 15 canonical skills remain available for deliberate selection.
+This is an environment definition change, not a live deployment or release acceptance.
 
 The harness-model feedback loop is now on demand: only a substantive issue or an explicit user
 request triggers feedback and applicable improvements. Ordinary task completion, stage commits,
