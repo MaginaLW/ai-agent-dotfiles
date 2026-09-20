@@ -55,3 +55,39 @@ supported plugin uninstaller, not by deleting cache files.
 
 The candidate's release lab and remaining Task 8 acceptance steps are not part of
 this cleanup. Local checks do not establish production acceptance or remote CI.
+
+## Follow-up: policy-independent environment regression
+
+The owner subsequently requested a fix for the three failed assertions. The
+environment suite now exercises both `interlocked` and `released` policies in
+temporary script copies rather than assuming the checkout remains interlocked.
+Only each fixture's policy and two OS home-location adapters are substituted; the
+production policy, public entrypoints, plan validation, host resolver, and
+authority checks are unchanged.
+
+The missing-plan case checks the interlock diagnostic or `activation-plan-not-found`
+and proves identity was not resolved. The reviewed-plan case retains real static
+plan validation, then checks the interlock or `live-plan-authority-missing` against
+an empty isolated home. Rollback checks both DryRun and Apply under both policies,
+including the precise host/authority diagnostic and whether identity was called.
+Home files and directories, repository content, plans, and existing authority
+state are checked for unintended changes. No fixed diagnostic was replaced with
+an arbitrary nonzero-exit assertion.
+
+The home adapter keeps the current token SID for Windows security semantics but
+resolves every home/AppData path inside the disposable fixture. Public-path child
+processes clear inherited internal sandbox variables to test the intended branch.
+This does not establish real-machine release acceptance.
+
+During validation, a fixture-toolchain Git initialization omission caused canonical
+path validation to return `manual-recovery-required`. The inner exception was
+diagnosed and the fixture corrected; the expected authority diagnostic was not
+weakened to accept that incidental error.
+
+Final validation: `pwsh -NoProfile -File tests/harness-env.tests.ps1` completed
+with **339 passed, 0 failed**, exit 0, on the final test implementation. PowerShell
+syntax validation passed for 179 files; pinned secret scan and whitespace checks
+passed; independent review found no actionable issue. This supersedes the three
+failures from the earlier cleanup run for this suite. The full repository suite
+collection and remote CI were not run for this test-only correction. No production
+script or policy was changed, and no real deployment or release lab was run.

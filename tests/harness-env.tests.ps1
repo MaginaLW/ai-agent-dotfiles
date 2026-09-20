@@ -119,6 +119,102 @@ function Get-TreeSnapshot {
     return ($lines -join "`n")
 }
 
+# Public-entry tests must cover both policy states without depending on the
+# checkout's release state or reading the operator's real home. Only copies of
+# the policy and OS identity adapter change; the actual gates remain intact.
+function New-PolicyCliFixture {
+    param([Parameter(Mandatory)] [ValidateSet('interlocked', 'released')] [string] $ReleaseState)
+    $root = Join-Path $work "policy-$ReleaseState"
+    New-Item -ItemType Directory -Path $root | Out-Null
+    & git -C $root init --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize the policy fixture toolchain repository.' }
+    foreach ($directory in @('scripts', 'schemas', 'tools')) {
+        Copy-Item -LiteralPath (Join-Path $RepoRoot $directory) -Destination (Join-Path $root $directory) -Recurse
+    }
+    $policyPath = Join-Path $root 'scripts/live-safety-policy.psd1'
+    $policyText = [System.IO.File]::ReadAllText($policyPath)
+    $policyText = [regex]::Replace($policyText, "ReleaseState\s*=\s*'(interlocked|released)'", "ReleaseState = '$ReleaseState'")
+    Set-File -Path $policyPath -Content $policyText
+    if ((Import-PowerShellDataFile -LiteralPath $policyPath).ReleaseState -cne $ReleaseState) { throw 'Policy fixture setup failed.' }
+
+    $fixtureHomeRoot = Join-Path $root 'identity-home'
+    foreach ($relative in @('AppData/Local', 'AppData/Roaming')) {
+        New-Item -ItemType Directory -Path (Join-Path $fixtureHomeRoot $relative) -Force | Out-Null
+    }
+    $identityPath = Join-Path $root 'scripts/home-authority-common.ps1'
+    $identityText = [System.IO.File]::ReadAllText($identityPath)
+    $tokens = $null; $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($identityText, [ref] $tokens, [ref] $parseErrors)
+    $functions = @($ast.FindAll({ param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-WindowsHomeAuthorityIdentity'
+    }, $true))
+    if ($parseErrors.Count -ne 0 -or $functions.Count -ne 1) { throw 'Unable to isolate the OS identity adapter in the fixture.' }
+    $replacement = @'
+function Get-WindowsHomeAuthorityIdentity {
+    $fixtureRoot = Split-Path -Parent $PSScriptRoot
+    $fixtureHome = Join-Path $fixtureRoot 'identity-home'
+    [System.IO.File]::WriteAllText((Join-Path $fixtureRoot 'identity-called'), 'called')
+    return [pscustomobject]@{
+        ResolverVersion = 'sealed-home-authority-test-adapter-v1'
+        TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ProfileRoot = $fixtureHome
+        RoamingAppDataRoot = Join-Path $fixtureHome 'AppData/Roaming'
+        LocalAppDataRoot = Join-Path $fixtureHome 'AppData/Local'
+    }
+}
+'@
+    $extent = $functions[0].Extent
+    Set-File -Path $identityPath -Content ($identityText.Substring(0, $extent.StartOffset) + $replacement + $identityText.Substring($extent.EndOffset))
+    # Canonical setup has its own OS locator for forbidden live roots. Keep
+    # those paths inside the same fixture as well; leave the checks untouched.
+    $canonicalPath = Join-Path $root 'scripts/canonical-transaction-common.ps1'
+    $canonicalText = [System.IO.File]::ReadAllText($canonicalPath)
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($canonicalText, [ref] $tokens, [ref] $parseErrors)
+    $functions = @($ast.FindAll({ param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-CanonicalDefaultLiveRoots'
+    }, $true))
+    if ($parseErrors.Count -ne 0 -or $functions.Count -ne 1) { throw 'Unable to isolate the canonical OS locator in the fixture.' }
+    $replacement = @'
+function Get-CanonicalDefaultLiveRoots {
+    $fixtureHome = Join-Path (Split-Path -Parent $PSScriptRoot) 'identity-home'
+    return @('.claude/skills', '.codex/skills', '.agents/skills', 'AppData/Roaming/reasonix/skills') | ForEach-Object { Join-Path $fixtureHome $_ }
+}
+'@
+    $extent = $functions[0].Extent
+    Set-File -Path $canonicalPath -Content ($canonicalText.Substring(0, $extent.StartOffset) + $replacement + $canonicalText.Substring($extent.EndOffset))
+    # Clear inherited sandbox capability only in this child. A public-path test
+    # must not accidentally pass through the sandbox branch of its parent run.
+    Set-File -Path (Join-Path $root 'invoke.ps1') -Content @'
+param([string] $ScriptName, [string] $ArgumentsBase64)
+Get-ChildItem Env: | Where-Object Name -like 'AI_AGENT_DOTFILES_INTERNAL_*' | ForEach-Object { Remove-Item -LiteralPath ('Env:' + $_.Name) }
+$arguments = @(ConvertFrom-Json ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ArgumentsBase64))))
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot "scripts/$ScriptName") @arguments
+exit $LASTEXITCODE
+'@
+    return [pscustomobject]@{ Root = $root; Home = $fixtureHomeRoot; State = $ReleaseState; Marker = (Join-Path $root 'identity-called') }
+}
+
+function Invoke-PolicyCli {
+    param([Parameter(Mandatory)] $Fixture, [Parameter(Mandatory)] [string] $ScriptName,
+        [Parameter(Mandatory)] [string[]] $Arguments)
+    if (Test-Path -LiteralPath $Fixture.Marker) { Remove-Item -LiteralPath $Fixture.Marker }
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @($Arguments) -Compress)))
+    $output = & pwsh -NoProfile -File (Join-Path $Fixture.Root 'invoke.ps1') -ScriptName $ScriptName -ArgumentsBase64 $encoded 2>&1 | Out-String
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $output; IdentityCalled = (Test-Path -LiteralPath $Fixture.Marker) }
+}
+
+function Get-PolicyHomeSnapshot {
+    param([Parameter(Mandatory)] [string] $Root)
+    # Include directories as well as file hashes: creating an empty backup or
+    # authority directory is a side effect too.
+    return (@(Get-ChildItem -LiteralPath $Root -Recurse -Force | Sort-Object FullName | ForEach-Object {
+        if ($_.PSIsContainer) { 'D|' + $_.FullName }
+        else { 'F|' + $_.FullName + '|' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+    }) -join "`n")
+}
+
+$policyFixtures = @('interlocked', 'released') | ForEach-Object { New-PolicyCliFixture -ReleaseState $_ }
+
 # --- Fake repository ----------------------------------------------------------
 $fakeRepo = Join-Path $work 'repo'
 New-Item -ItemType Directory -Path $fakeRepo -Force | Out-Null
@@ -462,11 +558,17 @@ Assert (@(Get-ChildItem -LiteralPath $fakeBackups -Directory -ErrorAction Silent
 Assert (Test-Path -LiteralPath $systemSentinel) 'codex .system sentinel untouched by the refused apply'
 Assert (Test-Path -LiteralPath $unknownLocal) 'unmanaged live skill untouched by the refused apply'
 
-# The interlock is the first gate of the production (non-sandbox) invocation.
-$neverPlannedPath = Join-Path $work 'never-planned.json'
-$interlockedOut = & pwsh -NoProfile -File $activateScript -Name 'good' -RepoRoot $fakeRepo -HomeRoot $fakeHome -BackupRoot $fakeBackups -Apply -PlanPath $neverPlannedPath 2>&1 | Out-String
-Assert ($LASTEXITCODE -ne 0 -and $interlockedOut -match 'safety-protocol-upgrade-required') 'production activation Apply stays interlocked outside the approved sandbox'
-Assert (-not (Test-Path -LiteralPath $neverPlannedPath)) 'the interlocked apply writes no plan'
+foreach ($fixture in $policyFixtures) {
+    $neverPlannedPath = Join-Path $fixture.Root 'never-planned.json'
+    $homeBefore = Get-PolicyHomeSnapshot -Root $fixture.Home
+    $repoBefore = Get-PolicyHomeSnapshot -Root $fakeRepo
+    $result = Invoke-PolicyCli -Fixture $fixture -ScriptName 'activate-harness-env.ps1' -Arguments @('-Name', 'good', '-RepoRoot', $fakeRepo, '-Apply', '-PlanPath', $neverPlannedPath)
+    $expected = if ($fixture.State -ceq 'interlocked') { 'safety-protocol-upgrade-required' } else { 'activation-plan-not-found' }
+    Assert ($result.Code -ne 0 -and $result.Out -match $expected) "public activation rejects a missing plan at $expected ($($fixture.State))"
+    Assert (-not $result.IdentityCalled) "missing-plan activation never resolves identity ($($fixture.State))"
+    Assert (-not (Test-Path -LiteralPath $neverPlannedPath)) "refused activation writes no plan ($($fixture.State))"
+    Assert ((Get-PolicyHomeSnapshot -Root $fixture.Home) -ceq $homeBefore -and (Get-PolicyHomeSnapshot -Root $fakeRepo) -ceq $repoBefore) "refused activation leaves home and repo unchanged ($($fixture.State))"
+}
 
 # 9.8 failures never write state
 Remove-Item -LiteralPath (Join-Path $fakeRepo 'state') -Recurse -Force -ErrorAction SilentlyContinue
@@ -596,15 +698,8 @@ function Invoke-ActivationCli {
     param(
         [Parameter(Mandatory)] [string[]] $Arguments,
         [Parameter(Mandatory)] [string] $SandboxRoot,
-        [string] $ScriptPath = $activateScript,
-        [switch] $Direct
+        [string] $ScriptPath = $activateScript
     )
-    if ($Direct) {
-        # Direct invocation outside the sandbox: the production interlock owns
-        # the outcome and no sandbox capability is present.
-        $out = & pwsh -NoProfile -File $ScriptPath @Arguments 2>&1 | Out-String
-        return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
-    }
     $result = Invoke-SafetySandboxScript -SandboxRoot $SandboxRoot -ScriptPath $ScriptPath -Arguments $Arguments -AuthorityRepoRoot $RepoRoot
     return [pscustomobject]@{ Code = $result.Code; Out = $result.Out }
 }
@@ -889,9 +984,18 @@ Assert ($result.Code -ne 0 -and $result.Out -match 'activation-root-selection-fo
 Assert (-not (Test-Path -LiteralPath (Join-Path $actSandbox 'root-selector-plan.json'))) 'the refused root selection writes no plan'
 Assert ((Get-ActivationFileHash -Path $actStatePath) -ceq $stateHashBeforeFailures) 'the refused switches change no state'
 
-$result = Invoke-ActivationCli -Direct -SandboxRoot $actSandbox -Arguments @('-Name', 'multi', '-RepoRoot', $actRepo, '-PlanPath', $failurePlan, '-Apply')
-Assert ($result.Code -ne 0 -and $result.Out -match 'safety-protocol-upgrade-required') 'production Apply stays interlocked through the direct non-sandbox invocation'
-Assert ((Get-ActivationFileHash -Path $actStatePath) -ceq $stateHashBeforeFailures) 'the interlocked direct apply changes no state'
+foreach ($fixture in $policyFixtures) {
+    $homeBefore = Get-PolicyHomeSnapshot -Root $fixture.Home
+    $repoBefore = Get-PolicyHomeSnapshot -Root $actRepo
+    $planBefore = Get-ActivationFileHash -Path $failurePlan
+    $result = Invoke-PolicyCli -Fixture $fixture -ScriptName 'activate-harness-env.ps1' -Arguments @('-Name', 'multi', '-RepoRoot', $actRepo, '-PlanPath', $failurePlan, '-Apply')
+    $expected = if ($fixture.State -ceq 'interlocked') { 'safety-protocol-upgrade-required' } else { 'live-plan-authority-missing' }
+    Assert ($result.Code -ne 0 -and $result.Out -match $expected) "public activation refuses a plan without the required authority at $expected ($($fixture.State))"
+    Assert (($result.Out -match 'Plan binding\s+: verified') -eq ($fixture.State -ceq 'released')) "public activation verifies the reviewed plan only after the release gate ($($fixture.State))"
+    Assert ($result.IdentityCalled -eq ($fixture.State -ceq 'released')) "public activation uses identity only after the released plan gates ($($fixture.State))"
+    Assert ((Get-PolicyHomeSnapshot -Root $fixture.Home) -ceq $homeBefore -and (Get-PolicyHomeSnapshot -Root $actRepo) -ceq $repoBefore) "public activation changes no home or repo content ($($fixture.State))"
+    Assert ((Get-ActivationFileHash -Path $failurePlan) -ceq $planBefore -and (Get-ActivationFileHash -Path $actStatePath) -ceq $stateHashBeforeFailures) "public activation changes neither reviewed plan nor authority state ($($fixture.State))"
+}
 
 # The state-write failure window: the host is hard-killed after the journaled
 # state preimage and before the atomic state replace. The previous state stays
@@ -952,16 +1056,27 @@ $result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'activate', 'g
 Assert ($result.Code -eq 1) 'entry point rejects activate with both modes'
 
 # 9.10 env rollback CLI surface: the receipt selects a rollback, the legacy
-# selection names are gone, and the public (non-sandbox) surface fails closed
-# at the host-resolution gate before any authority or receipt work.
+# selection names are gone, and public calls refuse missing host/authority
+# evidence under both policies without consulting the operator's home.
 $result = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'rollback')
 Assert ($result.Code -eq 1) 'entry point rejects env rollback without a receipt path'
 $legacyRollback = Invoke-Script -Script $entryScript -ScriptArgs @('env', 'rollback', 'RunId', '-Apply')
 Assert ($legacyRollback.Code -eq 1) 'the legacy RunId token no longer selects a rollback and fails closed'
-$publicRollback = Invoke-Script -Script $entryScript -ScriptArgs @(
-    'env', 'rollback', '-ReceiptPath', (Join-Path $work 'absent-receipt'), '-DryRun', '-PlanPath', (Join-Path $work 'public-plan.json'))
-Assert ($publicRollback.Code -ne 0 -and $publicRollback.Out -match 'live-plan-host-resolution-required') 'the public rollback surface fails closed without the sandbox authority'
-Assert (-not (Test-Path -LiteralPath (Join-Path $work 'public-plan.json'))) 'the host-resolution rejection writes no plan'
+foreach ($fixture in $policyFixtures) {
+    foreach ($mode in @('-DryRun', '-Apply')) {
+        $homeBefore = Get-PolicyHomeSnapshot -Root $fixture.Home
+        $repoBefore = Get-PolicyHomeSnapshot -Root $fakeRepo
+        $publicPlan = Join-Path $fixture.Root "rollback$mode.json"
+        $publicRollback = Invoke-PolicyCli -Fixture $fixture -ScriptName 'agent-dotfiles.ps1' -Arguments @(
+            'env', 'rollback', '-RepoRoot', $fakeRepo, '-ReceiptPath', (Join-Path $fixture.Root 'absent-receipt'), $mode, '-PlanPath', $publicPlan)
+        $expected = if ($fixture.State -ceq 'released') { 'live-plan-authority-missing' }
+            elseif ($mode -ceq '-Apply') { 'safety-protocol-upgrade-required' } else { 'live-plan-host-resolution-required' }
+        Assert ($publicRollback.Code -ne 0 -and $publicRollback.Out -match $expected) "public rollback $mode refuses missing authority at $expected ($($fixture.State))"
+        Assert ($publicRollback.IdentityCalled -eq ($fixture.State -ceq 'released')) "public rollback $mode selects the expected identity branch ($($fixture.State))"
+        Assert (-not (Test-Path -LiteralPath $publicPlan)) "public rollback $mode writes no plan ($($fixture.State))"
+        Assert ((Get-PolicyHomeSnapshot -Root $fixture.Home) -ceq $homeBefore -and (Get-PolicyHomeSnapshot -Root $fakeRepo) -ceq $repoBefore) "public rollback $mode changes no home or repo content ($($fixture.State))"
+    }
+}
 
 # --- 10. project linkage: RequiredEnv detection (never auto-activates) ---------
 Write-Host 'status: project RequiredEnv linkage'
