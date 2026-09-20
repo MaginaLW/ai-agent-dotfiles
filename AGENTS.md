@@ -46,10 +46,9 @@ Project instructions for coding agents, including Codex and ZCode, working in th
 ## 外部反馈闭环（harness-model）
 
 本项目是 `harness-model` ZCode 试点登记的反馈闭环成员。任务开始时显式读取本入口、
-`STATUS.md` 与 [docs/ZCODE.md](docs/ZCODE.md)；真实任务收尾（阶段提交边界即可）按
-`docs/ZCODE.md` 的任务收尾闭环执行：汇总本次窗口反馈，在 harness-model 改进通用方法并按
-其规则验证提交，再按版本回灌本项目并验证提交；无新反馈也无适用版本差异时不改文件、
-不制造空记录。方法来源、实际应用的上游版本与逐项适配记录在 `docs/ZCODE.md`。闭环只授权
+`STATUS.md` 与 [docs/ZCODE.md](docs/ZCODE.md)。仅发现实质问题或用户明确请求时，才按
+`docs/ZCODE.md` 执行反馈与适用改进的回灌；普通任务完成、阶段提交或版本差异均不触发
+跨项目检查或新记录。方法来源、实际应用的上游版本与逐项适配记录在 `docs/ZCODE.md`。闭环只授权
 规则入口、接入文档与既有收尾记录的修改；不含源码、live 配置、部署、推送、合并、凭据导出
 或后台采集，也不放松任何原有门禁与审核要求。
 
@@ -99,11 +98,11 @@ When the scope trigger applies:
    The schema 3 sync DryRun runs only inside the internal sandbox with a create-new
    `-PlanPath` (host-injected roots; a bare `sync.ps1` invocation fails closed); see
    [docs/README.md §4](docs/README.md#4-日常同步流程) for the invocation shape.
-7. Production interlock (`ReleaseState=interlocked`): production Apply/rollback/retirement is
-   currently unavailable and returns `safety-protocol-upgrade-required` before traversal or
-   mutation; the public standalone backup entry is retired and exits
-   `backup-is-transaction-internal`. The commands below describe the reviewed future contract only;
-   do not attempt the Apply command until tracked policy is released:
+7. Check [current release and acceptance state](STATUS.md#current-state) before any production
+   operation; a released policy value is not deployment authorization or completed lab acceptance.
+   The public standalone backup entry is retired and exits `backup-is-transaction-internal`.
+   The commands below describe the reviewed contract only; execute Apply only within the owner's
+   authorized scope after the required acceptance and plan review:
    ```powershell
    $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
    # The DryRun must run under scripts/internal/live-transaction-host.ps1 (item 6);

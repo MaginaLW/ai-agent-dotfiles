@@ -1,18 +1,36 @@
 # Project Status
 
-Last updated: 2026-09-17
+Last updated: 2026-09-20 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
 [`status/archived/`](status/archived/).
 
-**Read this file as a dated log, not as a manual.** Most sections below record what was true when
-they were written and are never rewritten; section titles that still read "current", "next",
-"remaining" or "in progress" are the ones most likely to be stale, and the ones already known to be
-superseded carry a Superseded banner. The live state is only: the `Purpose and current phase`
-summary above, and the two tail sections `Remaining roadmap snapshot` and `Next actions`. The
-authoritative task list is the `Pending items` section at the end of
-[`status/active/live-safety-hardening.md`](status/active/live-safety-hardening.md).
+## Current state
+
+The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`:
+`bffa7d7` is a **local release candidate, not an accepted production release**. The latest
+[Task 8 Step 1 record](status/active/live-safety-hardening.md) (the final section)
+records the owner's candidate authorization and the remaining Steps 2-5: disposable-identity
+lab, candidate gates, reject-or-proceed decision, and release closeout. The lab kit was
+parse-checked but not exercised; that record explicitly prohibits pushing the candidate before
+the lab unless the owner directs otherwise. This documentation cleanup runs no lab or live
+operation and supplies no new release or deployment authorization.
+
+Do not rely on older claims that production Apply is mechanically interlocked: the candidate
+can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected
+directory requirements. Hooks remain preview/event-only. Consult the policy for code behavior
+and the linked task record for acceptance evidence; a policy value alone is not acceptance.
+
+The harness-model feedback loop is now on demand: only a substantive issue or an explicit user
+request triggers feedback and applicable improvements. Ordinary task completion, stage commits,
+and version differences do not trigger cross-project checks or new records; see
+[the current agreement](docs/ZCODE.md#任务收尾反馈闭环harness-model).
+
+**Everything from `Purpose and current phase` onward is a historical log**, including the tail
+`Remaining roadmap snapshot` and `Next actions`. Those headings and their present-tense claims
+are not current instructions. Keep this section as the single current-state entry and link to
+task evidence instead of copying task-by-task histories into new global summaries.
 
 ## Purpose and current phase
 

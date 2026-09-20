@@ -29,11 +29,11 @@ workflow，不因使用 ZCode 就额外启动技能安装或同步流程。
 按职责安排，不固定型号，也不根据历史记录推断当前模型身份。具体产品权限、运行时能力和
 现有独立审查要求继续适用。
 
-Phase 0 引入的生产联锁仍是实际执行边界。当前 `ReleaseState=interlocked` 下，生产
-Apply、rollback、retirement 和非 DryRun 的 standalone backup 等受保护入口会返回
-`safety-protocol-upgrade-required`；bootstrap/hooks 只能生成预览或事件。接入 ZCode 不是
-解除联锁或执行 live 部署的授权。具体范围以当前项目规则和受控 Policy 为准；不得通过改
-Policy、替换入口或手工操作 live 目录绕过它。`apply-harness-profile.ps1 -Apply` 的项目本地
+执行前查看唯一的[当前发布与验收状态](../STATUS.md#current-state)，不在接入文档复制易过期的
+Policy 值或阶段结论。代码处于 released 状态不等于完成 lab 验收或获得 live 部署授权；
+接入 ZCode 也不提供这些授权。具体范围以当前项目规则、受控 Policy 和任务证据为准；
+不得通过改 Policy、替换入口或手工操作 live 目录绕过要求。hooks 仍只生成预览或事件。
+`apply-harness-profile.ps1 -Apply` 的项目本地
 允许清单例外继续按原规则执行，不扩展为 production live 部署权限。
 
 ## 验证沿用现有入口
@@ -81,11 +81,11 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
 
 ## 任务收尾反馈闭环（harness-model）
 
-本项目是所有者登记的反馈闭环试点。每次真实任务收尾（阶段提交边界即可，不要求整任务
-完结）执行一次：汇总本次窗口的新反馈，在 harness-model 改进通用方法并按其规则验证
-提交，再按版本回灌本项目并验证提交；下次真实任务显式读取本入口并检验实际效果。这是
-Agent 显式读取后遵循的约定，不是 Hook、定时任务或后台同步；无新反馈也无适用版本差异时
-不改文件、不制造空记录，也不自行启动业务任务来凑观察样本。
+本项目是所有者登记的反馈闭环试点。仅发现实质问题或用户明确请求时，才汇总相关反馈，
+在 harness-model 改进通用方法并按其规则验证提交，再将适用的改进回灌本项目并验证提交。
+普通任务完成、阶段提交或版本差异均不触发跨项目检查或新记录；不为寻找反馈而额外巡检，
+也不自行启动业务任务来凑观察样本。这是按需执行的约定，不是 Hook、定时任务或后台同步。
+以下来源版本和历次闭环记录保留为历史证据，不重新触发旧流程。
 
 ### 来源与实际应用版本
 
