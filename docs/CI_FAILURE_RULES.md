@@ -237,6 +237,42 @@ publish head `bbba28f`。
 **证据**：2026-08 前后的 run 引用的 SHA 在本地 `git show` 与 GitHub 对象 API 双双报不可解析，
 而本地同期历史存在（同一时间窗、不同 SHA）；重写记录见 `STATUS.md` 与待办 8。
 
+### R11 ReleaseState 翻转或文档改写必须同提交适配全部 pin（含未被 policy-aware 化的套件）
+
+**判据**：shard 作业成片红（可三 shard 同时）而 gates 作业绿；失败断言集中在
+`canonical-apply-interlocked` / `canonical-recovery-apply-interlocked` /
+`safety-protocol-upgrade-required` / `Code -eq 75` 一类 interlock 行为 pin，或
+repository-policy 的文档字符串 pin；红灯首次出现在 policy 翻转提交或其后的文档提交之后。
+
+**根因（首次 shard 运行的实例）**：`bffa7d7` 翻转 `ReleaseState` 前只验证了四个 policy-aware
+套件（`15deede` 覆盖 automation-safety、backup-recovery、live-recovery、repository-policy）；
+其余套件中还有 9 个持有未被 policy-aware 化的 interlock 行为 pin（approved-runner、
+canonical-command-result、canonical-recovery、canonical-transaction、doctor、harness-authority、
+harness-env、skills-import、task-skills），翻转后从未在 released 树上跑过；`67bfdc6` 的
+文档集中化又改写了 AGENTS.md/README.md 中的 interlock 段落，打破 repository-policy 的文档
+pin。CI 首两次 shard 运行（#129、#130）三 shard 全红，gates 作业两次全绿。
+
+**规则**：
+
+- 改 `scripts/live-safety-policy.psd1` 的提交，提交前必须对 `tests/` 静态筛查全部
+  interlock token 引用（`safety-protocol-upgrade-required`、`canonical-apply-interlocked`、
+  `canonical-recovery-apply-interlocked`、`ReleaseState`），确认每处要么已 policy-aware、
+  要么确与 policy 无关；并在翻转树上全量跑（`-All` 或三分片），不是只跑 focused 套件。
+- 改 AGENTS.md/README.md/CLAUDE.md 被断言语句的提交，同步检查 repository-policy 的文档 pin
+  （R9 的文档形态）。
+- released 分支 pin 的是观察契约：精确 exit code + 精确 token + 结果文档结构（`Result` /
+  `MessageToken` / `LifecycleKind` / `PlanHash` 绑定），不得放宽为任意非零退出；
+  interlocked 分支 byte-for-byte 保留原有 fail-closed pin。
+- 观察到的 released 契约随 surface 而异，必须逐处观察后 pin，不得从另一 surface 类推：
+  实例中 setup/normalize Apply 在未完成 bootstrap 的 fixture 上 fail-closed 于
+  `manual-recovery-required` 或 `canonical-setup-required`（exit 1），而 recover-abandon
+  Apply 在 released 下直接完成评审过的 abandon（exit 0，`canonical-recovery-applied`，
+  `no-transaction`，ControlBase 零写入）。
+
+**证据**（runs #129 `35448682368`（`eeedc46`）、#130 `35521668044`（`67bfdc6`）与本地
+67bfdc6 worktree 复现一致）：三 shard 全红、gates 绿；本地逐套件复现锁定上述 9 个套件 +
+repository-policy 文档 pin，修复随本窗口（policy-aware 分支 + 文档 pin 对齐）。
+
 ## 3. 处置流程
 
 **按失败步骤名分流**，不要对所有红灯套同一套动作：
@@ -263,13 +299,18 @@ publish head `bbba28f`。
   42 套件的已证预算 27555 秒（459.25 分钟）被拆进三个并行作业，每个作业的合同秒数
   （shard 预算 + 300 + 120）分别为 8700/9600/10095 秒（145/160/168.25 分钟），对应声明
   `timeout-minutes` 170/185/195，全部低于 360 分钟平台上限。现行规则见 R2。
+- ~~**2026-09-19 起 shard 工作流尚无一次真实 CI 运行样本**~~ **已有样本（2026-09-19/20）**：
+  #128（`68e9903`）是旧单作业结构的最后一次运行，success——顺带关闭了 R3 的 e0bb9d7 复发项
+  （harness-authority 在含修复的树上不再复发）。#129（`eeedc46`）与 #130（`67bfdc6`）是
+  shard 结构的前两次运行，三个 shard 作业全红、gates 作业两次全绿：shard 路径本身（分区、
+  fail-closed、超时合同）无缺陷，红灯全部是 R11 的 released pin 漂移。per-shard 失败分布
+  从此按本文件第 1 节的 shard 作业名（`Validate test shard N of 3`）取数。
 - `task-skills.tests.ps1` 的 `Task skill dry-run failed (exit 1); overlay was not changed.`
   （run `34851206631`）只到外层提示，未定位到根因；该 run 同时还有 automation-safety 超时与
   harness-authority/harness-env 超时，**不是**单一超时样本。
-- 2026-09-17 两次 runner 失联尚未在同一 SHA 上重跑确认。
+- 2026-09-17 两次 runner 失联中，`35166789288`（`0c5ca92`）已由第三次尝试转绿关闭
+  （2026-09-19 记录）；`35166625038`（`6488182`）仍无同 SHA 重跑样本。
 - 早期 `Run MCP tests` 步骤已随 MCP 工具退休从工作流移除，其历史失败不再适用（不是未决）。
-- 2026-09-19 起 shard 工作流尚无一次真实 CI 运行样本；首次运行后按第 1 节重新取数核对
-  per-shard 失败分布（本文件窗口统计对应旧单作业结构）。
 
 ## 5. 证据索引
 
@@ -289,7 +330,9 @@ publish head `bbba28f`。
 | `34788238413` `34851206631` `34909047517` | 2026-09-13~09-14 | 测试矩阵 | harness-* / task-skills 超时；`34851206631` 另有 task-skills 激活失败 | R2、未决 | `fa53b7c` 等 |
 | `34957472014` `34991068832` `35086695635` | 2026-09-15~09-16 | 测试矩阵 | automation-safety 恰好 120.0 秒被杀；`34991068832`/`35086695635` 另有 killed 进程夹具共享冲突 | R2、R3 | `6db9760`（预算）/ 共享冲突待同 SHA 复核 |
 | `35097541381` | 2026-09-16 | — | 绿（40 套件，automation-safety 112.6 秒） | — | 参考基线 |
-| `35166625038` `35166789288` | 2026-09-17 | 无 | hosted runner 失联 | R1 | 待同 SHA 重跑 |
+| `35166625038` `35166789288` | 2026-09-17 | 无 | hosted runner 失联 | R1 | `35166789288` 已转绿；`35166625038` 待同 SHA 重跑 |
+| `128`（`68e9903`，旧单作业结构收官） | 2026-09-19 | 无 | 绿（含 R3 修复树） | — | R3 复发项关闭 |
+| `129` `35448682368`（`eeedc46`）<br>`130` `35521668044`（`67bfdc6`） | 2026-09-19/20 | 三个 shard 作业（gates 两次绿） | released 树上 9 个未 policy-aware 套件的 interlock 行为 pin + repository-policy 文档 pin 漂移 | R11 | 随本窗口修复 |
 
 窗口数据由三路独立复算核对（2026-09-17）：run/step/annotation 计数与 22 次超时的套件分布均一致；
 唯一被判「不可独立核验」的是 R2 证据里那组本地实测秒数，现已标注来源。

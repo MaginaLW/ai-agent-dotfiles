@@ -8,14 +8,26 @@ This is the repository's single global status file. Current task records belong 
 
 ## Current state
 
-The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`:
-`bffa7d7` is a **local release candidate, not an accepted production release**. The latest
-[Task 8 Step 1 record](status/active/live-safety-hardening.md) (the final section)
-records the owner's candidate authorization and the remaining Steps 2-5: disposable-identity
-lab, candidate gates, reject-or-proceed decision, and release closeout. The lab kit was
-parse-checked but not exercised; that record explicitly prohibits pushing the candidate before
-the lab unless the owner directs otherwise. This documentation cleanup runs no lab or live
-operation and supplies no new release or deployment authorization.
+The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`: the candidate
+`bffa7d7` sits on `origin/main` per the owner's push decision, and it is **not an accepted
+production release**. The remaining owner steps are Task 8 Steps 2-5 (disposable-identity lab,
+candidate gates, reject-or-proceed decision, release closeout); the lab kit was parse-checked but
+not exercised (this machine has no Windows Sandbox; the owner enables it or picks another
+disposable identity). See
+[the Task 8 record](status/active/live-safety-hardening.md) (final sections).
+
+The CI verdicts the Task 8 Step 1 record deferred are in. Run #128 (`68e9903`) closed the old
+single-job structure green (also closing the R3 harness-authority recurrence item). The first two
+sharded-workflow runs — #129 (`eeedc46`) and #130 (`67bfdc6`) — came back with all three shard
+jobs red on the released tree while the gates job stayed green. The
+[pins repair window](status/archived/2026-09-21-ci-released-pin-repair.md) made the remaining
+released-tree interlock pins policy-state-aware (the `15deede` pattern) and aligned
+repository-policy's documentation pins; the observed released contracts and the per-suite
+validation are recorded there. New rule: `R11` in [docs/CI_FAILURE_RULES.md](docs/CI_FAILURE_RULES.md).
+These repaired commits, the skills-reduction pair (`8bf549b`, `cef82f9`), and their record commits
+are local at this writing; the owner's next push is the sharded workflow's first run on the
+repaired tree. No production script, policy value, or gate threshold changed, and none of this
+grants release or deployment authorization.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate
 can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected

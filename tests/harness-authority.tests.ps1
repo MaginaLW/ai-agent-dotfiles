@@ -36,6 +36,14 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 # scope, and every sandbox helper below reuses that single load.
 . (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
 
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
+
 $script:pass = 0
 $script:fail = 0
 function Assert {
@@ -1340,7 +1348,12 @@ Assert ($adoptAgain.Code -eq 1 -and $adoptAgain.Out -match 'live-plan-path-colli
 $applyMissing = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', (Join-Path $cliSandbox 'never.json'), '-RepoRoot', $cliRepo)
 Assert ($applyMissing.Code -eq 1 -and $applyMissing.Out -match 'missing') 'Apply refuses a plan path that does not exist'
 $interlockedDirect = Invoke-AuthorityCli -Direct -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
-Assert ($interlockedDirect.Code -eq 1 -and $interlockedDirect.Out -match 'safety-protocol-upgrade-required') 'production Apply stays interlocked outside the approved sandbox'
+if ($script:IsReleased) {
+    Assert ($interlockedDirect.Code -eq 1 -and $interlockedDirect.Out -match 'home-authority-bootstrap-manual-recovery-required') 'production Apply outside the approved sandbox fails closed at the home-authority bootstrap gate under the released policy'
+}
+else {
+    Assert ($interlockedDirect.Code -eq 1 -and $interlockedDirect.Out -match 'safety-protocol-upgrade-required') 'production Apply stays interlocked outside the approved sandbox'
+}
 $applyMismatch = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'migrate', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
 Assert ($applyMismatch.Code -eq 1) 'Apply refuses a plan whose operation kind differs from the action'
 

@@ -8,6 +8,14 @@ $RepoRoot=(Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $RepoRoot 'scripts/canonical-recovery-common.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/canonical-reviewed-recovery-engine.ps1')
 
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+$policyState=[string](Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased=($policyState -eq 'released')
+
 $script:pass=0;$script:fail=0
 function Assert{param([bool]$Condition,[string]$Message)if($Condition){$script:pass++;Write-Host "  PASS  $Message" -ForegroundColor Green}else{$script:fail++;Write-Host "  FAIL  $Message" -ForegroundColor Red}}
 function Assert-Throws{param([scriptblock]$Action,[string]$Pattern,[string]$Message)try{&$Action;Assert $false $Message}catch{Assert ($_.Exception.Message -match $Pattern) $Message}}
@@ -194,7 +202,12 @@ try{
     $doc=Read-CanonicalTransactionPlan -PlanPath $plan -RepoRoot $fixture -ExpectedOperationKind setup
     Assert ([string]$doc.PlanPayload.ExpectedRootClaim.ExpectedSetupStateProjectionHash -ceq [string]$doc.PlanPayload.ExpectedSetupStateProjectionHash -and [string]$doc.PlanPayload.ExpectedRootClaim.SetupIntentHash -ceq [string]$doc.PlanPayload.SetupIntentHash) 'setup: immutable root claim binds deterministic intent and setup-state projection'
     $apply=Invoke-Script $agentScript @('canonical','setup','-RepoRoot',$fixture,'-Apply','-PlanPath',$plan)
-    Assert ($apply.Code -eq 75 -and $apply.Out -match 'canonical-apply-interlocked') 'setup: production Apply revalidates then remains interlocked'
+    if($script:IsReleased){
+        Assert ($apply.Code -eq 1 -and $apply.Out -match 'manual-recovery-required') 'setup: production Apply revalidates then fails closed at the manual-recovery gate under the released policy'
+    }
+    else{
+        Assert ($apply.Code -eq 75 -and $apply.Out -match 'canonical-apply-interlocked') 'setup: production Apply revalidates then remains interlocked'
+    }
     $missingPlan=Invoke-Script $agentScript @('canonical','setup','-RepoRoot',$fixture,'-Apply')
     Assert ($missingPlan.Code -ne 0) 'setup: Apply without reviewed PlanPath is rejected'
     $crossRunner=Invoke-Script $setupScript @('-RepoRoot',$fixture,'-DryRun','-PlanPath',(Join-Path $planRoot 'cross.json'),'-ApproveRunner')
@@ -470,15 +483,27 @@ try{
     Remove-Item -LiteralPath $blockerNamespace -Recurse -Force
     $recoverApply=Invoke-ScriptStreams $recoverScript @('-RepoRoot',$readyLinked,'-Action','abandon','-TransactionId',$unfinishedId,'-Apply','-PlanPath',$recoveryPlan);$recoverApplyResult=$null
     try{$recoverApplyResult=Get-ValidatedCanonicalCommandResult -Invocation $recoverApply -Path (Join-Path $root 'recovery-apply-result.json')}catch{}
-    Assert ($recoverApply.Code -eq 75 -and $recoverApply.Stderr -cmatch '\Acanonical-recovery-apply-interlocked(?:\r?\n)?\z' -and $recoverApplyResult -and (Test-ExactPropertySet $recoverApplyResult @('SchemaVersion','ArtifactKind','ResultScope','Result','CommandKind','LifecycleKind','MessageToken','PlanHash')) -and [string]$recoverApplyResult.Result -ceq 'FAIL' -and [string]$recoverApplyResult.CommandKind -ceq 'canonical-recover-abandon' -and [string]$recoverApplyResult.LifecycleKind -ceq 'no-transaction' -and [string]$recoverApplyResult.MessageToken -ceq 'canonical-recovery-apply-interlocked' -and [string]$recoverApplyResult.PlanHash -ceq [string]$recoveryDocument.PlanHash) 'recovery emitter: production Apply revalidates, emits one strict result plus exact stderr token, and exits 75 interlocked'
-    $recoveryLock=Enter-CanonicalRepoLock -LockPath $readyPaths.LockPath
-    try{
-        $unfinishedState=Get-CanonicalUniqueTransactionState -TransactionsRoot $readyPaths.TransactionsRoot -TransactionId $unfinishedId
-        $null=Assert-CanonicalRecoveryPlanCurrent -Document $recoveryDocument -State $unfinishedState -RepoRoot $readyLinked
-        $recovered=Invoke-SealedCanonicalReviewedRecovery -Document $recoveryDocument -State $unfinishedState -RepoRoot $readyLinked
-    }finally{Exit-CanonicalRepoLock $recoveryLock}
-    Assert ($recovered.IsTerminal -and [string]$recovered.Outcome -ceq 'abandoned') 'recovery: sealed host publishes intent, fixed abandoned result, and recovery COMPLETE'
-    Assert-Throws {Assert-CanonicalTransactionSetAllowsDocument -TransactionsRoot $readyPaths.TransactionsRoot -DocumentHash ([string]$recoveryDocument.DocumentHash)} 'reviewed-plan-consumed' 'recovery: closing reviewed recovery document is globally consumed'
+    if($script:IsReleased){
+        Assert ($recoverApply.Code -eq 0 -and $recoverApply.Stderr -ceq '' -and $recoverApplyResult -and (Test-ExactPropertySet $recoverApplyResult @('SchemaVersion','ArtifactKind','ResultScope','Result','CommandKind','LifecycleKind','MessageToken','PlanHash')) -and [string]$recoverApplyResult.Result -ceq 'PASS' -and [string]$recoverApplyResult.CommandKind -ceq 'canonical-recover-abandon' -and [string]$recoverApplyResult.LifecycleKind -ceq 'no-transaction' -and [string]$recoverApplyResult.MessageToken -ceq 'canonical-recovery-applied' -and [string]$recoverApplyResult.PlanHash -ceq [string]$recoveryDocument.PlanHash) 'recovery emitter: released Apply completes the reviewed abandon, emits one strict PASS result with the same PlanHash, and exits 0'
+    }
+    else{
+        Assert ($recoverApply.Code -eq 75 -and $recoverApply.Stderr -cmatch '\Acanonical-recovery-apply-interlocked(?:\r?\n)?\z' -and $recoverApplyResult -and (Test-ExactPropertySet $recoverApplyResult @('SchemaVersion','ArtifactKind','ResultScope','Result','CommandKind','LifecycleKind','MessageToken','PlanHash')) -and [string]$recoverApplyResult.Result -ceq 'FAIL' -and [string]$recoverApplyResult.CommandKind -ceq 'canonical-recover-abandon' -and [string]$recoverApplyResult.LifecycleKind -ceq 'no-transaction' -and [string]$recoverApplyResult.MessageToken -ceq 'canonical-recovery-apply-interlocked' -and [string]$recoverApplyResult.PlanHash -ceq [string]$recoveryDocument.PlanHash) 'recovery emitter: production Apply revalidates, emits one strict result plus exact stderr token, and exits 75 interlocked'
+    }
+    if($script:IsReleased){
+        # the released public Apply above already completed the reviewed abandon and
+        # consumed the closing recovery document; pin the consumed state directly.
+        Assert-Throws {Assert-CanonicalTransactionSetAllowsDocument -TransactionsRoot $readyPaths.TransactionsRoot -DocumentHash ([string]$recoveryDocument.DocumentHash)} 'reviewed-plan-consumed' 'recovery: the released public Apply consumed the closing recovery document'
+    }
+    else{
+        $recoveryLock=Enter-CanonicalRepoLock -LockPath $readyPaths.LockPath
+        try{
+            $unfinishedState=Get-CanonicalUniqueTransactionState -TransactionsRoot $readyPaths.TransactionsRoot -TransactionId $unfinishedId
+            $null=Assert-CanonicalRecoveryPlanCurrent -Document $recoveryDocument -State $unfinishedState -RepoRoot $readyLinked
+            $recovered=Invoke-SealedCanonicalReviewedRecovery -Document $recoveryDocument -State $unfinishedState -RepoRoot $readyLinked
+        }finally{Exit-CanonicalRepoLock $recoveryLock}
+        Assert ($recovered.IsTerminal -and [string]$recovered.Outcome -ceq 'abandoned') 'recovery: sealed host publishes intent, fixed abandoned result, and recovery COMPLETE'
+        Assert-Throws {Assert-CanonicalTransactionSetAllowsDocument -TransactionsRoot $readyPaths.TransactionsRoot -DocumentHash ([string]$recoveryDocument.DocumentHash)} 'reviewed-plan-consumed' 'recovery: closing reviewed recovery document is globally consumed'
+    }
     $replay=Invoke-ScriptStreams $agentScript @('canonical','recover','abandon','-RepoRoot',$readyLinked,'-TransactionId',$unfinishedId,'-Apply','-PlanPath',$recoveryPlan);$replayResult=$null
     try{$replayResult=Get-ValidatedCanonicalCommandResult -Invocation $replay -Path (Join-Path $root 'recovery-replay-result.json')}catch{}
     Assert ($replay.Code -eq 1 -and $replay.Stderr -cmatch '\Areviewed-plan-consumed(?:\r?\n)?\z' -and $replayResult -and (Test-ExactPropertySet $replayResult @('SchemaVersion','ArtifactKind','ResultScope','Result','CommandKind','LifecycleKind','MessageToken')) -and [string]$replayResult.Result -ceq 'FAIL' -and [string]$replayResult.CommandKind -ceq 'canonical-recover-abandon' -and [string]$replayResult.LifecycleKind -ceq 'no-transaction' -and [string]$replayResult.MessageToken -ceq 'reviewed-plan-consumed') 'recovery emitter: terminal closing-plan replay emits one strict consumed result, exact token, and exit 1'

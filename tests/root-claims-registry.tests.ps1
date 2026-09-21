@@ -12,6 +12,14 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $RepoRoot 'tests/helpers/home-authority-test-host.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/path-safety-fixtures.ps1')
 
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
+
 if (-not ('AiAgentDotfiles.ReceiptReleaseProbe' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -7376,9 +7384,21 @@ try {
         '-Apply',
         '-PlanPath', $routeContentionPlan
     )
-    Assert-TestCondition ($routeContentionReleased.Code -eq 75 -and
-        $routeContentionReleased.Stderr -cmatch '\Acanonical-recovery-apply-interlocked(?:\r?\n)?\z') ("after the holder releases, recover Apply returns to canonical-recovery-apply-interlocked / exit 75 (code=$($routeContentionReleased.Code); stderr=$($routeContentionReleased.Stderr))")
-    Assert-TestCondition ($routeContentionBefore -ceq (Get-TestRegistryTreeHash -Fixture $routeContentionFixture)) 'released recover Apply interlock remains zero-write on the fixture tree'
+    if ($script:IsReleased) {
+        Assert-TestCondition ($routeContentionReleased.Code -eq 0 -and
+            $routeContentionReleased.Stdout -match '"MessageToken":"canonical-recovery-applied"' -and
+            $routeContentionReleased.Stdout -match '"Result":"PASS"') ("after the holder releases, released recover Apply completes the reviewed abandon with one applied result and exit 0 (code=$($routeContentionReleased.Code))")
+    }
+    else {
+        Assert-TestCondition ($routeContentionReleased.Code -eq 75 -and
+            $routeContentionReleased.Stderr -cmatch '\Acanonical-recovery-apply-interlocked(?:\r?\n)?\z') ("after the holder releases, recover Apply returns to canonical-recovery-apply-interlocked / exit 75 (code=$($routeContentionReleased.Code); stderr=$($routeContentionReleased.Stderr))")
+    }
+    if ($script:IsReleased) {
+        Assert-TestCondition ($routeContentionBefore -cne (Get-TestRegistryTreeHash -Fixture $routeContentionFixture)) 'released recover Apply writes the completed abandon state to the fixture tree'
+    }
+    else {
+        Assert-TestCondition ($routeContentionBefore -ceq (Get-TestRegistryTreeHash -Fixture $routeContentionFixture)) 'released recover Apply interlock remains zero-write on the fixture tree'
+    }
 
     Write-Host '[durable recovery ticket slice 1]'
     $durableFixedUtc = [DateTime]::Parse('2026-09-02T13:00:00.0000000Z',[CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)

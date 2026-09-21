@@ -3453,3 +3453,38 @@ the working tree is clean; the three staging locks were rebuilt after this final
 bind it. Run #128 (`68e9903`) was still in flight at this commit — its verdict and the first
 sharded-workflow run belong to the next record. Task 8 Steps 2-5 (lab, gates-on-candidate,
 reject-or-proceed, STATUS) are the owner's.
+
+### CI verdicts and the released-pin repair window (2026-09-21)
+
+The owner pushed through `67bfdc6` on 2026-09-20, which carried the candidate onto `origin/main`
+(owner's push-order decision; the Task 8 Step 1 record's "local-only" snapshot predates it). The CI
+verdicts deferred by the record above:
+
+- **Run #128 (`68e9903`): success** — the old single-job structure's final run, on a tree that
+  already carried the R3 harness-authority fixture fix (`e0bb9d7`), closing that recurrence item.
+- **Runs #129 (`eeedc46`) and #130 (`67bfdc6`): failure — the first two sharded-workflow runs, with
+  all three shard jobs red and the gates job green both times.** The shard machinery itself (static
+  partition, fail-closed discovery contract, per-shard timeouts) proved sound; every red assertion
+  was a pin drift on the released tree, now rule `R11` in `docs/CI_FAILURE_RULES.md`.
+
+Root cause (reproduced suite-by-suite on a detached `67bfdc6` worktree): `bffa7d7` flipped
+`ReleaseState` after verifying only the four policy-aware suites from `15deede`; nine more suites
+still pinned interlocked behavior unconditionally (approved-runner's pin proved environment-stable
+and stayed green, so eight needed work), and `67bfdc6`'s documentation centralization rewrote the
+AGENTS.md/README.md interlock passages that repository-policy pins verbatim. The repair makes every
+affected pin policy-state-aware on the `15deede` pattern — interlocked branches keep the original
+fail-closed pins byte-for-byte, released branches pin the observed post-flip contract per surface
+(exit code + exact diagnostic token + command-result document shape, including the observed
+released recover-abandon that completes the reviewed abandon at exit 0 with `canonical-recovery-applied`
+and zero ControlBase writes, and the setup/normalize gate tokens `manual-recovery-required` /
+`canonical-setup-required` at exit 1). `cef82f9` had already repaired harness-env the same way;
+this window extends that to repository-policy (document pins aligned to the current wording),
+canonical-transaction, skills-import, doctor, task-skills, canonical-command-result,
+canonical-recovery, harness-authority, and root-claims-registry.
+
+Validation: each repaired suite green on the released working tree via the runner collection
+(sharded invocation shape), plus canonical-hard-kill green as the last unverified shard-1 member.
+The full-repository collection and remote CI were not rerun locally; the next push is the sharded
+workflow's first run on the repaired tree. No production script, policy value, or gate threshold
+changed — this is test-pinning and documentation repair only, and it grants no release or
+deployment authorization: Task 8 Steps 2-5 remain the owner's.

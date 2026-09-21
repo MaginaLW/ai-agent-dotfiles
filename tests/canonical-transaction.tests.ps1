@@ -7,6 +7,14 @@ $ErrorActionPreference='Stop'
 $RepoRoot=(Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
 
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+$policyState=[string](Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased=($policyState -eq 'released')
+
 $script:pass=0; $script:fail=0
 function Assert { param([bool]$Condition,[string]$Message) if($Condition){$script:pass++;Write-Host "  PASS  $Message" -ForegroundColor Green}else{$script:fail++;Write-Host "  FAIL  $Message" -ForegroundColor Red} }
 function Assert-Throws { param([scriptblock]$Action,[string]$Message) try{&$Action;Assert $false $Message}catch{Assert $true $Message} }
@@ -158,7 +166,12 @@ try {
     Assert (@($doc.PlanPayload.UnknownGeneratedInventory).Count -eq 0) 'plan: ordered unknown generated inventory is bound'
     Assert ([string]$doc.PlanPayload.BuildResultHash -cmatch '^[0-9a-f]{64}$' -and [string]$doc.PlanPayload.ScanResultHash -cmatch '^[0-9a-f]{64}$') 'plan: validated build and scan result hashes are bound'
     $again=Invoke-Script -Script $scriptPath -Arguments @('-RepoRoot',$fixture,'-OperationKind','normalize','-Apply','-PlanPath',$plan)
-    Assert ($again.Code -eq 75 -and $again.Out -match [regex]::Escape([string]$doc.PlanHash) -and $again.Out -match 'canonical-apply-interlocked') 'plan: unchanged second process reproduces PlanHash while Apply remains interlocked'
+    if($script:IsReleased){
+        Assert ($again.Code -eq 1 -and $again.Out -match [regex]::Escape([string]$doc.PlanHash) -and $again.Out -match 'canonical-setup-required') 'plan: unchanged second process reproduces PlanHash and fails closed at the setup gate under the released policy'
+    }
+    else{
+        Assert ($again.Code -eq 75 -and $again.Out -match [regex]::Escape([string]$doc.PlanHash) -and $again.Out -match 'canonical-apply-interlocked') 'plan: unchanged second process reproduces PlanHash while Apply remains interlocked'
+    }
     $existing=Invoke-Script -Script $scriptPath -Arguments $dryArgs
     Assert ($existing.Code -eq 1 -and $existing.Out -match 'canonical-plan-exists') 'plan: existing PlanPath is rejected before another preflight'
 

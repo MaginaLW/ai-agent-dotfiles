@@ -31,6 +31,14 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
 . (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
 
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
+
 $script:pass = 0
 $script:fail = 0
 function Assert {
@@ -243,7 +251,12 @@ Assert ($result.Code -eq 0 -and $result.Out -match 'three-platform baseline: COM
 $result = Invoke-TaskCli -Direct -ScriptPath $entryScript -Arguments @('env', 'task', 'ensure-skill', 'fixture-b', '-RepoRoot', $repo)
 Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') 'dispatcher rejects implicit task apply'
 $result = Invoke-TaskCli -Direct -ScriptPath $taskScript -Arguments @('-Action', 'sync', '-RepoRoot', $repo, '-HomeRoot', $fakeHome, '-ControlBase', $controlBase, '-BackupRoot', $backupRoot, '-Apply', '-Automatic', '-PlanPath', (Join-Path $sandbox 'automatic-plan.json'))
-Assert ($result.Code -ne 0 -and $result.Out -match 'safety-protocol-upgrade-required') 'the removed -Automatic switch still fails closed at the production interlock first'
+if ($script:IsReleased) {
+    Assert ($result.Code -ne 0 -and $result.Out -match 'task-overlay-automatic-removed') 'the removed -Automatic switch still fails closed at the public automatic-apply gate under the released policy'
+}
+else {
+    Assert ($result.Code -ne 0 -and $result.Out -match 'safety-protocol-upgrade-required') 'the removed -Automatic switch still fails closed at the production interlock first'
+}
 $result = Invoke-TaskCli -ScriptPath $taskScript -Arguments @('-Action', 'sync', '-RepoRoot', $repo, '-HomeRoot', $fakeHome, '-ControlBase', $controlBase, '-BackupRoot', $backupRoot, '-Apply', '-Automatic', '-PlanPath', (Join-Path $sandbox 'automatic-plan.json'))
 Assert ($result.Code -ne 0 -and $result.Out -match ('task-overlay-' + 'automatic-removed')) 'automatic task apply is deleted from the Apply routing'
 $result = Invoke-TaskCli -ScriptPath $taskScript -Arguments @('-Action', 'sync', '-RepoRoot', $repo, '-HomeRoot', $fakeHome, '-ControlBase', $controlBase, '-BackupRoot', $backupRoot, '-DryRun', '-SkipBuild', '-PlanPath', (Join-Path $sandbox 'skip-plan.json'))

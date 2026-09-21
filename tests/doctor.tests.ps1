@@ -5,6 +5,15 @@ param([string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
+
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-doctor-$([Guid]::NewGuid().ToString('N'))"
 $fakeHome = Join-Path $work 'home'
 $systemRoot = Join-Path $fakeHome '.codex/skills/.system'
@@ -26,7 +35,12 @@ try {
     $report = Get-Content -Raw -LiteralPath $jsonPath | ConvertFrom-Json
     if ([int]$report.SchemaVersion -ne 1 -or $report.Result -notin @('PASS','WARN','FAIL')) { throw 'doctor JSON summary shape is invalid' }
     if ($report.Counts.Fail -ne 0 -or -not $report.SecretsScanSkipped) { throw 'doctor JSON summary has unexpected gate state' }
-    if ($output -notmatch 'safety-protocol-upgrade-required' -or $output -notmatch 'runner-review-required|Approved runner hash') { throw 'doctor omitted safety/runner diagnostics' }
+    if ($script:IsReleased) {
+        if ($output -notmatch 'release state released' -or $output -notmatch 'runner-review-required|Approved runner hash') { throw 'doctor omitted safety/runner diagnostics' }
+    }
+    else {
+        if ($output -notmatch 'safety-protocol-upgrade-required' -or $output -notmatch 'runner-review-required|Approved runner hash') { throw 'doctor omitted safety/runner diagnostics' }
+    }
 
     $reparseHome = Join-Path $work 'reparse-home'
     $outside = Join-Path $work 'outside-system'

@@ -23,6 +23,14 @@ $skillsCommon = Join-Path $RepoRoot 'scripts/skills-common.ps1'
 $adapterCommon = Join-Path $RepoRoot 'scripts/canonical-skill-adapter-common.ps1'
 . $skillsCommon
 
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
+
 $script:pass = 0
 $script:fail = 0
 function Assert {
@@ -293,7 +301,12 @@ try {
     $normalizeCommand = Get-CommandResultFromOutput $r.Out
     Assert ($r.Code -eq 0 -and $null -ne $normalizeDocument -and [string]$normalizeDocument.PlanPayload.OperationKind -ceq 'normalize' -and [string]$normalizeCommand.CommandKind -ceq 'canonical-normalize') 'normalize: public DryRun creates one external reviewed canonical plan and validates its child result'
     $r = Invoke-Script -Script $normalizeScript -Arguments @('-RepoRoot',$rxRepo,'-InputSkillPath',$rxInput,'-TargetType','reasonix-only','-Apply','-PlanPath',$externalPlan)
-    Assert ($r.Code -eq 75 -and $r.Out -match 'canonical-apply-interlocked') 'normalize: Apply consumes the same stored normalize plan and remains production-interlocked'
+    if ($script:IsReleased) {
+        Assert ($r.Code -eq 1 -and $r.Out -match 'canonical-setup-required') 'normalize: Apply consumes the same stored normalize plan and fails closed at the setup gate under the released policy'
+    }
+    else {
+        Assert ($r.Code -eq 75 -and $r.Out -match 'canonical-apply-interlocked') 'normalize: Apply consumes the same stored normalize plan and remains production-interlocked'
+    }
     $legacyOutput = Join-Path $rxRepo 'skills-source/reasonix-only/arbitrary-output'
     $r = Invoke-Script -Script $normalizeScript -Arguments @('-RepoRoot',$rxRepo,'-InputSkillPath',$rxInput,'-TargetType','reasonix-only','-DryRun','-PlanPath',$externalPlan,'-OutputSkillPath',$legacyOutput)
     Assert ($r.Code -ne 0 -and -not (Test-Path -LiteralPath $legacyOutput)) 'normalize: arbitrary OutputSkillPath is no longer accepted'
