@@ -8,6 +8,8 @@ through `67bfdc6`. The sharded CI workflow's first two runs (both on trees carry
   harness-authority recurrence item.
 - Run #129 (`eeedc46`): failure — shard 1/2/3 red, gates green.
 - Run #130 (`67bfdc6`): failure — same shape.
+- Run #131 (`cef82f9`): failure — same shape; this tree already carried the harness-env repair,
+  confirming the remaining eight suites needed this window's work.
 
 GitHub job logs require admin rights (anonymous fetch is refused), so diagnosis ran from a
 detached `67bfdc6` worktree with per-suite reproduction through the repository runner.
@@ -37,6 +39,10 @@ policy assumptions. On the released tree:
 `approved-runner` and `live-recovery` referenced interlock tokens but passed on the released tree:
 approved-runner's pin is environment- and policy-stable, and live-recovery was already
 policy-aware.
+
+The main tree was at `cef82f9` while this window ran; the owner pushed through `cef82f9` during
+the diagnosis window (run #131 repeated #129/#130's shape), so the repair commit `5954503` sits
+directly on top and is the only local commit at this record's writing.
 
 ## Repair
 

@@ -3462,10 +3462,12 @@ verdicts deferred by the record above:
 
 - **Run #128 (`68e9903`): success** — the old single-job structure's final run, on a tree that
   already carried the R3 harness-authority fixture fix (`e0bb9d7`), closing that recurrence item.
-- **Runs #129 (`eeedc46`) and #130 (`67bfdc6`): failure — the first two sharded-workflow runs, with
-  all three shard jobs red and the gates job green both times.** The shard machinery itself (static
-  partition, fail-closed discovery contract, per-shard timeouts) proved sound; every red assertion
-  was a pin drift on the released tree, now rule `R11` in `docs/CI_FAILURE_RULES.md`.
+- **Runs #129 (`eeedc46`), #130 (`67bfdc6`), and #131 (`cef82f9`): failure — the first three
+  sharded-workflow runs, with all three shard jobs red and the gates job green every time.** The
+  shard machinery itself (static partition, fail-closed discovery contract, per-shard timeouts)
+  proved sound; every red assertion was a pin drift on the released tree, now rule `R11` in
+  `docs/CI_FAILURE_RULES.md`. The owner pushed through `cef82f9` while this repair window ran;
+  run #131's tree carried the harness-env repair but not the remaining eight suites' pins.
 
 Root cause (reproduced suite-by-suite on a detached `67bfdc6` worktree): `bffa7d7` flipped
 `ReleaseState` after verifying only the four policy-aware suites from `15deede`; nine more suites

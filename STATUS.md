@@ -17,16 +17,17 @@ disposable identity). See
 [the Task 8 record](status/active/live-safety-hardening.md) (final sections).
 
 The CI verdicts the Task 8 Step 1 record deferred are in. Run #128 (`68e9903`) closed the old
-single-job structure green (also closing the R3 harness-authority recurrence item). The first two
-sharded-workflow runs — #129 (`eeedc46`) and #130 (`67bfdc6`) — came back with all three shard
-jobs red on the released tree while the gates job stayed green. The
+single-job structure green (also closing the R3 harness-authority recurrence item). The first three
+sharded-workflow runs — #129 (`eeedc46`), #130 (`67bfdc6`), and #131 (`cef82f9`, pushed by the
+owner while the repair ran) — came back with all three shard jobs red on the released tree while
+the gates job stayed green each time. The
 [pins repair window](status/archived/2026-09-21-ci-released-pin-repair.md) made the remaining
 released-tree interlock pins policy-state-aware (the `15deede` pattern) and aligned
 repository-policy's documentation pins; the observed released contracts and the per-suite
 validation are recorded there. New rule: `R11` in [docs/CI_FAILURE_RULES.md](docs/CI_FAILURE_RULES.md).
-These repaired commits, the skills-reduction pair (`8bf549b`, `cef82f9`), and their record commits
-are local at this writing; the owner's next push is the sharded workflow's first run on the
-repaired tree. No production script, policy value, or gate threshold changed, and none of this
+At this writing `origin/main` is `cef82f9`; the repair commit `5954503` is the only local
+commit, and the owner's next push is the sharded workflow's first run on the repaired tree.
+No production script, policy value, or gate threshold changed, and none of this
 grants release or deployment authorization.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate
