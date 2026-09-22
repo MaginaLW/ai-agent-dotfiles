@@ -48,8 +48,9 @@ approved-runner's pin is environment- and policy-stable, and live-recovery was a
 policy-aware.
 
 The owner pushed `5954503` to `origin/main` shortly after it was committed, so run #132 is the
-repair's first CI run; its two follow-up commits (the scanner-heuristic fix and the
-environment-independent pins) are local at this record's final writing.
+repair's first CI run; its three follow-up commits (the scanner-heuristic fix, the two
+environment-independent pin hardenings, and the run #132 records) are local at this record's
+final writing.
 
 ## Repair
 

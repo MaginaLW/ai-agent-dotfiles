@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-21 (current-state entry only)
+Last updated: 2026-09-22 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -26,11 +26,11 @@ repository-policy's documentation pins, and switched the two environment-sensiti
 structural contracts; new rule `R11` in [docs/CI_FAILURE_RULES.md](docs/CI_FAILURE_RULES.md)
 carries the details and the per-suite validation. Run #132 (`5954503`) then proved shards 1 and 2
 green; its shard-3 and gates reds were isolated to `sync.tests.ps1` and the scanner's API-key
-heuristic on the task-overlay literal, both repaired in the two follow-up commits — after which
+heuristic on the task-overlay literal, both repaired in the follow-up commits — after which
 shard 3 is 27/27 locally with the exact CI invocation and the CI-equivalent gates chain reports
-`PASS` on the committed tree. Those two commits are local at this writing; the next push is
-their first CI run. No production script, policy value, or gate threshold changed, and none of
-this grants release or deployment authorization.
+`PASS` on the committed tree. Those commits (three repairs plus the records) are local at this
+writing; the next push is their first CI run. No production script, policy value, or gate
+threshold changed, and none of this grants release or deployment authorization.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate
 can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected

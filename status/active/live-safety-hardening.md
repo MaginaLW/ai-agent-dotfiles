@@ -1,6 +1,6 @@
 # Live Safety Hardening
 
-Last updated: 2026-09-17
+Last updated: 2026-09-22
 
 Status: Complete through Phase 3. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0
 entry-interlock subplan is complete (43/43), Phase 1 is complete (44/44), Phase 2 is complete
@@ -3472,10 +3472,11 @@ verdicts deferred by the record above:
   the gates job red — both isolated and repaired.** Shard 3's single red was `sync.tests.ps1`'s
   no-capability DryRun pin (the released resolver derives the host from the identity, moving the
   rejection to an environment-dependent later gate); the gates red was the full task-overlay
-  literal tripping the secret scanner's generic API-key heuristic. The two fix commits make the
-  affected pins environment-independent and split the literal the way the neighbouring assertion
-  already does; local verification: shard 3 27/27 with the exact CI invocation, and the
-  CI-equivalent gates chain `PASS` on the committed tree.
+  literal tripping the secret scanner's generic API-key heuristic. Three follow-up commits make
+  the affected pins environment-independent and split the literal the way the neighbouring
+  assertion already does; local verification: shard 3 27/27 with the exact CI invocation, and the
+  CI-equivalent gates chain `PASS` on the committed tree. Those commits are local at this
+  writing.
 
 Root cause (reproduced suite-by-suite on a detached `67bfdc6` worktree): `bffa7d7` flipped
 `ReleaseState` after verifying only the four policy-aware suites from `15deede`; nine more suites
