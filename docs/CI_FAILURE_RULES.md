@@ -263,6 +263,13 @@ pin。CI 首两次 shard 运行（#129、#130）三 shard 全红，gates 作业�
 - released 分支 pin 的是观察契约：精确 exit code + 精确 token + 结果文档结构（`Result` /
   `MessageToken` / `LifecycleKind` / `PlanHash` 绑定），不得放宽为任意非零退出；
   interlocked 分支 byte-for-byte 保留原有 fail-closed pin。
+- **gate 本身环境敏感时（owner/DACL、真实 home 状态），released 分支改 pin 环境无关的结构
+  契约**（非零退出 + 未产生 plan/claims 等可核对的零写入状态），并在注释里写明 token 为何
+  不可跨环境 pin。已证实的两种环境依赖：gate 链在提权 CI runner 与普通用户机上停在不同的
+  拒绝面（`home-authority-bootstrap-manual-recovery-required` vs 后续 gate）；无 internal
+  capability 的 sync DryRun 在有 live roots 的机器上停在 `live-plan-selection-mismatch`、
+  在全新 CI home 上继续更远。环境无关的 pin 只对**该断言的 fail-closed 语义**成立，不得借它
+  跳过精确契约的观察。
 - 观察到的 released 契约随 surface 而异，必须逐处观察后 pin，不得从另一 surface 类推：
   实例中 setup/normalize Apply 在未完成 bootstrap 的 fixture 上 fail-closed 于
   `manual-recovery-required` 或 `canonical-setup-required`（exit 1），而 recover-abandon

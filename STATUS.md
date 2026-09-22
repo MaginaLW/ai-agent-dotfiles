@@ -17,18 +17,20 @@ disposable identity). See
 [the Task 8 record](status/active/live-safety-hardening.md) (final sections).
 
 The CI verdicts the Task 8 Step 1 record deferred are in. Run #128 (`68e9903`) closed the old
-single-job structure green (also closing the R3 harness-authority recurrence item). The first three
-sharded-workflow runs — #129 (`eeedc46`), #130 (`67bfdc6`), and #131 (`cef82f9`, pushed by the
-owner while the repair ran) — came back with all three shard jobs red on the released tree while
-the gates job stayed green each time. The
-[pins repair window](status/archived/2026-09-21-ci-released-pin-repair.md) made the remaining
-released-tree interlock pins policy-state-aware (the `15deede` pattern) and aligned
-repository-policy's documentation pins; the observed released contracts and the per-suite
-validation are recorded there. New rule: `R11` in [docs/CI_FAILURE_RULES.md](docs/CI_FAILURE_RULES.md).
-At this writing `origin/main` is `cef82f9`; the repair commit `5954503` is the only local
-commit, and the owner's next push is the sharded workflow's first run on the repaired tree.
-No production script, policy value, or gate threshold changed, and none of this
-grants release or deployment authorization.
+single-job structure green (also closing the R3 harness-authority recurrence item). The first
+three sharded-workflow runs — #129 (`eeedc46`), #130 (`67bfdc6`), and #131 (`cef82f9`) — came
+back with all three shard jobs red on the released tree while the gates job stayed green each
+time. The [pins repair window](status/archived/2026-09-21-ci-released-pin-repair.md) made the
+remaining released-tree interlock pins policy-state-aware (the `15deede` pattern), aligned
+repository-policy's documentation pins, and switched the two environment-sensitive pins to
+structural contracts; new rule `R11` in [docs/CI_FAILURE_RULES.md](docs/CI_FAILURE_RULES.md)
+carries the details and the per-suite validation. Run #132 (`5954503`) then proved shards 1 and 2
+green; its shard-3 and gates reds were isolated to `sync.tests.ps1` and the scanner's API-key
+heuristic on the task-overlay literal, both repaired in the two follow-up commits — after which
+shard 3 is 27/27 locally with the exact CI invocation and the CI-equivalent gates chain reports
+`PASS` on the committed tree. Those two commits are local at this writing; the next push is
+their first CI run. No production script, policy value, or gate threshold changed, and none of
+this grants release or deployment authorization.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate
 can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected

@@ -3468,6 +3468,14 @@ verdicts deferred by the record above:
   proved sound; every red assertion was a pin drift on the released tree, now rule `R11` in
   `docs/CI_FAILURE_RULES.md`. The owner pushed through `cef82f9` while this repair window ran;
   run #131's tree carried the harness-env repair but not the remaining eight suites' pins.
+- **Run #132 (`5954503`, the first run on the repaired tree): shards 1 and 2 green, shard 3 and
+  the gates job red — both isolated and repaired.** Shard 3's single red was `sync.tests.ps1`'s
+  no-capability DryRun pin (the released resolver derives the host from the identity, moving the
+  rejection to an environment-dependent later gate); the gates red was the full task-overlay
+  literal tripping the secret scanner's generic API-key heuristic. The two fix commits make the
+  affected pins environment-independent and split the literal the way the neighbouring assertion
+  already does; local verification: shard 3 27/27 with the exact CI invocation, and the
+  CI-equivalent gates chain `PASS` on the committed tree.
 
 Root cause (reproduced suite-by-suite on a detached `67bfdc6` worktree): `bffa7d7` flipped
 `ReleaseState` after verifying only the four policy-aware suites from `15deede`; nine more suites

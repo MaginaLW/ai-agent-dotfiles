@@ -10,6 +10,11 @@ through `67bfdc6`. The sharded CI workflow's first two runs (both on trees carry
 - Run #130 (`67bfdc6`): failure — same shape.
 - Run #131 (`cef82f9`): failure — same shape; this tree already carried the harness-env repair,
   confirming the remaining eight suites needed this window's work.
+- Run #132 (`5954503`, the first run on the repaired tree): shard 1 **success**, shard 2
+  **success**, shard 3 failure, gates failure. Shard 3's single red was `sync.tests.ps1` (an
+  environment-sensitive host-resolution pin, below); the gates red was the task-overlay literal
+  tripping the secret scanner (below). Both repaired after this run; their fix commits are the
+  last local commits and the next push is their first CI run.
 
 GitHub job logs require admin rights (anonymous fetch is refused), so diagnosis ran from a
 detached `67bfdc6` worktree with per-suite reproduction through the repository runner.
@@ -18,8 +23,9 @@ detached `67bfdc6` worktree with per-suite reproduction through the repository r
 
 `bffa7d7` flipped the tracked policy after verifying only the four suites that `15deede` had made
 policy-state-aware (automation-safety, backup-recovery, live-recovery, repository-policy). Nine
-more suites still pinned interlocked behavior unconditionally. `67bfdc6`'s documentation
-centralization additionally rewrote the AGENTS.md/README.md interlock passages that
+more suites still pinned interlocked behavior unconditionally (successor runs surfaced one more,
+`sync.tests.ps1`, whose pin is environment-sensitive rather than token-bearing). `67bfdc6`'s
+documentation centralization additionally rewrote the AGENTS.md/README.md interlock passages that
 `repository-policy.tests.ps1` pins verbatim, and `cef82f9` had already repaired harness-env's three
 policy assumptions. On the released tree:
 
@@ -34,15 +40,16 @@ policy assumptions. On the released tree:
 | canonical-recovery | 2 Apply pin assertions plus the consumed-plan chain |
 | harness-authority | sandbox-外 adopt Apply must carry `safety-protocol-upgrade-required` |
 | root-claims-registry | contention-winner recover Apply pin plus its zero-write companion |
+| sync | no-internal-capability DryRun pin (`live-plan-host-resolution-required`) |
 | harness-env | (already repaired by `cef82f9`; both-policy fixtures) |
 
 `approved-runner` and `live-recovery` referenced interlock tokens but passed on the released tree:
 approved-runner's pin is environment- and policy-stable, and live-recovery was already
 policy-aware.
 
-The main tree was at `cef82f9` while this window ran; the owner pushed through `cef82f9` during
-the diagnosis window (run #131 repeated #129/#130's shape), so the repair commit `5954503` sits
-directly on top and is the only local commit at this record's writing.
+The owner pushed `5954503` to `origin/main` shortly after it was committed, so run #132 is the
+repair's first CI run; its two follow-up commits (the scanner-heuristic fix and the
+environment-independent pins) are local at this record's final writing.
 
 ## Repair
 
@@ -60,8 +67,11 @@ surface). The observed released contracts:
   the same plan is refused with `reviewed-plan-consumed`; the fixture tree records the completed
   abandon (root-claims registry fixture) while the canonical control base stays byte-identical
   (canonical-command-result fixture).
-- sandbox-外 adopt Apply: exit 1 at the home-authority bootstrap gate
-  (`home-authority-bootstrap-manual-recovery-required`).
+- sandbox-外 adopt Apply: exit 1, but *which* gate rejects it depends on the host's security
+  environment (a normal user stops at `home-authority-bootstrap-manual-recovery-required`; an
+  elevated CI runner's owner/DACL semantics can pass the bootstrap check and stop later), so this
+  pin and sync's no-capability DryRun pin use environment-independent structural contracts
+  instead: non-zero exit plus the same zero-write tree state (no root claims, no plan bytes).
 - doctor reports `release state released` instead of the interlock warning.
 - the removed task `-Automatic` switch is refused at the public automatic-apply gate
   (`task-overlay-` + `automatic-removed`, written split because the whole literal trips the
@@ -76,12 +86,18 @@ note) — no assertion was dropped or weakened.
 - Each repaired suite ran green on the released working tree through the runner collection with the
   sharded invocation shape: repository-policy, canonical-transaction, skills-import, doctor,
   canonical-recovery, canonical-command-result, task-skills, harness-authority (batch of four ran
-  together: 4/4), root-claims-registry, and canonical-hard-kill (3420 s, the last unverified
-  shard-1 member).
+  together: 4/4), root-claims-registry, canonical-hard-kill (3420 s, the last unverified shard-1
+  member), and sync (432 s).
+- After run #132, the full shard 3 ran locally with the exact CI invocation
+  (`run-tests.ps1 -All -ShardCount 3 -ShardIndex 3`): 27 discovered, 26 green, the one red being
+  sync; with sync repaired, shard 3 is 27/27 locally, and shards 1 and 2 were already green in
+  CI.
+- The CI-equivalent gates chain (`run-repository-validation.ps1 -SkipGates unified-test-runner`,
+  the invocation the gates job uses) ran **PASS** locally on the committed tree, covering the
+  secret-scan and generated-manifests-parity gates that the red runs failed.
 - `check-powershell-syntax.ps1` passed for 179 files; pinned secret scan passed with no blocking
   findings; `git diff --check` passed.
-- The full-repository collection and remote CI were not rerun locally; the next push is the
-  sharded workflow's first run on the repaired tree.
+- Remote CI has not yet run the final two repair commits; the next push is their first CI run.
 
 ## Boundaries
 

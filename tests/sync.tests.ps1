@@ -25,6 +25,14 @@ $plansRoot = Join-Path $work 'plans'
 . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
 . (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
 
+# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
+# same committed suite bytes assert the interlocked fail-closed contract while
+# ReleaseState=interlocked, and each affected surface's observed released
+# post-Assert contract once the reviewed release candidate flips the policy.
+. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
+$script:IsReleased = ($policyState -eq 'released')
+
 $internalHost = Join-Path $RepoRoot 'scripts/internal/live-transaction-host.ps1'
 
 function Set-TestDirectoryCurrentUserOnly {
@@ -193,7 +201,18 @@ try {
 
     $noCapabilityPlan = Join-Path $plansRoot 'no-capability-plan.json'
     $result = Invoke-TestProcess -ScriptPath $syncScript -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $noCapabilityPlan)
-    Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-host-resolution-required') 'dry-run without the internal capability fails closed'
+    if ($script:IsReleased) {
+        # The released resolver derives the host from the identity instead of
+        # stopping at host resolution, so the rejection moves to whichever later
+        # gate the host state triggers (this machine has live roots and stops at
+        # live-plan-selection-mismatch; a fresh CI home continues further).
+        # Pin the environment-independent contract instead: non-zero exit that
+        # leaves zero plan bytes (asserted below).
+        Assert ($result.Code -ne 0) 'dry-run without the internal capability still fails closed under the released policy'
+    }
+    else {
+        Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-host-resolution-required') 'dry-run without the internal capability fails closed'
+    }
     Assert (-not (Test-Path -LiteralPath $noCapabilityPlan)) 'failed host resolution creates zero plan bytes'
 
     Write-Host '[pristine initial producer]'
