@@ -1347,9 +1347,17 @@ $adoptAgain = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action
 Assert ($adoptAgain.Code -eq 1 -and $adoptAgain.Out -match 'live-plan-path-collision') 'a second DryRun at the same plan path is refused'
 $applyMissing = Invoke-AuthorityCli -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', (Join-Path $cliSandbox 'never.json'), '-RepoRoot', $cliRepo)
 Assert ($applyMissing.Code -eq 1 -and $applyMissing.Out -match 'missing') 'Apply refuses a plan path that does not exist'
+$directClaimsBefore = Test-Path -LiteralPath (Join-Path $cliAuthorityRoot 'root-claims.json') -PathType Leaf
+Assert (-not $directClaimsBefore) 'no root claims exist before the outside-sandbox Apply attempt'
 $interlockedDirect = Invoke-AuthorityCli -Direct -SandboxRoot $cliSandbox -Arguments @('-Action', 'adopt', '-Name', 'good', '-Apply', '-PlanPath', $adoptPlan, '-RepoRoot', $cliRepo)
 if ($script:IsReleased) {
-    Assert ($interlockedDirect.Code -eq 1 -and $interlockedDirect.Out -match 'home-authority-bootstrap-manual-recovery-required') 'production Apply outside the approved sandbox fails closed at the home-authority bootstrap gate under the released policy'
+    # The released Assert returns and the production route proceeds until it
+    # fails closed; which gate rejects it depends on the host's security
+    # environment (owner/DACL semantics differ between an elevated CI runner
+    # and a normal user), so this pins the environment-independent contract:
+    # a non-zero exit that publishes no root claims (the same tree state the
+    # outside-sandbox interlocked rejection leaves).
+    Assert ($interlockedDirect.Code -ne 0 -and -not (Test-Path -LiteralPath (Join-Path $cliAuthorityRoot 'root-claims.json') -PathType Leaf)) 'production Apply outside the approved sandbox fails closed without publishing root claims under the released policy'
 }
 else {
     Assert ($interlockedDirect.Code -eq 1 -and $interlockedDirect.Out -match 'safety-protocol-upgrade-required') 'production Apply stays interlocked outside the approved sandbox'
