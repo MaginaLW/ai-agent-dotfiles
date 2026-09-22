@@ -3537,3 +3537,148 @@ Documentation checks passed: `git diff --check`, pinned gitleaks plus the reposi
 (zero blocking findings), PowerShell syntax validation (179 files), and the new relative link
 and heading anchor. Independent review matched the correction to the original log and Git
 blobs. Full regression and remote CI were not run for this documentation-only correction.
+
+
+## 2026-09-23 Task 8 Step 2 disposable-identity lab (owner-authorized): the released setup route is blocked by its own pinned-tool cache
+
+Owner instruction: read the project's current state and complete the pending items — that is the
+Task 8 Steps 2-5 owner gate. This section records what the run produced. **Outcome: the release
+candidate is rejected per Task 8 Step 4**; the blocking defect is reproducible and code-cited below.
+
+### 1. Environment correction
+
+Windows Sandbox **is** enabled on this machine. The Task 8 Step 1 record's "this machine has no
+Windows Sandbox (`wsb.exe` absent)" checked a path that exists on no Windows build; the launcher is
+`C:\Windows\System32\WindowsSandbox.exe`. A probe executed inside the guest returned the disposable
+identity `WDAGUtilityAccount`, Windows PowerShell `5.1.26100.9444`, `net=ok 200` (GitHub reachable),
+token SID `S-1-5-21-…-504` and `IsAdmin=true`.
+
+### 2. Lab harness (machine-local, gitignored, `tmp/lab8/`)
+
+`run-route.ps1` (host launcher: payload and installer cache mapped read-only, one writable evidence
+root, **one fresh snapshot per session**), `payload/prelude.ps1` (guest Windows PowerShell 5.1
+bootstrap: cached PowerShell 7.4.6 MSI, MinGit 2.47.1, VC++ redistributable, then the route script
+under PowerShell 7), `payload/common.ps1` (step runner; every command leaves one JSON evidence
+record with exit code, duration, command line and full output), `payload/route-*.ps1`,
+`host-roots-manifest.ps1` (host real-root hashes; the protected Reasonix paths stay metadata-only —
+the manifest never reads them), `cache/` (installer payloads), `evidence/`.
+
+**Session serialization (harness defect, fixed).** Windows 11 24H2+ Windows Sandbox permits several
+live sessions and only the active one runs its `LogonCommand`; a session whose UI process is killed
+leaves its VM alive, so a later session's logon command may never run (observed repeatedly; it is the
+real reason the kit could not be exercised before). The launcher kills all sandbox UI processes,
+waits for no remaining `WindowsSandboxRemoteSession`, launches exactly one session, waits for the
+transcript/status sentinel, retries, and the guest now shuts itself down cleanly at the end. Under
+host load a boot can take minutes, so the per-attempt wait is 400 s.
+
+### 3. Lab-kit defects found and fixed before the run
+
+1. **Route order.** The kit planned canonical setup before sync-initial. `sync.ps1` refuses a
+   pristine-initial plan once the control base exists (`sync.ps1:296-304`,
+   `live-plan-authority-present`), while its Apply asserts that the sealed authority prefix is
+   COMPLETE (`sync.ps1:977-981`) — sync never bootstraps; the same code documents that the initial
+   plan is authored *before* the prefix exists and applied after it (`sync.ps1:949-954`). The
+   corrected chain is: initial DryRun → canonical setup DryRun/Apply (creates the prefix:
+   `canonical-transaction.ps1:91-98`, `SetupBootstrap`) → initial Apply.
+2. **Task skill name.** `doc-review-checklist` is not in `manifests/managed-skills.codex.txt`; the
+   task route uses `verification-before-completion` with `-BaseEnv full`.
+3. **Diagnostic surface.** The public canonical CLI maps unmapped exceptions to
+   `canonical-command-failed`, so the raw cause is invisible in CLI evidence; the lab's diagnostic
+   routes call the same internals and record the real error chain.
+
+### 4. Environment precondition on a stock Windows Sandbox identity (recorded, disposable-only)
+
+The canonical setup DryRun first failed with `canonical private root ancestor is not owned by the
+access-token owner: C:\Users\WDAGUtilityAccount` — `Assert-CanonicalControlledPrivateAncestorSecurity`
+at `canonical-transaction-common.ps1:1001`, reached from `Get-CanonicalRootSecurityContext:1026`
+inside `New-CanonicalSetupPlanPayload:1328`. The sandbox image owns the logon profile directory with
+`NT AUTHORITY\SYSTEM`, not with the logon token, whereas a normal Windows profile is owned by its
+user. The lab records the before/after owner and takes ownership of that disposable directory before
+the routes run; nothing else in the environment is altered.
+
+### 5. Results on the exact released candidate commit `bffa7d7`
+
+Every step below is a new invocation with per-step JSON evidence under `tmp/lab8/evidence/chain1/`,
+`diag2b/`, `diag3/`, `diag4/`, `diag5/` (machine-local).
+
+- Clone of the exact candidate commit from a read-only bundle mapping: `HEAD == bffa7d7` asserted;
+  the policy reads `released`.
+- Pinned tools: `install-schema-validator.ps1` install + `-VerifyOnly` PASS; `install-gitleaks.ps1`
+  install + `-VerifyOnly` PASS; `scripts/setup.ps1 -ApproveRunner` PASS (approved commit `bffa7d7`).
+- Generated-output build and the secret-scan gate PASS inside the disposable clone
+  (`agent-dotfiles.ps1 build` 7/15/7 skills; gitleaks reports no blocking leaks).
+- **Initial route DryRun PASS** (`sync.ps1 -DryRun`, exit 0): `Operation kind: initial`,
+  `Environment: full`, PlanHash `cded25b5…`, DocumentHash `a1b47d66…`, `would add (29)`,
+  `would update (0)`, `would no-op (0)`, `would prune (0)`, `unknown dirs (0)`.
+- **Canonical setup DryRun PASS** (exit 0, `canonical-plan-created`, PlanHash `6f6524e6…`).
+- **Canonical setup Apply FAIL** (exit 1): document
+  `{"CommandKind":"canonical-setup","LifecycleKind":"no-transaction","MessageToken":"manual-recovery-required","Result":"FAIL"}`;
+  nothing was created — the canonical lock, the transactions root and the setup state are all still
+  absent afterwards and `canonical status` still reads `canonical-setup-required`.
+
+**Raw cause (in-process diagnostic replicating the Apply path, `route-diag4.ps1`):**
+
+```
+read-plan                     OK    PlanHash=2a53dbe3… (setup)
+hash-not-consumed             OK
+plan-current                  OK    PASS
+selection / authority-context OK    identity ControlBase == selection ControlBase
+enter-existing-only           ERROR home-authority-bootstrap-manual-recovery-required: PrivateRootBase: home-authority-bootstrap-owner-dacl-mismatch
+enter-setup-bootstrap         ERROR home-authority-bootstrap-manual-recovery-required: PrivateRootBase: home-authority-bootstrap-owner-dacl-mismatch
+```
+
+The check is `Assert-HomeAuthoritySecuritySnapshot` (`home-authority-common.ps1:568`), reached
+through the bootstrap entry reader (`:683`). `PrivateRootBase` is `<LocalAppData>\ai-agent-dotfiles`
+(`home-authority-common.ps1:619`, whose expected children are `backups` and `control`). That
+directory is created **by this repository's own pinned-tool installers**, because the pinned tool
+cache root is `<LocalAppData>/ai-agent-dotfiles/tool-cache`
+(`json-artifact-common.ps1:652-659`) — and it is created with inheriting ACLs and an
+administrator-group owner, not with the sealed current-user-only template the bootstrap requires.
+Whichever comes first in the documented first-run order (the pinned tools must be installed and
+verified before any mutation) makes the later canonical setup Apply fail closed.
+
+Reproduction and control: the failure reproduces in two independent clones inside one fresh snapshot,
+and also when the initial-route DryRun is removed entirely (`diag2b`), so it is not an artifact of
+the lab's step order. Host-side corroboration: this machine's own `%LOCALAPPDATA%\ai-agent-dotfiles`
+is owned by the local administrator group with three **inherited** ACEs and
+`AreAccessRulesProtected=False`, i.e. the identity-path canonical setup has never run here either —
+the recorded Phase 2 canonical state came from internal-sandbox runs with injected roots.
+
+**Controlled experiment (`route-diag5.ps1`, labeled diagnostic).** In one fresh snapshot the lab
+recorded the directory's state (`owner = BUILTIN\Administrators`, `AreAccessRulesProtected=False`,
+only child `tool-cache`), then rewrote only that disposable directory's DACL to a protected,
+single-ACE current-user-only shape and reran the released route: the DryRun PASSed again, and the
+Apply still FAILED with the same `home-authority-bootstrap-owner-dacl-mismatch`. A hand-made DACL is
+therefore not sufficient; the directory must be produced by the product's own sealed template, which
+is precisely what the fix has to arrange. No further workaround was attempted — a lab-side bypass of
+the sealed check is exactly what this gate exists to prevent.
+
+### 6. Impact and disposition
+
+While the policy is `released`, the canonical setup route is the only producer of the sealed
+authority prefix that sync, activation, task-overlay and rollback Apply assert before mutating
+(`sync.ps1:977-981`). On a machine that has the pinned tool caches installed — which the same
+contract requires before any mutation — that route cannot complete, so the primary mutation surface
+is unreachable on a fresh machine. **The candidate is rejected** under Task 8 Step 4, and the fix is
+production code: either keep the pinned tool cache outside `PrivateRootBase`, or have the bootstrap
+adopt a pre-existing base that holds only the tool cache, or have the tool installers create that
+directory with the sealed template. No dirty patch was applied, no policy byte was touched and no
+gate was weakened.
+
+### 7. What did not run
+
+The environment/task/rollback Apply routes, the authority routes (adopt, migrate, repair-adopt,
+takeover), retirement and recovery, and Task 8 Step 3's gate list all sit behind the blocked setup
+route; Step 3 is moot until a new candidate exists. The route recipes and seeds for those routes were
+derived from the CLI surfaces and the test fixtures during this window and remain available in the
+lab harness. Remote CI is still unreadable from this machine (`gh` unauthenticated), so Step 5's
+STATUS totals would have to record local evidence only.
+
+### 8. Host non-mutation evidence
+
+`host-roots-manifest.ps1` before/after manifests are byte-identical for `~/.claude/skills`,
+`~/.codex/skills` (66 files), `~/.agents/skills`, `%APPDATA%\reasonix\skills`,
+`%LOCALAPPDATA%\ai-agent-dotfiles` (tool cache only) and the three generated skill trees in the
+working clone; `GitHead` (`51044a5`), `git status --porcelain` and the stash list are unchanged.
+Every Apply above ran inside a disposable Windows Sandbox identity; no real home, authority, live
+root or backup was written. This window grants no release or deployment authorization.

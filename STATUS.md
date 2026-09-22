@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-22 (current-state entry only)
+Last updated: 2026-09-23 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -8,13 +8,18 @@ This is the repository's single global status file. Current task records belong 
 
 ## Current state
 
-The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`: the candidate
-`bffa7d7` sits on `origin/main` per the owner's push decision, and it is **not an accepted
-production release**. The remaining owner steps are Task 8 Steps 2-5 (disposable-identity lab,
-candidate gates, reject-or-proceed decision, release closeout); the lab kit was parse-checked but
-not exercised (this machine has no Windows Sandbox; the owner enables it or picks another
-disposable identity). See
-[the Task 8 record](status/active/live-safety-hardening.md) (final sections).
+The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`, and the
+candidate `bffa7d7` sits on `origin/main`. **It is not an accepted production release, and after the
+2026-09-23 disposable-identity lab it is a rejected candidate.** On a fresh disposable identity the
+released canonical setup Apply fails closed with `manual-recovery-required`: the pinned tool cache
+that the same contract requires (`<LocalAppData>/ai-agent-dotfiles/tool-cache`,
+`json-artifact-common.ps1:652-659`) creates the sealed bootstrap's own `PrivateRootBase` with an
+owner/DACL the bootstrap refuses (`home-authority-common.ps1:568`), and the canonical setup route is
+the only producer of the authority prefix every other Apply asserts (`sync.ps1:977-981`), so the
+primary mutation surface is unreachable on a fresh machine until a new, separately reviewed
+production commit fixes that interaction. No policy byte, gate or production script was changed, and
+no real-machine Apply was performed; the full evidence, reproduction and disposition are in
+[the Task 8 record](status/active/live-safety-hardening.md) under the 2026-09-23 lab section.
 
 The CI verdicts the Task 8 Step 1 record deferred are in. Run #128 (`68e9903`) closed the old
 single-job structure green (also closing the R3 harness-authority recurrence item). The first
