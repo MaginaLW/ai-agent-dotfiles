@@ -3662,7 +3662,16 @@ contract requires before any mutation — that route cannot complete, so the pri
 is unreachable on a fresh machine. **The candidate is rejected** under Task 8 Step 4, and the fix is
 production code: either keep the pinned tool cache outside `PrivateRootBase`, or have the bootstrap
 adopt a pre-existing base that holds only the tool cache, or have the tool installers create that
-directory with the sealed template. No dirty patch was applied, no policy byte was touched and no
+directory with the sealed template. Fix blast radius (read-only analysis, so the follow-up can be scoped): scripts/home-authority-common.ps1
+(the check), scripts/json-artifact-common.ps1 (the tool-cache root) and both scripts/install-*.ps1 files
+are listed in scripts/runner-policy.psd1 ToolchainPaths, so any fix changes ToolchainPolicyHash - the
+Git-private runner approval must be renewed and a new release candidate cut, after which Task 8 Steps 2-3
+repeat. Relocating the cache additionally touches the approved-runner artifacts that record ToolCacheRoot
+(tests/fixtures/artifacts/approved-runner-state.valid.json, tests/approved-runner.tests.ps1). Which of the
+three fixes is taken, and the acceptance of that re-approval, is an owner decision in the owning phase,
+not autonomous Task 8 work.
+
+No dirty patch was applied, no policy byte was touched and no
 gate was weakened.
 
 ### 7. What did not run
