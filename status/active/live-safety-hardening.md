@@ -3499,3 +3499,41 @@ The full-repository collection and remote CI were not rerun locally; the next pu
 workflow's first run on the repaired tree. No production script, policy value, or gate threshold
 changed — this is test-pinning and documentation repair only, and it grants no release or
 deployment authorization: Task 8 Steps 2-5 remain the owner's.
+
+### 2026-09-22 CI run 34851206631 attribution correction
+
+The owner requested the concrete documentation correction identified by harness-model's
+2026-09-22 pilot review and confirmed that no other task was writing this repository.
+The fixed starting tree was `8f84eececf71f111a28c953f07ac2b1d490ac3fe`; only
+`docs/CI_FAILURE_RULES.md` and this existing task record are in scope. Historical entries above
+remain unchanged. The rule text and evidence-index row now agree with the original run evidence.
+
+The preserved run/job JSON binds run `34851206631` (Validate #116), job `103999311576`, and
+head `45e9a501219778a63563aa6fe417b4daa7b25e18`. In the original job log,
+line 580 says automation safety passed; lines 938/942 identify canonical-hard-kill's
+reviewed-load hash mismatch; lines 1428-1431 record harness-authority's 300-second and
+harness-env's 180-second timeouts. The task-skills negative-path diagnostics at lines
+4198-4201 and 4216-4217 are followed by passing assertions, and line 4237 reports 22 passed /
+0 failed. Line 4335 reports 39 discovered suites, 36 passed, 1 failed, and 2 timed-out.
+This is a readback of historical evidence, not a new execution or a changed verdict for that run.
+
+This also corrects the earlier pending-item-11 explanation that `45e9a50` changed the pinned
+script: its parent is `8e27e4a`, and both commits contain exactly the same
+`scripts/canonical-transaction-common.ps1` blob (`458b83c429ac1e6b84423f001cb68251492d02a3`).
+That file last changed in `8e27e4a`; `45e9a50` inherited both those bytes and the stale pin.
+The direct successor `b86b8b1` changed the reviewed-load pin to the actual script SHA256
+`29d9b8088480288a97e81559417ea27903fe3a020a5460b4215a0f79e71f36f1` without changing that
+script. `06d1902` later recorded local 318/0; it is not evidence of a successful rerun of #116.
+
+Preserved raw references: `tmp/ci-run-34851206631.json`, `tmp/ci-jobs-34851206631.json`, and
+`tmp/ci-job-103999311576.log`. The job log's original-byte SHA256 is
+`4acee9b4179291c5f83943f214ad39a2cb8d92489fab23dfb3d7be2da026fe0c`.
+Raw material and the current independent verification receipts remain outside tracked delivery.
+No production script, policy, workflow, test, or gate threshold changed; no suite was rerun to
+recreate historical results. Same-product sub-agents provide independent review only, not the
+second product/session required by E3. No release or deployment acceptance is claimed.
+
+Documentation checks passed: `git diff --check`, pinned gitleaks plus the repository scanner
+(zero blocking findings), PowerShell syntax validation (179 files), and the new relative link
+and heading anchor. Independent review matched the correction to the original log and Git
+blobs. Full regression and remote CI were not run for this documentation-only correction.

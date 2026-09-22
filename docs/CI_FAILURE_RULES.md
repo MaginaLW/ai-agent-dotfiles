@@ -314,9 +314,14 @@ pin。CI 首两次 shard 运行（#129、#130）三 shard 全红，gates 作业�
   （#131 的树已含 harness-env 双 policy 修复，其余八个套件仍待修）：shard 路径本身（分区、
   fail-closed、超时合同）无缺陷，红灯全部是 R11 的 released pin 漂移。per-shard 失败分布
   从此按本文件第 1 节的 shard 作业名（`Validate test shard N of 3`）取数。
-- `task-skills.tests.ps1` 的 `Task skill dry-run failed (exit 1); overlay was not changed.`
-  （run `34851206631`）只到外层提示，未定位到根因；该 run 同时还有 automation-safety 超时与
-  harness-authority/harness-env 超时，**不是**单一超时样本。
+- **run `34851206631` 已更正归因（2026-09-22）**：`Task skill dry-run failed (exit 1)`
+  是预期拒绝路径的输出，`task-skills` 实际为 22 passed / 0 failed，`automation-safety` 也通过。
+  原始日志汇总为 39 套件、36 passed、1 failed、2 timed-out：唯一失败是 `canonical-hard-kill`
+  加载时的 reviewed-load hash 不匹配；两项超时分别为 `harness-authority` 300 秒和
+  `harness-env` 180 秒。受检提交 `45e9a50` 沿用了 `8e27e4a` 的脚本字节和旧 pin；
+  `b86b8b1` 更新 pin，`06d1902` 记载后续本地 318/0，**不等于该 CI run 重跑通过**。
+  原始日志、Git 字节核对及对旧记录的追加更正见
+  [归因更正记录](../status/active/live-safety-hardening.md#2026-09-22-ci-run-34851206631-attribution-correction)。
 - 2026-09-17 两次 runner 失联中，`35166789288`（`0c5ca92`）已由第三次尝试转绿关闭
   （2026-09-19 记录）；`35166625038`（`6488182`）仍无同 SHA 重跑样本。
 - 早期 `Run MCP tests` 步骤已随 MCP 工具退休从工作流移除，其历史失败不再适用（不是未决）。
@@ -336,7 +341,8 @@ pin。CI 首两次 shard 运行（#129、#130）三 shard 全红，gates 作业�
 | `34415557457` | 2026-09-09 | 测试矩阵 | 四套件在 runner 上恰好打满旧预算 | R2 | `881047a`、`5e99c07` |
 | `34670776794` … `34677219278` | 2026-09-12 | 测试矩阵 | 负例计数断言漂移 + 夹具 PID 竞争 | R9、R3 | 已修 |
 | `34770673201` `34771649051` | 2026-09-13 | 测试矩阵 | production-seams 反射清单/摘要未重钉；live-recovery 超时 | — | 随该窗口修复 |
-| `34788238413` `34851206631` `34909047517` | 2026-09-13~09-14 | 测试矩阵 | harness-* / task-skills 超时；`34851206631` 另有 task-skills 激活失败 | R2、未决 | `fa53b7c` 等 |
+| `34788238413` `34909047517` | 2026-09-13~09-14 | 测试矩阵 | harness-* / task-skills 超时（沿用原记录，本次未重核） | R2、未决 | `fa53b7c` 等；本次不变更处置 |
+| `34851206631` | 2026-09-14 | 测试矩阵 | canonical-hard-kill reviewed-load hash 不匹配；harness-authority 300 秒、harness-env 180 秒超时；task-skills / automation-safety 通过 | R2、加载摘要校验 | `b86b8b1` 更新 pin；`06d1902` 记载后续本地 318/0；原失败 CI 保留，见上述归因更正 |
 | `34957472014` `34991068832` `35086695635` | 2026-09-15~09-16 | 测试矩阵 | automation-safety 恰好 120.0 秒被杀；`34991068832`/`35086695635` 另有 killed 进程夹具共享冲突 | R2、R3 | `6db9760`（预算）/ 共享冲突待同 SHA 复核 |
 | `35097541381` | 2026-09-16 | — | 绿（40 套件，automation-safety 112.6 秒） | — | 参考基线 |
 | `35166625038` `35166789288` | 2026-09-17 | 无 | hosted runner 失联 | R1 | `35166789288` 已转绿；`35166625038` 待同 SHA 重跑 |
