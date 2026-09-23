@@ -30,13 +30,16 @@ and none hit a suite timeout. The failures are the root-claims child process's i
 The 2026-09-23 CI repair window in [the task record](status/active/live-safety-hardening.md)
 separates reproduced fixture defects, local host limitations, and the pending fixed-candidate
 CI result. Historical pin repairs remain in [their dated record](status/archived/2026-09-21-ci-released-pin-repair.md).
-The first repair candidate `e4e1dac7c07889c1a87f38c98922d52d4f796567` in
-[run 35856160012](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35856160012)
-passed repository gates, but shard 2 failed before recovery at a missing copied policy input.
-The fixture now copies both required root files and validates the real toolchain policy hash
-before plan preparation. Focused RED/GREEN and syntax checks passed; a new complete CI verdict
-is still required. The task record retains the first candidate's failure separately.
-No production script, policy value, or gate threshold changes are part of this repair, and
+The latest completed repair candidate `a326ddac89d9f5ce0ad334ca94a7eb575be9319a` in
+[run 35863733603](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35863733603)
+passed repository gates and shards 1 and 3: 42 suites, 41 passed, 1 failed, 0 suite timeouts.
+Sync passed completely; the remaining failure was the released recovery child's 15-second
+deadline. The fixture's copied policy inputs and held-lock refusal checks passed. The follow-up
+retains 15 seconds for DryRun, contention and interlocked refusal, while assigning 60 seconds
+only to the complete released recovery engine. Its focused disposable-guest case and syntax
+checks passed; a complete CI verdict on the new candidate is still required. Earlier failures
+and the evidence supporting this bounded test correction remain in the task record.
+No production script, policy value, suite timeout or workflow budget changes are part of this repair, and
 passing these tests would not reverse the independent lab rejection above.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate

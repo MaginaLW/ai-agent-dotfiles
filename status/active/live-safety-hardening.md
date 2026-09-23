@@ -3800,3 +3800,66 @@ Private receipt `E4-CI-REPAIR-20260923/root-claims-001/policy-fix-receipt-001.js
 The first candidate's raw failed-job log has SHA256
 `d940a02edc1de3cdf6749ddc71604b0f3b7a1f88dedd84558fd29d5409063b59`;
 its append-only audit records the run, attempt, head, check identity and exact failure stage.
+
+### Released recovery deadline binding
+
+The follow-up `a326ddac89d9f5ce0ad334ca94a7eb575be9319a` was pushed to the same repair
+branch. Its [run 35863733603](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35863733603),
+attempt 1, completed with repository gates and shards 1 and 3 passing: 42 discovered,
+41 passed, 1 failed, 0 suite timeouts. Root-claims passed the complete sealed-prefix check,
+public DryRun, held-lock busy refusal and zero-write check. Its released child then reached
+the 15000ms deadline; elapsed time after kill/reap/drain was 15046ms, with the child reaped,
+both drains completed and both captured strings empty. This now establishes the remaining
+failure on a complete fixture; it does not locate the child's internal stopping point.
+
+The 15000ms helper bound originated in `86255452f0f535da400edc306c935881d24c4211`, when
+the tracked policy was interlocked and the released-holder assertion required only exit 75
+and zero writes. `5954503f605b20d0fc5399cb1f35a2d2ae820b61` later required released Apply
+to complete the reviewed abandon, retaining that same bound. The selected specifications
+require immediate lock-contention refusal, not a separate 15-second released-engine SLA.
+Earlier records report a released fixture pass but provide no individual-call duration;
+this window does not claim to be the first historical execution of that engine.
+
+Static review counted at least 20 real Schema validations in the header-only abandon engine:
+16 nonempty journal snapshot batches plus four new-artifact validations. Each lease revalidates
+the pinned bytes and executes a version probe before invoking the validator, so the engine
+alone starts at least 40 external processes. These are source counts, not a measurement of
+the exact CI delay. Holder cleanup releases both locks, and native contention refuses rather
+than waiting; no deterministic missing release was found.
+
+A fresh no-network Windows Sandbox instance used a normal disposable user, guest-local
+PowerShell 7.6.6 and fixture trees, read-only source/tool inputs, and one writable evidence
+mapping. The candidate archive was initialized as a guest Git repository before valid
+measurements. Three fresh fixtures completed the same full contention case: released Apply
+took 11611ms, 11376ms and 11566ms. The first and third retained the original 15-second bound;
+the middle measurement used a diagnostic-only 120-second helper bound and is labeled as such.
+The first measurement's DryRun and busy refusal took 4920ms and 2758ms, respectively.
+All nine behavior assertions passed, including matching plan results and preserved zero writes
+for the lock loser. Local timing does not establish hosted-runner timing or its exact slow phase.
+
+The minimal correction gives only the complete released Apply an explicit 60000ms bound.
+DryRun, held-lock contention and interlocked refusal keep 15000ms; the helper default, all
+result/identity/zero-write assertions, the 3600-second suite budget and CI job budgets remain.
+The helper returns measured child-plus-drain elapsed time in the successful result, and the
+released assertion prints it. On these new test bytes, the fresh focused case passed all nine
+assertions with released Apply taking 11224ms. Syntax passed for 179 files, and independent
+source review approved the nine-line diff. This functional test correction does not waive a
+production performance contract or count as complete-suite verification.
+
+Setup failures from the diagnostic kit are preserved: the guest's PowerShell 5.1 archive module
+failed to load, and early source archives lacked Git metadata. Neither is a product verdict.
+The final fixture state and per-call raw results were exported before stopping the one sandbox;
+the final sandbox list was empty. The aggregate receipt is
+`E4-CI-REPAIR-20260923/recovery-deadline-receipt-001.json`, SHA256
+`b1664352ba1342c2dcb8f2f7ec546124b71bdf7d8ed0014f586241d3ea1ad16c`.
+Independent history/source review is `root-claims-001/released-apply-deadline-review-001.json`,
+SHA256 `9ca00cd6976508467f7c559709bfa40caa2acd4a860646474b860a5c19271513`.
+The fixed CI receipt is `ci-audit-002/final-receipt-001.json`, SHA256
+`d98a58db7983856beceb53ab938cb0cf0c6eedb93e484ae298310185ca14acad`.
+
+The preceding `e4e1dac` run also had a genuine 600-second harness-env suite timeout.
+The `a326dda` run passed that unchanged suite (339 assertions, approximately 591.274 seconds),
+but does not repair or explain the earlier timeout. Its independent diagnostic record is
+`harness-env-timeout-diagnostic-001.json`, SHA256
+`7ecebe86856effdb2ac818799644f31c9fce52f62287b0736826fdd614582d48`.
+All original failures remain distinct from the next candidate's required full CI verdict.

@@ -7394,6 +7394,7 @@ try {
             }
             if (-not [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),5000)) { throw "test script exited but output drain did not finish: $Script" }
             return [pscustomobject]@{
+                ElapsedMilliseconds = $watch.ElapsedMilliseconds
                 Code = $process.ExitCode
                 Stdout = $stdoutTask.GetAwaiter().GetResult()
                 Stderr = $stderrTask.GetAwaiter().GetResult()
@@ -7476,7 +7477,11 @@ try {
     finally {
         if ($null -ne $routeContentionHeld) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $routeContentionHeld }
     }
-    $routeContentionReleased = Invoke-TestRegistryScriptStreams -Script $routeContentionRecoverScript -Arguments @(
+    # The released branch performs the complete journal/schema-validation engine;
+    # the old 15-second bound covered only the interlocked refusal. Keep the
+    # DryRun, held-lock loser and interlocked calls at their original deadline.
+    $routeContentionReleasedTimeout = if ($script:IsReleased) { 60000 } else { 15000 }
+    $routeContentionReleased = Invoke-TestRegistryScriptStreams -Script $routeContentionRecoverScript -TimeoutMilliseconds $routeContentionReleasedTimeout -Arguments @(
         '-RepoRoot', [string]$routeContentionCanonical.RepoRoot,
         '-Action', 'abandon',
         '-TransactionId', $routeContentionId,
@@ -7487,7 +7492,7 @@ try {
         Assert-TestCondition (Test-Path -LiteralPath (Join-Path $routeContentionToolchain 'identity-called')) 'released recover Apply resolves the public OS identity through the isolated fixture adapter'
         Assert-TestCondition ($routeContentionReleased.Code -eq 0 -and
             $routeContentionReleased.Stdout -match '"MessageToken":"canonical-recovery-applied"' -and
-            $routeContentionReleased.Stdout -match '"Result":"PASS"') ("after the holder releases, released recover Apply completes the reviewed abandon with one applied result and exit 0 (code=$($routeContentionReleased.Code))")
+            $routeContentionReleased.Stdout -match '"Result":"PASS"') ("after the holder releases, released recover Apply completes the reviewed abandon with one applied result and exit 0 (code=$($routeContentionReleased.Code); elapsed-ms=$($routeContentionReleased.ElapsedMilliseconds))")
     }
     else {
         Assert-TestCondition ($routeContentionReleased.Code -eq 75 -and
