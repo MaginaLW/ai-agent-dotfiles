@@ -3764,3 +3764,39 @@ single integration commit. Later candidate/CI verdicts are appended below when a
 
 This is CI fixture repair, not Task 8 production acceptance or E4 implementation. The lab's
 rejected-candidate disposition remains in force, and no real-home Apply is part of this window.
+
+### First candidate CI and complete fixture policy inputs
+
+The owner-authorized feature-branch push published
+`e4e1dac7c07889c1a87f38c98922d52d4f796567` and triggered
+[run 35856160012](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35856160012),
+attempt 1. Repository gates passed. Shard 2 (`107165009884`) completed with 8 discovered,
+7 passed, 1 failed and 0 suite timeouts. Its sealed-prefix check passed, then
+`New-CanonicalSetupPlanPayload` failed to hash `.gitleaks.toml` in the copied toolchain.
+The recovery child was not reached, so this result establishes neither a new recovery timeout
+nor a recovery pass. Shards 1 and 3 had not completed at this follow-up's preparation.
+
+The frozen `ToolchainPaths` list contains 79 inputs: 52 scripts, 23 schemas, two tool locks
+and two root files. The copied fixture lacked precisely `.gitleaks.toml` and `bootstrap.ps1`.
+The six-line follow-up copies both byte-for-byte and invokes the real
+`Get-CanonicalToolchainPolicyHash` before owner-sensitive claim preparation; it changes no
+production source or timeout. `DataPathspecs` entries are hash inputs as strings, not additional
+file reads in this function, so no unrelated source trees are copied.
+
+An extracted-helper probe against the first candidate reproduces the exact missing-file error
+(RED, exit 1). The repaired helper passes actual policy hashing, real pinned tool leases,
+identity/path checks, stream/nonzero-exit checks and bounded timeout/reaping (GREEN, exit 0).
+The sealed prefix is COMPLETE before, after and finally, with one unchanged snapshot hash.
+Independent host maintenance had relocated the original default tool cache; this diagnostic
+therefore selects the prior verified fixture cache as its read-only source. Failed cache-lookup
+setup attempts remain preserved, and no real cache or host path was written. The production
+fixture and its byte checks are unchanged apart from the two files and early hash call.
+
+PowerShell syntax passed for all 179 files, and independent source review approved the six-line
+change. This is focused validation; the local SetOwner prerequisite still prevents a complete
+recovery case, and the follow-up must pass all unchanged CI jobs on its own commit.
+Private receipt `E4-CI-REPAIR-20260923/root-claims-001/policy-fix-receipt-001.json` has SHA256
+`9b1f41456248de86865b692d81e4f545849368ea1af73b7b931a445967d5f3c6`.
+The first candidate's raw failed-job log has SHA256
+`d940a02edc1de3cdf6749ddc71604b0f3b7a1f88dedd84558fd29d5409063b59`;
+its append-only audit records the run, attempt, head, check identity and exact failure stage.

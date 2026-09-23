@@ -750,6 +750,9 @@ function New-TestRecoveryCliToolchain([Parameter(Mandatory)]$Fixture,[Parameter(
     foreach ($directory in @('scripts','schemas','tools')) {
         Copy-Item -LiteralPath (Join-Path $RepoRoot $directory) -Destination (Join-Path $root $directory) -Recurse
     }
+    foreach ($file in @('.gitleaks.toml','bootstrap.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $RepoRoot $file) -Destination (Join-Path $root $file)
+    }
     # The public CLI resolves OS identity again after acquiring the repo lock.
     # Bind only its OS/default path locators to this already-bootstrapped fixture;
     # retain the production identity resolver, plan checks, locks and Apply engine.
@@ -817,6 +820,9 @@ function Get-PinnedToolCacheRoot {
             Write-TestCreateNewFile -Path ([string]$file[1]) -Bytes $bytes
         }
     }
+    # Validate every frozen policy input before owner-sensitive claim preparation.
+    # A directories-only copy can load modules but cannot bind a canonical plan.
+    $null = Get-CanonicalToolchainPolicyHash -ToolchainRoot $root
     return $root
 }
 

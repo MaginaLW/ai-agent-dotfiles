@@ -21,7 +21,7 @@ production commit fixes that interaction. No policy byte, gate or production scr
 no real-machine Apply was performed; the full evidence, reproduction and disposition are in
 [the Task 8 record](status/active/live-safety-hardening.md) under the 2026-09-23 lab section.
 
-The latest fixed CI verdict audited for this repair is
+The original fixed CI verdict audited for this repair is
 [run 35733693990](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35733693990),
 attempt 1 on `51044a55fc0dd8991e2ac25dad36fb1369a9027b`: repository gates and shard 1 passed;
 shards 2 and 3 failed. Across all three shards, 42 suites were discovered, 40 passed, 2 failed,
@@ -30,6 +30,12 @@ and none hit a suite timeout. The failures are the root-claims child process's i
 The 2026-09-23 CI repair window in [the task record](status/active/live-safety-hardening.md)
 separates reproduced fixture defects, local host limitations, and the pending fixed-candidate
 CI result. Historical pin repairs remain in [their dated record](status/archived/2026-09-21-ci-released-pin-repair.md).
+The first repair candidate `e4e1dac7c07889c1a87f38c98922d52d4f796567` in
+[run 35856160012](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35856160012)
+passed repository gates, but shard 2 failed before recovery at a missing copied policy input.
+The fixture now copies both required root files and validates the real toolchain policy hash
+before plan preparation. Focused RED/GREEN and syntax checks passed; a new complete CI verdict
+is still required. The task record retains the first candidate's failure separately.
 No production script, policy value, or gate threshold changes are part of this repair, and
 passing these tests would not reverse the independent lab rejection above.
 
