@@ -95,8 +95,9 @@ When the scope trigger applies:
    pwsh -NoProfile -File scripts/build-skills.ps1
    pwsh -NoProfile -File scripts/scan-secrets.ps1
    ```
-   The schema 3 sync DryRun runs only inside the internal sandbox with a create-new
-   `-PlanPath` (host-injected roots; a bare `sync.ps1` invocation fails closed); see
+   For maintenance validation, run schema 3 sync DryRun only inside the internal sandbox
+   with a create-new `-PlanPath` and host-injected roots. A released public call can resolve
+   a valid Windows identity and write a plan; expected rejection is not isolation. See
    [docs/README.md §4](docs/README.md#4-日常同步流程) for the invocation shape.
 7. Check [current release and acceptance state](STATUS.md#current-state) before any production
    operation; a released policy value is not deployment authorization or completed lab acceptance.
@@ -105,8 +106,8 @@ When the scope trigger applies:
    authorized scope after the required acceptance and plan review:
    ```powershell
    $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-   # The DryRun must run under scripts/internal/live-transaction-host.ps1 (item 6);
-   # a bare invocation fails closed with live-plan-host-resolution-required.
+   # Invocation shape only: maintenance validation uses the sandbox host (item 6).
+   # A released bare call may resolve Windows identity and write a plan.
    pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
    # Review the plan, then apply the same fingerprint-bound plan.
    pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan

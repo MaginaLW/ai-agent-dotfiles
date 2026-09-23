@@ -281,6 +281,26 @@ pin。CI 首两次 shard 运行（#129、#130）三 shard 全红，gates 作业�
 本地逐套件复现锁定上述 9 个套件 + repository-policy 文档 pin，修复随本窗口
 （policy-aware 分支 + 文档 pin 对齐）。
 
+### R11 补充核定：released public sync 的成功路径（2026-09-23）
+
+固定 run `35733693990` attempt 1、head `51044a55` 的完整日志为 42 套件、40 passed、
+2 failed、0 timed-out。gates 与 shard 1 通过；shard 2 的 root-claims 子进程命中内部
+15 秒期限，shard 3 的 sync 在 `Code -ne 0` 断言失败。这不是两个 suite timeout，
+也不是历史 run `34851206631` 的失败复发。
+
+本轮隔离复现更正 R11 上述“无 capability 的 sync 总是非零且零 plan”的归纳：
+released public resolver 在有效、pristine 的身份上可以合法产出 schema 3 plan 并返回 0。
+测试必须在复制工具链中仅替换 OS 身份/默认路径适配器，使用虚拟 home 并清除真实继承的
+internal capability，分别校验该成功路径的对象、摘要、fake-home 绑定和无 live 写入，
+以及缺 known-folder 的精确拒绝和零 plan；不能依赖操作者 home 恰好触发后续拒绝。
+interlocked 的精确拒绝契约仍然保留，生产 resolver、Policy 与门禁均不修改。
+
+root-claims 的原日志没有保留下被杀子进程的 stdout/stderr；不能把后来发现的夹具身份
+错配直接当作这次 15 秒失败的已证原因。应保留超时现场输出，并在固定候选完整 CI
+重新观察 released 路径。当前本机测试 token 在既有 fixture 的 SetOwner 操作被拒绝，
+仅修改 DACL 的独立探针则通过；这是完整本地套件的宿主前提限制，不是 GREEN。
+完整定位与回执见 [2026-09-23 CI 修复窗口](../status/active/live-safety-hardening.md)。
+
 ## 3. 处置流程
 
 **按失败步骤名分流**，不要对所有红灯套同一套动作：

@@ -1,6 +1,6 @@
 # 项目后续任务分阶段完成计划
 
-日期：2026-09-23。状态：**计划已制定，S0–S6 尚未执行**。
+日期：2026-09-23。状态：**已获执行指令；S0 基线已整合，S1 进行中，S2–S6 尚未执行**。
 
 本计划将 [9 月 23 日审查记录](../../../status/active/live-safety-hardening.md#2026-09-23-multi-agent-audit-and-ordered-backlog)
 转成执行顺序、写入归属和验收条件。项目当前状态仍以 [STATUS.md](../../../STATUS.md#current-state)
@@ -29,7 +29,7 @@ open PR。本地比该 main 多 6 个提交，CI 分支则多 3 个提交，两�
 - 分片机制及 SID occupancy 已实现。MCP 注册、OpenClaw/OpenCode 退役内容不因旧 roadmap
   的未勾选条目重新引入；全仓 PowerShell 重写不在本计划默认范围。
 
-本次请求只制定并记录计划。未来执行沿用当时有效的任务授权；push/merge、runner 实际批准、
+计划编制后，所有者已指示“开始执行”。执行沿用当前任务授权；push/merge、runner 实际批准、
 一次性身份实验及逐机操作按现有边界办理，计划和历史批准均不自行扩大权限。普通授权范围内
 的可恢复修复、验证与本地提交连续完成，不为每个子步骤重复确认。
 

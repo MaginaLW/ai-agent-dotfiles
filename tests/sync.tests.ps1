@@ -88,6 +88,80 @@ function Invoke-Sync {
     return Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $syncScript -Arguments $Arguments -AuthorityRepoRoot $RepoRoot
 }
 
+# Reuse the public-entry fixture approach from harness-env.tests.ps1: only
+# copied OS adapters change, so the real resolver and plan gates execute
+# against a deterministic fake home. Never invoke the public entry against
+# the operator's identity or let an inherited capability select the sandbox.
+function New-SyncIdentityFixture {
+    param([Parameter(Mandatory)] [string] $Name, [switch] $MissingKnownFolder)
+    $root = Join-Path $work $Name
+    New-Item -ItemType Directory -Path $root | Out-Null
+    & git -C $root init --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize the sync identity fixture toolchain.' }
+    foreach ($directory in @('scripts', 'schemas', 'tools')) {
+        Copy-Item -LiteralPath (Join-Path $RepoRoot $directory) -Destination (Join-Path $root $directory) -Recurse
+    }
+    $fixtureHome = Join-Path $root 'identity-home'
+    New-Item -ItemType Directory -Path (Join-Path $fixtureHome 'AppData/Local') -Force | Out-Null
+    if (-not $MissingKnownFolder) {
+        New-Item -ItemType Directory -Path (Join-Path $fixtureHome 'AppData/Roaming') -Force | Out-Null
+    }
+    $replacements = @{
+        'home-authority-common.ps1' = @{
+            Name = 'Get-WindowsHomeAuthorityIdentity'
+            Text = @'
+function Get-WindowsHomeAuthorityIdentity {
+    $fixtureRoot = Split-Path -Parent $PSScriptRoot
+    $fixtureHome = Join-Path $fixtureRoot 'identity-home'
+    [System.IO.File]::WriteAllText((Join-Path $fixtureRoot 'identity-called'), 'called')
+    return [pscustomobject]@{
+        ResolverVersion = 'sealed-home-authority-test-adapter-v1'
+        TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ProfileRoot = $fixtureHome
+        RoamingAppDataRoot = Join-Path $fixtureHome 'AppData/Roaming'
+        LocalAppDataRoot = Join-Path $fixtureHome 'AppData/Local'
+    }
+}
+'@
+        }
+        'canonical-transaction-common.ps1' = @{
+            Name = 'Get-CanonicalDefaultLiveRoots'
+            Text = @'
+function Get-CanonicalDefaultLiveRoots {
+    $fixtureHome = Join-Path (Split-Path -Parent $PSScriptRoot) 'identity-home'
+    return @('.claude/skills', '.codex/skills', '.agents/skills', 'AppData/Roaming/reasonix/skills') | ForEach-Object { Join-Path $fixtureHome $_ }
+}
+'@
+        }
+    }
+    foreach ($filename in $replacements.Keys) {
+        $path = Join-Path $root "scripts/$filename"
+        $text = [System.IO.File]::ReadAllText($path)
+        $tokens = $null; $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref] $tokens, [ref] $parseErrors)
+        $name = [string] $replacements[$filename].Name
+        $definitions = @($ast.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+        }, $true))
+        if ($parseErrors.Count -ne 0 -or $definitions.Count -ne 1) { throw 'Unable to isolate the fixture OS adapter.' }
+        $extent = $definitions[0].Extent
+        Write-TextFile -Path $path -Content ($text.Substring(0, $extent.StartOffset) + $replacements[$filename].Text + $text.Substring($extent.EndOffset))
+    }
+    Write-TextFile -Path (Join-Path $root 'invoke.ps1') -Content @'
+param([string] $Repo, [string] $Plan)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'scripts/live-safety-interlock.ps1')
+if (-not (Test-LiveSafetySandboxCapability)) { throw 'fixture-parent-capability-required' }
+Get-ChildItem Env: | Where-Object Name -like 'AI_AGENT_DOTFILES_INTERNAL_*' | ForEach-Object { Remove-Item -LiteralPath ('Env:' + $_.Name) }
+if (Test-LiveSafetySandboxCapability) { throw 'fixture-inherited-capability-not-cleared' }
+[System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'capability-cleared'), 'cleared')
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'scripts/sync.ps1') -RepoRoot $Repo -SkipBuild -SkipSecretScan -DryRun -PlanPath $Plan
+exit $LASTEXITCODE
+'@
+    return [pscustomobject]@{ Root = $root; Home = $fixtureHome; Marker = (Join-Path $root 'identity-called') }
+}
+
 function Read-LivePlanDocument {
     param([Parameter(Mandatory)] [string] $Path)
     return ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($Path, [System.Text.UTF8Encoding]::new($false, $true)))
@@ -199,21 +273,48 @@ try {
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-Apply')
     Assert ($result.Code -ne 0 -and $result.Out -match 'requires a reviewed.*PlanPath') 'apply requires a reviewed dry-run plan'
 
+    $identityFixture = New-SyncIdentityFixture -Name 'public-identity'
     $noCapabilityPlan = Join-Path $plansRoot 'no-capability-plan.json'
-    $result = Invoke-TestProcess -ScriptPath $syncScript -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $noCapabilityPlan)
+    $result = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath (Join-Path $identityFixture.Root 'invoke.ps1') -Arguments @('-Repo', $v3Repo, '-Plan', $noCapabilityPlan) -AuthorityRepoRoot $RepoRoot
+    Assert (Test-Path -LiteralPath (Join-Path $identityFixture.Root 'capability-cleared')) 'public-entry fixture clears a genuinely inherited sandbox capability'
     if ($script:IsReleased) {
-        # The released resolver derives the host from the identity instead of
-        # stopping at host resolution, so the rejection moves to whichever later
-        # gate the host state triggers (this machine has live roots and stops at
-        # live-plan-selection-mismatch; a fresh CI home continues further).
-        # Pin the environment-independent contract instead: non-zero exit that
-        # leaves zero plan bytes (asserted below).
-        Assert ($result.Code -ne 0) 'dry-run without the internal capability still fails closed under the released policy'
+        Assert ($result.Code -eq 0) 'released public dry-run with a pristine fixture identity produces a reviewed plan'
+        Assert (Test-Path -LiteralPath $identityFixture.Marker) 'released public dry-run uses the fixture identity adapter'
+        $identityPlan = Read-LivePlanDocument -Path $noCapabilityPlan
+        $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/sync-plan.schema.json') -InstancePath $noCapabilityPlan
+        Test-LiveSyncPlanSemantics -Document $identityPlan
+        Assert ([string] $identityPlan.PlanPayload.OperationKind -ceq 'initial') 'released public fixture plan is the pristine initial operation'
+        Assert ([string] $identityPlan.PlanPayload.RepoRoot -ceq [System.IO.Path]::GetFullPath($v3Repo)) 'released public fixture plan binds the target fixture repository'
+        Assert ([string] $identityPlan.PlanHash -ceq (Get-PlanHash -PlanPayload $identityPlan.PlanPayload)) 'released public fixture PlanHash binds its full payload'
+        Assert ([string] $identityPlan.DocumentHash -ceq (Get-DocumentHash -Document $identityPlan)) 'released public fixture DocumentHash binds the document'
+        foreach ($slot in @($identityPlan.PlanPayload.Platforms)) {
+            $relative = switch ([string] $slot.Platform) {
+                'Claude' { '.claude/skills' }
+                'Codex' { '.codex/skills' }
+                'Reasonix' { 'AppData/Roaming/reasonix/skills' }
+                default { throw 'Unexpected platform in the public fixture plan.' }
+            }
+            $expectedRoot = [System.IO.Path]::GetFullPath((Join-Path $identityFixture.Home $relative))
+            Assert ([string] $slot.LiveRoot -ceq $expectedRoot) "$($slot.Platform) public fixture plan binds only the fake home"
+            Assert (-not (Test-Path -LiteralPath $expectedRoot)) "$($slot.Platform) public dry-run does not create live skills"
+        }
+        Assert (-not (Test-Path -LiteralPath (Join-Path $identityFixture.Home 'AppData/Local/ai-agent-dotfiles'))) 'released public dry-run does not bootstrap private authority or backups'
     }
     else {
-        Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-host-resolution-required') 'dry-run without the internal capability fails closed'
+        Assert ($result.Code -ne 0 -and $result.Out -match 'live-plan-host-resolution-required') 'interlocked public dry-run without capability fails closed'
+        Assert (-not (Test-Path -LiteralPath $identityFixture.Marker)) 'interlocked public dry-run does not resolve an identity'
+        Assert (-not (Test-Path -LiteralPath $noCapabilityPlan)) 'interlocked host rejection creates zero plan bytes'
     }
-    Assert (-not (Test-Path -LiteralPath $noCapabilityPlan)) 'failed host resolution creates zero plan bytes'
+
+    $missingIdentity = New-SyncIdentityFixture -Name 'missing-known-folder' -MissingKnownFolder
+    $missingIdentityPlan = Join-Path $plansRoot 'missing-identity-plan.json'
+    $result = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath (Join-Path $missingIdentity.Root 'invoke.ps1') -Arguments @('-Repo', $v3Repo, '-Plan', $missingIdentityPlan) -AuthorityRepoRoot $RepoRoot
+    Assert (Test-Path -LiteralPath (Join-Path $missingIdentity.Root 'capability-cleared')) 'missing-known-folder fixture also clears inherited capability'
+    $expectedToken = if ($script:IsReleased) { 'home-authority-known-folder-unavailable: RoamingAppData' } else { 'live-plan-host-resolution-required' }
+    Assert ($result.Code -ne 0 -and $result.Out -match [regex]::Escape($expectedToken)) 'public dry-run with unavailable fixture identity fails closed'
+    Assert ((Test-Path -LiteralPath $missingIdentity.Marker) -eq $script:IsReleased) 'missing-known-folder identity resolution matches the policy state'
+    Assert (-not (Test-Path -LiteralPath $missingIdentityPlan)) 'failed identity resolution creates zero plan bytes'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $missingIdentity.Home 'AppData/Roaming'))) 'failed identity resolution does not create its missing known folder'
 
     Write-Host '[pristine initial producer]'
     $initialPlanPath = Join-Path $plansRoot 'initial-plan.json'

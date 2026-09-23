@@ -21,7 +21,8 @@ are historical snapshots, not instructions to restart completed work. The curren
 [the 2026-09-23 audit and ordered backlog](#2026-09-23-multi-agent-audit-and-ordered-backlog);
 repository-wide release and CI state belongs in [STATUS.md](../../STATUS.md#current-state).
 The [staged completion plan](../../docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)
-defines subsequent execution and acceptance; its S0–S6 stages have not started.
+defines subsequent execution and acceptance; S0 is integrated and S1 is in progress. See the
+[execution record](#2026-09-23-post-audit-execution); S2–S6 have not started.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=released`; candidate acceptance is incomplete.
 
@@ -3945,3 +3946,197 @@ S5 Task 9 与归档、S6 独立后续工作包。后续执行按该细化计划�
 规划时 22:50 UTC+8 重查 main/#135、修复分支/#138 与 open PR；#138 仍运行中。
 计划纠正已 released 后无需再次 flip，以及 initial 计划必须先于 canonical setup 的具体顺序；
 本次只修改计划和入口指针，未开始修复、运行危险套件、实验、发布或真实 Apply。
+## 2026-09-23 CI repair window: released public-entry fixtures
+
+This window follows the owner's request to repair the two failures from fixed
+[run 35733693990](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35733693990), attempt 1,
+head `51044a55fc0dd8991e2ac25dad36fb1369a9027b`. It starts from
+`627ef3f623dff4ba3005eb92ad7427d08da61cd4`, preserving the intervening disposable-identity lab
+and its rejection. Work takes place in an isolated checkout; no production script, policy,
+workflow, suite budget, live deployment or previously recorded evidence is changed.
+
+### Fixed failure evidence
+
+The repository gates and shard 1 passed. Shard 2 discovered 8 suites, passed 7 and failed 1;
+shard 3 discovered 27, passed 26 and failed 1. Across all shards this is 42 discovered,
+40 passed, 2 failed and 0 suite timeouts. The root-claims helper's 15-second child deadline
+is an internal test failure, not a runner-level suite timeout. Its killed child's streams were
+not retained by the old helper. The sync failure is the `Code -ne 0` assertion for a bare
+released public DryRun; the next zero-plan assertion was never reached in that CI log.
+
+The immutable prior audit receipt is `E4-GAP-REVIEW-20260923/dotfiles-ci-final-001/final-receipt-001.json`,
+SHA256 `3f7f0dfaf78f51d547c498571e27a652952639e96c72b79ebab86ec53de10f70`.
+Raw shard-2 and shard-3 log SHA256 values are respectively
+`6c28246f9094f95bbe1406bbce31319a5cba281916ae3d6334f236326244a001` and
+`bdecbd01554e7d9f5423757ac71f5488301c109f57745e876623238f2c689fa2`.
+
+### Repair and local evidence
+
+- Sync now exercises released public identity resolution against a pristine fake home using a
+  copied toolchain with only OS identity/default-live locators replaced. The child first proves
+  it inherited a genuine sandbox capability, clears it, then calls the public CLI. Positive checks
+  bind the schema 3 plan, both hashes, target repository and each platform root; live and private
+  authority paths remain absent. A missing known-folder case keeps exact refusal and zero-plan checks.
+  The interlocked refusal remains explicit. AGENTS guidance and its repository-policy pin now
+  distinguish sandboxed maintenance validation from released public behavior.
+- The original sync predicate was replayed as RED from a real isolated public invocation returning
+  0. The complete mode-gates window is GREEN (exit 0, 25.344 seconds), including the missing-folder
+  negative. This duration includes fixture preparation and existing mode cases; it is not a measured
+  incremental cost. The unchanged 1200-second full-suite budget still requires complete-run evidence.
+- Root-claims now binds the public recovery child's OS identity/default-live locators to the same
+  fixture as its canonical plan and lock-order holder. Only copied locators change; the production
+  resolver, plan validation, locks and recovery engine execute unchanged. Pinned tool bytes are
+  verified before copying into an isolated fixture cache; this does not fix or accept the real
+  cache/bootstrap interaction documented by the lab. The helper retains its 15-second default,
+  clears inherited internal capabilities and reports elapsed time plus both drained streams after
+  bounded kill/reap, instead of discarding the timeout scene.
+- Three fresh-process read-only loads of the required recovery/registry/engine modules took
+  3.344, 3.078 and 2.984 seconds including process startup and exited 0. They also confirmed that
+  the native identity's ControlBase differs from the old fake ControlBase. These observations
+  support fixing the mixed fixture but do not prove why the historical CI child exceeded 15 seconds,
+  and do not justify enlarging that deadline.
+- The complete local sync attempt exited 1 at the pre-existing `Set-TestDirectoryCurrentUserOnly`
+  owner assignment, after the new mode cases passed. An isolated unchanged-helper probe reproduced
+  the permission error. Separate new-directory probes showed DACL-only PASS but SetOwner FAIL.
+  The root-claims recovery fixture stops at that same owner-setting prerequisite before its public
+  recovery child starts. No helper or host privilege was relaxed to turn these failures green.
+
+Private raw stdout/stderr, exit codes, timing and source hashes are retained under
+`E4-CI-REPAIR-20260923`, separately from tracked files. The sync diagnostic receipt is
+`sync-001/diagnostic-receipt-001.json`, SHA256
+`e3b2fe433863e45b7a1950f665ea8f61ff9e0d9fb97b0470806130f6a5ad2d51`.
+Initial diagnostic setup failures remain in that evidence collection and are not product verdicts.
+
+### Validation boundary at candidate preparation
+
+Pinned validator and gitleaks VerifyOnly, the PowerShell syntax check (179 files), the complete
+repository-policy suite and the secret scan passed locally. Full sync/root-claims verification
+has not passed on this non-elevated test host. The fixed candidate still needs the unchanged
+repository-gates job and all three full test shards in CI; no historical green is substituted.
+Two independent agents handle the two test files, with cross-review before the coordinator's
+single integration commit. Later candidate/CI verdicts are appended below when actually observed.
+
+This is CI fixture repair, not Task 8 production acceptance or E4 implementation. The lab's
+rejected-candidate disposition remains in force, and no real-home Apply is part of this window.
+
+### First candidate CI and complete fixture policy inputs
+
+The owner-authorized feature-branch push published
+`e4e1dac7c07889c1a87f38c98922d52d4f796567` and triggered
+[run 35856160012](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35856160012),
+attempt 1. Repository gates passed. Shard 2 (`107165009884`) completed with 8 discovered,
+7 passed, 1 failed and 0 suite timeouts. Its sealed-prefix check passed, then
+`New-CanonicalSetupPlanPayload` failed to hash `.gitleaks.toml` in the copied toolchain.
+The recovery child was not reached, so this result establishes neither a new recovery timeout
+nor a recovery pass. Shards 1 and 3 had not completed at this follow-up's preparation.
+
+The frozen `ToolchainPaths` list contains 79 inputs: 52 scripts, 23 schemas, two tool locks
+and two root files. The copied fixture lacked precisely `.gitleaks.toml` and `bootstrap.ps1`.
+The six-line follow-up copies both byte-for-byte and invokes the real
+`Get-CanonicalToolchainPolicyHash` before owner-sensitive claim preparation; it changes no
+production source or timeout. `DataPathspecs` entries are hash inputs as strings, not additional
+file reads in this function, so no unrelated source trees are copied.
+
+An extracted-helper probe against the first candidate reproduces the exact missing-file error
+(RED, exit 1). The repaired helper passes actual policy hashing, real pinned tool leases,
+identity/path checks, stream/nonzero-exit checks and bounded timeout/reaping (GREEN, exit 0).
+The sealed prefix is COMPLETE before, after and finally, with one unchanged snapshot hash.
+Independent host maintenance had relocated the original default tool cache; this diagnostic
+therefore selects the prior verified fixture cache as its read-only source. Failed cache-lookup
+setup attempts remain preserved, and no real cache or host path was written. The production
+fixture and its byte checks are unchanged apart from the two files and early hash call.
+
+PowerShell syntax passed for all 179 files, and independent source review approved the six-line
+change. This is focused validation; the local SetOwner prerequisite still prevents a complete
+recovery case, and the follow-up must pass all unchanged CI jobs on its own commit.
+Private receipt `E4-CI-REPAIR-20260923/root-claims-001/policy-fix-receipt-001.json` has SHA256
+`9b1f41456248de86865b692d81e4f545849368ea1af73b7b931a445967d5f3c6`.
+The first candidate's raw failed-job log has SHA256
+`d940a02edc1de3cdf6749ddc71604b0f3b7a1f88dedd84558fd29d5409063b59`;
+its append-only audit records the run, attempt, head, check identity and exact failure stage.
+
+### Released recovery deadline binding
+
+The follow-up `a326ddac89d9f5ce0ad334ca94a7eb575be9319a` was pushed to the same repair
+branch. Its [run 35863733603](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35863733603),
+attempt 1, completed with repository gates and shards 1 and 3 passing: 42 discovered,
+41 passed, 1 failed, 0 suite timeouts. Root-claims passed the complete sealed-prefix check,
+public DryRun, held-lock busy refusal and zero-write check. Its released child then reached
+the 15000ms deadline; elapsed time after kill/reap/drain was 15046ms, with the child reaped,
+both drains completed and both captured strings empty. This now establishes the remaining
+failure on a complete fixture; it does not locate the child's internal stopping point.
+
+The 15000ms helper bound originated in `86255452f0f535da400edc306c935881d24c4211`, when
+the tracked policy was interlocked and the released-holder assertion required only exit 75
+and zero writes. `5954503f605b20d0fc5399cb1f35a2d2ae820b61` later required released Apply
+to complete the reviewed abandon, retaining that same bound. The selected specifications
+require immediate lock-contention refusal, not a separate 15-second released-engine SLA.
+Earlier records report a released fixture pass but provide no individual-call duration;
+this window does not claim to be the first historical execution of that engine.
+
+Static review counted at least 20 real Schema validations in the header-only abandon engine:
+16 nonempty journal snapshot batches plus four new-artifact validations. Each lease revalidates
+the pinned bytes and executes a version probe before invoking the validator, so the engine
+alone starts at least 40 external processes. These are source counts, not a measurement of
+the exact CI delay. Holder cleanup releases both locks, and native contention refuses rather
+than waiting; no deterministic missing release was found.
+
+A fresh no-network Windows Sandbox instance used a normal disposable user, guest-local
+PowerShell 7.6.6 and fixture trees, read-only source/tool inputs, and one writable evidence
+mapping. The candidate archive was initialized as a guest Git repository before valid
+measurements. Three fresh fixtures completed the same full contention case: released Apply
+took 11611ms, 11376ms and 11566ms. The first and third retained the original 15-second bound;
+the middle measurement used a diagnostic-only 120-second helper bound and is labeled as such.
+The first measurement's DryRun and busy refusal took 4920ms and 2758ms, respectively.
+All nine behavior assertions passed, including matching plan results and preserved zero writes
+for the lock loser. Local timing does not establish hosted-runner timing or its exact slow phase.
+
+The minimal correction gives only the complete released Apply an explicit 60000ms bound.
+DryRun, held-lock contention and interlocked refusal keep 15000ms; the helper default, all
+result/identity/zero-write assertions, the 3600-second suite budget and CI job budgets remain.
+The helper returns measured child-plus-drain elapsed time in the successful result, and the
+released assertion prints it. On these new test bytes, the fresh focused case passed all nine
+assertions with released Apply taking 11224ms. Syntax passed for 179 files, and independent
+source review approved the nine-line diff. This functional test correction does not waive a
+production performance contract or count as complete-suite verification.
+
+Setup failures from the diagnostic kit are preserved: the guest's PowerShell 5.1 archive module
+failed to load, and early source archives lacked Git metadata. Neither is a product verdict.
+The final fixture state and per-call raw results were exported before stopping the one sandbox;
+the final sandbox list was empty. The aggregate receipt is
+`E4-CI-REPAIR-20260923/recovery-deadline-receipt-001.json`, SHA256
+`b1664352ba1342c2dcb8f2f7ec546124b71bdf7d8ed0014f586241d3ea1ad16c`.
+Independent history/source review is `root-claims-001/released-apply-deadline-review-001.json`,
+SHA256 `9ca00cd6976508467f7c559709bfa40caa2acd4a860646474b860a5c19271513`.
+The fixed CI receipt is `ci-audit-002/final-receipt-001.json`, SHA256
+`d98a58db7983856beceb53ab938cb0cf0c6eedb93e484ae298310185ca14acad`.
+
+The preceding `e4e1dac` run also had a genuine 600-second harness-env suite timeout.
+The `a326dda` run passed that unchanged suite (339 assertions, approximately 591.274 seconds),
+but does not repair or explain the earlier timeout. Its independent diagnostic record is
+`harness-env-timeout-diagnostic-001.json`, SHA256
+`7ecebe86856effdb2ac818799644f31c9fce52f62287b0736826fdd614582d48`.
+All original failures remain distinct from the next candidate's required full CI verdict.
+
+## 2026-09-23 Post-audit execution
+
+所有者在计划编制后指示“开始执行”。主 agent 在独立 `codex/post-audit-completion`
+worktree 整合 `48f17e1` 与 CI 修复线 `3b835f1`，保留两侧提交来源和活动记录；原工作区及
+其他已有 worktree 未改动。S0 的两个只读 sub-agent 分别审查 CI 差异和身份解析/清理链。
+
+23:35 UTC+8 的远端快照：main 为 `627ef3f`、无 open PR；Validate #138 的 gates、
+shard 2（8/8）、shard 3（27/27）成功，shard 1 仍运行中。该结果不能代表整合树通过。
+远端三个提交只修复测试 fixture、文档 pin 和完整 recovery Apply 的子进程期限；
+其 15912 ms 的成功 Apply 证明旧 15 秒期限不足，并不替代本轮 canonical/rollback 修复。
+
+S1 的公共隔离接口定为测试专用 copied toolchain：AST 精确替换副本中的 Windows identity、
+default live roots、pinned tool cache 三个 locator；生产 resolver 和公开 CLI 不增加测试开关。
+副本须包含完整 frozen inputs，工具缓存按锁验证且位于 sealed prefix 之外；所有父/子调用、
+recovery 和异常清理须落在本次 owned GUID root，拒绝越界与 reparse。真实 identity cleanup
+必须移除。静态安全审查通过前不运行涉及 canonical Apply 的宿主测试。
+
+S1 并发为 5 个 sub-agent：A 独占 canonical fixture helper 与三套 canonical 测试；B 独占
+rollback 引擎/入口和 backup-recovery 测试，先完成静态实现，动态测试须有隔离证据；
+C 维护当前操作指南；D 维护报告忽略/保管规则并给出精确 index 清单；E 独立只读审查
+隔离和恢复边界。主 agent 独占状态、计划、AGENTS、index 操作、pins、lab kit 和最终整合。
+这些职责串行依赖 E 对 A/B 写入边界的复核；完整 gates 与候选接受仍在后续 S2–S4。
