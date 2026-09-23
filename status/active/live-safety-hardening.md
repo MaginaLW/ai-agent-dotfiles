@@ -1,13 +1,14 @@
 # Live Safety Hardening
 
-Last updated: 2026-09-22
+Last updated: 2026-09-23 (audit handoff)
 
 Status: Complete through Phase 3. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0
 entry-interlock subplan is complete (43/43), Phase 1 is complete (44/44), Phase 2 is complete
 (52/52: Tasks 1-9, with the one cross-authority proof recorded as a Phase 4-bound design input), and
 Phase 3 is complete (47/47: Tasks 1-9, the checkpoint at `e57c608`, its two review findings closed
 by `872ad03` and `976d0fe`, and the carried sealed-file slice closed by `bbfa6d5`). Phase 4
-(schema/CI contract and safe release) has not started and owns the interlock release. The rewrite
+implementation Tasks 1–7 are complete; Task 8's candidate was rejected and remediation/acceptance
+remain open. Task 9 follows accepted-candidate evidence. The rewrite
 record anchors the force-with-lease publish head at `bbba28f` (verified: that commit is
 `chore(privacy): ignore local Reasonix desktop state` and its own diff is a `.gitignore` change
 only; which commit actually carries the privacy-rewrite content remains open for the owner — a
@@ -15,11 +16,12 @@ rewritten history cannot resolve pre-rewrite SHAs; pending item 8); GitHub Suppo
 `#4697323` is resolved after
 server-side garbage collection/cache clearing, and the 2026-08-27 old-SHA re-probe confirms the
 object is no longer served. This per-task record is a dated log: the sections below run in
-completion order and several of them carry their own superseded markers, so read a section as
-current only where it says so. The authoritative current list is the 2026-09-15 Pending items
-section at the end of this file.
+completion order and several of them carry their own superseded markers. Earlier Pending lists
+are historical snapshots, not instructions to restart completed work. The current task handoff is
+[the 2026-09-23 audit and ordered backlog](#2026-09-23-multi-agent-audit-and-ordered-backlog);
+repository-wide release and CI state belongs in [STATUS.md](../../STATUS.md#current-state).
 
-Policy: `ProtocolVersion=3`, `ReleaseState=interlocked`.
+Policy: `ProtocolVersion=3`, `ReleaseState=released`; candidate acceptance is incomplete.
 
 ## Completed evidence
 
@@ -3822,3 +3824,112 @@ Apply was performed.
   scripts stay machine-local under `tmp/lab8/` (gitignored), including `run-route.ps1`,
   `payload/route-*.ps1`, `host-migration.json`, `host-test-residue/` and the `chain1`/`chain2`/
   `chain3`/`diag*` evidence directories.
+
+## 2026-09-23 Multi-agent audit and ordered backlog
+
+本节记录所有者要求的多 agent 项目梳理及随后授权的记录工作。审查基线为本地
+`main@344ed4696a672ca23a129cfd40e2200d15830d7c`，审查开始与结束时工作区干净；相对当时远端
+`main@627ef3f623dff4ba3005eb92ad7427d08da61cd4` 领先 5 个提交。主 agent 加 5 个 sub-agent
+分别核对任务证据、生产路由、测试隔离、远端 CI、配置与文档；主 agent 复核主要代码位置并汇总。
+此处记录结论和待办，不实施修复、不重开已完成阶段、不授予发布或真实 Apply 权限。
+本节代码行号均按上述审查基线定位，后续修改应按符号和调用链重新查找。
+
+### Findings and evidence boundaries
+
+1. **高优先级，确认的测试身份隔离缺口。**
+   `scripts/canonical-transaction.ps1:55–56` 直接解析真实 Windows identity，`:78–83` 的
+   capability containment 只检查 RepoRoot/PlanPath，不包含真实 private roots。
+   `tests/canonical-command-result.tests.ps1:765–775` 即使用现有 sandbox helper 仍使用真实
+   authority；`:830–837` 还按真实 identity 清理 claim，且在最初 private base 不存在时递归
+   删除该 base。本次另定位 `tests/canonical-recovery.tests.ps1:34,200–206` 的同类裸 setup
+   Apply 路由，未执行该套件，不能新增一个实测失败计数。修复必须证明计划、authority 和清理
+   根均在受控 fixture 内；机械替换为现有 helper 不足以隔离 canonical setup。
+   前节的九项失败只是历史运行的 `7+1+1` 观察，不是全仓穷尽清单。前节真实残留证据保留；
+   本次并未证明 `repository-policy`、`automation-safety` 各自创建真实 bootstrap，两者的
+   旧失败预期还依赖主机 authority 状态。测试 runner 本身没有提供 OS 身份隔离。
+2. **高优先级，已定位零变更 rollback 缺陷。**
+   `scripts/live-transaction-common.ps1:1378` 跳过同 hash 动作；`:1462` 普通赋值把空目标
+   集合变成 `$null`，`:1479` 将其传给 `:963` 不接受 null 的 Targets 参数。此前
+   `:1434,1448` 已写 journal header 和新 receipt，因此这不是零写失败；普通 sync/activate
+   后续会被 `:3213–3215` 的 unfinished gate 拒绝。既有 lab 的
+   `tmp/lab8/evidence/chain3/33-artifact-rollback-plan.json` 有 29 个同 hash 目标，34 号证据
+   记录绑定错误，36 号证据为 `abandon-eligible`、receipt COMPLETE。子 agent 以纯内存
+   PowerShell 复现空集合变 null 及参数绑定失败，未加载生产脚本。应保留空数组或复用列表
+   标准化函数，并补公共 CLI 零变更回滚、事务关闭及后续可继续操作的回归。
+3. **高优先级待验证，rollback 的全局 unfinished 门禁疑点。**
+   `scripts/rollback-harness-env.ps1:676–707` 验证所选 source transaction 后进入独立
+   rollback 实现，后者在 `scripts/live-transaction-common.ps1:1434` 新建 header；未见
+   普通 host 在 `:3213–3215` 使用的全 authority unfinished scan。已有未改变 live/state
+   的未完成事务时，旧 activation receipt 可能仍符合 source 校验而允许再开 rollback。
+   这是静态调用链发现，尚未隔离动态复现；验收应要求兄弟事务 unfinished 时拒绝，并且不增加
+   journal/receipt。不能将该推断写成已观察到的第二次执行结果。
+4. **实验路线归因，暂不认定 `work/full` 为产品缺陷。**
+   tracked overlay 与 `scripts/task-skills.ps1:95` 的默认值均为 work；既有 lab 脚本
+   `tmp/lab8/payload/route-chain.ps1:113,116` 显式传 BaseEnv full，触发 `:276–277` 的一致性
+   拒绝。先纠正实验步骤并验证 work 环境的完整 task 路线；删去参数本身不构成验收通过。
+5. **当前规则、使用文档及状态指针漂移。**
+   `CLAUDE.md:62–70,105`、`README.md:87–89`、`docs/ONBOARD_NEW_MACHINE.md:7,55–56,401`
+   与 `docs/RESTORE.md:3–4` 仍承诺 interlocked 或裸 DryRun 必然 fail-closed；实际 policy
+   已为 released。onboarding `:179–191` 强制调用已退役 standalone backup，`:359,390,392`
+   使用已删除的 sync HomeRoot 参数，`:312,348,423–425` 的 merge/promote/activate 缺少
+   PlanPath。本次记录修正本文件顶部与 STATUS 当前入口，其他指南修复仍待办；历史正文保留
+   当时事实。本次 GitHub 只读查询可用，前节因 gh 未认证而无法查询 CI 的描述仅属于当时窗口。
+6. **历史报告的机器私有字段。**
+   tracked `imports/skills-reports/skills-analysis.json:10,12` 及同类条目包含机器标识和
+   本机 source path；`imports/skills-reports/auto-merge-report.json:777` 含本机绝对路径。
+   本节不复制这些值，也不将其称为凭据泄露。后续脱敏保留分析事实，补齐报告提交规范。
+
+前一 remediation window 的缓存迁移、recovery cast、Apply exit 修复
+（`097ff01`、`f553358`、`23f458b`）已有本地提交，不应重复实现；仍需补 fresh recovery root
+与公开 Apply 成功退出码的回归。现有 `tests/canonical-transaction-apply.tests.ps1:77` 预建 recovery root，
+不能替代 fresh-machine 路径验证。canonical 正向用例必须先有可证明的隔离边界再运行。
+
+### Remote CI snapshot
+
+前一轮审查读取了失败 run 的原始日志；本次落盘时在 **2026-09-23 22:42 UTC+8** 重查远端
+main 与运行状态。以下是时间戳快照，后续接手需刷新，不自行推导运行中的最终结果：
+
+- [Validate #135](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35852562723)，
+  main `627ef3f`：failure。shard 1 与 gates 通过；shard 2 为 7/8，
+  `root-claims-registry.tests.ps1:7301` 的 recovery 子进程触发 15 秒夹具期限，不是 suite
+  timeout；shard 3 为 25/27，sync 的旧 released 断言失败，live-recovery 达到 900 秒
+  suite timeout。后者更深根因未知，不能仅据此增加预算。
+- `codex/ci-regressions-e4-preflight` 与本地 remediation 是独立两条线；审查时其相对远端
+  main 有 `e4e1dac`、`a326dda`、`3b835f1` 三个提交，没有 open PR。工作涉及隔离 released
+  入口 fixture、补 frozen 输入及区分 recovery 执行期限，未包含本地五个提交。
+- [Validate #137](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35863733603)，
+  `a326dda`：只有 shard 2 的上述夹具期限失败，其他 shard 和 gates 通过。
+- [Validate #138](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35873759132)，
+  `3b835f1`：落盘刷新时仍 in_progress；审查时 gates 通过、三 shard 运行中。
+- 本地审查基线 `344ed46` 的 Actions 查询为零个 run；本地检查不是 CI 通过证据。
+
+静态核对的 42 套测试全部且仅出现一次于三分片，声明预算均小于对应 job 期限；没有发现
+分片遗漏。当前 workflow 没有上传完整结构化 summary/manifest 的 artifact 步骤，属于后续
+可诊断性改进项，不是本次新证明的功能失败。
+
+### Ordered backlog and acceptance
+
+| 顺序 | 任务、并行安排与依赖 | 完成依据 |
+|---|---|---|
+| 1，串行，主 agent | 先核对现有 CI 修复分支的最终结果和改动范围，协调与本地 remediation 的整合；此步骤计划 0 个 sub-agent | 确定基线、待合入改动和文件归属，不重复开发、不覆盖其他工作 |
+| 2，并行，3 个 sub-agent | A：测试身份隔离与旧断言；B：rollback 空集合及 unfinished 疑点；C：当前指南和历史报告脱敏。主 agent 协调公共 helper/共同测试文件；有交叉时先串行完成公共 seam | A 证明所有写入/清理均受隔离并覆盖 pristine/完整 authority/争锁；B 验证零变更成功及兄弟 unfinished 拒绝；C 示例匹配接口、无过时安全承诺或私有值 |
+| 3，串行，主 agent | 依赖整合后的修复树；计划 0 个 sub-agent，统一复算需更新的 pins，运行完整本地门禁 | 固定代码树的完整结果、无未解释失败/超时；不得沿用旧通过数 |
+| 4，串行，主 agent | 依赖绿色组合树及适用授权；计划 0 个 sub-agent，更新受影响的 runner approval、重切不可变候选，完成 Task 8 各互斥路线的独立 disposable snapshot lab 与 gates/CI | 全部证据绑定同一候选 SHA；失败拒绝候选，不 dirty patch，不以状态文档后继提交代替实验候选 |
+| 5，串行，主 agent | 候选接受后再推进 Task 9；计划 0 个 sub-agent | 真机只读与符合路由的 DryRun，停在真实 Apply 前 |
+
+Phase 2/3、Phase 4 Tasks 1–7、SID occupancy 实现和已批准的 CI 分片不重新列为未完成。
+config-sync、平台能力注册、模块去重等发布后改进另列后续范围，不默认变成本轮 release
+验收前置条件。本记录没有执行上述修复、批准真实 Apply、触发跨项目修改或远端发布。
+
+### Actual checks and retained evidence
+
+- 原审查基线 `344ed46`，PowerShell 7.6.6：parse gate 退出 0，179 文件通过；pinned gitleaks
+  加 fallback secret scan 退出 0、0 阻断项，1278 keyword hints 为非阻断提示；
+  `git diff --check` 退出 0。机内证据在 `tmp/audit-20260923/`，不提交原始日志或临时报告。
+- source/manifests 静态一致：Claude 7、Codex 15、Reasonix 7；work 为 1/1/1。未发现 generated
+  skills、envs/state、raw imports 或 runtime backups 误入 tracked。检查到的可复用 harness
+  模板未固定模型或推理档位；此结论不代替全配置部署验证。
+- 审查未运行全套测试、危险 released fixtures、build、lab 或真实 Apply，不是全项目测试通过
+  证明。模型身份、费用及人工工时为 unknown；不从等待时间推断。
+- 本次记录阶段复用上述证据，不把历史检查写成新跑；文档落盘按普通文档流程检查扫描、链接与
+  diff，不运行已知存在身份隔离风险的套件，最终文档检查结果在本次交付说明中单独报告。

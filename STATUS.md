@@ -8,40 +8,32 @@ This is the repository's single global status file. Current task records belong 
 
 ## Current state
 
-The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`, and the
-candidate `bffa7d7` sits on `origin/main`. **It is not an accepted production release: the
-2026-09-23 disposable-identity lab rejected it, and the remediation window that followed found three
-defects on the released identity path, all now fixed locally** — the pinned tool cache lived inside
-the sealed bootstrap's own `PrivateRootBase` (`json-artifact-common.ps1` vs
-`home-authority-common.ps1:568`), the recovery-remainder walk used an argument-mode cast that built
-`<parent>\[string]<segment>`, and a committed canonical Apply fell through into the DryRun guard and
-exited 1 with `canonical-plan-exists`. On the fixed tree the lab now reaches
-setup-committed → initial-applied (29 adds, 15 Codex skills) → activation-applied → rollback plan
-created, all inside the disposable sandbox with host roots byte-identical; the task-overlay baseline
-mismatch (`work` vs `full`) and a rollback-Apply `Targets` null are open findings. Nine
-released-policy assertions in `canonical-command-result`, `repository-policy` and `automation-safety`
-still encode the pre-fix behaviour, and those fixtures drive public CLIs on the real identity — with
-the route working they write real state, which the test suite must stop doing before the pins are
-re-derived. Task 8 Step 3's gate list, the runner re-approval (all three fixes move
-`ToolchainPolicyHash`) and the re-cut candidate remain open; no policy byte or gate was changed and no
-real-machine Apply was performed. Evidence and disposition:
-[the Task 8 record](status/active/live-safety-hardening.md) under the two 2026-09-23 sections.
+The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`, but
+**the release is not accepted**. Phase 4 implementation Tasks 1–7 are complete; the remaining
+mainline work is Task 8 remediation and candidate acceptance, followed by Task 9's read-only
+and DryRun checkpoint. The disposable-identity lab rejected candidate `bffa7d7`. The three
+subsequent fixes (`097ff01`, `f553358`, `23f458b`) remain local at the audit baseline `344ed46`;
+their partial lab evidence does not replace a full run on a new immutable candidate.
 
-The CI verdicts the Task 8 Step 1 record deferred are in. Run #128 (`68e9903`) closed the old
-single-job structure green (also closing the R3 harness-authority recurrence item). The first
-three sharded-workflow runs — #129 (`eeedc46`), #130 (`67bfdc6`), and #131 (`cef82f9`) — came
-back with all three shard jobs red on the released tree while the gates job stayed green each
-time. The [pins repair window](status/archived/2026-09-21-ci-released-pin-repair.md) made the
-remaining released-tree interlock pins policy-state-aware (the `15deede` pattern), aligned
-repository-policy's documentation pins, and switched the two environment-sensitive pins to
-structural contracts; new rule `R11` in [docs/CI_FAILURE_RULES.md](docs/CI_FAILURE_RULES.md)
-carries the details and the per-suite validation. Run #132 (`5954503`) then proved shards 1 and 2
-green; its shard-3 and gates reds were isolated to `sync.tests.ps1` and the scanner's API-key
-heuristic on the task-overlay literal, both repaired in the follow-up commits — after which
-shard 3 is 27/27 locally with the exact CI invocation and the CI-equivalent gates chain reports
-`PASS` on the committed tree. Those commits (three repairs plus the records) are local at this
-writing; the next push is their first CI run. No production script, policy value, or gate
-threshold changed, and none of this grants release or deployment authorization.
+The [2026-09-23 multi-agent audit and ordered backlog](status/active/live-safety-hardening.md#2026-09-23-multi-agent-audit-and-ordered-backlog)
+is the current task handoff. First isolate canonical setup tests from the real Windows identity:
+the existing sandbox helper does not isolate that route, and the audit found a same-kind caller
+in `canonical-recovery` beyond the previously observed nine failed assertions. The audit also
+located the zero-change rollback's `Targets` null defect, which leaves an unfinished transaction;
+a separate missing unfinished-transaction guard remains a static finding awaiting sandbox
+reproduction. The `work`/`full` mismatch points to explicit lab parameters, not a confirmed product
+defect. Current-guide drift and machine-private paths in historical reports are recorded for
+follow-up. No fixes or release acceptance were performed by this audit or its documentation step.
+
+Remote main and run-status snapshot, rechecked **2026-09-23 22:42 UTC+8**: `main` is `627ef3f`, whose
+[Validate #135](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35852562723) failed.
+[Validate #138](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35873759132) is still
+in progress at this snapshot. The original audit found no Actions run for local baseline
+`344ed46` (five commits ahead), and a separate `codex/ci-regressions-e4-preflight` branch with
+three commits through `3b835f1`. Coordinate that work before repeating repairs, then validate
+the integrated candidate. Older CI outcomes remain in the
+[pins repair record](status/archived/2026-09-21-ci-released-pin-repair.md) and the dated task log;
+they are not evidence that the current local tree passes CI.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate
 can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected
