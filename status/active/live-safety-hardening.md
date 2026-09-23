@@ -3691,3 +3691,116 @@ STATUS totals would have to record local evidence only.
 working clone; `GitHead` (`51044a5`), `git status --porcelain` and the stash list are unchanged.
 Every Apply above ran inside a disposable Windows Sandbox identity; no real home, authority, live
 root or backup was written. This window grants no release or deployment authorization.
+
+## 2026-09-23 Task 8 Step 2 remediation window (owner-authorized option 1): three defects, two of them new
+
+Owner decision: "批准，选1" — implement option 1 for the setup-route blocker (keep the pinned tool
+cache outside `PrivateRootBase`). Implementing it exposed two further defects in the same released
+identity path. Local commits: `097ff01` (cache relocation), `f553358` (recovery-remainder cast),
+`23f458b` (committed Apply must exit 0).
+
+### Fix 1 — pinned tool cache relocated (`097ff01`)
+
+`Get-PinnedToolCacheRoot` now defaults to `<LocalAppData>\ai-agent-dotfiles.tool-cache`, a sibling of
+the sealed private root base, following the convention the SID-scoped occupancy index already uses
+(`root-claims-occupancy-common.ps1`). The cache is machine-local tooling state; no private root,
+envelope or gate semantics changed.
+
+Host migration on this machine: the legacy `<LocalAppData>\ai-agent-dotfiles\tool-cache` and the
+then-empty private base were removed after asserting the base held nothing else, and the pinned tools
+were re-installed and verified at the new path (`tmp/lab8/evidence/host-migration.json`). This host
+held no approved-runner state, so nothing needed re-approval here; on a machine that does,
+`ToolchainPolicyHash` moved and the approval must be renewed before the runner can verify again.
+
+### Fix 2 — the recovery-remainder cast (`f553358`)
+
+The canonical setup Apply then failed closed with
+
+```
+Safe tree containment path is missing: <profile>\[string].ai-agent-dotfiles-canonical-recovery
+```
+
+The cause is argument-mode parsing, not path logic. In
+
+```powershell
+Join-Path $cumulativeParent [string]$segment
+```
+
+PowerShell binds a bare `[string]` as `-ChildPath` (a type literal rendered as the text `[string]`)
+and `$segment` as `-AdditionalChildPath`, so the joined path became `<parent>\[string]<segment>` and
+the next containment walk failed. The child directory itself was created with the correct name
+because the same cast inside the method call is parenthesised, which made it look like a walk
+problem. The loop only runs when the canonical recovery root does not exist yet, and the fixture in
+`tests/canonical-transaction-apply.tests.ps1:77` pre-creates that root, so no test covered the
+fresh-machine remainder path. The cast is now parenthesised and an AST scan of `scripts/` reports
+zero argument-mode type literals. Seams re-pin: count unchanged (16273), exactly one `InvokeMember`
+row moved (that line's extent text), verified with `tmp/seams-delta.ps1`; the dynamic-command digest
+is unchanged.
+
+### Fix 3 — a committed Apply must exit 0 (`23f458b`)
+
+The Apply branch of `canonical-transaction.ps1` never left the script: after printing the PASS
+document with `canonical-apply-committed` it fell through to the create-new guard of the DryRun path
+below, found the reviewed plan file the earlier DryRun had written, and exited 1 with
+`canonical-plan-exists`. A committed transaction therefore reported failure to its caller, and the
+public wrapper forwards that exit code. The apply suite drives the CLI only with `-DryRun` and
+exercises Apply through the engine functions in-process, so the CLI's success exit path was
+untested. The branch now ends with an explicit `exit 0` after its `finally` block; the interlocked
+exit-75 contract is unchanged and no other CLI in `scripts/` shares the shape.
+
+### Finding — released-policy fixtures write real identity state once the route works
+
+Running the focused suites after Fix 2 showed that the released-policy pins in
+`tests/repository-policy.tests.ps1` and `tests/canonical-command-result.tests.ps1` drive the public
+CLIs on the **real** Windows identity (no internal sandbox). With the setup route no longer failing
+early they *complete*: the host's `<LocalAppData>\ai-agent-dotfiles` gained a complete sealed
+bootstrap prefix (`backups`, `control`, `control/{canonical-roots,homes,live-transactions,live-mutation.lock}`)
+plus three `canonical-roots\<repo-id>.json` claims for fixture repositories, timestamped with the
+suite runs. The residue was captured (`tmp/lab8/evidence/host-test-residue/`: the residue list and
+the three claim files) and then removed, restoring the pre-run state (private base absent, pinned
+caches at the new sibling path). No live skills root, backup or repo file was touched.
+
+Two consequences, both for the owner:
+
+1. **The pins encode the defect.** Nine released-policy assertions now observe a different world:
+   `canonical-command-result` reports 66 passed / 7 failed (routed setup Apply no longer fails closed
+   at the manual-recovery gate; MISSING setup Apply no longer "creates no ControlBase or private
+   prefix"; the existing-`canonical.lock` case and the two post-holder-release cases moved with it),
+   `repository-policy` fails "the public live-recovery DryRun fails closed on the released host
+   authority path (released)" (it now passes the authority gate and fails at
+   `live-recovery-transaction-unknown`), and `automation-safety` fails "environment rollback apply
+   proceeds past the released Assert and fails closed before production work (released)". These must
+   be re-derived and re-pinned with the released contract reviewed — but only *after* the fixtures
+   stop writing real identity state, otherwise the new pins would lock in a test suite that mutates
+   the developer's machine.
+2. **The proposal's own expectation is violated by the test suite.** The validation expectation is
+   "zero live/authority/backup path changes on real homes"; these pins satisfy it today only because
+   the route used to fail. The hygiene fix is to run those released positive routes under the
+   internal sandbox (as the other suites do) and keep only fail-closed assertions on the real
+   identity.
+
+### Lab re-run on the fixed tree (`chain3`, `tmp/lab8/evidence/chain3/`)
+
+- **Canonical setup Apply: `canonical-apply-committed`** — the authority prefix, the canonical
+  recovery root and the claim are created on a fresh disposable identity for the first time. The
+  step's exit code was 1 only because of Fix 3.
+- **Initial sync Apply: exit 0**, receipt-backed host, `would add (29)` / 0 updates / 0 prunes,
+  receipt `…\backups\5d92f9df…`, state hash `262a27a1…`; all four roots then exist and the Codex live
+  root holds 15 skills.
+- **Environment activation: DryRun PASS** (plan hash `2c3d3424…`) and **Apply exit 0** (receipt
+  `…\backups\2404ff96…`, state hash `fc6267d8…`, journal `…\control\live-transactions\812caf7a…`).
+- **Rollback DryRun PASS** (`environment rollback plan created`, PlanHash `dbab9597…`).
+- **Task overlay DryRun FAIL**: "Task overlay targets 'work', but this task command targets 'full'."
+  The tracked `.agent-harness/task-skills.psd1` targets `work` while the initial route always deploys
+  the `full` environment (`sync.ps1:342`), so the task route cannot run right after the initial
+  route. Not yet classified as a defect or as a lab parameter choice.
+- **Rollback Apply FAIL**: `Invoke-SealedEnvironmentRollbackTransaction` cannot bind `Targets`
+  because it is null (`rollback-harness-env.ps1:707`). Further defect candidate for the next window.
+- Host real roots byte-identical before/after; every Apply above ran inside the disposable sandbox.
+
+### What this window did not do
+
+Task 8 Step 3's gate list, the re-derived pins, the test-hygiene change, the two open findings above,
+and the runner re-approval all remain open. Each of the three fixes moves `ToolchainPolicyHash`, so
+the candidate must be re-cut once the tree is green; the release is not accepted and no real-machine
+Apply was performed.

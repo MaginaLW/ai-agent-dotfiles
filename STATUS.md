@@ -9,17 +9,23 @@ This is the repository's single global status file. Current task records belong 
 ## Current state
 
 The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`, and the
-candidate `bffa7d7` sits on `origin/main`. **It is not an accepted production release, and after the
-2026-09-23 disposable-identity lab it is a rejected candidate.** On a fresh disposable identity the
-released canonical setup Apply fails closed with `manual-recovery-required`: the pinned tool cache
-that the same contract requires (`<LocalAppData>/ai-agent-dotfiles/tool-cache`,
-`json-artifact-common.ps1:652-659`) creates the sealed bootstrap's own `PrivateRootBase` with an
-owner/DACL the bootstrap refuses (`home-authority-common.ps1:568`), and the canonical setup route is
-the only producer of the authority prefix every other Apply asserts (`sync.ps1:977-981`), so the
-primary mutation surface is unreachable on a fresh machine until a new, separately reviewed
-production commit fixes that interaction. No policy byte, gate or production script was changed, and
-no real-machine Apply was performed; the full evidence, reproduction and disposition are in
-[the Task 8 record](status/active/live-safety-hardening.md) under the 2026-09-23 lab section.
+candidate `bffa7d7` sits on `origin/main`. **It is not an accepted production release: the
+2026-09-23 disposable-identity lab rejected it, and the remediation window that followed found three
+defects on the released identity path, all now fixed locally** — the pinned tool cache lived inside
+the sealed bootstrap's own `PrivateRootBase` (`json-artifact-common.ps1` vs
+`home-authority-common.ps1:568`), the recovery-remainder walk used an argument-mode cast that built
+`<parent>\[string]<segment>`, and a committed canonical Apply fell through into the DryRun guard and
+exited 1 with `canonical-plan-exists`. On the fixed tree the lab now reaches
+setup-committed → initial-applied (29 adds, 15 Codex skills) → activation-applied → rollback plan
+created, all inside the disposable sandbox with host roots byte-identical; the task-overlay baseline
+mismatch (`work` vs `full`) and a rollback-Apply `Targets` null are open findings. Nine
+released-policy assertions in `canonical-command-result`, `repository-policy` and `automation-safety`
+still encode the pre-fix behaviour, and those fixtures drive public CLIs on the real identity — with
+the route working they write real state, which the test suite must stop doing before the pins are
+re-derived. Task 8 Step 3's gate list, the runner re-approval (all three fixes move
+`ToolchainPolicyHash`) and the re-cut candidate remain open; no policy byte or gate was changed and no
+real-machine Apply was performed. Evidence and disposition:
+[the Task 8 record](status/active/live-safety-hardening.md) under the two 2026-09-23 sections.
 
 The CI verdicts the Task 8 Step 1 record deferred are in. Run #128 (`68e9903`) closed the old
 single-job structure green (also closing the R3 harness-authority recurrence item). The first
