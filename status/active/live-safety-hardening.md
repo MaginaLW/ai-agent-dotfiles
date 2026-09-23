@@ -3804,3 +3804,21 @@ Task 8 Step 3's gate list, the re-derived pins, the test-hygiene change, the two
 and the runner re-approval all remain open. Each of the three fixes moves `ToolchainPolicyHash`, so
 the candidate must be re-cut once the tree is green; the release is not accepted and no real-machine
 Apply was performed.
+
+### Handoff state at wrap-up (2026-09-23; local commits `097ff01`, `f553358`, `23f458b`, `e57e129`)
+
+- Suite status on the working tree: `canonical-production-seams` 56/0, `canonical-transaction` 64/0,
+  `canonical-transaction-apply` 21/0, parse gate 179 files, secret scan clean, `git diff --check`
+  clean. `canonical-command-result` reports 66 passed / 7 failed, `repository-policy` fails one
+  released pin and `automation-safety` fails one released pin — all nine are the pre-fix-encoding
+  assertions listed above.
+- The host residue was captured and removed twice
+  (`tmp/lab8/evidence/host-test-residue/residue-list.json`, `residue-list-second.json`); the second
+  round was produced by a single suite run, which is the direct evidence that those fixtures must be
+  sandbox-isolated before the released pins are re-derived. Final host state: the private base is
+  absent and the pinned caches are present and verified at
+  `<LocalAppData>\ai-agent-dotfiles.tool-cache`.
+- The four commits are local and unpushed. The lab harness, the evidence trees and the helper
+  scripts stay machine-local under `tmp/lab8/` (gitignored), including `run-route.ps1`,
+  `payload/route-*.ps1`, `host-migration.json`, `host-test-residue/` and the `chain1`/`chain2`/
+  `chain3`/`diag*` evidence directories.
