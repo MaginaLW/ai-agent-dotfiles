@@ -656,7 +656,14 @@ function Get-PinnedToolCacheRoot {
     if ($CacheRoot) { return [System.IO.Path]::GetFullPath($CacheRoot) }
     $local = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
     if ([string]::IsNullOrWhiteSpace($local)) { throw 'The OS LocalApplicationData known folder is unavailable.' }
-    return Join-Path $local 'ai-agent-dotfiles/tool-cache'
+    # Machine-local tooling state, deliberately a sibling of the sealed private
+    # root base (<LocalAppData>\ai-agent-dotfiles) and never inside it: that
+    # directory is the home-authority bootstrap's PrivateRootBase entry, whose
+    # owner/DACL and fixed envelope admit only backups/ and control/, so an
+    # installer that creates it first would make the canonical setup Apply fail
+    # closed with home-authority-bootstrap-owner-dacl-mismatch. The occupancy
+    # index uses the same sibling convention (root-claims-occupancy-common.ps1).
+    return Join-Path $local 'ai-agent-dotfiles.tool-cache'
 }
 
 function Get-PinnedToolPaths {
