@@ -3691,3 +3691,76 @@ STATUS totals would have to record local evidence only.
 working clone; `GitHead` (`51044a5`), `git status --porcelain` and the stash list are unchanged.
 Every Apply above ran inside a disposable Windows Sandbox identity; no real home, authority, live
 root or backup was written. This window grants no release or deployment authorization.
+
+## 2026-09-23 CI repair window: released public-entry fixtures
+
+This window follows the owner's request to repair the two failures from fixed
+[run 35733693990](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35733693990), attempt 1,
+head `51044a55fc0dd8991e2ac25dad36fb1369a9027b`. It starts from
+`627ef3f623dff4ba3005eb92ad7427d08da61cd4`, preserving the intervening disposable-identity lab
+and its rejection. Work takes place in an isolated checkout; no production script, policy,
+workflow, suite budget, live deployment or previously recorded evidence is changed.
+
+### Fixed failure evidence
+
+The repository gates and shard 1 passed. Shard 2 discovered 8 suites, passed 7 and failed 1;
+shard 3 discovered 27, passed 26 and failed 1. Across all shards this is 42 discovered,
+40 passed, 2 failed and 0 suite timeouts. The root-claims helper's 15-second child deadline
+is an internal test failure, not a runner-level suite timeout. Its killed child's streams were
+not retained by the old helper. The sync failure is the `Code -ne 0` assertion for a bare
+released public DryRun; the next zero-plan assertion was never reached in that CI log.
+
+The immutable prior audit receipt is `E4-GAP-REVIEW-20260923/dotfiles-ci-final-001/final-receipt-001.json`,
+SHA256 `3f7f0dfaf78f51d547c498571e27a652952639e96c72b79ebab86ec53de10f70`.
+Raw shard-2 and shard-3 log SHA256 values are respectively
+`6c28246f9094f95bbe1406bbce31319a5cba281916ae3d6334f236326244a001` and
+`bdecbd01554e7d9f5423757ac71f5488301c109f57745e876623238f2c689fa2`.
+
+### Repair and local evidence
+
+- Sync now exercises released public identity resolution against a pristine fake home using a
+  copied toolchain with only OS identity/default-live locators replaced. The child first proves
+  it inherited a genuine sandbox capability, clears it, then calls the public CLI. Positive checks
+  bind the schema 3 plan, both hashes, target repository and each platform root; live and private
+  authority paths remain absent. A missing known-folder case keeps exact refusal and zero-plan checks.
+  The interlocked refusal remains explicit. AGENTS guidance and its repository-policy pin now
+  distinguish sandboxed maintenance validation from released public behavior.
+- The original sync predicate was replayed as RED from a real isolated public invocation returning
+  0. The complete mode-gates window is GREEN (exit 0, 25.344 seconds), including the missing-folder
+  negative. This duration includes fixture preparation and existing mode cases; it is not a measured
+  incremental cost. The unchanged 1200-second full-suite budget still requires complete-run evidence.
+- Root-claims now binds the public recovery child's OS identity/default-live locators to the same
+  fixture as its canonical plan and lock-order holder. Only copied locators change; the production
+  resolver, plan validation, locks and recovery engine execute unchanged. Pinned tool bytes are
+  verified before copying into an isolated fixture cache; this does not fix or accept the real
+  cache/bootstrap interaction documented by the lab. The helper retains its 15-second default,
+  clears inherited internal capabilities and reports elapsed time plus both drained streams after
+  bounded kill/reap, instead of discarding the timeout scene.
+- Three fresh-process read-only loads of the required recovery/registry/engine modules took
+  3.344, 3.078 and 2.984 seconds including process startup and exited 0. They also confirmed that
+  the native identity's ControlBase differs from the old fake ControlBase. These observations
+  support fixing the mixed fixture but do not prove why the historical CI child exceeded 15 seconds,
+  and do not justify enlarging that deadline.
+- The complete local sync attempt exited 1 at the pre-existing `Set-TestDirectoryCurrentUserOnly`
+  owner assignment, after the new mode cases passed. An isolated unchanged-helper probe reproduced
+  the permission error. Separate new-directory probes showed DACL-only PASS but SetOwner FAIL.
+  The root-claims recovery fixture stops at that same owner-setting prerequisite before its public
+  recovery child starts. No helper or host privilege was relaxed to turn these failures green.
+
+Private raw stdout/stderr, exit codes, timing and source hashes are retained under
+`E4-CI-REPAIR-20260923`, separately from tracked files. The sync diagnostic receipt is
+`sync-001/diagnostic-receipt-001.json`, SHA256
+`e3b2fe433863e45b7a1950f665ea8f61ff9e0d9fb97b0470806130f6a5ad2d51`.
+Initial diagnostic setup failures remain in that evidence collection and are not product verdicts.
+
+### Validation boundary at candidate preparation
+
+Pinned validator and gitleaks VerifyOnly, the PowerShell syntax check (179 files), the complete
+repository-policy suite and the secret scan passed locally. Full sync/root-claims verification
+has not passed on this non-elevated test host. The fixed candidate still needs the unchanged
+repository-gates job and all three full test shards in CI; no historical green is substituted.
+Two independent agents handle the two test files, with cross-review before the coordinator's
+single integration commit. Later candidate/CI verdicts are appended below when actually observed.
+
+This is CI fixture repair, not Task 8 production acceptance or E4 implementation. The lab's
+rejected-candidate disposition remains in force, and no real-home Apply is part of this window.

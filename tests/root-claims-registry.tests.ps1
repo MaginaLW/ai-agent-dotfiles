@@ -714,7 +714,7 @@ function Assert-TestRegistryReadIsZeroWrite {
     finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $lock }
 }
 
-function New-TestCanonicalClaim([Parameter(Mandatory)]$Fixture,[string]$Name='canonical',[string]$RepoPath,[string]$RecoveryRootPath) {
+function New-TestCanonicalClaim([Parameter(Mandatory)]$Fixture,[string]$Name='canonical',[string]$RepoPath,[string]$RecoveryRootPath,[string]$ToolchainRoot=$RepoRoot) {
     $repo = if ([string]::IsNullOrWhiteSpace($RepoPath)) { Join-Path $Fixture.Root ($Name + '-repo') } else { [IO.Path]::GetFullPath($RepoPath) }
     $probe = Join-Path $Fixture.Root ($Name + '-probe')
     $recovery = if ([string]::IsNullOrWhiteSpace($RecoveryRootPath)) { Join-Path (Join-Path $Fixture.Root ($Name + '-recovery-parent')) 'recovery' } else { [IO.Path]::GetFullPath($RecoveryRootPath) }
@@ -730,7 +730,7 @@ function New-TestCanonicalClaim([Parameter(Mandatory)]$Fixture,[string]$Name='ca
     if ($LASTEXITCODE -ne 0) { throw 'fixture git add failed' }
     & git -C $repo -c 'user.name=Registry Fixture' -c 'user.email=registry-fixture@example.invalid' commit --quiet -m fixture
     if ($LASTEXITCODE -ne 0) { throw 'fixture git commit failed' }
-    $payload = New-CanonicalSetupPlanPayload -RepoRoot $repo -CanonicalRecoveryRoot $recovery -ControlBase ([string]$Fixture.Context.ControlBase) -BackupRoot ([string]$Fixture.Context.BackupRoot) -ProbeRoot $probe -ToolchainRoot $RepoRoot
+    $payload = New-CanonicalSetupPlanPayload -RepoRoot $repo -CanonicalRecoveryRoot $recovery -ControlBase ([string]$Fixture.Context.ControlBase) -BackupRoot ([string]$Fixture.Context.BackupRoot) -ProbeRoot $probe -ToolchainRoot $ToolchainRoot
     [IO.Directory]::CreateDirectory($recovery) | Out-Null
     Set-TestDirectoryCurrentUserOnly -Path $recovery
     $git = Get-CanonicalGitContext -RepoRoot $repo
@@ -740,6 +740,84 @@ function New-TestCanonicalClaim([Parameter(Mandatory)]$Fixture,[string]$Name='ca
         RecoveryRoot=$recovery; RecoveryParent=$recoveryParent; RepoRoot=$repo
         GitContext=$git; ContractPaths=$paths; PlanPayload=$payload
     }
+}
+
+function New-TestRecoveryCliToolchain([Parameter(Mandatory)]$Fixture,[Parameter(Mandatory)][string]$Parent) {
+    $root = Join-Path $Parent 'recovery-cli-toolchain'
+    New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+    & git -C $root init --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize the recovery fixture toolchain.' }
+    foreach ($directory in @('scripts','schemas','tools')) {
+        Copy-Item -LiteralPath (Join-Path $RepoRoot $directory) -Destination (Join-Path $root $directory) -Recurse
+    }
+    # The public CLI resolves OS identity again after acquiring the repo lock.
+    # Bind only its OS/default path locators to this already-bootstrapped fixture;
+    # retain the production identity resolver, plan checks, locks and Apply engine.
+    $identityReplacement = @'
+function Get-WindowsHomeAuthorityIdentity {
+    [IO.File]::WriteAllText((Join-Path (Split-Path -Parent $PSScriptRoot) 'identity-called'), 'called')
+    return [pscustomobject]@{
+        ResolverVersion = 'sealed-home-authority-test-adapter-v1'
+        TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ProfileRoot = '__PROFILE__'
+        RoamingAppDataRoot = '__ROAMING__'
+        LocalAppDataRoot = '__LOCAL__'
+    }
+}
+'@
+    $liveReplacement = @'
+function Get-CanonicalDefaultLiveRoots {
+    return @(
+        (Join-Path '__PROFILE__' '.claude/skills'),
+        (Join-Path '__PROFILE__' '.codex/skills'),
+        (Join-Path '__PROFILE__' '.agents/skills'),
+        (Join-Path '__ROAMING__' 'reasonix/skills')
+    )
+}
+'@
+    $cacheReplacement = @'
+function Get-PinnedToolCacheRoot {
+    [CmdletBinding()] param([string]$CacheRoot)
+    if ($CacheRoot) { return [IO.Path]::GetFullPath($CacheRoot) }
+    return Join-Path (Split-Path -Parent $PSScriptRoot) 'fixture-tool-cache'
+}
+'@
+    $adapters = @(
+        @('scripts/home-authority-common.ps1','Get-WindowsHomeAuthorityIdentity',$identityReplacement),
+        @('scripts/canonical-transaction-common.ps1','Get-CanonicalDefaultLiveRoots',$liveReplacement),
+        @('scripts/json-artifact-common.ps1','Get-PinnedToolCacheRoot',$cacheReplacement)
+    )
+    foreach ($adapter in $adapters) {
+        $path = Join-Path $root $adapter[0]
+        $text = [IO.File]::ReadAllText($path)
+        $tokens = $null; $parseErrors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseInput($text,[ref]$tokens,[ref]$parseErrors)
+        $functionName = [string]$adapter[1]
+        $functions = @($ast.FindAll({ param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $functionName
+        },$true))
+        if ($parseErrors.Count -ne 0 -or $functions.Count -ne 1) { throw "Unable to isolate the recovery fixture locator: $functionName" }
+        $replacement = ([string]$adapter[2]).Replace('__PROFILE__',([string]$Fixture.Profile).Replace("'","''")).Replace('__ROAMING__',([string]$Fixture.Roaming).Replace("'","''")).Replace('__LOCAL__',([string]$Fixture.Local).Replace("'","''"))
+        $extent = $functions[0].Extent
+        [IO.File]::WriteAllText($path,$text.Substring(0,$extent.StartOffset)+$replacement+$text.Substring($extent.EndOffset),[Text.UTF8Encoding]::new($false))
+    }
+    # Reuse only installed, hash-pinned tool bytes; the original cache is read-only.
+    # The child still opens its ordinary production tool lease against the copy.
+    # Keep this test cache outside the sealed private-root prefix, whose only
+    # permitted children are backups/control; this is not a production cache fix.
+    foreach ($lockRelative in @('tools/schema-validator/validator.lock.json','tools/gitleaks/gitleaks.lock.json')) {
+        $lock = Get-PinnedToolLock -Path (Join-Path $RepoRoot $lockRelative)
+        $sourcePaths = Get-PinnedToolPaths -Lock $lock
+        $cacheRoot = Join-Path $root 'fixture-tool-cache'
+        $targetPaths = Get-PinnedToolPaths -Lock $lock -CacheRoot $cacheRoot
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $targetPaths.Executable)) | Out-Null
+        foreach ($file in @(@($sourcePaths.Archive,$targetPaths.Archive,$lock.AssetSha256),@($sourcePaths.Executable,$targetPaths.Executable,$lock.ExecutableSha256))) {
+            $bytes = [IO.File]::ReadAllBytes([string]$file[0])
+            if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant() -cne [string]$file[2]) { throw 'Recovery fixture pinned tool hash mismatch.' }
+            Write-TestCreateNewFile -Path ([string]$file[1]) -Bytes $bytes
+        }
+    }
+    return $root
 }
 
 function Complete-TestCanonicalSetupState {
@@ -7280,26 +7358,35 @@ try {
 
     Write-Host '[canonical live lock-order route contention]'
     function Invoke-TestRegistryScriptStreams {
-        param([Parameter(Mandatory)][string]$Script,[string[]]$Arguments=@())
+        param([Parameter(Mandatory)][string]$Script,[string[]]$Arguments=@(),[ValidateRange(1,120000)][int]$TimeoutMilliseconds=15000)
         $start = [Diagnostics.ProcessStartInfo]::new()
         $start.FileName = (Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
         $start.UseShellExecute = $false
         $start.CreateNoWindow = $true
         $start.RedirectStandardOutput = $true
         $start.RedirectStandardError = $true
+        foreach ($key in @($start.Environment.Keys)) {
+            if ($key -like 'AI_AGENT_DOTFILES_INTERNAL_*') { [void]$start.Environment.Remove($key) }
+        }
         foreach ($argument in @('-NoProfile','-File',$Script) + @($Arguments)) {
             [void]$start.ArgumentList.Add([string]$argument)
         }
         $process = [Diagnostics.Process]::new()
         $process.StartInfo = $start
+        $watch = [Diagnostics.Stopwatch]::StartNew()
         try {
             if (-not $process.Start()) { throw "Unable to start test script: $Script" }
             $stdoutTask = $process.StandardOutput.ReadToEndAsync()
             $stderrTask = $process.StandardError.ReadToEndAsync()
-            if (-not $process.WaitForExit(15000)) {
+            if (-not $process.WaitForExit($TimeoutMilliseconds)) {
                 try { $process.Kill($true) } catch { }
-                throw "test script did not exit within 15s: $Script"
+                $reaped = $process.WaitForExit(5000)
+                $drained = [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),5000)
+                $stdout = if ($stdoutTask.IsCompletedSuccessfully) { $stdoutTask.GetAwaiter().GetResult() } else { '<stdout drain incomplete>' }
+                $stderr = if ($stderrTask.IsCompletedSuccessfully) { $stderrTask.GetAwaiter().GetResult() } else { '<stderr drain incomplete>' }
+                throw "test script exceeded ${TimeoutMilliseconds}ms after $($watch.ElapsedMilliseconds)ms: $Script (pid=$($process.Id); reaped=$reaped; drained=$drained; stdout=$stdout; stderr=$stderr)"
             }
+            if (-not [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),5000)) { throw "test script exited but output drain did not finish: $Script" }
             return [pscustomobject]@{
                 Code = $process.ExitCode
                 Stdout = $stdoutTask.GetAwaiter().GetResult()
@@ -7309,9 +7396,15 @@ try {
         finally { $process.Dispose() }
     }
 
-    $routeContentionRecoverScript = Join-Path $RepoRoot 'scripts/recover-canonical-transaction.ps1'
     $routeContentionFixture = New-TestRegistryFixture -Parent $workRoot -Name 'lock-order-route-contention-recover'
-    $routeContentionCanonical = New-TestCanonicalClaim -Fixture $routeContentionFixture -Name 'lock-order-route-contention-recover'
+    $routeContentionBootstrapBefore = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $routeContentionFixture.Context
+    $routeContentionToolchain = New-TestRecoveryCliToolchain -Fixture $routeContentionFixture -Parent $workRoot
+    $routeContentionBootstrapAfter = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $routeContentionFixture.Context
+    Assert-TestCondition ([string]$routeContentionBootstrapBefore.Status -ceq 'COMPLETE' -and
+        [string]$routeContentionBootstrapAfter.Status -ceq 'COMPLETE' -and
+        [string]$routeContentionBootstrapBefore.SnapshotHash -ceq [string]$routeContentionBootstrapAfter.SnapshotHash) 'the public recovery fixture toolchain and cache preserve the complete sealed private prefix'
+    $routeContentionRecoverScript = Join-Path $routeContentionToolchain 'scripts/recover-canonical-transaction.ps1'
+    $routeContentionCanonical = New-TestCanonicalClaim -Fixture $routeContentionFixture -Name 'lock-order-route-contention-recover' -ToolchainRoot $routeContentionToolchain
     $routeContentionCreated = Enter-CanonicalRepoLock -LockPath ([string]$routeContentionCanonical.ContractPaths.LockPath) -AllowCreate
     Exit-CanonicalRepoLock -LockHandle $routeContentionCreated
     $routeContentionFixture | Add-Member -NotePropertyName AdditionalSnapshotExclusions -NotePropertyValue @([string]$routeContentionCanonical.ContractPaths.LockPath) -Force
@@ -7385,6 +7478,7 @@ try {
         '-PlanPath', $routeContentionPlan
     )
     if ($script:IsReleased) {
+        Assert-TestCondition (Test-Path -LiteralPath (Join-Path $routeContentionToolchain 'identity-called')) 'released recover Apply resolves the public OS identity through the isolated fixture adapter'
         Assert-TestCondition ($routeContentionReleased.Code -eq 0 -and
             $routeContentionReleased.Stdout -match '"MessageToken":"canonical-recovery-applied"' -and
             $routeContentionReleased.Stdout -match '"Result":"PASS"') ("after the holder releases, released recover Apply completes the reviewed abandon with one applied result and exit 0 (code=$($routeContentionReleased.Code))")

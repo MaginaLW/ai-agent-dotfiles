@@ -21,21 +21,17 @@ production commit fixes that interaction. No policy byte, gate or production scr
 no real-machine Apply was performed; the full evidence, reproduction and disposition are in
 [the Task 8 record](status/active/live-safety-hardening.md) under the 2026-09-23 lab section.
 
-The CI verdicts the Task 8 Step 1 record deferred are in. Run #128 (`68e9903`) closed the old
-single-job structure green (also closing the R3 harness-authority recurrence item). The first
-three sharded-workflow runs — #129 (`eeedc46`), #130 (`67bfdc6`), and #131 (`cef82f9`) — came
-back with all three shard jobs red on the released tree while the gates job stayed green each
-time. The [pins repair window](status/archived/2026-09-21-ci-released-pin-repair.md) made the
-remaining released-tree interlock pins policy-state-aware (the `15deede` pattern), aligned
-repository-policy's documentation pins, and switched the two environment-sensitive pins to
-structural contracts; new rule `R11` in [docs/CI_FAILURE_RULES.md](docs/CI_FAILURE_RULES.md)
-carries the details and the per-suite validation. Run #132 (`5954503`) then proved shards 1 and 2
-green; its shard-3 and gates reds were isolated to `sync.tests.ps1` and the scanner's API-key
-heuristic on the task-overlay literal, both repaired in the follow-up commits — after which
-shard 3 is 27/27 locally with the exact CI invocation and the CI-equivalent gates chain reports
-`PASS` on the committed tree. Those commits (three repairs plus the records) are local at this
-writing; the next push is their first CI run. No production script, policy value, or gate
-threshold changed, and none of this grants release or deployment authorization.
+The latest fixed CI verdict audited for this repair is
+[run 35733693990](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35733693990),
+attempt 1 on `51044a55fc0dd8991e2ac25dad36fb1369a9027b`: repository gates and shard 1 passed;
+shards 2 and 3 failed. Across all three shards, 42 suites were discovered, 40 passed, 2 failed,
+and none hit a suite timeout. The failures are the root-claims child process's internal
+15-second deadline and sync's incorrect assumption that every released public DryRun rejects.
+The 2026-09-23 CI repair window in [the task record](status/active/live-safety-hardening.md)
+separates reproduced fixture defects, local host limitations, and the pending fixed-candidate
+CI result. Historical pin repairs remain in [their dated record](status/archived/2026-09-21-ci-released-pin-repair.md).
+No production script, policy value, or gate threshold changes are part of this repair, and
+passing these tests would not reverse the independent lab rejection above.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate
 can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected
