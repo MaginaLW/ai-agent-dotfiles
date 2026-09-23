@@ -53,13 +53,13 @@ sub-agent 数量均不含主 agent；沿用运行时默认与用户设置，不�
 
 ## 3. S0：基线协调与工作拆分
 
-- [ ] 刷新 Git 根、当前改动、远端 main/修复分支、相关 PR 与 #138 最终结论。红灯只依据该 run
+- [x] 刷新 Git 根、当前改动、远端 main/修复分支、相关 PR 与 #138 最终结论。红灯只依据该 run
   原始日志归因，区分夹具 15 秒期限与 suite 900 秒 timeout；遵循 [CI 失败规则](../../CI_FAILURE_RULES.md)。
-- [ ] 对比本地 6 个提交与 CI 分支 3 个提交的实际内容。主 agent 在干净 `codex/` 工作分支或
+- [x] 对比本地 6 个提交与 CI 分支 3 个提交的实际内容。主 agent 在干净 `codex/` 工作分支或
   隔离 worktree 整合；保留已在验证的改动和提交来源，不重做、不改写另一会话分支。
-- [ ] 将已完成修复、仍需复现项、文档问题映射到文件和测试。特别核对远端修改过的
+- [x] 将已完成修复、仍需复现项、文档问题映射到文件和测试。特别核对远端修改过的
   `sync`、`root-claims-registry`、`repository-policy` 套件，不能直接覆盖为旧版本。
-- [ ] 由 A/E 与主 agent 明确 canonical 隔离方案及公共 helper 接口。选择受控 fixture resolver
+- [x] 由 A/E 与主 agent 明确 canonical 隔离方案及公共 helper 接口。选择受控 fixture resolver
   或一次性 Windows identity 执行器；验证计划、Apply、锁、recovery、清理共用同一边界。
   不以改 HOME/LOCALAPPDATA、仅换 helper 或 mock 单个调用点作为隔离证明。
 

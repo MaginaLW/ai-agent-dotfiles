@@ -4140,3 +4140,19 @@ rollback 引擎/入口和 backup-recovery 测试，先完成静态实现，动�
 C 维护当前操作指南；D 维护报告忽略/保管规则并给出精确 index 清单；E 独立只读审查
 隔离和恢复边界。主 agent 独占状态、计划、AGENTS、index 操作、pins、lab kit 和最终整合。
 这些职责串行依赖 E 对 A/B 写入边界的复核；完整 gates 与候选接受仍在后续 S2–S4。
+
+### S0 baseline and S1D checkpoint
+
+整合基线 B 为 `68ef2ecedca3e9071178dcab8b805cecdafbba53`。该提交前 179 个已跟踪
+PowerShell 文件语法检查通过，密钥扫描无阻断项，diff 检查通过；未运行危险 canonical suite。
+Validate #138 最终于 15:40:45Z 完成：固定 `3b835f1` 的四个 job 成功，三 shard 分别
+7/7、8/8、27/27，合计 42/42，零失败、零 timeout；不作为 B 或后续候选的完整验证。
+
+S1D 已核对并解除 9 份历史 import 运行报告的 Git 跟踪（4 JSON、5 Markdown），全部本地
+原件及 SHA-256 不变。4 个报告文件名带机器/批次字段，4 份内容含本机绝对路径；此处不复制
+私有值。生成器与测试使用本地新输出，不依赖这些报告被跟踪。两个报告目录现仅保留 README
+入库，含嵌套目录的后续运行材料均忽略。精确清单、hash 与验证日志保存在本次忽略证据目录；
+未删除、移动原件或改写历史，解除跟踪不代表旧历史数据已消除。
+
+隔离审查额外发现 `repository-policy` 的公开 recovery Apply 可进入真实 authority 锁链；
+已将该 suite 加入 copied fixture 适配范围。主 agent 保留其静态文档 pin 的同步职责。

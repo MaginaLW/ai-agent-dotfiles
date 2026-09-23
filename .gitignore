@@ -61,17 +61,17 @@ tmp/
 /.reasonix/desktop-topic-title-sources.json
 /.reasonix/desktop-topic-titles.json
 
-# Machine- and run-specific build/sync reports.
-reports/*.md
-reports/*.json
+# Machine- and run-specific reports and sidecars; only documentation is tracked.
+/reports/**
 !reports/README.md
 
 # Raw imported skills awaiting review.
 imports/skills-inbox/**
 imports/skills-quarantine/**
 imports/skills-archive/**
+imports/skills-reports/**
 
-# Keep documentation placeholders and generated reports.
+# Keep documentation placeholders only; generated import reports stay local.
 !imports/
 !imports/skills-inbox/
 !imports/skills-inbox/README.md

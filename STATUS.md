@@ -31,14 +31,15 @@ Execution is authorized and S0 has integrated the CI fixture repairs; S1 is in p
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries and actual validation. No new candidate has been accepted.
 
-Remote main and run-status snapshot, rechecked **2026-09-23 23:35 UTC+8**: `main` is `627ef3f`, whose
+Remote main and run-status snapshot, rechecked **2026-09-23 23:40 UTC+8**: `main` is `627ef3f`, whose
 [Validate #135](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35852562723) failed.
-[Validate #138](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35873759132) is still
-in progress at this snapshot. The original audit found no Actions run for local baseline
+[Validate #138](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35873759132) completed
+successfully for `3b835f1`. The original audit found no Actions run for local baseline
 `344ed46` (five commits ahead), and a separate `codex/ci-regressions-e4-preflight` branch with
 three commits through `3b835f1`. Those commits have been integrated with the local audit/planning
-line on `codex/post-audit-completion`, preserving both histories. Gates and shards 2/3 passed on
-`3b835f1`; shard 1 was still running. The combined candidate needs its own validation. Older CI outcomes remain in the
+line on `codex/post-audit-completion` at `68ef2ec`, preserving both histories. All four jobs passed;
+the three shards passed 7/7, 8/8 and 27/27 suites, with no failures or timeouts. The combined
+candidate needs its own validation. Older CI outcomes remain in the
 [pins repair record](status/archived/2026-09-21-ci-released-pin-repair.md) and the dated task log;
 they are not evidence that the current local tree passes CI.
 
