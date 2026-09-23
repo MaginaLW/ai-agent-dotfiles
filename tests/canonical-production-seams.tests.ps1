@@ -274,8 +274,14 @@ $reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a5
 # [int]/[string] static dispatches, two OrderedDictionary Insert calls), 8 Member rows
 # (.Count/.Keys reads and [System.StringComparer]::Ordinal), 2 ForEach-Object command
 # sites, 1 Sort-Object command site. No dynamic invocation, alias, shadow, or new type.
+# Re-pinned 2026-09-23 for the Task 8 Step 2 fix: count unchanged, exactly one InvokeMember
+# row moved inside Complete-SealedHeldCanonicalRecoveryRootRemainder
+# (scripts/root-claims-registry-common.ps1) because that line's AST extent now reads
+# ([string]$segment) instead of the argument-mode [string]$segment. Row-reviewed delta from
+# tmp/seams-delta.ps1: 1 removed + 1 added InvokeMember row, dynamic-command digest unchanged,
+# no alias, shadow, or new type.
 $reviewedAllScriptsReflectionSensitiveSiteCount=16273
-$reviewedAllScriptsReflectionSensitiveDigest='d0aac3045fb08ace37d0044ebbdad9b913eb9ef98121c520d2e1e6453c100174'
+$reviewedAllScriptsReflectionSensitiveDigest='25e66bb5d4cd53e72025dca32062c8fbf4f8713a85b3c95160e68b8002141587'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

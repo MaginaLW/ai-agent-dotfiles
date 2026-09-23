@@ -7894,7 +7894,12 @@ function Complete-SealedHeldCanonicalRecoveryRootRemainder {
             if ($null -ne $created) { $created.Dispose() }
             Close-SafeDirectoryContainmentChain -Handles $chainParents
         }
-        $cumulativeParent = [IO.Path]::GetFullPath((Join-Path $cumulativeParent [string]$segment))
+        # The cast must stay parenthesised: in argument mode PowerShell binds a
+        # bare [string] as the -ChildPath value (a type literal rendered as
+        # "[string]") and $segment as -AdditionalChildPath, silently building
+        # "<parent>\[string]<segment>" so the next containment walk failed with
+        # "Safe tree containment path is missing" on every fresh identity.
+        $cumulativeParent = [IO.Path]::GetFullPath((Join-Path $cumulativeParent ([string]$segment)))
     }
     $final = Resolve-TargetContext -Path $requestedPath -Mode MetadataOnly
     if ([string]$final.TargetStatus -cne 'EXISTS') { throw 'canonical-recovery-root-manual-recovery-required: remainder did not reach EXISTS' }
