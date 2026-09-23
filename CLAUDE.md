@@ -57,21 +57,28 @@ When the scope trigger applies:
    ```powershell
    pwsh -NoProfile -File scripts/build-skills.ps1
    pwsh -NoProfile -File scripts/scan-secrets.ps1
-   pwsh -NoProfile -File scripts/sync.ps1
    ```
-7. Production interlock (`ReleaseState=interlocked`): production Apply/rollback/retirement currently
-   returns `safety-protocol-upgrade-required` before traversal or mutation, and the public standalone
-   backup entry is retired (`backup-is-transaction-internal`). The following Apply command is the
-   reviewed future contract only and must not be attempted until tracked policy is released:
+   For maintenance validation, run schema 3 sync DryRun only inside the internal sandbox
+   with a create-new `-PlanPath` and host-injected roots. A released public call can resolve
+   a valid Windows identity and write a plan; expected rejection is not isolation. See
+   [docs/README.md §4](docs/README.md#4-日常同步流程).
+7. Check [current release and acceptance state](STATUS.md#current-state) before production work.
+   A released policy value is not deployment authorization or completed lab acceptance.
+   The public standalone backup entry is retired (`backup-is-transaction-internal`).
+   The following commands describe the reviewed contract; Apply requires the applicable
+   authorization and acceptance. Plain sync produces pristine initial plans only; existing
+   authorities use the status-selected environment/authority route, or explicit retirement:
    ```powershell
    $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-   # The DryRun must run under scripts/internal/live-transaction-host.ps1
-   # (docs/README.md §4); a bare invocation fails closed with
-   # live-plan-host-resolution-required.
+   # Invocation shape only: maintenance validation uses the sandbox host above.
+   # A released bare call may resolve Windows identity and write a plan.
    pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
    # Review the plan, then apply the same fingerprint-bound plan.
    pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
    ```
+   Initial planning must precede canonical setup; after reviewed setup completes, consume the
+   original initial plan in a new invocation. Follow the full
+   [onboarding route sequence](docs/ONBOARD_NEW_MACHINE.md#5-select-the-machine-route).
    When a reviewed canonical deletion has already removed the old name from the current manifests,
    use an external one-shot JSON retirement manifest and pass the same file to both commands with
    `-RetireManifestPath`. The retirement file, its resolved path, live/source roots, and target tree
@@ -102,6 +109,6 @@ When the scope trigger applies:
 - Multi-platform Harness outputs are allowlist-bound project files: Claude commands/agents, Codex prompts/agents only. They are generated/reviewed through the profile scripts and never write global home state.
 - `envs/` is generated Harness Environments staging — never hand-edit or commit it; rebuild with `scripts/build-harness-env.ps1`. `state/current-env.json` is machine-private and never committed.
 - `env list`/`env status`/`env build` are read-only toward home directories and must never write `~/.claude`, `~/.codex`, live skills roots, or `state/`.
-- `env activate` is the future sanctioned global environment switch, but production Apply is interlocked with `safety-protocol-upgrade-required`. Never hand-copy env staging into a home directory. DryRun review remains machine-local; tracked docs must not record machine names or private home paths. Config deployment via `config-pull.ps1` is NOT part of activation; adding it requires a separate review. See `docs/README.md` §16.
-- `env rollback` is the separate managed-scope recovery path: it requires an explicitly selected environment activation backup, a reviewed dry-run plan, and an exact plan hash on Apply. It restores only current-manifest Claude/Codex/Reasonix skills and the corresponding environment state; it never touches unknown live directories, Codex `.system`, credentials, sessions, caches, or Codex `config.toml`.
+- `env activate` is the plan-bound managed environment switch. DryRun creates an external `-PlanPath`; Apply consumes that same plan after the applicable acceptance and authorization. Never hand-copy env staging into a home directory. DryRun review remains machine-local; tracked docs must not record machine names or private home paths. Config deployment via `config-pull.ps1` is NOT part of activation; adding it requires a separate review. See `docs/README.md` §16.
+- `env rollback` is the separate managed-scope recovery path: it requires an explicitly selected COMPLETE environment receipt directory, a reviewed dry-run plan, and an exact plan hash on Apply. It restores the Claude/Codex/Reasonix targets bound by that receipt and plan plus the corresponding environment state; it never touches unknown live directories, Codex `.system`, credentials, sessions, caches, or Codex `config.toml`.
 - Keep `CLAUDE.md` tracked in Git so these instructions sync across machines.

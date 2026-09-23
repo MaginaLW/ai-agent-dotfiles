@@ -138,8 +138,8 @@ try {
 
     Assert-TestCondition ($agentsText.Contains('a released policy value is not deployment authorization or completed lab acceptance')) 'AGENTS.md documents that a released policy value is not deployment authorization'
     Assert-TestCondition ($agentsText.Contains('The public standalone backup entry is retired and exits')) 'AGENTS.md documents the retired standalone backup entry'
-    Assert-TestCondition ($claudeText.Contains('`safety-protocol-upgrade-required` before traversal or mutation')) 'CLAUDE.md documents the production interlock token before traversal or mutation'
-    Assert-TestCondition ($claudeText.Contains('the public standalone')) 'CLAUDE.md documents the retired standalone backup entry'
+    Assert-TestCondition ($claudeText.Contains('A released policy value is not deployment authorization or completed lab acceptance.')) 'CLAUDE.md separates released behavior from deployment authorization and acceptance'
+    Assert-TestCondition ($claudeText.Contains('The public standalone backup entry is retired')) 'CLAUDE.md documents the retired standalone backup entry'
     Assert-TestCondition ($readmeText.Contains('policy behavior and release acceptance are separate')) 'README.md documents that policy behavior and release acceptance are separate'
     Assert-TestCondition ($readmeText.Contains('it writes nothing and exits `backup-is-transaction-internal` instead')) 'README.md documents the retired standalone backup entry behavior'
     Assert-TestCondition ($readmeText.Contains('# Invocation shape only; check STATUS.md current state and acceptance before use.')) 'README.md documents the invocation-shape-only external DryRun flow'

@@ -1,5 +1,12 @@
 # Live Safety Hardening Roadmap Execution Plan
 
+> **Current handoff (2026-09-23):** The status, baseline and execution boundaries below are historical.
+> Current work is governed by [STATUS.md current state](../../../STATUS.md#current-state) and the
+> [post-audit completion plan](2026-09-23-post-audit-completion-plan.md): Phases 0–3 and Phase 4
+> Tasks 1–7 are implemented; Task 8 remediation/acceptance precedes Task 9. Policy is already
+> released, but the release is not accepted. Preserve these historical records; do not restart
+> completed phases, restore retired features or use their old permissions as current authorization.
+
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
 **Status:** In progress. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0 entry-interlock subplan is complete (43/43), and Phase 1 is complete (44/44). The separately authorized privacy rewrite is published at `bbba28f`; GitHub Support ticket `#4697323` and the independently verified old-SHA follow-up are closed. Phase 2 Task 1 Step 1 is complete (Task 1 1/6; Phase 2 overall 1/52), and Phases 3-4 have not started. **Superseded:** Phase 3 closed at 47/47 (checkpoint `e57c608`); Phase 4 has still not started. This roadmap grants no permission to run a real live Apply/rollback or to perform any further Git staging, commit, or publication. A later `ReleaseState=released` means only that the code protocol interlock is ready; it is not live-mutation authorization.

@@ -1,501 +1,264 @@
-# New Windows Machine Onboarding Execution Plan
+# New Windows Machine Onboarding
 
-> **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
+Use this guide to reconcile a Windows identity with the canonical repository and select the correct
+plan-bound route. Read [STATUS.md current state](../STATUS.md#current-state) first: a released policy
+does not prove candidate acceptance or authorize live deployment. Maintenance validation uses an
+isolated fixture; an explicitly scoped machine checkpoint may read status and create DryRun evidence,
+then stops before Apply. The Apply examples below describe the contract for separately authorized work.
 
-**Goal:** Safely connect a second or later Windows computer to this repository without losing local skills, overwriting the canonical source, exposing private data, or damaging Codex `.system`.
+Use PowerShell 7+, preserve unknown local skills, and never traverse, copy, hash, count the contents of,
+or modify Codex `.system`. Its allowed root/marker metadata is sufficient for the repository checks.
+Keep plans, receipts, logs, machine names and private paths outside Git.
 
-**Approach:** Clone first, identify the machine, verify a clean baseline, and keep live mutation interlocked. Import local skills only into the machine-specific inbox, then build, scan, and review dry-run evidence. Production backup/apply/rollback/retirement remains unavailable under the production interlock (`ReleaseState=interlocked`).
-
-**Materials:** Git, PowerShell 7, access to the private GitHub repository, this repository's `STATUS.md` and `docs/README.md`, and the scripts under `scripts/`.
-
-**Validation:** The repository must pass `scripts/scan-secrets.ps1`; sync dry-run must show an explainable add/update/prune plan and preserve Codex `.system`; final `git status` must contain only reviewed, intentional changes.
-
----
-
-## Safety model
-
-This is a controlled migration, not a blind bootstrap. Bare `bootstrap.ps1` installs only inert or
-approved wrappers and checks the pinned validator, scanner, and runner in order. Follow the one exact
-command it prints, then invoke bootstrap again. It never applies live changes; the interlock ends with
-`safety-protocol-upgrade-required` after approval.
-
-Use these repository roles consistently:
-
-- `skills-source/`: the only canonical, hand-maintained skill source.
-- `claude/skills/`, `codex/skills/`: generated output; never edit them directly.
-- `imports/skills-inbox/<computername>/`: untrusted, machine-specific import staging.
-- Live directories under the user profile: runtime state; never reverse-copy them over `skills-source/`.
-
-### Unified command entry point
-
-For routine repository operations, `scripts/agent-dotfiles.ps1` provides a thin entry point to the existing scripts. It forwards trailing arguments to the selected script and reports the target script path and exit result; it does not replace any underlying implementation.
-
-The complete command surface is:
-
-```text
-doctor
-build
-scan
-backup
-sync
-config status | pull | push
-profile status | build | apply
-skills inventory | analyze | dedupe | merge | normalize | promote
-env list | status | build | activate | rollback
-```
-
-Read-only actions include `doctor`, `scan`, `config status`, `profile status`,
-`skills inventory`, `skills analyze`, `skills dedupe`, `env list`, and `env
-status`. `build`, `profile build`, and `env build` materialize disposable
-generated/staging output; the public standalone `backup` entry is retired
-(`backup-is-transaction-internal`). None of these
-actions writes arbitrary live-home state or changes `skills-source/` by
-reverse-copy.
-
-All live, canonical-source, and project-target writes start in dry-run mode; the interlock rejects
-production Apply before traversal, backup, or mutation.
-For actions that expose a mode, choose exactly one of `-DryRun` or `-Apply`;
-omitting the mode is rejected by the unified entry point rather than treated
-as implicit apply. The entry point never adds `-Apply` automatically. `sync`
-and `env rollback` require a reviewed plan path for apply. `env activate`
-creates and binds its internal sync plan during apply before writing the
-environment state.
-
-`config pull` is a separate home-level config deployment path. It is not part
-of `env activate` and must not be described as an environment component.
-
-## 1. Verify prerequisites
-
-Open PowerShell and run:
+## 1. Verify tools and clone
 
 ```powershell
 git --version
 $PSVersionTable.PSVersion
-Get-Command pwsh -ErrorAction SilentlyContinue
-Get-Command codex -ErrorAction SilentlyContinue
-Get-Command claude -ErrorAction SilentlyContinue
-```
-
-Required conditions:
-
-- Git is installed and `git --version` succeeds.
-- PowerShell 7 or newer is installed and `pwsh` resolves. Repository scripts declare `#requires -Version 7.0`; Windows PowerShell 5.1 can run basic Git and file-inspection commands, but it is **not supported for these scripts**.
-- If PowerShell 7 is missing, install it before continuing, for example:
-
-  ```powershell
-  winget install --id Microsoft.PowerShell --source winget
-  ```
-
-- The user can authenticate to the private GitHub repository through SSH or Git Credential Manager. Never embed a personal access token in a clone URL, script, or document.
-- Codex and/or Claude Code is already installed, or its installation is planned before live sync. It is acceptable for one client command to be absent if that client is not yet being deployed, but record that limitation before continuing.
-
-## 2. Clone at the chosen repository root
-
-Use a repository root that is outside the live home roots. Keep the actual
-machine path in a local variable; do not copy it into tracked docs or reports.
-
-```powershell
-$RepoUrl = Read-Host 'Paste the private repository SSH or HTTPS clone URL'
+Get-Command pwsh
+$RepoUrl = Read-Host 'Repository SSH or HTTPS URL, without embedded credentials'
 $RepoRoot = '<repo-root>'
 git clone $RepoUrl $RepoRoot
 Set-Location $RepoRoot
+git status --short --branch --untracked-files=all
+pwsh -NoProfile -File .\bootstrap.ps1
 ```
 
-Use the same `$RepoRoot` variable in every later command. Never embed a
-personal access token in a clone URL, script, or document.
+Choose a repository root outside the live and private safety roots. Bootstrap installs inert or
+approved Git-private wrappers, then checks the pinned schema validator, pinned gitleaks and runner
+approval in that order. Follow the exact dependency command it prints; obtain the applicable runner
+approval before running its approval command, then invoke bootstrap again. Bootstrap and hooks produce
+preview/events only; they never produce an actionable plan or Apply live changes. `-SkipInitialPlan`
+skips only the optional preview diagnostic. Do not infer isolation from an expected rejection.
 
-Run bootstrap to receive the next dependency/approval instruction. To skip the optional initial
-preview diagnostic after approval, use:
+## 2. Check the repository and retain local evidence
 
 ```powershell
-pwsh -NoProfile -File .\bootstrap.ps1 -SkipInitialPlan
+pwsh -NoProfile -File .\scripts\doctor.ps1 -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { throw 'Doctor failed; inspect the reported cause.' }
+pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { throw 'Baseline secret scan failed.' }
 ```
 
-## 3. Record the local machine identity
+Review warnings and existing changes before proceeding. Do not bypass the scanner or substitute a
+previous machine's results. The public standalone `backup.ps1` is retired: it writes nothing and
+returns `backup-is-transaction-internal` (exit 1), including with `-DryRun`. Do not run it as a
+prerequisite or copy arbitrary backup trees into live roots. Managed Apply creates its own bound
+receipt and snapshot through the transaction host. Whole-home recovery, if needed, is a separate
+platform/owner operation and must not include repository-driven copying of `.system`.
 
-Use `COMPUTERNAME` as the machine identifier. Normalize it to lowercase for a stable inbox path while retaining the original value in the onboarding notes or commit description.
+Create a new external evidence directory on the current machine. It must be outside the worktree,
+Git internals, live roots and private safety roots; each plan filename must be create-new. Preserve
+the generated plan and its bound materialization/candidate files together, unchanged, through review.
+
+```powershell
+$EvidenceRoot = Join-Path ([IO.Path]::GetTempPath()) ('ai-agent-dotfiles-onboard-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $EvidenceRoot | Out-Null
+```
+
+## 3. Import only reviewed local skill directories
+
+Import is optional: skip it when no local skill needs reconciliation. Import reads local directories
+and writes an ignored inbox only; it does not make imported content canonical. A local machine label
+may select `imports/skills-inbox/<local-label>/`, but neither that label nor the real machine name
+belongs in tracked notes, filenames or commit messages.
 
 ```powershell
 $ComputerName = $env:COMPUTERNAME
-if ([string]::IsNullOrWhiteSpace($ComputerName)) {
-    throw 'COMPUTERNAME is empty; stop and resolve machine identity before importing.'
-}
-$MachineId = $ComputerName.ToLowerInvariant()
-$InboxRoot = Join-Path $RepoRoot "imports\skills-inbox\$MachineId"
-
-"COMPUTERNAME=$ComputerName"
-"Machine inbox=$InboxRoot"
+if ([string]::IsNullOrWhiteSpace($ComputerName)) { throw 'Local machine label is unavailable.' }
+$LocalLabel = $ComputerName.ToLowerInvariant()
+$InboxRoot = Join-Path $RepoRoot "imports\skills-inbox\$LocalLabel"
+if (Test-Path -LiteralPath $InboxRoot) { throw 'Inbox exists; review it without overwriting.' }
+New-Item -ItemType Directory -Path $InboxRoot | Out-Null
 ```
 
-Expected staging layout:
-
-```text
-imports/skills-inbox/<computername>/
-  claude/
-    <skill-name>/SKILL.md
-  codex/
-    <skill-name>/SKILL.md
-```
-
-Do not put credentials, machine configuration dumps, or entire home directories under the inbox.
-
-## 4. Run pre-onboarding checks
-
-First confirm that the fresh clone is clean and synchronized:
-
-```powershell
-Set-Location $RepoRoot
-git status --short --branch --untracked-files=all
-git fetch --prune
-git status --short --branch --untracked-files=all
-```
-
-The two-letter status area must be empty. Stop if tracked modifications or unexpected untracked files are present.
-
-Run the repository's read-only health check. It reports environment, structure, required scripts, live/generated paths, `.system` protection, Git state, and a secret scan without changing files:
-
-```powershell
-$DoctorPath = Join-Path $RepoRoot 'scripts\doctor.ps1'
-if (-not (Test-Path -LiteralPath $DoctorPath -PathType Leaf)) {
-    throw 'scripts/doctor.ps1 is missing; stop onboarding.'
-}
-pwsh -NoProfile -File $DoctorPath -RepoRoot $RepoRoot
-if ($LASTEXITCODE -ne 0) { throw "doctor.ps1 failed with exit code $LASTEXITCODE" }
-```
-
-Warnings do not make doctor fail, but every warning must be understood before live sync. Use `-SkipSecretsScan` only when troubleshooting the scanner itself; the normal onboarding path must run doctor without that switch.
-
-Verify and run the secret scanner against the clone before importing local material:
-
-```powershell
-$ScanScript = Join-Path $RepoRoot 'scripts\scan-secrets.ps1'
-if (-not (Test-Path -LiteralPath $ScanScript -PathType Leaf)) {
-    throw 'scripts/scan-secrets.ps1 is missing; stop onboarding.'
-}
-pwsh -NoProfile -File $ScanScript -RepoRoot $RepoRoot
-if ($LASTEXITCODE -ne 0) { throw "Baseline secret scan failed with exit code $LASTEXITCODE" }
-```
-
-## 5. Back up live skills before importing
-
-Never skip this step, even when the machine appears new. Preview the backup,
-then create it outside the repository. Keep only a safe reference to the
-result in the onboarding record; do not copy backup contents into Git.
-
-```powershell
-$BackupScript = Join-Path $RepoRoot 'scripts\backup.ps1'
-pwsh -NoProfile -File $BackupScript -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -DryRun
-if ($LASTEXITCODE -ne 0) { throw "Backup dry-run failed with exit code $LASTEXITCODE" }
-
-pwsh -NoProfile -File $BackupScript -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE
-if ($LASTEXITCODE -ne 0) { throw "Backup failed with exit code $LASTEXITCODE" }
-```
-
-`backup.ps1` owns the external backup format and scope. This onboarding guide
-does not reproduce its contents. In particular, credentials, sessions,
-caches, plugin state, and other machine-private data must stay outside the
-repository even when a backup contains them for recovery purposes.
-
-## 6. Import existing local skills into the machine inbox
-
-The import operation reads live skill directories and writes only to `imports/skills-inbox/<computername>/`. It must not write to `skills-source/`, generated output, or any live directory.
-
-The current `inventory-skills.ps1` probes `.agents/skills` for Codex, while current sync behavior prefers `.codex/skills`. The following explicit import block handles both locations and excludes Codex `.system`:
-
-```powershell
-if (Test-Path -LiteralPath $InboxRoot) {
-    throw "Machine inbox already exists: $InboxRoot. Review or archive the previous import; do not overwrite it."
-}
-
-$ClaudeInbox = Join-Path $InboxRoot 'claude'
-$CodexInbox = Join-Path $InboxRoot 'codex'
-New-Item -ItemType Directory -Force -Path $ClaudeInbox, $CodexInbox | Out-Null
-
-function Copy-SkillDirectoriesToInbox {
-    param(
-        [Parameter(Mandatory)] [string] $SourceRoot,
-        [Parameter(Mandatory)] [string] $DestinationRoot,
-        [string[]] $ExcludedNames = @()
-    )
-
-    if (-not (Test-Path -LiteralPath $SourceRoot)) {
-        Write-Host "Live source not found; skipped: $SourceRoot"
-        return
-    }
-
-    foreach ($SkillDir in @(Get-ChildItem -LiteralPath $SourceRoot -Directory -Force)) {
-        if ($SkillDir.Name -in $ExcludedNames) { continue }
-        if (-not (Test-Path -LiteralPath (Join-Path $SkillDir.FullName 'SKILL.md'))) { continue }
-
-        $Target = Join-Path $DestinationRoot $SkillDir.Name
-        if (Test-Path -LiteralPath $Target) {
-            throw "Import collision at $Target; stop and review instead of overwriting."
-        }
-        Copy-Item -LiteralPath $SkillDir.FullName -Destination $Target -Recurse
-    }
-}
-
-$ClaudeLive = Join-Path $env:USERPROFILE '.claude\skills'
-$CodexPreferred = Join-Path $env:USERPROFILE '.codex\skills'
-$CodexFallback = Join-Path $env:USERPROFILE '.agents\skills'
-$CodexLive = if (Test-Path -LiteralPath $CodexPreferred) { $CodexPreferred } else { $CodexFallback }
-
-Copy-SkillDirectoriesToInbox -SourceRoot $ClaudeLive -DestinationRoot $ClaudeInbox
-Copy-SkillDirectoriesToInbox -SourceRoot $CodexLive -DestinationRoot $CodexInbox -ExcludedNames @('.system')
-```
-
-For Claude plugin-provided skills, first list manifests without copying plugin caches or credentials:
-
-```powershell
-$ClaudePluginRoot = Join-Path $env:USERPROFILE '.claude\plugins'
-if (Test-Path -LiteralPath $ClaudePluginRoot) {
-    Get-ChildItem -LiteralPath $ClaudePluginRoot -Filter 'SKILL.md' -File -Recurse -Force |
-        Select-Object -ExpandProperty FullName
-}
-```
-
-Copy only reviewed skill directories containing `SKILL.md` into `$ClaudeInbox`. If a destination name already exists, stop and preserve both source locations in the external backup for merge review; never overwrite one copy with another.
-
-Confirm the inbox contains only expected skills:
-
-```powershell
-Get-ChildItem -LiteralPath $InboxRoot -Directory -Recurse -Force |
-    Select-Object FullName
-```
-
-## 7. Build generated output from the canonical source
-
-Importing does not make inbox content canonical. The initial build verifies the current `skills-source/` baseline and recreates generated output:
-
-```powershell
-$BuildScript = Join-Path $RepoRoot 'scripts\build-skills.ps1'
-pwsh -NoProfile -File $BuildScript -RepoRoot $RepoRoot
-if ($LASTEXITCODE -ne 0) { throw "Skill build failed with exit code $LASTEXITCODE" }
-```
-
-Confirm the command reports expected counts for at least:
-
-- `Built Claude skills: <count>` and generated directories under `claude/skills/`.
-- `Built Codex skills: <count>` and generated directories under `codex/skills/`.
-
-The current build produces Claude and Codex generated output. Generated output is disposable and Git-ignored; do not edit it to resolve an import conflict.
-
-## 8. Scan imported and generated material
-
-Run the repository scanner again after import and build:
-
-```powershell
-pwsh -NoProfile -File $ScanScript -RepoRoot $RepoRoot
-if ($LASTEXITCODE -ne 0) { throw "Post-import secret scan failed with exit code $LASTEXITCODE" }
-```
-
-If a finding appears:
-
-1. Stop the onboarding workflow before merge or sync.
-2. Record the file, line, detector name, and why the value is believed to be real or false-positive in the current task review.
-3. Remove real sensitive material from the inbox/source and rotate exposed credentials when necessary.
-4. For a false-positive, prefer rewriting the example or using an environment-variable placeholder.
-5. Do not add a whitelist, bypass the scanner, append `scan-ok`, or use a skip option without explicit human approval and a recorded reason.
-6. Rerun the scan and require exit code 0.
-
-## 9. Review duplicates, empty shells, and quarantine candidates
-
-Generate the repository's analysis and dedupe reports:
+Select exact skill directories containing `SKILL.md` from Claude, Codex and/or Reasonix. Codex uses
+the existing preferred `.codex/skills` root or, when absent, `.agents/skills`; Reasonix uses the
+claimed root, normally the Windows Roaming AppData `reasonix/skills` directory. Reject reparse points,
+name collisions, missing manifests and `.system` before copying a reviewed directory to its platform
+inbox. Do not recursively copy home roots, plugin caches, credentials, sessions or configuration.
 
 ```powershell
 pwsh -NoProfile -File .\scripts\analyze-skills.ps1 -RepoRoot $RepoRoot
-if ($LASTEXITCODE -ne 0) { throw "Skill analysis failed with exit code $LASTEXITCODE" }
-
+if ($LASTEXITCODE -ne 0) { throw 'Skill analysis failed.' }
 pwsh -NoProfile -File .\scripts\dedupe-skills.ps1 -RepoRoot $RepoRoot
-if ($LASTEXITCODE -ne 0) { throw "Dedupe analysis failed with exit code $LASTEXITCODE" }
-
-pwsh -NoProfile -File .\scripts\auto-merge-skills.ps1 -RepoRoot $RepoRoot -DryRun
-if ($LASTEXITCODE -ne 0) { throw "Auto-merge dry-run failed with exit code $LASTEXITCODE" }
-
-Get-Content -LiteralPath .\imports\skills-reports\skills-analysis.md
-Get-Content -LiteralPath .\imports\skills-reports\dedupe-report.md
-Get-Content -LiteralPath .\imports\skills-reports\auto-merge-report.md
-```
-
-These commands write reports under ignored `imports/skills-reports/`; do not commit the reports.
-
-Check for empty or malformed inbox entries:
-
-```powershell
-$InboxSkillDirs = @(
-    Get-ChildItem -LiteralPath $ClaudeInbox, $CodexInbox -Directory -ErrorAction SilentlyContinue
-)
-$EmptyShells = @($InboxSkillDirs | Where-Object {
-    $Manifest = Join-Path $_.FullName 'SKILL.md'
-    -not (Test-Path -LiteralPath $Manifest -PathType Leaf) -or
-    (Get-Item -LiteralPath $Manifest -ErrorAction SilentlyContinue).Length -eq 0
-})
-$EmptyShells | Select-Object FullName
-```
-
-Review gates:
-
-- **Same-name skill:** compare content and tree hashes in the analysis report. Do not let one machine silently replace another version.
-- **Empty-shell skill:** missing or empty `SKILL.md` blocks promotion and sync apply until repaired or quarantined.
-- **Quarantine candidate:** any reported secret signal, binary/large-file signal, unresolved platform conflict, or unexplained absolute machine path must remain outside canonical source.
-- **Unknown live skill:** record every unknown directory from the sync dry-run in the next section. Unknown directories are not automatically deleted, but each must be understood.
-
-If an imported skill must be retained but is not yet represented correctly in `skills-source/`, stop before sync apply. Promote or merge it only through a reviewed source change. For one approved skill, preview the exact target first:
-
-```powershell
-$SkillPath = Read-Host 'Enter the reviewed inbox skill directory path'
-$TargetType = Read-Host 'Enter exactly one target: shared, claude-only, or codex-only'
-pwsh -NoProfile -File .\scripts\promote-skill.ps1 -RepoRoot $RepoRoot -InputSkillPath $SkillPath -TargetType $TargetType -DryRun
-```
-
-Under the interlock, stop after reviewing that preview; `-Apply` remains interlocked. Any future released source promotion still requires a fresh build and secret scan. Never run `auto-merge-skills.ps1 -Apply` as an unreviewed shortcut.
-
-## 10. Run sync in dry-run mode
-
-Dry-run is mandatory:
-
-```powershell
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync `
-  -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -DryRun `
-  -PlanPath (Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json')
-if ($LASTEXITCODE -ne 0) { throw "Sync dry-run failed with exit code $LASTEXITCODE" }
-```
-
-Review every platform summary:
-
-- `+` / add: expected canonical skills missing from live.
-- `~` / update: skills present in both generated and live trees; this is a planned managed refresh, not proof that content differs.
-- `-` / prune: only stale names from the platform's managed manifest. Any surprising prune blocks apply.
-- `unknown`: not in generated output or the managed manifest. It will be reported and preserved, but must be identified before apply.
-- Codex `.system`: output must explicitly show it as preserved/untouched when present. If `.system` is planned for deletion or is not protected, stop immediately.
-
-Also review the skill dry-run section for each platform. Record the add/update/prune/unknown counts and the `.system` result in the machine's onboarding task record. Apply is blocked until all changes are explainable.
-
-Record the add/update/prune/unknown counts and the `.system` result in the machine's onboarding task record. Apply is blocked until all changes are explainable.
-
-## 11. Apply sync only after approval
-
-Apply only when all of these are true:
-
-- Backup completed and its external location was recorded.
-- Imported skills are either intentionally merged/promoted or intentionally excluded.
-- Build and secret scan pass.
-- Same-name, empty-shell, quarantine, unknown, and prune findings are resolved or explicitly accepted.
-- Dry-run shows Codex `.system` preserved.
-
-Then run:
-
-```powershell
-$plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -DryRun -PlanPath $plan
-# 人工审查计划后，应用同一份计划
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync -RepoRoot $RepoRoot -HomeRoot $env:USERPROFILE -Apply -PlanPath $plan
-if ($LASTEXITCODE -ne 0) { throw "Sync apply failed with exit code $LASTEXITCODE; use the reported backup for recovery." }
-
+if ($LASTEXITCODE -ne 0) { throw 'Dedupe analysis failed.' }
 pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot $RepoRoot
-if ($LASTEXITCODE -ne 0) { throw "Post-apply secret scan failed with exit code $LASTEXITCODE" }
-
-git status --short --branch --untracked-files=all
+if ($LASTEXITCODE -ne 0) { throw 'Post-import secret scan failed.' }
 ```
 
-The future released `sync.ps1 -Apply -PlanPath <plan>` contract rechecks source, manifest, live fingerprints, build, scan, and backup. The interlock stops before that step with `safety-protocol-upgrade-required`.
+Keep all raw reports under ignored `imports/skills-reports/`. Resolve same-name differences, empty
+shells, sensitive values and unexplained paths before promotion. Promotion/merge is a separate
+canonical transaction: it requires canonical readiness, its own create-new external `-PlanPath`,
+review, and the same plan on authorized Apply. Do not run auto-merge Apply as an onboarding shortcut.
+Never reverse-copy live contents over `skills-source/` or edit generated output to resolve a conflict.
 
-## 12. Reproduce and verify a named environment
-
-If the repository defines a named Harness Environment, build its disposable
-staging output before activation:
+## 4. Build and scan the canonical baseline
 
 ```powershell
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env build '<env-name>'
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env status
+pwsh -NoProfile -File .\scripts\build-skills.ps1 -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { throw 'Skill build failed.' }
+pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { throw 'Post-build secret scan failed.' }
 ```
 
-`env.lock.json` in the staging output is a verifiable lock. It records the
-environment definition hash, repository/manifest evidence, skill source and
-staged tree hashes, profile evidence, and hashes for built files. It is not a
-portable container for credentials or machine state. `env status` validates
-the lock and reports, for the active environment, lock validity, definition
-drift, live parity, Codex `.system` status, and backup reference.
+Review Claude, Codex and Reasonix counts against the selected source. Generated roots and `envs/`
+staging are disposable, ignored output. A build validates source; it does not deploy any live skills.
 
-Activation remains an explicit, reviewable operation:
+## 5. Select the machine route
+
+Run canonical status first, then interpret its typed result as well as its exit code:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env activate '<env-name>' -DryRun
-# Review the manifest-scoped plan, especially prune actions.
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env activate '<env-name>' -Apply
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 canonical status -RepoRoot $RepoRoot
 ```
 
-The apply path binds an internal sync dry-run plan before changing live
-managed skills and writes environment state only after a successful apply.
-`config pull` is not part of this process; home-level config synchronization
-must be reviewed and run separately.
+- `canonical-ready`: in a **new invocation**, run `env authority status` below.
+- `canonical-setup-required`: use the setup sequence below. For a pristine identity, the initial
+  sync DryRun must precede setup; do not create the control base first.
+- `canonical-recovery-required`, `setup-finalize-required` or `manual-recovery-required`: inspect
+  `canonical recover status` and follow the evidence-qualified route in [RESTORE.md](RESTORE.md).
+  Do not repeat setup or delete a lock, claim or journal to force a clean state.
 
-If an activation must be reverted, use the plan-bound rollback workflow in
-[`RESTORE.md`](RESTORE.md). Rollback restores only the current Claude/Codex
-manifest-managed skills and environment state. It never touches unknown live
-directories, Codex `.system`, credentials, sessions, caches, Codex
-`config.toml`.
-
-## 13. Review and commit the onboarding result
-
-Use one separate commit per onboarded machine. Before staging:
+When canonical-ready:
 
 ```powershell
-git status --short --untracked-files=all
-git diff --stat
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env authority status -RepoRoot $RepoRoot
+```
+
+The status command emits one route. Its short next-operation hint may omit a required plan path;
+use the complete invocation below. Do not default to `work` or `full` for an existing machine.
+
+| Route | Required next step |
+|---|---|
+| `activate` | Select the intended environment and create an `env activate` plan. |
+| `migrate` | Use the verified legacy environment name and exact repo-local legacy state locator with `-LegacyStatePath` on both invocations. |
+| `adopt` | Select and review an environment for the observed non-pristine roots; use `env authority adopt`. |
+| `repair-adopt` | Use the status-qualified environment; pass `-CorruptStatePath` only for the CORRUPT-state branch, never the MISSING-state branch. |
+| `takeover` | Use the existing verified selection; this changes controller ownership, not the selected environment. |
+| `recovery` | Run `live recover status`; complete the qualified recovery route before new deployment. |
+| `controller-owner-action-required` / `manual-recovery-required` | Preserve evidence and resolve the indicated owner/evidence problem; do not guess a mutator. |
+| `initial` | Requires a pristine sync plan created before canonical setup; follow the sequence below. If setup already exists and no such plan exists, stop for route review rather than deleting private roots. |
+
+### Pristine initial and canonical setup sequence
+
+Plain sync can create an initial plan only when all three live skills roots and the control base are
+absent. It materializes the named `full` environment; an existing Codex root, including one containing
+only `.system`, is not pristine. Do not delete existing roots to qualify.
+
+For a pristine identity, generate and review this plan **before** canonical setup:
+
+```powershell
+$InitialPlan = Join-Path $EvidenceRoot 'initial-plan.json'
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync -RepoRoot $RepoRoot -DryRun -PlanPath $InitialPlan
+if ($LASTEXITCODE -ne 0) { throw 'Initial plan failed; inspect the route, do not remove existing state.' }
+```
+
+For a non-pristine identity requiring setup, skip the initial command. Generate the separate setup
+plan; the public wrapper derives its fixed private roots from Windows identity and the repository:
+
+```powershell
+$SetupPlan = Join-Path $EvidenceRoot 'canonical-setup-plan.json'
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 canonical setup -RepoRoot $RepoRoot -DryRun -PlanPath $SetupPlan
+if ($LASTEXITCODE -ne 0) { throw 'Canonical setup plan failed.' }
+```
+
+**A read-only/DryRun onboarding checkpoint stops here.** Setup Apply creates private authority state;
+the ordinary live sandbox helper does not isolate canonical Windows identity. After acceptance,
+review and applicable authorization, consume that exact setup plan in its own process:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 canonical setup -RepoRoot $RepoRoot -Apply -PlanPath $SetupPlan
+if ($LASTEXITCODE -ne 0) { throw 'Setup failed; retain typed output and recovery evidence.' }
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 canonical status -RepoRoot $RepoRoot
+```
+
+Require `canonical-ready`. For the pristine path, a **new invocation** then consumes the original
+initial plan; do not regenerate it after setup, which would fail `live-plan-authority-present`:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 sync -RepoRoot $RepoRoot -Apply -PlanPath $InitialPlan
+if ($LASTEXITCODE -ne 0) { throw 'Initial Apply failed; retain receipt and journal evidence.' }
+```
+
+For the non-pristine path, run `env authority status` in a new invocation after setup and use only its
+qualified route. Changing `HOME`, `USERPROFILE` or `LOCALAPPDATA` is not Windows identity isolation.
+
+## 6. Create the selected environment or authority plan
+
+For `activate`, choose an environment and a new plan path:
+
+```powershell
+$EnvironmentName = '<reviewed-environment-name>'
+$EnvironmentPlan = Join-Path $EvidenceRoot 'environment-plan.json'
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env build $EnvironmentName -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { throw 'Environment build failed.' }
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env activate $EnvironmentName -RepoRoot $RepoRoot -DryRun -PlanPath $EnvironmentPlan
+if ($LASTEXITCODE -ne 0) { throw 'Environment plan failed.' }
+```
+
+For an authority transition, use the exact route, name and evidence selected above. This example
+describes migrate; adopt, repair-adopt and takeover have their own route-specific arguments:
+
+```powershell
+$EnvironmentName = '<verified-legacy-environment-name>' # From the validated legacy selection, not a new choice.
+$LegacyStatePath = Join-Path $RepoRoot 'state/current-env.json'
+$AuthorityPlan = Join-Path $EvidenceRoot 'authority-plan.json'
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env authority migrate -Name $EnvironmentName -RepoRoot $RepoRoot -LegacyStatePath $LegacyStatePath -DryRun -PlanPath $AuthorityPlan
+if ($LASTEXITCODE -ne 0) { throw 'Authority plan failed.' }
+```
+
+`-ReasonixLiveSkillsPath` is an initial-claim selector for migrate/adopt only, before schema 3 claims
+exist; it cannot override an existing immutable claim. Do not pass `-HomeRoot` to public sync or use
+internal root overrides as a production identity selector.
+
+Review the operation kind, controller/identity binding, environment/base selection, all platform
+add/update/prune targets, unknown preservation, `.system` marker status, receipt intent and bound
+materialization. DryRun writes evidence but does not deploy live skills. Do not edit a plan to fix
+drift; create and review a new plan at a new path. If this is the Task 9 checkpoint, stop after review.
+
+For authorized deployment, invoke the same command with `-Apply` instead of `-DryRun` and the exact
+same plan path, name and route-specific evidence. Environment activation never invents its plan
+during Apply. For example, after review and authorization:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env activate $EnvironmentName -RepoRoot $RepoRoot -Apply -PlanPath $EnvironmentPlan
+if ($LASTEXITCODE -ne 0) { throw 'Activation failed; retain receipt and journal evidence.' }
+```
+
+## 7. Verify and record the result
+
+For any executed mutation, check exit code, typed result where emitted, COMPLETE receipt and terminal
+journal/state evidence together. A success string alone is insufficient. Retain external evidence;
+if the transaction is unfinished, follow [RESTORE.md](RESTORE.md) before any new operation.
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env authority status -RepoRoot $RepoRoot
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env status -RepoRoot $RepoRoot
+pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot $RepoRoot
 git diff --check
-pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot $RepoRoot
+git status --short --untracked-files=all
 ```
 
-Review `STATUS.md` and add a concise machine verification entry containing only non-sensitive evidence. Stage explicit reviewed files; do not use `git add .`, and do not stage `imports/`, generated output, backups, live home files, caches, or machine-private configuration.
+Review claims/state pairing, controller, generation, lock validity, definition drift, live parity,
+unknown preservation and `.system` marker status. An environment rollback selects the COMPLETE
+environment **receipt directory**, not a run ID or a JSON file; see the restore guide. Config pull
+is a separately reviewed home configuration operation and is not part of activation or rollback.
 
-```powershell
-git add --patch
-git status --short
-git diff --cached --check
-git commit -m "onboarding($MachineId): reconcile managed skills"
-```
-
-Suggested commit format:
-
-```text
-onboarding(<computername>): reconcile managed skills
-```
-
-If onboarding produces no tracked canonical, manifest, status, or documentation change, do not create an empty commit merely to mark the event.
-
-## 14. Prohibited actions
-
-- Do not commit API keys, access tokens, passwords, cookies, credentials, or authentication state.
-- Do not commit SSH private keys or `.ssh` contents.
-- Do not commit VPS node configuration, proxy/subscription data, device identity, approval state, or session data.
-- Do not commit machine-specific absolute-path caches, local databases, logs, npm installs, launchers, or runtime history.
-- Do not commit backup directories. Current repository policy keeps all backups outside Git; a future policy change would require explicit review before this rule changes.
-- Do not commit `imports/`, quarantine originals, generated output, or live home files.
-- Do not edit, move, overwrite, prune, or delete `~/.codex/skills/.system`.
-- Do not use `robocopy /MIR` or any whole-directory mirror against live skill roots.
-- Do not reverse-copy live skills over `skills-source/`.
-- Do not edit `claude/skills/`, `codex/skills/` to resolve source problems.
-- Do not run `sync.ps1 -Apply` under the interlock; after release it still requires a reviewed dry-run.
-- Do not run `env activate -Apply` or `env rollback -Apply` without the required
-  explicit mode and plan-binding checks.
-- Do not weaken or bypass `scripts/scan-secrets.ps1` to make onboarding appear successful.
+Add only a concise, sanitized result to the existing task record: candidate SHA, route, checks,
+PASS/FAIL/unknown, and remaining decision. Keep raw reports and the real machine identity local.
+Review and stage exact source/manifest/documentation files, then make a coherent local commit such as
+`docs: record onboarding verification`. Do not create an empty commit when no tracked change is needed.
+Publishing still needs its applicable authorization.
 
 ## Completion checklist
 
-- [ ] Prerequisites verified with Git and PowerShell 7.
-- [ ] Repository cloned and clean before local import.
-- [ ] `COMPUTERNAME` recorded and machine inbox path confirmed.
-- [ ] `scripts/doctor.ps1` completed with exit code 0 and all warnings were reviewed.
-- [ ] Baseline secret scan passed.
-- [ ] Live Codex and Claude/Claude Code skill/plugin state backed up outside the repository.
-- [ ] Local skills imported only into the machine inbox; `.system` excluded.
-- [ ] Canonical build completed for Claude and Codex.
-- [ ] Post-import secret scan passed.
-- [ ] Duplicate, empty-shell, quarantine, and unknown-live findings reviewed.
-- [ ] Sync dry-run reviewed, including `+`, `~`, `-`, unknown, and `.system` preservation.
-- [ ] Sync apply completed only after approval, followed by scan and Git status.
-- [ ] If a named environment is used, `env.lock.json` validates and `env status` evidence was reviewed for lock validity, definition drift, live parity, `.system`, and backup reference.
-- [ ] `config pull` remains a separately reviewed operation and is not treated as part of `env activate`.
-- [ ] Any future rollback uses only current manifest-managed Claude/Codex/Reasonix skills and environment state; unknown, `.system`, credentials, sessions, caches, and `config.toml` remain untouched.
-- [ ] Reviewed tracked changes committed separately for this machine, or no empty commit created when nothing changed.
+- [ ] Current release/acceptance state and machine scope were checked.
+- [ ] PowerShell 7+, bootstrap dependencies and applicable runner approval were verified.
+- [ ] Imports, if needed, stayed in the ignored inbox; no `.system` contents were read or copied.
+- [ ] Build and secret scan passed for all three platforms.
+- [ ] Canonical status and the route-specific preconditions selected the operation.
+- [ ] Pristine initial planning preceded setup, if that route applied.
+- [ ] External create-new plans and bound materializations were reviewed; Task 9 stopped before Apply.
+- [ ] Any separately authorized Apply has complete exit/result/receipt/journal/state evidence.
+- [ ] Tracked changes and commit messages contain no machine names, usernames or private paths.

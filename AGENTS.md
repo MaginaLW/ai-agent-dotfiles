@@ -112,6 +112,10 @@ When the scope trigger applies:
    # Review the plan, then apply the same fingerprint-bound plan.
    pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
    ```
+   This sync example is for pristine initial setup or explicit retirement, not routine environment
+   activation. For pristine initial setup, create its sync plan before canonical setup, complete the
+   reviewed canonical setup, then consume the original sync plan in a new invocation. Use the
+   authority status route and the current guide for other states.
    When a reviewed canonical deletion has already removed the old name from the current manifests,
    use an external one-shot JSON retirement manifest and pass the same file to both commands with
    `-RetireManifestPath`. The retirement file, its resolved path, live/source roots, and target tree
@@ -129,8 +133,9 @@ When the scope trigger applies:
    `work.psd1`, generated output, or live roots:
    ```powershell
    pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task status
-   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task ensure-skill <name> -Platform Codex -DryRun
-   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task ensure-skill <name> -Platform Codex -Apply
+   $taskPlan = Join-Path $env:TEMP ('task-skill-' + [guid]::NewGuid().ToString('N') + '.json')
+   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task ensure-skill <name> -Platform Codex -DryRun -PlanPath $taskPlan
+   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task ensure-skill <name> -Platform Codex -Apply -PlanPath $taskPlan
    ```
    Commit `.agent-harness/task-skills.psd1` only when the task requirement should be shared with the
    branch/worktree collaborators. Task close/removal always requires an explicit dry-run and apply.

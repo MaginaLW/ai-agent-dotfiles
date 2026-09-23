@@ -1,5 +1,12 @@
 # Schema, CI, Documentation, and Safe Release Execution Plan
 
+> **Current handoff (2026-09-23):** This file retains its original task contract and historical
+> checklist; its preparation status and final-switch sequence below are superseded by
+> [STATUS.md current state](../../../STATUS.md#current-state) and the
+> [post-audit completion plan](2026-09-23-post-audit-completion-plan.md). Tasks 1–7 are implemented;
+> Task 8 candidate remediation/acceptance and Task 9 remain. Policy is already released, but the
+> release is not accepted. Do not flip policy again or infer execution authority from this history.
+
 > **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
 
 **Status:** Prepared from the approved design; implementation has not started. This phase grants no Git staging/commit/publish or real live Apply/rollback authorization. `ReleaseState=released` below means only the tested code-protocol switch; it does not publish the repository or authorize mutation.

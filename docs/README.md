@@ -8,7 +8,8 @@
 > 公共 `backup.ps1` 已退役：无论是否带 `-DryRun`，均零写退出并返回
 > `backup-is-transaction-internal`（exit 1）；受管快照只由事务宿主从绑定 ReceiptIntent 创建。
 > host resolver 优先接受有效 sandbox capability 和注入根；released 分支可解析真实 Windows
-> identity，不能把裸调用当作安全隔离。本项目仍按 `AGENTS.md` 要求在 internal sandbox 中运行 DryRun。
+> identity，不能把裸调用当作安全隔离。维护验证按 `AGENTS.md` 在 internal sandbox 中运行 DryRun；
+> 逐机只读/DryRun 检查则按明确的机器范围执行，不把该证据当作 Apply 授权。
 > Git hooks 只生成 preview/event。`apply-harness-profile.ps1 -Apply` 仅写允许清单中的项目输出
 > 和项目本地 rollback backup，不提供 production live 部署权限。
 
@@ -130,7 +131,9 @@ Set-Location $RepoRoot
 git pull --ff-only
 
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 build # 从源生成 runtime output
+if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 scan  # 检查 secrets
+if ($LASTEXITCODE -ne 0) { throw 'Secret scan failed.' }
 $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-sync-sandbox-$([Guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $sandbox | Out-Null
 $plan = Join-Path $sandbox 'sync-plan.json'
@@ -144,10 +147,20 @@ $plan = Join-Path $sandbox 'sync-plan.json'
     -ScriptPath (Join-Path (Get-Location) 'scripts/sync.ps1') `
     -ArgumentsBase64 ([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(
         (ConvertTo-Json @('-SkipBuild','-SkipSecretScan','-DryRun','-PlanPath',$plan) -Compress))))
+if ($LASTEXITCODE -ne 0) { throw 'Sandbox DryRun failed.' }
 # 本验证流程到此停止；production Apply 另须满足当前验收与授权要求。
 ```
 
-`sync.ps1` 的 schema 3 计划面默认是 **dry-run**，只打印计划与物化旁路，不动 live；plan 走 create-new（重跑同路径返回 `live-plan-path-collision`）。`-Apply` 合同要求带有先前 dry-run 生成的 `-PlanPath`，在 backup 前重算五步门（文档完整性、当前 PlanHash、绑定物化现势、selection context、DocumentHash 未消费），并通过事务宿主执行。执行资格以 [当前状态](../STATUS.md#current-state) 为准，不以历史联锁保证无写入。保存的计划本身也会重算 hash，不能只保留旧 `PlanHash` 后改写审查内容。
+`sync.ps1` 的 schema 3 计划面默认是 **dry-run**，会写外部计划、绑定的物化材料及运行报告，不动 live；plan 走 create-new（重跑同路径返回 `live-plan-path-collision`）。统一 CLI 仍要求显式 `-DryRun`。`-Apply` 只消费同一份计划；校验文档完整性、绑定物化现势、selection context 和 DocumentHash 未消费，retirement 还重算当前 PlanHash。initial 的 control prefix 会由随后独立执行的 canonical setup 建立，因此由宿主在锁内重新校验该特例，不能用普通 retirement 重算替代。执行资格以 [当前状态](../STATUS.md#current-state) 为准，不以历史联锁保证无写入。
+
+**逐机路由：** 先运行 `canonical status`；若为 `canonical-ready`，再以新的命令调用
+`env authority status`，按其唯一 route 选择环境、迁移、接管或恢复。普通 sync 只产生 pristine
+initial 与显式 retirement 计划，不是已有 authority 的日常更新入口。pristine initial 必须在
+control base 和三个 live skills 根均不存在时先生成 sync DryRun 计划；之后才生成、审查并按
+授权 Apply canonical setup，最后在新进程 Apply 原 initial 计划。若先 setup 再试图重建 initial
+计划，会被 `live-plan-authority-present` 拒绝。完整顺序和 route 参数见
+[接入指南第 5 节](ONBOARD_NEW_MACHINE.md#5-select-the-machine-route)。canonical setup 的 Windows
+identity 不由普通 live sandbox helper 隔离；不得把本节的 sync 示例推广成 canonical Apply 测试。
 
 如果只想跳过初始 preview diagnostic：
 
@@ -171,7 +184,7 @@ Git-private preview/event。用户必须另行把明确的 `-DryRun -PlanPath <e
    （调用形态见 §4；重跑同 `-PlanPath` 返回 `live-plan-path-collision`）
 5. 本流程停在计划审查；Apply 必须另行满足[当前验收与授权要求](../STATUS.md#current-state)，不能用试跑 Apply 检测联锁。
 6. 提交 source / manifest / docs 变更（**不要**提交 generated output）。
-7. `git push`
+7. 取得适用发布授权后再 `git push`。
 8. 其它电脑的 hook 只生成 non-consumable preview/event；每台机器都必须显式生成并审查自己的外部 DryRun 计划，满足验收与授权后才能 Apply。
 
 如果这次修改是**删除 canonical skill**，build 会同时从 generated output 和当前 manifest
@@ -194,7 +207,7 @@ Git-private preview/event。用户必须另行把明确的 `-DryRun -PlanPath <e
 # 选择 retirement producer：读取注入 control base 上的 schema 3 authority state，
 # 逐平台验证 stale unknown 目标 ∉ reviewed postset，绑定 manifest 字节哈希。
 $plan = Join-Path $sandbox 'retire-plan.json'
-$retire = Join-Path $env:TEMP 'ai-agent-dotfiles-retire-skills.json'
+$retire = Join-Path $sandbox 'ai-agent-dotfiles-retire-skills.json'
 # 经 live-transaction-host.ps1 传参：'-DryRun','-PlanPath',$plan,'-RetireManifestPath',$retire
 # 逐平台审查 retirement-authorized prune、unknown 和 .system 状态
 # 仅描述合同；执行前须满足 STATUS.md 当前验收、授权及 host 要求：
@@ -208,10 +221,9 @@ authority。retirement 文件的规范化绝对路径、原始 bytes hash、平�
 canonical authority/逐名称缺失证据与每个目标 tree hash 都进入计划指纹；apply 前漂移会在 backup
 前失败，backup 后发生的内容漂移也会在实际删除前失败并恢复原目录。
 
-这里的“一次性”表示授权不会写入长期 managed 状态，且当前目标删除后立即复用会失败；它不是带
-consumption ledger 的密码学防重放协议。如果将来在完全相同路径重建完全相同 tree bytes，同时还
-保留原 plan/manifest，旧授权理论上可再次匹配。因此成功后必须删除外部 plan 与 retirement JSON，
-以 backup journal/运行报告保留审计证据。auto-sync hook 不会自动读取或创建 retirement manifest；
+这里的“一次性”表示授权不会写入长期 managed 状态；事务终态还保存已消费的 DocumentHash，
+同一计划重放会被拒绝。成功后删除外部 plan 与 retirement JSON，并妥善保管 receipt、journal
+和脱敏运行摘要；不要删除事务证据来尝试重新使用计划。auto-sync hook 不会自动读取或创建 retirement manifest；
 其它机器若也有这批旧目录，必须各自执行人工审查的同一流程。
 
 ---
@@ -261,7 +273,7 @@ consumption ledger 的密码学防重放协议。如果将来在完全相同路�
 - 公共 standalone `scripts/backup.ps1` 已退役：带不带 `-DryRun` 都是零写退出，诊断为
   `backup-is-transaction-internal`（exit 1），不创建任何 backup；受管快照由 live transaction
   host 从绑定的 ReceiptIntent 创建，其 preview 来自审查过的计划（见 §4），不是公共入口。
-- 默认备份位置（repo 外）：
+- 备份根由 Windows Known Folder 派生并绑定到 authority，通常位于（repo 外）：
   ```text
   %LOCALAPPDATA%\ai-agent-dotfiles\backups
   ```
@@ -437,19 +449,23 @@ Harness Environments 是 conda 式的命名环境层：每个环境声明一个 
 
 ```powershell
 pwsh -File scripts/agent-dotfiles.ps1 env task status
-pwsh -File scripts/agent-dotfiles.ps1 env task ensure-skill verification-before-completion -Platform Codex -DryRun
-pwsh -File scripts/agent-dotfiles.ps1 env task ensure-skill verification-before-completion -Platform Codex -Apply
-pwsh -File scripts/agent-dotfiles.ps1 env task sync -DryRun
-pwsh -File scripts/agent-dotfiles.ps1 env task sync -Apply
-pwsh -File scripts/agent-dotfiles.ps1 env task close -DryRun
-pwsh -File scripts/agent-dotfiles.ps1 env task close -Apply
-pwsh -NoProfile -File tests/task-skills.tests.ps1
+$BaseEnv = '<reviewed-base-env>'
+# 三组是独立操作；每组先审查新计划，再按适用授权消费同一计划。
+pwsh -File scripts/agent-dotfiles.ps1 env task ensure-skill verification-before-completion -Platform Codex -BaseEnv $BaseEnv -DryRun -PlanPath '<external-ensure-plan.json>'
+pwsh -File scripts/agent-dotfiles.ps1 env task ensure-skill verification-before-completion -Platform Codex -BaseEnv $BaseEnv -Apply -PlanPath '<external-ensure-plan.json>'
+pwsh -File scripts/agent-dotfiles.ps1 env task sync -BaseEnv $BaseEnv -DryRun -PlanPath '<external-task-sync-plan.json>'
+pwsh -File scripts/agent-dotfiles.ps1 env task sync -BaseEnv $BaseEnv -Apply -PlanPath '<external-task-sync-plan.json>'
+pwsh -File scripts/agent-dotfiles.ps1 env task close -BaseEnv $BaseEnv -DryRun -PlanPath '<external-close-plan.json>'
+pwsh -File scripts/agent-dotfiles.ps1 env task close -BaseEnv $BaseEnv -Apply -PlanPath '<external-close-plan.json>'
 ```
 
 行为边界：
 
 - `ensure-skill` 只接受对应平台 manifest、`skills-source/` 和 generated output 都存在的 skill；
   未管理、隔离、路径型或扫密失败的内容会在 live 写入前拒绝。
+- `BaseEnv` 默认 `work`，但操作必须匹配已审查的共享 authority/overlay 基线；initial 建立的是
+  `full`，不能因此自动选择 `work`，也不能复用绑定了其他 base 的计划。DryRun 额外创建计划旁的
+  candidate overlay；Apply 消费它，不自动重建计划。
 - 每次变更都先构造临时 overlay，运行 build → scan → 环境 staging → fingerprint-bound sync dry-run；
   `-Apply` 合同原子更新 tracked overlay 并进入事务部署，执行须满足当前验收与授权要求。
 - `close` 会删除 overlay 并可能 prune 任务增加的 managed skill；必须显式 DryRun、审查后再按授权 Apply。
@@ -473,12 +489,11 @@ pwsh -File scripts/agent-dotfiles.ps1 env list          # 枚举环境 + 标记�
 pwsh -File scripts/agent-dotfiles.ps1 env status        # 定义有效性 + staging 新旧 + 激活漂移
 pwsh -File scripts/agent-dotfiles.ps1 env status -ProjectRoot <p>  # 另检查项目 RequiredEnv 是否匹配
 pwsh -File scripts/agent-dotfiles.ps1 env build <name>  # 构建 envs/<name>/ staging
-pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -DryRun -PlanPath <external-plan.json>  # 在 sandbox 中预览
+pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -DryRun -PlanPath <external-plan.json>  # 维护验证须经 sandbox host
 # 以下 Apply 仅描述合同；满足当前验收、授权和 host 要求后才可执行
 pwsh -File scripts/agent-dotfiles.ps1 env activate <name> -Apply -PlanPath <external-plan.json>
 pwsh -File scripts/agent-dotfiles.ps1 env rollback -ReceiptPath <complete-environment-receipt> -DryRun -PlanPath <external-plan.json>
 pwsh -File scripts/agent-dotfiles.ps1 env rollback -ReceiptPath <complete-environment-receipt> -Apply -PlanPath <external-plan.json>
-pwsh -NoProfile -File tests/harness-env.tests.ps1       # 回归测试（也在 CI 中运行）
 ```
 
 `env activate` 的 dry-run gate 链（任一步失败即止、不写状态文件）为：
@@ -512,11 +527,13 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 - `env build` 只写 `envs/<name>/`，删除重建前有前缀断言；`list`/`status` 不写任何文件。
 - `env activate` 是受管环境切换路径：先显式 DryRun 并审查计划；
   `-Apply` 进入同一事务协议且不能跳过 backup；home-only 文件（credentials、sessions、缓存、
-  Codex `.system`、Codex `config.toml`）永不随切换变动；拒绝 `HomeRoot` 位于仓库内。
+  Codex `.system`、Codex `config.toml`）永不随切换变动；production 根由当前 identity/claims 绑定，
+  不用任意 `HomeRoot` 模拟机器身份。
 - `env status` 对当前环境报告 `lock validity`、`definition drift`、`live parity`、
   Codex `.system` 状态和 `backup reference`；这些是状态证据，不是备份内容。
-- `env rollback` 不是 whole-home restore：它只恢复当前 Claude/Codex/Reasonix manifest
-  管理的 skills 和环境状态。它永不触碰 unknown live 目录、Codex `.system`、
+- `env rollback` 不是 whole-home restore：恢复对象由所选 environment receipt 的
+  Claude/Codex/Reasonix managed snapshot targets 及派生的审查计划限定，而非重新枚举当前 manifest。
+  它永不触碰 unknown live 目录、Codex `.system`、
   credentials、sessions、cache、Codex `config.toml`。
   `-Apply` 必须带同一 DryRun 生成的 `-PlanPath`，并通过选定 activation
   backup 的元数据校验。
@@ -531,7 +548,8 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 
 - 项目 `.agent-harness/profile.psd1` 可声明可选字段 `RequiredEnv = '<name>'`。
 - `env status -ProjectRoot <p>` 报告当前激活环境是否匹配项目声明，不匹配时给出
-  建议命令（`env activate <name> -DryRun`）。**只检测提醒，绝不自动 activate。**
+  建议命令的操作方向（实际调用须补 `env activate <name> -DryRun -PlanPath <external-plan.json>`）。
+  **只检测提醒，绝不自动 activate。**
 - 本仓库自身声明 `RequiredEnv = 'work'` 作为示例。
 
 非目标（当前）：
@@ -548,7 +566,7 @@ manifest-scoped prune 因此在切换到较小环境时自动裁剪多余受管 
 ## 17. 统一 CLI 与真实边界
 
 统一入口是 `scripts/agent-dotfiles.ps1`。它只负责路由和参数门控，不复制底层脚本的实现。
-当前支持的完整命令面如下：
+当前主要命令面如下（`inventory` / `analyze` / `merge` 是对应 skills 命令的顶层别名，另有 `plans`）：
 
 ```text
 doctor
@@ -556,10 +574,13 @@ build
 scan
 backup
 sync
+canonical status | setup | recover status | recover abandon | recover rollback | recover finalize
+live recover status | recover abandon | recover rollback | recover finalize
 config status | pull | push
 profile status | build | apply
 skills inventory | analyze | dedupe | merge | normalize | promote
 env list | status | build | activate | rollback | task status | task ensure-skill | task sync | task close
+env authority status | migrate | adopt | repair-adopt | takeover
 ```
 
 读操作包括 `doctor`、`scan`、`config status`、`profile status`、`skills inventory`、

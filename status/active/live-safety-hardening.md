@@ -4156,3 +4156,14 @@ S1D 已核对并解除 9 份历史 import 运行报告的 Git 跟踪（4 JSON、
 
 隔离审查额外发现 `repository-policy` 的公开 recovery Apply 可进入真实 authority 锁链；
 已将该 suite 加入 copied fixture 适配范围。主 agent 保留其静态文档 pin 的同步职责。
+
+### S1C current guide checkpoint (2026-09-24)
+
+当前操作指南已按实际公共参数和路由更新：policy 行为与接受/部署授权分开，移除退役
+standalone backup 与 sync HomeRoot 用法，补齐同一外部 PlanPath、receipt 目录、work task
+基线及 pristine initial plan→canonical setup→新 invocation initial Apply 顺序；恢复指南
+区分 canonical typed token 与 live status。旧 roadmap/Phase 4 正文保留，仅新增当前入口指针。
+
+独立审查确认路由合同；37 个 PowerShell 示例块、67 条调用完成 AST/参数静态校验，零错误，
+本地链接核验通过。组合工作树密钥扫描无阻断，diff 检查通过。这是指南静态验收，未把文档
+示例直接在真实用户目录运行；公开路线动态接受仍等待 S4。
