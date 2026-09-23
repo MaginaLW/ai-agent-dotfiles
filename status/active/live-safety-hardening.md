@@ -20,6 +20,8 @@ completion order and several of them carry their own superseded markers. Earlier
 are historical snapshots, not instructions to restart completed work. The current task handoff is
 [the 2026-09-23 audit and ordered backlog](#2026-09-23-multi-agent-audit-and-ordered-backlog);
 repository-wide release and CI state belongs in [STATUS.md](../../STATUS.md#current-state).
+The [staged completion plan](../../docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)
+defines subsequent execution and acceptance; its S0–S6 stages have not started.
 
 Policy: `ProtocolVersion=3`, `ReleaseState=released`; candidate acceptance is incomplete.
 
@@ -3933,3 +3935,13 @@ config-sync、平台能力注册、模块去重等发布后改进另列后续范
   证明。模型身份、费用及人工工时为 unknown；不从等待时间推断。
 - 本次记录阶段复用上述证据，不把历史检查写成新跑；文档落盘按普通文档流程检查扫描、链接与
   diff，不运行已知存在身份隔离风险的套件，最终文档检查结果在本次交付说明中单独报告。
+
+## 2026-09-23 Staged completion plan
+
+按所有者要求制定 [后续任务分阶段完成计划](../../docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)，
+规划基线 `dfa9d20`；主 agent 与 3 个只读 sub-agent 分别整合安全修复、发布验收及延后工作。
+计划明确 S0 基线协调、S1 五路并行修复/审查、S2 固定候选、S3 全门禁、S4 lab/CI 接受、
+S5 Task 9 与归档、S6 独立后续工作包。后续执行按该细化计划安排，上节简表保留为审查时建议。
+规划时 22:50 UTC+8 重查 main/#135、修复分支/#138 与 open PR；#138 仍运行中。
+计划纠正已 released 后无需再次 flip，以及 initial 计划必须先于 canonical setup 的具体顺序；
+本次只修改计划和入口指针，未开始修复、运行危险套件、实验、发布或真实 Apply。

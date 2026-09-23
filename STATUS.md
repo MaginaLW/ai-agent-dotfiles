@@ -25,6 +25,10 @@ reproduction. The `work`/`full` mismatch points to explicit lab parameters, not 
 defect. Current-guide drift and machine-private paths in historical reports are recorded for
 follow-up. No fixes or release acceptance were performed by this audit or its documentation step.
 
+The [post-audit staged completion plan](docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)
+now defines the execution order, parallel ownership, acceptance criteria and release boundaries.
+Its stages S0–S6 are not yet executed; use it for subsequent work alongside the audit evidence.
+
 Remote main and run-status snapshot, rechecked **2026-09-23 22:42 UTC+8**: `main` is `627ef3f`, whose
 [Validate #135](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35852562723) failed.
 [Validate #138](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35873759132) is still
