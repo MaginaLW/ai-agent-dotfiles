@@ -108,6 +108,10 @@ try {
         finally {
             if ($held) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $held }
         }
+        # A committed Apply terminates here. Falling through would re-enter the
+        # create-new guard of the DryRun path below, so a transaction that had
+        # already committed would report canonical-plan-exists with exit 1.
+        exit 0
     }
 
     $planResolution=Resolve-PrivateArtifactPath -Path $PlanPath -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf
