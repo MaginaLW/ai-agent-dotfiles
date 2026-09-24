@@ -4411,3 +4411,47 @@ clone、pinned 工具安装/验证、runner 批准、pristine initial（DryRun�
 Apply）、同 full 再激活与零变更 rollback DryRun，仅在上述第二条断言处停止，因此 guest 侧
 安装与身份隔离路径已被实际走通。`validation` 与其余路线各自使用 fresh guest，一次只允许
 一个 Sandbox 会话。
+
+### S3 disposable-identity validation of C and its five findings (2026-09-24)
+
+在真正独立的 Windows Sandbox 身份（`WDAGUtilityAccount`，与宿主 SID 不同）内精确检出
+`ded1542`，安装并以 `-VerifyOnly` 验证 pinned 工具，在 guest 内自行批准 runner，然后运行完整
+`scripts/run-repository-validation.ps1`（未传 SkipGates）。结果：**11 个 gate 中 8 个通过，
+`unified-test-runner` 失败**（discovered=42、passed=37、failed=5、timed-out=0，测试阶段约 2 小时
+8 分钟；`RequiredJobTimeoutSeconds=27555`），因此整体 **FAIL**，候选未通过 S3。
+
+五个失败全部诊断为**测试夹具的环境形态假设**，本轮未发现产品缺陷：
+
+1. `canonical-production-seams.tests.ps1`（45 通过 / 21 失败）：反射敏感清单把
+   `MemberExpressionAst.Extent.Text` 原文写进行内容，因此摘要对行尾敏感。宿主工作副本的
+   `scripts/live-transaction-common.ps1` 是 `w/mixed`，pin 记的是该形态（`584bc5be…`）；
+   干净 LF 检出（CI、guest、候选提交的独立 worktree）得到 `d151af12…`，站点数同为 16576。
+   已把工作副本归一化为 LF 并把 pin 改为 LF 摘要；用 CRLF 化单个文件的反向实验精确复现旧摘要，
+   确认差异只来自行尾。
+2. `canonical-recovery.tests.ps1`（18/1）：`pending-drift` 的 ACL 故障注入走
+   `FileSystemAclExtensions::SetAccessControl(FileInfo, …)` 这一路径式 API，在 pinned 运行时上
+   对超过 MAX_PATH 的夹具路径报 `Invalid name`（guest 内夹具路径约 358 字符）。已改用
+   `\\?\` 设备路径形式；注入后仍断言同一文件、同一 identity/hash 且 SDDL 变化。先试的
+   FileStream 重载因句柄缺少 WRITE_DAC 报 unauthorized，已放弃。
+3. `root-claims-registry.tests.ps1`（0 FAIL、exit 1）：跨卷夹具用
+   `Get-PSDrive -PSProvider FileSystem` 找“第二卷”，单卷 guest 上会选中 PowerShell 内置的
+   `Temp:` 驱动器，拼出 `<repo>\Temp:\.rcr-…` 这种非法路径并使夹具抛错。已改为
+   `[IO.DriveInfo]::GetDrives()`（Ready + Fixed）并排除仓库自身卷；单卷机器仍走原 SKIP 分支。
+4. `harness-multiplatform.tests.ps1`（9/8）与 `harness-profile.tests.ps1`（28/6）：两个套件把
+   工作区放在检出目录的同级，而 guest 的检出位于用户 profile 内
+   （`C:\Users\WDAGUtilityAccount\candidate-repo`），产品自身的 home 写入保护因此拒绝每一次
+   apply（dry-run 亦然）。已改为在 profile 之外选根（优先检出父目录，其次检出所在卷根，否则
+   明确失败），产品保护未改动。该假设同样会让任何把仓库克隆在用户 profile 下的普通 Windows
+   用户失败，不只是沙箱。
+
+以上四处均为测试/夹具修改，独立 reviewer 逐项复核为 `supported`（含行尾反向实验、设备路径
+未逃逸夹具根、卷筛选语义与 home 包含判断的边界探针），并按评审意见补了 pin 变更说明、卷类型
+过滤与大小写不敏感的相等判断。宿主定向复验：seams **66 PASS**、canonical-recovery
+**138 PASS**、root-claims-registry **894 PASS**（跨卷断言确实执行而非 SKIP）、
+harness-multiplatform **17 PASS**、harness-profile **34 PASS**，全部 exit 0、源 hash 稳定。
+
+**候选状态：** 因测试字节变化，候选由 `ded1542` 推进为 **C2 = `e90e7bc`**（tests-only 提交，
+记录提交为其后继）。C 的 lab 证据保留但不冒充 C2；C2 需要重新冻结 kit 并重跑 validation 与
+各条 mutation 路线。残余：四处夹具修复的 guest 行为尚未在 guest 内复验（宿主无法复现
+>MAX_PATH 与单卷条件），以及 seams 的反射/issuer/exception 三个 pin 仍按原文哈希、对行尾敏感
+（动态命令清单无 LF 行，不受影响）。
