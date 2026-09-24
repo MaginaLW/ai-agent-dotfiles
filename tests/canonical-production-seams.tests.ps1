@@ -484,8 +484,13 @@ $reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a5
 # a clean eol=lf checkout (CI, the disposable-identity lab and the detached worktree at
 # the candidate commit) yields d151af12..., so the pin now matches every clean checkout
 # instead of one accidentally CRLF-touched file.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16576
-$reviewedAllScriptsReflectionSensitiveDigest='d151af12338ff5f0044f5a1ce14f27a1016bc93cfcaa7a2e693fa941f54aef48'
+# Re-pinned 2026-09-24 for the retirement staleness repair: +3 Member rows, all in
+# scripts/sync.ps1 at script scope ($currentSlots.Count twice, $savedSlots.Count once)
+# from the identity-adoption guard and loop. Row-reviewed delta from
+# tmp/post-audit-execution/seams-c3.inventory.json: no removals, dynamic-command digest
+# unchanged, no alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16579
+$reviewedAllScriptsReflectionSensitiveDigest='8c4fc63e0f93be103710d5049d834422f10af0916347a3432c7b6a7a89bf4adf'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
