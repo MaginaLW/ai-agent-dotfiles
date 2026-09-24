@@ -4734,3 +4734,37 @@ workflow 字节，需要作为新候选重跑 lab 与 CI。两条路都需要所
 lab validation 以 kit `37b188047e81a7f604d71bfc16d7127e2d31e6ef71489e8d9af8811467dc59a0`
 （lab-postaudit-10）在 `validation-c5-01` 标签下运行；通过后按 S4 依次运行 retirement 与六条
 recovery 路线（每条 fresh guest，sandbox 一次只允许一个会话）。
+
+### 独立监督审查（grok，2026-09-25，应所有者要求）
+
+按所有者要求增开 grok 独立监督，三路并行、各自一次性 checkout（规避同目录互斥），C5 为审查对象。
+
+**A 路 · 累计改动的安全监督（`main` → C5）**：结论 **可接受**。逐条判定本轮全部发布合同断言
+**成立**，并给出决定性位置：setup claim 仅 current-user DACL 且 registry 接受、坏 claim 不自动修复；
+跨进程 global 竞争保持 typed busy、同进程反向持锁仍拒（`root-claims-registry-common.ps1:8234-8250`）；
+canonical 成功输出在闭合校验与锁释放之后（`canonical-transaction.ps1:104-117`）；
+零目标 rollback 仍闭合 receipt/state/journal；未完成兄弟扫描在持锁后、首次写入前；
+live recovery status 对损坏 terminal 报 manual；每次 rollback 事务私有 staging；
+task overlay 的 ABSENT claim 与 `.system` 比较；retirement 覆盖 `DirectoryIdentity` 后比 `PlanHash`
+（判为**部分成立**：仅“同一目录对象”不再绑定，`VolumeId`/`LocationKey`/`SourceRoot`/`SourceTreeHash`
+仍在哈希内，apply 仍按已审计划的 `SourceRoot` staging）。相对 `main` 未发现被放宽的门禁；它特别指出
+全局锁那次改动是**收紧**而非放宽；清理与真实 home 边界无新写入。4 条低危发现：
+`canonical-transaction-common.ps1:1287,1612` 与 `canonical-recovery-common.ps1:29` 的读取不核 claim 文件
+DACL（写路径核）；`live-transaction-common.ps1:2478-2491` 把可解析 COMPLETE 视为已消费而不跑链校验
+（偏 fail-closed）；`live-transaction-common.ps1:1548-1553` 提交后清理失败被吞（磁盘可能留下本事务
+scratch）。均记为残余，不阻塞本轮。
+
+**C 路 · canonical 同类缺陷设计复核**：否定了只读调查里“对所有目标删掉 `Ancestors[*].Identity`、
+对全部 MISSING 目标保留创建锚点”的简化写法，给出更精确的投影：新增**仅计划使用**的
+`Get-CanonicalPlanTargetContextHash`（固定 `Domain`，恒包含 `LocationKey`/`RequestedPath`/
+`TargetStatus`/`TargetType`/`VolumeId`/`DeepestExistingParentPath`/`MissingRemainder` 与祖先的
+`Path`/`Type`/`ReparsePoint`），**只对三个生成输出根及其后代**把 `Identity` 置空，其上的祖先
+（`claude`/`codex`/`reasonix`/仓库/卷根）继续绑定 identity，`DeepestExistingParentIdentity` 仅在目标为
+MISSING 且最深层现存父不在输出根内时保留；三处消费点改为同时接受旧整对象摘要或新投影摘要（有界双读），
+`Assert-CanonicalRecoveryPlanCurrent` 只对“位于输出根下且 `State/Type/Hash/路径` 与已审元组一致”的
+`Tuple` 覆盖 identity 后重导 `CurrentContextHash`，工作区 `ObservedState.Identity` 不覆盖；
+`Get-CanonicalTargetReconciliation` 与 `Resolve-TargetContext` 不动。过渡不必以“部署前零未完成事务”
+为前提，靠三处双读即可；`hard-kill` 两份 pinned 表与（若字节量变化）`reviewedSelfDigest` 需同步重算。
+据此，canonical 收口的实施说明以 C 路为准，A 路的残余发现与该设计一并留给下一候选。
+
+**B 路 · CI 分片 2 定因**：仍在运行（静态推因 + 期望给出最小复现与假设排序），结论未到。
