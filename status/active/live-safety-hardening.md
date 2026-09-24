@@ -4455,3 +4455,31 @@ harness-multiplatform **17 PASS**、harness-profile **34 PASS**，全部 exit 0�
 各条 mutation 路线。残余：四处夹具修复的 guest 行为尚未在 guest 内复验（宿主无法复现
 >MAX_PATH 与单卷条件），以及 seams 的反射/issuer/exception 三个 pin 仍按原文哈希、对行尾敏感
 （动态命令清单无 LF 行，不受影响）。
+
+### S3 acceptance on C2: full validation green in a disposable identity (2026-09-24)
+
+在修正后的候选 **C2 = `e90e7bcc22370b789118bd2bc0db2b3e60a447a4`** 上重跑同一条
+`validation` 路线（kit `d6b858bed0a5e7d1a9d9f0599675a79aaf64387ff763b0be608097dab722f99c`，
+标签 `validation-c2-01`，fresh guest、宿主 SID 校验、create-new 证据目录）：**route-result PASS，
+completion ExitCode 0**。
+
+- **11 个 gate 全绿**：powershell-syntax、pinned-tool-verify、build-generated-skills、
+  secret-scan、repository-doctor、generated-manifests-parity、env-build-list-status、
+  validate-json-artifacts、unified-test-runner、dangerous-tracked-files、clean-tracked-state。
+- **42 个套件 discovered=42、passed=42、failed=0、timed-out=0**，套件合计 7,950,875 ms（约 2 小时
+  13 分），`RequiredJobTimeoutSeconds=27555`；`DiscoveryHash=ca6f66f4724edcf1…`。
+- **artifact 链完整**：`children.json` 17 项、`final.json` 19 项（含 child manifest 与 summary
+  的相互绑定）、`summary.json` Result=PASS（ReportKind=repository-validation）、
+  `test-summary.json` Result=PASS；route 自身断言了这些文件存在且计数匹配。
+- guest 内在 pinned 工具安装后以 `-VerifyOnly` 复核、自行批准 runner，未使用宿主 cache；
+  宿主 authority/live 根未参与实验。
+
+该结果同时满足计划的 S3 与 Task 8 Step 3 的本地全量证据要求：同一 C2 的这一份全量结果即整合
+门禁与 Step 3 证据。**它不构成候选接受**：S4 的 mutation 路线与远端 CI 仍未完成，接受状态留给
+后继 D。
+
+S4 将在同一 C2 上串行执行各条 mutation 路线（每条 fresh guest、一次只允许一个 Sandbox 会话）：
+chain（pristine initial 与同 full 零变更回滚）、changed-rollback、task（work 基线的
+ensure/sync/close）、authority（migrate / adopt / repair-missing / repair-corrupt / takeover）、
+retirement、recovery（abandon / rollback / finalize）。kit 的 route-task 断言已按独立评审意见
+收紧为“新增 skill 确实出现在 live Codex 根且此前不在快照中”。
