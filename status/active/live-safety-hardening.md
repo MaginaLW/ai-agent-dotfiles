@@ -4483,3 +4483,43 @@ chain（pristine initial 与同 full 零变更回滚）、changed-rollback、tas
 ensure/sync/close）、authority（migrate / adopt / repair-missing / repair-corrupt / takeover）、
 retirement、recovery（abandon / rollback / finalize）。kit 的 route-task 断言已按独立评审意见
 收紧为“新增 skill 确实出现在 live Codex 根且此前不在快照中”。
+
+### S4 mutation routes on C2: eight routes pass, the retirement route exposes a product defect (2026-09-24)
+
+kit `483f732555028d4f9147709fe6bd989adac9805ff77e92996a982b8fa968a652`（候选 C2），每条路线一个
+fresh guest、一次只允许一个 Sandbox 会话、每条路线自带宿主 SID 校验与 create-new 证据目录。
+
+**已通过（8 条）**：`chain`（pristine initial + 同 full 零变更回滚，公开 DryRun 11.7 秒 → Apply
+14.5 秒，plan 观测 29 target、live 原语 0）、`changed-rollback`（minimal 播种 → adopt → 激活 full →
+有变化回滚）、`task`（work 基线 ensure-skill → sync → close）、`authority` 的
+`migrate` / `adopt` / `repair-missing` / `repair-corrupt` / `takeover` 五个标签。
+其中 `authority` 的 `repair-corrupt` 曾因 kit 自身的变量名冲突失败（`route-authority.ps1` 在脚本
+作用域写 `$evidence`，而变量名大小写不敏感，覆盖了 kit 的 `$script:Evidence`），改名后通过。
+
+**失败（1 条）**：`retirement` 在公开 Apply 处以 `live-plan-hash-mismatch` 失败
+（`217-retirement-apply.stderr.log`，`scripts/sync.ps1:958`）。独立调查（含产物交叉核对与只读
+探针）给出的机制：retirement 计划把**生成源根目录的 NTFS 目录 identity**写进 payload
+（`Platforms[*].SourcePreIdentity.DirectoryIdentity`，`live-plan-evidence-common.ps1:270-275`），
+而 `sync.ps1` 在 `-DryRun` 与 `-Apply` 两侧都会先跑 `build-skills.ps1`，该脚本会**删除并重建**
+`claude/skills`、`codex/skills`、`reasonix/skills`（`build-skills.ps1:218-224`）；重建后目录 identity
+必然改变（只读探针：同记录号、序号 +1），于是 Apply 侧重算的 payload 与保存的 `PlanHash` 不等。
+计划里其余字段（内容树哈希、manifest 哈希、live 根 identity、state/claims、retirement manifest、
+commit、toolchain）经产物跨时点比对均可排除。测试未发现该缺陷，是因为 `tests/sync.tests.ps1` 的
+全部 retirement 调用都带 `-SkipBuild -SkipSecretScan`，而 `docs/README.md` 记录的流程不带。
+
+**分类：产品缺陷（确定性、用户可见、fail-safe）**——按文档执行 retirement DryRun→Apply 时，只要
+使用真实 build，Apply 必然在写入前以 `live-plan-hash-mismatch` 失败；只有两次都显式加
+`-SkipBuild`（文档未要求）才能成功。这使当前 `released` 策略下的 retirement 流程实际不可完成，
+构成发布阻断。两种候选修复方向（均未实施，需评审后另立候选）：
+(1) 指纹侧——不再把会被自家 build 重建的目录 identity 纳入 payload，保留内容树哈希作为
+anti-TOCTOU 绑定；(2) 合同侧——让 `-Apply` 不再重建/重扫，把 build/secret-scan 门禁移入
+`-DryRun` 分支（与 `activate-harness-env.ps1` 的既有形态一致）。任一方向都需要补一条**不带**
+`-SkipBuild` 的 retirement DryRun+Apply 回归。
+
+**未执行（6 条）**：`recovery` 的 `canonical-abandon`、`canonical-rollback`、`canonical-finalize`、
+`live-abandon`、`live-rollback`、`live-finalize`。它们未运行的原因是驱动脚本在 retirement 失败处
+按设计停止；与 retirement 缺陷无关，但也不构成任何通过证据。
+
+**候选状态**：S4 出现发布阻断缺陷，按计划“发现问题返回 S1/S2，重新固定候选并验证”，**C2 未被
+接受**；S3 的全量绿证仍属 C2 的本地门禁证据，不因该缺陷失效，但接受状态必须等待修复后的新候选
+（C3）重新通过 S3 与全部 S4 路线。远端 CI（S4.2）需要显式推送授权，本轮未推送。
