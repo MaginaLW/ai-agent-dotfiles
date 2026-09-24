@@ -325,6 +325,7 @@ $appliedOverlay = Get-Content -Raw -LiteralPath $overlayPath
 Assert ($appliedOverlay -match "Reasonix = @\('fixture-b'\)") 'the applied overlay records the Reasonix addition'
 Assert (Test-Path -LiteralPath (Join-Path $fakeHome 'AppData/Roaming/reasonix/skills/fixture-b/SKILL.md')) 'the Reasonix live skill was staged from the materialization'
 Assert (Test-Path -LiteralPath $systemSentinel) 'the Codex .system sentinel survived the apply'
+Assert ($result.Out -match '\.system marker preserved: True') 'the marker-present apply reports the Codex .system state preserved'
 $stateAfterApply = Get-PlanDocument -Path $statePath
 Assert ([string] $stateAfterApply.TaskOverlayHash -ceq $candidateHash) 'the committed state binds the applied overlay hash'
 $appliedReasonixRow = @(@($stateAfterApply.TaskOverlaySkills) | Where-Object { [string] $_['Platform'] -ceq 'Reasonix' })[0]
@@ -498,6 +499,74 @@ try {
     Assert ((Get-FileHashLower -Path $overlayPath) -eq $killOverlayBefore) 'the busy-lock refusals change no overlay bytes'
 }
 finally { Exit-CanonicalRepoLock -LockHandle $held }
+
+# --- authority published before its live roots exist ---------------------------
+# A fresh machine publishes its claims while two of the three live roots are
+# still absent and creates them with the transition's own apply, so the
+# immutable claims keep those roots as InitialState=ABSENT rows that record no
+# directory identity. The second home also never had a Codex .system root.
+Write-Host 'task overlay: authority published before the live roots exist'
+$pristineHome = Join-Path $sandbox 'home-pristine'
+foreach ($dir in @('AppData/Roaming', 'AppData/Local', '.codex/skills')) {
+    New-Item -ItemType Directory -Path (Join-Path $pristineHome $dir) -Force | Out-Null
+}
+$pristineIdentity = [pscustomobject][ordered]@{
+    ResolverVersion = 'windows-token-sid-known-folder-v1'
+    TokenSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    ProfileRoot = $pristineHome
+    RoamingAppDataRoot = (Join-Path $pristineHome 'AppData/Roaming')
+    LocalAppDataRoot = (Join-Path $pristineHome 'AppData/Local')
+}
+$pristineContext = Resolve-HomeAuthorityContextFromIdentity -Identity $pristineIdentity
+$pristineControlBase = [string] $pristineContext.ControlBase
+$pristineBackupRoot = [string] $pristineContext.BackupRoot
+$pristineIntent = New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $pristineContext -FilesystemCapabilityHash ('b' * 64)
+$pristineLock = Complete-SealedHomeAuthorityBootstrap -AuthorityContext $pristineContext -Intent $pristineIntent
+Exit-HomeAuthorityGlobalLiveLock -LockHandle $pristineLock
+$pristineAdoptPlan = Join-Path $sandbox 'pristine-adopt-plan.json'
+$result = Invoke-TaskCli -ScriptPath $authorityScript -Arguments @('-Action', 'adopt', '-Name', 'work', '-RepoRoot', $repo, '-HomeRoot', $pristineHome, '-ControlBase', $pristineControlBase, '-BackupRoot', $pristineBackupRoot, '-PlanPath', $pristineAdoptPlan, '-DryRun')
+if ($result.Code -ne 0) { Write-Host '----- pristine adopt dry-run output -----'; Write-Host $result.Out }
+Assert ($result.Code -eq 0) 'the pristine fixture plans its first authority while two live roots are still absent'
+$result = Invoke-TaskCli -ScriptPath $authorityScript -Arguments @('-Action', 'adopt', '-Name', 'work', '-RepoRoot', $repo, '-HomeRoot', $pristineHome, '-ControlBase', $pristineControlBase, '-BackupRoot', $pristineBackupRoot, '-PlanPath', $pristineAdoptPlan, '-Apply')
+if ($result.Code -ne 0) { Write-Host '----- pristine adopt apply output -----'; Write-Host $result.Out }
+Assert ($result.Code -eq 0) 'the pristine authority apply creates the previously absent live roots'
+Assert (Test-Path -LiteralPath (Join-Path $pristineHome '.claude/skills/fixture-a/SKILL.md')) 'the authority apply materialized into the root it created'
+$pristineClaimRows = @((Get-PlanDocument -Path (Join-Path ([string] $pristineContext.AuthorityRoot) 'root-claims.json')).LiveRootClaims)
+$pristineAbsentRows = @($pristineClaimRows | Where-Object { [string] $_['InitialState'] -ceq 'ABSENT' })
+Assert (((@($pristineAbsentRows | ForEach-Object { [string] $_['Platform'] })) -join ',') -ceq 'Claude,Reasonix') 'the published claims keep the roots that did not exist yet as ABSENT'
+Assert (@($pristineAbsentRows | Where-Object { $null -ne $_['InitialDirectoryIdentity'] }).Count -eq 0) 'an ABSENT claim records no directory identity to drift from'
+
+Write-Host 'task overlay: the preview and apply over the pristine claims'
+$pristinePlanPath = Join-Path $sandbox 'pristine-ensure-plan.json'
+$result = Invoke-TaskCli -ScriptPath $taskScript -Arguments @('-Action', 'ensure-skill', 'fixture-b', '-Platform', 'Codex', '-RepoRoot', $repo, '-HomeRoot', $pristineHome, '-ControlBase', $pristineControlBase, '-BackupRoot', $pristineBackupRoot, '-DryRun', '-PlanPath', $pristinePlanPath)
+if ($result.Code -ne 0) { Write-Host '----- pristine ensure dry-run output -----'; Write-Host $result.Out }
+Assert ($result.Code -eq 0 -and $result.Out -notmatch 'authority-claim-identity-drift') 'the task preview accepts claims published before their live roots existed'
+$pristinePlan = Get-PlanDocument -Path $pristinePlanPath
+$pristineRows = @($pristinePlan.PlanPayload.TargetContextIntent.Rows)
+Assert ($pristineRows.Count -eq 3 -and @($pristineRows | Where-Object { [string] $_['InitialState'] -cne 'EXISTS' }).Count -eq 0) 'the task plan re-observes every live root as EXISTS'
+foreach ($pristineClaimRow in $pristineClaimRows) {
+    $platform = [string] $pristineClaimRow['Platform']
+    $row = @($pristineRows | Where-Object { [string] $_['Platform'] -ceq $platform })
+    $liveIdentity = [string] (Get-LiveSyncTargetContext -Path ([string] $pristineClaimRow['RequestedPath'])).DirectoryIdentity
+    Assert ($row.Count -eq 1 -and -not [string]::IsNullOrEmpty([string] $row[0]['InitialDirectoryIdentity']) -and [string] $row[0]['InitialDirectoryIdentity'] -ceq $liveIdentity) "the task plan binds the current $platform live-root identity"
+}
+$result = Invoke-TaskCli -ScriptPath $taskScript -Arguments @('-Action', 'ensure-skill', 'fixture-b', '-Platform', 'Codex', '-RepoRoot', $repo, '-HomeRoot', $pristineHome, '-ControlBase', $pristineControlBase, '-BackupRoot', $pristineBackupRoot, '-Apply', '-PlanPath', $pristinePlanPath)
+if ($result.Code -ne 0) { Write-Host '----- pristine ensure apply output -----'; Write-Host $result.Out }
+Assert ($result.Code -eq 0 -and $result.Out -match '\.system marker preserved: True') 'the task apply succeeds on a Codex root without a .system marker and reports it preserved'
+Assert (-not (Test-Path -LiteralPath (Join-Path $pristineHome '.codex/skills/.system'))) 'the task apply never creates a Codex .system directory'
+
+Write-Host 'task overlay: a recreated claimed root is identity drift'
+# The replacement is created before the claimed root is removed so the new
+# directory can never reuse the deleted one's identity.
+$codexReplacement = Join-Path $sandbox 'pristine-codex-replacement'
+New-Item -ItemType Directory -Path $codexReplacement -Force | Out-Null
+Remove-Item -LiteralPath (Join-Path $pristineHome '.codex/skills') -Recurse -Force
+Move-Item -LiteralPath $codexReplacement -Destination (Join-Path $pristineHome '.codex/skills')
+$driftPlan = Join-Path $sandbox 'pristine-drift-plan.json'
+$result = Invoke-TaskCli -ScriptPath $taskScript -Arguments @('-Action', 'ensure-skill', 'fixture-c', '-Platform', 'Codex', '-RepoRoot', $repo, '-HomeRoot', $pristineHome, '-ControlBase', $pristineControlBase, '-BackupRoot', $pristineBackupRoot, '-DryRun', '-PlanPath', $driftPlan)
+if ($result.Code -eq 0 -or $result.Out -notmatch 'authority-claim-identity-drift') { Write-Host '----- drift output -----'; Write-Host $result.Out }
+Assert ($result.Code -ne 0 -and $result.Out -match 'authority-claim-identity-drift') 'a claimed live root recreated with a new identity fails the task preview closed'
+Assert (-not (Test-Path -LiteralPath $driftPlan)) 'the claim-identity refusal writes no plan'
 
 Write-Host ''
 Write-Host ("task-skills tests: {0} passed, {1} failed" -f $script:pass, $script:fail)

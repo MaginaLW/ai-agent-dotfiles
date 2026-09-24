@@ -8,8 +8,9 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-live-recovery-$([Guid]::NewGuid().ToString('N'))"
+$work = $null
 $dispatchWork = $null
+$script:OwnedRecoveryRoots = @{}
 $internalHost = Join-Path $RepoRoot 'scripts/internal/live-transaction-host.ps1'
 $liveTransactionHost = Join-Path $PSScriptRoot 'helpers/live-transaction-host.ps1'
 . (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
@@ -62,6 +63,53 @@ function Write-TextFile {
     [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Assert-RecoveryFixtureNoReparse {
+    param([Parameter(Mandatory)][string]$Path,[switch]$AncestorsOnly)
+    $resolved=[IO.Path]::GetFullPath($Path)
+    $cursor=$resolved
+    while(-not [string]::IsNullOrWhiteSpace($cursor)){
+        # GetAttributes also rejects dangling reparse entries instead of treating
+        # Test-Path false as permission to recreate or delete their destinations.
+        if([IO.File]::GetAttributes($cursor) -band [IO.FileAttributes]::ReparsePoint){throw 'recovery fixture refuses reparse ancestor'}
+        $cursor=Split-Path -Parent $cursor
+    }
+    if($AncestorsOnly){return}
+    $pending=[Collections.Generic.Stack[string]]::new();$pending.Push($resolved)
+    while($pending.Count){
+        $entry=$pending.Pop();$attributes=[IO.File]::GetAttributes($entry)
+        if($attributes -band [IO.FileAttributes]::ReparsePoint){throw 'recovery fixture refuses reparse subtree'}
+        if($attributes -band [IO.FileAttributes]::Directory){foreach($child in @(Get-ChildItem -LiteralPath $entry -Force)){$pending.Push($child.FullName)}}
+    }
+}
+
+function New-OwnedRecoveryRoot {
+    param([Parameter(Mandatory)][ValidateSet('live-recovery','live-dispatch')][string]$Kind)
+    $parent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([char]92,[char]47)
+    Assert-RecoveryFixtureNoReparse -Path $parent -AncestorsOnly
+    $root=Join-Path $parent ("ai-agent-dotfiles-$Kind-"+[Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+    $token=[Guid]::NewGuid().ToString('N');$marker=Join-Path $root '.live-recovery-test-owner'
+    $stream=[IO.File]::Open($marker,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try{$bytes=[Text.UTF8Encoding]::new($false).GetBytes($token);$stream.Write($bytes);$stream.Flush($true)}finally{$stream.Dispose()}
+    $script:OwnedRecoveryRoots[$root]=@{Parent=$parent;Marker=$marker;Token=$token;Identity=[string](Get-NoFollowRootEntryMarker -Path $root).Identity}
+    return $root
+}
+
+function Remove-OwnedRecoveryRoot {
+    param([AllowNull()][string]$Path)
+    if([string]::IsNullOrWhiteSpace($Path)){return}
+    $resolved=[IO.Path]::GetFullPath($Path)
+    if(-not $script:OwnedRecoveryRoots.ContainsKey($resolved)){throw 'recovery cleanup refuses unowned root'}
+    $ownership=$script:OwnedRecoveryRoots[$resolved]
+    if(-not [string]::Equals((Split-Path -Parent $resolved),$ownership.Parent,[StringComparison]::OrdinalIgnoreCase) -or
+       [IO.Path]::GetFileName($resolved) -cnotmatch '^ai-agent-dotfiles-live-(recovery|dispatch)-[0-9a-f]{32}$'){throw 'recovery cleanup escaped its exact owned root'}
+    Assert-RecoveryFixtureNoReparse -Path $resolved
+    if([string](Get-NoFollowRootEntryMarker -Path $resolved).Identity -cne $ownership.Identity -or
+       [IO.File]::ReadAllText($ownership.Marker) -cne $ownership.Token){throw 'recovery cleanup ownership changed'}
+    Remove-Item -LiteralPath $resolved -Recurse -Force
+    $script:OwnedRecoveryRoots.Remove($resolved)
+}
+
 function New-TestHeader {
     param([Parameter(Mandatory)] [string] $TransactionId)
     return [ordered]@{
@@ -98,6 +146,7 @@ function New-InstalledRecordData {
 }
 
 try {
+    $work=New-OwnedRecoveryRoot -Kind live-recovery
     New-Item -ItemType Directory -Force -Path (Join-Path $work 'backups') | Out-Null
 
     Write-Host '[header publication]'
@@ -1008,7 +1057,7 @@ try {
             $errText = ''
             if (Test-Path -LiteralPath $errFile) {
                 $errText = [System.IO.File]::ReadAllText($errFile)
-                [System.IO.File]::WriteAllText((Join-Path ([System.IO.Path]::GetTempPath()) 'dispatch-kill-last-err.txt'), $errText, [System.Text.UTF8Encoding]::new($false))
+                [System.IO.File]::WriteAllText((Join-Path $work ("dispatch-kill-error-$suffix.txt")), $errText, [System.Text.UTF8Encoding]::new($false))
             }
             if ($null -ne $child -and -not $child.HasExited) {
                 Stop-FailpointProcessTree -Process $child
@@ -1664,30 +1713,56 @@ try {
     Assert ($LASTEXITCODE -eq 0 -and ($result | Out-String) -match 'Recovery scan: clean') 'the locator reports clean over finished transactions'
 
     function New-RecoveryFixtureJournal {
-        param([string] $ControlRoot, [string] $Name, [string[]] $Phases, [switch] $NoResult, [string] $ExtraFile, [switch] $DropOrigin)
+        param([string] $ControlRoot, [string] $Name, [string[]] $Phases, [switch] $NoResult, [string] $ExtraFile, [switch] $DropOrigin, [switch] $Complete,
+              [ValidateSet('','Outcome','OriginalDocumentHash','PreviousHash','InvalidJson')][string]$TamperTerminal='')
         $dir = Join-Path (Join-Path $ControlRoot 'live-transactions') $Name
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        $header = [ordered]@{
-            SchemaVersion = 1
-            ArtifactKind = 'live-journal-header'
-            TransactionId = $Name
-            OriginRepoId = ('1' * 64)
-            GitCommonDirHash = ('2' * 64)
-            CanonicalLockKey = ('3' * 64)
-            HomeAuthorityKey = ('4' * 64)
-            ReceiptIntent = [ordered]@{ Id = [Guid]::NewGuid().ToString(); Path = (Join-Path $ControlRoot 'absent-receipt') }
-        }
-        if ($DropOrigin) { $header.Remove('OriginRepoId') }
-        [IO.File]::WriteAllText((Join-Path $dir 'header.json'), ((ConvertTo-Json -InputObject $header -Depth 6) + "`n"), [System.Text.UTF8Encoding]::new($false))
-        $sequence = 1
+        $header = New-TestHeader -TransactionId $Name
+        $null=New-SealedLiveJournalHeader -Document $header -TransactionDirectory $dir
+        $receiptRef=[ordered]@{Id=$Name;Path=[string]$header.ReceiptIntent.Path;Hash=('9'*64)}
         foreach ($phase in $Phases) {
-            $record = [ordered]@{ SchemaVersion = 1; Phase = $phase; Data = [ordered]@{} }
-            [IO.File]::WriteAllText((Join-Path $dir ('{0:d6}.json' -f $sequence)), ((ConvertTo-Json -InputObject $record -Depth 6) + "`n"), [System.Text.UTF8Encoding]::new($false))
-            $sequence++
+            # RESERVED is the published header, never a numbered record.
+            if($phase -ceq 'RESERVED'){continue}
+            $data=switch($phase){
+                'RECEIPT_COMPLETE'{[ordered]@{ReceiptRef=$receiptRef};break}
+                'NEW_INSTALLED'{New-InstalledRecordData;break}
+                'STATE_PUBLISHED'{[ordered]@{StateHash=('c'*64)};break}
+                'POSTCONDITIONS_OK'{[ordered]@{PostconditionsHash=('b'*64)};break}
+                default{throw 'unsupported status fixture phase'}
+            }
+            $null=Add-SealedLiveJournalRecord -TransactionDirectory $dir -Phase $phase -Data $data
         }
         if (-not $NoResult) {
-            $resultDocument = [ordered]@{ SchemaVersion = 1; ArtifactKind = 'live-operation-result'; Outcome = 'committed' }
-            [IO.File]::WriteAllText((Join-Path $dir 'result.json'), ((ConvertTo-Json -InputObject $resultDocument -Depth 6) + "`n"), [System.Text.UTF8Encoding]::new($false))
+            $chain=Get-SealedLiveJournalChain -TransactionDirectory $dir
+            $head=Get-SemanticJsonHash -InputObject $chain.Records[-1].Document
+            $resultDocument=[ordered]@{
+                SchemaVersion=1;ArtifactKind='live-operation-result';ResultScope='transaction';TransactionId=$Name
+                OperationKind='retirement';OriginalDocumentHash=[string]$header.OriginalDocumentHash;ResultBaseHeadHash=$head;Outcome='committed'
+                ReceiptRef=[ordered]@{Id=$Name;Path=[string]$header.ReceiptIntent.Path;State='COMPLETE';Hash=('9'*64)}
+                ReceiptHash=('9'*64);StateHash=('c'*64)
+            }
+            $null=Publish-SealedLiveTransactionResult -TransactionDirectory $dir -Document $resultDocument
+            if($Complete){
+                $resultHash=(Get-FileHash -LiteralPath (Join-Path $dir 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+                $null=Add-SealedLiveJournalRecord -TransactionDirectory $dir -Phase COMPLETE -Data ([ordered]@{
+                    ResultHash=$resultHash;OriginalDocumentHash=[string]$header.OriginalDocumentHash;Outcome='committed'
+                    ClosingKind='original';ClosingDocumentHash=[string]$header.OriginalDocumentHash
+                })
+            }
+        }
+        # Start with schema-valid, hash-linked evidence; corrupt only the named
+        # field after publication so each rejection has one explicit cause.
+        if($DropOrigin){$header.Remove('OriginRepoId');[IO.File]::WriteAllBytes((Join-Path $dir 'header.json'),(ConvertTo-SemanticJsonBytes -InputObject $header))}
+        if($TamperTerminal){
+            if(-not $Complete){throw 'terminal tampering requires a complete fixture'}
+            $last=@(Get-ChildItem -LiteralPath $dir -Filter '*.json' -File | Where-Object {$_.Name -match '^\d{6}\.json$'} | Sort-Object Name)[-1]
+            $terminal=ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($last.FullName))
+            switch($TamperTerminal){
+                'Outcome'{$terminal.Data.Outcome='abandoned'}
+                'OriginalDocumentHash'{$terminal.Data.OriginalDocumentHash=('f'*64);$terminal.Data.ClosingDocumentHash=('f'*64)}
+                'PreviousHash'{$terminal.PreviousHash=('e'*64)}
+            }
+            if($TamperTerminal -ceq 'InvalidJson'){[IO.File]::WriteAllText($last.FullName,'{ unreadable-json',[Text.UTF8Encoding]::new($false))}
+            else{[IO.File]::WriteAllBytes($last.FullName,(ConvertTo-SemanticJsonBytes -InputObject $terminal))}
         }
         if ($ExtraFile) { [IO.File]::WriteAllText((Join-Path $dir $ExtraFile), 'extra', [System.Text.UTF8Encoding]::new($false)) }
     }
@@ -1718,6 +1793,23 @@ try {
     $scan = Invoke-Locator -FixtureName 'finalize'
     Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: finalize-eligible') 'the locator classifies a result-without-terminal journal as finalize-eligible'
 
+    $healthyName=[Guid]::NewGuid().ToString()
+    New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'finished-valid') -Name $healthyName -Phases @('RECEIPT_COMPLETE','STATE_PUBLISHED','POSTCONDITIONS_OK') -Complete
+    $scan=Invoke-Locator -FixtureName 'finished-valid'
+    Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: clean') 'a valid completed chain remains clean'
+    foreach($tamper in @('Outcome','OriginalDocumentHash','PreviousHash','InvalidJson')){
+        $fixtureName='terminal-'+$tamper.ToLowerInvariant()
+        $fixtureControl=Join-Path $locatorRoot $fixtureName
+        New-RecoveryFixtureJournal -ControlRoot $fixtureControl -Name ([Guid]::NewGuid().ToString()) -Phases @('RECEIPT_COMPLETE','STATE_PUBLISHED','POSTCONDITIONS_OK') -Complete -TamperTerminal $tamper
+        $before=(Get-SafeTreeSnapshot -Root $fixtureControl).TreeHash
+        $reportPath=Join-Path $work ($fixtureName+'-status.json')
+        $scan=Invoke-Locator -FixtureName $fixtureName -JsonPath $reportPath
+        $report=ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($reportPath))
+        Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: manual-recovery-required' -and $report.OverallStatus -ceq 'manual-recovery-required') "terminal $tamper corruption never reports clean"
+        Assert (@($report.Transactions).Count -eq 1 -and $report.Transactions[0].Status -ceq 'manual-recovery-required' -and @($report.Transactions[0].Reasons).Count -gt 0) "terminal $tamper corruption retains an explicit manual reason"
+        Assert ((Get-SafeTreeSnapshot -Root $fixtureControl).TreeHash -ceq $before) "terminal $tamper status scan changes no journal bytes"
+    }
+
     # manual-recovery-required: unknown namespace entries fail closed.
     New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'manual-unknown') -Name ('d' * 8 + '-1111-4111-8111-444444444444') -Phases @('RESERVED') -NoResult -ExtraFile 'unexpected.bin'
     $scan = Invoke-Locator -FixtureName 'manual-unknown'
@@ -1727,6 +1819,19 @@ try {
     New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'manual-origin') -Name ('e' * 8 + '-1111-4111-8111-555555555555') -Phases @('RESERVED') -NoResult -DropOrigin
     $scan = Invoke-Locator -FixtureName 'manual-origin'
     Assert ($scan.Code -eq 0 -and $scan.Out -match 'header field OriginRepoId missing') 'a header without an origin binding fails closed as manual'
+
+    # Missing header plus a syntactically readable null record must remain a
+    # typed manual diagnostic, not throw while inspecting untrusted fields.
+    $missingHeaderControl=Join-Path $locatorRoot 'manual-missing-header'
+    $missingHeaderId=[Guid]::NewGuid().ToString()
+    New-RecoveryFixtureJournal -ControlRoot $missingHeaderControl -Name $missingHeaderId -Phases @('RESERVED') -NoResult
+    $missingHeaderDirectory=Join-Path $missingHeaderControl "live-transactions/$missingHeaderId"
+    Remove-Item -LiteralPath (Join-Path $missingHeaderDirectory 'header.json')
+    [IO.File]::WriteAllText((Join-Path $missingHeaderDirectory '000001.json'),'null',[Text.UTF8Encoding]::new($false))
+    $missingHeaderBefore=(Get-SafeTreeSnapshot -Root $missingHeaderControl).TreeHash
+    $scan=Invoke-Locator -FixtureName 'manual-missing-header'
+    Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: manual-recovery-required' -and $scan.Out -match 'journal header missing or unreadable') 'missing header and null record remain a manual status diagnostic'
+    Assert ((Get-SafeTreeSnapshot -Root $missingHeaderControl).TreeHash -ceq $missingHeaderBefore) 'missing-header status leaves all evidence bytes unchanged'
 
     # known _pending temps are neither records nor unknown entries.
     New-RecoveryFixtureJournal -ControlRoot (Join-Path $locatorRoot 'pending') -Name ('f' * 8 + '-1111-4111-8111-666666666666') -Phases @('RESERVED') -NoResult
@@ -1922,7 +2027,7 @@ try {
 
     # Sandbox dispatch: the injected authority gate precedes everything.
     . (Join-Path $PSScriptRoot 'helpers/safety-sandbox.ps1')
-    $dispatchWork = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-live-dispatch-$([Guid]::NewGuid().ToString('N'))"
+    $dispatchWork = New-OwnedRecoveryRoot -Kind live-dispatch
     $dispatchHome = Join-Path $dispatchWork 'home'
     New-Item -ItemType Directory -Force -Path $dispatchHome | Out-Null
     function Invoke-RecoveryDispatch {
@@ -2933,16 +3038,17 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: abandon') 'the linked worktree apply closes the transaction'
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $worktreeTxId, '-DryRun', '-PlanPath', (Join-Path $dispatchWork 'plans' 'worktree-abandon-2.json'), '-RepoRoot', $dispatchRepo)
     Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-transaction-finished') 'the origin repository sees the worktree recovery as finished'
+    if([IO.Path]::GetFullPath($worktreeRoot) -cne [IO.Path]::GetFullPath((Join-Path $dispatchWork 'linked-worktree'))){throw 'linked worktree cleanup escaped owned dispatch root'}
+    Assert-RecoveryFixtureNoReparse -Path $worktreeRoot
     & git -C $dispatchRepo worktree remove --force $worktreeRoot
     Assert ($LASTEXITCODE -eq 0 -or -not (Test-Path -LiteralPath $worktreeRoot)) 'the linked worktree fixture is removed'
 
     Write-Host 'live recovery tests: PASS'
 }
 finally {
-    if ($null -ne $dispatchWork -and (Test-Path -LiteralPath $dispatchWork)) {
-        Remove-Item -LiteralPath $dispatchWork -Recurse -Force -ErrorAction SilentlyContinue
+    $cleanupErrors=[Collections.Generic.List[string]]::new()
+    foreach($ownedRoot in @($dispatchWork,$work)){
+        try{Remove-OwnedRecoveryRoot -Path $ownedRoot}catch{$cleanupErrors.Add($_.Exception.Message)}
     }
-    if (Test-Path -LiteralPath $work) {
-        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    if($cleanupErrors.Count){throw ('recovery fixture cleanup refused; evidence retained: '+($cleanupErrors -join '; '))}
 }

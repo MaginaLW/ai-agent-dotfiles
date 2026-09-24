@@ -151,6 +151,17 @@ namespace AiAgentDotfiles {
             SafeLockResourceOwner value;
             return Owners.TryGetValue(wrapperValue, out value) ? value : null;
         }
+        public static SafeLockResourceOwner[] GetPriorOwnersForPathExact(string pathValue, long beforeOrdinal) {
+            string fullPath = Path.GetFullPath(pathValue);
+            var matches = new System.Collections.Generic.List<SafeLockResourceOwner>();
+            foreach (var entry in Owners) {
+                SafeLockResourceOwner value = entry.Value;
+                if (Volatile.Read(ref value.releaseState) == 0 && value.ordinal < beforeOrdinal &&
+                    value.path.Equals(fullPath, StringComparison.OrdinalIgnoreCase) &&
+                    IsExactForWrapper(value, entry.Key)) matches.Add(value);
+            }
+            return matches.ToArray();
+        }
         public static bool IsExactForWrapper(SafeLockResourceOwner value, object wrapperValue) {
             if (value == null || wrapperValue == null || !Object.ReferenceEquals(value.wrapper, wrapperValue)) return false;
             SafeLockResourceOwner registered;
@@ -1489,7 +1500,7 @@ function Get-HomeAuthorityCanonicalWitnessCaptureProjection {
     }
 }
 
-function Read-HomeAuthorityCanonicalGlobalInputSnapshot {
+function Read-HomeAuthorityCanonicalGlobalResourceInputSnapshot {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$AuthorityContext,[Parameter(Mandatory)]$CanonicalWitness)
 
@@ -1521,8 +1532,8 @@ function Read-HomeAuthorityCanonicalGlobalInputSnapshot {
     foreach ($parent in $canonicalParents) {
         if ($parent -isnot [AiAgentDotfiles.SafeDirectoryHandle] -or -not [AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($parent)) { throw 'canonical lock parent acquisition is not live' }
     }
-    if ($null -eq (Get-Command Assert-CanonicalHeldNamespaceWitness -CommandType Function -ErrorAction Stop)) { throw 'missing canonical witness validator' }
-    $null = Assert-CanonicalHeldNamespaceWitness -Witness $witnessSnapshot -RepoRoot ([string]$witnessSnapshot.RepoRoot) -CanonicalLockHandle $canonicalLockHandle
+    if ($null -eq (Get-Command Assert-CanonicalHeldNamespaceWitnessResources -CommandType Function -ErrorAction Stop)) { throw 'missing canonical witness resource validator' }
+    $null = Assert-CanonicalHeldNamespaceWitnessResources -Witness $witnessSnapshot -RepoRoot ([string]$witnessSnapshot.RepoRoot) -CanonicalLockHandle $canonicalLockHandle
     $null = Assert-CanonicalRepoLockHandle -LockHandle $canonicalLockHandle -ExpectedLockPath ([AiAgentDotfiles.SafeLockResourceOwner]::GetPathExact($canonicalOwner))
     if (-not [object]::ReferenceEquals([AiAgentDotfiles.SafeLockResourceOwner]::GetHeldLockExact($canonicalOwner),$canonicalHeld)) { throw 'canonical lock owner changed during validation' }
     $afterParents = @([AiAgentDotfiles.SafeLockResourceOwner]::GetParentHandlesExact($canonicalOwner))
@@ -1551,6 +1562,25 @@ function Read-HomeAuthorityCanonicalGlobalInputSnapshot {
         CanonicalHeld = $canonicalHeld
         CanonicalParents = [object[]]$canonicalParents
     }
+}
+
+function Read-HomeAuthorityCanonicalGlobalInputSnapshot {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$AuthorityContext,[Parameter(Mandatory)]$CanonicalWitness)
+
+    $state = Read-HomeAuthorityCanonicalGlobalResourceInputSnapshot -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness
+    $null = Assert-CanonicalHeldTransactionSetCurrent -Witness $state.WitnessSnapshot
+    return $state
+}
+
+function Read-HomeAuthorityCanonicalGlobalReleaseInputSnapshot {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$AuthorityContext,[Parameter(Mandatory)]$CanonicalWitness)
+
+    # Releasing acquired resources does not authorize a new mutation. The
+    # frozen witness and held resources must still match, while a transaction
+    # may have legitimately changed its journal since acquisition.
+    return Read-HomeAuthorityCanonicalGlobalResourceInputSnapshot -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness
 }
 
 function Assert-HomeAuthorityRequiredCanonicalWitness {
@@ -1593,6 +1623,31 @@ function Assert-HomeAuthorityCanonicalGlobalAcquisitionCaptureCurrent {
         if (-not [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::MatchesSourcesExact($AcquisitionCapture,$CanonicalWitness,$AuthorityContext)) { throw 'canonical acquisition source reference changed' }
         if ($RequireBindingClaim -and -not [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::IsBindingClaimedExact($AcquisitionCapture)) { throw 'canonical acquisition binding was not claimed' }
         $state = Read-HomeAuthorityCanonicalGlobalInputSnapshot -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness
+        if (-not [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::MatchesCurrentSnapshotExact(
+            $AcquisitionCapture,$state.CanonicalLockHandle,$state.CanonicalOwner,$state.CanonicalHeld,
+            [object[]]$state.CanonicalParents,[byte[]]$state.WitnessProjectionBytes,[byte[]]$state.AuthorityBytes,
+            [byte[]]$state.LiveTargetBytes,[string]$state.WitnessHash,[string]$state.WitnessProjectionHash,
+            [string]$state.AuthorityHash,[string]$state.LiveTargetHash)) { throw 'canonical acquisition snapshot changed' }
+        return $true
+    }
+    catch {
+        if ($_.Exception.Message -ceq 'canonical-recovery-required') { throw 'canonical-recovery-required' }
+        throw [InvalidOperationException]::new('canonical-witness-required',$_.Exception)
+    }
+}
+
+function Assert-HomeAuthorityCanonicalGlobalAcquisitionCaptureForRelease {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]$AcquisitionCapture,
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$CanonicalWitness
+    )
+
+    try {
+        if (-not [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::MatchesSourcesExact($AcquisitionCapture,$CanonicalWitness,$AuthorityContext)) { throw 'canonical acquisition source reference changed' }
+        if (-not [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::IsBindingClaimedExact($AcquisitionCapture)) { throw 'canonical acquisition binding was not claimed' }
+        $state = Read-HomeAuthorityCanonicalGlobalReleaseInputSnapshot -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness
         if (-not [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::MatchesCurrentSnapshotExact(
             $AcquisitionCapture,$state.CanonicalLockHandle,$state.CanonicalOwner,$state.CanonicalHeld,
             [object[]]$state.CanonicalParents,[byte[]]$state.WitnessProjectionBytes,[byte[]]$state.AuthorityBytes,
@@ -1833,6 +1888,67 @@ function Assert-HomeAuthorityCanonicalGlobalLockBinding {
     finally { if ($null -ne $envelope) { Close-SealedHomeAuthorityFixedEnvelope -EnvelopeLease $envelope } }
 }
 
+function Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$AuthorityContext,
+        [Parameter(Mandatory)]$GlobalLockHandle,
+        [Parameter(Mandatory)]$CanonicalWitness
+    )
+
+    $envelope = $null
+    try {
+        $binding = [AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($GlobalLockHandle)
+        if ($binding -isnot [AiAgentDotfiles.SafeLockOrderBinding]) { throw 'missing CLR canonical/global order binding' }
+        $acquisitionCapture = [AiAgentDotfiles.SafeLockOrderBinding]::GetPrerequisiteWitnessExact($binding)
+        if ($acquisitionCapture -isnot [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture] -or
+            -not [object]::ReferenceEquals([AiAgentDotfiles.SafeLockOrderBinding]::GetAuthorityContextExact($binding),$acquisitionCapture)) {
+            throw 'missing sealed canonical/global acquisition capture'
+        }
+        $canonicalHeld = [AiAgentDotfiles.SafeLockOrderBinding]::GetPrerequisiteExact($binding)
+        $globalHeld = [AiAgentDotfiles.SafeLockOrderBinding]::GetCurrentExact($binding)
+        $globalParent = [AiAgentDotfiles.SafeLockOrderBinding]::GetCurrentParentExact($binding)
+        if (-not [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::MatchesSourcesExact($acquisitionCapture,$CanonicalWitness,$AuthorityContext)) { throw 'canonical acquisition source reference changed' }
+        if (-not [object]::ReferenceEquals([AiAgentDotfiles.SafeLockOrderBinding]::GetCurrentWrapperExact($binding),$GlobalLockHandle)) { throw 'bound global wrapper reference changed' }
+        $null = Assert-HomeAuthorityCanonicalGlobalAcquisitionCaptureForRelease -AcquisitionCapture $acquisitionCapture -AuthorityContext $AuthorityContext -CanonicalWitness $CanonicalWitness
+        $operationContext = Get-HomeAuthorityCapturedAuthorityContext -AcquisitionCapture $acquisitionCapture
+        if (-not [object]::ReferenceEquals($canonicalHeld,[AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::GetCanonicalHeldExact($acquisitionCapture))) { throw 'bound canonical handle changed' }
+        $bindingDisplay = [ordered]@{}
+        foreach ($name in @('HeldLock','CanonicalWitness','CanonicalWitnessHash','CanonicalGlobalOrderBinding','CanonicalGlobalBindingHash','AuthorityContext','AuthorityContextHash','LiveTargetProjectionHash')) {
+            $property = $GlobalLockHandle.PSObject.Properties[$name]
+            if ($null -eq $property -or $property.MemberType -ne [Management.Automation.PSMemberTypes]::NoteProperty) { throw "global lock binding display is stateful or missing $name" }
+            $bindingDisplay[$name] = $property.Value
+            if ($null -eq $bindingDisplay[$name]) { throw "global lock binding display is missing $name" }
+        }
+        if (-not [object]::ReferenceEquals($bindingDisplay.HeldLock,$globalHeld) -or
+            -not [object]::ReferenceEquals($bindingDisplay.CanonicalWitness,$CanonicalWitness) -or
+            -not [object]::ReferenceEquals($bindingDisplay.AuthorityContext,$AuthorityContext) -or
+            -not [object]::ReferenceEquals($bindingDisplay.CanonicalGlobalOrderBinding,$binding) -or
+            [string]$bindingDisplay.CanonicalWitnessHash -cne [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::GetWitnessHashExact($acquisitionCapture)) {
+            throw 'canonical/global binding display was substituted'
+        }
+
+        $sid = [string](Get-HomeAuthorityObjectProperty -InputObject $operationContext -Name 'TokenSid')
+        $directoryTemplate = Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid $sid -ResourceKind Directory
+        $fileTemplate = Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid $sid -ResourceKind File
+        $envelope = Open-SealedHomeAuthorityFixedEnvelope -AuthorityContext $operationContext -DirectorySecurityTemplate $directoryTemplate -FileSecurityTemplate $fileTemplate -HeldGlobalLock $GlobalLockHandle
+        $evidence = Get-HomeAuthorityCanonicalGlobalBindingEvidence -AcquisitionCapture $acquisitionCapture -GlobalLockHandle $GlobalLockHandle -GlobalHeld $globalHeld -GlobalParent $globalParent -FixedEnvelopeHash ([string]$envelope.InitialEnvelopeHash)
+        if ([string]$bindingDisplay.AuthorityContextHash -cne [string]$evidence.AuthorityContextHash -or
+            [string]$bindingDisplay.LiveTargetProjectionHash -cne [string]$evidence.LiveTargetProjectionHash -or
+            [string]$bindingDisplay.CanonicalGlobalBindingHash -cne [string]$evidence.BindingHash -or
+            [string][AiAgentDotfiles.SafeLockOrderBinding]::GetBindingHashExact($binding) -cne [string]$evidence.BindingHash -or
+            -not [AiAgentDotfiles.SafeLockOrderBinding]::MatchesExact($binding,$canonicalHeld,$globalHeld,$globalParent,$acquisitionCapture,$acquisitionCapture,$GlobalLockHandle,[string]$evidence.BindingHash)) {
+            throw 'canonical/global immutable order binding drift'
+        }
+        return $true
+    }
+    catch {
+        if ($_.Exception.Message -ceq 'canonical-recovery-required') { throw 'canonical-recovery-required' }
+        throw [InvalidOperationException]::new('canonical-witness-required',$_.Exception)
+    }
+    finally { if ($null -ne $envelope) { Close-SealedHomeAuthorityFixedEnvelope -EnvelopeLease $envelope } }
+}
+
 function Enter-HomeAuthorityGlobalLiveLock {
     [CmdletBinding()]
     param(
@@ -1915,7 +2031,7 @@ function Exit-HomeAuthorityGlobalLiveLock {
             }
             $boundAuthority = [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::GetAuthoritySourceExact($acquisitionCapture)
             $boundWitness = [AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::GetWitnessSourceExact($acquisitionCapture)
-            $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $boundAuthority -GlobalLockHandle $LockHandle -CanonicalWitness $boundWitness
+            $null = Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $boundAuthority -GlobalLockHandle $LockHandle -CanonicalWitness $boundWitness
             $bindingValid = $true
         }
         catch { $bindingValid = $false; $bindingValidationError = $_ }

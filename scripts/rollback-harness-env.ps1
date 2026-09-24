@@ -23,7 +23,9 @@
     environment-rollback plan and publishes it create-new only after the
     registered rollback-plan schema and the reviewed semantics accept its
     exact bytes; Apply validates the reviewed plan (schema and semantics) and
-    then runs it as a new receipt-backed transaction. Every disagreement
+    then requires every sibling transaction in the authority namespace to be
+    closed before any staging, header or receipt write, and runs it as a new
+    receipt-backed transaction. Every disagreement
     fails closed with its reviewed token. A source transaction that held the
     worktree overlay lock is rollback-able only from that exact worktree
     identity.
@@ -691,6 +693,9 @@ try {
                 # before any byte reaches the plan path.
                 Test-RollbackPlanSemantics -Document $document
                 Publish-ValidatedLiveArtifactJson -Document $document -Path $planFull -ArtifactKind 'rollback-plan' -JsonDepth 64 -CollisionFailure $script:RollbackPlanPathCollision
+                if ($null -ne $canonicalWitness) {
+                    $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $authorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
+                }
                 Write-Host "environment rollback plan created: $($evidence.TransactionId)"
                 Write-Host "PlanHash: $($document['PlanHash'])"
                 exit 0
@@ -705,6 +710,11 @@ try {
             Assert-RollbackPlanInvocationMatch -PlanDocument $planDocument -ReceiptDocument $receiptDocument -HomeAuthorityKey ([string] $authorityContext.HomeAuthorityKey)
             $statePaths = Get-LiveTransactionStatePaths -ControlBase ([string] $authorityContext.ControlBase) -HomeAuthorityKey ([string] $authorityContext.HomeAuthorityKey)
             $rollbackOutcome = Invoke-SealedEnvironmentRollbackTransaction -PlanDocument $planDocument -SourceReceiptDocument $receiptDocument -SourceReceiptPath $receiptFull -ControlBase ([string] $authorityContext.ControlBase) -BackupRoot ([string] $authorityContext.BackupRoot) -HomeRoot ([string] $authorityContext.HomeRoot) -ClaimsPath ([string] $statePaths['ClaimsPath']) -StatePath ([string] $statePaths['StatePath']) -LiveTransactionsRoot ([string] $authorityContext.LiveTransactionsRoot) -GitContext $gitContext -RepoId $repoId -CanonicalLockKey $canonicalLockKey
+            # Business success retains the strict transaction-set postcheck;
+            # finally releases owned resources even when this check refuses.
+            if ($null -ne $canonicalWitness) {
+                $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $authorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
+            }
             Write-Host "environment rollback applied: $([string] $rollbackOutcome.TransactionId)"
             Write-Host "State hash: $([string] $rollbackOutcome.StateHash)"
             Write-Host "Result hash: $([string] $rollbackOutcome.ResultHash)"

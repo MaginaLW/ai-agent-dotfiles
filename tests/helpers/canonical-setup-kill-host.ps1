@@ -68,7 +68,8 @@ function Invoke-SealedPreparedSetupPublish {
         [Parameter(Mandatory)][string]$PendingDirectory,
         [Parameter(Mandatory)][string]$PendingName,
         [Parameter(Mandatory)][string]$SchemaPath,
-        [Parameter(Mandatory)][string]$PreparedCheckpoint
+        [Parameter(Mandatory)][string]$PreparedCheckpoint,
+        [string]$FileSecurityDescriptorSddl
     )
     $finalHandles=$null;$pendingHandles=$null;$prepared=$null
     try{
@@ -78,7 +79,7 @@ function Invoke-SealedPreparedSetupPublish {
         $pendingHandlesReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
         Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetFullPath($PendingDirectory)) -OwnershipReceiver $pendingHandlesReceiver
         $pendingHandles = $pendingHandlesReceiver.GetDeliveredExact()
-        $prepared=New-CanonicalPreparedJsonArtifact -Document $Document -PendingParent $pendingHandles[$pendingHandles.Count-1] -PendingPath $PendingDirectory -PendingName $PendingName -SchemaPath $SchemaPath
+        $prepared=New-CanonicalPreparedJsonArtifact -Document $Document -PendingParent $pendingHandles[$pendingHandles.Count-1] -PendingPath $PendingDirectory -PendingName $PendingName -SchemaPath $SchemaPath -FileSecurityDescriptorSddl $FileSecurityDescriptorSddl
         Stop-SealedHostAtBoundary $PreparedCheckpoint $prepared
         return Publish-CanonicalPreparedJsonArtifact -PreparedArtifact $prepared -FinalParent $finalHandles[$finalHandles.Count-1] -FinalPath $FinalPath
     }finally{
@@ -100,8 +101,9 @@ $state=Read-CanonicalJournalDirectory -TransactionNamespace $namespace -AllowUnf
 if($Mode -ceq 'claim'){
     Stop-SealedHostAtBoundary 'before-setup-claim-publish'
     if($Checkpoint -ceq 'after-setup-claim-temp-flush'){
+        $fileSddl=ConvertTo-HomeAuthoritySecurityDescriptorSddl -SecurityTemplate (Get-CanonicalSetupClaimFileSecurityTemplate -State $state)
         $null=Add-CanonicalJournalRecord -TransactionNamespace $state.TransactionNamespace -Phase SETUP_CLAIM_INTENT -Data ([ordered]@{ClaimHash=[string]$payload.ExpectedRootClaimHash})
-        $null=Invoke-SealedPreparedSetupPublish -Document $payload.ExpectedRootClaim -FinalPath $claimPath -PendingDirectory (Join-Path $state.TransactionNamespace '_pending') -PendingName ('setup-claim-'+[Guid]::NewGuid().ToString('N')+'.tmp') -SchemaPath (Join-Path $ToolchainRoot 'schemas/canonical-root-claim.schema.json') -PreparedCheckpoint 'after-setup-claim-temp-flush'
+        $null=Invoke-SealedPreparedSetupPublish -Document $payload.ExpectedRootClaim -FinalPath $claimPath -PendingDirectory (Join-Path $state.TransactionNamespace '_pending') -PendingName ('setup-claim-'+[Guid]::NewGuid().ToString('N')+'.tmp') -SchemaPath (Join-Path $ToolchainRoot 'schemas/canonical-root-claim.schema.json') -PreparedCheckpoint 'after-setup-claim-temp-flush' -FileSecurityDescriptorSddl $fileSddl
         $null=Add-CanonicalJournalRecord -TransactionNamespace $state.TransactionNamespace -Phase SETUP_CLAIM_PUBLISHED -Data ([ordered]@{ClaimHash=[string]$payload.ExpectedRootClaimHash})
     }else{
         $null=Publish-CanonicalSetupClaimUnderJournal -State $state

@@ -53,8 +53,51 @@ function Write-TestSemanticDocument {
     [IO.File]::WriteAllBytes($Path,(ConvertTo-SemanticJsonBytes -InputObject $Document))
 }
 
-$work = Join-Path ([IO.Path]::GetTempPath()) "ai-agent-dotfiles-home-authority-$([Guid]::NewGuid().ToString('N'))"
+$workParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([char]92,[char]47)
+$work = Join-Path $workParent "ai-agent-dotfiles-home-authority-$([Guid]::NewGuid().ToString('N'))"
+$workCursor = [IO.Path]::GetFullPath($work)
+while ($workCursor) {
+    try {
+        if (([IO.File]::GetAttributes($workCursor) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'home authority test creation ancestor is a reparse point' }
+    }
+    catch [IO.FileNotFoundException] { }
+    catch [IO.DirectoryNotFoundException] { }
+    $workCursor = [IO.Path]::GetDirectoryName($workCursor)
+}
+if (Test-Path -LiteralPath $work) { throw 'home authority test root must be new' }
 [IO.Directory]::CreateDirectory($work) | Out-Null
+$workCreatedInfo = [AiAgentDotfiles.NoFollowFile]::Inspect($work)
+if (-not $workCreatedInfo.IsDirectory -or $workCreatedInfo.IsReparsePoint) { throw 'home authority test root is not an owned regular directory' }
+$workIdentity = [string]$workCreatedInfo.Identity
+$workOwnerPath = Join-Path $work '.test-owner'
+$workOwnerToken = [Guid]::NewGuid().ToString('N')
+$ownerStream = [IO.File]::Open($workOwnerPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+try { $ownerBytes = [Text.Encoding]::UTF8.GetBytes($workOwnerToken); $ownerStream.Write($ownerBytes,0,$ownerBytes.Length); $ownerStream.Flush($true) }
+finally { $ownerStream.Dispose() }
+$workOwnerIdentity = [string][AiAgentDotfiles.NoFollowFile]::HashRegularFile($workOwnerPath).Identity
+$workOwnerHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($ownerBytes)).ToLowerInvariant()
+
+function Assert-OwnedHomeAuthorityTestRoot {
+    $full = [IO.Path]::GetFullPath($work)
+    if (-not [IO.Path]::GetDirectoryName($full).Equals($workParent,[StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($full) -cnotmatch '^ai-agent-dotfiles-home-authority-[0-9a-f]{32}$') { throw 'home authority test cleanup path is not owned' }
+    $cursor = $full
+    while ($cursor) {
+        if (([IO.File]::GetAttributes($cursor) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'home authority test cleanup ancestor is a reparse point' }
+        $cursor = [IO.Path]::GetDirectoryName($cursor)
+    }
+    $ownerProof = [AiAgentDotfiles.NoFollowFile]::HashRegularFile($workOwnerPath)
+    if ([string][AiAgentDotfiles.NoFollowFile]::Inspect($full).Identity -cne $workIdentity -or
+        [string]$ownerProof.Identity -cne $workOwnerIdentity -or [string]$ownerProof.Sha256 -cne $workOwnerHash) { throw 'home authority test cleanup ownership changed' }
+    $pending = [Collections.Generic.Stack[string]]::new(); $pending.Push($full)
+    while ($pending.Count -gt 0) {
+        foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($pending.Pop())) {
+            $attributes = [IO.File]::GetAttributes($entry)
+            if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'home authority test cleanup subtree contains a reparse point' }
+            if (($attributes -band [IO.FileAttributes]::Directory) -ne 0) { $pending.Push($entry) }
+        }
+    }
+}
 try {
     if (Test-Section 'schema') {
         Write-Host '[home authority artifact contracts]'
@@ -566,10 +609,20 @@ try {
 
         $canonicalRoot = Join-Path $bindingRoot 'canonical-locks'
         [IO.Directory]::CreateDirectory($canonicalRoot) | Out-Null
-        $savedCanonicalValidator = Get-Command Assert-CanonicalHeldNamespaceWitness -CommandType Function -ErrorAction SilentlyContinue
-        $savedCanonicalValidatorBlock = if ($null -eq $savedCanonicalValidator) { $null } else { $savedCanonicalValidator.ScriptBlock }
-        Set-Item -LiteralPath Function:\Assert-CanonicalHeldNamespaceWitness -Value {
+        $savedCanonicalValidators = [ordered]@{}
+        foreach ($validatorName in @('Assert-CanonicalHeldNamespaceWitness','Assert-CanonicalHeldNamespaceWitnessResources','Assert-CanonicalHeldTransactionSetCurrent')) {
+            $savedValidator = Get-Command $validatorName -CommandType Function -ErrorAction SilentlyContinue
+            $savedCanonicalValidators[$validatorName] = if ($null -eq $savedValidator) { $null } else { $savedValidator.ScriptBlock }
+        }
+        # Only this synthetic witness double models a changing transaction set.
+        # The real journal-set projection remains covered by canonical tests.
+        $script:HomeAuthorityCapturedTransactionSetHashForTest = Get-SemanticJsonHash -InputObject @()
+        $script:HomeAuthorityCurrentTransactionSetHashForTest = $script:HomeAuthorityCapturedTransactionSetHashForTest
+        $script:HomeAuthorityResourceChecksForTest = 0
+        $script:HomeAuthorityCurrentSetChecksForTest = 0
+        Set-Item -LiteralPath Function:\Assert-CanonicalHeldNamespaceWitnessResources -Value {
             param([Parameter(Mandatory)]$Witness,[Parameter(Mandatory)][string]$RepoRoot,[Parameter(Mandatory)]$CanonicalLockHandle)
+            $script:HomeAuthorityResourceChecksForTest++
             $canonicalOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($CanonicalLockHandle)
             if (-not [object]::ReferenceEquals($Witness.CanonicalLockHandle,$CanonicalLockHandle) -or
                 [string]$Witness.RepoRoot -cne [IO.Path]::GetFullPath($RepoRoot) -or
@@ -577,6 +630,18 @@ try {
                 throw 'canonical-witness-required'
             }
             $null = Assert-CanonicalRepoLockHandle -LockHandle $CanonicalLockHandle -ExpectedLockPath ([AiAgentDotfiles.SafeLockResourceOwner]::GetPathExact($canonicalOwner))
+            return $true
+        }
+        Set-Item -LiteralPath Function:\Assert-CanonicalHeldTransactionSetCurrent -Value {
+            param([Parameter(Mandatory)]$Witness)
+            $script:HomeAuthorityCurrentSetChecksForTest++
+            if ($script:HomeAuthorityCurrentTransactionSetHashForTest -cne $script:HomeAuthorityCapturedTransactionSetHashForTest) { throw 'canonical-recovery-required' }
+            return $true
+        }
+        Set-Item -LiteralPath Function:\Assert-CanonicalHeldNamespaceWitness -Value {
+            param([Parameter(Mandatory)]$Witness,[Parameter(Mandatory)][string]$RepoRoot,[Parameter(Mandatory)]$CanonicalLockHandle)
+            $null = Assert-CanonicalHeldNamespaceWitnessResources -Witness $Witness -RepoRoot $RepoRoot -CanonicalLockHandle $CanonicalLockHandle
+            $null = Assert-CanonicalHeldTransactionSetCurrent -Witness $Witness
             return $true
         }
 
@@ -655,6 +720,8 @@ try {
                 } '^canonical-witness-required$' 'a genuine foreign canonical owner cannot replace the owner sealed into the witness semantic hash'
                 $witness.CanonicalLockHandle = $canonicalWrapper
 
+                $unclaimedCapture = Assert-HomeAuthorityRequiredCanonicalWitness -CanonicalWitness $witness -AuthorityContext $bindingContext
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalAcquisitionCaptureForRelease -AcquisitionCapture $unclaimedCapture -AuthorityContext $bindingContext -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation refuses an acquisition capture that has never claimed a binding'
                 $boundGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $bindingContext -RequiredCanonicalWitness $witness
                 $actualGlobalHeld = [AiAgentDotfiles.SafeLockOrderBinding]::GetCurrentExact([AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($boundGlobal))
                 Assert-TestCondition ($actualGlobalHeld -is [AiAgentDotfiles.SafeLockFileHandle]) 'bound wrapper resolves its actual global handle only through the private CLR registry'
@@ -662,6 +729,7 @@ try {
 
                 $witness.CanonicalLockHandle = $foreignCanonicalWrapper
                 Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'post-bind exchange with a still-live genuine foreign canonical owner fails closed'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation rejects a foreign canonical owner even when its lock is still open'
                 Assert-TestCondition ([AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($canonicalHeld) -and
                     [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($foreignCanonicalHeld) -and
                     [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($actualGlobalHeld)) 'foreign-owner rejection preserves the sealed canonical/global pair and does not release the substitute'
@@ -670,6 +738,7 @@ try {
                 $originalAuthorityKey = [string]$bindingContext.HomeAuthorityKey
                 $bindingContext.HomeAuthorityKey = '0' * 64
                 Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'post-bind authority semantic drift cannot alter the acquisition-time snapshot'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation preserves acquisition-time authority semantics'
                 $bindingContext.HomeAuthorityKey = $originalAuthorityKey
                 Assert-TestCondition (Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness) 'restoring caller display values leaves the private acquisition capture bound to its original exact resources'
 
@@ -679,26 +748,52 @@ try {
 
                 $detachedContext = Copy-SemanticDocument -Document $bindingContext
                 Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $detachedContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'equal-value detached authority context cannot replace the exact bound object'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $detachedContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation rejects an equal-value detached authority source'
+                $detachedWitness = New-TestHomeAuthorityBindingWitness -RepoRoot $canonicalRoot -CanonicalLockHandle $canonicalWrapper
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $detachedWitness | Out-Null } '^canonical-witness-required$' 'strict validation rejects an equal-value detached witness source'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $detachedWitness | Out-Null } '^canonical-witness-required$' 'release validation rejects an equal-value detached witness source'
+
+                $originalWitnessHash = [string]$witness.WitnessHash
+                $canonicalOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($canonicalWrapper)
+                $witness.WitnessHash = Get-SemanticJsonHash -InputObject ([ordered]@{
+                    ResolverVersion=[string]$witness.ResolverVersion;RepoRoot=[string]$witness.RepoRoot
+                    CanonicalLockPath=[AiAgentDotfiles.SafeLockResourceOwner]::GetPathExact($canonicalOwner)
+                    CanonicalLockIdentity=[AiAgentDotfiles.SafeLockResourceOwner]::GetAcquiredIdentityExact($canonicalOwner)
+                    CanonicalLockOrdinal=1+[long][AiAgentDotfiles.SafeLockResourceOwner]::GetAcquisitionOrdinalExact($canonicalOwner)
+                })
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'strict validation rejects a witness hash forged from another acquisition ordinal'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation preserves the native acquisition ordinal in the witness projection'
+                $witness.WitnessHash = $originalWitnessHash
 
                 $originalPath = $boundGlobal.Path
                 $boundGlobal.Path = Join-Path $bindingContext.ControlBase 'forged.lock'
                 Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'mutable global path substitution fails closed'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation rejects a substituted global path display'
                 $boundGlobal.Path = $originalPath
 
                 $originalInfo = $boundGlobal.Info
                 $boundGlobal.Info = [AiAgentDotfiles.SafeLockFileHandle]::GetInfoExact($canonicalHeld)
                 Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'mutable global identity display substitution fails closed'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation rejects substituted global identity evidence'
                 $boundGlobal.Info = $originalInfo
 
                 $originalParents = $boundGlobal.ParentHandles
                 $boundGlobal.ParentHandles = $canonicalParents
                 Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'mutable global parent-handle substitution fails closed'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation rejects substituted parent handles'
                 $boundGlobal.ParentHandles = $originalParents
 
                 $originalSecurityHash = $boundGlobal.SecurityHash
                 $boundGlobal.SecurityHash = '0' * 64
                 Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'mutable global security evidence substitution fails closed'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation rejects substituted global security evidence'
                 $boundGlobal.SecurityHash = $originalSecurityHash
+
+                $originalBindingHash = $boundGlobal.CanonicalGlobalBindingHash
+                $boundGlobal.CanonicalGlobalBindingHash = '0' * 64
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'strict validation rejects immutable order-binding hash display drift'
+                Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-witness-required$' 'release validation checks the immutable native order-binding hash'
+                $boundGlobal.CanonicalGlobalBindingHash = $originalBindingHash
 
                 $binding = [AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($boundGlobal)
                 $actualCapture = [AiAgentDotfiles.SafeLockOrderBinding]::GetPrerequisiteWitnessExact($binding)
@@ -713,6 +808,7 @@ try {
                     [object]::ReferenceEquals([AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::GetAuthoritySourceExact($actualCapture),$bindingContext) -and
                     [object]::ReferenceEquals([AiAgentDotfiles.HomeAuthorityCanonicalGlobalAcquisitionCapture]::GetWitnessSourceExact($actualCapture),$witness)) 'static CLR access ignores ETS-shadowed binding properties and retains exact acquisition sources only inside the sealed capture'
                 Assert-TestCondition (Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness) 'ETS-shadowed instance properties and methods cannot bypass or disable exact CLR validation'
+                Assert-TestCondition (Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness) 'release validation also uses exact CLR access despite ETS-shadowed instance members'
 
                 Assert-ThrowsPattern { [AiAgentDotfiles.SafeLockFileHandle]::DisposeExact($canonicalHeld) } 'dependent-lock-active' 'canonical release is rejected while its dependent global lock remains open'
                 Assert-TestCondition ([AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($canonicalHeld) -and [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($actualGlobalHeld)) 'rejected reverse release keeps both ordered locks open'
@@ -742,7 +838,21 @@ try {
                     Close-SafeDirectoryContainmentChain -Handles $tailParents
                 }
                 $releasedWrapper = $boundGlobal
-                Exit-HomeAuthorityGlobalLiveLock -LockHandle $boundGlobal
+                $releaseOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($boundGlobal)
+                $releaseParents = @([AiAgentDotfiles.SafeLockResourceOwner]::GetParentHandlesExact($releaseOwner))
+                $frozenWitnessHash = [string]$witness.WitnessHash
+                $script:HomeAuthorityCurrentTransactionSetHashForTest = Get-SemanticJsonHash -InputObject @([ordered]@{TransactionId='completed-test-transaction';Outcome='committed'})
+                try {
+                    Assert-ThrowsPattern { Assert-CanonicalHeldNamespaceWitness -Witness $witness -RepoRoot $canonicalRoot -CanonicalLockHandle $canonicalWrapper | Out-Null } '^canonical-recovery-required$' 'strict synthetic witness validation still rejects a changed current transaction set'
+                    Assert-ThrowsPattern { Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness | Out-Null } '^canonical-recovery-required$' 'strict global binding validation still rejects a changed current transaction set'
+                    $currentChecksBeforeRelease = $script:HomeAuthorityCurrentSetChecksForTest
+                    $resourceChecksBeforeRelease = $script:HomeAuthorityResourceChecksForTest
+                    Assert-TestCondition (Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $bindingContext -GlobalLockHandle $boundGlobal -CanonicalWitness $witness) 'release validation accepts the original resource binding after a transaction-set change'
+                    Assert-TestCondition ($script:HomeAuthorityCurrentSetChecksForTest -eq $currentChecksBeforeRelease -and $script:HomeAuthorityResourceChecksForTest -gt $resourceChecksBeforeRelease -and [string]$witness.WitnessHash -ceq $frozenWitnessHash) 'release revalidates resources without refreshing or weakening the frozen witness projection'
+                    Exit-HomeAuthorityGlobalLiveLock -LockHandle $boundGlobal
+                    Assert-TestCondition ($script:HomeAuthorityCurrentSetChecksForTest -eq $currentChecksBeforeRelease -and [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($canonicalHeld) -and $null -eq [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($releasedWrapper) -and @($releaseParents|Where-Object{[AiAgentDotfiles.SafeDirectoryHandle]::IsOpenExact($_)}).Count -eq 0) 'post-mutation Exit releases the owned global and parents while preserving the canonical prerequisite'
+                }
+                finally { $script:HomeAuthorityCurrentTransactionSetHashForTest = $script:HomeAuthorityCapturedTransactionSetHashForTest }
                 $boundGlobal = $null
                 Assert-TestCondition (-not [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($actualGlobalHeld) -and $null -eq [AiAgentDotfiles.SafeLockOrderBinding]::GetForWrapperExact($releasedWrapper)) 'global exit releases the actual CLR handle and unregisters its wrapper binding'
                 Exit-CanonicalRepoLock -LockHandle $canonicalWrapper
@@ -847,8 +957,11 @@ try {
         }
         }
         finally {
-            if ($null -eq $savedCanonicalValidatorBlock) { Remove-Item -LiteralPath Function:\Assert-CanonicalHeldNamespaceWitness -ErrorAction SilentlyContinue }
-            else { Set-Item -LiteralPath Function:\Assert-CanonicalHeldNamespaceWitness -Value $savedCanonicalValidatorBlock }
+            foreach ($validatorName in $savedCanonicalValidators.Keys) {
+                $functionPath = 'Function:\'+$validatorName
+                if ($null -eq $savedCanonicalValidators[$validatorName]) { Remove-Item -LiteralPath $functionPath -ErrorAction SilentlyContinue }
+                else { Set-Item -LiteralPath $functionPath -Value $savedCanonicalValidators[$validatorName] }
+            }
         }
     }
 
@@ -1045,5 +1158,5 @@ try {
     Write-Host 'home authority tests: PASS'
 }
 finally {
-    if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    if (Test-Path -LiteralPath $work) { Assert-OwnedHomeAuthorityTestRoot; Remove-Item -LiteralPath $work -Recurse -Force }
 }

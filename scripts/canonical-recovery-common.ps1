@@ -175,6 +175,100 @@ function Get-CanonicalRecoveryTargetEvidence {
     return @($rows)
 }
 
+function Get-CanonicalSetupClaimFileSecurityTemplate {
+    param([Parameter(Mandatory)]$State)
+    if([string]$State.Header.CanonicalOperationKind -cne 'setup'){throw 'setup claim security requires a setup transaction'}
+    $setup=$State.Header.SetupRecovery;$projection=$setup.ExpectedStateProjection;$claim=$setup.ExpectedClaim
+    if((Get-SemanticJsonHash -InputObject $claim) -cne [string]$setup.ExpectedClaimHash -or
+        (Get-SemanticJsonHash -InputObject $projection) -cne [string]$setup.ExpectedStateProjectionHash -or
+        [string]$claim.ExpectedSetupStateProjectionHash -cne [string]$setup.ExpectedStateProjectionHash -or
+        [string]$claim.OwnerSid -cne [string]$projection.OwnerSid -or
+        [string]$claim.RepoId -cne [string]$State.Header.RepoId -or [string]$projection.RepoId -cne [string]$State.Header.RepoId){throw 'manual-recovery-required: setup claim security binding mismatch'}
+    $expectedPath=[IO.Path]::GetFullPath((Join-Path ([string]$projection.ControlBase) (Join-Path 'canonical-roots' ([string]$State.Header.RepoId+'.json'))))
+    if(-not([IO.Path]::GetFullPath([string]$setup.ClaimPath).Equals($expectedPath,[StringComparison]::OrdinalIgnoreCase))){throw 'manual-recovery-required: setup claim locator mismatch'}
+    # This validates the journal-bound SID against the current token; it never
+    # substitutes a different owner into an existing journal or claim.
+    return Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([string]$projection.OwnerSid) -ResourceKind File
+}
+
+function Assert-CanonicalSetupClaimHeldSecurity {
+    param([Parameter(Mandatory)]$HeldHandle,[Parameter(Mandatory)]$SecurityTemplate)
+    $snapshot=[AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($HeldHandle)
+    if([string]$snapshot.Identity -cne [string]$HeldHandle.Info.Identity -or [long]$snapshot.LinkCount -ne 1){throw 'manual-recovery-required: setup claim security identity changed'}
+    $actual=Get-SemanticJsonHash -InputObject (ConvertFrom-HomeAuthoritySecuritySnapshot -Snapshot $snapshot -ResourceKind File)
+    # Preserve the registry's accepted legacy shape: one inherited current-user
+    # ACE beneath a sealed parent, including the token-default-owner variant.
+    $inherited=[ordered]@{
+        ResolverVersion=[string]$SecurityTemplate.ResolverVersion;ResourceKind='File';OwnerSid=[string]$SecurityTemplate.OwnerSid;AreAccessRulesProtected=$false
+        AccessRules=@([ordered]@{Sid=[string]$SecurityTemplate.OwnerSid;AccessControlType=[long][Security.AccessControl.AccessControlType]::Allow;FileSystemRights=[long][Security.AccessControl.FileSystemRights]::FullControl;InheritanceFlags=[long]0;PropagationFlags=[long]0;IsInherited=$true})
+    }
+    $defaultOwner=Get-HomeAuthorityTokenDefaultOwnerSid
+    foreach($allowed in @($SecurityTemplate,$inherited,(Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $SecurityTemplate -OwnerSid $defaultOwner),(Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $inherited -OwnerSid $defaultOwner))){
+        if($actual -ceq (Get-SemanticJsonHash -InputObject $allowed)){return}
+    }
+    throw 'manual-recovery-required: setup claim owner/DACL is not current-user-only'
+}
+
+function Read-CanonicalSetupClaimHeldDocument {
+    param([Parameter(Mandatory)]$HeldHandle,[Parameter(Mandatory)]$State,[Parameter(Mandatory)]$SecurityTemplate,[Parameter(Mandatory)][string]$Path)
+    Assert-CanonicalSetupClaimHeldSecurity -HeldHandle $HeldHandle -SecurityTemplate $SecurityTemplate
+    $bytes=[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($HeldHandle,$script:JsonArtifactMaximumBytes)
+    $null=Invoke-CanonicalContractSchemaValidation -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json') -Path $Path -ContentBytes $bytes
+    $document=ConvertFrom-SemanticJson -Json ([Text.UTF8Encoding]::new($false,$true).GetString($bytes))
+    if((Get-SemanticJsonHash -InputObject $document) -cne [string]$State.Header.SetupRecovery.ExpectedClaimHash){throw 'manual-recovery-required: setup claim differs from journal intent'}
+    Assert-CanonicalSetupClaimHeldSecurity -HeldHandle $HeldHandle -SecurityTemplate $SecurityTemplate
+    return $document
+}
+
+function Read-CanonicalSetupClaimArtifact {
+    param([Parameter(Mandatory)]$State,[Parameter(Mandatory)][string]$Path,[switch]$PublishPending)
+    $template=Get-CanonicalSetupClaimFileSecurityTemplate -State $State
+    $setup=$State.Header.SetupRecovery
+    $claimPath=[IO.Path]::GetFullPath([string]$setup.ClaimPath)
+    $expectedPath=[IO.Path]::GetFullPath((Join-Path ([string]$setup.ExpectedStateProjection.ControlBase) (Join-Path 'canonical-roots' ([string]$State.Header.RepoId+'.json'))))
+    if(-not $claimPath.Equals($expectedPath,[StringComparison]::OrdinalIgnoreCase)){throw 'manual-recovery-required: setup claim locator mismatch'}
+    $full=[IO.Path]::GetFullPath($Path);$isPending=-not $full.Equals($claimPath,[StringComparison]::OrdinalIgnoreCase)
+    if($PublishPending -and -not $isPending){throw 'manual-recovery-required: setup pending claim locator required'}
+    if($isPending){
+        $pendingRoot=[IO.Path]::GetFullPath((Join-Path $State.TransactionNamespace '_pending'))
+        $pending=@($State.PendingEntries|Where-Object{[string]$_.Name -like 'setup-claim-*'})
+        $records=@($State.Records|Where-Object{[string]$_.Phase -in @('SETUP_CLAIM_INTENT','SETUP_CLAIM_PUBLISHED')})
+        if(-not([IO.Path]::GetDirectoryName($full).Equals($pendingRoot,[StringComparison]::OrdinalIgnoreCase)) -or
+            [IO.Path]::GetFileName($full) -cnotmatch '^setup-claim-[0-9a-f]{32}\.tmp$' -or $pending.Count -ne 1 -or
+            -not([IO.Path]::GetFullPath([string]$pending[0].Path).Equals($full,[StringComparison]::OrdinalIgnoreCase)) -or
+            $records.Count -ne 1 -or [string]$records[0].Phase -cne 'SETUP_CLAIM_INTENT' -or
+            [string]$records[0].Data.ClaimHash -cne [string]$setup.ExpectedClaimHash){throw 'manual-recovery-required: setup pending claim differs from its unique journal intent'}
+    }
+    $parents=$null;$finalParents=$null;$held=$null
+    try{
+        $receiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetDirectoryName($full)) -OwnershipReceiver $receiver
+        $parents=$receiver.GetDeliveredExact();$parent=$parents[$parents.Count-1];$name=[IO.Path]::GetFileName($full)
+        if($isPending){
+            $names=@([AiAgentDotfiles.NoFollowFile]::GetChildNames($parent)|Where-Object{$_ -like 'setup-claim-*'})
+            if($names.Count -ne 1 -or [string]$names[0] -cne $name){throw 'manual-recovery-required: setup pending claim inventory changed'}
+        }
+        $held=if($PublishPending){[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFileForRename($parent,$name)}else{[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($parent,$name)}
+        if($isPending -and ([string]$held.ReadResult.Identity -cne [string]$pending[0].Identity -or [string]$held.ReadResult.Sha256 -cne [string]$pending[0].Sha256 -or [long]$held.ReadResult.Length -ne [long]$pending[0].Length)){throw 'manual-recovery-required: setup pending claim differs from its captured inventory'}
+        $document=Read-CanonicalSetupClaimHeldDocument -HeldHandle $held -State $State -SecurityTemplate $template -Path $full
+        if($PublishPending){
+            $finalReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetDirectoryName($claimPath)) -OwnershipReceiver $finalReceiver
+            $finalParents=$finalReceiver.GetDeliveredExact()
+            $names=@([AiAgentDotfiles.NoFollowFile]::GetChildNames($parent)|Where-Object{$_ -like 'setup-claim-*'})
+            if($names.Count -ne 1 -or [string]$names[0] -cne $name){throw 'manual-recovery-required: setup pending claim inventory changed before publish'}
+            Assert-CanonicalSetupClaimHeldSecurity -HeldHandle $held -SecurityTemplate $template
+            $null=[AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($held,$finalParents[$finalParents.Count-1],[IO.Path]::GetFileName($claimPath))
+            $document=Read-CanonicalSetupClaimHeldDocument -HeldHandle $held -State $State -SecurityTemplate $template -Path $claimPath
+        }
+        return $document
+    }finally{
+        if($held){$held.Dispose()}
+        if($finalParents){Close-SafeDirectoryContainmentChain -Handles $finalParents}
+        if($parents){Close-SafeDirectoryContainmentChain -Handles $parents}
+    }
+}
+
 function Get-CanonicalSetupRecoveryState {
     param([Parameter(Mandatory)]$State,[Parameter(Mandatory)][string]$RepoRoot)
     $setup=$State.Header.SetupRecovery
@@ -193,7 +287,7 @@ function Get-CanonicalSetupRecoveryState {
     if(-not $claimExists -and $pendingClaims.Count -eq 0 -and -not $stateExists){return [pscustomobject][ordered]@{Classification='abandon';Reason='zero-claim-state-primitive'}}
     try{
         $claimReadPath=if($claimExists){$claimPath}else{[string]$pendingClaims[0].Path}
-        $claim=Read-CanonicalJsonContractFile -Path $claimReadPath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
+        $claim=Read-CanonicalSetupClaimArtifact -State $State -Path $claimReadPath
         if((Get-SemanticJsonHash -InputObject $claim) -cne [string]$setup.ExpectedClaimHash -or (Get-SemanticJsonHash -InputObject $claim) -cne (Get-SemanticJsonHash -InputObject $setup.ExpectedClaim)){throw 'setup claim mismatch'}
         $projection=$setup.ExpectedStateProjection
         if((Get-SemanticJsonHash -InputObject $projection) -cne [string]$setup.ExpectedStateProjectionHash){throw 'setup projection mismatch'}
@@ -388,10 +482,8 @@ function Publish-CanonicalSetupFinalStateForRecovery {
     $statePath=[string]$setup.StatePath
     $claimPath=[string]$setup.ClaimPath
     if(-not(Test-Path -LiteralPath $claimPath) -and $Classification.SetupState.PSObject.Properties['PendingClaimPath'] -and $Classification.SetupState.PendingClaimPath){
-        [IO.File]::Move([string]$Classification.SetupState.PendingClaimPath,$claimPath,$false)
-        $publishedClaim=Read-CanonicalJsonContractFile -Path $claimPath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
-        if((Get-SemanticJsonHash -InputObject $publishedClaim) -cne [string]$setup.ExpectedClaimHash){throw 'manual-recovery-required: setup pending claim changed before finalize'}
-    }
+        $null=Read-CanonicalSetupClaimArtifact -State $State -Path ([string]$Classification.SetupState.PendingClaimPath) -PublishPending
+    }else{$null=Read-CanonicalSetupClaimArtifact -State $State -Path $claimPath}
     $claimRecords=@($State.Records|Where-Object{[string]$_.Phase -in @('SETUP_CLAIM_INTENT','SETUP_CLAIM_PUBLISHED')})
     if($claimRecords.Count -eq 1 -and [string]$claimRecords[0].Phase -ceq 'SETUP_CLAIM_INTENT'){$null=Add-CanonicalJournalRecord -TransactionNamespace $State.TransactionNamespace -Phase SETUP_CLAIM_PUBLISHED -Data ([ordered]@{ClaimHash=[string]$setup.ExpectedClaimHash})}
     $stateRecords=@($State.Records|Where-Object{[string]$_.Phase -in @('SETUP_STATE_INTENT','SETUP_STATE_PUBLISHED')})
@@ -416,14 +508,16 @@ function Publish-CanonicalSetupClaimUnderJournal {
     if([string]$State.Header.CanonicalOperationKind -cne 'setup'){throw 'setup claim publication requires a setup transaction'}
     $setup=$State.Header.SetupRecovery;$claimPath=[string]$setup.ClaimPath;$expectedHash=[string]$setup.ExpectedClaimHash
     if((Get-SemanticJsonHash -InputObject $setup.ExpectedClaim) -cne $expectedHash){throw 'setup claim header hash mismatch'}
+    $fileSddl=ConvertTo-HomeAuthoritySecurityDescriptorSddl -SecurityTemplate (Get-CanonicalSetupClaimFileSecurityTemplate -State $State)
+    # Reject an existing bad claim before adding any journal record. Never repair
+    # its permissions or replace it with a newly generated claim.
+    $claimExists=Test-Path -LiteralPath $claimPath
+    if($claimExists){$null=Read-CanonicalSetupClaimArtifact -State $State -Path $claimPath}
     $claimRecords=@($State.Records|Where-Object{[string]$_.Phase -in @('SETUP_CLAIM_INTENT','SETUP_CLAIM_PUBLISHED')})
     if($claimRecords.Count -eq 0){$null=Add-CanonicalJournalRecord -TransactionNamespace $State.TransactionNamespace -Phase SETUP_CLAIM_INTENT -Data ([ordered]@{ClaimHash=$expectedHash})}
     elseif($claimRecords.Count -gt 2 -or [string]$claimRecords[0].Phase -cne 'SETUP_CLAIM_INTENT'){throw 'manual-recovery-required: setup claim journal sequence is invalid'}
-    if(Test-Path -LiteralPath $claimPath){
-        $existing=Read-CanonicalJsonContractFile -Path $claimPath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
-        if((Get-SemanticJsonHash -InputObject $existing) -cne $expectedHash){throw 'manual-recovery-required: setup claim path differs from journal intent'}
-    }else{
-        $null=Write-CanonicalAtomicJson -Document $setup.ExpectedClaim -FinalPath $claimPath -PendingDirectory (Join-Path $State.TransactionNamespace '_pending') -PendingName ("setup-claim-{0}.tmp" -f [Guid]::NewGuid().ToString('N')) -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
+    if($claimExists){$null=Read-CanonicalSetupClaimArtifact -State $State -Path $claimPath}else{
+        $null=Write-CanonicalAtomicJson -Document $setup.ExpectedClaim -FinalPath $claimPath -PendingDirectory (Join-Path $State.TransactionNamespace '_pending') -PendingName ("setup-claim-{0}.tmp" -f [Guid]::NewGuid().ToString('N')) -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json') -FileSecurityDescriptorSddl $fileSddl
     }
     $current=Get-CanonicalJournalStateForAppend -TransactionNamespace $State.TransactionNamespace
     if(@($current.Records|Where-Object{[string]$_.Phase -ceq 'SETUP_CLAIM_PUBLISHED'}).Count -eq 0){$null=Add-CanonicalJournalRecord -TransactionNamespace $State.TransactionNamespace -Phase SETUP_CLAIM_PUBLISHED -Data ([ordered]@{ClaimHash=$expectedHash})}

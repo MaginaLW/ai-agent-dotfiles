@@ -665,6 +665,9 @@ else {
                     # The schema-validating publish fails closed: an invalid
                     # plan writes no bytes at the plan path.
                     Publish-ValidatedLiveArtifactJson -Document $document -Path $planFull -ArtifactKind 'rollback-plan' -JsonDepth 64 -CollisionFailure $script:LiveRecoveryPlanPathCollision
+                    if ($null -ne $canonicalWitness) {
+                        $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $authorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
+                    }
                     Write-Host "live recovery plan created: $Action $TransactionId"
                     Write-Host "PlanHash: $($document['PlanHash'])"
                     exit 0
@@ -862,6 +865,11 @@ else {
                     ClosingPlanKind = [string] $planPayload['PlanKind']
                     ClosingDocumentHash = [string] $planDocument['DocumentHash']
                 })
+                # Release validates resource ownership, while business success
+                # must still reject a changed canonical transaction set.
+                if ($null -ne $canonicalWitness) {
+                    $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $authorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
+                }
                 Write-Host "live recovery applied: $Action $TransactionId (outcome=$finalOutcome)"
                 exit 0
             }
@@ -890,9 +898,16 @@ if (Test-Path -LiteralPath $transactionsRoot -PathType Container) {
         $chain = $null
         try {
             $chain = Get-SealedLiveJournalChain -TransactionDirectory $dir.FullName
+            if ($null -eq $chain.Header) { throw 'journal header missing or unreadable' }
+            # Enumeration alone does not establish a valid journal. Status
+            # must use the same hash/sequence/result/terminal contract as
+            # mutation and recovery before treating COMPLETE as finished.
+            Test-LiveJournalHeaderSemantics -Document $chain.Header
+            Test-SealedLiveJournalChain -Header $chain.Header -Records @($chain.Records) -Result $chain.Result -ResultFileHash $chain.ResultFileHash
         }
         catch {
-            $reasons.Add("journal chain unreadable: $($_.Exception.Message)")
+            $chain = $null
+            $reasons.Add("journal chain unreadable or invalid: $($_.Exception.Message)")
         }
 
         $entryStatus = 'manual-recovery-required'

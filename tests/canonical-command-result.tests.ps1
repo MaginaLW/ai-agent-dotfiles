@@ -1,10 +1,17 @@
 #requires -Version 7.0
 [CmdletBinding()]
-param([string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path)
+param([string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,[ValidateSet('all','engine')][string]$Section='all')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:CommandResultClock = [Diagnostics.Stopwatch]::StartNew()
+$script:CommandResultPhaseStart = 0.0
+$script:CommandResultPhase = 'fixture initialization'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+. (Join-Path $RepoRoot 'tests/helpers/canonical-identity-fixture.ps1')
+$identityFixture = New-CanonicalIdentityFixture -SourceRepoRoot $RepoRoot -Name 'command-result'
+try {
+$RepoRoot = $identityFixture.ToolchainRoot
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
 . (Join-Path $RepoRoot 'scripts/canonical-command-result.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/safety-sandbox.ps1')
@@ -20,6 +27,15 @@ $script:IsReleased = ($policyState -eq 'released')
 $script:pass = 0
 $script:fail = 0
 $script:lastValidationError = ''
+
+function Write-CommandResultTestPhase {
+    param([Parameter(Mandatory)][string]$Name)
+    $elapsed = $script:CommandResultClock.Elapsed.TotalSeconds
+    Write-Host ('  timing: {0}={1:N1}s; elapsed={2:N1}s' -f $script:CommandResultPhase,($elapsed-$script:CommandResultPhaseStart),$elapsed)
+    $script:CommandResultPhase = $Name
+    $script:CommandResultPhaseStart = $elapsed
+    Write-Host ("`n[{0}]" -f $Name) -ForegroundColor Cyan
+}
 
 function Assert {
     param([bool] $Condition, [string] $Message)
@@ -78,29 +94,7 @@ function Initialize-TestRepo {
 
 function Invoke-ScriptStreams {
     param([Parameter(Mandatory)] [string] $Script, [string[]] $Arguments = @())
-    $start = [Diagnostics.ProcessStartInfo]::new()
-    $start.FileName = (Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
-    $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
-    $start.RedirectStandardOutput = $true
-    $start.RedirectStandardError = $true
-    foreach ($argument in @('-NoProfile', '-File', $Script) + @($Arguments)) {
-        [void] $start.ArgumentList.Add([string] $argument)
-    }
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $start
-    try {
-        if (-not $process.Start()) { throw "Unable to start public script: $Script" }
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        $process.WaitForExit()
-        return [pscustomobject]@{
-            Code = $process.ExitCode
-            Stdout = $stdoutTask.GetAwaiter().GetResult()
-            Stderr = $stderrTask.GetAwaiter().GetResult()
-        }
-    }
-    finally { $process.Dispose() }
+    return Invoke-CanonicalIdentityFixtureScript -Fixture $identityFixture -ScriptPath $Script -Arguments $Arguments
 }
 
 function Confirm-CanonicalCommandResultJson {
@@ -214,36 +208,63 @@ function Get-TestControlBaseHash {
     return (Get-TestDirectoryTreeHash -Root $ControlBase -ExcludeRelativePaths @($exclude))
 }
 
-function Remove-TestCreatedPrivatePrefix {
-    param($Context)
-    if ($null -eq $Context) { return }
-    $bootstrapLock = [string]$Context.ControlBootstrapLockPath
-    $privateBase = [string]$Context.PrivateRootBase
-    if (-not [string]::IsNullOrWhiteSpace($bootstrapLock) -and (Test-Path -LiteralPath $bootstrapLock)) {
-        Remove-Item -LiteralPath $bootstrapLock -Force
-    }
-    if (-not [string]::IsNullOrWhiteSpace($privateBase) -and (Test-Path -LiteralPath $privateBase)) {
-        Remove-Item -LiteralPath $privateBase -Recurse -Force
-    }
-}
-
-$testRoot = Join-Path ([IO.Path]::GetTempPath()) ('ai-agent-dotfiles-command-result-' + [Guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path $identityFixture.Root 'cases'
 $evidenceRoot = Join-Path $testRoot 'evidence'
 [IO.Directory]::CreateDirectory($evidenceRoot) | Out-Null
-$script:createdRealPrivatePrefix = $false
-$script:createdRealPrivateContext = $null
+$setupScript = Join-Path $RepoRoot 'scripts/setup-canonical-transaction.ps1'
+$transactionScript = Join-Path $RepoRoot 'scripts/canonical-transaction.ps1'
+$recoveryScript = Join-Path $RepoRoot 'scripts/recover-canonical-transaction.ps1'
+$normalizeScript = Join-Path $RepoRoot 'scripts/normalize-skill.ps1'
+$promoteScript = Join-Path $RepoRoot 'scripts/promote-skill.ps1'
+$mergeScript = Join-Path $RepoRoot 'scripts/auto-merge-skills.ps1'
+$agentScript = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
+$emitterScript = Join-Path $RepoRoot 'scripts/canonical-command-result.ps1'
 
 try {
-    $setupScript = Join-Path $RepoRoot 'scripts/setup-canonical-transaction.ps1'
-    $transactionScript = Join-Path $RepoRoot 'scripts/canonical-transaction.ps1'
-    $recoveryScript = Join-Path $RepoRoot 'scripts/recover-canonical-transaction.ps1'
-    $normalizeScript = Join-Path $RepoRoot 'scripts/normalize-skill.ps1'
-    $promoteScript = Join-Path $RepoRoot 'scripts/promote-skill.ps1'
-    $mergeScript = Join-Path $RepoRoot 'scripts/auto-merge-skills.ps1'
-    $agentScript = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
-    $emitterScript = Join-Path $RepoRoot 'scripts/canonical-command-result.ps1'
+    if ($Section -eq 'all') {
+    # An explicit invalid partial prefix makes all early refusal cases stable.
+    # It is owned by this fixture; no real user's existing state is consulted.
+    $fixturePartialBase = Join-Path $identityFixture.Home 'AppData/Local/ai-agent-dotfiles'
+    $null = Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $fixturePartialBase
+    [IO.Directory]::CreateDirectory($fixturePartialBase) | Out-Null
+    Set-TestCurrentUserOnlyAcl -Path $fixturePartialBase
+    $fixturePartialMarker = Join-Path $fixturePartialBase 'unexpected-test-entry'
+    Set-TestFile -Path $fixturePartialMarker -Content 'owned partial-prefix refusal fixture'
 
-    Write-Host "`n[shared public emitter]" -ForegroundColor Cyan
+    Write-CommandResultTestPhase 'fixture launch and cleanup boundary'
+    foreach ($boundaryCase in @(
+        @{ Name='child outside copy'; Script=(Join-Path $identityFixture.SourceRepoRoot 'scripts/setup-canonical-transaction.ps1'); Args=@() },
+        @{ Name='repo outside root'; Script=$setupScript; Args=@('-RepoRoot',$identityFixture.SourceRepoRoot,'-Status') },
+        @{ Name='plan outside root'; Script=$setupScript; Args=@('-PlanPath',(Join-Path (Split-Path -Parent $identityFixture.Root) 'outside-plan.json')) },
+        @{ Name='relative repo'; Script=$setupScript; Args=@('-RepoRoot','../../outside','-Status') },
+        @{ Name='relative plan'; Script=$setupScript; Args=@('-PlanPath','../../outside-plan.json') }
+    )) {
+        $rejected=$false
+        try { $null=New-CanonicalIdentityFixtureProcessStartInfo -Fixture $identityFixture -ScriptPath $boundaryCase.Script -Arguments $boundaryCase.Args }
+        catch { $rejected=$_.Exception.Message -match '^fixture-' }
+        Assert $rejected ("fixture refuses {0} before starting a child" -f $boundaryCase.Name)
+    }
+    $boundaryTarget=Join-Path $testRoot 'boundary-target'; $boundaryLink=Join-Path $testRoot 'boundary-link'
+    [IO.Directory]::CreateDirectory($boundaryTarget) | Out-Null
+    New-Item -ItemType Junction -Path $boundaryLink -Target $boundaryTarget -ErrorAction Stop | Out-Null
+    try {
+        $rejected=$false
+        try { $null=New-CanonicalIdentityFixtureProcessStartInfo -Fixture $identityFixture -ScriptPath $setupScript -Arguments @('-PlanPath',(Join-Path $boundaryLink 'plan.json')) }
+        catch { $rejected=$_.Exception.Message -ceq 'fixture-reparse-path-refused' }
+        Assert $rejected 'fixture refuses a reparse ancestor before starting a child'
+        [IO.Directory]::Delete($boundaryTarget)
+        $rejected=$false
+        try { $null=New-CanonicalIdentityFixtureProcessStartInfo -Fixture $identityFixture -ScriptPath $setupScript -Arguments @('-PlanPath',(Join-Path $boundaryLink 'plan.json')) }
+        catch { $rejected=$_.Exception.Message -ceq 'fixture-reparse-path-refused' }
+        Assert $rejected 'fixture refuses a dangling reparse ancestor before starting a child'
+        $rejected=$false
+        try { Remove-CanonicalIdentityFixture -Fixture ([pscustomobject]@{Root=$identityFixture.Root;OwnerToken='wrong';Children=@()}) }
+        catch { $rejected=$_.Exception.Message -ceq 'fixture-ownership-marker-mismatch' }
+        Assert ($rejected -and (Test-Path -LiteralPath $identityFixture.Root)) 'cleanup refuses a foreign ownership token without deleting fixture bytes'
+    }
+    finally { [IO.Directory]::Delete($boundaryLink) }
+
+    Write-CommandResultTestPhase 'shared public emitter'
     Assert (Test-Path -LiteralPath $emitterScript -PathType Leaf) 'one shared canonical public command-result emitter exists'
     if (Test-Path -LiteralPath $emitterScript -PathType Leaf) {
         $emitterText = Get-Content -Raw -LiteralPath $emitterScript
@@ -259,7 +280,7 @@ try {
     $mergeScriptText = Get-Content -Raw -LiteralPath $mergeScript
     Assert ($mergeScriptText -match 'canonical-command-result\.ps1' -and $mergeScriptText -match 'Write-CanonicalPublicCommandResult') 'merge failure path uses the shared public emitter while retaining report serialization'
 
-    Write-Host "`n[setup status, DryRun, Apply interlock, and dispatcher]" -ForegroundColor Cyan
+    Write-CommandResultTestPhase 'setup status and dispatcher'
     $setupRepo = Join-Path $testRoot 'setup-repo'
     Initialize-TestRepo -Path $setupRepo
 
@@ -271,7 +292,7 @@ try {
     $routedStatusDocument = Get-ValidatedCanonicalCommandResult -Invocation $routedStatus -EvidenceRoot $evidenceRoot
     Assert ($routedStatus.Code -eq 0 -and (Test-ExactDiagnosticToken -Stderr $routedStatus.Stderr -ExpectedToken '') -and (Test-CommandResult -Document $routedStatusDocument -Result WARN -CommandKind canonical-status -MessageToken canonical-setup-required) -and $routedStatus.Stdout -notmatch 'Invoking script|Command result') 'agent-dotfiles canonical status forwards only the child JSON with no dispatcher banner'
 
-    Write-Host "`n[setup finalize public token]" -ForegroundColor Cyan
+    Write-CommandResultTestPhase 'setup finalize, DryRun, and Apply interlock'
     $finalizeProbeControl = Join-Path $testRoot 'finalize-probe-control'
     $finalizeProbeRepoId = ('a' * 64)
     Assert ((Resolve-CanonicalSetupFinalizePublicToken -StatusToken 'canonical-ready' -ControlBaseRoot $finalizeProbeControl -RepoId $finalizeProbeRepoId) -ceq 'canonical-ready') 'non setup-required status tokens pass through the finalize resolver unchanged'
@@ -294,9 +315,20 @@ try {
     Assert-CanonicalCommandFailure -Invocation $setupMissingApply -EvidenceRoot $evidenceRoot -CommandKind canonical-setup -MessageToken canonical-plan-not-found -Message 'setup Apply missing reviewed plan emits one typed failure result and exact token'
 
     $setupPlan = Join-Path $evidenceRoot 'setup-plan.json'
-    $setupDryRun = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $setupRepo, '-DryRun', '-PlanPath', $setupPlan)
+    $inheritedValues=@{}
+    foreach ($name in @('AI_AGENT_DOTFILES_INTERNAL_SANDBOX_ROOT','AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_PATH','AI_AGENT_DOTFILES_INTERNAL_CAPABILITY_TOKEN','AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT')) {
+        $inheritedValues[$name]=[Environment]::GetEnvironmentVariable($name,'Process')
+        [Environment]::SetEnvironmentVariable($name,'invalid-fixture-capability','Process')
+    }
+    try { $setupDryRun = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $setupRepo, '-DryRun', '-PlanPath', $setupPlan) }
+    finally { foreach ($name in $inheritedValues.Keys) { [Environment]::SetEnvironmentVariable($name,$inheritedValues[$name],'Process') } }
     $setupDryRunDocument = Get-ValidatedCanonicalCommandResult -Invocation $setupDryRun -EvidenceRoot $evidenceRoot
     Assert ($setupDryRun.Code -eq 0 -and (Test-Path -LiteralPath $setupPlan -PathType Leaf) -and (Test-ExactDiagnosticToken -Stderr $setupDryRun.Stderr -ExpectedToken '') -and (Test-CommandResult -Document $setupDryRunDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-plan-created) -and -not [string]::IsNullOrWhiteSpace([string] $setupDryRunDocument.PlanHash)) 'routed setup DryRun emits one validated plan result and empty stderr'
+    $setupBoundPlan=ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($setupPlan,[Text.UTF8Encoding]::new($false,$true)))
+    foreach ($field in @('CanonicalRecoveryRoot','ControlBase','BackupRoot')) {
+        $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path ([string]$setupBoundPlan.PlanPayload.ExpectedSetupStateProjection[$field])
+    }
+    Assert (Test-Path -LiteralPath (Join-Path $identityFixture.Root 'identity-called')) 'invalid inherited capability never substitutes the host identity for the copied fixture adapter'
 
     $setupCollision = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $setupRepo, '-DryRun', '-PlanPath', $setupPlan)
     $setupCollisionDocument = Get-ValidatedCanonicalCommandResult -Invocation $setupCollision -EvidenceRoot $evidenceRoot
@@ -319,7 +351,7 @@ try {
     $setupStaleDocument = Get-ValidatedCanonicalCommandResult -Invocation $setupStale -EvidenceRoot $evidenceRoot
     Assert ($setupStale.Code -eq 1 -and (Test-ExactDiagnosticToken -Stderr $setupStale.Stderr -ExpectedToken canonical-plan-stale) -and (Test-CommandResult -Document $setupStaleDocument -Result FAIL -CommandKind canonical-setup -MessageToken canonical-plan-stale) -and [string] $setupStaleDocument.PlanHash -ceq [string] $setupDryRunDocument.PlanHash) 'routed setup stale Apply emits one typed failure result, exact token, and preserves exit 1'
 
-    Write-Host "`n[canonical transaction negative outcomes]" -ForegroundColor Cyan
+    Write-CommandResultTestPhase 'canonical transaction negative outcomes'
     $transactionRepo = Join-Path $testRoot 'transaction-negative-repo'
     Initialize-TestRepo -Path $transactionRepo -SkillLayout
     $candidateWorkspace = Join-Path $transactionRepo 'tmp/canonical-candidates/preflight-failure'
@@ -347,7 +379,7 @@ try {
     $genericFailureDocument = Get-ValidatedCanonicalCommandResult -Invocation $genericFailure -EvidenceRoot $evidenceRoot
     Assert ($genericFailure.Code -eq 1 -and -not (Test-Path -LiteralPath $genericFailurePlan) -and (Test-ExactDiagnosticToken -Stderr $genericFailure.Stderr -ExpectedToken canonical-command-failed) -and (Test-CommandResult -Document $genericFailureDocument -Result FAIL -CommandKind canonical-normalize -MessageToken canonical-command-failed)) 'unclassified canonical runtime failure emits one generic typed result, exact token, and preserves exit 1'
 
-    Write-Host "`n[normalize/promote early public outcomes]" -ForegroundColor Cyan
+    Write-CommandResultTestPhase 'normalize/promote early public outcomes'
     $adapterRepo = Join-Path $testRoot 'adapter-repo'
     Initialize-TestRepo -Path $adapterRepo -SkillLayout
 
@@ -418,7 +450,7 @@ try {
     $quarantineDocument = Get-ValidatedCanonicalCommandResult -Invocation $quarantine -EvidenceRoot $evidenceRoot
     Assert ($quarantine.Code -eq 2 -and -not (Test-Path -LiteralPath $quarantinePlan) -and (Test-ExactDiagnosticToken -Stderr $quarantine.Stderr -ExpectedToken possible-secret) -and (Test-CommandResult -Document $quarantineDocument -Result FAIL -CommandKind canonical-promote -MessageToken possible-secret)) 'promote quarantine emits one typed failure result and exact reason token on stderr'
 
-    Write-Host "`n[canonical merge outcomes and aliases]" -ForegroundColor Cyan
+    Write-CommandResultTestPhase 'canonical merge outcomes and aliases'
     $normalMergeRepo = Join-Path $testRoot 'normal-merge-repo'
     Initialize-TestRepo -Path $normalMergeRepo -SkillLayout
     New-TestSkill -Path (Join-Path $normalMergeRepo 'imports/skills-inbox/machine/claude/merge-promote') -Name merge-promote
@@ -487,7 +519,7 @@ try {
         Assert ($aliasInvocation.Code -eq 0 -and (Test-ExactDiagnosticToken -Stderr $aliasInvocation.Stderr -ExpectedToken '') -and (Test-CommandResult -Document $aliasDocument -Result PASS -CommandKind canonical-merge -MessageToken canonical-plan-created) -and $aliasInvocation.Stdout -notmatch 'Invoking script|Command result') "agent-dotfiles $($alias.Name) merge alias emits only the child canonical result"
     }
 
-    Write-Host "`n[production apply lock-order interlocked]" -ForegroundColor Cyan
+    Write-CommandResultTestPhase 'production apply with a known invalid partial prefix'
     . (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
     . (Join-Path $RepoRoot 'scripts/canonical-recovery-common.ps1')
 
@@ -521,31 +553,23 @@ try {
     }
     Assert ($missingControlBefore -ceq $missingControlAfter -and $missingPrivateBefore -ceq $missingPrivateAfter) 'MISSING setup Apply creates no ControlBase or private prefix'
 
-    $completeContext = Resolve-HomeAuthorityContextFromIdentity -Identity (Get-WindowsHomeAuthorityIdentity)
-    $completeOk = $false
-    try {
-        $liveBootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $completeContext
-        $completeOk = ([string]$liveBootstrapStatus.Status -ceq 'COMPLETE' -and [long]$liveBootstrapStatus.CompletePrefixLength -eq 7)
-    }
-    catch {
-        $completeOk = $false
-    }
+    $partialContext = Resolve-HomeAuthorityContextFromIdentity -Identity (Get-WindowsHomeAuthorityIdentity)
 
     $completeRepo = Join-Path $testRoot 'lock-order-complete-repo'
     Initialize-TestRepo -Path $completeRepo
     $completePlan = Join-Path $evidenceRoot 'lock-order-complete-setup.json'
     $completeDry = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-DryRun', '-PlanPath', $completePlan)
     $completeDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $completeDry -EvidenceRoot $evidenceRoot
-    Assert ($completeDry.Code -eq 0 -and (Test-CommandResult -Document $completeDryDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-plan-created)) 'COMPLETE-path fixture publishes a reviewed setup plan'
+    Assert ($completeDry.Code -eq 0 -and (Test-CommandResult -Document $completeDryDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-plan-created)) 'the explicit partial-prefix fixture with an existing lock publishes a reviewed setup plan'
     $completeGit = Get-CanonicalGitContext -RepoRoot $completeRepo
     $completePaths = Get-CanonicalTransactionContractPaths -GitContext $completeGit
     $completeCreatedLock = Enter-CanonicalRepoLock -LockPath ([string]$completePaths.LockPath) -AllowCreate
     Exit-CanonicalRepoLock -LockHandle $completeCreatedLock
-    $completeClaimBefore = Get-TestDirectoryTreeHash -Root ([string]$completeContext.CanonicalRootsRoot)
+    $completeClaimBefore = Get-TestDirectoryTreeHash -Root ([string]$partialContext.CanonicalRootsRoot)
     $completeStateBefore = if (Test-Path -LiteralPath ([string]$completePaths.SetupStatePath) -PathType Leaf) { [Convert]::ToHexString([IO.File]::ReadAllBytes([string]$completePaths.SetupStatePath)).ToLowerInvariant() } else { 'ABSENT' }
     $completeApply = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
     $completeApplyDocument = Get-ValidatedCanonicalCommandResult -Invocation $completeApply -EvidenceRoot $evidenceRoot
-    $completeClaimAfter = Get-TestDirectoryTreeHash -Root ([string]$completeContext.CanonicalRootsRoot)
+    $completeClaimAfter = Get-TestDirectoryTreeHash -Root ([string]$partialContext.CanonicalRootsRoot)
     $completeStateAfter = if (Test-Path -LiteralPath ([string]$completePaths.SetupStatePath) -PathType Leaf) { [Convert]::ToHexString([IO.File]::ReadAllBytes([string]$completePaths.SetupStatePath)).ToLowerInvariant() } else { 'ABSENT' }
     if ($script:IsReleased) {
         Assert ($completeApply.Code -eq 1 -and (Test-ExactDiagnosticToken -Stderr $completeApply.Stderr -ExpectedToken manual-recovery-required) -and (Test-CommandResult -Document $completeApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken manual-recovery-required) -and [string]$completeApplyDocument.PlanHash -ceq [string]$completeDryDocument.PlanHash) 'setup Apply with an existing canonical.lock fails closed at the manual-recovery gate and keeps the PlanHash'
@@ -555,28 +579,7 @@ try {
     }
     Assert ($completeClaimBefore -ceq $completeClaimAfter -and $completeStateBefore -ceq $completeStateAfter) 'setup Apply is zero-write on claims and setup-state'
 
-    if ($completeOk) {
-        $holderCanonical = $null
-        $holderGlobal = $null
-        try {
-            $holderCanonical = Enter-CanonicalRepoLock -LockPath ([string]$completePaths.LockPath)
-            $holderGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $completeContext
-            $busyApply = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
-            Assert-CanonicalCommandFailure -Invocation $busyApply -EvidenceRoot $evidenceRoot -CommandKind canonical-setup -MessageToken operation-lock-busy -Message 'COMPLETE setup Apply against a canonical-global holder emits operation-lock-busy' -Result WARN -ExitCode 1
-            $holderStillBusy = $false
-            try { $null = Enter-CanonicalRepoLock -LockPath ([string]$completePaths.LockPath) }
-            catch { if ([string]$_.Exception.Message -ceq 'operation-lock-busy') { $holderStillBusy = $true } }
-            Assert $holderStillBusy 'holder canonical remains busy while the contended Apply returns'
-        }
-        finally {
-            if ($null -ne $holderGlobal) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $holderGlobal }
-            if ($null -ne $holderCanonical) { Exit-CanonicalRepoLock -LockHandle $holderCanonical }
-        }
-        $releasedApply = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
-        $releasedApplyDocument = Get-ValidatedCanonicalCommandResult -Invocation $releasedApply -EvidenceRoot $evidenceRoot
-        Assert ($releasedApply.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $releasedApply.Stderr -ExpectedToken canonical-apply-interlocked) -and (Test-CommandResult -Document $releasedApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken canonical-apply-interlocked)) 'after the holder releases, setup Apply returns to canonical-apply-interlocked'
-    }
-    else {
+
         $heldCanonical = Enter-CanonicalRepoLock -LockPath ([string]$completePaths.LockPath)
         try {
             $nonCompleteBusy = Invoke-ScriptStreams -Script $agentScript -Arguments @('canonical', 'setup', '-RepoRoot', $completeRepo, '-Apply', '-PlanPath', $completePlan)
@@ -597,7 +600,19 @@ try {
         else {
             Assert ($afterHoldApply.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $afterHoldApply.Stderr -ExpectedToken canonical-apply-interlocked) -and (Test-CommandResult -Document $afterHoldApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken canonical-apply-interlocked)) 'after releasing the repo lock, setup Apply remains canonical-apply-interlocked'
         }
+
+
+    # The deliberately invalid prefix was never accepted by any Apply above.
+    # Remove only the exact seeded bytes, after checking ownership and shape.
+    $null = Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $fixturePartialBase
+    $partialEntries = @([IO.Directory]::EnumerateFileSystemEntries($fixturePartialBase))
+    if ($partialEntries.Count -ne 1 -or $partialEntries[0] -cne $fixturePartialMarker -or
+        [IO.File]::ReadAllText($fixturePartialMarker) -cne 'owned partial-prefix refusal fixture') {
+        throw 'partial-prefix-fixture-changed-unexpectedly'
     }
+    $null = Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $fixturePartialMarker
+    [IO.File]::Delete($fixturePartialMarker)
+    [IO.Directory]::Delete($fixturePartialBase)
 
     $recoverRepo = Join-Path $testRoot 'lock-order-recover-repo'
     Initialize-TestRepo -Path $recoverRepo
@@ -645,10 +660,10 @@ try {
     $recoverDry = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-DryRun', '-PlanPath', $recoverPlan)
     $recoverDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $recoverDry -EvidenceRoot $evidenceRoot
     Assert ($recoverDry.Code -eq 0 -and (Test-CommandResult -Document $recoverDryDocument -Result PASS -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-plan-created)) 'recover DryRun still writes one plan without taking global'
-    $recoverControlBefore = Get-TestControlBaseHash -ControlBase ([string]$completeContext.ControlBase)
+    $recoverControlBefore = Get-TestControlBaseHash -ControlBase ([string]$partialContext.ControlBase)
     $recoverApply = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
     $recoverApplyDocument = Get-ValidatedCanonicalCommandResult -Invocation $recoverApply -EvidenceRoot $evidenceRoot
-    $recoverControlAfter = Get-TestControlBaseHash -ControlBase ([string]$completeContext.ControlBase)
+    $recoverControlAfter = Get-TestControlBaseHash -ControlBase ([string]$partialContext.ControlBase)
     if ($script:IsReleased) {
         Assert ($recoverApply.Code -eq 0 -and [string] $recoverApply.Stderr -ceq '' -and (Test-CommandResult -Document $recoverApplyDocument -Result PASS -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-applied)) 'recover Apply completes the reviewed abandon under the released policy'
     }
@@ -657,21 +672,7 @@ try {
     }
     Assert ($recoverControlBefore -ceq $recoverControlAfter) 'recover Apply is zero-write on ControlBase claims and prefix'
 
-    if ($completeOk) {
-        $recoverHolderGlobal = $null
-        try {
-            $recoverHolderGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $completeContext
-            $recoverBusy = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
-            Assert-CanonicalCommandFailure -Invocation $recoverBusy -EvidenceRoot $evidenceRoot -CommandKind canonical-recover-abandon -MessageToken operation-lock-busy -Message 'COMPLETE recover Apply against a held global emits operation-lock-busy' -Result WARN -ExitCode 1
-        }
-        finally {
-            if ($null -ne $recoverHolderGlobal) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $recoverHolderGlobal }
-        }
-        $recoverReleased = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
-        $recoverReleasedDocument = Get-ValidatedCanonicalCommandResult -Invocation $recoverReleased -EvidenceRoot $evidenceRoot
-        Assert ($recoverReleased.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $recoverReleased.Stderr -ExpectedToken canonical-recovery-apply-interlocked) -and (Test-CommandResult -Document $recoverReleasedDocument -Result FAIL -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-apply-interlocked)) 'after the global holder releases, recover Apply returns to canonical-recovery-apply-interlocked'
-    }
-    else {
+
         $recoverLockBusy = Enter-CanonicalRepoLock -LockPath ([string]$recoverPaths.LockPath)
         try {
             $recoverHeld = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $recoverRepo, '-Action', 'abandon', '-TransactionId', $recoverId, '-Apply', '-PlanPath', $recoverPlan)
@@ -686,19 +687,17 @@ try {
         else {
             Assert ($recoverAfterHold.Code -eq 75 -and (Test-ExactDiagnosticToken -Stderr $recoverAfterHold.Stderr -ExpectedToken canonical-recovery-apply-interlocked) -and (Test-CommandResult -Document $recoverAfterHoldDocument -Result FAIL -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-apply-interlocked)) 'after releasing the repo lock, recover Apply returns to canonical-recovery-apply-interlocked'
         }
-    }
 
-    Write-Host "`n[production engines under a held sandbox capability]" -ForegroundColor Cyan
-    # Task 7 Step 1: while the policy stays interlocked, a held internal
-    # capability is the only route from the public CLIs to the promoted
-    # production engines. The fixture repository, every reviewed plan, and the
-    # recovery fixture roots live inside the sandbox so the capability
-    # containment passes. The first-time setup route additionally bootstraps
-    # the real identity-derived private roots exactly like the
-    # disposable-identity lab; when such a base already exists this machine's
-    # setup Apply fails closed instead, and that typed contract is asserted
-    # rather than the committed sequence.
-    $engineSandboxRoot = Join-Path ([IO.Path]::GetTempPath()) ('canonical-engine-sandbox-' + [Guid]::NewGuid().ToString('N'))
+
+    }
+    else {
+        . (Join-Path $RepoRoot 'scripts/root-claims-registry-common.ps1')
+        . (Join-Path $RepoRoot 'scripts/canonical-recovery-common.ps1')
+    }
+    Write-CommandResultTestPhase 'production engine fixture preparation'
+    # The capability covers the whole owned fixture, including the identity's
+    # private prefix, bootstrap lock, recovery root and copied tool cache.
+    $engineSandboxRoot = Join-Path $testRoot 'engine'
     $engineRepo = Join-Path $engineSandboxRoot 'repo'
     [IO.Directory]::CreateDirectory($engineSandboxRoot) | Out-Null
     Initialize-TestRepo -Path $engineRepo -SkillLayout
@@ -707,7 +706,7 @@ try {
     & git -C $engineRepo commit --quiet -m engine-fixture
     if ($LASTEXITCODE -ne 0) { throw 'Unable to commit the engine sandbox fixture.' }
 
-    Write-Host '  [recover apply engine]' -ForegroundColor DarkCyan
+    Write-CommandResultTestPhase 'recover apply engine'
     $engineRecoverPrivate = Join-Path $engineSandboxRoot 'recover-private'
     $engineRecoverRecovery = Join-Path $engineRecoverPrivate 'recovery'
     $engineRecoverControl = Join-Path $engineRecoverPrivate 'control'
@@ -752,7 +751,7 @@ try {
     $engineRecoverDry = Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot', $engineRepo, '-Action', 'abandon', '-TransactionId', $engineRecoverId, '-DryRun', '-PlanPath', $engineRecoverPlan)
     $engineRecoverDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $engineRecoverDry -EvidenceRoot $evidenceRoot
     Assert ($engineRecoverDry.Code -eq 0 -and (Test-CommandResult -Document $engineRecoverDryDocument -Result PASS -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-plan-created)) 'the sandboxed fixture publishes a reviewed recovery plan'
-    $engineRecoverApply = Invoke-SafetySandboxScript -SandboxRoot $engineSandboxRoot -ScriptPath $recoveryScript -Arguments @('-RepoRoot', $engineRepo, '-Action', 'abandon', '-TransactionId', $engineRecoverId, '-Apply', '-PlanPath', $engineRecoverPlan)
+    $engineRecoverApply = Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $recoveryScript -Arguments @('-RepoRoot', $engineRepo, '-Action', 'abandon', '-TransactionId', $engineRecoverId, '-Apply', '-PlanPath', $engineRecoverPlan)
     $engineRecoverApplyDocument = Get-ValidatedSandboxCanonicalCommandResult -Invocation $engineRecoverApply -EvidenceRoot $evidenceRoot
     Assert ($engineRecoverApply.Code -eq 0 -and (Test-CommandResult -Document $engineRecoverApplyDocument -Result PASS -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-applied) -and [string]$engineRecoverApplyDocument.PlanHash -ceq [string]$engineRecoverDryDocument.PlanHash) 'recover Apply under a held capability reaches the promoted recovery engine and publishes the committed PASS result'
     $engineRecoverStates = @(Get-CanonicalAllTransactionStates -TransactionsRoot ([string]$engineRecoverPaths.TransactionsRoot))
@@ -761,19 +760,20 @@ try {
     $engineRecoverStatusDocument = Get-ValidatedCanonicalCommandResult -Invocation $engineRecoverStatus -EvidenceRoot $evidenceRoot
     Assert ($engineRecoverStatus.Code -eq 0 -and (Test-CommandResult -Document $engineRecoverStatusDocument -Result PASS -CommandKind canonical-recover-status -MessageToken no-canonical-transaction)) 'after the engine run, recover status reports no unfinished transaction'
 
-    Write-Host '  [setup apply engine]' -ForegroundColor DarkCyan
+    Write-CommandResultTestPhase 'setup apply engine'
     $engineContext = Resolve-HomeAuthorityContextFromIdentity -Identity (Get-WindowsHomeAuthorityIdentity)
-    $enginePrivateBase = [string]$engineContext.PrivateRootBase
-    $engineBootstrapLock = [string]$engineContext.ControlBootstrapLockPath
-    $enginePrivateBaseExistedBefore = (Test-Path -LiteralPath $enginePrivateBase) -or (Test-Path -LiteralPath $engineBootstrapLock)
     $engineClaimPath = $null
-    try {
+    & {
         $engineSetupPlan = Join-Path $engineSandboxRoot 'setup-plan.json'
         $engineSetupDry = Invoke-ScriptStreams -Script $setupScript -Arguments @('-DryRun', '-RepoRoot', $engineRepo, '-PlanPath', $engineSetupPlan)
         $engineSetupDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $engineSetupDry -EvidenceRoot $evidenceRoot
         Assert ($engineSetupDry.Code -eq 0 -and (Test-CommandResult -Document $engineSetupDryDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-plan-created)) 'engine fixture publishes a reviewed setup plan'
-        $engineSetupApply = Invoke-SafetySandboxScript -SandboxRoot $engineSandboxRoot -ScriptPath $setupScript -Arguments @('-Apply', '-RepoRoot', $engineRepo, '-PlanPath', $engineSetupPlan)
+        $engineSelection = Get-CanonicalPrivateRootSelection -RepoRoot $engineRepo
+        $null = Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path ([string]$engineSelection.CanonicalRecoveryRoot)
+        Assert (-not (Test-Path -LiteralPath ([string]$engineSelection.CanonicalRecoveryRoot))) 'pristine setup starts with no canonical recovery root'
+        $engineSetupApply = Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $setupScript -Arguments @('-Apply', '-RepoRoot', $engineRepo, '-PlanPath', $engineSetupPlan)
         $engineSetupApplyDocument = Get-ValidatedSandboxCanonicalCommandResult -Invocation $engineSetupApply -EvidenceRoot $evidenceRoot
+        Assert ($engineSetupApply.Code -eq 0) 'pristine isolated setup Apply must succeed; refusal is not an alternate passing outcome'
         if ($engineSetupApply.Code -eq 0) {
             Assert ((Test-CommandResult -Document $engineSetupApplyDocument -Result PASS -CommandKind canonical-setup -MessageToken canonical-apply-committed) -and [string]$engineSetupApplyDocument.PlanHash -ceq [string]$engineSetupDryDocument.PlanHash) 'first-time setup Apply under a held capability completes the SetupBootstrap sequence with a committed PASS result'
             $engineBootstrapStatus = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $engineContext
@@ -785,11 +785,58 @@ try {
             $enginePlanDocument = Read-CanonicalTransactionPlan -PlanPath $engineSetupPlan -RepoRoot $engineRepo -ExpectedOperationKind setup
             $engineClaimDocument = if (Test-Path -LiteralPath $engineClaimPath -PathType Leaf) { ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($engineClaimPath, [Text.UTF8Encoding]::new($false, $true))) } else { $null }
             Assert (($null -ne $engineClaimDocument) -and ((Get-SemanticJsonHash -InputObject $engineClaimDocument) -ceq [string]$enginePlanDocument.PlanPayload.ExpectedRootClaimHash)) 'the deferred root claim is published exactly at the journal-bound control-base locator'
+            $claimAclAccepted = $false
+            $claimParentHandles = $null
+            $claimCapture = $null
+            try {
+                $null = Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $engineClaimPath
+                $claimParentReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetDirectoryName($engineClaimPath)) -OwnershipReceiver $claimParentReceiver
+                $claimParentHandles = $claimParentReceiver.GetDeliveredExact()
+                $claimCapture = Open-SealedRegistryJsonCapture -ParentHandle $claimParentHandles[$claimParentHandles.Count-1] -Name ([IO.Path]::GetFileName($engineClaimPath)) -TokenSid ([string]$identityFixture.Identity.TokenSid) -Label 'public setup claim'
+                $claimAclAccepted = $true
+            }
+            catch { Write-Host ("claim security diagnostic: {0}" -f $_.Exception.Message) }
+            finally {
+                if ($null -ne $claimCapture) { $claimCapture.Handle.Dispose() }
+                if ($null -ne $claimParentHandles) { Close-SafeDirectoryContainmentChain -Handles $claimParentHandles }
+            }
+            Assert $claimAclAccepted 'the public setup claim has a held current-user-only file ACL after publication'
             Assert ((Test-Path -LiteralPath ([string]$enginePaths.SetupStatePath) -PathType Leaf) -and ((Get-CanonicalSetupStatus -RepoRoot $engineRepo) -ceq 'canonical-ready')) 'the final setup state is published and the repository reports canonical-ready'
             $engineSetupStates = @(Get-CanonicalAllTransactionStates -TransactionsRoot ([string]$enginePaths.TransactionsRoot))
             Assert (@($engineSetupStates | Where-Object { -not [bool]$_.IsTerminal }).Count -eq 0 -and @($engineSetupStates | Where-Object { [string]$_.Outcome -ceq 'committed' }).Count -eq 1) 'the setup journal closes terminal and committed'
+            Write-CommandResultTestPhase 'complete authority recovery and lock contention'
+            $completeRecoverId=[Guid]::NewGuid().ToString('D').ToLowerInvariant()
+            $completeRecoverNamespace=Join-Path $enginePaths.TransactionsRoot (Join-Path $engineGit.WorktreeId $completeRecoverId)
+            $completeRecoverHeader=[ordered]@{
+                SchemaVersion=1;ArtifactKind='canonical-journal-header';TransactionId=$completeRecoverId;CanonicalOperationKind='normalize'
+                OriginalDocumentHash=('b'*64);OriginalPlanHash=('c'*64);RepoId=$engineRepoId
+                GitCommonDirHash=[string]$engineGit.GitCommonDirHash;WorktreeId=[string]$engineGit.WorktreeId
+                TransactionNamespace=[IO.Path]::GetFullPath($completeRecoverNamespace)
+                RecoveryTransactionRoot=Join-Path $engineSelection.CanonicalRecoveryRoot (Join-Path $engineGit.WorktreeId $completeRecoverId)
+                ExpectedPostconditionsHash=('d'*64);Targets=@()
+            }
+            $null=New-CanonicalJournalHeader -Document $completeRecoverHeader -TransactionNamespace $completeRecoverNamespace
+            $completeRecoverPlan=Join-Path $engineSandboxRoot 'complete-authority-recover.json'
+            $completeRecoverDry=Invoke-ScriptStreams -Script $recoveryScript -Arguments @('-RepoRoot',$engineRepo,'-Action','abandon','-TransactionId',$completeRecoverId,'-DryRun','-PlanPath',$completeRecoverPlan)
+            Assert ($completeRecoverDry.Code -eq 0) 'complete authority produces a reviewed abandon plan for an unfinished reservation'
+            $completeRecoverBefore=Get-TestDirectoryTreeHash -Root $completeRecoverNamespace
+            $recoverHolder=Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $engineContext
+            try {
+                $completeRecoverBusy=Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $recoveryScript -Arguments @('-RepoRoot',$engineRepo,'-Action','abandon','-TransactionId',$completeRecoverId,'-Apply','-PlanPath',$completeRecoverPlan)
+                Assert ($completeRecoverBusy.Code -eq 1 -and $completeRecoverBusy.Out -match 'operation-lock-busy' -and (Get-TestDirectoryTreeHash -Root $completeRecoverNamespace) -ceq $completeRecoverBefore) 'complete authority recovery refuses a global lock contender without changing its journal'
+            }
+            finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $recoverHolder }
+            $completeRecoverApply=Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $recoveryScript -Arguments @('-RepoRoot',$engineRepo,'-Action','abandon','-TransactionId',$completeRecoverId,'-Apply','-PlanPath',$completeRecoverPlan)
+            $completeRecoverResult=Get-ValidatedSandboxCanonicalCommandResult -Invocation $completeRecoverApply -EvidenceRoot $evidenceRoot
+            Assert ($completeRecoverApply.Code -eq 0 -and (Test-CommandResult -Document $completeRecoverResult -Result PASS -CommandKind canonical-recover-abandon -MessageToken canonical-recovery-applied)) 'complete authority recovery succeeds with one typed PASS after the global holder releases'
+            $completeRecoverState=Read-CanonicalJournalDirectory -TransactionNamespace $completeRecoverNamespace
+            Assert ($completeRecoverState.IsTerminal -and [string]$completeRecoverState.Outcome -ceq 'abandoned') 'complete authority recovery closes the same isolated journal terminal and abandoned'
+            $completeRecoverReplay=Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $recoveryScript -Arguments @('-RepoRoot',$engineRepo,'-Action','abandon','-TransactionId',$completeRecoverId,'-Apply','-PlanPath',$completeRecoverPlan)
+            Assert ($completeRecoverReplay.Code -ne 0 -and $completeRecoverReplay.Out -match 'reviewed-plan-consumed') 'complete authority rejects replay of the consumed recovery plan'
             # With the complete bootstrap held by this section, the skill route
             # can also prove the promoted engine end to end.
+            Write-CommandResultTestPhase 'normalize planning and registry recomputation'
             $engineCandidate = Join-Path $engineSandboxRoot 'normalize-candidate'
             $null = Copy-SafeTree -SourceRoot (Join-Path $engineRepo 'skills-source') -DestinationRoot (Join-Path $engineCandidate 'skills-source')
             New-TestSkill -Path (Join-Path $engineCandidate 'skills-source/shared/engine-new') -Name engine-new
@@ -802,41 +849,60 @@ try {
             )
             $engineNormalizeDryDocument = Get-ValidatedCanonicalCommandResult -Invocation $engineNormalizeDry -EvidenceRoot $evidenceRoot
             Assert ($engineNormalizeDry.Code -eq 0 -and (Test-CommandResult -Document $engineNormalizeDryDocument -Result PASS -CommandKind canonical-normalize -MessageToken canonical-plan-created)) 'engine fixture publishes a reviewed normalize plan'
-            $engineNormalizeApply = Invoke-SafetySandboxScript -SandboxRoot $engineSandboxRoot -ScriptPath $transactionScript -Arguments @(
+            $registryProbe = $null
+            $registryAccepted = $false
+            try {
+                $registryProbe = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot $engineRepo -RouteKind normalize -AcquisitionMode ExistingOnly -AuthorityContext $engineContext -ToolchainRoot $RepoRoot
+                $null = Get-SealedHeldLockOrderRecompute -LockOrderHandle $registryProbe -ExpectedOperationKind normalize
+                $registryAccepted = $true
+            }
+            catch {
+                Write-Host ("registry diagnostic: {0}; stack: {1}" -f $_.Exception.Message,$_.ScriptStackTrace)
+                Write-Host ("claim ACL diagnostic: {0}" -f (Get-Acl -LiteralPath $engineClaimPath).Sddl)
+            }
+            finally { if ($null -ne $registryProbe) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $registryProbe } }
+            Assert $registryAccepted 'the public setup claim is accepted by the next held registry recomputation'
+            # Exercise contention before consuming the reviewed plan. Both
+            # canonical and global holders belong to this same fixture identity.
+            Write-CommandResultTestPhase 'normalize lock contention'
+            $contenderState = {
+                [string]::Join('|', @(
+                    (Get-TestDirectoryTreeHash -Root ([string]$enginePaths.TransactionsRoot)),
+                    (Get-TestControlBaseHash -ControlBase ([string]$engineContext.ControlBase)),
+                    (Get-TestDirectoryTreeHash -Root (Join-Path $engineRepo 'skills-source')),
+                    (Get-TestDirectoryTreeHash -Root (Join-Path $engineRepo 'codex/skills'))
+                ))
+            }
+            $beforeContenders = & $contenderState
+            $holderCanonical = Enter-CanonicalRepoLock -LockPath ([string]$enginePaths.LockPath)
+            try {
+                $busyNormalize = Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $transactionScript -Arguments @('-Apply','-RepoRoot',$engineRepo,'-OperationKind','normalize','-PlanPath',$engineNormalizePlan)
+                $busyNormalizeResult = Get-ValidatedSandboxCanonicalCommandResult -Invocation $busyNormalize -EvidenceRoot $evidenceRoot
+                Assert ($busyNormalize.Code -eq 1 -and $script:lastSandboxDiagnostic -ceq 'operation-lock-busy' -and (Test-CommandResult -Document $busyNormalizeResult -Result WARN -CommandKind canonical-normalize -MessageToken operation-lock-busy)) 'complete isolated authority refuses a canonical lock contender'
+            }
+            finally { Exit-CanonicalRepoLock -LockHandle $holderCanonical }
+            $holderGlobal = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $engineContext
+            try {
+                $busyNormalize = Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $transactionScript -Arguments @('-Apply','-RepoRoot',$engineRepo,'-OperationKind','normalize','-PlanPath',$engineNormalizePlan)
+                if ($busyNormalize.Code -ne 1 -or $busyNormalize.Out -notmatch 'operation-lock-busy') { Write-Host ("global contender diagnostic: code={0}; {1}" -f $busyNormalize.Code,$busyNormalize.Out) }
+                $busyNormalizeResult = Get-ValidatedSandboxCanonicalCommandResult -Invocation $busyNormalize -EvidenceRoot $evidenceRoot
+                Assert ($busyNormalize.Code -eq 1 -and $script:lastSandboxDiagnostic -ceq 'operation-lock-busy' -and (Test-CommandResult -Document $busyNormalizeResult -Result WARN -CommandKind canonical-normalize -MessageToken operation-lock-busy)) 'complete isolated authority refuses a global lock contender'
+            }
+            finally { Exit-HomeAuthorityGlobalLiveLock -LockHandle $holderGlobal }
+            Assert ($beforeContenders -ceq (& $contenderState)) 'lock contenders leave the registry, journals, source, and generated skill trees unchanged'
+            Write-CommandResultTestPhase 'normalize Apply and replay'
+            $engineNormalizeApply = Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $transactionScript -Arguments @(
                 '-Apply', '-RepoRoot', $engineRepo, '-OperationKind', 'normalize', '-PlanPath', $engineNormalizePlan
             )
             $engineNormalizeApplyDocument = Get-ValidatedSandboxCanonicalCommandResult -Invocation $engineNormalizeApply -EvidenceRoot $evidenceRoot
+            if ($engineNormalizeApply.Code -ne 0) { Write-Host ("normalize Apply diagnostic: code={0}; {1}" -f $engineNormalizeApply.Code,$engineNormalizeApply.Out) }
             Assert ($engineNormalizeApply.Code -eq 0 -and (Test-CommandResult -Document $engineNormalizeApplyDocument -Result PASS -CommandKind canonical-normalize -MessageToken canonical-apply-committed) -and [string]$engineNormalizeApplyDocument.PlanHash -ceq [string]$engineNormalizeDryDocument.PlanHash) 'skill Apply under a held capability reaches the promoted engine and publishes the committed PASS result'
             Assert ((Test-Path -LiteralPath (Join-Path $engineRepo 'skills-source/shared/engine-new/SKILL.md')) -and (Test-Path -LiteralPath (Join-Path $engineRepo 'codex/skills/engine-new/SKILL.md'))) 'the promoted engine installed the reviewed canonical and generated bytes together'
             $engineNormalizeStates = @(Get-CanonicalAllTransactionStates -TransactionsRoot ([string]$enginePaths.TransactionsRoot))
-            Assert (@($engineNormalizeStates | Where-Object { -not [bool]$_.IsTerminal }).Count -eq 1 -and @($engineNormalizeStates | Where-Object { [string]$_.Outcome -ceq 'committed' -and [string]$_.Header.CanonicalOperationKind -ceq 'normalize' }).Count -eq 1) 'the skill journal closes exactly one terminal committed normalize transaction under the held lock order'
+            Assert (@($engineNormalizeStates | Where-Object { -not [bool]$_.IsTerminal }).Count -eq 0 -and @($engineNormalizeStates | Where-Object { [string]$_.Outcome -ceq 'committed' -and [string]$_.Header.CanonicalOperationKind -ceq 'normalize' }).Count -eq 1) 'the skill journal closes exactly one terminal committed normalize transaction under the held lock order'
+            $normalizeReplay = Invoke-CanonicalIdentityFixtureSandboxScript -Fixture $identityFixture -ScriptPath $transactionScript -Arguments @('-Apply','-RepoRoot',$engineRepo,'-OperationKind','normalize','-PlanPath',$engineNormalizePlan)
+            Assert ($normalizeReplay.Code -ne 0 -and $normalizeReplay.Out -match 'reviewed-plan-consumed|canonical-plan-stale') 'a committed reviewed plan cannot be replayed after lock release'
         }
-        else {
-            # A pre-existing private base that cannot accept this bootstrap is
-            # the reviewed manual-recovery window: the interlock returned (the
-            # run reached the authority machinery past it) and the CLI still
-            # emits exactly one typed FAIL result with the reviewed plan hash.
-            $blockedToken = [string] $script:lastSandboxDiagnostic
-            $blockedPlanHash = ''
-            if ($null -ne $engineSetupApplyDocument) {
-                if ([string]::IsNullOrEmpty($blockedToken)) { $blockedToken = [string]$engineSetupApplyDocument.MessageToken }
-                $blockedPlanHash = [string]$engineSetupApplyDocument.PlanHash
-            }
-            Assert (($engineSetupApply.Code -eq 1) -and ($blockedToken -cin @('manual-recovery-required', 'canonical-setup-already-complete')) -and (Test-CommandResult -Document $engineSetupApplyDocument -Result FAIL -CommandKind canonical-setup -MessageToken $blockedToken) -and ($blockedPlanHash -ceq [string]$engineSetupDryDocument.PlanHash)) 'a blocked first-time setup Apply under a held capability fails closed with one typed result and the reviewed plan hash'
-        }
-    }
-    finally {
-        try {
-            if ($null -ne $engineClaimPath -and (Test-Path -LiteralPath $engineClaimPath -PathType Leaf)) {
-                Remove-Item -LiteralPath $engineClaimPath -Force
-            }
-        }
-        catch { }
-        if (-not $enginePrivateBaseExistedBefore) {
-            if (Test-Path -LiteralPath $enginePrivateBase) { Remove-Item -LiteralPath $enginePrivateBase -Recurse -Force }
-            if (Test-Path -LiteralPath $engineBootstrapLock) { Remove-Item -LiteralPath $engineBootstrapLock -Force }
-        }
-        if (Test-Path -LiteralPath $engineSandboxRoot) { Remove-Item -LiteralPath $engineSandboxRoot -Recurse -Force }
     }
 }
 catch {
@@ -844,14 +910,23 @@ catch {
     Write-Host "  FAIL  unexpected exception: $($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
-    if ($script:createdRealPrivatePrefix) {
-        try { Remove-TestCreatedPrivatePrefix -Context $script:createdRealPrivateContext } catch { }
-    }
     Write-Host "`ncanonical command result tests: $script:pass passed, $script:fail failed" -ForegroundColor Cyan
-    if ($script:fail -eq 0 -and (Test-Path -LiteralPath $testRoot)) {
-        Remove-Item -LiteralPath $testRoot -Recurse -Force
-    }
 }
 
 if ($script:fail -gt 0) { exit 1 }
 exit 0
+}
+finally {
+    $cleanupStarted = $script:CommandResultClock.Elapsed.TotalSeconds
+    try { Remove-CanonicalIdentityFixture -Fixture $identityFixture }
+    finally {
+        # Module loading can fail before the phase-reporting function exists.
+        # Timing must not prevent cleanup or replace its primary exception.
+        try {
+            $elapsed = $script:CommandResultClock.Elapsed.TotalSeconds
+            Write-Host ('  timing: {0}={1:N1}s; elapsed={2:N1}s' -f $script:CommandResultPhase,($cleanupStarted-$script:CommandResultPhaseStart),$cleanupStarted)
+            Write-Host ('  timing: fixture cleanup={0:N1}s; total={1:N1}s' -f ($elapsed-$cleanupStarted),$elapsed)
+        }
+        catch { }
+    }
+}

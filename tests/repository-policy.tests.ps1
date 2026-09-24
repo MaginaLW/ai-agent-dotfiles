@@ -16,15 +16,19 @@ $ErrorActionPreference = 'Stop'
 # `canonical-recovery-apply-interlocked` with exit 75, the interlock token on
 # the public mutation surfaces). Once the reviewed release candidate flips the
 # policy, the same committed bytes pin the observed released post-Assert
-# contract instead: every surface still exits fail-closed before any production
-# write, and the canonical recovery engine runs under its own sealed binding
-# checks. The SOURCE pins on the tracked docs, the interlock function's two
+# contract instead: refusal probes use disposable inputs, and the canonical
+# recovery engine completes only inside an owned identity fixture under its
+# sealed binding checks. Expected rejection is not an identity boundary.
+# The SOURCE pins on the tracked docs, the interlock function's two
 # early returns, and the hard-closed runner/backup tokens are policy-
 # independent and stay unconditional.
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
-. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+. (Join-Path $PSScriptRoot 'helpers/canonical-identity-fixture.ps1')
+$identityFixture = New-CanonicalIdentityFixture -SourceRepoRoot $RepoRoot -Name repository-policy
+$ToolchainRoot = $identityFixture.ToolchainRoot
+. (Join-Path $ToolchainRoot 'scripts/live-safety-interlock.ps1')
 
 # Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
 # same committed suite bytes assert the interlocked fail-closed contract while
@@ -33,12 +37,17 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
 $script:IsReleased = ($policyState -eq 'released')
 
-$work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-repository-policy-$([Guid]::NewGuid().ToString('N'))"
+$work = Join-Path $identityFixture.Root 'cases'
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 function Read-RepoText {
     param([Parameter(Mandatory)] [string] $RelativePath)
     return [System.IO.File]::ReadAllText((Join-Path $RepoRoot $RelativePath))
+}
+
+function Invoke-PolicyFixtureScript {
+    param([Parameter(Mandatory)] [string] $ScriptPath, [string[]] $Arguments = @())
+    return Invoke-CanonicalIdentityFixtureScript -Fixture $identityFixture -ScriptPath $ScriptPath -Arguments $Arguments
 }
 
 function Get-LiteralOccurrenceCount {
@@ -86,7 +95,7 @@ function Initialize-CanonicalReadyFixture {
     foreach ($directory in @($recovery, $control, $backup, $probe)) { [System.IO.Directory]::CreateDirectory($directory) | Out-Null }
     foreach ($directory in @($recovery, $control, $backup)) { Set-CurrentUserOnlyAcl -Path $directory }
     [System.IO.Directory]::CreateDirectory((Join-Path $control 'canonical-roots')) | Out-Null
-    $payload = New-CanonicalSetupPlanPayload -RepoRoot $Path -CanonicalRecoveryRoot $recovery -ControlBase $control -BackupRoot $backup -ProbeRoot $probe -ToolchainRoot $RepoRoot
+    $payload = New-CanonicalSetupPlanPayload -RepoRoot $Path -CanonicalRecoveryRoot $recovery -ControlBase $control -BackupRoot $backup -ProbeRoot $probe -ToolchainRoot $ToolchainRoot
     $finalState = New-CanonicalFinalSetupState -PlanPayload $payload -RepoRoot $Path
     $git = Get-CanonicalGitContext -RepoRoot $Path
     $paths = Get-CanonicalTransactionContractPaths -GitContext $git
@@ -238,7 +247,7 @@ try {
     Assert-TestCondition ($assertBodyText.Contains('Test-LiveSafetySandboxCapability -Paths $Paths) { return }')) 'the second early return is the held sandbox capability'
     Assert-TestCondition ($assertBodyText -notmatch '\$env:|GetEnvironmentVariable') 'the interlock assert reads no environment variables directly'
 
-    . (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+    . (Join-Path $ToolchainRoot 'scripts/live-safety-interlock.ps1')
     $liveSafetyPolicy = Get-LiveSafetyPolicy
     Assert-TestCondition ([string] $liveSafetyPolicy.InterlockDiagnostic -ceq 'safety-protocol-upgrade-required') 'the tracked policy diagnostic token is safety-protocol-upgrade-required'
     Assert-TestCondition (-not (Test-LiveSafetySandboxCapability -Paths @($work))) 'a plain test process holds no sandbox capability'
@@ -292,10 +301,10 @@ try {
         Assert-TestCondition ($automationSafetyText.Contains($reliedOnNeedle)) "automation-safety still pins the net case: $reliedOnNeedle"
     }
 
-    Write-Host '[authority apply refuses outside the sandbox]'
+    Write-Host '[authority apply refuses the invalid fixture input]'
     $fakeRepo = Join-Path $work 'fake-repo'
     New-Item -ItemType Directory -Path $fakeRepo -Force | Out-Null
-    $authorityResult = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/authority-harness-env.ps1') -Arguments @(
+    $authorityResult = Invoke-PolicyFixtureScript -ScriptPath (Join-Path $ToolchainRoot 'scripts/authority-harness-env.ps1') -Arguments @(
         '-Action', 'adopt', '-Name', 'missing', '-RepoRoot', $fakeRepo,
         '-PlanPath', (Join-Path $work 'authority-plan.json'), '-Apply'
     )
@@ -318,13 +327,12 @@ try {
     # writes no plan). Pinned here is the cheap public DryRun fact: outside the
     # internal sandbox it fails closed before any plan derivation and writes no
     # plan at all (zero live writes). While interlocked the resolver itself
-    # refuses; on a released commit the shared resolver resolves the real
-    # Windows identity and the run fails closed at the released identity
-    # authority check (or, on a host with a complete authority, at the next
-    # reviewed gate). The sandbox-hosted plan-only derivation is covered by
-    # tests/live-recovery.tests.ps1.
+    # refuses; on a released commit the shared resolver resolves this fixture's
+    # disposable identity and refuses its missing authority. The test does not
+    # inspect or depend on the host user's existing authority. Sandbox-hosted
+    # plan-only derivation is covered by tests/live-recovery.tests.ps1.
     $liveRecoverPlanPath = Join-Path $work 'live-recovery-plan.json'
-    $liveRecoverResult = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/recover-live-transaction.ps1') -Arguments @(
+    $liveRecoverResult = Invoke-PolicyFixtureScript -ScriptPath (Join-Path $ToolchainRoot 'scripts/recover-live-transaction.ps1') -Arguments @(
         '-Action', 'abandon', '-TransactionId', ([Guid]::NewGuid().ToString('D')),
         '-DryRun', '-PlanPath', $liveRecoverPlanPath, '-RepoRoot', $fakeRepo
     )
@@ -340,7 +348,7 @@ try {
     $runnerRepo = Join-Path $work 'runner-repo'
     $runnerPolicy = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'scripts/runner-policy.psd1')
     foreach ($relative in @($runnerPolicy.ToolchainPaths | Sort-Object -Unique)) {
-        $source = Join-Path $RepoRoot $relative
+        $source = Join-Path $ToolchainRoot $relative
         $destination = Join-Path $runnerRepo $relative
         [System.IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
         [System.IO.File]::Copy($source, $destination, $false)
@@ -363,16 +371,24 @@ try {
     & git -C $runnerRepo add -- .
     & git -C $runnerRepo commit -qm 'repository policy runner fixture'
     if ($LASTEXITCODE -ne 0) { throw 'Runner fixture commit failed.' }
-    $setupResult = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/setup.ps1') -Arguments @('-RepoRoot', $runnerRepo, '-ApproveRunner')
+    $setupResult = Invoke-PolicyFixtureScript -ScriptPath (Join-Path $ToolchainRoot 'scripts/setup.ps1') -Arguments @('-RepoRoot', $runnerRepo, '-ApproveRunner')
     Assert-TestCondition ($setupResult.Code -eq 0) 'the runner fixture approves its extended toolchain bundle'
-    . (Join-Path $RepoRoot 'scripts/approved-runner-common.ps1')
-    . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
+    . (Join-Path $ToolchainRoot 'scripts/approved-runner-common.ps1')
+    . (Join-Path $ToolchainRoot 'scripts/canonical-transaction-common.ps1')
+    $parentIdentity = Get-WindowsHomeAuthorityIdentity
+    Assert-TestCondition ([string] $parentIdentity.ProfileRoot -ceq [string] $identityFixture.Home) 'parent canonical helpers resolve only the owned fixture identity'
     $runnerState = Get-ApprovedRunnerState -RepoRoot $runnerRepo
     $null = Initialize-CanonicalReadyFixture -Path $runnerRepo -SlotRoot (Join-Path $work 'runner-canonical')
+    # The approved bundle is copied from the adapted toolchain, but its entry
+    # lives in the fixture repository's Git-private namespace. The manual
+    # trigger is a separately pinned hard-closed route; never substitute a
+    # production runner path here.
+    $null = Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path ([string] $runnerState.RunnerEntryPath)
+    $null = Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $runnerRepo
     $manualRun = Invoke-TestProcess -ScriptPath ([string] $runnerState.RunnerEntryPath) -Arguments @('-RepoRoot', $runnerRepo, '-Trigger', 'manual')
     Assert-TestCondition (($manualRun.Code -eq 73) -and ($manualRun.Out -match 'safety-protocol-upgrade-required')) 'the approved runner manual trigger returns the interlock token with exit 73 and zero routing'
 
-    Write-Host '[canonical public apply stays interlocked]'
+    Write-Host '[canonical public apply preserves the policy-state contract]'
     # Policy-state-aware pin (see the header note): interlocked hard stop below;
     # released post-Assert contract in the branched assertion.
     $canonicalRepo = Join-Path $work 'canonical-repo'
@@ -401,14 +417,14 @@ try {
     New-FixtureSkill -Directory $canonicalInput -Name 'new-skill' -Text 'candidate'
     $canonicalPlan = Join-Path $canonicalExternal 'repository-policy-plan.json'
     $canonicalPreflight = Join-Path $canonicalExternal 'repository-policy-preflight'
-    $canonicalDryRun = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/canonical-transaction.ps1') -Arguments @(
+    $canonicalDryRun = Invoke-PolicyFixtureScript -ScriptPath (Join-Path $ToolchainRoot 'scripts/canonical-transaction.ps1') -Arguments @(
         '-RepoRoot', $canonicalRepo, '-OperationKind', 'normalize', '-DryRun', '-PlanPath', $canonicalPlan,
         '-CandidateWorkspace', $candidate, '-InputPath', $canonicalInput,
         '-RewriteList', 'frontmatter-normalized', '-CanonicalPreflightOutputRoot', $canonicalPreflight
     )
     if ($canonicalDryRun.Code -ne 0) { Write-Host $canonicalDryRun.Out }
     Assert-TestCondition (($canonicalDryRun.Code -eq 0) -and (Test-Path -LiteralPath $canonicalPlan)) 'the canonical fixture publishes one external create-new reviewed plan'
-    $canonicalApply = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/canonical-transaction.ps1') -Arguments @(
+    $canonicalApply = Invoke-PolicyFixtureScript -ScriptPath (Join-Path $ToolchainRoot 'scripts/canonical-transaction.ps1') -Arguments @(
         '-RepoRoot', $canonicalRepo, '-OperationKind', 'normalize', '-Apply', '-PlanPath', $canonicalPlan
     )
     if ($script:IsReleased) {
@@ -422,11 +438,11 @@ try {
         Assert-TestCondition (($canonicalApply.Code -eq 75) -and ($canonicalApply.Out -match 'canonical-apply-interlocked')) 'canonical public Apply revalidates the reviewed plan and hard-stops interlocked with exit 75'
     }
 
-    Write-Host '[canonical recovery public apply stays interlocked]'
+    Write-Host '[canonical recovery public apply preserves the policy-state contract]'
     # Policy-state-aware pin (see the header note); the released branch pins the
     # observed post-Assert production recovery engine outcome.
     $canonicalGit = Initialize-CanonicalReadyFixture -Path $canonicalRepo -SlotRoot (Join-Path $work 'canonical-slot')
-    Assert-TestCondition ((Get-CanonicalSetupStatus -RepoRoot $canonicalRepo -ToolchainRoot $RepoRoot) -ceq 'canonical-ready') 'the canonical recovery fixture reports canonical-ready'
+    Assert-TestCondition ((Get-CanonicalSetupStatus -RepoRoot $canonicalRepo -ToolchainRoot $ToolchainRoot) -ceq 'canonical-ready') 'the canonical recovery fixture reports canonical-ready'
     $transactionId = [Guid]::NewGuid().ToString('D')
     $transactionNamespace = Join-Path (Get-CanonicalTransactionContractPaths -GitContext $canonicalGit).TransactionsRoot (Join-Path $canonicalGit.WorktreeId $transactionId)
     $recoveryTransactionRoot = Join-Path (Join-Path $work 'canonical-slot/recovery') (Join-Path $canonicalGit.WorktreeId $transactionId)
@@ -441,20 +457,19 @@ try {
     }
     $null = New-CanonicalJournalHeader -Document $journalHeader -TransactionNamespace $transactionNamespace
     $recoveryPlan = Join-Path $work 'repository-policy-recovery-plan.json'
-    $recoveryDryRun = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/recover-canonical-transaction.ps1') -Arguments @(
+    $recoveryDryRun = Invoke-PolicyFixtureScript -ScriptPath (Join-Path $ToolchainRoot 'scripts/recover-canonical-transaction.ps1') -Arguments @(
         '-RepoRoot', $canonicalRepo, '-Action', 'abandon', '-TransactionId', $transactionId, '-DryRun', '-PlanPath', $recoveryPlan
     )
     if ($recoveryDryRun.Code -ne 0) { Write-Host $recoveryDryRun.Out }
     Assert-TestCondition (($recoveryDryRun.Code -eq 0) -and (Test-Path -LiteralPath $recoveryPlan)) 'the canonical recovery DryRun derives one reviewed plan from the unfinished journal'
-    $recoveryApply = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/recover-canonical-transaction.ps1') -Arguments @(
+    $recoveryApply = Invoke-PolicyFixtureScript -ScriptPath (Join-Path $ToolchainRoot 'scripts/recover-canonical-transaction.ps1') -Arguments @(
         '-RepoRoot', $canonicalRepo, '-Action', 'abandon', '-TransactionId', $transactionId, '-Apply', '-PlanPath', $recoveryPlan
     )
     if ($script:IsReleased) {
-        # Observed released contract on a host whose home-authority bootstrap
-        # is not complete: the Assert returns, the lock order is skipped (the
-        # bootstrap gate stays fail-closed), and the production recovery engine
-        # runs the reviewed abandon to completion against the fixture's own
-        # sealed journal namespace.
+        # This fixture owns a deliberately missing home-authority bootstrap.
+        # The Assert returns, the lock order is skipped (the bootstrap gate
+        # stays fail-closed), and the production engine completes the reviewed
+        # abandon against the fixture's sealed journal namespace.
         Assert-TestCondition (($recoveryApply.Code -eq 0) -and ($recoveryApply.Out -match 'canonical-recovery-applied')) 'canonical public recovery Apply proceeds past the released Assert and the production engine completes the reviewed abandon (released)'
     }
     else {
@@ -464,5 +479,5 @@ try {
     Write-Host 'repository policy tests: PASS'
 }
 finally {
-    if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    Remove-CanonicalIdentityFixture -Fixture $identityFixture
 }

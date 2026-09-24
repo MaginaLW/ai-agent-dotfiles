@@ -1001,7 +1001,15 @@ namespace AiAgentDotfiles {
                     Length=capture.ReadResult.Length, Sha256=capture.ReadResult.Sha256 };
         }
         public static SafeRegularFileHandle OpenAndHashChildRegularFile(SafeDirectoryHandle parent, string name) {
-            SafeFileHandle handle = OpenRelative(parent, name, FILE_READ_DATA | FILE_READ_ATTRIBUTES | READ_CONTROL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE);
+            return OpenAndHashChildRegularFileCore(parent, name, false);
+        }
+        public static SafeRegularFileHandle OpenAndHashChildRegularFileForRename(SafeDirectoryHandle parent, string name) {
+            return OpenAndHashChildRegularFileCore(parent, name, true);
+        }
+        private static SafeRegularFileHandle OpenAndHashChildRegularFileCore(SafeDirectoryHandle parent, string name, bool allowRename) {
+            uint access = FILE_READ_DATA | FILE_READ_ATTRIBUTES | READ_CONTROL;
+            if (allowRename) access |= DELETE;
+            SafeFileHandle handle = OpenRelative(parent, name, access, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE);
             FileStream stream = null;
             try {
                 FileIdentityInfo info = ReadInfo(handle);
@@ -1031,10 +1039,17 @@ namespace AiAgentDotfiles {
             }
         }
         public static SafeRegularFileHandle CreateAndHashChildRegularFile(SafeDirectoryHandle parent, string name, byte[] bytes) {
+            return CreateAndHashChildRegularFileCore(parent, name, bytes, null);
+        }
+        public static SafeRegularFileHandle CreateAndHashChildRegularFileWithSecurityDescriptor(SafeDirectoryHandle parent, string name, byte[] bytes, string securityDescriptorSddl) {
+            if (String.IsNullOrWhiteSpace(securityDescriptorSddl)) throw new ArgumentException("Security descriptor is required.", "securityDescriptorSddl");
+            return CreateAndHashChildRegularFileCore(parent, name, bytes, securityDescriptorSddl);
+        }
+        private static SafeRegularFileHandle CreateAndHashChildRegularFileCore(SafeDirectoryHandle parent, string name, byte[] bytes, string securityDescriptorSddl) {
             if (bytes == null) throw new ArgumentNullException("bytes");
             SafeFileHandle handle = OpenRelative(parent, name,
                 GENERIC_READ | GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES,
-                FILE_SHARE_READ, FILE_CREATE, FILE_NON_DIRECTORY_FILE);
+                FILE_SHARE_READ, FILE_CREATE, FILE_NON_DIRECTORY_FILE, securityDescriptorSddl);
             FileStream stream = null;
             FileIdentityInfo created = null;
             try {
@@ -1079,6 +1094,24 @@ namespace AiAgentDotfiles {
                     throw new AggregateException("Regular-file create/write and exact failure rollback both failed.", primaryFailure, cleanupFailure);
                 throw;
             }
+        }
+        public static void AssertHeldRegularFileSecurityDescriptor(SafeRegularFileHandle file, string securityDescriptorSddl) {
+            FileIdentityInfo info = ValidateHeldRegularFileState(file, "before security descriptor validation");
+            DirectorySecuritySnapshot snapshot = GetRegularFileSecuritySnapshot(file);
+            var expected = new RawSecurityDescriptor(securityDescriptorSddl);
+            var actual = new RawSecurityDescriptor(snapshot.Sddl);
+            if (!String.Equals(snapshot.Identity, info.Identity, StringComparison.Ordinal) || snapshot.LinkCount != 1 ||
+                expected.Owner == null || actual.Owner == null || !expected.Owner.Equals(actual.Owner) ||
+                expected.DiscretionaryAcl == null || actual.DiscretionaryAcl == null ||
+                (expected.ControlFlags & ControlFlags.DiscretionaryAclProtected) != (actual.ControlFlags & ControlFlags.DiscretionaryAclProtected))
+                throw new InvalidOperationException("Held regular file owner/DACL differs from its create-time descriptor.");
+            byte[] expectedAcl = new byte[expected.DiscretionaryAcl.BinaryLength];
+            byte[] actualAcl = new byte[actual.DiscretionaryAcl.BinaryLength];
+            expected.DiscretionaryAcl.GetBinaryForm(expectedAcl, 0);
+            actual.DiscretionaryAcl.GetBinaryForm(actualAcl, 0);
+            if (!CryptographicOperations.FixedTimeEquals(expectedAcl, actualAcl))
+                throw new InvalidOperationException("Held regular file owner/DACL differs from its create-time descriptor.");
+            ValidateHeldRegularFileState(file, "after security descriptor validation");
         }
         public static SafeRegularFileHandle CreateAndSealChildRegularFile(SafeDirectoryHandle parent, string name, byte[] bytes) {
             if (bytes == null) throw new ArgumentNullException("bytes");

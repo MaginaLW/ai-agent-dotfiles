@@ -1,10 +1,14 @@
 #requires -Version 7.0
 [CmdletBinding()]
-param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path)
+param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path,[ValidateSet('all','claim-acl')][string]$Section='all')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $RepoRoot=(Resolve-Path -LiteralPath $RepoRoot).Path
+. (Join-Path $RepoRoot 'tests/helpers/canonical-identity-fixture.ps1')
+$identityFixture=New-CanonicalIdentityFixture -SourceRepoRoot $RepoRoot -Name canonical-recovery
+try{
+$RepoRoot=$identityFixture.ToolchainRoot
 . (Join-Path $RepoRoot 'scripts/canonical-recovery-common.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/canonical-reviewed-recovery-engine.ps1')
 
@@ -31,18 +35,10 @@ $secondReadyIndex=$sealedRecoverySource.IndexOf('Assert-CanonicalRecoveryOutcome
 $completeIndex=$sealedRecoverySource.IndexOf('-Phase COMPLETE',$secondReadyIndex,[StringComparison]::Ordinal)
 Assert ($appliedIndex -ge 0 -and $firstReadyIndex -gt $appliedIndex -and $resultIndex -gt $firstReadyIndex -and $secondReadyIndex -gt $resultIndex -and $completeIndex -gt $secondReadyIndex) 'reviewed recovery revalidates disk tuples after ACTION_APPLIED before result and again before COMPLETE'
 
-function Invoke-Script{param([string]$Script,[string[]]$Arguments)$out=& pwsh -NoProfile -File $Script @Arguments 2>&1|Out-String;[pscustomobject]@{Code=$LASTEXITCODE;Out=$out}}
+function Invoke-Script{param([string]$Script,[string[]]$Arguments)Invoke-CanonicalIdentityFixtureScript -Fixture $identityFixture -ScriptPath $Script -Arguments $Arguments}
 function Invoke-ScriptStreams{
     param([string]$Script,[string[]]$Arguments)
-    $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=(Get-Command pwsh).Source;$start.UseShellExecute=$false;$start.CreateNoWindow=$true
-    $start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
-    foreach($argument in @('-NoProfile','-File',$Script)+@($Arguments)){[void]$start.ArgumentList.Add([string]$argument)}
-    $process=[Diagnostics.Process]::new();$process.StartInfo=$start
-    try{
-        if(-not $process.Start()){throw 'Unable to start public canonical recovery command.'}
-        $stdoutTask=$process.StandardOutput.ReadToEndAsync();$stderrTask=$process.StandardError.ReadToEndAsync();$process.WaitForExit()
-        return [pscustomobject]@{Code=$process.ExitCode;Stdout=$stdoutTask.GetAwaiter().GetResult();Stderr=$stderrTask.GetAwaiter().GetResult()}
-    }finally{$process.Dispose()}
+    Invoke-CanonicalIdentityFixtureScript -Fixture $identityFixture -ScriptPath $Script -Arguments $Arguments
 }
 function Get-ValidatedCanonicalCommandResult{
     param($Invocation,[string]$Path)
@@ -127,9 +123,102 @@ function Publish-TestReviewedRecoveryResultPrefix {
     return Read-CanonicalJournalDirectory -TransactionNamespace $State.TransactionNamespace -AllowUnfinished
 }
 
-$root=Join-Path ([IO.Path]::GetTempPath()) ('ai-agent-dotfiles-canonical-recovery-'+[Guid]::NewGuid().ToString('N'))
+function Invoke-TestSetupClaimSecurityMatrix {
+    param([Parameter(Mandatory)][string]$Root)
+    Write-Host "`n[setup claim ACL and pending publication]" -ForegroundColor Cyan
+    foreach($case in @('pending-safe','pending-bad','existing-bad','pending-drift')){
+        $caseRoot=Join-Path $Root $case;$repo=Join-Path $caseRoot 'repo';Initialize-TestRepo $repo
+        $recovery=Join-Path $caseRoot 'private/recovery';$control=Join-Path $caseRoot 'private/control';$backup=Join-Path $caseRoot 'private/backups';$probe=Join-Path $caseRoot 'probe'
+        foreach($path in @($recovery,$control,$backup,$probe)){[IO.Directory]::CreateDirectory($path)|Out-Null}
+        foreach($path in @($recovery,$control,$backup)){Set-TestCurrentUserOnlyAcl -Path $path}
+        [IO.Directory]::CreateDirectory((Join-Path $control 'canonical-roots'))|Out-Null
+        $payload=New-CanonicalSetupPlanPayload -RepoRoot $repo -CanonicalRecoveryRoot $recovery -ControlBase $control -BackupRoot $backup -ProbeRoot $probe
+        $git=Get-CanonicalGitContext $repo;$paths=Get-CanonicalTransactionContractPaths $git
+        $header=New-TestSetupJournalHeader -Payload $payload -Git $git -Paths $paths -TransactionId ([Guid]::NewGuid().ToString('D').ToLowerInvariant())
+        $null=New-CanonicalJournalHeader -Document $header -TransactionNamespace $header.TransactionNamespace
+        $state=Read-CanonicalJournalDirectory -TransactionNamespace $header.TransactionNamespace -AllowUnfinished
+        $template=Get-CanonicalSetupClaimFileSecurityTemplate -State $state
+        $sddl=ConvertTo-HomeAuthoritySecurityDescriptorSddl -SecurityTemplate $template
+        $badSddl=$sddl+'(A;;FA;;;SY)';$pendingRoot=Join-Path $state.TransactionNamespace '_pending'
+        $pendingName='setup-claim-'+[Guid]::NewGuid().ToString('N')+'.tmp';$pendingPath=Join-Path $pendingRoot $pendingName
+        $claimPath=[string]$header.SetupRecovery.ClaimPath;$schema=Join-Path $RepoRoot 'schemas/canonical-root-claim.schema.json'
+        if($case -ceq 'existing-bad'){
+            $null=Write-CanonicalAtomicJson -Document $payload.ExpectedRootClaim -FinalPath $claimPath -PendingDirectory $pendingRoot -PendingName $pendingName -SchemaPath $schema -FileSecurityDescriptorSddl $badSddl
+            $artifactPath=$claimPath
+        }else{
+            $null=Add-CanonicalJournalRecord -TransactionNamespace $state.TransactionNamespace -Phase SETUP_CLAIM_INTENT -Data ([ordered]@{ClaimHash=[string]$payload.ExpectedRootClaimHash})
+            $parents=$null;$prepared=$null
+            try{
+                $receiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+                Open-SafeDirectoryContainmentChain -Path $pendingRoot -OwnershipReceiver $receiver
+                $parents=$receiver.GetDeliveredExact()
+                $createSddl=if($case -ceq 'pending-bad'){$badSddl}else{$sddl}
+                $prepared=New-CanonicalPreparedJsonArtifact -Document $payload.ExpectedRootClaim -PendingParent $parents[$parents.Count-1] -PendingPath $pendingRoot -PendingName $pendingName -SchemaPath $schema -FileSecurityDescriptorSddl $createSddl
+            }finally{
+                if($prepared){$prepared.HeldHandle.Dispose()}
+                if($parents){Close-SafeDirectoryContainmentChain -Handles $parents}
+            }
+            $artifactPath=$pendingPath
+        }
+        $state=Read-CanonicalJournalDirectory -TransactionNamespace $header.TransactionNamespace -AllowUnfinished
+        $initialInfo=[AiAgentDotfiles.NoFollowFile]::HashRegularFile($artifactPath)
+        $initialSddl=[string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($artifactPath).Sddl
+        $classification=Get-CanonicalTransactionRecoveryClassification -State $state -RepoRoot $repo
+        if($case -ceq 'pending-safe'){
+            Assert ([string]$classification.AllowedAction -ceq 'finalize') 'claim ACL: secure pending claim permits finalize under ordinary repository ACLs'
+            $null=Publish-CanonicalSetupFinalStateForRecovery -State $state -Classification $classification
+            $published=[AiAgentDotfiles.NoFollowFile]::HashRegularFile($claimPath)
+            $snapshot=[AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($claimPath)
+            $strictAcl=$true;try{$null=Assert-HomeAuthoritySecuritySnapshot -Snapshot $snapshot -SecurityTemplate $template -ExpectedIdentity $initialInfo.Identity}catch{$strictAcl=$false}
+            Assert ($strictAcl -and [string]$snapshot.Sddl -ceq $initialSddl) 'claim ACL: pending finalize retains its explicit current-user-only file ACL'
+            Assert ($published.Identity -ceq $initialInfo.Identity -and $published.Sha256 -ceq $initialInfo.Sha256 -and -not(Test-Path -LiteralPath $pendingPath)) 'claim ACL: pending finalize renames the same exact-byte file identity'
+            $after=Read-CanonicalJournalDirectory -TransactionNamespace $state.TransactionNamespace -AllowUnfinished
+            Assert (@($after.Records|Where-Object{[string]$_.Phase -ceq 'SETUP_CLAIM_PUBLISHED'}).Count -eq 1 -and @($after.Records|Where-Object{[string]$_.Phase -ceq 'SETUP_STATE_PUBLISHED'}).Count -eq 1) 'claim ACL: pending finalize publishes claim and state once'
+
+            # Default journal publication must retain ordinary inherited ACLs.
+            $ordinary=Join-Path $repo 'ordinary.json';$controlFile=Join-Path $repo 'ordinary-control.json'
+            $null=Write-CanonicalAtomicJson -Document $payload.ExpectedRootClaim -FinalPath $ordinary -PendingDirectory $repo -PendingName 'ordinary.tmp' -SchemaPath $schema
+            $stream=[IO.File]::Open($controlFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);try{$stream.WriteByte(0);$stream.Flush($true)}finally{$stream.Dispose()}
+            Assert ([string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($ordinary).Sddl -ceq [string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($controlFile).Sddl) 'claim ACL: ordinary atomic JSON keeps the same ACL as default create-new under its parent'
+            continue
+        }
+        if($case -ceq 'pending-drift'){
+            Assert ([string]$classification.AllowedAction -ceq 'finalize') 'claim ACL: drift fixture first obtains a valid pending finalize classification'
+            # Fault injection only: the existing owned regular file changes ACL
+            # after classification, then the original state/classification is reused.
+            $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $artifactPath
+            $driftInfo=[AiAgentDotfiles.NoFollowFile]::Inspect($artifactPath)
+            if($driftInfo.IsDirectory -or $driftInfo.IsReparsePoint -or $driftInfo.Identity -cne $initialInfo.Identity){throw 'claim ACL drift fixture is not the owned regular file'}
+            $security=Get-Acl -LiteralPath $artifactPath
+            $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'),[Security.AccessControl.FileSystemRights]::FullControl,[Security.AccessControl.AccessControlType]::Allow))
+            [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($artifactPath),$security)
+            $drifted=[AiAgentDotfiles.NoFollowFile]::HashRegularFile($artifactPath)
+            Assert ($drifted.Identity -ceq $initialInfo.Identity -and $drifted.Sha256 -ceq $initialInfo.Sha256 -and [string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($artifactPath).Sddl -cne $initialSddl) 'claim ACL: fault injection changes only ACL on the already classified file'
+        }else{
+            Assert ([string]$classification.Status -ceq 'manual' -and [string]$classification.Reason -match 'owner/DACL is not current-user-only') ('claim ACL: '+$case+' rejects extra ACEs during recovery classification')
+        }
+        $beforeTree=(Get-SafeTreeSnapshot -Root $caseRoot).TreeHash
+        $beforeSddl=[string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($artifactPath).Sddl
+        if($case -ceq 'existing-bad'){
+            Assert-Throws {Publish-CanonicalSetupClaimUnderJournal -State $state} 'owner/DACL is not current-user-only' 'claim ACL: normal setup refuses an existing unsafe claim before writing journal intent'
+            Assert-Throws {Publish-CanonicalSetupFinalStateForRecovery -State $state -Classification ([pscustomobject]@{SetupState=[pscustomobject]@{}})} 'owner/DACL is not current-user-only' 'claim ACL: finalize refuses an existing unsafe claim before any journal append'
+        }elseif($case -ceq 'pending-drift'){
+            Assert-Throws {Publish-CanonicalSetupFinalStateForRecovery -State $state -Classification $classification} 'owner/DACL is not current-user-only' 'claim ACL: finalize revalidates ACL after classification before rename'
+        }else{
+            Assert-Throws {Read-CanonicalSetupClaimArtifact -State $state -Path $pendingPath -PublishPending} 'owner/DACL is not current-user-only' 'claim ACL: pending publication refuses extra ACEs on the same held file'
+        }
+        $afterInfo=[AiAgentDotfiles.NoFollowFile]::HashRegularFile($artifactPath)
+        $afterState=Read-CanonicalJournalDirectory -TransactionNamespace $state.TransactionNamespace -AllowUnfinished
+        Assert ((Get-SafeTreeSnapshot -Root $caseRoot).TreeHash -ceq $beforeTree -and [string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($artifactPath).Sddl -ceq $beforeSddl -and $afterInfo.Identity -ceq $initialInfo.Identity -and $afterInfo.Sha256 -ceq $initialInfo.Sha256) ('claim ACL: '+$case+' rejection preserves journal, claim bytes, identity, and ACL')
+        Assert (@($afterState.Records|Where-Object{[string]$_.Phase -in @('SETUP_CLAIM_PUBLISHED','SETUP_STATE_INTENT','SETUP_STATE_PUBLISHED')}).Count -eq 0 -and -not(Test-Path -LiteralPath $header.SetupRecovery.StatePath) -and ($case -ceq 'existing-bad' -or -not(Test-Path -LiteralPath $claimPath))) ('claim ACL: '+$case+' rejection neither publishes nor repairs the claim')
+    }
+}
+
+$root=Join-Path $identityFixture.Root 'repos'
 [IO.Directory]::CreateDirectory($root)|Out-Null
 try{
+    Invoke-TestSetupClaimSecurityMatrix -Root (Join-Path $root 'claim-acl')
+    if($Section -ceq 'all'){
     $fixture=Join-Path $root 'repo';Initialize-TestRepo $fixture
     $setupScript=Join-Path $RepoRoot 'scripts/setup-canonical-transaction.ps1'
     $recoverScript=Join-Path $RepoRoot 'scripts/recover-canonical-transaction.ps1'
@@ -201,11 +290,11 @@ try{
     Assert ($dry.Code -eq 0 -and (Test-Path -LiteralPath $plan)) 'setup: public DryRun publishes one external create-new setup plan'
     $doc=Read-CanonicalTransactionPlan -PlanPath $plan -RepoRoot $fixture -ExpectedOperationKind setup
     Assert ([string]$doc.PlanPayload.ExpectedRootClaim.ExpectedSetupStateProjectionHash -ceq [string]$doc.PlanPayload.ExpectedSetupStateProjectionHash -and [string]$doc.PlanPayload.ExpectedRootClaim.SetupIntentHash -ceq [string]$doc.PlanPayload.SetupIntentHash) 'setup: immutable root claim binds deterministic intent and setup-state projection'
-    $apply=Invoke-Script $agentScript @('canonical','setup','-RepoRoot',$fixture,'-Apply','-PlanPath',$plan)
-    if($script:IsReleased){
-        Assert ($apply.Code -eq 1 -and $apply.Out -match 'manual-recovery-required') 'setup: production Apply revalidates then fails closed at the manual-recovery gate under the released policy'
-    }
-    else{
+    # Keep this plan unconsumed for the critical-section test. The released
+    # pristine Apply runs last so its completed authority cannot change the
+    # independently constructed recovery fixtures below.
+    if(-not $script:IsReleased){
+        $apply=Invoke-Script $agentScript @('canonical','setup','-RepoRoot',$fixture,'-Apply','-PlanPath',$plan)
         Assert ($apply.Code -eq 75 -and $apply.Out -match 'canonical-apply-interlocked') 'setup: production Apply revalidates then remains interlocked'
     }
     $missingPlan=Invoke-Script $agentScript @('canonical','setup','-RepoRoot',$fixture,'-Apply')
@@ -238,15 +327,21 @@ try{
     Assert-Throws {Assert-CanonicalControlledPrivateAncestorSecurity -Evidence $ancestorEvidenceForeign -Path $root -TokenSid $ancestorTokenSid} 'ancestor is not owned' 'setup: ancestor owner check still rejects a foreign owner'
     $reparseTarget=Join-Path $root 'reparse-target';$reparseAlias=Join-Path $root 'reparse-alias';[IO.Directory]::CreateDirectory($reparseTarget)|Out-Null
     $null=New-Item -ItemType Junction -Path $reparseAlias -Target $reparseTarget
-    Assert-Throws {Get-CanonicalTransactionContractPaths ([pscustomobject]@{GitCommonDir=$reparseAlias})} 'reparse' 'setup: contract-root ancestor reparse fails closed'
-    $reparseRepoTarget=Join-Path $reparseTarget 'repo';Initialize-TestRepo $reparseRepoTarget
-    Assert-Throws {Get-CanonicalGitContext -RepoRoot (Join-Path $reparseAlias 'repo')} 'reparse' 'setup: repository/common-dir discovery rejects reparse ancestry'
+    try{
+        Assert-Throws {Get-CanonicalTransactionContractPaths ([pscustomobject]@{GitCommonDir=$reparseAlias})} 'reparse' 'setup: contract-root ancestor reparse fails closed'
+        $reparseRepoTarget=Join-Path $reparseTarget 'repo';Initialize-TestRepo $reparseRepoTarget
+        Assert-Throws {Get-CanonicalGitContext -RepoRoot (Join-Path $reparseAlias 'repo')} 'reparse' 'setup: repository/common-dir discovery rejects reparse ancestry'
+    }finally{
+        # Delete only the exact link created above, never recursively traverse it.
+        $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path (Split-Path -Parent $reparseAlias)
+        [IO.Directory]::Delete($reparseAlias)
+    }
 
     Write-Host "`n[sealed full critical section]" -ForegroundColor Cyan
     $criticalId=[Guid]::NewGuid().ToString('D').ToLowerInvariant();$criticalPaths=Get-CanonicalTransactionContractPaths $mainGit
     $validatedMarker=Join-Path $root 'critical-validated.txt';$terminalMarker=Join-Path $root 'critical-terminal.txt';$releaseMarker=Join-Path $root 'critical-release.txt'
     $criticalOut=Join-Path $root 'critical.out';$criticalErr=Join-Path $root 'critical.err';$criticalHost=Join-Path $RepoRoot 'tests/helpers/canonical-critical-section-host.ps1'
-    $criticalProcess=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @('-NoProfile','-File',$criticalHost,'-ToolchainRoot',$RepoRoot,'-RepoRoot',$fixture,'-PlanPath',$plan,'-TransactionId',$criticalId,'-ValidatedMarker',$validatedMarker,'-TerminalMarker',$terminalMarker,'-ReleaseMarker',$releaseMarker) -RedirectStandardOutput $criticalOut -RedirectStandardError $criticalErr -PassThru -WindowStyle Hidden
+    $criticalProcess=Start-CanonicalIdentityFixtureScript -Fixture $identityFixture -ScriptPath $criticalHost -Arguments @('-ToolchainRoot',$RepoRoot,'-RepoRoot',$fixture,'-PlanPath',$plan,'-TransactionId',$criticalId,'-ValidatedMarker',$validatedMarker,'-TerminalMarker',$terminalMarker,'-ReleaseMarker',$releaseMarker) -StandardOutputPath $criticalOut -StandardErrorPath $criticalErr
     $criticalDeadline=[DateTime]::UtcNow.AddSeconds(20)
     while(-not(Test-Path -LiteralPath $terminalMarker) -and -not $criticalProcess.HasExited -and [DateTime]::UtcNow -lt $criticalDeadline){Start-Sleep -Milliseconds 50}
     Assert ((Test-Path -LiteralPath $validatedMarker) -and (Test-Path -LiteralPath $terminalMarker)) 'lock: sealed host revalidates saved plan, scans all worktrees, and reaches terminal under one lock'
@@ -254,6 +349,7 @@ try{
     [IO.File]::WriteAllText($releaseMarker,'release',[Text.UTF8Encoding]::new($false))
     $criticalProcess.WaitForExit(10000)|Out-Null
     if(-not $criticalProcess.HasExited){Stop-Process -Id $criticalProcess.Id -Force}
+    Complete-CanonicalIdentityFixtureScript -Fixture $identityFixture -Process $criticalProcess
     $criticalStdout=if(Test-Path $criticalOut){Get-Content $criticalOut -Raw}else{''}
     $criticalStderr=if(Test-Path $criticalErr){Get-Content $criticalErr -Raw}else{''}
     $criticalDetail=$criticalStdout+$criticalStderr
@@ -361,6 +457,7 @@ try{
     $srDriftState=Read-CanonicalJournalDirectory -TransactionNamespace $srDriftHeader.TransactionNamespace -AllowUnfinished;$srDriftPayload=Get-CanonicalRecoveryEvidencePayload -State $srDriftState -RepoRoot $srRepo -Action finalize;$srDriftDoc=Write-CanonicalRecoveryPlan -PlanPayload $srDriftPayload -PlanPath (Join-Path $srPlans 'setup-root-drift.json') -RepoRoot $srRepo
     $srLock=Enter-CanonicalRepoLock -LockPath $srPaths.LockPath;try{$srDriftFixed=Publish-TestReviewedRecoveryResultPrefix -Document $srDriftDoc -State $srDriftState -RepoRoot $srRepo}finally{Exit-CanonicalRepoLock $srLock}
     Assert ($srDriftFixed.Result -and -not $srDriftFixed.IsTerminal) 'setup recovery: fixed committed result prefix is isolated before COMPLETE for drift testing'
+    $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $srBackup
     [IO.Directory]::Delete($srBackup,$true);[IO.Directory]::CreateDirectory($srBackup)|Out-Null;Set-TestCurrentUserOnlyAcl -Path $srBackup
     $srDriftClass=Get-CanonicalTransactionRecoveryClassification -State $srDriftFixed -RepoRoot $srRepo
     Assert ([string]$srDriftClass.Status -ceq 'manual' -and [string]$srDriftClass.Reason -ceq 'fixed-setup-result-final-state-mismatch') 'setup recovery: fixed committed result revalidates actual setup root identity before COMPLETE'
@@ -390,11 +487,12 @@ try{
         try{$busyActionResult=Get-ValidatedCanonicalCommandResult -Invocation $busyAction -Path (Join-Path $root 'busy-action-result.json')}catch{}
         Assert ($busyAction.Code -eq 1 -and $busyAction.Stderr -cmatch '\Aoperation-lock-busy(?:\r?\n)?\z' -and $busyActionResult -and (Test-ExactPropertySet $busyActionResult @('SchemaVersion','ArtifactKind','ResultScope','Result','CommandKind','LifecycleKind','MessageToken')) -and [string]$busyActionResult.Result -ceq 'WARN' -and [string]$busyActionResult.CommandKind -ceq 'canonical-recover-abandon' -and [string]$busyActionResult.LifecycleKind -ceq 'no-transaction' -and [string]$busyActionResult.MessageToken -ceq 'operation-lock-busy') 'recovery emitter: public zero-wait lock loser emits one strict lock-busy result, exact token, and exit 1'
         $marker=Join-Path $root 'bounded-wait-acquired.txt';$lockHostScript=Join-Path $RepoRoot 'tests/helpers/canonical-lock-host.ps1';$lockHostOut=Join-Path $root 'bounded-wait.out';$lockHostErr=Join-Path $root 'bounded-wait.err'
-        $process=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @('-NoProfile','-File',$lockHostScript,'-ToolchainRoot',$RepoRoot,'-LockPath',$readyPaths.LockPath,'-WaitSeconds','3','-AcquiredMarker',$marker) -RedirectStandardOutput $lockHostOut -RedirectStandardError $lockHostErr -PassThru -WindowStyle Hidden
+        $process=Start-CanonicalIdentityFixtureScript -Fixture $identityFixture -ScriptPath $lockHostScript -Arguments @('-ToolchainRoot',$RepoRoot,'-LockPath',$readyPaths.LockPath,'-WaitSeconds','3','-AcquiredMarker',$marker) -StandardOutputPath $lockHostOut -StandardErrorPath $lockHostErr
         Start-Sleep -Milliseconds 300
     }finally{Exit-CanonicalRepoLock $held}
     $lockHostDeadline=[DateTime]::UtcNow.AddSeconds(30);while(-not $process.HasExited -and [DateTime]::UtcNow -lt $lockHostDeadline){Start-Sleep -Milliseconds 50}
     if(-not $process.HasExited){Stop-Process -Id $process.Id -Force;$process.WaitForExit(5000)|Out-Null}
+    Complete-CanonicalIdentityFixtureScript -Fixture $identityFixture -Process $process
     $lockHostDetail=$(if(Test-Path $lockHostOut){Get-Content $lockHostOut -Raw}else{''})+$(if(Test-Path $lockHostErr){Get-Content $lockHostErr -Raw}else{''})
     Assert ($process.HasExited -and $process.ExitCode -eq 0 -and (Test-Path -LiteralPath $marker)) "lock: sealed host bounded waiter acquires only after owner releases ($lockHostDetail)"
 
@@ -449,10 +547,11 @@ try{
 
     $otherWorktree=$readyGit.WorktreeId;$unfinishedId=[Guid]::NewGuid().ToString('D').ToLowerInvariant();$unfinishedRoot=Join-Path $readyPaths.TransactionsRoot (Join-Path $otherWorktree $unfinishedId)
     $linkedKillMarker=Join-Path $root 'linked-kill.marker';$linkedKillOut=Join-Path $root 'linked-kill.out';$linkedKillErr=Join-Path $root 'linked-kill.err';$linkedKillHost=Join-Path $RepoRoot 'tests/helpers/canonical-linked-kill-host.ps1'
-    $linkedKill=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @('-NoProfile','-File',$linkedKillHost,'-ToolchainRoot',$RepoRoot,'-RepoRoot',$ready,'-CanonicalRecoveryRoot',$recovery,'-TransactionId',$unfinishedId,'-MarkerPath',$linkedKillMarker) -RedirectStandardOutput $linkedKillOut -RedirectStandardError $linkedKillErr -PassThru -WindowStyle Hidden
+    $linkedKill=Start-CanonicalIdentityFixtureScript -Fixture $identityFixture -ScriptPath $linkedKillHost -Arguments @('-ToolchainRoot',$RepoRoot,'-RepoRoot',$ready,'-CanonicalRecoveryRoot',$recovery,'-TransactionId',$unfinishedId,'-MarkerPath',$linkedKillMarker) -StandardOutputPath $linkedKillOut -StandardErrorPath $linkedKillErr
     $linkedDeadline=[DateTime]::UtcNow.AddSeconds(30);while(-not(Test-Path -LiteralPath $linkedKillMarker) -and -not $linkedKill.HasExited -and [DateTime]::UtcNow -lt $linkedDeadline){Start-Sleep -Milliseconds 50}
     Assert ((Test-Path -LiteralPath $linkedKillMarker) -and -not $linkedKill.HasExited) 'journal: linked worktree A publishes a reservation while holding the common lock'
     if(-not $linkedKill.HasExited){Stop-Process -Id $linkedKill.Id -Force;$linkedKill.WaitForExit(5000)|Out-Null}
+    Complete-CanonicalIdentityFixtureScript -Fixture $identityFixture -Process $linkedKill
     Assert ((Test-Path -LiteralPath $unfinishedRoot -PathType Container)) 'journal: hard-kill releases the OS lock but retains A durable namespace'
     Assert-Throws {Assert-CanonicalTransactionSetAllowsDocument -TransactionsRoot $readyPaths.TransactionsRoot -DocumentHash ('5'*64)} 'canonical-recovery-required' 'journal: unfinished reservation in another worktree blocks new mutation'
     Assert ((Get-CanonicalSetupStatus -RepoRoot $ready) -ceq 'canonical-recovery-required') 'status: all-worktree unfinished journal is discoverable from the caller worktree'
@@ -480,6 +579,7 @@ try{
     $blockedApply=Invoke-ScriptStreams $recoverScript @('-RepoRoot',$readyLinked,'-Action','abandon','-TransactionId',$unfinishedId,'-Apply','-PlanPath',$recoveryPlan);$blockedResult=$null
     try{$blockedResult=Get-ValidatedCanonicalCommandResult -Invocation $blockedApply -Path (Join-Path $root 'recovery-blocked-result.json')}catch{}
     Assert ($blockedApply.Code -eq 1 -and $blockedApply.Stderr -cmatch '\Acanonical-recovery-required(?:\r?\n)?\z' -and $blockedResult -and (Test-ExactPropertySet $blockedResult @('SchemaVersion','ArtifactKind','ResultScope','Result','CommandKind','LifecycleKind','MessageToken','PlanHash')) -and [string]$blockedResult.Result -ceq 'FAIL' -and [string]$blockedResult.CommandKind -ceq 'canonical-recover-abandon' -and [string]$blockedResult.LifecycleKind -ceq 'no-transaction' -and [string]$blockedResult.MessageToken -ceq 'canonical-recovery-required' -and [string]$blockedResult.PlanHash -ceq [string]$recoveryDocument.PlanHash) 'recovery emitter: another unfinished transaction returns one strict recovery-required result, exact stderr token, and exit 1'
+    $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $blockerNamespace
     Remove-Item -LiteralPath $blockerNamespace -Recurse -Force
     $recoverApply=Invoke-ScriptStreams $recoverScript @('-RepoRoot',$readyLinked,'-Action','abandon','-TransactionId',$unfinishedId,'-Apply','-PlanPath',$recoveryPlan);$recoverApplyResult=$null
     try{$recoverApplyResult=Get-ValidatedCanonicalCommandResult -Invocation $recoverApply -Path (Join-Path $root 'recovery-apply-result.json')}catch{}
@@ -593,10 +693,26 @@ try{
     }
     $null=New-CanonicalJournalHeader -Document $poisonHeader -TransactionNamespace $poisonNamespace;$poisonState=Read-CanonicalJournalDirectory -TransactionNamespace $poisonNamespace -AllowUnfinished
     Assert-Throws {Assert-CanonicalRecoveryStateContext -State $poisonState -RepoRoot $ready} 'parent target is not a required ancestor' 'recovery context: arbitrary in-repo .git parent target is rejected before recovery classification'
+
+    if($script:IsReleased){
+        Write-Host "`n[pristine isolated public setup Apply]" -ForegroundColor Cyan
+        $publicSetupRepo=Join-Path $root 'public-setup-repo';Initialize-TestRepo $publicSetupRepo
+        $publicSetupPlan=Join-Path $planRoot 'public-setup.json'
+        $publicSetupDry=Invoke-Script $agentScript @('canonical','setup','-RepoRoot',$publicSetupRepo,'-DryRun','-PlanPath',$publicSetupPlan)
+        Assert ($publicSetupDry.Code -eq 0 -and (Test-Path -LiteralPath $publicSetupPlan)) 'setup: pristine isolated identity creates a reviewed public setup plan'
+        $publicSetupDocument=Read-CanonicalTransactionPlan -PlanPath $publicSetupPlan -RepoRoot $publicSetupRepo -ExpectedOperationKind setup
+        $publicSetupApply=Invoke-ScriptStreams $agentScript @('canonical','setup','-RepoRoot',$publicSetupRepo,'-Apply','-PlanPath',$publicSetupPlan);$publicSetupResult=$null
+        try{$publicSetupResult=Get-ValidatedCanonicalCommandResult -Invocation $publicSetupApply -Path (Join-Path $root 'public-setup-result.json')}catch{}
+        Assert ($publicSetupApply.Code -eq 0 -and $publicSetupApply.Stderr -ceq '' -and $publicSetupResult -and [string]$publicSetupResult.Result -ceq 'PASS' -and [string]$publicSetupResult.CommandKind -ceq 'canonical-setup' -and [string]$publicSetupResult.MessageToken -ceq 'canonical-apply-committed' -and [string]$publicSetupResult.PlanHash -ceq [string]$publicSetupDocument.PlanHash) 'setup: pristine isolated public Apply emits one typed PASS and exits 0'
+        $publicSetupPaths=Get-CanonicalTransactionContractPaths (Get-CanonicalGitContext $publicSetupRepo)
+        $publicSetupTransactions=@(Get-CanonicalAllTransactionStates -TransactionsRoot $publicSetupPaths.TransactionsRoot)
+        Assert ($publicSetupTransactions.Count -eq 1 -and $publicSetupTransactions[0].IsTerminal -and [string]$publicSetupTransactions[0].Outcome -ceq 'committed') 'setup: pristine isolated public Apply closes exactly one committed terminal transaction'
+    }
+    }
 }
 catch{$script:fail++;Write-Host "  FAIL  unhandled test error: $($_.Exception.Message)" -ForegroundColor Red;Write-Host $_.ScriptStackTrace -ForegroundColor DarkYellow}
 finally{
     Write-Host '';Write-Host ("Results: {0} passed, {1} failed" -f $script:pass,$script:fail) -ForegroundColor Cyan
-    if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force}
 }
 if($script:fail -ne 0){exit 1}
+}finally{Remove-CanonicalIdentityFixture -Fixture $identityFixture}

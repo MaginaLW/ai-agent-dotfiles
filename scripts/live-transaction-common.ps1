@@ -1275,9 +1275,9 @@ function Invoke-SealedEnvironmentRollbackTransaction {
     # NEW original receipt-backed transaction. The caller holds the reviewed
     # origin canonical -> worktree overlay -> global lock order and has
     # revalidated the plan and the current surface under those locks; the
-    # rollback entry's Apply path reaches this only after the worktree overlay
-    # lock primitive exists (Phase 3), so until then the direct tests are the
-    # reviewed verification surface.
+    # rollback entry's Apply path reaches this only after acquiring those
+    # locks. The namespace-wide unfinished check below belongs inside that
+    # critical section and precedes the first staging/header/receipt write.
     #
     # Step 3: the pre-rollback receipt snapshots the exact live bytes every
     # plan target is about to change plus the current authority state and the
@@ -1311,6 +1311,14 @@ function Invoke-SealedEnvironmentRollbackTransaction {
     )
 
     $mismatch = $script:LiveTransactionIntentMismatch
+
+    # A complete selected activation does not prove that sibling transactions
+    # are complete. Recovery must close every unfinished or unreadable journal
+    # before this new original transaction can reserve any durable namespace.
+    $unfinishedTransactions = @(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot $LiveTransactionsRoot)
+    if ($unfinishedTransactions.Count -gt 0) {
+        throw ('live-recovery-required: unfinished live transaction ' + [string] $unfinishedTransactions[0])
+    }
 
     # Defensive source-receipt verification: the entry's evidence gates verify
     # the full graph, and the direct tests are the interim verification
@@ -1387,143 +1395,202 @@ function Invoke-SealedEnvironmentRollbackTransaction {
         }
     }
 
-    $receiptPlatforms = [System.Collections.Generic.List[object]]::new()
-    $stagingRootsByPlatform = [ordered]@{}
-    $stagingBase = Join-Path $HomeRoot '.ai-agent-dotfiles-staging'
-    $liveRootContexts = [System.Collections.Generic.List[object]]::new()
-    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
-        $liveRoot = [string] $liveRootsByPlatform[$platform]
-        $stagingRoot = [System.IO.Path]::GetFullPath((Join-Path $stagingBase $platform))
-        New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
-        $stagingRootsByPlatform[$platform] = $stagingRoot
-        $receiptPlatforms.Add([ordered]@{
-            Platform = $platform
-            LiveRoot = $liveRoot
-            Targets = @([object[]] $receiptTargetsByPlatform[$platform])
-        })
-        $liveRootContexts.Add([ordered]@{
-            Platform = $platform
-            LiveRoot = $liveRoot
-            DeepestExistingParentPath = $liveRoot
-            MissingRemainder = @()
-            StagingRoot = $stagingRoot
-        })
-    }
-    $stateRecoveryDirectory = Join-Path ([string] $stagingRootsByPlatform['Claude']) 'state-recovery'
-
+    # A preceding closed activation may retain shared staged/swap/state
+    # evidence. Reserve a create-new namespace for this rollback instead of
+    # deleting or reusing any predecessor's scratch. Retain the no-follow
+    # parent and child handles until mutation and success cleanup finish.
     $transactionId = [Guid]::NewGuid().ToString()
-    $receiptId = [Guid]::NewGuid().ToString()
-    $receiptPath = Join-Path $BackupRoot $receiptId
-    $journalDirectory = Join-Path $LiveTransactionsRoot $transactionId
-    $header = [ordered]@{
-        SchemaVersion = 1
-        ArtifactKind = 'live-journal-header'
-        TransactionId = $transactionId
-        OperationKind = 'environment-rollback'
-        TransactionMode = 'receipt-backed'
-        OriginalDocumentHash = [string] $PlanDocument['DocumentHash']
-        OriginalPlanHash = [string] $PlanDocument['PlanHash']
-        HomeAuthorityKey = [string] $payload['HomeAuthorityKey']
-        OriginRepoId = $RepoId
-        GitCommonDirHash = [string] $GitContext.GitCommonDirHash
-        CanonicalLockKey = $CanonicalLockKey
-        RootClaimsHash = $claimsHash
-        ReceiptIntent = [ordered]@{ Id = $receiptId; Path = $receiptPath }
-        Targets = @()
-    }
-    New-SealedLiveJournalHeader -Document $header -TransactionDirectory $journalDirectory | Out-Null
-
-    $executionContextHash = Get-SemanticJsonHash -InputObject ([ordered]@{
-        RepoRoot = [string] $GitContext.RepoRoot
-        HomeAuthorityKey = [string] $payload['HomeAuthorityKey']
-        OperationKind = 'environment-rollback'
-        ControlBase = $ControlBase
-    })
-    $controlBaseHash = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = $ControlBase })
-    $filesystemCapabilityHash = Get-SemanticJsonHash -InputObject $capabilityByPlatform
-    $receipt = Invoke-SealedManagedBackupReceipt -ReservationIntent ([ordered]@{
-        TransactionId = $transactionId
-        ReceiptId = $receiptId
-        ReceiptPath = $receiptPath
-    }) -SourceOperationKind 'environment-rollback' -PlanHash ([string] $PlanDocument['PlanHash']) -DocumentHash ([string] $PlanDocument['DocumentHash']) -ExecutionContextHash $executionContextHash -ControlBaseHash $controlBaseHash -FilesystemCapabilityHash $filesystemCapabilityHash -HomeAuthorityKey ([string] $payload['HomeAuthorityKey']) -BackupRoot $BackupRoot -Platforms $receiptPlatforms.ToArray() -AuthorityStatePath $StatePath -RootClaimsPath $ClaimsPath -ForbiddenRoots @($ControlBase)
-
-    # The receipt captured the authority preimages after the header was
-    # published; both must still agree with the hashes this composition
-    # derived, so a writer between the reads cannot journal split evidence.
-    if ([string] $receipt['RootClaimsPreimage']['Hash'] -cne $claimsHash -or
-        [string] $receipt['AuthorityStatePreimage']['Hash'] -cne [string] $stateEvidenceHash) {
-        throw $mismatch
-    }
-
-    $sourceRootsByPlatform = [ordered]@{}
-    foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
-        $sourceRootsByPlatform[$platform] = Join-Path (Join-Path $SourceReceiptPath 'snapshot') $platform.ToLowerInvariant()
-    }
-    $engineTargets = New-SealedLiveTransactionTargetPlan -BackupRoot $BackupRoot -ReceiptIntent $header['ReceiptIntent'] -Platforms $receiptPlatforms.ToArray() -Actions $actions.ToArray() -LiveRootContexts $liveRootContexts.ToArray()
-    $contextRows = [System.Collections.Generic.List[object]]::new()
-    foreach ($identityRow in @([object[]] $currentState['FinalResolvedIdentities'])) {
-        $contextRows.Add([ordered]@{
-            Platform = [string] $identityRow['Platform']
-            LocationKey = [string] $identityRow['LocationKey']
-            RequestedPath = [string] $identityRow['ResolvedPath']
-            InitialState = 'EXISTS'
-            VolumeId = [string] $identityRow['VolumeId']
-            DeepestExistingParentPath = [string] $identityRow['ResolvedPath']
-            DeepestExistingParentIdentity = [string] $identityRow['DirectoryIdentity']
-            MissingRemainder = @()
-            InitialDirectoryIdentity = [string] $identityRow['DirectoryIdentity']
-            ExpectedPostState = 'EXISTS'
-        })
-    }
-    $targetContextIntent = [ordered]@{ HomeAuthorityKey = [string] $payload['HomeAuthorityKey']; Rows = @($contextRows) }
-    $mutation = Invoke-SealedLiveTransactionMutation -TransactionDirectory $journalDirectory -Header $header -Receipt $receipt -Targets $engineTargets -SourceRootsByPlatform $sourceRootsByPlatform -AuthorityStateIntent $stateIntent -TargetContextIntent $targetContextIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $ControlBase -StateRecoveryDirectory $stateRecoveryDirectory
-
-    # The engine returns only after the terminal COMPLETE record and the fixed
-    # result are durably published for this rolled-back surface; every other
-    # exit throws (verified restoration, or an unfinished recovery-required
-    # transaction) and therefore never reaches this cleanup. Re-prove that
-    # closure from the journal before any scratch is reclaimed, and only then
-    # drop this composition's own swap-old/staged entries and its pre-rollback
-    # state-recovery copy. An unproven closure is never a license to delete:
-    # nothing is reclaimed and every durable byte stays where it is, and a
-    # closure or reclamation error must never turn a committed transaction into
-    # a reported failure.
-    $closed = $false
+    $stagingHandlesReceiver = [AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+    $stagingHandles = $null
+    $pendingStagingHandle = $null
+    $stagingPrimaryError = $null
     try {
-        $closure = Get-SealedLiveJournalChain -TransactionDirectory $journalDirectory
-        $terminalRecords = @(@($closure.Records) | Where-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE' })
-        if ($null -ne $closure.Header -and @($closure.UnknownNames).Count -eq 0 -and
-            $null -ne $closure.Result -and $terminalRecords.Count -eq 1) {
-            $terminalData = [System.Collections.IDictionary] ([System.Collections.IDictionary] $terminalRecords[0]['Document'])['Data']
-            $closed = [string] $terminalData['Outcome'] -ceq 'committed' -and
-                [string] $terminalData['ClosingKind'] -ceq 'original' -and
-                [string] $closure.Result['Outcome'] -ceq 'committed' -and
-                [string] $closure.Header['OperationKind'] -ceq 'environment-rollback' -and
-                [string] $closure.Header['TransactionId'] -ceq $transactionId -and
-                [string] $closure.Header['OriginalPlanHash'] -ceq [string] $PlanDocument['PlanHash'] -and
-                [string] $closure.Header['OriginalDocumentHash'] -ceq [string] $PlanDocument['DocumentHash']
-            if ($closed) {
-                Test-SealedLiveJournalChain -Header $closure.Header -Records @($closure.Records) -Result $closure.Result -ResultFileHash $closure.ResultFileHash
+        Open-SafeDirectoryContainmentChain -Path $HomeRoot -OwnershipReceiver $stagingHandlesReceiver
+        $stagingHandles = $stagingHandlesReceiver.GetDeliveredExact()
+        $homeHandle = $stagingHandles[$stagingHandles.Count - 1]
+        $pendingStagingHandle = [AiAgentDotfiles.NoFollowFile]::TryHoldPathChildDirectory($homeHandle, '.ai-agent-dotfiles-staging')
+        if ($null -eq $pendingStagingHandle) {
+            $pendingStagingHandle = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectory($homeHandle, '.ai-agent-dotfiles-staging')
+        }
+        $stagingHandles.Add($pendingStagingHandle)
+        $stagingBaseHandle = $pendingStagingHandle
+        $pendingStagingHandle = $null
+        $stagingBase = Join-Path ([System.IO.Path]::GetFullPath($HomeRoot)) '.ai-agent-dotfiles-staging'
+        $stagingTransactionName = 'rollback-' + $transactionId
+        $pendingStagingHandle = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectory($stagingBaseHandle, $stagingTransactionName)
+        $stagingHandles.Add($pendingStagingHandle)
+        $stagingTransactionHandle = $pendingStagingHandle
+        $pendingStagingHandle = $null
+        $stagingTransactionRoot = Join-Path $stagingBase $stagingTransactionName
+        $receiptPlatforms = [System.Collections.Generic.List[object]]::new()
+        $stagingRootsByPlatform = [ordered]@{}
+        $liveRootContexts = [System.Collections.Generic.List[object]]::new()
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $liveRoot = [string] $liveRootsByPlatform[$platform]
+            $stagingRoot = [System.IO.Path]::GetFullPath((Join-Path $stagingTransactionRoot $platform))
+            $pendingStagingHandle = [AiAgentDotfiles.NoFollowFile]::CreateChildDirectory($stagingTransactionHandle, $platform)
+            $stagingHandles.Add($pendingStagingHandle)
+            $pendingStagingHandle = $null
+            $stagingRootsByPlatform[$platform] = $stagingRoot
+            $receiptPlatforms.Add([ordered]@{
+                Platform = $platform
+                LiveRoot = $liveRoot
+                Targets = @([object[]] $receiptTargetsByPlatform[$platform])
+            })
+            $liveRootContexts.Add([ordered]@{
+                Platform = $platform
+                LiveRoot = $liveRoot
+                DeepestExistingParentPath = $liveRoot
+                MissingRemainder = @()
+                StagingRoot = $stagingRoot
+            })
+        }
+        $stateRecoveryDirectory = Join-Path ([string] $stagingRootsByPlatform['Claude']) 'state-recovery'
+
+        $receiptId = [Guid]::NewGuid().ToString()
+        $receiptPath = Join-Path $BackupRoot $receiptId
+        $journalDirectory = Join-Path $LiveTransactionsRoot $transactionId
+        $header = [ordered]@{
+            SchemaVersion = 1
+            ArtifactKind = 'live-journal-header'
+            TransactionId = $transactionId
+            OperationKind = 'environment-rollback'
+            TransactionMode = 'receipt-backed'
+            OriginalDocumentHash = [string] $PlanDocument['DocumentHash']
+            OriginalPlanHash = [string] $PlanDocument['PlanHash']
+            HomeAuthorityKey = [string] $payload['HomeAuthorityKey']
+            OriginRepoId = $RepoId
+            GitCommonDirHash = [string] $GitContext.GitCommonDirHash
+            CanonicalLockKey = $CanonicalLockKey
+            RootClaimsHash = $claimsHash
+            ReceiptIntent = [ordered]@{ Id = $receiptId; Path = $receiptPath }
+            Targets = @()
+        }
+        New-SealedLiveJournalHeader -Document $header -TransactionDirectory $journalDirectory | Out-Null
+
+        $executionContextHash = Get-SemanticJsonHash -InputObject ([ordered]@{
+            RepoRoot = [string] $GitContext.RepoRoot
+            HomeAuthorityKey = [string] $payload['HomeAuthorityKey']
+            OperationKind = 'environment-rollback'
+            ControlBase = $ControlBase
+        })
+        $controlBaseHash = Get-SemanticJsonHash -InputObject ([ordered]@{ Path = $ControlBase })
+        $filesystemCapabilityHash = Get-SemanticJsonHash -InputObject $capabilityByPlatform
+        $receipt = Invoke-SealedManagedBackupReceipt -ReservationIntent ([ordered]@{
+            TransactionId = $transactionId
+            ReceiptId = $receiptId
+            ReceiptPath = $receiptPath
+        }) -SourceOperationKind 'environment-rollback' -PlanHash ([string] $PlanDocument['PlanHash']) -DocumentHash ([string] $PlanDocument['DocumentHash']) -ExecutionContextHash $executionContextHash -ControlBaseHash $controlBaseHash -FilesystemCapabilityHash $filesystemCapabilityHash -HomeAuthorityKey ([string] $payload['HomeAuthorityKey']) -BackupRoot $BackupRoot -Platforms $receiptPlatforms.ToArray() -AuthorityStatePath $StatePath -RootClaimsPath $ClaimsPath -ForbiddenRoots @($ControlBase)
+
+        # The receipt captured the authority preimages after the header was
+        # published; both must still agree with the hashes this composition
+        # derived, so a writer between the reads cannot journal split evidence.
+        if ([string] $receipt['RootClaimsPreimage']['Hash'] -cne $claimsHash -or
+            [string] $receipt['AuthorityStatePreimage']['Hash'] -cne [string] $stateEvidenceHash) {
+            throw $mismatch
+        }
+
+        $sourceRootsByPlatform = [ordered]@{}
+        foreach ($platform in @('Claude', 'Codex', 'Reasonix')) {
+            $sourceRootsByPlatform[$platform] = Join-Path (Join-Path $SourceReceiptPath 'snapshot') $platform.ToLowerInvariant()
+        }
+        # Equal current/candidate trees still require a receipt, state generation
+        # and terminal journal. Preserve an empty target array across PowerShell's
+        # pipeline instead of passing null to the mutation engine.
+        $engineTargets = @(New-SealedLiveTransactionTargetPlan -BackupRoot $BackupRoot -ReceiptIntent $header['ReceiptIntent'] -Platforms $receiptPlatforms.ToArray() -Actions $actions.ToArray() -LiveRootContexts $liveRootContexts.ToArray())
+        $contextRows = [System.Collections.Generic.List[object]]::new()
+        foreach ($identityRow in @([object[]] $currentState['FinalResolvedIdentities'])) {
+            $contextRows.Add([ordered]@{
+                Platform = [string] $identityRow['Platform']
+                LocationKey = [string] $identityRow['LocationKey']
+                RequestedPath = [string] $identityRow['ResolvedPath']
+                InitialState = 'EXISTS'
+                VolumeId = [string] $identityRow['VolumeId']
+                DeepestExistingParentPath = [string] $identityRow['ResolvedPath']
+                DeepestExistingParentIdentity = [string] $identityRow['DirectoryIdentity']
+                MissingRemainder = @()
+                InitialDirectoryIdentity = [string] $identityRow['DirectoryIdentity']
+                ExpectedPostState = 'EXISTS'
+            })
+        }
+        $targetContextIntent = [ordered]@{ HomeAuthorityKey = [string] $payload['HomeAuthorityKey']; Rows = @($contextRows) }
+        $mutation = Invoke-SealedLiveTransactionMutation -TransactionDirectory $journalDirectory -Header $header -Receipt $receipt -Targets $engineTargets -SourceRootsByPlatform $sourceRootsByPlatform -AuthorityStateIntent $stateIntent -TargetContextIntent $targetContextIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $ControlBase -StateRecoveryDirectory $stateRecoveryDirectory
+
+        # The engine returns only after the terminal COMPLETE record and the fixed
+        # result are durably published for this rolled-back surface; every other
+        # exit throws (verified restoration, or an unfinished recovery-required
+        # transaction) and therefore never reaches this cleanup. Re-prove that
+        # closure from the journal before any scratch is reclaimed, and only then
+        # drop this composition's own swap-old/staged entries and its pre-rollback
+        # state-recovery copy. An unproven closure is never a license to delete:
+        # nothing is reclaimed and every durable byte stays where it is, and a
+        # closure or reclamation error must never turn a committed transaction into
+        # a reported failure.
+        $closed = $false
+        try {
+            $closure = Get-SealedLiveJournalChain -TransactionDirectory $journalDirectory
+            $terminalRecords = @(@($closure.Records) | Where-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE' })
+            if ($null -ne $closure.Header -and @($closure.UnknownNames).Count -eq 0 -and
+                $null -ne $closure.Result -and $terminalRecords.Count -eq 1) {
+                $terminalData = [System.Collections.IDictionary] ([System.Collections.IDictionary] $terminalRecords[0]['Document'])['Data']
+                $closed = [string] $terminalData['Outcome'] -ceq 'committed' -and
+                    [string] $terminalData['ClosingKind'] -ceq 'original' -and
+                    [string] $closure.Result['Outcome'] -ceq 'committed' -and
+                    [string] $closure.Header['OperationKind'] -ceq 'environment-rollback' -and
+                    [string] $closure.Header['TransactionId'] -ceq $transactionId -and
+                    [string] $closure.Header['OriginalPlanHash'] -ceq [string] $PlanDocument['PlanHash'] -and
+                    [string] $closure.Header['OriginalDocumentHash'] -ceq [string] $PlanDocument['DocumentHash']
+                if ($closed) {
+                    Test-SealedLiveJournalChain -Header $closure.Header -Records @($closure.Records) -Result $closure.Result -ResultFileHash $closure.ResultFileHash
+                }
             }
         }
-    }
-    catch { $closed = $false }
-    if ($closed) {
-        try {
-            Remove-SealedEnvironmentRollbackStaging -Targets $engineTargets -StagingRootsByPlatform $stagingRootsByPlatform -StateRecoveryDirectory $stateRecoveryDirectory
+        catch { $closed = $false }
+        if ($closed) {
+            try {
+                Remove-SealedEnvironmentRollbackStaging -Targets $engineTargets -StagingRootsByPlatform $stagingRootsByPlatform -StateRecoveryDirectory $stateRecoveryDirectory
+            }
+            catch {}
         }
-        catch {}
-    }
 
-    return [pscustomobject][ordered]@{
-        TransactionId = $transactionId
-        ReceiptId = $receiptId
-        ReceiptPath = [string] $receipt['ReceiptPath']
-        ReceiptHash = [string] $receipt['ReceiptHash']
-        JournalDirectory = $journalDirectory
-        StateHash = [string] $mutation.StateHash
-        ResultHash = [string] $mutation.ResultHash
-        PostconditionsHash = [string] $mutation.PostconditionsHash
+        return [pscustomobject][ordered]@{
+            TransactionId = $transactionId
+            ReceiptId = $receiptId
+            ReceiptPath = [string] $receipt['ReceiptPath']
+            ReceiptHash = [string] $receipt['ReceiptHash']
+            JournalDirectory = $journalDirectory
+            StateHash = [string] $mutation.StateHash
+            ResultHash = [string] $mutation.ResultHash
+            PostconditionsHash = [string] $mutation.PostconditionsHash
+        }
+    }
+    catch {
+        $stagingPrimaryError = $_
+        throw
+    }
+    finally {
+        # Recover ownership even if an exception interrupted the handoff from
+        # the containment helper; release every acquired handle on all exits.
+        if ($null -eq $stagingHandles -and [string] $stagingHandlesReceiver.GetStateExact() -ceq 'DELIVERED') {
+            $stagingHandles = $stagingHandlesReceiver.GetDeliveredExact()
+        }
+        $stagingCleanupError = $null
+        if ($null -ne $pendingStagingHandle) {
+            try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($pendingStagingHandle) }
+            catch { $stagingCleanupError = $_ }
+        }
+        if ($null -ne $stagingHandles) {
+            for ($index = $stagingHandles.Count - 1; $index -ge 0; $index--) {
+                try { [AiAgentDotfiles.SafeDirectoryHandle]::DisposeExact($stagingHandles[$index]) }
+                catch { if ($null -eq $stagingCleanupError) { $stagingCleanupError = $_ } }
+            }
+        }
+        if ($null -ne $stagingCleanupError) {
+            if ($null -ne $stagingPrimaryError) {
+                $stagingPrimaryError.Exception.Data['RollbackStagingReleaseError'] = [string] $stagingCleanupError.Exception.Message
+            }
+            else { throw $stagingCleanupError }
+        }
     }
 }
 
@@ -1531,7 +1598,7 @@ function Remove-SealedEnvironmentRollbackStaging {
     # Post-success scratch reclamation for the environment-rollback composition
     # (roadmap Task 7 step 4): "cleanup swap-old/staged/pre-rollback copies
     # only after complete success". The only artifacts in scope are this
-    # composition's own home-scoped staging scratch -- the staged and swap-old
+    # composition's own transaction-scoped scratch -- the staged and swap-old
     # entries of its engine target ladder and the pre-rollback state-recovery
     # copy written through its StateRecoveryDirectory. Every candidate path is
     # derived from a reviewed engine target row (the exact staged/swap-old leaf
@@ -2328,7 +2395,8 @@ function Restore-SealedLiveOverlayFile {
 function Get-SealedLiveJournalUnfinishedTransactionIds {
     # Names of every journal in the namespace that is not a finished
     # transaction (a published result plus the terminal COMPLETE record).
-    # Unreadable journals count as unfinished, so the caller fails closed.
+    # Unreadable or invalid journals count as unfinished. A parseable terminal
+    # marker alone does not prove that its header, chain and result agree.
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $TransactionsRoot)
 
@@ -2339,7 +2407,12 @@ function Get-SealedLiveJournalUnfinishedTransactionIds {
         try {
             $chain = Get-SealedLiveJournalChain -TransactionDirectory $directory.FullName
             $phases = @($chain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
-            $finished = ($null -ne $chain.Result -and $phases.Count -gt 0 -and [string] $phases[-1] -ceq 'COMPLETE')
+            $finished = ($null -ne $chain.Header -and @($chain.UnknownNames).Count -eq 0 -and
+                $null -ne $chain.Result -and $phases.Count -gt 0 -and [string] $phases[-1] -ceq 'COMPLETE')
+            if ($finished) {
+                Test-LiveJournalHeaderSemantics -Document $chain.Header
+                Test-SealedLiveJournalChain -Header $chain.Header -Records @($chain.Records) -Result $chain.Result -ResultFileHash $chain.ResultFileHash
+            }
         }
         catch { $finished = $false }
         if (-not $finished) { $pending.Add([string] $directory.Name) }
@@ -2504,6 +2577,11 @@ function Test-SealedLiveJournalChain {
         if ($terminalIndex -ne @($Records).Count - 1) { throw $invalid }
         if ($null -eq $Result) { throw $invalid }
         if ([string] ([System.Collections.IDictionary] $terminalEntries[0]['Document'])['Data']['ResultHash'] -cne [string] $ResultFileHash) { throw $invalid }
+        # The result hash binds the result bytes; the terminal must also name
+        # that result's outcome and the same original reviewed document.
+        $terminalData = [System.Collections.IDictionary] $terminalEntries[0]['Document']['Data']
+        if ([string] $terminalData['Outcome'] -cne [string] $Result['Outcome'] -or
+            [string] $terminalData['OriginalDocumentHash'] -cne [string] $Header['OriginalDocumentHash']) { throw $invalid }
     }
     if ($null -ne $Result) {
         if (@($Records).Count -eq 0) { throw $invalid }
@@ -3386,6 +3464,7 @@ function Invoke-SealedLiveTransactionHost {
             New-SealedLiveJournalHeader -Document $header -TransactionDirectory $journalDir | Out-Null
             $stateRecoveryDirectory = Join-Path ([string] $stagingByPlatform['Claude']) 'state-recovery'
             $stateOutcome = Invoke-SealedLiveTransactionStateOnly -TransactionDirectory $journalDir -Header $header -AuthorityStateIntent $authorityStateIntent -TargetContextIntent $targetIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $resolvedControlBase -StateRecoveryDirectory $stateRecoveryDirectory
+            $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $AuthorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
             return [pscustomobject][ordered]@{
                 TransactionId = $transactionId
                 ReceiptId = $null
@@ -3504,6 +3583,7 @@ function Invoke-SealedLiveTransactionHost {
         }
         $stateRecoveryDirectory = Join-Path $stagingByPlatform['Claude'] 'state-recovery'
         $mutation = Invoke-SealedLiveTransactionMutation -TransactionDirectory $journalDir -Header $header -Receipt $receipt -Targets $engineTargets.ToArray() -SourceRootsByPlatform $sourceByPlatform -AuthorityStateIntent $authorityStateIntent -TargetContextIntent $targetIntent -FinalCapabilityHashesByPlatform $capabilityByPlatform -ControlBase $resolvedControlBase -StateRecoveryDirectory $stateRecoveryDirectory -OverlayTarget $overlayTargetForEngine -OverlayRecoveryDirectory $overlayRecoveryDirectory
+        $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $AuthorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
 
         return [pscustomobject][ordered]@{
             TransactionId = $transactionId

@@ -1,10 +1,14 @@
 #requires -Version 7.0
 [CmdletBinding()]
-param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path,[string]$ProgressPath,[ValidateSet('all','failed','primitive','staging')][string]$Section='all')
+param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path,[string]$ProgressPath,[ValidateSet('all','failed','primitive','staging','completion')][string]$Section='all')
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $RepoRoot=(Resolve-Path -LiteralPath $RepoRoot).Path
+. (Join-Path $RepoRoot 'tests/helpers/canonical-identity-fixture.ps1')
+$identityFixture=New-CanonicalIdentityFixture -SourceRepoRoot $RepoRoot -Name canonical-transaction-apply
+try{
+$RepoRoot=$identityFixture.ToolchainRoot
 . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
 . (Join-Path $RepoRoot 'tests/helpers/canonical-reviewed-transaction-engine.ps1')
 
@@ -13,7 +17,7 @@ function Assert([bool]$Condition,[string]$Message){if($Condition){$script:pass++
 function Mark([string]$Value){if($ProgressPath){[IO.File]::AppendAllText([IO.Path]::GetFullPath($ProgressPath),((Get-Date -Format o)+" "+$Value+"`n"),[Text.UTF8Encoding]::new($false))}}
 function Set-File([string]$Path,[string]$Content){$parent=Split-Path -Parent $Path;if(-not(Test-Path -LiteralPath $parent)){[IO.Directory]::CreateDirectory($parent)|Out-Null};[IO.File]::WriteAllText($Path,$Content,[Text.UTF8Encoding]::new($false))}
 function New-Skill([string]$Path,[string]$Name,[string]$Text){Set-File (Join-Path $Path 'SKILL.md') "---`nname: $Name`ndescription: test $Name`n---`n`n## Steps`n`n- $Text`n"}
-function Invoke-Script([string]$Script,[string[]]$Arguments){$out=& pwsh -NoProfile -File $Script @Arguments 2>&1|Out-String;[pscustomobject]@{Code=$LASTEXITCODE;Out=$out}}
+function Invoke-Script([string]$Script,[string[]]$Arguments){Invoke-CanonicalIdentityFixtureScript -Fixture $identityFixture -ScriptPath $Script -Arguments $Arguments}
 function Write-SemanticJson([string]$Path,$Document){$parent=Split-Path -Parent $Path;if(-not(Test-Path -LiteralPath $parent)){[IO.Directory]::CreateDirectory($parent)|Out-Null};[IO.File]::WriteAllBytes($Path,(ConvertTo-SemanticJsonBytes -InputObject $Document))}
 function Set-CurrentUserOnlyAcl([string]$Path){
     $template=Get-CanonicalCurrentUserOnlySecurityTemplate;$sid=[Security.Principal.SecurityIdentifier]::new([string]$template.OwnerSid)
@@ -51,13 +55,140 @@ function Assert-StagingReservation {
     Assert (-not $state.IsTerminal -and $stagedEntries.Count -gt 0) 'reviewed staging bytes retain a discoverable create-new journal reservation before mutation'
 }
 
-$work=Join-Path $RepoRoot 'tmp/canonical-transaction-apply-tests'
-$external=Join-Path (Split-Path -Parent $RepoRoot) ('.ai-agent-dotfiles-canonical-transaction-apply-'+[Guid]::NewGuid().ToString('N'))
-if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force}
-if(Test-Path -LiteralPath $external){Remove-Item -LiteralPath $external -Recurse -Force}
+function New-CompletionTestJournal {
+    param($Git,$Paths,$SetupState,[string]$RecoveryRoot,[string]$Id,[string]$DocumentHash,[string]$PlanHash)
+    $namespace=Join-Path $Paths.TransactionsRoot (Join-Path $Git.WorktreeId $Id)
+    $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $namespace
+    $recoveryPath=Join-Path $RecoveryRoot (Join-Path $Git.WorktreeId $Id)
+    $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $recoveryPath
+    $header=[ordered]@{
+        SchemaVersion=1;ArtifactKind='canonical-journal-header';TransactionId=$Id;CanonicalOperationKind='normalize'
+        OriginalDocumentHash=$DocumentHash;OriginalPlanHash=$PlanHash;RepoId=[string]$SetupState.RepoId
+        GitCommonDirHash=[string]$Git.GitCommonDirHash;WorktreeId=[string]$Git.WorktreeId
+        TransactionNamespace=[IO.Path]::GetFullPath($namespace);RecoveryTransactionRoot=[IO.Path]::GetFullPath($recoveryPath)
+        ExpectedPostconditionsHash=('a'*64);Targets=@()
+    }
+    $null=New-CanonicalJournalHeader -Document $header -TransactionNamespace $namespace
+    $null=Add-CanonicalJournalRecord -TransactionNamespace $namespace -Phase POSTCONDITIONS_OK -Data ([ordered]@{PostconditionsHash=('a'*64)})
+    return Publish-CanonicalOriginalOutcome -TransactionNamespace $namespace -Outcome committed
+}
+
+function Assert-CompletionRejected {
+    param([hashtable]$Arguments,[string]$TransactionsRoot,[string]$Message)
+    $before=(Get-SafeTreeSnapshot -Root $TransactionsRoot).TreeHash
+    $observed=''
+    try{$null=Assert-CanonicalOwnedTransactionCompletion @Arguments}catch{$observed=[string]$_.Exception.Message}
+    Assert ($observed -ceq 'canonical-recovery-required') $Message
+    Assert ($before -ceq (Get-SafeTreeSnapshot -Root $TransactionsRoot).TreeHash) "$Message leaves all journal bytes unchanged"
+}
+
+function Move-CompletionTestJournal {
+    # Preserve each deliberately displaced test journal for final owned cleanup.
+    # Check both absolute endpoints and every source entry before moving a tree.
+    param([string]$Source,[string]$Destination)
+    Assert-CanonicalIdentityFixtureOwned -Fixture $identityFixture
+    $from=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $Source
+    $to=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $Destination
+    if([IO.Directory]::Exists($to) -or [IO.File]::Exists($to)){throw 'completion test destination must be create-new'}
+    $pending=[Collections.Generic.Stack[string]]::new();$pending.Push($from)
+    while($pending.Count){
+        $entry=$pending.Pop();$null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $entry
+        if([IO.File]::GetAttributes($entry) -band [IO.FileAttributes]::Directory){foreach($child in [IO.Directory]::EnumerateFileSystemEntries($entry)){$pending.Push($child)}}
+    }
+    Move-Item -LiteralPath $from -Destination $to -ErrorAction Stop
+}
+
+function Test-OwnedCanonicalCompletion {
+    Write-Host "`n[owned canonical completion and witness release]" -ForegroundColor Cyan
+    $root=Join-Path $identityFixture.Root 'owned-completion'
+    $repo=Join-Path $root 'repo';$recovery=Join-Path $root 'recovery';$probe=Join-Path $root 'probe';$history=Join-Path $root 'displaced-journals'
+    foreach($path in @($root,$repo,$recovery,$probe,$history)){
+        $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path $path
+        New-Item -ItemType Directory -Path $path -ErrorAction Stop|Out-Null
+    }
+    Set-CurrentUserOnlyAcl $recovery
+    Set-File (Join-Path $repo 'fixture.txt') 'owned completion fixture'
+    &git -C $repo init --quiet;&git -C $repo add -- fixture.txt
+    &git -C $repo -c user.name=canonical-test -c user.email=test@example.invalid commit --quiet -m baseline
+    if($LASTEXITCODE -ne 0){throw 'completion fixture commit failed'}
+    # The adapter supplies only the owned profile/app-data roots. All locks,
+    # witnesses, journal publication and validation below are production code.
+    $context=Resolve-HomeAuthorityContextFromIdentity -Identity $identityFixture.Identity
+    foreach($path in @($context.ControlBase,$context.BackupRoot,$context.GlobalLiveLockPath,$context.CanonicalRootsRoot)){
+        $null=Assert-CanonicalIdentityFixturePath -Fixture $identityFixture -Path ([string]$path)
+    }
+    $intent=New-SealedHomeAuthorityBootstrapIntent -AuthorityContext $context -FilesystemCapabilityHash ('a'*64)
+    $bootstrap=Complete-SealedHomeAuthorityBootstrap -AuthorityContext $context -Intent $intent
+    Exit-HomeAuthorityGlobalLiveLock -LockHandle $bootstrap
+    $setupPayload=New-CanonicalSetupPlanPayload -RepoRoot $repo -CanonicalRecoveryRoot $recovery -ControlBase $context.ControlBase -BackupRoot $context.BackupRoot -ProbeRoot $probe
+    $setup=New-CanonicalFinalSetupState -PlanPayload $setupPayload -RepoRoot $repo
+    $git=Get-CanonicalGitContext -RepoRoot $repo;$paths=Get-CanonicalTransactionContractPaths -GitContext $git
+    Write-SemanticJson $paths.SetupStatePath $setup
+    Write-SemanticJson (Join-Path $context.CanonicalRootsRoot ($setup.RepoId+'.json')) $setupPayload.ExpectedRootClaim
+    $oldId=[Guid]::NewGuid().ToString('D').ToLowerInvariant()
+    $old=New-CompletionTestJournal -Git $git -Paths $paths -SetupState $setup -RecoveryRoot $recovery -Id $oldId -DocumentHash ('1'*64) -PlanHash ('2'*64)
+    $canonical=$null;$witness=$null;$global=$null;$globalHeld=$null;$canonicalHeld=$null
+    try{
+        $canonical=Enter-CanonicalRepoLock -LockPath $paths.LockPath -AllowCreate
+        $canonicalHeld=[AiAgentDotfiles.SafeLockResourceOwner]::GetHeldLockExact([AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($canonical))
+        $witness=Open-CanonicalHeldNamespaceWitness -RepoRoot $repo -CanonicalLockHandle $canonical -ToolchainRoot $RepoRoot
+        $global=Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $context -RequiredCanonicalWitness $witness
+        $globalHeld=[AiAgentDotfiles.SafeLockResourceOwner]::GetHeldLockExact([AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($global))
+        Assert (Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $context -GlobalLockHandle $global -CanonicalWitness $witness) 'completion fixture holds a genuine canonical/global witness binding'
+        Assert (@($witness.CanonicalTransactionSetProjection.Transactions).Count -eq 1 -and
+            [string]$witness.CanonicalTransactionSetProjection.Transactions[0].TransactionId -ceq $oldId -and
+            [string]$witness.CanonicalTransactionSetProjection.Transactions[0].HeaderHash -ceq [string]$old.HeaderHash) 'the genuine witness captures the complete old journal row as its baseline'
+        $witnessHash=[string]$witness.WitnessHash;$setHash=[string]$witness.CanonicalTransactionSetHash
+        $ownId=[Guid]::NewGuid().ToString('D').ToLowerInvariant()
+        $arguments=@{Witness=$witness;RepoRoot=$repo;CanonicalLockHandle=$canonical;ExpectedTransactionId=$ownId;ExpectedDocumentHash=('3'*64);ExpectedPlanHash=('4'*64);ExpectedOperationKind='normalize';ToolchainRoot=$RepoRoot}
+        Assert-CompletionRejected -Arguments $arguments -TransactionsRoot $paths.TransactionsRoot -Message 'owned completion rejects no added transaction'
+        $own=New-CompletionTestJournal -Git $git -Paths $paths -SetupState $setup -RecoveryRoot $recovery -Id $ownId -DocumentHash ('3'*64) -PlanHash ('4'*64)
+        Assert ($own.IsTerminal -and [string]$own.Outcome -ceq 'committed' -and (Assert-CanonicalOwnedTransactionCompletion @arguments)) 'owned completion accepts exactly this original committed transaction'
+        foreach($mismatch in @(
+            @{Name='ExpectedTransactionId';Value=[Guid]::NewGuid().ToString('D').ToLowerInvariant()},
+            @{Name='ExpectedDocumentHash';Value=('5'*64)},
+            @{Name='ExpectedPlanHash';Value=('6'*64)},
+            @{Name='ExpectedOperationKind';Value='promote'}
+        )){
+            $wrong=$arguments.Clone();$wrong[$mismatch.Name]=$mismatch.Value
+            Assert-CompletionRejected -Arguments $wrong -TransactionsRoot $paths.TransactionsRoot -Message ("owned completion rejects mismatched "+$mismatch.Name)
+        }
+        $strictMessage='';try{$null=Assert-CanonicalHeldTransactionSetCurrent -Witness $witness}catch{$strictMessage=[string]$_.Exception.Message}
+        Assert ($strictMessage -ceq 'canonical-recovery-required') 'the strict current-set validator still rejects the legitimate owned addition'
+        $strictMessage='';try{$null=Assert-CanonicalHeldNamespaceWitness -Witness $witness -RepoRoot $repo -CanonicalLockHandle $canonical -ToolchainRoot $RepoRoot}catch{$strictMessage=[string]$_.Exception.Message}
+        Assert ($strictMessage -ceq 'canonical-recovery-required') 'the generic witness validator retains strict current-set semantics'
+        Assert (Assert-CanonicalHeldNamespaceWitnessResources -Witness $witness -RepoRoot $repo -CanonicalLockHandle $canonical -ToolchainRoot $RepoRoot) 'resource validation accepts unchanged owned resources after a legitimate commit'
+
+        $foreignId=[Guid]::NewGuid().ToString('D').ToLowerInvariant()
+        $foreign=New-CompletionTestJournal -Git $git -Paths $paths -SetupState $setup -RecoveryRoot $recovery -Id $foreignId -DocumentHash ('7'*64) -PlanHash ('8'*64)
+        Assert ($foreign.IsTerminal -and [string]$foreign.Outcome -ceq 'committed') 'the foreign-addition negative uses a valid closed journal'
+        Assert-CompletionRejected -Arguments $arguments -TransactionsRoot $paths.TransactionsRoot -Message 'owned completion rejects an additional foreign closed transaction'
+        Move-CompletionTestJournal -Source ([string]$foreign.TransactionNamespace) -Destination (Join-Path $history 'foreign')
+        Assert (Assert-CanonicalOwnedTransactionCompletion @arguments) 'removing only the foreign test addition restores the exact accepted delta'
+
+        Move-CompletionTestJournal -Source ([string]$old.TransactionNamespace) -Destination (Join-Path $history 'old-original')
+        $replacement=New-CompletionTestJournal -Git $git -Paths $paths -SetupState $setup -RecoveryRoot $recovery -Id $oldId -DocumentHash ('1'*64) -PlanHash ('9'*64)
+        Assert ($replacement.IsTerminal -and [string]$replacement.Outcome -ceq 'committed' -and [string]$replacement.HeaderHash -cne [string]$old.HeaderHash) 'the old-row negative preserves a valid closed chain with a changed header hash'
+        Assert-CompletionRejected -Arguments $arguments -TransactionsRoot $paths.TransactionsRoot -Message 'owned completion rejects a changed old row despite the same row count and owned transaction id'
+        Assert ([string]$witness.WitnessHash -ceq $witnessHash -and [string]$witness.CanonicalTransactionSetHash -ceq $setHash -and (Get-SemanticJsonHash -InputObject $witness.CanonicalTransactionSetProjection) -ceq $setHash) 'completion checks never refresh the acquisition witness or its original transaction set'
+        Assert (Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext $context -GlobalLockHandle $global -CanonicalWitness $witness) 'the release binding validates the original owned resources without accepting the changed business transaction set'
+    }
+    finally{
+        try{if($null -ne $global){Exit-HomeAuthorityGlobalLiveLock -LockHandle $global}}
+        finally{try{if($null -ne $witness){Close-CanonicalHeldNamespaceWitness -Witness $witness}}finally{if($null -ne $canonical){Exit-CanonicalRepoLock -LockHandle $canonical}}}
+    }
+    Assert (-not [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($globalHeld) -and -not [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($canonicalHeld)) 'resource-only release closes both genuinely owned locks after accepted and rejected completion checks'
+}
+
+$work=Join-Path $identityFixture.Root 'repos'
+$external=Join-Path $identityFixture.Root 'evidence'
 [IO.Directory]::CreateDirectory($work)|Out-Null;[IO.Directory]::CreateDirectory($external)|Out-Null
 
 try{
+    if($Section -in @('all','completion')){
+        Test-OwnedCanonicalCompletion
+        if($Section -eq 'completion'){Mark 'test:done';if($script:fail){exit 1}else{exit 0}}
+    }
     Mark 'fixture:start'
     Write-Host "`n[reviewed multi-target apply orchestration]" -ForegroundColor Cyan
     $fixture=Join-Path $work 'repo';foreach($path in @('skills-source/shared','skills-source/claude-only','skills-source/codex-only','skills-source/reasonix-only','claude/skills','codex/skills','reasonix/skills','manifests')){[IO.Directory]::CreateDirectory((Join-Path $fixture $path))|Out-Null}
@@ -174,5 +305,6 @@ try{
     }
     Mark 'test:done'
 }catch{Mark ("test:error:"+$_.Exception.Message);$script:fail++;Write-Host "  FAIL  unhandled test error: $($_.Exception.Message)" -ForegroundColor Red}
-finally{Write-Host '';Write-Host ("Results: {0} passed, {1} failed" -f $script:pass,$script:fail) -ForegroundColor Cyan;if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force};if(Test-Path -LiteralPath $external){Remove-Item -LiteralPath $external -Recurse -Force}}
+finally{Write-Host '';Write-Host ("Results: {0} passed, {1} failed" -f $script:pass,$script:fail) -ForegroundColor Cyan}
 if($script:fail){exit 1}
+}finally{Remove-CanonicalIdentityFixture -Fixture $identityFixture}

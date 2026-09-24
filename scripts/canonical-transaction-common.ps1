@@ -828,7 +828,7 @@ function Open-CanonicalHeldNamespaceWitness {
     }
 }
 
-function Assert-CanonicalHeldNamespaceWitness {
+function Assert-CanonicalHeldNamespaceWitnessResources {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Witness,
@@ -890,9 +890,10 @@ function Assert-CanonicalHeldNamespaceWitness {
             [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([byte[]]$Witness.SetupStateBytes)).ToLowerInvariant() -cne [string]$Witness.SetupStateCapture.BytesHash -or
             (Get-SemanticJsonHash -InputObject $Witness.SetupStateDocument) -cne [string]$Witness.SetupStateCapture.SemanticHash -or
             [string]$Witness.SetupStateStatus -cne 'VALID' -or [string]$Witness.CanonicalTransactionCoverage -cne 'WITNESSED' -or [long]$Witness.UnfinishedCanonicalTransactionCount -ne 0){throw 'canonical witness setup-state alias mismatch'}
-        $transactionProjection=Get-CanonicalHeldTransactionSetProjection -TransactionsRoot ([string]$Witness.TransactionsRoot) -ExpectedRepoId $repoId -ExpectedGitCommonDirHash ([string]$Witness.GitCommonDirHash)
-        $transactionHash=Get-SemanticJsonHash -InputObject $transactionProjection
-        if($transactionHash -cne [string]$Witness.CanonicalTransactionSetHash -or $transactionHash -cne (Get-SemanticJsonHash -InputObject $Witness.CanonicalTransactionSetProjection)){throw 'canonical-recovery-required'}
+        # Resource release retains the acquisition-time witness unchanged. Its
+        # transaction projection must remain internally bound, but a completed
+        # owned transaction may have legitimately extended the on-disk set.
+        if((Get-SemanticJsonHash -InputObject $Witness.CanonicalTransactionSetProjection) -cne [string]$Witness.CanonicalTransactionSetHash){throw 'canonical-recovery-required'}
         $currentNames=@(Get-CanonicalHeldOrdinalStrings -Values @([AiAgentDotfiles.NoFollowFile]::GetChildNames($contractLeaf)))
         if(-not(Test-CanonicalHeldOrdinalStringArrayEqual -Left @($Witness.ContractRootInitialNames) -Right $currentNames)){throw 'canonical contract-root inventory drift'}
         if((Get-SemanticJsonHash -InputObject (Get-CanonicalHeldNamespaceWitnessProjection -Witness $Witness)) -cne [string]$Witness.WitnessHash){throw 'canonical witness projection hash mismatch'}
@@ -902,6 +903,101 @@ function Assert-CanonicalHeldNamespaceWitness {
         if($_.Exception.Message -ceq 'canonical-recovery-required'){throw}
         throw 'canonical-witness-required'
     }
+}
+
+function Assert-CanonicalHeldTransactionSetCurrent {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Witness)
+
+    $transactionProjection=Get-CanonicalHeldTransactionSetProjection -TransactionsRoot ([string]$Witness.TransactionsRoot) -ExpectedRepoId ([string]$Witness.RepoId) -ExpectedGitCommonDirHash ([string]$Witness.GitCommonDirHash)
+    $transactionHash=Get-SemanticJsonHash -InputObject $transactionProjection
+    if($transactionHash -cne [string]$Witness.CanonicalTransactionSetHash -or
+        $transactionHash -cne (Get-SemanticJsonHash -InputObject $Witness.CanonicalTransactionSetProjection)){throw 'canonical-recovery-required'}
+    return $true
+}
+
+function Assert-CanonicalHeldNamespaceWitness {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Witness,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$CanonicalLockHandle,
+        [string]$ToolchainRoot=$script:CanonicalToolchainRoot
+    )
+
+    $null=Assert-CanonicalHeldNamespaceWitnessResources -Witness $Witness -RepoRoot $RepoRoot -CanonicalLockHandle $CanonicalLockHandle -ToolchainRoot $ToolchainRoot
+    $null=Assert-CanonicalHeldTransactionSetCurrent -Witness $Witness
+    return $true
+}
+
+function Assert-CanonicalOwnedTransactionCompletion {
+    # Called before public success while the caller still holds canonical/global
+    # locks. Accept only the reviewed operation's one committed addition; never
+    # refresh the witness or accept unrelated changes as a new baseline.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Witness,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$CanonicalLockHandle,
+        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')][string]$ExpectedTransactionId,
+        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedDocumentHash,
+        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedPlanHash,
+        [Parameter(Mandatory)][ValidateSet('normalize','promote','merge')][string]$ExpectedOperationKind,
+        [string]$ToolchainRoot=$script:CanonicalToolchainRoot
+    )
+
+    $null=Assert-CanonicalHeldNamespaceWitnessResources -Witness $Witness -RepoRoot $RepoRoot -CanonicalLockHandle $CanonicalLockHandle -ToolchainRoot $ToolchainRoot
+    try{
+        $baseline=$Witness.CanonicalTransactionSetProjection
+        if($baseline -isnot [Collections.IDictionary]){throw 'canonical transaction baseline is not a projection'}
+        $oldRows=@($baseline.Transactions)
+        if(@($oldRows|Where-Object{[string]$_.TransactionId -ceq $ExpectedTransactionId}).Count -ne 0){throw 'owned canonical transaction already existed at acquisition'}
+        $current=Get-CanonicalHeldTransactionSetProjection -TransactionsRoot ([string]$Witness.TransactionsRoot) -ExpectedRepoId ([string]$Witness.RepoId) -ExpectedGitCommonDirHash ([string]$Witness.GitCommonDirHash)
+        $currentRows=@($current.Transactions)
+        $ownedRows=@($currentRows|Where-Object{[string]$_.TransactionId -ceq $ExpectedTransactionId})
+        if($currentRows.Count -ne $oldRows.Count+1 -or $ownedRows.Count -ne 1){throw 'canonical transaction set changed beyond the owned transaction'}
+
+        $expectedNamespace=[IO.Path]::GetFullPath((Join-Path ([string]$Witness.TransactionsRoot) (Join-Path ([string]$Witness.WorktreeId) $ExpectedTransactionId)))
+        if(-not(Test-CanonicalHeldPathEqual -Left ([string]$ownedRows[0].TransactionNamespace) -Right $expectedNamespace)){throw 'owned canonical transaction namespace mismatch'}
+        # Read-CanonicalJournalDirectory validates schema, namespace inventory,
+        # hash chain, result and terminal together, including pending evidence.
+        $state=Read-CanonicalJournalDirectory -TransactionNamespace $expectedNamespace
+        if([string]$state.ValidationStatus -cne 'VALID' -or -not [bool]$state.IsTerminal -or
+            [string]$state.Outcome -cne 'committed' -or @($state.PendingEntries).Count -ne 0 -or
+            $null -eq $state.Result -or [string]$state.Result.Result -cne 'PASS' -or
+            [string]$state.Result.Outcome -cne 'committed'){throw 'owned canonical transaction did not commit'}
+        foreach($binding in @(
+            [pscustomobject]@{Actual=[string]$state.Header.TransactionId;Expected=$ExpectedTransactionId},
+            [pscustomobject]@{Actual=[string]$state.Header.OriginalDocumentHash;Expected=$ExpectedDocumentHash},
+            [pscustomobject]@{Actual=[string]$state.Header.OriginalPlanHash;Expected=$ExpectedPlanHash},
+            [pscustomobject]@{Actual=[string]$state.Header.CanonicalOperationKind;Expected=$ExpectedOperationKind},
+            [pscustomobject]@{Actual=[string]$state.Header.RepoId;Expected=[string]$Witness.RepoId},
+            [pscustomobject]@{Actual=[string]$state.Header.GitCommonDirHash;Expected=[string]$Witness.GitCommonDirHash},
+            [pscustomobject]@{Actual=[string]$state.Header.WorktreeId;Expected=[string]$Witness.WorktreeId},
+            [pscustomobject]@{Actual=[string]$state.Result.TransactionId;Expected=$ExpectedTransactionId},
+            [pscustomobject]@{Actual=[string]$state.Result.OriginalDocumentHash;Expected=$ExpectedDocumentHash},
+            [pscustomobject]@{Actual=[string]$state.Result.CanonicalOperationKind;Expected=$ExpectedOperationKind},
+            [pscustomobject]@{Actual=[string]$state.HeaderHash;Expected=[string]$ownedRows[0].HeaderHash},
+            [pscustomobject]@{Actual=[string]$state.DerivedJournalHeadHash;Expected=[string]$ownedRows[0].DerivedJournalHeadHash},
+            [pscustomobject]@{Actual=[string]$state.ResultHash;Expected=[string]$ownedRows[0].ResultHash}
+        )){if($binding.Actual -cne $binding.Expected){throw 'owned canonical transaction binding mismatch'}}
+        if(-not(Test-CanonicalHeldPathEqual -Left ([string]$state.Header.TransactionNamespace) -Right $expectedNamespace) -or
+            -not(Test-CanonicalHeldPathEqual -Left ([string]$state.TransactionNamespace) -Right $expectedNamespace)){throw 'owned canonical journal path mismatch'}
+        $terminal=@($state.Records)[-1]
+        if([string]$terminal.Phase -cne 'COMPLETE' -or [string]$terminal.Data.ClosingKind -cne 'original' -or
+            [string]$terminal.Data.OriginalDocumentHash -cne $ExpectedDocumentHash -or
+            [string]$terminal.Data.ClosingDocumentHash -cne $ExpectedDocumentHash -or
+            @($state.ConsumedDocumentHashes).Count -ne 1 -or [string](@($state.ConsumedDocumentHashes)[0]) -cne $ExpectedDocumentHash){throw 'owned canonical transaction was not closed by its original operation'}
+
+        # Preserve the whole original projection, including every field of all
+        # old rows. Exactly one new validated row is the only permitted delta.
+        $expectedProjection=[ordered]@{}
+        foreach($name in $baseline.Keys){$expectedProjection[$name]=$baseline[$name]}
+        $expectedProjection.Transactions=@(($oldRows+@($ownedRows[0]))|Sort-Object @{Expression={[string]$_.WorktreeId}},@{Expression={[string]$_.TransactionId}})
+        if((Get-SemanticJsonHash -InputObject $expectedProjection) -cne (Get-SemanticJsonHash -InputObject $current)){throw 'canonical transaction set differs from the reviewed owned completion'}
+        return $true
+    }
+    catch{throw [InvalidOperationException]::new('canonical-recovery-required',$_.Exception)}
 }
 
 function Close-CanonicalHeldNamespaceWitness {

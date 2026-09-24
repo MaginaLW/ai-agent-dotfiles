@@ -8232,7 +8232,20 @@ function Enter-SealedHeldCanonicalLiveLockOrder {
             if ($domainException -is [AggregateException]) { break }
         }
         if ($AcquisitionMode -ceq 'ExistingOnly' -and $null -ne $canonicalLock -and $null -eq $globalLock -and [string]$domainException.Message -ceq 'operation-lock-busy') {
-            throw 'canonical-witness-required'
+            # Distinguish this process's reverse-order acquisition from a
+            # correctly ordered contender losing to another process. Only a
+            # still-open registered owner acquired before our canonical lock
+            # proves that this process already held the global lock first.
+            $canonicalOwner = [AiAgentDotfiles.SafeLockResourceOwner]::GetForWrapperExact($canonicalLock)
+            $canonicalOrdinal = [AiAgentDotfiles.SafeLockResourceOwner]::GetAcquisitionOrdinalExact($canonicalOwner)
+            foreach ($priorOwner in [AiAgentDotfiles.SafeLockResourceOwner]::GetPriorOwnersForPathExact([string]$operationContext.GlobalLiveLockPath, $canonicalOrdinal)) {
+                $priorHeld = [AiAgentDotfiles.SafeLockResourceOwner]::GetHeldLockExact($priorOwner)
+                if ([AiAgentDotfiles.SafeLockResourceOwner]::MatchesAcquiredEvidenceExact($priorOwner) -and
+                    $priorHeld -is [AiAgentDotfiles.SafeLockFileHandle] -and
+                    [AiAgentDotfiles.SafeLockFileHandle]::IsOpenExact($priorHeld)) {
+                    throw 'canonical-witness-required'
+                }
+            }
         }
         throw $domainException
     }

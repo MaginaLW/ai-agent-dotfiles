@@ -1,5 +1,7 @@
 #requires -Version 7.0
 
+param([ValidateSet('all', 'rollback-staging')] [string] $Section = 'all')
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -7,27 +9,10 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$sourceRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-backup-recovery-$([Guid]::NewGuid().ToString('N'))"
-. (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
-. (Join-Path $RepoRoot 'scripts/home-authority-common.ps1')
-. (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
-. (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
-. (Join-Path $RepoRoot 'scripts/backup-receipt-common.ps1')
-. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
-. (Join-Path $RepoRoot 'tests/helpers/safety-sandbox.ps1')
-
-# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
-# same committed suite bytes assert the interlocked fail-closed contract while
-# ReleaseState=interlocked, and each affected surface's observed released
-# post-Assert contract once the reviewed release candidate flips the policy.
-# The sandboxed dispatches keep working in both modes because a genuine
-# capability wins the Assert on any ReleaseState; only the three sandbox
-# dispatches whose -RepoRoot sits outside the sandbox (so the interlocked
-# Assert refuses them) branch on the policy state.
-$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
-$script:IsReleased = ($policyState -eq 'released')
-
+$RepoRoot = Join-Path $work 'repo'
+$workOwned = $false
 $script:pass = 0
 
 function Assert {
@@ -44,7 +29,73 @@ function Write-TextFile {
     [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Assert-RollbackFixtureNoReparse {
+    param([Parameter(Mandatory)] [string] $Path, [switch] $AncestorsOnly)
+    $resolved = [System.IO.Path]::GetFullPath($Path)
+    # Check each ancestor and walk children without following reparse points.
+    $cursor = $resolved
+    while (-not [string]::IsNullOrEmpty($cursor)) {
+        if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'rollback fixture cleanup refuses a reparse point' }
+        $cursor = Split-Path -Parent $cursor
+    }
+    if ($AncestorsOnly) { return }
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($resolved)
+    while ($pending.Count -gt 0) {
+        $entry = Get-Item -LiteralPath $pending.Pop() -Force
+        if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'rollback fixture cleanup refuses a reparse point' }
+        if ($entry.PSIsContainer) { foreach ($child in @(Get-ChildItem -LiteralPath $entry.FullName -Force)) { $pending.Push($child.FullName) } }
+    }
+}
+
+function Remove-RollbackFixturePath {
+    param([Parameter(Mandatory)] [string] $Path)
+    $resolved = [System.IO.Path]::GetFullPath($Path)
+    $owned = [System.IO.Path]::GetFullPath($work)
+    if (-not $workOwned -or -not ($resolved.Equals($owned, [StringComparison]::OrdinalIgnoreCase) -or
+        $resolved.StartsWith($owned + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) {
+        throw 'rollback fixture cleanup escaped its owned root'
+    }
+    if (-not (Test-Path -LiteralPath $resolved)) { return }
+    Assert-RollbackFixtureNoReparse -Path $resolved
+    Remove-Item -LiteralPath $resolved -Recurse -Force
+}
+
 try {
+    # All origin locks and test writes belong to this invocation, including the
+    # public rollback child's Git-private canonical and worktree-overlay locks.
+    Assert-RollbackFixtureNoReparse -Path (Split-Path -Parent $work) -AncestorsOnly
+    New-Item -ItemType Directory -Path $work | Out-Null
+    $workOwned = $true
+    Write-Host ('ROLLBACK_FIXTURE_ROOT ' + $work)
+    New-Item -ItemType Directory -Path $RepoRoot | Out-Null
+    foreach ($name in @('scripts', 'schemas', 'tools', 'tests', '.gitleaks.toml', 'bootstrap.ps1')) {
+        Assert-RollbackFixtureNoReparse -Path (Join-Path $sourceRepoRoot $name)
+        Copy-Item -LiteralPath (Join-Path $sourceRepoRoot $name) -Destination $RepoRoot -Recurse
+    }
+    & git -C $RepoRoot init --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'rollback fixture git initialization failed' }
+    & git -C $RepoRoot -c "core.hooksPath=$work/inert-hooks" -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty --quiet -m 'Initialize rollback fixture'
+    if ($LASTEXITCODE -ne 0) { throw 'rollback fixture commit initialization failed' }
+    # No fallback to the real Windows identity is allowed, even if a sandbox
+    # capability is missing or invalid. Only the copied locator is adapted; the
+    # released resolver, lock order and transaction engines remain unchanged.
+    $identityPath = Join-Path $RepoRoot 'scripts/home-authority-common.ps1'
+    $identityText = [System.IO.File]::ReadAllText($identityPath)
+    $identityAst = [System.Management.Automation.Language.Parser]::ParseInput($identityText, [ref] $null, [ref] $null)
+    $identityFunctions = @($identityAst.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-WindowsHomeAuthorityIdentity' }, $true))
+    if ($identityFunctions.Count -ne 1) { throw 'rollback fixture identity adapter requires one locator' }
+    $identityExtent = $identityFunctions[0].Extent
+    $identityText = $identityText.Substring(0, $identityExtent.StartOffset) + "function Get-WindowsHomeAuthorityIdentity { throw 'rollback-test-real-identity-forbidden' }" + $identityText.Substring($identityExtent.EndOffset)
+    [System.IO.File]::WriteAllText($identityPath, $identityText, [System.Text.UTF8Encoding]::new($false))
+    . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/home-authority-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/live-transaction-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/backup-receipt-common.ps1')
+    . (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
+    . (Join-Path $RepoRoot 'tests/helpers/safety-sandbox.ps1')
+
     Write-Host '[environment rollback surface]'
     $rollbackScript = Join-Path $RepoRoot 'scripts/rollback-harness-env.ps1'
     $cliScript = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
@@ -210,20 +261,11 @@ Write-Host 'rollback sandbox authority bootstrap complete'
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', $initialReceipt, '-DryRun', '-PlanPath', $absentPlan)
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-source-kind-unsupported \(source=initial\)') 'an initial receipt cannot start an ordinary rollback'
 
-    # -Apply stays behind the Phase 0 production interlock while the policy is
-    # interlocked: the composition always passes its real -RepoRoot, which sits
-    # outside the sandbox root, so the interlocked Assert refuses before the
-    # receipt is interpreted. On a released commit the Assert returns and the
-    # same dispatch fails closed at the reviewed plan requirement (Apply
-    # consumes an existing reviewed plan; none exists here).
+    # A valid sandbox capability admits this owned repository on either policy
+    # state; Apply still requires a previously reviewed plan.
     $environmentReceipt = New-PreflightReceipt -SourceOperationKind 'environment' -Label 'environment'
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', $environmentReceipt, '-Apply', '-PlanPath', $absentPlan)
-    if ($script:IsReleased) {
-        Assert ($r.Code -ne 0 -and $r.Out -match 'Artifact or evidence path is missing') 'the rollback Apply proceeds past the released Assert and fails closed on the missing reviewed plan (released)'
-    }
-    else {
-        Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'the rollback Apply remains interlocked'
-    }
+    Assert ($r.Code -ne 0 -and $r.Out -match 'Artifact or evidence path is missing') 'sandbox rollback Apply fails closed on the missing reviewed plan'
 
     # A complete environment receipt without a captured authority preimage
     # cannot name a rollback destination even though its own marker is valid.
@@ -286,6 +328,7 @@ $overlayDrift = [bool] $spec['OverlayDrift']
 $reserveOnly = [bool] $spec['ReserveOnly']
 $rootTransition = [bool] $spec['RootTransitionReasonix']
 if ($rootTransition) { $failMode = 'failed-restored' }
+$rollbackTargetCount = if ($spec.Contains('RollbackTargetCount')) { [int] $spec['RollbackTargetCount'] } else { 3 }
 
 $injectedHome = $env:AI_AGENT_DOTFILES_INTERNAL_HOME_ROOT
 $controlBase = $env:AI_AGENT_DOTFILES_INTERNAL_CONTROL_BASE
@@ -334,7 +377,7 @@ $sourceRoots = [ordered]@{
     Reasonix = Join-Path $graphRoot 'source/reasonix/skills'
 }
 foreach ($root in @($sourceRoots.Values)) { New-Item -ItemType Directory -Force -Path $root | Out-Null }
-Write-GraphTextFile -Path (Join-Path $sourceRoots['Claude'] 'kept/SKILL.md') -Content "kept-new-$label"
+Write-GraphTextFile -Path (Join-Path $sourceRoots['Claude'] 'kept/SKILL.md') -Content $(if ($rollbackTargetCount -eq 0) { "kept-old-$label" } else { "kept-new-$label" })
 Write-GraphTextFile -Path (Join-Path $sourceRoots['Codex'] "added-$label/SKILL.md") -Content "added-new-$label"
 
 $stagingRoots = [ordered]@{
@@ -536,12 +579,12 @@ $receiptPlatforms = @(
     [ordered]@{
         Platform = 'Codex'
         LiveRoot = [string] $liveRoots['Codex']
-        Targets = @([ordered]@{ Name = "added-$label"; LivePath = (Join-Path $liveRoots['Codex'] "added-$label"); PlannedTreeHash = $null })
+        Targets = @(if ($rollbackTargetCount -eq 3) { [ordered]@{ Name = "added-$label"; LivePath = (Join-Path $liveRoots['Codex'] "added-$label"); PlannedTreeHash = $null } })
     },
     [ordered]@{
         Platform = 'Reasonix'
         LiveRoot = $reasonixReceiptRoot
-        Targets = @($reasonixReceiptTargets)
+        Targets = @(if ($rollbackTargetCount -eq 3) { $reasonixReceiptTargets })
     }
 )
 $receiptSplat = @{
@@ -595,11 +638,9 @@ if (-not $reserveOnly) {
     $keptOldHash = (Get-SafeTreeSnapshot -Root (Join-Path $liveRoots['Claude'] 'kept')).TreeHash
     $keptNewHash = (Get-SafeTreeSnapshot -Root (Join-Path $sourceRoots['Claude'] 'kept')).TreeHash
     $addedNewHash = (Get-SafeTreeSnapshot -Root (Join-Path $sourceRoots['Codex'] "added-$label")).TreeHash
-    $actions = @(
-        [ordered]@{ Platform = 'Claude'; Action = 'update'; Name = 'kept'; SourceHash = $keptNewHash; LiveHash = $keptOldHash },
-        [ordered]@{ Platform = 'Codex'; Action = 'add'; Name = "added-$label"; SourceHash = $addedNewHash; LiveHash = $null }
-    )
-    if (-not $wrongReasonixRoot) {
+    $actions = @([ordered]@{ Platform = 'Claude'; Action = 'update'; Name = 'kept'; SourceHash = $keptNewHash; LiveHash = $keptOldHash })
+    if ($rollbackTargetCount -eq 3) { $actions += [ordered]@{ Platform = 'Codex'; Action = 'add'; Name = "added-$label"; SourceHash = $addedNewHash; LiveHash = $null } }
+    if (-not $wrongReasonixRoot -and $rollbackTargetCount -eq 3) {
         $prunedOldHash = (Get-SafeTreeSnapshot -Root (Join-Path $liveRoots['Reasonix'] "pruned-$label")).TreeHash
         $actions += [ordered]@{ Platform = 'Reasonix'; Action = 'prune'; Name = "pruned-$label"; SourceHash = $null; LiveHash = $prunedOldHash }
     }
@@ -730,6 +771,7 @@ Write-Host ('SOURCE_GRAPH ' + (ConvertTo-Json -InputObject $graph -Depth 6 -Comp
     Write-Host '[environment rollback plan derivation]'
     $eligiblePlan = Join-Path $work 'eligible-plan.json'
     $r = Invoke-GraphRollback -Graph $eligibleGraph -PlanPath $eligiblePlan
+    if ($r.Code -ne 0) { Write-Host $r.Out }
     Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback plan created') 'the eligible graph derives and writes the reviewed rollback plan on DryRun'
     Assert (Test-Path -LiteralPath $eligiblePlan -PathType Leaf) 'the derived plan file exists'
     $rollbackSchemaPath = Join-Path $RepoRoot 'schemas/rollback-plan.schema.json'
@@ -831,6 +873,35 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
         ) -AuthorityRepoRoot $RepoRoot
     }
 
+    function Get-RollbackTransactionStagingRoot {
+        param([Parameter(Mandatory)] $Chain)
+        $transactionId = [string] $Chain.Header['TransactionId']
+        if ($transactionId -cnotmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+            throw 'FAIL: rollback staging requires the journal transaction identity'
+        }
+        $root = [IO.Path]::GetFullPath((Join-Path (Join-Path $authorityHome '.ai-agent-dotfiles-staging') ('rollback-' + $transactionId)))
+        if (-not $workOwned -or -not $root.StartsWith(([IO.Path]::GetFullPath($work) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'FAIL: rollback staging escaped the owned fixture'
+        }
+        Assert-RollbackFixtureNoReparse -Path $root
+        $scratchPaths = @($Chain.Records | ForEach-Object {
+            $data = [System.Collections.IDictionary] $_['Document']['Data']
+            foreach ($name in @('StagedPath', 'SwapOldPath')) {
+                if ((Test-LiveTransactionMapHasName -Map $data -Name $name) -and -not [string]::IsNullOrWhiteSpace([string] $data[$name])) {
+                    [string] $data[$name]
+                }
+            }
+        } | Sort-Object -Unique)
+        Assert ($scratchPaths.Count -gt 0) 'the rollback journal binds its transaction staging paths'
+        foreach ($path in $scratchPaths) {
+            $full = [IO.Path]::GetFullPath($path)
+            Assert ($full.StartsWith(($root + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) 'every rollback journal scratch path belongs to its transaction namespace'
+            $relative = [IO.Path]::GetRelativePath($root, $full).Replace('\', '/')
+            Assert ($relative -cmatch '^(Claude|Codex|Reasonix)/(staged|swap|state-recovery)/[^/]+$') 'the rollback scratch path retains its platform and purpose below the transaction namespace'
+        }
+        return $root
+    }
+
     $preExecutionState = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($statePath, [System.Text.UTF8Encoding]::new($false, $true)))
     $r = Invoke-RollbackExecution -PlanPath $eligiblePlan -SourceReceiptPath ([string] $eligibleGraph.ReceiptPath)
     if ($r.Code -ne 0) { Write-Host '----- rollback execution output -----'; Write-Host $r.Out }
@@ -867,10 +938,11 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     # activation receipt and the source receipt's snapshot trees are durable
     # evidence and survive.
     $stagingBase = Join-Path $authorityHome '.ai-agent-dotfiles-staging'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $stagingBase 'Claude/swap/kept'))) 'the committed rollback reclaims the swap-old entry of its update target'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $stagingBase 'Codex/swap/added-custom-reasonix'))) 'the committed rollback reclaims the swap-old entry of its prune target'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $stagingBase 'Claude/state-recovery/current-env.preimage.json'))) 'the committed rollback reclaims the pre-rollback state-recovery copy'
-    Assert (@(Get-ChildItem -LiteralPath $stagingBase -Recurse -Force -File).Count -eq 0) 'no staging file of the committed rollback survives under the home staging base'
+    $committedStaging = Get-RollbackTransactionStagingRoot -Chain $rollbackChain
+    Assert (-not (Test-Path -LiteralPath (Join-Path $committedStaging 'Claude/swap/kept'))) 'the committed rollback reclaims the swap-old entry of its update target'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $committedStaging 'Codex/swap/added-custom-reasonix'))) 'the committed rollback reclaims the swap-old entry of its prune target'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $committedStaging 'Claude/state-recovery/current-env.preimage.json'))) 'the committed rollback reclaims the pre-rollback state-recovery copy'
+    Assert (@(Get-ChildItem -LiteralPath $committedStaging -Recurse -Force -File).Count -eq 0) 'no staging file of the committed rollback survives under its transaction namespace'
     $rollbackJournal = [string] $rollbackResult.JournalDirectory
     Assert (Test-Path -LiteralPath (Join-Path $rollbackJournal 'header.json') -PathType Leaf) 'the committed rollback keeps its journal header'
     Assert (Test-Path -LiteralPath (Join-Path $rollbackJournal 'result.json') -PathType Leaf) 'the committed rollback keeps its published result'
@@ -888,6 +960,146 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $eligibleGraph.ReceiptPath, '-DryRun', '-PlanPath', $insideRepoPlan)
     Assert ($r.Code -ne 0 -and $r.Out -match 'must be disjoint from worktree') 'a plan path inside the repository is rejected even for an eligible graph'
     Assert (-not (Test-Path -LiteralPath $insideRepoPlan)) 'the eligible-graph rejection writes no plan'
+
+    Write-Host '[zero and single-target public rollback closure]'
+    # Earlier activation/recovery evidence may still occupy the historical
+    # shared names. Both a state-only rollback and a changed live target must
+    # use their own namespace without deleting or replacing those entries.
+    $legacyStagingEvidence = [ordered]@{}
+    foreach ($relative in @('Claude/state-recovery/current-env.preimage.json', 'Claude/staged/kept/SKILL.md', 'Claude/swap/kept/SKILL.md')) {
+        $path = [IO.Path]::GetFullPath((Join-Path $stagingBase $relative))
+        if (-not $workOwned -or -not $path.StartsWith(([IO.Path]::GetFullPath($work) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'FAIL: legacy staging sentinel escaped the owned fixture'
+        }
+        $parent = Split-Path -Parent $path
+        $cursor = $parent
+        while (-not [string]::IsNullOrEmpty($cursor)) {
+            try {
+                if ([IO.File]::GetAttributes($cursor) -band [IO.FileAttributes]::ReparsePoint) {
+                    throw 'FAIL: legacy staging sentinel refuses a reparse ancestor'
+                }
+            }
+            catch [IO.FileNotFoundException] { }
+            catch [IO.DirectoryNotFoundException] { }
+            $cursor = Split-Path -Parent $cursor
+        }
+        [IO.Directory]::CreateDirectory($parent) | Out-Null
+        Assert-RollbackFixtureNoReparse -Path $parent -AncestorsOnly
+        $bytes = [Text.Encoding]::UTF8.GetBytes('retained legacy staging evidence: ' + $relative)
+        $stream = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
+        finally { $stream.Dispose() }
+        $legacyStagingEvidence[$path] = Get-SemanticJsonHash -InputObject (Get-SealedLiveObservableFileState -Path $path)
+    }
+    foreach ($targetCount in @(0, 1)) {
+        $countGraph = New-SourceGraph ([ordered]@{ Label = "targets-$targetCount"; RollbackTargetCount = $targetCount })
+        $countPlan = Join-Path $work "targets-$targetCount-plan.json"
+        $r = Invoke-GraphRollback -Graph $countGraph -PlanPath $countPlan
+        Assert ($r.Code -eq 0) "the $targetCount-target source produces a public rollback plan"
+        $beforeCountState = ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($statePath))
+        $liveBeforeCount = @($beforeCountState['FinalResolvedIdentities'] | ForEach-Object { (Get-SafeTreeSnapshot -Root ([string] $_['ResolvedPath'])).TreeHash })
+        $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $countGraph.ReceiptPath, '-Apply', '-PlanPath', $countPlan)
+        if ($r.Code -ne 0) { Write-Host $r.Out }
+        Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback applied:') "the public $targetCount-target rollback Apply exits zero"
+        $afterCountState = ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($statePath))
+        Assert ([long] $afterCountState['AuthorityGeneration'] -eq ([long] $beforeCountState['AuthorityGeneration'] + 1)) "the $targetCount-target rollback advances the generation"
+        Assert ([string] $afterCountState['LastOperationKind'] -ceq 'environment-rollback') "the $targetCount-target rollback publishes its authority state"
+        $countJournal = Join-Path (Join-Path $controlBase 'live-transactions') ([string] $afterCountState['JournalId'])
+        $countChain = Get-SealedLiveJournalChain -TransactionDirectory $countJournal
+        Test-SealedLiveJournalChain -Header $countChain.Header -Records @($countChain.Records) -Result $countChain.Result -ResultFileHash $countChain.ResultFileHash
+        $countTerminals = @($countChain.Records | Where-Object { $_['Document']['Phase'] -ceq 'COMPLETE' })
+        Assert ($countTerminals.Count -eq 1 -and $countChain.Result['Outcome'] -ceq 'committed') "the $targetCount-target rollback has exactly one committed terminal"
+        Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $countChain.Header['ReceiptIntent']['Path'])) -ceq 'COMPLETE') "the $targetCount-target rollback receipt is complete"
+        $preparedTargets = @($countChain.Records | Where-Object { $_['Document']['Phase'] -ceq 'PREPARED' })
+        Assert ($preparedTargets.Count -eq $targetCount) "the $targetCount-target rollback mutates the expected number of live targets"
+        Assert (@(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot (Join-Path $controlBase 'live-transactions')).Count -eq 0) "the $targetCount-target rollback leaves no unfinished transaction"
+        $countStaging = Get-RollbackTransactionStagingRoot -Chain $countChain
+        Assert (@(Get-ChildItem -LiteralPath $countStaging -Recurse -Force -File).Count -eq 0) "the $targetCount-target rollback reclaims only its transaction scratch"
+        foreach ($path in $legacyStagingEvidence.Keys) {
+            Assert ((Get-SemanticJsonHash -InputObject (Get-SealedLiveObservableFileState -Path $path)) -ceq [string] $legacyStagingEvidence[$path]) "the $targetCount-target rollback preserves legacy staging bytes and entry identity"
+        }
+        if ($targetCount -eq 0) {
+            $liveAfterCount = @($afterCountState['FinalResolvedIdentities'] | ForEach-Object { (Get-SafeTreeSnapshot -Root ([string] $_['ResolvedPath'])).TreeHash })
+            Assert ((Get-SemanticJsonHash -InputObject $liveBeforeCount) -ceq (Get-SemanticJsonHash -InputObject $liveAfterCount)) 'zero-target rollback preserves all live tree bytes'
+        }
+    }
+
+    Write-Host '[unfinished sibling transaction gate]'
+    $guardGraph = New-SourceGraph ([ordered]@{ Label = 'sibling-guard'; RollbackTargetCount = 1 })
+    $guardPlan = Join-Path $work 'sibling-guard-plan.json'
+    $r = Invoke-GraphRollback -Graph $guardGraph -PlanPath $guardPlan
+    Assert ($r.Code -eq 0) 'the sibling-gate source remains eligible and has a reviewed plan'
+    $siblingFiles = [ordered]@{}
+    foreach ($file in @(Get-ChildItem -LiteralPath $rollbackJournal -File)) { $siblingFiles[$file.Name] = [IO.File]::ReadAllBytes($file.FullName) }
+    $siblingRecords = @($siblingFiles.Keys | Where-Object { $_ -cmatch '^\d{6}\.json$' } | Sort-Object)
+    foreach ($incompleteKind in @('header-only', 'receipt-complete', 'result-without-terminal', 'corrupt', 'unreadable', 'missing-header', 'hash-chain', 'terminal-hash', 'terminal-outcome', 'terminal-document', 'duplicate-terminal', 'unknown-entry')) {
+        $keep = @('header.json')
+        if ($incompleteKind -ceq 'receipt-complete') { $keep += $siblingRecords[0] }
+        if ($incompleteKind -cnotin @('header-only', 'receipt-complete')) { $keep = @($siblingFiles.Keys) }
+        if ($incompleteKind -ceq 'result-without-terminal') { $keep = @($keep | Where-Object { $_ -cne $siblingRecords[-1] }) }
+        if ($incompleteKind -ceq 'missing-header') { $keep = @($keep | Where-Object { $_ -cne 'header.json' }) }
+        foreach ($name in @($siblingFiles.Keys)) {
+            $path = Join-Path $rollbackJournal $name
+            if ($name -cin $keep) { [IO.File]::WriteAllBytes($path, [byte[]] $siblingFiles[$name]) }
+            else { Remove-RollbackFixturePath -Path $path }
+        }
+        if ($incompleteKind -ceq 'corrupt') { Write-TextFile -Path (Join-Path $rollbackJournal 'header.json') -Content '{invalid-json' }
+        if ($incompleteKind -cin @('hash-chain', 'terminal-hash', 'terminal-outcome', 'terminal-document')) {
+            $changedName = if ($incompleteKind -ceq 'hash-chain') { $siblingRecords[0] } else { $siblingRecords[-1] }
+            $changedRecord = ConvertFrom-SemanticJson -Json ([Text.Encoding]::UTF8.GetString([byte[]] $siblingFiles[$changedName]))
+            if ($incompleteKind -ceq 'hash-chain') { $changedRecord['PreviousHash'] = ('0' * 64) }
+            elseif ($incompleteKind -ceq 'terminal-hash') { $changedRecord['Data']['ResultHash'] = ('0' * 64) }
+            elseif ($incompleteKind -ceq 'terminal-outcome') { $changedRecord['Data']['Outcome'] = 'abandoned' }
+            else {
+                $changedRecord['Data']['OriginalDocumentHash'] = ('0' * 64)
+                $changedRecord['Data']['ClosingDocumentHash'] = ('0' * 64)
+            }
+            Write-TextFile -Path (Join-Path $rollbackJournal $changedName) -Content (ConvertTo-Json -InputObject $changedRecord -Depth 64)
+        }
+        $extraSiblingPath = $null
+        if ($incompleteKind -ceq 'duplicate-terminal') {
+            $extraSiblingPath = Join-Path $rollbackJournal ('{0:d6}.json' -f ($siblingRecords.Count + 1))
+            [IO.File]::WriteAllBytes($extraSiblingPath, [byte[]] $siblingFiles[$siblingRecords[-1]])
+        }
+        if ($incompleteKind -ceq 'unknown-entry') {
+            $extraSiblingPath = Join-Path $rollbackJournal 'unknown.bin'
+            Write-TextFile -Path $extraSiblingPath -Content 'unknown journal evidence'
+        }
+        $guardBefore = (Get-SafeTreeSnapshot -Root $authorityHome).TreeHash
+        $unreadableHandle = $null
+        try {
+            if ($incompleteKind -ceq 'unreadable') { $unreadableHandle = [IO.File]::Open((Join-Path $rollbackJournal 'header.json'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None) }
+            Assert (@(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot (Join-Path $controlBase 'live-transactions')) -ccontains ([string] $rollbackResult.TransactionId)) "the namespace scan treats the $incompleteKind sibling as unfinished"
+            $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $guardGraph.ReceiptPath, '-Apply', '-PlanPath', $guardPlan)
+        }
+        finally { if ($null -ne $unreadableHandle) { $unreadableHandle.Dispose() } }
+        if ($r.Code -eq 0 -or $r.Out -notmatch 'live-recovery-required: unfinished live transaction') { Write-Host $r.Out }
+        Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-required: unfinished live transaction') "rollback refuses a $incompleteKind sibling while its selected source stays valid"
+        Assert ((Get-SafeTreeSnapshot -Root $authorityHome).TreeHash -ceq $guardBefore) "the $incompleteKind refusal preserves live, state, journals, receipts and staging bytes"
+        if ($null -ne $extraSiblingPath) { Remove-RollbackFixturePath -Path $extraSiblingPath }
+    }
+    # These cases temporarily changed only a test-owned completed journal.
+    # Restore its captured bytes; actual recovery is exercised separately below.
+    foreach ($name in @($siblingFiles.Keys)) { [IO.File]::WriteAllBytes((Join-Path $rollbackJournal $name), [byte[]] $siblingFiles[$name]) }
+    Assert (@(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot (Join-Path $controlBase 'live-transactions')).Count -eq 0) 'closed sibling journals do not block rollback'
+
+    $abandonId = [Guid]::NewGuid().ToString()
+    $abandonReceiptId = [Guid]::NewGuid().ToString()
+    $abandonHeader = ConvertFrom-SemanticJson -Json ([Text.Encoding]::UTF8.GetString([byte[]] $siblingFiles['header.json']))
+    $abandonHeader['TransactionId'] = $abandonId
+    $abandonHeader['ReceiptIntent'] = [ordered]@{ Id = $abandonReceiptId; Path = (Join-Path $backupRoot $abandonReceiptId) }
+    New-SealedLiveJournalHeader -Document $abandonHeader -TransactionDirectory (Join-Path (Join-Path $controlBase 'live-transactions') $abandonId) | Out-Null
+    $abandonPlan = Join-Path $work 'sibling-abandon-plan.json'
+    $recoveryScript = Join-Path $RepoRoot 'scripts/recover-live-transaction.ps1'
+    foreach ($mode in @('-DryRun', '-Apply')) {
+        $r = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $recoveryScript -Arguments @('-Action', 'abandon', '-TransactionId', $abandonId, $mode, '-PlanPath', $abandonPlan, '-RepoRoot', $RepoRoot) -AuthorityRepoRoot $RepoRoot
+        if ($r.Code -ne 0) { Write-Host $r.Out }
+        Assert ($r.Code -eq 0) "reviewed sibling abandonment succeeds on $mode"
+    }
+    Assert (@(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot (Join-Path $controlBase 'live-transactions')).Count -eq 0) 'reviewed recovery clears the unfinished sibling'
+    $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $guardGraph.ReceiptPath, '-Apply', '-PlanPath', $guardPlan)
+    if ($r.Code -ne 0) { Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback applied:') 'a normal public rollback succeeds after the sibling recovery closes'
 
     Write-Host '[rollback failure preservation]'
     function Get-RollbackTransactionChain {
@@ -915,7 +1127,7 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     $restoreFailurePlan = Join-Path $work 'restore-failure-plan.json'
     $r = Invoke-GraphRollback -Graph $restoreFailureGraph -PlanPath $restoreFailurePlan
     Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback plan created') 'the restore-failure source graph derives its rollback plan'
-    Remove-Item -LiteralPath (Join-Path ([string] $restoreFailureGraph.ReceiptPath) 'snapshot/reasonix/pruned-restore-failure') -Recurse -Force
+    Remove-RollbackFixturePath -Path (Join-Path ([string] $restoreFailureGraph.ReceiptPath) 'snapshot/reasonix/pruned-restore-failure')
     $r = Invoke-RollbackExecution -PlanPath $restoreFailurePlan -SourceReceiptPath ([string] $restoreFailureGraph.ReceiptPath)
     if ($r.Code -eq 0 -or $r.Out -notmatch 'apply-failed-but-restored') {
         Write-Host '----- restore-failure execution output -----'
@@ -924,21 +1136,20 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert ($r.Code -ne 0 -and $r.Out -match 'apply-failed-but-restored') 'the failed rollback restores the surface and reports apply-failed-but-restored'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $graphLiveRoot 'claude/skills/kept/SKILL.md')) -eq 'kept-new-restore-failure') 'the failed rollback restores its update target to the pre-rollback bytes'
     Assert (Test-Path -LiteralPath (Join-Path $graphLiveRoot 'codex/skills/added-restore-failure/SKILL.md') -PathType Leaf) 'the failed rollback restores its pruned target'
-    Assert ((Get-Content -Raw -LiteralPath (Join-Path $stagingBase 'Claude/staged/kept/SKILL.md')) -eq 'kept-old-restore-failure') 'the failed rollback keeps the staged copy its restoration moved back'
-    Assert (@(Get-ChildItem -LiteralPath $stagingBase -Recurse -Force -File).Count -gt 0) 'the failed rollback leaves its staging evidence on disk'
     $restoreFailureChain = Get-RollbackTransactionChain -PlanPath $restoreFailurePlan
+    $restoreFailureStaging = Get-RollbackTransactionStagingRoot -Chain $restoreFailureChain
+    Assert ((Get-Content -Raw -LiteralPath (Join-Path $restoreFailureStaging 'Claude/staged/kept/SKILL.md')) -eq 'kept-old-restore-failure') 'the failed rollback keeps the staged copy its restoration moved back'
+    Assert (@(Get-ChildItem -LiteralPath $restoreFailureStaging -Recurse -Force -File).Count -gt 0) 'the failed rollback leaves its staging evidence on disk'
     $null = Test-SealedLiveJournalChain -Header $restoreFailureChain.Header -Records @($restoreFailureChain.Records) -Result $restoreFailureChain.Result -ResultFileHash $restoreFailureChain.ResultFileHash
     Assert ([string] $restoreFailureChain.Result['Outcome'] -ceq 'failed-restored') 'the failed rollback publishes the failed-restored result'
     Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $restoreFailureChain.Header['ReceiptIntent']['Path'])) -ceq 'COMPLETE') 'the failed rollback keeps its own complete pre-rollback receipt'
     Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $restoreFailureGraph.ReceiptPath)) -ceq 'COMPLETE') 'the failed rollback keeps the source activation receipt'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path ([string] $restoreFailureGraph.ReceiptPath) 'snapshot/claude/kept/SKILL.md')) -eq 'kept-old-restore-failure') 'the failed rollback keeps the source snapshot bytes it staged from'
 
-    # The retained scratch is exactly the evidence just asserted, and it is
-    # test-owned sandbox scratch: the next case needs a scratch-free staging
-    # base for the same target names (the engine refuses to stage over an
-    # existing staged/swap-old leaf, which is the defect the committed
-    # transaction's own reclamation now prevents).
-    Remove-Item -LiteralPath $stagingBase -Recurse -Force
+    # Keep the failed transaction's evidence throughout the next transaction
+    # and its public recovery. New rollback namespaces must not need a manual
+    # removal of an earlier transaction's staged/swap-old entries.
+    $restoreFailureEvidence = Get-SemanticJsonHash -InputObject (Get-SafeTreeSnapshot -Root $restoreFailureStaging)
 
     # (b) A failure after the authority state boundary is recovery-required:
     # the engine never rewrites live/state again and restores nothing, so the
@@ -949,6 +1160,9 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     $recoveryPlan = Join-Path $work 'recovery-required-plan.json'
     $r = Invoke-GraphRollback -Graph $recoveryGraph -PlanPath $recoveryPlan
     Assert ($r.Code -eq 0 -and $r.Out -match 'environment rollback plan created') 'the recovery-required source graph derives its rollback plan'
+    $beforeRecoveryStateHash = (Get-FileHash -LiteralPath $statePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $beforeRecoveryState = ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($statePath))
+    $beforeRecoveryLive = @($beforeRecoveryState['FinalResolvedIdentities'] | ForEach-Object { (Get-SafeTreeSnapshot -Root ([string] $_['ResolvedPath'])).TreeHash })
     $savedFailpoints = [System.Environment]::GetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS')
     try {
         [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', (ConvertTo-Json -InputObject @([ordered]@{ Checkpoint = 'STATE_PUBLISHED'; PipeName = ('ai-agent-dotfiles-absent-' + [Guid]::NewGuid().ToString('N')) }) -Compress))
@@ -963,15 +1177,52 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     }
     Assert ($r.Code -ne 0 -and $r.Out -match 'live-transaction-recovery-required') 'a failure after the state boundary requires recovery instead of a restore'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $graphLiveRoot 'claude/skills/kept/SKILL.md')) -eq 'kept-old-recovery-required') 'the recovery-required rollback keeps the live targets it installed'
-    Assert (Test-Path -LiteralPath (Join-Path $stagingBase 'Claude/swap/kept')) 'the recovery-required rollback keeps the swap-old entry of its update target'
-    Assert (Test-Path -LiteralPath (Join-Path $stagingBase 'Codex/swap/added-recovery-required')) 'the recovery-required rollback keeps the swap-old entry of its prune target'
-    Assert (Test-Path -LiteralPath (Join-Path $stagingBase 'Claude/state-recovery/current-env.preimage.json') -PathType Leaf) 'the recovery-required rollback keeps the pre-rollback state-recovery copy'
     $recoveryChain = Get-RollbackTransactionChain -PlanPath $recoveryPlan
+    $recoveryStaging = Get-RollbackTransactionStagingRoot -Chain $recoveryChain
+    Assert ($recoveryStaging -cne $restoreFailureStaging) 'successive rollback attempts use distinct transaction staging namespaces'
+    Assert (Test-Path -LiteralPath (Join-Path $recoveryStaging 'Claude/swap/kept')) 'the recovery-required rollback keeps the swap-old entry of its update target'
+    Assert (Test-Path -LiteralPath (Join-Path $recoveryStaging 'Codex/swap/added-recovery-required')) 'the recovery-required rollback keeps the swap-old entry of its prune target'
+    Assert (Test-Path -LiteralPath (Join-Path $recoveryStaging 'Claude/state-recovery/current-env.preimage.json') -PathType Leaf) 'the recovery-required rollback keeps the pre-rollback state-recovery copy'
     Assert ($null -eq $recoveryChain.Result) 'the recovery-required rollback publishes no result'
     Assert (@(@($recoveryChain.Records) | Where-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] -ceq 'COMPLETE' }).Count -eq 0) 'the recovery-required rollback publishes no terminal record'
     Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $recoveryChain.Header['ReceiptIntent']['Path'])) -ceq 'COMPLETE') 'the recovery-required rollback keeps its own complete pre-rollback receipt'
     Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath ([string] $recoveryGraph.ReceiptPath)) -ceq 'COMPLETE') 'the recovery-required rollback keeps the source activation receipt'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path ([string] $recoveryGraph.ReceiptPath) 'snapshot/claude/kept/SKILL.md')) -eq 'kept-old-recovery-required') 'the recovery-required rollback keeps the source snapshot bytes it staged from'
+    Assert ((Get-SemanticJsonHash -InputObject (Get-SafeTreeSnapshot -Root $restoreFailureStaging)) -ceq $restoreFailureEvidence) 'the next failed rollback preserves the earlier failure staging bytes and identities'
+
+    # STATE_PUBLISHED precedes POSTCONDITIONS_OK, so this transaction requires
+    # rollback recovery. The public reviewed plan must read the journal-bound
+    # private state copy and restore both state and live targets from it.
+    $recoveryTransactionId = [string] $recoveryChain.Header['TransactionId']
+    $privateRecoveryPlan = Join-Path $work 'private-staging-recovery-plan.json'
+    $statePreimageBinding = Get-SealedLiveAuthorityStatePreimageBinding -Records @($recoveryChain.Records) -ExpectedTargetPath $statePath
+    Assert ([string] $statePreimageBinding.PreimageCopy -ceq (Join-Path $recoveryStaging 'Claude/state-recovery/current-env.preimage.json')) 'the unfinished journal binds the state preimage in its own transaction staging'
+    $r = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $recoveryScript -Arguments @('-Action', 'rollback', '-TransactionId', $recoveryTransactionId, '-DryRun', '-PlanPath', $privateRecoveryPlan, '-RepoRoot', $RepoRoot) -AuthorityRepoRoot $RepoRoot
+    if ($r.Code -ne 0) { Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery plan created') 'public recovery derives a reviewed plan for the transaction-private staging'
+    $privateRecoveryDocument = ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($privateRecoveryPlan))
+    $privateRecoveryPayload = [System.Collections.IDictionary] $privateRecoveryDocument['PlanPayload']
+    Assert ([string] $privateRecoveryPayload['AuthorityStatePreimagePath'] -ceq [string] $statePreimageBinding.PreimageCopy) 'the public recovery plan binds the exact journal preimage path'
+    Assert ([string] $privateRecoveryPayload['AuthorityStatePreimage']['Hash'] -ceq $beforeRecoveryStateHash) 'the public recovery plan binds the pre-rollback state bytes'
+    $r = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $recoveryScript -Arguments @('-Action', 'rollback', '-TransactionId', $recoveryTransactionId, '-Apply', '-PlanPath', $privateRecoveryPlan, '-RepoRoot', $RepoRoot) -AuthorityRepoRoot $RepoRoot
+    if ($r.Code -ne 0) { Write-Host $r.Out }
+    Assert ($r.Code -eq 0 -and $r.Out -match 'live recovery applied: rollback .*\(outcome=rolled-back\)') 'public recovery restores the transaction-private staging and closes the rollback'
+    Assert ((Get-FileHash -LiteralPath $statePath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $beforeRecoveryStateHash) 'public recovery restores the exact pre-rollback authority state bytes'
+    $afterRecoveryLive = @($beforeRecoveryState['FinalResolvedIdentities'] | ForEach-Object { (Get-SafeTreeSnapshot -Root ([string] $_['ResolvedPath'])).TreeHash })
+    Assert ((Get-SemanticJsonHash -InputObject $afterRecoveryLive) -ceq (Get-SemanticJsonHash -InputObject $beforeRecoveryLive)) 'public recovery restores every live tree from the transaction-private swap paths'
+    $recoveredChain = Get-RollbackTransactionChain -PlanPath $recoveryPlan
+    $null = Test-SealedLiveJournalChain -Header $recoveredChain.Header -Records @($recoveredChain.Records) -Result $recoveredChain.Result -ResultFileHash $recoveredChain.ResultFileHash
+    $recoveredTerminals = @($recoveredChain.Records | Where-Object { $_['Document']['Phase'] -ceq 'COMPLETE' })
+    Assert ($recoveredTerminals.Count -eq 1 -and $recoveredChain.Result['Outcome'] -ceq 'rolled-back') 'public recovery publishes one validated rolled-back terminal'
+    Assert (@(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot (Join-Path $controlBase 'live-transactions')).Count -eq 0) 'public recovery leaves no unfinished transaction'
+    Assert ((Get-SemanticJsonHash -InputObject (Get-SafeTreeSnapshot -Root $restoreFailureStaging)) -ceq $restoreFailureEvidence) 'public recovery preserves the earlier failure staging bytes and identities'
+    foreach ($path in $legacyStagingEvidence.Keys) {
+        Assert ((Get-SemanticJsonHash -InputObject (Get-SealedLiveObservableFileState -Path $path)) -ceq [string] $legacyStagingEvidence[$path]) 'public recovery preserves legacy staging bytes and entry identity'
+    }
+    if ($Section -ceq 'rollback-staging') {
+        Write-Host 'backup recovery staging tests: PASS'
+        return
+    }
 
     # A receipt whose linked source transaction never existed is rejected even
     # though its own marker and hashes are valid.
@@ -1067,23 +1318,24 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert ($r.Code -eq 0) 'a source header that binds this worktree overlay identity derives the reviewed plan'
     Assert (Test-Path -LiteralPath $originOverlayPlan -PathType Leaf) 'the origin-overlay dry-run writes its plan'
 
-    # The transition itself is policy-state-aware: while interlocked, the
-    # composition always passes its -RepoRoot, which is outside the sandbox
-    # root, so the interlock owns the Apply refusal here, and the refusal must
-    # never be the obsolete overlay-lock token. On a released commit the Assert
-    # returns and the mutation machinery runs inside the sandbox under the full
-    # lock order; this synthetic graph fixture is not a reviewed staging
-    # intent, so the engine fails closed with the typed apply-failed-but-
-    # restored wrapper (restored, zero partial application). The real
-    # transaction it guards is covered by the live-recovery suite's direct
-    # Invoke-SealedEnvironmentRollbackTransaction tests.
+    # Use an explicit independent unfinished sibling: the earlier failure now
+    # closes through public recovery before later source graphs change state.
+    # A valid selected source and overlay lock still cannot bypass this gate.
+    $originSiblingId = [Guid]::NewGuid().ToString()
+    $originSiblingReceiptId = [Guid]::NewGuid().ToString()
+    $originSiblingHeader = ConvertFrom-SemanticJson -Json ([Text.Encoding]::UTF8.GetString([byte[]] $siblingFiles['header.json']))
+    $originSiblingHeader['TransactionId'] = $originSiblingId
+    $originSiblingHeader['ReceiptIntent'] = [ordered]@{ Id = $originSiblingReceiptId; Path = (Join-Path $backupRoot $originSiblingReceiptId) }
+    New-SealedLiveJournalHeader -Document $originSiblingHeader -TransactionDirectory (Join-Path (Join-Path $controlBase 'live-transactions') $originSiblingId) | Out-Null
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $originOverlayGraph.ReceiptPath, '-Apply', '-PlanPath', $originOverlayPlan)
-    if ($script:IsReleased) {
-        Assert ($r.Code -ne 0 -and $r.Out -match 'apply-failed-but-restored: live-transaction-intent-mismatch') 'the origin-overlay Apply proceeds past the released Assert and the mutation engine fails closed to a restored terminal for the unreviewable synthetic intent (released)'
+    Assert ($r.Code -ne 0 -and $r.Out -match 'live-recovery-required: unfinished live transaction') 'origin-overlay Apply respects the unfinished sibling gate under the full lock order'
+    $originSiblingPlan = Join-Path $work 'origin-overlay-sibling-abandon-plan.json'
+    foreach ($mode in @('-DryRun', '-Apply')) {
+        $r = Invoke-SafetySandboxScript -SandboxRoot $work -ScriptPath $recoveryScript -Arguments @('-Action', 'abandon', '-TransactionId', $originSiblingId, $mode, '-PlanPath', $originSiblingPlan, '-RepoRoot', $RepoRoot) -AuthorityRepoRoot $RepoRoot
+        if ($r.Code -ne 0) { Write-Host $r.Out }
+        Assert ($r.Code -eq 0) "the origin-overlay gate's explicit sibling closes through reviewed abandonment on $mode"
     }
-    else {
-        Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required' -and $r.Out -notmatch 'worktree-overlay-lock-not-implemented') 'the origin-overlay Apply stays behind the production interlock and never refuses on the obsolete overlay token'
-    }
+    Assert (@(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot (Join-Path $controlBase 'live-transactions')).Count -eq 0) 'the origin-overlay gate leaves no unfinished fixture transaction'
 
     $overlayGraph = New-SourceGraph ([ordered]@{ Label = 'overlay-drift'; OverlayDrift = $true })
     $r = Invoke-GraphRollback -Graph $overlayGraph -PlanPath (Join-Path $work 'overlay-plan.json')
@@ -1151,29 +1403,20 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     $reasonixRoot = [string] $liveDriftGraph.ReasonixLiveRoot
     $preservedRoot = Join-Path $work 'reasonix-preserved'
     Copy-Item -LiteralPath $reasonixRoot -Destination $preservedRoot -Recurse -Force
-    Remove-Item -LiteralPath $reasonixRoot -Recurse -Force
+    Remove-RollbackFixturePath -Path $reasonixRoot
     New-Item -ItemType Directory -Force -Path $reasonixRoot | Out-Null
     Copy-Item -Path (Join-Path $preservedRoot '*') -Destination $reasonixRoot -Recurse -Force
     $r = Invoke-GraphRollback -Graph $liveDriftGraph -PlanPath (Join-Path $work 'live-drift-plan.json')
     Assert ($r.Code -ne 0 -and $r.Out -match 'rollback-live-root-drift \(Reasonix identity\)') 'a replaced live root fails closed even with identical content'
 
-    Write-Host '[final interlock]'
-    # While interlocked, the Apply still rejects a valid eligible graph before
-    # any of the source-graph evidence is interpreted. On a released commit the
-    # Assert returns and the same dispatch fails closed at the reviewed plan
-    # requirement (no plan exists at the create-new path).
+    Write-Host '[final reviewed-plan gate]'
     $r = Invoke-RollbackDispatch -Arguments @('-ReceiptPath', [string] $laterGraph.ReceiptPath, '-Apply', '-PlanPath', (Join-Path $work 'apply-plan.json'))
-    if ($script:IsReleased) {
-        Assert ($r.Code -ne 0 -and $r.Out -match 'Artifact or evidence path is missing') 'the rollback Apply proceeds past the released Assert and fails closed on the missing reviewed plan for an eligible graph (released)'
-    }
-    else {
-        Assert ($r.Code -ne 0 -and $r.Out -match 'safety-protocol-upgrade-required') 'the rollback Apply remains interlocked for an eligible graph'
-    }
+    Assert ($r.Code -ne 0 -and $r.Out -match 'Artifact or evidence path is missing') 'sandbox rollback Apply requires an existing reviewed plan for an eligible source'
 
     Write-Host 'backup recovery tests: PASS'
 }
 finally {
-    if (Test-Path -LiteralPath $work) {
-        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    if ($workOwned -and (Test-Path -LiteralPath $work)) {
+        Remove-RollbackFixturePath -Path $work
     }
 }

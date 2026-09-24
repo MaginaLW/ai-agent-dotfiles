@@ -560,9 +560,12 @@ function New-TaskOverlayPlanPayload {
     $claimRows = @([object[]] $claimsDocument['LiveRootClaims'])
     for ($index = 0; $index -lt 3; $index++) {
         $claimRow = $claimRows[$index]
+        # A claim binds only the roots that already existed when it was
+        # published; a root created afterwards has no recorded identity to
+        # drift from. Activation and authority status read the same claim.
+        if ([string] $claimRow['InitialState'] -cne 'EXISTS') { continue }
         $observedRow = $observedRows[$index]
-        if ([string] $claimRow['InitialState'] -cne 'EXISTS' -or
-            [string] $observedRow.RequestedPath -cne [string] $claimRow['RequestedPath'] -or
+        if ([string] $observedRow.RequestedPath -cne [string] $claimRow['RequestedPath'] -or
             [string] $observedRow.InitialDirectoryIdentity -cne [string] $claimRow['InitialDirectoryIdentity']) {
             throw 'authority-claim-identity-drift'
         }
@@ -980,7 +983,8 @@ function Invoke-TaskOverlayApply {
     Write-Host "Journal         : $([string] $hostResult.JournalDir)"
 
     # Postconditions: the tracked overlay carries the reviewed candidate bytes,
-    # every planned live target exists, and the Codex .system marker is intact.
+    # every planned live target exists, and the Codex .system state still
+    # matches the reviewed plan.
     $verificationFailed = $false
     $finalOverlay = Get-SealedLiveObservableFileState -Path $overlayPath
     if ([string] $finalOverlay['Hash'] -cne $candidateHash) {
@@ -995,13 +999,20 @@ function Invoke-TaskOverlayApply {
             $verificationFailed = $true
         }
     }
-    $systemMarkerPath = Join-Path (Join-Path ([string] $liveRootsByPlatform['Codex']) '.system') '.codex-system-skills.marker'
-    $systemOk = Test-Path -LiteralPath $systemMarkerPath -PathType Leaf
+    # The plan recorded the platform-managed .system state; re-derive it with
+    # the same reader instead of demanding a marker that a machine without
+    # Codex never had.
+    $recordedSystemMarker = [System.Collections.IDictionary] $savedPayload['SystemMarker']
+    $observedSystemMarker = Get-LiveSyncSystemMarker -CodexLiveRoot ([string] $liveRootsByPlatform['Codex'])
+    $systemOk = ([bool] $recordedSystemMarker['Present']) -eq ([bool] $observedSystemMarker['Present']) -and
+        [string] $recordedSystemMarker['Identity'] -ceq [string] $observedSystemMarker['Identity'] -and
+        [string] $recordedSystemMarker['Hash'] -ceq [string] $observedSystemMarker['Hash']
     Write-Host ".system marker preserved: $systemOk"
     if (-not $systemOk) {
-        # The platform-managed root is outside repository ownership: a missing
-        # marker after an apply is a postcondition failure, never a warning.
-        Write-Host 'ERROR: the Codex .system marker is missing after apply'
+        # The platform-managed root is outside repository ownership: any
+        # difference from the reviewed plan is a postcondition failure, never
+        # a warning.
+        Write-Host 'ERROR: the Codex .system state changed during apply'
         $verificationFailed = $true
     }
     if ($verificationFailed) { throw ('task-overlay-' + 'postcondition-failed: inspect the live transaction journal and receipt.') }

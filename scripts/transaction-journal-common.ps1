@@ -75,6 +75,17 @@ namespace AiAgentDotfiles {
             SafeLockResourceOwner value;
             return Owners.TryGetValue(wrapperValue, out value) ? value : null;
         }
+        public static SafeLockResourceOwner[] GetPriorOwnersForPathExact(string pathValue, long beforeOrdinal) {
+            string fullPath = Path.GetFullPath(pathValue);
+            var matches = new System.Collections.Generic.List<SafeLockResourceOwner>();
+            foreach (var entry in Owners) {
+                SafeLockResourceOwner value = entry.Value;
+                if (Volatile.Read(ref value.releaseState) == 0 && value.ordinal < beforeOrdinal &&
+                    value.path.Equals(fullPath, StringComparison.OrdinalIgnoreCase) &&
+                    IsExactForWrapper(value, entry.Key)) matches.Add(value);
+            }
+            return matches.ToArray();
+        }
         public static bool IsExactForWrapper(SafeLockResourceOwner value, object wrapperValue) {
             if (value == null || wrapperValue == null || !Object.ReferenceEquals(value.wrapper, wrapperValue)) return false;
             SafeLockResourceOwner registered;
@@ -517,7 +528,8 @@ function New-CanonicalPreparedJsonArtifact {
         [Parameter(Mandatory)] $PendingParent,
         [Parameter(Mandatory)] [string] $PendingPath,
         [Parameter(Mandatory)] [string] $PendingName,
-        [Parameter(Mandatory)] [string] $SchemaPath
+        [Parameter(Mandatory)] [string] $SchemaPath,
+        [string] $FileSecurityDescriptorSddl
     )
 
     $temp = [System.IO.Path]::GetFullPath((Join-Path $PendingPath $PendingName))
@@ -525,7 +537,11 @@ function New-CanonicalPreparedJsonArtifact {
     $tempHandle = $null
     try {
         try {
-            $tempHandle = [AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFile($PendingParent, $PendingName, $bytes)
+            if ($FileSecurityDescriptorSddl) {
+                $tempHandle = [AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFileWithSecurityDescriptor($PendingParent, $PendingName, $bytes, $FileSecurityDescriptorSddl)
+                [AiAgentDotfiles.NoFollowFile]::AssertHeldRegularFileSecurityDescriptor($tempHandle, $FileSecurityDescriptorSddl)
+            }
+            else { $tempHandle = [AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFile($PendingParent, $PendingName, $bytes) }
         }
         catch [System.ComponentModel.Win32Exception] {
             if ($_.Exception.NativeErrorCode -in @(80,183)) { throw "canonical pending artifact collision: $temp" }
@@ -542,6 +558,7 @@ function New-CanonicalPreparedJsonArtifact {
             Length = [long]$tempHandle.ReadResult.Length
             Document = $documentFromHeldBytes
             HeldHandle = $tempHandle
+            FileSecurityDescriptorSddl = $FileSecurityDescriptorSddl
         }
     }
     catch {
@@ -561,7 +578,9 @@ function Publish-CanonicalPreparedJsonArtifact {
     $final = [System.IO.Path]::GetFullPath($FinalPath)
     $tempHandle = $PreparedArtifact.HeldHandle
     if ($null -eq $tempHandle) { throw 'canonical prepared artifact has no held regular file' }
+    $fileSddl = if ($PreparedArtifact.PSObject.Properties['FileSecurityDescriptorSddl']) { [string]$PreparedArtifact.FileSecurityDescriptorSddl } else { $null }
     try {
+        if ($fileSddl) { [AiAgentDotfiles.NoFollowFile]::AssertHeldRegularFileSecurityDescriptor($tempHandle, $fileSddl) }
         try {
             $publishedInfo = [AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($tempHandle, $FinalParent, [System.IO.Path]::GetFileName($final))
         }
@@ -572,6 +591,7 @@ function Publish-CanonicalPreparedJsonArtifact {
         if ([string]$publishedInfo.Identity -cne [string]$tempHandle.Info.Identity -or [long]$publishedInfo.Length -ne [long]$tempHandle.ReadResult.Length) {
             throw 'canonical published artifact identity differs from its held exact bytes'
         }
+        if ($fileSddl) { [AiAgentDotfiles.NoFollowFile]::AssertHeldRegularFileSecurityDescriptor($tempHandle, $fileSddl) }
         return [pscustomobject][ordered]@{
             Path = $final
             Hash = [string]$PreparedArtifact.Hash
@@ -594,12 +614,13 @@ function Publish-CanonicalHeldJson {
         [Parameter(Mandatory)] $PendingParent,
         [Parameter(Mandatory)] [string] $PendingPath,
         [Parameter(Mandatory)] [string] $PendingName,
-        [Parameter(Mandatory)] [string] $SchemaPath
+        [Parameter(Mandatory)] [string] $SchemaPath,
+        [string] $FileSecurityDescriptorSddl
     )
 
     $prepared = $null
     try {
-        $prepared = New-CanonicalPreparedJsonArtifact -Document $Document -PendingParent $PendingParent -PendingPath $PendingPath -PendingName $PendingName -SchemaPath $SchemaPath
+        $prepared = New-CanonicalPreparedJsonArtifact -Document $Document -PendingParent $PendingParent -PendingPath $PendingPath -PendingName $PendingName -SchemaPath $SchemaPath -FileSecurityDescriptorSddl $FileSecurityDescriptorSddl
         return Publish-CanonicalPreparedJsonArtifact -PreparedArtifact $prepared -FinalParent $FinalParent -FinalPath $FinalPath
     }
     catch {
@@ -626,7 +647,8 @@ function Write-CanonicalAtomicJson {
         [Parameter(Mandatory)] [string] $FinalPath,
         [Parameter(Mandatory)] [string] $PendingDirectory,
         [Parameter(Mandatory)] [string] $PendingName,
-        [Parameter(Mandatory)] [string] $SchemaPath
+        [Parameter(Mandatory)] [string] $SchemaPath,
+        [string] $FileSecurityDescriptorSddl
     )
 
     $final = [System.IO.Path]::GetFullPath($FinalPath)
@@ -644,7 +666,7 @@ function Write-CanonicalAtomicJson {
         $pendingHandles = $pendingHandlesReceiver.GetDeliveredExact()
         $finalParent = $finalHandles[$finalHandles.Count - 1]
         $pendingParent = $pendingHandles[$pendingHandles.Count - 1]
-        $publication = Publish-CanonicalHeldJson -Document $Document -FinalParent $finalParent -FinalPath $final -PendingParent $pendingParent -PendingPath $pendingRoot -PendingName $PendingName -SchemaPath $SchemaPath
+        $publication = Publish-CanonicalHeldJson -Document $Document -FinalParent $finalParent -FinalPath $final -PendingParent $pendingParent -PendingPath $pendingRoot -PendingName $PendingName -SchemaPath $SchemaPath -FileSecurityDescriptorSddl $FileSecurityDescriptorSddl
         return ConvertTo-CanonicalPublishedJsonResult -HeldPublication $publication
     }
     finally {

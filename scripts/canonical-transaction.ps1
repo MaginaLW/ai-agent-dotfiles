@@ -101,13 +101,16 @@ try {
                 if (-not $held) { throw 'canonical-setup-required' }
                 $applyTransactionId=[Guid]::NewGuid().ToString('D').ToLowerInvariant()
                 $null=Invoke-CanonicalProductionSkillTransaction -RepoRoot $RepoRoot -PlanPath $PlanPath -OperationKind $OperationKind -TransactionId $applyTransactionId -Document $document
+                $null=Assert-CanonicalOwnedTransactionCompletion -Witness $held.CanonicalWitness -RepoRoot $RepoRoot -CanonicalLockHandle $held.CanonicalLockHandle -ExpectedTransactionId $applyTransactionId -ExpectedDocumentHash ([string]$document.DocumentHash) -ExpectedPlanHash ([string]$document.PlanHash) -ExpectedOperationKind $OperationKind -ToolchainRoot $ToolchainRoot
             }
-            $resultDocument=New-CanonicalPublicCommandResult -Result PASS -CommandKind $commandKind -MessageToken canonical-apply-committed -PlanHash ([string]$document.PlanHash)
-            Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
         }
         finally {
             if ($held) { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $held }
         }
+        # Publish success only after releasing the held lock order. A release
+        # failure must reach the outer failure emitter before any result exists.
+        $resultDocument=New-CanonicalPublicCommandResult -Result PASS -CommandKind $commandKind -MessageToken canonical-apply-committed -PlanHash ([string]$document.PlanHash)
+        Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
         # A committed Apply terminates here. Falling through would re-enter the
         # create-new guard of the DryRun path below, so a transaction that had
         # already committed would report canonical-plan-exists with exit 1.

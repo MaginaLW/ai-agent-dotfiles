@@ -106,6 +106,203 @@ function Get-DirectFunctionNodes {
     })
 }
 
+function Get-LiveSuccessDirectCommand {
+    param([AllowNull()]$Statement,[AllowNull()][object]$AssignmentTarget)
+    if($null -eq $Statement){return $null}
+    if($null -ne $AssignmentTarget){
+        if($Statement -isnot [Management.Automation.Language.AssignmentStatementAst] -or
+            $Statement.Operator -ne [Management.Automation.Language.TokenKind]::Equals -or
+            $Statement.Left -isnot [Management.Automation.Language.VariableExpressionAst] -or
+            $Statement.Left.Splatted -or $Statement.Left.VariablePath.UserPath -ine $AssignmentTarget){return $null}
+        $pipeline=$Statement.Right
+    }else{$pipeline=$Statement}
+    if($pipeline -isnot [Management.Automation.Language.PipelineAst] -or $pipeline.Background -or
+        @($pipeline.PipelineElements).Count -ne 1){return $null}
+    $command=$pipeline.PipelineElements[0]
+    if($command -isnot [Management.Automation.Language.CommandAst] -or
+        $command.InvocationOperator -ne [Management.Automation.Language.TokenKind]::Unknown -or
+        @($command.Redirections).Count -ne 0){return $null}
+    return $command
+}
+
+function Test-LiveSuccessStrictBindingStatement {
+    param([AllowNull()]$Statement)
+    $command=Get-LiveSuccessDirectCommand -Statement $Statement -AssignmentTarget 'null'
+    if($null -eq $command -or $command.GetCommandName() -ine 'Assert-HomeAuthorityCanonicalGlobalLockBinding' -or
+        @($command.CommandElements).Count -ne 7){return $false}
+    $parameters=@('AuthorityContext','GlobalLockHandle','CanonicalWitness')
+    $variables=@('authorityContext','globalLock','canonicalWitness')
+    for($i=0;$i -lt 3;$i++){
+        $parameter=$command.CommandElements[1+2*$i];$value=$command.CommandElements[2+2*$i]
+        if($parameter -isnot [Management.Automation.Language.CommandParameterAst] -or
+            $parameter.ParameterName -ine $parameters[$i] -or $null -ne $parameter.Argument -or
+            $value -isnot [Management.Automation.Language.VariableExpressionAst] -or
+            $value.Splatted -or $value.VariablePath.UserPath -ine $variables[$i]){return $false}
+    }
+    return $true
+}
+
+function Test-LiveSuccessNullableBindingStatement {
+    param([AllowNull()]$Statement)
+    if($Statement -isnot [Management.Automation.Language.IfStatementAst] -or
+        @($Statement.Clauses).Count -ne 1 -or $null -ne $Statement.ElseClause){return $false}
+    $condition=$Statement.Clauses[0].Item1
+    if($condition -isnot [Management.Automation.Language.PipelineAst] -or $condition.Background -or
+        @($condition.PipelineElements).Count -ne 1){return $false}
+    $element=$condition.PipelineElements[0]
+    if($element -isnot [Management.Automation.Language.CommandExpressionAst] -or @($element.Redirections).Count -ne 0){return $false}
+    $comparison=$element.Expression
+    if($comparison -isnot [Management.Automation.Language.BinaryExpressionAst] -or
+        $comparison.Operator -ne [Management.Automation.Language.TokenKind]::Ine -or
+        $comparison.Left -isnot [Management.Automation.Language.VariableExpressionAst] -or
+        $comparison.Right -isnot [Management.Automation.Language.VariableExpressionAst] -or
+        $comparison.Left.Splatted -or $comparison.Right.Splatted -or
+        $comparison.Left.VariablePath.UserPath -ine 'null' -or
+        $comparison.Right.VariablePath.UserPath -ine 'canonicalWitness'){return $false}
+    $body=$Statement.Clauses[0].Item2
+    return ($null -eq $body.Traps -or @($body.Traps).Count -eq 0) -and @($body.Statements).Count -eq 1 -and
+        (Test-LiveSuccessStrictBindingStatement -Statement $body.Statements[0])
+}
+
+function Test-LiveSuccessUnswallowedAncestry {
+    param([Parameter(Mandatory)][Management.Automation.Language.Ast]$Node)
+    $cursor=$Node.Parent
+    while($null -ne $cursor){
+        if($cursor -is [Management.Automation.Language.ScriptBlockExpressionAst] -or
+            $cursor -is [Management.Automation.Language.CatchClauseAst]){return $false}
+        if($cursor -is [Management.Automation.Language.TryStatementAst] -and @($cursor.CatchClauses).Count -ne 0){return $false}
+        if(($cursor -is [Management.Automation.Language.StatementBlockAst] -or
+            $cursor -is [Management.Automation.Language.NamedBlockAst]) -and $null -ne $cursor.Traps -and @($cursor.Traps).Count -ne 0){return $false}
+        $cursor=$cursor.Parent
+    }
+    return $true
+}
+
+function Test-LiveSuccessLiteralZeroExit {
+    param([AllowNull()]$Statement)
+    if($Statement -isnot [Management.Automation.Language.ExitStatementAst]){return $false}
+    $pipeline=$Statement.Pipeline
+    if($pipeline -isnot [Management.Automation.Language.PipelineAst] -or $pipeline.Background -or
+        @($pipeline.PipelineElements).Count -ne 1){return $false}
+    $element=$pipeline.PipelineElements[0]
+    return $element -is [Management.Automation.Language.CommandExpressionAst] -and
+        @($element.Redirections).Count -eq 0 -and
+        $element.Expression -is [Management.Automation.Language.ConstantExpressionAst] -and
+        $element.Expression.Value -is [int] -and $element.Expression.Value -eq 0
+}
+
+function Get-LiveSuccessPostcheckBoundaryViolations {
+    # Narrow structural proof for six reviewed success tails. A strict check
+    # elsewhere, in a false branch, in a callback, or swallowed by catch/trap
+    # cannot satisfy an adjacent action -> check -> public success contract.
+    param([Parameter(Mandatory)][Management.Automation.Language.ScriptBlockAst]$Ast,
+          [Parameter(Mandatory)][string]$RelativePath)
+    if($RelativePath -cnotin @('scripts/live-transaction-common.ps1','scripts/rollback-harness-env.ps1','scripts/recover-live-transaction.ps1')){return @()}
+    $violations=[Collections.Generic.List[string]]::new()
+    $commands=@($Ast.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst]},$true))
+    if($RelativePath -ceq 'scripts/live-transaction-common.ps1'){
+        $hosts=@($Ast.FindAll({param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            (Get-NormalizedStaticFunctionName -FunctionName $node.Name) -ieq 'Invoke-SealedLiveTransactionHost'
+        },$true))
+        if($hosts.Count -ne 1 -or $hosts[0].Name -cne 'Invoke-SealedLiveTransactionHost' -or
+            -not(Test-DirectScriptTopLevelFunctionDefinition -Function $hosts[0])){
+            return @('live success postcheck host definition is missing, ambiguous, or not top-level')
+        }
+        $hostFunction=$hosts[0]
+        $returns=@(Get-DirectFunctionNodes -Function $hostFunction -Predicate {param($node)$node -is [Management.Automation.Language.ReturnStatementAst]})
+        $matchedReturns=[Collections.Generic.List[object]]::new()
+        foreach($tail in @(
+            @{Name='state-only';Engine='Invoke-SealedLiveTransactionStateOnly';Target='stateOutcome'}
+            @{Name='mutation';Engine='Invoke-SealedLiveTransactionMutation';Target='mutation'}
+        )){
+            $anchors=@($commands | Where-Object {$_.GetCommandName() -ieq $tail.Engine -and (Get-OwningFunctionDefinition -Node $_) -eq $hostFunction})
+            $valid=$anchors.Count -eq 1
+            if($valid){
+                $anchor=$anchors[0];$statement=$anchor.Parent.Parent;$block=$statement.Parent
+                $valid=$block -is [Management.Automation.Language.StatementBlockAst] -and
+                    [object]::ReferenceEquals((Get-LiveSuccessDirectCommand -Statement $statement -AssignmentTarget $tail.Target),$anchor) -and
+                    (Test-LiveSuccessUnswallowedAncestry -Node $anchor)
+                if($valid){
+                    $statements=@($block.Statements);$index=[Array]::IndexOf($statements,$statement)
+                    $valid=$index -ge 0 -and $statements.Count -eq $index+3 -and
+                        (Test-LiveSuccessStrictBindingStatement -Statement $statements[$index+1]) -and
+                        $statements[$index+2] -is [Management.Automation.Language.ReturnStatementAst]
+                    if($valid){$matchedReturns.Add($statements[$index+2])}
+                }
+            }
+            if(-not $valid){$violations.Add("live success postcheck invalid: ${RelativePath}:$($tail.Name)")}
+        }
+        if($returns.Count -ne 2 -or $matchedReturns.Count -ne 2 -or
+            @($returns | Where-Object {$_ -notin $matchedReturns}).Count -ne 0){
+            $violations.Add("live success postcheck return coverage changed: $RelativePath")
+        }
+    }
+    elseif($RelativePath -cin @('scripts/rollback-harness-env.ps1','scripts/recover-live-transaction.ps1')){
+        $isRecovery=$RelativePath -ceq 'scripts/recover-live-transaction.ps1'
+        $scriptCommands=@($commands | Where-Object {$null -eq (Get-OwningFunctionDefinition -Node $_)})
+        $tails=@(
+            @{Name='dryrun';Engine='Publish-ValidatedLiveArtifactJson';Target=$null;Prefixes=@($(if($isRecovery){'live recovery plan created:'}else{'environment rollback plan created:'}),'PlanHash:')}
+            @{Name='apply';Engine=$(if($isRecovery){'Add-SealedLiveJournalRecord'}else{'Invoke-SealedEnvironmentRollbackTransaction'});Target=$(if($isRecovery){'null'}else{'rollbackOutcome'});Prefixes=$(if($isRecovery){@('live recovery applied:')}else{@('environment rollback applied:','State hash:','Result hash:')})}
+        )
+        $matchedExits=[Collections.Generic.List[object]]::new()
+        foreach($tail in $tails){
+            $anchors=@($scriptCommands | Where-Object {
+                if($_.GetCommandName() -ine $tail.Engine){return $false}
+                if(-not($isRecovery -and $tail.Name -ceq 'apply')){return $true}
+                $elements=@($_.CommandElements)
+                for($i=1;$i -lt $elements.Count-1;$i++){
+                    if($elements[$i] -is [Management.Automation.Language.CommandParameterAst] -and
+                        $elements[$i].ParameterName -ieq 'Phase' -and $null -eq $elements[$i].Argument -and
+                        $elements[$i+1] -is [Management.Automation.Language.StringConstantExpressionAst] -and
+                        $elements[$i+1].Value -ceq 'COMPLETE'){return $true}
+                }
+                return $false
+            })
+            $valid=$anchors.Count -eq 1
+            if($valid){
+                $anchor=$anchors[0];$statement=$anchor.Parent
+                if($null -ne $tail.Target){$statement=$statement.Parent}
+                $block=$statement.Parent
+                $valid=$block -is [Management.Automation.Language.StatementBlockAst] -and
+                    [object]::ReferenceEquals((Get-LiveSuccessDirectCommand -Statement $statement -AssignmentTarget $tail.Target),$anchor) -and
+                    (Test-LiveSuccessUnswallowedAncestry -Node $anchor)
+                if($valid){
+                    $statements=@($block.Statements);$index=[Array]::IndexOf($statements,$statement)
+                    $prefixes=@($tail.Prefixes)
+                    $valid=$index -ge 0 -and $statements.Count -eq $index+3+$prefixes.Count -and
+                        (Test-LiveSuccessNullableBindingStatement -Statement $statements[$index+1]) -and
+                        (Test-LiveSuccessLiteralZeroExit -Statement $statements[-1])
+                    if($valid){
+                        for($i=0;$i -lt $prefixes.Count;$i++){
+                            $output=Get-LiveSuccessDirectCommand -Statement $statements[$index+2+$i] -AssignmentTarget $null
+                            if($null -eq $output -or $output.GetCommandName() -ine 'Write-Host' -or
+                                @($output.CommandElements).Count -ne 2 -or
+                                ($output.CommandElements[1] -isnot [Management.Automation.Language.StringConstantExpressionAst] -and
+                                 $output.CommandElements[1] -isnot [Management.Automation.Language.ExpandableStringExpressionAst]) -or
+                                -not $output.CommandElements[1].Value.StartsWith($prefixes[$i],[StringComparison]::Ordinal)){$valid=$false;break}
+                        }
+                    }
+                    if($valid){$matchedExits.Add($statements[-1])}
+                }
+            }
+            if(-not $valid){$violations.Add("live success postcheck invalid: ${RelativePath}:$($tail.Name)")}
+        }
+        $exits=@($Ast.FindAll({param($node)$node -is [Management.Automation.Language.ExitStatementAst]},$true) | Where-Object {$null -eq (Get-OwningFunctionDefinition -Node $_)})
+        if($isRecovery -and @($Ast.EndBlock.Statements).Count -gt 0 -and
+            (Test-LiveSuccessLiteralZeroExit -Statement $Ast.EndBlock.Statements[-1])){
+            # The existing lock-free Status entry ends at this script-level exit.
+            $matchedExits.Add($Ast.EndBlock.Statements[-1])
+        }
+        $expectedExitCount=if($isRecovery){3}else{2}
+        if($exits.Count -ne $expectedExitCount -or $matchedExits.Count -ne $expectedExitCount -or
+            @($exits | Where-Object {$_ -notin $matchedExits}).Count -ne 0){
+            $violations.Add("live success postcheck exit coverage changed: $RelativePath")
+        }
+    }
+    return @($violations)
+}
+
 function New-ProductionSourceModels {
     param([Parameter(Mandatory)][string]$Root)
     $models=[Collections.Generic.List[object]]::new()
@@ -280,8 +477,8 @@ $reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a5
 # ([string]$segment) instead of the argument-mode [string]$segment. Row-reviewed delta from
 # tmp/seams-delta.ps1: 1 removed + 1 added InvokeMember row, dynamic-command digest unchanged,
 # no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16273
-$reviewedAllScriptsReflectionSensitiveDigest='25e66bb5d4cd53e72025dca32062c8fbf4f8713a85b3c95160e68b8002141587'
+$reviewedAllScriptsReflectionSensitiveSiteCount=16576
+$reviewedAllScriptsReflectionSensitiveDigest='584bc5be749090a3b47ec60ac99baffee1e2fb9f289dc899a31817d7c0844adc'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -422,6 +619,33 @@ function Invoke-ProductionSeamAnalysis {
     $intentProjectionAllowedCallers=[Collections.Generic.List[string]]::new()
     $postimageSerializerAllowedCallers=[Collections.Generic.List[string]]::new()
     $controllerTransitionAllowedCallers=[Collections.Generic.List[string]]::new()
+    # These release helpers validate already-owned resources, never a new mutation.
+    # Pin their definitions and exact caller edges separately from broad AST digests.
+    $releaseBoundaryContracts=[ordered]@{
+        'Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease'=@{File='scripts/home-authority-common.ps1';Callers=@(
+            'scripts/home-authority-common.ps1:Exit-HomeAuthorityGlobalLiveLock')}
+        'Assert-HomeAuthorityCanonicalGlobalAcquisitionCaptureForRelease'=@{File='scripts/home-authority-common.ps1';Callers=@(
+            'scripts/home-authority-common.ps1:Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease')}
+        'Read-HomeAuthorityCanonicalGlobalReleaseInputSnapshot'=@{File='scripts/home-authority-common.ps1';Callers=@(
+            'scripts/home-authority-common.ps1:Assert-HomeAuthorityCanonicalGlobalAcquisitionCaptureForRelease')}
+        'Read-HomeAuthorityCanonicalGlobalResourceInputSnapshot'=@{File='scripts/home-authority-common.ps1';Callers=@(
+            'scripts/home-authority-common.ps1:Read-HomeAuthorityCanonicalGlobalInputSnapshot'
+            'scripts/home-authority-common.ps1:Read-HomeAuthorityCanonicalGlobalReleaseInputSnapshot')}
+        'Assert-CanonicalHeldNamespaceWitnessResources'=@{File='scripts/canonical-transaction-common.ps1';Callers=@(
+            'scripts/canonical-transaction-common.ps1:Assert-CanonicalHeldNamespaceWitness'
+            'scripts/canonical-transaction-common.ps1:Assert-CanonicalOwnedTransactionCompletion'
+            'scripts/home-authority-common.ps1:Read-HomeAuthorityCanonicalGlobalResourceInputSnapshot')}
+        'Assert-CanonicalHeldTransactionSetCurrent'=@{File='scripts/canonical-transaction-common.ps1';Callers=@(
+            'scripts/canonical-transaction-common.ps1:Assert-CanonicalHeldNamespaceWitness'
+            'scripts/home-authority-common.ps1:Read-HomeAuthorityCanonicalGlobalInputSnapshot')}
+        'Assert-CanonicalOwnedTransactionCompletion'=@{File='scripts/canonical-transaction-common.ps1';Callers=@(
+            'scripts/canonical-transaction.ps1:<script>')}
+    }
+    $releaseBoundaryCalls=@{};$releaseBoundaryDefinitions=@{}
+    foreach($name in $releaseBoundaryContracts.Keys){
+        $releaseBoundaryCalls[$name]=[Collections.Generic.List[object]]::new()
+        $releaseBoundaryDefinitions[$name]=[Collections.Generic.List[object]]::new()
+    }
     $allScriptsDynamicCommandInventory=[Collections.Generic.List[string]]::new()
     $allScriptsDynamicCommandViolations=[Collections.Generic.List[string]]::new()
     $allScriptsCommandQualificationViolations=[Collections.Generic.List[string]]::new()
@@ -443,6 +667,9 @@ function Invoke-ProductionSeamAnalysis {
         $tokens=$null;$parseErrors=$null
         $ast=[Management.Automation.Language.Parser]::ParseInput([string]$model.Text,[string]$model.RelativePath,[ref]$tokens,[ref]$parseErrors)
         foreach($parseError in @($parseErrors)){$parseFailures.Add("$($model.RelativePath):$($parseError.Message)")}
+        foreach($violation in @(Get-LiveSuccessPostcheckBoundaryViolations -Ast $ast -RelativePath ([string]$model.RelativePath))){
+            $fixedObservationBoundaryViolations.Add($violation)
+        }
         foreach($match in [regex]::Matches([string]$model.Text,$testsOnlyReferencePattern)){$forbiddenReferences.Add("$($model.RelativePath):$($match.Value)")}
         # This zero baseline covers only literal provider-drive syntax. It scans every non-comment token and
         # explicitly recognizes drive-qualified Alias/Function VariableExpressionAst nodes. It supplements the
@@ -491,6 +718,11 @@ function Invoke-ProductionSeamAnalysis {
             if($null -eq $commandName){
                 $allScriptsDynamicCommandInventory.Add("$($model.RelativePath)|$ownerName|$($command.Extent.Text)")
                 continue
+            }
+            if($releaseBoundaryContracts.Contains($commandName)){
+                $releaseBoundaryCalls[$commandName].Add([pscustomobject]@{
+                    RelativePath=[string]$model.RelativePath;OwnerName=$ownerName;Owner=$owner
+                })
             }
             $hasMemberDispatchParameter=@($command.CommandElements | Where-Object {
                 if($_ -isnot [Management.Automation.Language.CommandParameterAst]){return $false}
@@ -860,6 +1092,13 @@ function Invoke-ProductionSeamAnalysis {
         }
         foreach($definition in @($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true))){
             $definitionName=[string]$definition.Name
+            $releaseDefinitionName=Get-NormalizedStaticFunctionName -FunctionName $definitionName
+            if($releaseBoundaryContracts.Contains($releaseDefinitionName)){
+                # Include nested/scriptblock definitions before the general skip below.
+                $releaseBoundaryDefinitions[$releaseDefinitionName].Add([pscustomobject]@{
+                    Name=$definitionName;RelativePath=[string]$model.RelativePath;Ast=$definition
+                })
+            }
             if($definitionName.Contains([char]47) -or $definitionName.Contains([char]92) -or
                 $definitionName.Contains([char]58)){
                 $allScriptsCommandQualificationViolations.Add(
@@ -883,6 +1122,30 @@ function Invoke-ProductionSeamAnalysis {
             $key=$normalizedDefinitionName.ToLowerInvariant()
             if(-not $definitions.ContainsKey($key)){$definitions[$key]=[Collections.Generic.List[object]]::new()}
             $definitions[$key].Add([pscustomobject]@{Name=$definitionName;RelativePath=[string]$model.RelativePath;Ast=$definition})
+        }
+    }
+
+    foreach($name in $releaseBoundaryContracts.Keys){
+        $contract=$releaseBoundaryContracts[$name]
+        $helperDefinitions=@($releaseBoundaryDefinitions[$name])
+        if($helperDefinitions.Count -ne 1 -or $helperDefinitions[0].Name -cne $name -or
+            $helperDefinitions[0].RelativePath -cne $contract.File -or
+            -not (Test-DirectScriptTopLevelFunctionDefinition -Function $helperDefinitions[0].Ast)){
+            $fixedObservationBoundaryViolations.Add("release helper definition is missing, ambiguous, or outside its exact script: $name")
+        }
+        $callerRows=@($releaseBoundaryCalls[$name] | ForEach-Object {"$($_.RelativePath):$($_.OwnerName)"} | Sort-Object -CaseSensitive)
+        if(($callerRows -join "`n") -cne (@($contract.Callers | Sort-Object -CaseSensitive) -join "`n")){
+            $fixedObservationBoundaryViolations.Add("release helper owner inventory changed: $name")
+        }
+        foreach($call in $releaseBoundaryCalls[$name]){
+            if($null -eq $call.Owner){continue}
+            $ownerKey=(Get-NormalizedStaticFunctionName -FunctionName $call.OwnerName).ToLowerInvariant()
+            $ownerDefinitions=@(if($definitions.ContainsKey($ownerKey)){@($definitions[$ownerKey])})
+            if($ownerDefinitions.Count -ne 1 -or $ownerDefinitions[0].RelativePath -cne $call.RelativePath -or
+                -not [object]::ReferenceEquals($ownerDefinitions[0].Ast,$call.Owner) -or
+                -not (Test-DirectScriptTopLevelFunctionDefinition -Function $call.Owner)){
+                $fixedObservationBoundaryViolations.Add("release helper caller is not a unique script-top-level function: $name|$($call.RelativePath):$($call.OwnerName)")
+            }
         }
     }
 
@@ -1324,6 +1587,8 @@ Assert-TestCondition ($baseline.AllScriptsLiteralProviderDriveTokenInventory.Cou
     $baseline.AllScriptsLiteralProviderDriveTokenViolations.Count -eq 0) 'all scripts/**/*.ps1 retain the reviewed zero literal provider-drive token baseline alongside direct named CommandAst analysis'
 Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture, route, observation, raw, and probe issuers plus the fixed validator have only their exact reviewed definitions, owners, and members'
 Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, canonical bootstrap Complete and the recovery remainder have only the private-root completion composer, the composer unique caller is lock-order Enter, the setup journal-target manifest is uniquely defined with Enter as its only production caller, Register remains zero-external, the resolver observation trio retains zero external production callers, lock-order Enter/Exit/Recompute allow only the two production Apply scripts at script scope, lock-order Assert remains recompute-internal, Assert-LockOrderBackupAllowed and SetupBootstrap remain without a production caller, and all reviewed functions remain uniquely defined'
+Assert-TestCondition (@($baseline.FixedObservationBoundaryViolations | Where-Object {$_ -like 'release helper *'}).Count -eq 0) 'release helpers retain unique exact definitions and caller edges: release binding is Exit-only, resource validation cannot replace strict current-set checks, and owned completion is canonical Apply-only'
+Assert-TestCondition (@($baseline.FixedObservationBoundaryViolations | Where-Object {$_ -like 'live success postcheck *'}).Count -eq 0) 'six live business-success tails retain an adjacent strict binding with exact context/global/witness arguments: both host engine returns and all rollback/recovery DryRun and Apply exits; nullable script witnesses retain their sole reviewed condition'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])
@@ -1585,6 +1850,57 @@ Assert-TestCondition (-not $scriptIssuerRelocationMutationResult.Accepted -and
 $syncApplyModel=@($sources | Where-Object RelativePath -ceq 'scripts/sync.ps1')[0]
 $applyMarkerMatches=[regex]::Matches([string]$syncApplyModel.Text,'(?m)^# Apply\r?$')
 if($applyMarkerMatches.Count -ne 1){throw 'sync Apply mutation marker is not unique'}
+$releaseBindingApplyMutation=[regex]::Replace(
+    [string]$syncApplyModel.Text,
+    '(?m)^# Apply\r?$',
+    "# Apply`nAssert-HomeAuthorityCanonicalGlobalLockBindingForRelease -AuthorityContext `$authority -GlobalLockHandle `$globalLock -CanonicalWitness `$witness",
+    1)
+$releaseBindingApplyMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $syncApplyModel.RelativePath -Text $releaseBindingApplyMutation)
+Assert-TestCondition (-not $releaseBindingApplyMutationResult.Accepted -and
+    @($releaseBindingApplyMutationResult.FixedObservationBoundaryViolations | Where-Object {
+        $_ -ceq 'release helper owner inventory changed: Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease'
+    }).Count -eq 1 -and
+    $releaseBindingApplyMutationResult.AllScriptsDynamicCommandMatches -and
+    $releaseBindingApplyMutationResult.AllScriptsReflectionSensitiveMatches) 'mutation RED: release-only binding injected into sync Apply is rejected by its caller boundary without relying on the reflection digest'
+
+$releaseBindingDuplicateResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath 'scripts/internal/neutral-release-binding.ps1' -Text 'function Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease {}')
+Assert-TestCondition (-not $releaseBindingDuplicateResult.Accepted -and
+    @($releaseBindingDuplicateResult.FixedObservationBoundaryViolations | Where-Object {
+        $_ -ceq 'release helper definition is missing, ambiguous, or outside its exact script: Assert-HomeAuthorityCanonicalGlobalLockBindingForRelease'
+    }).Count -eq 1 -and
+    $releaseBindingDuplicateResult.AllScriptsDynamicCommandMatches -and
+    $releaseBindingDuplicateResult.AllScriptsReflectionSensitiveMatches) 'mutation RED: a duplicate release-only helper definition is rejected without relying on the reflection digest'
+
+foreach($postcheckFile in @('scripts/live-transaction-common.ps1','scripts/rollback-harness-env.ps1','scripts/recover-live-transaction.ps1')){
+    $postcheckModel=@($sources | Where-Object RelativePath -ceq $postcheckFile)[0]
+    $postcheckTokens=$null;$postcheckErrors=$null
+    $postcheckAst=[Management.Automation.Language.Parser]::ParseInput([string]$postcheckModel.Text,$postcheckFile,[ref]$postcheckTokens,[ref]$postcheckErrors)
+    if(@($postcheckErrors).Count){throw "cannot mutate unparsable postcheck source: $postcheckFile"}
+    $postcheckCalls=@($postcheckAst.FindAll({param($node)
+        $node -is [Management.Automation.Language.CommandAst] -and
+        $node.GetCommandName() -ceq 'Assert-HomeAuthorityCanonicalGlobalLockBinding'
+    },$true) | Where-Object {
+        $owner=Get-OwningFunctionDefinition -Node $_
+        if($postcheckFile -ceq 'scripts/live-transaction-common.ps1'){
+            return $null -ne $owner -and $owner.Name -ceq 'Invoke-SealedLiveTransactionHost'
+        }
+        return $null -eq $owner
+    } | Sort-Object {$_.Extent.StartOffset})
+    if($postcheckCalls.Count -ne 2){throw "postcheck deletion mutation requires the two exact success calls: $postcheckFile"}
+    $postcheckTailNames=if($postcheckFile -ceq 'scripts/live-transaction-common.ps1'){@('state-only','mutation')}else{@('dryrun','apply')}
+    for($postcheckIndex=0;$postcheckIndex -lt 2;$postcheckIndex++){
+        $postcheckStatement=$postcheckCalls[$postcheckIndex].Parent.Parent
+        if($postcheckStatement -isnot [Management.Automation.Language.AssignmentStatementAst]){throw 'postcheck mutation must remove only the direct strict assignment'}
+        $postcheckMutation=([string]$postcheckModel.Text).Remove($postcheckStatement.Extent.StartOffset,$postcheckStatement.Extent.EndOffset-$postcheckStatement.Extent.StartOffset)
+        $postcheckMutationResult=Invoke-ProductionSeamAnalysis -SourceModels (Copy-SourceModelsWithOverride -Models $sources -RelativePath $postcheckFile -Text $postcheckMutation)
+        $postcheckExpectedViolation="live success postcheck invalid: ${postcheckFile}:$($postcheckTailNames[$postcheckIndex])"
+        Assert-TestCondition (-not $postcheckMutationResult.Accepted -and
+            @($postcheckMutationResult.FixedObservationBoundaryViolations | Where-Object {$_ -ceq $postcheckExpectedViolation}).Count -eq 1 -and
+            $postcheckMutationResult.AllScriptsDynamicCommandMatches -and
+            $postcheckMutationResult.AllScriptsReflectionSensitiveMatches) "mutation RED: deleting $postcheckFile $($postcheckTailNames[$postcheckIndex]) mandatory strict postcheck is rejected by its success-path guard without relying on a reflection digest mismatch"
+    }
+}
+
 $fixedCapabilityApplyMutation=[regex]::Replace(
     [string]$syncApplyModel.Text,
     '(?m)^# Apply\r?$',
