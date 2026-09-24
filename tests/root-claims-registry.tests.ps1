@@ -6317,18 +6317,21 @@ try {
         Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenWitnessAdapter.Fixture.Context -ProposedLiveTargets @($forbiddenWitnessLiveTargets[0],$forbiddenWitnessLiveTargets[1].TargetContext,$forbiddenWitnessLiveTargets[2].TargetContext) -ProposedCanonicalRecovery $forbiddenRecoverySiblingContext
     } '^canonical-witness-required$' 'a proposed recovery root without a canonical witness fails closed'
 
-    $forbiddenSecondVolume = $null
     # Enumerate real volumes only: PowerShell also surfaces a built-in Temp:
     # drive, whose "C:" form is drive-relative and cannot be joined into a path.
+    # The probe needs a volume whose root this process may create in, so a
+    # permission-denied candidate falls through to the SKIP branch rather than
+    # failing the suite on a machine that has a second volume it cannot write.
     $repoVolume = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot))
+    $forbiddenCrossVolumeRecovery = $null
     foreach ($candidateDrive in @([IO.DriveInfo]::GetDrives())) {
         if (-not $candidateDrive.IsReady -or [string]$candidateDrive.DriveType -cne 'Fixed') { continue }
         if ([string]$candidateDrive.RootDirectory.FullName -ceq $repoVolume) { continue }
-        $forbiddenSecondVolume = [string]$candidateDrive.RootDirectory.FullName; break
+        $candidateProbe = Join-Path ([string]$candidateDrive.RootDirectory.FullName) ('.rcr-forbidden-cross-volume-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+        try { [IO.Directory]::CreateDirectory($candidateProbe) | Out-Null } catch { continue }
+        $forbiddenCrossVolumeRecovery = $candidateProbe; break
     }
-    if ($null -ne $forbiddenSecondVolume) {
-        $forbiddenCrossVolumeRecovery = Join-Path $forbiddenSecondVolume ('.rcr-forbidden-cross-volume-' + [guid]::NewGuid().ToString('N').Substring(0,8))
-        [IO.Directory]::CreateDirectory($forbiddenCrossVolumeRecovery) | Out-Null
+    if ($null -ne $forbiddenCrossVolumeRecovery) {
         try {
             $forbiddenCrossVolumeContext = Resolve-TargetContext -Path $forbiddenCrossVolumeRecovery -Mode MetadataOnly
             Assert-ThrowsPattern {

@@ -4689,3 +4689,22 @@ C4 的 lab 与 CI 结果决定下一步：若两者都绿，则按 S4 依次运�
 若分片 2 仍失败，则需要 CI 日志级证据（`gh auth login` 或把分片摘要上传为 artifact/job summary），
 并复核 `tests/test-timeouts.psd1` 的余量（`canonical-command-result` 本机 860.7s/900s = 96%、
 `backup-recovery` 658.0s/900s = 73%）。
+
+### CI shard 2: the cross-volume probe must pick a writable volume (candidate C5)
+
+C3 与 C4 的远端 CI 都是 gates 成功、分片 1 成功、**分片 2 失败**（C4 的分片 3 已随 seam 重钉转绿）。
+分片 2 在**很短时间内**完成（约 25 分钟），而其中任一超时都会耗掉该套件的完整预算（900–3600 秒），
+因此失败是**快速失败**而非超时——原先的预算/超时假设被排除。分片 2 内含
+`root-claims-registry.tests.ps1`，而那里的跨卷夹具是本轮唯一在仓库与 TEMP 之外创建目录的测试：
+CI 把仓库检出在 `D:`，我此前改成“排除仓库所在卷”后它会选中 `C:` 并在其根目录创建探针；
+在 CI 的非提权进程下该创建很可能被拒绝，于是套件快速失败（本机与 lab guest 都是提权上下文，因此
+都通过——这也解释了为什么本机用相同分片语义复现是 8/8）。
+
+修复：跨卷探针改为**逐卷尝试**——对每个就绪的 Fixed 且非仓库所在卷的卷尝试创建探针，遇到拒绝就
+换下一个，全部不可写时走既有的 `SKIP` 分支；不再把“存在第二卷”等同于“可以写第二卷”。本机复验
+`root-claims-registry` **894 PASS、0 FAIL、exit 0、1775.995 秒**。该修改只在测试文件内，故不触发
+seam 重钉。
+
+**C5 = 本提交**（root-claims 探针的可写回退 + 本记录）。C5 推送后 CI 分片 2 若转绿，即确认该假设；
+若仍红，则需要 CI 日志级证据（`gh auth login` 或上传分片摘要）。C5 仍需按计划重跑 S3 全量门禁
+（C4 的 lab 结果只覆盖 C4），随后才进入 S4 的 retirement 与六条 recovery 路线。
