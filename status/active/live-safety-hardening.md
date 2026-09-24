@@ -4708,3 +4708,29 @@ seam 重钉。
 **C5 = 本提交**（root-claims 探针的可写回退 + 本记录）。C5 推送后 CI 分片 2 若转绿，即确认该假设；
 若仍红，则需要 CI 日志级证据（`gh auth login` 或上传分片摘要）。C5 仍需按计划重跑 S3 全量门禁
 （C4 的 lab 结果只覆盖 C4），随后才进入 S4 的 retirement 与六条 recovery 路线。
+
+### C4 accepted by the disposable-identity gate; CI shard 2 still unexplained (2026-09-24)
+
+**C4（`d11c44a`）lab validation 通过**：completion ExitCode 0、`route-result.json` Result=PASS、
+GateCount=11、SuiteCount=42，测试摘要为 discovered/passed/started/completed 全 42、failed 0、
+timed-out 0。C3 的唯一失败（seam pin 过期）随重钉关闭；C4 是本轮第一个“全量门禁 + 全部套件”双绿的
+候选。
+
+**远端 CI 现状（三次运行对比）**：`gates` 与 `shard 1` 三次全绿；`shard 2` 在 C3、C4、C5 三次
+**全部失败**；`shard 3` 在 C3 失败（seam pin 过期，已解释）、C4 通过、C5 又失败。
+**CI 日志不可得**：`gh` 未登录，Actions 日志 API 以
+`403 Must have admin rights to Repository` 拒绝，check-run 注释仅含 “Process completed with exit
+code 1.”，因此 shard 2（以及 C5 的 shard 3）的失败原因没有日志级证据。已知边界：分片 2 的失败是
+**快速失败**（整片约 25 分钟完成，任一超时都会耗掉该套件完整预算，故排除超时）；本机以完全相同的
+分片语义复现为 **8/8 PASS**，lab guest 全量 **42/42**。C5 针对其中唯一“在仓库与 TEMP 之外创建目录”
+的夹具（root-claims 跨卷探针）加了可写回退后，分片 2 仍失败，因此该假设也被排除。
+
+**结论与待决**：S4.2（CI 全绿）未满足，按计划的接受条件，候选接受必须等 CI 证据。要把分片 2 的
+原因定位，只有两条路：(1) 所有者提供 `gh auth login` 后由本会话读取日志；(2) 在 workflow 中加一步
+最小诊断（把分片摘要/失败套件名写入 `$GITHUB_STEP_SUMMARY`，即 S6/F1 的最小形态），但这会改动
+workflow 字节，需要作为新候选重跑 lab 与 CI。两条路都需要所有者决定。
+
+**C5 = `c0341791d52f474dc7675da58c36166a00e1835a`**（root-claims 可写回退 + 上述记录）的
+lab validation 以 kit `37b188047e81a7f604d71bfc16d7127e2d31e6ef71489e8d9af8811467dc59a0`
+（lab-postaudit-10）在 `validation-c5-01` 标签下运行；通过后按 S4 依次运行 retirement 与六条
+recovery 路线（每条 fresh guest，sandbox 一次只允许一个会话）。
