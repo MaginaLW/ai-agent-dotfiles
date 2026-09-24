@@ -4666,3 +4666,26 @@ C3 的 lab guest（较慢的干净身份）若出现超时套件，即与之一�
 `canonical-command-result`（96%）与 `backup-recovery`（73%）的预算按隔离夹具的实际成本上调，
 并按分片和重算 `tests/test-shards.psd1` 的注释不等式；CI 失败原因的最终确认需要所有者提供
 `gh auth login` 或把分片摘要作为 artifact/job summary 上传（后者即 S6 的 F1 工作包）。
+
+### C3 lab outcome, the seam re-pin and candidate C4 (2026-09-24)
+
+**C3（`6b117337`）的 lab validation 失败：42 套件中 41 通过、1 失败、0 超时**，唯一失败是
+`canonical-production-seams.tests.ps1`：反射敏感清单由 16,576 变为 **16,579**（digest
+`d151af12…` → `8c4fc63e…`）。逐行核对（`seams-c3.inventory.json` 对 LF 基线）确认新增恰好是
+retirement 修复在 `scripts/sync.ps1` 脚本作用域引入的三条 `Member` 行（`$currentSlots.Count` ×2、
+`$savedSlots.Count` ×1），无删除、动态命令摘要不变。这同时解释了**CI 分片 3 的失败**（该套件属于
+分片 3）。CI 分片 2 的失败仍未解释：本机用完全相同的分片语义复现为 **8/8 PASS、0 超时**。
+
+**过程教训（已记入本记录）**：凡改动 `scripts/**/*.ps1`，都必须重跑 seams 套件并按需重钉——本次
+我只在 C2 上验证过 seams，sync.ps1 的修复后只跑了 sync 套件，遗漏由隔离身份的 lab 全量运行补上。
+这与早先暂存修复（+20 行）属同一类，说明“改生产脚本 → 重跑 seams”应固化为收口步骤。
+
+**C4 = `d11c44a646048658cd935f6a630689bd3b96c60a`**（仅 seams pin 重钉 + 说明），kit 重新冻结为
+`89c044b217196993bce32376cd4e103a39622fdd3d469fe7931e997ded316753`（lab-postaudit-09）；
+`validation` 路线以标签 `validation-c4-01` 重跑。C4 已推送到 `codex/post-audit-completion`，
+触发 CI run `36018254444`（head `d11c44a`）。seams 在本机以新 pin 复跑 **66 PASS、exit 0**。
+
+C4 的 lab 与 CI 结果决定下一步：若两者都绿，则按 S4 依次运行 retirement 与六条 recovery 路线；
+若分片 2 仍失败，则需要 CI 日志级证据（`gh auth login` 或把分片摘要上传为 artifact/job summary），
+并复核 `tests/test-timeouts.psd1` 的余量（`canonical-command-result` 本机 860.7s/900s = 96%、
+`backup-recovery` 658.0s/900s = 73%）。
