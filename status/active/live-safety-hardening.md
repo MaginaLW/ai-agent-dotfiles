@@ -4369,3 +4369,45 @@ preview/apply 成功、计划行全部 EXISTS 且绑定当前身份、无 `.syst
   本轮无法复核，已在 S2 记录中标注。
 
 以上均为宿主隔离 fixture 的定向证据；候选固定、S3 独立 OS 全量门禁与 S4 接受仍未完成。
+
+### S2 candidate freeze and acceptance kit (2026-09-24)
+
+候选 **C = `ded154235dfe5ecb94a9beeb465fa5f361bf8535`**（`fix(live-safety): repair canonical,
+rollback and task-overlay safety defects`），工作区干净，记录提交为其后继 `ded1542` 的文档提交。
+提交范围：`ae89f89`（生产与测试）+ 文档/记录；此前 `9b025e7` 及更早的 S0 整合提交保持原样。
+
+候选指纹（`candidate-ded1542/candidate-fingerprint-observation.json`，`LabOrCIOrProductionAcceptance=false`）：
+CanonicalToolchainPolicyHash `61cf3b6ed8641d364a8e9ccaf9dd1e26305d5cfeb99038153238785c8f380aef`、
+RunnerToolchainPolicyHash `9a390a5960b446d185cd939808ac174f7b363b95aa9c437bceb5a75f484a0d81`、
+RunnerTreeHash `0e207045426ee88bd927643f6452b94ac0663112179f206d89807c8f63e68d7c`、
+ScannerIdentityHash `971f1138d018fdba583944376cbfdde374dde9dcc8cd0cb6fbbc32e780c27066`、
+ValidatorIdentityHash `05ce76d210bd7ef7d1f7bfba2b4dc5c534ef107aa8aed57b0bcf278f50344bea`；
+LivePolicySchemaVersion 1、LiveProtocolVersion 3、ReleaseState `released`。该次采集未批准 runner，
+guest 内自行批准。
+
+一次性验收 kit 按该候选冻结于仓库外的一次性目录（不入库；证据目录由 `run-route.ps1` 以
+create-new 方式建立）：13 个 payload 脚本 + 3 个宿主脚本 + 三个已签名安装器
+（PowerShell 7.4.6、MinGit 2.47.1、vc_redist），绑定宿主 SID 与 36,675 秒 validation 预算
+（最小接受 39,195 秒）。首版 kit `d083b42e…` 的首次 guest 运行暴露两个 kit 自身缺陷：
+
+1. **guest bootstrap 取不到退出码**：`prelude.ps1` 用
+   `Start-Process -PassThru … | WaitForExit(int)` 读 `ExitCode`，在 Windows PowerShell 5.1 下
+   即使进程已退出该值仍为 `$null`（宿主复现：`exit 7` 的子进程得到 `exitcode=[]`），
+   PowerShell 7 的 MSI 实际安装成功却被判 `lab-pwsh-install-failed`。已改为自建
+   `Diagnostics.Process` + `ProcessStartInfo`（5.1 无 `ArgumentList`，按需加引号）、异步排空
+   输出并读 `ExitCode`；重跑后 msiexec/tar/vc_redist 的退出码均正确落盘。
+2. **chain 路线的零变更假设过强**：`rollback-contracts.ps1` 曾断言同环境 activation 的
+   rollback 计划必须 `Targets.Count -eq 0`、且不得出现 live 目录原语。实际 activation 计划把
+   29 个受管 skill 全部记为 `update`（`SourceHash -ceq LiveHash`），rollback 因而合法地携带
+   同样 29 个 target 并回填字节相同的 preimage；S1B 的“零目标”验收对应的是
+   `tests/backup-recovery.tests.ps1` 中构造的零 target receipt，公开同环境路线并不产生该形状。
+   已把这两条断言改为记录观测值（target 数与 live 原语数），保留“live 快照不变、state 字段
+   复原、唯一 committed terminal、COMPLETE receipt、generation 推进”等既有断言。
+
+修正后的 kit `735cffa6de6e069c9fb98c3ce04507504f05f326bd1b942b73e4965e73ce121a`
+（BundleSha256 `59910c2992299f4dbb4cc7fbbd0d5686746490892915f85d2464f0cf5f65d523` 不变）用于
+S3 `validation` 路线。先跑 `chain` 作端到端校验的次序被保留：chain 已在修正前的 kit 上完成
+clone、pinned 工具安装/验证、runner 批准、pristine initial（DryRun→canonical setup→initial
+Apply）、同 full 再激活与零变更 rollback DryRun，仅在上述第二条断言处停止，因此 guest 侧
+安装与身份隔离路径已被实际走通。`validation` 与其余路线各自使用 fresh guest，一次只允许
+一个 Sandbox 会话。
