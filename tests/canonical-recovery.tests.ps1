@@ -191,7 +191,10 @@ function Invoke-TestSetupClaimSecurityMatrix {
             if($driftInfo.IsDirectory -or $driftInfo.IsReparsePoint -or $driftInfo.Identity -cne $initialInfo.Identity){throw 'claim ACL drift fixture is not the owned regular file'}
             $security=Get-Acl -LiteralPath $artifactPath
             $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'),[Security.AccessControl.FileSystemRights]::FullControl,[Security.AccessControl.AccessControlType]::Allow))
-            [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($artifactPath),$security)
+            # The path-based overload refuses fixture paths past MAX_PATH on the
+            # pinned runtime, so hand it a device path that skips normalisation.
+            $driftPath='\\?\'+[IO.Path]::GetFullPath($artifactPath)
+            [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($driftPath),$security)
             $drifted=[AiAgentDotfiles.NoFollowFile]::HashRegularFile($artifactPath)
             Assert ($drifted.Identity -ceq $initialInfo.Identity -and $drifted.Sha256 -ceq $initialInfo.Sha256 -and [string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($artifactPath).Sddl -cne $initialSddl) 'claim ACL: fault injection changes only ACL on the already classified file'
         }else{

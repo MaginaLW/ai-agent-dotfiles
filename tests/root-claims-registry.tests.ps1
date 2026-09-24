@@ -6318,8 +6318,13 @@ try {
     } '^canonical-witness-required$' 'a proposed recovery root without a canonical witness fails closed'
 
     $forbiddenSecondVolume = $null
-    foreach ($candidateDrive in @(Get-PSDrive -PSProvider FileSystem)) {
-        if ([string]$candidateDrive.Name -cne 'C' -and $candidateDrive.Free -gt 0) { $forbiddenSecondVolume = "$($candidateDrive.Name):"; break }
+    # Enumerate real volumes only: PowerShell also surfaces a built-in Temp:
+    # drive, whose "C:" form is drive-relative and cannot be joined into a path.
+    $repoVolume = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot))
+    foreach ($candidateDrive in @([IO.DriveInfo]::GetDrives())) {
+        if (-not $candidateDrive.IsReady -or [string]$candidateDrive.DriveType -cne 'Fixed') { continue }
+        if ([string]$candidateDrive.RootDirectory.FullName -ceq $repoVolume) { continue }
+        $forbiddenSecondVolume = [string]$candidateDrive.RootDirectory.FullName; break
     }
     if ($null -ne $forbiddenSecondVolume) {
         $forbiddenCrossVolumeRecovery = Join-Path $forbiddenSecondVolume ('.rcr-forbidden-cross-volume-' + [guid]::NewGuid().ToString('N').Substring(0,8))

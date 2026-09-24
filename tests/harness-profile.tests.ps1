@@ -42,7 +42,21 @@ function Assert {
     }
 }
 
-$work = Join-Path (Split-Path -Parent $RepoRoot) ".ai-agent-dotfiles-harness-profile-$([Guid]::NewGuid().ToString('N'))"
+# The profile apply entry refuses targets under the user home by design, so the
+# fixture workspace must live outside it: prefer the checkout's parent, else the
+# checkout's volume root. A checkout inside the profile (a normal clone location)
+# would otherwise fail every apply assertion on the product's own guard.
+function Get-OutsideProfileWorkspace([string] $RepoRoot, [string] $Leaf) {
+    $profile = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\')
+    foreach ($candidate in @((Split-Path -Parent $RepoRoot), [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)))) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        $full = [IO.Path]::GetFullPath($candidate).TrimEnd('\')
+        if ($full.Equals($profile, [StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($profile + '\', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        return (Join-Path $full $Leaf)
+    }
+    throw 'harness workspace requires a root outside the user profile'
+}
+$work = Get-OutsideProfileWorkspace -RepoRoot $RepoRoot -Leaf ".ai-agent-dotfiles-harness-profile-$([Guid]::NewGuid().ToString('N'))"
 function Remove-Work {
     if (($work -like '*.ai-agent-dotfiles-harness-profile-*') -and (Test-Path -LiteralPath $work)) {
         Remove-Item -LiteralPath $work -Recurse -Force

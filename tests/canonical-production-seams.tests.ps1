@@ -477,8 +477,15 @@ $reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a5
 # ([string]$segment) instead of the argument-mode [string]$segment. Row-reviewed delta from
 # tmp/seams-delta.ps1: 1 removed + 1 added InvokeMember row, dynamic-command digest unchanged,
 # no alias, shadow, or new type.
+# Re-pinned 2026-09-24 for the S1 remediation: count unchanged at 16576, +20 rows from
+# the transaction-private rollback staging handles. The digest moved from
+# 584bc5be... to d151af12... because these rows embed the raw MemberExpressionAst
+# extent text and the working copy had mixed CRLF in scripts/live-transaction-common.ps1;
+# a clean eol=lf checkout (CI, the disposable-identity lab and the detached worktree at
+# the candidate commit) yields d151af12..., so the pin now matches every clean checkout
+# instead of one accidentally CRLF-touched file.
 $reviewedAllScriptsReflectionSensitiveSiteCount=16576
-$reviewedAllScriptsReflectionSensitiveDigest='584bc5be749090a3b47ec60ac99baffee1e2fb9f289dc899a31817d7c0844adc'
+$reviewedAllScriptsReflectionSensitiveDigest='d151af12338ff5f0044f5a1ce14f27a1016bc93cfcaa7a2e693fa941f54aef48'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
