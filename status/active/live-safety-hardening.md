@@ -4768,3 +4768,29 @@ MISSING 且最深层现存父不在输出根内时保留；三处消费点改为
 据此，canonical 收口的实施说明以 C 路为准，A 路的残余发现与该设计一并留给下一候选。
 
 **B 路 · CI 分片 2 定因**：仍在运行（静态推因 + 期望给出最小复现与假设排序），结论未到。
+
+### CI 分片 2 定因（grok B 路）与修复 C6（2026-09-25）
+
+grok B 路独立定因（公开 API 只能读 job 时长，日志仍 403）：分片 2 **不是**快失败——绿基线
+`3b835f14` 成功 **62.6 分钟**，C3/C4/C5 失败分别为 **66.1 / 55.0 / 67.8 分钟**，与“跑完整片”同量级；
+运行器按 `SuiteId` 排序且不 fail-fast（`scripts/test-runner-common.ps1:265`、`282-305`），因此是
+断言失败而非超时。机制：`e90e7bc` 把跨卷探针从“跳过名为 `C` 的 PSDrive”改成“跳过**检出卷**”，
+而 CI 上检出在 `D:\a\...`、套件的 witness 夹具建在 `GetTempPath()`
+（GHA 默认 `C:\Users\runneradmin\AppData\Local\Temp`）下
+（`tests/root-claims-registry.tests.ps1:940-941`、`717-740`、`6284`），矩阵比较的是
+**witness 仓库卷 vs 恢复根卷**（`scripts/root-claims-registry-common.ps1:1828-1837`）。新逻辑跳过
+检出卷后选中 `C:\`，探针与 witness 同卷 → 该断言不抛 → 期望
+`manual-recovery-required: canonical-recovery-root-cross-volume` 的用例以 `(did not throw)` 失败。
+C5 只对“建目录失败”回退，而 `runneradmin` 通常能在 `C:\` 根建目录，故 C5 仍红。本机通过的原因是那次
+`C:\` 根创建失败后回退到 `D:`（与 witness 的 `C:` 真跨卷）；lab guest 常只有 `C:`，探针走 SKIP、
+断言根本不跑——与“lab 42/42”一致。grok B 另指出：C4 的分片 3 在公开 API 里其实**失败**（88.7 分钟），
+我此前按紧凑输出误读为“成功”，此处更正；分片 3 的红与本次探针无关，属另一件事。
+
+**修复（C6 = `73ab686`）**：探针改为排除 **witness 工作根所在卷**（`$tempParent` 的卷根）而不是检出卷，
+保留“不可写则换下一个、全不可用则 SKIP”的回退。本机复验 `root-claims-registry` **894 PASS、
+0 FAIL、exit 0、1721.375 秒**，日志确认 `PASS a cross-volume canonical recovery root fails the
+accept matrix`（断言真实执行，未被 SKIP 掩盖）。该修改只在测试文件内，不触发 seam 重钉。
+
+C6 已推送，CI run `36057964164`（head `73ab686`）。C5 的 lab validation 仍在运行，其结论将被 C6 取代，
+仅作 C5 自身无回归的旁证；随后按计划在 C6 上重跑 S3 全量门禁，再进入 S4 的 retirement 与六条
+recovery 路线。
