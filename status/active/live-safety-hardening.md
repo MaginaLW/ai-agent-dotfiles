@@ -4603,3 +4603,38 @@ identity 字段，需要在 `Resolve-TargetContext`/`Get-CanonicalObservedPathSt
 内容重建）。recovery 的 `Assert-CanonicalRecoveryStateContext` 绑定的是 git-common-dir 的
 identity（仓库/控制器身份），**明确不应 adoption**。因此 canonical 侧的收口属于证据构造层面的
 设计改动，需单独评审与新的候选；本轮不实施。
+
+### Candidate C3, the remote CI lane and the canonical-class design (2026-09-24)
+
+**C3 = `6b11733749e3e284a885365e7af5d7a3cf2f85c0`**（retirement staleness 修复 + 回归 + 记录）。
+`sandbox kit` 重新冻结为 `18aa2465c4f1959037372b9885cf37a125974291ce0aed4a08723f1e8ac3a5dc`
+（lab-postaudit-08），并在其中重跑 `validation` 路线（标签 `validation-c3-01`）。
+
+**远端 CI（已按授权推送）**：`codex/post-audit-completion` 分支首次推送到 origin，触发
+Validate run `35996024376`（head `6b117337`）。同一次查询显示 `main`（`48f17e15`）的
+run `35883727195` **三个测试分片全部失败、gates 分片通过**——即远端 main 目前是红的，且失败集中在
+测试分片，与本轮在隔离身份里发现的“套件依赖宿主环境形态”同类；C2/C3 的四处夹具修复正是针对该
+类别（C3 的 CI 结果将检验这一判断）。`gh` 未登录，公开 API 只能读 run/job 状态，读不到 job 日志，
+因此 CI 失败时只能依据状态与注释定位。
+
+**canonical 同类缺陷面的设计提案（只读调查，未实施）**：逐站点核对后，只有“canonical 技能计划的
+目标上下文”是**常规路径上可达的误拒**（`build-skills.ps1` 重建生成根 → `TargetContextHash` 内的
+`Ancestors[*].Identity`/`DeepestExistingParentIdentity` 变化 → `canonical-plan-stale`，或在
+staging 复核处 `canonical target context changed before staging`）。提案 P1 的做法是**改绑定内容**
+而非比较侧特例：为计划级目标上下文引入稳定投影哈希（保留 `LocationKey`/`RequestedPath`/
+`TargetStatus`/`TargetType`/`VolumeId`/`DeepestExistingParentPath`/`MissingRemainder` 与
+`Ancestors[*]` 的 `Path/Type/ReparsePoint`，仅当目标为 MISSING 时保留 `DeepestExistingParentIdentity`
+作为创建锚点），并只在三处消费点使用（`New-CanonicalTargetRow`、`Initialize-CanonicalReviewedStaging`、
+`Assert-CanonicalRecoveryStateContext`）；**不改** `Resolve-TargetContext` 本身，因为其
+`RequestedInitialRootContextHash` 还被持锁租约自检、registry、home-authority 与 occupancy 消费。
+该方向**不需要改 schema 与注册夹具**（`TargetContextHash` 仍是 64-hex），但需要：更新
+`tests/canonical-hard-kill.tests.ps1` 的两份 pinned 摘要表、改造若干按生产方式构造该哈希的测试行、
+并在部署前确认 `canonical status = canonical-ready` 且无未完成事务（否则旧版本留下的 journal header
+会在新推导下被判 `manual-recovery-required: target context hash differs from reviewed header`）。
+
+其余站点判定为**保留并记录为已知限制**：`UnknownGeneratedInventory` 的 identity 在 build 后是
+“条目消失”而非“同名替换”，不产生误拒，且它目前是未知条目唯一的绑定；setup 计划的私有根 intent
+identity 是 MISSING 根的创建锚点、被三个 schema 要求并与已强制的 home-authority 父身份漂移检查一致；
+canonical recovery 工作区的 `ObservedState.Identity` 是真实检查（重建确实销毁了被审阅的恢复证据）；
+`Assert-CanonicalRecoveryStateContext` 的 git-common-dir 身份绑定**明确不得放宽**。因此 canonical 侧
+的收口是一个独立工作包，需要单独评审与新的候选，不在本轮 C3 内。
