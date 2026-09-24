@@ -4638,3 +4638,31 @@ identity 是 MISSING 根的创建锚点、被三个 schema 要求并与已强制
 canonical recovery 工作区的 `ObservedState.Identity` 是真实检查（重建确实销毁了被审阅的恢复证据）；
 `Assert-CanonicalRecoveryStateContext` 的 git-common-dir 身份绑定**明确不得放宽**。因此 canonical 侧
 的收口是一个独立工作包，需要单独评审与新的候选，不在本轮 C3 内。
+
+### C3 remote CI result and the shard-2 local reproduction (2026-09-24)
+
+**远端 CI（C3 = `6b117337`，run `35996024376`）**：`Validate repository gates` **成功**、
+`test shard 1 of 3` **成功**，`test shard 2 of 3` 与 `test shard 3 of 3` **失败**。`gh` 未登录、
+公开 API 只能读 run/job 状态与 check-run 注释，注释只有 “Process completed with exit code 1.”，
+因此**失败原因未取得日志级证据**。作为对照，同一次查询里 `main`（`48f17e15`）的 run
+`35883727195` 是 gates 成功、三个分片全失败——远端 main 自本轮开始前就是红的。
+
+**本地分片复现**：在 C3 上用与 CI 相同的分片语义跑 `run-tests.ps1 -All -ShardCount 3 -ShardIndex 2`
+→ **PASS，discovered=8、passed=8、failed=0、timed-out=0**，即分片 2 的套件集合、顺序与运行器行为在
+本机不产生失败。各套件耗时与预算（本机，16 核）：
+backup-receipt 29.1s/300s、backup-recovery **658.0s/900s（73%）**、reap-semantics 1.7s/60s、
+canonical-preflight 30.8s/120s、canonical-recovery 239.5s/1200s、
+canonical-transaction-apply 503.9s/1800s、root-claims-registry 1668.8s/3600s、skills-import 152.9s/1200s。
+
+**当前最可信的假设（需 CI 日志确认）**：失败形态是**单套件超时**而非断言失败。分片步骤在
+`run-tests.ps1` 非零退出后抛错，也在 `passed != discovered` 时抛错，两者在注释里都只显示
+“exit code 1”。分片 3 内的 `canonical-command-result` 在本机实测 **860.7s / 900s（96%）**，分片 2
+内的 `backup-recovery` 为 **73%**；隔离夹具（每套件复制一份 toolchain 与 pinned 工具缓存）在
+CI 的较慢磁盘/较少核数上足以把这两个套件推过预算，从而让分片以超时失败。该假设的可检验后果：
+C3 的 lab guest（较慢的干净身份）若出现超时套件，即与之一致；否则需 CI 日志或提升
+`tests/test-timeouts.psd1` 中相应预算后再看。
+
+**待办（下一候选）**：复核 `tests/test-timeouts.psd1` 的余量，至少把
+`canonical-command-result`（96%）与 `backup-recovery`（73%）的预算按隔离夹具的实际成本上调，
+并按分片和重算 `tests/test-shards.psd1` 的注释不等式；CI 失败原因的最终确认需要所有者提供
+`gh auth login` 或把分片摘要作为 artifact/job summary 上传（后者即 S6 的 F1 工作包）。
