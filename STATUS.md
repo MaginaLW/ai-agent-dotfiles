@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-23 (current-state entry only)
+Last updated: 2026-09-24 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -16,20 +16,30 @@ subsequent fixes (`097ff01`, `f553358`, `23f458b`) remain local at the audit bas
 their partial lab evidence does not replace a full run on a new immutable candidate.
 
 The [2026-09-23 multi-agent audit and ordered backlog](status/active/live-safety-hardening.md#2026-09-23-multi-agent-audit-and-ordered-backlog)
-is the current task handoff. First isolate canonical setup tests from the real Windows identity:
-the existing sandbox helper does not isolate that route, and the audit found a same-kind caller
-in `canonical-recovery` beyond the previously observed nine failed assertions. The audit also
-located the zero-change rollback's `Targets` null defect, which leaves an unfinished transaction;
-a separate missing unfinished-transaction guard remains a static finding awaiting sandbox
-reproduction. The `work`/`full` mismatch points to explicit lab parameters, not a confirmed product
-defect. Current-guide drift and machine-private paths in historical reports are recorded for
-follow-up. No fixes or release acceptance were performed by this audit or its documentation step.
+is the audit handoff. Execution has isolated four canonical/repository-policy test callers using
+copied toolchains. The zero-target rollback and missing unfinished-sibling guard were reproduced
+and repaired; stronger journal validation closes a live recovery Status false-clean result, and its
+full suite passed 403 assertions on the final bytes. Canonical validation exposed three further
+defects (inherited setup-claim DACLs, misclassified cross-process contention, and success emitted
+before lock release); their fixes passed independent static review and the combined targeted
+canonical regressions. The last rollback defect — a state preimage left in the shared staging
+directory colliding with the next rollback's create-new write — is repaired by giving each rollback
+its own transaction-private staging namespace, and the targeted suite passed 275 assertions. The
+controlled fixture run of the current guides now completes all 23 documented commands, which
+surfaced two further task-overlay defects: a claim gate that refused roots created after claim
+publication, and an Apply postcondition that demanded a Codex `.system` marker a pristine machine
+never had. Both are fixed, independently reviewed, and covered by new regression assertions.
+These are reviewed working-tree fixture results, pending candidate integration and independent OS
+gates. The `work`/`full` mismatch remains a lab parameter issue, with additive activation and
+unchanged-overlay rollback requirements now explicit in the guides. Report hygiene is updated.
+No new release acceptance is claimed.
 
 The [post-audit staged completion plan](docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)
 now defines the execution order, parallel ownership, acceptance criteria and release boundaries.
-Execution is authorized and S0 has integrated the CI fixture repairs; S1 is in progress. See the
+Execution is authorized: S0 integrated the CI fixture repairs and S1 is closed; S2 independent
+reviews of the combined tree are complete and the candidate freeze is next. See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
-isolation boundaries and actual validation. No new candidate has been accepted.
+isolation boundaries, actual validation and the residual items left open. No new candidate has been accepted.
 
 Remote main and run-status snapshot, rechecked **2026-09-23 23:40 UTC+8**: `main` is `627ef3f`, whose
 [Validate #135](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35852562723) failed.

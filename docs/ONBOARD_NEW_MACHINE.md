@@ -188,6 +188,11 @@ qualified route. Changing `HOME`, `USERPROFILE` or `LOCALAPPDATA` is not Windows
 
 For `activate`, choose an environment and a new plan path:
 
+Activation adds or updates the selected skills; it does not prune extra managed skills from a
+previous environment. Choosing `work` after an initial `full` installation can therefore leave
+`unexpected-managed` parity drift. Verify status and lock/live parity before treating the result
+as the task overlay baseline; a successful Apply alone does not establish that baseline.
+
 ```powershell
 $EnvironmentName = '<reviewed-environment-name>'
 $EnvironmentPlan = Join-Path $EvidenceRoot 'environment-plan.json'

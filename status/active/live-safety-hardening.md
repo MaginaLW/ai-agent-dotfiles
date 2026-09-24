@@ -4167,3 +4167,205 @@ standalone backup 与 sync HomeRoot 用法，补齐同一外部 PlanPath、recei
 独立审查确认路由合同；37 个 PowerShell 示例块、67 条调用完成 AST/参数静态校验，零错误，
 本地链接核验通过。组合工作树密钥扫描无阻断，diff 检查通过。这是指南静态验收，未把文档
 示例直接在真实用户目录运行；公开路线动态接受仍等待 S4。
+
+### S1B rollback and recovery checkpoint (2026-09-24)
+
+独立 owned fixture 动态复现零目标 `Targets=null`、有效 source receipt 下兄弟 header-only
+事务未阻断，以及可解析但链/terminal 不一致仍被误判闭合。修复保留空数组而不 early-return，
+在 canonical→overlay→global 锁内、首个 staging/header/receipt 写入前执行全命名空间
+unfinished 检查；该检查验证 header、完整链、result 与 terminal outcome/document 一致性。
+公开回滚完整回归 **253 PASS、exit 0、874.022 秒**，保留原 900 秒 suite 预算。覆盖零/单/多
+目标、12 类未完成或损坏兄弟事务零写入、reviewed recovery 后继续及完整 receipt/state/journal。
+原始证据为本次忽略目录中的 `rollback-evidence.json`、`rollback-final.log` 和 timing 记录。
+
+独立审查继而发现 live recovery Status 未调用完整链验证，可把三类损坏 terminal 报为 clean。
+Status 现统一验证 header/chain/result，不可读或不一致返回 manual，合法 header-only 和中间
+恢复状态保持可用。focused RED 保留；GREEN 5/5、exit 0、全部零写入。完整 live-recovery
+**403 PASS、exit 0、725.319 秒**，含缺 header、null record 与完整恢复/failpoint 路线。
+测试同时收紧 owned 临时根与 reparse 清理边界。证据为 `live-recovery-suite-result.json`、
+日志与退出码文件。安全 reviewer 独立重算两路关键文件 hash，与开跑前和收口 receipt 一致。
+以上均为宿主隔离 fixture 定向证据；不替代 S3 独立 OS 全量门禁或 S4 接受。
+
+### S1A remaining canonical findings (2026-09-24)
+
+四套 canonical/repository-policy 已迁入共同 owned copied-toolchain fixture；公开生产接口
+没有新增身份覆盖参数。repository-policy 完整 **99 PASS、exit 0**；canonical-recovery
+**119 PASS、exit 0**，canonical-transaction-apply **21 PASS、exit 0**。这些验证后的
+helper 又有边界/child deadline 修正，不能把三套早先结果声称为最终 helper bytes 的完整回归。
+最终组合树仍须 S3 精确候选验证。
+
+canonical-command-result 的完整旧快照为 93 PASS、5 FAIL，focused engine 为 19 PASS、
+5 FAIL；失败和退出码均保留，没有改为预期失败。owned 诊断成功取得 canonical/global 锁后，
+registry recompute 明确拒绝 claim 的非 current-user-only DACL：setup claim 从 Git journal
+`_pending` rename 时保留继承 ACE。setup 本身报 ready 不证明下一条命令可用。修复须限定
+新 claim 安全创建及 pending 恢复发布，保留普通 journal ACL、no-follow held rename 和严格
+registry 检查；不自动修复已有坏 claim。另一个错误是 ExistingOnly 把正确顺序的跨进程
+global busy 统一重写为 witness 失败；修复区分本进程反向持锁与正常竞争，并保留原反向断言。
+这两项修复已通过独立静态复核和 focused 验证，最终组合回归仍在进行，S1A/S2 未完成。
+
+当前指南的静态合同已完成，但受控 fixture 示例仍需动态验证；S1C 最后一项保持开放。
+外部 lab kit 已补公共 authority/environment/task/rollback/retirement 和六条明确标注 synthetic
+的 recovery 路线；兄弟 unfinished rollback 的 staging/claim 零写入观测缺口也已补齐并通过
+独立静态复核。kit 尚待最终候选 SHA、脚本/assets/bundle hash 和期限一起冻结；未运行 guest。
+
+### S1A canonical completion and release checkpoint (2026-09-24)
+
+claim ACL 修复限定 current-user-only 新建、held pending 校验和同一 handle 的 no-follow
+rename，保留普通 journal 的默认 ACL。focused claim-acl **22 PASS、exit 0**；篡改 pending、
+existing claim 或分类后 ACL 均拒绝，不自动修复坏 claim。本进程已登记的先行 global owner
+仍触发反向锁序拒绝；真正跨进程争锁保留 typed busy。独立 fixture contention 检查
+**18 PASS、exit 0、46.378 秒**，非锁字节未变，清理无残留。
+
+后续 engine 运行揭示第三个实际缺陷：normalize 已安装预期字节并写唯一 committed terminal，
+却先打印 PASS、再因 finally 中的 release 重新比较旧 transaction-set snapshot 而失败。
+保留该次 **26 PASS、1 FAIL、exit 1** 的原始日志；不将已提交的业务状态当作命令成功。
+修复将不可变资源/owner/权限/父 handle 校验与 strict current transaction-set 校验分开。
+release 只对已 claimed 的原始资源执行完整绑定校验；所有进入与写入检查仍严格比较当前集合。
+公开 canonical 成功路线另验证原 journal 集合逐项不变、仅新增本次绑定 Doc/Plan/Tx/operation
+的完整 committed 事务，释放成功后才发出单个 PASS；不刷新 witness 或提供公开绕过开关。
+
+独立安全审查通过上述生产组合；home-authority locking **73 PASS、exit 0**，覆盖原篡改矩阵、
+strict 对集合变化的拒绝、合法 release、原 global/parent 关闭与 canonical 继续持有。
+该组是合成 witness 的分流与资源验证；真实 journal completion 矩阵和公开命令完整回归另行记录。
+每组保留源文件 before/after hash、原始日志及退出码，证据分别位于忽略目录中的
+`claim-acl-20260924-004301.log`、`lock-contention-evidence.md` 和
+`home-locking-20260924-005803` 记录。尚不替代候选 S3/S4 门禁。
+
+指南首组受控 fixture **23/23 PASS、exit 0**，含预期非零的退役/未批准入口拒绝；清理成功。
+该组按运行时 snapshot 登记，后续 canonical 修复由新 shared/migrate 示例与 canonical 回归验证。
+适用示例矩阵、调用参数及逐次退出码保存在 `guides-fixture-run-20260924-02/summary.json`
+和 `guides-fixture-matrix.md`；S1C 最后一项在其余受控示例通过前保持开放。
+
+### S1/S2 combined verification in progress (2026-09-24)
+
+最终生产组合的 engine focused **27 PASS、0 FAIL、exit 0、413.6 秒**，源码前后相同，
+实际 normalize Apply、唯一成功结果、预期字节、terminal 和重放拒绝均通过。
+真实 journal completion focused **29 PASS、0 FAIL、exit 0、60.262 秒**，包括 Doc/Plan/Tx/
+operation 错配、无关合法新事务、旧事务同数变化拒绝，以及真实持锁 release。
+默认完整 canonical-command-result 和 canonical-transaction-apply 仍在运行，未提前记通过。
+
+最终 helper/生产字节已完成 canonical-recovery **138 PASS、exit 0**、home-authority
+**228 PASS、exit 0、22.942 秒 / 180 秒预算** 和 repository-policy **99 PASS、exit 0、
+99.54 秒 / 600 秒预算**。源文件与输入 before/after hash 一致，精确 owned fixture 已删除，
+无残留；独立 reviewer 核对日志、退出码与当前源码。repository-policy 完成后另修正指南
+一处描述：close 保留空 overlay 文档。该句不属于 suite 的静态断言，生产与测试字节未变。
+
+production-seams 的所有非 reflection inventory/边界与基线相同；reflection 从 16,273
+变为 16,556 项，逐行复核为增 452 / 删 169 次，多数来自资源校验 helper 的移名。
+只更新对应 count/digest，动态调用摘要保持不变。新增 7 个 release helper 的 11 条精确
+调用边限制及 2 个独立 RED，保留旧 mutants。完整 suite **59 PASS、0 FAIL、exit 0、
+287.732 秒 / 600 秒预算**，运行前后源 hash 相同，日志 hash 为
+`b2b266092594331907edfb0f8faa0f46bdcb40048131cf6098f110933d6a997e`。
+
+hard-kill 控制器只替换 23 个摘要：5 个已审查 source 文件在两表的 10 个 whole-file pin，
+以及 13 个受其影响的派生摘要；其他文本逐字不变。其中 json-artifact pin 是既有 `097ff01`
+缓存迁移遗漏，本轮未再次改源码。应用后静态 Verify **92/92、exit 0**，控制器 hash 为
+`fea4660d95a3a45f8aa5e92d39e65c60dab2cb1a83f17982332622ba0aa1e358`；未在宿主运行
+完整 hard-kill suite，这仍是 S3 的要求。PowerShell 语法 **180 文件**、build **7/15/7**、
+密钥扫描无阻断及 diff 检查通过，原工作区仍干净。
+
+指南 shared 示例保留两次失败：一次是 fixture 缺模块导入；一次按合同拒绝 overlay 基线
+变化的回滚 receipt。后者不归为产品缺陷，也不放宽拒绝；示例改用同 overlay 基线的 receipt。
+实验 kit 的有变化回滚则改为独立 fresh minimal 基线，经公开 adopt、activate full 后回滚；
+与 initial/task/零变动路线分开，要求真实 add、live 变化和还原证据，尚未执行。
+
+最终 canonical-command-result 默认 all **102 PASS、0 FAIL、exit 0、860.7 秒 / 900 秒**；
+canonical-transaction-apply 默认 all **47 PASS、0 FAIL、exit 0、593.814 秒 / 1800 秒**，
+原 21 项保留并新增 26 项。两者源 hash 稳定、owned fixture 清理成功，独立 reviewer 核定。
+S1A 原定四套隔离迁移及该次生产组合回归完成；后续生产变化按实际影响补验证，不沿用为新候选
+全量结论。运行摘要分别为 `command-all-final-20260924-010818.summary.json` 和
+`canonical-transaction-apply-20260923T170627-faa66187.result.json`。
+
+shared03 在同 overlay 基线的第二次 work activation 后取得合法 receipt，rollback DryRun
+退出 0，但 public Apply 退出 1、报 `apply-failed-but-restored`。原因为固定
+`Claude/state-recovery/current-env.preimage.json` 的 CreateNew 遇到既有文件；普通事务与
+rollback 对前序暂存材料的生命周期处理不同。这是新的生产路径问题，不能按前述 fixture
+导入或 overlay 前置错误处理；未手删材料重试，也未修改 CreateNew。原日志、plan、receipt
+和 summary 保留于 `guides-fixture-shared-20260924-03`，整个 owned fixture 正常清理。
+该缺陷正在独立调查/修复，S1B 与 S2 尚未关闭。
+
+kit 改为三条互相独立的 fresh OS 路线：initial full→同 full 零目标回滚；minimal seed→
+public adopt minimal→activate full→有变化回滚 minimal；work seed→public adopt work→
+task ensure/sync/close。所有路线保留实际 lock/live parity、unknown 保护和 journal 闭合
+断言，两名 reviewer 已静态复核；不将多个 fixture 拼接成 full→work 的已验端到端路线。
+
+### S1 close-out: staging lifecycle, controlled guide verification and two task-overlay gate defects (2026-09-24)
+
+回滚暂存生命周期修复（生产字节 01:36、测试 01:41）经独立代码审查通过：每次回滚在
+`.ai-agent-dotfiles-staging/rollback-<transactionId>/<Platform>` 下用持有句柄创建自己的暂存
+命名空间，保留前序事务材料；公开 rollback 与 live recovery 入口在成功输出前补回严格的
+canonical/global 锁绑定校验。定向 backup-recovery **275 PASS、0 FAIL、exit 0、407.375 秒 /
+900 秒**，源文件前后 hash 一致、owned fixture 已清理，覆盖连续两次公开回滚、前序失败材料的
+字节与身份保留、事务私有 state preimage 的公开恢复（`tmp/post-audit-s1a/backup-staging-20260924-014231.*`）。
+该次运行自带的 `SourceHashesUnchanged` 标志不可信：包装脚本用 `Compare-Object -Property` 比较
+有序字典恒为空，已改为显式 hash 映射比对；原始 before/after 清单本身可复核。
+
+当前指南的受控 fixture 序列在修复后首次全程通过：`guides-fixture-shared-20260924-06`
+**23/23 命令 PASS、exit 0**，覆盖 pristine initial 计划 → canonical setup → 新 invocation
+initial Apply → 两次 work 激活 → 公开回滚 DryRun/Apply → task ensure/sync/close →
+live recovery clean；`HostLiveOperationsExecuted=false`、`ActualDisposableOsAcceptance=false`，
+fixture 清理成功。这是指南示例的动态验收，不替代 S3 独立 OS 全量门禁或 S4 接受。
+
+同一序列暴露两个此前从未到达的 task-overlay 缺陷，都与同族入口的既有约定不一致：
+
+1. **claim 身份门禁**：`scripts/task-skills.ps1` 曾要求每条 live-root claim
+   `InitialState -ceq 'EXISTS'`。pristine 身份下 `canonical setup` 发布的 claim 记录
+   `ABSENT` + 空 `InitialDirectoryIdentity`（根由后续 initial Apply 创建），而
+   `activate-harness-env.ps1`、`authority-harness-env.ps1` 的同名检查对非 EXISTS 行 `continue`。
+   后果是 pristine 机器上 `env task ensure-skill` 必然以 `authority-claim-identity-drift`
+   失败（原日志保留于 `guides-fixture-shared-20260924-04/17-task-ensure-dryrun.*`）。修复采用
+   同样的跳过语义；写路径的身份绑定仍由计划自身观察（plan 行恒为 EXISTS 且记录当前身份）与
+   事务引擎的 intent 校验承担，未削弱。
+2. **`.system` marker 后置条件**：Apply 后置条件曾硬要求 Codex `.system` marker 存在，而
+   `sync.ps1` 与 `activate-harness-env.ps1` 只把它作为报告项；在从未安装 Codex 的 pristine
+   身份上，事务已提交却以 `task-overlay` 与 `postcondition-failed` 拼接的 token 退出
+   （`guides-fixture-shared-20260924-05/18-task-ensure-apply.*`）。修复改为用
+   `Get-LiveSyncSystemMarker` 重新取值并与计划记录的 `SystemMarker`（Present/Identity/Hash）
+   比较：机器本来没有 marker 时不要求它出现，有 marker 时仍要求身份与内容不变。
+
+两项修复均由独立 reviewer 复核（结论 `supported`：逐条比对三处门禁的跳过语义、确认写路径
+身份绑定未被绕过、并判断 seams 反射/动态清单不因此改变），并补了针对性回归：
+`tests/task-skills.tests.ps1` 新增 15 条断言（pristine 身份发布 claim → 创建根 → task
+preview/apply 成功、计划行全部 EXISTS 且绑定当前身份、无 `.system` 的 Codex 根 apply 成功且
+不创建 `.system`、被替换的 claimed 根仍以 drift 拒绝且不写计划）。套件
+**108 PASS、0 FAIL、exit 0**；两项修复分别在临时副本回退验证——回退 fix 2 得 107 PASS、
+1 FAIL、exit 1（失败点即新增断言），回退 fix 1 的定向 A/B 得 exit 1 +
+`authority-claim-identity-drift`，确认新断言确会因回退而失败。
+
+组合树定向复验（全部为宿主隔离 fixture，非 S3/S4 证据）：
+- live-recovery 默认全套 **403 PASS、0 FAIL、exit 0、535.901 秒 / 900 秒**
+  （`live-recovery-suite-02`，在 01:36 生产字节上重跑）。该套件输出确定，日志与旧次运行逐字节
+  相同，故以运行记录而非日志 hash 区分两次运行。
+- canonical-production-seams：反射敏感清单在暂存修复后由 16,556 变为 16,576（+20）。逐行核对后
+  全部来自本次暂存句柄代码（`$stagingHandles.Add`、`NoFollowFile::CreateChildDirectory`、
+  `TryHoldPathChildDirectory`、`SafeDirectoryHandle::DisposeExact`、
+  `SealedOwnershipTransferReceiver::new`、`GetFullPath($stagingTransactionRoot)`、
+  `$stagingHandles.Count`、`$stagingCleanupError/$stagingPrimaryError` 成员访问），其余 diff 行
+  是同一批 `Add()` 行因缩进移动而产生的等价替换；更新 pin 后 **66 PASS、0 FAIL、exit 0**
+  （`seams-final-03/05`）。task-overlay 两处修复不改变反射或动态命令清单摘要（`seams-current-03/04`）。
+- harness-authority **436 PASS、0 FAIL、exit 0、501.242 秒**，但该次运行期间源码被后续修复改动，
+  只作诊断快照；最终字节仍待 S3 全量。
+- task-skills **93 PASS、0 FAIL**（修复前行为基线）→ **108 PASS、0 FAIL**（含新增回归）。
+
+**独立审查的未决项（已逐条核验，保留为残余风险，不阻塞本轮候选）**：
+- 公开 rollback 与 live recovery 入口的成功行仍打印在 `finally` 释放 global/overlay/canonical
+  锁之前，释放失败会先输出成功再以非零退出；canonical 入口已按实际复现改为释放后输出，这两处
+  没有对应复现，且 seams 的成功尾部合同已按当前形状固定，本轮不改结构。
+- 每次回滚新增的事务私有暂存目录在成功闭合后不被回收（只清空内容），
+  `<HomeRoot>/.ai-agent-dotfiles-staging/rollback-*` 随回滚次数累积空目录。
+- `Publish-CanonicalSetupFinalStateForRecovery` 对 pending state 仍用路径式 `[IO.File]::Move`，
+  与同函数已加固的 claim 发布同类但未加固；本轮声明范围仅 claim。
+- `live-transaction-common.ps1` 的暂存 `finally` 在句柄释放失败且无主错误时会抛出，可能把已提交
+  回滚报为失败；`DisposeExact` 为判空 `SafeFileHandle.Dispose`，该路径实际不可达，保留为
+  显式 fail-closed 选择。
+- 早期记录把零目标回滚的根因写成“early return”；实际是空数组经 PowerShell 展开后
+  `-Targets` 绑定到 `$null`，修复点是 `@()` 包装。行为结论不变。
+- `tests/live-recovery.tests.ps1` 内一处既有断言直接以真实身份运行公开 Apply（断言其 fail-closed、
+  不写计划），未加真实 authority 前后 hash 断言；S1A 的隔离声明不覆盖该调用。
+- `tests/test-timeouts.psd1` 只覆盖 32/42 个套件，其余套件走 120 秒默认值；非本轮引入。
+- 记录的若干 PASS 计数包含 `Assert $true` 式的验证器后置断言，属“验证器未抛出”的证据强度，
+  不等于独立断言。
+- `docs/README.md` 声称的“37 个示例块、67 条调用”静态校验在忽略证据目录中没有对应产物，
+  本轮无法复核，已在 S2 记录中标注。
+
+以上均为宿主隔离 fixture 的定向证据；候选固定、S3 独立 OS 全量门禁与 S4 接受仍未完成。

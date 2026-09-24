@@ -421,6 +421,12 @@ Harness Environments 是 conda 式的命名环境层：每个环境声明一个 
 并可经门控的 `env activate` 切换到 live home。
 设计见 `docs/superpowers/specs/2026-07-10-harness-env-design.md`。
 
+当前 activation 只 add/update 所选技能，不 prune 先前环境的额外 managed skills。
+从 `full` 选择较小环境后，这些目录会保留，status 的 lock/live parity 可能报告
+`unexpected-managed`；Apply 成功不能替代 parity 核验。task 示例应使用已核定的 `work`
+基线；回滚还要求 receipt 前后 task overlay 绑定一致，不能把 `full → work` receipt
+默认视为可回滚。
+
 > 本节的 environment/task `-Apply` 命令描述接口合同，不提供执行授权；执行前须核对
 > [当前发布与验收状态](../STATUS.md#current-state)。Git hook 不代为 Apply，
 > 只记录 non-consumable preview/event。日常离线维护停在 status/build/sandbox DryRun。
@@ -468,7 +474,7 @@ pwsh -File scripts/agent-dotfiles.ps1 env task close -BaseEnv $BaseEnv -Apply -P
   candidate overlay；Apply 消费它，不自动重建计划。
 - 每次变更都先构造临时 overlay，运行 build → scan → 环境 staging → fingerprint-bound sync dry-run；
   `-Apply` 合同原子更新 tracked overlay 并进入事务部署，执行须满足当前验收与授权要求。
-- `close` 会删除 overlay 并可能 prune 任务增加的 managed skill；必须显式 DryRun、审查后再按授权 Apply。
+- `close` 清空 overlay 技能列表并保留空文档，可能 prune 任务增加的 managed skill；必须显式 DryRun、审查后再按授权 Apply。
 - Git hook 在其它电脑 checkout/pull 后只记录 non-consumable preview/event，不自动重建或应用
   addition/removal；人工必须先完成 `env task sync -DryRun` 审查并满足当前执行要求。
 - 共享范围是提交该 overlay 的 branch/worktree；机器只根据 source + overlay 重建，不复制另一台机器的 home。

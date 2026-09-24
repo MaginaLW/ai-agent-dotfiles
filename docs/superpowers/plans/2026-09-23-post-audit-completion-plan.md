@@ -75,13 +75,13 @@ sub-agent 数量均不含主 agent；沿用运行时默认与用户设置，不�
 `canonical-command-result`、`canonical-recovery`、`canonical-transaction-apply` 相关测试。
 其他工作流对这些文件只提交建议，由 A/主 agent 落地；不得扩大公开 CLI 的权限入口。
 
-- [ ] 列全解析链：Get-CanonicalPrivateRootSelection、Get-WindowsHomeAuthorityIdentity、
+- [x] 列全解析链：Get-CanonicalPrivateRootSelection、Get-WindowsHomeAuthorityIdentity、
   Resolve-HomeAuthorityContextFromIdentity、子进程继承与异常 cleanup。按调用链找同类裸调用。
-- [ ] 确保无有效隔离能力时生产 identity 行为不变；隔离初始化失败立即拒绝。若选择内部 seam，
+- [x] 确保无有效隔离能力时生产 identity 行为不变；隔离初始化失败立即拒绝。若选择内部 seam，
   不增加可伪造的公开测试覆盖参数，不把真实 private roots 排除在测试写入边界之外。
-- [ ] 去除测试对真实 private base/claim 的 cleanup；只清理本次拥有、已解析并验证 containment
+- [x] 去除测试对真实 private base/claim 的 cleanup；只清理本次拥有、已解析并验证 containment
   且无 reparse 逃逸的精确 fixture 目标。已有真实残留另列事实，不顺手清理。
-- [ ] 更新基于机器偶然状态的失败预期，覆盖下表。E 先复核写入/清理边界，再恢复相关动态套件。
+- [x] 更新基于机器偶然状态的失败预期，覆盖下表。E 先复核写入/清理边界，再恢复相关动态套件。
 
 | 必需场景 | 验收 |
 |---|---|
@@ -97,43 +97,54 @@ sub-agent 数量均不含主 agent；沿用运行时默认与用户设置，不�
 **写入范围：** `scripts/live-transaction-common.ps1`、`scripts/rollback-harness-env.ps1`、
 `tests/backup-recovery.tests.ps1`。两项修复共用文件，由同一 agent 串行处理。
 
-- [ ] 在已证明隔离的 fixture 内复现同 hash 的零变更回滚；若依赖 A 尚未完成的 canonical
+- [x] 在已证明隔离的 fixture 内复现同 hash 的零变更回滚；若依赖 A 尚未完成的 canonical
   setup，先只做静态实现/fixture 设计，待接口和边界通过后再运行。
-- [ ] 保留空数组或复用既有列表标准化函数。不能直接 early-return：零 live diff 仍必须完成
+- [x] 保留空数组或复用既有列表标准化函数。不能直接 early-return：零 live diff 仍必须完成
   authority state/generation、receipt、journal 的协议闭合。
-- [ ] 验证零/单/多目标，至少一次公开 rollback DryRun→Apply；零目标 live 字节不变、state
+- [x] 验证零/单/多目标，至少一次公开 rollback DryRun→Apply；零目标 live 字节不变、state
   正确、receipt COMPLETE、唯一 terminal COMPLETE、unfinished 为空，后续正常操作可继续。
-- [ ] 构造 source receipt 仍有效、兄弟事务未完成的场景，动态确认静态疑点。若成立，在持有
+- [x] 构造 source receipt 仍有效、兄弟事务未完成的场景，动态确认静态疑点。若成立，在持有
   canonical→overlay→global 所需锁之后、首次 staging/header/receipt 写入之前，复用完整
   unfinished scan，保留 unreadable=unfinished 的保守语义。
-- [ ] 覆盖 header-only、receipt 完成但无 terminal、result 已写但无 COMPLETE、损坏或不可读
+- [x] 覆盖 header-only、receipt 完成但无 terminal、result 已写但无 COMPLETE、损坏或不可读
   journal：拒绝且不增加/改变 journal、receipt 或既有字节；已闭合兄弟事务不阻断，reviewed
   recovery 后可继续。如疑点不成立，以具体入口、锁和动态证据关闭，不为假定缺陷增加行为。
+- [x] 处理连续公开操作新增复现：合法 activation receipt 的 rollback 与前序已闭合事务保留的
+  state preimage 冲突。修复暂存材料的事务归属与生命周期，保留 CreateNew、unfinished gate、
+  未知材料及恢复证据；覆盖前序材料存在时的真实公开回滚，不以手清 fixture 绕过。
+  暂存改为事务私有命名空间后，backup-recovery 定向 275 PASS，且当前指南的公开序列
+  14–16 步首次通过；残余（成功行先于锁释放、暂存空目录不回收）记入活动记录未决项。
 
 ### C：当前操作指南
 
 **写入范围：** `CLAUDE.md`、`README.md`、`docs/README.md`、`docs/ONBOARD_NEW_MACHINE.md`、
 `docs/RESTORE.md`，必要的旧计划 current/superseded 指针。AGENTS、STATUS、活动记录由主 agent维护。
 
-- [ ] 当前安全状态统一引用 STATUS；纠正“仍机械 interlocked”及裸 DryRun 必然 fail-closed
+- [x] 当前安全状态统一引用 STATUS；纠正“仍机械 interlocked”及裸 DryRun 必然 fail-closed
   的承诺。同步主 agent 持有的 AGENTS 命令说明，不改变授权与扫描规则。
-- [ ] 删除退役 standalone backup 步骤及已失效参数；按实际 dispatcher/param 合同补齐
+- [x] 删除退役 standalone backup 步骤及已失效参数；按实际 dispatcher/param 合同补齐
   PlanPath、receipt、route 和材料生成顺序。真实操作示例不拿来直接测试主机。
-- [ ] 旧历史正文保留原意，只加准确指针；隔离完成后用受控 fixture 验证当前指南中的适用示例。
+- [x] 旧历史正文保留原意，只加准确指针；隔离完成后用受控 fixture 验证当前指南中的适用示例。
+  `guides-fixture-shared-20260924-06` 全序列 23/23 命令 PASS、exit 0（pristine initial 计划 →
+  canonical setup → 新 invocation initial Apply → work 激活 → 公开回滚 → task ensure/sync/close →
+  live recovery clean）。
+- [x] 该验证暴露的两个 task-overlay 缺陷已修复并回归：claim 门禁对非 EXISTS 行跳过（与
+  activate/authority status 一致）、Apply 的 `.system` 状态改为与计划记录的 `SystemMarker`
+  比较；`tests/task-skills.tests.ps1` 增 15 条断言，108 PASS，且两项修复分别回退验证会失败。
 
 ### D：历史报告与文件卫生
 
 **写入范围：** `.gitignore`、`reports/README.md` 和当前报告生成/落盘规范；主 agent 独占索引
 操作及活动记录中的脱敏事实摘要，不并发操作共享暂存区。
 
-- [ ] 检查该目录全部已跟踪 JSON/Markdown 运行报告及文件名中的私有字段，固定精确清单，
+- [x] 检查该目录全部已跟踪 JSON/Markdown 运行报告及文件名中的私有字段，固定精确清单，
   至少处理审查定位的两个已跟踪运行报告：
   `imports/skills-reports/skills-analysis.json`、`imports/skills-reports/auto-merge-report.json`。
   先查 tracked 清单和依赖，不泛化为删除 imports 目录。
-- [ ] 按 AGENTS 的运行材料不入库规则处理：保留必要的脱敏事实摘要，再仅解除已核实报告的
+- [x] 按 AGENTS 的运行材料不入库规则处理：保留必要的脱敏事实摘要，再仅解除已核实报告的
   Git 跟踪、保留原本地文件并补忽略规则；不把清洗后的原始 imports 报告重新提交。
   旧 imports 占位说明与高优先级规则不一致时，在当前 docs/report 规范中明确其失效范围。
-- [ ] 验证本地原件仍存在、索引不再包含选定运行材料、新摘要无机器名/用户名/绝对路径或账户值。
+- [x] 验证本地原件仍存在、索引不再包含选定运行材料、新摘要无机器名/用户名/绝对路径或账户值。
   不移动或删除原件，不重写 Git 历史；解除跟踪不等于消除历史公开数据。
 
 **E：只读审查。** 独立复核 A 的完整根解析/清理边界、B fixture 的安全性及 C 示例的路由。
