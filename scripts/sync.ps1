@@ -952,9 +952,30 @@ if ($savedKind -ceq 'retirement' -and [string]::IsNullOrWhiteSpace($RetireManife
 # intent legitimately changes between planning and apply. Initial staleness
 # is guarded instead by the materialization integrity check below plus the
 # host's under-lock authority and live-rows revalidation.
+#
+# The generated source roots are repository-owned output that build-skills.ps1
+# deletes and recreates on every build, and this entrypoint builds on both the
+# dry-run and the apply side, so their directory identity is not a staleness
+# input: adopt the reviewed plan's recorded identity before comparing. The
+# reviewed bytes stay bound by each slot's SourceTreeHash, and the apply stages
+# from the recorded SourceRoot path under the held lock.
 if ($savedKind -ceq 'retirement') {
     $current = New-LiveSyncPlanDocument -OperationKind $savedKind -RepoRoot $RepoRoot -HomeRoot $HomeRoot -ControlBase $ControlBase -RetirementManifestPath $RetireManifestPath -PlanPath $planFull
-    if ((Get-PlanHash -PlanPayload ([System.Collections.IDictionary] $current['PlanPayload'])) -cne [string] $saved['PlanHash']) {
+    $currentPayload = [System.Collections.IDictionary] $current['PlanPayload']
+    $savedSlots = @([object[]] $savedPayload['Platforms'])
+    $currentSlots = @([object[]] $currentPayload['Platforms'])
+    if ($currentSlots.Count -ne $savedSlots.Count) { throw $script:LiveSyncPlanHashMismatch }
+    for ($slotIndex = 0; $slotIndex -lt $currentSlots.Count; $slotIndex++) {
+        $savedSlot = $savedSlots[$slotIndex]
+        $currentSlot = $currentSlots[$slotIndex]
+        if ($savedSlot -isnot [System.Collections.IDictionary] -or $currentSlot -isnot [System.Collections.IDictionary]) { throw $script:LiveSyncPlanHashMismatch }
+        $savedIdentity = $savedSlot['SourcePreIdentity']
+        $currentIdentity = $currentSlot['SourcePreIdentity']
+        if ($savedIdentity -isnot [System.Collections.IDictionary] -or $currentIdentity -isnot [System.Collections.IDictionary]) { throw $script:LiveSyncPlanHashMismatch }
+        if ([string] $savedIdentity['LocationKey'] -cne [string] $currentIdentity['LocationKey']) { throw $script:LiveSyncPlanHashMismatch }
+        $currentIdentity['DirectoryIdentity'] = [string] $savedIdentity['DirectoryIdentity']
+    }
+    if ((Get-PlanHash -PlanPayload $currentPayload) -cne [string] $saved['PlanHash']) {
         throw $script:LiveSyncPlanHashMismatch
     }
 }

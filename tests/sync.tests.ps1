@@ -23,6 +23,7 @@ $plansRoot = Join-Path $work 'plans'
 . (Join-Path $RepoRoot 'scripts/json-artifact-common.ps1')
 . (Join-Path $RepoRoot 'scripts/target-context-common.ps1')
 . (Join-Path $RepoRoot 'scripts/canonical-transaction-common.ps1')
+. (Join-Path $RepoRoot 'scripts/live-plan-evidence-common.ps1')
 . (Join-Path $RepoRoot 'scripts/live-plan-common.ps1')
 
 # Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
@@ -557,6 +558,34 @@ try {
     $result = Invoke-Sync -Arguments @('-RepoRoot', $v3Repo, '-SkipBuild', '-SkipSecretScan', '-DryRun', '-PlanPath', $retirementPlanPath, '-RetireManifestPath', $retirementManifest)
     Assert ($result.Code -eq 0) 'final retirement dry-run refreshes the bound plan'
 
+    Write-Host '[retirement plan survives a generated-source rebuild]'
+    # build-skills.ps1 deletes and recreates the generated source roots on every
+    # build, and sync.ps1 builds on both the dry-run and the apply side, so a
+    # reviewed retirement plan must still validate after such a rebuild. The
+    # contention winner below recomputes this exact plan before its failpoint,
+    # so a comparison that still bound the source identity would fail here with
+    # live-plan-hash-mismatch instead of reaching the held window.
+    $rebuildPlan = Read-LivePlanDocument -Path $retirementPlanPath
+    $sourceIdentitiesBefore = [ordered]@{}
+    foreach ($slot in @($rebuildPlan.PlanPayload.Platforms)) {
+        $sourceIdentitiesBefore[[string] $slot.Platform] = [string] (Get-LiveSyncTargetContext -Path ([string] $slot.SourceRoot)).DirectoryIdentity
+    }
+    $rebuildStash = Join-Path $work 'generated-source-stash'
+    Remove-Item -LiteralPath $rebuildStash -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($slot in @($rebuildPlan.PlanPayload.Platforms)) {
+        Copy-Item -LiteralPath ([string] $slot.SourceRoot) -Destination (Join-Path $rebuildStash ([string] $slot.Platform)) -Recurse -Force
+    }
+    foreach ($slot in @($rebuildPlan.PlanPayload.Platforms)) {
+        Remove-Item -LiteralPath ([string] $slot.SourceRoot) -Recurse -Force
+        Copy-Item -LiteralPath (Join-Path $rebuildStash ([string] $slot.Platform)) -Destination ([string] $slot.SourceRoot) -Recurse -Force
+    }
+    Remove-Item -LiteralPath $rebuildStash -Recurse -Force
+    $identityChanged = $false
+    foreach ($slot in @($rebuildPlan.PlanPayload.Platforms)) {
+        if ([string] (Get-LiveSyncTargetContext -Path ([string] $slot.SourceRoot)).DirectoryIdentity -cne [string] $sourceIdentitiesBefore[[string] $slot.Platform]) { $identityChanged = $true }
+    }
+    Assert $identityChanged 'the emulated rebuild replaced the generated source directories'
+
     Write-Host '[mid-flight lock contention]'
     # Task 8 Step 1: two different plans against the same overlapping roots.
     # The winner is held at PREPARED by a deterministic failpoint while it
@@ -597,6 +626,7 @@ try {
 
         $winnerExited = $winner.WaitForExit(300000)
         Assert ($winnerExited) 'the held winner exits within the contention window'
+        Assert (-not ((Get-Content -Raw -LiteralPath $winnerErr) -match 'live-plan-hash-mismatch')) 'the reviewed retirement plan still validates after a generated-source rebuild'
     }
     finally {
         [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', $savedFailpoints)

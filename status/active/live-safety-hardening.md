@@ -4523,3 +4523,83 @@ anti-TOCTOU 绑定；(2) 合同侧——让 `-Apply` 不再重建/重扫，把 b
 **候选状态**：S4 出现发布阻断缺陷，按计划“发现问题返回 S1/S2，重新固定候选并验证”，**C2 未被
 接受**；S3 的全量绿证仍属 C2 的本地门禁证据，不因该缺陷失效，但接受状态必须等待修复后的新候选
 （C3）重新通过 S3 与全部 S4 路线。远端 CI（S4.2）需要显式推送授权，本轮未推送。
+
+### S4 defect repair window: the retirement staleness comparison and the identity-binding class (2026-09-24)
+
+**缺陷（产品、确定性、用户可见、fail-safe）**：`sync.ps1` 的 retirement 计划在 payload 里绑定
+生成源根目录的 NTFS identity（`live-plan-evidence-common.ps1:270-275`），而该入口在 DryRun 与
+Apply 两侧都会先跑 `build-skills.ps1`，后者删除并重建 `<repo>/<platform>/skills`
+（`build-skills.ps1:218-224`），identity 必然变化；Apply 侧重算的 payload 因此永不等于保存的
+`PlanHash`，公开 retirement Apply 恒以 `live-plan-hash-mismatch` 失败。测试未发现，是因为
+`tests/sync.tests.ps1` 的 retirement 调用全部带 `-SkipBuild -SkipSecretScan`，而 `docs/README.md`
+记录的流程不带。
+
+**第一版修复被独立评审否决（保留为约束）**：把源槽的 `DirectoryIdentity` 置 `$null` 不可行——
+`schemas/sync-plan.schema.json` 的 `$defs/preIdentity` 对 `TargetStatus=EXISTS` 要求非空
+`DirectoryIdentity` 字符串（`oneOf` 第二支），而 producer 经 `Write-LiveSyncPlan` →
+`Publish-ValidatedLiveArtifactJson` 用 pinned 校验器自校验；评审用注册正向夹具把三个源 identity
+置 null 后跑 pinned 校验器得到 exit 2。因此任何修复都必须在**保持 schema 与注册夹具不变**的前提下
+进行，或同时改动 schema/夹具/注册契约（未采用）。
+
+**采用并验证中的修复（比较侧）**：`scripts/sync.ps1` 的 retirement 重算在 `Get-PlanHash` 比较前，
+把重算 payload 各槽的 `SourcePreIdentity.DirectoryIdentity` 替换为**被审阅计划记录的值**，并在
+槽数与 `LocationKey` 不一致时立刻抛 `live-plan-hash-mismatch`；注释说明生成源根是仓库自有产物、
+每次 build 都会被重建，故其目录 identity 不是 staleness 输入，审阅字节仍由 `SourceTreeHash` 绑定、
+apply 仍按记录的 `SourceRoot` 路径在持锁下 staging。schema、夹具与注册契约均未改动。
+
+回归：`tests/sync.tests.ps1` 新增 `[retirement plan survives a generated-source rebuild]` 段——
+在最终 retirement DryRun 之后，用 stash 复制 + 删除重建的方式模拟 `build-skills.ps1` 对三个生成源
+根的作用，随后由既有的 contention winner 对该计划做 apply 侧重算，并新增断言 winner 的 stderr 不含
+`live-plan-hash-mismatch`（未修复时 winner 会在到达 PREPARED 之前失败，既有 `Wait-FailpointController`
+断言即失败）。
+
+**同类缺陷面的普查（只读、逐计划类型）**：全仓只有三处 apply 侧会“重算并哈希比较”：
+R1 `sync.ps1:955-959`（仅 retirement）、R2 `Assert-CanonicalPlanCurrent`
+（`canonical-transaction-common.ps1:1566-1578`，canonical setup/normalize/promote/merge）、
+R3 `Assert-CanonicalRecoveryPlanCurrent`（`canonical-recovery-common.ps1:472-477`，canonical
+abandon/rollback/finalize）。其余入口（initial、environment、task-overlay、migrate/adopt/
+repair-adopt、takeover、live recovery 三类、environment-rollback、pending-prune）都按原样消费
+计划、不做重算，其 identity 绑定只作证据或被引擎按内容/状态校验，因此**不属该类**。
+
+**同类的两个可达实例（未修复，需决策；属未运行的 canonical recovery 路线的风险）**：
+
+1. canonical 技能计划（normalize/promote/merge）把 `TargetContextHash`（含
+   `Ancestors[*].Identity` 与 `DeepestExistingParentIdentity`，`target-context-common.ps1:221,223`
+   经 `canonical-transaction-common.ps1:211`）绑进 payload，而 `build-skills.ps1` 会重建
+   `<repo>/<platform>/skills` 及其子目录。若在 DryRun 与 Apply 之间跑了任何一次受支持的 build
+   （`agent-dotfiles build`、`sync -DryRun`、`env activate -DryRun`、CI Validate），Apply 以
+   `canonical-plan-stale`（`canonical-transaction-common.ps1:1577`）失败，或在其后的逐目标复核处
+   以 `canonical target context changed before staging` 失败。canonical 路线自身不在 dry-run 与
+   apply 之间 build，故需要外部插入一次 build 才可达。
+2. canonical recovery（abandon/rollback/finalize）把每个目标的磁盘 tuple identity 绑进 payload
+   （`canonical-recovery-common.ps1:425,441` → `canonical-mutation-common.ps1:495-505,96`）。除
+   同样的 `canonical-recovery-plan-stale` 外，还有一种更早的形态：若在**事务崩溃之后、recovery
+   DryRun 之前**发生一次 build，则 recovery DryRun 本身会以
+   `manual-recovery-required: target context hash differs from reviewed header`
+   （`canonical-recovery-common.ps1:131-141`）失败——即使该事务从未触碰目标目录（header-only 或
+   PRE_PRESTIVE 状态），把本可自动收口的崩溃事务推到人工恢复路径。
+
+这两处不能照搬比较侧修复：R2/R3 绑定的是**包含 identity 的上下文哈希**，而不是可直接替换的原始
+identity 字段，需要在 `Resolve-TargetContext`/`Get-CanonicalObservedPathState` 层面区分“仓库自有
+生成路径”与“live/私有路径”，属设计改动，需单独评审与新的候选。canonical recovery 的三条路线在
+本窗口中**未运行**；在缺陷面收口前，它们的结果不能作为通过证据。
+
+**独立评审（第二轮，针对比较侧修复）**：结论 `no-blocking-finding`——adoption 只改一个叶子字段，
+其余 payload 字段仍由哈希比较覆盖；被审阅计划本身原样交给 host 执行；live 侧 `LivePreIdentity`
+未被 adoption，故“换了 live 根即拒绝”的既有断言仍成立；同一内容替换生成源根不再可见，是该方向的
+既定后果（记录中 b6f5070 条目本就要求停止绑定会被自家 build 重建的目录）。按评审意见补了两点：
+(1) `sync.ps1` 的槽/identity 访问增加 `IDictionary` 形状守卫，畸形计划统一抛
+`live-plan-hash-mismatch` 而不是未固定的 RuntimeException（两种情形都在写入前 fail-closed）；
+(2) 回归补回“模拟重建确实改变了目录 identity”的前后对比断言（dot-source
+`live-plan-evidence-common.ps1` 以取得 `Get-LiveSyncTargetContext`），避免在 identity 未变的卷上
+空跑。评审同时指出新增的 stderr 断言是“错误原因”守卫而非回退探测器——回退时失败发生在更早的
+`Wait-FailpointController` 超时，这一点已记录。`LocationKey` 守卫被判定为冗余但无害，保留。
+
+**canonical 两处的结论（评审复核后）**：不能照搬比较侧 adoption——R2/R3 的 identity 是**派生哈希的
+输入**（`*IntentHash`、`CurrentContextHash`、`ExpectedPostconditionsHash`），叶子替换会让已保存的派生
+哈希无法复现；且 canonical 私有根/工作区 identity 不会被任何 build 重建，属正当绑定。同一形态还
+存在于 `Get-CanonicalUnknownGeneratedInventory`（`canonical-transaction-common.ps1:167-187`，绑定生成
+根下未知条目的 identity，并入 `ExpectedPostconditionsHash`），可达性更低（需要未知条目被删除后以相同
+内容重建）。recovery 的 `Assert-CanonicalRecoveryStateContext` 绑定的是 git-common-dir 的
+identity（仓库/控制器身份），**明确不应 adoption**。因此 canonical 侧的收口属于证据构造层面的
+设计改动，需单独评审与新的候选；本轮不实施。
