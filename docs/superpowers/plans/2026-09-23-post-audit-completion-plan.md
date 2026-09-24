@@ -159,12 +159,16 @@ SHA/身份的实例在本次隔离身份内生成。S4 只部署冻结材料、�
 
 ## 5. S2：整合、独立复核与候选固定
 
-- [ ] 合并 A–D 的自洽改动，主 agent 在组合树统一复算必须变化的 schema/seam/toolchain pins；
+- [x] 合并 A–D 的自洽改动，主 agent 在组合树统一复算必须变化的 schema/seam/toolchain pins；
   未变化的 pin 保持不动，不以重钉掩盖行为失败，不降低扫描、hard-kill 或 schema 门禁。
-- [ ] 两个独立 reviewer 分别审查安全/恢复合同和测试/文档/证据覆盖。取消、工具失败或不完整
+  组合树与候选 C（`ded1542`）的指纹、toolchain/runner/scanner/validator hash 已记录在活动记录。
+- [x] 两个独立 reviewer 分别审查安全/恢复合同和测试/文档/证据覆盖。取消、工具失败或不完整
   评审记为未完成；反馈逐项核验，修复后做受影响回归，不无条件采纳模型断言。
-- [ ] 定向回归、实验 kit 和评审问题收口后提交最后一组修复，固定 clean commit **C**；记录完整 SHA、
+  安全合同评审结论 no-blocking-finding，测试/证据评审逐条核对记录中的量化断言。
+- [x] 定向回归、实验 kit 和评审问题收口后提交最后一组修复，固定 clean commit **C**；记录完整 SHA、
   ToolchainPolicyHash、protocol/schema/runner 版本和相关提交范围。
+  C=`ded1542`，因 S3 暴露四处夹具缺陷与一处行尾敏感的 pin 而推进为 C2=`e90e7bc`；C 的 lab
+  证据保留但不冒充 C2。
 
 **候选规则：** policy 已 released，无需再 flip；不临时改 policy、不 amend 已拒绝候选，
 不制造只为“候选标签”的空提交。新修复提交即可成为 C。接受记录另作后继 **D**，不能用 D
