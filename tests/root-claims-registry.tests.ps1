@@ -6317,16 +6317,18 @@ try {
         Assert-SealedProposedClaimsForbiddenRootMatrix -AuthorityContext $forbiddenWitnessAdapter.Fixture.Context -ProposedLiveTargets @($forbiddenWitnessLiveTargets[0],$forbiddenWitnessLiveTargets[1].TargetContext,$forbiddenWitnessLiveTargets[2].TargetContext) -ProposedCanonicalRecovery $forbiddenRecoverySiblingContext
     } '^canonical-witness-required$' 'a proposed recovery root without a canonical witness fails closed'
 
-    # Enumerate real volumes only: PowerShell also surfaces a built-in Temp:
-    # drive, whose "C:" form is drive-relative and cannot be joined into a path.
-    # The probe needs a volume whose root this process may create in, so a
-    # permission-denied candidate falls through to the SKIP branch rather than
-    # failing the suite on a machine that has a second volume it cannot write.
-    $repoVolume = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot))
+    # The matrix compares the witness repository's volume with the proposed
+    # recovery root's volume, and the witness fixture lives under this suite's
+    # work root in TEMP, so the probe must avoid TEMP's volume rather than the
+    # checkout's. A candidate this process may not create in falls through to
+    # the next one, and to SKIP when none qualifies. PowerShell also surfaces a
+    # built-in Temp: drive, whose "C:" form is drive-relative and cannot be
+    # joined into a path, so enumerate real volumes instead.
+    $witnessVolume = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($tempParent))
     $forbiddenCrossVolumeRecovery = $null
     foreach ($candidateDrive in @([IO.DriveInfo]::GetDrives())) {
         if (-not $candidateDrive.IsReady -or [string]$candidateDrive.DriveType -cne 'Fixed') { continue }
-        if ([string]$candidateDrive.RootDirectory.FullName -ceq $repoVolume) { continue }
+        if ([string]$candidateDrive.RootDirectory.FullName -ceq $witnessVolume) { continue }
         $candidateProbe = Join-Path ([string]$candidateDrive.RootDirectory.FullName) ('.rcr-forbidden-cross-volume-' + [guid]::NewGuid().ToString('N').Substring(0,8))
         try { [IO.Directory]::CreateDirectory($candidateProbe) | Out-Null } catch { continue }
         $forbiddenCrossVolumeRecovery = $candidateProbe; break
