@@ -4956,3 +4956,30 @@ C9 的接受路径走完后再落，避免再换候选。
 TOCTOU/held-handle 语义、token 分支是否放宽调用方判定、隐私与覆盖缺口）；H（用夹具身份复现
 promote Apply 失败并抓取**未包装**的原始异常与抛点，给差分对照与最小修复方向，不实现）。
 两路各自一次性 checkout（`grok-g`/`grok-h`，均在 `ece7067`）。
+
+### C9 独立安全复核（grok G 路）：阻断问题——收据验收未绑定字节（2026-09-25）
+
+**结论：有阻断问题。C9 的收据契约实现按当前形态不可接受。** 要点（逐条带 `文件:行`）：
+
+- **验收太浅**：视图对槽根/`_meta`/`snapshot` 三层做了双向子项校验，但 `snapshot/<platform>` 的**内容**、
+  `authority-preimage` 的**内容**与**必需子项**都没有校验（`root-claims-registry-common.ps1:3205-3214`，
+  `authority-preimage` 少一次 `Assert-SealedRegistryBackupReceiptRequiredChildren`）；文档只做顶层自哈希，
+  既没走 `schemas/backup-receipt.schema.json`，也没有把 `RootHash`/preimage 哈希绑到持有的字节上。
+- **结果**：一份“自洽但未绑定字节”的收据（假 `RootHash=('6'*64)`、空平台目录、preimage `MISSING` 且无文件）
+  会被判 `BackupReceiptCoverage=COMPLETE`，canonical Apply 的重算据此继续。产品自带的校验器
+  （`scripts/backup-receipt-common.ps1:606-688`，含 schema、语义、三平台 snapshot 树哈希与 preimage 字节）
+  **在 Apply 路径上从未被调用**——只有恢复路径才核对字节（`recover-live-transaction.ps1:327-334`）。
+- **新测试把洞写成了断言**：`tests/root-claims-registry.tests.ps1:941-967` 用假哈希与空目录构造收据并断言
+  `MutationGate=READY`、`BackupReceiptCoverage=COMPLETE`（`:5394-5396`），即 D 路新增的断言**固化了弱行为**。
+- **仍然成立的部分**（未削弱处）：槽名沿用 registry 的 RFC-4122 严格模式（未改用 bootstrap 的松模式）；
+  打开的对象都经 `Open-SealedRegistryHeldDirectoryChild`（父句柄相对、`FILE_OPEN_REPARSE_POINT`、拒绝
+  reparse/ADS、link count 1）并进 `$directoryChildren` 参与收尾 drift 比对；`ReceiptPath` 的
+  containment 经代码与临时探针验证，`..`/大小写/UNC/`\?\`/`\ .\`/ADS 都不能放行根外路径；
+  `_meta/COMPLETE` 与 `ReceiptHash` 是严格字节相等；Backups 根以外的校验未改。
+- **TOCTOU 残余**：平台目录子项从未打开，同名换内容/换身份/塞 reparse 时名字集不变、drift 看不见；
+  目录共享为 `FILE_SHARE_READ|FILE_SHARE_WRITE`（无 `FILE_SHARE_DELETE`），目录项在持有期仍可增删。
+
+**处置**：C9 保留为“收据契约第一步”，但**标记为不可接受**；下一步（C10）需把字节绑定接上——优先**复用既有
+校验器**（对持有的 capture 调 `Assert-SealedBackupReceiptValidInner` 或其可复用部分），而非在视图里再写一套
+浅校验；同时修掉 `tests/root-claims-registry.tests.ps1` 中固化弱行为的夹具与断言（改为构造**真**收据或断言
+拒绝），并补 `snapshot/<platform>` 与 `authority-preimage` 的双向子项校验与会因回退而失败的用例。
