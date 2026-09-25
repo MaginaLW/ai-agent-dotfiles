@@ -35,6 +35,14 @@
 # The three killed suites were re-tiered to ~2x their clean maxima; live-recovery
 # (477-598 s, <= 66% of its old tier) was considered and deliberately left at 900 s
 # because no measurement shows it near its tier.
+#
+# Budget re-tiering 2026-09-26, shard 2: the three candidate runs of that evening
+# (runs #148, #149, #150 on codex/post-audit-c12) each failed shard 2 on the same
+# suite - backup-recovery.tests.ps1 timed out at its 900 s tier while the other seven
+# shard-2 suites passed, and the same runs' shard 3 passed on the new tiers. Five clean
+# gate runs measured backup-recovery at 520-692 s (58-77% of the old tier), so the tier
+# is doubled to 1500 s the same way as the shard-3 kills; shard 2's job timeout already
+# covers 9780 + 300 + 120 = 10200 s at 185 minutes.
 @{
     '1' = @(
         'automation-safety.tests.ps1'              # 600
@@ -47,7 +55,7 @@
     )
     '2' = @(
         'backup-receipt.tests.ps1'                 # 300
-        'backup-recovery.tests.ps1'                # 900
+        'backup-recovery.tests.ps1'                # 1500
         'canonical-hard-kill-reap-semantics.tests.ps1' # 60
         'canonical-preflight.tests.ps1'            # 120
         'canonical-recovery.tests.ps1'             # 1200

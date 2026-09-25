@@ -6,7 +6,7 @@
         'agent-dotfiles.tests.ps1' = 150
         'automation-safety.tests.ps1' = 600
         'backup-receipt.tests.ps1' = 300
-        'backup-recovery.tests.ps1' = 900
+        'backup-recovery.tests.ps1' = 1500
         'live-recovery.tests.ps1' = 900
         'approved-runner.tests.ps1' = 900
         'canonical-hard-kill.tests.ps1' = 5400

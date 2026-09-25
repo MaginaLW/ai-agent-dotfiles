@@ -5252,3 +5252,27 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
   **66 PASS**（`6866e62` 的 pin 改写后有产物了）；`sync` 129 与 `task-skills` 108 再次一致。
   `root-claims-registry` 在 C11 上是 **936 PASS**（不是 947）——947 仍只见于提交说明，维持
   「不可核对」的记录。
+
+### 分片 3 修复的 CI 验证与分片 2 的二次定档（2026-09-26 02:20）
+
+本轮推送后同晚跑了三份候选，结果把两件事同时说清：
+
+| 运行 | 候选 | gates | shard 1 | shard 2 | shard 3 |
+|---|---|---|---|---|---|
+| [#148](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36162185611) | `c962f41`（四档版） | success | success | **failure** | **success** |
+| [#149](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36163167172) | `6682587`（撤回后） | success | success | **failure** | **success** |
+| [#150](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36164636463) | `27e435f`（最终候选） | success | success | **failure** | 见下 |
+
+- **分片 3 修复成立**：两次 `success`（`c962f41` 版还把 `live-recovery` 放在 1200 s、`6682587`
+  版放在 900 s，两次都绿——顺带验证撤回该上调没有代价）。原先被杀的三只套件在新档下通过。
+- **分片 2 暴露同一类残留**：三份都红，注解逐字相同
+  `discovered=8 passed=7 failed=0 timed-out=1 failing=[backup-recovery.tests.ps1:timed-out:exit=-1]`
+  （`tmp/zc-ci/annotations-150-shard2.json` 等已留档）。这是一次**实测的**档位不足：五次干净实测
+  `backup-recovery` 520–692 s（占旧档 58–77%），runner 上超过 900 s。
+- **处置**：`backup-recovery` 900→**1500**（同「约为干净最大值两倍」的规则，`692 × 1.5 = 1038`
+  在档内），分片 2 合同 9600→**10200 s**（160→170 分钟，作业 185 分钟不变，余量 1500 s），聚合
+  **30255 s**。文档与分片注释同步；这与上一轮撤回 `live-recovery` 不矛盾：那次没有属于它的失败
+  记录，这次有。
+- **正在跑的 lab 作废**：候选字节改变，`validation-c13-01`（`27e435f`）在 gates 阶段完成后被主动
+  终止（superseded，非失败）——终态证据由新候选的 lab 重新产出；旧 kit `9a481878…` 与目录
+  `tmp/lab-postaudit-17` 保留为这一轮的过程记录。
