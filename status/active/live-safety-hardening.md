@@ -5322,3 +5322,52 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
   返回 PASS/`no-canonical-transaction`，而 `live recover status` 直接以 exit 1 抛
   `live-plan-authority-missing`。作为「状态」动词，后者对没有 setup 的机器不返回结构化结果；
   建议后续明确它应返回状态还是保持 fail-closed（属 S6 类改进，不影响本轮候选）。
+
+### 候选接受：`065c903`（2026-09-26）
+
+**接受对象**：`065c903940c170d4e0dcacf73cdbb6687153bcb9`（`codex/post-audit-c12`，父链
+`d3fcdae`（shard 2 `backup-recovery` 重定档）→ `27e435f`（证据陈述更正）→ `6682587`（撤回
+`live-recovery`）→ `c962f41`（三只被杀套件重定档）→ `23752e6` = C11 之后两笔文档提交）。
+候选内容只在合同面：`tests/test-timeouts.psd1`、`tests/test-shards.psd1`、
+`.github/workflows/validate.yml`、`docs/CI_FAILURE_RULES.md` 与本记录；**产品脚本未改**。
+
+**接受依据（三项齐全）**
+
+1. **本地**：`tests/test-runner.tests.ps1` PASS（shard 2 `11100 > 10200`、shard 3 `14100 > 12495`、
+   二者 `< 21600`、三片预算和等于未分片预算）；`check-powershell-syntax.ps1` 180 文件 exit 0；
+   `scan-secrets.ps1` 无阻断项；`git diff --check` 干净。
+2. **一次性身份 lab（S3）**：`validation-c15-01`，kit `0e747c34…`，`route-result PASS`、
+   `completion ExitCode 0`；**11 gate 全绿、42/42 套件、0 失败 0 超时**，套件合计 8640 s；
+   关键套件 guest 用时 `canonical-command-result` 579.1 s、`harness-authority` 460.7 s、
+   `harness-env` 338.2 s、`live-recovery` 493.4 s、`backup-recovery` 536.6 s、
+   `canonical-production-seams` 208.9 s。宿主 roots 快照与本窗口 `post-C11` 快照**逐字节相同**
+   （`tmp/zc-review/host-roots-post-*.json`）；guest 只映射 payload/cache（只读）与 evidence（可写）。
+3. **远端 CI（S4）**：run
+   [#152](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36175113317)，候选 `065c903`：
+   **四个作业全绿**（gates 2.6 分钟、shard 1 73.4、shard 2 74.2、shard 3 91.5 分钟），
+   即 `discovered = passed`、`failed=0`、`timed-out=0`。
+
+**实测数量与限制**
+
+- 合同：shard 1 不变（合同 8700 s / 170 分钟）；shard 2 合同 10200 s / 185 分钟；
+  shard 3 合同 12495 s / 235 分钟；聚合 `RequiredJobTimeoutSeconds` 27555 → **30555 s**。
+- 五只套件按**各自的被杀记录**重定档（≈干净实测最大值两倍）：`canonical-command-result` 1800、
+  `harness-authority` 1500、`harness-env` 1200、`live-recovery` 1200、`backup-recovery` 1500；
+  没有失败记录的套件一律不动（`live-recovery` 的上调在无记录时被撤回、在 `#150` 给出杀点后重新成立）。
+- 倍率仍只是**区间**：三个下界 1.31 / 1.46 / 1.60，残差上界 1.47×（同码配对）至 1.60×（c6 配对）。
+- **限制**：14 条 mutation 路线最后一次运行在 C6/C10，**未在本候选上重跑**；
+  `root-claims-registry` 的 947 仍只见于提交说明（本候选链上实测 936）；
+  post-rewrite `seams 66` 已由 C11 lab 补齐。挂起发现最多比旧档晚 15/25 分钟。
+- **本次接受 ≠ 实际发布 SHA ≠ Task 9 完成 ≠ 真机部署**。
+
+**独立审查**：两路 grok 对抗性审查（阻断 1 已修、非阻断分项记录在案）＋一路证据强度审计；
+主 agent 逐条复核其数字后才采纳或记录为残余。被否的断言与保留项都写在上面各节。
+
+**未执行**：真实 Apply、`env authority adopt`、`env activate`、任何真实机 DryRun（按规则需走内部宿主
+与外部计划，未以裸调用试探联锁）、推送 `main`、合并到 `main`、部署。`main` 仍停在 `48f17e1`。
+
+**过程与作废记录**（同一晚的失败与主动终止，均保留证据不冒充接受）：run `#148`/`#149`/`#150`/`#151`
+（前三份分片 2 或分片 3 红，`#151` 四作业全绿但被后继候选取代）；lab `validation-c13-01` 在 gates
+阶段后被主动终止（候选字节改变，superseded）；`validation-c14-01` 因沙箱会话孤立未启动
+（`lab-guest-did-not-start-within-startup-deadline`），`validation-c14-02` 被 launcher 的
+「已有沙箱会话」守卫拒绝，清理孤立 VM 进程后以 `validation-c15-01` 完成。
