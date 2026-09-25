@@ -103,7 +103,12 @@ jobs:
             if ($shardReport.Length -gt 700) { $shardReport = $shardReport.Substring(0, 700) + '...' }
             Write-Host "shard 1 summary: $shardReport"
           }
-          if ($shardExitCode -ne 0) { throw "Test shard 1 failed with exit code $shardExitCode. $shardReport" }
+          if ($shardExitCode -ne 0) {
+            # A pwsh step's throw text never reaches the step annotation, so publish the
+            # report as an explicit error annotation, which the public API exposes.
+            Write-Host "::error title=Shard 1 failing suites::$shardReport"
+            throw "Test shard 1 failed with exit code $shardExitCode. $shardReport"
+          }
           if ($null -eq $summaryShape) { throw "Test shard 1 published no summary at $summaryPath." }
           if ([int]$summaryShape.Counts.Passed -ne [int]$summaryShape.Counts.Discovered) { throw "Test shard 1 summary has passed $($summaryShape.Counts.Passed) != discovered $($summaryShape.Counts.Discovered). $shardReport" }
 
@@ -153,7 +158,12 @@ jobs:
             if ($shardReport.Length -gt 700) { $shardReport = $shardReport.Substring(0, 700) + '...' }
             Write-Host "shard 2 summary: $shardReport"
           }
-          if ($shardExitCode -ne 0) { throw "Test shard 2 failed with exit code $shardExitCode. $shardReport" }
+          if ($shardExitCode -ne 0) {
+            # A pwsh step's throw text never reaches the step annotation, so publish the
+            # report as an explicit error annotation, which the public API exposes.
+            Write-Host "::error title=Shard 2 failing suites::$shardReport"
+            throw "Test shard 2 failed with exit code $shardExitCode. $shardReport"
+          }
           if ($null -eq $summaryShape) { throw "Test shard 2 published no summary at $summaryPath." }
           if ([int]$summaryShape.Counts.Passed -ne [int]$summaryShape.Counts.Discovered) { throw "Test shard 2 summary has passed $($summaryShape.Counts.Passed) != discovered $($summaryShape.Counts.Discovered). $shardReport" }
 
@@ -203,6 +213,11 @@ jobs:
             if ($shardReport.Length -gt 700) { $shardReport = $shardReport.Substring(0, 700) + '...' }
             Write-Host "shard 3 summary: $shardReport"
           }
-          if ($shardExitCode -ne 0) { throw "Test shard 3 failed with exit code $shardExitCode. $shardReport" }
+          if ($shardExitCode -ne 0) {
+            # A pwsh step's throw text never reaches the step annotation, so publish the
+            # report as an explicit error annotation, which the public API exposes.
+            Write-Host "::error title=Shard 3 failing suites::$shardReport"
+            throw "Test shard 3 failed with exit code $shardExitCode. $shardReport"
+          }
           if ($null -eq $summaryShape) { throw "Test shard 3 published no summary at $summaryPath." }
           if ([int]$summaryShape.Counts.Passed -ne [int]$summaryShape.Counts.Discovered) { throw "Test shard 3 summary has passed $($summaryShape.Counts.Passed) != discovered $($summaryShape.Counts.Discovered). $shardReport" }
