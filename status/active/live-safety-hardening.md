@@ -5294,3 +5294,31 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
 - 记录口径：`#150` 的分片 2 红（`backup-recovery`）与分片 3 红（`live-recovery`）都是**该套件自己
   的实测不足**，两次都按 R2 定档；这条与「不对没有记录的套件先抬预算」并不冲突——差别只在证据
   出现的时间顺序。
+
+### S5 Task 9 真机只读核对（2026-09-26 03:00，停在真实 Apply 前）
+
+在候选检出 `D:\Repos\ai-agent-dotfiles-z4`（`065c903`）上、对**本机**执行计划 S5 的只读部分；
+只读，未创建计划、未 DryRun、未 Apply（顺序上早于接受记录：这些命令不写状态，机器状态在窗口内
+没有变化）。
+
+| 检查 | 结果 |
+|---|---|
+| `doctor` | **PASS with warnings**（PASS=21 WARN=9 FAIL=0）：live safety protocol v3、`released`、pending preview events 0；WARN `runner-review-required`（本机没有已批准 runner 状态，符合预期） |
+| `config status` | 只读：`Claude settings.json` 与 `Claude CLAUDE.md` 内容 differ，`Codex AGENTS.md` home-only（将来 push 会捕获） |
+| `env status` | PASS：full/minimal/work 三个定义 valid，staging missing，`No environment activated` |
+| `env list` | PASS：7/15/7、1/1/1、1/1/1，全部 `ok`；authority 路线 `adopt` |
+| `env task status` | PASS：overlay hash 存在、三平台有效 skills 均为 `systematic-debugging`；三平台基线 MISSING（未激活环境） |
+| `env authority status` | PASS：路线 `adopt`，home authority 存在，claims/state/pair MISSING，`recovery: clean`，`codex .system: present-marker`，Reasonix 根 UNPROBED |
+| `canonical status` | **WARN** `canonical-setup-required`（本机无 canonical 事务） |
+| `canonical recover status` | PASS `no-canonical-transaction` |
+| `live recover status` | **FAIL（exit 1）** `live-plan-authority-missing` |
+| git hooks | 本机主工作副本**未安装** hooks（`.git/hooks` 只有样例）；与 `runner-review-required` 一致 |
+
+- **下一步路线**：本机处于「canonical setup 缺失」状态，S5 要求的动作是「只准备 setup DryRun 并停」；
+  而现行规则要求该 DryRun 走 `scripts/internal/live-transaction-host.ps1` 与外部新计划，裸调用会
+  fail-closed——按计划「不以裸调用试探联锁」，因此**不在此处发起**，路线选择留给所有者。
+  真实 Apply、`env authority adopt`、`env activate` 一概未执行。
+- **本轮发现（只读，非发布阻断）**：同一台没有 canonical authority 的机器上，`canonical recover status`
+  返回 PASS/`no-canonical-transaction`，而 `live recover status` 直接以 exit 1 抛
+  `live-plan-authority-missing`。作为「状态」动词，后者对没有 setup 的机器不返回结构化结果；
+  建议后续明确它应返回状态还是保持 fail-closed（属 S6 类改进，不影响本轮候选）。

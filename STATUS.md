@@ -45,18 +45,19 @@ placeholder. All fourteen S4 mutation routes pass, the disposable-identity gate 
 remaining CI blocker was the shard-3 suite budgets: run #147 ran that shard for 5417 s and killed
 `canonical-command-result`, `harness-authority` and `harness-env` exactly at their 900/900/600 s
 tiers (the annotation was re-fetched through the check-runs API this window; the job log API stays
-admin-only, so the runner factor is only bounded). Re-tiering exactly those three suites to
-1800/1500/1200 turned shard 3 green on two runs (#148, #149) and lifted its contract to 12195 s
-with a 230-minute job timeout. Those same three runs then failed shard 2 on a single suite -
-`backup-recovery` timed out at its 900 s tier in all three while the other seven shard-2 suites
-passed - so it is re-tiered to 1500 s on its own kill record (five clean runs measured it at
-520-692 s), taking shard 2's contract to 10200 s and the aggregate to 30255 s. `live-recovery`
-stays at 900 s: no measurement puts it near its tier, and an independent review rejected the
-raise that a first version of this change carried. The accepted candidate for this window is
-`27e435f` on `codex/post-audit-c12` plus the re-tier commit; its lab run and CI run are in flight
-and no acceptance record exists yet. `validation-c11-01` (candidate `6866e62`) is evidence for its
-own bytes only. The pending items and their evidence are listed under
-"收尾：本轮完成情况与待完成项目" in the activity record. See the
+admin-only, so the runner factor is only bounded). Re-tiering those three suites to
+1800/1500/1200 turned shard 3 green on two runs (#148, #149) and lifted its contract to 12195 s.
+Those same runs then failed shard 2 on a single suite - `backup-recovery` timed out at its 900 s
+tier in all three while the other seven shard-2 suites passed - so it is re-tiered to 1500 s on
+its own kill record (five clean runs measured it at 520-692 s), taking shard 2's contract to
+10200 s. Run #150 then killed `live-recovery` at its 900 s tier in shard 3: a first version of
+this change had raised it, an independent review withdrew that for lack of any measurement, and
+this kill record re-justifies the raise to 1200 s, with shard 3's job timeout at 235 minutes so
+the contract-above headroom stays at 1605 s; shard 3's contract is 12495 s and the aggregate
+`RequiredJobTimeoutSeconds` is 30555 s. The accepted candidate is now the re-tier commit chain on
+`codex/post-audit-c12`; its lab run and CI run are in flight and no acceptance record exists yet.
+`validation-c11-01` (candidate `6866e62`) is evidence for its own bytes only. The pending items
+and their evidence are listed under "收尾：本轮完成情况与待完成项目" in the activity record. See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries, actual validation and the residual items left open. No new candidate has been accepted.
 
