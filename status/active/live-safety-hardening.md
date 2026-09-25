@@ -4871,3 +4871,18 @@ home-authority-registry-manual-recovery-required: backup receipt contract not ye
 自动清理；两次运行分别打印 promote Apply 的退出码与结果文档）；lab 侧
 `tmp/lab-postaudit-11/evidence/canonical-rollback/guest/208-*`。本机真实 authority 状态未被创建或修改
 （`%LOCALAPPDATA%\ai-agent-dotfiles` 不存在），pinned 工具缓存仅做哈希校验读取；夹具已删除。
+
+### S4 路线结果与 CI 诊断回归（2026-09-25）
+
+**S4 在 C6（kit `5b182576…`，lab-postaudit-11）**：`retirement` **PASS**
+（`Verification=public-entry-and-on-disk-contracts`、`TrackedDiff` 为空——retirement 缺陷修复得到
+端到端验证）；`recovery-canonical-abandon`、`recovery-canonical-finalize`、`recovery-live-abandon`、
+`recovery-live-rollback`、`recovery-live-finalize` **全部 PASS**；仅 `recovery-canonical-rollback`
+失败，原因已在上文更正为 backup receipt 契约缺失（产品缺陷，`main` 亦存在）。加上 C2 上通过的
+`chain`、`changed-rollback`、`task`、`authority` 五标签——S4 的 14 条路线中 **13 条通过、1 条受阻**。
+
+**CI 诊断改动回归与修正**：C7（`40e1034`）的重版诊断会读取失败套件的 `Stdout` 以引用断言行，结果把
+在上一候选上通过的 **分片 1 与分片 3 拖到 2 小时以上并失败**（分片 1/2/3 分别 2h01m/2h12m/2h50m，
+远超绿基线 62.6 分钟）——该版本有害。C8（`c6ac621`）改为只发布 `Counts` 与失败套件的
+`SuiteId/State/ExitCode`（不解析、不复制套件输出，摘要缺失单独抛 token），本机用真实分片摘要验证
+渲染（`failing=[]`）且 `test-runner` 仍通过；已推送，CI run `36098884278` 排队。
