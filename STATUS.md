@@ -54,10 +54,15 @@ its own kill record (five clean runs measured it at 520-692 s), taking shard 2's
 this change had raised it, an independent review withdrew that for lack of any measurement, and
 this kill record re-justifies the raise to 1200 s, with shard 3's job timeout at 235 minutes so
 the contract-above headroom stays at 1605 s; shard 3's contract is 12495 s and the aggregate
-`RequiredJobTimeoutSeconds` is 30555 s. The accepted candidate is now the re-tier commit chain on
-`codex/post-audit-c12`; its lab run and CI run are in flight and no acceptance record exists yet.
-`validation-c11-01` (candidate `6866e62`) is evidence for its own bytes only. The pending items
-and their evidence are listed under "收尾：本轮完成情况与待完成项目" in the activity record. See the
+`RequiredJobTimeoutSeconds` is 30555 s. **Candidate `065c903` is accepted** on the three required
+evidence sets: the local contract checks, the disposable-identity lab run `validation-c15-01`
+(route PASS, 11 gates, 42/42 suites, zero failures or timeouts, host roots unchanged) and CI run
+[#152](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36175113317) with all four jobs
+green. Acceptance covers the contract change only: the 14 mutation routes were last run on C6/C10
+and are not re-run on this candidate, `main` is untouched, and no Apply, adoption, activation,
+real-machine DryRun or deployment happened; see the acceptance section in the activity record.
+`validation-c11-01` (candidate `6866e62`) remains evidence for its own bytes. The pending items
+are listed under "收尾：本轮完成情况与待完成项目" in the activity record. See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries, actual validation and the residual items left open. No new candidate has been accepted.
 
