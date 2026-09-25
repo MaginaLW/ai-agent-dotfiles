@@ -4825,3 +4825,49 @@ C7 已推送，CI run `36075872772` 运行中；其分片 2 注释将给出此�
 
 **仍在运行**：`retirement-retirement-c2-01`（08:50 起）与随后的 `canonical-finalize`、
 `live-abandon`、`live-rollback`、`live-finalize`；CI C7 三个分片。
+
+### canonical-rollback 失败定因：backup receipt 契约缺失（产品缺陷，2026-09-25）
+
+**更正**：本条目前一版把该失败归到 `Get-CanonicalSetupStatus` 的“有事务无锁文件”分支，**该判断错误**。
+夹具身份的差分实验（同一夹具、同一候选 `73ab686`，只差一次 live Apply）证明锁文件始终存在、
+`Get-CanonicalSetupStatus` 始终为 `canonical-ready`（`canonical-transaction-common.ps1:1218-1226`
+被排除），而 `LifecycleKind=no-transaction` 是常量、不携带生命周期信息
+（`canonical-command-result.ps1:59`）。
+
+**真因（原始异常 + 抛点）**：
+
+```
+home-authority-registry-manual-recovery-required: backup receipt contract not yet supported
+```
+
+- 抛出点：`scripts/root-claims-registry-common.ps1:3624` —— `Get-SealedHomeAuthorityRegistryView` 对
+  **非空 authority Backups 根**直接抛 `backup receipt contract not yet supported`；由 `:3837` 包成
+  `home-authority-registry-manual-recovery-required: …`。
+- 调用链：`canonical-transaction.ps1:71` → `Get-SealedHeldLockOrderRecompute`（`BOUND` 分支，
+  `root-claims-registry-common.ps1:8382`）→ registry view。**在开启事务之前**失败。
+- 触发条件（差分实验证实）：`sync.ps1 -Apply` 经 live 事务写下
+  `<LocalAppData>\ai-agent-dotfiles\backups\<guid>` 收据；此后**任何** canonical 变更 Apply
+  （promote，以及同路径的 normalize/merge）都会因 Backups 根非空而被拒。
+  - 有 `sync -Apply`：promote Apply **exit 1 / `manual-recovery-required`**（与 lab 观测字段一致）。
+  - 无 `sync -Apply`：promote Apply **exit 0**。
+- 公开 token 被压平误导：`canonical-command-result.ps1:88-89` 把任何含 `manual-recovery-required`
+  子串的消息映射为裸 token，于是“该功能尚未支持”被报成“需要人工恢复”，掩盖了真因。
+- 该抛点在 `main` HEAD 同样存在，**不是本轮候选引入**；lab 的 abandon 通过 / rollback 失败之差
+  也能解释：recovery 路径的合成未完成事务使绑定降级为 `UNBOUND_SETUP_WINDOW`，走
+  `Read-SealedRegistryValidatedAuthorityDocuments` 分支（`:8385-8386`），不读 Backups 根。
+
+**影响**：在同一个 authority 下“先 `sync -Apply`，再做任何 canonical 技能变更”不可完成（fail-safe，
+不写坏状态），且报错 token 指向错误方向。属发布阻断。
+
+**修复方向（待所有者定，均需评审 + 新候选 + lab/CI 重跑）**：
+(1) 实现该契约——让 registry view 接受带收据的 Backups 根（按其既有 `InitialNames` 语义区分收据条目
+并校验形状），代价是该“尚未支持”的契约语义与相关 schema/测试；
+(2) 改变收据位置——把 live 收据移出 authority Backups 根，代价是收据路径被大量合同、receipt 意图与
+测试绑定，改动面更大；
+另加一项小修：为 `home-authority-registry-*` 增加专门的 public token 分支，不再压平成
+`manual-recovery-required`。
+
+**证据与复现**：`D:\Repos\ai-agent-dotfiles\tmp\fixture-promote-repro.ps1`（夹具身份、`wt-c6` 候选、
+自动清理；两次运行分别打印 promote Apply 的退出码与结果文档）；lab 侧
+`tmp/lab-postaudit-11/evidence/canonical-rollback/guest/208-*`。本机真实 authority 状态未被创建或修改
+（`%LOCALAPPDATA%\ai-agent-dotfiles` 不存在），pinned 工具缓存仅做哈希校验读取；夹具已删除。
