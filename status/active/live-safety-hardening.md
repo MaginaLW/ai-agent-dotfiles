@@ -5071,3 +5071,46 @@ grok J 路（26 turn 内完成，本轮唯一在预算内交付完整报告的�
 - **J 记录的残余**：名字形如 `000001.json` 但实为目录时，名字门通过、随后按 JSON 打开时失败（令牌不是
   `child-not-allowed`，属既有打开顺序行为）；`Test-SealedLiveTransactionNamespaceJournalChildName` 无单独
   调用者 pin；历史记录中对旧函数的叙述未回改。
+
+## 收尾：本轮完成情况与待完成项目（2026-09-26）
+
+### 已完成（有证据）
+
+- **发布阻断缺陷四处，均已修复 + 独立复核 + 端到端证据**：retirement staleness 比较（比较侧 adoption，sync 129 PASS
+  回归）；两个 task-overlay 门禁（claim ABSENT 行、`.system` 后置条件，108 PASS 含 15 条新断言）；backup-receipt 契约
+  （registry view 按契约验收 + 字节绑定，947 PASS）；live-transaction 占位允许表（按 journal 合同验收，seams 66 PASS）。
+- **S4 十四条路线全部通过**：chain、changed-rollback、task、authority×5、retirement、canonical-abandon/finalize、
+  live-abandon/rollback/finalize（13 条在 C6），canonical-rollback（在 C10）。
+- **S3 一次性身份全量门禁**：C4 与 C6 均 11 gate + 42/42 套件（C11 的复跑见下）。
+- **CI**：`gates` 恒绿；分片 2 在 C11 上**首次转绿**（C2–C10 每候选都红，根因即上述两处占位契约）；分片 1 在 C11 上绿。
+  诊断通道（`::error` 注解）已验证有效。
+- 本会话 26 个提交；每次改动 `scripts/**` 都重算并重钉 seam 清单；grok 被截断的产出均未被当成成功。
+
+### 待完成项目（按优先级，全部有确切证据可接手）
+
+1. **CI 分片 3：三个套件超时**（唯一剩余的 CI 阻塞）。注解原文：
+   `discovered=27 passed=24 failed=0 timed-out=3 failing=[canonical-command-result.tests.ps1:timed-out:exit=-1,
+   harness-authority.tests.ps1:timed-out:exit=-1, harness-env.tests.ps1:timed-out:exit=-1]`。
+   本机实测：`canonical-command-result` **860.7s / 900s（96%）**、`harness-authority` 501.2s / 900s（56%）、
+   `harness-env` 未实测。方向：复核并上调 `tests/test-timeouts.psd1` 对应预算（隔离夹具在 CI 较慢运行器上的真实成本），
+   同步 `tests/test-shards.psd1` 的注释不等式（每片 `timeout-minutes`×60 必须 > 该片 Σ预算 + 300 + 120 且 < 21600s）
+   与 `tests/test-runner.tests.ps1` 的相关断言，必要时提高对应 job 的 `timeout-minutes`。这是**产品/测试合同改动**，需新候选 + 重跑。
+2. **C11 全量 lab 门禁**：`validation-c11-01` 在本记录撰写时仍处测试阶段，**未完成**；完成后才谈接受（命令与证据位置见上）。
+3. **候选接受（后继 D）**：条件为 C11（或其后继）本地 gates + lab + CI 全绿；需绑定候选 SHA、实测数量与限制，并明确区分
+   “候选接受 / 实际发布 SHA / Task 9 完成 / 真机部署未执行”。
+4. **S5：Task 9 逐机只读/DryRun**：读 doctor、hooks、config/env/task、canonical status 与 canonical/live recovery status；
+   为所选路线生成外部新计划（真实规则允许的入口），记录脱敏 hashes 与 add/update/no-op/prune 数量，**停在真实 Apply 前**。
+5. **canonical 同类缺陷的投影设计实施**（grok C 方案）：只对三个生成输出根置空 identity、其上祖先仍绑定、MISSING 目标保留
+   创建锚点，三处消费点有界双读；`Resolve-TargetContext` 与 git-common-dir 身份不动；需同步 hard-kill 两份 pinned 表。
+6. **残余项（低危，已记录待处理）**：grok A 四条的其余（contract 文件读取不核 DACL、`Get-SealedLiveTransactionTerminalDocumentHashes`
+   把可解析 COMPLETE 视为已消费、提交后 staging 清理错误被吞）；grok J 三条（`000001.json` 名为目录时的令牌形态、名字检查函数
+   无单独调用者 pin、历史叙述未回改）；`docs/README.md` 声称的“37 示例块 / 67 调用”静态校验无产物；`main` 的 CI 三分片全红
+   （含本轮已修同类问题，但修复只在 `codex/post-audit-completion` 分支上）。
+7. **发布路径**：推送/合并、runner 批准、真机部署均按各自授权另行执行；本轮未推送 `main`、未合并、未部署。
+
+### 证据位置
+
+`status/active/live-safety-hardening.md`（全部定因、更正、pin 重钉、路线结果与残余）；`tmp/lab-postaudit-*/evidence/`（各候选
+lab 证据）；`tmp/post-audit-execution/`（seam 清单与 delta、受影响套件证据、候选指纹）；`tmp/fixture-promote-repro.ps1`
+（两处阻断的夹具差分复现）；grok lane 的原始流与截断记录在 `%USERPROFILE%\.zcode\cli\exec\...`（一次性 checkout
+`D:\Reposi-agent-dotfiles-grok-*`、`-wt-c*` 可清理）。
