@@ -208,6 +208,47 @@ function Get-TestControlBaseHash {
     return (Get-TestDirectoryTreeHash -Root $ControlBase -ExcludeRelativePaths @($exclude))
 }
 
+function New-CommandResultTestBackupReceiptSlot {
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$HomeAuthorityKey,
+        [Parameter(Mandatory)][string]$ProfileRoot,
+        [Parameter(Mandatory)][string]$RoamingRoot
+    )
+    $receiptId = [guid]::NewGuid().ToString('D').ToLowerInvariant()
+    $slot = [IO.Path]::GetFullPath((Join-Path $BackupRoot $receiptId))
+    foreach ($relative in @('snapshot/claude','snapshot/codex','snapshot/reasonix','authority-preimage','_meta')) {
+        [IO.Directory]::CreateDirectory((Join-Path $slot $relative)) | Out-Null
+    }
+    $document = [ordered]@{
+        SchemaVersion=1L; ArtifactKind='backup-receipt'
+        SourceTransactionId=[guid]::NewGuid().ToString('D').ToLowerInvariant(); ReceiptId=$receiptId; ReceiptPath=$slot
+        SourceOperationKind='initial'
+        PlanHash=('1'*64); DocumentHash=('2'*64); ExecutionContextHash=('3'*64)
+        ControlBaseHash=('4'*64); FilesystemCapabilityHash=('5'*64)
+        HomeAuthorityKey=$HomeAuthorityKey
+        ReceiptIntent=[ordered]@{ Id=$receiptId; Path=$slot }
+        ManagedSnapshots=@(
+            [ordered]@{ Platform='Claude'; LiveRoot=(Join-Path $ProfileRoot '.claude\skills'); RootHash=('6'*64); Targets=@() }
+            [ordered]@{ Platform='Codex'; LiveRoot=(Join-Path $ProfileRoot '.codex\skills'); RootHash=('7'*64); Targets=@() }
+            [ordered]@{ Platform='Reasonix'; LiveRoot=(Join-Path $RoamingRoot 'reasonix\skills'); RootHash=('8'*64); Targets=@() }
+        )
+        UnknownMarkers=@()
+        SystemMarker=[ordered]@{ Platform='Codex'; Name='.system'; Present=$false; Identity=$null }
+        AuthorityStatePreimage=[ordered]@{ Status='MISSING'; SourcePath=$null; Hash=$null; Length=$null; Identity=$null }
+        RootClaimsPreimage=[ordered]@{ Status='MISSING'; SourcePath=$null; Hash=$null; Length=$null; Identity=$null }
+        CreatedAtUtc='2026-09-25T00:00:00.0000000Z'
+    }
+    $hashCopy = [ordered]@{}
+    foreach ($key in @($document.Keys)) { $hashCopy[[string]$key] = $document[$key] }
+    $document['ReceiptHash'] = Get-SemanticJsonHash -InputObject $hashCopy
+    $parent = Split-Path -Parent (Join-Path $slot '_meta/receipt.json')
+    if (-not (Test-Path -LiteralPath $parent)) { [IO.Directory]::CreateDirectory($parent) | Out-Null }
+    [IO.File]::WriteAllBytes((Join-Path $slot '_meta/receipt.json'), [byte[]](ConvertTo-SemanticJsonBytes -InputObject $document))
+    [IO.File]::WriteAllBytes((Join-Path $slot '_meta/COMPLETE'), [Text.UTF8Encoding]::new($false).GetBytes([string]$document.ReceiptHash))
+    return [pscustomobject][ordered]@{ ReceiptId=$receiptId; SlotPath=$slot; ReceiptHash=[string]$document.ReceiptHash }
+}
+
 $testRoot = Join-Path $identityFixture.Root 'cases'
 $evidenceRoot = Join-Path $testRoot 'evidence'
 [IO.Directory]::CreateDirectory($evidenceRoot) | Out-Null
@@ -279,6 +320,10 @@ try {
     }
     $mergeScriptText = Get-Content -Raw -LiteralPath $mergeScript
     Assert ($mergeScriptText -match 'canonical-command-result\.ps1' -and $mergeScriptText -match 'Write-CanonicalPublicCommandResult') 'merge failure path uses the shared public emitter while retaining report serialization'
+    $registryPublicFailure = Get-CanonicalPublicCommandFailure -Exception ([InvalidOperationException]::new('home-authority-registry-manual-recovery-required: backup receipt contract not yet supported'))
+    Assert ([string]$registryPublicFailure.MessageToken -ceq 'home-authority-registry-manual-recovery-required' -and [string]$registryPublicFailure.Result -ceq 'FAIL') 'home-authority-registry family messages keep a dedicated public token'
+    $manualPublicFailure = Get-CanonicalPublicCommandFailure -Exception ([InvalidOperationException]::new('manual-recovery-required: canonical namespace is corrupt'))
+    Assert ([string]$manualPublicFailure.MessageToken -ceq 'manual-recovery-required' -and [string]$manualPublicFailure.Result -ceq 'FAIL') 'a true manual-recovery-required message still maps to the existing public token'
 
     Write-CommandResultTestPhase 'setup status and dispatcher'
     $setupRepo = Join-Path $testRoot 'setup-repo'

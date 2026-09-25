@@ -13,6 +13,13 @@ $script:SealedRegistryHashPattern = '\A[0-9a-f]{64}\z'
 $script:SealedRegistryUuidPattern = '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z'
 $script:SealedCurrentRouteRootSetResolverVersion = 'sealed-current-route-root-set-v1'
 $script:SealedLiveTransactionAllowedEntriesV1 = @()
+$script:SealedRegistryBackupReceiptSlotEntries = @('_meta', 'authority-preimage', 'snapshot')
+$script:SealedRegistryBackupReceiptMetaEntries = @('COMPLETE', 'receipt.json')
+$script:SealedRegistryBackupReceiptSnapshotEntries = @('claude', 'codex', 'reasonix')
+$script:SealedRegistryBackupReceiptPreimageEntries = @('current-env.json', 'root-claims.json')
+$script:SealedRegistryBackupReceiptOperationKinds = @(
+    'initial', 'environment', 'task-overlay', 'migrate', 'adopt', 'repair-adopt', 'retirement', 'environment-rollback'
+)
 
 if (-not ('AiAgentDotfiles.SealedRegistryCurrentRouteCapture' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -3078,6 +3085,160 @@ function Assert-SealedLiveTransactionNamespaceImmediateChildren {
     }
 }
 
+function Assert-SealedRegistryBackupReceiptImmediateChildren {
+    param(
+        [Parameter(Mandatory)][string]$OwnerKey,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$ImmediateChildren,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$AllowedEntries
+    )
+    $allowed = @(Get-SealedRegistryOrdinalStrings -Values @($AllowedEntries))
+    foreach ($childName in @(Get-SealedRegistryOrdinalStrings -Values @($ImmediateChildren))) {
+        if ([string]$childName -cnotin $allowed) { throw "backup-receipt-slot-child-not-allowed: $OwnerKey/$childName" }
+    }
+}
+
+function Assert-SealedRegistryBackupReceiptRequiredChildren {
+    param(
+        [Parameter(Mandatory)][string]$OwnerKey,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$ImmediateChildren,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$RequiredEntries
+    )
+    $actual = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($childName in @(Get-SealedRegistryOrdinalStrings -Values @($ImmediateChildren))) { $null = $actual.Add([string]$childName) }
+    foreach ($required in @($RequiredEntries)) {
+        if (-not $actual.Contains([string]$required)) { throw "backup-receipt-slot-incomplete: $OwnerKey" }
+    }
+}
+
+function Assert-SealedRegistryBackupReceiptDocument {
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Document,
+        [Parameter(Mandatory)][string]$ExpectedReceiptId,
+        [Parameter(Mandatory)][string]$ExpectedReceiptPath,
+        [Parameter(Mandatory)][string]$BackupRoot
+    )
+    $fields = @(
+        'SchemaVersion','ArtifactKind','SourceTransactionId','ReceiptId','ReceiptPath',
+        'SourceOperationKind','PlanHash','DocumentHash','ExecutionContextHash','ControlBaseHash',
+        'FilesystemCapabilityHash','HomeAuthorityKey','ReceiptIntent','ManagedSnapshots',
+        'UnknownMarkers','SystemMarker','AuthorityStatePreimage','RootClaimsPreimage','CreatedAtUtc','ReceiptHash'
+    )
+    Assert-SealedRegistryExactPropertySet -InputObject $Document -Expected $fields -Label 'backup-receipt'
+    if ($Document.SchemaVersion -isnot [long] -or [long]$Document.SchemaVersion -ne 1 -or [string]$Document.ArtifactKind -cne 'backup-receipt') {
+        throw 'backup-receipt-schema-unsupported'
+    }
+    Assert-SealedRegistryString $Document.SourceTransactionId 'backup-receipt SourceTransactionId' $script:SealedRegistryUuidPattern
+    Assert-SealedRegistryString $Document.ReceiptId 'backup-receipt ReceiptId' $script:SealedRegistryUuidPattern
+    Assert-SealedRegistryString $Document.ReceiptPath 'backup-receipt ReceiptPath' '\A[A-Za-z]:\\'
+    Assert-SealedRegistryString $Document.SourceOperationKind 'backup-receipt SourceOperationKind' $null $script:SealedRegistryBackupReceiptOperationKinds
+    foreach ($name in @('PlanHash','DocumentHash','ExecutionContextHash','ControlBaseHash','FilesystemCapabilityHash','HomeAuthorityKey','ReceiptHash')) {
+        Assert-SealedRegistryString $Document[$name] "backup-receipt $name" $script:SealedRegistryHashPattern
+    }
+    Assert-SealedRegistryString $Document.CreatedAtUtc 'backup-receipt CreatedAtUtc' '\A.+\z'
+    Assert-SealedRegistryExactPropertySet -InputObject $Document.ReceiptIntent -Expected @('Id','Path') -Label 'backup-receipt ReceiptIntent'
+    Assert-SealedRegistryString $Document.ReceiptIntent.Id 'backup-receipt ReceiptIntent.Id' $script:SealedRegistryUuidPattern
+    Assert-SealedRegistryString $Document.ReceiptIntent.Path 'backup-receipt ReceiptIntent.Path' '\A[A-Za-z]:\\'
+    if ([string]$Document.ReceiptId -cne $ExpectedReceiptId -or [string]$Document.ReceiptIntent.Id -cne $ExpectedReceiptId) {
+        throw "backup-receipt-id-mismatch: $ExpectedReceiptId"
+    }
+    $receiptPath = [IO.Path]::GetFullPath([string]$Document.ReceiptPath)
+    $intentPath = [IO.Path]::GetFullPath([string]$Document.ReceiptIntent.Path)
+    $expectedPath = [IO.Path]::GetFullPath($ExpectedReceiptPath)
+    $backupRootFull = [IO.Path]::GetFullPath($BackupRoot).TrimEnd([char]92, [char]47)
+    $parent = [IO.Path]::GetFullPath((Split-Path -Parent $receiptPath)).TrimEnd([char]92, [char]47)
+    if ($parent -cne $backupRootFull) { throw "backup-receipt-path-outside-backup-root: $ExpectedReceiptId" }
+    if ($receiptPath -cne $expectedPath -or $intentPath -cne $expectedPath -or [IO.Path]::GetFileName($receiptPath) -cne $ExpectedReceiptId) {
+        throw "backup-receipt-path-mismatch: $ExpectedReceiptId"
+    }
+    Assert-SealedRegistryArray $Document.ManagedSnapshots 'backup-receipt ManagedSnapshots' 3
+    $expectedPlatforms = @('Claude','Codex','Reasonix')
+    for ($index=0; $index -lt 3; $index++) {
+        $row = $Document.ManagedSnapshots[$index]
+        Assert-SealedRegistryExactPropertySet -InputObject $row -Expected @('Platform','LiveRoot','RootHash','Targets') -Label "backup-receipt ManagedSnapshots[$index]"
+        Assert-SealedRegistryString $row.Platform "backup-receipt ManagedSnapshots[$index].Platform" $null @($expectedPlatforms[$index])
+        Assert-SealedRegistryString $row.LiveRoot "backup-receipt ManagedSnapshots[$index].LiveRoot" '\A[A-Za-z]:\\'
+        Assert-SealedRegistryString $row.RootHash "backup-receipt ManagedSnapshots[$index].RootHash" $script:SealedRegistryHashPattern
+        Assert-SealedRegistryArray $row.Targets "backup-receipt ManagedSnapshots[$index].Targets"
+    }
+    Assert-SealedRegistryArray $Document.UnknownMarkers 'backup-receipt UnknownMarkers'
+    Assert-SealedRegistryExactPropertySet -InputObject $Document.SystemMarker -Expected @('Platform','Name','Present','Identity') -Label 'backup-receipt SystemMarker'
+    foreach ($preimageName in @('AuthorityStatePreimage','RootClaimsPreimage')) {
+        Assert-SealedRegistryExactPropertySet -InputObject $Document[$preimageName] -Expected @('Status','SourcePath','Hash','Length','Identity') -Label "backup-receipt $preimageName"
+        Assert-SealedRegistryString $Document[$preimageName].Status "backup-receipt $preimageName.Status" $null @('COPIED','MISSING')
+    }
+    $copy = [ordered]@{}
+    foreach ($key in @($Document.Keys)) {
+        if ([string]$key -ceq 'ReceiptHash') { continue }
+        $copy[[string]$key] = $Document[$key]
+    }
+    if ([string]$Document.ReceiptHash -cne (Get-SemanticJsonHash -InputObject $copy)) { throw "backup-receipt-hash-mismatch: $ExpectedReceiptId" }
+}
+
+function Add-SealedRegistryBackupReceiptSlot {
+    param(
+        [Parameter(Mandatory)]$ParentHandle,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$TokenSid,
+        [Parameter(Mandatory)][string]$BackupRootPath,
+        [Parameter(Mandatory)]$DirectoryChildren,
+        [Parameter(Mandatory)]$FileCaptures,
+        [Parameter(Mandatory)]$CleanupStack
+    )
+
+    $slot = Open-SealedRegistryHeldDirectoryChild -ParentHandle $ParentHandle -Name $Name -TokenSid $TokenSid -Label "backups/$Name"
+    $DirectoryChildren.Add($slot)
+    $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$slot})
+    Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey $Name -ImmediateChildren @($slot.InitialNames) -AllowedEntries $script:SealedRegistryBackupReceiptSlotEntries
+    Assert-SealedRegistryBackupReceiptRequiredChildren -OwnerKey $Name -ImmediateChildren @($slot.InitialNames) -RequiredEntries $script:SealedRegistryBackupReceiptSlotEntries
+
+    $meta = Open-SealedRegistryHeldDirectoryChild -ParentHandle $slot.Handle -Name '_meta' -TokenSid $TokenSid -Label "backups/$Name/_meta"
+    $DirectoryChildren.Add($meta)
+    $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$meta})
+    Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey "$Name/_meta" -ImmediateChildren @($meta.InitialNames) -AllowedEntries $script:SealedRegistryBackupReceiptMetaEntries
+    Assert-SealedRegistryBackupReceiptRequiredChildren -OwnerKey $Name -ImmediateChildren @($meta.InitialNames) -RequiredEntries $script:SealedRegistryBackupReceiptMetaEntries
+
+    $snapshot = Open-SealedRegistryHeldDirectoryChild -ParentHandle $slot.Handle -Name 'snapshot' -TokenSid $TokenSid -Label "backups/$Name/snapshot"
+    $DirectoryChildren.Add($snapshot)
+    $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$snapshot})
+    Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey "$Name/snapshot" -ImmediateChildren @($snapshot.InitialNames) -AllowedEntries $script:SealedRegistryBackupReceiptSnapshotEntries
+    Assert-SealedRegistryBackupReceiptRequiredChildren -OwnerKey $Name -ImmediateChildren @($snapshot.InitialNames) -RequiredEntries $script:SealedRegistryBackupReceiptSnapshotEntries
+    foreach ($platform in @($script:SealedRegistryBackupReceiptSnapshotEntries)) {
+        $platformDir = Open-SealedRegistryHeldDirectoryChild -ParentHandle $snapshot.Handle -Name $platform -TokenSid $TokenSid -Label "backups/$Name/snapshot/$platform"
+        $DirectoryChildren.Add($platformDir)
+        $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$platformDir})
+    }
+
+    $preimage = Open-SealedRegistryHeldDirectoryChild -ParentHandle $slot.Handle -Name 'authority-preimage' -TokenSid $TokenSid -Label "backups/$Name/authority-preimage"
+    $DirectoryChildren.Add($preimage)
+    $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$preimage})
+    Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey "$Name/authority-preimage" -ImmediateChildren @($preimage.InitialNames) -AllowedEntries $script:SealedRegistryBackupReceiptPreimageEntries
+    foreach ($leaf in @($preimage.InitialNames)) {
+        $preimageFile = Open-SealedRegistryJsonCapture -ParentHandle $preimage.Handle -Name $leaf -TokenSid $TokenSid -Label "backups/$Name/authority-preimage/$leaf"
+        $FileCaptures.Add($preimageFile)
+        $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$preimageFile})
+    }
+
+    $receiptCapture = Open-SealedRegistryJsonCapture -ParentHandle $meta.Handle -Name 'receipt.json' -TokenSid $TokenSid -Label "backups/$Name/_meta/receipt.json"
+    $FileCaptures.Add($receiptCapture)
+    $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$receiptCapture})
+    $document = ConvertFrom-SealedRegistryJsonCapture -Capture $receiptCapture
+    $slotPath = [IO.Path]::GetFullPath((Join-Path $BackupRootPath $Name))
+    Assert-SealedRegistryBackupReceiptDocument -Document $document -ExpectedReceiptId $Name -ExpectedReceiptPath $slotPath -BackupRoot $BackupRootPath
+
+    $completeCapture = Open-SealedRegistryJsonCapture -ParentHandle $meta.Handle -Name 'COMPLETE' -TokenSid $TokenSid -Label "backups/$Name/_meta/COMPLETE"
+    $FileCaptures.Add($completeCapture)
+    $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$completeCapture})
+    $completeText = [Text.UTF8Encoding]::new($false, $true).GetString([byte[]]$completeCapture.Bytes)
+    if ($completeText -cne [string]$document.ReceiptHash) { throw "backup-receipt-complete-mismatch: $Name" }
+
+    return [pscustomobject][ordered]@{
+        ReceiptId=$Name; DirectoryIdentity=[string]$slot.Identity; SecurityHash=[string]$slot.SecurityHash
+        ReceiptHash=[string]$document.ReceiptHash; SourceOperationKind=[string]$document.SourceOperationKind
+        HomeAuthorityKey=[string]$document.HomeAuthorityKey; ImmediateChildren=@($slot.InitialNames)
+        ContractStatus='COMPLETE'
+    }
+}
+
 function Assert-SealedRegistryReservationSetsDisjoint {
     param(
         [Parameter(Mandatory)]$AuthorityContext,
@@ -3621,7 +3782,11 @@ function Get-SealedHomeAuthorityRegistryView {
             $registryCleanupStack.Add([pscustomobject]@{Kind='DirectoryCapture';Resource=$rootCapture})
         }
         $canonicalRoot = $rootCaptures[0]; $homesRoot = $rootCaptures[1]; $liveRoot = $rootCaptures[2]; $backupRoot = $rootCaptures[3]
-        if (@($backupRoot.InitialNames).Count -ne 0) { throw 'backup receipt contract not yet supported' }
+        $backupReceiptRows = [Collections.Generic.List[object]]::new()
+        foreach ($name in @($backupRoot.InitialNames)) {
+            if ($name -cnotmatch $script:SealedRegistryUuidPattern) { throw "backups contains an unsupported child: $name" }
+            $backupReceiptRows.Add((Add-SealedRegistryBackupReceiptSlot -ParentHandle $backupRoot.Handle -Name $name -TokenSid $tokenSid -BackupRootPath ([string]$backupRoot.Path) -DirectoryChildren $directoryChildren -FileCaptures $fileCaptures -CleanupStack $registryCleanupStack))
+        }
 
         $canonicalRows = [Collections.Generic.List[object]]::new()
         $reservations = [Collections.Generic.List[object]]::new()
@@ -3815,10 +3980,12 @@ function Get-SealedHomeAuthorityRegistryView {
             TokenSid=$tokenSid; ControlBaseIdentity=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetControlBaseIdentityExact($finalGlobalLockEvidence)
             GlobalLiveLockIdentity=[string][AiAgentDotfiles.SealedRegistryGlobalLockEvidence]::GetLockIdentityExact($finalGlobalLockEvidence); FixedEnvelopeHash=[string]$fixedEnvelope.InitialEnvelopeHash
             CanonicalClaims=@($canonicalRows); Authorities=@($authorityRows); LiveTransactionMarkers=@($liveMarkers)
+            BackupReceiptMarkers=@($backupReceiptRows)
             RootReservations=@(Get-SealedRegistryOrderedReservations -Reservations (@($reservations)+@($liveTransactionReservations)))
             RepairOnlyAuthorities=@(Get-SealedRegistryOrdinalStrings -Values @($repairOnly)); MutationGate=$gate; MutationBlockers=@($blockers)
             CanonicalNamespaceCoverage=if($canonicalRows.Count -eq 0){'NO_CLAIMS'}elseif($unresolvedCanonicalCount -eq 0){'CURRENT_ROUTE_WITNESSED'}else{'CALLER_WITNESS_REQUIRED'}
             LiveTransactionCoverage=if($liveMarkers.Count -eq 0){'EMPTY'}else{'UNRESOLVED_UNTIL_TASK_4'}
+            BackupReceiptCoverage=if($backupReceiptRows.Count -eq 0){'EMPTY'}else{'COMPLETE'}
             CurrentRouteCoverage=if($null -eq $currentRouteCapture){'NOT_REQUESTED'}else{'HELD_METADATA_VERIFIED'}
             CurrentRouteRootSetHash=if($null -eq $currentRouteCapture){$null}else{[string][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetEntryCurrentRouteRootSetHash($currentRouteCapture)}
             HeldTargetSetHash=if($null -eq $currentRouteCapture){$null}else{[string][AiAgentDotfiles.SealedRegistryCurrentRouteCapture]::GetHeldTargetSetHash($currentRouteCapture)}

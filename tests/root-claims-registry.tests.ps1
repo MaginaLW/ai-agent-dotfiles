@@ -929,6 +929,45 @@ function New-TestCanonicalPrivateRootCompletionClaim {
     }
 }
 
+function New-TestCompleteBackupReceiptSlot {
+    param(
+        [Parameter(Mandatory)]$Fixture,
+        [string]$ReceiptId,
+        [string]$ReceiptPath
+    )
+    if ([string]::IsNullOrWhiteSpace($ReceiptId)) { $ReceiptId = [guid]::NewGuid().ToString('D').ToLowerInvariant() }
+    $slot = [IO.Path]::GetFullPath((Join-Path ([string]$Fixture.Context.BackupRoot) $ReceiptId))
+    $path = if ([string]::IsNullOrWhiteSpace($ReceiptPath)) { $slot } else { [IO.Path]::GetFullPath($ReceiptPath) }
+    foreach ($relative in @('snapshot/claude','snapshot/codex','snapshot/reasonix','authority-preimage','_meta')) {
+        [IO.Directory]::CreateDirectory((Join-Path $slot $relative)) | Out-Null
+    }
+    $document = [ordered]@{
+        SchemaVersion=1L; ArtifactKind='backup-receipt'
+        SourceTransactionId=[guid]::NewGuid().ToString('D').ToLowerInvariant(); ReceiptId=$ReceiptId; ReceiptPath=$path
+        SourceOperationKind='initial'
+        PlanHash=('1'*64); DocumentHash=('2'*64); ExecutionContextHash=('3'*64)
+        ControlBaseHash=('4'*64); FilesystemCapabilityHash=('5'*64)
+        HomeAuthorityKey=[string]$Fixture.Context.HomeAuthorityKey
+        ReceiptIntent=[ordered]@{ Id=$ReceiptId; Path=$path }
+        ManagedSnapshots=@(
+            [ordered]@{ Platform='Claude'; LiveRoot=(Join-Path ([string]$Fixture.Profile) '.claude\skills'); RootHash=('6'*64); Targets=@() }
+            [ordered]@{ Platform='Codex'; LiveRoot=(Join-Path ([string]$Fixture.Profile) '.codex\skills'); RootHash=('7'*64); Targets=@() }
+            [ordered]@{ Platform='Reasonix'; LiveRoot=(Join-Path ([string]$Fixture.Roaming) 'reasonix\skills'); RootHash=('8'*64); Targets=@() }
+        )
+        UnknownMarkers=@()
+        SystemMarker=[ordered]@{ Platform='Codex'; Name='.system'; Present=$false; Identity=$null }
+        AuthorityStatePreimage=[ordered]@{ Status='MISSING'; SourcePath=$null; Hash=$null; Length=$null; Identity=$null }
+        RootClaimsPreimage=[ordered]@{ Status='MISSING'; SourcePath=$null; Hash=$null; Length=$null; Identity=$null }
+        CreatedAtUtc='2026-09-25T00:00:00.0000000Z'
+    }
+    $hashCopy = [ordered]@{}
+    foreach ($key in @($document.Keys)) { $hashCopy[[string]$key] = $document[$key] }
+    $document['ReceiptHash'] = Get-SemanticJsonHash -InputObject $hashCopy
+    $null = Write-TestSemanticDocument -Path (Join-Path $slot '_meta/receipt.json') -Document $document
+    Write-TestCreateNewFile -Path (Join-Path $slot '_meta/COMPLETE') -Bytes ([Text.UTF8Encoding]::new($false).GetBytes([string]$document.ReceiptHash))
+    return [pscustomobject][ordered]@{ ReceiptId=$ReceiptId; SlotPath=$slot; ReceiptPath=$path; ReceiptHash=[string]$document.ReceiptHash }
+}
+
 function Invoke-TestRegistryFailure([Parameter(Mandatory)]$Fixture,[string]$Pattern,[string]$Message) {
     $lock = Enter-HomeAuthorityGlobalLiveLock -AuthorityContext $Fixture.Context
     try {
@@ -1474,8 +1513,8 @@ try {
         $second = Get-SealedHomeAuthorityRegistryView -AuthorityContext $pristine.Context -GlobalLockHandle $pristineLock
         $after = Get-TestRegistryTreeHash -Fixture $pristine
         Assert-TestCondition ([string]$first.MutationGate -ceq 'READY') 'pristine empty registry is READY'
-        Assert-TestCondition (@($first.CanonicalClaims).Count -eq 0 -and @($first.Authorities).Count -eq 0 -and @($first.LiveTransactionMarkers).Count -eq 0 -and @($first.RootReservations).Count -eq 0) 'pristine registry enumerates no dynamic records'
-        Assert-TestCondition ([string]$first.CanonicalNamespaceCoverage -ceq 'NO_CLAIMS' -and [string]$first.LiveTransactionCoverage -ceq 'EMPTY') 'pristine registry coverage is explicit'
+        Assert-TestCondition (@($first.CanonicalClaims).Count -eq 0 -and @($first.Authorities).Count -eq 0 -and @($first.LiveTransactionMarkers).Count -eq 0 -and @($first.BackupReceiptMarkers).Count -eq 0 -and @($first.RootReservations).Count -eq 0) 'pristine registry enumerates no dynamic records'
+        Assert-TestCondition ([string]$first.CanonicalNamespaceCoverage -ceq 'NO_CLAIMS' -and [string]$first.LiveTransactionCoverage -ceq 'EMPTY' -and [string]$first.BackupReceiptCoverage -ceq 'EMPTY') 'pristine registry coverage is explicit'
         Assert-TestCondition ([string]$first.RegistryHash -cmatch '^[0-9a-f]{64}$' -and [string]$first.RegistryHash -ceq [string]$second.RegistryHash) 'pristine registry hash is stable under one held lock'
         Assert-TestCondition ($before -ceq $middle -and $middle -ceq $after) 'pristine repeated registry reads leave the fake private root byte-identical'
     }
@@ -5347,6 +5386,51 @@ try {
     Assert-ThrowsPattern { Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId 'not-a-uuid' -ImmediateChildren @() -AllowedEntries @() } '^live-transaction-namespace-id-invalid: not-a-uuid$' 'the namespace child contract rejects a noncanonical transaction id'
     Assert-ThrowsPattern { Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId '33333333-3333-4333-8333-333333333333' -ImmediateChildren @('header.json') -AllowedEntries @('other.json') } '^live-transaction-namespace-child-not-allowed: 33333333-3333-4333-8333-333333333333/header\.json$' 'the namespace child contract rejects a child outside the reviewed allow table'
     $null = Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId '33333333-3333-4333-8333-333333333333' -ImmediateChildren @() -AllowedEntries @('header.json')
+
+    Write-Host '[backup receipt slots]' -ForegroundColor Cyan
+
+    $receiptReady = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-ready'
+    $plantedReceipt = New-TestCompleteBackupReceiptSlot -Fixture $receiptReady
+    $receiptView = Assert-TestRegistryReadIsZeroWrite -Fixture $receiptReady -Message 'a complete live backup receipt reads zero-write on the fake private root' -Assertions {
+        param($view)
+        Assert-TestCondition ([string]$view.MutationGate -ceq 'READY' -and [string]$view.BackupReceiptCoverage -ceq 'COMPLETE') 'a complete live backup receipt leaves the mutation gate READY'
+        Assert-TestCondition (@($view.BackupReceiptMarkers).Count -eq 1 -and
+            [string]$view.BackupReceiptMarkers[0].ReceiptId -ceq [string]$plantedReceipt.ReceiptId -and
+            [string]$view.BackupReceiptMarkers[0].ReceiptHash -ceq [string]$plantedReceipt.ReceiptHash -and
+            [string]$view.BackupReceiptMarkers[0].ContractStatus -ceq 'COMPLETE') 'the BackupRoot GUID child is enumerated as a complete receipt marker'
+    }
+    Assert-TestCondition (@($receiptView.RootReservations | Where-Object { [string]$_.RequestedPath -ceq [string]$plantedReceipt.SlotPath }).Count -eq 0) 'accepted backup receipts stay inside BackupRoot and do not enter the reservation set'
+    Assert-ThrowsPattern { Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey $plantedReceipt.ReceiptId -ImmediateChildren @('stray') -AllowedEntries @('_meta','authority-preimage','snapshot') } ('^backup-receipt-slot-child-not-allowed: ' + [regex]::Escape([string]$plantedReceipt.ReceiptId) + '/stray$') 'the backup receipt child contract rejects a name outside the reviewed allow table'
+
+    $badBackupName = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-bad-name'
+    [IO.Directory]::CreateDirectory((Join-Path $badBackupName.Context.BackupRoot 'NOT-A-RECEIPT')) | Out-Null
+    Invoke-TestRegistryFailure -Fixture $badBackupName -Pattern 'home-authority-registry-manual-recovery-required:.*backups contains an unsupported child' -Message 'a noncanonical BackupRoot child fails closed'
+
+    $backupFile = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-file'
+    $backupFileId = '55555555-5555-4555-8555-555555555555'
+    Write-TestCreateNewFile -Path (Join-Path $backupFile.Context.BackupRoot $backupFileId) -Bytes ([Text.Encoding]::ASCII.GetBytes('x'))
+    Invoke-TestRegistryFailure -Fixture $backupFile -Pattern 'home-authority-registry-manual-recovery-required:.*(?:not a no-follow directory|Unable to open child)' -Message 'a UUID-named file under BackupRoot fails closed as a non-receipt child'
+
+    $backupReparse = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-reparse'
+    $backupReparseId = '56666666-6666-4666-8666-666666666666'
+    $backupReparseTarget = Join-Path $backupReparse.Root 'outside-backup-target'
+    [IO.Directory]::CreateDirectory($backupReparseTarget) | Out-Null
+    $null = New-PathSafetyJunction -Path (Join-Path $backupReparse.Context.BackupRoot $backupReparseId) -Target $backupReparseTarget
+    Invoke-TestRegistryFailure -Fixture $backupReparse -Pattern 'home-authority-registry-manual-recovery-required:.*(?:not a no-follow directory|reparse)' -Message 'a UUID-named reparse under BackupRoot fails closed without traversal'
+
+    $backupIncomplete = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-incomplete'
+    [IO.Directory]::CreateDirectory((Join-Path $backupIncomplete.Context.BackupRoot '57777777-7777-4777-8777-777777777777')) | Out-Null
+    Invoke-TestRegistryFailure -Fixture $backupIncomplete -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-slot-incomplete' -Message 'an empty UUID directory under BackupRoot fails closed as an incomplete receipt slot'
+
+    $backupStray = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-stray-child'
+    $backupStrayPlanted = New-TestCompleteBackupReceiptSlot -Fixture $backupStray
+    [IO.Directory]::CreateDirectory((Join-Path $backupStrayPlanted.SlotPath 'stray-segment')) | Out-Null
+    Invoke-TestRegistryFailure -Fixture $backupStray -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-slot-child-not-allowed' -Message 'an extra BackupRoot receipt child fails closed'
+
+    $backupOutside = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-path-outside'
+    $outsidePath = Join-Path $backupOutside.Root 'outside-receipt-path'
+    $null = New-TestCompleteBackupReceiptSlot -Fixture $backupOutside -ReceiptId '58888888-8888-4888-8888-888888888888' -ReceiptPath $outsidePath
+    Invoke-TestRegistryFailure -Fixture $backupOutside -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-path-outside-backup-root' -Message 'a receipt whose bound path is outside BackupRoot fails closed'
 
     $disjointRecoveryPath = Join-Path $workRoot 'synthetic-recovery'
     $disjointTransactionPath = Join-Path (Join-Path $disjointRecoveryPath 'live-transactions') '33333333-3333-4333-8333-333333333333'

@@ -489,8 +489,13 @@ $reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a5
 # from the identity-adoption guard and loop. Row-reviewed delta from
 # tmp/post-audit-execution/seams-c3.inventory.json: no removals, dynamic-command digest
 # unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16579
-$reviewedAllScriptsReflectionSensitiveDigest='8c4fc63e0f93be103710d5049d834422f10af0916347a3432c7b6a7a89bf4adf'
+# Re-pinned 2026-09-25 for the authority backup-receipt contract: +89 and -1 Member rows,
+# all inside scripts/root-claims-registry-common.ps1 (the receipt-slot validation helpers
+# and the per-child acceptance walk). Row-reviewed delta from
+# tmp/post-audit-execution/seams-c9.inventory.json: no other file changed, dynamic-command
+# digest unchanged, no alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16667
+$reviewedAllScriptsReflectionSensitiveDigest='6cdbfe8d823b9ff48388e52e504ad1459f783061f223988333d4d26fe686fef3'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

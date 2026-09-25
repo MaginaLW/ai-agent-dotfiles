@@ -4909,3 +4909,29 @@ home-authority-registry-manual-recovery-required: backup receipt contract not ye
 
 对应实现由 grok D 路在一次性 checkout 上进行（`D:\Reposi-agent-dotfiles-grok-d`），完成后由主 agent 复核、
 本地验证、整合为新候选并重跑 lab 与 CI。
+
+### 候选 C9：authority backup-receipt 契约（grok D 路实现 + 主 agent 验证，2026-09-25）
+
+**实现**（grok D 路在一次性 checkout 上完成，主 agent 应用并复验；该 lane 在 40 turn 上限处被取消，
+但工作树产出完整且已集成）：
+
+- `scripts/root-claims-registry-common.ps1`：删除 `Get-SealedHomeAuthorityRegistryView` 里对非空
+  Backups 根的 blanket throw，改为**逐子项**按收据契约验收——新增
+  `Assert-SealedRegistryBackupReceiptImmediateChildren` / `RequiredChildren` / `Document` 与
+  `Add-SealedRegistryBackupReceiptSlot`，校验槽目录名（GUID）、必需子项
+  （`_meta`/`authority-preimage`/`snapshot`；`COMPLETE`/`receipt.json`；`claude/codex/reasonix`；
+  `current-env.json`/`root-claims.json`）、收据文档的精确属性集与 schema/哈希形状、以及
+  `ReceiptPath` 必须位于解析后的 BackupRoot 之下（`backup-receipt-path-outside-backup-root`）；
+  未知子项仍以 `backup-receipt-slot-child-not-allowed` / 不完整以 `-slot-incomplete` 拒绝。
+- `scripts/canonical-command-result.ps1`：新增 `home-authority-registry-[a-z0-9-]+` 专用 token 分支，
+  使“契约尚未支持/形状不符”不再被压平成 `manual-recovery-required`；真实 manual-recovery 消息仍映射原 token。
+- 回归：`tests/root-claims-registry.tests.ps1` 新增 28 条断言（894 → **922 PASS**、exit 0），
+  `tests/canonical-command-result.tests.ps1` 新增 token 断言（**exit 0**、553 秒）。
+
+**主 agent 复验**：补丁以 `git apply --3way` 干净应用到分支；`hard-kill` 未钉这两个文件（无需改 pin）；
+seam 反射清单 +89/−1（全部在 `root-claims-registry-common.ps1`，逐行核对）→ 重钉后
+canonical-production-seams **66 PASS、exit 0**。
+
+**C9 = 本提交**；推送后按计划在 C9 上重跑 S3 全量门禁与 `canonical-rollback` 路线（该路线正是该缺陷的
+端到端证据），随后才是候选接受与 S5。仍未完成：CI 分片 2 的失败套件名（C8 的轻量诊断注释）、
+canonical 同类缺陷的投影设计实施（grok C 方案）、以及主 agent 对 D 路实现的安全性独立复核。

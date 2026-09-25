@@ -85,6 +85,9 @@ function Get-CanonicalPublicCommandFailure {
     elseif ($message -cmatch 'operation-lock-busy') {
         $messageId = 'operation-lock-busy'
     }
+    elseif ($message -cmatch 'home-authority-registry-[a-z0-9-]+') {
+        $messageId = $Matches[0]
+    }
     elseif ($message -cmatch 'manual-recovery-required') {
         $messageId = 'manual-recovery-required'
     }
