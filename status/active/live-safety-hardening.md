@@ -4983,3 +4983,31 @@ promote Apply 失败并抓取**未包装**的原始异常与抛点，给差分�
 校验器**（对持有的 capture 调 `Assert-SealedBackupReceiptValidInner` 或其可复用部分），而非在视图里再写一套
 浅校验；同时修掉 `tests/root-claims-registry.tests.ps1` 中固化弱行为的夹具与断言（改为构造**真**收据或断言
 拒绝），并补 `snapshot/<platform>` 与 `authority-preimage` 的双向子项校验与会因回退而失败的用例。
+
+### C9 路线第二道检查的原始定因（grok H 路，夹具差分，2026-09-25）
+
+grok H（夹具身份、`wt/ece7067` 候选、`tmp/repro.ps1`，40 turn 上限前已产出证据）给出**未包装的原始异常**：
+
+```
+home-authority-registry-manual-recovery-required: live-transaction-namespace-child-not-allowed: <transactionId>/000001.json
+```
+
+- **抛点**：`scripts/root-claims-registry-common.ps1:3084`，即
+  `Assert-SealedLiveTransactionNamespaceImmediateChildren`；调用链
+  `Get-SealedHomeAuthorityRegistryView:3921` → `Get-SealedHeldLockOrderRecompute:8549` →
+  `scripts/canonical-transaction.ps1:71`（`BOUND` 分支，开事务之前）。
+- **机制**：live-transactions 根的子项允许表是**空的**（`$script:SealedLiveTransactionAllowedEntriesV1 = @()`，同文件 `:15`）。首次 live
+  `sync -Apply` 会在事务命名空间里留下 journal 记录文件（如 `000001.json`），此后 canonical Apply 的视图打开该根时
+  立即以“命名空间子项不允许”拒绝。这与 grok E 路的设计预言完全一致（“只删空根检查会被下一道 allow table 挡住”）。
+- **差分对照**（H 的 `-SkipInitialApply` 对照）：无 live Apply 时 promote Apply **EXIT=0**；有它则 EXIT=1。触发条件明确
+  来自 live Apply 写入的 journal 状态。
+- **与收据契约同族**：这里同样是“尚未实现”的占位检查（空允许表）挡在真实合同前面，修复方向相同——按 **live journal 合同**
+  验收事务命名空间的子项（header/result/记录文件的命名与形状，且应**复用**既有 journal 校验器
+  `Get-SealedLiveJournalChain`/`Test-SealedLiveJournalChain` 等），而不是放宽成任由子项通过。
+- H 的证据留在其 checkout 的 `tmp/`（`evidence-apply.txt`、`transcript-apply.txt`、`repro.ps1`，均未提交）。
+
+**C10 范围（合并两路独立发现）**：(1) 收据验收的**字节绑定**（复用 `Assert-SealedBackupReceiptValidInner` 等既有校验，
+覆盖 snapshot 树哈希与 preimage 字节；补 `snapshot/<platform>`、`authority-preimage` 的双向子项校验）；(2) live-transaction
+命名空间按 journal 合同验收（消除空允许表对合法 journal 的误拒）；(3) 修掉 `tests/root-claims-registry.tests.ps1` 中固化
+弱行为的夹具与断言，改为构造真收据/真 journal 或断言拒绝；(4) 重算并重钉 seam 反射清单；(5) 重跑受影响套件、lab
+全量门禁与 CI。C9 与 C10 之间不得接受任何候选。
