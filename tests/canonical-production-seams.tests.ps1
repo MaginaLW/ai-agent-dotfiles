@@ -463,7 +463,9 @@ $reviewedExceptionInventory=@(
     'ScriptBlockParameter|Test-SafeTreeEntryExcluded|scripts/safe-tree-walker.ps1|b8e0f3588dbcaeb83d768ba05a9e8ca7b61f7d9a7eac2e59e1de6362b57bf3f8'
 ) | Sort-Object
 
-$reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a50ab3e0655bf2cf01292521c63'
+# Re-pinned 2026-09-25 with the reflection inventory for the live-transaction journal
+# contract and the receipt byte binding (see the note above that pin).
+$reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f0c1badc6dcb92395d649f6b5c'
 # Re-pinned 2026-09-19 for the CI shard slice: +27 reflection-sensitive sites, all in
 # scripts/test-runner-common.ps1 (Get-TestShardPartition, the shard fields of
 # Invoke-TestSuiteCollection and Test-TestRunSummaryForRunner) and scripts/run-tests.ps1
@@ -494,8 +496,12 @@ $reviewedAllScriptsDynamicCommandDigest='26bf8a2814bba7c56fa5d6c8893057b827f00a5
 # and the per-child acceptance walk). Row-reviewed delta from
 # tmp/post-audit-execution/seams-c9.inventory.json: no other file changed, dynamic-command
 # digest unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16667
-$reviewedAllScriptsReflectionSensitiveDigest='6cdbfe8d823b9ff48388e52e504ad1459f783061f223988333d4d26fe686fef3'
+# Re-pinned 2026-09-25 for the live-transaction journal contract and the receipt byte
+# binding: +45 and -2 Member rows, all inside scripts/root-claims-registry-common.ps1.
+# Row-reviewed delta from tmp/post-audit-execution/seams-c10.inventory.json: no other file
+# changed, dynamic-command digest unchanged, no alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16710
+$reviewedAllScriptsReflectionSensitiveDigest='9af4d7a57fbfd0967f18cd73861acdcfc1414d1b470279e5410306364a1c3dd4'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

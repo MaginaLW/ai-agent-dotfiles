@@ -5,6 +5,8 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'shared-authority-state-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
 . (Join-Path $PSScriptRoot 'root-claims-occupancy-common.ps1')
+. (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
+. (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
 
 $script:SealedRegistryArtifactKind = 'sealed-root-claims-registry-view'
 $script:SealedRegistryResolverVersion = 'sealed-held-global-lock-registry-v2'
@@ -12,7 +14,8 @@ $script:SealedRegistryMaximumArtifactBytes = 4MB
 $script:SealedRegistryHashPattern = '\A[0-9a-f]{64}\z'
 $script:SealedRegistryUuidPattern = '\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z'
 $script:SealedCurrentRouteRootSetResolverVersion = 'sealed-current-route-root-set-v1'
-$script:SealedLiveTransactionAllowedEntriesV1 = @()
+$script:SealedLiveTransactionJournalFixedEntriesV1 = @('_pending', 'header.json', 'result.json')
+$script:SealedLiveTransactionJournalRecordNamePattern = '\A([0-9]{6})\.json\z'
 $script:SealedRegistryBackupReceiptSlotEntries = @('_meta', 'authority-preimage', 'snapshot')
 $script:SealedRegistryBackupReceiptMetaEntries = @('COMPLETE', 'receipt.json')
 $script:SealedRegistryBackupReceiptSnapshotEntries = @('claude', 'codex', 'reasonix')
@@ -3085,6 +3088,100 @@ function Assert-SealedLiveTransactionNamespaceImmediateChildren {
     }
 }
 
+function Test-SealedLiveTransactionNamespaceJournalChildName {
+    param([Parameter(Mandatory)][string]$Name)
+    if (@($script:SealedLiveTransactionJournalFixedEntriesV1) -ccontains [string]$Name) { return $true }
+    return [string]$Name -cmatch $script:SealedLiveTransactionJournalRecordNamePattern
+}
+
+function Assert-SealedLiveTransactionNamespaceJournalChildren {
+    param(
+        [Parameter(Mandatory)][string]$TransactionId,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$ImmediateChildren
+    )
+    if ([string]$TransactionId -cnotmatch $script:SealedRegistryUuidPattern) { throw "live-transaction-namespace-id-invalid: $TransactionId" }
+    foreach ($childName in @(Get-SealedRegistryOrdinalStrings -Values @($ImmediateChildren))) {
+        if (-not (Test-SealedLiveTransactionNamespaceJournalChildName -Name $childName)) {
+            throw "live-transaction-namespace-child-not-allowed: $TransactionId/$childName"
+        }
+    }
+}
+
+function Assert-SealedRegistryBackupReceiptByteBinding {
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Document,
+        [Parameter(Mandatory)][string]$ReceiptPath,
+        [Parameter(Mandatory)][string]$BackupRoot
+    )
+    $intent = [ordered]@{
+        TransactionId = [string]$Document.SourceTransactionId
+        ReceiptId = [string]$Document.ReceiptId
+        ReceiptPath = [string]$Document.ReceiptPath
+    }
+    $null = Assert-SealedBackupReceiptValidInner -ReceiptPath $ReceiptPath -ReservationIntent $intent -BackupRoot $BackupRoot
+}
+
+function Assert-SealedRegistryLiveTransactionJournalInventory {
+    param(
+        [Parameter(Mandatory)][string]$TransactionId,
+        [Parameter(Mandatory)]$TransactionCapture,
+        [Parameter(Mandatory)][string]$TokenSid,
+        [Parameter(Mandatory)]$DirectoryChildren,
+        [Parameter(Mandatory)]$FileCaptures,
+        [Parameter(Mandatory)]$CleanupStack
+    )
+    Assert-SealedLiveTransactionNamespaceJournalChildren -TransactionId $TransactionId -ImmediateChildren @($TransactionCapture.InitialNames)
+    $headerCapture = $null
+    $resultCapture = $null
+    $recordRows = [Collections.Generic.List[object]]::new()
+    foreach ($childName in @(Get-SealedRegistryOrdinalStrings -Values @($TransactionCapture.InitialNames))) {
+        if ([string]$childName -ceq '_pending') {
+            $pending = Open-SealedRegistryHeldDirectoryChild -ParentHandle $TransactionCapture.Handle -Name '_pending' -TokenSid $TokenSid -Label "live-transactions/$TransactionId/_pending"
+            $DirectoryChildren.Add($pending)
+            $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$pending})
+            if (@($pending.InitialNames).Count -gt 0) { throw "live-transaction-namespace-pending-residue: $TransactionId" }
+            continue
+        }
+        $capture = Open-SealedRegistryJsonCapture -ParentHandle $TransactionCapture.Handle -Name $childName -TokenSid $TokenSid -Label "live-transactions/$TransactionId/$childName"
+        $FileCaptures.Add($capture)
+        $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$capture})
+        if ([string]$childName -ceq 'header.json') { $headerCapture = $capture; continue }
+        if ([string]$childName -ceq 'result.json') { $resultCapture = $capture; continue }
+        if ([string]$childName -cmatch $script:SealedLiveTransactionJournalRecordNamePattern) {
+            $recordRows.Add([ordered]@{ Sequence=[long]$Matches[1]; Capture=$capture; Name=$childName })
+            continue
+        }
+        throw "live-transaction-namespace-child-not-allowed: $TransactionId/$childName"
+    }
+    if ($null -eq $headerCapture -and $null -eq $resultCapture -and $recordRows.Count -eq 0) {
+        return 'UNRESOLVED_UNTIL_TASK_4'
+    }
+    if ($null -eq $headerCapture) { throw "live-transaction-namespace-journal-header-missing: $TransactionId" }
+    try {
+        $header = ConvertFrom-SealedRegistryJsonCapture -Capture $headerCapture
+        Test-LiveJournalHeaderSemantics -Document $header
+        if ([string]$header.TransactionId -cne $TransactionId) { throw "live-transaction-namespace-id-mismatch: $TransactionId" }
+        $records = [Collections.Generic.List[object]]::new()
+        foreach ($row in @($recordRows | Sort-Object { [long]$_.Sequence })) {
+            $recordDocument = ConvertFrom-SealedRegistryJsonCapture -Capture $row.Capture
+            $records.Add([ordered]@{ Sequence=[long]$row.Sequence; Document=$recordDocument; Name=[string]$row.Name })
+        }
+        $result = $null
+        $resultFileHash = $null
+        if ($null -ne $resultCapture) {
+            $result = ConvertFrom-SealedRegistryJsonCapture -Capture $resultCapture
+            $resultFileHash = [string]$resultCapture.BytesHash
+        }
+        $null = Test-SealedLiveJournalChain -Header $header -Records @($records) -Result $result -ResultFileHash $resultFileHash
+    }
+    catch {
+        $message = [string]$_.Exception.Message
+        if ($message -like 'live-transaction-namespace-*') { throw }
+        throw "live-transaction-namespace-journal-invalid: $message"
+    }
+    return 'JOURNAL_VALID'
+}
+
 function Assert-SealedRegistryBackupReceiptImmediateChildren {
     param(
         [Parameter(Mandatory)][string]$OwnerKey,
@@ -3202,10 +3299,12 @@ function Add-SealedRegistryBackupReceiptSlot {
     $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$snapshot})
     Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey "$Name/snapshot" -ImmediateChildren @($snapshot.InitialNames) -AllowedEntries $script:SealedRegistryBackupReceiptSnapshotEntries
     Assert-SealedRegistryBackupReceiptRequiredChildren -OwnerKey $Name -ImmediateChildren @($snapshot.InitialNames) -RequiredEntries $script:SealedRegistryBackupReceiptSnapshotEntries
+    $platformDirs = [ordered]@{}
     foreach ($platform in @($script:SealedRegistryBackupReceiptSnapshotEntries)) {
         $platformDir = Open-SealedRegistryHeldDirectoryChild -ParentHandle $snapshot.Handle -Name $platform -TokenSid $TokenSid -Label "backups/$Name/snapshot/$platform"
         $DirectoryChildren.Add($platformDir)
         $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$platformDir})
+        $platformDirs[$platform] = $platformDir
     }
 
     $preimage = Open-SealedRegistryHeldDirectoryChild -ParentHandle $slot.Handle -Name 'authority-preimage' -TokenSid $TokenSid -Label "backups/$Name/authority-preimage"
@@ -3230,6 +3329,23 @@ function Add-SealedRegistryBackupReceiptSlot {
     $CleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$completeCapture})
     $completeText = [Text.UTF8Encoding]::new($false, $true).GetString([byte[]]$completeCapture.Bytes)
     if ($completeText -cne [string]$document.ReceiptHash) { throw "backup-receipt-complete-mismatch: $Name" }
+
+    for ($platformIndex=0; $platformIndex -lt 3; $platformIndex++) {
+        $platform = [string]$script:SealedRegistryBackupReceiptSnapshotEntries[$platformIndex]
+        $copiedNames = [Collections.Generic.List[string]]::new()
+        foreach ($target in @($document.ManagedSnapshots[$platformIndex].Targets)) {
+            if ($null -eq $target) { continue }
+            if ([string]$target.Status -ceq 'COPIED') { $copiedNames.Add([string]$target.Name) }
+        }
+        Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey "$Name/snapshot/$platform" -ImmediateChildren @($platformDirs[$platform].InitialNames) -AllowedEntries @($copiedNames)
+        Assert-SealedRegistryBackupReceiptRequiredChildren -OwnerKey "$Name/snapshot/$platform" -ImmediateChildren @($platformDirs[$platform].InitialNames) -RequiredEntries @($copiedNames)
+    }
+    $copiedPreimageLeaves = [Collections.Generic.List[string]]::new()
+    if ([string]$document.AuthorityStatePreimage.Status -ceq 'COPIED') { $copiedPreimageLeaves.Add('current-env.json') }
+    if ([string]$document.RootClaimsPreimage.Status -ceq 'COPIED') { $copiedPreimageLeaves.Add('root-claims.json') }
+    Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey "$Name/authority-preimage" -ImmediateChildren @($preimage.InitialNames) -AllowedEntries @($copiedPreimageLeaves)
+    Assert-SealedRegistryBackupReceiptRequiredChildren -OwnerKey "$Name/authority-preimage" -ImmediateChildren @($preimage.InitialNames) -RequiredEntries @($copiedPreimageLeaves)
+    Assert-SealedRegistryBackupReceiptByteBinding -Document $document -ReceiptPath $slotPath -BackupRoot $BackupRootPath
 
     return [pscustomobject][ordered]@{
         ReceiptId=$Name; DirectoryIdentity=[string]$slot.Identity; SecurityHash=[string]$slot.SecurityHash
@@ -3918,13 +4034,13 @@ function Get-SealedHomeAuthorityRegistryView {
             $transaction = Open-SealedRegistryHeldDirectoryChild -ParentHandle $liveRoot.Handle -Name $name -TokenSid $tokenSid -Label "live-transactions/$name"
             $directoryChildren.Add($transaction)
             $registryCleanupStack.Add([pscustomobject]@{Kind='HeldHandleCapture';Resource=$transaction})
-            Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId $name -ImmediateChildren @($transaction.InitialNames) -AllowedEntries $script:SealedLiveTransactionAllowedEntriesV1
+            $liveContractStatus = Assert-SealedRegistryLiveTransactionJournalInventory -TransactionId $name -TransactionCapture $transaction -TokenSid $tokenSid -DirectoryChildren $directoryChildren -FileCaptures $fileCaptures -CleanupStack $registryCleanupStack
             $transactionProjection = Get-AuthorityCanonicalPathProjection -Path ([IO.Path]::Combine($liveTransactionsPath,$name)) -Role 'live transaction namespace root'
             $transactionIdentity = [string]$transaction.Identity
             if ($transactionIdentity -cnotmatch '\A([0-9a-f]{8}):[0-9a-f]{16}\z') { throw "live transaction namespace identity is not a volume-prefixed directory identity: $name" }
             $liveMarkers.Add([pscustomobject][ordered]@{
                 TransactionId=$name; DirectoryIdentity=$transactionIdentity; SecurityHash=[string]$transaction.SecurityHash
-                ImmediateChildren=@($transaction.InitialNames); ContractStatus='UNRESOLVED_UNTIL_TASK_4'
+                ImmediateChildren=@($transaction.InitialNames); ContractStatus=$liveContractStatus
             })
             $liveTransactionReservations.Add([pscustomobject][ordered]@{
                 SourceKind='live-transaction-namespace'; OwnerKey=[string]$name; Role='LiveTransactionRoot'; Platform=$null

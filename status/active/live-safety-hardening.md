@@ -5011,3 +5011,26 @@ home-authority-registry-manual-recovery-required: live-transaction-namespace-chi
 命名空间按 journal 合同验收（消除空允许表对合法 journal 的误拒）；(3) 修掉 `tests/root-claims-registry.tests.ps1` 中固化
 弱行为的夹具与断言，改为构造真收据/真 journal 或断言拒绝；(4) 重算并重钉 seam 反射清单；(5) 重跑受影响套件、lab
 全量门禁与 CI。C9 与 C10 之间不得接受任何候选。
+
+### C10 整合状态：两处 pin 已更新，第三处暴露 lane I 的死函数（2026-09-25）
+
+**已整合**：把 grok lane I 的产出（`scripts/root-claims-registry-common.ps1` +122、`tests/root-claims-registry.tests.ps1` +139/−12）
+复制到分支工作树。它在被 40 turn 截断前未跑完的验证已由主 agent 补齐：`canonical-command-result`
+**104 PASS / 0 FAIL / exit 0**、`root-claims-registry` **947 PASS / 0 FAIL / exit 0**。
+
+**已更新的两处 pin**（改 `scripts/**` 必重钉）：
+- 反射敏感清单：16667 → **16710**、digest `6cdbfe8d…` → `9af4d7a5…`（增量 +45/−2，全部在
+  `root-claims-registry-common.ps1`，逐行核对）。
+- all-scripts 动态命令 digest：`26bf8a28…` → `3284ade7…`（lane I 引入了新的动态命令站点）。
+
+**未解决（seams 复跑 39 PASS / 27 FAIL，阻塞候选）**：`reviewed live transaction namespace contract owner inventory changed`。
+pin 要求 `Assert-SealedLiveTransactionNamespaceImmediateChildren` 的唯一生产调用者是
+`Get-SealedHomeAuthorityRegistryView`，但 lane I 的实现把该调用**换成了新的 journal 清单校验**
+（`Assert-SealedLiveTransactionNamespaceJournalChildren` / `Assert-SealedRegistryLiveTransactionJournalInventory`），
+却在同一文件里**留下了旧的 `Assert-SealedLiveTransactionNamespaceImmediateChildren` 定义而无人调用**——
+即当前是死函数，实际调用者集合为空，与 pin 不符。
+
+**处置方向（下一步，先定后改）**：(a) 若新校验确实完全取代旧断言，则应**删除**该死函数及其 pin 条目，并把
+pin 的属主清单更新为新的调用关系（需核对新的调用边确在 `Get-SealedHomeAuthorityRegistryView` 契约内）；
+(b) 若旧断言仍有职责（例如仍需逐子项名字级校验），则应把新路径接回它、而不是并列两套。**在 (a)/(b) 定案并
+seams 全绿之前，C10 不可接受**；本提交只落“整合 + 两处已核实 pin + 记录”，不声称候选可接受。

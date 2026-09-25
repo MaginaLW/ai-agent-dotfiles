@@ -933,7 +933,11 @@ function New-TestCompleteBackupReceiptSlot {
     param(
         [Parameter(Mandatory)]$Fixture,
         [string]$ReceiptId,
-        [string]$ReceiptPath
+        [string]$ReceiptPath,
+        [string]$SourceTransactionId,
+        [switch]$UsePlaceholderRootHashes,
+        [switch]$AliasedIds,
+        [switch]$CopiedAuthorityPreimageWithoutFile
     )
     if ([string]::IsNullOrWhiteSpace($ReceiptId)) { $ReceiptId = [guid]::NewGuid().ToString('D').ToLowerInvariant() }
     $slot = [IO.Path]::GetFullPath((Join-Path ([string]$Fixture.Context.BackupRoot) $ReceiptId))
@@ -941,22 +945,31 @@ function New-TestCompleteBackupReceiptSlot {
     foreach ($relative in @('snapshot/claude','snapshot/codex','snapshot/reasonix','authority-preimage','_meta')) {
         [IO.Directory]::CreateDirectory((Join-Path $slot $relative)) | Out-Null
     }
+    $claudeHash = if ($UsePlaceholderRootHashes) { '6'*64 } else { [string](Get-SafeTreeSnapshot -Root (Join-Path $slot 'snapshot/claude')).TreeHash }
+    $codexHash = if ($UsePlaceholderRootHashes) { '7'*64 } else { [string](Get-SafeTreeSnapshot -Root (Join-Path $slot 'snapshot/codex')).TreeHash }
+    $reasonixHash = if ($UsePlaceholderRootHashes) { '8'*64 } else { [string](Get-SafeTreeSnapshot -Root (Join-Path $slot 'snapshot/reasonix')).TreeHash }
+    $sourceId = if ($AliasedIds) { $ReceiptId } elseif ([string]::IsNullOrWhiteSpace($SourceTransactionId)) { [guid]::NewGuid().ToString('D').ToLowerInvariant() } else { $SourceTransactionId }
+    $authorityPreimage = if ($CopiedAuthorityPreimageWithoutFile) {
+        [ordered]@{ Status='COPIED'; SourcePath=(Join-Path ([string]$Fixture.Context.AuthorityRoot) 'current-env.json'); Hash=('9'*64); Length=1L; Identity='01234567:0123456789abcdef' }
+    } else {
+        [ordered]@{ Status='MISSING'; SourcePath=$null; Hash=$null; Length=$null; Identity=$null }
+    }
     $document = [ordered]@{
         SchemaVersion=1L; ArtifactKind='backup-receipt'
-        SourceTransactionId=[guid]::NewGuid().ToString('D').ToLowerInvariant(); ReceiptId=$ReceiptId; ReceiptPath=$path
+        SourceTransactionId=$sourceId; ReceiptId=$ReceiptId; ReceiptPath=$path
         SourceOperationKind='initial'
         PlanHash=('1'*64); DocumentHash=('2'*64); ExecutionContextHash=('3'*64)
         ControlBaseHash=('4'*64); FilesystemCapabilityHash=('5'*64)
         HomeAuthorityKey=[string]$Fixture.Context.HomeAuthorityKey
         ReceiptIntent=[ordered]@{ Id=$ReceiptId; Path=$path }
         ManagedSnapshots=@(
-            [ordered]@{ Platform='Claude'; LiveRoot=(Join-Path ([string]$Fixture.Profile) '.claude\skills'); RootHash=('6'*64); Targets=@() }
-            [ordered]@{ Platform='Codex'; LiveRoot=(Join-Path ([string]$Fixture.Profile) '.codex\skills'); RootHash=('7'*64); Targets=@() }
-            [ordered]@{ Platform='Reasonix'; LiveRoot=(Join-Path ([string]$Fixture.Roaming) 'reasonix\skills'); RootHash=('8'*64); Targets=@() }
+            [ordered]@{ Platform='Claude'; LiveRoot=(Join-Path ([string]$Fixture.Profile) '.claude\skills'); RootHash=$claudeHash; Targets=@() }
+            [ordered]@{ Platform='Codex'; LiveRoot=(Join-Path ([string]$Fixture.Profile) '.codex\skills'); RootHash=$codexHash; Targets=@() }
+            [ordered]@{ Platform='Reasonix'; LiveRoot=(Join-Path ([string]$Fixture.Roaming) 'reasonix\skills'); RootHash=$reasonixHash; Targets=@() }
         )
         UnknownMarkers=@()
         SystemMarker=[ordered]@{ Platform='Codex'; Name='.system'; Present=$false; Identity=$null }
-        AuthorityStatePreimage=[ordered]@{ Status='MISSING'; SourcePath=$null; Hash=$null; Length=$null; Identity=$null }
+        AuthorityStatePreimage=$authorityPreimage
         RootClaimsPreimage=[ordered]@{ Status='MISSING'; SourcePath=$null; Hash=$null; Length=$null; Identity=$null }
         CreatedAtUtc='2026-09-25T00:00:00.0000000Z'
     }
@@ -966,6 +979,36 @@ function New-TestCompleteBackupReceiptSlot {
     $null = Write-TestSemanticDocument -Path (Join-Path $slot '_meta/receipt.json') -Document $document
     Write-TestCreateNewFile -Path (Join-Path $slot '_meta/COMPLETE') -Bytes ([Text.UTF8Encoding]::new($false).GetBytes([string]$document.ReceiptHash))
     return [pscustomobject][ordered]@{ ReceiptId=$ReceiptId; SlotPath=$slot; ReceiptPath=$path; ReceiptHash=[string]$document.ReceiptHash }
+}
+
+function New-TestLiveJournalNamespace {
+    param(
+        [Parameter(Mandatory)]$Fixture,
+        [string]$TransactionId,
+        [switch]$WithRecord
+    )
+    if ([string]::IsNullOrWhiteSpace($TransactionId)) { $TransactionId = [guid]::NewGuid().ToString('D').ToLowerInvariant() }
+    $directory = [IO.Path]::GetFullPath((Join-Path ([string]$Fixture.Context.LiveTransactionsRoot) $TransactionId))
+    $header = [ordered]@{
+        SchemaVersion=1
+        ArtifactKind='live-journal-header'
+        TransactionId=$TransactionId
+        OperationKind='controller-transition'
+        TransactionMode='state-only'
+        OriginalDocumentHash=('1'*64)
+        OriginalPlanHash=('2'*64)
+        HomeAuthorityKey=[string]$Fixture.Context.HomeAuthorityKey
+        OriginRepoId=('3'*64)
+        GitCommonDirHash=('4'*64)
+        CanonicalLockKey=('5'*64)
+        ReceiptRef='NO_LIVE_MUTATION'
+        Targets=@()
+    }
+    $null = New-SealedLiveJournalHeader -Document $header -TransactionDirectory $directory
+    if ($WithRecord) {
+        $null = Add-SealedLiveJournalRecord -TransactionDirectory $directory -Phase POSTCONDITIONS_OK -Data ([ordered]@{ PostconditionsHash=('b'*64) })
+    }
+    return [pscustomobject][ordered]@{ TransactionId=$TransactionId; Directory=$directory }
 }
 
 function Invoke-TestRegistryFailure([Parameter(Mandatory)]$Fixture,[string]$Pattern,[string]$Message) {
@@ -5304,7 +5347,10 @@ try {
     $liveExpectedTransactionPath = [IO.Path]::GetFullPath((Join-Path $live.Context.LiveTransactionsRoot $liveId))
     [IO.Directory]::CreateDirectory((Join-Path $live.Context.LiveTransactionsRoot $liveId)) | Out-Null
     $liveTransactionsMarker = Get-NoFollowRootEntryMarker -Path ([string]$live.Context.LiveTransactionsRoot)
-    Assert-TestCondition (@($script:SealedLiveTransactionAllowedEntriesV1).Count -eq 0) 'the V1 live transaction allow table ships empty until Task 4 defines the journal contract'
+    $liveJournalFixed = @($script:SealedLiveTransactionJournalFixedEntriesV1)
+    Assert-TestCondition ($liveJournalFixed.Count -eq 3 -and [string]$liveJournalFixed[0] -ceq '_pending' -and
+        [string]$liveJournalFixed[1] -ceq 'header.json' -and [string]$liveJournalFixed[2] -ceq 'result.json' -and
+        [string]$script:SealedLiveTransactionJournalRecordNamePattern -ceq '\A([0-9]{6})\.json\z') 'the live transaction namespace accepts the journal inventory contract'
     $liveView = Assert-TestRegistryReadIsZeroWrite -Fixture $live -Message 'live-transaction registry read is zero-write on the fake private root' -Assertions {
         param($view)
         Assert-TestCondition ([string]$view.MutationGate -ceq 'RECOVERY_REQUIRED') 'a canonical live transaction marker forces RECOVERY_REQUIRED'
@@ -5338,12 +5384,45 @@ try {
     $liveHeaderStrayId = '48888888-8888-4888-8888-888888888888'
     [IO.Directory]::CreateDirectory((Join-Path $liveHeaderStray.Context.LiveTransactionsRoot $liveHeaderStrayId)) | Out-Null
     Write-TestCreateNewFile -Path (Join-Path (Join-Path $liveHeaderStray.Context.LiveTransactionsRoot $liveHeaderStrayId) 'header.json') -Bytes ([Text.Encoding]::ASCII.GetBytes('{}'))
-    Invoke-TestRegistryFailure -Fixture $liveHeaderStray -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-not-allowed' -Message 'a pre-filled journal-shaped file cannot bypass the V1 empty allow table'
+    Invoke-TestRegistryFailure -Fixture $liveHeaderStray -Pattern 'manual-recovery-required:.*live-transaction-namespace-journal-invalid' -Message 'a journal-shaped header that fails live journal semantics is rejected'
 
     $liveChildDir = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-child-dir'
     $liveChildDirId = '45555555-5555-4555-8555-555555555555'
     [IO.Directory]::CreateDirectory((Join-Path (Join-Path $liveChildDir.Context.LiveTransactionsRoot $liveChildDirId) 'stray-segment')) | Out-Null
-    Invoke-TestRegistryFailure -Fixture $liveChildDir -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-not-allowed' -Message 'a stray child directory inside a live transaction namespace fails closed under the V1 empty allow table'
+    Invoke-TestRegistryFailure -Fixture $liveChildDir -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-not-allowed' -Message 'a stray child directory inside a live transaction namespace fails closed under the journal inventory contract'
+
+    $liveRecordOnly = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-record-without-header'
+    $liveRecordOnlyId = '4bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    $liveRecordOnlyDirectory = Join-Path $liveRecordOnly.Context.LiveTransactionsRoot $liveRecordOnlyId
+    [IO.Directory]::CreateDirectory($liveRecordOnlyDirectory) | Out-Null
+    Write-TestCreateNewFile -Path (Join-Path $liveRecordOnlyDirectory '000001.json') -Bytes ([Text.Encoding]::ASCII.GetBytes('{}'))
+    Invoke-TestRegistryFailure -Fixture $liveRecordOnly -Pattern 'manual-recovery-required:.*live-transaction-namespace-journal-header-missing' -Message 'a numbered journal record without header.json is rejected'
+
+    $livePendingResidue = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-pending-residue'
+    $livePendingPlanted = New-TestLiveJournalNamespace -Fixture $livePendingResidue
+    Write-TestCreateNewFile -Path (Join-Path $livePendingPlanted.Directory '_pending/record-000001.tmp') -Bytes ([Text.Encoding]::ASCII.GetBytes('x'))
+    Invoke-TestRegistryFailure -Fixture $livePendingResidue -Pattern 'manual-recovery-required:.*live-transaction-namespace-pending-residue' -Message 'non-empty _pending residue is rejected until recovery can classify it'
+
+    $liveJournalReady = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-journal-ready'
+    $liveJournalPlanted = New-TestLiveJournalNamespace -Fixture $liveJournalReady
+    $liveJournalView = Assert-TestRegistryReadIsZeroWrite -Fixture $liveJournalReady -Message 'a valid live journal namespace reads zero-write' -Assertions {
+        param($view)
+        Assert-TestCondition ([string]$view.MutationGate -ceq 'RECOVERY_REQUIRED') 'a valid live journal namespace remains a live-transaction marker'
+        Assert-TestCondition (@($view.LiveTransactionMarkers).Count -eq 1 -and
+            [string]$view.LiveTransactionMarkers[0].TransactionId -ceq [string]$liveJournalPlanted.TransactionId -and
+            [string]$view.LiveTransactionMarkers[0].ContractStatus -ceq 'JOURNAL_VALID') 'a schema-valid header plus empty _pending is accepted as JOURNAL_VALID'
+    }
+    $null = $liveJournalView
+
+    $liveJournalRecord = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-journal-record'
+    $liveJournalRecordPlanted = New-TestLiveJournalNamespace -Fixture $liveJournalRecord -WithRecord
+    $liveJournalRecordView = Assert-TestRegistryReadIsZeroWrite -Fixture $liveJournalRecord -Message 'a valid live journal with a numbered record reads zero-write' -Assertions {
+        param($view)
+        Assert-TestCondition (@($view.LiveTransactionMarkers).Count -eq 1 -and
+            [string]$view.LiveTransactionMarkers[0].ContractStatus -ceq 'JOURNAL_VALID' -and
+            (@($view.LiveTransactionMarkers[0].ImmediateChildren) -contains '000001.json')) 'a valid header plus 000001.json record is accepted'
+    }
+    $null = $liveJournalRecordView
 
     $liveTwoIds = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-two-ids'
     [IO.Directory]::CreateDirectory((Join-Path $liveTwoIds.Context.LiveTransactionsRoot '46666666-6666-4666-8666-666666666666')) | Out-Null
@@ -5386,6 +5465,9 @@ try {
     Assert-ThrowsPattern { Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId 'not-a-uuid' -ImmediateChildren @() -AllowedEntries @() } '^live-transaction-namespace-id-invalid: not-a-uuid$' 'the namespace child contract rejects a noncanonical transaction id'
     Assert-ThrowsPattern { Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId '33333333-3333-4333-8333-333333333333' -ImmediateChildren @('header.json') -AllowedEntries @('other.json') } '^live-transaction-namespace-child-not-allowed: 33333333-3333-4333-8333-333333333333/header\.json$' 'the namespace child contract rejects a child outside the reviewed allow table'
     $null = Assert-SealedLiveTransactionNamespaceImmediateChildren -TransactionId '33333333-3333-4333-8333-333333333333' -ImmediateChildren @() -AllowedEntries @('header.json')
+    Assert-ThrowsPattern { Assert-SealedLiveTransactionNamespaceJournalChildren -TransactionId 'not-a-uuid' -ImmediateChildren @() } '^live-transaction-namespace-id-invalid: not-a-uuid$' 'the journal child contract rejects a noncanonical transaction id'
+    Assert-ThrowsPattern { Assert-SealedLiveTransactionNamespaceJournalChildren -TransactionId '33333333-3333-4333-8333-333333333333' -ImmediateChildren @('stray-payload.json') } '^live-transaction-namespace-child-not-allowed: 33333333-3333-4333-8333-333333333333/stray-payload\.json$' 'the journal child contract rejects a non-journal name'
+    $null = Assert-SealedLiveTransactionNamespaceJournalChildren -TransactionId '33333333-3333-4333-8333-333333333333' -ImmediateChildren @('_pending','header.json','000001.json','result.json')
 
     Write-Host '[backup receipt slots]' -ForegroundColor Cyan
 
@@ -5401,6 +5483,28 @@ try {
     }
     Assert-TestCondition (@($receiptView.RootReservations | Where-Object { [string]$_.RequestedPath -ceq [string]$plantedReceipt.SlotPath }).Count -eq 0) 'accepted backup receipts stay inside BackupRoot and do not enter the reservation set'
     Assert-ThrowsPattern { Assert-SealedRegistryBackupReceiptImmediateChildren -OwnerKey $plantedReceipt.ReceiptId -ImmediateChildren @('stray') -AllowedEntries @('_meta','authority-preimage','snapshot') } ('^backup-receipt-slot-child-not-allowed: ' + [regex]::Escape([string]$plantedReceipt.ReceiptId) + '/stray$') 'the backup receipt child contract rejects a name outside the reviewed allow table'
+
+    $receiptFakeHash = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-fake-hash'
+    $null = New-TestCompleteBackupReceiptSlot -Fixture $receiptFakeHash -UsePlaceholderRootHashes
+    Invoke-TestRegistryFailure -Fixture $receiptFakeHash -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-verifier-invalid' -Message 'a receipt whose snapshot RootHash does not bind the platform tree is rejected'
+
+    $receiptAliased = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-aliased-ids'
+    $null = New-TestCompleteBackupReceiptSlot -Fixture $receiptAliased -AliasedIds
+    Invoke-TestRegistryFailure -Fixture $receiptAliased -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-intent-mismatch' -Message 'a receipt whose SourceTransactionId equals ReceiptId is rejected'
+
+    $receiptCopiedMissing = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-copied-preimage-missing'
+    $null = New-TestCompleteBackupReceiptSlot -Fixture $receiptCopiedMissing -CopiedAuthorityPreimageWithoutFile
+    Invoke-TestRegistryFailure -Fixture $receiptCopiedMissing -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-slot-incomplete' -Message 'a COPIED authority preimage without a captured file is rejected'
+
+    $receiptMissingWithFile = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-missing-preimage-file'
+    $receiptMissingPlanted = New-TestCompleteBackupReceiptSlot -Fixture $receiptMissingWithFile
+    Write-TestCreateNewFile -Path (Join-Path $receiptMissingPlanted.SlotPath 'authority-preimage/current-env.json') -Bytes ([Text.UTF8Encoding]::new($false).GetBytes('{}'))
+    Invoke-TestRegistryFailure -Fixture $receiptMissingWithFile -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-slot-child-not-allowed' -Message 'a MISSING authority preimage that still has a file is rejected'
+
+    $receiptEmptyTreeChild = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-empty-tree-extra-child'
+    $receiptEmptyTreePlanted = New-TestCompleteBackupReceiptSlot -Fixture $receiptEmptyTreeChild
+    [IO.Directory]::CreateDirectory((Join-Path $receiptEmptyTreePlanted.SlotPath 'snapshot/claude/stray-target')) | Out-Null
+    Invoke-TestRegistryFailure -Fixture $receiptEmptyTreeChild -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-slot-child-not-allowed' -Message 'an extra snapshot platform child outside the copied targets is rejected'
 
     $badBackupName = New-TestRegistryFixture -Parent $workRoot -Name 'backup-receipt-bad-name'
     [IO.Directory]::CreateDirectory((Join-Path $badBackupName.Context.BackupRoot 'NOT-A-RECEIPT')) | Out-Null
@@ -5431,6 +5535,23 @@ try {
     $outsidePath = Join-Path $backupOutside.Root 'outside-receipt-path'
     $null = New-TestCompleteBackupReceiptSlot -Fixture $backupOutside -ReceiptId '58888888-8888-4888-8888-888888888888' -ReceiptPath $outsidePath
     Invoke-TestRegistryFailure -Fixture $backupOutside -Pattern 'home-authority-registry-manual-recovery-required:.*backup-receipt-path-outside-backup-root' -Message 'a receipt whose bound path is outside BackupRoot fails closed'
+
+    $seqFixture = New-TestRegistryFixture -Parent $workRoot -Name 'live-then-canonical-recompute'
+    $seqCanonical = New-TestCanonicalClaim -Fixture $seqFixture -Name 'live-then-canonical-recompute'
+    $null = Complete-TestCanonicalSetupState -Fixture $seqFixture -CanonicalFixture $seqCanonical
+    $null = New-TestCompleteBackupReceiptSlot -Fixture $seqFixture
+    $null = New-TestLiveJournalNamespace -Fixture $seqFixture -WithRecord
+    $seqClaimPath = Join-Path ([string]$seqFixture.Context.CanonicalRootsRoot) ([string]$seqCanonical.RepoId + '.json')
+    $seqHeld = Enter-SealedHeldCanonicalLiveLockOrder -RepoRoot ([string]$seqCanonical.RepoRoot) -RouteKind setup -AcquisitionMode ExistingOnly -AuthorityContext $seqFixture.Context
+    try {
+        $null = Write-TestSemanticDocument -Path $seqClaimPath -Document $seqCanonical.Claim
+        $seqResult = Get-SealedHeldLockOrderRecompute -LockOrderHandle $seqHeld
+        Assert-TestCondition ([string]$seqHeld.CanonicalGlobalBinding -ceq 'BOUND' -and
+            [string]$seqResult.RecomputeHash -cmatch '^[0-9a-f]{64}$' -and
+            [long]$seqResult.Recompute.UnfinishedCount -eq 0 -and
+            [string]$seqResult.Recompute.RegistryMutationGate -ceq 'RECOVERY_REQUIRED') 'after a live journal plus backup receipt, BOUND canonical recompute succeeds (SkipInitialApply sequence)'
+    }
+    finally { Exit-SealedHeldCanonicalLiveLockOrder -LockOrderHandle $seqHeld }
 
     $disjointRecoveryPath = Join-Path $workRoot 'synthetic-recovery'
     $disjointTransactionPath = Join-Path (Join-Path $disjointRecoveryPath 'live-transactions') '33333333-3333-4333-8333-333333333333'
