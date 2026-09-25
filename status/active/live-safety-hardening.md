@@ -4886,3 +4886,26 @@ home-authority-registry-manual-recovery-required: backup receipt contract not ye
 远超绿基线 62.6 分钟）——该版本有害。C8（`c6ac621`）改为只发布 `Counts` 与失败套件的
 `SuiteId/State/ExitCode`（不解析、不复制套件输出，摘要缺失单独抛 token），本机用真实分片摘要验证
 渲染（`failing=[]`）且 `test-runner` 仍通过；已推送，CI run `36098884278` 排队。
+
+### backup-receipt 修复的设计约束（grok E 路对抗复核，2026-09-25）
+
+- **方向**：推荐实现收据契约（方向 a），而非把收据迁出 authority Backups 根；理由是该根的位置已由
+  intent 合同、bootstrap 定义与已写机器上的收据共同钉死。但**只删除 `root-claims-registry-common.ps1:3624`
+  的空根检查不够**：紧接着的 live-transactions 空 allow table 会再次挡住，必须与收据契约一起做。
+- **既有语义支持**：bootstrap 已把 BackupRoot/LiveTransactionsRoot 下的 GUID 目录视为 `allowedExtra`
+  （`home-authority-common.ps1:776-790`，模式为宽松 hex-UUID，比 registry 的 RFC-4122 模式 `:13` 更松）；
+  setup-state 绑定的是 BackupRoot 的**身份/DACL**（`:2894`），不是“子项为空”，故接受收据子项不破坏绑定。
+- **收据布局硬钉**：唯一生产者 `Invoke-SealedManagedBackupReceipt`；`Test-SealedBackupReceiptIntent`
+  （`backup-receipt-common.ps1:122-148`）要求键为 TransactionId/ReceiptId/ReceiptPath、叶名 == ReceiptId、
+  **父目录 == 解析后的 BackupRoot**；槽内只有 `snapshot/`、`authority-preimage/`、`_meta/receipt.json`、
+  `_meta/COMPLETE`；`Get-SealedBackupReceiptSlotState` 只读声明槽、从不枚举兄弟。
+- **收据会累积**：设计文档（`docs/superpowers/specs/2026-08-09-live-safety-hardening-design.md:548`、
+  `docs/README.md:225-226`）要求成功后保留收据与 COMPLETE marker；生产代码没有删除路径。因此 view 的
+  放行条件**不能**用“是否等于当前 state 的 ReceiptId”（会把历史槽全判非法），必须是“形状/位置/所有权
+  合法的收据槽集合”。
+- **必须同时做**：view 的名字级 TOCTOU drift 检查需保留；`home-authority-registry-*` 需要专门的 public
+  token 分支（`canonical-command-result.ps1:88-89` 目前把任何含 `manual-recovery-required` 子串的消息
+  压平）；`schemas/backup-receipt.schema.json` 与 artifact 合同需按收据契约复核。
+
+对应实现由 grok D 路在一次性 checkout 上进行（`D:\Reposi-agent-dotfiles-grok-d`），完成后由主 agent 复核、
+本地验证、整合为新候选并重跑 lab 与 CI。
