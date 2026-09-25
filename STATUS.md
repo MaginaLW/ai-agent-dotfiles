@@ -36,12 +36,15 @@ No new release acceptance is claimed.
 
 The [post-audit staged completion plan](docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)
 now defines the execution order, parallel ownership, acceptance criteria and release boundaries.
-Execution is authorized: S0 integrated the CI fixture repairs, S1 is closed and S2's independent
-reviews and candidate freeze are complete. The disposable-identity validation now passes on the
-frozen candidate (11 gates, 42 of 42 suites, no timeouts), but S4's mutation routes exposed a
-release-blocking product defect: a retirement plan can never be applied when the real build runs,
-because the plan fingerprints a generated directory that the build itself recreates. That candidate
-is therefore not accepted and no acceptance record exists. See the
+Execution is authorized and S0-S2 are closed. Four release-blocking defects have since been repaired,
+independently reviewed and proven end to end: the retirement staleness comparison, the two
+task-overlay gates, the authority backup-receipt contract and the live-transaction namespace
+placeholder. All fourteen S4 mutation routes pass, the disposable-identity gate is green (11 gates,
+42 of 42 suites) on the candidates that carried those fixes, and CI on the current candidate passes
+the gates and two of three test shards - the remaining shard fails only because three suites exceed
+their per-suite budgets on the runner. No candidate is accepted yet and no acceptance record exists;
+the pending items and their evidence are listed under "收尾：本轮完成情况与待完成项目" in the
+activity record. See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries, actual validation and the residual items left open. No new candidate has been accepted.
 
