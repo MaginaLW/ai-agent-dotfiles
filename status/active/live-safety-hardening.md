@@ -5051,3 +5051,23 @@ canonical-rollback。
 
 **仍未完成**：seam 合同的第三处属主清单 pin（lane I 的死函数所致）正由 grok J 路定方向并落地；随后需在
 最终 tip 上跑 lab 全量门禁（11 gate + 42 套件）与 CI，才谈候选接受与 S5。
+
+### C11：死函数删除与 seam 合同改写（grok J 路定方向并实现，2026-09-25）
+
+grok J 路（26 turn 内完成，本轮唯一在预算内交付完整报告的实现 lane）判定方向 **(a)** 并落地：
+
+- **理由**：journal 合同已等价覆盖旧的名字级允许表——固定名只有 `_pending`/`header.json`/`result.json`，
+  记录名必须匹配 `\A([0-9]{6})\.json\z`，未知名以 `live-transaction-namespace-child-not-allowed` 拒绝
+  （清单函数先做名字门、再对未分类名字拒绝，然后才走 `Test-LiveJournalHeaderSemantics` 与
+  `Test-SealedLiveJournalChain`）。把旧函数接回只能表达有限允许表，会把合法的 `000001.json` 再次拒掉。
+- **改动**：删除无人调用的 `Assert-SealedLiveTransactionNamespaceImmediateChildren`；seam 合同改为跟踪
+  `Assert-SealedRegistryLiveTransactionJournalInventory`（属主仍只有 `Get-SealedHomeAuthorityRegistryView`），
+  并为 `Assert-SealedLiveTransactionNamespaceJournalChildren` 增加内层调用边
+  （属主 `Assert-SealedRegistryLiveTransactionJournalInventory`），唯一定义清单同步替换。
+  **实测反射清单（16710 / `9af4d7a5…`）与动态命令 digest（`3284ade7…`）未变，故未再改 pin**——
+  被删函数既无成员访问也无动态命令。
+- **验证**：J 自跑与本机复跑一致——seams **66 PASS / exit 0**；root-claims-registry **947 PASS / exit 0**；
+  canonical-command-result **104 PASS / exit 0**。
+- **J 记录的残余**：名字形如 `000001.json` 但实为目录时，名字门通过、随后按 JSON 打开时失败（令牌不是
+  `child-not-allowed`，属既有打开顺序行为）；`Test-SealedLiveTransactionNamespaceJournalChildName` 无单独
+  调用者 pin；历史记录中对旧函数的叙述未回改。

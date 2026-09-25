@@ -631,6 +631,7 @@ function Invoke-ProductionSeamAnalysis {
     $ledgerCloseObservationAllowedCallers=[Collections.Generic.List[string]]::new()
     $ledgerCloseAllowedCallers=[Collections.Generic.List[string]]::new()
     $liveNamespaceAllowedCallers=[Collections.Generic.List[string]]::new()
+    $liveNamespaceJournalChildAllowedCallers=[Collections.Generic.List[string]]::new()
     $liveNamespaceDisjointAllowedCallers=[Collections.Generic.List[string]]::new()
     $claimAcceptMatrixAllowedCallers=[Collections.Generic.List[string]]::new()
     $claimAcceptAllowedCallers=[Collections.Generic.List[string]]::new()
@@ -964,12 +965,19 @@ function Invoke-ProductionSeamAnalysis {
                 }
                 else{$fixedObservationBoundaryViolations.Add("forbidden root matrix caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
-            if($commandName -ieq 'Assert-SealedLiveTransactionNamespaceImmediateChildren'){
+            if($commandName -ieq 'Assert-SealedRegistryLiveTransactionJournalInventory'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
                     [string]$owner.Name -ceq 'Get-SealedHomeAuthorityRegistryView'){
                     $liveNamespaceAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("live transaction namespace contract caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Assert-SealedLiveTransactionNamespaceJournalChildren'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Assert-SealedRegistryLiveTransactionJournalInventory'){
+                    $liveNamespaceJournalChildAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("live transaction namespace journal-child caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'Assert-SealedRegistryReservationSetsDisjoint'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
@@ -1359,9 +1367,15 @@ function Invoke-ProductionSeamAnalysis {
     if((@($lockOrderRecomputeAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLockOrderRecomputeOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed lock-order Recompute owner inventory changed')
     }
+    # The view is still the only production entry. It calls the journal inventory,
+    # and that inventory is the only caller of the journal child-name gate.
     $reviewedLiveNamespaceOwnerInventory=@('scripts/root-claims-registry-common.ps1:Get-SealedHomeAuthorityRegistryView')
     if((@($liveNamespaceAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed live transaction namespace contract owner inventory changed')
+    }
+    $reviewedLiveNamespaceJournalChildOwnerInventory=@('scripts/root-claims-registry-common.ps1:Assert-SealedRegistryLiveTransactionJournalInventory')
+    if((@($liveNamespaceJournalChildAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceJournalChildOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed live transaction namespace journal-child owner inventory changed')
     }
     $reviewedLiveNamespaceDisjointOwnerInventory=@(
         'scripts/root-claims-registry-common.ps1:Assert-SealedRegistryClaimAccept',
@@ -1426,7 +1440,8 @@ function Invoke-ProductionSeamAnalysis {
         @('Complete-SealedHeldCanonicalRecoveryRootRemainder','scripts/root-claims-registry-common.ps1'),
         @('Complete-SealedHeldCanonicalPrivateRootBootstrap','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedProposedClaimsForbiddenRootMatrix','scripts/root-claims-registry-common.ps1'),
-        @('Assert-SealedLiveTransactionNamespaceImmediateChildren','scripts/root-claims-registry-common.ps1'),
+        @('Assert-SealedRegistryLiveTransactionJournalInventory','scripts/root-claims-registry-common.ps1'),
+        @('Assert-SealedLiveTransactionNamespaceJournalChildren','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedRegistryReservationSetsDisjoint','scripts/root-claims-registry-common.ps1'),
         @('Get-SealedRegistryCanonicalSetupWindow','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedRegistryClaimAccept','scripts/root-claims-registry-common.ps1'),

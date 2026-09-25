@@ -3075,19 +3075,6 @@ function Assert-SealedRegistryReservationsDisjoint {
     }
 }
 
-function Assert-SealedLiveTransactionNamespaceImmediateChildren {
-    param(
-        [Parameter(Mandatory)][string]$TransactionId,
-        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$ImmediateChildren,
-        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$AllowedEntries
-    )
-    if ([string]$TransactionId -cnotmatch $script:SealedRegistryUuidPattern) { throw "live-transaction-namespace-id-invalid: $TransactionId" }
-    $allowed = @(Get-SealedRegistryOrdinalStrings -Values @($AllowedEntries))
-    foreach ($childName in @(Get-SealedRegistryOrdinalStrings -Values @($ImmediateChildren))) {
-        if ([string]$childName -cnotin $allowed) { throw "live-transaction-namespace-child-not-allowed: $TransactionId/$childName" }
-    }
-}
-
 function Test-SealedLiveTransactionNamespaceJournalChildName {
     param([Parameter(Mandatory)][string]$Name)
     if (@($script:SealedLiveTransactionJournalFixedEntriesV1) -ccontains [string]$Name) { return $true }
