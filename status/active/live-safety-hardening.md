@@ -5226,3 +5226,29 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
   `ValidationRouteTimeoutSeconds`——本轮候选（撤回 `live-recovery` 之后）的 kit 为 **41295 s / 38775 s**
   （审查时对 29955 合同算出的 41595 s 属撤回前那一版），启动用 43200 s（12 小时上限）即可；
   写死旧值的风险不成立。
+
+### C11 一次性身份 lab 门禁结果（2026-09-26，实现待完成项 2）
+
+在真正独立的 Windows Sandbox 身份内检出候选 `6866e62`（kit `1d0bd2c4…`，标签 `validation-c11-01`，
+宿主 SID 校验、create-new 证据目录、12 小时外层上限）：**route-result PASS，completion ExitCode 0**
+（01:12:49 +08:00 结束）。证据在 `tmp/lab-postaudit-14/evidence/validation-c11-01/`。
+
+- **11 个 gate 全绿**：powershell-syntax、pinned-tool-verify、build-generated-skills、secret-scan、
+  repository-doctor、generated-manifests-parity、env-build-list-status、validate-json-artifacts、
+  unified-test-runner、dangerous-tracked-files、clean-tracked-state。
+- **42 个套件 discovered=42、passed=42、failed=0、timed-out=0**，套件合计 9841 s（2h44m）。
+- **宿主非变更证据**：本轮在运行中与运行后各取一次 host-roots 快照
+  （`tmp/zc-review/host-roots-mid-c11.json`、`host-roots-post-c11.json`），两者**逐字节相同**——
+  `~/.codex/skills` 树哈希 `a61f289e…`、`.system` 仍为 `PRESENT-PROTECTED-NOT-READ`，
+  `~/.claude/skills`、`~/.agents/skills`、`%APPDATA%\reasonix\skills`、`%LOCALAPPDATA%\ai-agent-dotfiles`
+  均为 MISSING（本机未装）。guest 只映射 payload（只读）、cache（只读）与 evidence（可写）。
+- **关键对照**：这次是按**旧档**跑的（900/900/600），三只套件在 guest 里分别用 683.8 s / 549.9 s /
+  392.5 s 通过，`live-recovery` 599.1 s（占 900 s 的 67%）——**沙箱不是慢环境**，把三只套件杀在旧档上的是
+  CI 托管 runner。
+- **同码配对收紧因子**：C11 自己的 24 只未超时套件在 guest 里合计 **2047.0 s**（c6 那次是 1883.1 s），
+  与同一候选的 CI 墙钟配对后 `(5417−2400)/2047 = ` **≤1.47×**，比 c6 配对的 1.60× 更紧；三个下界
+  （1.31/1.46/1.60）不变。
+- **上一轮声明的证据缺口就此收口两条**：`canonical-production-seams` 在 post-rewrite 字节上是
+  **66 PASS**（`6866e62` 的 pin 改写后有产物了）；`sync` 129 与 `task-skills` 108 再次一致。
+  `root-claims-registry` 在 C11 上是 **936 PASS**（不是 947）——947 仍只见于提交说明，维持
+  「不可核对」的记录。
