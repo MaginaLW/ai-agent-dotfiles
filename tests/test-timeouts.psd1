@@ -7,11 +7,11 @@
         'automation-safety.tests.ps1' = 600
         'backup-receipt.tests.ps1' = 300
         'backup-recovery.tests.ps1' = 900
-        'live-recovery.tests.ps1' = 900
+        'live-recovery.tests.ps1' = 1200
         'approved-runner.tests.ps1' = 900
         'canonical-hard-kill.tests.ps1' = 5400
         'canonical-hard-kill-reap-semantics.tests.ps1' = 60
-        'canonical-command-result.tests.ps1' = 900
+        'canonical-command-result.tests.ps1' = 1800
         'canonical-production-seams.tests.ps1' = 600
         'canonical-mutation-blockers.tests.ps1' = 600
         'canonical-mutation-parent-lease.tests.ps1' = 420
@@ -27,8 +27,8 @@
         'repository-policy.tests.ps1' = 600
         'repository-validation.tests.ps1' = 600
         'root-claims-registry.tests.ps1' = 3600
-        'harness-env.tests.ps1' = 600
-        'harness-authority.tests.ps1' = 900
+        'harness-env.tests.ps1' = 1200
+        'harness-authority.tests.ps1' = 1500
         'harness-multiplatform.tests.ps1' = 210
         'harness-profile.tests.ps1' = 90
         'skills-import.tests.ps1' = 1200

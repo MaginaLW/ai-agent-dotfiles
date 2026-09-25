@@ -1,6 +1,7 @@
 # Static, tracked partition of the repository root test suites across the three CI
 # shard jobs (.github/workflows/validate.yml jobs validate-tests-1..3). Owner decision
-# 2026-09-19: the proven 42-suite budget (RequiredJobTimeoutSeconds 27555 s = 459.25 min)
+# 2026-09-19: the proven 42-suite budget (RequiredJobTimeoutSeconds 29955 s = 499.25 min
+# after the 2026-09-26 re-derivation; 27555 s = 459.25 min at the 2026-09-19 decision)
 # structurally cannot fit one GitHub hosted-runner job (360-minute ceiling), so the
 # single-job contract is replaced by this partition; the earlier "do not shard" line in
 # docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md Task 3 is superseded.
@@ -23,6 +24,15 @@
 #      timeout-minutes x 60 and below 21600 s, and keep the measured wall clocks roughly
 #      even (canonical-hard-kill stays alone-ish in shard 1 per the owner decision).
 #   4. Raise the corresponding job's timeout-minutes only when its inequality breaks.
+#
+# Budget re-derivation 2026-09-26 (shard 3 only; evidence in docs/CI_FAILURE_RULES.md R2):
+# shard 3's job ran 5417 s on run #147 and killed canonical-command-result (900 s),
+# harness-authority (900 s) and harness-env (600 s) at their budgets, while the other 24
+# suites finished in ~2717-2817 s against 1883 s of measured clean-run time, i.e. this
+# runner costs ~1.4-1.5x the clean local/guest wall clock (shard 2, by contrast, ~1.18x).
+# The four tightest shard-3 suites were re-tiered from five clean 42-suite gate runs
+# (555-689 s canonical-command-result, 439-561 s harness-authority, 322-410 s harness-env,
+# 477-598 s live-recovery) with the measured factor and run-to-run variance applied.
 @{
     '1' = @(
         'automation-safety.tests.ps1'              # 600
@@ -47,19 +57,19 @@
         'agent-dotfiles.tests.ps1'                 # 150
         'approved-runner.tests.ps1'                # 900
         'approved-runner-exact-byte.tests.ps1'     # 120
-        'canonical-command-result.tests.ps1'       # 900
+        'canonical-command-result.tests.ps1'       # 1800
         'canonical-production-seams.tests.ps1'     # 600
         'config-sync.tests.ps1'                    # 90
         'doctor.tests.ps1'                         # 60
-        'harness-authority.tests.ps1'              # 900
-        'harness-env.tests.ps1'                    # 600
+        'harness-authority.tests.ps1'              # 1500
+        'harness-env.tests.ps1'                    # 1200
         'harness-multiplatform.tests.ps1'          # 210
         'harness-profile.tests.ps1'                # 90
         'home-authority.tests.ps1'                 # 180
         'json-artifact-exact-byte.tests.ps1'       # 120
         'json-canonicalization.tests.ps1'          # 120
         'live-plan.tests.ps1'                      # 180
-        'live-recovery.tests.ps1'                  # 900
+        'live-recovery.tests.ps1'                  # 1200
         'path-safety.tests.ps1'                    # 120
         'powershell-syntax-gate.tests.ps1'         # 90
         'private-path-boundary.tests.ps1'          # 120

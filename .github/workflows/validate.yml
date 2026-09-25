@@ -41,7 +41,7 @@ jobs:
 
       # Reviewed operational decision (owner, 2026-09-19): CI passes the test-only
       # -SkipGates parameter to exclude the unified-test-runner gate from this job.
-      # The proven 42-suite budget (RequiredJobTimeoutSeconds 27555 s = 459.25 min)
+      # The proven 42-suite budget (RequiredJobTimeoutSeconds 29955 s = 499.25 min)
       # exceeds the 360-minute GitHub hosted-runner job ceiling, so the suite matrix
       # runs in the parallel validate-tests-1..3 shard jobs below instead (static
       # partition: tests/test-shards.psd1; per-shard contract asserted by
@@ -170,9 +170,11 @@ jobs:
   validate-tests-3:
     name: Validate test shard 3 of 3
     runs-on: windows-latest
-    # Shard 3 budget 9675 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
-    # = 10095 s = 168.25 min; headroom to 195 min, below the 360-minute platform ceiling.
-    timeout-minutes: 195
+    # Shard 3 budget 12075 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
+    # = 12495 s = 208.25 min; headroom to 230 min, below the 360-minute platform ceiling.
+    # Re-tiered 2026-09-26 (R2): run #147 killed three shard-3 suites exactly at their
+    # budgets while this runner costs ~1.4-1.5x clean-run wall clock.
+    timeout-minutes: 230
 
     steps:
       - name: Checkout
