@@ -89,9 +89,32 @@ jobs:
         run: |
           $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-1-summary.json'
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 1
-          if ($LASTEXITCODE -ne 0) { throw "Test shard 1 failed with exit code $LASTEXITCODE." }
-          $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
-          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 1 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered)." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 1
+          $shardExitCode = $LASTEXITCODE
+          # The job log is not readable without repository admin rights, so the failure
+          # annotation carries the failing suite ids and their first failing assertion
+          # lines. Only suite ids, states, counts and assertion text leave this step;
+          # paths are reduced to placeholders and nothing is uploaded.
+          $shardReport = ''
+          if (Test-Path -LiteralPath $summaryPath) {
+            $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+            $failingSuites = @($summary.Suites | Where-Object { [string]$_.State -cne 'passed' })
+            $shardReport = (@($failingSuites | ForEach-Object {
+              $assertionLines = @(([string]$_.Stdout -split "`n" | Where-Object { $_ -match '^\s*FAIL' } | Select-Object -First 3) | ForEach-Object { $_.Trim() })
+              'suite {0} state={1} exit={2} timed-out={3} :: {4}' -f $_.SuiteId, $_.State, $_.ExitCode, $_.TimedOut, ($assertionLines -join ' / ')
+            }) -join ' ;; ').Trim()
+            foreach ($redaction in @(
+              [pscustomobject]@{ Value = [string]$env:USERPROFILE; Placeholder = '<profile>' },
+              [pscustomobject]@{ Value = [string]$env:RUNNER_TEMP; Placeholder = '<runner-temp>' },
+              [pscustomobject]@{ Value = [string]$env:GITHUB_WORKSPACE; Placeholder = '<workspace>' }
+            )) {
+              if (-not [string]::IsNullOrWhiteSpace($redaction.Value)) { $shardReport = $shardReport.Replace($redaction.Value, $redaction.Placeholder) }
+            }
+            if ($shardReport.Length -gt 900) { $shardReport = $shardReport.Substring(0, 900) + '...' }
+            if ($shardReport) { Write-Host "shard 1 failing suites: $shardReport" }
+          }
+          if ($shardExitCode -ne 0) { throw "Test shard 1 failed with exit code $shardExitCode. $shardReport" }
+          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 1 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered). $shardReport" }
 
   validate-tests-2:
     name: Validate test shard 2 of 3
@@ -125,9 +148,32 @@ jobs:
         run: |
           $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-2-summary.json'
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 2
-          if ($LASTEXITCODE -ne 0) { throw "Test shard 2 failed with exit code $LASTEXITCODE." }
-          $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
-          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 2 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered)." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 2
+          $shardExitCode = $LASTEXITCODE
+          # The job log is not readable without repository admin rights, so the failure
+          # annotation carries the failing suite ids and their first failing assertion
+          # lines. Only suite ids, states, counts and assertion text leave this step;
+          # paths are reduced to placeholders and nothing is uploaded.
+          $shardReport = ''
+          if (Test-Path -LiteralPath $summaryPath) {
+            $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+            $failingSuites = @($summary.Suites | Where-Object { [string]$_.State -cne 'passed' })
+            $shardReport = (@($failingSuites | ForEach-Object {
+              $assertionLines = @(([string]$_.Stdout -split "`n" | Where-Object { $_ -match '^\s*FAIL' } | Select-Object -First 3) | ForEach-Object { $_.Trim() })
+              'suite {0} state={1} exit={2} timed-out={3} :: {4}' -f $_.SuiteId, $_.State, $_.ExitCode, $_.TimedOut, ($assertionLines -join ' / ')
+            }) -join ' ;; ').Trim()
+            foreach ($redaction in @(
+              [pscustomobject]@{ Value = [string]$env:USERPROFILE; Placeholder = '<profile>' },
+              [pscustomobject]@{ Value = [string]$env:RUNNER_TEMP; Placeholder = '<runner-temp>' },
+              [pscustomobject]@{ Value = [string]$env:GITHUB_WORKSPACE; Placeholder = '<workspace>' }
+            )) {
+              if (-not [string]::IsNullOrWhiteSpace($redaction.Value)) { $shardReport = $shardReport.Replace($redaction.Value, $redaction.Placeholder) }
+            }
+            if ($shardReport.Length -gt 900) { $shardReport = $shardReport.Substring(0, 900) + '...' }
+            if ($shardReport) { Write-Host "shard 2 failing suites: $shardReport" }
+          }
+          if ($shardExitCode -ne 0) { throw "Test shard 2 failed with exit code $shardExitCode. $shardReport" }
+          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 2 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered). $shardReport" }
 
   validate-tests-3:
     name: Validate test shard 3 of 3
@@ -161,6 +207,29 @@ jobs:
         run: |
           $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-3-summary.json'
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 3
-          if ($LASTEXITCODE -ne 0) { throw "Test shard 3 failed with exit code $LASTEXITCODE." }
-          $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
-          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 3 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered)." }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 3
+          $shardExitCode = $LASTEXITCODE
+          # The job log is not readable without repository admin rights, so the failure
+          # annotation carries the failing suite ids and their first failing assertion
+          # lines. Only suite ids, states, counts and assertion text leave this step;
+          # paths are reduced to placeholders and nothing is uploaded.
+          $shardReport = ''
+          if (Test-Path -LiteralPath $summaryPath) {
+            $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+            $failingSuites = @($summary.Suites | Where-Object { [string]$_.State -cne 'passed' })
+            $shardReport = (@($failingSuites | ForEach-Object {
+              $assertionLines = @(([string]$_.Stdout -split "`n" | Where-Object { $_ -match '^\s*FAIL' } | Select-Object -First 3) | ForEach-Object { $_.Trim() })
+              'suite {0} state={1} exit={2} timed-out={3} :: {4}' -f $_.SuiteId, $_.State, $_.ExitCode, $_.TimedOut, ($assertionLines -join ' / ')
+            }) -join ' ;; ').Trim()
+            foreach ($redaction in @(
+              [pscustomobject]@{ Value = [string]$env:USERPROFILE; Placeholder = '<profile>' },
+              [pscustomobject]@{ Value = [string]$env:RUNNER_TEMP; Placeholder = '<runner-temp>' },
+              [pscustomobject]@{ Value = [string]$env:GITHUB_WORKSPACE; Placeholder = '<workspace>' }
+            )) {
+              if (-not [string]::IsNullOrWhiteSpace($redaction.Value)) { $shardReport = $shardReport.Replace($redaction.Value, $redaction.Placeholder) }
+            }
+            if ($shardReport.Length -gt 900) { $shardReport = $shardReport.Substring(0, 900) + '...' }
+            if ($shardReport) { Write-Host "shard 3 failing suites: $shardReport" }
+          }
+          if ($shardExitCode -ne 0) { throw "Test shard 3 failed with exit code $shardExitCode. $shardReport" }
+          if ([int]$summary.Counts.Passed -ne [int]$summary.Counts.Discovered) { throw "Test shard 3 summary has passed $($summary.Counts.Passed) != discovered $($summary.Counts.Discovered). $shardReport" }
