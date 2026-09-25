@@ -5034,3 +5034,20 @@ pin 要求 `Assert-SealedLiveTransactionNamespaceImmediateChildren` 的唯一生
 pin 的属主清单更新为新的调用关系（需核对新的调用边确在 `Get-SealedHomeAuthorityRegistryView` 契约内）；
 (b) 若旧断言仍有职责（例如仍需逐子项名字级校验），则应把新路径接回它、而不是并列两套。**在 (a)/(b) 定案并
 seams 全绿之前，C10 不可接受**；本提交只落“整合 + 两处已核实 pin + 记录”，不声称候选可接受。
+
+### 里程碑：canonical-rollback 路线在 C10 上通过（2026-09-25）
+
+在 C10 整合（`d5c242f`，kit `266bc5b5…`，lab-postaudit-13）上，**`recovery-canonical-rollback` 路线
+首次 PASS**——`route-result.json`：`Result=PASS`、`Verification='public recovery, schema-valid residual seed,
+terminal/state/receipt/replay checks'`、`Synthetic=true`、`ActualHardKill=false`
+（hard-kill 矩阵仍留给候选全量门禁，与既有约定一致）。该路线自本轮开始就在其“源 promote Apply”处失败：
+先是 blanket 的“Backups 根非空即拒”，随后是 live-transactions 空允许表导致的
+`live-transaction-namespace-child-not-allowed`。C10 的两处修复（收据字节绑定 + journal 合同验收）同时
+解除了这两个拒绝，且该路线验证的是**公开恢复入口**产生的终态、state、receipt 与重放检查。
+
+至此 **S4 的 14 条路线全部通过**（13 条在 C6 上、`canonical-rollback` 在 C10 上）：chain、changed-rollback、
+task、authority 五标签、retirement、canonical-abandon/finalize、live-abandon/rollback/finalize、
+canonical-rollback。
+
+**仍未完成**：seam 合同的第三处属主清单 pin（lane I 的死函数所致）正由 grok J 路定方向并落地；随后需在
+最终 tip 上跑 lab 全量门禁（11 gate + 42 套件）与 CI，才谈候选接受与 S5。
