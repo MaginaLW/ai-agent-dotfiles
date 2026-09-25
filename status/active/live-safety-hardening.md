@@ -5114,3 +5114,104 @@ grok J 路（26 turn 内完成，本轮唯一在预算内交付完整报告的�
 lab 证据）；`tmp/post-audit-execution/`（seam 清单与 delta、受影响套件证据、候选指纹）；`tmp/fixture-promote-repro.ps1`
 （两处阻断的夹具差分复现）；grok lane 的原始流与截断记录在 `%USERPROFILE%\.zcode\cli\exec\...`（一次性 checkout
 `D:\Reposi-agent-dotfiles-grok-*`、`-wt-c*` 可清理）。
+
+## 2026-09-26 CI 分片 3 预算重估（续作窗口）
+
+承接[收尾：本轮完成情况与待完成项目](#收尾本轮完成情况与待完成项目2026-09-26)的第 1 项——唯一剩余的
+CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62` 之后的两笔文档提交），
+工作区干净；本轮改动只落在测试预算合同面，不改产品脚本。
+
+### 定因（只用可得证据）
+
+- CI run [#147](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36146730327)（`6866e62`）：
+  gates 作业 173 s、shard 1 4018 s、shard 2 3668 s 全绿；shard 3 的 `Run test shard 3 of 3` 步骤
+  14:20:04Z→15:50:21Z = **5417 s**，注解 `discovered=27 passed=24 failed=0 timed-out=3`，
+  被杀的是 `canonical-command-result`（900 s 档）、`harness-authority`（900 s 档）、
+  `harness-env`（600 s 档）——**三者都打满预算被杀，不是断言失败**。
+- CI 端**逐套件耗时不可得**：job 日志 API 实测返回 403 `Must have admin rights to Repository`，
+  与工作流里「日志不可读、改走注解通道」的既有注释一致。
+- 倍率只能给**区间**，不能当已测定的点值（独立审查 §2）：job 日志不可得，分片级墙钟又被两个未知量
+  干扰——runner 内部非套件时间，以及被 tree-kill 的套件实际墙钟高于其档位（`Invoke-OneTestSuite`
+  包住原生 runner，超时后还要等 Job 终止与管道排空）。能独立成立的只有：
+  - **三个下界**（被杀 + 五次干净实测最大值）：`canonical-command-result` ≥1.31（689 s 被杀于
+    900）、`harness-env` ≥1.46（410 s 被杀于 600）、`harness-authority` ≥1.60（561 s 被杀于 900）。
+    注意 `561 × 1.5 = 842 < 900`——「最大实测 × 1.5」**解释不了** authority 为什么被杀。
+  - **残差上界**：其余 24 个套件在 5417 − 2400（被杀档位）− 非套件预算 后 ≤3017 s，对干净合计
+    1883 s ⇒ ≤~1.6×；同 run 的 shard 2 同法 ~1.18×（其重套件是 CPU 密集而非 spawn 密集）。
+- 五次干净实测（C2/C3/C4/C6 与 `validation-01` 的 42/42 gate，取最大值）：`canonical-command-result`
+  555/557/666/689/622 s、`harness-authority` 439/441/556/561/515 s、`harness-env` 322/324/388/410/381 s、
+  `live-recovery` 477/477/537/598/574 s。
+
+### 改动（合同面；修正后提交见下）
+
+| 套件 | 旧预算 | 新预算 | 依据 |
+|---|---:|---:|---|
+| `canonical-command-result.tests.ps1` | 900 | 1800 | CI 打满被杀；下限 1.31、残差上界 ~1.6，新档约为干净最大值的 2.6 倍 |
+| `harness-authority.tests.ps1` | 900 | 1500 | CI 打满被杀，下限 1.60（三者最高） |
+| `harness-env.tests.ps1` | 600 | 1200 | CI 打满被杀，下限 1.46 |
+
+`live-recovery`（477–598 s，对 900 s 档占用 ≤66%）经独立审查判定**不属越档**，**保持 900 s**：
+本仓历史上「接近预算」的例子是 94% 与 88%，用别套件的超时给它加预算不符合 R2 的「按该套件自己的
+实测与 CI 墙钟定档」。该套件连同上限仍在的 `backup-recovery`（shard 2，占用 58–77%，该片倍率
+~1.18×）列为后续观察项。
+
+同步：shard 3 合同秒数 10095→**12195**（168.25→203.25 分钟），作业 `timeout-minutes` 195→**230**
+（合同之上余量仍为 1605 s，与「只为三个被杀套件加 35 分钟」一致，仍低于 360 分钟平台上限）；
+聚合 `RequiredJobTimeoutSeconds` 27555→**29655**；`tests/test-shards.psd1` 头与逐行注释、
+`.github/workflows/validate.yml` 两处注释、`docs/CI_FAILURE_RULES.md` 的 R2 证据段与 §4 现行数字
+一并更新，并写明「打满预算被杀、倍率只有下界与残差上界、日志不可得」。**分片 1/2 未触不等式，
+未改动**。
+
+### 检查
+
+- `tests/test-runner.tests.ps1`：**PASS**（修正后在 shard 3 上为 13800 > 12195、低于 21600、
+  三片预算和等于未分片预算）。
+- `scripts/check-powershell-syntax.ps1` 180 文件 exit 0；`scripts/scan-secrets.ps1` 无阻断项；
+  `git diff --check` 干净。
+- 候选：第一版提交 `c962f41`（含 `live-recovery` 上调）经审查判为 1 项阻断，修正后候选为其后继提交
+  （见「独立审查」一节的结论与处置）。
+- 未跑：本机全量 `-All`（等一次性身份 lab 空出机器后按需执行）、真实 Apply。
+
+### CI 注解与因子推导的独立取证（2026-09-26）
+
+- 上一轮记录里引用的 shard 3 注解原文，本轮**从 GitHub 独立取回**：
+  `GET /repos/MaginaLW/ai-agent-dotfiles/check-runs/108109648278/annotations` 返回 200，
+  含 `discovered=27 passed=24 failed=0 timed-out=3 failing=[canonical-command-result.tests.ps1:timed-out:exit=-1,
+  harness-authority.tests.ps1:timed-out:exit=-1, harness-env.tests.ps1:timed-out:exit=-1]`
+  （原始响应存 `tmp/zc-ci/annotations-shard3.json`，非入库材料）。job 日志仍是 403 admin-only，
+  因此 5417 s 步骤墙钟与 per-suite 预算事实成立，逐套件 CI 耗时确实不可得。
+- 分片 3 的 24 个未超时套件在干净环境合计 1883 s（五次 gate 的逐套件实测之和）；5400 s 档的
+  `canonical-hard-kill` 与 3600 s 档的 `root-claims-registry` 在 shard 1/2，不在这个分母里，
+  所以残差上界 ≤~1.6× 只适用于本片套件组合；shard 2 的 ~1.18× 来自同一 run 的 3668 s 与 2862 s
+  干净合计（其重套件为 CPU 密集）。这些是**边界**，不是 runner 倍率的点估计（见上节审查 §2）。
+
+### 独立审查（grok 两路，2026-09-26）
+
+- **本轮改动的对抗性审查**（grok 4.7，xhigh，一次性检出 `D:\Repos\ai-agent-dotfiles-z4` @ `c962f41`
+  与 `D:\Repos\ai-agent-dotfiles-z1`，两路独立）：结论 **阻断 1 项、非阻断 5 项**。
+  1. **阻断（已修）**：`live-recovery` 的 900→1200 上调不成立——按同一公式 `598 × 1.5 = 897 < 900`，
+     该套件在 CI 上并未被杀，用别套件的超时给它加预算越出 R2 的「按该套件自己的实测与 CI 墙钟定档」，
+     且它正好是作业余量从 1605 s 掉到 1305 s 的全部来源。**处置：撤回该上调**，合同回到 12195 s、
+     余量回到 1605 s，该套件列为观察项（见上节）。
+  2. **非阻断（接受为后续项）**：R2 里把倍率写成区间并写明「authority 的超时高于最大干净实测 ×1.5」；
+     三个新档位偏保守（env 900、canonical 1500 是更贴数字的候选，但删失数据无上界，留宽不阻断）；
+     失败注解加 `DurationMilliseconds`（受 700 字上限约束）以便下次不再做减法；lab 前核对
+     `prepare.ps1` 是现算还是写死超时（本轮实测为现算，见下）；文件头「proven 29655」尚无一次绿 CI 证明。
+  3. 其余核对结论：shard 1/2 确实不需要改动（未触不等式）；`27555`/`10095`/`195` 只留在带日期的历史
+     叙述里；`tests/test-runner.tests.ps1` 不写死这些数字，按 psd1 与工作流现算。
+- **上一轮四项声明的证据强度审计**（grok 4.7，xhigh，检出 `D:\Repos\ai-agent-dotfiles-z2` @ `23752e6`）：
+  四项修复都在当前树里，但**证据强度不同**，主 agent 逐项复核了它的数字：
+  - `sync` 129 与 `task-skills` 108 有 lab 产物支持：本轮直接数五次 gate summary 的 `PASS` 行——
+    sync 127（C2）/129（C3、C4、C6），task-skills 四次均 108。
+  - `root-claims-registry` 的 **947 在 lab 产物里找不到**：C2/C3/C4/C6 的 stdout 均为 893 条
+    `PASS`，`d5c242f`/`6866e62` 的 947 只见于提交说明。
+  - `seams` 的 **post-rewrite 66 尚无产物**：C2/C4/C6 的 `Results: 66 passed, 0 failed` 都早于
+    `6866e62` 的 pin 改写；C11 的 gate（in flight）会给这份 stdout。
+  - 与 `000001.json` 因果绑定的断言在 `tests/root-claims-registry.tests.ps1:5417-5423`，不在 seams；
+    seams 的 66 只证明调用边 pin 仍绿。
+  这些不改动上轮的修复事实与回归断言位置，只把「已核对的数字」与「仅提交说明的数字」分开记录，
+  避免后续引用时把提交说明当作运行证据。
+- **lab 外层超时的核对**（审查非阻断项 4）：`tmp/post-audit-lab-kit/prepare.ps1` 由
+  `tests/test-timeouts.psd1` **现算** `MinimumValidationTimeoutSeconds` 与
+  `ValidationRouteTimeoutSeconds`——新档位下 C12 kit 分别为 41595 s / 39075 s，启动用 43200 s
+  （12 小时上限）即可；写死旧值的风险不成立。

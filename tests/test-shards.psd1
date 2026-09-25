@@ -27,12 +27,14 @@
 #
 # Budget re-derivation 2026-09-26 (shard 3 only; evidence in docs/CI_FAILURE_RULES.md R2):
 # shard 3's job ran 5417 s on run #147 and killed canonical-command-result (900 s),
-# harness-authority (900 s) and harness-env (600 s) at their budgets, while the other 24
-# suites finished in ~2717-2817 s against 1883 s of measured clean-run time, i.e. this
-# runner costs ~1.4-1.5x the clean local/guest wall clock (shard 2, by contrast, ~1.18x).
-# The four tightest shard-3 suites were re-tiered from five clean 42-suite gate runs
-# (555-689 s canonical-command-result, 439-561 s harness-authority, 322-410 s harness-env,
-# 477-598 s live-recovery) with the measured factor and run-to-run variance applied.
+# harness-authority (900 s) and harness-env (600 s) at their budgets. CI per-suite
+# durations are unavailable (job log API is admin-only), so the runner factor can only
+# be bounded: the three kills prove factor >= 1.31 / 1.46 / 1.60 respectively against the
+# five clean 42-suite gate runs (555-689 s / 322-410 s / 439-561 s), and the residual
+# estimate for the other 24 suites (<= 3017 s against 1883 s clean) bounds it by ~1.6x.
+# The three killed suites were re-tiered to ~2x their clean maxima; live-recovery
+# (477-598 s, <= 66% of its old tier) was considered and deliberately left at 900 s
+# because no measurement shows it near its tier.
 @{
     '1' = @(
         'automation-safety.tests.ps1'              # 600
@@ -69,7 +71,7 @@
         'json-artifact-exact-byte.tests.ps1'       # 120
         'json-canonicalization.tests.ps1'          # 120
         'live-plan.tests.ps1'                      # 180
-        'live-recovery.tests.ps1'                  # 1200
+        'live-recovery.tests.ps1'                  # 900
         'path-safety.tests.ps1'                    # 120
         'powershell-syntax-gate.tests.ps1'         # 90
         'private-path-boundary.tests.ps1'          # 120

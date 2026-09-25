@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-24 (current-state entry only)
+Last updated: 2026-09-26 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -40,11 +40,20 @@ Execution is authorized and S0-S2 are closed. Four release-blocking defects have
 independently reviewed and proven end to end: the retirement staleness comparison, the two
 task-overlay gates, the authority backup-receipt contract and the live-transaction namespace
 placeholder. All fourteen S4 mutation routes pass, the disposable-identity gate is green (11 gates,
-42 of 42 suites) on the candidates that carried those fixes, and CI on the current candidate passes
-the gates and two of three test shards - the remaining shard fails only because three suites exceed
-their per-suite budgets on the runner. No candidate is accepted yet and no acceptance record exists;
-the pending items and their evidence are listed under "收尾：本轮完成情况与待完成项目" in the
-activity record. See the
+42 of 42 suites) on the candidates that carried those fixes. The only remaining CI blocker was the
+shard-3 suite budgets: run #147 ran that shard for 5417 s and killed `canonical-command-result`,
+`harness-authority` and `harness-env` exactly at their 900/900/600 s tiers (the annotation was
+re-fetched through the check-runs API this window; the job log API stays admin-only, so the runner
+factor is only bounded - the three kills give lower bounds of 1.31/1.46/1.60 and the residual for
+the surviving 24 suites bounds it by ~1.6x). The 2026-09-26 change re-tiers exactly those three
+suites to 1800/1500/1200, lifts shard 3's contract to 12195 s with a 230-minute job timeout
+(headroom unchanged at 1605 s), leaves shards 1 and 2 untouched, and leaves `live-recovery` at
+900 s after an independent review showed no measurement puts it near its tier. That change is a
+successor to `c962f41` on `codex/post-audit-c12` and is its own candidate: `validation-c11-01`
+(candidate `6866e62`) was still running when it landed, so C11's lab result is evidence for its own
+bytes only and the new candidate needs its own lab and CI run. No candidate is accepted yet and no
+acceptance record exists; the pending items and their evidence are listed under
+"收尾：本轮完成情况与待完成项目" in the activity record. See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries, actual validation and the residual items left open. No new candidate has been accepted.
 

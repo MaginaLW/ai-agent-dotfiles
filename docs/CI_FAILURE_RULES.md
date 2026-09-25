@@ -87,7 +87,7 @@ SHA 反复失联才升级为资源问题排查，并在记录里写清是重跑�
   can run for up to 6 hours of execution time. If a job reaches this limit, the job is terminated
   and fails.」——托管 runner 的作业上限是 **360 分钟**。旧结构里单一作业声明 `timeout-minutes: 460`
   高于平台上限，而已证预算合计本就放不进一个作业（2026-09-19 拆分时为 459.25 分钟 /
-  27555 秒，2026-09-26 按 R2 重算为 499.25 分钟 / 29955 秒）；所有者已裁决**拆分测试矩阵**：
+  27555 秒，2026-09-26 按 R2 重算为 494.25 分钟 / 29655 秒）；所有者已裁决**拆分测试矩阵**：
   `validate-gates`（非套件门禁与产物链，orchestrator 以
   test-only `-SkipGates unified-test-runner` 运行，这是该参数的一次受评审的 CI 用法）+
   `validate-tests-1..3`（静态分区 `tests/test-shards.psd1`，按套件预算配平，canonical-hard-kill
@@ -116,15 +116,23 @@ harness-profile、live-recovery、sync、task-skills 各 1。
 （`Run test shard 3 of 3` 步骤 14:20:04Z→15:50:21Z = 5417 s，`timeout-minutes: 195`）注解为
 `discovered=27 passed=24 failed=0 timed-out=3`，被杀的是 `canonical-command-result`（900 s 档）、
 `harness-authority`（900 s 档）、`harness-env`（600 s 档）——三者都是**打满预算被杀**，不是断言
-失败。CI 端逐套件耗时不可得（job 日志 API 需 admin 权限，403），因此以**分片级**墙钟配对**干净
-环境**实测来定因子：C2/C3/C4/C6 与 `validation-01` 五次 42/42 一次性身份 gate 给出逐套件实测，
-shard 3 的 24 个未超时套件在该 runner 上约 2717–2817 s，对应干净环境 1883 s，即 **~1.4–1.5×**；
-同 run 的 shard 2 为 ~1.18×（该片重套件是 CPU 密集而非 spawn 密集）。据此把 shard 3 最紧的四个
-套件重新定档：`canonical-command-result` 900→1800、`harness-authority` 900→1500、
-`harness-env` 600→1200、`live-recovery` 900→1200（后者五次实测 477–598 s，对 900 s 档占用
-53–66%，按同一因子属于下一次红灯候选）。shard 3 合同秒数 10095→12495（168.25→208.25 分钟），
-作业 `timeout-minutes` 195→230；分片 1/2 未触不等式，未改动。同 run 的 gates 作业 173 s、shard 1
-4018 s、shard 2 3668 s 均已绿。
+失败。该注解本轮由 check-runs API 独立取回（HTTP 200），job 日志仍 403 admin-only，所以**逐套件
+CI 耗时确实不可得**，倍率只能给区间、不能当已测定的点值：
+- **三个下界**（被杀 + 五次干净实测最大值，C2/C3/C4/C6 与 `validation-01`）：
+  `canonical-command-result` ≥1.31（689 s 被杀于 900）、`harness-env` ≥1.46（410 s 被杀于 600）、
+  `harness-authority` ≥1.60（561 s 被杀于 900）。注意 `561 × 1.5 < 900`——**「最大实测 × 1.5」解释不了
+  authority 为什么被杀**，真实倍率高于 1.5。
+- **残差上界**：20/24 个未超时套件在 5417 − 2400（被杀档位，tree-kill 另计）− 非套件预算 后剩余
+  ≤3017 s，对干净合计 1883 s ⇒ ≤~1.6×；shard 2 同法 ~1.18×（其重套件 CPU 密集而非 spawn 密集）。
+据此把**三个被杀套件**重新定档到干净最大值的约两倍：`canonical-command-result` 900→1800、
+`harness-authority` 900→1500、`harness-env` 600→1200。`live-recovery`（477–598 s，对 900 s 档
+占用 ≤66%）经独立审查判定**不属越档**，保持 900 s 不改——本仓历史上「接近预算」的例子是 94% 与
+88%，用别套件的超时给它加预算不符合 R2 的「按该套件自己的实测与 CI 墙钟定档」。shard 3 合同秒数
+10095→12195（168.25→203.25 分钟），作业 `timeout-minutes` 195→230（合同之上余量仍为 1605 s，
+与「只为三个被杀套件加 35 分钟」一致）；分片 1/2 未触不等式，未改动。同 run 的 gates 作业 173 s、
+shard 1 4018 s、shard 2 3668 s 均已绿。
+**未决**：新档位尚无一次绿 CI 证明；失败注解目前不含逐套件时长，建议后续把
+`DurationMilliseconds` 写进注解（受 700 字上限约束），否则下一次仍只能做减法。
 
 ### R3 占用/时序类红灯：先按同一 SHA 对照，复发就修夹具
 
@@ -340,9 +348,9 @@ root-claims 的原日志没有保留下被杀子进程的 stdout/stderr；不能
 
 - ~~**聚合预算已越过平台作业上限**（R2）~~ **已收口（2026-09-19，所有者裁决拆分测试矩阵）**：
   工作流改为 `validate-gates` + `validate-tests-1..3` 三路 shard（静态分区 `tests/test-shards.psd1`），
-  42 套件的已证预算 29955 秒（499.25 分钟；2026-09-19 拆分时为 27555 秒）被拆进三个并行作业，
-  每个作业的合同秒数（shard 预算 + 300 + 120）分别为 8700/9600/12495 秒
-  （145/160/208.25 分钟），对应声明 `timeout-minutes` 170/185/230，全部低于 360 分钟平台上限。
+  42 套件的已证预算 29655 秒（494.25 分钟；2026-09-19 拆分时为 27555 秒）被拆进三个并行作业，
+  每个作业的合同秒数（shard 预算 + 300 + 120）分别为 8700/9600/12195 秒
+  （145/160/203.25 分钟），对应声明 `timeout-minutes` 170/185/230，全部低于 360 分钟平台上限。
   现行规则见 R2。
 - ~~**2026-09-19 起 shard 工作流尚无一次真实 CI 运行样本**~~ **已有样本（2026-09-19/21）**：
   #128（`68e9903`）是旧单作业结构的最后一次运行，success——顺带关闭了 R3 的 e0bb9d7 复发项
