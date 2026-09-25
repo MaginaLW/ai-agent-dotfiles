@@ -4794,3 +4794,34 @@ accept matrix`（断言真实执行，未被 SKIP 掩盖）。该修改只在测
 C6 已推送，CI run `36057964164`（head `73ab686`）。C5 的 lab validation 仍在运行，其结论将被 C6 取代，
 仅作 C5 自身无回归的旁证；随后按计划在 C6 上重跑 S3 全量门禁，再进入 S4 的 retirement 与六条
 recovery 路线。
+
+### C6 gate pass, C7 CI diagnostic and the S4 route results so far (2026-09-25)
+
+**C6（`73ab686`）lab validation 通过**：completion ExitCode 0、route-result PASS、GateCount 11、
+SuiteCount 42、discovered/passed 全 42、failed 0、timed-out 0。跨卷探针按 witness 卷排除的修复在
+干净身份内得到验证。
+
+**C7 = `40e1034`（CI 诊断，仅 workflow）**：三个分片步骤在失败时读取自己的 `run-tests` 摘要，把
+失败套件的 SuiteId/State/ExitCode/TimedOut 与前三条 `FAIL` 断言行拼进抛出的消息——该文本会作为
+step 注释发布，从而绕开“日志需仓库管理员权限（API 403）”的限制。只输出套件 id、状态、计数与断言
+文本：profile/runner-temp/workspace 路径替换为占位符，报告截断到 900 字符，不上传任何文件；gates
+job、分片调用与超时合同未改。本机验证：诊断片段对合成摘要输出形如
+`suite b.tests.ps1 state=failed exit=1 timed-out=False :: FAIL … at <profile>\x / …`；
+`test-runner` 72、`repository-policy` 99、`automation-safety` 44 全绿（workflow 断言仍成立）。
+C7 已推送，CI run `36075872772` 运行中；其分片 2 注释将给出此前缺失的失败套件名。
+
+**S4 路线在 C6 上（kit `5b182576…`，lab-postaudit-11）**：
+
+- `recovery-canonical-abandon` **PASS**（canonical 恢复路线首次运行即通过）。
+- `recovery-canonical-rollback` **失败**：在 `canonical-recovery-source-promote-apply` 步骤（该路线
+  用来构造“已提交的源事务”的公开 promote Apply）以 **`manual-recovery-required`** 退出，canonical
+  结果文档为 `LifecycleKind=no-transaction`、`Result=FAIL`，即**在开启事务之前**就被拒。决定性位置：
+  `scripts/canonical-transaction-common.ps1:1218-1226`（`Get-CanonicalSetupStatus`）——当
+  `transactionsRoot` 存在而 canonical 锁文件不存在时返回裸 `'manual-recovery-required'`；入口据此
+  拒绝。两种候选解释未定：(a) 锁文件在释放时被删除，于是“有历史事务、无锁文件”成了 setup 之后的
+  正常状态，该分类器会把任何后续 canonical 变更误判为需人工恢复（产品缺陷）；(b) guest 内 setup
+  之后锁文件的预期留存状态与 lab 前提不符（夹具/身份前提）。需要一次聚焦诊断（对同一 guest 内
+  `canonical status` 与锁文件的存活状态取证）。该路线保持未通过，其余路线继续。
+
+**仍在运行**：`retirement-retirement-c2-01`（08:50 起）与随后的 `canonical-finalize`、
+`live-abandon`、`live-rollback`、`live-finalize`；CI C7 三个分片。
