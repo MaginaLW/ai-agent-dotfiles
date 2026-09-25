@@ -5136,10 +5136,13 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
   - **三个下界**（被杀 + 五次干净实测最大值）：`canonical-command-result` ≥1.31（689 s 被杀于
     900）、`harness-env` ≥1.46（410 s 被杀于 600）、`harness-authority` ≥1.60（561 s 被杀于 900）。
     注意 `561 × 1.5 = 842 < 900`——「最大实测 × 1.5」**解释不了** authority 为什么被杀。
-  - **残差上界**：其余 24 个套件在 5417 − 2400（被杀档位）− 非套件预算 后 ≤3017 s，对干净合计
-    1883 s ⇒ ≤~1.6×；同 run 的 shard 2 同法 ~1.18×（其重套件是 CPU 密集而非 spawn 密集）。
-- 五次干净实测（C2/C3/C4/C6 与 `validation-01` 的 42/42 gate，取最大值）：`canonical-command-result`
-  555/557/666/689/622 s、`harness-authority` 439/441/556/561/515 s、`harness-env` 322/324/388/410/381 s、
+  - **残差上界**：其余 24 个套件在 `5417 − 2400 = 3017 s` 内跑完（不扣 `SetupAndNonSuiteBudgetSeconds`
+    ——那是津贴，不是这一步量到的开销），对干净配对 `validation-c6-02` 的 1883.1 s ⇒ **≤1.60×**。
+    换别的干净配对会明显移动这个上界：c2 的 1706 s ⇒ 1.77×、c4 的 2126 s ⇒ 1.42×、c3 的 2061 s ⇒ 1.46×
+    （c3 有失败套件、validation-01 有 5 只失败，两者只作参照）。同一次 c6 的 shard 2 为 `(3668−300)/2862` ≈ 1.18×。
+- 五次干净实测的机会：三次 `42/42` 全绿（c2、c4、c6），`validation-01` 为 37/42、c3 为 41/42；
+  被改的四只套件在五次里都通过（取五次最大值）：`canonical-command-result` 555/557/666/689/622 s、
+  `harness-authority` 439/441/556/561/515 s、`harness-env` 322/324/388/410/381 s、
   `live-recovery` 477/477/537/598/574 s。
 
 ### 改动（合同面；修正后提交见下）
@@ -5180,25 +5183,32 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
   harness-authority.tests.ps1:timed-out:exit=-1, harness-env.tests.ps1:timed-out:exit=-1]`
   （原始响应存 `tmp/zc-ci/annotations-shard3.json`，非入库材料）。job 日志仍是 403 admin-only，
   因此 5417 s 步骤墙钟与 per-suite 预算事实成立，逐套件 CI 耗时确实不可得。
-- 分片 3 的 24 个未超时套件在干净环境合计 1883 s（五次 gate 的逐套件实测之和）；5400 s 档的
+- 分片 3 的 24 个未超时套件在配对运行 `validation-c6-02` 里合计 1883.1 s（另四次分别为 1698/1706/2061/2126 s
+  ——`validation-01` 与 c3 各有失败套件，只作参照）；5400 s 档的
   `canonical-hard-kill` 与 3600 s 档的 `root-claims-registry` 在 shard 1/2，不在这个分母里，
   所以残差上界 ≤~1.6× 只适用于本片套件组合；shard 2 的 ~1.18× 来自同一 run 的 3668 s 与 2862 s
   干净合计（其重套件为 CPU 密集）。这些是**边界**，不是 runner 倍率的点估计（见上节审查 §2）。
 
-### 独立审查（grok 两路，2026-09-26）
+### 独立审查（grok 三路，2026-09-26）
 
-- **本轮改动的对抗性审查**（grok 4.7，xhigh，一次性检出 `D:\Repos\ai-agent-dotfiles-z4` @ `c962f41`
-  与 `D:\Repos\ai-agent-dotfiles-z1`，两路独立）：结论 **阻断 1 项、非阻断 5 项**。
+- **本轮改动的对抗性审查，两路独立**（grok 4.7 xhigh；检出 `D:\Repos\ai-agent-dotfiles-z4` @ `c962f41`
+  与 `D:\Repos\ai-agent-dotfiles-z1`）：第一路 **阻断 1、非阻断 5**；第二路（自写报告文件）**阻断 0、
+  非阻断 5**，两路在「live-recovery 越界」与「倍率不是点估计」上一致。
   1. **阻断（已修）**：`live-recovery` 的 900→1200 上调不成立——按同一公式 `598 × 1.5 = 897 < 900`，
-     该套件在 CI 上并未被杀，用别套件的超时给它加预算越出 R2 的「按该套件自己的实测与 CI 墙钟定档」，
-     且它正好是作业余量从 1605 s 掉到 1305 s 的全部来源。**处置：撤回该上调**，合同回到 12195 s、
-     余量回到 1605 s，该套件列为观察项（见上节）。
-  2. **非阻断（接受为后续项）**：R2 里把倍率写成区间并写明「authority 的超时高于最大干净实测 ×1.5」；
-     三个新档位偏保守（env 900、canonical 1500 是更贴数字的候选，但删失数据无上界，留宽不阻断）；
-     失败注解加 `DurationMilliseconds`（受 700 字上限约束）以便下次不再做减法；lab 前核对
-     `prepare.ps1` 是现算还是写死超时（本轮实测为现算，见下）；文件头「proven 29655」尚无一次绿 CI 证明。
-  3. 其余核对结论：shard 1/2 确实不需要改动（未触不等式）；`27555`/`10095`/`195` 只留在带日期的历史
-     叙述里；`tests/test-runner.tests.ps1` 不写死这些数字，按 psd1 与工作流现算。
+     该套件在 CI 上并未被杀，R2 要求按该套件自己的实测与 CI 墙钟定档，倍率不是配额；且它正好是作业
+     余量从 1605 s 掉到 1305 s 的全部来源。**处置：撤回该上调**，合同回到 12195 s、余量回到 1605 s，
+     该套件列为观察项（见上节）。
+  2. **两路共同确认**：分片求和、12195/13800/29655、不等式与 `<21600` 都成立；现行机器可读合同里
+     没有漏改的旧数字（`27555`/`10095`/`195` 只留在带日期的历史叙述里）；`tests/test-runner.tests.ps1`
+     不写死这些数字，按 psd1 与工作流现算；shard 1/2 的作业上限不需要动。
+  3. **倍率表述的更正（已改文档）**：不能扣掉 `SetupAndNonSuiteBudgetSeconds`（那是津贴不是这一步
+     量到的开销），也不该把 1.4–1.5× 写成 runner 的稳定倍率；能成立的是三个下界与一个上界
+     （见上节「定因」），配对换成 c2/c3/c4 会在 1.28–1.77× 之间移动。
+  4. **保留为后续项**：三个新档位偏保守（env 900、canonical 1500 是更贴数字的候选，但删失数据无上界，
+     留宽不阻断）；authority 的 1500 只能算删失下的判断（若只是略超 900 则偏宽，若挂起则仍不够，
+     挂起发现最多晚 15/10/10 分钟）；失败注解加 `DurationMilliseconds`（受 700 字上限约束）以便下次
+     不再做减法；文件头「proven 29655」尚无一次绿 CI 证明；`backup-recovery`（shard 2，520–692 s /
+     900 s 档）值得在下次 shard 2 墙钟里单独看。
 - **上一轮四项声明的证据强度审计**（grok 4.7，xhigh，检出 `D:\Repos\ai-agent-dotfiles-z2` @ `23752e6`）：
   四项修复都在当前树里，但**证据强度不同**，主 agent 逐项复核了它的数字：
   - `sync` 129 与 `task-skills` 108 有 lab 产物支持：本轮直接数五次 gate summary 的 `PASS` 行——
@@ -5211,7 +5221,8 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
     seams 的 66 只证明调用边 pin 仍绿。
   这些不改动上轮的修复事实与回归断言位置，只把「已核对的数字」与「仅提交说明的数字」分开记录，
   避免后续引用时把提交说明当作运行证据。
-- **lab 外层超时的核对**（审查非阻断项 4）：`tmp/post-audit-lab-kit/prepare.ps1` 由
+- **lab 外层超时的核对**（审查非阻断项）：`tmp/post-audit-lab-kit/prepare.ps1` 由
   `tests/test-timeouts.psd1` **现算** `MinimumValidationTimeoutSeconds` 与
-  `ValidationRouteTimeoutSeconds`——新档位下 C12 kit 分别为 41595 s / 39075 s，启动用 43200 s
-  （12 小时上限）即可；写死旧值的风险不成立。
+  `ValidationRouteTimeoutSeconds`——本轮候选（撤回 `live-recovery` 之后）的 kit 为 **41295 s / 38775 s**
+  （审查时对 29955 合同算出的 41595 s 属撤回前那一版），启动用 43200 s（12 小时上限）即可；
+  写死旧值的风险不成立。
