@@ -4935,3 +4935,24 @@ canonical-production-seams **66 PASS、exit 0**。
 **C9 = 本提交**；推送后按计划在 C9 上重跑 S3 全量门禁与 `canonical-rollback` 路线（该路线正是该缺陷的
 端到端证据），随后才是候选接受与 S5。仍未完成：CI 分片 2 的失败套件名（C8 的轻量诊断注释）、
 canonical 同类缺陷的投影设计实施（grok C 方案）、以及主 agent 对 D 路实现的安全性独立复核。
+
+### C9 路线结果与“第二道检查”定因窗口（2026-09-25）
+
+**C9（`ece7067`）上的 `canonical-rollback` 路线**：仍然失败在同一公开步骤
+`canonical-recovery-source-promote-apply`，但**公开 token 已改变**——从被压平的
+`manual-recovery-required`（`LifecycleKind=no-transaction`、`Result=FAIL`）变为
+**`home-authority-registry-manual-recovery-required`**。这说明：(1) token 压平修复生效，公开结果现在指向
+真实家族；(2) 原先“Backups 根非空即拒”的检查已被收据契约取代且**通过**；(3) registry view 内**另一道**
+检查在拒。包装点 `root-claims-registry-common.ps1:3833-3837` 会把内部消息包成该前缀，而公开 emitter 只发
+token，故内部消息需从原始异常取（正在由 grok H 路用夹具差分抓取）。
+路线自身的失败记录 `209-recovery-route-failed.json` 亦保留（`Synthetic: true`、`CoverageAccepted: false`）。
+
+**CI C8**：分片 1 成功、分片 2/3 失败；**失败注解仍只有 “Process completed with exit code 1”**——GitHub
+把 `shell: pwsh` 步骤的 `throw` 文本只写进日志（不可读），注解不带自定义消息。因此轻量诊断的文本对本会话
+不可用，正确通道是 GitHub 的 `::error title=...::<msg>` 工作流注解（会进入 annotations API）；该改动留到
+C9 的接受路径走完后再落，避免再换候选。
+
+**本窗口并行的 grok lane**：G（C9 收据契约的独立安全复核：fail-closed、双向子项校验、containment 绕过、
+TOCTOU/held-handle 语义、token 分支是否放宽调用方判定、隐私与覆盖缺口）；H（用夹具身份复现
+promote Apply 失败并抓取**未包装**的原始异常与抛点，给差分对照与最小修复方向，不实现）。
+两路各自一次性 checkout（`grok-g`/`grok-h`，均在 `ece7067`）。
