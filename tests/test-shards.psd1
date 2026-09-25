@@ -43,6 +43,14 @@
 # gate runs measured backup-recovery at 520-692 s (58-77% of the old tier), so the tier
 # is doubled to 1500 s the same way as the shard-3 kills; shard 2's job timeout already
 # covers 9780 + 300 + 120 = 10200 s at 185 minutes.
+#
+# live-recovery 2026-09-26, third pass: the first version of this change raised it to
+# 1200 s and the independent review withdrew that, because 598 x 1.5 = 897 s stayed under
+# its old 900 s tier - no measurement put it near the tier. Run #150 then killed it at
+# 900 s in shard 3 (`live-recovery.tests.ps1:timed-out`) while #148 (1200 s) and #149
+# (900 s) passed, so the suite now has its own kill record and the tier is re-raised to
+# 1200 s. Shard 3's job timeout goes 230 -> 235 minutes, which puts the contract-above
+# headroom back to 1605 s (12495 + 1605 = 14100 s) as the reviewer asked for.
 @{
     '1' = @(
         'automation-safety.tests.ps1'              # 600
@@ -79,7 +87,7 @@
         'json-artifact-exact-byte.tests.ps1'       # 120
         'json-canonicalization.tests.ps1'          # 120
         'live-plan.tests.ps1'                      # 180
-        'live-recovery.tests.ps1'                  # 900
+        'live-recovery.tests.ps1'                  # 1200
         'path-safety.tests.ps1'                    # 120
         'powershell-syntax-gate.tests.ps1'         # 90
         'private-path-boundary.tests.ps1'          # 120

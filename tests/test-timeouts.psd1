@@ -7,7 +7,7 @@
         'automation-safety.tests.ps1' = 600
         'backup-receipt.tests.ps1' = 300
         'backup-recovery.tests.ps1' = 1500
-        'live-recovery.tests.ps1' = 900
+        'live-recovery.tests.ps1' = 1200
         'approved-runner.tests.ps1' = 900
         'canonical-hard-kill.tests.ps1' = 5400
         'canonical-hard-kill-reap-semantics.tests.ps1' = 60
