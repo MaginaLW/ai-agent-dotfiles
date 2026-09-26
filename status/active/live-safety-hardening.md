@@ -5479,3 +5479,38 @@ canonical 行永不命中。另一条只读设计线（grok，一次性检出）
 打印每个被 pin 的字段值（count/digest/flags），随后按「逐值说明其移动可由本次改动解释」的规则替换
 17 条断言里的字面量，最后跑一次真套件验证（约 40 分钟）。重钉时必须确认语义项
 （每例 `RejectedForExpectedReason`、`ControlsValid`、`Valid`）仍然成立——那才是这些 pin 的安全属性。
+
+#### 重钉完成（2026-09-26 晚）：17 项自封 pin 已对齐当前字节
+
+在 `codex/hardkill-reseal`（`c731002`）上用既定 fixpoint 流程重钉控制器自封摘要，三轮收敛。
+只移动计数/摘要字面量；断言文本、mutant 清单、`Valid`/`Rejected`/`Accepted` 语义标志均未改。
+`scripts/**` 未改。
+
+**移动的 pin（旧→新）与一句话理由**
+
+| pin | 旧 → 新 | 理由 |
+|---|---|---|
+| prelude-row:9（`$script:hardKillReviewedLoadManifest` 赋值） | `fdccb438…` → `2a847380…` | 该 24 行 prelude 的第 9 句就是已重钉的受审文件哈希表，token fingerprint 随 `canonical-recovery-common` / `canonical-transaction-common` / `target-context-common` 的哈希字面量一起变 |
+| prelude-digest（4 处） | `f9cda248…` → `491820a8…` | 24 行 actual-prelude token 清单的 SHA-256；只有第 9 行变了。`ActualPreludeCount` 仍为 24 |
+| pre-section-region-digest | `d9195a41…` → `40430584…` | 主 try 的 27 句 pre-section 含 actual-prelude digest 断言，字面量移动后区域摘要跟着变 |
+| `Test-HardKillPreimageControllerTransportContract` | `18a17938…` → `c8cd3a97…` | 函数体含 prelude 行块与 digest pin |
+| `Test-HardKillPreimageControllerTransportContractMutations` | `d007ce26…` → `3f17bc5c…` | 函数体含两处 prelude digest pin |
+| function-inventory-digest | `87a198df…` → `815da107…` | 除 cleanup-gate 自身外的 name\|extent-hash 行摘要；上面两个 transport 函数的 extent 变了 |
+| cleanup-gate-self-digest | `2784f532…` → `1003d8ed…` | `Test-HardKillBehaviorCleanupBarrierContract` 规范化自摘要，随其内部函数 pin / inventory / main-try / top-level 字面量一起变 |
+| main-try-digest | `c798fcfe…` → `a6c3ba22…` | 外层 main try 的 extent；pre-section 里的 prelude digest 断言字面量变了 |
+| top-level-execution-digest | `60547558…` → `9e001242…` | 非函数顶层语句摘要，含受审哈希表赋值与 main try |
+| controller-surface-sha | `44892b73…` → `bc3eeaa0…` | 整份控制器 token fingerprint（自身 sha 置零） |
+
+未动：`ActualPreludeCount=24`、pre-section 计数 27、变异矩阵 302、合成对照 81、section-owner 哈希、受审文件哈希表（上一提交已对齐）。
+`live-transaction-common.ps1` 的 `Write-Warning` 不在 reviewed-load 清单里，没有带动 hard-kill pin。
+
+**语义标志**：302 个 typed mutant 仍全部 `Rejected` 且 `RejectedForExpectedReason`；81 个合成对照与 2 个 actual-prelude 对照仍 `Accepted`；`Valid` / `ControlsValid` / `ActualPreludeValid` / `ActualBaselineSatisfied` 仍为 true。没有「应当拒绝的 mutant 被接受」或反向的行为变化。先前 17 项失败里，3 项是过期摘要本身，其余 14 项是 cleanup/transport 门为红时 behavior-probe 未启动造成的连锁。
+
+**验证**
+
+- `pwsh -NoProfile -File tests/canonical-hard-kill.tests.ps1 -Section primitives` → exit 0，`Results: 95 passed, 0 failed`
+- `pwsh -NoProfile -File tests/canonical-hard-kill.tests.ps1` → exit 0，`Results: 318 passed, 0 failed`（约 2435 s）
+- `pwsh -NoProfile -File scripts/check-powershell-syntax.ps1` → exit 0（180 文件）
+- `git diff --check` 干净
+
+未解决的语义发现：无。Lab / CI 仍未跑（本候选尚未送审）。
