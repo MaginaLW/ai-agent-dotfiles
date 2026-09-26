@@ -5456,3 +5456,26 @@ canonical 行永不命中。另一条只读设计线（grok，一次性检出）
   文本打印这 17 项名称）；按 `tmp/reseal-hard-kill.ps1`（上一窗口的 fixpoint 工具，思路：逐轮重算
   文件哈希→函数 pin→函数清单摘要→自摘要，直到一轮无变化）适配本次改动重钉；重钉后须独立复核每个
   新值并说明其来源，再跑 lab 与 CI（本候选尚无 lab/CI 证据）。
+
+#### 重钉尝试（2026-09-26 下午）：工具已就绪，未完成
+
+**做到**：① 写了 AST 版探针生成器（`tmp/zc-review/make_hk_probe_ast.ps1`），只把「真表达式」里的
+`<属性链> -eq <整数>` / `-ceq '<hex>'` 包成 `Write-HardKillProbe`，把值打到 transcript；② 探针副本
+必须放在 `tests/` 下（`$PSScriptRoot` 决定 helper 与夹具路径），且必须把副本里三处
+`[IO.File]::ReadAllText($PSCommandPath)` 改指向**真文件**（套件会把自己的源码当受审控制器文本来
+校验）；③ 用这套改法跑出的探针副本**忠实复现了真套件的 105 passed / 17 failed**，说明插桩保语义。
+产物：`tmp/zc-review/hk-pin-sites.json`（378 个 pin 站点）、`hk-probe-transcript.txt`（约 110 万条
+探针行，清理时删除）、`hk-failing-pins.txt`（17 条失败断言名）。
+
+**没做到**：把 17 条失败断言的**新值**取出并重钉。原因：这些断言的值不是可以直接替换的字面量，
+而是**校验函数内部的清单产物**（例如 `Test-HardKillPreimageControllerTransportContract` 返回的
+`ActualPreludeCount`/`ActualPreludeDigest`、各 `...MutationCases.Count`、`...AcceptedControls.Count`），
+失败可能同时来自字面量不匹配与语义标志（`Valid`/`ControlsValid`/每例 `RejectedForExpectedReason`）。
+按行取值的自动收割会混入大量循环内条件（假阳性），而按失败断言作用域取值时需要把校验函数**单独**
+抽出来、以当前源码为输入重算——这一步没有做完。
+
+**接手的最短路径**（不必再跑整棵套件）：把套件里 `Test-HardKill*` 与它们互相调用的函数按 AST 抽成
+一个 harness，对当前受审源（真套件自身文本 + `scripts/canonical-*-common.ps1` 等）逐个调用，
+打印每个被 pin 的字段值（count/digest/flags），随后按「逐值说明其移动可由本次改动解释」的规则替换
+17 条断言里的字面量，最后跑一次真套件验证（约 40 分钟）。重钉时必须确认语义项
+（每例 `RejectedForExpectedReason`、`ControlsValid`、`Valid`）仍然成立——那才是这些 pin 的安全属性。
