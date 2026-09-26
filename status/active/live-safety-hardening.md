@@ -5405,3 +5405,54 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
   它与本文件已记录的可达实例与 P1 名单冲突，且会让两处 canonical 消费点变成死代码。该规格的其余
   结论（固定 Domain 字符串、投影字段清单、`DeepestExistingParentIdentity` 的保留/置空表、
   `Test-SafePathInsideRoot` 的路径前缀语义、pin 重钉顺序）被采用。此裁决留待独立审查复核。
+
+### 待完成项 5 的实施与审查（分支 `codex/post-audit-next`，2026-09-26）
+
+**分支**：`codex/post-audit-next`（自 `c3ff184`/main 分出），提交 `887f36e`（实施）与 `397b381`
+（审查修正）。**未合并、未推送**；main 仍是被接受的 `c3ff184`。
+
+**实施**（`887f36e` + `397b381`）
+
+- `Get-CanonicalPlanTargetContextHash`（`scripts/target-context-common.ps1`）：固定 `Domain`，只对调用方
+  传入的托管输出根及其后代置空祖先 `Identity`；`DeepestExistingParentIdentity` 仅在 `MISSING` 且最深层
+  现存父不在根内时保留。
+- `Get-CanonicalGeneratedOutputRoots`（`scripts/canonical-transaction-common.ps1`）：仓内三个生成输出根
+  的**单一枚举**（`<repo>/claude|codex|reasonix/skills`），两个既有字面量表改为消费它（表 a 用等价探针
+  证明逐行不变），计划写出点 `New-CanonicalTargetRow` 与两处 canonical 消费点（
+  `Initialize-CanonicalReviewedStaging`、`Assert-CanonicalRecoveryStateContext`）改用**有界双读**。
+- `Assert-CanonicalRecoveryPlanCurrent`：按**每槽自己的路径**判定是否在生成根内，回填后**重导**
+  `CurrentContextHash`（`New-CanonicalRecoveryContextProjection` 与 payload builder 共用同一形状）。
+- 残余项 (c) 同批落地：`live-transaction-common.ps1` 提交后 staging 清理失败由吞掉改为
+  `Write-Warning`。
+
+**设计裁决**（有证据，含异议）：置空根集合用**仓内三个生成根**，不是 `Get-CanonicalDefaultLiveRoots`
+的四条 home 根——可达实例（本文件 4556 起）是 `build-skills.ps1` 重建仓内生成根；home 根集合对
+canonical 行永不命中。另一条只读设计线（grok，一次性检出）主张相反，其理由与已记录的可达实例冲突，
+故不采纳其根集合结论，但采纳其 Domain/字段清单/锚点表/路径前缀语义/pin 顺序。裁决留待独立审查——
+本次审查两路均**同意**仓内三根的选择（其中一路就是设计异议方的同族结论）。
+
+**独立审查**（grok，对 `887f36e`，一次性检出）：**安全=是、阻断=0、非阻断=2**。
+
+- 假接受面 (a)–(e) 逐条判为安全；双读四种组合推演后旧计划在重建后仍被拒、新计划可过；pin 的文件哈希
+  经其独立重算与我方一致；`Write-Warning` 判为恰当。
+- 两条非阻断均为真问题，已修（见 `397b381`）：槽位过宽（只按 `TargetPath` 判根内却回填四槽）与
+  `CurrentContextHash` 未重导导致恢复侧回填在生产路径上是死代码；并指出原测试夹具缺字段、
+  证明力弱于其声称。
+
+**验证矩阵**（`397b381` 的字节）
+
+- 通过：`path-safety` PASS（含新增否定用例）、`canonical-recovery` 138/0、`canonical-transaction` 64/0、
+  `canonical-transaction-apply` 47/0、`canonical-mutation-blockers` 32/0、`canonical-mutation-parent-lease`
+  12/0、`canonical-production-seams` 66/0、`canonical-command-result` 104/0、`live-recovery` PASS、
+  `backup-recovery` PASS、parse gate 180 文件。
+- **未通过（本分支的剩余一步）**：`tests/canonical-hard-kill.tests.ps1` **能加载并运行**（manifest 两表
+  已重钉，105 passed），但有 **17 项自封 pin 失败**——因为本改动扩大了被审面（新增函数、给
+  `Assert-SealedHeldTargetContextLease` 新增参数、oplock 控制器源码新增语句）。这些 pin 是**内联**的
+  token 清单/语句数/变异矩阵计数（例如「controller actual prelude 的 24 条语句 token manifest +
+  digest」「静态边界拒绝恰好 302 例 typed 变异并接受 81 例合成对照」），必须按仓库既定的 fixpoint
+  流程重钉，并逐值说明其移动可由本次改动解释。**本次刻意不重钉**：在缺少逐值复核的情况下重钉
+  17 项深层行为 pin，正是这些 pin 存在要防的失败模式。
+- **接手方式**：在 `codex/post-audit-next` 上运行 `tests/canonical-hard-kill.tests.ps1`（失败即以断言
+  文本打印这 17 项名称）；按 `tmp/reseal-hard-kill.ps1`（上一窗口的 fixpoint 工具，思路：逐轮重算
+  文件哈希→函数 pin→函数清单摘要→自摘要，直到一轮无变化）适配本次改动重钉；重钉后须独立复核每个
+  新值并说明其来源，再跑 lab 与 CI（本候选尚无 lab/CI 证据）。
