@@ -164,17 +164,35 @@ function Get-DirectCanonicalSkillNames {
     return @(Get-ChildItem -LiteralPath $Root -Directory -Force | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'SKILL.md') } | ForEach-Object Name | Sort-Object -Unique)
 }
 
+function Get-CanonicalGeneratedOutputRoots {
+    # Single enumeration of the three repo-local generated output roots, in
+    # Claude/Codex/Reasonix order: the plan-only target-context projection and
+    # its consumers blank directory identity inside exactly these roots, and
+    # they must stay the same roots build-skills.ps1 rebuilds.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $repo = [System.IO.Path]::GetFullPath($RepoRoot)
+    return @(
+        [System.IO.Path]::GetFullPath((Join-Path $repo 'claude/skills'))
+        [System.IO.Path]::GetFullPath((Join-Path $repo 'codex/skills'))
+        [System.IO.Path]::GetFullPath((Join-Path $repo 'reasonix/skills'))
+    )
+}
+
 function Get-CanonicalUnknownGeneratedInventory {
     param([Parameter(Mandatory)][string]$RepoRoot)
     $rows = [System.Collections.Generic.List[object]]::new()
+    $generatedRoots = @(Get-CanonicalGeneratedOutputRoots -RepoRoot $RepoRoot)
+    # The Root field is the generated output root at the same index; the
+    # manifest names stay literal because they are not part of that enumeration.
     $platforms = @(
-        @{ Name='Claude'; Root='claude/skills'; Manifest='manifests/managed-skills.claude.txt' },
-        @{ Name='Codex'; Root='codex/skills'; Manifest='manifests/managed-skills.codex.txt' },
-        @{ Name='Reasonix'; Root='reasonix/skills'; Manifest='manifests/managed-skills.reasonix.txt' }
+        @{ Name='Claude'; Root=$generatedRoots[0]; Manifest='manifests/managed-skills.claude.txt' },
+        @{ Name='Codex'; Root=$generatedRoots[1]; Manifest='manifests/managed-skills.codex.txt' },
+        @{ Name='Reasonix'; Root=$generatedRoots[2]; Manifest='manifests/managed-skills.reasonix.txt' }
     )
     foreach ($platform in $platforms) {
         $managed = @(Read-CanonicalManifestNames -Path (Join-Path $RepoRoot $platform.Manifest))
-        $root = Join-Path $RepoRoot $platform.Root
+        $root = $platform.Root
         if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
         foreach ($entry in @(Get-ChildItem -LiteralPath $root -Force | Sort-Object Name)) {
             if ($entry.Name -in $managed) { continue }
@@ -208,7 +226,11 @@ function New-CanonicalTargetRow {
         CandidatePath=if ($CandidatePath) { [System.IO.Path]::GetFullPath($CandidatePath) } else { $null }
         Current=$Current
         Candidate=$Candidate
-        TargetContextHash=[string]$context.RequestedInitialRootContextHash
+        # Plan-only projection over the repo-local generated output roots:
+        # identity churn inside them (a build-skills.ps1 rebuild) must not make
+        # a reviewed plan stale. Consumers accept this projected digest or the
+        # legacy whole-object digest.
+        TargetContextHash=[string](Get-CanonicalPlanTargetContextHash -TargetContext $context -ManagedOutputRoots (Get-CanonicalGeneratedOutputRoots -RepoRoot $RepoRoot))
     }
     if ($Platform) { $row.Platform=$Platform }
     return $row
@@ -267,17 +289,21 @@ function New-CanonicalSkillPlanPayload {
         }
     }
 
+    $generatedRoots = @(Get-CanonicalGeneratedOutputRoots -RepoRoot $git.RepoRoot)
+    # Root is the reviewed repository's generated output root (repo-local, from
+    # the single enumeration); Candidate stays the workspace-relative suffix
+    # because it is joined against the candidate workspace, not the repository.
     $platforms = @(
-        @{ Name='Claude'; Root='claude/skills'; Manifest='manifests/managed-skills.claude.txt'; Candidate='claude/skills' },
-        @{ Name='Codex'; Root='codex/skills'; Manifest='manifests/managed-skills.codex.txt'; Candidate='codex/skills' },
-        @{ Name='Reasonix'; Root='reasonix/skills'; Manifest='manifests/managed-skills.reasonix.txt'; Candidate='reasonix/skills' }
+        @{ Name='Claude'; Root=$generatedRoots[0]; Manifest='manifests/managed-skills.claude.txt'; Candidate='claude/skills' },
+        @{ Name='Codex'; Root=$generatedRoots[1]; Manifest='manifests/managed-skills.codex.txt'; Candidate='codex/skills' },
+        @{ Name='Reasonix'; Root=$generatedRoots[2]; Manifest='manifests/managed-skills.reasonix.txt'; Candidate='reasonix/skills' }
     )
     foreach ($platform in $platforms) {
         $currentNames = @(Read-CanonicalManifestNames -Path (Join-Path $git.RepoRoot $platform.Manifest))
         $candidateManifest = Join-Path $candidate (Join-Path 'manifests' ([System.IO.Path]::GetFileName($platform.Manifest)))
         $candidateNames = @(Read-CanonicalManifestNames -Path $candidateManifest)
         foreach ($name in @($currentNames + $candidateNames | Sort-Object -Unique)) {
-            $target = Join-Path $git.RepoRoot (Join-Path $platform.Root $name)
+            $target = Join-Path $platform.Root $name
             $source = Join-Path $candidate (Join-Path $platform.Candidate $name)
             if ($name -notin $currentNames -and (Test-Path -LiteralPath $target)) { throw "Candidate would overwrite unknown generated entry: $($platform.Name)/$name" }
             $old=Get-CanonicalPathState -Path $target -Kind directory; $new=Get-CanonicalPathState -Path $source -Kind directory
@@ -1657,7 +1683,11 @@ function Initialize-CanonicalReviewedStaging {
     $stagedRoot=Join-Path $recovery 'staged';[AiAgentDotfiles.CanonicalNativeMutation]::CreateDirectoryNoOverwrite($stagedRoot)
     foreach($target in $Targets){
             $context=Resolve-TargetContext -Path ([string]$target.TargetPath) -Mode MetadataOnly
-            if([string]$context.RequestedInitialRootContextHash -cne [string]$target.TargetContextHash){throw 'canonical target context changed before staging'}
+            # Bounded dual-read against the repo-local generated output roots:
+            # the reviewed row may carry the projected plan digest or the
+            # legacy whole-object digest.
+            if([string]$context.RequestedInitialRootContextHash -cne [string]$target.TargetContextHash -and
+                (Get-CanonicalPlanTargetContextHash -TargetContext $context -ManagedOutputRoots (Get-CanonicalGeneratedOutputRoots -RepoRoot ([string]$PlanPayload.RepoRoot))) -cne [string]$target.TargetContextHash){throw 'canonical target context changed before staging'}
             $expectedKind=if([string]$target.TargetKind -ceq 'file'){'file'}else{'directory'}
             $actualCurrent=Get-CanonicalObservedPathState -Path ([string]$target.TargetPath) -ExpectedKind $expectedKind
             if(-not(Test-CanonicalObservedMatchesContractState -Actual $actualCurrent -Contract $target.Current)){throw 'canonical target changed before staging'}

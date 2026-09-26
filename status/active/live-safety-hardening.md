@@ -5363,8 +5363,17 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
 **独立审查**：两路 grok 对抗性审查（阻断 1 已修、非阻断分项记录在案）＋一路证据强度审计；
 主 agent 逐条复核其数字后才采纳或记录为残余。被否的断言与保留项都写在上面各节。
 
+**合并（所有者授权，2026-09-26）**：所有者授权合并后，`main` 由 `48f17e1` **快进**到 `c3ff184`
+（本候选 + 三笔记录提交）并推送 `origin/main`；`codex/post-audit-completion` 与
+`codex/post-audit-c12` 同步到同一 SHA。合并后 main 的 CI run
+[#154](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36214832945) 按与被接受候选相同的
+合同执行。授权范围仅覆盖「合并并推送 main」：**部署、逐机 runner 批准、真实 Apply 仍未授权、未执行**。
+合并后 main 的 CI 结果：run
+[#154](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36214832945) **四个作业全绿**
+（gates 与三片均 success）——main 上第一次分片全绿；改动前 main（`48f17e1`）三片皆红。
+
 **未执行**：真实 Apply、`env authority adopt`、`env activate`、任何真实机 DryRun（按规则需走内部宿主
-与外部计划，未以裸调用试探联锁）、推送 `main`、合并到 `main`、部署。`main` 仍停在 `48f17e1`。
+与外部计划，未以裸调用试探联锁）、部署。合并与推送 main 已按上段授权执行；`main` = `c3ff184`。
 
 **过程与作废记录**（同一晚的失败与主动终止，均保留证据不冒充接受）：run `#148`/`#149`/`#150`/`#151`
 （前三份分片 2 或分片 3 红，`#151` 四作业全绿但被后继候选取代）；lab `validation-c13-01` 在 gates
@@ -5393,3 +5402,175 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
 4. **仍未做**：待完成项 6 的其余残余（contract 读取不核 DACL、`Get-SealedLiveTransactionTerminalDocumentHashes`
    的 COMPLETE 语义、`000001.json` 令牌形态、名字检查函数调用者 pin、历史叙述回改）；待完成项 7 的
    真实部署与逐机 runner 批准。
+## 2026-09-26 canonical 投影实施（待完成项 5）
+
+### 设计裁决：置空根集合与消费点集合（有证据，含一处异议）
+
+上一轮留下了两段互相冲突的设计文字，本轮用**可达实例**裁决：
+
+- 类别普查（本文件 4556 起）明确写出可达实例：`build-skills.ps1` 重建 **`<repo>/<platform>/skills`**
+  及子目录 → `TargetContextHash` 里的 `Ancestors[*].Identity`/`DeepestExistingParentIdentity` 变化 →
+  `canonical-plan-stale`（`canonical-transaction-common.ps1:1577`）或
+  `canonical target context changed before staging`。**置空根集合 = 仓内三个生成输出根**
+  （`claude/skills`、`codex/skills`、`reasonix/skills`，与 `canonical-transaction-common.ps1:170-175`
+  与 `:273-277`、`build-skills.ps1:55-57` 的枚举一致）；`Get-CanonicalDefaultLiveRoots`
+  （`~/.claude/skills` 等四条 home 根）对 canonical 行**永不命中**：canonical 计划目标一律在
+  `RepoRoot` 内（计划行 `Join-Path $git.RepoRoot (Join-Path $platform.Root $name)`，
+  recovery 亦拒收仓外目标），因此 home 根集合会让改动对可达实例失效。
+- 提案 P1（本文件 4620 起）点名的三处是 **`New-CanonicalTargetRow`、
+  `Initialize-CanonicalReviewedStaging`、`Assert-CanonicalRecoveryStateContext`**——全部属 canonical
+  子系统；持锁租约那条（`Assert-SealedHeldTargetContextLease`）不在 P1 名单里，它的目标是 live/home
+  路径，属另一子系统、另一套根，本轮只把它**参数化**（默认空 = 维持旧行为），不并入同一集合。
+- **异议记录**：本轮另一个 grok 设计线程（一次性检出、只读）给出的规格主张单一集合 =
+  `Get-CanonicalDefaultLiveRoots` 四条 home 根、并明确要求**不要**并入仓内生成根。本文不采纳该点：
+  它与本文件已记录的可达实例与 P1 名单冲突，且会让两处 canonical 消费点变成死代码。该规格的其余
+  结论（固定 Domain 字符串、投影字段清单、`DeepestExistingParentIdentity` 的保留/置空表、
+  `Test-SafePathInsideRoot` 的路径前缀语义、pin 重钉顺序）被采用。此裁决留待独立审查复核。
+
+### 待完成项 5 的实施与审查（分支 `codex/post-audit-next`，2026-09-26）
+
+**分支**：`codex/post-audit-next`（自 `c3ff184`/main 分出），提交 `887f36e`（实施）与 `397b381`
+（审查修正）。**未合并、未推送**；main 仍是被接受的 `c3ff184`。
+
+**实施**（`887f36e` + `397b381`）
+
+- `Get-CanonicalPlanTargetContextHash`（`scripts/target-context-common.ps1`）：固定 `Domain`，只对调用方
+  传入的托管输出根及其后代置空祖先 `Identity`；`DeepestExistingParentIdentity` 仅在 `MISSING` 且最深层
+  现存父不在根内时保留。
+- `Get-CanonicalGeneratedOutputRoots`（`scripts/canonical-transaction-common.ps1`）：仓内三个生成输出根
+  的**单一枚举**（`<repo>/claude|codex|reasonix/skills`），两个既有字面量表改为消费它（表 a 用等价探针
+  证明逐行不变），计划写出点 `New-CanonicalTargetRow` 与两处 canonical 消费点（
+  `Initialize-CanonicalReviewedStaging`、`Assert-CanonicalRecoveryStateContext`）改用**有界双读**。
+- `Assert-CanonicalRecoveryPlanCurrent`：按**每槽自己的路径**判定是否在生成根内，回填后**重导**
+  `CurrentContextHash`（`New-CanonicalRecoveryContextProjection` 与 payload builder 共用同一形状）。
+- 残余项 (c) 同批落地：`live-transaction-common.ps1` 提交后 staging 清理失败由吞掉改为
+  `Write-Warning`。
+
+**设计裁决**（有证据，含异议）：置空根集合用**仓内三个生成根**，不是 `Get-CanonicalDefaultLiveRoots`
+的四条 home 根——可达实例（本文件 4556 起）是 `build-skills.ps1` 重建仓内生成根；home 根集合对
+canonical 行永不命中。另一条只读设计线（grok，一次性检出）主张相反，其理由与已记录的可达实例冲突，
+故不采纳其根集合结论，但采纳其 Domain/字段清单/锚点表/路径前缀语义/pin 顺序。裁决留待独立审查——
+本次审查两路均**同意**仓内三根的选择（其中一路就是设计异议方的同族结论）。
+
+**独立审查**（grok，对 `887f36e`，一次性检出）：**安全=是、阻断=0、非阻断=2**。
+
+- 假接受面 (a)–(e) 逐条判为安全；双读四种组合推演后旧计划在重建后仍被拒、新计划可过；pin 的文件哈希
+  经其独立重算与我方一致；`Write-Warning` 判为恰当。
+- 两条非阻断均为真问题，已修（见 `397b381`）：槽位过宽（只按 `TargetPath` 判根内却回填四槽）与
+  `CurrentContextHash` 未重导导致恢复侧回填在生产路径上是死代码；并指出原测试夹具缺字段、
+  证明力弱于其声称。
+
+**验证矩阵**（`397b381` 的字节）
+
+- 通过：`path-safety` PASS（含新增否定用例）、`canonical-recovery` 138/0、`canonical-transaction` 64/0、
+  `canonical-transaction-apply` 47/0、`canonical-mutation-blockers` 32/0、`canonical-mutation-parent-lease`
+  12/0、`canonical-production-seams` 66/0、`canonical-command-result` 104/0、`live-recovery` PASS、
+  `backup-recovery` PASS、parse gate 180 文件。
+- **未通过（本分支的剩余一步）**：`tests/canonical-hard-kill.tests.ps1` **能加载并运行**（manifest 两表
+  已重钉，105 passed），但有 **17 项自封 pin 失败**——因为本改动扩大了被审面（新增函数、给
+  `Assert-SealedHeldTargetContextLease` 新增参数、oplock 控制器源码新增语句）。这些 pin 是**内联**的
+  token 清单/语句数/变异矩阵计数（例如「controller actual prelude 的 24 条语句 token manifest +
+  digest」「静态边界拒绝恰好 302 例 typed 变异并接受 81 例合成对照」），必须按仓库既定的 fixpoint
+  流程重钉，并逐值说明其移动可由本次改动解释。**本次刻意不重钉**：在缺少逐值复核的情况下重钉
+  17 项深层行为 pin，正是这些 pin 存在要防的失败模式。
+- **接手方式**：在 `codex/post-audit-next` 上运行 `tests/canonical-hard-kill.tests.ps1`（失败即以断言
+  文本打印这 17 项名称）；按 `tmp/reseal-hard-kill.ps1`（上一窗口的 fixpoint 工具，思路：逐轮重算
+  文件哈希→函数 pin→函数清单摘要→自摘要，直到一轮无变化）适配本次改动重钉；重钉后须独立复核每个
+  新值并说明其来源，再跑 lab 与 CI（本候选尚无 lab/CI 证据）。
+
+#### 重钉尝试（2026-09-26 下午）：工具已就绪，未完成
+
+**做到**：① 写了 AST 版探针生成器（`tmp/zc-review/make_hk_probe_ast.ps1`），只把「真表达式」里的
+`<属性链> -eq <整数>` / `-ceq '<hex>'` 包成 `Write-HardKillProbe`，把值打到 transcript；② 探针副本
+必须放在 `tests/` 下（`$PSScriptRoot` 决定 helper 与夹具路径），且必须把副本里三处
+`[IO.File]::ReadAllText($PSCommandPath)` 改指向**真文件**（套件会把自己的源码当受审控制器文本来
+校验）；③ 用这套改法跑出的探针副本**忠实复现了真套件的 105 passed / 17 failed**，说明插桩保语义。
+产物：`tmp/zc-review/hk-pin-sites.json`（378 个 pin 站点）、`hk-probe-transcript.txt`（约 110 万条
+探针行，清理时删除）、`hk-failing-pins.txt`（17 条失败断言名）。
+
+**没做到**：把 17 条失败断言的**新值**取出并重钉。原因：这些断言的值不是可以直接替换的字面量，
+而是**校验函数内部的清单产物**（例如 `Test-HardKillPreimageControllerTransportContract` 返回的
+`ActualPreludeCount`/`ActualPreludeDigest`、各 `...MutationCases.Count`、`...AcceptedControls.Count`），
+失败可能同时来自字面量不匹配与语义标志（`Valid`/`ControlsValid`/每例 `RejectedForExpectedReason`）。
+按行取值的自动收割会混入大量循环内条件（假阳性），而按失败断言作用域取值时需要把校验函数**单独**
+抽出来、以当前源码为输入重算——这一步没有做完。
+
+**接手的最短路径**（不必再跑整棵套件）：把套件里 `Test-HardKill*` 与它们互相调用的函数按 AST 抽成
+一个 harness，对当前受审源（真套件自身文本 + `scripts/canonical-*-common.ps1` 等）逐个调用，
+打印每个被 pin 的字段值（count/digest/flags），随后按「逐值说明其移动可由本次改动解释」的规则替换
+17 条断言里的字面量，最后跑一次真套件验证（约 40 分钟）。重钉时必须确认语义项
+（每例 `RejectedForExpectedReason`、`ControlsValid`、`Valid`）仍然成立——那才是这些 pin 的安全属性。
+
+#### 重钉完成（2026-09-26 晚）：17 项自封 pin 已对齐当前字节
+
+在 `codex/hardkill-reseal`（`c731002`）上用既定 fixpoint 流程重钉控制器自封摘要，三轮收敛。
+只移动计数/摘要字面量；断言文本、mutant 清单、`Valid`/`Rejected`/`Accepted` 语义标志均未改。
+`scripts/**` 未改。
+
+**移动的 pin（旧→新）与一句话理由**
+
+| pin | 旧 → 新 | 理由 |
+|---|---|---|
+| prelude-row:9（`$script:hardKillReviewedLoadManifest` 赋值） | `fdccb438…` → `2a847380…` | 该 24 行 prelude 的第 9 句就是已重钉的受审文件哈希表，token fingerprint 随 `canonical-recovery-common` / `canonical-transaction-common` / `target-context-common` 的哈希字面量一起变 |
+| prelude-digest（4 处） | `f9cda248…` → `491820a8…` | 24 行 actual-prelude token 清单的 SHA-256；只有第 9 行变了。`ActualPreludeCount` 仍为 24 |
+| pre-section-region-digest | `d9195a41…` → `40430584…` | 主 try 的 27 句 pre-section 含 actual-prelude digest 断言，字面量移动后区域摘要跟着变 |
+| `Test-HardKillPreimageControllerTransportContract` | `18a17938…` → `c8cd3a97…` | 函数体含 prelude 行块与 digest pin |
+| `Test-HardKillPreimageControllerTransportContractMutations` | `d007ce26…` → `3f17bc5c…` | 函数体含两处 prelude digest pin |
+| function-inventory-digest | `87a198df…` → `815da107…` | 除 cleanup-gate 自身外的 name\|extent-hash 行摘要；上面两个 transport 函数的 extent 变了 |
+| cleanup-gate-self-digest | `2784f532…` → `1003d8ed…` | `Test-HardKillBehaviorCleanupBarrierContract` 规范化自摘要，随其内部函数 pin / inventory / main-try / top-level 字面量一起变 |
+| main-try-digest | `c798fcfe…` → `a6c3ba22…` | 外层 main try 的 extent；pre-section 里的 prelude digest 断言字面量变了 |
+| top-level-execution-digest | `60547558…` → `9e001242…` | 非函数顶层语句摘要，含受审哈希表赋值与 main try |
+| controller-surface-sha | `44892b73…` → `bc3eeaa0…` | 整份控制器 token fingerprint（自身 sha 置零） |
+
+未动：`ActualPreludeCount=24`、pre-section 计数 27、变异矩阵 302、合成对照 81、section-owner 哈希、受审文件哈希表（上一提交已对齐）。
+`live-transaction-common.ps1` 的 `Write-Warning` 不在 reviewed-load 清单里，没有带动 hard-kill pin。
+
+**语义标志**：302 个 typed mutant 仍全部 `Rejected` 且 `RejectedForExpectedReason`；81 个合成对照与 2 个 actual-prelude 对照仍 `Accepted`；`Valid` / `ControlsValid` / `ActualPreludeValid` / `ActualBaselineSatisfied` 仍为 true。没有「应当拒绝的 mutant 被接受」或反向的行为变化。先前 17 项失败里，3 项是过期摘要本身，其余 14 项是 cleanup/transport 门为红时 behavior-probe 未启动造成的连锁。
+
+**验证**
+
+- `pwsh -NoProfile -File tests/canonical-hard-kill.tests.ps1 -Section primitives` → exit 0，`Results: 95 passed, 0 failed`
+- `pwsh -NoProfile -File tests/canonical-hard-kill.tests.ps1` → exit 0，`Results: 318 passed, 0 failed`（约 2435 s）
+- `pwsh -NoProfile -File scripts/check-powershell-syntax.ps1` → exit 0（180 文件）
+- `git diff --check` 干净
+
+未解决的语义发现：无。Lab / CI 仍未跑（本候选尚未送审）。
+
+### 自封 pin 重钉与候选 `c783a01` 接受（2026-09-26）
+
+**重钉（grok 主刀，独立检出 `codex/hardkill-reseal`，完全访问）**：按 fixpoint 流程重算并重钉
+`tests/canonical-hard-kill.tests.ps1` 的自封值——**13 对变更行全部是纯 40–64 位十六进制字面量替换**
+（主 agent 用规范化 diff 逐对核验：去哈希后零差异；`scripts/**` 零改动；断言文本、mutant 名单、
+语义标志全部原样）。上一轮 17 项失败的真实构成：**3 项是过期摘要本身**（24 行 actual-prelude 的
+token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest、controller surface sha），其余
+14 项是 cleanup/transport 门变红后 behavior-probe 未启动的**连带失败**，门修复后按原语义通过。
+
+- 逐 pin 理由（摘要）：prelude manifest 第 9 行/prelude digest——受审三个 common 脚本哈希面变化进入
+  24 行 token 清单；transport 两个函数的 Require-ReviewedFunctionHash、函数清单摘要、cleanup-gate
+  自摘要、main-try 摘要、top-level 摘要、pre-section 区域摘要——均为上述字面量所在区域的派生摘要。
+- **语义核查（关键）**：302 个 typed mutant 仍全部 `Rejected` 且 `RejectedForExpectedReason`；
+  81 合成 + 2 actual-prelude 对照仍 `Accepted`；`Valid`/`ControlsValid`/`ActualPreludeValid`/
+  `ActualBaselineSatisfied` 仍为 true；`ActualPreludeCount` 仍 24、变异矩阵仍 302、对照仍 81。
+  **没有发现任何「应拒绝变接受 / 应接受变拒绝」**。
+- 验证：grok 真套件全跑 `Results: 318 passed, 0 failed`（exit 0，约 2435 s；早前 105/17 里的
+  105+17=122 是门红时 per-case 断言未展开的口径，门绿后全量展开为 318）；主 agent 在合并头上**独立
+  复跑同结果**（exit 0）；`-Section primitives` 95/0；parse gate 180 文件；seams 66/0。
+
+**候选 `c783a01` 接受（三项证据齐全）**
+
+1. **本地**：hard-kill 318/0（主 agent 复跑）、seams 66/0、parse gate、`git diff --check`；
+   此前该分支已验：path-safety 78 断言、canonical-recovery 138/0、canonical-transaction 64/0、
+   transaction-apply 47/0、mutation-blockers 32/0、parent-lease 12/0、command-result 104/0、
+   live-recovery PASS、backup-recovery PASS。
+2. **一次性身份 lab（S3）**：`validation-c16-01`（kit `3db5c98c…`，宿主 SID 校验、create-new 证据、
+   12 小时上限）：`route-result PASS`、`completion ExitCode 0`；**11 gate 全绿、42/42 套件、0 失败
+   0 超时**，套件合计 10012 s，guest 内 hard-kill `Results: 318 passed, 0 failed`；宿主 roots 快照
+   与 post-C11 **逐字节相同**。
+3. **远端 CI（S4）**：run
+   [#159](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36241128493)（`c783a01`）：
+   **四作业全绿**（gates 2.6 分钟、shard 1/2/3 = 73.0/55.9/91.8 分钟）。
+
+**边界**：本次接受 = canonical 投影改动 + 其审查修正 + hard-kill 自封 pin 重钉，在一次性身份 lab
+与 CI 上全绿。**未执行**：真实 Apply、`env authority adopt`、`env activate`、真机 DryRun、部署；
+**合并到 `main` 未执行**（等待所有者授权；`main` 目前 = `7201704`）。14 条 mutation 路线最后一次
+运行在 C6/C10，未在本候选重跑。
