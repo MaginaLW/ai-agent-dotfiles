@@ -431,11 +431,9 @@ function Get-CanonicalRecoveryEvidencePayload {
     if(@($workspace|Where-Object{[string]$_.ReconciledState -ceq 'AMBIGUOUS'}).Count -gt 0){throw 'manual-recovery-required: recovery workspace is ambiguous'}
     $resultState=if($State.Result){[ordered]@{State='PRESENT';Hash=[string]$State.ResultHash;Outcome=[string]$State.Result.Outcome}}else{[ordered]@{State='MISSING'}}
     $projection=if($State.Result){Get-CanonicalTransactionResultProjection -Result $State.Result}else{New-CanonicalExpectedTransactionResultProjection -State $State -Classification $classification}
-    $currentContext=[ordered]@{
-        GitCommonDirHash=[string]$git.GitCommonDirHash;RepositoryCommit=[string]$git.RepositoryCommit;ToolchainPolicyHash=Get-CanonicalToolchainPolicyHash -ToolchainRoot $ToolchainRoot
-        HeaderHash=[string]$State.HeaderHash;DerivedJournalHeadHash=[string]$State.DerivedJournalHeadHash;RecordChainHash=Get-CanonicalRecordChainHash -State $State
-        PendingInventory=@($State.PendingEntries);WorkspaceInventory=@($workspace);ResultState=$resultState;Targets=@($targets)
-    }
+    $currentContext=New-CanonicalRecoveryContextProjection -GitCommonDirHash ([string]$git.GitCommonDirHash) -RepositoryCommit ([string]$git.RepositoryCommit) `
+        -ToolchainPolicyHash (Get-CanonicalToolchainPolicyHash -ToolchainRoot $ToolchainRoot) -HeaderHash ([string]$State.HeaderHash) -DerivedJournalHeadHash ([string]$State.DerivedJournalHeadHash) `
+        -RecordChainHash (Get-CanonicalRecordChainHash -State $State) -PendingInventory @($State.PendingEntries) -WorkspaceInventory @($workspace) -ResultState $resultState -Targets @($targets)
     return [ordered]@{
         SchemaVersion=1;PlanKind="canonical-recover-$Action";PlannedAction=$Action;RepoRoot=[string]$git.RepoRoot;GitCommonDirHash=[string]$git.GitCommonDirHash
         RepositoryCommit=[string]$git.RepositoryCommit;ToolchainPolicyHash=[string]$currentContext.ToolchainPolicyHash;TransactionId=[string]$State.Header.TransactionId
@@ -481,34 +479,73 @@ function Get-CanonicalRecoveryTargetIdentityProjection {
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ManagedOutputRoots
     )
     # Identity churn inside a generated output root is projected back onto the
-    # reviewed tuple when that tuple still matches the reviewed State/Type/Hash
-    # and target path. Every other difference stays observable, so the plan
-    # still goes stale; workspace ObservedState identities are never touched.
+    # reviewed tuple when that tuple still matches the reviewed State/Type/Hash and
+    # its own path. Each slot is gated on ITS OWN path, so a recovery workspace
+    # object (preimage/swap-old/staged, outside the generated roots) can never be
+    # re-bound by this projection. Every other difference stays observable, so the
+    # plan still goes stale; workspace ObservedState identities are never touched.
+    $changed=$false
     foreach($row in @($Targets)){
-        if(-not(Test-CanonicalDataField -Data $row -Name 'Tuple') -or $null -eq $row.Tuple -or
-            -not(Test-TargetContextPathInsideManagedOutputRoot -Path ([string]$row.TargetPath) -ManagedOutputRoots $ManagedOutputRoots)){continue}
+        if(-not(Test-CanonicalDataField -Data $row -Name 'Tuple') -or $null -eq $row.Tuple){continue}
         $reviewed=@($ReviewedTargets|Where-Object{[string]$_.TargetId -ceq [string]$row.TargetId})
-        if($reviewed.Count -ne 1 -or -not(Test-CanonicalDataField -Data $reviewed[0] -Name 'Tuple') -or
-            -not([IO.Path]::GetFullPath([string]$reviewed[0].TargetPath).Equals(
-            [IO.Path]::GetFullPath([string]$row.TargetPath),[StringComparison]::OrdinalIgnoreCase))){continue}
+        if($reviewed.Count -ne 1 -or -not(Test-CanonicalDataField -Data $reviewed[0] -Name 'Tuple')){continue}
         foreach($slot in @('Target','Preimage','SwapOld','Staged')){
             if(-not(Test-CanonicalDataField -Data $row.Tuple -Name $slot) -or
                 -not(Test-CanonicalDataField -Data $reviewed[0].Tuple -Name $slot)){continue}
+            $slotPathName=if($slot -ceq 'Target'){'TargetPath'}else{($slot + 'Path')}
+            if(-not(Test-CanonicalDataField -Data $row -Name $slotPathName) -or
+                -not(Test-CanonicalDataField -Data $reviewed[0] -Name $slotPathName)){continue}
+            $actualPath=[string]$row.$slotPathName;$expectedPath=[string]$reviewed[0].$slotPathName
+            if([string]::IsNullOrWhiteSpace($actualPath) -or [string]::IsNullOrWhiteSpace($expectedPath) -or
+                -not([IO.Path]::GetFullPath($actualPath).Equals([IO.Path]::GetFullPath($expectedPath),[StringComparison]::OrdinalIgnoreCase))){continue}
+            if(-not(Test-TargetContextPathInsideManagedOutputRoot -Path $actualPath -ManagedOutputRoots $ManagedOutputRoots)){continue}
             $actual=$row.Tuple.$slot;$expected=$reviewed[0].Tuple.$slot
             if($null -eq $actual -or $null -eq $expected -or
                 -not(Test-CanonicalDataField -Data $actual -Name 'Identity') -or
                 -not(Test-CanonicalDataField -Data $expected -Name 'Identity')){continue}
             if([string]$actual.State -cne [string]$expected.State -or [string]$actual.Type -cne [string]$expected.Type -or
                 [string]$actual.Hash -cne [string]$expected.Hash){continue}
+            if([string]$actual.Identity -cne [string]$expected.Identity){$changed=$true}
             $actual.Identity=[string]$expected.Identity
         }
+    }
+    return $changed
+}
+
+function New-CanonicalRecoveryContextProjection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$GitCommonDirHash,[Parameter(Mandatory)][string]$RepositoryCommit,[Parameter(Mandatory)][string]$ToolchainPolicyHash,
+        [Parameter(Mandatory)][string]$HeaderHash,[Parameter(Mandatory)][string]$DerivedJournalHeadHash,[Parameter(Mandatory)][string]$RecordChainHash,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$PendingInventory,[Parameter(Mandatory)][AllowEmptyCollection()][object[]]$WorkspaceInventory,
+        [Parameter(Mandatory)]$ResultState,[Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Targets
+    )
+    # Single definition of the context CurrentContextHash covers, shared by the
+    # payload builder and the currency check's re-derivation, so projecting
+    # identities cannot silently drift from the hashed shape.
+    return [ordered]@{
+        GitCommonDirHash=$GitCommonDirHash;RepositoryCommit=$RepositoryCommit;ToolchainPolicyHash=$ToolchainPolicyHash
+        HeaderHash=$HeaderHash;DerivedJournalHeadHash=$DerivedJournalHeadHash;RecordChainHash=$RecordChainHash
+        PendingInventory=@($PendingInventory);WorkspaceInventory=@($WorkspaceInventory);ResultState=$ResultState;Targets=@($Targets)
     }
 }
 
 function Assert-CanonicalRecoveryPlanCurrent {
     param([Parameter(Mandatory)]$Document,[Parameter(Mandatory)]$State,[Parameter(Mandatory)][string]$RepoRoot,[string]$ToolchainRoot=$script:CanonicalToolchainRoot)
     $current=Get-CanonicalRecoveryEvidencePayload -State $State -RepoRoot $RepoRoot -Action ([string]$Document.PlanPayload.PlannedAction) -ToolchainRoot $ToolchainRoot
-    $null=(Get-CanonicalRecoveryTargetIdentityProjection -Targets @($current.Targets) -ReviewedTargets @($Document.PlanPayload.Targets) -ManagedOutputRoots (Get-CanonicalGeneratedOutputRoots -RepoRoot $RepoRoot))
+    $changed=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($current.Targets) -ReviewedTargets @($Document.PlanPayload.Targets) -ManagedOutputRoots (Get-CanonicalGeneratedOutputRoots -RepoRoot $RepoRoot)
+    if($changed){
+        # Re-derive the hash over the projected tuples. Without this the field still
+        # covers the pre-projection identities, so a plan whose only difference is
+        # identity churn inside a generated output root would stay stale forever.
+        $current.CurrentContextHash=Get-SemanticJsonHash -InputObject (New-CanonicalRecoveryContextProjection `
+            -GitCommonDirHash ([string]$current.GitCommonDirHash) -RepositoryCommit ([string]$current.RepositoryCommit) -ToolchainPolicyHash ([string]$current.ToolchainPolicyHash) `
+            -HeaderHash ([string]$current.HeaderHash) -DerivedJournalHeadHash ([string]$current.DerivedJournalHeadHash) -RecordChainHash ([string]$current.RecordChainHash) `
+            -PendingInventory @($current.PendingInventory) -WorkspaceInventory @($current.WorkspaceInventory) -ResultState $current.ResultState -Targets @($current.Targets))
+    }
+    # The returned payload can carry reviewed identities substituted for churned tuples
+    # under the generated output roots; callers must discard it and never treat it as an
+    # observation of the disk.
     if((Get-PlanHash -PlanPayload $current) -cne [string]$Document.PlanHash){throw 'canonical-recovery-plan-stale'}
     return $current
 }

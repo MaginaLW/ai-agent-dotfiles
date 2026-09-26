@@ -459,50 +459,90 @@ try {
         finally { Close-SealedHeldTargetContextLease -Lease $lease }
 
         Write-Host '[generated output root recovery re-projection]'
+        # Production-shaped payloads: the currency check hashes the whole payload,
+        # CurrentContextHash included, so a fixture without that field proves less
+        # than the production path does.
+        $fixturePreimage = [IO.Path]::GetFullPath((Join-Path $consumerRepo '.canonical-recovery/preimage/target'))
+        $fixtureSwapOld = [IO.Path]::GetFullPath((Join-Path $consumerRepo '.canonical-recovery/swap-old/target'))
         $reviewedTuple = [ordered]@{
             Target=[ordered]@{State='PRESENT';Type='Directory';Hash=('a' * 64);Identity='reviewed-identity'}
             Preimage=[ordered]@{State='MISSING'};SwapOld=[ordered]@{State='MISSING'};Staged=[ordered]@{State='MISSING'}
         }
-        $reviewedRow = [ordered]@{TargetId=$consumerTargetId;TargetPath=[IO.Path]::GetFullPath($consumerPresent);Tuple=$reviewedTuple}
-        $currentRows = @([ordered]@{
-            TargetId=$consumerTargetId;TargetPath=[IO.Path]::GetFullPath($consumerPresent)
-            Tuple=[ordered]@{
-                Target=[ordered]@{State='PRESENT';Type='Directory';Hash=('a' * 64);Identity='churned-identity'}
-                Preimage=[ordered]@{State='MISSING'};SwapOld=[ordered]@{State='MISSING'};Staged=[ordered]@{State='MISSING'}
-            }
-        })
         $observedState = [ordered]@{State='PRESENT';Type='Directory';Hash=('b' * 64);Identity='workspace-identity'}
-        $reviewedPayload = [ordered]@{Targets=@($reviewedRow);WorkspaceInventory=@([ordered]@{Role='preimage';ReconciledState='READY';ObservedState=$observedState})}
-        $currentPayload = [ordered]@{Targets=@($currentRows);WorkspaceInventory=@([ordered]@{Role='preimage';ReconciledState='READY';ObservedState=$observedState})}
-        Assert-TestCondition ((Get-PlanHash -PlanPayload $currentPayload) -cne (Get-PlanHash -PlanPayload $reviewedPayload)) 're-projection fixture: identity drift alone already makes the re-derived payload hash differ from the reviewed plan hash'
-        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($currentPayload.Targets) -ReviewedTargets @($reviewedPayload.Targets) -ManagedOutputRoots $consumerRoots
-        Assert-TestCondition ([string]$currentRows[0].Tuple.Target.Identity -ceq 'reviewed-identity' -and [string]$currentPayload.WorkspaceInventory[0].ObservedState.Identity -ceq 'workspace-identity' -and
-            (Get-PlanHash -PlanPayload $currentPayload) -ceq (Get-PlanHash -PlanPayload $reviewedPayload)) 're-projection replaces only the churned target identity under the generated output root and reproduces the reviewed plan hash without touching the workspace observed identity'
-        $currentRows[0].Tuple.Target.Identity = 'churned-identity';$currentRows[0].Tuple.Target.Hash = ('0' * 64)
-        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($currentPayload.Targets) -ReviewedTargets @($reviewedPayload.Targets) -ManagedOutputRoots $consumerRoots
-        Assert-TestCondition ([string]$currentRows[0].Tuple.Target.Identity -ceq 'churned-identity' -and (Get-PlanHash -PlanPayload $currentPayload) -cne (Get-PlanHash -PlanPayload $reviewedPayload)) 're-projection refuses a tuple whose hash differs from the reviewed tuple, so the reviewed plan goes stale'
-        $currentRows[0].Tuple.Target.Identity = 'churned-identity';$currentRows[0].Tuple.Target.Hash = ('a' * 64);$currentRows[0].Tuple.Target.Type = 'File'
-        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($currentPayload.Targets) -ReviewedTargets @($reviewedPayload.Targets) -ManagedOutputRoots $consumerRoots
-        Assert-TestCondition ([string]$currentRows[0].Tuple.Target.Identity -ceq 'churned-identity') 're-projection refuses a tuple whose type differs from the reviewed tuple'
-        $currentRows[0].Tuple.Target.Type = 'Directory'
-        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($currentPayload.Targets) -ReviewedTargets @($reviewedPayload.Targets) -ManagedOutputRoots @()
-        Assert-TestCondition ([string]$currentRows[0].Tuple.Target.Identity -ceq 'churned-identity') 're-projection refuses a tuple whose target path is outside every generated output root'
-        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($currentPayload.Targets) -ReviewedTargets @([ordered]@{TargetId=$consumerTargetId;TargetPath=[IO.Path]::GetFullPath($projectionTarget);Tuple=$reviewedTuple}) -ManagedOutputRoots $consumerRoots
-        Assert-TestCondition ([string]$currentRows[0].Tuple.Target.Identity -ceq 'churned-identity') 're-projection refuses a reviewed tuple recorded for a different target path'
+        $fixtureWorkspace = @([ordered]@{Role='preimage';ReconciledState='READY';ObservedState=$observedState})
+        function New-CurrencyFixtureRow {
+            param([string]$TargetIdentity,[string]$PreimageIdentity,[string]$TargetHash)
+            return [ordered]@{
+                TargetId=$consumerTargetId;TargetPath=[IO.Path]::GetFullPath($consumerPresent)
+                PreimagePath=$fixturePreimage;SwapOldPath=$fixtureSwapOld;StagedPath=$null
+                Tuple=[ordered]@{
+                    Target=[ordered]@{State='PRESENT';Type='Directory';Hash=$TargetHash;Identity=$TargetIdentity}
+                    Preimage=if($PreimageIdentity){[ordered]@{State='PRESENT';Type='Directory';Hash=('c' * 64);Identity=$PreimageIdentity}}else{[ordered]@{State='MISSING'}}
+                    SwapOld=[ordered]@{State='MISSING'};Staged=[ordered]@{State='MISSING'}
+                }
+            }
+        }
+        function New-CurrencyFixturePayload {
+            param([object]$Row)
+            $context = New-CanonicalRecoveryContextProjection -GitCommonDirHash ('1' * 64) -RepositoryCommit ('2' * 40) -ToolchainPolicyHash ('3' * 64) `
+                -HeaderHash ('4' * 64) -DerivedJournalHeadHash ('5' * 64) -RecordChainHash ('6' * 64) `
+                -PendingInventory @() -WorkspaceInventory $fixtureWorkspace -ResultState ([ordered]@{State='MISSING'}) -Targets @($Row)
+            return [ordered]@{
+                SchemaVersion=1;PlannedAction='abandon'
+                GitCommonDirHash=('1' * 64);RepositoryCommit=('2' * 40);ToolchainPolicyHash=('3' * 64)
+                HeaderHash=('4' * 64);DerivedJournalHeadHash=('5' * 64);RecordChainHash=('6' * 64)
+                PendingInventory=@();WorkspaceInventory=$fixtureWorkspace;ResultState=[ordered]@{State='MISSING'}
+                Targets=@($Row);CurrentContextHash=(Get-SemanticJsonHash -InputObject $context)
+            }
+        }
+        $reviewedRow = New-CurrencyFixtureRow -TargetIdentity 'reviewed-identity' -PreimageIdentity '' -TargetHash ('a' * 64)
+        $reviewedRow.Tuple = $reviewedTuple
+        $reviewedPayload = New-CurrencyFixturePayload -Row $reviewedRow
+        $churnedRow = New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity '' -TargetHash ('a' * 64)
+        $churnedPayload = New-CurrencyFixturePayload -Row $churnedRow
+        Assert-TestCondition ((Get-PlanHash -PlanPayload $churnedPayload) -cne (Get-PlanHash -PlanPayload $reviewedPayload)) 're-projection fixture: target identity churn alone already makes the production-shaped re-derived payload hash differ from the reviewed plan hash'
+        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($churnedPayload.Targets) -ReviewedTargets @($reviewedPayload.Targets) -ManagedOutputRoots $consumerRoots
+        Assert-TestCondition ([string]$churnedRow.Tuple.Target.Identity -ceq 'reviewed-identity' -and [string]$churnedPayload.WorkspaceInventory[0].ObservedState.Identity -ceq 'workspace-identity') 're-projection replaces only the churned target identity under the generated output root and leaves the workspace observed identity alone'
+        $hashRow = New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity '' -TargetHash ('0' * 64)
+        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($hashRow) -ReviewedTargets @($reviewedPayload.Targets) -ManagedOutputRoots $consumerRoots
+        Assert-TestCondition ([string]$hashRow.Tuple.Target.Identity -ceq 'churned-identity') 're-projection refuses a tuple whose hash differs from the reviewed tuple'
+        $typeRow = New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity '' -TargetHash ('a' * 64)
+        $typeRow.Tuple.Target.Type = 'File'
+        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($typeRow) -ReviewedTargets @($reviewedPayload.Targets) -ManagedOutputRoots $consumerRoots
+        Assert-TestCondition ([string]$typeRow.Tuple.Target.Identity -ceq 'churned-identity') 're-projection refuses a tuple whose type differs from the reviewed tuple'
+        $outsideRow = New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity '' -TargetHash ('a' * 64)
+        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($outsideRow) -ReviewedTargets @($reviewedPayload.Targets) -ManagedOutputRoots @((Join-Path $consumerRepo 'unrelated-root'))
+        Assert-TestCondition ([string]$outsideRow.Tuple.Target.Identity -ceq 'churned-identity') 're-projection refuses a target outside every generated output root'
+        $otherPathRow = New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity '' -TargetHash ('a' * 64)
+        $otherPathReviewed = New-CurrencyFixtureRow -TargetIdentity 'reviewed-identity' -PreimageIdentity '' -TargetHash ('a' * 64)
+        $otherPathReviewed.TargetPath = [IO.Path]::GetFullPath($projectionTarget)
+        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($otherPathRow) -ReviewedTargets @($otherPathReviewed) -ManagedOutputRoots $consumerRoots
+        Assert-TestCondition ([string]$otherPathRow.Tuple.Target.Identity -ceq 'churned-identity') 're-projection refuses a reviewed tuple recorded for a different target path'
+        $preimageRow = New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity 'churned-preimage' -TargetHash ('a' * 64)
+        $preimageReviewed = New-CurrencyFixtureRow -TargetIdentity 'reviewed-identity' -PreimageIdentity 'reviewed-preimage' -TargetHash ('a' * 64)
+        $null=Get-CanonicalRecoveryTargetIdentityProjection -Targets @($preimageRow) -ReviewedTargets @($preimageReviewed) -ManagedOutputRoots $consumerRoots
+        Assert-TestCondition ([string]$preimageRow.Tuple.Preimage.Identity -ceq 'churned-preimage') 're-projection never re-binds a recovery workspace slot whose own path is outside the generated output roots'
 
-        # Behavioral wiring pin: the currency check reads its evidence through this
-        # seam, so a fixture payload proves the re-projection runs before the hash
-        # comparison and that the repository's generated output roots bound it.
+        # Behavioral wiring pins: the currency check reads its evidence through this
+        # seam, so production-shaped fixture payloads prove that the re-projection and
+        # the re-derived context hash run before the plan hash comparison.
         Set-Item -LiteralPath Function:\Get-CanonicalRecoveryEvidencePayload -Value { param($State,$RepoRoot,$Action,$ToolchainRoot) return $global:PathSafetyRecoveryEvidenceFixture }
-        $currencyDocument = [pscustomobject]@{PlanPayload=[ordered]@{PlannedAction='abandon';Targets=@($reviewedRow)};PlanHash=(Get-PlanHash -PlanPayload $reviewedPayload)}
-        $global:PathSafetyRecoveryEvidenceFixture = [ordered]@{Targets=@($currentRows);WorkspaceInventory=@([ordered]@{Role='preimage';ReconciledState='READY';ObservedState=$observedState})}
+        $currencyDocument = [pscustomobject]@{PlanPayload=$reviewedPayload;PlanHash=(Get-PlanHash -PlanPayload $reviewedPayload)}
+        # Fresh rows: the direct assertions above already substituted into their own fixtures.
+        $pinChurnedPayload = New-CurrencyFixturePayload -Row (New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity '' -TargetHash ('a' * 64))
+        $pinPreimagePayload = New-CurrencyFixturePayload -Row (New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity 'churned-preimage' -TargetHash ('a' * 64))
+        $pinHashPayload = New-CurrencyFixturePayload -Row (New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity '' -TargetHash ('0' * 64))
+        $global:PathSafetyRecoveryEvidenceFixture = $pinChurnedPayload
         $currencyError = $null
         try { $null=Assert-CanonicalRecoveryPlanCurrent -Document $currencyDocument -State ([pscustomobject]@{}) -RepoRoot $consumerRepo } catch { $currencyError = [string]$_.Exception.Message }
-        Assert-TestCondition ($null -eq $currencyError) 'recovery plan currency: a churned identity under the generated output root is re-projected before the reviewed plan hash is compared'
-        # A repository whose generated output roots do not cover the target keeps
-        # the same churned tuple stale, so the bounded dual-read stays fail-closed.
-        $currentRows[0].Tuple.Target.Identity = 'churned-identity'
-        $global:PathSafetyRecoveryEvidenceFixture = [ordered]@{Targets=@($currentRows);WorkspaceInventory=@([ordered]@{Role='preimage';ReconciledState='READY';ObservedState=$observedState})}
+        Assert-TestCondition ($null -eq $currencyError) 'recovery plan currency: a churned identity under the generated output root is re-projected and the context hash re-derived before the reviewed plan hash is compared'
+        $global:PathSafetyRecoveryEvidenceFixture = $pinPreimagePayload
+        Assert-PathSafetyThrows -Script { $null=Assert-CanonicalRecoveryPlanCurrent -Document $currencyDocument -State ([pscustomobject]@{}) -RepoRoot $consumerRepo } -Pattern '^canonical-recovery-plan-stale$' -Message 'recovery plan currency: churned identity on a recovery workspace slot outside the generated output roots still makes the reviewed plan stale'
+        $global:PathSafetyRecoveryEvidenceFixture = $pinHashPayload
+        Assert-PathSafetyThrows -Script { $null=Assert-CanonicalRecoveryPlanCurrent -Document $currencyDocument -State ([pscustomobject]@{}) -RepoRoot $consumerRepo } -Pattern '^canonical-recovery-plan-stale$' -Message 'recovery plan currency: a content hash change under the generated output root still makes the reviewed plan stale'
+        # A repository whose generated output roots do not cover the target keeps the
+        # same churned tuple stale, so the bounded re-projection stays fail-closed.
+        $global:PathSafetyRecoveryEvidenceFixture = New-CurrencyFixturePayload -Row (New-CurrencyFixtureRow -TargetIdentity 'churned-identity' -PreimageIdentity '' -TargetHash ('a' * 64))
         Assert-PathSafetyThrows -Script { $null=Assert-CanonicalRecoveryPlanCurrent -Document $currencyDocument -State ([pscustomobject]@{}) -RepoRoot $projectionRepo } -Pattern '^canonical-recovery-plan-stale$' -Message 'recovery plan currency: generated output roots that do not cover the target keep the reviewed plan stale'
     }
     finally {

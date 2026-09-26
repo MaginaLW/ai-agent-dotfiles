@@ -292,7 +292,7 @@ namespace AiAgentDotfilesTests {
 '@
 if(@($script:hardKillBehaviorCleanupAuthorityTypes|Where-Object{$_.Assembly -eq ('AiAgentDotfilesTests.HardKillBehaviorCleanupSession' -as [type]).Assembly}).Count -ne @($script:hardKillBehaviorCleanupAuthorityTypes).Count){throw 'hard-kill behavior cleanup authority type registration failed'}
 $script:hardKillReviewedLoadManifest=[ordered]@{
-    'scripts/canonical-recovery-common.ps1'='5081a7bff6bffcb94d620427215f0ec6c73d116ba255f2e29ffc01d0d1d32f27'
+    'scripts/canonical-recovery-common.ps1'='91ad64cbc60f498b6d070cb40a410604c922e85e4b5cfe4268f5624d80b04e7c'
     'tests/helpers/canonical-reviewed-recovery-engine.ps1'='b225c80d8cd130f65fd8c184c16b0b0dc2828ac33bd5dcb07eb0c5f1ce86a8ae'
     'tests/helpers/canonical-reviewed-mutation-engine.ps1'='8901fef2e1272f2afddb20b26f10ef4a1813a464059daa3ab3c49af112e2ec6f'
     'tests/helpers/canonical-hard-kill-job-process.ps1'='da097f0df354d72d952e4b04a20618d9a3ed643470e92cd64b99a2c049510642'
@@ -10239,7 +10239,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $functionInventoryDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($functionRows -join "`n")))).ToLowerInvariant()
         $repo=[IO.Path]::GetFullPath($RepositoryRoot)
         $externalFiles=[ordered]@{
-            'scripts/canonical-recovery-common.ps1'='5081a7bff6bffcb94d620427215f0ec6c73d116ba255f2e29ffc01d0d1d32f27'
+            'scripts/canonical-recovery-common.ps1'='91ad64cbc60f498b6d070cb40a410604c922e85e4b5cfe4268f5624d80b04e7c'
             'tests/helpers/canonical-reviewed-recovery-engine.ps1'='b225c80d8cd130f65fd8c184c16b0b0dc2828ac33bd5dcb07eb0c5f1ce86a8ae'
             'tests/helpers/canonical-reviewed-mutation-engine.ps1'='8901fef2e1272f2afddb20b26f10ef4a1813a464059daa3ab3c49af112e2ec6f'
             'tests/helpers/canonical-hard-kill-job-process.ps1'='da097f0df354d72d952e4b04a20618d9a3ed643470e92cd64b99a2c049510642'
