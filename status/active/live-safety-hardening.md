@@ -5514,3 +5514,42 @@ canonical 行永不命中。另一条只读设计线（grok，一次性检出）
 - `git diff --check` 干净
 
 未解决的语义发现：无。Lab / CI 仍未跑（本候选尚未送审）。
+
+### 自封 pin 重钉与候选 `c783a01` 接受（2026-09-26）
+
+**重钉（grok 主刀，独立检出 `codex/hardkill-reseal`，完全访问）**：按 fixpoint 流程重算并重钉
+`tests/canonical-hard-kill.tests.ps1` 的自封值——**13 对变更行全部是纯 40–64 位十六进制字面量替换**
+（主 agent 用规范化 diff 逐对核验：去哈希后零差异；`scripts/**` 零改动；断言文本、mutant 名单、
+语义标志全部原样）。上一轮 17 项失败的真实构成：**3 项是过期摘要本身**（24 行 actual-prelude 的
+token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest、controller surface sha），其余
+14 项是 cleanup/transport 门变红后 behavior-probe 未启动的**连带失败**，门修复后按原语义通过。
+
+- 逐 pin 理由（摘要）：prelude manifest 第 9 行/prelude digest——受审三个 common 脚本哈希面变化进入
+  24 行 token 清单；transport 两个函数的 Require-ReviewedFunctionHash、函数清单摘要、cleanup-gate
+  自摘要、main-try 摘要、top-level 摘要、pre-section 区域摘要——均为上述字面量所在区域的派生摘要。
+- **语义核查（关键）**：302 个 typed mutant 仍全部 `Rejected` 且 `RejectedForExpectedReason`；
+  81 合成 + 2 actual-prelude 对照仍 `Accepted`；`Valid`/`ControlsValid`/`ActualPreludeValid`/
+  `ActualBaselineSatisfied` 仍为 true；`ActualPreludeCount` 仍 24、变异矩阵仍 302、对照仍 81。
+  **没有发现任何「应拒绝变接受 / 应接受变拒绝」**。
+- 验证：grok 真套件全跑 `Results: 318 passed, 0 failed`（exit 0，约 2435 s；早前 105/17 里的
+  105+17=122 是门红时 per-case 断言未展开的口径，门绿后全量展开为 318）；主 agent 在合并头上**独立
+  复跑同结果**（exit 0）；`-Section primitives` 95/0；parse gate 180 文件；seams 66/0。
+
+**候选 `c783a01` 接受（三项证据齐全）**
+
+1. **本地**：hard-kill 318/0（主 agent 复跑）、seams 66/0、parse gate、`git diff --check`；
+   此前该分支已验：path-safety 78 断言、canonical-recovery 138/0、canonical-transaction 64/0、
+   transaction-apply 47/0、mutation-blockers 32/0、parent-lease 12/0、command-result 104/0、
+   live-recovery PASS、backup-recovery PASS。
+2. **一次性身份 lab（S3）**：`validation-c16-01`（kit `3db5c98c…`，宿主 SID 校验、create-new 证据、
+   12 小时上限）：`route-result PASS`、`completion ExitCode 0`；**11 gate 全绿、42/42 套件、0 失败
+   0 超时**，套件合计 10012 s，guest 内 hard-kill `Results: 318 passed, 0 failed`；宿主 roots 快照
+   与 post-C11 **逐字节相同**。
+3. **远端 CI（S4）**：run
+   [#159](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36241128493)（`c783a01`）：
+   **四作业全绿**（gates 2.6 分钟、shard 1/2/3 = 73.0/55.9/91.8 分钟）。
+
+**边界**：本次接受 = canonical 投影改动 + 其审查修正 + hard-kill 自封 pin 重钉，在一次性身份 lab
+与 CI 上全绿。**未执行**：真实 Apply、`env authority adopt`、`env activate`、真机 DryRun、部署；
+**合并到 `main` 未执行**（等待所有者授权；`main` 目前 = `7201704`）。14 条 mutation 路线最后一次
+运行在 C6/C10，未在本候选重跑。
