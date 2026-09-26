@@ -5371,3 +5371,25 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
 阶段后被主动终止（候选字节改变，superseded）；`validation-c14-01` 因沙箱会话孤立未启动
 （`lab-guest-did-not-start-within-startup-deadline`），`validation-c14-02` 被 launcher 的
 「已有沙箱会话」守卫拒绝，清理孤立 VM 进程后以 `validation-c15-01` 完成。
+
+## 2026-09-26 后续窗口状态（main 上的入口）
+
+本条记录 main（`c3ff184` = 已接受候选，CI run #154 四作业全绿）之后的状态，供下一个会话接手。
+
+1. **合并已执行**：所有者授权后 main 由 `48f17e1` 快进到 `c3ff184` 并推送；
+   `codex/post-audit-completion`、`codex/post-audit-c12` 同步到同一 SHA。部署与逐机 runner 批准仍未授权、
+   未执行。
+2. **待完成项 6 的「docs 静态校验无产物」已收口**：本轮用可复跑工具
+   （`tmp/zc-review/check-guide-examples.ps1`，机内、不入库）对当前指南做 AST 参数校验——7 个文件、
+   **43 个 PowerShell 块、122 条命令、36 处 `<占位符>` 规范化、79 条仓内脚本调用参数校验、0 错误**；
+   产物 `tmp/zc-review/guide-examples-check.json`。原「37 块 / 67 调用、零错误」的说法在现有文件集与
+   计数口径下**不可复现**，以本轮的实测数字为准。
+3. **待完成项 5（canonical 投影）与其同批残余 (c) 已在分支 `codex/post-audit-next` 实施并独立审查**：
+   提交 `887f36e`、`397b381`、`92c4178`；**未合并、未推送**。审查结论「安全=是、阻断=0、非阻断=2」，
+   两条非阻断已修（每槽按自身路径判定 + 回填后重导 `CurrentContextHash`）。除
+   `canonical-hard-kill` 外全部相关套件绿；**hard-kill 的 17 项内联自封 pin 尚未重钉**（改动扩大了
+   被审面），这是该分支进入 lab/CI 前的唯一剩余步骤——详见该分支记录
+   `status/active/live-safety-hardening.md` 的「待完成项 5 的实施与审查」一节（合并该分支后即为同一文档）。
+4. **仍未做**：待完成项 6 的其余残余（contract 读取不核 DACL、`Get-SealedLiveTransactionTerminalDocumentHashes`
+   的 COMPLETE 语义、`000001.json` 令牌形态、名字检查函数调用者 pin、历史叙述回改）；待完成项 7 的
+   真实部署与逐机 runner 批准。
