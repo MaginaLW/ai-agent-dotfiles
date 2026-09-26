@@ -58,13 +58,22 @@ the contract-above headroom stays at 1605 s; shard 3's contract is 12495 s and t
 evidence sets: the local contract checks, the disposable-identity lab run `validation-c15-01`
 (route PASS, 11 gates, 42/42 suites, zero failures or timeouts, host roots unchanged) and CI run
 [#152](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36175113317) with all four jobs
-green. Acceptance covers the contract change only: the 14 mutation routes were last run on C6/C10
-and are not re-run on this candidate, and no Apply, adoption, activation,
-real-machine DryRun or deployment happened; see the acceptance section in the activity record.
-`validation-c11-01` (candidate `6866e62`) remains evidence for its own bytes. The pending items
-are listed under "收尾：本轮完成情况与待完成项目" in the activity record. See the
+green. That candidate was merged to `main` under the owner's 2026-09-26 authorization (`main` =
+`7201704`, whose CI run #156 is green - the first all-shard-green run on main).
+
+A successor candidate **`c783a01` on `codex/post-audit-next` is also accepted** (2026-09-26): the
+canonical plan-target projection with its review corrections, plus the re-sealed hard-kill
+self-seals (13 pure hex-literal swaps, verified line by line; semantic flags intact - 302 mutants
+all rejected for the expected reasons, 81+2 controls accepted). Evidence: the local checks including
+a 318/0 full hard-kill run by the main agent, the disposable-identity lab run `validation-c16-01`
+(11 gates, 42/42 suites, zero failures or timeouts, host roots byte-identical) and CI run
+[#159](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36241128493) with all four jobs
+green. **Merging `c783a01` to `main` is pending the owner's authorization**; no Apply, adoption,
+activation, real-machine DryRun or deployment happened for either candidate, and the 14 mutation
+routes were last run on C6/C10. The pending items are listed under
+"收尾：本轮完成情况与待完成项目" in the activity record. See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
-isolation boundaries, actual validation and the residual items left open. No new candidate has been accepted.
+isolation boundaries, actual validation and the residual items left open.
 
 Remote main and run-status snapshot, rechecked **2026-09-23 23:40 UTC+8**: `main` is `627ef3f`, whose
 [Validate #135](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35852562723) failed.
