@@ -5393,7 +5393,7 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
    **43 个 PowerShell 块、122 条命令、36 处 `<占位符>` 规范化、79 条仓内脚本调用参数校验、0 错误**；
    产物 `tmp/zc-review/guide-examples-check.json`。原「37 块 / 67 调用、零错误」的说法在现有文件集与
    计数口径下**不可复现**，以本轮的实测数字为准。
-3. **待完成项 5（canonical 投影）与其同批残余 (c) 已在分支 `codex/post-audit-next` 实施并独立审查**：
+3. **（已被 2026-09-27 的重钉收口与合并取代，见文末）待完成项 5（canonical 投影）与其同批残余 (c) 已在分支 `codex/post-audit-next` 实施并独立审查**：
    提交 `887f36e`、`397b381`、`92c4178`；**未合并、未推送**。审查结论「安全=是、阻断=0、非阻断=2」，
    两条非阻断已修（每槽按自身路径判定 + 回填后重导 `CurrentContextHash`）。除
    `canonical-hard-kill` 外全部相关套件绿；**hard-kill 的 17 项内联自封 pin 尚未重钉**（改动扩大了
@@ -5572,5 +5572,14 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
 
 **边界**：本次接受 = canonical 投影改动 + 其审查修正 + hard-kill 自封 pin 重钉，在一次性身份 lab
 与 CI 上全绿。**未执行**：真实 Apply、`env authority adopt`、`env activate`、真机 DryRun、部署；
-**合并到 `main` 未执行**（等待所有者授权；`main` 目前 = `7201704`）。14 条 mutation 路线最后一次
+合并到 `main` **已于 2026-09-27 按所有者授权执行**（见文末）。14 条 mutation 路线最后一次
 运行在 C6/C10，未在本候选重跑。
+
+## 2026-09-27 合并执行（所有者授权）
+
+所有者授权后，`codex/post-audit-next`（候选 `c783a01`，三项证据齐全：本地 hard-kill 318/0 复跑、
+一次性身份 lab `validation-c16-01`、CI run #159 四作业全绿）以**合并提交**并入 `main`
+（`main` 在 `7201704` 有一笔交接文档提交，无法快进）；冲突仅一处（`status/active/live-safety-hardening.md`
+的双侧追加），两侧内容均保留。合并树过 parse gate、secret scan、`git diff --check`。
+**本节由合并执行写入；授权范围仅覆盖「合并并推送 main」——部署、逐机 runner 批准、真实 Apply 仍未授权、
+未执行。**
