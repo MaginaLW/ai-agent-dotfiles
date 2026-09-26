@@ -226,6 +226,51 @@ function Get-TargetMetadataContext {
     finally { Close-SafeDirectoryContainmentChain -Handles $handles }
 }
 
+function Test-TargetContextPathInsideManagedOutputRoot {
+    param([Parameter(Mandatory)] [string] $Path, [AllowEmptyCollection()] [string[]] $ManagedOutputRoots = @())
+    foreach ($root in @($ManagedOutputRoots)) {
+        if (-not [string]::IsNullOrWhiteSpace($root) -and (Test-SafePathInsideRoot -Path $Path -Root $root)) { return $true }
+    }
+    return $false
+}
+
+function Get-CanonicalPlanTargetContextHash {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $TargetContext,
+        [AllowEmptyCollection()] [string[]] $ManagedOutputRoots = @()
+    )
+    # Plan-only projection of a metadata context: the Domain keeps it distinct
+    # from RequestedInitialRootContextHash, so consumers accept either digest
+    # (bounded dual-read). Identity is blanked only inside the managed output
+    # roots the caller passes (the canonical callers pass the three repo-local
+    # generated output roots from Get-CanonicalGeneratedOutputRoots), while
+    # every ancestor above them stays identity-bound.
+    $ancestors = @($TargetContext.Ancestors | ForEach-Object {
+        [ordered]@{
+            Path = [string]$_.Path
+            Identity = if (Test-TargetContextPathInsideManagedOutputRoot -Path ([string]$_.Path) -ManagedOutputRoots $ManagedOutputRoots) { $null } else { [string]$_.Identity }
+            Type = [string]$_.Type
+            ReparsePoint = [bool]$_.ReparsePoint
+        }
+    })
+    $isMissing = [string]$TargetContext.TargetStatus -ceq 'MISSING'
+    return Get-SemanticJsonHash -InputObject ([ordered]@{
+        Domain = 'ai-agent-dotfiles/canonical-plan-target-context/v1'
+        LocationKey = [string]$TargetContext.LocationKey
+        RequestedPath = [string]$TargetContext.RequestedPath
+        TargetStatus = [string]$TargetContext.TargetStatus
+        TargetType = [string]$TargetContext.TargetType
+        VolumeId = [string]$TargetContext.VolumeId
+        DeepestExistingParentPath = [string]$TargetContext.DeepestExistingParentPath
+        # Only a MISSING target keeps its creation anchor, and only when that
+        # anchor itself sits outside the managed output roots.
+        DeepestExistingParentIdentity = if ($isMissing -and -not (Test-TargetContextPathInsideManagedOutputRoot -Path ([string]$TargetContext.DeepestExistingParentPath) -ManagedOutputRoots $ManagedOutputRoots)) { [string]$TargetContext.DeepestExistingParentIdentity } else { $null }
+        MissingRemainder = @($TargetContext.MissingRemainder)
+        Ancestors = @($ancestors)
+    })
+}
+
 function Get-SealedHeldTargetLocationKey {
     param([Parameter(Mandatory)][string]$Path)
     return [IO.Path]::GetFullPath($Path).TrimEnd([char]92,[char]47).ToLowerInvariant().Replace([char]92,[char]47)
@@ -524,7 +569,17 @@ function Open-SealedHeldTargetContextLease {
 
 function Assert-SealedHeldTargetContextLease {
     [CmdletBinding()]
-    param([AllowNull()]$Lease)
+    param(
+        [AllowNull()]$Lease,
+        # Caller contract: a caller validating a reviewed plan/journal row that
+        # carries a projected digest passes the same managed output root list
+        # that produced it (the canonical callers pass the repo-local generated
+        # output roots from Get-CanonicalGeneratedOutputRoots). No current
+        # producer stores a projected digest in this field, so the empty
+        # default stays the legacy-only read: the legacy whole-object digest or
+        # a digest projected with no managed output roots.
+        [AllowEmptyCollection()] [string[]] $ManagedOutputRoots = @()
+    )
 
     try {
         $receipt = [AiAgentDotfiles.SealedHeldTargetContextLeaseReceipt]::GetForWrapperExact($Lease)
@@ -546,7 +601,8 @@ function Assert-SealedHeldTargetContextLease {
         if ([string]$projection.CaptureKind -cne 'HELD_METADATA' -or [string]$projection.FilesystemCapabilityStatus -cne 'UNPROBED' -or $null -ne $projection.FilesystemCapabilityHash) {
             throw 'held target lease misstates filesystem capability coverage'
         }
-        if ((Get-SemanticJsonHash -InputObject $legacyMetadata) -cne [string]$projection.RequestedInitialRootContextHash -or
+        if (((Get-SemanticJsonHash -InputObject $legacyMetadata) -cne [string]$projection.RequestedInitialRootContextHash -and
+            (Get-CanonicalPlanTargetContextHash -TargetContext $legacyMetadata -ManagedOutputRoots $ManagedOutputRoots) -cne [string]$projection.RequestedInitialRootContextHash) -or
             (Get-SealedHeldTargetMetadataHash -Projection $projection) -cne [string]$projection.HeldMetadataHash) {
             throw 'held target metadata hash mismatch'
         }

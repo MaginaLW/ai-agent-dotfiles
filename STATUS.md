@@ -59,7 +59,7 @@ evidence sets: the local contract checks, the disposable-identity lab run `valid
 (route PASS, 11 gates, 42/42 suites, zero failures or timeouts, host roots unchanged) and CI run
 [#152](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36175113317) with all four jobs
 green. Acceptance covers the contract change only: the 14 mutation routes were last run on C6/C10
-and are not re-run on this candidate, `main` is untouched, and no Apply, adoption, activation,
+and are not re-run on this candidate, and no Apply, adoption, activation,
 real-machine DryRun or deployment happened; see the acceptance section in the activity record.
 `validation-c11-01` (candidate `6866e62`) remains evidence for its own bytes. The pending items
 are listed under "收尾：本轮完成情况与待完成项目" in the activity record. See the

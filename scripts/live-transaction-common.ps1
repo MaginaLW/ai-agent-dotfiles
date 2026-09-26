@@ -1550,7 +1550,13 @@ function Invoke-SealedEnvironmentRollbackTransaction {
             try {
                 Remove-SealedEnvironmentRollbackStaging -Targets $engineTargets -StagingRootsByPlatform $stagingRootsByPlatform -StateRecoveryDirectory $stateRecoveryDirectory
             }
-            catch {}
+            catch {
+                # The transaction is already terminal and committed, so a cleanup failure must
+                # not turn it into an error; it is reported instead of swallowed, because the
+                # leftover staging under this transaction's private namespace is otherwise
+                # invisible to the caller.
+                Write-Warning ('environment-rollback-staging-cleanup-failed: ' + [string]$_.Exception.Message)
+            }
         }
 
         return [pscustomobject][ordered]@{

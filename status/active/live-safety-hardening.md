@@ -5363,11 +5363,45 @@ CI 阻塞。执行基线 `codex/post-audit-completion@23752e6`（= C11 `6866e62`
 **独立审查**：两路 grok 对抗性审查（阻断 1 已修、非阻断分项记录在案）＋一路证据强度审计；
 主 agent 逐条复核其数字后才采纳或记录为残余。被否的断言与保留项都写在上面各节。
 
+**合并（所有者授权，2026-09-26）**：所有者授权合并后，`main` 由 `48f17e1` **快进**到 `c3ff184`
+（本候选 + 三笔记录提交）并推送 `origin/main`；`codex/post-audit-completion` 与
+`codex/post-audit-c12` 同步到同一 SHA。合并后 main 的 CI run
+[#154](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36214832945) 按与被接受候选相同的
+合同执行。授权范围仅覆盖「合并并推送 main」：**部署、逐机 runner 批准、真实 Apply 仍未授权、未执行**。
+合并后 main 的 CI 结果：run
+[#154](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36214832945) **四个作业全绿**
+（gates 与三片均 success）——main 上第一次分片全绿；改动前 main（`48f17e1`）三片皆红。
+
 **未执行**：真实 Apply、`env authority adopt`、`env activate`、任何真实机 DryRun（按规则需走内部宿主
-与外部计划，未以裸调用试探联锁）、推送 `main`、合并到 `main`、部署。`main` 仍停在 `48f17e1`。
+与外部计划，未以裸调用试探联锁）、部署。合并与推送 main 已按上段授权执行；`main` = `c3ff184`。
 
 **过程与作废记录**（同一晚的失败与主动终止，均保留证据不冒充接受）：run `#148`/`#149`/`#150`/`#151`
 （前三份分片 2 或分片 3 红，`#151` 四作业全绿但被后继候选取代）；lab `validation-c13-01` 在 gates
 阶段后被主动终止（候选字节改变，superseded）；`validation-c14-01` 因沙箱会话孤立未启动
 （`lab-guest-did-not-start-within-startup-deadline`），`validation-c14-02` 被 launcher 的
 「已有沙箱会话」守卫拒绝，清理孤立 VM 进程后以 `validation-c15-01` 完成。
+
+## 2026-09-26 canonical 投影实施（待完成项 5）
+
+### 设计裁决：置空根集合与消费点集合（有证据，含一处异议）
+
+上一轮留下了两段互相冲突的设计文字，本轮用**可达实例**裁决：
+
+- 类别普查（本文件 4556 起）明确写出可达实例：`build-skills.ps1` 重建 **`<repo>/<platform>/skills`**
+  及子目录 → `TargetContextHash` 里的 `Ancestors[*].Identity`/`DeepestExistingParentIdentity` 变化 →
+  `canonical-plan-stale`（`canonical-transaction-common.ps1:1577`）或
+  `canonical target context changed before staging`。**置空根集合 = 仓内三个生成输出根**
+  （`claude/skills`、`codex/skills`、`reasonix/skills`，与 `canonical-transaction-common.ps1:170-175`
+  与 `:273-277`、`build-skills.ps1:55-57` 的枚举一致）；`Get-CanonicalDefaultLiveRoots`
+  （`~/.claude/skills` 等四条 home 根）对 canonical 行**永不命中**：canonical 计划目标一律在
+  `RepoRoot` 内（计划行 `Join-Path $git.RepoRoot (Join-Path $platform.Root $name)`，
+  recovery 亦拒收仓外目标），因此 home 根集合会让改动对可达实例失效。
+- 提案 P1（本文件 4620 起）点名的三处是 **`New-CanonicalTargetRow`、
+  `Initialize-CanonicalReviewedStaging`、`Assert-CanonicalRecoveryStateContext`**——全部属 canonical
+  子系统；持锁租约那条（`Assert-SealedHeldTargetContextLease`）不在 P1 名单里，它的目标是 live/home
+  路径，属另一子系统、另一套根，本轮只把它**参数化**（默认空 = 维持旧行为），不并入同一集合。
+- **异议记录**：本轮另一个 grok 设计线程（一次性检出、只读）给出的规格主张单一集合 =
+  `Get-CanonicalDefaultLiveRoots` 四条 home 根、并明确要求**不要**并入仓内生成根。本文不采纳该点：
+  它与本文件已记录的可达实例与 P1 名单冲突，且会让两处 canonical 消费点变成死代码。该规格的其余
+  结论（固定 Domain 字符串、投影字段清单、`DeepestExistingParentIdentity` 的保留/置空表、
+  `Test-SafePathInsideRoot` 的路径前缀语义、pin 重钉顺序）被采用。此裁决留待独立审查复核。

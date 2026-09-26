@@ -136,7 +136,11 @@ function Assert-CanonicalRecoveryStateContext {
             }).Count -gt 0
             if(-not $createdAncestor){
                 $context=Resolve-TargetContext -Path ([string]$target.TargetPath) -Mode MetadataOnly
-                if([string]$context.RequestedInitialRootContextHash -cne [string]$target.TargetContextHash){throw 'manual-recovery-required: target context hash differs from reviewed header'}
+                # Bounded dual-read against the repo-local generated output
+                # roots: the reviewed row may carry the projected plan digest
+                # or the legacy whole-object digest.
+                if([string]$context.RequestedInitialRootContextHash -cne [string]$target.TargetContextHash -and
+                    (Get-CanonicalPlanTargetContextHash -TargetContext $context -ManagedOutputRoots (Get-CanonicalGeneratedOutputRoots -RepoRoot $git.RepoRoot)) -cne [string]$target.TargetContextHash){throw 'manual-recovery-required: target context hash differs from reviewed header'}
             }
         }
     }
@@ -469,9 +473,42 @@ function Read-CanonicalRecoveryPlan {
     return $document
 }
 
+function Get-CanonicalRecoveryTargetIdentityProjection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Targets,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$ReviewedTargets,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ManagedOutputRoots
+    )
+    # Identity churn inside a generated output root is projected back onto the
+    # reviewed tuple when that tuple still matches the reviewed State/Type/Hash
+    # and target path. Every other difference stays observable, so the plan
+    # still goes stale; workspace ObservedState identities are never touched.
+    foreach($row in @($Targets)){
+        if(-not(Test-CanonicalDataField -Data $row -Name 'Tuple') -or $null -eq $row.Tuple -or
+            -not(Test-TargetContextPathInsideManagedOutputRoot -Path ([string]$row.TargetPath) -ManagedOutputRoots $ManagedOutputRoots)){continue}
+        $reviewed=@($ReviewedTargets|Where-Object{[string]$_.TargetId -ceq [string]$row.TargetId})
+        if($reviewed.Count -ne 1 -or -not(Test-CanonicalDataField -Data $reviewed[0] -Name 'Tuple') -or
+            -not([IO.Path]::GetFullPath([string]$reviewed[0].TargetPath).Equals(
+            [IO.Path]::GetFullPath([string]$row.TargetPath),[StringComparison]::OrdinalIgnoreCase))){continue}
+        foreach($slot in @('Target','Preimage','SwapOld','Staged')){
+            if(-not(Test-CanonicalDataField -Data $row.Tuple -Name $slot) -or
+                -not(Test-CanonicalDataField -Data $reviewed[0].Tuple -Name $slot)){continue}
+            $actual=$row.Tuple.$slot;$expected=$reviewed[0].Tuple.$slot
+            if($null -eq $actual -or $null -eq $expected -or
+                -not(Test-CanonicalDataField -Data $actual -Name 'Identity') -or
+                -not(Test-CanonicalDataField -Data $expected -Name 'Identity')){continue}
+            if([string]$actual.State -cne [string]$expected.State -or [string]$actual.Type -cne [string]$expected.Type -or
+                [string]$actual.Hash -cne [string]$expected.Hash){continue}
+            $actual.Identity=[string]$expected.Identity
+        }
+    }
+}
+
 function Assert-CanonicalRecoveryPlanCurrent {
     param([Parameter(Mandatory)]$Document,[Parameter(Mandatory)]$State,[Parameter(Mandatory)][string]$RepoRoot,[string]$ToolchainRoot=$script:CanonicalToolchainRoot)
     $current=Get-CanonicalRecoveryEvidencePayload -State $State -RepoRoot $RepoRoot -Action ([string]$Document.PlanPayload.PlannedAction) -ToolchainRoot $ToolchainRoot
+    $null=(Get-CanonicalRecoveryTargetIdentityProjection -Targets @($current.Targets) -ReviewedTargets @($Document.PlanPayload.Targets) -ManagedOutputRoots (Get-CanonicalGeneratedOutputRoots -RepoRoot $RepoRoot))
     if((Get-PlanHash -PlanPayload $current) -cne [string]$Document.PlanHash){throw 'canonical-recovery-plan-stale'}
     return $current
 }

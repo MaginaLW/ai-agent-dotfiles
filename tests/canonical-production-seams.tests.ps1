@@ -500,8 +500,8 @@ $reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f
 # binding: +45 and -2 Member rows, all inside scripts/root-claims-registry-common.ps1.
 # Row-reviewed delta from tmp/post-audit-execution/seams-c10.inventory.json: no other file
 # changed, dynamic-command digest unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16710
-$reviewedAllScriptsReflectionSensitiveDigest='9af4d7a57fbfd0967f18cd73861acdcfc1414d1b470279e5410306364a1c3dd4'
+$reviewedAllScriptsReflectionSensitiveSiteCount=16767
+$reviewedAllScriptsReflectionSensitiveDigest='1c8a0ba2a4ea4974c222646bc4e2f12673ef5b2bf5746c5761a41d0622171a8f'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
