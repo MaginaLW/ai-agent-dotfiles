@@ -51,6 +51,12 @@
 # (900 s) passed, so the suite now has its own kill record and the tier is re-raised to
 # 1200 s. Shard 3's job timeout goes 230 -> 235 minutes, which puts the contract-above
 # headroom back to 1605 s (12495 + 1605 = 14100 s) as the reviewer asked for.
+#
+# guide-examples 2026-09-27: guide-examples.tests.ps1 (new static check over the
+# operation guides, scripts/check-guide-examples.ps1) joins shard 2 at a 60 s budget;
+# shard 2's sum goes 9780 -> 9840 s and the aggregate RequiredJobTimeoutSeconds
+# 30555 -> 30615 s. No job timeout changed: 9840 + 300 + 120 = 10260 s stays under
+# shard 2's 185-minute job ceiling (11100 s).
 @{
     '1' = @(
         'automation-safety.tests.ps1'              # 600
@@ -68,6 +74,7 @@
         'canonical-preflight.tests.ps1'            # 120
         'canonical-recovery.tests.ps1'             # 1200
         'canonical-transaction-apply.tests.ps1'    # 1800
+        'guide-examples.tests.ps1'                 # 60
         'root-claims-registry.tests.ps1'           # 3600
         'skills-import.tests.ps1'                  # 1200
     )

@@ -20,6 +20,7 @@
         'canonical-transaction.tests.ps1' = 360
         'config-sync.tests.ps1' = 90
         'doctor.tests.ps1' = 60
+        'guide-examples.tests.ps1' = 60
         'home-authority.tests.ps1' = 180
         'live-concurrency.tests.ps1' = 300
         'live-plan.tests.ps1' = 180
