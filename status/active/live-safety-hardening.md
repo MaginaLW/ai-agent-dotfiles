@@ -5647,3 +5647,8 @@ failing=[root-claims-registry.tests.ps1:failed:exit=1]`——**断言失败而�
 - 处置：本节即为 R3 归因记录；本提交同时触发新 CI 样本（无 API 凭据，attempt 级重跑不可用，以
   同测试字节的文档后继提交替代）。新样本若绿 → 按偶发收口；若同套件再红 → 升级为待办（夹具排查 +
   考虑把逐套件断言文本恢复进注解受隐私约束的可行范围）。
+
+**收口（同日）**：同测试字节的新 CI 样本 run
+[#165](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36298563363)（`b629da3`）
+**四作业全绿**（含分片 2 的 `root-claims-registry`）——按 R3 以偶发收口，不再列为待办；若未来同套件
+再出现无断言文本的单样本红，按本节处置路径重走（同字节对照 → 本地复跑 → 新样本）。
