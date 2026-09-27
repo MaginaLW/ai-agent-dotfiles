@@ -5626,3 +5626,24 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
    （14 = C11、19 = c15、20 = **现接受候选 c783a01** 的 lab 证据；17/18 = 被取代/未启动的过程记录）；
    `tmp/zc-ci/`（GitHub API 取证：注解、作业时长）。下次自封 pin 变动时，重钉路径即上文
    「重钉尝试」+「自封 pin 重钉与候选 c783a01 接受」两节所述。
+
+### CI #164 分片 2 归因（R3，2026-09-27）
+
+run [#164](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36295262841)（`eb657ea`，纯文档
+提交）的分片 2 失败：`discovered=8 passed=7 failed=1 timed-out=0
+failing=[root-claims-registry.tests.ps1:failed:exit=1]`——**断言失败而非超时**，且该工作流变体的注解
+按设计只含套件 id 与计数（`c6ac621`），无断言文本可取。
+
+同字节对照（R3）：测试字节与 `5bf3740` 完全一致（两提交间仅 `.md` 差异，`git diff --stat eb657ea
+5bf3740 -- tests/` 为空）；该字节上 `root-claims-registry` 在 CI #159（分支）、#162、#163 三次绿，
+一次性身份 lab `validation-c16-01` 内绿（suite state=passed），**本地 `eb657ea` 检出复跑绿**
+（exit 0，"Root claims registry tests passed"，约 40 分钟）。五个绿样本对一个红样本，红样本无断言
+文本——按 R3 判为**占位/时序型偶发**（该套件是分片 2 最长的 identity/ACL 密集套件，历史窗口已有
+同类偶发记录）。
+
+- 已核查并排除的线索：本地通过的运行末尾有一行既有 NOTE（workRoot cleanup 留下 canonical
+  early-release 路径的 stranded resolver lock files）——该 NOTE 由 `28ce839` 引入，c15（改动前）与
+  c16（改动后）两次 lab 的 suite stdout 均含此行，**不是本次改动的新行为**。
+- 处置：本节即为 R3 归因记录；本提交同时触发新 CI 样本（无 API 凭据，attempt 级重跑不可用，以
+  同测试字节的文档后继提交替代）。新样本若绿 → 按偶发收口；若同套件再红 → 升级为待办（夹具排查 +
+  考虑把逐套件断言文本恢复进注解受隐私约束的可行范围）。
