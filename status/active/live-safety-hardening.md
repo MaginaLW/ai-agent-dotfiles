@@ -4996,6 +4996,9 @@ home-authority-registry-manual-recovery-required: live-transaction-namespace-chi
   `Assert-SealedLiveTransactionNamespaceImmediateChildren`；调用链
   `Get-SealedHomeAuthorityRegistryView:3921` → `Get-SealedHeldLockOrderRecompute:8549` →
   `scripts/canonical-transaction.ps1:71`（`BOUND` 分支，开事务之前）。
+  （更正 2026-09-27，grok J 的 C11 残余回改：该抛点函数与下文允许表机制均为当时字节的历史记录；
+  该函数已在 C11 作为死函数删除，合同由 `Assert-SealedRegistryLiveTransactionJournalInventory`
+  按 journal 合同承接，见下文 C11 节。）
 - **机制**：live-transactions 根的子项允许表是**空的**（`$script:SealedLiveTransactionAllowedEntriesV1 = @()`，同文件 `:15`）。首次 live
   `sync -Apply` 会在事务命名空间里留下 journal 记录文件（如 `000001.json`），此后 canonical Apply 的视图打开该根时
   立即以“命名空间子项不允许”拒绝。这与 grok E 路的设计预言完全一致（“只删空根检查会被下一道 allow table 挡住”）。
@@ -5029,6 +5032,9 @@ pin 要求 `Assert-SealedLiveTransactionNamespaceImmediateChildren` 的唯一生
 （`Assert-SealedLiveTransactionNamespaceJournalChildren` / `Assert-SealedRegistryLiveTransactionJournalInventory`），
 却在同一文件里**留下了旧的 `Assert-SealedLiveTransactionNamespaceImmediateChildren` 定义而无人调用**——
 即当前是死函数，实际调用者集合为空，与 pin 不符。
+（更正 2026-09-27，grok J 的 C11 残余回改：本节「未解决」与上述 pin 形态为当时字节的历史记录，
+下一节 C11 已按方向 (a) 删除该死函数并把 seam 合同改写为跟踪
+`Assert-SealedRegistryLiveTransactionJournalInventory`，不再以旧函数的调用者清单为合同。）
 
 **处置方向（下一步，先定后改）**：(a) 若新校验确实完全取代旧断言，则应**删除**该死函数及其 pin 条目，并把
 pin 的属主清单更新为新的调用关系（需核对新的调用边确在 `Get-SealedHomeAuthorityRegistryView` 契约内）；
@@ -5608,7 +5614,10 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
       可解析 COMPLETE 记为已消费、不跑链校验（偏 fail-closed；是否收紧需决策）。
    c. journal 名字门对「名为 `000001.json` 的目录」的令牌形态（grok J）。
    d. `Assert-SealedRegistryLiveTransactionJournalInventory` 内层名字门无单独调用者 pin（grok J）。
-   e. 历史叙述未回改（grok J 第三条）。
+   e. ✅ 历史叙述未回改（grok J 第三条）——2026-09-27 已收口：在 `STATUS.md` 2026-09-06 节、
+      本记录 grok H 定因节与 C10 整合节三处对已删除的
+      `Assert-SealedLiveTransactionNamespaceImmediateChildren` 叙述加带日期的更正注记，
+      原文保留为历史记录。
    f. S1 审计发现但未逐条复核的三项：成功输出写在释放锁之前、rollback 空目录累积、pending state
       的路径式 Move。
    g. `live recover status` 在无 canonical setup 的机器上以 exit 1 抛 `live-plan-authority-missing`，

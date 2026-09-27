@@ -1959,6 +1959,11 @@ implemented in commit `8ab102f`:
   `Assert-SealedRegistryReservationSetsDisjoint` (the claims-only run against
   ControlBase+BackupRoot, plus, when live rows exist, the extended claims+live run against
   BackupRoot only). The V1 allow table `$script:SealedLiveTransactionAllowedEntriesV1` ships
+  (Corrected 2026-09-27, closing grok J's C11 residual: this function was deleted as dead code
+  by C11 on 2026-09-25, and the live-namespace child contract is now enforced by the
+  journal-inventory check `Assert-SealedRegistryLiveTransactionJournalInventory` — see the C11
+  section of the activity record. This entry is retained as the historical record of the
+  original introduction.)
   empty: Task 4 owns the journal contract, so any published child of a live transaction directory
   fails closed while an empty UUID directory remains `RECOVERY_REQUIRED` /
   `UNRESOLVED_UNTIL_TASK_4`.
