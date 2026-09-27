@@ -75,7 +75,10 @@ green. **Merging `c783a01` to `main` was executed under the owner's 2026-09-27 a
 No Apply, adoption, activation, real-machine DryRun or deployment happened for either candidate,
 and the 14 mutation routes were last run on C6/C10. **The open items are listed under
 "2026-09-27 收尾：开放待办清单" at the end of the activity record** (low-severity residuals, the
-guide-checker promotion, the mutation-route evidence age, and the unauthorized release path). See the
+mutation-route evidence age, and the unauthorized release path; the guide-checker promotion from
+that list closed the same day — the tool is now `scripts/check-guide-examples.ps1` with the
+`guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s, see the 2026-09-27 onboarding
+record in the activity record). See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries and actual validation.
 

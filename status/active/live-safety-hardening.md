@@ -5596,6 +5596,8 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
   自封 pin 重钉）及其同批残余 (c)：全部完成并记录于上方各节；c783a01 线已按所有者两次授权合并进
   `main`。
 - 「docs 静态校验无产物」：已用机内可复跑工具收口（见下方待办 2，工具本身未入库）。
+- 待完成项 2（指南静态校验工具入库）：2026-09-27 收口，按其记载的入库路径完成，见下方
+  「2026-09-27 收尾后：指南静态校验工具入库」小节；`tmp/zc-review/` 内的机内母本保留不动。
 
 ### 开放待办（按优先级）
 
@@ -5612,10 +5614,7 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
    g. `live recover status` 在无 canonical setup 的机器上以 exit 1 抛 `live-plan-authority-missing`，
       而 `canonical recover status` 对同一状态返回 PASS/`no-canonical-transaction`——「状态」动词的
       语义需明确（Task 9 只读核对发现）。
-2. **指南静态校验工具入库**：`tmp/zc-review/check-guide-examples.ps1`（机内；当前实测 7 文件 /
-   43 PowerShell 块 / 122 命令 / 36 占位符规范化 / 79 条仓内脚本调用参数校验 / 0 错误，产物
-   `tmp/zc-review/guide-examples-check.json`）目前不在仓库。入库 = 按 scripts/tests 目录约定收编、
-   清除机内路径、新增套件并同步 `tests/test-shards.psd1` 与预算（新增套件必须进分片表，见其文件头）。
+2. **指南静态校验工具入库**：✅ 2026-09-27 已收口（见下方小节），不再列为待办。
 3. **mutation 路线的证据时效**：14 条 S4 mutation 路线最后一次运行在 C6/C10，c783a01 线未重跑
    （已记录的接受限制）。如需更强证据，在下一个候选窗口或专门窗口重跑。
 4. **发布路径（全部待所有者逐项授权）**：真实部署（S5 剩余 + F5）、逐机 runner 批准、真机 canonical
@@ -5652,3 +5651,35 @@ failing=[root-claims-registry.tests.ps1:failed:exit=1]`——**断言失败而�
 [#165](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36298563363)（`b629da3`）
 **四作业全绿**（含分片 2 的 `root-claims-registry`）——按 R3 以偶发收口，不再列为待办；若未来同套件
 再出现无断言文本的单样本红，按本节处置路径重走（同字节对照 → 本地复跑 → 新样本）。
+
+## 2026-09-27 收尾后：指南静态校验工具入库（开放待办 2 收口）
+
+按上节待办 2 记载的入库路径完成；工具母本 `tmp/zc-review/check-guide-examples.ps1` 保留在
+gitignored 机内材料中不动。
+
+- **工具**：`scripts/check-guide-examples.ps1`（命名沿用 `check-*` 惯例）。默认 `-RepoRoot`
+  改由 `$PSScriptRoot` 推导（清除机内 worktree 绝对路径默认值，tracked 文件不再含本机路径）；git HEAD 容错
+  （非 git 目录记 `unavailable`，夹具不再需要 `git init`）；`-Guides` 接受单个逗号分隔 token——
+  `pwsh -File` 对 `string[]` 只绑定一个 token 且**静默丢弃**多余值，故文档化 CLI 形态以逗号
+  token 为准，PowerShell 原生调用仍可传真数组。
+- **收编时修复原机内版本的三个潜伏缺陷**（真库基线不受影响，均由新套件回归覆盖）：
+  1. 目标脚本无 param 块或 param 块为空时，`Get-ScriptParameterNames` 返回的空数组被展开成
+     `$null`，误报为 "target script does not parse"（`return ,@()` 逗号包裹修复；现有 79 条
+     被调用目标恰好都有非空 param 块，故机内基线从未触发）；
+  2. 缺失指南行的字段形状与 checked 行不一致（缺 `Commands`/`Placeholders`/
+     `DispatcherInvocations`），StrictMode 下 totals 汇总抛「找不到属性 Commands」
+     （missing 行补齐同形状零值）；
+  3. `-Guides` 多 token 静默丢弃（即上面的逗号 token 形态契约）。
+- **新套件**：`tests/guide-examples.tests.ps1`（本仓库自定义断言式套件惯例，非 Pester）。
+  8 个夹具场景（合法调用与占位符规范化、裸名解析、解析错误、引用缺失脚本、未声明参数、
+  目标不解析、dispatcher 计数不校验、无 param 块目标、缺失指南行）+ 真库 as-is
+  （7 指南全 checked、Blocks>0、0 错误、Head 钉提交），共 35 项断言，本地实测约 4 s。
+- **预算与分片**：`tests/test-timeouts.psd1` 显式 60 s；套件入 `tests/test-shards.psd1`
+  shard 2（9780→9840 s，合同 9840+300+120=10260 s < 185 分钟作业上限 11100 s，
+  不动任何作业超时）；聚合 30555→30615 s；分片表头与 validate.yml 注释同步；
+  `docs/CI_FAILURE_RULES.md` 预算节补 2026-09-27 一句。
+- **实际验证（全部为本地 reviewed working-tree 结果，无 CI 样本）**：新套件 35/35 绿；
+  收编工具真库复现原机内基线逐项一致（7 文件 / 43 块 / 122 命令 / 36 占位符 / 79 调用 /
+  42 dispatcher / 0 错误 / PASS）；`check-powershell-syntax.ps1` 182 文件通过；
+  `scan-secrets.ps1` 无阻塞项；`test-runner.tests.ps1` 全绿（分区联合 = 发现集恰一次、
+  shard 2 合同断言、三片合计 = 未分片已证预算）。

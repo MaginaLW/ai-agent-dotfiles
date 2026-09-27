@@ -95,7 +95,8 @@ SHA 反复失联才升级为资源问题排查，并在记录里写清是重跑�
   余量」，必须 < 360 分钟；`tests/test-runner.tests.ps1` 断言该 per-shard 合同，
   `scripts/run-tests.ps1 -ShardCount/-ShardIndex` 在分区与发现集不一致时失败关闭——**新增套件必须
   同步 `tests/test-shards.psd1`**（文件头有重平衡步骤）。本地 `run-tests.ps1 -All` 与 orchestrator
-  的非 shard 调用不受影响。
+  的非 shard 调用不受影响。2026-09-27 新增 `guide-examples.tests.ps1`（60 s，shard 2）即按此办理：
+  聚合 30555→30615 s，shard 2 作业合同 10200→10260 s（仍低于其 185 分钟作业上限），未动任何作业超时。
 - 反复超时的套件应给显式预算并记录实测，而不是压缩测试内容。
 
 **证据**（CI 侧已独立核验）：`881047a` 的预算改动本身（`git show 881047a`：420/240/1800/240 →
