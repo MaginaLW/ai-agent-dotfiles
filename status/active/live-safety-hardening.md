@@ -5583,3 +5583,46 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
 的双侧追加），两侧内容均保留。合并树过 parse gate、secret scan、`git diff --check`。
 **本节由合并执行写入；授权范围仅覆盖「合并并推送 main」——部署、逐机 runner 批准、真实 Apply 仍未授权、
 未执行。**
+
+## 2026-09-27 收尾：开放待办清单（接手入口）
+
+本节是截至 `main` = `5bf3740`（c783a01 线合并完成，CI #162/#163 四作业全绿）时的**全部开放项**；
+此前的「收尾：本轮完成情况与待完成项目」与其后各节保留为过程记录，与其冲突之处以本节为准。
+
+### 已收口（本轮完成，供索引，不再列为待办）
+
+- 待完成项 1（CI 预算）：五只套件按各自杀点定档；CI #151/#152/#159/#162/#163 连续全绿。
+- 待完成项 2（C11 lab）、3（候选接受）、4（Task 9 真机只读）、5（canonical 投影 + 审查修正 +
+  自封 pin 重钉）及其同批残余 (c)：全部完成并记录于上方各节；c783a01 线已按所有者两次授权合并进
+  `main`。
+- 「docs 静态校验无产物」：已用机内可复跑工具收口（见下方待办 2，工具本身未入库）。
+
+### 开放待办（按优先级）
+
+1. **残余项（低危，S6 类改进，均有记录定位）**：
+   a. canonical contract 读取不核 claim 文件 DACL（`canonical-transaction-common.ps1` 两处 +
+      `canonical-recovery-common.ps1` 开头；写路径已核，读路径未核——grok A 审查发现）。
+   b. `Get-SealedLiveTransactionTerminalDocumentHashes`（`scripts/live-transaction-common.ps1`）把
+      可解析 COMPLETE 记为已消费、不跑链校验（偏 fail-closed；是否收紧需决策）。
+   c. journal 名字门对「名为 `000001.json` 的目录」的令牌形态（grok J）。
+   d. `Assert-SealedRegistryLiveTransactionJournalInventory` 内层名字门无单独调用者 pin（grok J）。
+   e. 历史叙述未回改（grok J 第三条）。
+   f. S1 审计发现但未逐条复核的三项：成功输出写在释放锁之前、rollback 空目录累积、pending state
+      的路径式 Move。
+   g. `live recover status` 在无 canonical setup 的机器上以 exit 1 抛 `live-plan-authority-missing`，
+      而 `canonical recover status` 对同一状态返回 PASS/`no-canonical-transaction`——「状态」动词的
+      语义需明确（Task 9 只读核对发现）。
+2. **指南静态校验工具入库**：`tmp/zc-review/check-guide-examples.ps1`（机内；当前实测 7 文件 /
+   43 PowerShell 块 / 122 命令 / 36 占位符规范化 / 79 条仓内脚本调用参数校验 / 0 错误，产物
+   `tmp/zc-review/guide-examples-check.json`）目前不在仓库。入库 = 按 scripts/tests 目录约定收编、
+   清除机内路径、新增套件并同步 `tests/test-shards.psd1` 与预算（新增套件必须进分片表，见其文件头）。
+3. **mutation 路线的证据时效**：14 条 S4 mutation 路线最后一次运行在 C6/C10，c783a01 线未重跑
+   （已记录的接受限制）。如需更强证据，在下一个候选窗口或专门窗口重跑。
+4. **发布路径（全部待所有者逐项授权）**：真实部署（S5 剩余 + F5）、逐机 runner 批准、真机 canonical
+   setup DryRun（需 `scripts/internal/live-transaction-host.ps1` + 外部新计划，不得裸调用）。S6 工作
+   包 F1–F5 见[分阶段计划](../../docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)第 9 节。
+5. **机内材料索引（不入库，gitignored）**：`tmp/zc-review/`（AST 探针生成器 `make_hk_probe_ast.ps1`、
+   自读重定向 `fix_probe_selfread.py`、guide 校验器、各 grok 审查报告与流）；`tmp/lab-postaudit-{14,17,18,19,20}`
+   （14 = C11、19 = c15、20 = **现接受候选 c783a01** 的 lab 证据；17/18 = 被取代/未启动的过程记录）；
+   `tmp/zc-ci/`（GitHub API 取证：注解、作业时长）。下次自封 pin 变动时，重钉路径即上文
+   「重钉尝试」+「自封 pin 重钉与候选 c783a01 接受」两节所述。

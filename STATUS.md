@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-26 (current-state entry only)
+Last updated: 2026-09-27 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -68,24 +68,24 @@ all rejected for the expected reasons, 81+2 controls accepted). Evidence: the lo
 a 318/0 full hard-kill run by the main agent, the disposable-identity lab run `validation-c16-01`
 (11 gates, 42/42 suites, zero failures or timeouts, host roots byte-identical) and CI run
 [#159](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36241128493) with all four jobs
-green. **Merging `c783a01` to `main` is pending the owner's authorization**; no Apply, adoption,
-activation, real-machine DryRun or deployment happened for either candidate, and the 14 mutation
-routes were last run on C6/C10. The pending items are listed under
-"收尾：本轮完成情况与待完成项目" in the activity record. See the
+green. **Merging `c783a01` to `main` was executed under the owner's 2026-09-27 authorization**:
+`main` = `5bf3740` (merge commit `348bcab` + the merge-execution record), with CI runs
+[#162](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36265699722) and
+[#163](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36265736073) all four jobs green.
+No Apply, adoption, activation, real-machine DryRun or deployment happened for either candidate,
+and the 14 mutation routes were last run on C6/C10. **The open items are listed under
+"2026-09-27 收尾：开放待办清单" at the end of the activity record** (low-severity residuals, the
+guide-checker promotion, the mutation-route evidence age, and the unauthorized release path). See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
-isolation boundaries, actual validation and the residual items left open.
+isolation boundaries and actual validation.
 
-Remote main and run-status snapshot, rechecked **2026-09-23 23:40 UTC+8**: `main` is `627ef3f`, whose
-[Validate #135](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35852562723) failed.
-[Validate #138](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/35873759132) completed
-successfully for `3b835f1`. The original audit found no Actions run for local baseline
-`344ed46` (five commits ahead), and a separate `codex/ci-regressions-e4-preflight` branch with
-three commits through `3b835f1`. Those commits have been integrated with the local audit/planning
-line on `codex/post-audit-completion` at `68ef2ec`, preserving both histories. All four jobs passed;
-the three shards passed 7/7, 8/8 and 27/27 suites, with no failures or timeouts. The combined
-candidate needs its own validation. Older CI outcomes remain in the
-[pins repair record](status/archived/2026-09-21-ci-released-pin-repair.md) and the dated task log;
-they are not evidence that the current local tree passes CI.
+Remote main and run-status snapshot, rechecked **2026-09-27 (收尾)**: `main` is `5bf3740`, with the
+latest Validate runs #162 (merge commit) and #163 (head) each green on all four jobs. Earlier CI
+outcomes (the 2026-09-23 snapshot against `627ef3f`/`#135`, the `codex/ci-regressions-e4-preflight`
+integration at `68ef2ec`, and the budget-re-tier runs #147-#152) remain in the activity record and the
+[pins repair record](status/archived/2026-09-21-ci-released-pin-repair.md); they are history, not
+evidence about the current tree. Read `git log origin/main..main` rather than trusting any snapshot
+here.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate
 can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected
