@@ -505,8 +505,13 @@ $reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f
 # +65 rows (5 Command, 27 InvokeMember, 33 Member), every row inside that new file,
 # row-reviewed against the b629da3 baseline with the seams-delta tool; REMOVED 0,
 # dynamic-command count 193 -> 193 and digest unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16846
-$reviewedAllScriptsReflectionSensitiveDigest='2939111fb6ec834faf4f34588bf9f2cadadc42f2240bdd5f18843b35e7aeae0e'
+# Re-pinned 2026-09-27 for the journal inventory child type gate (open-item 1c): +6
+# rows (1 InvokeMember: InspectChild with the held handle; 5 Member: the two
+# FileIdentityInfo kind flags on each gate branch plus the held-handle argument), all
+# inside Assert-SealedRegistryLiveTransactionJournalInventory; REMOVED 0,
+# dynamic-command count and digest unchanged, no alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16852
+$reviewedAllScriptsReflectionSensitiveDigest='3d6e8de1edcc51be085d4a66a9a86d61ab289f0037d900d44ecff3ac71e3266a'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
