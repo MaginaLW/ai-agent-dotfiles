@@ -1404,6 +1404,8 @@ function Invoke-SealedEnvironmentRollbackTransaction {
     $stagingHandles = $null
     $pendingStagingHandle = $null
     $stagingPrimaryError = $null
+    $closed = $false
+    $reclaimTransactionRoot = $null
     try {
         Open-SafeDirectoryContainmentChain -Path $HomeRoot -OwnershipReceiver $stagingHandlesReceiver
         $stagingHandles = $stagingHandlesReceiver.GetDeliveredExact()
@@ -1557,6 +1559,7 @@ function Invoke-SealedEnvironmentRollbackTransaction {
                 # invisible to the caller.
                 Write-Warning ('environment-rollback-staging-cleanup-failed: ' + [string]$_.Exception.Message)
             }
+            $reclaimTransactionRoot = $stagingTransactionRoot
         }
 
         return [pscustomobject][ordered]@{
@@ -1596,6 +1599,13 @@ function Invoke-SealedEnvironmentRollbackTransaction {
                 $stagingPrimaryError.Exception.Data['RollbackStagingReleaseError'] = [string] $stagingCleanupError.Exception.Message
             }
             else { throw $stagingCleanupError }
+        }
+        # Reclaim the now-empty transaction-private namespace only on the closed
+        # success path with every handle released and no primary or cleanup error;
+        # a failed or unproven-closed rollback keeps its namespace as evidence.
+        if ($closed -and $null -ne $reclaimTransactionRoot -and
+            $null -eq $stagingPrimaryError -and $null -eq $stagingCleanupError) {
+            Remove-SealedEnvironmentRollbackEmptyTransactionNamespace -TransactionRoot $reclaimTransactionRoot
         }
     }
 }
@@ -1671,6 +1681,39 @@ function Remove-SealedEnvironmentRollbackStaging {
             Remove-Item -LiteralPath $candidate -Recurse -Force -ErrorAction Stop
         }
         catch { continue }
+    }
+}
+
+function Remove-SealedEnvironmentRollbackEmptyTransactionNamespace {
+    # Post-success hygiene for the transaction-private rollback staging namespace
+    # (open-item 1f): once the committed rollback's scratch leaves are reclaimed
+    # and every handle is released, the empty rollback-<TransactionId> tree has no
+    # evidentiary value and would otherwise accumulate one namespace per rollback.
+    # The scope is exactly the caller-derived namespace root: any surviving file
+    # (a fail-open scratch leftover) cancels the reclamation instead of being
+    # deleted, the walk refuses reparse points, only empty directories are
+    # removed deepest-first, siblings and the shared staging base are never in
+    # scope, and every failure is a warning on an already-committed transaction.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $TransactionRoot)
+
+    $root = [System.IO.Path]::GetFullPath($TransactionRoot)
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) { return }
+    try {
+        Assert-NoReparseExistingChain -Path $root
+        $survivors = @(Get-ChildItem -LiteralPath $root -Recurse -Force -File -ErrorAction Stop)
+        if ($survivors.Count -gt 0) { return }
+        $directories = @(Get-ChildItem -LiteralPath $root -Recurse -Force -Directory -ErrorAction Stop |
+            Sort-Object { $_.FullName.Length } -Descending)
+        foreach ($directory in $directories) {
+            Assert-NoReparseExistingChain -Path $directory.FullName
+            Remove-Item -LiteralPath $directory.FullName -Force -ErrorAction Stop
+        }
+        Assert-NoReparseExistingChain -Path $root
+        Remove-Item -LiteralPath $root -Force -ErrorAction Stop
+    }
+    catch {
+        Write-Warning ('environment-rollback-staging-namespace-cleanup-failed: ' + [string]$_.Exception.Message)
     }
 }
 
