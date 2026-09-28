@@ -500,8 +500,13 @@ $reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f
 # binding: +45 and -2 Member rows, all inside scripts/root-claims-registry-common.ps1.
 # Row-reviewed delta from tmp/post-audit-execution/seams-c10.inventory.json: no other file
 # changed, dynamic-command digest unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16781
-$reviewedAllScriptsReflectionSensitiveDigest='563aa769a16cec4368324fcaf1cfe1694851682dab33793eb1f014b7b4d86946'
+# Re-pinned 2026-09-27 for scripts/check-guide-examples.ps1 (the guide static checker
+# promoted from tmp/zc-review in 3c1fb8d, whose pin update was missed at commit time):
+# +65 rows (5 Command, 27 InvokeMember, 33 Member), every row inside that new file,
+# row-reviewed against the b629da3 baseline with the seams-delta tool; REMOVED 0,
+# dynamic-command count 193 -> 193 and digest unchanged, no alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16846
+$reviewedAllScriptsReflectionSensitiveDigest='2939111fb6ec834faf4f34588bf9f2cadadc42f2240bdd5f18843b35e7aeae0e'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -632,6 +637,7 @@ function Invoke-ProductionSeamAnalysis {
     $ledgerCloseAllowedCallers=[Collections.Generic.List[string]]::new()
     $liveNamespaceAllowedCallers=[Collections.Generic.List[string]]::new()
     $liveNamespaceJournalChildAllowedCallers=[Collections.Generic.List[string]]::new()
+    $liveNamespaceJournalChildNameAllowedCallers=[Collections.Generic.List[string]]::new()
     $liveNamespaceDisjointAllowedCallers=[Collections.Generic.List[string]]::new()
     $claimAcceptMatrixAllowedCallers=[Collections.Generic.List[string]]::new()
     $claimAcceptAllowedCallers=[Collections.Generic.List[string]]::new()
@@ -978,6 +984,13 @@ function Invoke-ProductionSeamAnalysis {
                     $liveNamespaceJournalChildAllowedCallers.Add("$($model.RelativePath):$ownerName")
                 }
                 else{$fixedObservationBoundaryViolations.Add("live transaction namespace journal-child caller: $($model.RelativePath):$($ownerName):$commandName")}
+            }
+            if($commandName -ieq 'Test-SealedLiveTransactionNamespaceJournalChildName'){
+                if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
+                    [string]$owner.Name -ceq 'Assert-SealedLiveTransactionNamespaceJournalChildren'){
+                    $liveNamespaceJournalChildNameAllowedCallers.Add("$($model.RelativePath):$ownerName")
+                }
+                else{$fixedObservationBoundaryViolations.Add("live transaction namespace journal-child-name caller: $($model.RelativePath):$($ownerName):$commandName")}
             }
             if($commandName -ieq 'Assert-SealedRegistryReservationSetsDisjoint'){
                 if([string]$model.RelativePath -ceq 'scripts/root-claims-registry-common.ps1' -and $null -ne $owner -and
@@ -1368,7 +1381,8 @@ function Invoke-ProductionSeamAnalysis {
         $fixedObservationBoundaryViolations.Add('reviewed lock-order Recompute owner inventory changed')
     }
     # The view is still the only production entry. It calls the journal inventory,
-    # and that inventory is the only caller of the journal child-name gate.
+    # that inventory is the only caller of the journal child-name gate's allowlist
+    # wrapper, and that wrapper is the only caller of the pure child-name predicate.
     $reviewedLiveNamespaceOwnerInventory=@('scripts/root-claims-registry-common.ps1:Get-SealedHomeAuthorityRegistryView')
     if((@($liveNamespaceAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed live transaction namespace contract owner inventory changed')
@@ -1376,6 +1390,10 @@ function Invoke-ProductionSeamAnalysis {
     $reviewedLiveNamespaceJournalChildOwnerInventory=@('scripts/root-claims-registry-common.ps1:Assert-SealedRegistryLiveTransactionJournalInventory')
     if((@($liveNamespaceJournalChildAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceJournalChildOwnerInventory -join "`n")){
         $fixedObservationBoundaryViolations.Add('reviewed live transaction namespace journal-child owner inventory changed')
+    }
+    $reviewedLiveNamespaceJournalChildNameOwnerInventory=@('scripts/root-claims-registry-common.ps1:Assert-SealedLiveTransactionNamespaceJournalChildren')
+    if((@($liveNamespaceJournalChildNameAllowedCallers | Sort-Object -CaseSensitive) -join "`n") -cne ($reviewedLiveNamespaceJournalChildNameOwnerInventory -join "`n")){
+        $fixedObservationBoundaryViolations.Add('reviewed live transaction namespace journal-child-name owner inventory changed')
     }
     $reviewedLiveNamespaceDisjointOwnerInventory=@(
         'scripts/root-claims-registry-common.ps1:Assert-SealedRegistryClaimAccept',
@@ -1442,6 +1460,7 @@ function Invoke-ProductionSeamAnalysis {
         @('Assert-SealedProposedClaimsForbiddenRootMatrix','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedRegistryLiveTransactionJournalInventory','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedLiveTransactionNamespaceJournalChildren','scripts/root-claims-registry-common.ps1'),
+        @('Test-SealedLiveTransactionNamespaceJournalChildName','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedRegistryReservationSetsDisjoint','scripts/root-claims-registry-common.ps1'),
         @('Get-SealedRegistryCanonicalSetupWindow','scripts/root-claims-registry-common.ps1'),
         @('Assert-SealedRegistryClaimAccept','scripts/root-claims-registry-common.ps1'),
