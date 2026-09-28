@@ -408,6 +408,29 @@ try{
     Write-TestSemanticJson $readyPaths.SetupStatePath $finalState;$claimPath=Join-Path $control (Join-Path 'canonical-roots' ($payload.ExpectedSetupStateProjection.RepoId+'.json'));Write-TestSemanticJson $claimPath $payload.ExpectedRootClaim
     Assert ((Get-CanonicalSetupStatus -RepoRoot $ready) -ceq 'canonical-ready') 'status: refreshed isolated fixture binds new final directory identity'
 
+    # Open-item 1a: the ready claim read re-asserts the write path's file contract on
+    # the same held handle; an inherited current-user ACE stays legal, an extra ACE or
+    # a hard-link alias does not.
+    $claimSddlBefore=[string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($claimPath).Sddl
+    $claimDriftSecurity=Get-Acl -LiteralPath $claimPath
+    $claimDriftSecurity.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'),[Security.AccessControl.FileSystemRights]::FullControl,[Security.AccessControl.AccessControlType]::Allow))
+    $claimDriftPath='\\?\'+[IO.Path]::GetFullPath($claimPath)
+    [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($claimDriftPath),$claimDriftSecurity)
+    Assert ((Get-CanonicalSetupStatus -RepoRoot $ready) -ceq 'manual-recovery-required') 'status: a widened claim-file DACL fails closed (open-item 1a)'
+    Assert-Throws {Read-CanonicalReadySetupStateUnderLock -GitContext $readyGit -ContractPaths $readyPaths} 'canonical setup claim owner/DACL is not current-user-only' 'ready lock read: a widened claim-file DACL is rejected'
+    Assert-Throws {Read-CanonicalReadySetupStateForRecovery -GitContext $readyGit -Paths $readyPaths} 'canonical setup claim owner/DACL is not current-user-only' 'recovery ready read: a widened claim-file DACL is rejected'
+    # Restore by recreating the file so it re-inherits the sealed parent DACL; a
+    # Get-Acl write-back would normalize the inherited ACE into an explicit
+    # non-protected shape that is deliberately accepted by neither gate form.
+    [IO.File]::Delete($claimPath)
+    Write-TestSemanticJson $claimPath $payload.ExpectedRootClaim
+    Assert ((Get-CanonicalSetupStatus -RepoRoot $ready) -ceq 'canonical-ready' -and [string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($claimPath).Sddl -ceq $claimSddlBefore) 'status: recreating the claim restores canonical-ready with the original inherited shape'
+    $claimAlias=Join-Path $ready 'claim-alias.json'
+    $null=New-Item -ItemType HardLink -Path $claimAlias -Target $claimPath
+    Assert ((Get-CanonicalSetupStatus -RepoRoot $ready) -ceq 'manual-recovery-required') 'status: a hard-link alias on the claim fails closed (open-item 1a)'
+    Remove-Item -LiteralPath $claimAlias -Force
+    Assert ((Get-CanonicalSetupStatus -RepoRoot $ready) -ceq 'canonical-ready') 'status: removing the claim alias restores canonical-ready'
+
     Write-Host "`n[missing-to-existing setup artifact graph]" -ForegroundColor Cyan
     $dagRepo=Join-Path $root 'dag-repo';Initialize-TestRepo $dagRepo
     $dagPrivate=Join-Path $root 'dag-private';[IO.Directory]::CreateDirectory($dagPrivate)|Out-Null;Set-TestCurrentUserOnlyAcl -Path $dagPrivate

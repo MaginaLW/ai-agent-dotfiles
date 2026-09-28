@@ -510,8 +510,14 @@ $reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f
 # FileIdentityInfo kind flags on each gate branch plus the held-handle argument), all
 # inside Assert-SealedRegistryLiveTransactionJournalInventory; REMOVED 0,
 # dynamic-command count and digest unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16852
-$reviewedAllScriptsReflectionSensitiveDigest='3d6e8de1edcc51be085d4a66a9a86d61ab289f0037d900d44ecff3ac71e3266a'
+# Re-pinned 2026-09-27 for the ready-claim DACL gate (open-item 1a): +24/-10 rows.
+# Removed rows are the moved four-shape body of Assert-CanonicalSetupClaimHeldSecurity
+# (recovery-common now delegates to the parameterized Assert-CanonicalClaimFileHeldSecurity);
+# added rows are the relocated body, the new Read-CanonicalReadySetupClaimDocument, and
+# the three call sites' security-template members. Row-reviewed with the seams-delta
+# tool; dynamic-command count 193 and digest unchanged, no alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16866
+$reviewedAllScriptsReflectionSensitiveDigest='5dffd755f93f885f51a7462b4c85a5f8acd4758eb6634034fc5cc393b0cff112'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

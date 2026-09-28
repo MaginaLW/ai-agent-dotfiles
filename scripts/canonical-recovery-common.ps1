@@ -26,7 +26,7 @@ function Read-CanonicalReadySetupStateForRecovery {
     $projection=Get-CanonicalSetupStateProjection -State $state;$projectionHash=Get-SemanticJsonHash -InputObject $projection
     if($projectionHash -cne [string]$state.SetupStateProjectionHash){throw 'canonical setup projection mismatch'}
     $claimPath=Join-Path ([string]$state.ControlBase) (Join-Path 'canonical-roots' ($repoId+'.json'))
-    $claim=Read-CanonicalJsonContractFile -Path $claimPath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
+    $claim=Read-CanonicalReadySetupClaimDocument -Path $claimPath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json') -SecurityTemplate (Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([string]$state.OwnerSid) -ResourceKind File)
     if((Get-SemanticJsonHash -InputObject $claim) -cne [string]$state.RootClaimHash -or [string]$claim.ExpectedSetupStateProjectionHash -cne $projectionHash -or [string]$claim.SetupIntentHash -cne [string]$state.SetupIntentHash){throw 'canonical setup claim/state mismatch'}
     return $state
 }
@@ -197,20 +197,7 @@ function Get-CanonicalSetupClaimFileSecurityTemplate {
 
 function Assert-CanonicalSetupClaimHeldSecurity {
     param([Parameter(Mandatory)]$HeldHandle,[Parameter(Mandatory)]$SecurityTemplate)
-    $snapshot=[AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($HeldHandle)
-    if([string]$snapshot.Identity -cne [string]$HeldHandle.Info.Identity -or [long]$snapshot.LinkCount -ne 1){throw 'manual-recovery-required: setup claim security identity changed'}
-    $actual=Get-SemanticJsonHash -InputObject (ConvertFrom-HomeAuthoritySecuritySnapshot -Snapshot $snapshot -ResourceKind File)
-    # Preserve the registry's accepted legacy shape: one inherited current-user
-    # ACE beneath a sealed parent, including the token-default-owner variant.
-    $inherited=[ordered]@{
-        ResolverVersion=[string]$SecurityTemplate.ResolverVersion;ResourceKind='File';OwnerSid=[string]$SecurityTemplate.OwnerSid;AreAccessRulesProtected=$false
-        AccessRules=@([ordered]@{Sid=[string]$SecurityTemplate.OwnerSid;AccessControlType=[long][Security.AccessControl.AccessControlType]::Allow;FileSystemRights=[long][Security.AccessControl.FileSystemRights]::FullControl;InheritanceFlags=[long]0;PropagationFlags=[long]0;IsInherited=$true})
-    }
-    $defaultOwner=Get-HomeAuthorityTokenDefaultOwnerSid
-    foreach($allowed in @($SecurityTemplate,$inherited,(Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $SecurityTemplate -OwnerSid $defaultOwner),(Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $inherited -OwnerSid $defaultOwner))){
-        if($actual -ceq (Get-SemanticJsonHash -InputObject $allowed)){return}
-    }
-    throw 'manual-recovery-required: setup claim owner/DACL is not current-user-only'
+    Assert-CanonicalClaimFileHeldSecurity -HeldHandle $HeldHandle -SecurityTemplate $SecurityTemplate -IdentityChangedToken 'manual-recovery-required: setup claim security identity changed' -DaclMismatchToken 'manual-recovery-required: setup claim owner/DACL is not current-user-only'
 }
 
 function Read-CanonicalSetupClaimHeldDocument {

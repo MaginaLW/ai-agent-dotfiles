@@ -1241,6 +1241,49 @@ function Get-CanonicalPrivateRootSelection {
     }
 }
 
+function Assert-CanonicalClaimFileHeldSecurity {
+    param([Parameter(Mandatory)]$HeldHandle,[Parameter(Mandatory)]$SecurityTemplate,[Parameter(Mandatory)][string]$IdentityChangedToken,[Parameter(Mandatory)][string]$DaclMismatchToken)
+    $snapshot=[AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($HeldHandle)
+    if([string]$snapshot.Identity -cne [string]$HeldHandle.Info.Identity -or [long]$snapshot.LinkCount -ne 1){throw $IdentityChangedToken}
+    $actual=Get-SemanticJsonHash -InputObject (ConvertFrom-HomeAuthoritySecuritySnapshot -Snapshot $snapshot -ResourceKind File)
+    # Preserve the registry's accepted legacy shape: one inherited current-user
+    # ACE beneath a sealed parent, including the token-default-owner variant.
+    $inherited=[ordered]@{
+        ResolverVersion=[string]$SecurityTemplate.ResolverVersion;ResourceKind='File';OwnerSid=[string]$SecurityTemplate.OwnerSid;AreAccessRulesProtected=$false
+        AccessRules=@([ordered]@{Sid=[string]$SecurityTemplate.OwnerSid;AccessControlType=[long][Security.AccessControl.AccessControlType]::Allow;FileSystemRights=[long][Security.AccessControl.FileSystemRights]::FullControl;InheritanceFlags=[long]0;PropagationFlags=[long]0;IsInherited=$true})
+    }
+    $defaultOwner=Get-HomeAuthorityTokenDefaultOwnerSid
+    foreach($allowed in @($SecurityTemplate,$inherited,(Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $SecurityTemplate -OwnerSid $defaultOwner),(Copy-HomeAuthoritySecurityTemplateWithOwner -SecurityTemplate $inherited -OwnerSid $defaultOwner))){
+        if($actual -ceq (Get-SemanticJsonHash -InputObject $allowed)){return}
+    }
+    throw $DaclMismatchToken
+}
+
+function Read-CanonicalReadySetupClaimDocument {
+    # Published setup claims are re-read as ready evidence on paths that run without
+    # the setup journal, so the write path's current-user-only file contract is
+    # re-asserted on the same held handle before and after the bytes are read.
+    param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$SchemaPath,[Parameter(Mandatory)]$SecurityTemplate)
+    $full=[IO.Path]::GetFullPath($Path)
+    $parents=$null;$held=$null
+    try{
+        $receiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetDirectoryName($full)) -OwnershipReceiver $receiver
+        $parents=$receiver.GetDeliveredExact()
+        $held=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($parents[$parents.Count-1],[IO.Path]::GetFileName($full))
+        Assert-CanonicalClaimFileHeldSecurity -HeldHandle $held -SecurityTemplate $SecurityTemplate -IdentityChangedToken 'canonical setup claim security identity changed' -DaclMismatchToken 'canonical setup claim owner/DACL is not current-user-only'
+        $bytes=[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($held,$script:JsonArtifactMaximumBytes)
+        $null=Invoke-CanonicalContractSchemaValidation -SchemaPath $SchemaPath -Path $full -ContentBytes $bytes
+        $document=ConvertFrom-SemanticJson -Json ([Text.UTF8Encoding]::new($false,$true).GetString($bytes))
+        Assert-CanonicalClaimFileHeldSecurity -HeldHandle $held -SecurityTemplate $SecurityTemplate -IdentityChangedToken 'canonical setup claim security identity changed' -DaclMismatchToken 'canonical setup claim owner/DACL is not current-user-only'
+        return $document
+    }
+    finally{
+        if($held){$held.Dispose()}
+        if($parents){Close-SafeDirectoryContainmentChain -Handles $parents}
+    }
+}
+
 function Get-CanonicalSetupStatus {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot,[string]$ToolchainRoot=$script:CanonicalToolchainRoot)
@@ -1310,7 +1353,7 @@ function Get-CanonicalSetupStatus {
             if($projectionHash -cne [string]$state.SetupStateProjectionHash){throw 'setup state projection hash mismatch'}
             $claimPath=Join-Path ([string]$state.ControlBase) (Join-Path 'canonical-roots' ($repoId+'.json'))
             if(-not(Test-Path -LiteralPath $claimPath -PathType Leaf)){throw 'canonical root claim is missing'}
-            $claim=Read-CanonicalJsonContractFile -Path $claimPath -SchemaPath (Join-Path $ToolchainRoot 'schemas/canonical-root-claim.schema.json')
+            $claim=Read-CanonicalReadySetupClaimDocument -Path $claimPath -SchemaPath (Join-Path $ToolchainRoot 'schemas/canonical-root-claim.schema.json') -SecurityTemplate (Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([string]$state.OwnerSid) -ResourceKind File)
             $claimHash=Get-SemanticJsonHash -InputObject $claim
             if($claimHash -cne [string]$state.RootClaimHash){throw 'canonical root claim hash does not match final setup state'}
             if([string]$claim.RepoId -cne $repoId -or [string]$claim.ClaimId -cne $repoId -or [string]$claim.ExpectedSetupStateProjectionHash -cne $projectionHash -or [string]$claim.SetupIntentHash -cne [string]$state.SetupIntentHash){throw 'canonical root claim does not match setup state projection'}
@@ -1635,7 +1678,7 @@ function Read-CanonicalReadySetupStateUnderLock {
     $projection=Get-CanonicalSetupStateProjection -State $state;$projectionHash=Get-SemanticJsonHash -InputObject $projection
     if($projectionHash -cne [string]$state.SetupStateProjectionHash){throw 'canonical setup projection mismatch'}
     $claimPath=Join-Path ([string]$state.ControlBase) (Join-Path 'canonical-roots' ($repoId+'.json'))
-    $claim=Read-CanonicalJsonContractFile -Path $claimPath -SchemaPath (Join-Path $ToolchainRoot 'schemas/canonical-root-claim.schema.json')
+    $claim=Read-CanonicalReadySetupClaimDocument -Path $claimPath -SchemaPath (Join-Path $ToolchainRoot 'schemas/canonical-root-claim.schema.json') -SecurityTemplate (Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([string]$state.OwnerSid) -ResourceKind File)
     if((Get-SemanticJsonHash -InputObject $claim) -cne [string]$state.RootClaimHash -or [string]$claim.ExpectedSetupStateProjectionHash -cne $projectionHash -or [string]$claim.SetupIntentHash -cne [string]$state.SetupIntentHash){throw 'canonical setup claim/state mismatch'}
     return $state
 }
