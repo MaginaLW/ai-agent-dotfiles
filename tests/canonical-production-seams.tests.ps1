@@ -201,14 +201,32 @@ function Test-LiveSuccessPendingSuccessAssignment {
 }
 
 function Test-LiveSuccessPendingSuccessEmitter {
-    # The single script-level payload gate: foreach over $pendingSuccess writing
-    # one line per element, immediately followed by the literal exit 0.
+    # The single script-level payload gate: foreach over exactly $pendingSuccess
+    # (bare or @(...)) writing one line per element, immediately followed by the
+    # literal exit 0.
     param([AllowNull()]$Statement)
     if($Statement -isnot [Management.Automation.Language.ForEachStatementAst]){return $false}
     $condition=$Statement.Condition
-    if($null -eq $condition -or
-        @($condition.FindAll({param($node)$node -is [Management.Automation.Language.VariableExpressionAst] -and
-            [string]$node.VariablePath.UserPath -ceq 'pendingSuccess'},$true)).Count -ne 1){return $false}
+    $conditionSource=$null
+    if($condition -is [Management.Automation.Language.PipelineAst] -and -not $condition.Background -and
+        @($condition.PipelineElements).Count -eq 1 -and
+        $condition.PipelineElements[0] -is [Management.Automation.Language.CommandExpressionAst]){
+        $condition=$condition.PipelineElements[0].Expression
+    }
+    if($condition -is [Management.Automation.Language.VariableExpressionAst]){
+        $conditionSource=$condition
+    }
+    elseif($condition -is [Management.Automation.Language.ArrayExpressionAst] -and
+        $condition.SubExpression -is [Management.Automation.Language.StatementBlockAst]){
+        $conditionStatements=@($condition.SubExpression.Statements)
+        if($conditionStatements.Count -eq 1 -and $conditionStatements[0] -is [Management.Automation.Language.PipelineAst] -and
+            @($conditionStatements[0].PipelineElements).Count -eq 1 -and
+            $conditionStatements[0].PipelineElements[0] -is [Management.Automation.Language.CommandExpressionAst]){
+            $conditionSource=$conditionStatements[0].PipelineElements[0].Expression
+        }
+    }
+    if($null -eq $conditionSource -or $conditionSource -isnot [Management.Automation.Language.VariableExpressionAst] -or
+        $conditionSource.Splatted -or $conditionSource.VariablePath.UserPath -ine 'pendingSuccess'){return $false}
     $bodyStatements=@($Statement.Body.Statements)
     if($bodyStatements.Count -ne 1){return $false}
     $write=Get-LiveSuccessDirectCommand -Statement $bodyStatements[0] -AssignmentTarget $null
@@ -229,6 +247,38 @@ function Test-LiveSuccessPendingSuccessCondition {
     $comparison=$element.Expression
     return $comparison -is [Management.Automation.Language.BinaryExpressionAst] -and
         $comparison.Operator -eq [Management.Automation.Language.TokenKind]::Ine -and
+        $comparison.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+        $comparison.Right -is [Management.Automation.Language.VariableExpressionAst] -and
+        -not $comparison.Left.Splatted -and -not $comparison.Right.Splatted -and
+        $comparison.Left.VariablePath.UserPath -ieq 'null' -and
+        $comparison.Right.VariablePath.UserPath -ieq 'pendingSuccess'
+}
+
+function Test-LiveSuccessEmitterAncestry {
+    # The emission gate sits outside every try: a lock-release failure after the
+    # success lines would recreate the exact signal split open-item 1f closes.
+    param([Parameter(Mandatory)][Management.Automation.Language.Ast]$Node)
+    $cursor=$Node.Parent
+    while($null -ne $cursor){
+        if($cursor -is [Management.Automation.Language.TryStatementAst] -or
+            $cursor -is [Management.Automation.Language.CatchClauseAst] -or
+            $cursor -is [Management.Automation.Language.ScriptBlockExpressionAst]){return $false}
+        $cursor=$cursor.Parent
+    }
+    return $true
+}
+
+function Test-LiveSuccessPendingSuccessGuardCondition {
+    # The Apply branch's guard: $null -eq $pendingSuccess, the exact inverse of
+    # the emitter's condition, keeping the two branches mutually exclusive.
+    param([AllowNull()]$Condition)
+    if($Condition -isnot [Management.Automation.Language.PipelineAst] -or $Condition.Background -or
+        @($Condition.PipelineElements).Count -ne 1){return $false}
+    $element=$Condition.PipelineElements[0]
+    if($element -isnot [Management.Automation.Language.CommandExpressionAst] -or @($element.Redirections).Count -ne 0){return $false}
+    $comparison=$element.Expression
+    return $comparison -is [Management.Automation.Language.BinaryExpressionAst] -and
+        $comparison.Operator -eq [Management.Automation.Language.TokenKind]::Ieq -and
         $comparison.Left -is [Management.Automation.Language.VariableExpressionAst] -and
         $comparison.Right -is [Management.Automation.Language.VariableExpressionAst] -and
         -not $comparison.Left.Splatted -and -not $comparison.Right.Splatted -and
@@ -346,17 +396,47 @@ function Get-LiveSuccessPostcheckBoundaryViolations {
                     # The success lines are captured into the pending payload under
                     # the locks; emission happens once at the single script-level
                     # gate after every lock finally has returned (open-item 1f).
+                    # Each tail lives in its own branch: the plan-created tail in
+                    # the DryRun branch, the applied tail in the payload-guarded
+                    # branch, so a DryRun run can never fall through into Apply.
                     $valid=$index -ge 0 -and $statements.Count -eq $index+3 -and
                         (Test-LiveSuccessNullableBindingStatement -Statement $statements[$index+1]) -and
                         (Test-LiveSuccessPendingSuccessAssignment -Statement $statements[$index+2] -Prefixes $prefixes)
+                    $parentStatement=$block.Parent
+                    $valid=$valid -and $parentStatement -is [Management.Automation.Language.IfStatementAst]
+                    if($valid){
+                        $parentVariables=@($parentStatement.Clauses[0].Item1.FindAll({param($node)$node -is [Management.Automation.Language.VariableExpressionAst]},$true) |
+                            ForEach-Object { [string]$_.VariablePath.UserPath })
+                        if($tail.Name -ceq 'dryrun'){
+                            $valid=@($parentVariables | Where-Object {$_ -ieq 'DryRun'}).Count -gt 0 -and
+                                @($parentVariables | Where-Object {$_ -ieq 'pendingSuccess'}).Count -eq 0
+                        }
+                        else{
+                            $valid=(Test-LiveSuccessPendingSuccessGuardCondition -Condition $parentStatement.Clauses[0].Item1) -and
+                                @($parentVariables | Where-Object {$_ -ieq 'DryRun'}).Count -eq 0
+                        }
+                    }
                 }
             }
             if(-not $valid){$violations.Add("live success postcheck invalid: ${RelativePath}:$($tail.Name)")}
         }
+        # The success text exists only inside the pending-payload assignments: any
+        # script-level Write-Host carrying a success prefix would print before the
+        # locks are released and is a violation wherever it hides.
+        foreach($tail in $tails){
+            $prefixHits=@($commands | Where-Object {
+                $null -eq (Get-OwningFunctionDefinition -Node $_) -and $_.GetCommandName() -ieq 'Write-Host' -and
+                @($_.CommandElements).Count -ge 2 -and
+                ($_.CommandElements[1] -is [Management.Automation.Language.StringConstantExpressionAst] -or
+                 $_.CommandElements[1] -is [Management.Automation.Language.ExpandableStringExpressionAst]) -and
+                ([string]$_.CommandElements[1].Value).StartsWith([string]@($tail.Prefixes)[0],[StringComparison]::Ordinal)
+            })
+            if($prefixHits.Count -ne 0){$violations.Add("live success postcheck invalid: ${RelativePath}:success-prefix-write-host")}
+        }
         $emitters=@($Ast.FindAll({param($node)
             $node -is [Management.Automation.Language.IfStatementAst] -and
             $null -eq (Get-OwningFunctionDefinition -Node $node) -and
-            (Test-LiveSuccessUnswallowedAncestry -Node $node)
+            (Test-LiveSuccessEmitterAncestry -Node $node)
         },$true) | Where-Object {
             @($_.Clauses).Count -eq 1 -and $null -eq $_.ElseClause -and
             (Test-LiveSuccessPendingSuccessCondition -Condition $_.Clauses[0].Item1)

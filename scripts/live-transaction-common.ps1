@@ -1697,9 +1697,12 @@ function Remove-SealedEnvironmentRollbackEmptyTransactionNamespace {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $TransactionRoot)
 
-    $root = [System.IO.Path]::GetFullPath($TransactionRoot)
-    if (-not (Test-Path -LiteralPath $root -PathType Container)) { return }
     try {
+        # Inside the try so a normalization or probe failure under the caller's
+        # Stop preference surfaces as the warning below instead of escaping the
+        # committed success path's finally.
+        $root = [System.IO.Path]::GetFullPath($TransactionRoot)
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { return }
         Assert-NoReparseExistingChain -Path $root
         $survivors = @(Get-ChildItem -LiteralPath $root -Recurse -Force -File -ErrorAction Stop)
         if ($survivors.Count -gt 0) { return }
@@ -1713,7 +1716,9 @@ function Remove-SealedEnvironmentRollbackEmptyTransactionNamespace {
         Remove-Item -LiteralPath $root -Force -ErrorAction Stop
     }
     catch {
-        Write-Warning ('environment-rollback-staging-namespace-cleanup-failed: ' + [string]$_.Exception.Message)
+        # Continue explicitly: a caller running -WarningAction Stop must not turn
+        # this hygiene warning on a committed rollback into a terminating error.
+        Write-Warning -WarningAction Continue ('environment-rollback-staging-namespace-cleanup-failed: ' + [string]$_.Exception.Message)
     }
 }
 
