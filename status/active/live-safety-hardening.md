@@ -5607,22 +5607,15 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
 
 ### 开放待办（按优先级）
 
-1. **残余项（低危，S6 类改进，均有记录定位）**：
-   a. canonical contract 读取不核 claim 文件 DACL（`canonical-transaction-common.ps1` 两处 +
-      `canonical-recovery-common.ps1` 开头；写路径已核，读路径未核——grok A 审查发现）。
+1. **残余项（低危，S6 类改进，均有记录定位）**——2026-09-27 S6 窗口收口 a/c/d/e/f（见文末
+   「S6 残余硬化窗口」小节），本项仅余：
    b. `Get-SealedLiveTransactionTerminalDocumentHashes`（`scripts/live-transaction-common.ps1`）把
-      可解析 COMPLETE 记为已消费、不跑链校验（偏 fail-closed；是否收紧需决策）。
-   c. journal 名字门对「名为 `000001.json` 的目录」的令牌形态（grok J）。
-   d. `Assert-SealedRegistryLiveTransactionJournalInventory` 内层名字门无单独调用者 pin（grok J）。
-   e. ✅ 历史叙述未回改（grok J 第三条）——2026-09-27 已收口：在 `STATUS.md` 2026-09-06 节、
-      本记录 grok H 定因节与 C10 整合节三处对已删除的
-      `Assert-SealedLiveTransactionNamespaceImmediateChildren` 叙述加带日期的更正注记，
-      原文保留为历史记录。
-   f. S1 审计发现但未逐条复核的三项：成功输出写在释放锁之前、rollback 空目录累积、pending state
-      的路径式 Move。
-   g. `live recover status` 在无 canonical setup 的机器上以 exit 1 抛 `live-plan-authority-missing`，
-      而 `canonical recover status` 对同一状态返回 PASS/`no-canonical-transaction`——「状态」动词的
-      语义需明确（Task 9 只读核对发现）。
+      可解析 COMPLETE 记为已消费、不跑链校验（偏 fail-closed；是否收紧需所有者决策——决策材料
+      `tmp/s6-residuals/laneD-decision-memo.md`，推荐折衷方案：终态形状齐全才跑链校验、未完成门兜底）。
+   g. `live recover status` 在无 canonical setup 机器上的 status 动词语义（需所有者决策——决策材料
+      同上，推荐结构化 WARN、token 沿用 `live-plan-authority-missing`，MISSING 空命名空间可升
+      PASS/`no-live-transaction`；mutation 路径不动）。
+   已收口：a=`78a4ee8`、c=`9c79fc1`、d=`638a87b`、e=`302d437`、f=`5b8100b`+`1b4f46a`+`bc65f4f`。
 2. **指南静态校验工具入库**：✅ 2026-09-27 已收口（见下方小节），不再列为待办。
 3. **mutation 路线的证据时效**：14 条 S4 mutation 路线最后一次运行在 C6/C10，c783a01 线未重跑
    （已记录的接受限制）。如需更强证据，在下一个候选窗口或专门窗口重跑。
@@ -5692,3 +5685,84 @@ gitignored 机内材料中不动。
   42 dispatcher / 0 错误 / PASS）；`check-powershell-syntax.ps1` 182 文件通过；
   `scan-secrets.ps1` 无阻塞项；`test-runner.tests.ps1` 全绿（分区联合 = 发现集恰一次、
   shard 2 合同断言、三片合计 = 未分片已证预算）。
+
+## 2026-09-27 S6 残余硬化窗口（grok 四路分析 + 实现，开放待办 1a/1c/1d/1e/1f 收口）
+
+接手「2026-09-27 收尾：开放待办清单」第 1 项。分支 `codex/s6-residual-hardening`
+（6174135 → 7fe58d8，六提交）。四路并行 grok 分析（各自一次性 checkout、完全访问，报告存
+`tmp/s6-residuals/lane{A,J,F,D}-*.md`）：A=残余 a DACL、J=c+d 名字门、F=f 三项复核、D=b+g 决策备忘。
+
+### 收口内容与证据
+
+- **1e（历史叙述回改）**：`302d437`，三处对已删函数的叙述加带日期更正注记，原文保留。
+- **1d（child-name 门调用者 pin）**：`638a87b`，seams 收集器+白名单+reviewed 清单+唯一定义表，
+  属主 `Assert-SealedLiveTransactionNamespaceJournalChildren`（AST 核实唯一生产调用边）。
+  同提交补钉 guide-checker 入库（3c1fb8d）漏掉的反射增量：+65 行逐行核对（基线 b629da3
+  即 CI #165 绿字节），16781→16846。
+- **1c（journal 子项类型门）**：`9c79fc1`，清单函数在打开前按持柄 `InspectChild` 核子项类型
+  （`_pending` 须非 reparse 目录、JSON 名须非 reparse 常规文件），新 token
+  `live-transaction-namespace-child-type-mismatch`；目录/reparse/junction 四类夹具 +
+  既有 stray/header-missing/residue 夹具不回归。反射 +6 行重钉（16846→16850→16852，
+  reparse 收紧后 +6）。root-claims-registry 955/0。
+- **1a（ready 读 DACL 硬化）**：`78a4ee8`，四形态校验参数化上移 `canonical-transaction-common.ps1`
+  （`Assert-CanonicalClaimFileHeldSecurity`），新 `Read-CanonicalReadySetupClaimDocument`
+  同柄读前后各核一次；三处 ready 读点（status/锁下 apply/非 setup recovery）全部改走；
+  recovery-common 包装改委托（写路径 token 不变）。显式与继承 current-user-only 形态仍接受，
+  宽 DACL/硬链接别名 fail-closed。回归：recovery 套件宽 DACL 三处拒绝 + 重建恢复 + 硬链接往返，
+  apply 套件就绪门负例（教训：Get-Acl 往返会把继承 ACE 规范化为两形态皆拒，测试恢复须删除重建）。
+  hard-kill load-manifest 两哈希重钉；反射 +24/−10 行重钉（16852→16866）。
+  recovery 144/0、apply 49/0、seams 66/0。
+- **1f（S1 三项，F 路确认全部仍成立，按 3→2→1 实施）**：
+  - `5b8100b` pending state 持柄 rename（`Read-CanonicalSetupStateArtifact` 镜像 claim 流程，
+    无 claim DACL 强制；`[IO.File]::Move` 删除）；
+  - `1b4f46a` rollback 空命名空间回收（句柄释放后仅拆本事务空命名空间，有文件即放弃、
+    reparse 拒、warning 不抛，失败路径不动）；
+  - `bc65f4f` 公开成功行移到锁释放后（pending payload 持锁内捕获、单一 script 级发射门、
+    DryRun/Apply 落空守卫、`PUBLIC_LOCK_RELEASE` failpoint）；seams 成功尾部合同同步改写
+    （AST 判定经探针三轮对齐：@() 恒为 StatementBlockAst、单元素无逗号为裸标量、
+    foreach=ForEachStatementAst）。
+- **hard-kill 自封重封**：`7fe58d8`。第一轮 grok lane 40 turn 截断无产出（如实记废）；第二轮带
+  pin 链地图与轮次纪律成功：10 pin/13 十六进制字面量（prelude row9/digest×4/pre-section/
+  transport 两函数/inventory/cleanup-gate 自摘要/main-try/top-level/controller-surface），
+  去哈希零差异；**语义标志全保持**（302 mutant 全 Rejected 且理由符合、81+2 对照 Accepted、
+  Valid/ControlsValid/ActualPreludeValid/ActualBaselineSatisfied=true）；其检出内 primitives 95/0、
+  全量 **318 passed / 0 failed**（2425.96 s）。补丁迁移主工作区（与已入库版逐行一致）后由主 agent
+  **独立复跑全量：318 passed / 0 failed**（exit 0）。
+- 反射重钉收口：16852→16937（+72/−1：f3 新函数为主、f2 新函数、`[IO.File]::Move` 删除），
+  seams 66/0；动态命令 digest 全程不变（193/3284ade7）。
+
+### 已知非阻断项
+
+- **live-recovery 本地红（非本分支回归）**：`[live dispatch: reservation-only abandon]` 段
+  `:2657` 读 header.json 共享冲突，连续两次同点位；在 **main 基线 6174135 上同错复现**
+  （本机环境性，CI #165 同字节绿）。本窗口不处置，按 R3 类记录待未来样本判别。
+- **1b/1g 决策备忘**（lane D）：推荐 b=折衷 C（终态形状齐全才跑链校验，未完成门兜底）、
+  g=结构化 WARN（token 沿用 `live-plan-authority-missing`，MISSING 空命名空间可升
+  PASS/`no-live-transaction`，mutation 路径不动）。均属所有者决策项，`tmp/s6-residuals/laneD-decision-memo.md`。
+- 14 条 mutation 路线未在本窗口重跑（同既有记录限制）；本窗口改动未做 lab/CI（待候选窗口）。
+
+### 验证汇总（全部本地 working-tree/已提交字节）
+
+syntax 185 文件；recovery **151/0**；apply 49/0；backup-recovery PASS；seams **66/0**；
+root-claims-registry 955/0；hard-kill 由重封 lane 全量 318/0 + 主 agent 独立复跑（见下）。
+
+### S6 窗口独立审查与处置（grok，2026-09-27）
+
+分支整体独立审查（`6174135..7fe58d8`，报告 `tmp/s6-residuals/review-report.md`）：**无 P0**；
+fail-closed 行为、三层调用者 pin、1a 读路径、反射差分归因、load-manifest 哈希一致性均核对通过。
+处置：
+
+- **P1（seams 成功尾部合同可被四种突变绕过而 0 violation）——已修复**：发射门祖先禁任何
+  `TryStatementAst`；foreach 条件必须恰为 `$pendingSuccess` 或仅含它的 `@(...)`；dryrun 尾父 if
+  必须引用 `$DryRun` 且不得引用 payload，apply 尾父 if 必须为其精确取反守卫
+  （`Test-LiveSuccessPendingSuccessGuardCondition`，两分支互斥）；全脚本级禁止携带成功前缀的
+  `Write-Host`（成功文本只允许存在于 payload 赋值内）。加固后 seams 66/0（含全部 mutation RED）。
+- **P2（空命名空间回收的 warning 在 `-WarningAction Stop` 下会变终止错误；探针语句在 try 外）——
+  已修复**：`Write-Warning -WarningAction Continue`，归一化/探测移入同一 try（live-transaction-common，
+  不在 hard-kill 清单，反射零变化）。
+- **P2（分类后 intent 未入内存快照时首次发布会先写 journal 再误失败，重试自愈）——延后**：
+  修复必再动 `canonical-recovery-common.ps1`，将触发又一次完整自封重封；缺陷 fail-closed 且无数据
+  风险（kill 窗口与正常 Apply 均不受影响，审查已核对），留待下一候选窗口与 b/g 决策项同批。
+- **P2（待办清单未随收口更新）——已解决**（审查读的是提交树；清单更新在本窗口收口记录中）。
+- **P2（5b8100b 提交说明写了后续提交才落地的钉更新）——不改历史**：钉实际落点为
+  反射计数在 `bc65f4f`、load-manifest recovery-common 哈希在 `7fe58d8`；以本节为准。
