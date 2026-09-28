@@ -648,6 +648,10 @@ if (Test-Path -LiteralPath $sourceTransactionDirectory -PathType Container) {
     }
 }
 
+# The pending success payload is captured under the locks and emitted only after
+# every lock finally has returned, so a release failure can never leave a success
+# line on stdout followed by a nonzero exit (open-item 1f).
+$pendingSuccess = $null
 $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $contractPaths.LockPath) -AllowCreate
 $canonicalWitness = $null
 $overlayLock = $null
@@ -696,14 +700,13 @@ try {
                 if ($null -ne $canonicalWitness) {
                     $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $authorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
                 }
-                Write-Host "environment rollback plan created: $($evidence.TransactionId)"
-                Write-Host "PlanHash: $($document['PlanHash'])"
-                exit 0
+                $pendingSuccess = @("environment rollback plan created: $($evidence.TransactionId)", "PlanHash: $($document['PlanHash'])")
             }
 
             # Apply validates the reviewed plan against this exact invocation
             # and then runs it as a NEW receipt-backed transaction under the
             # held origin canonical -> worktree overlay -> global lock order.
+            if ($null -eq $pendingSuccess) {
             $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planFull, [System.Text.UTF8Encoding]::new($false, $true)))
             $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $PSScriptRoot '../schemas/rollback-plan.schema.json') -InstancePath $planFull
             Test-RollbackPlanSemantics -Document $planDocument
@@ -715,12 +718,11 @@ try {
             if ($null -ne $canonicalWitness) {
                 $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $authorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
             }
-            Write-Host "environment rollback applied: $([string] $rollbackOutcome.TransactionId)"
-            Write-Host "State hash: $([string] $rollbackOutcome.StateHash)"
-            Write-Host "Result hash: $([string] $rollbackOutcome.ResultHash)"
-            exit 0
+            $pendingSuccess = @("environment rollback applied: $([string] $rollbackOutcome.TransactionId)", "State hash: $([string] $rollbackOutcome.StateHash)", "Result hash: $([string] $rollbackOutcome.ResultHash)")
+            }
         }
         finally {
+            Invoke-SealedLiveTransactionFailpoint -Checkpoint 'PUBLIC_LOCK_RELEASE'
             if ($null -ne $globalLock) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
             if ($null -ne $overlayLock) { Exit-WorktreeOverlayLock -LockHandle $overlayLock }
         }
@@ -731,4 +733,8 @@ try {
 }
 finally {
     Exit-CanonicalRepoLock -LockHandle $canonicalLock
+}
+if ($null -ne $pendingSuccess) {
+    foreach ($pendingLine in @($pendingSuccess)) { Write-Host $pendingLine }
+    exit 0
 }

@@ -593,6 +593,10 @@ else {
     if ($null -eq $probeHeader) { throw ($script:LiveRecoveryOriginMismatch + ': live journal header is missing') }
     $overlayIdentity = Assert-LiveRecoveryOverlayLockIdentity -HeaderMap $probeHeader -GitContext $git
 
+    # The pending success payload is captured under the locks and emitted only
+    # after every lock finally has returned, so a release failure can never
+    # leave a success line on stdout followed by a nonzero exit (open-item 1f).
+    $pendingSuccess = $null
     $canonicalLock = Enter-CanonicalRepoLock -LockPath ([string] $contractPaths.LockPath) -AllowCreate
     $canonicalWitness = $null
     $overlayLock = $null
@@ -668,14 +672,13 @@ else {
                     if ($null -ne $canonicalWitness) {
                         $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $authorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
                     }
-                    Write-Host "live recovery plan created: $Action $TransactionId"
-                    Write-Host "PlanHash: $($document['PlanHash'])"
-                    exit 0
+                    $pendingSuccess = @("live recovery plan created: $Action $TransactionId", "PlanHash: $($document['PlanHash'])")
                 }
 
                 # Apply: validate the reviewed plan fail-closed under the held
                 # locks, then execute the reviewed transition. The schema gate
                 # runs before the semantic layer and before any mutation.
+                if ($null -eq $pendingSuccess) {
                 if (-not (Test-Path -LiteralPath $planFull -PathType Leaf)) { throw $script:LiveRecoveryPlanMissing }
                 $planDocument = ConvertFrom-SemanticJson -Json ([System.IO.File]::ReadAllText($planFull, [System.Text.UTF8Encoding]::new($false, $true)))
                 $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $PSScriptRoot '../schemas/rollback-plan.schema.json') -InstancePath $planFull
@@ -870,10 +873,11 @@ else {
                 if ($null -ne $canonicalWitness) {
                     $null = Assert-HomeAuthorityCanonicalGlobalLockBinding -AuthorityContext $authorityContext -GlobalLockHandle $globalLock -CanonicalWitness $canonicalWitness
                 }
-                Write-Host "live recovery applied: $Action $TransactionId (outcome=$finalOutcome)"
-                exit 0
-            }
+                $pendingSuccess = @("live recovery applied: $Action $TransactionId (outcome=$finalOutcome)")
+                }
+                }
             finally {
+                Invoke-SealedLiveTransactionFailpoint -Checkpoint 'PUBLIC_LOCK_RELEASE'
                 if ($null -ne $globalLock) { Exit-HomeAuthorityGlobalLiveLock -LockHandle $globalLock }
                 if ($null -ne $overlayLock) { Exit-WorktreeOverlayLock -LockHandle $overlayLock }
             }
@@ -884,6 +888,10 @@ else {
     }
     finally {
         if ($null -ne $canonicalLock) { Exit-CanonicalRepoLock -LockHandle $canonicalLock }
+    }
+    if ($null -ne $pendingSuccess) {
+        foreach ($pendingLine in @($pendingSuccess)) { Write-Host $pendingLine }
+        exit 0
     }
 }
 

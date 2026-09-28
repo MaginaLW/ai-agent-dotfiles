@@ -164,6 +164,78 @@ function Test-LiveSuccessNullableBindingStatement {
         (Test-LiveSuccessStrictBindingStatement -Statement $body.Statements[0])
 }
 
+function Test-LiveSuccessPendingSuccessAssignment {
+    param([AllowNull()]$Statement,[AllowNull()][object]$Prefixes)
+    if($Statement -isnot [Management.Automation.Language.AssignmentStatementAst] -or
+        $Statement.Operator -ne [Management.Automation.Language.TokenKind]::Equals -or
+        $Statement.Left -isnot [Management.Automation.Language.VariableExpressionAst] -or
+        $Statement.Left.Splatted -or $Statement.Left.VariablePath.UserPath -ine 'pendingSuccess'){return $false}
+    # The @(...) array sub-expression always parses as a statement block holding a
+    # single pipeline whose expression is the array literal; unwrap to that literal.
+    $right=$Statement.Right
+    if($right -is [Management.Automation.Language.CommandExpressionAst]){$right=$right.Expression}
+    if($right -is [Management.Automation.Language.ArrayExpressionAst]){$right=$right.SubExpression}
+    if($right -is [Management.Automation.Language.StatementBlockAst]){
+        $statements=@($right.Statements)
+        if($statements.Count -ne 1 -or $statements[0] -isnot [Management.Automation.Language.PipelineAst] -or
+            @($statements[0].PipelineElements).Count -ne 1 -or
+            $statements[0].PipelineElements[0] -isnot [Management.Automation.Language.CommandExpressionAst]){return $false}
+        $right=$statements[0].PipelineElements[0].Expression
+    }
+    $prefixes=@($Prefixes)
+    if($right -is [Management.Automation.Language.StringConstantExpressionAst] -or
+        $right -is [Management.Automation.Language.ExpandableStringExpressionAst]){
+        # A single-element @() with no comma stays a bare string expression.
+        return $prefixes.Count -eq 1 -and ([string]$right.Value).StartsWith([string]$prefixes[0],[StringComparison]::Ordinal)
+    }
+    if($right -isnot [Management.Automation.Language.ArrayLiteralAst]){return $false}
+    $elements=@($right.Elements)
+    if($elements.Count -ne $prefixes.Count){return $false}
+    for($i=0;$i -lt $prefixes.Count;$i++){
+        $element=$elements[$i]
+        if(($element -isnot [Management.Automation.Language.StringConstantExpressionAst] -and
+            $element -isnot [Management.Automation.Language.ExpandableStringExpressionAst]) -or
+            -not ([string]$element.Value).StartsWith([string]$prefixes[$i],[StringComparison]::Ordinal)){return $false}
+    }
+    return $true
+}
+
+function Test-LiveSuccessPendingSuccessEmitter {
+    # The single script-level payload gate: foreach over $pendingSuccess writing
+    # one line per element, immediately followed by the literal exit 0.
+    param([AllowNull()]$Statement)
+    if($Statement -isnot [Management.Automation.Language.ForEachStatementAst]){return $false}
+    $condition=$Statement.Condition
+    if($null -eq $condition -or
+        @($condition.FindAll({param($node)$node -is [Management.Automation.Language.VariableExpressionAst] -and
+            [string]$node.VariablePath.UserPath -ceq 'pendingSuccess'},$true)).Count -ne 1){return $false}
+    $bodyStatements=@($Statement.Body.Statements)
+    if($bodyStatements.Count -ne 1){return $false}
+    $write=Get-LiveSuccessDirectCommand -Statement $bodyStatements[0] -AssignmentTarget $null
+    if($null -eq $write -or $write.GetCommandName() -ine 'Write-Host' -or
+        @($write.CommandElements).Count -ne 2 -or
+        $write.CommandElements[1] -isnot [Management.Automation.Language.VariableExpressionAst] -or
+        $write.CommandElements[1].Splatted -or
+        [string]$write.CommandElements[1].VariablePath.UserPath -cne [string]$Statement.Variable.VariablePath.UserPath){return $false}
+    return $true
+}
+
+function Test-LiveSuccessPendingSuccessCondition {
+    param([AllowNull()]$Condition)
+    if($Condition -isnot [Management.Automation.Language.PipelineAst] -or $Condition.Background -or
+        @($Condition.PipelineElements).Count -ne 1){return $false}
+    $element=$Condition.PipelineElements[0]
+    if($element -isnot [Management.Automation.Language.CommandExpressionAst] -or @($element.Redirections).Count -ne 0){return $false}
+    $comparison=$element.Expression
+    return $comparison -is [Management.Automation.Language.BinaryExpressionAst] -and
+        $comparison.Operator -eq [Management.Automation.Language.TokenKind]::Ine -and
+        $comparison.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+        $comparison.Right -is [Management.Automation.Language.VariableExpressionAst] -and
+        -not $comparison.Left.Splatted -and -not $comparison.Right.Splatted -and
+        $comparison.Left.VariablePath.UserPath -ieq 'null' -and
+        $comparison.Right.VariablePath.UserPath -ieq 'pendingSuccess'
+}
+
 function Test-LiveSuccessUnswallowedAncestry {
     param([Parameter(Mandatory)][Management.Automation.Language.Ast]$Node)
     $cursor=$Node.Parent
@@ -192,7 +264,8 @@ function Test-LiveSuccessLiteralZeroExit {
 }
 
 function Get-LiveSuccessPostcheckBoundaryViolations {
-    # Narrow structural proof for six reviewed success tails. A strict check
+    # Narrow structural proof for the reviewed success tails plus the single
+    # pending-success emission gate. A strict check
     # elsewhere, in a false branch, in a callback, or swallowed by catch/trap
     # cannot satisfy an adjacent action -> check -> public success contract.
     param([Parameter(Mandatory)][Management.Automation.Language.ScriptBlockAst]$Ast,
@@ -270,31 +343,40 @@ function Get-LiveSuccessPostcheckBoundaryViolations {
                 if($valid){
                     $statements=@($block.Statements);$index=[Array]::IndexOf($statements,$statement)
                     $prefixes=@($tail.Prefixes)
-                    $valid=$index -ge 0 -and $statements.Count -eq $index+3+$prefixes.Count -and
+                    # The success lines are captured into the pending payload under
+                    # the locks; emission happens once at the single script-level
+                    # gate after every lock finally has returned (open-item 1f).
+                    $valid=$index -ge 0 -and $statements.Count -eq $index+3 -and
                         (Test-LiveSuccessNullableBindingStatement -Statement $statements[$index+1]) -and
-                        (Test-LiveSuccessLiteralZeroExit -Statement $statements[-1])
-                    if($valid){
-                        for($i=0;$i -lt $prefixes.Count;$i++){
-                            $output=Get-LiveSuccessDirectCommand -Statement $statements[$index+2+$i] -AssignmentTarget $null
-                            if($null -eq $output -or $output.GetCommandName() -ine 'Write-Host' -or
-                                @($output.CommandElements).Count -ne 2 -or
-                                ($output.CommandElements[1] -isnot [Management.Automation.Language.StringConstantExpressionAst] -and
-                                 $output.CommandElements[1] -isnot [Management.Automation.Language.ExpandableStringExpressionAst]) -or
-                                -not $output.CommandElements[1].Value.StartsWith($prefixes[$i],[StringComparison]::Ordinal)){$valid=$false;break}
-                        }
-                    }
-                    if($valid){$matchedExits.Add($statements[-1])}
+                        (Test-LiveSuccessPendingSuccessAssignment -Statement $statements[$index+2] -Prefixes $prefixes)
                 }
             }
             if(-not $valid){$violations.Add("live success postcheck invalid: ${RelativePath}:$($tail.Name)")}
         }
+        $emitters=@($Ast.FindAll({param($node)
+            $node -is [Management.Automation.Language.IfStatementAst] -and
+            $null -eq (Get-OwningFunctionDefinition -Node $node) -and
+            (Test-LiveSuccessUnswallowedAncestry -Node $node)
+        },$true) | Where-Object {
+            @($_.Clauses).Count -eq 1 -and $null -eq $_.ElseClause -and
+            (Test-LiveSuccessPendingSuccessCondition -Condition $_.Clauses[0].Item1)
+        })
+        $valid=$emitters.Count -eq 1
+        if($valid){
+            $emitterStatements=@($emitters[0].Clauses[0].Item2.Statements)
+            $valid=$emitterStatements.Count -eq 2 -and
+                (Test-LiveSuccessPendingSuccessEmitter -Statement $emitterStatements[0]) -and
+                (Test-LiveSuccessLiteralZeroExit -Statement $emitterStatements[-1])
+            if($valid){$matchedExits.Add($emitterStatements[-1])}
+        }
+        if(-not $valid){$violations.Add("live success postcheck invalid: ${RelativePath}:pending-success-emitter")}
         $exits=@($Ast.FindAll({param($node)$node -is [Management.Automation.Language.ExitStatementAst]},$true) | Where-Object {$null -eq (Get-OwningFunctionDefinition -Node $_)})
         if($isRecovery -and @($Ast.EndBlock.Statements).Count -gt 0 -and
             (Test-LiveSuccessLiteralZeroExit -Statement $Ast.EndBlock.Statements[-1])){
             # The existing lock-free Status entry ends at this script-level exit.
             $matchedExits.Add($Ast.EndBlock.Statements[-1])
         }
-        $expectedExitCount=if($isRecovery){3}else{2}
+        $expectedExitCount=if($isRecovery){2}else{1}
         if($exits.Count -ne $expectedExitCount -or $matchedExits.Count -ne $expectedExitCount -or
             @($exits | Where-Object {$_ -notin $matchedExits}).Count -ne 0){
             $violations.Add("live success postcheck exit coverage changed: $RelativePath")
@@ -516,8 +598,15 @@ $reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f
 # added rows are the relocated body, the new Read-CanonicalReadySetupClaimDocument, and
 # the three call sites' security-template members. Row-reviewed with the seams-delta
 # tool; dynamic-command count 193 and digest unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16866
-$reviewedAllScriptsReflectionSensitiveDigest='5dffd755f93f885f51a7462b4c85a5f8acd4758eb6634034fc5cc393b0cff112'
+# Re-pinned 2026-09-27 for the open-item 1f/1f3 batch: +72/-1 rows. Removed is the
+# path-based [IO.File]::Move in Publish-CanonicalSetupFinalStateForRecovery (replaced
+# by the held-handle rename in the new Read-CanonicalSetupStateArtifact, whose rows
+# are the bulk of the additions); the rest is the new
+# Remove-SealedEnvironmentRollbackEmptyTransactionNamespace. Row-reviewed with the
+# seams-delta tool; dynamic-command count 193 and digest unchanged, no alias, shadow,
+# or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16937
+$reviewedAllScriptsReflectionSensitiveDigest='b79859569ce5fd47962907c8cc46e5c6b8bee87904c385c719d713b066e74855'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -1656,7 +1745,7 @@ Assert-TestCondition ($baseline.AllScriptsLiteralProviderDriveTokenInventory.Cou
 Assert-TestCondition ($baseline.FixedCapabilityBoundaryViolations.Count -eq 0) 'fixed capture, route, observation, raw, and probe issuers plus the fixed validator have only their exact reviewed definitions, owners, and members'
 Assert-TestCondition ($baseline.FixedObservationBoundaryViolations.Count -eq 0) 'held current-route observation Open/Assert and the five cleanup-ledger facades have only the reviewed lifecycle owner, the observation lifecycle trio has only the reviewed resolver observation owner with trio Close also allowed from the resolver Open failure cleanup, canonical bootstrap Complete and the recovery remainder have only the private-root completion composer, the composer unique caller is lock-order Enter, the setup journal-target manifest is uniquely defined with Enter as its only production caller, Register remains zero-external, the resolver observation trio retains zero external production callers, lock-order Enter/Exit/Recompute allow only the two production Apply scripts at script scope, lock-order Assert remains recompute-internal, Assert-LockOrderBackupAllowed and SetupBootstrap remain without a production caller, and all reviewed functions remain uniquely defined'
 Assert-TestCondition (@($baseline.FixedObservationBoundaryViolations | Where-Object {$_ -like 'release helper *'}).Count -eq 0) 'release helpers retain unique exact definitions and caller edges: release binding is Exit-only, resource validation cannot replace strict current-set checks, and owned completion is canonical Apply-only'
-Assert-TestCondition (@($baseline.FixedObservationBoundaryViolations | Where-Object {$_ -like 'live success postcheck *'}).Count -eq 0) 'six live business-success tails retain an adjacent strict binding with exact context/global/witness arguments: both host engine returns and all rollback/recovery DryRun and Apply exits; nullable script witnesses retain their sole reviewed condition'
+Assert-TestCondition (@($baseline.FixedObservationBoundaryViolations | Where-Object {$_ -like 'live success postcheck *'}).Count -eq 0) 'live business-success tails retain an adjacent strict binding with exact context/global/witness arguments: both host engine returns and all rollback/recovery DryRun and Apply tails capture the pending payload under the locks and one script-level gate emits it after every lock finally has returned; nullable script witnesses retain their sole reviewed condition'
 Assert-TestCondition $baseline.Accepted 'current production seam contract is accepted'
 
 $approvedRunnerDefinitions=@($baseline.Definitions['invoke-withpendinglock'])
