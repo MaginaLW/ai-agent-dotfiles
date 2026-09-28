@@ -431,6 +431,44 @@ try{
     Remove-Item -LiteralPath $claimAlias -Force
     Assert ((Get-CanonicalSetupStatus -RepoRoot $ready) -ceq 'canonical-ready') 'status: removing the claim alias restores canonical-ready'
 
+    # Open-item 1f (pending state publication): the recovery finalize publishes a
+    # pending setup state through the same held-handle rename as the pending claim,
+    # so identity/bytes survive and a post-classification byte swap is rejected.
+    foreach($pendingCase in @('pending-state','pending-state-drift')){
+        $pnRoot=Join-Path $root $pendingCase;$pnRepo=Join-Path $pnRoot 'repo';Initialize-TestRepo $pnRepo
+        $pnRecovery=Join-Path $pnRoot 'private/recovery';$pnControl=Join-Path $pnRoot 'private/control';$pnBackup=Join-Path $pnRoot 'private/backups';$pnProbe=Join-Path $pnRoot 'probe'
+        foreach($path in @($pnRecovery,$pnControl,$pnBackup,$pnProbe)){[IO.Directory]::CreateDirectory($path)|Out-Null}
+        foreach($path in @($pnRecovery,$pnControl,$pnBackup)){Set-TestCurrentUserOnlyAcl -Path $path}
+        [IO.Directory]::CreateDirectory((Join-Path $pnControl 'canonical-roots'))|Out-Null
+        $pnPayload=New-CanonicalSetupPlanPayload -RepoRoot $pnRepo -CanonicalRecoveryRoot $pnRecovery -ControlBase $pnControl -BackupRoot $pnBackup -ProbeRoot $pnProbe
+        $pnFinal=New-CanonicalFinalSetupState -PlanPayload $pnPayload -RepoRoot $pnRepo
+        $pnGit=Get-CanonicalGitContext $pnRepo;$pnPaths=Get-CanonicalTransactionContractPaths $pnGit
+        $pnHeader=New-TestSetupJournalHeader -Payload $pnPayload -Git $pnGit -Paths $pnPaths -TransactionId ([Guid]::NewGuid().ToString('D').ToLowerInvariant())
+        $null=New-CanonicalJournalHeader -Document $pnHeader -TransactionNamespace $pnHeader.TransactionNamespace
+        $null=Add-CanonicalJournalRecord -TransactionNamespace $pnHeader.TransactionNamespace -Phase SETUP_STATE_INTENT -Data ([ordered]@{StateHash=[string](Get-SemanticJsonHash -InputObject $pnFinal)})
+        Write-TestSemanticJson (Join-Path $pnControl (Join-Path 'canonical-roots' ($pnPayload.ExpectedSetupStateProjection.RepoId+'.json'))) $pnPayload.ExpectedRootClaim
+        $pnPendingPath=Join-Path (Join-Path $pnHeader.TransactionNamespace '_pending') ('setup-state-'+[Guid]::NewGuid().ToString('N')+'.tmp')
+        Write-TestSemanticJson $pnPendingPath $pnFinal
+        $pnState=Read-CanonicalJournalDirectory -TransactionNamespace $pnHeader.TransactionNamespace -AllowUnfinished
+        $pnInitial=[AiAgentDotfiles.NoFollowFile]::HashRegularFile($pnPendingPath)
+        $pnClassification=Get-CanonicalTransactionRecoveryClassification -State $pnState -RepoRoot $pnRepo
+        Assert ([string]$pnClassification.Status -ceq 'recovery' -and [string]$pnClassification.AllowedAction -ceq 'finalize' -and [string]$pnClassification.SetupState.Reason -ceq 'claim-present-state-pending') ($pendingCase+': classifies to finalize with a pending state path')
+        if($pendingCase -ceq 'pending-state-drift'){
+            $pnBad=Copy-SemanticObject $pnFinal;$pnBad.BackupRootIntentHash=('0'*64)
+            Write-TestSemanticJson $pnPendingPath $pnBad
+            Assert-Throws {Publish-CanonicalSetupFinalStateForRecovery -State $pnState -Classification $pnClassification} 'setup pending state differs from its captured inventory' ($pendingCase+': post-classification byte drift is rejected before any publish (open-item 1f)')
+            Assert (-not(Test-Path -LiteralPath $pnPaths.SetupStatePath) -and (Test-Path -LiteralPath $pnPendingPath)) ($pendingCase+': rejection leaves the pending file and publishes nothing')
+            continue
+        }
+        $null=Publish-CanonicalSetupFinalStateForRecovery -State $pnState -Classification $pnClassification
+        $pnPublished=[AiAgentDotfiles.NoFollowFile]::HashRegularFile($pnPaths.SetupStatePath)
+        Assert ($pnPublished.Identity -ceq $pnInitial.Identity -and $pnPublished.Sha256 -ceq $pnInitial.Sha256 -and -not(Test-Path -LiteralPath $pnPendingPath)) ($pendingCase+': finalize renames the same exact-byte pending file instead of a path Move (open-item 1f)')
+        $pnAfter=Read-CanonicalJournalDirectory -TransactionNamespace $pnHeader.TransactionNamespace -AllowUnfinished
+        Assert (@($pnAfter.Records|Where-Object{[string]$_.Phase -ceq 'SETUP_STATE_PUBLISHED'}).Count -eq 1) ($pendingCase+': one SETUP_STATE_PUBLISHED record after finalize')
+        $pnControlFile=Join-Path $pnRepo 'state-acl-control.json';[IO.File]::WriteAllBytes($pnControlFile,[IO.File]::ReadAllBytes($pnPaths.SetupStatePath))
+        Assert ([string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($pnPaths.SetupStatePath).Sddl -ceq [string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($pnControlFile).Sddl) ($pendingCase+': the published state keeps the ordinary inherited create-new ACL')
+    }
+
     Write-Host "`n[missing-to-existing setup artifact graph]" -ForegroundColor Cyan
     $dagRepo=Join-Path $root 'dag-repo';Initialize-TestRepo $dagRepo
     $dagPrivate=Join-Path $root 'dag-private';[IO.Directory]::CreateDirectory($dagPrivate)|Out-Null;Set-TestCurrentUserOnlyAcl -Path $dagPrivate

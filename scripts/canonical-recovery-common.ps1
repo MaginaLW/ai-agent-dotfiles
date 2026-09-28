@@ -260,6 +260,57 @@ function Read-CanonicalSetupClaimArtifact {
     }
 }
 
+function Read-CanonicalSetupStateArtifact {
+    # Mirror of Read-CanonicalSetupClaimArtifact for the setup state file: the same
+    # held-handle pending publication, minus the claim's forced file DACL (the state
+    # file keeps the ordinary inherited create-new ACL).
+    param([Parameter(Mandatory)]$State,[Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$ExpectedStateHash,[switch]$PublishPending)
+    $setup=$State.Header.SetupRecovery
+    $statePath=[IO.Path]::GetFullPath([string]$setup.StatePath)
+    $full=[IO.Path]::GetFullPath($Path);$isPending=-not $full.Equals($statePath,[StringComparison]::OrdinalIgnoreCase)
+    if($PublishPending -and -not $isPending){throw 'manual-recovery-required: setup pending state locator required'}
+    if(-not $isPending){
+        $document=Read-CanonicalJsonContractFile -Path $full -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-setup-state.schema.json')
+        if((Get-SemanticJsonHash -InputObject $document) -cne $ExpectedStateHash){throw 'manual-recovery-required: setup state differs from its journal intent'}
+        return $document
+    }
+    $pendingRoot=[IO.Path]::GetFullPath((Join-Path $State.TransactionNamespace '_pending'))
+    $pending=@($State.PendingEntries|Where-Object{[string]$_.Name -like 'setup-state-*'})
+    $records=@($State.Records|Where-Object{[string]$_.Phase -in @('SETUP_STATE_INTENT','SETUP_STATE_PUBLISHED')})
+    if(-not([IO.Path]::GetDirectoryName($full).Equals($pendingRoot,[StringComparison]::OrdinalIgnoreCase)) -or
+        [IO.Path]::GetFileName($full) -cnotmatch '^setup-state-[0-9a-f]{32}\.tmp$' -or $pending.Count -ne 1 -or
+        -not([IO.Path]::GetFullPath([string]$pending[0].Path).Equals($full,[StringComparison]::OrdinalIgnoreCase)) -or
+        $records.Count -ne 1 -or [string]$records[0].Phase -cne 'SETUP_STATE_INTENT' -or
+        [string]$records[0].Data.StateHash -cne $ExpectedStateHash){throw 'manual-recovery-required: setup pending state differs from its unique journal intent'}
+    $parents=$null;$finalParents=$null;$held=$null
+    try{
+        $receiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetDirectoryName($full)) -OwnershipReceiver $receiver
+        $parents=$receiver.GetDeliveredExact();$parent=$parents[$parents.Count-1];$name=[IO.Path]::GetFileName($full)
+        $names=@([AiAgentDotfiles.NoFollowFile]::GetChildNames($parent)|Where-Object{$_ -like 'setup-state-*'})
+        if($names.Count -ne 1 -or [string]$names[0] -cne $name){throw 'manual-recovery-required: setup pending state inventory changed'}
+        $held=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFileForRename($parent,$name)
+        if([string]$held.ReadResult.Identity -cne [string]$pending[0].Identity -or [string]$held.ReadResult.Sha256 -cne [string]$pending[0].Sha256 -or [long]$held.ReadResult.Length -ne [long]$pending[0].Length){throw 'manual-recovery-required: setup pending state differs from its captured inventory'}
+        $bytes=[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($held,$script:JsonArtifactMaximumBytes)
+        $null=Invoke-CanonicalContractSchemaValidation -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-setup-state.schema.json') -Path $full -ContentBytes $bytes
+        $document=ConvertFrom-SemanticJson -Json ([Text.UTF8Encoding]::new($false,$true).GetString($bytes))
+        if((Get-SemanticJsonHash -InputObject $document) -cne $ExpectedStateHash){throw 'manual-recovery-required: setup state differs from its journal intent'}
+        if($PublishPending){
+            $finalReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+            Open-SafeDirectoryContainmentChain -Path ([IO.Path]::GetDirectoryName($statePath)) -OwnershipReceiver $finalReceiver
+            $finalParents=$finalReceiver.GetDeliveredExact()
+            $names=@([AiAgentDotfiles.NoFollowFile]::GetChildNames($parent)|Where-Object{$_ -like 'setup-state-*'})
+            if($names.Count -ne 1 -or [string]$names[0] -cne $name){throw 'manual-recovery-required: setup pending state inventory changed before publish'}
+            $null=[AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($held,$finalParents[$finalParents.Count-1],[IO.Path]::GetFileName($statePath))
+        }
+        return $document
+    }finally{
+        if($held){$held.Dispose()}
+        if($finalParents){Close-SafeDirectoryContainmentChain -Handles $finalParents}
+        if($parents){Close-SafeDirectoryContainmentChain -Handles $parents}
+    }
+}
+
 function Get-CanonicalSetupRecoveryState {
     param([Parameter(Mandatory)]$State,[Parameter(Mandatory)][string]$RepoRoot)
     $setup=$State.Header.SetupRecovery
@@ -553,8 +604,8 @@ function Publish-CanonicalSetupFinalStateForRecovery {
     if(Test-Path -LiteralPath $statePath){
         $existing=Read-CanonicalJsonContractFile -Path $statePath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-setup-state.schema.json')
         if((Get-SemanticJsonHash -InputObject $existing) -cne [string]$Classification.SetupState.ExpectedFinalStateHash){throw 'manual-recovery-required: setup state changed before finalize'}
-    }elseif($Classification.SetupState.PSObject.Properties['PendingStatePath']){
-        [IO.File]::Move([string]$Classification.SetupState.PendingStatePath,$statePath,$false)
+    }elseif($Classification.SetupState.PSObject.Properties['PendingStatePath'] -and $Classification.SetupState.PendingStatePath){
+        $null=Read-CanonicalSetupStateArtifact -State $State -Path ([string]$Classification.SetupState.PendingStatePath) -ExpectedStateHash ([string]$Classification.SetupState.ExpectedFinalStateHash) -PublishPending
     }else{
         $null=Write-CanonicalAtomicJson -Document $Classification.SetupState.ExpectedFinalState -FinalPath $statePath -PendingDirectory (Join-Path $State.TransactionNamespace '_pending') -PendingName ("setup-state-{0}.tmp" -f [Guid]::NewGuid().ToString('N')) -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-setup-state.schema.json')
     }
