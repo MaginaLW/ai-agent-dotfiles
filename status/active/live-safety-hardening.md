@@ -5850,3 +5850,12 @@ DryRun、部署。
 7. **机内材料索引**（不入库）：新增 `tmp/lab-kit-source`（纯净 lab 源，后续窗口直接复用）、
    `tmp/lab-postaudit-21`（= c17 证据）、`tmp/s6-residuals/`（四路分析报告、审查报告、重封
    报告与补丁、启动脚本、本地 -All 证据 JSON）。
+
+## 2026-09-29 合并执行（所有者授权）
+
+所有者授权后，`codex/s6-residual-hardening`（候选 `4eb405c`，三证据集齐全：本地 contract
+checks、`validation-c17-01` lab 11 门全 PASS + 43/43 套件、CI run #170 四作业全绿）已合并进
+`main`：merge commit `616225c`（`Merge codex/s6-residual-hardening: S6 residual closures
+1a-1g, re-sealed hard-kill self-seals and the accepted candidate 4eb405c (owner-authorized)`，
+main 302d437 → 616225c）+ 本合并执行记录。合并头与记录头各触发一个 CI 样本（run id 记于
+STATUS 快照）。真实 Apply、adopt、activate、真机 DryRun、部署一概未执行。
