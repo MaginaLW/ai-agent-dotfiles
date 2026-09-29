@@ -109,7 +109,11 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 live recover status
 ```
 
 Live recovery reports `abandon-eligible` → `abandon`, `rollback-required` → `rollback`, or
-`finalize-eligible` → `finalize`; its `clean` namespace needs no recovery. Canonical recovery instead
+`finalize-eligible` → `finalize`; its `clean` namespace needs no recovery. On a machine whose
+home-authority bootstrap is absent the status verb still exits 0: `no-live-transaction` when no
+sealed live-transactions namespace exists (nothing to recover), and `authority-missing` with the
+`live-plan-authority-missing` token when the incomplete bootstrap cannot prove emptiness —
+recovery actions keep failing closed until the bootstrap is complete. Canonical recovery instead
 emits a typed `MessageToken` of `canonical-recover-abandon`, `canonical-recover-rollback` or
 `canonical-recover-finalize`: use that action and the `TransactionId` from the same result.
 `no-canonical-transaction` needs no recovery. For `operation-lock-busy` or

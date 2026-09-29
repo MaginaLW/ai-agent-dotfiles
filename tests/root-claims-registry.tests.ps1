@@ -5398,6 +5398,29 @@ try {
     Write-TestCreateNewFile -Path (Join-Path $liveRecordOnlyDirectory '000001.json') -Bytes ([Text.Encoding]::ASCII.GetBytes('{}'))
     Invoke-TestRegistryFailure -Fixture $liveRecordOnly -Pattern 'manual-recovery-required:.*live-transaction-namespace-journal-header-missing' -Message 'a numbered journal record without header.json is rejected'
 
+    $liveRecordNameDir = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-record-name-directory'
+    $liveRecordNameDirPlanted = New-TestLiveJournalNamespace -Fixture $liveRecordNameDir -TransactionId '4ccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    [IO.Directory]::CreateDirectory((Join-Path $liveRecordNameDirPlanted.Directory '000001.json')) | Out-Null
+    Invoke-TestRegistryFailure -Fixture $liveRecordNameDir -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-type-mismatch:.*000001\.json' -Message 'a directory named like a journal record fails the journal inventory type gate instead of the file-open path'
+
+    $liveHeaderDir = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-header-directory'
+    $liveHeaderDirId = '4ddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    [IO.Directory]::CreateDirectory((Join-Path (Join-Path $liveHeaderDir.Context.LiveTransactionsRoot $liveHeaderDirId) 'header.json')) | Out-Null
+    Invoke-TestRegistryFailure -Fixture $liveHeaderDir -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-type-mismatch:.*header\.json' -Message 'a directory named header.json fails the journal inventory type gate'
+
+    $livePendingFile = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-pending-file'
+    $livePendingFilePlanted = New-TestLiveJournalNamespace -Fixture $livePendingFile -TransactionId '4eeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    [IO.Directory]::Delete((Join-Path $livePendingFilePlanted.Directory '_pending'))
+    Write-TestCreateNewFile -Path (Join-Path $livePendingFilePlanted.Directory '_pending') -Bytes ([Text.Encoding]::ASCII.GetBytes('x'))
+    Invoke-TestRegistryFailure -Fixture $livePendingFile -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-type-mismatch:.*_pending' -Message 'a file named _pending fails the journal inventory type gate'
+
+    $liveRecordJunction = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-record-junction'
+    $liveRecordJunctionPlanted = New-TestLiveJournalNamespace -Fixture $liveRecordJunction -TransactionId '4f111111-1111-4f11-8f11-111111111111'
+    $liveRecordJunctionTarget = Join-Path $workRoot 'live-record-junction-target'
+    [IO.Directory]::CreateDirectory($liveRecordJunctionTarget) | Out-Null
+    $null = New-Item -ItemType Junction -Path (Join-Path $liveRecordJunctionPlanted.Directory '000002.json') -Target $liveRecordJunctionTarget -ErrorAction Stop
+    Invoke-TestRegistryFailure -Fixture $liveRecordJunction -Pattern 'manual-recovery-required:.*live-transaction-namespace-child-type-mismatch:.*000002\.json' -Message 'a reparse point named like a journal record is rejected by the journal inventory type gate as manual recovery'
+
     $livePendingResidue = New-TestRegistryFixture -Parent $workRoot -Name 'live-transaction-pending-residue'
     $livePendingPlanted = New-TestLiveJournalNamespace -Fixture $livePendingResidue
     Write-TestCreateNewFile -Path (Join-Path $livePendingPlanted.Directory '_pending/record-000001.tmp') -Bytes ([Text.Encoding]::ASCII.GetBytes('x'))

@@ -281,7 +281,107 @@ try {
 
 
 
-    Write-Host '[live mutation engine: state context helpers]'
+    Write-Host '[terminal document hash collector (open-item 1b)]'
+    # The consumption collector accepts only the exact finished shape and only
+    # after header semantics and the chain validate, so a damaged or
+    # shape-incomplete terminal is recovery-required for the host, never
+    # masquerades as consumed evidence (the same finished-shape predicate the
+    # unfinished scan and the recovery locator use).
+    function New-CollectorNamespace {
+        param(
+            [Parameter(Mandatory)] [string] $Root,
+            [Parameter(Mandatory)] [string] $OriginalDocumentHash,
+            [ValidateSet('terminal', 'complete-without-result', 'broken-chain', 'unknown-child', 'unfinished')] [string] $Shape
+        )
+        $transactionId = [Guid]::NewGuid().ToString()
+        $directory = Join-Path $Root $transactionId
+        $header = New-TestHeader -TransactionId $transactionId
+        $header.OriginalDocumentHash = $OriginalDocumentHash
+        $null = New-SealedLiveJournalHeader -Document $header -TransactionDirectory $directory
+        if ($Shape -cne 'unfinished') {
+            Add-SealedLiveJournalRecord -TransactionDirectory $directory -Phase 'POSTCONDITIONS_OK' -Data ([ordered]@{ PostconditionsHash = ('b' * 64) }) | Out-Null
+        }
+        if (@('terminal', 'complete-without-result', 'broken-chain') -ccontains $Shape) {
+            # All three start from a legal terminal built through the writer.
+            $chain = Get-SealedLiveJournalChain -TransactionDirectory $directory
+            $headHash = Get-SemanticJsonHash -InputObject ([System.Collections.IDictionary] $chain.Records[-1]['Document'])
+            $result = [ordered]@{
+                SchemaVersion = 1
+                ArtifactKind = 'live-operation-result'
+                ResultScope = 'transaction'
+                TransactionId = $transactionId
+                OperationKind = 'retirement'
+                OriginalDocumentHash = $OriginalDocumentHash
+                ResultBaseHeadHash = $headHash
+                Outcome = 'committed'
+                ReceiptRef = [ordered]@{ Id = $transactionId; Path = (Join-Path $work 'backups' $transactionId); State = 'COMPLETE'; Hash = ('9' * 64) }
+                ReceiptHash = ('9' * 64)
+                StateHash = ('c' * 64)
+            }
+            Publish-SealedLiveTransactionResult -TransactionDirectory $directory -Document $result | Out-Null
+            $resultFileHash = (Get-FileHash -LiteralPath (Join-Path $directory 'result.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+            Add-SealedLiveJournalRecord -TransactionDirectory $directory -Phase 'COMPLETE' -Data ([ordered]@{
+                ResultHash = $resultFileHash
+                OriginalDocumentHash = $OriginalDocumentHash
+                Outcome = 'committed'
+                ClosingKind = 'original'
+                ClosingDocumentHash = $OriginalDocumentHash
+            }) | Out-Null
+            if ($Shape -ceq 'complete-without-result') {
+                # The writer refuses a COMPLETE that would not validate against a
+                # published result, so the shape-incomplete case removes
+                # result.json after the fact: the terminal record stays, the
+                # proof is gone.
+                Remove-Item -LiteralPath (Join-Path $directory 'result.json') -Force
+            }
+            elseif ($Shape -ceq 'broken-chain') {
+                # Tamper the terminal record's bound result hash directly: the
+                # chain validator must reject the namespace and the collector
+                # must skip it instead of counting the hash.
+                $terminalRecordPath = Join-Path $directory '000002.json'
+                $terminalDocument = ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($terminalRecordPath, [Text.UTF8Encoding]::new($false, $true)))
+                $terminalDocument.Data.ResultHash = ('0' * 64)
+                [IO.File]::WriteAllText($terminalRecordPath, [Text.Encoding]::UTF8.GetString((ConvertTo-SemanticJsonBytes -InputObject $terminalDocument)), [System.Text.UTF8Encoding]::new($false))
+            }
+            return $directory
+        }
+        if ($Shape -ceq 'unknown-child') {
+            [System.IO.File]::WriteAllText((Join-Path $directory 'stray-000001.json'), 'stray', [System.Text.UTF8Encoding]::new($false))
+        }
+        return $directory
+    }
+
+    $collectorRoot = Join-Path $work 'collector-live-transactions'
+    New-Item -ItemType Directory -Force -Path $collectorRoot | Out-Null
+    $terminalHash = ('e' * 64)
+    $withoutResultHash = ('d' * 64)
+    $brokenHash = ('c' * 64)
+    $unknownHash = ('b' * 64)
+    $unfinishedHash = ('a' * 64)
+    $null = New-CollectorNamespace -Root $collectorRoot -OriginalDocumentHash $terminalHash -Shape 'terminal'
+    $null = New-CollectorNamespace -Root $collectorRoot -OriginalDocumentHash $withoutResultHash -Shape 'complete-without-result'
+    $null = New-CollectorNamespace -Root $collectorRoot -OriginalDocumentHash $brokenHash -Shape 'broken-chain'
+    $null = New-CollectorNamespace -Root $collectorRoot -OriginalDocumentHash $unknownHash -Shape 'unknown-child'
+    $null = New-CollectorNamespace -Root $collectorRoot -OriginalDocumentHash $unfinishedHash -Shape 'unfinished'
+    $consumed = Get-SealedLiveTransactionTerminalDocumentHashes -TransactionsRoot $collectorRoot
+    Assert ([bool] $consumed.Contains($terminalHash)) 'the collector counts a finished, chain-valid terminal as consumed (open-item 1b)'
+    Assert (-not $consumed.Contains($withoutResultHash)) 'a COMPLETE without a published result is not consumed evidence (open-item 1b)'
+    Assert (-not $consumed.Contains($brokenHash)) 'a chain-broken terminal is not consumed evidence (open-item 1b)'
+    Assert (-not $consumed.Contains($unknownHash)) 'a namespace with unknown children is not consumed evidence (open-item 1b)'
+    Assert (-not $consumed.Contains($unfinishedHash)) 'an unfinished reservation is not consumed evidence (open-item 1b)'
+    $emptyConsumed = Get-SealedLiveTransactionTerminalDocumentHashes -TransactionsRoot (Join-Path $work 'collector-absent-root')
+    Assert (@($emptyConsumed.Keys).Count -eq 0) 'a missing transactions root yields an empty consumption dictionary (open-item 1b)'
+    # The skip is a validation failure, not a silent pass: the broken-chain
+    # namespace is rejected by the same validator the recovery locator uses.
+    $brokenDirectory = Join-Path $collectorRoot (Get-ChildItem -LiteralPath $collectorRoot -Directory | Where-Object {
+        $readHeader = ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText((Join-Path $_.FullName 'header.json'), [Text.UTF8Encoding]::new($false, $true)))
+        [string] $readHeader.OriginalDocumentHash -ceq $brokenHash
+    }).Name
+    Assert-ThrowsToken {
+        $brokenChain = Get-SealedLiveJournalChain -TransactionDirectory $brokenDirectory
+        Test-LiveJournalHeaderSemantics -Document $brokenChain.Header
+        Test-SealedLiveJournalChain -Header $brokenChain.Header -Records @($brokenChain.Records) -Result $brokenChain.Result -ResultFileHash $brokenChain.ResultFileHash
+    } 'manual-recovery-required' 'the broken-chain terminal fails the chain validator (open-item 1b)'
     function New-EngineTargetContextIntent {
         param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Platforms)
         $rows = [System.Collections.Generic.List[object]]::new()
@@ -2036,7 +2136,23 @@ try {
     }
 
     $r = Invoke-RecoveryDispatch -Arguments @('-Status')
-    Assert ($r.Code -ne 0 -and $r.Out -match 'live-plan-authority-missing') 'the status route fails closed without a complete authority'
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: no-live-transaction' -and $r.Out -notmatch 'live-plan-authority-missing') 'the status route reports the proven empty state on a MISSING bootstrap with no namespace (open-item 1g)'
+    $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-JsonPath', (Join-Path $dispatchWork 'status-empty.json'))
+    Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $dispatchWork 'status-empty.json'))) 'the empty-state status writes its JsonPath report create-new (open-item 1g)'
+    $emptyReport = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $dispatchWork 'status-empty.json')))
+    Assert ([string] $emptyReport.OverallStatus -ceq 'no-live-transaction' -and [string] $emptyReport.MessageToken -ceq 'no-live-transaction' -and @($emptyReport.Transactions).Count -eq 0) 'the empty-state report carries the no-live-transaction token with zero transactions (open-item 1g)'
+    # A MISSING bootstrap with a live-transactions directory present cannot prove
+    # emptiness, so the status stays a structured WARN with the mutator token.
+    # The partial directory lives in its own sandbox: pre-creating unsealed
+    # children under the bootstrapped sandbox's derived control base would fail
+    # that sandbox's later sealed bootstrap with an owner-DACL mismatch.
+    $warnWork = New-OwnedRecoveryRoot -Kind live-dispatch
+    $warnHome = Join-Path $warnWork 'home'
+    New-Item -ItemType Directory -Force -Path $warnHome | Out-Null
+    $partialControl = Join-Path $warnHome 'AppData/Local/ai-agent-dotfiles/control/live-transactions'
+    New-Item -ItemType Directory -Force -Path $partialControl | Out-Null
+    $r = Invoke-SafetySandboxScript -SandboxRoot $warnWork -ScriptPath $recoveryScript -Arguments @('-Status') -AuthorityRepoRoot $RepoRoot
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: authority-missing' -and $r.Out -match 'live-plan-authority-missing') 'the status route reports a structured WARN when the incomplete bootstrap cannot prove emptiness (open-item 1g)'
     $stubPlan = Join-Path $dispatchWork 'stub-plan.json'
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTx, '-DryRun', '-PlanPath', $stubPlan)
     Assert ($r.Code -ne 0 -and $r.Out -match 'live-plan-authority-missing') 'the dispatch route fails closed without a complete authority'

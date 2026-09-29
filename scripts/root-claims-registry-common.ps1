@@ -3122,6 +3122,20 @@ function Assert-SealedRegistryLiveTransactionJournalInventory {
     $resultCapture = $null
     $recordRows = [Collections.Generic.List[object]]::new()
     foreach ($childName in @(Get-SealedRegistryOrdinalStrings -Values @($TransactionCapture.InitialNames))) {
+        # The name gate only proves the token shape; the journal contract also fixes the
+        # child kind: _pending is a no-follow directory, every JSON name is a regular
+        # non-reparse file. Reject a kind mismatch here so a directory or reparse point
+        # named like a journal child fails with this typed token instead of a
+        # culture-wrapped file-open error (the design classifies reparse as manual).
+        $childInfo = [AiAgentDotfiles.NoFollowFile]::InspectChild($TransactionCapture.Handle, $childName)
+        if ([string]$childName -ceq '_pending') {
+            if (-not ([bool]$childInfo.IsDirectory -and -not [bool]$childInfo.IsReparsePoint)) {
+                throw "live-transaction-namespace-child-type-mismatch: $TransactionId/$childName"
+            }
+        }
+        elseif ([bool]$childInfo.IsDirectory -or [bool]$childInfo.IsReparsePoint) {
+            throw "live-transaction-namespace-child-type-mismatch: $TransactionId/$childName"
+        }
         if ([string]$childName -ceq '_pending') {
             $pending = Open-SealedRegistryHeldDirectoryChild -ParentHandle $TransactionCapture.Handle -Name '_pending' -TokenSid $TokenSid -Label "live-transactions/$TransactionId/_pending"
             $DirectoryChildren.Add($pending)

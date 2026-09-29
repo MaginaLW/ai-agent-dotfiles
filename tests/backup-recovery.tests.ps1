@@ -883,7 +883,10 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
         if (-not $workOwned -or -not $root.StartsWith(([IO.Path]::GetFullPath($work) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) {
             throw 'FAIL: rollback staging escaped the owned fixture'
         }
-        Assert-RollbackFixtureNoReparse -Path $root
+        # A committed rollback now reclaims its empty namespace entirely, so the
+        # derivation works from the journal alone and only checks the tree when
+        # a caller expects it to still exist.
+        if (Test-Path -LiteralPath $root) { Assert-RollbackFixtureNoReparse -Path $root }
         $scratchPaths = @($Chain.Records | ForEach-Object {
             $data = [System.Collections.IDictionary] $_['Document']['Data']
             foreach ($name in @('StagedPath', 'SwapOldPath')) {
@@ -942,7 +945,7 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert (-not (Test-Path -LiteralPath (Join-Path $committedStaging 'Claude/swap/kept'))) 'the committed rollback reclaims the swap-old entry of its update target'
     Assert (-not (Test-Path -LiteralPath (Join-Path $committedStaging 'Codex/swap/added-custom-reasonix'))) 'the committed rollback reclaims the swap-old entry of its prune target'
     Assert (-not (Test-Path -LiteralPath (Join-Path $committedStaging 'Claude/state-recovery/current-env.preimage.json'))) 'the committed rollback reclaims the pre-rollback state-recovery copy'
-    Assert (@(Get-ChildItem -LiteralPath $committedStaging -Recurse -Force -File).Count -eq 0) 'no staging file of the committed rollback survives under its transaction namespace'
+    Assert (-not (Test-Path -LiteralPath $committedStaging)) 'the committed rollback reclaims its empty transaction staging namespace (open-item 1f)'
     $rollbackJournal = [string] $rollbackResult.JournalDirectory
     Assert (Test-Path -LiteralPath (Join-Path $rollbackJournal 'header.json') -PathType Leaf) 'the committed rollback keeps its journal header'
     Assert (Test-Path -LiteralPath (Join-Path $rollbackJournal 'result.json') -PathType Leaf) 'the committed rollback keeps its published result'
@@ -951,6 +954,30 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
     Assert ((Get-SealedBackupReceiptSlotState -ReceiptPath $sourceReceiptPath) -ceq 'COMPLETE') 'the committed rollback keeps the source activation receipt complete'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $sourceReceiptPath 'snapshot/claude/kept/SKILL.md')) -eq 'kept-old-custom-reasonix') 'the committed rollback never removes the source snapshot bytes it staged from'
     Assert ((Get-Content -Raw -LiteralPath (Join-Path $sourceReceiptPath 'snapshot/reasonix/pruned-custom-reasonix/SKILL.md')) -eq 'pruned-old-custom-reasonix') 'the committed rollback keeps the source snapshot of its add target'
+
+    # (open-item 1f) A lock-release failure after the success payload is captured
+    # must never leave a success line on stdout: the payload emits only after
+    # every lock finally has returned. The empty pipe name makes the injected
+    # checkpoint throw immediately inside the innermost release finally.
+    $releaseGateGraph = New-SourceGraph ([ordered]@{ Label = 'lock-release-gate' })
+    $savedReleaseFailpoints = [System.Environment]::GetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS')
+    try {
+        [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', (ConvertTo-Json -InputObject @([ordered]@{ Checkpoint = 'PUBLIC_LOCK_RELEASE'; PipeName = '' }) -Compress))
+        $r = Invoke-GraphRollback -Graph $releaseGateGraph -PlanPath (Join-Path $work 'lock-release-gate-plan.json')
+    }
+    finally {
+        [System.Environment]::SetEnvironmentVariable('AI_AGENT_DOTFILES_LIVE_TX_FAILPOINTS', $savedReleaseFailpoints)
+    }
+    if ($r.Code -eq 0 -or $r.Out -notmatch 'PUBLIC_LOCK_RELEASE') {
+        Write-Host '----- lock-release-gate execution output -----'
+        Write-Host $r.Out
+    }
+    Assert ($r.Code -ne 0) 'a failed lock release exits nonzero (open-item 1f)'
+    Assert ($r.Out -notmatch 'environment rollback plan created:') 'a failed lock release never prints the success line after the fact (open-item 1f)'
+    Assert ($r.Out -match "live transaction failpoint 'PUBLIC_LOCK_RELEASE' has no pipe name") 'the release failure surfaces the injected failpoint token (open-item 1f)'
+    # The contrast contract stays green above: the recovery-required graph's own
+    # public DryRun still emits 'environment rollback plan created:' with exit 0
+    # after a clean lock release.
 
     $stalePlan = Join-Path $work 'after-rollback-plan.json'
     $r = Invoke-GraphRollback -Graph $eligibleGraph -PlanPath $stalePlan
@@ -1014,7 +1041,7 @@ Write-Host ('ROLLBACK_RESULT ' + (ConvertTo-Json -InputObject $result -Depth 6 -
         Assert ($preparedTargets.Count -eq $targetCount) "the $targetCount-target rollback mutates the expected number of live targets"
         Assert (@(Get-SealedLiveJournalUnfinishedTransactionIds -TransactionsRoot (Join-Path $controlBase 'live-transactions')).Count -eq 0) "the $targetCount-target rollback leaves no unfinished transaction"
         $countStaging = Get-RollbackTransactionStagingRoot -Chain $countChain
-        Assert (@(Get-ChildItem -LiteralPath $countStaging -Recurse -Force -File).Count -eq 0) "the $targetCount-target rollback reclaims only its transaction scratch"
+        Assert (-not (Test-Path -LiteralPath $countStaging)) "the $targetCount-target rollback reclaims its empty transaction namespace (open-item 1f)"
         foreach ($path in $legacyStagingEvidence.Keys) {
             Assert ((Get-SemanticJsonHash -InputObject (Get-SealedLiveObservableFileState -Path $path)) -ceq [string] $legacyStagingEvidence[$path]) "the $targetCount-target rollback preserves legacy staging bytes and entry identity"
         }

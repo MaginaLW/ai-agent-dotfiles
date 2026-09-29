@@ -212,6 +212,20 @@ try{
     $lock=Enter-CanonicalRepoLock -LockPath $paths.LockPath -AllowCreate;Exit-CanonicalRepoLock $lock
     Assert ((Get-CanonicalSetupStatus -RepoRoot $fixture) -ceq 'canonical-ready') 'setup state and root claim are ready before skill transaction'
 
+    # Open-item 1a: the locked apply path re-asserts the claim file's
+    # current-user-only contract, so a widened claim DACL must stop the ready gate.
+    $readyClaimPath=Join-Path $control (Join-Path 'canonical-roots' ($setupState.RepoId+'.json'))
+    $readyClaimDrift=Get-Acl -LiteralPath $readyClaimPath
+    $readyClaimDrift.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'),[Security.AccessControl.FileSystemRights]::FullControl,[Security.AccessControl.AccessControlType]::Allow))
+    $readyClaimDevice='\\?\'+[IO.Path]::GetFullPath($readyClaimPath)
+    [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($readyClaimDevice),$readyClaimDrift)
+    Assert ((Get-CanonicalSetupStatus -RepoRoot $fixture) -ceq 'manual-recovery-required') 'apply preflight: a widened claim-file DACL stops the ready gate (open-item 1a)'
+    # Recreate instead of a Get-Acl write-back: the round-trip normalizes the
+    # inherited ACE into a shape the gate must keep rejecting.
+    [IO.File]::Delete($readyClaimPath)
+    Write-SemanticJson $readyClaimPath $setupPayload.ExpectedRootClaim
+    Assert ((Get-CanonicalSetupStatus -RepoRoot $fixture) -ceq 'canonical-ready') 'apply preflight: recreated claim DACL is ready again'
+
     Mark 'first-plan:start';$first=New-ReviewedPlan -Fixture $fixture -External $external -Name first -PopulateCandidate {param($candidate)New-Skill (Join-Path $candidate 'skills-source/shared/new-skill') new-skill candidate};Mark 'first-plan:done'
     $projectionRoot=Join-Path $recovery (Join-Path $git.WorktreeId ([Guid]::NewGuid().ToString('D').ToLowerInvariant()));$rows=@(New-CanonicalJournalTargetsFromPlan -PlanPayload $first.Document.PlanPayload -RecoveryTransactionRoot $projectionRoot)
     $idsValid=$true;foreach($row in $rows){$platform=if($row.Contains('Platform')){[string]$row.Platform}else{$null};$expected=Get-CanonicalJournalTargetId -Order ([long]$row.Order) -TargetKind ([string]$row.TargetKind) -Role ([string]$row.Role) -Platform $platform -TargetPath ([string]$row.TargetPath);if([string]$row.TargetId -cne $expected){$idsValid=$false;break}}

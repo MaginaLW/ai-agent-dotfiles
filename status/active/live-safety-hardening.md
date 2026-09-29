@@ -5607,22 +5607,10 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
 
 ### 开放待办（按优先级）
 
-1. **残余项（低危，S6 类改进，均有记录定位）**：
-   a. canonical contract 读取不核 claim 文件 DACL（`canonical-transaction-common.ps1` 两处 +
-      `canonical-recovery-common.ps1` 开头；写路径已核，读路径未核——grok A 审查发现）。
-   b. `Get-SealedLiveTransactionTerminalDocumentHashes`（`scripts/live-transaction-common.ps1`）把
-      可解析 COMPLETE 记为已消费、不跑链校验（偏 fail-closed；是否收紧需决策）。
-   c. journal 名字门对「名为 `000001.json` 的目录」的令牌形态（grok J）。
-   d. `Assert-SealedRegistryLiveTransactionJournalInventory` 内层名字门无单独调用者 pin（grok J）。
-   e. ✅ 历史叙述未回改（grok J 第三条）——2026-09-27 已收口：在 `STATUS.md` 2026-09-06 节、
-      本记录 grok H 定因节与 C10 整合节三处对已删除的
-      `Assert-SealedLiveTransactionNamespaceImmediateChildren` 叙述加带日期的更正注记，
-      原文保留为历史记录。
-   f. S1 审计发现但未逐条复核的三项：成功输出写在释放锁之前、rollback 空目录累积、pending state
-      的路径式 Move。
-   g. `live recover status` 在无 canonical setup 的机器上以 exit 1 抛 `live-plan-authority-missing`，
-      而 `canonical recover status` 对同一状态返回 PASS/`no-canonical-transaction`——「状态」动词的
-      语义需明确（Task 9 只读核对发现）。
+1. **残余项（低危，S6 类改进，均有记录定位）**——✅ **2026-09-29 全部收口**：a/c/d/e/f 见
+   2026-09-27「S6 残余硬化窗口」小节（a=`78a4ee8`、c=`9c79fc1`、d=`638a87b`、e=`302d437`、
+   f=`5b8100b`+`1b4f46a`+`bc65f4f`）；b 与 g 经所有者批准按决策备忘推荐方案实施，见文末
+   「2026-09-29 开放待办 1b/1g 按推荐方案收口」小节（`bca58cd`）。
 2. **指南静态校验工具入库**：✅ 2026-09-27 已收口（见下方小节），不再列为待办。
 3. **mutation 路线的证据时效**：14 条 S4 mutation 路线最后一次运行在 C6/C10，c783a01 线未重跑
    （已记录的接受限制）。如需更强证据，在下一个候选窗口或专门窗口重跑。
@@ -5692,3 +5680,173 @@ gitignored 机内材料中不动。
   42 dispatcher / 0 错误 / PASS）；`check-powershell-syntax.ps1` 182 文件通过；
   `scan-secrets.ps1` 无阻塞项；`test-runner.tests.ps1` 全绿（分区联合 = 发现集恰一次、
   shard 2 合同断言、三片合计 = 未分片已证预算）。
+
+## 2026-09-27 S6 残余硬化窗口（grok 四路分析 + 实现，开放待办 1a/1c/1d/1e/1f 收口）
+
+接手「2026-09-27 收尾：开放待办清单」第 1 项。分支 `codex/s6-residual-hardening`
+（6174135 → 7fe58d8，六提交）。四路并行 grok 分析（各自一次性 checkout、完全访问，报告存
+`tmp/s6-residuals/lane{A,J,F,D}-*.md`）：A=残余 a DACL、J=c+d 名字门、F=f 三项复核、D=b+g 决策备忘。
+
+### 收口内容与证据
+
+- **1e（历史叙述回改）**：`302d437`，三处对已删函数的叙述加带日期更正注记，原文保留。
+- **1d（child-name 门调用者 pin）**：`638a87b`，seams 收集器+白名单+reviewed 清单+唯一定义表，
+  属主 `Assert-SealedLiveTransactionNamespaceJournalChildren`（AST 核实唯一生产调用边）。
+  同提交补钉 guide-checker 入库（3c1fb8d）漏掉的反射增量：+65 行逐行核对（基线 b629da3
+  即 CI #165 绿字节），16781→16846。
+- **1c（journal 子项类型门）**：`9c79fc1`，清单函数在打开前按持柄 `InspectChild` 核子项类型
+  （`_pending` 须非 reparse 目录、JSON 名须非 reparse 常规文件），新 token
+  `live-transaction-namespace-child-type-mismatch`；目录/reparse/junction 四类夹具 +
+  既有 stray/header-missing/residue 夹具不回归。反射 +6 行重钉（16846→16850→16852，
+  reparse 收紧后 +6）。root-claims-registry 955/0。
+- **1a（ready 读 DACL 硬化）**：`78a4ee8`，四形态校验参数化上移 `canonical-transaction-common.ps1`
+  （`Assert-CanonicalClaimFileHeldSecurity`），新 `Read-CanonicalReadySetupClaimDocument`
+  同柄读前后各核一次；三处 ready 读点（status/锁下 apply/非 setup recovery）全部改走；
+  recovery-common 包装改委托（写路径 token 不变）。显式与继承 current-user-only 形态仍接受，
+  宽 DACL/硬链接别名 fail-closed。回归：recovery 套件宽 DACL 三处拒绝 + 重建恢复 + 硬链接往返，
+  apply 套件就绪门负例（教训：Get-Acl 往返会把继承 ACE 规范化为两形态皆拒，测试恢复须删除重建）。
+  hard-kill load-manifest 两哈希重钉；反射 +24/−10 行重钉（16852→16866）。
+  recovery 144/0、apply 49/0、seams 66/0。
+- **1f（S1 三项，F 路确认全部仍成立，按 3→2→1 实施）**：
+  - `5b8100b` pending state 持柄 rename（`Read-CanonicalSetupStateArtifact` 镜像 claim 流程，
+    无 claim DACL 强制；`[IO.File]::Move` 删除）；
+  - `1b4f46a` rollback 空命名空间回收（句柄释放后仅拆本事务空命名空间，有文件即放弃、
+    reparse 拒、warning 不抛，失败路径不动）；
+  - `bc65f4f` 公开成功行移到锁释放后（pending payload 持锁内捕获、单一 script 级发射门、
+    DryRun/Apply 落空守卫、`PUBLIC_LOCK_RELEASE` failpoint）；seams 成功尾部合同同步改写
+    （AST 判定经探针三轮对齐：@() 恒为 StatementBlockAst、单元素无逗号为裸标量、
+    foreach=ForEachStatementAst）。
+- **hard-kill 自封重封**：`7fe58d8`。第一轮 grok lane 40 turn 截断无产出（如实记废）；第二轮带
+  pin 链地图与轮次纪律成功：10 pin/13 十六进制字面量（prelude row9/digest×4/pre-section/
+  transport 两函数/inventory/cleanup-gate 自摘要/main-try/top-level/controller-surface），
+  去哈希零差异；**语义标志全保持**（302 mutant 全 Rejected 且理由符合、81+2 对照 Accepted、
+  Valid/ControlsValid/ActualPreludeValid/ActualBaselineSatisfied=true）；其检出内 primitives 95/0、
+  全量 **318 passed / 0 failed**（2425.96 s）。补丁迁移主工作区（与已入库版逐行一致）后由主 agent
+  **独立复跑全量：318 passed / 0 failed**（exit 0）。
+- 反射重钉收口：16852→16937（+72/−1：f3 新函数为主、f2 新函数、`[IO.File]::Move` 删除），
+  seams 66/0；动态命令 digest 全程不变（193/3284ade7）。
+
+### 已知非阻断项
+
+- **live-recovery 本地红（非本分支回归）**：`[live dispatch: reservation-only abandon]` 段
+  `:2657` 读 header.json 共享冲突，连续两次同点位；在 **main 基线 6174135 上同错复现**
+  （本机环境性，CI #165 同字节绿）。本窗口不处置，按 R3 类记录待未来样本判别。
+- **1b/1g 决策备忘**（lane D）：推荐 b=折衷 C（终态形状齐全才跑链校验，未完成门兜底）、
+  g=结构化 WARN（token 沿用 `live-plan-authority-missing`，MISSING 空命名空间可升
+  PASS/`no-live-transaction`，mutation 路径不动）。均属所有者决策项，`tmp/s6-residuals/laneD-decision-memo.md`。
+- 14 条 mutation 路线未在本窗口重跑（同既有记录限制）；本窗口改动未做 lab/CI（待候选窗口）。
+
+### 验证汇总（全部本地 working-tree/已提交字节）
+
+syntax 185 文件；recovery **151/0**；apply 49/0；backup-recovery PASS；seams **66/0**；
+root-claims-registry 955/0；hard-kill 由重封 lane 全量 318/0 + 主 agent 独立复跑（见下）。
+
+### S6 窗口独立审查与处置（grok，2026-09-27）
+
+分支整体独立审查（`6174135..7fe58d8`，报告 `tmp/s6-residuals/review-report.md`）：**无 P0**；
+fail-closed 行为、三层调用者 pin、1a 读路径、反射差分归因、load-manifest 哈希一致性均核对通过。
+处置：
+
+- **P1（seams 成功尾部合同可被四种突变绕过而 0 violation）——已修复**：发射门祖先禁任何
+  `TryStatementAst`；foreach 条件必须恰为 `$pendingSuccess` 或仅含它的 `@(...)`；dryrun 尾父 if
+  必须引用 `$DryRun` 且不得引用 payload，apply 尾父 if 必须为其精确取反守卫
+  （`Test-LiveSuccessPendingSuccessGuardCondition`，两分支互斥）；全脚本级禁止携带成功前缀的
+  `Write-Host`（成功文本只允许存在于 payload 赋值内）。加固后 seams 66/0（含全部 mutation RED）。
+- **P2（空命名空间回收的 warning 在 `-WarningAction Stop` 下会变终止错误；探针语句在 try 外）——
+  已修复**：`Write-Warning -WarningAction Continue`，归一化/探测移入同一 try（live-transaction-common，
+  不在 hard-kill 清单，反射零变化）。
+- **P2（分类后 intent 未入内存快照时首次发布会先写 journal 再误失败，重试自愈）——延后**：
+  修复必再动 `canonical-recovery-common.ps1`，将触发又一次完整自封重封；缺陷 fail-closed 且无数据
+  风险（kill 窗口与正常 Apply 均不受影响，审查已核对），留待下一候选窗口与 b/g 决策项同批。
+- **P2（待办清单未随收口更新）——已解决**（审查读的是提交树；清单更新在本窗口收口记录中）。
+- **P2（5b8100b 提交说明写了后续提交才落地的钉更新）——不改历史**：钉实际落点为
+  反射计数在 `bc65f4f`、load-manifest recovery-common 哈希在 `7fe58d8`；以本节为准。
+
+## 2026-09-29 开放待办 1b/1g 按推荐方案收口（所有者批准）
+
+所有者批准决策备忘（`tmp/s6-residuals/laneD-decision-memo.md`）的两项推荐后，`bca58cd` 一个提交内落地：
+
+- **1b（折衷方案）**：终态文档哈希收集器改用与未完成扫描/恢复定位器相同的 finished 谓词
+  （header 存在、无 unknown、result 已发布、COMPLETE 为末条），并通过 header 语义与链校验后才把
+  `OriginalDocumentHash` 记入消费集。损坏终态不再以 `live-plan-consumed` 名义拒绝重放，而是流过
+  消费门、由 host 未完成门报 `live-recovery-required`。四条 Apply 重放合同（合法终态）不变。
+  收集器夹具六形态：合法终态计入；COMPLETE 无 result（写入器拒绝构造，夹具事后删 result.json）、
+  链损坏、unknown 子项、未完成、缺失根 → 全部不计入。
+- **1g（结构化 WARN）**：公开 `live recover status` 对不完整 bootstrap 不再 exit 1。
+  `operation-lock-busy` 原样抛；MISSING 且密封命名空间缺席 → PASS/`no-live-transaction`
+  （canonical 先例，JsonPath 报告带 token 且 Transactions 为空）；其余不完整形态 → 结构化 WARN、
+  token 沿用 `live-plan-authority-missing`、exit 0。abandon/rollback/finalize 保持硬门与 exit≠0。
+  扫描 override 不新增脚本级 exit，成功尾部发射合同未动。RESTORE.md 与 ONBOARD_NEW_MACHINE.md
+  同步一句。实现备注：override 状态在脚本级预初始化（StrictMode 下 COMPLETE 路径不得引用未定义变量
+  ——task-skills 的 overlay 锁只读扫描用例抓到并修复）。
+- **反射重钉**：+17 行（1 Command + 16 Member：收集器 7、status 门 9），逐行核对，动态命令不变；
+  seams 66/0。
+- **验证**：live-recovery 全部 1b/1g 断言绿（12 标记）；live-plan PASS、sync PASS、
+  harness-env 339/0、harness-authority 436/0、task-skills 108/0；live-recovery 尾部仍是
+  2026-09-27 已记录的环境性 header 共享冲突（main 基线同现，非本分支）。
+- 开放待办第 1 项（低危残余）至此**全部收口**；剩余开放项为 mutation 路线证据时效、
+  发布路径（所有者逐项授权）与机内材料索引。
+
+### 2026-09-29 一次性身份 lab：validation-c17-01（候选 4eb405c，S3 证据）
+
+分支 `codex/s6-residual-hardening` 头 `4eb405c` 的一次性身份 lab（Windows Sandbox，kit
+`tmp/lab-postaudit-21`，由纯净源 `tmp/lab-kit-source` 冻结——直接复用 c20 冻结目录会因
+payload 内已有 candidate.json/bundle 触发 unexpected-kit-source，已修；资产复用 c20 cache；
+kit hash `e9b8ede9…`，min-timeout 42255 s，路由预算 43200 s）：
+
+- **11 门全 PASS**；**套件 43/43 全部通过、0 失败 0 超时**（合计 8158 s，exit 0）——
+  **live-recovery 在沙箱内全绿**，进一步证实主机的 header 共享冲突为主机环境特有。
+- completion ExitCode 0，candidate/kit 与冻结清单匹配；route-result PASS
+  （evidence `tmp/lab-postaudit-21/evidence/validation-c17-01/`，launcher 日志
+  `tmp/s6-residuals/evidence/lab-c17-01.host.log`）。
+- 本地侧证据（同一字节）：快门全绿、-All 42/43（唯一红即上述环境项，其内全部 1b/1g 断言绿）、
+  hard-kill 318/0 双跑、seams 66/0、七只定向套件绿。
+- **边界**：CI 样本待所有者授权推送后产生；候选接受按惯例需本地 + lab + CI 三项，CI 未到前
+  不主张接受。真实 Apply、adopt、activate、真机 DryRun、部署一概未执行。
+
+### 候选接受：`4eb405c`（2026-09-29）
+
+**接受对象**：`codex/s6-residual-hardening` 头 `4eb405c7209521088b83ca962e5c287aa1ac5b5c`
+（12 个实现/重封/记录提交 + 本接受记录前的文档提交）。内容：S6 残余 1a-1f 收口、
+所有者批准的 1b/1g 推荐 implementation、guide-checker 反射重钉、hard-kill 自封重封、
+两文档收口。**三证据集齐全**：
+
+1. **本地**：解析门 185 文件、`scan-secrets` 无阻塞、`git diff --check` 干净；定向七套件绿
+   （live-recovery 除环境项外、live-plan、sync、harness-env 339/0、harness-authority 436/0、
+   task-skills 108/0、seams 66/0）；hard-kill 全量 **318/0 双跑**（重封检出 + 主 agent 独立复跑）；
+   `-All` 本地 42/43（唯一红 = 环境性 header 共享冲突，main 基线同现，其内 1b/1g 断言全绿）。
+2. **一次性身份 lab**：`validation-c17-01`（kit `tmp/lab-postaudit-21`，hash `e9b8ede9…`）：
+   **11 门全 PASS、43/43 套件、0 失败 0 超时**（8158 s，exit 0），completion 匹配；沙箱内
+   live-recovery 全绿（环境项为主机特有）。
+3. **CI**：run
+   [#170](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36622856057)
+   四作业全绿（gates 3.1 min、shard 1/2/3 = 75.8/66.8/94.2 min）。
+
+**边界**：本接受 = 候选 `4eb405c` 在三证据集上合格。**未执行**：merge 到 `main`（独立授权）、
+14 条 mutation 路线重跑（维持 C6/C10 时的记录限制）、真实 Apply、adopt、activate、真机
+DryRun、部署。
+
+## 2026-09-29 收尾：待办清单（接手入口）
+
+上节接受后，当前**全部开放项**（冲突时以本节为准）：
+
+1. **merge 到 `main`**：候选 `4eb405c` 待所有者独立授权后合并（惯例：merge 提交 + 合并执行
+   记录，随后 merge 头与分支头各出一个 CI 样本）。
+2. **P2#2 延后修复**（本窗口独立审查的延后项）：`Publish-CanonicalSetupFinalStateForRecovery`
+   在分类后 intent 未入内存快照时的首次发布误失败（先写 journal 再误抛
+   `manual-recovery-required`，重载 journal 后重试自愈；fail-closed、无数据风险）。修复需再动
+   `canonical-recovery-common.ps1` → 触发完整自封重封；审查已核对 kill 窗口与正常 Apply 不受影响。
+   修复草图见 `tmp/s6-residuals/review-report.md`（P2 第二条）。
+3. **live-operation-result 完整发射器切片**：1g 现为最小发射（稳定 token + JsonPath
+   `MessageToken`）；设计内的 command-lifecycle `Result`/`LifecycleKind=no-transaction` 字段、
+   schema 正负夹具与注册表属独立 S6 切片。
+4. **环境性 live-recovery 共享冲突**（主机特有，main 基线同现，CI/沙箱绿）：处置路径按 R3 类
+   （同字节对照 → 本地复跑 → 新样本）；如再升级为普遍问题，排查夹具与把逐套件断言文本恢复进
+   注解的可行范围。
+5. **mutation 路线证据时效**：14 条 S4 路线最后运行在 C6/C10；本两窗口未重跑（接受限制已记录，
+   与 c783a01 线同口径）。
+6. **发布路径（全部待所有者逐项授权）**：S5 剩余只读/DryRun、真实部署（F5）、逐机 runner 批准、
+   真机 canonical setup DryRun（`scripts/internal/live-transaction-host.ps1` + 外部新计划）。
+7. **机内材料索引**（不入库）：新增 `tmp/lab-kit-source`（纯净 lab 源，后续窗口直接复用）、
+   `tmp/lab-postaudit-21`（= c17 证据）、`tmp/s6-residuals/`（四路分析报告、审查报告、重封
+   报告与补丁、启动脚本、本地 -All 证据 JSON）。

@@ -73,12 +73,21 @@ green. **Merging `c783a01` to `main` was executed under the owner's 2026-09-27 a
 [#162](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36265699722) and
 [#163](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36265736073) all four jobs green.
 No Apply, adoption, activation, real-machine DryRun or deployment happened for either candidate,
-and the 14 mutation routes were last run on C6/C10. **The open items are listed under
-"2026-09-27 收尾：开放待办清单" at the end of the activity record** (low-severity residuals, the
-mutation-route evidence age, and the unauthorized release path; the guide-checker promotion from
-that list closed the same day — the tool is now `scripts/check-guide-examples.ps1` with the
-`guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s, see the 2026-09-27 onboarding
-record in the activity record). See the
+and the 14 mutation routes were last run on C6/C10. **Candidate `4eb405c` (branch
+`codex/s6-residual-hardening`, pushed and CI run
+[#170](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36622856057) all four jobs
+green) is accepted on the three required evidence sets**: the local contract checks with
+hard-kill 318/0 twice and `-All` 42/43 (the single red is the host-only live-recovery sharing
+issue, green in the lab guest), the disposable-identity lab `validation-c17-01` (11 gates all
+PASS, 43/43 suites, zero failures or timeouts, 8158 s), and the CI run. The branch carries the
+full residual-item 1 closure (1a-1f on 2026-09-27 plus the owner-approved 1b/1g implementation),
+the guide-checker reflection re-pin, and the re-sealed hard-kill self-seals. **Merge to `main`
+awaits a separate owner authorization**; the current open items are listed under
+"2026-09-29 收尾：待办清单" at the end of the activity record (merge authorization, the deferred
+pending-intent publication fix, the live-operation-result emitter slice, the environmental
+live-recovery sharing issue, the mutation-route evidence age, and the release path). Earlier
+same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
+`guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries and actual validation.
 
