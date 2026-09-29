@@ -5828,10 +5828,11 @@ DryRun、部署。
 
 ## 2026-09-29 收尾：待办清单（接手入口）
 
-上节接受后，当前**全部开放项**（冲突时以本节为准）：
+上节接受后，当前**全部开放项**（冲突时以本节为准）。2026-09-29 更新：待办 1（merge）已按
+所有者授权执行完毕——`main` = `55cadc0`，两个 CI 样本四作业全绿（见上文「合并执行」节），
+其余待办顺延：
 
-1. **merge 到 `main`**：候选 `4eb405c` 待所有者独立授权后合并（惯例：merge 提交 + 合并执行
-   记录，随后 merge 头与分支头各出一个 CI 样本）。
+1. ~~merge 到 `main`~~ ✅ 已执行（`616225c` + `55cadc0`，CI 双绿）。
 2. **P2#2 延后修复**（本窗口独立审查的延后项）：`Publish-CanonicalSetupFinalStateForRecovery`
    在分类后 intent 未入内存快照时的首次发布误失败（先写 journal 再误抛
    `manual-recovery-required`，重载 journal 后重试自愈；fail-closed、无数据风险）。修复需再动
@@ -5857,5 +5858,10 @@ DryRun、部署。
 checks、`validation-c17-01` lab 11 门全 PASS + 43/43 套件、CI run #170 四作业全绿）已合并进
 `main`：merge commit `616225c`（`Merge codex/s6-residual-hardening: S6 residual closures
 1a-1g, re-sealed hard-kill self-seals and the accepted candidate 4eb405c (owner-authorized)`，
-main 302d437 → 616225c）+ 本合并执行记录。合并头与记录头各触发一个 CI 样本（run id 记于
-STATUS 快照）。真实 Apply、adopt、activate、真机 DryRun、部署一概未执行。
+main 302d437 → 616225c）+ 本合并执行记录（main = `55cadc0`）。**两个 CI 样本四作业全绿**：
+merge 头
+[run 36640737251](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36640737251)、
+记录头
+[run 36640879449](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36640879449)。
+（合并前 main 旧样本 302d437 于 09-28 的失败属当时字节的既有环境项，被本合并取代。）
+真实 Apply、adopt、activate、真机 DryRun、部署一概未执行。

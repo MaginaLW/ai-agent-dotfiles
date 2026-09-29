@@ -74,16 +74,18 @@ green. **Merging `c783a01` to `main` was executed under the owner's 2026-09-27 a
 [#163](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36265736073) all four jobs green.
 No Apply, adoption, activation, real-machine DryRun or deployment happened for either candidate,
 and the 14 mutation routes were last run on C6/C10. **Candidate `4eb405c` (branch
-`codex/s6-residual-hardening`, pushed and CI run
-[#170](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36622856057) all four jobs
-green) is accepted on the three required evidence sets**: the local contract checks with
-hard-kill 318/0 twice and `-All` 42/43 (the single red is the host-only live-recovery sharing
-issue, green in the lab guest), the disposable-identity lab `validation-c17-01` (11 gates all
-PASS, 43/43 suites, zero failures or timeouts, 8158 s), and the CI run. The branch carries the
+`codex/s6-residual-hardening`) is accepted on the three required evidence sets and has been
+merged to `main` under the owner's 2026-09-29 authorization: `main` = `55cadc0` (merge commit
+`616225c` + the merge-execution record), with CI runs
+[#171](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36640737251) (merge commit)
+and [#172](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36640879449) (head) all
+four jobs green.** The branch carries the
 full residual-item 1 closure (1a-1f on 2026-09-27 plus the owner-approved 1b/1g implementation),
-the guide-checker reflection re-pin, and the re-sealed hard-kill self-seals. **Merge to `main`
-awaits a separate owner authorization**; the current open items are listed under
-"2026-09-29 收尾：待办清单" at the end of the activity record (merge authorization, the deferred
+the guide-checker reflection re-pin, and the re-sealed hard-kill self-seals; its own CI sample
+was [#170](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36622856057) (all four
+jobs green) and the disposable-identity lab `validation-c17-01` (11 gates all PASS, 43/43
+suites, zero failures or timeouts, 8158 s). The current open items are listed under
+"2026-09-29 收尾：待办清单" at the end of the activity record (the deferred
 pending-intent publication fix, the live-operation-result emitter slice, the environmental
 live-recovery sharing issue, the mutation-route evidence age, and the release path). Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
