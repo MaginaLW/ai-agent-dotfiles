@@ -5786,3 +5786,20 @@ fail-closed 行为、三层调用者 pin、1a 读路径、反射差分归因、l
   2026-09-27 已记录的环境性 header 共享冲突（main 基线同现，非本分支）。
 - 开放待办第 1 项（低危残余）至此**全部收口**；剩余开放项为 mutation 路线证据时效、
   发布路径（所有者逐项授权）与机内材料索引。
+
+### 2026-09-29 一次性身份 lab：validation-c17-01（候选 4eb405c，S3 证据）
+
+分支 `codex/s6-residual-hardening` 头 `4eb405c` 的一次性身份 lab（Windows Sandbox，kit
+`tmp/lab-postaudit-21`，由纯净源 `tmp/lab-kit-source` 冻结——直接复用 c20 冻结目录会因
+payload 内已有 candidate.json/bundle 触发 unexpected-kit-source，已修；资产复用 c20 cache；
+kit hash `e9b8ede9…`，min-timeout 42255 s，路由预算 43200 s）：
+
+- **11 门全 PASS**；**套件 43/43 全部通过、0 失败 0 超时**（合计 8158 s，exit 0）——
+  **live-recovery 在沙箱内全绿**，进一步证实主机的 header 共享冲突为主机环境特有。
+- completion ExitCode 0，candidate/kit 与冻结清单匹配；route-result PASS
+  （evidence `tmp/lab-postaudit-21/evidence/validation-c17-01/`，launcher 日志
+  `tmp/s6-residuals/evidence/lab-c17-01.host.log`）。
+- 本地侧证据（同一字节）：快门全绿、-All 42/43（唯一红即上述环境项，其内全部 1b/1g 断言绿）、
+  hard-kill 318/0 双跑、seams 66/0、七只定向套件绿。
+- **边界**：CI 样本待所有者授权推送后产生；候选接受按惯例需本地 + lab + CI 三项，CI 未到前
+  不主张接受。真实 Apply、adopt、activate、真机 DryRun、部署一概未执行。

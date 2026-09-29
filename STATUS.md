@@ -81,7 +81,11 @@ self-seals re-sealed with the full suite 318/0 in both the reseal checkout and t
 main-agent rerun) - item 1 is fully closed, leaving only the mutation-route evidence age and the
 unauthorized release path; the guide-checker promotion closed earlier the same day
 (`scripts/check-guide-examples.ps1`, the `guide-examples` suite in shard 2 at 60 s, aggregate
-budget 30615 s). See the
+budget 30615 s). The branch head `4eb405c` carries S3 lab evidence
+`validation-c17-01` (11 gates all PASS, 43/43 suites, zero failures or timeouts, 8158 s; the
+host-only live-recovery sharing issue is green in the fresh guest) plus the local -All battery
+42/43 with the same environmental single red - CI samples await the owner-authorized push, so no
+candidate acceptance is claimed. See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries and actual validation.
 
