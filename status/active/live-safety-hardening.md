@@ -5607,15 +5607,10 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
 
 ### 开放待办（按优先级）
 
-1. **残余项（低危，S6 类改进，均有记录定位）**——2026-09-27 S6 窗口收口 a/c/d/e/f（见文末
-   「S6 残余硬化窗口」小节），本项仅余：
-   b. `Get-SealedLiveTransactionTerminalDocumentHashes`（`scripts/live-transaction-common.ps1`）把
-      可解析 COMPLETE 记为已消费、不跑链校验（偏 fail-closed；是否收紧需所有者决策——决策材料
-      `tmp/s6-residuals/laneD-decision-memo.md`，推荐折衷方案：终态形状齐全才跑链校验、未完成门兜底）。
-   g. `live recover status` 在无 canonical setup 机器上的 status 动词语义（需所有者决策——决策材料
-      同上，推荐结构化 WARN、token 沿用 `live-plan-authority-missing`，MISSING 空命名空间可升
-      PASS/`no-live-transaction`；mutation 路径不动）。
-   已收口：a=`78a4ee8`、c=`9c79fc1`、d=`638a87b`、e=`302d437`、f=`5b8100b`+`1b4f46a`+`bc65f4f`。
+1. **残余项（低危，S6 类改进，均有记录定位）**——✅ **2026-09-29 全部收口**：a/c/d/e/f 见
+   2026-09-27「S6 残余硬化窗口」小节（a=`78a4ee8`、c=`9c79fc1`、d=`638a87b`、e=`302d437`、
+   f=`5b8100b`+`1b4f46a`+`bc65f4f`）；b 与 g 经所有者批准按决策备忘推荐方案实施，见文末
+   「2026-09-29 开放待办 1b/1g 按推荐方案收口」小节（`bca58cd`）。
 2. **指南静态校验工具入库**：✅ 2026-09-27 已收口（见下方小节），不再列为待办。
 3. **mutation 路线的证据时效**：14 条 S4 mutation 路线最后一次运行在 C6/C10，c783a01 线未重跑
    （已记录的接受限制）。如需更强证据，在下一个候选窗口或专门窗口重跑。
@@ -5766,3 +5761,28 @@ fail-closed 行为、三层调用者 pin、1a 读路径、反射差分归因、l
 - **P2（待办清单未随收口更新）——已解决**（审查读的是提交树；清单更新在本窗口收口记录中）。
 - **P2（5b8100b 提交说明写了后续提交才落地的钉更新）——不改历史**：钉实际落点为
   反射计数在 `bc65f4f`、load-manifest recovery-common 哈希在 `7fe58d8`；以本节为准。
+
+## 2026-09-29 开放待办 1b/1g 按推荐方案收口（所有者批准）
+
+所有者批准决策备忘（`tmp/s6-residuals/laneD-decision-memo.md`）的两项推荐后，`bca58cd` 一个提交内落地：
+
+- **1b（折衷方案）**：终态文档哈希收集器改用与未完成扫描/恢复定位器相同的 finished 谓词
+  （header 存在、无 unknown、result 已发布、COMPLETE 为末条），并通过 header 语义与链校验后才把
+  `OriginalDocumentHash` 记入消费集。损坏终态不再以 `live-plan-consumed` 名义拒绝重放，而是流过
+  消费门、由 host 未完成门报 `live-recovery-required`。四条 Apply 重放合同（合法终态）不变。
+  收集器夹具六形态：合法终态计入；COMPLETE 无 result（写入器拒绝构造，夹具事后删 result.json）、
+  链损坏、unknown 子项、未完成、缺失根 → 全部不计入。
+- **1g（结构化 WARN）**：公开 `live recover status` 对不完整 bootstrap 不再 exit 1。
+  `operation-lock-busy` 原样抛；MISSING 且密封命名空间缺席 → PASS/`no-live-transaction`
+  （canonical 先例，JsonPath 报告带 token 且 Transactions 为空）；其余不完整形态 → 结构化 WARN、
+  token 沿用 `live-plan-authority-missing`、exit 0。abandon/rollback/finalize 保持硬门与 exit≠0。
+  扫描 override 不新增脚本级 exit，成功尾部发射合同未动。RESTORE.md 与 ONBOARD_NEW_MACHINE.md
+  同步一句。实现备注：override 状态在脚本级预初始化（StrictMode 下 COMPLETE 路径不得引用未定义变量
+  ——task-skills 的 overlay 锁只读扫描用例抓到并修复）。
+- **反射重钉**：+17 行（1 Command + 16 Member：收集器 7、status 门 9），逐行核对，动态命令不变；
+  seams 66/0。
+- **验证**：live-recovery 全部 1b/1g 断言绿（12 标记）；live-plan PASS、sync PASS、
+  harness-env 339/0、harness-authority 436/0、task-skills 108/0；live-recovery 尾部仍是
+  2026-09-27 已记录的环境性 header 共享冲突（main 基线同现，非本分支）。
+- 开放待办第 1 项（低危残余）至此**全部收口**；剩余开放项为 mutation 路线证据时效、
+  发布路径（所有者逐项授权）与机内材料索引。

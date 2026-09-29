@@ -74,14 +74,14 @@ green. **Merging `c783a01` to `main` was executed under the owner's 2026-09-27 a
 [#163](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36265736073) all four jobs green.
 No Apply, adoption, activation, real-machine DryRun or deployment happened for either candidate,
 and the 14 mutation routes were last run on C6/C10. **The open items are listed under
-"2026-09-27 收尾：开放待办清单" at the end of the activity record**; of the low-severity residuals,
-1a/1c/1d/1e/1f closed the same day on the unmerged branch `codex/s6-residual-hardening`
-(10 commits, independently reviewed, hard-kill self-seals re-sealed with the full suite 318/0 in
-both the reseal checkout and the independent main-agent rerun — see the 2026-09-27 S6 window
-record), leaving only 1b/1g awaiting owner decisions with the decision memo on file, plus the
-mutation-route evidence age and the unauthorized release path; the guide-checker promotion closed
-earlier the same day (`scripts/check-guide-examples.ps1`, the `guide-examples` suite in shard 2 at
-60 s, aggregate budget 30615 s). See the
+"2026-09-27 收尾：开放待办清单" at the end of the activity record**; the low-severity residuals
+(1a-1f) closed on branch `codex/s6-residual-hardening` across the 2026-09-27 S6 window and the
+2026-09-29 owner-approved 1b/1g implementation (12 commits, independently reviewed, hard-kill
+self-seals re-sealed with the full suite 318/0 in both the reseal checkout and the independent
+main-agent rerun) - item 1 is fully closed, leaving only the mutation-route evidence age and the
+unauthorized release path; the guide-checker promotion closed earlier the same day
+(`scripts/check-guide-examples.ps1`, the `guide-examples` suite in shard 2 at 60 s, aggregate
+budget 30615 s). See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries and actual validation.
 
