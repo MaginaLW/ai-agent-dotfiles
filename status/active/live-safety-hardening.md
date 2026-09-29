@@ -5803,3 +5803,50 @@ kit hash `e9b8ede9…`，min-timeout 42255 s，路由预算 43200 s）：
   hard-kill 318/0 双跑、seams 66/0、七只定向套件绿。
 - **边界**：CI 样本待所有者授权推送后产生；候选接受按惯例需本地 + lab + CI 三项，CI 未到前
   不主张接受。真实 Apply、adopt、activate、真机 DryRun、部署一概未执行。
+
+### 候选接受：`4eb405c`（2026-09-29）
+
+**接受对象**：`codex/s6-residual-hardening` 头 `4eb405c7209521088b83ca962e5c287aa1ac5b5c`
+（12 个实现/重封/记录提交 + 本接受记录前的文档提交）。内容：S6 残余 1a-1f 收口、
+所有者批准的 1b/1g 推荐 implementation、guide-checker 反射重钉、hard-kill 自封重封、
+两文档收口。**三证据集齐全**：
+
+1. **本地**：解析门 185 文件、`scan-secrets` 无阻塞、`git diff --check` 干净；定向七套件绿
+   （live-recovery 除环境项外、live-plan、sync、harness-env 339/0、harness-authority 436/0、
+   task-skills 108/0、seams 66/0）；hard-kill 全量 **318/0 双跑**（重封检出 + 主 agent 独立复跑）；
+   `-All` 本地 42/43（唯一红 = 环境性 header 共享冲突，main 基线同现，其内 1b/1g 断言全绿）。
+2. **一次性身份 lab**：`validation-c17-01`（kit `tmp/lab-postaudit-21`，hash `e9b8ede9…`）：
+   **11 门全 PASS、43/43 套件、0 失败 0 超时**（8158 s，exit 0），completion 匹配；沙箱内
+   live-recovery 全绿（环境项为主机特有）。
+3. **CI**：run
+   [#170](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36622856057)
+   四作业全绿（gates 3.1 min、shard 1/2/3 = 75.8/66.8/94.2 min）。
+
+**边界**：本接受 = 候选 `4eb405c` 在三证据集上合格。**未执行**：merge 到 `main`（独立授权）、
+14 条 mutation 路线重跑（维持 C6/C10 时的记录限制）、真实 Apply、adopt、activate、真机
+DryRun、部署。
+
+## 2026-09-29 收尾：待办清单（接手入口）
+
+上节接受后，当前**全部开放项**（冲突时以本节为准）：
+
+1. **merge 到 `main`**：候选 `4eb405c` 待所有者独立授权后合并（惯例：merge 提交 + 合并执行
+   记录，随后 merge 头与分支头各出一个 CI 样本）。
+2. **P2#2 延后修复**（本窗口独立审查的延后项）：`Publish-CanonicalSetupFinalStateForRecovery`
+   在分类后 intent 未入内存快照时的首次发布误失败（先写 journal 再误抛
+   `manual-recovery-required`，重载 journal 后重试自愈；fail-closed、无数据风险）。修复需再动
+   `canonical-recovery-common.ps1` → 触发完整自封重封；审查已核对 kill 窗口与正常 Apply 不受影响。
+   修复草图见 `tmp/s6-residuals/review-report.md`（P2 第二条）。
+3. **live-operation-result 完整发射器切片**：1g 现为最小发射（稳定 token + JsonPath
+   `MessageToken`）；设计内的 command-lifecycle `Result`/`LifecycleKind=no-transaction` 字段、
+   schema 正负夹具与注册表属独立 S6 切片。
+4. **环境性 live-recovery 共享冲突**（主机特有，main 基线同现，CI/沙箱绿）：处置路径按 R3 类
+   （同字节对照 → 本地复跑 → 新样本）；如再升级为普遍问题，排查夹具与把逐套件断言文本恢复进
+   注解的可行范围。
+5. **mutation 路线证据时效**：14 条 S4 路线最后运行在 C6/C10；本两窗口未重跑（接受限制已记录，
+   与 c783a01 线同口径）。
+6. **发布路径（全部待所有者逐项授权）**：S5 剩余只读/DryRun、真实部署（F5）、逐机 runner 批准、
+   真机 canonical setup DryRun（`scripts/internal/live-transaction-host.ps1` + 外部新计划）。
+7. **机内材料索引**（不入库）：新增 `tmp/lab-kit-source`（纯净 lab 源，后续窗口直接复用）、
+   `tmp/lab-postaudit-21`（= c17 证据）、`tmp/s6-residuals/`（四路分析报告、审查报告、重封
+   报告与补丁、启动脚本、本地 -All 证据 JSON）。
