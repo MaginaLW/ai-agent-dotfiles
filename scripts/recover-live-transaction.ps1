@@ -528,6 +528,13 @@ function Get-RecoveryTransactionStatus {
     return 'manual-recovery-required'
 }
 
+# The graded Status authority gate (open-item 1g) sets these when the bootstrap
+# cannot prove a scannable namespace; both must exist for StrictMode even when
+# the bootstrap is complete and the gate never fires.
+$script:LiveRecoveryStatusScanOverride = $null
+$script:LiveRecoveryStatusAuthorityError = $null
+$script:LiveRecoveryStatusProbedControlBase = $null
+
 if ($Status) {
     if ([string]::IsNullOrWhiteSpace($ControlBase)) {
         # The public CLI route resolves the control base from the
@@ -540,8 +547,34 @@ if ($Status) {
         } else {
             [object] $internalRoots.AuthorityContext
         }
-        Assert-LiveRecoveryAuthorityComplete -AuthorityContext $authorityContext
-        $resolvedControlBase = [string] $authorityContext.ControlBase
+        # A status verb reports instead of failing closed on an incomplete
+        # bootstrap (open-item 1g); the mutators keep the hard gate in their
+        # own dispatch path. operation-lock-busy stays an unswallowed throw, a
+        # MISSING bootstrap with no sealed live-transactions namespace is the
+        # proven empty state (the canonical no-canonical-transaction
+        # precedent), and every other incomplete shape is a structured WARN
+        # carrying the mutator token.
+        $bootstrap = $null
+        $script:LiveRecoveryStatusAuthorityError = $null
+        try {
+            $bootstrap = Get-SealedHomeAuthorityBootstrapCompletionStatus -AuthorityContext $authorityContext
+            if ([string] $bootstrap.Status -cne 'COMPLETE' -or [long] $bootstrap.CompletePrefixLength -ne 7) {
+                throw $script:LiveRecoveryAuthorityMissing
+            }
+        }
+        catch {
+            if ([string] $_.Exception.Message -ceq 'operation-lock-busy') { throw }
+            $script:LiveRecoveryStatusAuthorityError = $_
+        }
+        if ($null -ne $script:LiveRecoveryStatusAuthorityError) {
+            $probedLiveTransactionsRoot = Join-Path ([string] $authorityContext.ControlBase) 'live-transactions'
+            $script:LiveRecoveryStatusScanOverride = if ($null -ne $bootstrap -and [string] $bootstrap.Status -ceq 'MISSING' -and
+                -not (Test-Path -LiteralPath $probedLiveTransactionsRoot)) { 'no-live-transaction' } else { 'authority-missing' }
+            $script:LiveRecoveryStatusProbedControlBase = [string] $authorityContext.ControlBase
+        }
+        else {
+            $resolvedControlBase = [string] $authorityContext.ControlBase
+        }
     }
     else {
         # Direct/test invocations bind the control base explicitly; the scan
@@ -895,12 +928,19 @@ else {
     }
 }
 
-$controlFull = $resolvedControlBase
+# The Status authority override (open-item 1g) skips the sealed-namespace scan
+# entirely: nothing under an incomplete bootstrap may be interpreted.
+$controlFull = if ($null -ne $script:LiveRecoveryStatusScanOverride) {
+    [string] $script:LiveRecoveryStatusProbedControlBase
+}
+else {
+    $resolvedControlBase
+}
 $transactionsRoot = Join-Path $controlFull 'live-transactions'
 $entries = [System.Collections.Generic.List[object]]::new()
 $overall = 'clean'
 
-if (Test-Path -LiteralPath $transactionsRoot -PathType Container) {
+if ($null -eq $script:LiveRecoveryStatusScanOverride -and (Test-Path -LiteralPath $transactionsRoot -PathType Container)) {
     foreach ($dir in @(Get-ChildItem -LiteralPath $transactionsRoot -Directory -Force | Sort-Object Name)) {
         $reasons = [System.Collections.Generic.List[string]]::new()
         $chain = $null
@@ -996,7 +1036,19 @@ if (Test-Path -LiteralPath $transactionsRoot -PathType Container) {
     }
 }
 
-if ($overall -ceq 'clean') {
+if ($null -ne $script:LiveRecoveryStatusScanOverride) {
+    # The incomplete-bootstrap report: a stable token on stdout, structured the
+    # same way as the scan output, with exit 0 (open-item 1g).
+    $overall = $script:LiveRecoveryStatusScanOverride
+    Write-Host "Recovery scan: $overall"
+    if ($overall -ceq 'authority-missing') {
+        Write-Host "    reason: $script:LiveRecoveryAuthorityMissing"
+        if ($null -ne $script:LiveRecoveryStatusAuthorityError) {
+            Write-Host ("    reason: " + [string] $script:LiveRecoveryStatusAuthorityError.Exception.Message)
+        }
+    }
+}
+elseif ($overall -ceq 'clean') {
     Write-Host "Recovery scan: clean (no unfinished live transactions under $transactionsRoot)"
 }
 else {
@@ -1017,6 +1069,13 @@ if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {
         GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
         OverallStatus = $overall
         Transactions = @($entries)
+    }
+    if ($null -ne $script:LiveRecoveryStatusScanOverride) {
+        $document['MessageToken'] = if ($script:LiveRecoveryStatusScanOverride -ceq 'no-live-transaction') {
+            'no-live-transaction'
+        } else {
+            $script:LiveRecoveryAuthorityMissing
+        }
     }
     $parent = Split-Path -Parent $jsonFull
     if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path -LiteralPath $parent)) {

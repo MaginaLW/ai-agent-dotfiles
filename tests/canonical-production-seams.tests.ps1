@@ -685,8 +685,13 @@ $reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f
 # Remove-SealedEnvironmentRollbackEmptyTransactionNamespace. Row-reviewed with the
 # seams-delta tool; dynamic-command count 193 and digest unchanged, no alias, shadow,
 # or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16937
-$reviewedAllScriptsReflectionSensitiveDigest='b79859569ce5fd47962907c8cc46e5c6b8bee87904c385c719d713b066e74855'
+# Re-pinned 2026-09-29 for open-items 1b and 1g: +17 rows (1 Command: the collector's
+# phase projection; 7 Member in Get-SealedLiveTransactionTerminalDocumentHashes for the
+# finished-shape predicate; 9 Member in recover-live-transaction.ps1 for the graded
+# status authority gate). Row-reviewed with the seams-delta tool; REMOVED 0,
+# dynamic-command count 193 and digest unchanged, no alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16954
+$reviewedAllScriptsReflectionSensitiveDigest='118fe61355b35b7f351033697077dc0bc558e0f77658a3b9f9037a8040eeb6c8'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

@@ -2518,10 +2518,15 @@ function New-SealedLiveJournalHeader {
 function Get-SealedLiveTransactionTerminalDocumentHashes {
     # Original plan document hashes of this authority's TERMINAL live
     # transactions, as consumed-evidence input for the plan-consumption gate.
-    # A namespace counts only when its header parses and its record chain
-    # carries the final COMPLETE record; missing, unreadable and unfinished
-    # namespaces are skipped, because an unfinished transaction is refused by
-    # the host's recovery gate and must never look like terminal evidence.
+    # A namespace counts only when it has the exact finished shape (a published
+    # result plus the terminal COMPLETE record as the last record, no unknown
+    # children) and its header semantics and record chain then validate;
+    # missing, unreadable, shape-incomplete, and chain-broken namespaces are
+    # skipped, because an unfinished transaction is refused by the host's
+    # recovery gate and must never look like terminal evidence. This is the
+    # same finished-shape predicate the recovery locator and the unfinished
+    # scan use, so a damaged terminal reports live-recovery-required instead
+    # of masquerading as consumed evidence (open-item 1b).
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $TransactionsRoot)
 
@@ -2532,13 +2537,12 @@ function Get-SealedLiveTransactionTerminalDocumentHashes {
     foreach ($directory in @(Get-ChildItem -LiteralPath $TransactionsRoot -Directory -Force -ErrorAction SilentlyContinue)) {
         try {
             $chain = Get-SealedLiveJournalChain -TransactionDirectory $directory.FullName
-            if ($null -eq $chain.Header -or @($chain.UnknownNames).Count -gt 0) { continue }
-            $terminal = $false
-            foreach ($record in @($chain.Records)) {
-                $document = [System.Collections.IDictionary] $record['Document']
-                if ([string] $document['Phase'] -ceq 'COMPLETE') { $terminal = $true }
-            }
+            $phases = @($chain.Records | ForEach-Object { [string] ([System.Collections.IDictionary] $_['Document'])['Phase'] })
+            $terminal = ($null -ne $chain.Header -and @($chain.UnknownNames).Count -eq 0 -and
+                $null -ne $chain.Result -and $phases.Count -gt 0 -and [string] $phases[-1] -ceq 'COMPLETE')
             if (-not $terminal) { continue }
+            Test-LiveJournalHeaderSemantics -Document $chain.Header
+            Test-SealedLiveJournalChain -Header $chain.Header -Records @($chain.Records) -Result $chain.Result -ResultFileHash $chain.ResultFileHash
             $originalDocumentHash = [string] $chain.Header.OriginalDocumentHash
             if ($originalDocumentHash -cmatch '\A[0-9a-f]{64}\z') { $hashes[$originalDocumentHash] = $true }
         }
