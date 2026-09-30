@@ -5828,29 +5828,29 @@ DryRun、部署。
 
 ## 2026-09-29 收尾：待办清单（接手入口）
 
-上节接受后，当前**全部开放项**（冲突时以本节为准）。2026-09-29 更新：待办 1（merge）已按
-所有者授权执行完毕——`main` = `55cadc0`，两个 CI 样本四作业全绿（见上文「合并执行」节），
-其余待办顺延：
+上节接受后，当前**全部开放项**（冲突时以本节为准）。2026-09-30 更新：待办 2/3/4 已按所有者
+"完成剩余待办任务"的授权收口（见文末 2026-09-30 节），其余顺延。2026-09-29 更新：待办 1
+（merge）已按所有者授权执行完毕——`main` = `55cadc0`，两个 CI 样本四作业全绿（见上文
+「合并执行」节）：
 
 1. ~~merge 到 `main`~~ ✅ 已执行（`616225c` + `55cadc0`，CI 双绿）。
-2. **P2#2 延后修复**（本窗口独立审查的延后项）：`Publish-CanonicalSetupFinalStateForRecovery`
-   在分类后 intent 未入内存快照时的首次发布误失败（先写 journal 再误抛
-   `manual-recovery-required`，重载 journal 后重试自愈；fail-closed、无数据风险）。修复需再动
-   `canonical-recovery-common.ps1` → 触发完整自封重封；审查已核对 kill 窗口与正常 Apply 不受影响。
-   修复草图见 `tmp/s6-residuals/review-report.md`（P2 第二条）。
-3. **live-operation-result 完整发射器切片**：1g 现为最小发射（稳定 token + JsonPath
-   `MessageToken`）；设计内的 command-lifecycle `Result`/`LifecycleKind=no-transaction` 字段、
-   schema 正负夹具与注册表属独立 S6 切片。
-4. **环境性 live-recovery 共享冲突**（主机特有，main 基线同现，CI/沙箱绿）：处置路径按 R3 类
-   （同字节对照 → 本地复跑 → 新样本）；如再升级为普遍问题，排查夹具与把逐套件断言文本恢复进
-   注解的可行范围。
-5. **mutation 路线证据时效**：14 条 S4 路线最后运行在 C6/C10；本两窗口未重跑（接受限制已记录，
-   与 c783a01 线同口径）。
+2. ~~**P2#2 延后修复**~~ ✅ 2026-09-30 已收口（`0f7e295`：intent 追加后重取快照；RED 对照
+   + 157/0 + 全套重钉，见「2026-09-30 开放待办 2/3/4 收口窗口」）。
+3. ~~**live-operation-result 完整发射器切片**~~ ✅ 2026-09-30 已收口（`8d48795`：schema
+   Result/LifecycleKind/MessageToken + 5 负夹具 + 配对表语义验证器 + `live-command-result.ps1`
+   发射器 + 严格断言；live-recovery 420/0，同上节）。
+4. ~~**环境性 live-recovery 共享冲突**~~ ✅ 2026-09-30 按 R3 收口：根因为夹具树终止只等根
+   PID，已改静止等待；同机负载下 420/0 绿样本（同上节）。harness-authority 的同类夹具
+   （:1522/:1605 历史红点）未改，复现时按同款处置。
+5. **mutation 路线证据时效**：14 条 S4 路线最后运行在 C6/C10；本窗口计划于
+   `validation-c18-01` lab 完成后重跑（见 2026-09-30 节候选状态）。
 6. **发布路径（全部待所有者逐项授权）**：S5 剩余只读/DryRun、真实部署（F5）、逐机 runner 批准、
    真机 canonical setup DryRun（`scripts/internal/live-transaction-host.ps1` + 外部新计划）。
 7. **机内材料索引**（不入库）：新增 `tmp/lab-kit-source`（纯净 lab 源，后续窗口直接复用）、
-   `tmp/lab-postaudit-21`（= c17 证据）、`tmp/s6-residuals/`（四路分析报告、审查报告、重封
-   报告与补丁、启动脚本、本地 -All 证据 JSON）。
+   `tmp/lab-postaudit-21`（= c17 证据）、`tmp/lab-postaudit-22`（= c18 候选 `8d48795` 的冻结
+   kit）、`tmp/s6-residuals/`（四路分析报告、审查报告、重封报告与补丁、启动脚本、本地 -All
+   证据 JSON）、`tmp/s7-open-items/`（c18 启动脚本与证据）、`tmp/reseal-hard-kill.ps1`、
+   `tmp/seams-delta.ps1`、`tmp/hk-closure-check.ps1`（重封/基线/闭包静态核验探针）。
 
 ## 2026-09-29 合并执行（所有者授权）
 
@@ -5865,3 +5865,93 @@ merge 头
 [run 36640879449](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36640879449)。
 （合并前 main 旧样本 302d437 于 09-28 的失败属当时字节的既有环境项，被本合并取代。）
 真实 Apply、adopt、activate、真机 DryRun、部署一概未执行。
+
+## 2026-09-30 开放待办 2/3/4 收口窗口（P2#2 修复 + 完整发射器切片 + 环境项夹具修复）
+
+接手「2026-09-29 收尾：待办清单」，所有者整体授权"完成剩余待办任务"。候选分支
+`codex/s7-open-items`（`0f7e295` + `8d48795`，基线 main=`ebe1449`）。本节只记已完成与
+进行中的事实；lab/CI 结果落地后在文末补记。
+
+### 待办 2：P2#2 延后修复（`0f7e295`）
+
+`Publish-CanonicalSetupFinalStateForRecovery` 在 journal 无 SETUP_STATE_INTENT 时先落盘
+intent、再把旧内存快照交给 pending 读者，首次发布必抛 `manual-recovery-required`，重载
+journal 后重试才自愈（独立审查 `tmp/s6-residuals/review-report.md` P2 第二条）。修复按审查
+草图：追加 intent 后经 `Get-CanonicalJournalStateForAppend` 重取快照再调读者。回归夹具
+`pending-state-no-intent`（claim 在、pending state 在、journal 无 intent 记录 → 分类
+finalize → 发布成功且终态恰一条 INTENT + 一条 PUBLISHED）。RED 对照：暂撤生产修复跑同套件
+= 96 passed / 1 failed（恰在该发布处抛错，分类断言仍绿，证实缺陷前提）；恢复后
+canonical-recovery **157/0**。
+
+钉与验证：hard-kill 清单 recovery-common 哈希两处 + 自封全部钉由 `tmp/reseal-hard-kill.ps1`
+fixpoint 重封（15 行纯十六进制字面量替换，`-Verify` 复核 0 变更）；生产闭包契约按静态提取法
+重算 **67/131/13 与钉值摘要逐字一致（未移动）**；seams all-scripts 基线 16954→16955
+（+1 Member：`$State.TransactionNamespace` 第二次绑定），动态命令不变，逐行评审后重钉，
+seams **66/0**。
+
+### 待办 3：live-operation-result 完整发射器切片（`8d48795`）
+
+1g 当时的最小发射（稳定 token + JsonPath MessageToken）升级为设计内的完整命令文档面：
+
+- **schema**：`live-operation-result` 增 `Result`/`LifecycleKind`(const no-transaction)/
+  `MessageToken`（token 形态钉 `[a-z0-9][a-z0-9-]*`）；command 作用域新增 no-transaction
+  分支（三字段齐全、禁一切事务引用）；transaction 作用域禁带这三个字段。
+- **注册表**：新增 5 条负夹具——4 条 Schema 层（事务文档带 status 块、`unfinished` 生命周期、
+  缺 token、no-transaction 带 TransactionId）+ 1 条 Semantic 层（PASS 配对
+  `manual-recovery-required`）。
+- **语义验证器**：command 分支从直接 return 改为完整形态核（三字段齐全、no-transaction、
+  token/严重度配对表：`no-live-transaction`=PASS、`live-plan-authority-missing`=WARN、
+  `live-recovery-required`=WARN、`manual-recovery-required`=FAIL）——本层独占配对表，
+  即使 schema 门未重跑也拒绝半发射。
+- **发射器**：新 `scripts/live-command-result.ps1`（镜像 canonical 同名机制：注册表绑定
+  bootstrap 合同、语义字节、bootstrap+registry 双 schema 校验、绑定语义验证器后才上
+  stdout）。`live recover status` 的人读扫描文本与 JsonPath 报告不变，stdout 末行新增一条
+  严格自校验命令文档：clean/未证明空缺=PASS `no-live-transaction`、authority-missing 与
+  可恢复未完成=WARN、manual=FAIL，exit 0 不变，`operation-lock-busy` 维持原样抛。
+- **测试与文档**：live-recovery 四组严格断言（clean、empty、authority-missing、
+  terminal-corruption 矩阵逐一钉 exact property set + 值 + schema 校验 + 语义字节等值）；
+  RESTORE.md / ONBOARD_NEW_MACHINE.md 各补一句。
+- **实施中被自己的套件抓到的真缺陷**：token 配对表最初写成 `@()` 内嵌套数组语句——数组
+  语句在 `@()` 内会展平成单个字符串（`$_[0]` 取到首字符），配对恒不命中、干净态首跑即抛
+  `live-transaction-intent-mismatch`。已改 hashtable 查表并在代码内记录原因；这一教训是
+  展平类坑的第二次出现（第一次为逗号结合优先级），已记入机内记忆，转可执行检查为后续候选。
+
+验证：`validate-json-artifacts -All` **34 正 + 205 负全 PASS**；seams 基线
+16955→16978 + 动态命令 193→194（新发射器文件 8 InvokeMember + 8 Member、验证器
+ContainsKey、发射块 Member、1 条普通点源），逐行评审后重钉，seams **66/0**；
+live-recovery **420/0** 全绿（含全部新严格断言）；解析门 183 文件；secret scan 无阻塞；
+`git diff --check` 干净。
+
+### 待办 4：环境性 live-recovery 共享冲突（R3 处置收口）
+
+本窗口 live-recovery 首跑（发射器缺陷修复前）已到 locator 矩阵；第二跑在
+`[live dispatch: reservation-only abandon]` 复现**已记录的环境性 header 共享冲突**
+（`Get-SealedLiveJournalChain` 读 `header.json` 报 "being used by another process"，
+tests/live-recovery.tests.ps1:2813）。按 R3「复发即修夹具同步语义」定位根因：夹具
+`Invoke-KilledLiveTransactionHost` 的 `Stop-ProcessTree` 只确认根 PID 退出，而真正持
+header 句柄的是 internal host 派生的 live-transaction-host 叶进程，负载下其句柄拆除慢于
+夹具的读取节奏（`Wait-Process -ErrorAction SilentlyContinue` 还会吞掉 30 秒超时）。修复为
+夹具侧静止等待 `Wait-KilledLiveHostTreeQuiesced`（等子进程与直接子代全部退出，30 秒上限、
+超时硬抛；生产读者保持严格无重试语义不变）。修复后同机同负载 live-recovery **420/0 全绿**
+——包括历来触发共享冲突的区段。同类的 `Invoke-AuthorityCliKilledAtCheckpoint`
+（harness-authority :1522/:1605 的历史红点）属同一夹具模式，本窗口不改；如未来在统一回归
+复现，按同款静止等待处置。
+
+### 主机争用归因（hard-kill 本地全量两红）
+
+本窗口 hard-kill 全量两次在同一用例失败（`StageReady was not signaled before the immutable
+observation deadline`，sealed mutation 控制器矩阵首个非 RecoveryCheckpoint 用例）。归因：
+把 **HEAD（`ebe1449`，无本窗口任何改动）解到独立 worktree 跑 `-Section process`，同样在
+同一用例红**——与工作树改动无关，是主机持续负载（整夜至今的 Codex CUA computer-use node
+服务群、MATLAB、远程桌面等）击穿墙钟死线。结论：本地 hard-kill 全量绿样本与本地 `-All`
+待安静窗口补跑；沙箱 lab（资源隔离）与远程 CI 不受影响，作为候选证据集的载体。
+自封钉的正确性不依赖该失败：失败发生在自封各断言全部通过之后的 mutation 执行段。
+
+### 候选状态（本节写入时）
+
+候选 `8d48795`（分支 `codex/s7-open-items`，已推送）。证据集状态：本地 = 本节所列全套
+定向验证；**一次性身份 lab `validation-c18-01`（kit `tmp/lab-postaudit-22`，hash
+`57a819d7…`，min-timeout 42255 s，route 预算 43200 s）运行中**；**CI run
+[#173](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36672463140) 运行中**。
+两项落地前不主张候选接受；merge 到 `main`、真实 Apply/adopt/activate/真机 DryRun/部署
+一概未申请、未执行。14 条 mutation 路线计划于 lab 完成后按既有串行方式重跑。
