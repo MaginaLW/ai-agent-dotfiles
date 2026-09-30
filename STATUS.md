@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-27 (current-state entry only)
+Last updated: 2026-09-30 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -84,10 +84,20 @@ full residual-item 1 closure (1a-1f on 2026-09-27 plus the owner-approved 1b/1g 
 the guide-checker reflection re-pin, and the re-sealed hard-kill self-seals; its own CI sample
 was [#170](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36622856057) (all four
 jobs green) and the disposable-identity lab `validation-c17-01` (11 gates all PASS, 43/43
-suites, zero failures or timeouts, 8158 s). The current open items are listed under
-"2026-09-29 收尾：待办清单" at the end of the activity record (the deferred
-pending-intent publication fix, the live-operation-result emitter slice, the environmental
-live-recovery sharing issue, the mutation-route evidence age, and the release path). Earlier
+suites, zero failures or timeouts, 8158 s). On 2026-09-30 the owner authorized completing the
+remaining open items: the branch `codex/s7-open-items` closes open-items 2/3/4 of the
+2026-09-29 handoff — the P2#2 pending-publication snapshot reload (`0f7e295`), the full
+live-operation-result command emitter slice (`8d48795`), and the R3 fixture fix for the
+environmental live-recovery header shared-conflict — with local targeted suites green
+(canonical-recovery 157/0, live-recovery 420/0, seams 66/0, artifact contracts 34+205),
+hard-kill/seams/closure pins re-verified, and **CI run
+[#173](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36672463140) all four jobs
+green**. The disposable-identity lab and the 14 mutation routes are deferred to a quiet-host
+window after three load-blocked attempts (evidence and diagnosis in
+[the 2026-09-30 record](status/active/live-safety-hardening.md#2026-09-30-晚补记ci-绿lab-三次尝试均被主机负载阻断)),
+so **candidate `8d48795` acceptance is not claimed**; the remaining open items are the lab +
+route refresh, the local `-All`/hard-kill full green samples, and the release path (per-item
+owner authorization). Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,

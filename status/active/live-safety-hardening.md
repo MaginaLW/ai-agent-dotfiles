@@ -5955,3 +5955,23 @@ observation deadline`，sealed mutation 控制器矩阵首个非 RecoveryCheckpo
 [#173](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36672463140) 运行中**。
 两项落地前不主张候选接受；merge 到 `main`、真实 Apply/adopt/activate/真机 DryRun/部署
 一概未申请、未执行。14 条 mutation 路线计划于 lab 完成后按既有串行方式重跑。
+
+### 2026-09-30 晚补记：CI 绿、lab 三次尝试均被主机负载阻断
+
+- **CI run [#173](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36672463140)
+  completed success，四作业全绿**（候选 `8d48795`）。三证据集中的远程证据已齐。
+- **lab 三次尝试全部失败，均为主机负载问题、与候选字节无关**：
+  - `validation-c18-01`（13:00 启动）：guest 内 11 门过半（13:25 写完 artifact-validation
+    门）后完全停滞 3.5 小时。对照 c17 成功证据：同名 `010-full-validation.stdout.log` 在
+    c17 持续流式增长至 490 KB，本机两次停滞都**恰好冻结在 4096 字节整、且截断在 doctor
+    门同一句输出中间**——guest→host 映射通道的写入在主机高负载（整夜 CUA 服务群，CPU
+    87%）下停滞，与候选内容无关。
+  - `validation-c18-02`（16:52 启动）：同一门、同一 4096 字节边界、同一句截断，可复现。
+  - `validation-c18-03`（17:10 启动）：主机 87% 负载下 guest 未能在 600 秒启动死线内写出
+    prelude.log，launcher 按 `lab-guest-did-not-start-within-startup-deadline` 退出。
+  - 三次尝试的证据目录（`tmp/lab-postaudit-22/evidence/validation-c18-0{1,2,3}`）与 kit
+    （`tmp/lab-postaudit-22`，candidate/kit hash 不变）保留原状供下次窗口复核。
+- **处置**：lab 与 14 条 mutation 路线（同为沙箱会话）显式顺延到主机安静窗口执行；在此
+  之前**不主张候选 `8d48795` 的接受**。已落地证据 = 本节本地定向全套 + CI #173 四作业绿。
+  merge 到 `main` 继续待所有者单独授权；真实 Apply/adopt/activate/真机 DryRun/部署未申请、
+  未执行。
