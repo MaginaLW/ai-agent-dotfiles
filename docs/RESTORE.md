@@ -113,7 +113,11 @@ Live recovery reports `abandon-eligible` → `abandon`, `rollback-required` → 
 home-authority bootstrap is absent the status verb still exits 0: `no-live-transaction` when no
 sealed live-transactions namespace exists (nothing to recover), and `authority-missing` with the
 `live-plan-authority-missing` token when the incomplete bootstrap cannot prove emptiness —
-recovery actions keep failing closed until the bootstrap is complete. Canonical recovery instead
+recovery actions keep failing closed until the bootstrap is complete. The status verb also ends
+its stdout with one registered `live-operation-result` command document (JSON) whose `Result` and
+`MessageToken` carry the same severity and token (`no-live-transaction`, `live-recovery-required`,
+`live-plan-authority-missing`, or `manual-recovery-required`); `-JsonPath` writes the detailed
+per-transaction report. Canonical recovery instead
 emits a typed `MessageToken` of `canonical-recover-abandon`, `canonical-recover-rollback` or
 `canonical-recover-finalize`: use that action and the `TransactionId` from the same result.
 `no-canonical-transaction` needs no recovery. For `operation-lock-busy` or

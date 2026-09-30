@@ -1,0 +1,9 @@
+{
+  "SchemaVersion": 1,
+  "ArtifactKind": "live-operation-result",
+  "ResultScope": "command",
+  "Result": "WARN",
+  "LifecycleKind": "unfinished",
+  "MessageToken": "live-plan-authority-missing",
+  "CommandKind": "live-recover-status"
+}

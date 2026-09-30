@@ -8,6 +8,9 @@
     "SchemaVersion": { "const": 1 },
     "ArtifactKind": { "const": "live-operation-result" },
     "ResultScope": { "enum": ["command", "transaction"] },
+    "Result": { "enum": ["PASS", "WARN", "FAIL"] },
+    "LifecycleKind": { "const": "no-transaction" },
+    "MessageToken": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
     "CommandKind": {
       "enum": [
         "initial", "environment", "task-overlay", "retirement", "migrate", "adopt",
@@ -70,7 +73,36 @@
       "else": {
         "required": ["TransactionId", "OperationKind", "OriginalDocumentHash", "ResultBaseHeadHash", "Outcome"],
         "properties": {
-          "CommandKind": { "not": {} }
+          "CommandKind": { "not": {} },
+          "Result": { "not": {} },
+          "LifecycleKind": { "not": {} },
+          "MessageToken": { "not": {} }
+        }
+      }
+    },
+    {
+      "if": { "anyOf": [
+        { "required": ["Result"] },
+        { "required": ["LifecycleKind"] },
+        { "required": ["MessageToken"] }
+      ] },
+      "then": {
+        "required": ["Result", "LifecycleKind", "MessageToken"],
+        "properties": {
+          "Result": { "enum": ["PASS", "WARN", "FAIL"] },
+          "LifecycleKind": { "const": "no-transaction" },
+          "TransactionId": { "not": {} },
+          "OperationKind": { "not": {} },
+          "OriginalDocumentHash": { "not": {} },
+          "ResultBaseHeadHash": { "not": {} },
+          "Outcome": { "not": {} },
+          "ReceiptRef": { "not": {} },
+          "ReceiptHash": { "not": {} },
+          "StateHash": { "not": {} },
+          "ClaimsHash": { "not": {} },
+          "RestorationHash": { "not": {} },
+          "FinalStateHash": { "not": {} },
+          "TerminalRecord": { "not": {} }
         }
       }
     }

@@ -233,6 +233,11 @@
             NegativeFixtures = @(
                 @{ Name = 'scope-crossing'; Path = 'tests/fixtures/artifacts/live-operation-result.scope-crossing.invalid.json'; FailureLayer = 'Schema' }
                 @{ Name = 'receipt-state-crossing'; Path = 'tests/fixtures/artifacts/live-operation-result.receipt-state-crossing.invalid.json'; FailureLayer = 'Semantic' }
+                @{ Name = 'status-on-transaction'; Path = 'tests/fixtures/artifacts/live-operation-result.status-on-transaction.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'status-kind-unfinished'; Path = 'tests/fixtures/artifacts/live-operation-result.status-kind-unfinished.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'status-missing-token'; Path = 'tests/fixtures/artifacts/live-operation-result.status-missing-token.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'status-transaction-ref'; Path = 'tests/fixtures/artifacts/live-operation-result.status-transaction-ref.invalid.json'; FailureLayer = 'Schema' }
+                @{ Name = 'status-token-result-mismatch'; Path = 'tests/fixtures/artifacts/live-operation-result.status-token-result-mismatch.invalid.json'; FailureLayer = 'Semantic' }
             )
             SemanticValidator = 'Test-LiveOperationResultSemantics'
         }

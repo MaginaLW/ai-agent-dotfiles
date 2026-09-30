@@ -237,6 +237,30 @@ function Test-LiveOperationResultSemantics {
         # Command scope: exact CommandKind responses only; the schema carries
         # the field exclusions, the optional TransactionId is a lifecycle
         # reference (no-transaction / unfinished / terminal reference).
+        # A document carrying the command-lifecycle status block must carry it
+        # completely, as the no-transaction lifecycle, with a registered token
+        # paired to its severity; this layer owns that token table even where
+        # the schema gate is not re-run.
+        $hasStatusResult = Test-LiveTransactionMapHasName -Map $Document -Name 'Result'
+        $hasLifecycleKind = Test-LiveTransactionMapHasName -Map $Document -Name 'LifecycleKind'
+        $hasMessageToken = Test-LiveTransactionMapHasName -Map $Document -Name 'MessageToken'
+        if (-not $hasStatusResult -and -not $hasLifecycleKind -and -not $hasMessageToken) { return }
+        if (-not $hasStatusResult -or -not $hasLifecycleKind -or -not $hasMessageToken) { throw $mismatch }
+        if ([string] $Document['LifecycleKind'] -cne 'no-transaction') { throw $mismatch }
+        $statusToken = [string] $Document['MessageToken']
+        $statusSeverity = [string] $Document['Result']
+        # A hashtable lookup instead of a nested-array @() literal: array
+        # statements inside @() flatten, so pair-wise indexing would silently
+        # see single characters and never match.
+        $registeredTokenSeverity = @{
+            'no-live-transaction' = 'PASS'
+            'live-plan-authority-missing' = 'WARN'
+            'live-recovery-required' = 'WARN'
+            'manual-recovery-required' = 'FAIL'
+        }
+        $registeredSeverity = $null
+        if ($registeredTokenSeverity.ContainsKey($statusToken)) { $registeredSeverity = [string] $registeredTokenSeverity[$statusToken] }
+        if ($registeredSeverity -cne $statusSeverity) { throw $mismatch }
         return
     }
 

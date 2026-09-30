@@ -694,8 +694,15 @@ $reviewedAllScriptsDynamicCommandDigest='34b9d0b3a14c258b672d3ae3d7ad9665319bb3d
 # (1 Member: the second `$State.TransactionNamespace` binding in
 # Publish-CanonicalSetupFinalStateForRecovery). Row-reviewed with the seams-delta tool;
 # REMOVED 0, dynamic-command count 193 and digest unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16955
-$reviewedAllScriptsReflectionSensitiveDigest='2e338aca67149f4979bfe67154318c3b132f0b6651f8ba77f57c60dd5ac979c6'
+# Re-pinned 2026-09-30 for the live command-result emitter slice: +24 rows over that
+# state (new scripts/live-command-result.ps1: 8 InvokeMember and 8 Member across the
+# registry bootstrap, document construction, and semantic-bytes stdout; 1 InvokeMember:
+# the status token table's ContainsKey in Test-LiveOperationResultSemantics; the rest
+# Member in the same validator and the recover-live-transaction.ps1 emission block),
+# plus 1 dynamic command: the plain dot-source of the new emitter file. Row-reviewed
+# with the seams-delta tool; REMOVED 0, no alias, shadow, or new reflection type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16978
+$reviewedAllScriptsReflectionSensitiveDigest='2ae42680a69f5496dd85a732a4bf9448dc2758b1c60cba3de97f44f901efed2f'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

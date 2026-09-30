@@ -136,7 +136,7 @@ use the complete invocation below. Do not default to `work` or `full` for an exi
 | `adopt` | Select and review an environment for the observed non-pristine roots; use `env authority adopt`. |
 | `repair-adopt` | Use the status-qualified environment; pass `-CorruptStatePath` only for the CORRUPT-state branch, never the MISSING-state branch. |
 | `takeover` | Use the existing verified selection; this changes controller ownership, not the selected environment. |
-| `recovery` | Run `live recover status` (always exits 0: `no-live-transaction` when the machine has no sealed namespace yet, `authority-missing` while the bootstrap is incomplete); complete the qualified recovery route before new deployment. |
+| `recovery` | Run `live recover status` (always exits 0: `no-live-transaction` when the machine has no sealed namespace yet, `authority-missing` while the bootstrap is incomplete; the stdout's final JSON line carries the same `Result`/`MessageToken` as a registered command document); complete the qualified recovery route before new deployment. |
 | `controller-owner-action-required` / `manual-recovery-required` | Preserve evidence and resolve the indicated owner/evidence problem; do not guess a mutator. |
 | `initial` | Requires a pristine sync plan created before canonical setup; follow the sequence below. If setup already exists and no such plan exists, stop for route review rather than deleting private roots. |
 
