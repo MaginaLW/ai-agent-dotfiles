@@ -5975,3 +5975,17 @@ observation deadline`，sealed mutation 控制器矩阵首个非 RecoveryCheckpo
   之前**不主张候选 `8d48795` 的接受**。已落地证据 = 本节本地定向全套 + CI #173 四作业绿。
   merge 到 `main` 继续待所有者单独授权；真实 Apply/adopt/activate/真机 DryRun/部署未申请、
   未执行。
+
+### 2026-09-30 收尾补记：CI #174 红样本与处置
+
+记录提交 `17a60ee`（STATUS + 本任务记录，纯文档差异、测试字节与 `8d48795` 完全一致）的
+CI run [#174](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36695742094)：
+gates、shard 1、shard 2 绿，**shard 3 红 = `live-recovery.tests.ps1` exit 1（26/27）**。
+注解按工作流设计只含套件计数，无断言文本；作业日志端点对匿名只读仍 403（与既有记录一致），
+失败断言无法在本窗口定位。
+
+判别与处置（按 CI_FAILURE_RULES R1/R3）：同测试字节的前一样本 #173 shard 3 绿，本红样本
+无法归因到任何代码差异；本地同字节 live-recovery 在更高负载下 420/0。按 #164/#165 先例，
+以**同测试字节的后继样本**判别：本节之后的收尾提交（纯文档）即该样本，其 shard 3 绿则按
+偶发收口；同套件再红则按待办升级（需所有者提供日志读取授权以取断言文本，或本地以 CI 同
+条件复现）。本窗口未再改任何测试字节。
