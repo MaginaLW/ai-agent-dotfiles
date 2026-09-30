@@ -627,7 +627,7 @@ $reviewedExceptionInventory=@(
 
 # Re-pinned 2026-09-25 with the reflection inventory for the live-transaction journal
 # contract and the receipt byte binding (see the note above that pin).
-$reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f0c1badc6dcb92395d649f6b5c'
+$reviewedAllScriptsDynamicCommandDigest='34b9d0b3a14c258b672d3ae3d7ad9665319bb3dbcc11dcb50c1c13c04f861aa2'
 # Re-pinned 2026-09-19 for the CI shard slice: +27 reflection-sensitive sites, all in
 # scripts/test-runner-common.ps1 (Get-TestShardPartition, the shard fields of
 # Invoke-TestSuiteCollection and Test-TestRunSummaryForRunner) and scripts/run-tests.ps1
@@ -690,8 +690,12 @@ $reviewedAllScriptsDynamicCommandDigest='3284ade71b2f10baf94f3ee39088a215d4a4c3f
 # finished-shape predicate; 9 Member in recover-live-transaction.ps1 for the graded
 # status authority gate). Row-reviewed with the seams-delta tool; REMOVED 0,
 # dynamic-command count 193 and digest unchanged, no alias, shadow, or new type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16954
-$reviewedAllScriptsReflectionSensitiveDigest='118fe61355b35b7f351033697077dc0bc558e0f77658a3b9f9037a8040eeb6c8'
+# Re-pinned 2026-09-30 for the pending-publication intent snapshot reload: +1 row
+# (1 Member: the second `$State.TransactionNamespace` binding in
+# Publish-CanonicalSetupFinalStateForRecovery). Row-reviewed with the seams-delta tool;
+# REMOVED 0, dynamic-command count 193 and digest unchanged, no alias, shadow, or new type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=16955
+$reviewedAllScriptsReflectionSensitiveDigest='2e338aca67149f4979bfe67154318c3b132f0b6651f8ba77f57c60dd5ac979c6'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
