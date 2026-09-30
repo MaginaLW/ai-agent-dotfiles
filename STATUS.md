@@ -97,7 +97,12 @@ window after three load-blocked attempts (evidence and diagnosis in
 [the 2026-09-30 record](status/active/live-safety-hardening.md#2026-09-30-晚补记ci-绿lab-三次尝试均被主机负载阻断)),
 so **candidate `8d48795` acceptance is not claimed**; the remaining open items are the lab +
 route refresh, the local `-All`/hard-kill full green samples, and the release path (per-item
-owner authorization). Earlier
+owner authorization). The record-commit successor run
+[#175](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36706179096) is all four
+jobs green on `c63797d`; the one shard-3 `live-recovery` red on the docs-only `17a60ee`
+([#174](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36695742094)) was closed
+as a flake by that same-bytes successor per the [CI failure rules](docs/CI_FAILURE_RULES.md).
+Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
