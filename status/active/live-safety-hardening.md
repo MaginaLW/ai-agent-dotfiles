@@ -6095,3 +6095,25 @@ Process 对象等待，后代按双元组匹配以防 PID 复用；上限放宽�
   周期落盘"列为下一次 kit 修订（当前 010 日志仅在门 9 结束后才拷回，卡死时不可见）。
 - **对照事实**：同一分支头字节的 CI 多分片（含 live-recovery、hard-kill 所在分片）与本机
   定向套件全部绿——lab 反复受挫与候选字节无关的间接证据；lab 仍是接受所需第三证据集。
+
+### 2026-10-01 深夜：lab c18-09 全绿（第三证据集到手）
+
+**`validation-c18-09`（candidate `3897dc4`，kit `8741fe1a…`，c23 传输修复后）完整通过**：
+route-result PASS、completion ExitCode 0、candidate/kit 与冻结清单一致；**11/11 门全 PASS**
+（powershell-syntax、pinned-tool-verify、build-generated-skills、secret-scan、
+repository-doctor、generated-manifests-parity、env-build-list-status、
+validate-json-artifacts、unified-test-runner、dangerous-tracked-files、clean-tracked-state）；
+**43/43 套件全过、0 失败 0 超时**（test-summary.json，516 KB）；011-git-clean 与
+012-complete 正常，guest 自行 shutdown（无残余会话）。证据目录
+`tmp/lab-postaudit-23/evidence/validation-c18-09/`，host 日志
+`tmp/s7-open-items/evidence/lab-c18-09.host.log`。
+
+**复盘**："4096 冻结"确认为 c22 kit 的映射长流阻塞在**门 9 结束输出落盘时**所致——套件
+在 guest 内正常跑完（约 2.1 小时），只是完成时的集中输出把坏掉的长流堵死。c23 的传输
+修复（guest 本地流式写 + 结束一次拷回）使本次完整收尾。凌晨的教训一并成立：会话启动
+毒化规律、门 9 静默期与"卡死"在主机侧不可区分、prelude 正常结束的 shutdown 是无毒拆除。
+上游复盘产物：v24（周期性进度拷贝）已在 lab-kit-source 备好但未冻结——本次胜出后不再需要。
+
+**下一步**：14 条 mutation 路线已按同 kit/candidate 串行启动
+（`tmp/s7-open-items/launch-c18-routes.ps1`，15 个会话）；路线后补本地 `-All`；随后按已
+授权链写接受记录（候选 = 分支头 `3897dc4`）→ merge → 发布路径四项。
