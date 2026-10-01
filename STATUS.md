@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-30 (current-state entry only)
+Last updated: 2026-10-01 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -101,7 +101,14 @@ owner authorization). The record-commit successor run
 [#175](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36706179096) is all four
 jobs green on `c63797d`; the one shard-3 `live-recovery` red on the docs-only `17a60ee`
 ([#174](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36695742094)) was closed
-as a flake by that same-bytes successor per the [CI failure rules](docs/CI_FAILURE_RULES.md).
+as a flake by that same-bytes successor per the [CI failure rules](docs/CI_FAILURE_RULES.md),
+and the branch's final head `0f07a59` carries its own all-green sample
+([#176](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36716647375)). The
+[2026-09-30 handoff list](status/active/live-safety-hardening.md#2026-09-29-收尾待办清单接手入口)
+items 5-8 are the next window's entry: the quiet-host evidence bundle (lab, 14 mutation
+routes, local `-All`/hard-kill), the per-item release-path authorization (a 2026-09-30 ask
+went unanswered and stays per-item pending), the `@()` array-flattening parse-gate candidate,
+and the on-machine material index.
 Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
