@@ -6063,3 +6063,35 @@ Process 对象等待，后代按双元组匹配以防 PID 复用；上限放宽�
    c18-0N`（kit 已冻结）→ 14 条 mutation 路线串行 → 本地 `-All` 全量 → 接受记录（代码候选
    `8d48795` + 其后夹具/记录提交）→ merge 进 `main`（已授权）→ 发布路径四项（每次真实
    Apply 前照旧 reviewed plan + 既有验收）。
+
+### 2026-10-01 夜：重启后 lab 重开（c18-05…c18-09）与套件阶段静默问题
+
+重启（15:48）后继续。**映射通道短写已恢复**（探针 1 分钟写入 26 KB + 完成标记）。重开
+过程与观察到的新事实（全部留证，见 `tmp/lab-postaudit-23/evidence/` 与
+`tmp/s7-open-items/evidence/`）：
+
+- **c18-05/07/08 三次会话启动失败**：c18-05（强杀探针沙箱后 3 秒即启动）与 c18-07（强杀
+  c18-06 沙箱后 5 分钟）均在启动死线内无 prelude.log；c18-08 直接被
+  `existing-sandbox-session-preserved` 守卫拒绝（c18-07 的沙箱进程残留）。**新纪律：
+  强杀沙箱会话会毒化随后的启动数分钟到几十分钟；prelude 正常结束时 guest 自行 shutdown
+  是唯一无毒的拆除方式**。
+- **c18-06/09 成功引导**并跑完门禁 1-8（powershell-syntax → … →
+  validate-json-artifacts，20:58:40），随后**门禁 9（unified-test-runner，43 套件的静默
+  阶段）无任何产物**；c18-06（旧 kit）、c18-09（新 kit）同型。此前 c18-01/02/04 的"4096
+  冻结"经复盘应为同一位置：门 9 的输出被 `Invoke-RepositoryValidationGateCommand` 的
+  `@(& pwsh ... 2>&1)` 全量缓冲到门结束后才打印，门 9 开始后套件阶段本来就无映射产物、
+  无输出；**"卡死"与"套件静默运行"在主机侧观察上不可区分**（vmwp CPU 属 SYSTEM 不可读，
+  无法据主机 CPU 判定 guest 活动）。
+- **kit 传输修复（c23，transport-only）**：`payload/common.ps1` 的 `Invoke-Lab` 原先把
+  子进程 stdout 用长生命周期 FileStream 直写映射目录——该写模式在主机当前态下于第二个
+  4 KB 缓冲刷写处永久阻塞（c18-01…06 的 010 日志全部恰好冻结在 4096 字节，且同进程的短
+  写正常）。已改为 guest 本地流式写 + 步骤结束一次 open-write-close 拷回（映射目录里的
+  文件名/布局/语义不变；映射证据与 09-29 c17 的 kit 只差这一处传输实现）。
+- **候选改用分支头 `3897dc4`**（= 8d48795 + 静止助手修复 + 全部记录），kit c23 冻结于该
+  SHA（`tmp/lab-postaudit-23`，kit hash `8741fe1a…`）；14 条路线启动脚本已同步。
+- **c18-09（21:00 起）观察策略**：门 8 于 20:58:40 完成后即转入套件静默期；本窗口内让
+  其自然运行（guest 完成或超时都会 shutdown 并写 completion.json），到约 00:30 前若仍无
+  test-summary.json/route-result 则按门 9 卡死复核，并把"门 9 开始时点的 guest 内日志
+  周期落盘"列为下一次 kit 修订（当前 010 日志仅在门 9 结束后才拷回，卡死时不可见）。
+- **对照事实**：同一分支头字节的 CI 多分片（含 live-recovery、hard-kill 所在分片）与本机
+  定向套件全部绿——lab 反复受挫与候选字节无关的间接证据；lab 仍是接受所需第三证据集。
