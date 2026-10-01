@@ -5853,11 +5853,14 @@ DryRun、部署。
    - 14 条 mutation 路线串行重跑（lab 完成后同一 kit 按既有 per-route 会话执行）；
    - 本地 `-All` 统一回归与 hard-kill 全量绿样本（同样需安静窗口；09-30 的 hard-kill 两红
      已由 HEAD 干净检出对照归因为主机负载，非候选字节）。
-   三者齐全后按三证据集口径写接受记录；merge 到 `main` 仍需所有者单独授权。
-6. **发布路径（全部待所有者逐项授权）**：S5 剩余只读/DryRun、真实部署（F5）、逐机 runner 批准、
-   真机 canonical setup DryRun（`scripts/internal/live-transaction-host.ps1` + 外部新计划）。
-   2026-09-30 收尾时已向所有者列出四项请求授权，未获作答——继续逐项待授权，不得以整体
-   任务授权推定其中任何一项。
+   三者齐全后按三证据集口径写接受记录；merge 到 `main` 已获所有者授权（2026-10-01，见
+   待办 6），证据补齐后即可执行。
+6. ~~**发布路径（全部待所有者逐项授权）**~~ **已获所有者授权（2026-10-01 13:1x，答复原文
+   "授权"）**：针对收尾摘要列出的三项决定整体授权——① 待办 6 四项（S5 剩余只读/DryRun、
+   真实部署 F5、逐机 runner 批准、真机 canonical setup DryRun）；② CI 作业日志读取（存储
+   Git 凭据只读）；③ merge 候选进 `main`（待本清单第 5 项证据补齐后执行）。执行仍按依赖
+   顺序与各自门禁：lab → 路线 → 本地全量 → 接受记录 → merge → 发布路径；每次真实 Apply
+   前照旧走 reviewed plan 与既有验收，不因授权放宽任何门禁。
 7. **`@()` 嵌套数组语句展平坑转可执行检查**（第二次出现后按既有规则转检查）：解析门禁
    `scripts/check-powershell-syntax.ps1` 增加基于 AST 的展平检测，或在同仓代码评审清单中
    固化；触发实例与修法见 2026-09-30 节待办 3 与机内记忆。
@@ -6001,8 +6004,33 @@ gates、shard 1、shard 2 绿，**shard 3 红 = `live-recovery.tests.ps1` exit 1
 
 判别与处置（按 CI_FAILURE_RULES R1/R3）：同测试字节的前一样本 #173 shard 3 绿，本红样本
 无法归因到任何代码差异；本地同字节 live-recovery 在更高负载下 420/0。按 #164/#165 先例，
-以**同测试字节的后继样本**判别：上节之后的收尾提交（纯文档）即该样本——**后继 run
+以**同测试字节的后继样本**判别：上节之后的收尾提交（纯文档）即该样本——后继 run
 [#175](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36706179096)（`c63797d`）
-四作业全绿，含 shard 3 的 live-recovery——按先例以偶发收口**；同套件若再出现无断言文本的
-单样本红，按本节处置路径重走（同字节对照 → 后继样本 → 必要时所有者授权读日志取断言文本）。
-本窗口未再改任何测试字节。
+四作业全绿，含 shard 3 的 live-recovery。
+
+**更正（2026-10-01，凭据日志到位后）**：上文"以偶发收口"的结论**被日志推翻**。所有者
+授权读取作业日志（见待办 6）后取回 #174 shard 3 原始日志
+（`tmp/s7-open-items/evidence/run174-shard3.log`）：真实失败是
+`FAIL: kill window 'STATE_PREIMAGE_COMPLETE': the killed live transaction host tree did not
+quiesce within 30 seconds`（live-recovery.tests.ps1:1185）——**本窗口引入的静止等待助手
+自身在 CI 上超时硬抛**，不是旧偶发类。机制判别：CI 日志时间戳被平台聚合打乱，无法区分
+"PID 复用骗过裸 PID 检查"与"真实慢拆除"，修复同时覆盖两者：助手重写为
+`Stop-KilledLiveHostTree`（停止前快照直接子代的 (ProcessId, CreationDate)；子进程经
+Process 对象等待，后代按双元组匹配以防 PID 复用；上限放宽到 120 秒；捕获路径中的二次
+失败不再吞掉主异常）。#175/#176 两个绿样本按新口径解读为"该缺陷的时序性未触发"，分支
+健康结论不变；缺陷修复随本更正提交，其 CI 样本即为该修复的验证。同套件若再红，按本节
+处置路径重走。
+
+## 2026-10-01 授权执行窗口（进行中）
+
+所有者对收尾摘要列出的三项决定整体答复"授权"（原文见待办 6）。执行按依赖顺序展开：
+
+1. **lab `validation-c18-04` 已于 13:1x 启动**（kit/candidate 不变，主机负载降至 44%、
+   CUA 服务群 9 个）：guest 引导正常性待观察，若再现映射通道停滞按记录顺延。结果落地后
+   在此补记。
+2. **#174 日志取证完成**：真实失败为本窗口静止等待助手超时（详见上节更正），助手已重写
+   为 `Stop-KilledLiveHostTree` 并随本更正提交。
+3. **后续队列**：lab 完成 → 14 条 mutation 路线串行（同 kit）→ 本地 `-All` 与 hard-kill
+   全量 → 接受记录（代码候选 `8d48795` + 其后的夹具/记录提交，范围口径同 c17 先例）→
+   merge 进 `main`（已授权）→ 发布路径四项（S5 只读/DryRun、真机 canonical setup DryRun、
+   逐机 runner 批准、真实部署 F5；每次真实 Apply 前照旧 reviewed plan + 既有验收）。

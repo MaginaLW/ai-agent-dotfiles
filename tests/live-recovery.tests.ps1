@@ -1167,22 +1167,36 @@ try {
     # the tree stop confirms only the root PID, while the spawned
     # live-transaction-host leaf is the process still holding the journal
     # header handle. The journal readers after every kill window must observe
-    # a quiesced tree, so wait for the child and its direct descendants to
-    # exit instead of racing their handle teardown; a fixture-side wait is the
-    # sanctioned shape - the production readers keep their strict no-retry
-    # contract.
-    function Wait-KilledLiveHostTreeQuiesced {
+    # a quiesced tree, so stop the tree and then wait for the child and its
+    # direct descendants to exit instead of racing their handle teardown; a
+    # fixture-side wait is the sanctioned shape - the production readers keep
+    # their strict no-retry contract. The wait must never match by a bare PID:
+    # CI run #174 failed its 30s bound because a recycled PID looked alive
+    # forever, so the child is waited on through its Process object and each
+    # descendant is matched by ProcessId together with its creation time.
+    function Stop-KilledLiveHostTree {
         param(
             [Parameter(Mandatory)] [System.Diagnostics.Process] $Child,
             [Parameter(Mandatory)] [string] $Checkpoint
         )
-        foreach ($attempt in 1..120) {
-            $descendants = @(Get-CimInstance -ClassName Win32_Process -Filter "ParentProcessId = $($Child.Id)" -ErrorAction SilentlyContinue)
-            $childAlive = $null -ne (Get-Process -Id $Child.Id -ErrorAction SilentlyContinue)
-            if (-not $childAlive -and @($descendants).Count -eq 0) { return }
-            Start-Sleep -Milliseconds 250
+        $descendants = @(
+            Get-CimInstance -ClassName Win32_Process -Filter "ParentProcessId = $($Child.Id)" -ErrorAction SilentlyContinue |
+                ForEach-Object { [pscustomobject]@{ ProcessId = [int] $_.ProcessId; Created = $_.CreationDate } }
+        )
+        Stop-FailpointProcessTree -Process $Child
+        foreach ($attempt in 1..240) {
+            $childAlive = -not $Child.HasExited
+            $descendantsAlive = @(
+                foreach ($descendant in $descendants) {
+                    $current = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $($descendant.ProcessId)" -ErrorAction SilentlyContinue
+                    if ($null -ne $current -and $null -ne $current.CreationDate -and
+                        [datetime] $current.CreationDate -eq [datetime] $descendant.Created) { $descendant }
+                }
+            )
+            if (-not $childAlive -and @($descendantsAlive).Count -eq 0) { return }
+            Start-Sleep -Milliseconds 500
         }
-        throw "FAIL: kill window '$Checkpoint': the killed live transaction host tree did not quiesce within 30 seconds"
+        throw "FAIL: kill window '$Checkpoint': the killed live transaction host tree did not quiesce within 120 seconds"
     }
 
     function Invoke-KilledLiveTransactionHost {
@@ -1208,8 +1222,7 @@ try {
             Copy-Item -LiteralPath $liveTransactionHost -Destination $targetedLiveHost -Force
             $child = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $internalHost, '-SandboxRoot', $SandboxRoot, '-ScriptPath', $targetedLiveHost, '-ArgumentsBase64', $hostArgumentsEncoded) -PassThru -WindowStyle Hidden -RedirectStandardOutput $outFile -RedirectStandardError $errFile
             Wait-FailpointController -Controller $controller -ExpectedCheckpoint $Checkpoint -TimeoutSeconds 90
-            Stop-FailpointProcessTree -Process $child
-            Wait-KilledLiveHostTreeQuiesced -Child $child -Checkpoint $Checkpoint
+            Stop-KilledLiveHostTree -Child $child -Checkpoint $Checkpoint
         }
         catch {
             $errText = ''
@@ -1217,10 +1230,9 @@ try {
                 $errText = [System.IO.File]::ReadAllText($errFile)
                 [System.IO.File]::WriteAllText((Join-Path $work ("dispatch-kill-error-$suffix.txt")), $errText, [System.Text.UTF8Encoding]::new($false))
             }
-            if ($null -ne $child -and -not $child.HasExited) {
-                Stop-FailpointProcessTree -Process $child
+            if ($null -ne $child) {
+                try { Stop-KilledLiveHostTree -Child $child -Checkpoint $Checkpoint } catch { }
             }
-            if ($null -ne $child) { Wait-KilledLiveHostTreeQuiesced -Child $child -Checkpoint $Checkpoint }
             throw "FAIL: kill window '$Checkpoint': $($_.Exception.Message)`n$errText"
         }
         finally {
