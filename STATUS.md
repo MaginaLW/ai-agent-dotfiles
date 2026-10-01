@@ -109,6 +109,23 @@ items 5-8 are the next window's entry: the quiet-host evidence bundle (lab, 14 m
 routes, local `-All`/hard-kill), the per-item release-path authorization (a 2026-09-30 ask
 went unanswered and stays per-item pending), the `@()` array-flattening parse-gate candidate,
 and the on-machine material index.
+
+**2026-10-01 authorization window.** The owner granted the full closeout ask ("授权"): the
+four release-path items, CI job-log read access, and the candidate merge once item-5
+evidence is complete. Executed so far: the #174 red was root-caused from its fetched job
+log to this window's own quiesce helper (a recycled PID read as alive forever); the helper
+is rewritten PID-reuse-immune (`665cfb9`, local live-recovery 421/0, CI #178 all green).
+Local hard-kill ran **318/0 green** in a clean window. The disposable-identity lab and the
+local `-All` are **blocked by the host, not by code**: a minimal sandbox probe proved the
+host-sandbox mapped-folder channel is broken (zero bytes reach the host), and two `-All`
+attempts were killed by recurring external interference (a ~25-minute process cap /
+`0xC0000142` process-creation exhaustion with `CodexSandboxService` events in the log;
+attempt evidence in `tmp/s7-open-items/evidence/`). **Owner action required: reboot the
+host and keep the Codex CUA/sandbox service idle during the evidence window**; then the
+chain resumes: lab → 14 mutation routes → local `-All` → acceptance record → merge →
+release path. CI sample #181 (docs-only, same test bytes as the green #179/#180) showed one
+shard-2 `root-claims-registry` red; its log is fetched, the suite reruns green locally on
+the same bytes, and this record's CI run is its same-bytes successor sample.
 Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
