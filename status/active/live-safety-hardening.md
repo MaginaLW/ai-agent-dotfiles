@@ -5847,10 +5847,10 @@ DryRun、部署。
    （:1522/:1605 历史红点）未改，复现时按同款处置。
 5. ~~**安静主机窗口补齐候选证据**~~ ✅ 2026-10-02 已收口：lab `validation-c18-09`
    （11/11 门 + 43/43 套件）、14 条 mutation 路线 14/14 PASS、本地 `-All` 43/43——三证据集
-   齐全，接受记录见文末；merge 已获所有者授权（见待办 6）。
+   齐全，接受记录与 merge 执行均已落地（merge commit `9e2469f`；见文末）。
 6. **发布路径（已获所有者授权，2026-10-01；执行中）**：S5 剩余只读/DryRun、真实部署（F5）、
-   逐机 runner 批准、真机 canonical setup DryRun。接受记录已写，merge 待执行（本窗口）；
-   S5/部署/runner 各项按逐机顺序推进，每次真实 Apply 前照旧 reviewed plan 与既有验收。
+   逐机 runner 批准、真机 canonical setup DryRun。接受与 merge 已完成；本节各项按逐机顺序
+   推进，每次真实 Apply 前照旧 reviewed plan 与既有验收。
 7. **`@()` 嵌套数组语句展平坑转可执行检查**（第二次出现后按既有规则转检查）：解析门禁
    `scripts/check-powershell-syntax.ps1` 增加基于 AST 的展平检测，或在同仓代码评审清单中
    固化；触发实例与修法见 2026-09-30 节待办 3 与机内记忆。
@@ -6152,3 +6152,13 @@ failed=0; timed-out=0`**，exit 0（约 2.5 小时；摘要 JSON 存
 **边界**：本接受 = 上述对象在三证据集与路线刷新上合格。**未执行**：merge 之外的任何发布
 动作——真实 Apply、adopt、activate、真机 DryRun、部署、逐机 runner 批准一概未执行（这些
 属待办 6 的发布路径四项，已授权待逐项推进）；push 仅为候选分支与记录（未触碰 `main`）。
+
+## 2026-10-02 合并执行（所有者授权）
+
+所有者 2026-10-01"授权"覆盖 merge；接受记录（`b276fd5`）落地后执行：
+`codex/s7-open-items`（接受对象 `dfa21d1`，代码候选 `3897dc4`）经 `--no-ff` 合并进 `main`：
+merge commit `9e2469f`（main `ebe1449` → `9e2469f`），已推送；merge 头 CI run
+[#186](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36944311223) 在途，记录头
+样本随本节提交另行产生。合并前 `main` 旧头 `ebe1449` 的样本 #172 为四作业全绿。
+真实 Apply、adopt、activate、真机 DryRun、部署、逐机 runner 批准仍未执行——发布路径四项
+按待办 6 逐项推进。
