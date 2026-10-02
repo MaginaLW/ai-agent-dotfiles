@@ -5828,29 +5828,37 @@ DryRun、部署。
 
 ## 2026-09-29 收尾：待办清单（接手入口）
 
-上节接受后，当前**全部开放项**（冲突时以本节为准）。2026-09-29 更新：待办 1（merge）已按
-所有者授权执行完毕——`main` = `55cadc0`，两个 CI 样本四作业全绿（见上文「合并执行」节），
-其余待办顺延：
+上节接受后，当前**全部开放项**（冲突时以本节为准）。2026-10-02 更新：待办 5 已收口——
+候选 `dfa21d1`（代码候选 `3897dc4`）三证据集齐全并已写接受记录（见文末），14 条 mutation
+路线 14/14 PASS 刷新完成、证据时效限制关闭。2026-10-01 更新：窗口收尾，候选分支
+`codex/s7-open-items` 头 `0f07a59` 三 CI 样本全绿（#173/#175/#176），待办 5-8 为下窗口
+接手入口。2026-09-30 更新：待办 2/3/4 已按所有者"完成剩余待办任务"的授权收口（见文末
+2026-09-30 节）。2026-09-29 更新：待办 1（merge）已按所有者授权执行完毕——`main` =
+`55cadc0`，两个 CI 样本四作业全绿（见上文「合并执行」节）：
 
 1. ~~merge 到 `main`~~ ✅ 已执行（`616225c` + `55cadc0`，CI 双绿）。
-2. **P2#2 延后修复**（本窗口独立审查的延后项）：`Publish-CanonicalSetupFinalStateForRecovery`
-   在分类后 intent 未入内存快照时的首次发布误失败（先写 journal 再误抛
-   `manual-recovery-required`，重载 journal 后重试自愈；fail-closed、无数据风险）。修复需再动
-   `canonical-recovery-common.ps1` → 触发完整自封重封；审查已核对 kill 窗口与正常 Apply 不受影响。
-   修复草图见 `tmp/s6-residuals/review-report.md`（P2 第二条）。
-3. **live-operation-result 完整发射器切片**：1g 现为最小发射（稳定 token + JsonPath
-   `MessageToken`）；设计内的 command-lifecycle `Result`/`LifecycleKind=no-transaction` 字段、
-   schema 正负夹具与注册表属独立 S6 切片。
-4. **环境性 live-recovery 共享冲突**（主机特有，main 基线同现，CI/沙箱绿）：处置路径按 R3 类
-   （同字节对照 → 本地复跑 → 新样本）；如再升级为普遍问题，排查夹具与把逐套件断言文本恢复进
-   注解的可行范围。
-5. **mutation 路线证据时效**：14 条 S4 路线最后运行在 C6/C10；本两窗口未重跑（接受限制已记录，
-   与 c783a01 线同口径）。
-6. **发布路径（全部待所有者逐项授权）**：S5 剩余只读/DryRun、真实部署（F5）、逐机 runner 批准、
-   真机 canonical setup DryRun（`scripts/internal/live-transaction-host.ps1` + 外部新计划）。
-7. **机内材料索引**（不入库）：新增 `tmp/lab-kit-source`（纯净 lab 源，后续窗口直接复用）、
-   `tmp/lab-postaudit-21`（= c17 证据）、`tmp/s6-residuals/`（四路分析报告、审查报告、重封
-   报告与补丁、启动脚本、本地 -All 证据 JSON）。
+2. ~~**P2#2 延后修复**~~ ✅ 2026-09-30 已收口（`0f7e295`：intent 追加后重取快照；RED 对照
+   + 157/0 + 全套重钉，见「2026-09-30 开放待办 2/3/4 收口窗口」）。
+3. ~~**live-operation-result 完整发射器切片**~~ ✅ 2026-09-30 已收口（`8d48795`：schema
+   Result/LifecycleKind/MessageToken + 5 负夹具 + 配对表语义验证器 + `live-command-result.ps1`
+   发射器 + 严格断言；live-recovery 420/0，同上节）。
+4. ~~**环境性 live-recovery 共享冲突**~~ ✅ 2026-09-30 按 R3 收口：根因为夹具树终止只等根
+   PID，已改静止等待；同机负载下 420/0 绿样本（同上节）。harness-authority 的同类夹具
+   （:1522/:1605 历史红点）未改，复现时按同款处置。
+5. ~~**安静主机窗口补齐候选证据**~~ ✅ 2026-10-02 已收口：lab `validation-c18-09`
+   （11/11 门 + 43/43 套件）、14 条 mutation 路线 14/14 PASS、本地 `-All` 43/43——三证据集
+   齐全，接受记录见文末；merge 已获所有者授权（见待办 6）。
+6. **发布路径（已获所有者授权，2026-10-01；执行中）**：S5 剩余只读/DryRun、真实部署（F5）、
+   逐机 runner 批准、真机 canonical setup DryRun。接受记录已写，merge 待执行（本窗口）；
+   S5/部署/runner 各项按逐机顺序推进，每次真实 Apply 前照旧 reviewed plan 与既有验收。
+7. **`@()` 嵌套数组语句展平坑转可执行检查**（第二次出现后按既有规则转检查）：解析门禁
+   `scripts/check-powershell-syntax.ps1` 增加基于 AST 的展平检测，或在同仓代码评审清单中
+   固化；触发实例与修法见 2026-09-30 节待办 3 与机内记忆。
+8. **机内材料索引**（不入库）：`tmp/lab-kit-source`（纯净 lab 源，含 c23 transport 修复）、
+   `tmp/lab-postaudit-21`（c17 证据）、`tmp/lab-postaudit-22/23`（c18 冻结 kit；c23 = 胜出
+   kit）、`tmp/s7-open-items/`（启动器 v1-v5、15 条路线 host 日志、lab/-All/路线汇总与
+   `evidence/` 取证）、`tmp/s6-residuals/`（S6 报告与重封补丁）、`tmp/reseal-hard-kill.ps1`、
+   `tmp/seams-delta.ps1`、`tmp/hk-closure-check.ps1`。
 
 ## 2026-09-29 合并执行（所有者授权）
 
@@ -5865,3 +5873,282 @@ merge 头
 [run 36640879449](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36640879449)。
 （合并前 main 旧样本 302d437 于 09-28 的失败属当时字节的既有环境项，被本合并取代。）
 真实 Apply、adopt、activate、真机 DryRun、部署一概未执行。
+
+## 2026-09-30 开放待办 2/3/4 收口窗口（P2#2 修复 + 完整发射器切片 + 环境项夹具修复）
+
+接手「2026-09-29 收尾：待办清单」，所有者整体授权"完成剩余待办任务"。候选分支
+`codex/s7-open-items`（`0f7e295` + `8d48795`，基线 main=`ebe1449`）。本节只记已完成与
+进行中的事实；lab/CI 结果落地后在文末补记。
+
+### 待办 2：P2#2 延后修复（`0f7e295`）
+
+`Publish-CanonicalSetupFinalStateForRecovery` 在 journal 无 SETUP_STATE_INTENT 时先落盘
+intent、再把旧内存快照交给 pending 读者，首次发布必抛 `manual-recovery-required`，重载
+journal 后重试才自愈（独立审查 `tmp/s6-residuals/review-report.md` P2 第二条）。修复按审查
+草图：追加 intent 后经 `Get-CanonicalJournalStateForAppend` 重取快照再调读者。回归夹具
+`pending-state-no-intent`（claim 在、pending state 在、journal 无 intent 记录 → 分类
+finalize → 发布成功且终态恰一条 INTENT + 一条 PUBLISHED）。RED 对照：暂撤生产修复跑同套件
+= 96 passed / 1 failed（恰在该发布处抛错，分类断言仍绿，证实缺陷前提）；恢复后
+canonical-recovery **157/0**。
+
+钉与验证：hard-kill 清单 recovery-common 哈希两处 + 自封全部钉由 `tmp/reseal-hard-kill.ps1`
+fixpoint 重封（15 行纯十六进制字面量替换，`-Verify` 复核 0 变更）；生产闭包契约按静态提取法
+重算 **67/131/13 与钉值摘要逐字一致（未移动）**；seams all-scripts 基线 16954→16955
+（+1 Member：`$State.TransactionNamespace` 第二次绑定），动态命令不变，逐行评审后重钉，
+seams **66/0**。
+
+### 待办 3：live-operation-result 完整发射器切片（`8d48795`）
+
+1g 当时的最小发射（稳定 token + JsonPath MessageToken）升级为设计内的完整命令文档面：
+
+- **schema**：`live-operation-result` 增 `Result`/`LifecycleKind`(const no-transaction)/
+  `MessageToken`（token 形态钉 `[a-z0-9][a-z0-9-]*`）；command 作用域新增 no-transaction
+  分支（三字段齐全、禁一切事务引用）；transaction 作用域禁带这三个字段。
+- **注册表**：新增 5 条负夹具——4 条 Schema 层（事务文档带 status 块、`unfinished` 生命周期、
+  缺 token、no-transaction 带 TransactionId）+ 1 条 Semantic 层（PASS 配对
+  `manual-recovery-required`）。
+- **语义验证器**：command 分支从直接 return 改为完整形态核（三字段齐全、no-transaction、
+  token/严重度配对表：`no-live-transaction`=PASS、`live-plan-authority-missing`=WARN、
+  `live-recovery-required`=WARN、`manual-recovery-required`=FAIL）——本层独占配对表，
+  即使 schema 门未重跑也拒绝半发射。
+- **发射器**：新 `scripts/live-command-result.ps1`（镜像 canonical 同名机制：注册表绑定
+  bootstrap 合同、语义字节、bootstrap+registry 双 schema 校验、绑定语义验证器后才上
+  stdout）。`live recover status` 的人读扫描文本与 JsonPath 报告不变，stdout 末行新增一条
+  严格自校验命令文档：clean/未证明空缺=PASS `no-live-transaction`、authority-missing 与
+  可恢复未完成=WARN、manual=FAIL，exit 0 不变，`operation-lock-busy` 维持原样抛。
+- **测试与文档**：live-recovery 四组严格断言（clean、empty、authority-missing、
+  terminal-corruption 矩阵逐一钉 exact property set + 值 + schema 校验 + 语义字节等值）；
+  RESTORE.md / ONBOARD_NEW_MACHINE.md 各补一句。
+- **实施中被自己的套件抓到的真缺陷**：token 配对表最初写成 `@()` 内嵌套数组语句——数组
+  语句在 `@()` 内会展平成单个字符串（`$_[0]` 取到首字符），配对恒不命中、干净态首跑即抛
+  `live-transaction-intent-mismatch`。已改 hashtable 查表并在代码内记录原因；这一教训是
+  展平类坑的第二次出现（第一次为逗号结合优先级），已记入机内记忆，转可执行检查为后续候选。
+
+验证：`validate-json-artifacts -All` **34 正 + 205 负全 PASS**；seams 基线
+16955→16978 + 动态命令 193→194（新发射器文件 8 InvokeMember + 8 Member、验证器
+ContainsKey、发射块 Member、1 条普通点源），逐行评审后重钉，seams **66/0**；
+live-recovery **420/0** 全绿（含全部新严格断言）；解析门 183 文件；secret scan 无阻塞；
+`git diff --check` 干净。
+
+### 待办 4：环境性 live-recovery 共享冲突（R3 处置收口）
+
+本窗口 live-recovery 首跑（发射器缺陷修复前）已到 locator 矩阵；第二跑在
+`[live dispatch: reservation-only abandon]` 复现**已记录的环境性 header 共享冲突**
+（`Get-SealedLiveJournalChain` 读 `header.json` 报 "being used by another process"，
+tests/live-recovery.tests.ps1:2813）。按 R3「复发即修夹具同步语义」定位根因：夹具
+`Invoke-KilledLiveTransactionHost` 的 `Stop-ProcessTree` 只确认根 PID 退出，而真正持
+header 句柄的是 internal host 派生的 live-transaction-host 叶进程，负载下其句柄拆除慢于
+夹具的读取节奏（`Wait-Process -ErrorAction SilentlyContinue` 还会吞掉 30 秒超时）。修复为
+夹具侧静止等待 `Wait-KilledLiveHostTreeQuiesced`（等子进程与直接子代全部退出，30 秒上限、
+超时硬抛；生产读者保持严格无重试语义不变）。修复后同机同负载 live-recovery **420/0 全绿**
+——包括历来触发共享冲突的区段。同类的 `Invoke-AuthorityCliKilledAtCheckpoint`
+（harness-authority :1522/:1605 的历史红点）属同一夹具模式，本窗口不改；如未来在统一回归
+复现，按同款静止等待处置。
+
+### 主机争用归因（hard-kill 本地全量两红）
+
+本窗口 hard-kill 全量两次在同一用例失败（`StageReady was not signaled before the immutable
+observation deadline`，sealed mutation 控制器矩阵首个非 RecoveryCheckpoint 用例）。归因：
+把 **HEAD（`ebe1449`，无本窗口任何改动）解到独立 worktree 跑 `-Section process`，同样在
+同一用例红**——与工作树改动无关，是主机持续负载（整夜至今的 Codex CUA computer-use node
+服务群、MATLAB、远程桌面等）击穿墙钟死线。结论：本地 hard-kill 全量绿样本与本地 `-All`
+待安静窗口补跑；沙箱 lab（资源隔离）与远程 CI 不受影响，作为候选证据集的载体。
+自封钉的正确性不依赖该失败：失败发生在自封各断言全部通过之后的 mutation 执行段。
+
+### 候选状态（本节写入时）
+
+候选 `8d48795`（分支 `codex/s7-open-items`，已推送）。证据集状态：本地 = 本节所列全套
+定向验证；**一次性身份 lab `validation-c18-01`（kit `tmp/lab-postaudit-22`，hash
+`57a819d7…`，min-timeout 42255 s，route 预算 43200 s）运行中**；**CI run
+[#173](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36672463140) 运行中**。
+两项落地前不主张候选接受；merge 到 `main`、真实 Apply/adopt/activate/真机 DryRun/部署
+一概未申请、未执行。14 条 mutation 路线计划于 lab 完成后按既有串行方式重跑。
+
+### 2026-09-30 晚补记：CI 绿、lab 三次尝试均被主机负载阻断
+
+- **CI run [#173](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36672463140)
+  completed success，四作业全绿**（候选 `8d48795`）。三证据集中的远程证据已齐。
+- **lab 三次尝试全部失败，均为主机负载问题、与候选字节无关**：
+  - `validation-c18-01`（13:00 启动）：guest 内 11 门过半（13:25 写完 artifact-validation
+    门）后完全停滞 3.5 小时。对照 c17 成功证据：同名 `010-full-validation.stdout.log` 在
+    c17 持续流式增长至 490 KB，本机两次停滞都**恰好冻结在 4096 字节整、且截断在 doctor
+    门同一句输出中间**——guest→host 映射通道的写入在主机高负载（整夜 CUA 服务群，CPU
+    87%）下停滞，与候选内容无关。
+  - `validation-c18-02`（16:52 启动）：同一门、同一 4096 字节边界、同一句截断，可复现。
+  - `validation-c18-03`（17:10 启动）：主机 87% 负载下 guest 未能在 600 秒启动死线内写出
+    prelude.log，launcher 按 `lab-guest-did-not-start-within-startup-deadline` 退出。
+  - 三次尝试的证据目录（`tmp/lab-postaudit-22/evidence/validation-c18-0{1,2,3}`）与 kit
+    （`tmp/lab-postaudit-22`，candidate/kit hash 不变）保留原状供下次窗口复核。
+- **处置**：lab 与 14 条 mutation 路线（同为沙箱会话）显式顺延到主机安静窗口执行；在此
+  之前**不主张候选 `8d48795` 的接受**。已落地证据 = 本节本地定向全套 + CI #173 四作业绿。
+  merge 到 `main` 继续待所有者单独授权；真实 Apply/adopt/activate/真机 DryRun/部署未申请、
+  未执行。
+
+### 2026-09-30 收尾补记：CI #174 红样本与处置
+
+记录提交 `17a60ee`（STATUS + 本任务记录，纯文档差异、测试字节与 `8d48795` 完全一致）的
+CI run [#174](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36695742094)：
+gates、shard 1、shard 2 绿，**shard 3 红 = `live-recovery.tests.ps1` exit 1（26/27）**。
+注解按工作流设计只含套件计数，无断言文本；作业日志端点对匿名只读仍 403（与既有记录一致），
+失败断言无法在本窗口定位。
+
+判别与处置（按 CI_FAILURE_RULES R1/R3）：同测试字节的前一样本 #173 shard 3 绿，本红样本
+无法归因到任何代码差异；本地同字节 live-recovery 在更高负载下 420/0。按 #164/#165 先例，
+以**同测试字节的后继样本**判别：上节之后的收尾提交（纯文档）即该样本——后继 run
+[#175](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36706179096)（`c63797d`）
+四作业全绿，含 shard 3 的 live-recovery。
+
+**更正（2026-10-01，凭据日志到位后）**：上文"以偶发收口"的结论**被日志推翻**。所有者
+授权读取作业日志（见待办 6）后取回 #174 shard 3 原始日志
+（`tmp/s7-open-items/evidence/run174-shard3.log`）：真实失败是
+`FAIL: kill window 'STATE_PREIMAGE_COMPLETE': the killed live transaction host tree did not
+quiesce within 30 seconds`（live-recovery.tests.ps1:1185）——**本窗口引入的静止等待助手
+自身在 CI 上超时硬抛**，不是旧偶发类。机制判别：CI 日志时间戳被平台聚合打乱，无法区分
+"PID 复用骗过裸 PID 检查"与"真实慢拆除"，修复同时覆盖两者：助手重写为
+`Stop-KilledLiveHostTree`（停止前快照直接子代的 (ProcessId, CreationDate)；子进程经
+Process 对象等待，后代按双元组匹配以防 PID 复用；上限放宽到 120 秒；捕获路径中的二次
+失败不再吞掉主异常）。#175/#176 两个绿样本按新口径解读为"该缺陷的时序性未触发"，分支
+健康结论不变；缺陷修复随本更正提交，其 CI 样本即为该修复的验证。同套件若再红，按本节
+处置路径重走。
+
+## 2026-10-01 授权执行窗口（进行中）
+
+所有者对收尾摘要列出的三项决定整体答复"授权"（原文见待办 6）。执行按依赖顺序展开：
+
+1. **lab `validation-c18-04`（13:17 启动）在安静主机上第四次同点卡死，根因已定性**：
+   guest 于 13:25:38 起整体冻结（门禁产物与 stdout 同时停止，stdout 恰为 4096 字节）。
+   最小对照实验（独立沙箱仅向映射目录循环写文件，`tmp/s7-open-items/maptest/probe.wsb`）
+   运行 8 分钟**零字节到达主机**，连错误标记都没有——**主机↔沙箱映射通道在主机侧损坏**
+   （09-29 夜 c17 尚可流式写 490 KB；09-30 凌晨起失效）。四次卡死（c18-01/02/03/04）与
+   候选字节、主机负载均无关。**修复需要重启主机**（恢复 Windows Sandbox 基础栈）——属
+   所有者动作（机器上有其他 agent 在跑，本会话不代行）。lab 与 14 条路线顺延至重启后。
+2. **#174 日志取证完成**：真实失败为本窗口静止等待助手超时（详见上节更正），助手已重写
+   为 `Stop-KilledLiveHostTree`（`665cfb9`）并本地验证 live-recovery **421/0**；CI #178
+   四作业全绿，修复在 CI 得到验证。
+3. **本地证据推进（不依赖沙箱）**：hard-kill 全量在 44% 负载窗口（13:41-14:34）实跑
+   **318/0 全绿**——证实 09-30 的两红纯属主机争用，本地 hard-kill 证据落袋（当前字节，
+   含重封）。`-All` 统一回归三次尝试的最终状态：**本窗口未能取得全量绿样本，失败全部
+   归因于主机侧外部干扰（证据在案）**：
+   - 尝试 1（14:54）：摘要路径命令行转义为空串，runner 立即拒绝（调用侧缺陷，无害）。
+   - 尝试 2（14:56-15:47）：hard-kill 在 24.8 分钟处以 `0x40010004` 被外部终止（被终止前
+    其捕获输出全 PASS，死于 setup 矩阵中途，远未到 5400s 预算）；随后 34 个套件以约
+     30ms/个瞬时失败、退出码全部 `0xC0000142`（STATUS_DLL_INIT_FAILED，进程创建本身失败
+     = 会话资源耗尽签名），8 个先跑套件全过；摘要 JSON 存
+     `tmp/s7-open-items/evidence/all-attempt2-summary.json`。事件日志同期（15:48-15:49）
+     出现 `CodexSandboxService.OpenAI.Codex` 事件与 SPP/Perflib 异常。
+   - 尝试 3（16:1x-16:45）：approved-runner 运行约 23 分钟（平时 3 分钟）后，runner 与子
+     进程整树静默消失，无摘要、无结束行。
+   - 归因：主机上的 Codex CUA/沙箱基础设施活跃期存在约 23-25 分钟量级的周期性外部清理/
+     资源事件，长套件子进程不可存活——与 09-30 hard-kill 墙钟死线失败、lab 通道损坏
+     （见第 1 项）同源。**排除代码因素**：全部失败发生在测试体之外或与其断言无关。
+4. **CI 样本**（分支 `codex/s7-open-items`）：#176-#180 全绿（含 #178 = 静止助手修复的
+   验证样本）；#181（纯文档 `8b37ad7`，测试字节与 #179/#180 完全一致）shard 2 红 =
+   `root-claims-registry.tests.ps1` 的复合 `PowerShell.Stop` 断言（:1271），日志已按授权
+   取回（`tmp/s7-open-items/evidence/run181-shard2.log`），失败子条件因断言消息被终端宽度
+   截断不可辨。同字节本地复跑该套件 **exit 0 全绿**（17:0x-17:21，含既有 NOTE）；按
+   #164/#165 与 #174 先例，本记录提交的 CI 运行即其同字节后继样本：绿则按偶发收口，再红
+   则升级排查（该套件有记录的负载敏感史）。
+5. **重启后链（全部依赖所有者动作）**：所有者需 **① 重启主机**（恢复沙箱映射通道与进程
+   创建资源状态）；**② 在证据窗口期避免 Codex CUA/沙箱服务活动**。之后：lab `validation-
+   c18-0N`（kit 已冻结）→ 14 条 mutation 路线串行 → 本地 `-All` 全量 → 接受记录（代码候选
+   `8d48795` + 其后夹具/记录提交）→ merge 进 `main`（已授权）→ 发布路径四项（每次真实
+   Apply 前照旧 reviewed plan + 既有验收）。
+
+### 2026-10-01 夜：重启后 lab 重开（c18-05…c18-09）与套件阶段静默问题
+
+重启（15:48）后继续。**映射通道短写已恢复**（探针 1 分钟写入 26 KB + 完成标记）。重开
+过程与观察到的新事实（全部留证，见 `tmp/lab-postaudit-23/evidence/` 与
+`tmp/s7-open-items/evidence/`）：
+
+- **c18-05/07/08 三次会话启动失败**：c18-05（强杀探针沙箱后 3 秒即启动）与 c18-07（强杀
+  c18-06 沙箱后 5 分钟）均在启动死线内无 prelude.log；c18-08 直接被
+  `existing-sandbox-session-preserved` 守卫拒绝（c18-07 的沙箱进程残留）。**新纪律：
+  强杀沙箱会话会毒化随后的启动数分钟到几十分钟；prelude 正常结束时 guest 自行 shutdown
+  是唯一无毒的拆除方式**。
+- **c18-06/09 成功引导**并跑完门禁 1-8（powershell-syntax → … →
+  validate-json-artifacts，20:58:40），随后**门禁 9（unified-test-runner，43 套件的静默
+  阶段）无任何产物**；c18-06（旧 kit）、c18-09（新 kit）同型。此前 c18-01/02/04 的"4096
+  冻结"经复盘应为同一位置：门 9 的输出被 `Invoke-RepositoryValidationGateCommand` 的
+  `@(& pwsh ... 2>&1)` 全量缓冲到门结束后才打印，门 9 开始后套件阶段本来就无映射产物、
+  无输出；**"卡死"与"套件静默运行"在主机侧观察上不可区分**（vmwp CPU 属 SYSTEM 不可读，
+  无法据主机 CPU 判定 guest 活动）。
+- **kit 传输修复（c23，transport-only）**：`payload/common.ps1` 的 `Invoke-Lab` 原先把
+  子进程 stdout 用长生命周期 FileStream 直写映射目录——该写模式在主机当前态下于第二个
+  4 KB 缓冲刷写处永久阻塞（c18-01…06 的 010 日志全部恰好冻结在 4096 字节，且同进程的短
+  写正常）。已改为 guest 本地流式写 + 步骤结束一次 open-write-close 拷回（映射目录里的
+  文件名/布局/语义不变；映射证据与 09-29 c17 的 kit 只差这一处传输实现）。
+- **候选改用分支头 `3897dc4`**（= 8d48795 + 静止助手修复 + 全部记录），kit c23 冻结于该
+  SHA（`tmp/lab-postaudit-23`，kit hash `8741fe1a…`）；14 条路线启动脚本已同步。
+- **c18-09（21:00 起）观察策略**：门 8 于 20:58:40 完成后即转入套件静默期；本窗口内让
+  其自然运行（guest 完成或超时都会 shutdown 并写 completion.json），到约 00:30 前若仍无
+  test-summary.json/route-result 则按门 9 卡死复核，并把"门 9 开始时点的 guest 内日志
+  周期落盘"列为下一次 kit 修订（当前 010 日志仅在门 9 结束后才拷回，卡死时不可见）。
+- **对照事实**：同一分支头字节的 CI 多分片（含 live-recovery、hard-kill 所在分片）与本机
+  定向套件全部绿——lab 反复受挫与候选字节无关的间接证据；lab 仍是接受所需第三证据集。
+
+### 2026-10-01 深夜：lab c18-09 全绿（第三证据集到手）
+
+**`validation-c18-09`（candidate `3897dc4`，kit `8741fe1a…`，c23 传输修复后）完整通过**：
+route-result PASS、completion ExitCode 0、candidate/kit 与冻结清单一致；**11/11 门全 PASS**
+（powershell-syntax、pinned-tool-verify、build-generated-skills、secret-scan、
+repository-doctor、generated-manifests-parity、env-build-list-status、
+validate-json-artifacts、unified-test-runner、dangerous-tracked-files、clean-tracked-state）；
+**43/43 套件全过、0 失败 0 超时**（test-summary.json，516 KB）；011-git-clean 与
+012-complete 正常，guest 自行 shutdown（无残余会话）。证据目录
+`tmp/lab-postaudit-23/evidence/validation-c18-09/`，host 日志
+`tmp/s7-open-items/evidence/lab-c18-09.host.log`。
+
+**复盘**："4096 冻结"确认为 c22 kit 的映射长流阻塞在**门 9 结束输出落盘时**所致——套件
+在 guest 内正常跑完（约 2.1 小时），只是完成时的集中输出把坏掉的长流堵死。c23 的传输
+修复（guest 本地流式写 + 结束一次拷回）使本次完整收尾。凌晨的教训一并成立：会话启动
+毒化规律、门 9 静默期与"卡死"在主机侧不可区分、prelude 正常结束的 shutdown 是无毒拆除。
+上游复盘产物：v24（周期性进度拷贝）已在 lab-kit-source 备好但未冻结——本次胜出后不再需要。
+
+**下一步**：14 条 mutation 路线已按同 kit/candidate 串行启动
+（`tmp/s7-open-items/launch-c18-routes.ps1`，15 个会话）；路线后补本地 `-All`；随后按已
+授权链写接受记录（候选 = 分支头 `3897dc4`）→ merge → 发布路径四项。
+
+### 2026-10-02 凌晨：14 条 mutation 路线刷新完成
+
+**14/14 条路线在候选 `3897dc4`（kit c23）上全部 PASS**——这是自 C6/C10（2026-09-25）以来
+路线证据首次刷新，长期挂账的"mutation 路线证据时效"限制就此关闭。执行明细：
+
+- `chain`、`retirement`：会话式标签批次通过（23:26-23:44）。
+- 13 条动作标签批次（`changed-rollback`、`task`、authority 五条、recovery 六条，01:19-05:30，
+  `launch-c18-routes5.ps1`）：全 PASS，route-result 逐条 PASS。
+- 会话卫生经验（三次启动器迭代后收敛，全部留证）：路线子脚本的 `-Label` 受 ValidateSet
+  约束（动作名），会话标签必须与之相同；失败引导的会话不会自然关机、其残留进程会阻塞
+  后续启动，需要"杀掉 + 稳定清零等待"；正常路线经 prelude 的 shutdown 自然拆除，不毒化。
+  失败尝试的会话目录（`route-c18-*` 命名的一批与 `changed-rollback-boot-failed-*`）保留
+  原状作为过程证据。
+
+### 本地 -All 全量绿（2026-10-02 05:31-08:04）
+
+静默窗口（负载 8%）实跑统一入口：**`Test summary: PASS; discovered=43; passed=43;
+failed=0; timed-out=0`**，exit 0（约 2.5 小时；摘要 JSON 存
+`tmp/s7-open-items/evidence/all-run5-summary.json`）。此前 10-01 两次尝试的失败已归因为
+主机侧事件（重启与资源耗尽），本次三红两绿的判别全部落地为绿。
+
+### 候选接受：分支头 `dfa21d1`（2026-10-02，代码候选 `3897dc4`）
+
+**接受对象**：分支 `codex/s7-open-items` 头 `dfa21d1`（= 代码候选 `3897dc4` + 其后记录
+提交；代码候选 = `0f7e295` P2#2 修复 + `8d48795` 发射器切片 + `665cfb9` 静止助手重写，
+之后均为记录/文档提交）。**三证据集齐全**：
+
+1. **本地**：`-All` 43/43 零失败零超时（05:31-08:04）；hard-kill 全量 **318/0**（14:34
+   窗口样本）；live-recovery **421/0**；canonical-recovery **157/0**；seams **66/0**；
+   `validate-json-artifacts -All` 34 正 + 205 负全 PASS；解析门 183 文件；secret scan
+   无阻塞。
+2. **一次性身份 lab**：`validation-c18-09`（kit c23 `8741fe1a…`，candidate `3897dc4`）：
+   **11 门全 PASS、43/43 套件、0 失败 0 超时**，completion ExitCode 0，candidate/kit 与冻结
+   清单一致，guest 自然关机。
+3. **CI**：分支头 `dfa21d1` 的 run
+   [#184](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36883646957) 四作业
+   全绿；同一谱系 #176-#183 亦全绿（#178 = 静止助手修复验证样本；#181 红样本已按同字节
+   后继 #182 收口）。merge 后另补 merge 头与记录头样本。
+
+**附带刷新**：14/14 mutation 路线 PASS（本窗口新增，关闭证据时效限制）。
+
+**边界**：本接受 = 上述对象在三证据集与路线刷新上合格。**未执行**：merge 之外的任何发布
+动作——真实 Apply、adopt、activate、真机 DryRun、部署、逐机 runner 批准一概未执行（这些
+属待办 6 的发布路径四项，已授权待逐项推进）；push 仅为候选分支与记录（未触碰 `main`）。

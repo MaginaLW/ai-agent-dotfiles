@@ -56,6 +56,42 @@ function Assert-ThrowsToken {
     Write-Host "  PASS  $Message"
 }
 
+function Test-LiveStatusExactPropertySet {
+    param([Parameter(Mandatory)]$Document, [Parameter(Mandatory)][string[]]$Expected)
+    $actual = @($Document.Keys | ForEach-Object { [string] $_ } | Sort-Object)
+    $wanted = @($Expected | Sort-Object)
+    return (($actual -join "`n") -ceq ($wanted -join "`n"))
+}
+
+function Get-ValidatedLiveStatusResult {
+    param([Parameter(Mandatory)] $Invocation, [Parameter(Mandatory)] [string] $EvidenceRoot)
+    $lines = @([string] $Invocation.Out -split "`r?`n" | Where-Object { $_.TrimStart().StartsWith('{') })
+    if (@($lines).Count -ne 1) { throw 'status stdout must carry exactly one JSON document line' }
+    $json = [string] $lines[0]
+    $instancePath = Join-Path $EvidenceRoot ("live-status-{0}.json" -f [Guid]::NewGuid().ToString('N'))
+    [IO.File]::WriteAllText($instancePath, $json, [Text.UTF8Encoding]::new($false))
+    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path $RepoRoot 'schemas/live-operation-result.schema.json') -InstancePath $instancePath
+    $document = ConvertFrom-SemanticJson -Json $json
+    $semantic = [Text.UTF8Encoding]::new($false).GetString((ConvertTo-SemanticJsonBytes -InputObject $document))
+    if ($json -cne $semantic) { throw 'status stdout is not the exact semantic JSON encoding' }
+    return $document
+}
+
+function Assert-LiveStatusResult {
+    param(
+        [Parameter(Mandatory)] $Invocation,
+        [Parameter(Mandatory)] [string] $EvidenceRoot,
+        [Parameter(Mandatory)] [ValidateSet('PASS', 'WARN', 'FAIL')] [string] $Result,
+        [Parameter(Mandatory)] [string] $MessageToken,
+        [Parameter(Mandatory)] [string] $Message
+    )
+    $document = Get-ValidatedLiveStatusResult -Invocation $Invocation -EvidenceRoot $EvidenceRoot
+    Assert ($null -ne $document -and
+        (Test-LiveStatusExactPropertySet -Document $document -Expected @('SchemaVersion', 'ArtifactKind', 'ResultScope', 'Result', 'CommandKind', 'LifecycleKind', 'MessageToken')) -and
+        [string] $document.Result -ceq $Result -and [string] $document.MessageToken -ceq $MessageToken -and
+        [string] $document.CommandKind -ceq 'live-recover-status' -and [string] $document.LifecycleKind -ceq 'no-transaction') $Message
+}
+
 function Write-TextFile {
     param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string] $Content)
     $parent = Split-Path -Parent $Path
@@ -1127,6 +1163,42 @@ try {
         }
     }
 
+    # R3 fixture synchronization (the environmental header shared-conflict):
+    # the tree stop confirms only the root PID, while the spawned
+    # live-transaction-host leaf is the process still holding the journal
+    # header handle. The journal readers after every kill window must observe
+    # a quiesced tree, so stop the tree and then wait for the child and its
+    # direct descendants to exit instead of racing their handle teardown; a
+    # fixture-side wait is the sanctioned shape - the production readers keep
+    # their strict no-retry contract. The wait must never match by a bare PID:
+    # CI run #174 failed its 30s bound because a recycled PID looked alive
+    # forever, so the child is waited on through its Process object and each
+    # descendant is matched by ProcessId together with its creation time.
+    function Stop-KilledLiveHostTree {
+        param(
+            [Parameter(Mandatory)] [System.Diagnostics.Process] $Child,
+            [Parameter(Mandatory)] [string] $Checkpoint
+        )
+        $descendants = @(
+            Get-CimInstance -ClassName Win32_Process -Filter "ParentProcessId = $($Child.Id)" -ErrorAction SilentlyContinue |
+                ForEach-Object { [pscustomobject]@{ ProcessId = [int] $_.ProcessId; Created = $_.CreationDate } }
+        )
+        Stop-FailpointProcessTree -Process $Child
+        foreach ($attempt in 1..240) {
+            $childAlive = -not $Child.HasExited
+            $descendantsAlive = @(
+                foreach ($descendant in $descendants) {
+                    $current = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $($descendant.ProcessId)" -ErrorAction SilentlyContinue
+                    if ($null -ne $current -and $null -ne $current.CreationDate -and
+                        [datetime] $current.CreationDate -eq [datetime] $descendant.Created) { $descendant }
+                }
+            )
+            if (-not $childAlive -and @($descendantsAlive).Count -eq 0) { return }
+            Start-Sleep -Milliseconds 500
+        }
+        throw "FAIL: kill window '$Checkpoint': the killed live transaction host tree did not quiesce within 120 seconds"
+    }
+
     function Invoke-KilledLiveTransactionHost {
         param(
             [Parameter(Mandatory)] [ValidateSet('produce', 'state-only', 'reserve')] [string] $Mode,
@@ -1150,8 +1222,7 @@ try {
             Copy-Item -LiteralPath $liveTransactionHost -Destination $targetedLiveHost -Force
             $child = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $internalHost, '-SandboxRoot', $SandboxRoot, '-ScriptPath', $targetedLiveHost, '-ArgumentsBase64', $hostArgumentsEncoded) -PassThru -WindowStyle Hidden -RedirectStandardOutput $outFile -RedirectStandardError $errFile
             Wait-FailpointController -Controller $controller -ExpectedCheckpoint $Checkpoint -TimeoutSeconds 90
-            Stop-FailpointProcessTree -Process $child
-            Wait-Process -Id $child.Id -Timeout 30 -ErrorAction SilentlyContinue
+            Stop-KilledLiveHostTree -Child $child -Checkpoint $Checkpoint
         }
         catch {
             $errText = ''
@@ -1159,9 +1230,8 @@ try {
                 $errText = [System.IO.File]::ReadAllText($errFile)
                 [System.IO.File]::WriteAllText((Join-Path $work ("dispatch-kill-error-$suffix.txt")), $errText, [System.Text.UTF8Encoding]::new($false))
             }
-            if ($null -ne $child -and -not $child.HasExited) {
-                Stop-FailpointProcessTree -Process $child
-                Wait-Process -Id $child.Id -Timeout 30 -ErrorAction SilentlyContinue
+            if ($null -ne $child) {
+                try { Stop-KilledLiveHostTree -Child $child -Checkpoint $Checkpoint } catch { }
             }
             throw "FAIL: kill window '$Checkpoint': $($_.Exception.Message)`n$errText"
         }
@@ -1906,6 +1976,7 @@ try {
         $scan=Invoke-Locator -FixtureName $fixtureName -JsonPath $reportPath
         $report=ConvertFrom-SemanticJson -Json ([IO.File]::ReadAllText($reportPath))
         Assert ($scan.Code -eq 0 -and $scan.Out -match 'Recovery scan: manual-recovery-required' -and $report.OverallStatus -ceq 'manual-recovery-required') "terminal $tamper corruption never reports clean"
+        Assert-LiveStatusResult -Invocation $scan -EvidenceRoot $work -Result FAIL -MessageToken 'manual-recovery-required' "terminal $tamper corruption emits the strict FAIL status result"
         Assert (@($report.Transactions).Count -eq 1 -and $report.Transactions[0].Status -ceq 'manual-recovery-required' -and @($report.Transactions[0].Reasons).Count -gt 0) "terminal $tamper corruption retains an explicit manual reason"
         Assert ((Get-SafeTreeSnapshot -Root $fixtureControl).TreeHash -ceq $before) "terminal $tamper status scan changes no journal bytes"
     }
@@ -2137,6 +2208,7 @@ try {
 
     $r = Invoke-RecoveryDispatch -Arguments @('-Status')
     Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: no-live-transaction' -and $r.Out -notmatch 'live-plan-authority-missing') 'the status route reports the proven empty state on a MISSING bootstrap with no namespace (open-item 1g)'
+    Assert-LiveStatusResult -Invocation $r -EvidenceRoot $dispatchWork -Result PASS -MessageToken 'no-live-transaction' 'the empty-state status stdout carries the strict registered command result (open-item 1g emitter)'
     $r = Invoke-RecoveryDispatch -Arguments @('-Status', '-JsonPath', (Join-Path $dispatchWork 'status-empty.json'))
     Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $dispatchWork 'status-empty.json'))) 'the empty-state status writes its JsonPath report create-new (open-item 1g)'
     $emptyReport = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $dispatchWork 'status-empty.json')))
@@ -2153,6 +2225,7 @@ try {
     New-Item -ItemType Directory -Force -Path $partialControl | Out-Null
     $r = Invoke-SafetySandboxScript -SandboxRoot $warnWork -ScriptPath $recoveryScript -Arguments @('-Status') -AuthorityRepoRoot $RepoRoot
     Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: authority-missing' -and $r.Out -match 'live-plan-authority-missing') 'the status route reports a structured WARN when the incomplete bootstrap cannot prove emptiness (open-item 1g)'
+    Assert-LiveStatusResult -Invocation $r -EvidenceRoot $warnWork -Result WARN -MessageToken 'live-plan-authority-missing' 'the incomplete-bootstrap status stdout carries the strict WARN command result (open-item 1g emitter)'
     $stubPlan = Join-Path $dispatchWork 'stub-plan.json'
     $r = Invoke-RecoveryDispatch -Arguments @('-Action', 'abandon', '-TransactionId', $dispatchTx, '-DryRun', '-PlanPath', $stubPlan)
     Assert ($r.Code -ne 0 -and $r.Out -match 'live-plan-authority-missing') 'the dispatch route fails closed without a complete authority'
@@ -2194,6 +2267,7 @@ Write-Host 'dispatch sandbox authority bootstrap complete'
     Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the status route resolves the injected authority and reports clean'
     $r = Invoke-SafetySandboxScript -SandboxRoot $dispatchWork -ScriptPath $cliScript -Arguments @('live', 'recover', 'status') -AuthorityRepoRoot $RepoRoot
     Assert ($r.Code -eq 0 -and $r.Out -match 'Recovery scan: clean') 'the CLI live recover status route reports through the injected authority'
+    Assert-LiveStatusResult -Invocation $r -EvidenceRoot $dispatchWork -Result PASS -MessageToken 'no-live-transaction' 'the CLI status route emits the strict registered command result on a clean scan'
 
     # Task 6 Step 3 dispatcher: with the authority bootstrapped, DryRun
     # derives the reviewed plan under the origin lock order and Apply

@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-27 (current-state entry only)
+Last updated: 2026-10-02 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -84,10 +84,65 @@ full residual-item 1 closure (1a-1f on 2026-09-27 plus the owner-approved 1b/1g 
 the guide-checker reflection re-pin, and the re-sealed hard-kill self-seals; its own CI sample
 was [#170](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36622856057) (all four
 jobs green) and the disposable-identity lab `validation-c17-01` (11 gates all PASS, 43/43
-suites, zero failures or timeouts, 8158 s). The current open items are listed under
-"2026-09-29 收尾：待办清单" at the end of the activity record (the deferred
-pending-intent publication fix, the live-operation-result emitter slice, the environmental
-live-recovery sharing issue, the mutation-route evidence age, and the release path). Earlier
+suites, zero failures or timeouts, 8158 s). On 2026-09-30 the owner authorized completing the
+remaining open items: the branch `codex/s7-open-items` closes open-items 2/3/4 of the
+2026-09-29 handoff — the P2#2 pending-publication snapshot reload (`0f7e295`), the full
+live-operation-result command emitter slice (`8d48795`), and the R3 fixture fix for the
+environmental live-recovery header shared-conflict — with local targeted suites green
+(canonical-recovery 157/0, live-recovery 420/0, seams 66/0, artifact contracts 34+205),
+hard-kill/seams/closure pins re-verified, and **CI run
+[#173](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36672463140) all four jobs
+green**. The disposable-identity lab and the 14 mutation routes are deferred to a quiet-host
+window after three load-blocked attempts (evidence and diagnosis in
+[the 2026-09-30 record](status/active/live-safety-hardening.md#2026-09-30-晚补记ci-绿lab-三次尝试均被主机负载阻断)),
+so **candidate `8d48795` acceptance is not claimed**; the remaining open items are the lab +
+route refresh, the local `-All`/hard-kill full green samples, and the release path (per-item
+owner authorization). The record-commit successor run
+[#175](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36706179096) is all four
+jobs green on `c63797d`; the one shard-3 `live-recovery` red on the docs-only `17a60ee`
+([#174](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36695742094)) was closed
+as a flake by that same-bytes successor per the [CI failure rules](docs/CI_FAILURE_RULES.md),
+and the branch's final head `0f07a59` carries its own all-green sample
+([#176](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36716647375)). The
+[2026-09-30 handoff list](status/active/live-safety-hardening.md#2026-09-29-收尾待办清单接手入口)
+items 5-8 are the next window's entry: the quiet-host evidence bundle (lab, 14 mutation
+routes, local `-All`/hard-kill), the per-item release-path authorization (a 2026-09-30 ask
+went unanswered and stays per-item pending), the `@()` array-flattening parse-gate candidate,
+and the on-machine material index.
+
+**2026-10-01 authorization window.** The owner granted the full closeout ask ("授权"): the
+four release-path items, CI job-log read access, and the candidate merge once item-5
+evidence is complete. Executed so far: the #174 red was root-caused from its fetched job
+log to this window's own quiesce helper (a recycled PID read as alive forever); the helper
+is rewritten PID-reuse-immune (`665cfb9`, local live-recovery 421/0, CI #178 all green).
+Local hard-kill ran **318/0 green** in a clean window. The disposable-identity lab and the
+local `-All` are **blocked by the host, not by code**: a minimal sandbox probe proved the
+host-sandbox mapped-folder channel is broken (zero bytes reach the host), and two `-All`
+attempts were killed by recurring external interference (a ~25-minute process cap /
+`0xC0000142` process-creation exhaustion with `CodexSandboxService` events in the log;
+attempt evidence in `tmp/s7-open-items/evidence/`). **Owner action required: reboot the
+host and keep the Codex CUA/sandbox service idle during the evidence window**; then the
+chain resumes: lab → 14 mutation routes → local `-All` → acceptance record → merge →
+release path. CI sample #181 (docs-only, same test bytes as the green #179/#180) showed one
+shard-2 `root-claims-registry` red; its log is fetched, the suite reruns green locally on
+the same bytes, and this record's CI run is its same-bytes successor sample.
+
+**2026-10-02: candidate accepted.** The branch head `dfa21d1` (code candidate `3897dc4`:
+the P2#2 snapshot-reload fix, the full live-operation-result command emitter, and the
+PID-reuse-immune quiesce rewrite) is **accepted on the three evidence sets**: local `-All`
+43/43 (zero failures/timeouts, 05:31-08:04) with hard-kill 318/0, live-recovery 421/0,
+canonical-recovery 157/0, seams 66/0 and the artifact contracts all green; the
+disposable-identity lab `validation-c18-09` (11/11 gates, 43/43 suites, zero
+failures/timeouts, candidate/kit hashes matched); and CI runs #176-#184 all green on the
+tip lineage. The 14 S4 mutation routes were also refreshed for the first time since C6/C10
+— **14/14 PASS** — closing the recorded evidence-age limitation. The owner authorized the
+merge on 2026-10-01; the merge execution and its CI samples are recorded in
+[the 2026-10-02 record](status/active/live-safety-hardening.md#候选接受分支头-dfa21d1-2026-10-02代码候选-3897dc4).
+Remaining open items: the release path (S5 read-only/DryRun, per-machine runner approval,
+real-machine canonical setup DryRun, real deployment — authorized 2026-10-01, none
+executed yet), the `@()` flattening parse-gate candidate, and the on-machine material
+index. No real Apply, adopt, activate, deployment, or runner approval has been executed.
+Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,

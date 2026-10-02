@@ -60,6 +60,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'live-transaction-common.ps1')
 . (Join-Path $PSScriptRoot 'backup-receipt-common.ps1')
 . (Join-Path $PSScriptRoot 'canonical-transaction-common.ps1')
+. (Join-Path $PSScriptRoot 'live-command-result.ps1')
 
 $script:LiveRecoveryHostResolutionRequired = 'live-plan-host-resolution-required'
 $script:LiveRecoveryAuthorityMissing = 'live-plan-authority-missing'
@@ -1059,6 +1060,31 @@ else {
         foreach ($reason in @($entry['Reasons'])) { Write-Host ("    reason: {0}" -f $reason) }
     }
 }
+
+# Full live command-result emission (command-lifecycle slice): the status verb
+# ends its stdout with one registered live-operation-result command document.
+# The scan outcome maps onto the command-lifecycle severity and its paired
+# registered token; the emitter self-validates the document against the
+# registered contract before printing. operation-lock-busy stays an
+# unswallowed throw in the authority gate above and never reaches this block.
+if ($null -ne $script:LiveRecoveryStatusScanOverride) {
+    $statusResult = if ($script:LiveRecoveryStatusScanOverride -ceq 'no-live-transaction') {
+        New-LivePublicCommandResult -Result PASS -MessageToken 'no-live-transaction'
+    }
+    else {
+        New-LivePublicCommandResult -Result WARN -MessageToken $script:LiveRecoveryAuthorityMissing
+    }
+}
+elseif ($overall -ceq 'clean') {
+    $statusResult = New-LivePublicCommandResult -Result PASS -MessageToken 'no-live-transaction'
+}
+elseif ($overall -ceq 'manual-recovery-required') {
+    $statusResult = New-LivePublicCommandResult -Result FAIL -MessageToken 'manual-recovery-required'
+}
+else {
+    $statusResult = New-LivePublicCommandResult -Result WARN -MessageToken 'live-recovery-required'
+}
+Write-LivePublicCommandResult -Document $statusResult -ToolchainRoot $script:CanonicalToolchainRoot -ValidationPath $PSCommandPath
 
 if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {
     $jsonFull = [System.IO.Path]::GetFullPath($JsonPath)

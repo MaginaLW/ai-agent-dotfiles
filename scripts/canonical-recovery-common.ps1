@@ -599,7 +599,13 @@ function Publish-CanonicalSetupFinalStateForRecovery {
     $claimRecords=@($State.Records|Where-Object{[string]$_.Phase -in @('SETUP_CLAIM_INTENT','SETUP_CLAIM_PUBLISHED')})
     if($claimRecords.Count -eq 1 -and [string]$claimRecords[0].Phase -ceq 'SETUP_CLAIM_INTENT'){$null=Add-CanonicalJournalRecord -TransactionNamespace $State.TransactionNamespace -Phase SETUP_CLAIM_PUBLISHED -Data ([ordered]@{ClaimHash=[string]$setup.ExpectedClaimHash})}
     $stateRecords=@($State.Records|Where-Object{[string]$_.Phase -in @('SETUP_STATE_INTENT','SETUP_STATE_PUBLISHED')})
-    if($stateRecords.Count -eq 0){$null=Add-CanonicalJournalRecord -TransactionNamespace $State.TransactionNamespace -Phase SETUP_STATE_INTENT -Data ([ordered]@{StateHash=[string]$Classification.SetupState.ExpectedFinalStateHash})}
+    if($stateRecords.Count -eq 0){
+        $null=Add-CanonicalJournalRecord -TransactionNamespace $State.TransactionNamespace -Phase SETUP_STATE_INTENT -Data ([ordered]@{StateHash=[string]$Classification.SetupState.ExpectedFinalStateHash})
+        # The intent append writes to disk only; the pending-publication reader below
+        # requires it inside the snapshot it is handed, so reload the journal instead of
+        # failing the first publish and waiting for a reload-retry to self-heal.
+        $State=Get-CanonicalJournalStateForAppend -TransactionNamespace $State.TransactionNamespace
+    }
     elseif($stateRecords.Count -gt 2 -or [string]$stateRecords[0].Phase -cne 'SETUP_STATE_INTENT'){throw 'manual-recovery-required: setup state journal sequence is invalid'}
     if(Test-Path -LiteralPath $statePath){
         $existing=Read-CanonicalJsonContractFile -Path $statePath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-setup-state.schema.json')
