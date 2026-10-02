@@ -5828,7 +5828,9 @@ DryRun、部署。
 
 ## 2026-09-29 收尾：待办清单（接手入口）
 
-上节接受后，当前**全部开放项**（冲突时以本节为准）。2026-10-01 更新：窗口收尾，候选分支
+上节接受后，当前**全部开放项**（冲突时以本节为准）。2026-10-02 更新：待办 5 已收口——
+候选 `dfa21d1`（代码候选 `3897dc4`）三证据集齐全并已写接受记录（见文末），14 条 mutation
+路线 14/14 PASS 刷新完成、证据时效限制关闭。2026-10-01 更新：窗口收尾，候选分支
 `codex/s7-open-items` 头 `0f07a59` 三 CI 样本全绿（#173/#175/#176），待办 5-8 为下窗口
 接手入口。2026-09-30 更新：待办 2/3/4 已按所有者"完成剩余待办任务"的授权收口（见文末
 2026-09-30 节）。2026-09-29 更新：待办 1（merge）已按所有者授权执行完毕——`main` =
@@ -5843,32 +5845,20 @@ DryRun、部署。
 4. ~~**环境性 live-recovery 共享冲突**~~ ✅ 2026-09-30 按 R3 收口：根因为夹具树终止只等根
    PID，已改静止等待；同机负载下 420/0 绿样本（同上节）。harness-authority 的同类夹具
    （:1522/:1605 历史红点）未改，复现时按同款处置。
-5. **安静主机窗口补齐候选证据（下窗口第一优先）**：候选 `8d48795`（分支
-   `codex/s7-open-items`，CI #173/#175/#176 三样本全绿）还缺两类证据才可谈接受：
-   - 一次性身份 lab `validation-c18-04+`（kit `tmp/lab-postaudit-22` 冻结可用，candidate
-     `8d4879504…`、kit `57a819d7…` 不变，直接 `tmp/s7-open-items/launch-c18-0N.ps1` 改标签
-     复用；09-30 三次尝试 `validation-c18-01/02/03` 全部被主机负载阻断——两次映射通道停滞
-     在 4096 字节边界、一次 guest 启动超时，见 2026-09-30 节；启动前确认无 Codex CUA 服务
-     群等外部负载，套件墙钟死线在争用下不可信）；
-   - 14 条 mutation 路线串行重跑（lab 完成后同一 kit 按既有 per-route 会话执行）；
-   - 本地 `-All` 统一回归与 hard-kill 全量绿样本（同样需安静窗口；09-30 的 hard-kill 两红
-     已由 HEAD 干净检出对照归因为主机负载，非候选字节）。
-   三者齐全后按三证据集口径写接受记录；merge 到 `main` 已获所有者授权（2026-10-01，见
-   待办 6），证据补齐后即可执行。
-6. ~~**发布路径（全部待所有者逐项授权）**~~ **已获所有者授权（2026-10-01 13:1x，答复原文
-   "授权"）**：针对收尾摘要列出的三项决定整体授权——① 待办 6 四项（S5 剩余只读/DryRun、
-   真实部署 F5、逐机 runner 批准、真机 canonical setup DryRun）；② CI 作业日志读取（存储
-   Git 凭据只读）；③ merge 候选进 `main`（待本清单第 5 项证据补齐后执行）。执行仍按依赖
-   顺序与各自门禁：lab → 路线 → 本地全量 → 接受记录 → merge → 发布路径；每次真实 Apply
-   前照旧走 reviewed plan 与既有验收，不因授权放宽任何门禁。
+5. ~~**安静主机窗口补齐候选证据**~~ ✅ 2026-10-02 已收口：lab `validation-c18-09`
+   （11/11 门 + 43/43 套件）、14 条 mutation 路线 14/14 PASS、本地 `-All` 43/43——三证据集
+   齐全，接受记录见文末；merge 已获所有者授权（见待办 6）。
+6. **发布路径（已获所有者授权，2026-10-01；执行中）**：S5 剩余只读/DryRun、真实部署（F5）、
+   逐机 runner 批准、真机 canonical setup DryRun。接受记录已写，merge 待执行（本窗口）；
+   S5/部署/runner 各项按逐机顺序推进，每次真实 Apply 前照旧 reviewed plan 与既有验收。
 7. **`@()` 嵌套数组语句展平坑转可执行检查**（第二次出现后按既有规则转检查）：解析门禁
    `scripts/check-powershell-syntax.ps1` 增加基于 AST 的展平检测，或在同仓代码评审清单中
    固化；触发实例与修法见 2026-09-30 节待办 3 与机内记忆。
-8. **机内材料索引**（不入库）：`tmp/lab-kit-source`（纯净 lab 源）、`tmp/lab-postaudit-21`
-   （= c17 证据）、`tmp/lab-postaudit-22`（= c18 冻结 kit + 三次阻断尝试证据）、
-   `tmp/s6-residuals/`（S6 报告、重封补丁与启动脚本）、`tmp/s7-open-items/`（c18 启动脚本
-   与 host 日志）、`tmp/reseal-hard-kill.ps1`、`tmp/seams-delta.ps1`、`tmp/hk-closure-check.ps1`
-   （重封/基线/闭包静态核验探针）。
+8. **机内材料索引**（不入库）：`tmp/lab-kit-source`（纯净 lab 源，含 c23 transport 修复）、
+   `tmp/lab-postaudit-21`（c17 证据）、`tmp/lab-postaudit-22/23`（c18 冻结 kit；c23 = 胜出
+   kit）、`tmp/s7-open-items/`（启动器 v1-v5、15 条路线 host 日志、lab/-All/路线汇总与
+   `evidence/` 取证）、`tmp/s6-residuals/`（S6 报告与重封补丁）、`tmp/reseal-hard-kill.ps1`、
+   `tmp/seams-delta.ps1`、`tmp/hk-closure-check.ps1`。
 
 ## 2026-09-29 合并执行（所有者授权）
 
@@ -6117,3 +6107,48 @@ validate-json-artifacts、unified-test-runner、dangerous-tracked-files、clean-
 **下一步**：14 条 mutation 路线已按同 kit/candidate 串行启动
 （`tmp/s7-open-items/launch-c18-routes.ps1`，15 个会话）；路线后补本地 `-All`；随后按已
 授权链写接受记录（候选 = 分支头 `3897dc4`）→ merge → 发布路径四项。
+
+### 2026-10-02 凌晨：14 条 mutation 路线刷新完成
+
+**14/14 条路线在候选 `3897dc4`（kit c23）上全部 PASS**——这是自 C6/C10（2026-09-25）以来
+路线证据首次刷新，长期挂账的"mutation 路线证据时效"限制就此关闭。执行明细：
+
+- `chain`、`retirement`：会话式标签批次通过（23:26-23:44）。
+- 13 条动作标签批次（`changed-rollback`、`task`、authority 五条、recovery 六条，01:19-05:30，
+  `launch-c18-routes5.ps1`）：全 PASS，route-result 逐条 PASS。
+- 会话卫生经验（三次启动器迭代后收敛，全部留证）：路线子脚本的 `-Label` 受 ValidateSet
+  约束（动作名），会话标签必须与之相同；失败引导的会话不会自然关机、其残留进程会阻塞
+  后续启动，需要"杀掉 + 稳定清零等待"；正常路线经 prelude 的 shutdown 自然拆除，不毒化。
+  失败尝试的会话目录（`route-c18-*` 命名的一批与 `changed-rollback-boot-failed-*`）保留
+  原状作为过程证据。
+
+### 本地 -All 全量绿（2026-10-02 05:31-08:04）
+
+静默窗口（负载 8%）实跑统一入口：**`Test summary: PASS; discovered=43; passed=43;
+failed=0; timed-out=0`**，exit 0（约 2.5 小时；摘要 JSON 存
+`tmp/s7-open-items/evidence/all-run5-summary.json`）。此前 10-01 两次尝试的失败已归因为
+主机侧事件（重启与资源耗尽），本次三红两绿的判别全部落地为绿。
+
+### 候选接受：分支头 `dfa21d1`（2026-10-02，代码候选 `3897dc4`）
+
+**接受对象**：分支 `codex/s7-open-items` 头 `dfa21d1`（= 代码候选 `3897dc4` + 其后记录
+提交；代码候选 = `0f7e295` P2#2 修复 + `8d48795` 发射器切片 + `665cfb9` 静止助手重写，
+之后均为记录/文档提交）。**三证据集齐全**：
+
+1. **本地**：`-All` 43/43 零失败零超时（05:31-08:04）；hard-kill 全量 **318/0**（14:34
+   窗口样本）；live-recovery **421/0**；canonical-recovery **157/0**；seams **66/0**；
+   `validate-json-artifacts -All` 34 正 + 205 负全 PASS；解析门 183 文件；secret scan
+   无阻塞。
+2. **一次性身份 lab**：`validation-c18-09`（kit c23 `8741fe1a…`，candidate `3897dc4`）：
+   **11 门全 PASS、43/43 套件、0 失败 0 超时**，completion ExitCode 0，candidate/kit 与冻结
+   清单一致，guest 自然关机。
+3. **CI**：分支头 `dfa21d1` 的 run
+   [#184](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36883646957) 四作业
+   全绿；同一谱系 #176-#183 亦全绿（#178 = 静止助手修复验证样本；#181 红样本已按同字节
+   后继 #182 收口）。merge 后另补 merge 头与记录头样本。
+
+**附带刷新**：14/14 mutation 路线 PASS（本窗口新增，关闭证据时效限制）。
+
+**边界**：本接受 = 上述对象在三证据集与路线刷新上合格。**未执行**：merge 之外的任何发布
+动作——真实 Apply、adopt、activate、真机 DryRun、部署、逐机 runner 批准一概未执行（这些
+属待办 6 的发布路径四项，已授权待逐项推进）；push 仅为候选分支与记录（未触碰 `main`）。

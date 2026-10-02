@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-01 (current-state entry only)
+Last updated: 2026-10-02 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -126,6 +126,22 @@ chain resumes: lab → 14 mutation routes → local `-All` → acceptance record
 release path. CI sample #181 (docs-only, same test bytes as the green #179/#180) showed one
 shard-2 `root-claims-registry` red; its log is fetched, the suite reruns green locally on
 the same bytes, and this record's CI run is its same-bytes successor sample.
+
+**2026-10-02: candidate accepted.** The branch head `dfa21d1` (code candidate `3897dc4`:
+the P2#2 snapshot-reload fix, the full live-operation-result command emitter, and the
+PID-reuse-immune quiesce rewrite) is **accepted on the three evidence sets**: local `-All`
+43/43 (zero failures/timeouts, 05:31-08:04) with hard-kill 318/0, live-recovery 421/0,
+canonical-recovery 157/0, seams 66/0 and the artifact contracts all green; the
+disposable-identity lab `validation-c18-09` (11/11 gates, 43/43 suites, zero
+failures/timeouts, candidate/kit hashes matched); and CI runs #176-#184 all green on the
+tip lineage. The 14 S4 mutation routes were also refreshed for the first time since C6/C10
+— **14/14 PASS** — closing the recorded evidence-age limitation. The owner authorized the
+merge on 2026-10-01; the merge execution and its CI samples are recorded in
+[the 2026-10-02 record](status/active/live-safety-hardening.md#候选接受分支头-dfa21d1-2026-10-02代码候选-3897dc4).
+Remaining open items: the release path (S5 read-only/DryRun, per-machine runner approval,
+real-machine canonical setup DryRun, real deployment — authorized 2026-10-01, none
+executed yet), the `@()` flattening parse-gate candidate, and the on-machine material
+index. No real Apply, adopt, activate, deployment, or runner approval has been executed.
 Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
