@@ -6162,3 +6162,31 @@ merge commit `9e2469f`（main `ebe1449` → `9e2469f`），已推送；merge 头
 样本随本节提交另行产生。合并前 `main` 旧头 `ebe1449` 的样本 #172 为四作业全绿。
 真实 Apply、adopt、activate、真机 DryRun、部署、逐机 runner 批准仍未执行——发布路径四项
 按待办 6 逐项推进。
+
+### S5 逐机只读检查点（本机，2026-10-02）
+
+按 S5 合同读取本机只读状态（均为公开入口、零写；输出为结构化命令文档）：
+
+| 命令 | 结果 |
+|---|---|
+| `canonical status -RepoRoot .` | WARN / `canonical-setup-required`，exit 0 |
+| `canonical recover status -RepoRoot .` | PASS / `no-canonical-transaction`，exit 0 |
+| `env authority status` | PASS（exit 0）：路线 **adopt**；home authority 可解析（`55088fb6…`）；claims/state/pair MISSING；recovery: clean；live roots pristine: **False**；codex `.system`: present-marker |
+| `live recover status` | **新发射器首次真机运行**：stdout 末行为严格注册文档 `live-operation-result`（`Result=WARN`、`MessageToken=live-plan-authority-missing`、`LifecycleKind=no-transaction`），**exit 0**（同机在 Task 9 记录中曾为 FAIL exit 1）；Command result PASS |
+
+状态解读：本机 canonical setup 缺失、authority 路线为 adopt（live 根非 pristine，需明确
+环境选择，不默认 work）。按 S5"canonical setup 缺失时仅准备 setup DryRun 并停"推进；真实
+Apply 前的计划需经外部新计划 + 审查，未执行任何写操作。
+
+**真机 canonical setup DryRun 尝试与边界（2026-10-02，记录即停）**：按文档化公开入口执行
+`canonical setup -RepoRoot . -DryRun -PlanPath <外部新路径>`（三次尝试，含一次内层脚本直调
+以取原始异常）：**均以结构化 FAIL 关闸**——`Result=FAIL`、
+`MessageToken=canonical-command-failed`（公共包装只回 token，原始异常不入输出）；**三次均
+零写**（外部计划路径未创建），只读确认 `%LOCALAPPDATA%\ai-agent-dotfiles` 控制树
+（含 control/canonical-roots）不存在，与 claims/state/pair MISSING、setup-required 一致，
+故失败点不是 ControlBase 已存在的前置。结合 authority 路线=adopt：**setup DryRun 的前置
+很可能是未完成的 authority adopt 阶段（或真机入口应经
+`scripts/internal/live-transaction-host.ps1` + 外部新计划的受控路径）**。按 S5"入口边界
+先解决、不以裸调用试探联锁"的规则，此处**停在边界处交路由审查**，不继续深入：下一窗口
+在发布路径工作中先定置该入口与 adopt 阶段的依赖顺序，再准备经审查的外部计划；真实 Apply
+仍未执行（照旧收紧于 reviewed plan + 既有验收之后）。
