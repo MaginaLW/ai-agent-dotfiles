@@ -159,14 +159,17 @@ isolation boundaries and actual validation.
 (record: [the 2026-10-03 activity section](status/active/live-safety-hardening.md#2026-10-03-收尾审计窗口ci-状态补证与-setup-dryrun-入口边界收口)).
 The main-top CI gap is closed: an authorized read-only API query shows Validate runs #186 (merge
 commit `9e2469f`), #187 (`dca5f5c`) and #188 (head `e93d5b6`) each green on all four jobs. The
-real-machine setup-DryRun boundary is resolved by route review: the fail-closed cause is the
-canonical private-root ancestor security precondition — the repository's parent directory grants
-inherited broad-SID write rights (`canonical-transaction-common.ps1:1120-1131`), which no
-plan-path choice can bypass; the remedy (tighten that directory's DACL or relocate the repository)
-is an owner machine decision, and no code change is proposed. "I2" is confirmed as defined in
-harness-model's committed docs (the expand-repos/platforms gate); this repository's side has no
-new gaps and the gate remains upstream-controlled. Nothing was Applied, adopted, activated,
-deployed, or runner-approved.
+real-machine setup-DryRun boundary is resolved and executed: the fail-closed cause is the
+canonical private-root ancestor security precondition (`canonical-transaction-common.ps1:1120-1131`);
+under the owner's delegated decision the repository's parent directory was hardened to carry no
+broad-SID Allow entries (SYSTEM/Administrators full control and an explicit owner-user Modify
+only), and the first real-machine setup DryRun **passed** (`canonical-plan-created`, PlanHash
+`2a2ad62e…`, plan retained at a machine-private same-volume external path) — still stopped before
+Apply, which needs the reviewed-plan step and per-item authorization; the adopt environment
+`<name>` remains an owner decision. "I2" is confirmed as defined in harness-model's committed
+docs (the expand-repos/platforms gate); this repository's side has no new gaps and the gate
+remains upstream-controlled. Nothing was Applied, adopted, activated, deployed, or
+runner-approved.
 
 Remote main and run-status snapshot, rechecked **2026-10-03 (authorized read-only API query)**:
 `main` is `e93d5b6`, with Validate runs #186 (merge commit `9e2469f`), #187 (`dca5f5c`) and #188

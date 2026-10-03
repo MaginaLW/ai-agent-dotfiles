@@ -5852,8 +5852,9 @@ DryRun、部署。
    逐机 runner 批准、真机 canonical setup DryRun。接受与 merge 已完成；本节各项按逐机顺序
    推进，每次真实 Apply 前照旧 reviewed plan 与既有验收。
    2026-10-03：真机 setup 入口边界收口——绑定前置为私有根祖先安全（仓库父目录含宽泛 SID
-   继承写位，`canonical-transaction-common.ps1:1120-1131`）；修复（收紧该目录 DACL 或迁移
-   仓库）为所有者机器决定，完成前本机 setup/adopt 无 Apply 可言（详见文末 2026-10-03 节）。
+   继承写位，`canonical-transaction-common.ps1:1120-1131`）；所有者授权后已按方案 (i) 收紧
+   该目录 DACL，同日真机 setup DryRun **PASS** 并生成计划（PlanHash `2a2ad62e…`，详见文末
+   2026-10-03 节）；setup Apply 待计划审查 + 逐项授权，adopt 的 `<name>` 选择仍待所有者。
 7. **`@()` 嵌套数组语句展平坑转可执行检查**（第二次出现后按既有规则转检查）：解析门禁
    `scripts/check-powershell-syntax.ps1` 增加基于 AST 的展平检测，或在同仓代码评审清单中
    固化；触发实例与修法见 2026-09-30 节待办 3 与机内记忆。
@@ -6281,3 +6282,27 @@ Authenticated Users `S-1-5-11`、BUILTIN\Users `S-1-5-32-545`）授予写/修改
 current-state 顶部 Task-8 时代的叙述段已加 Superseded 标注（原文保留）；"Remote main and
 run-status snapshot" 块更新为 2026-10-03 复核结果；本日补一条 2026-10-03 current-state 摘要。
 更正纪律说明：本次为"追加标注 + 快照更新"，未改写历史正文。
+
+### 所有者授权的机器前置修复与首次真机 setup DryRun 计划生成（2026-10-03）
+
+所有者对上文边界结论的决定点答复"你来决定，按推荐进行"。按推荐执行方案 (i)（收紧仓库父目录
+DACL，不迁仓），以 `Assert-CanonicalControlledPrivateAncestorSecurity`（:1120-1131）为合同：
+
+- **最终 DACL**（仓库父目录，SDDL before/after 存证
+  `tmp/closeout-audit-20261003/evidence/d-repos-dacl-before-20261003.txt`、`-after2-`/根目录
+  终态在案）：移除 `Authenticated Users` 两条 Allow（Modify 与 SDGXGWGR）与 `BUILTIN\Users`
+  两条 Allow（ReadAndExecute 与 GXGR）；保留 SYSTEM/Administrators 完全控制与属主用户 SID
+  的可继承 Modify。回滚手段：SDDL 备份 + `icacls /reset`。
+- **过程更正（如实记录）**：仅移除 AU 后本会话失去对全树的写入——本机进程为 UAC 过滤令牌，
+  此前写权实际来自 AU 项，遂改为显式属主用户 SID 授予；第 5 次 DryRun 仍 FAIL 后按检查同
+  口径复算规则，发现其在 pwsh 7 下的实际语义是「祖先不得有宽泛 SID 的**任何** Allow 项」
+  （枚举按位或掩码 0x1F01FF 含 Synchronize/读位，Users 只读执行项同样命中），故按合同一并
+  移除 BU 只读项。第 1-3 次尝试与计划路径无关的结论不变；检查代码未改。
+- **真机 setup DryRun 第 6 次尝试 PASS**（2026-10-03，证据
+  `tmp/closeout-audit-20261003/evidence/setup-dryrun-attempt6.*.txt`）：exit 0、
+  `Result=PASS`、`MessageToken=canonical-plan-created`、PlanHash `2a2ad62e362195e7a7236950f8c701b54fa3c3990a45cc311b351550a76a01d6`；计划文件 15,388 字节（SHA-256 `0b7b2c234985779e5089b751e36bf678bf4ff7680d28f01e194346a87a0b3a16`）生成于仓库同卷外部
+  专用目录（机内私有，完整路径见机内记忆）。写入边界=计划目录与 `%TEMP%` 瞬态；仓库、
+  live 根与私有根零写。
+- **停止点（不变）**：按 S5 合同停在真实 Apply 前。setup Apply 需经该计划审查 + 逐项授权
+  后以独立进程消费同一计划；后续 adopt 的环境 `<name>` 选择（不得默认 work/full）仍待
+  所有者。本节未执行任何 Apply/adopt/activate/部署/runner 批准。
