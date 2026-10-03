@@ -5851,6 +5851,9 @@ DryRun、部署。
 6. **发布路径（已获所有者授权，2026-10-01；执行中）**：S5 剩余只读/DryRun、真实部署（F5）、
    逐机 runner 批准、真机 canonical setup DryRun。接受与 merge 已完成；本节各项按逐机顺序
    推进，每次真实 Apply 前照旧 reviewed plan 与既有验收。
+   2026-10-03：真机 setup 入口边界收口——绑定前置为私有根祖先安全（仓库父目录含宽泛 SID
+   继承写位，`canonical-transaction-common.ps1:1120-1131`）；修复（收紧该目录 DACL 或迁移
+   仓库）为所有者机器决定，完成前本机 setup/adopt 无 Apply 可言（详见文末 2026-10-03 节）。
 7. **`@()` 嵌套数组语句展平坑转可执行检查**（第二次出现后按既有规则转检查）：解析门禁
    `scripts/check-powershell-syntax.ps1` 增加基于 AST 的展平检测，或在同仓代码评审清单中
    固化；触发实例与修法见 2026-09-30 节待办 3 与机内记忆。
@@ -5858,7 +5861,10 @@ DryRun、部署。
    `tmp/lab-postaudit-21`（c17 证据）、`tmp/lab-postaudit-22/23`（c18 冻结 kit；c23 = 胜出
    kit）、`tmp/s7-open-items/`（启动器 v1-v5、15 条路线 host 日志、lab/-All/路线汇总与
    `evidence/` 取证）、`tmp/s6-residuals/`（S6 报告与重封补丁）、`tmp/reseal-hard-kill.ps1`、
-   `tmp/seams-delta.ps1`、`tmp/hk-closure-check.ps1`。
+   `tmp/seams-delta.ps1`、`tmp/hk-closure-check.ps1`、`tmp/closeout-audit-20261003/`（CI 补证
+   run/job JSON、第 4 次 DryRun 证据、步进诊断、仓库父目录 DACL 取证）。setup DryRun 计划
+   未生成（祖先安全前置未满足，见文末 2026-10-03 节）；仓库同卷另有机内私有外部专用根目录
+   （不入库，完整路径见机内记忆）。
 
 ## 2026-09-29 合并执行（所有者授权）
 
@@ -6190,3 +6196,88 @@ Apply 前的计划需经外部新计划 + 审查，未执行任何写操作。
 先解决、不以裸调用试探联锁"的规则，此处**停在边界处交路由审查**，不继续深入：下一窗口
 在发布路径工作中先定置该入口与 adopt 阶段的依赖顺序，再准备经审查的外部计划；真实 Apply
 仍未执行（照旧收紧于 reviewed plan + 既有验收之后）。
+
+## 2026-10-03 收尾审计窗口（CI 状态补证与 setup DryRun 入口边界收口）
+
+窗口任务：执行当日只读试点收尾审计（harness-model 登记任务 ZN-03 的建议后续）；所有者指示
+"完善清单并执行建议"。全部改动仅文档与记录；无 Apply、adopt、activate、部署或 runner 批准。
+
+### 建议1：main 顶端 CI 状态补证（前节"在途/无样本"UNKNOWN 关闭）
+
+按待办 6 授权的 CI 只读取数（CI_FAILURE_RULES 的"读取并分类"边界；未重跑、未改任何门禁），
+经存储凭据 REST API 查询 main 分支运行列表与作业级状态；原始 run/job JSON 留
+`tmp/closeout-audit-20261003/evidence/`（不入库）。查询时点 2026-10-03：run #186（merge
+commit `9e2469f`）、#187（`dca5f5c`）、#188（当前 main 头 `e93d5b6`）各自 **gates + 三个
+shard 四作业全 success**。上节"merge 头 CI run #186 在途、记录头样本另行产生"的不确定就此
+关闭：merge 后 main 的三个头字节各有自己的全绿样本。
+
+### 建议4：I2 定义确认（审计中的定义缺项关闭）
+
+harness-model 同级检出身份核对：远端 `github.com/MaginaLW/harness-model`，分支已由
+`codex/self-hosted-runner-inventory` 改名为 `codex/e4-followup-status`，HEAD `ef48db3`，工作树
+仅三个既有并行会话未跟踪方案文件（`docs/superpowers/plans/`，未触碰）。"I2" 在其**已提交
+字节**中有权威定义（所引四文件均 tracked；两份 2026-10-02 文档最后提交 `3d65282`）：
+
+- `docs/operations/follow-up-backlog-2026-09-22.md:867`（"I2：更多目标接入"——"每次选择一个
+  有实际需求的可信目标，独立验证权限、平台、安全、检查等价性、完整 CI 与回退；不自动扩仓"）。
+- `docs/operations/next-stage-start-conditions-2026-10-02.md:22`（逐项启动门："每次选一个实际
+  可信目标；权限/平台、检查等价性、准确候选完整 CI、可执行回退及目标项目准入"，并注明
+  "试点核对不等于新增接入完成，不自动扩到所有仓库"）。
+
+本审计即其登记任务 ZN-03（`docs/operations/zcode-next-stage-assignments-2026-10-02.md:96-100`，
+上游已记 completed）。逐条件对应本仓现状：真实需求 = 所有者逐目标点名（未点名不启动）；
+权限/平台 = 本仓既有授权边界不变；等价检查 = 五项适配与历次闭环既有；完整 CI = 本节建议1
+补证后 main 顶端三连绿；回退 = 本仓 rollback 机制与 14/14 路线证据。结论：本仓侧无新增缺项；
+I2 扩仓门维持 harness-model 侧的关闭状态（其记录：r3s 缺当前 SHA 的 POSIX 执行，不解除 I2
+或阶段门）；本次核对不构成任何新增接入。
+
+### 建议2：真机 setup DryRun 入口边界收口（设计评审 + 修正重试 + 单次步进诊断）
+
+第一段独立设计评审（修正动作执行前）对路由裁定草稿逐条核对代码引文，结论 **no blocking
+finding**，并推翻 2026-10-02 节的两条记录内假设：(a) "前置很可能是未完成的 authority adopt"
+不成立——DryRun 链（`setup-canonical-transaction.ps1:57-64` → `canonical-transaction.ps1:120-167`）
+不读取 claims/adopt/控制树状态，依赖方向相反（adopt 的 Apply 要求 canonical-ready，
+`authority-harness-env.ps1:263-266`；文档同序，`docs/ONBOARD_NEW_MACHINE.md:116-118、:192-193`）；
+(b) "真机入口应经 internal host" 不成立——`scripts/internal/live-transaction-host.ps1` 只服务
+interlocked/沙箱验证，released 态 DryRun 不调用联锁（`canonical-transaction.ps1:82-90` 仅
+Apply 分支；`live-safety-interlock.ps1:103-104` released 直接 return）。评审另确认计划父目录
+（=能力探测根）须与仓库同卷、Fixed+NTFS、无 reparse、无 `.target-capability-*` 残留
+（`target-context-common.ps1:865-871、:145-149、:854-862`）。
+
+修正重试（第 4 次尝试，计划父目录改为仓库同卷的外部专用新建目录）：仍 FAIL——回退 token
+`canonical-command-failed`、仓库/live/私有根零写、exit 1（证据
+`tmp/closeout-audit-20261003/evidence/setup-dryrun-attempt4.*.txt`；`%TEMP%` 瞬态 schema-copy
+为设计内行为）。按裁定预案做**单次**函数级步进诊断（与生产同装载、只读前置逐级复现，证据
+`tmp/closeout-audit-20261003/evidence/stepwise-diagnosis.txt`；该证据文件尾部另含诊断脚本自身
+栈打印的一处次要报错，属取证脚本缺陷，不影响 S1-S4 结论）：S1 git 上下文 OK、S2 私有根
+派生 OK、S3 计划路径解析 OK、S4 计划载荷 FAIL，同卷探测前置已通过，其后原始异常为：
+
+> `canonical private root ancestor grants broad write/delete-child access: D:\Repos`
+
+抛出点 `canonical-transaction-common.ps1:1128`（`Assert-CanonicalControlledPrivateAncestorSecurity`
+`:1120-1131`，经 `Get-CanonicalRootSecurityContext` :1133 作用于 recovery 根的最深已存在祖先，
+即仓库父目录）：祖先须为访问令牌所有者（:1123），且不得向宽泛 SID（Everyone `S-1-1-0`、
+Authenticated Users `S-1-5-11`、BUILTIN\Users `S-1-5-32-545`）授予写/修改/完全控制/删除/
+删除子项任一 Allow 位（:1124-1129）。机器事实（只读取证
+`tmp/closeout-audit-20261003/evidence/d-repos-dacl.txt`）：仓库父目录存在继承项
+`Authenticated Users | Allow | Modify`，恰中 :1128 判定。
+
+**边界结论**：本机 canonical setup（DryRun 与 Apply 同链）被私有根祖先安全前置阻断；该前置
+与计划路径无关（第 1-3 次尝试无论计划路径在何处都会死于 :1128；若某次计划路径在异卷，则会
+先死于跨卷探测——两者都在计划写入之前且都映射为回退 token，故 2026-10-02 的观察与全部
+前置相容）。2026-10-02 节的两条假设均被推翻，更正记录于此。修复途径均为所有者机器决定，
+本仓不改代码、不削弱检查：(i) 收紧仓库父目录 DACL（移除宽泛 SID 的写/删除子项继承，保留
+所有者/SYSTEM/Administrators）——该目录承载其他仓库，改动影响面由所有者评估；(ii) 将本仓
+迁至满足该前置的受保护父目录下。完成任一项后，按 `docs/ONBOARD_NEW_MACHINE.md:157-172` 的
+同一公开入口重新生成 setup DryRun 计划（create-new 外部路径）。评审的非阻塞改进（指南补
+前置说明）已落地为 `docs/ONBOARD_NEW_MACHINE.md` 的独立修正。
+
+**停止点**：按 S5 合同停在真实 Apply 前（本机在前置满足前无 Apply 可言）；后续 adopt 的环境
+`<name>` 选择（不得默认 work/full，`docs/ONBOARD_NEW_MACHINE.md:130`）与两次 Apply 的逐项
+授权仍是所有者决定点。
+
+### 建议3：STATUS.md 被推翻旧段标注（完成）
+
+current-state 顶部 Task-8 时代的叙述段已加 Superseded 标注（原文保留）；"Remote main and
+run-status snapshot" 块更新为 2026-10-03 复核结果；本日补一条 2026-10-03 current-state 摘要。
+更正纪律说明：本次为"追加标注 + 快照更新"，未改写历史正文。
