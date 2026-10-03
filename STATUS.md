@@ -1,12 +1,19 @@
 # Project Status
 
-Last updated: 2026-10-02 (current-state entry only)
+Last updated: 2026-10-03 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
 [`status/archived/`](status/archived/).
 
 ## Current state
+
+> **Superseded (2026-10-02).** The Task-8/Task-9 sequencing and rejected-candidate sentences in the
+> paragraph below describe the pre-acceptance audit state: candidate `dfa21d1` (code `3897dc4`) has
+> since been accepted on the three evidence sets and merged to `main` (see the 2026-10-02 entry
+> below). Still accurate: the release is not accepted — no real Apply, adoption, activation,
+> real-machine setup Apply, deployment, or runner approval has been executed — and the released
+> policy must not be read as a mechanical interlock.
 
 The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`, but
 **the release is not accepted**. Phase 4 implementation Tasks 1–7 are complete; the remaining
@@ -148,13 +155,28 @@ same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps
 [execution record](status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries and actual validation.
 
-Remote main and run-status snapshot, rechecked **2026-09-27 (收尾)**: `main` is `5bf3740`, with the
-latest Validate runs #162 (merge commit) and #163 (head) each green on all four jobs. Earlier CI
-outcomes (the 2026-09-23 snapshot against `627ef3f`/`#135`, the `codex/ci-regressions-e4-preflight`
-integration at `68ef2ec`, and the budget-re-tier runs #147-#152) remain in the activity record and the
-[pins repair record](status/archived/2026-09-21-ci-released-pin-repair.md); they are history, not
-evidence about the current tree. Read `git log origin/main..main` rather than trusting any snapshot
-here.
+**2026-10-03 closeout-audit window.** The read-only closeout audit's follow-ups were executed
+(record: [the 2026-10-03 activity section](status/active/live-safety-hardening.md#2026-10-03-收尾审计窗口ci-状态补证与-setup-dryrun-入口边界收口)).
+The main-top CI gap is closed: an authorized read-only API query shows Validate runs #186 (merge
+commit `9e2469f`), #187 (`dca5f5c`) and #188 (head `e93d5b6`) each green on all four jobs. The
+real-machine setup-DryRun boundary is resolved by route review: the fail-closed cause is the
+canonical private-root ancestor security precondition — the repository's parent directory grants
+inherited broad-SID write rights (`canonical-transaction-common.ps1:1120-1131`), which no
+plan-path choice can bypass; the remedy (tighten that directory's DACL or relocate the repository)
+is an owner machine decision, and no code change is proposed. "I2" is confirmed as defined in
+harness-model's committed docs (the expand-repos/platforms gate); this repository's side has no
+new gaps and the gate remains upstream-controlled. Nothing was Applied, adopted, activated,
+deployed, or runner-approved.
+
+Remote main and run-status snapshot, rechecked **2026-10-03 (authorized read-only API query)**:
+`main` is `e93d5b6`, with Validate runs #186 (merge commit `9e2469f`), #187 (`dca5f5c`) and #188
+(head `e93d5b6`) each green on all four jobs; raw run/job JSON is kept untracked under
+`tmp/closeout-audit-20261003/evidence/`. Earlier snapshots (the 2026-09-27 `5bf3740`/`#162`/`#163`
+recheck, the 2026-09-23 snapshot against `627ef3f`/`#135`, the `codex/ci-regressions-e4-preflight`
+integration at `68ef2ec`, and the budget-re-tier runs #147-#152) remain in the activity record and
+the [pins repair record](status/archived/2026-09-21-ci-released-pin-repair.md); they are history,
+not evidence about the current tree. Read `git log origin/main..main` rather than trusting any
+snapshot here.
 
 Do not rely on older claims that production Apply is mechanically interlocked: the candidate
 can reach released code paths. Preserve reviewed-plan, host, identity, secret-scan, and protected
