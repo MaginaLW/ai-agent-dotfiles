@@ -155,7 +155,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Initial plan failed; inspect the route, do not
 ```
 
 For a non-pristine identity requiring setup, skip the initial command. Generate the separate setup
-plan; the public wrapper derives its fixed private roots from Windows identity and the repository:
+plan; the public wrapper derives its fixed private roots from Windows identity and the repository.
+Two preconditions fail closed before any write: the plan's parent directory must already exist on
+the **same volume as the repository** (a `%TEMP%` path on another drive fails the filesystem
+capability probe), and the repository's parent directory — which hosts the derived canonical
+recovery root — must be owned by the access token and must not grant `Everyone`, `Authenticated
+Users` or `Users` any write/modify/delete-child right (`Assert-CanonicalControlledPrivateAncestorSecurity`);
+a shared development directory with inherited `Authenticated Users: Modify` is rejected. Both
+failures surface only as the `canonical-command-failed` fallback token, so check these two
+preconditions first when a real-machine setup DryRun fails without creating the plan:
 
 ```powershell
 $SetupPlan = Join-Path $EvidenceRoot 'canonical-setup-plan.json'
