@@ -5855,6 +5855,10 @@ DryRun、部署。
    继承写位，`canonical-transaction-common.ps1:1120-1131`）；所有者授权后已按方案 (i) 收紧
    该目录 DACL，同日真机 setup DryRun **PASS** 并生成计划（PlanHash `2a2ad62e…`，详见文末
    2026-10-03 节）；setup Apply 待计划审查 + 逐项授权，adopt 的 `<name>` 选择仍待所有者。
+   2026-10-06：计划审查完成（旧计划按时效契约过期；已于当前 HEAD 重新生成
+   `af65f539…`，实质与 10-03 评审版逐字段一致、零写核对通过）；**setup Apply 逐项授权已
+   请求未获答复——未执行**，计划保持未消耗；Apply 前须在同 HEAD 再生成一次（记录提交会使
+   现有计划过期），详见文末 2026-10-06 节。
 7. **`@()` 嵌套数组语句展平坑转可执行检查**（第二次出现后按既有规则转检查）：解析门禁
    `scripts/check-powershell-syntax.ps1` 增加基于 AST 的展平检测，或在同仓代码评审清单中
    固化；触发实例与修法见 2026-09-30 节待办 3 与机内记忆。
@@ -6306,3 +6310,34 @@ DACL，不迁仓），以 `Assert-CanonicalControlledPrivateAncestorSecurity`（
 - **停止点（不变）**：按 S5 合同停在真实 Apply 前。setup Apply 需经该计划审查 + 逐项授权
   后以独立进程消费同一计划；后续 adopt 的环境 `<name>` 选择（不得默认 work/full）仍待
   所有者。本节未执行任何 Apply/adopt/activate/部署/runner 批准。
+
+## 2026-10-06 计划审查窗口（setup Apply 前，审查完成待授权）
+
+所有者"继续"后接手发布路径。核对 10-03 状态（CI #186-#189 全绿）并按
+`assert-canonical-plan-current` 契约完成 setup 计划的**时效审查与重新生成**：
+
+- **旧计划判定过期（代码级契约）**：`Assert-CanonicalPlanCurrent`
+  （`scripts/canonical-transaction-common.ps1:1635`）在 Apply 时用**当前**仓库状态经
+  `New-CanonicalSetupPlanPayload` 重派生载荷并比对 PlanHash；载荷含 `RepositoryCommit`，
+  故 10-03 计划（绑 `977a8be`）在当前 HEAD `ac8e485` 下必被判 `canonical-plan-stale`，
+  未被消费、未执行 Apply。
+- **重新生成（当前 HEAD）**：`canonical setup -RepoRoot . -DryRun -PlanPath
+  <机内私有外部路径>/setup-dryrun-20261006/plan.json` → **PASS / `canonical-plan-created`**：
+  PlanHash `af65f539d7041b0608db9c9ee3b5937b5d097b3a7b28ec6986564f69f4a5ef7d`；文件
+  SHA-256 `89062152a9c0e95b231446cdd1882f18a41041390ad7abb437f724264d58c238`；DocumentHash
+  `da76a2cc…`；绑定 HEAD `ac8e4854…`。
+- **计划审查（本窗口）**：① 与 10-03 计划逐字段 diff——仅 5 处差异且全部为
+  commit/时间戳/派生哈希（`DocumentHash`、`Metadata.CreatedAtUtc`、
+  `Metadata.RepositoryCommit`、`PlanHash`、`PlanPayload.RepositoryCommit`），**根、SID、
+  意图、claim、后置条件与 10-03 已做设计评审的版本完全一致**；② 效果边界核对：Apply 创建
+  三个 MISSING 意图私有根——recovery 根
+  `D:\Repos\.ai-agent-dotfiles-canonical-recovery\<repoId>`（收紧 DACL 的父目录下）、
+  control 与 backups 于 `%LOCALAPPDATA%\ai-agent-dotfiles\`；属主=当前用户 SID
+  `S-1-5-21-…-1000`；③ 零写核对：DryRun 后两处私有根均不存在、无 `.target-capability-*`
+  残留、计划目录仅 plan.json。
+- **操作约束**：计划与仓库 fingerprint 绑定——**任何后续仓库提交（含本记录提交）都会使其
+  过期**；Apply 前须在当前 HEAD 重新生成一次（同一公开入口、create-new 外部路径，成本即一次
+  DryRun），然后以独立进程消费该新计划。
+- **停止点**：setup Apply 属首个真实写入，本窗口已向所有者请求逐项授权**未获答复**——按
+  诚实原则不执行、不推定授权；计划保持未消耗状态。adopt 的环境 `<name>` 选择与逐机
+  runner 批准、真实部署同样待所有者决定。
