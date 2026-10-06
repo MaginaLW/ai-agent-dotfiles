@@ -710,8 +710,13 @@ $reviewedAllScriptsDynamicCommandDigest='34b9d0b3a14c258b672d3ae3d7ad9665319bb3d
 # identity-checked remnant delete) and -1 row (the reader's replaced direct rename).
 # Row-reviewed with the seams-delta tool; REMOVED 1, dynamic-command count 194 and digest
 # unchanged, no alias, shadow, or new reflection type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=17069
-$reviewedAllScriptsReflectionSensitiveDigest='0b7cd994c5aa7b76ba71aedc6ce20a6dd4e19e4f45b80d40604048323e865e7e'
+# Re-pinned 2026-10-07 for the remnant identity-drift hardening: +6 rows (1 InvokeMember:
+# the captured-identity re-read in Get-CanonicalSetupRecoveryState's remnant tolerance;
+# 5 Member: the identity reads and the remnant-entry access in the same branch and the
+# publisher's wrapped delete). Row-reviewed with the seams-delta tool; REMOVED 0,
+# dynamic-command count 194 and digest unchanged, no alias, shadow, or new reflection type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=17075
+$reviewedAllScriptsReflectionSensitiveDigest='18169ed534649cc462552e8fe43fc8f0d8f38fcbee758fb4b1468343710cf82e'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

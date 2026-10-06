@@ -292,7 +292,7 @@ namespace AiAgentDotfilesTests {
 '@
 if(@($script:hardKillBehaviorCleanupAuthorityTypes|Where-Object{$_.Assembly -eq ('AiAgentDotfilesTests.HardKillBehaviorCleanupSession' -as [type]).Assembly}).Count -ne @($script:hardKillBehaviorCleanupAuthorityTypes).Count){throw 'hard-kill behavior cleanup authority type registration failed'}
 $script:hardKillReviewedLoadManifest=[ordered]@{
-    'scripts/canonical-recovery-common.ps1'='b402ca5fd82bff0c3e8585e89fc407742081dfae13542bd59ecb9aed129fe1bc'
+    'scripts/canonical-recovery-common.ps1'='7a3b5a63680f6763087a3fe5261fb60fa9196452134b5864f1320f9422f0c2cd'
     'tests/helpers/canonical-reviewed-recovery-engine.ps1'='b225c80d8cd130f65fd8c184c16b0b0dc2828ac33bd5dcb07eb0c5f1ce86a8ae'
     'tests/helpers/canonical-reviewed-mutation-engine.ps1'='8901fef2e1272f2afddb20b26f10ef4a1813a464059daa3ab3c49af112e2ec6f'
     'tests/helpers/canonical-hard-kill-job-process.ps1'='da097f0df354d72d952e4b04a20618d9a3ed643470e92cd64b99a2c049510642'
@@ -5318,7 +5318,7 @@ try{
                 '6|System.Management.Automation.Language.IfStatementAst|171c4f97363d1ed8db7845731c6a8403d595a66aa6481adae89b62189b7c97e4',
                 '7|System.Management.Automation.Language.AssignmentStatementAst|f1c1c5a033cef5059052fd514d5676b65bed09c46c1b0780d0f4d4c0da98c97c',
                 '8|System.Management.Automation.Language.IfStatementAst|13a138103e09c8f27e5337df3c1841fbd2fcd0823487c967b5a3c5ad6948f471',
-                '9|System.Management.Automation.Language.AssignmentStatementAst|4b80e0dd8a1636823a24eaf31b7918ee9c5e60712157e0c9f80666ca32d5ae7f',
+                '9|System.Management.Automation.Language.AssignmentStatementAst|89e4be5fbb5a60f11f32f7aad13e5a0b8d75f7e96373a28e121b8b2acdbe3f4a',
                 '10|System.Management.Automation.Language.AssignmentStatementAst|90b0b8267ad63527fbade9063b2dcff15dc30e762d7e7d5febe4a56a870127e1',
                 '11|System.Management.Automation.Language.TryStatementAst|af4dccd038a93d1f907b29267646f292d7ddf23081d10eeb7229a3c4ae84e39d',
                 '12|System.Management.Automation.Language.IfStatementAst|cb73689f95adaa31e4b72768cda83ed9b496b8bcefbc9158bc725a84d3bf8053',
@@ -5345,7 +5345,7 @@ try{
             for($preludeIndex=0;$preludeIndex -lt $reviewedActualPreludeRows.Count;$preludeIndex++){
                 if([string]$actualPreludeRows[$preludeIndex] -cne [string]$reviewedActualPreludeRows[$preludeIndex]){throw 'preimage-transport-actual-prelude'}
             }
-            if($result.ActualPreludeDigest -cne 'b4d3d515f0169dab79a97d1c7bacd89781ec0bac9d6b79e6f4a9064dbed91f61'){throw 'preimage-transport-actual-prelude'}
+            if($result.ActualPreludeDigest -cne '24f0c8432e399299147be2704e8eed7651e0a3c765a721f3c5514b64549d1da5'){throw 'preimage-transport-actual-prelude'}
             $result.ActualPreludeValid=$true
         }
         $ownerName='Invoke-HardKillSealedMutationControllerCase'
@@ -5361,7 +5361,7 @@ try{
         if(-not[object]::ReferenceEquals($owner.Parent,$ast.EndBlock)){throw 'preimage-transport-session-owner-scope'}
         if((Get-HardKillTokenFingerprint -Source ([string]$owner.Extent.Text)) -cne (Get-HardKillTokenFingerprint -Source ([string]$goldOwner.Extent.Text))){throw 'preimage-transport-session-owner-shape'}
         if($Profile -ceq 'Actual'){
-            $reviewedActualControllerSurfaceSha='ce8946916877e4911ee7106845c9026a56de37ea2f53e1f82c70ce90826369f8'
+            $reviewedActualControllerSurfaceSha='f41c5142895f965f69d61dcf868d09ce7d7296c10ef3e2dcc6bfc00447c59ed9'
             $surfacePattern='(?m)(\$reviewedActualControllerSurfaceSha\s*=\s*'')[0-9a-f]{64}('')'
             $surfaceMatches=[regex]::Matches($ControllerSource,$surfacePattern,[Text.RegularExpressions.RegexOptions]::CultureInvariant)
             if($surfaceMatches.Count -ne 1 -or $reviewedActualControllerSurfaceSha -ceq ('0'*64)){throw 'preimage-transport-reviewed-controller-surface'}
@@ -5509,7 +5509,7 @@ try{
             })
             $reviewedActualStaticPreSectionText=($reviewedActualStaticPreSectionRoots|ForEach-Object{[string]$_.Extent.Text}) -join "`n"
             if($reviewedActualStaticPreSectionRoots.Count -ne 27 -or
-                (Get-TransportTokenSha256 $reviewedActualStaticPreSectionText) -cne 'f729c973f91d2ddc21bdc4d8690a51330bd3cc3a23031facd28b5492d98dee4c'){
+                (Get-TransportTokenSha256 $reviewedActualStaticPreSectionText) -cne '2892d2de4ab07ec5dfc3e3251066d47649db25aff10c4cbf18bb820b14121cbf'){
                 throw 'preimage-transport-common-entry-launch-bypass'
             }
         }
@@ -9590,13 +9590,13 @@ try{
     $actualBaselineResult=if([string]::IsNullOrEmpty($ActualControllerSource)){$null}else{Test-HardKillPreimageControllerTransportContract -ControllerSource $ActualControllerSource -Profile Actual}
     $actualBaselineSatisfied=$null-ne$actualBaselineResult-and$actualBaselineResult.Valid-and@($actualBaselineResult.ErrorCodes).Count-eq0-and
         $actualBaselineResult.ActualPreludeValid-and
-        $actualBaselineResult.ActualPreludeCount-eq24-and$actualBaselineResult.ActualPreludeDigest-ceq'b4d3d515f0169dab79a97d1c7bacd89781ec0bac9d6b79e6f4a9064dbed91f61'
+        $actualBaselineResult.ActualPreludeCount-eq24-and$actualBaselineResult.ActualPreludeDigest-ceq'24f0c8432e399299147be2704e8eed7651e0a3c765a721f3c5514b64549d1da5'
     $actualPreludeControls=[ordered]@{
         'actual-prelude-top-level-function'=Replace-ActualPreludeRow $ActualControllerSource 16 'function Invoke-HardKillPreludeNeutral{return}' $true
         'actual-prelude-main-body-statement'=Insert-ActualMainBodyStatement $ActualControllerSource '$null=$null'
     }
     $actualPreludeControlRows=[Collections.Generic.List[object]]::new()
-    foreach($name in $actualPreludeControls.Keys){$actualControlSource=[string]$actualPreludeControls[$name];$actualControlTokens=$null;$actualControlErrors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($actualControlSource,[ref]$actualControlTokens,[ref]$actualControlErrors);$actualControlVerdict=if(@($actualControlErrors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $actualControlSource -Profile Actual}else{$null};$actualPreludeControlRows.Add([pscustomobject]@{Name=$name;Changed=$actualControlSource-cne$ActualControllerSource;ParseValid=@($actualControlErrors).Count-eq0;Accepted=$null-ne$actualControlVerdict-and-not$actualControlVerdict.Valid-and@($actualControlVerdict.ErrorCodes).Count-eq1-and[string]$actualControlVerdict.ErrorCodes[0]-ceq'preimage-transport-reviewed-controller-surface'-and$actualControlVerdict.ActualPreludeValid-and$actualControlVerdict.ActualPreludeCount-eq24-and$actualControlVerdict.ActualPreludeDigest-ceq'b4d3d515f0169dab79a97d1c7bacd89781ec0bac9d6b79e6f4a9064dbed91f61';ErrorCodes=@(if($actualControlVerdict){$actualControlVerdict.ErrorCodes}else{'control-parse'})})}
+    foreach($name in $actualPreludeControls.Keys){$actualControlSource=[string]$actualPreludeControls[$name];$actualControlTokens=$null;$actualControlErrors=$null;$null=[Management.Automation.Language.Parser]::ParseInput($actualControlSource,[ref]$actualControlTokens,[ref]$actualControlErrors);$actualControlVerdict=if(@($actualControlErrors).Count-eq0){Test-HardKillPreimageControllerTransportContract -ControllerSource $actualControlSource -Profile Actual}else{$null};$actualPreludeControlRows.Add([pscustomobject]@{Name=$name;Changed=$actualControlSource-cne$ActualControllerSource;ParseValid=@($actualControlErrors).Count-eq0;Accepted=$null-ne$actualControlVerdict-and-not$actualControlVerdict.Valid-and@($actualControlVerdict.ErrorCodes).Count-eq1-and[string]$actualControlVerdict.ErrorCodes[0]-ceq'preimage-transport-reviewed-controller-surface'-and$actualControlVerdict.ActualPreludeValid-and$actualControlVerdict.ActualPreludeCount-eq24-and$actualControlVerdict.ActualPreludeDigest-ceq'24f0c8432e399299147be2704e8eed7651e0a3c765a721f3c5514b64549d1da5';ErrorCodes=@(if($actualControlVerdict){$actualControlVerdict.ErrorCodes}else{'control-parse'})})}
     $actualPreludeControlsValid=$actualPreludeControlRows.Count-eq2-and@($actualPreludeControlRows|Where-Object{-not$_.Changed-or-not$_.ParseValid-or-not$_.Accepted}).Count-eq0
     return [pscustomobject]@{Valid=$baselineResult.Valid-and$inventoryMatches-and$mutationCases.Count-eq$expected.Count-and@($mutationCases|Where-Object{-not$_.Constructed-or-not$_.Changed-or-not$_.ParseValid-or-not$_.Rejected-or-not$_.RejectedForExpectedReason}).Count-eq0-and$controlsValid-and$actualBaselineSatisfied-and$actualPreludeControlsValid;Baseline=$baselineResult;Cases=@($mutationCases);ExpectedNames=@($expected.Keys);AcceptedControls=@($acceptedRows);ControlsValid=$controlsValid;ActualBaseline=$actualBaselineResult;ActualBaselineSatisfied=$actualBaselineSatisfied;ActualPreludeControls=@($actualPreludeControlRows);ActualPreludeControlsValid=$actualPreludeControlsValid}
 }
@@ -10213,8 +10213,8 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $preimageTransportAuthority=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityPreflight' '936f6d772d39806426f3f5f81adc5a3436de2ee578f7d3c507a3a224a14b9ee2' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntime=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContract' '4d43f6b9416b05c04785c4fa46df104bfa650af03611f1b9477d720e4fc2ac05' 'cleanup-trust-closure'
         $preimageTransportAuthorityRuntimeMutations=Require-ReviewedFunctionHash 'Test-HardKillSealedMutationTransportAuthorityRuntimeContractMutations' '4c962df050a1ae4fb9768d7fbfcc14425d407512b0d634b1c8ab8814fed514d5' 'cleanup-trust-closure'
-        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' '8706082db78408790b5ac2af801edea8736608f171064f47609f460b86c51372' 'cleanup-trust-closure'
-        $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' '11b5518a9565c7feff7d85f2652735b9c2b0e03e3bf8d38898dbabb2c264f14d' 'cleanup-trust-closure'
+        $preimageTransportContract=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContract' 'd9325d79caad49eda3cf1619b4bb17230aa4e62342faa742c59651817339a3ea' 'cleanup-trust-closure'
+        $preimageTransportMutations=Require-ReviewedFunctionHash 'Test-HardKillPreimageControllerTransportContractMutations' 'c631bab9e4075bf1b1f651aa31f9fb3f436de681a3c98983369618571d2a5424' 'cleanup-trust-closure'
         $afterPreimageLadderContract=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContract' 'bb2b6518ac32f530466e7f8a0a6a3e9b2cf2a26f0800911cc9bc7c1abe18262a' 'cleanup-trust-closure'
         $afterPreimageLadderMutations=Require-ReviewedFunctionHash 'Test-HardKillAfterPreimageCheckpointLadderContractMutations' '96767d13f1a11cbcd42030e6f7ff1de02b0337a0a7fe98638a3d5129a4cb9a3e' 'cleanup-trust-closure'
         $authorityWiring=Require-ReviewedFunctionHash 'Test-HardKillBehaviorCleanupAuthorityWiringContract' 'a478c76d6b1b8950102e654c9937b0eac7346db8cbfb3740ff4cb21a2afa3ee7' 'cleanup-authority-preflight'
@@ -10229,7 +10229,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $normalizedSelfSource=[regex]::new($selfDigestPattern).Replace($selfSource,"        `$reviewedSelfDigest='__CLEANUP_GATE_SELF_DIGEST__'",1)
         $normalizedSelfSource=$normalizedSelfSource -replace "`r`n?","`n"
         $actualSelfDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalizedSelfSource))).ToLowerInvariant()
-        $reviewedSelfDigest='ccc4f027aa2fd5a38ecf7bc3015b3d016a5f86bd01741f2fa3f08b285891fe40'
+        $reviewedSelfDigest='9d07cdaa35895d65b80b2fdbae368c041368b0b64189dc44382c45881ec1bc30'
         if($actualSelfDigest -cne $reviewedSelfDigest){throw 'cleanup-gate-self-definition'}
         $result.SelfDefinitionPinned=$true
         $functionRows=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|
@@ -10239,7 +10239,7 @@ function Test-HardKillBehaviorCleanupBarrierContract {
         $functionInventoryDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($functionRows -join "`n")))).ToLowerInvariant()
         $repo=[IO.Path]::GetFullPath($RepositoryRoot)
         $externalFiles=[ordered]@{
-            'scripts/canonical-recovery-common.ps1'='b402ca5fd82bff0c3e8585e89fc407742081dfae13542bd59ecb9aed129fe1bc'
+            'scripts/canonical-recovery-common.ps1'='7a3b5a63680f6763087a3fe5261fb60fa9196452134b5864f1320f9422f0c2cd'
             'tests/helpers/canonical-reviewed-recovery-engine.ps1'='b225c80d8cd130f65fd8c184c16b0b0dc2828ac33bd5dcb07eb0c5f1ce86a8ae'
             'tests/helpers/canonical-reviewed-mutation-engine.ps1'='8901fef2e1272f2afddb20b26f10ef4a1813a464059daa3ab3c49af112e2ec6f'
             'tests/helpers/canonical-hard-kill-job-process.ps1'='da097f0df354d72d952e4b04a20618d9a3ed643470e92cd64b99a2c049510642'
@@ -10377,13 +10377,13 @@ function Test-HardKillBehaviorCleanupBarrierContract {
             @($node.Arguments|Where-Object{(Get-HardKillAstTextCompact $_) -cin @('$true','[bool]1','1')}).Count -gt 0
         },$true))
         if($recursiveDeleteMembers.Count -ne 0){throw 'cleanup-outer-lifecycle'}
-        if((Get-ReviewedExtentSha256 $mainTry) -cne 'edb8afaea09c17de06b5c6344b30a98c6b19e2ca00d34f65f9ca5c723df57ef9'){throw 'cleanup-main-execution'}
+        if((Get-ReviewedExtentSha256 $mainTry) -cne '67cd5256f7b37db369f81a5e207d022b8436afa4d708bc5fc4c5b2aa7add1965'){throw 'cleanup-main-execution'}
         $topExecutionRows=@($topStatements|Where-Object{$_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}|ForEach-Object{
             '{0}|{1}' -f $_.GetType().FullName,(Get-ReviewedExtentSha256 $_)
         })
         $topExecutionDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($topExecutionRows -join "`n")))).ToLowerInvariant()
-        if($topExecutionDigest -cne '93d173c8844c3cd7d19a0ccfc762ba64a34170e9939d66beff0f3a8412e2b4fb'){throw 'cleanup-top-level-execution'}
-        if($functionInventoryDigest -cne 'e99fe6af75769594cc10c9f0cd005ea774ca2ef12d329bb7088f2e51a944787a'){throw 'cleanup-function-inventory'}
+        if($topExecutionDigest -cne '10046350b7f0f4d94ef22e79950ed793e0f93d098f14177e58a8a30ecde06798'){throw 'cleanup-top-level-execution'}
+        if($functionInventoryDigest -cne 'e8b3e409ce7f546e27cb33b6aa75b1761d6eef64e37ec530e8b831b3e754dfc0'){throw 'cleanup-function-inventory'}
         $result.FunctionInventoryPinned=$true
         $result.MainExecutionPinned=$true
         $result.OuterForensicGuardPinned=$true
@@ -11935,7 +11935,7 @@ try{
         "normal sealed mutation transport authority exposes the exact same-assembly sealed session, controller scope, and typed receipt API [$($transportAuthority.Error)]"
     $preimageTransport=Test-HardKillPreimageControllerTransportContract -ControllerSource $oplockSource -Profile Actual
     Assert ($preimageTransport.ActualPreludeValid -and $preimageTransport.ActualPreludeCount -eq 24 -and
-        $preimageTransport.ActualPreludeDigest -ceq 'b4d3d515f0169dab79a97d1c7bacd89781ec0bac9d6b79e6f4a9064dbed91f61') `
+        $preimageTransport.ActualPreludeDigest -ceq '24f0c8432e399299147be2704e8eed7651e0a3c765a721f3c5514b64549d1da5') `
         'normal sealed mutation controller actual prelude is the exact reviewed twenty-four-statement token manifest'
     Assert $preimageTransport.Valid `
         "normal sealed mutation controller routes through the sole live session owner [$(@($preimageTransport.ErrorCodes)-join ',')]"

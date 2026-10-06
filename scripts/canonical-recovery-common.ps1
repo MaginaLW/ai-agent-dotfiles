@@ -355,6 +355,13 @@ function Get-CanonicalSetupRecoveryState {
             $claimNow=Read-CanonicalJsonContractFile -Path $claimPath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
             $pendingNow=Read-CanonicalJsonContractFile -Path ([string]$pendingClaims[0].Path) -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
             $remnantMatches=((Get-SemanticJsonHash -InputObject $claimNow) -ceq [string]$setup.ExpectedClaimHash) -and ((Get-SemanticJsonHash -InputObject $pendingNow) -ceq [string]$setup.ExpectedClaimHash)
+            if($remnantMatches){
+                # The captured disk identity is the remnant-removal contract; a replaced
+                # remnant (same bytes, new file identity) must classify manual here rather
+                # than fail later inside the identity-checked delete.
+                $pendingIdentity=[string]([AiAgentDotfiles.NoFollowFile]::HashRegularFile([string]$pendingClaims[0].Path).Identity)
+                $remnantMatches=($pendingIdentity -ceq [string]$pendingClaims[0].Identity)
+            }
         }catch{$remnantMatches=$false}
         if(-not $remnantMatches){return [pscustomobject][ordered]@{Classification='manual';Reason='setup-claim-pending-ambiguous'}}
         $claimPendingRemnant=[string]$pendingClaims[0].Path
@@ -646,7 +653,10 @@ function Publish-CanonicalSetupFinalStateForRecovery {
         Open-SafeDirectoryContainmentChain -Path $remnantParent -OwnershipReceiver $remnantReceiver
         $remnantParents=$remnantReceiver.GetDeliveredExact()
         try{
-            $null=[AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($remnantParents[$remnantParents.Count-1],[System.IO.Path]::GetFileName($remnant),[string]$remnantEntry[0].Identity)
+            try{
+                $null=[AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($remnantParents[$remnantParents.Count-1],[System.IO.Path]::GetFileName($remnant),[string]$remnantEntry[0].Identity)
+            }
+            catch{throw ('manual-recovery-required: setup claim remnant removal failed: ' + $_.Exception.Message)}
         }finally{Close-SafeDirectoryContainmentChain -Handles $remnantParents}
     }
     if(-not(Test-Path -LiteralPath $claimPath) -and $Classification.SetupState.PSObject.Properties['PendingClaimPath'] -and $Classification.SetupState.PendingClaimPath){
