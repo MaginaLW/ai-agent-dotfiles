@@ -21,6 +21,17 @@ $fakeHome = Join-Path $work 'home'
 $backupRoot = Join-Path $work 'backups'
 $sandboxRoot = Join-Path $work 'sandbox'
 New-Item -ItemType Directory -Path $fakeRepo, $sandboxRoot, (Join-Path $fakeHome '.codex/skills/.system') -Force | Out-Null
+# The released rollback case proceeds past the authority gate once the machine
+# carries any authority bootstrap, so the fake repo must resolve a git context:
+# a plain directory would crash before the reviewed-receipt check. A real git
+# repo keeps the case on its designed fail-closed path (receipt missing) on
+# both authority-less and bootstrapped machines.
+& git -C $fakeRepo init --quiet
+& git -C $fakeRepo config user.email test@example.invalid
+& git -C $fakeRepo config user.name automation-safety-test
+[System.IO.File]::WriteAllText((Join-Path $fakeRepo 'README.md'), 'fixture', [System.Text.UTF8Encoding]::new($false))
+& git -C $fakeRepo add -- README.md
+& git -C $fakeRepo commit --quiet -m baseline
 $systemSentinel = Join-Path $fakeHome '.codex/skills/.system/locked-sentinel.txt'
 [System.IO.File]::WriteAllText($systemSentinel, 'do-not-open', [System.Text.UTF8Encoding]::new($false))
 $beforeHash = (Get-FileHash -LiteralPath $systemSentinel -Algorithm SHA256).Hash

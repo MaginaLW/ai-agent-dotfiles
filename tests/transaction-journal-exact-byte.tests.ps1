@@ -307,7 +307,7 @@ try {
     $script:AtomicPreparedIdentity=$null;$script:AtomicPreparedSha=$null;$script:AtomicHandleIdentity=$null;$script:AtomicReadIdentity=$null;$script:AtomicPublishedIdentity=$null;$script:AtomicPublishedSha=$null;$script:AtomicFinalRelativeIdentity=$null
     Set-Item -LiteralPath Function:\Publish-CanonicalPreparedJsonArtifact -Value {
         [CmdletBinding()]
-        param([Parameter(Mandatory)]$PreparedArtifact,[Parameter(Mandatory)]$FinalParent,[Parameter(Mandatory)][string]$FinalPath)
+        param([Parameter(Mandatory)]$PreparedArtifact,[Parameter(Mandatory)]$FinalParent,[Parameter(Mandatory)][string]$FinalPath,$SourceParent,[string]$SourceName)
         if (-not $script:AtomicRaceSignaled -and [System.IO.Path]::GetFullPath($FinalPath) -ceq $script:AtomicFinalPath) {
             $script:AtomicPreparedIdentity=[string]$PreparedArtifact.Identity
             $script:AtomicPreparedSha=[string]$PreparedArtifact.Sha256
@@ -317,7 +317,7 @@ try {
             Write-TestMarker -Path $script:AtomicRaceReady
             Wait-TestMarker -Path $script:AtomicRaceDone
         }
-        $published=& $script:AtomicPublishOriginal -PreparedArtifact $PreparedArtifact -FinalParent $FinalParent -FinalPath $FinalPath
+        $published=& $script:AtomicPublishOriginal -PreparedArtifact $PreparedArtifact -FinalParent $FinalParent -FinalPath $FinalPath -SourceParent $SourceParent -SourceName $SourceName
         $script:AtomicPublishedIdentity=[string]$published.Identity
         $script:AtomicPublishedSha=[string]$published.Sha256
         $script:AtomicFinalRelativeIdentity=[string]([AiAgentDotfiles.NoFollowFile]::InspectChild($FinalParent,[System.IO.Path]::GetFileName($FinalPath))).Identity
@@ -602,7 +602,9 @@ try {
         param(
             [Parameter(Mandatory)] $PreparedArtifact,
             [Parameter(Mandatory)] $FinalParent,
-            [Parameter(Mandatory)] [string] $FinalPath
+            [Parameter(Mandatory)] [string] $FinalPath,
+            $SourceParent,
+            [string] $SourceName
         )
 
         if (-not $script:NamespaceRaceSignaled -and [System.IO.Path]::GetFullPath($FinalPath) -ceq $script:NamespaceFinalPath) {
@@ -614,6 +616,8 @@ try {
             PreparedArtifact = $PreparedArtifact
             FinalParent = $FinalParent
             FinalPath = $FinalPath
+            SourceParent = $SourceParent
+            SourceName = $SourceName
         }
         return & $script:NamespaceWriteOriginal @arguments
     }
