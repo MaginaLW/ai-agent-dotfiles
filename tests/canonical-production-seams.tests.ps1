@@ -588,9 +588,11 @@ $reviewedClosure=@(
     'Open-SafeExistingDirectoryContainmentChain|scripts/safe-tree-walker.ps1'
     'Publish-CanonicalHeldJson|scripts/transaction-journal-common.ps1'
     'Publish-CanonicalPreparedJsonArtifact|scripts/transaction-journal-common.ps1'
+    'Publish-CanonicalPreparedJsonArtifactAcrossVolumes|scripts/transaction-journal-common.ps1'
     'Read-CanonicalHeldJsonContractFile|scripts/transaction-journal-common.ps1'
     'Read-ExactJsonArtifactCapture|scripts/json-artifact-common.ps1'
     'Resolve-PrivateArtifactPath|scripts/json-artifact-common.ps1'
+    'Test-CanonicalCrossVolumePublication|scripts/transaction-journal-common.ps1'
     'Test-CanonicalDataField|scripts/canonical-mutation-common.ps1'
     'Test-CanonicalJournalChain|scripts/transaction-journal-common.ps1'
     'Test-CanonicalJournalObservedMissing|scripts/transaction-journal-common.ps1'
@@ -701,8 +703,15 @@ $reviewedAllScriptsDynamicCommandDigest='34b9d0b3a14c258b672d3ae3d7ad9665319bb3d
 # Member in the same validator and the recover-live-transaction.ps1 emission block),
 # plus 1 dynamic command: the plain dot-source of the new emitter file. Row-reviewed
 # with the seams-delta tool; REMOVED 0, no alias, shadow, or new reflection type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=16978
-$reviewedAllScriptsReflectionSensitiveDigest='2ae42680a69f5496dd85a732a4bf9448dc2758b1c60cba3de97f44f901efed2f'
+# Re-pinned 2026-10-07 for the cross-volume claim publication: +91 rows over that state
+# (transaction-journal-common.ps1: the staged publisher's static file calls and the
+# routing check; canonical-recovery-common.ps1: the reader's cross-volume branch, the
+# classifier's exact-remnant tolerance with its Where-Object row, and the publisher's
+# identity-checked remnant delete) and -1 row (the reader's replaced direct rename).
+# Row-reviewed with the seams-delta tool; REMOVED 1, dynamic-command count 194 and digest
+# unchanged, no alias, shadow, or new reflection type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=17069
+$reviewedAllScriptsReflectionSensitiveDigest='0b7cd994c5aa7b76ba71aedc6ce20a6dd4e19e4f45b80d40604048323e865e7e'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'
@@ -1717,6 +1726,8 @@ function Invoke-ProductionSeamAnalysis {
     $closureInventory=@($closure.Values | ForEach-Object {"$($_.Name)|$($_.RelativePath)"} | Sort-Object)
     $closureMatches=(($closureInventory -join "`n") -ceq ($reviewedClosure -join "`n"))
     if(-not $closureMatches){$resolutionFailures.Add('reviewed transitive closure changed')}
+    if(-not $closureMatches){foreach($d in @(Compare-Object $reviewedClosure $closureInventory)){Write-Host ("  CLOSURE-DIFF: $($d.SideIndicator) $($d.InputObject)")}}
+    if($resolutionFailures.Count -gt 0){foreach($rf in $resolutionFailures){Write-Host ("  RESOLUTION-FAILURE: $rf")}}
 
     $exceptionInventory=[Collections.Generic.List[string]]::new()
     $unreviewedSeams=[Collections.Generic.List[string]]::new()
