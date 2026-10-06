@@ -6341,3 +6341,45 @@ DACL，不迁仓），以 `Assert-CanonicalControlledPrivateAncestorSecurity`（
 - **停止点**：setup Apply 属首个真实写入，本窗口已向所有者请求逐项授权**未获答复**——按
   诚实原则不执行、不推定授权；计划保持未消耗状态。adopt 的环境 `<name>` 选择与逐机
   runner 批准、真实部署同样待所有者决定。
+
+## 2026-10-07 授权执行：真机 setup Apply 与跨卷发布缺陷（进行中）
+
+所有者对四项答复"授权/进行/批准并实施"，并点名 grok 协助。按已授权链推进：计划审查
+（R1 独立评审 no blocking finding，见下）→ setup Apply（首次真实写入）→ 恢复/修复 →
+adopt/runner/部署。**本轮发现并确认一个产品级缺陷，按下述处置。**
+
+### setup Apply 首次执行与缺陷定性
+
+- 授权计划：`D:\ai-agent-dotfiles-machine\setup-dryrun-20261006b\plan.json`（HEAD `6f8642e`
+  重新生成，PlanHash `56af9775…`，文件 SHA-256 `e6a32908…`）。R1（grok，独立检出）复核：
+  哈希全闭合、绑定/时效静态推导通过、与对照计划仅 commit 类差异、效果边界与 schema 及机器
+  现状逐字节相符，**no blocking finding**（非阻断观察一条：合法的 0 字节 `canonical.lock` 哨兵）。
+- Apply 执行（00:09）**中途失败**：`canonical-command-failed`（未映射 token）。现场：三个私有根
+  与事务命名空间已建；journal 仅 `SETUP_CLAIM_INTENT`；`_pending/setup-claim-385c13f0….tmp`
+  在位（4,165 字节，Owner/DACL 与模板逐字节一致——DACL 断言、schema 校验、最终父链只读复核
+  均已通过）；最终 claim 未发布；`.git` 事务目录另有 `canonical-transactions`、`homes`、
+  `live-transaction*` 等 bootstrap 产物。
+- **根因（独立评审 R1b3 + 主 agent 分别核实）：跨卷改名**。claim 的 pending 在
+  `D:\…\.git\…\_pending`（D: 软件卷），最终 claim 在 `C:\…\control\canonical-roots`（C: 系统卷）；
+  `RenameHeldRegularFileNoReplace` 是同卷原语（`NtSetInformationFile`，无跨卷分支）→ 必失败
+  Win32 17 `ERROR_NOT_SAME_DEVICE`。旁证：把 pending 与 final 放在同卷（C:→C:）的生产等价
+  再现**发布成功**；state 的 final 在 `.git`（D:）与 pending 同卷故不受影响；live 侧暂存盘在
+  用户配置下（C:）与 ControlBase 同卷，不受影响。
+- 恢复分类确认为 `unfinished / canonical-recover-finalize`（claim-pending 窗口），但 finalize
+  计划（`b377e350…`，DryRun 已生成）被同一条改名阻断：Apply 会先追加 `RECOVERY_ACTION_INTENT`
+  再在跨卷改名处失败——**恢复路径与首次发布路径同缺陷**。
+- **免改代码路径已逐条排除**：Dispatcher 强制身份派生根（`-ControlBase` 等随 DryRun 由
+  身份派生），Apply 侧还有 `sealed-home-authority-bootstrap-path-mismatch: ControlBase` 交叉
+  校验，显式 D: 根不可用；junction/挂载点会被 reparse 检查拒绝。**结论：需要产品修复。**
+- 本仓此前所有验证（fixture、CI runner、沙箱 lab）都在单卷环境，故该缺陷首次在分卷真机暴露。
+  **setup Apply 未完成、setup 未就绪；未执行任何 adopt/activate/部署/runner 批准。**
+
+### 处置（进行中）
+
+按仓库纪律，产品修复将作为**新候选**实施并走完整证据周期（本节后续补记）：Grok 设计评审
+（r3，检出 `ai-agent-dotfiles-grok-r3`，产出 `design-cross-volume-claim.md`）给出最小方案的
+方案对比/改动面/可测试性/失败语义；主 agent 评审其结论后实现（候选涉及
+`transaction-journal-common.ps1`、`canonical-recovery-common.ps1`、可能 `safe-tree-walker.ps1`，
+其中 recovery-common 在 hard-kill 钉名单、需全量重封），照旧跑定向套件 + 本地 `-All` +
+沙箱 lab + CI，接受合并后再在新候选上重做 setup Apply。异常现场（旧事务）保留原状，不做
+手工修补；跨卷修复落地后先评估旧窗口的续接（finalize 在同一修复下应可走通）。
