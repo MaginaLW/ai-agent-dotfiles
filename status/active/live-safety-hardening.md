@@ -6557,7 +6557,8 @@ setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执�
    为自密封测试，按 and/or 门禁同款机制入 `$reviewedArrayStatementFlatteningExemptions`
    豁免表（重密封窗口补逗号后退役）。夹具与豁免钉断言进
    `tests/powershell-syntax-gate.tests.ps1`（33 断言 PASS）；seams 基线 17075→17098 重钉
-   （+23 行逐条评审，动态命令 194/digest 不变）后 **66/0** 全绿。CI 未跑（未推送）。
+   （+23 行逐条评审，动态命令 194/digest 不变）后 **66/0** 全绿。已按所有者授权推送
+   （`b389730`+`3b11989`），CI run **#203** 四作业全绿。
    详见 [2026-10-07 追加窗口记录](#2026-10-07-追加待办-7-收口展平坑转解析门禁)。
 8. **机内材料索引**（不入库；2026-10-07 更新）：`tmp/lab-kit-source`（纯净 lab 源，含
    transport 修复）、`tmp/lab-postaudit-21`（c17 证据）、`tmp/lab-postaudit-22/23`（c18
@@ -6612,7 +6613,7 @@ setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执�
   恰好一条目且钉死 `tests/canonical-hard-kill.tests.ps1` + `@(11788)`（密封文件行号漂移时
   fail-closed）、新 foreach 不在常量 if 开关内。
 
-### 验证（本机，未推送、CI 未跑）
+### 验证（本机 + CI）
 
 - 解析门禁全仓 **183 文件 PASS**（含豁免生效）；门禁套件 **33 断言 PASS**（预算 90s 内）。
 - seams 基线重钉：reflection-sensitive **17075→17098**（+23 行 = 3 InvokeMember
@@ -6621,3 +6622,8 @@ setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执�
 - `git diff --check` 干净；secret scan 无阻塞（keyword hints 均为非阻塞提示）。
 - 本轮临时产物（变体探针、Member 行比对脚本、delta 输出、seams-head 草稿）已清理；
   待办 8 索引的 11 个 `tmp/` 路径只读核验全部存在。
+- 推送与 CI（所有者 2026-10-07 授权"授权推送，跑下CI"）：`b389730`+`3b11989` 已上 `main`，
+  CI run **#203**（head `3b11989`，gates 2 分钟 + 三 shard 并行，全程约 97 分钟）**四作业全绿**；
+  其中 gates 与 shard 2（含新门禁套件与 seams）最先转绿。同期 run **#202**（旧头 `5478aa9`，
+  由本窗口外的 push 事件触发，该头此前无样本）亦四作业全绿。本条记录修正提交后的头样本
+  以其后续 CI run 为准（推送时在途，绿后本节不再追改，见 STATUS 接手指引）。

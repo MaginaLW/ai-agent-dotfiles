@@ -163,8 +163,10 @@ authorized read-only API query; job-level JSON kept untracked under
 the 2026-10-07 follow-up window landed handoff item 7 — the `@()` array-statement flattening guard
 — in the parse gate (`scripts/check-powershell-syntax.ps1`) with its reviewed hard-kill exemption,
 fixture and exemption-pin assertions in `tests/powershell-syntax-gate.tests.ps1`, and the seams
-baseline re-pinned 17075→17098 (seams 66/0; parse gate 183 files; secret scan clean; all local,
-not yet pushed, so CI has not run on those bytes). The only remaining open item is the low-priority
+baseline re-pinned 17075→17098 (seams 66/0; parse gate 183 files; secret scan clean). Pushed under
+the owner's 2026-10-07 authorization: CI run
+[#203](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/37618010892) on `3b11989` is green
+on all four jobs (and the out-of-window run #202 gave the prior head `5478aa9` its own green sample). The only remaining open item is the low-priority
 on-machine material index. See the
 [closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
 
