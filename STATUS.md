@@ -134,6 +134,21 @@ release path. CI sample #181 (docs-only, same test bytes as the green #179/#180)
 shard-2 `root-claims-registry` red; its log is fetched, the suite reruns green locally on
 the same bytes, and this record's CI run is its same-bytes successor sample.
 
+**2026-10-07: the authorized release path executed on this machine.** The first
+real-machine setup Apply surfaced a cross-volume defect (the setup claim's pending file
+lives in the git-dir transaction namespace on D: while the claim's final path is in the
+control base on C:, and the held rename is same-volume only); the defect was fixed on
+`codex/s7-cross-volume-claim` (staged same-volume publication with create-new/exclusive
+descriptor-verified staging, identity-checked pending removal, and a classifier that
+tolerates and cleans an exact post-crash remnant), accepted as `ffee36e` on the three
+evidence sets (local `-All` 43/43, lab `validation-c18-10` 11 gates + 43/43 suites,
+CI #194/#195 all green) and merged to `main` (`6741e69`). The recovery finalize then
+completed canonical setup on this machine (`canonical-ready`, transaction terminal), the
+`work` environment was adopted with a reviewed plan (`claims/state/pair VALID`,
+`* work` active, unknown live directory preserved), and the per-machine runner was
+approved (`81c5e9c6...`, preview-only hooks, doctor PASS). No force-push, history
+rewrite, or credential export was performed; hooks remain preview/event-only.
+
 **2026-10-02: candidate accepted.** The branch head `dfa21d1` (code candidate `3897dc4`:
 the P2#2 snapshot-reload fix, the full live-operation-result command emitter, and the
 PID-reuse-immune quiesce rewrite) is **accepted on the three evidence sets**: local `-All`
