@@ -6479,3 +6479,36 @@ recovery finalize/setup 续接按所有者授权链在后续步骤执行；真�
   这是跨卷修复在其原始缺陷上的端到端实证。
 - 边界：adopt（环境名按证据选择）、逐机 runner 批准、真实部署仍未执行，按 R2 runbook 与
   授权链推进；真实部署前照旧 reviewed plan。
+
+### 发布路径收口：adopt（work）与逐机 runner 批准（2026-10-07，所有者授权链）
+
+setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执行发布路径剩余两项：
+
+- **adopt（= F5 真实环境选择与部署，本机）**：
+  - 前置复核：route adopt、claims/state/pair MISSING、recovery clean、intended Reasonix root
+    `known-folder-default`（不传 `-ReasonixLiveSkillsPath`）、`live recover status` = PASS/
+    `no-live-transaction`、无 sandbox 能力变量。
+  - **环境名证据选择**：live 三根受管子目录集合为空（`~/.codex/skills` 下唯一子目录
+    `meng-cmame-writing` 不在清单，属未知目录），三个定义均非内容匹配 → 名字为显式决定；
+    选定 **`work`**，理由：仓库自身文档化的日常编码基线（README 的 RequiredEnv 示例与
+    各任务路线均以 work 为日常基线、profile=coding、1/1/1）；`full` 会额外部署 29 个受管
+    skills、`minimal` 为验证环境。理由与计划留在外部证据目录（机内私有）。
+  - `build`/`scan` PASS 后 DryRun：**would add (3)**（三平台 systematic-debugging）、
+    update/no-op/prune 0、unknown dirs 1（ignored, never deleted）；计划审查通过
+    （OperationKind=adopt、EnvironmentName=work、StateIntent work/gen1/adopt、RootClaimsHash
+    与 7 行 LiveRootClaims、LegacyEvidence MISSING、SystemMarker.Present=true、材料化根与
+    env-build/env.lock 哈希齐、RepositoryCommit=当前检出）。
+  - **Apply PASS**：事务 `8c2fc151-e141-4438-bc5a-a809dbd96dc9`、receipt
+    `c31584da-355a-4c21-af7c-d3e8281bc8c2`、StateHash `827fc195…`、ResultHash `13e65bf0…`。
+  - **终态验证**：`env authority status` = **claims VALID; state VALID; pair VALID**；
+    `env list` = **`* work` Active environment: work**；三 live 根各就位 systematic-debugging，
+    未知目录 `meng-cmame-writing` 原样保留；`live recover status` PASS。
+- **逐机 runner 批准**：`bootstrap.ps1` 按序确认 pinned validator/gitleaks 已装并打印批准
+  命令；执行 `setup.ps1 -ApproveRunner -InstallAutoSync`：**Runner approved
+  `81c5e9c6…`、Approved commit `2396fd4`**、post-merge/post-checkout/post-rewrite 三个
+  preview-only hook 安装；验证：`check-hooks.ps1` 三 hook 各 `installed -> approved
+  preview-only runner`，`doctor.ps1` **`[PASS] Approved runner hash: 81c5e9c6…`**
+  （PASS=27 WARN=3 FAIL=0）。
+- **发布路径四项至此全部执行**：S5 只读/DryRun（2026-10-02）、真机 canonical setup（经跨卷
+  修复的 recovery finalize 完成）、adopt（F5，work 环境）、逐机 runner 批准。边界：未做任何
+  超出授权链的动作（无 force-push、无历史改写、无凭据导出）；hooks 保持 preview/event-only。
