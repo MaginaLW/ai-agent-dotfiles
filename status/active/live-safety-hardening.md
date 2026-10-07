@@ -5848,7 +5848,7 @@ DryRun、部署。
 5. ~~**安静主机窗口补齐候选证据**~~ ✅ 2026-10-02 已收口：lab `validation-c18-09`
    （11/11 门 + 43/43 套件）、14 条 mutation 路线 14/14 PASS、本地 `-All` 43/43——三证据集
    齐全，接受记录与 merge 执行均已落地（merge commit `9e2469f`；见文末）。
-6. **发布路径（已获所有者授权，2026-10-01；执行中）**：S5 剩余只读/DryRun、真实部署（F5）、
+6. ~~**发布路径（已获所有者授权，2026-10-01）**~~ ✅ **2026-10-07 四项全部执行完毕**（S5 只读/DryRun、真机 canonical setup（经跨卷修复的 recovery finalize）、adopt（F5，work 环境，reviewed plan）、逐机 runner 批准；见文末两节）。原始范围：S5 剩余只读/DryRun、真实部署（F5）、
    逐机 runner 批准、真机 canonical setup DryRun。接受与 merge 已完成；本节各项按逐机顺序
    推进，每次真实 Apply 前照旧 reviewed plan 与既有验收。
    2026-10-03：真机 setup 入口边界收口——绑定前置为私有根祖先安全（仓库父目录含宽泛 SID
