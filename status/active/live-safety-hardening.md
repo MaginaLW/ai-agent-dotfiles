@@ -6383,3 +6383,80 @@ adopt/runner/部署。**本轮发现并确认一个产品级缺陷，按下述�
 其中 recovery-common 在 hard-kill 钉名单、需全量重封），照旧跑定向套件 + 本地 `-All` +
 沙箱 lab + CI，接受合并后再在新候选上重做 setup Apply。异常现场（旧事务）保留原状，不做
 手工修补；跨卷修复落地后先评估旧窗口的续接（finalize 在同一修复下应可走通）。
+
+## 2026-10-07 跨卷 claim 发布缺陷：修复、评审与候选证据（分支 codex/s7-cross-volume-claim）
+
+上节定性后，本轮完成修复与候选证据（所有者授权链：setup Apply → "进行" → "批准并实施"）。
+
+### 缺陷与定位（已在上一节记录，此处补定位细节）
+
+- 现场：真机首次 `canonical setup -Apply` 在 claim 发布处失败——journal 仅 `SETUP_CLAIM_INTENT`、
+  `_pending/setup-claim-*.tmp` 在位、最终 claim 未发布；bootstrap 产物（三私有根、
+  `canonical-transactions`、`homes`、live 锁）已建。
+- **根因（R1b3 独立定位 + 主 agent 各自核实）**：pending 在 git 事务命名空间（D: 软件卷）、
+  claim 最终路径在 control base（C: 系统卷）；`RenameHeldRegularFileNoReplace` 是同卷原语
+  （`NtSetInformationFile`，无跨卷分支）→ 必失败 Win32 17 `ERROR_NOT_SAME_DEVICE`。
+  等价再现（同卷）发布成功、state 的 final 与 pending 恒同卷、live 侧暂存盘在用户配置下
+  同卷——全部与观察一致。恢复 finalize 计划（`b377e350…`）被同一跳阻断，未消费。
+- **免改代码路径逐条排除**：Dispatcher 强制身份派生根（Apply 侧另有
+  `sealed-home-authority-bootstrap-path-mismatch` 交叉校验）、junction/挂载点会被 reparse
+  检查拒绝。→ 产品修复。
+
+### 修复（`3384748` + `287af6f`，分支 `codex/s7-cross-volume-claim`）
+
+- `scripts/transaction-journal-common.ps1`：新增纯判定 `Test-CanonicalCrossVolumePublication`
+  （持柄身份串的卷序列前缀比较，形状 `^[0-9a-f]{8}:[0-9a-f]{16}$` 校验）与
+  `Publish-CanonicalPreparedJsonArtifactAcrossVolumes`（目标卷 create-new 独占 staging，
+  从持柄 pending 读字节、同 SDDL、回读校验，同卷 no-replace 改名，改名后 identity/length/
+  描述符复验，最后按捕获身份删除源 pending；80/183 采纳同字节+同长度+同描述符的崩溃残留，
+  任何差异致命）。`Publish-CanonicalPreparedJsonArtifact` 按判定路由；同卷路径逐字节不变。
+- `scripts/canonical-recovery-common.ps1`：claim 读者的 `-PublishPending` 跨卷走共享发布并以
+  返回句柄重读；`Get-CanonicalSetupRecoveryState` 容忍"已发布 claim + 精确 pending 残留"
+  （两侧语义哈希与 journal intent 一致**且磁盘身份与捕获一致**）并携带
+  `ClaimPendingRemnantPath`；`Publish-CanonicalSetupFinalStateForRecovery` 先按身份删除残留，
+  删除失败包装为 `manual-recovery-required`（评审 P1 硬化）。
+- 回归：判定函数（同/异/畸形）、staged 发布端到端同卷覆盖（精确字节+描述符、源删除、
+  staging 消费）、精确残留采纳、冲突残留致命、身份漂移分类 manual、竞态删除 token——
+  canonical-recovery **180/0**。
+- **钉**：hard-kill reviewed-load 清单两脚本重封（工具 `$EditedScripts` 扩为两文件；
+  `-Verify` 0）；生产闭包契约静态复算 **69/133/13**、摘要 `98074e2a…`（+2 函数/+2 边）；
+  seams 受审传递闭包新增两函数、反射基线 16978→17075（+91/-1，逐条评审）；seams 66/0、
+  primitives 95/0、canonical-transaction 64/0 与 -apply 49/0。
+
+### 独立评审（grok，两个有界并行会话）
+
+- **R4A（journal-common）：no blocking finding**——同卷路径与父提交逐字相同、路由缺省不入新
+  分支、staged 路径不变式（独占/采纳校验/回读/改名复验/不吞错）逐条核实、无丢失已审字节或
+  双发布窗口、身份正则与 C# 生成格式一致。
+- **R4B（recovery-common）：一条 P1**——残留的**磁盘身份漂移**仍被分类 finalize，删除时以
+  未映射 token 失败且 Apply 已追加 intent。已按建议修（分类器加身份比对；删除失败包装
+  manual token），并补两个回归（身份漂移→manual 保留原物；竞态→manual token）。
+
+### 候选证据（ffee36e）
+
+- **本地**：`-All` **43/43 零失败零超时**（两轮：首轮两红均为测试面问题——publication 垫片
+  三参签名未随新可选参数更新、automation-safety 的 rollback 用例在主机出现部分 authority
+  后走进非 git fakeRepo 的未映射崩溃（main 字节检出同样红，属主机状态而非本分支）；两处
+  修复并独立复验后第二轮全绿）。
+- **CI**：run #194 四作业全绿（#192/#193 的红即上述垫片问题，同修复覆盖）。
+- **lab**：kit c24（candidate `ffee36e`，kit `c35a8e2f…`）`validation-c18-10` 运行中。
+- 边界：merge 与真机 recovery finalize/setup 续接待本轮证据齐全后执行（均已在授权链内）。
+
+### 候选接受：`ffee36e`（2026-10-07）
+
+**接受对象**：分支 `codex/s7-cross-volume-claim` 的代码候选 `ffee36e`（= 跨卷修复 `3384748`
++ 评审 P1 硬化 `287af6f` + 测试面修复；记录提交 `bb00ed2` 在其后）。**三证据集齐全**：
+
+1. **本地**：`-All` **43/43 零失败零超时**（ffee36e 字节）；定向：canonical-recovery 180/0、
+   seams 66/0、canonical-transaction 64/0 与 -apply 49/0、transaction-journal-exact-byte
+   12/0、automation-safety PASS、hard-kill `-Section primitives` 95/0；解析门 183 文件、
+   secret scan 无阻塞、`git diff --check` 干净。
+2. **一次性身份 lab**：`validation-c18-10`（kit c24 `c35a8e2f…`，candidate `ffee36e`）：
+   **11/11 门全 PASS、43/43 套件、0 失败 0 超时**，completion ExitCode 0，candidate/kit 与
+   冻结清单一致。
+3. **CI**：代码候选 run #194 四作业全绿；记录头 run #195 四作业全绿（#192/#193 的红为
+   测试垫片问题，已被 `ffee36e` 覆盖）。
+
+**边界**：本接受 = 跨卷 claim 发布修复候选在三证据集上合格。merge 到 `main` 与真机
+recovery finalize/setup 续接按所有者授权链在后续步骤执行；真实部署、runner 批准等仍在
+发布路径的后续阶段。独立评审：R4A no blocking finding、R4B 一条 P1 已修并复验。

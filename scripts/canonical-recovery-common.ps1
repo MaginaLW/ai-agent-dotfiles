@@ -249,8 +249,30 @@ function Read-CanonicalSetupClaimArtifact {
             $names=@([AiAgentDotfiles.NoFollowFile]::GetChildNames($parent)|Where-Object{$_ -like 'setup-claim-*'})
             if($names.Count -ne 1 -or [string]$names[0] -cne $name){throw 'manual-recovery-required: setup pending claim inventory changed before publish'}
             Assert-CanonicalSetupClaimHeldSecurity -HeldHandle $held -SecurityTemplate $template
-            $null=[AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($held,$finalParents[$finalParents.Count-1],[IO.Path]::GetFileName($claimPath))
-            $document=Read-CanonicalSetupClaimHeldDocument -HeldHandle $held -State $State -SecurityTemplate $template -Path $claimPath
+            $finalParent=$finalParents[$finalParents.Count-1]
+            if(Test-CanonicalCrossVolumePublication -SourceIdentity ([string]$held.ReadResult.Identity) -DestinationIdentity ([string]([AiAgentDotfiles.SafeDirectoryHandle]::GetInfoExact($finalParent).Identity))){
+                # Split-volume layout (pending in the git-dir transaction namespace, claim in
+                # the control base): the held rename is same-volume only, so the publication
+                # stages the exact bytes through the destination volume and removes the
+                # pending by identity after the final bytes are durable.
+                $prepared=[pscustomobject][ordered]@{
+                    TempPath=$full
+                    Hash=Get-SemanticJsonHash -InputObject $document
+                    Sha256=[string]$held.ReadResult.Sha256
+                    Identity=[string]$held.ReadResult.Identity
+                    Length=[long]$held.ReadResult.Length
+                    Document=$document
+                    HeldHandle=$held
+                    FileSecurityDescriptorSddl=(ConvertTo-HomeAuthoritySecurityDescriptorSddl -SecurityTemplate $template)
+                }
+                $publication=Publish-CanonicalPreparedJsonArtifactAcrossVolumes -PreparedArtifact $prepared -FinalParent $finalParent -FinalPath $claimPath -SourceParent $parent -SourceName $name
+                $held=$publication.HeldHandle
+                $document=Read-CanonicalSetupClaimHeldDocument -HeldHandle $held -State $State -SecurityTemplate $template -Path $claimPath
+            }
+            else {
+                $null=[AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($held,$finalParent,[IO.Path]::GetFileName($claimPath))
+                $document=Read-CanonicalSetupClaimHeldDocument -HeldHandle $held -State $State -SecurityTemplate $template -Path $claimPath
+            }
         }
         return $document
     }finally{
@@ -320,7 +342,30 @@ function Get-CanonicalSetupRecoveryState {
     $pendingClaims=@($State.PendingEntries|Where-Object{[string]$_.Name -like 'setup-claim-*'})
     $pendingStates=@($State.PendingEntries|Where-Object{[string]$_.Name -like 'setup-state-*'})
     $claimRecords=@($State.Records|Where-Object{[string]$_.Phase -in @('SETUP_CLAIM_INTENT','SETUP_CLAIM_PUBLISHED')})
-    if($pendingClaims.Count -gt 1 -or ($pendingClaims.Count -eq 1 -and $claimExists)){return [pscustomobject][ordered]@{Classification='manual';Reason='setup-claim-pending-ambiguous'}}
+    $claimPendingRemnant=$null
+    if($pendingClaims.Count -gt 1){return [pscustomobject][ordered]@{Classification='manual';Reason='setup-claim-pending-ambiguous'}}
+    if($pendingClaims.Count -eq 1 -and $claimExists){
+        # A cross-volume publication stages the exact pending bytes onto the claim's own
+        # volume, publishes them create-new, then removes the pending by identity; a crash
+        # between publish and removal leaves the published claim plus its exact pending
+        # remnant. Both sides matching the journal intent is the finished publication, not
+        # ambiguity, and the finalize publisher removes the remnant before continuing.
+        $remnantMatches=$true
+        try{
+            $claimNow=Read-CanonicalJsonContractFile -Path $claimPath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
+            $pendingNow=Read-CanonicalJsonContractFile -Path ([string]$pendingClaims[0].Path) -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-root-claim.schema.json')
+            $remnantMatches=((Get-SemanticJsonHash -InputObject $claimNow) -ceq [string]$setup.ExpectedClaimHash) -and ((Get-SemanticJsonHash -InputObject $pendingNow) -ceq [string]$setup.ExpectedClaimHash)
+            if($remnantMatches){
+                # The captured disk identity is the remnant-removal contract; a replaced
+                # remnant (same bytes, new file identity) must classify manual here rather
+                # than fail later inside the identity-checked delete.
+                $pendingIdentity=[string]([AiAgentDotfiles.NoFollowFile]::HashRegularFile([string]$pendingClaims[0].Path).Identity)
+                $remnantMatches=($pendingIdentity -ceq [string]$pendingClaims[0].Identity)
+            }
+        }catch{$remnantMatches=$false}
+        if(-not $remnantMatches){return [pscustomobject][ordered]@{Classification='manual';Reason='setup-claim-pending-ambiguous'}}
+        $claimPendingRemnant=[string]$pendingClaims[0].Path
+    }
     if($pendingStates.Count -gt 1 -or ($pendingStates.Count -eq 1 -and $stateExists)){return [pscustomobject][ordered]@{Classification='manual';Reason='setup-state-pending-ambiguous'}}
     if($pendingClaims.Count -eq 1 -and $pendingStates.Count -eq 1){return [pscustomobject][ordered]@{Classification='manual';Reason='setup-claim-and-state-pending-ambiguous'}}
     if($pendingClaims.Count -eq 1 -and ($claimRecords.Count -ne 1 -or [string]$claimRecords[0].Phase -cne 'SETUP_CLAIM_INTENT')){return [pscustomobject][ordered]@{Classification='manual';Reason='setup-claim-pending-without-exact-intent'}}
@@ -350,13 +395,13 @@ function Get-CanonicalSetupRecoveryState {
             if($pendingStates.Count -eq 1){
                 $pending=Read-CanonicalJsonContractFile -Path ([string]$pendingStates[0].Path) -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-setup-state.schema.json')
                 if((Get-SemanticJsonHash -InputObject $pending) -cne $expectedFinalHash){throw 'setup pending state mismatch'}
-                return [pscustomobject][ordered]@{Classification='finalize';Reason='claim-present-state-pending';ExpectedFinalState=$expectedFinal;ExpectedFinalStateHash=$expectedFinalHash;PendingClaimPath=if($claimExists){$null}else{[string]$pendingClaims[0].Path};PendingStatePath=[string]$pendingStates[0].Path}
+                return [pscustomobject][ordered]@{Classification='finalize';Reason='claim-present-state-pending';ExpectedFinalState=$expectedFinal;ExpectedFinalStateHash=$expectedFinalHash;PendingClaimPath=if($claimExists){$null}else{[string]$pendingClaims[0].Path};PendingStatePath=[string]$pendingStates[0].Path;ClaimPendingRemnantPath=$claimPendingRemnant}
             }
-            return [pscustomobject][ordered]@{Classification='finalize';Reason=if($claimExists){'claim-present-state-missing'}else{'claim-pending-state-missing'};ExpectedFinalState=$expectedFinal;ExpectedFinalStateHash=$expectedFinalHash;PendingClaimPath=if($claimExists){$null}else{[string]$pendingClaims[0].Path}}
+            return [pscustomobject][ordered]@{Classification='finalize';Reason=if($claimExists){'claim-present-state-missing'}else{'claim-pending-state-missing'};ExpectedFinalState=$expectedFinal;ExpectedFinalStateHash=$expectedFinalHash;PendingClaimPath=if($claimExists){$null}else{[string]$pendingClaims[0].Path};ClaimPendingRemnantPath=$claimPendingRemnant}
         }
         $actualState=Read-CanonicalJsonContractFile -Path $statePath -SchemaPath (Join-Path $script:CanonicalToolchainRoot 'schemas/canonical-setup-state.schema.json')
         if((Get-SemanticJsonHash -InputObject $actualState) -cne $expectedFinalHash){throw 'setup final state mismatch'}
-        return [pscustomobject][ordered]@{Classification='finalize';Reason='claim-state-present-terminal-missing';ExpectedFinalState=$expectedFinal;ExpectedFinalStateHash=$expectedFinalHash}
+        return [pscustomobject][ordered]@{Classification='finalize';Reason='claim-state-present-terminal-missing';ExpectedFinalState=$expectedFinal;ExpectedFinalStateHash=$expectedFinalHash;ClaimPendingRemnantPath=$claimPendingRemnant}
     }catch{return [pscustomobject][ordered]@{Classification='manual';Reason=$_.Exception.Message}}
 }
 
@@ -593,6 +638,27 @@ function Publish-CanonicalSetupFinalStateForRecovery {
     $setup=$State.Header.SetupRecovery
     $statePath=[string]$setup.StatePath
     $claimPath=[string]$setup.ClaimPath
+    if($Classification.SetupState.PSObject.Properties['ClaimPendingRemnantPath'] -and $Classification.SetupState.ClaimPendingRemnantPath){
+        # The cross-volume publication finished but its source pending survived a crash;
+        # remove the exact remnant by identity before any other step so the pending
+        # namespace returns to its published shape. Any locator or identity drift is
+        # manual recovery: this path must only ever delete the captured pending.
+        $remnant=[System.IO.Path]::GetFullPath([string]$Classification.SetupState.ClaimPendingRemnantPath)
+        $remnantParent=[System.IO.Path]::GetDirectoryName($remnant)
+        $pendingRoot=[System.IO.Path]::GetFullPath((Join-Path $State.TransactionNamespace '_pending'))
+        if(-not $remnantParent.Equals($pendingRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'manual-recovery-required: setup claim remnant locator changed'}
+        $remnantEntry=@($State.PendingEntries|Where-Object{[string]$_.Path -eq $remnant})
+        if($remnantEntry.Count -ne 1){throw 'manual-recovery-required: setup claim remnant is not the captured pending entry'}
+        $remnantReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $remnantParent -OwnershipReceiver $remnantReceiver
+        $remnantParents=$remnantReceiver.GetDeliveredExact()
+        try{
+            try{
+                $null=[AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($remnantParents[$remnantParents.Count-1],[System.IO.Path]::GetFileName($remnant),[string]$remnantEntry[0].Identity)
+            }
+            catch{throw ('manual-recovery-required: setup claim remnant removal failed: ' + $_.Exception.Message)}
+        }finally{Close-SafeDirectoryContainmentChain -Handles $remnantParents}
+    }
     if(-not(Test-Path -LiteralPath $claimPath) -and $Classification.SetupState.PSObject.Properties['PendingClaimPath'] -and $Classification.SetupState.PendingClaimPath){
         $null=Read-CanonicalSetupClaimArtifact -State $State -Path ([string]$Classification.SetupState.PendingClaimPath) -PublishPending
     }else{$null=Read-CanonicalSetupClaimArtifact -State $State -Path $claimPath}

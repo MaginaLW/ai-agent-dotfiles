@@ -567,17 +567,126 @@ function New-CanonicalPreparedJsonArtifact {
     }
 }
 
+function Test-CanonicalCrossVolumePublication {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $SourceIdentity,
+        [Parameter(Mandatory)] [string] $DestinationIdentity
+    )
+    # Held-handle identity strings are "<volumeSerialHex>:<fileIndexHex>"; only a shared
+    # volume serial lets the single no-replace rename carry the pending file onto its
+    # final name. Publication callers stage through the destination volume when the two
+    # serials differ (the split-volume real-machine layout: repo on D:, private roots
+    # on C:), because the rename primitive is same-volume by construction.
+    if ($SourceIdentity -cnotmatch '^[0-9a-f]{8}:[0-9a-f]{16}$' -or $DestinationIdentity -cnotmatch '^[0-9a-f]{8}:[0-9a-f]{16}$') {
+        throw 'canonical publication identities must be held-object identity strings'
+    }
+    $sourceVolume = ([string] $SourceIdentity -split ':', 2)[0]
+    $destinationVolume = ([string] $DestinationIdentity -split ':', 2)[0]
+    return ($sourceVolume -cne $destinationVolume)
+}
+
+function Publish-CanonicalPreparedJsonArtifactAcrossVolumes {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $PreparedArtifact,
+        [Parameter(Mandatory)] $FinalParent,
+        [Parameter(Mandatory)] [string] $FinalPath,
+        [Parameter(Mandatory)] $SourceParent,
+        [Parameter(Mandatory)] [string] $SourceName
+    )
+    # Cross-volume completion of a pending publication without weakening any invariant:
+    # the destination is created create-new and exclusive on its own volume from the
+    # held pending bytes (no-follow, single link, no alternate data streams), its exact
+    # bytes and security descriptor are verified, and only then is it renamed onto the
+    # final name (no-replace). The source pending is removed by identity check after the
+    # final bytes are durable. A crash between the rename and the removal leaves the
+    # published claim plus its exact pending remnant, which the setup recovery
+    # classification recognizes and the finalize publisher cleans up.
+    $final = [System.IO.Path]::GetFullPath($FinalPath)
+    $tempHandle = $PreparedArtifact.HeldHandle
+    if ($null -eq $tempHandle) { throw 'canonical prepared artifact has no held regular file' }
+    $fileSddl = if ($PreparedArtifact.PSObject.Properties['FileSecurityDescriptorSddl']) { [string]$PreparedArtifact.FileSecurityDescriptorSddl } else { $null }
+    $sourceIdentity = [string] $tempHandle.ReadResult.Identity
+    $bytes = [AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($tempHandle, [long]$PreparedArtifact.Length)
+    if ([string]$tempHandle.ReadResult.Sha256 -cne [string]$PreparedArtifact.Sha256) {
+        throw 'canonical prepared artifact bytes changed before cross-volume publication'
+    }
+    $stagingName = ([System.IO.Path]::GetFileNameWithoutExtension($SourceName)) + '.staging'
+    $stagingHandle = $null
+    $publishedInfo = $null
+    try {
+        try {
+            if ($fileSddl) {
+                $stagingHandle = [AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFileWithSecurityDescriptor($FinalParent, $stagingName, $bytes, $fileSddl)
+                [AiAgentDotfiles.NoFollowFile]::AssertHeldRegularFileSecurityDescriptor($stagingHandle, $fileSddl)
+            }
+            else { $stagingHandle = [AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFile($FinalParent, $stagingName, $bytes) }
+        }
+        catch [System.ComponentModel.Win32Exception] {
+            if ($_.Exception.NativeErrorCode -notin @(80,183)) { throw }
+            # A crashed earlier attempt may have left the exact staging file; adopting it
+            # keeps the retry idempotent, while any byte or descriptor difference is fatal.
+            $stagingHandle = [AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFileForRename($FinalParent, $stagingName)
+            if ([string]$stagingHandle.ReadResult.Sha256 -cne [string]$PreparedArtifact.Sha256 -or
+                [long]$stagingHandle.ReadResult.Length -ne [long]$PreparedArtifact.Length) {
+                throw 'canonical cross-volume staging file conflicts with the reviewed bytes'
+            }
+            if ($fileSddl) { [AiAgentDotfiles.NoFollowFile]::AssertHeldRegularFileSecurityDescriptor($stagingHandle, $fileSddl) }
+        }
+        if ([string]$stagingHandle.ReadResult.Sha256 -cne [string]$PreparedArtifact.Sha256) {
+            throw 'canonical cross-volume staging bytes differ from the held pending bytes'
+        }
+        try {
+            $publishedInfo = [AiAgentDotfiles.NoFollowFile]::RenameHeldRegularFileNoReplace($stagingHandle, $FinalParent, [System.IO.Path]::GetFileName($final))
+        }
+        catch [System.ComponentModel.Win32Exception] {
+            if ($_.Exception.NativeErrorCode -in @(80,183)) { throw "canonical journal artifact must be create-new: $final" }
+            throw
+        }
+        if ([string]$publishedInfo.Identity -cne [string]$stagingHandle.Info.Identity -or [long]$publishedInfo.Length -ne [long]$stagingHandle.ReadResult.Length) {
+            throw 'canonical published artifact identity differs from its held exact bytes'
+        }
+        if ($fileSddl) { [AiAgentDotfiles.NoFollowFile]::AssertHeldRegularFileSecurityDescriptor($stagingHandle, $fileSddl) }
+        # Source pending removal: only after the destination bytes are durable and verified.
+        # The source handle is disposed first (the identity string was captured above) so the
+        # identity-checked delete can take its exclusive open.
+        $tempHandle.Dispose()
+        $null = [AiAgentDotfiles.NoFollowFile]::DeleteChildRegularFileIfIdentity($SourceParent, $SourceName, $sourceIdentity)
+        return [pscustomobject][ordered]@{
+            Path = $final
+            Hash = [string]$PreparedArtifact.Hash
+            Sha256 = [string]$PreparedArtifact.Sha256
+            Identity = [string]$stagingHandle.Info.Identity
+            Length = [long]$PreparedArtifact.Length
+            Document = $PreparedArtifact.Document
+            HeldHandle = $stagingHandle
+        }
+    }
+    catch {
+        # The staging file is left in place on failure: a retry adopts it only when its
+        # bytes and descriptor still match the reviewed pending exactly.
+        throw
+    }
+}
+
 function Publish-CanonicalPreparedJsonArtifact {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] $PreparedArtifact,
         [Parameter(Mandatory)] $FinalParent,
-        [Parameter(Mandatory)] [string] $FinalPath
+        [Parameter(Mandatory)] [string] $FinalPath,
+        $SourceParent,
+        [string] $SourceName
     )
 
     $final = [System.IO.Path]::GetFullPath($FinalPath)
     $tempHandle = $PreparedArtifact.HeldHandle
     if ($null -eq $tempHandle) { throw 'canonical prepared artifact has no held regular file' }
+    if ($null -ne $SourceParent -and -not [string]::IsNullOrWhiteSpace($SourceName) -and
+        (Test-CanonicalCrossVolumePublication -SourceIdentity ([string]$tempHandle.ReadResult.Identity) -DestinationIdentity ([string]([AiAgentDotfiles.SafeDirectoryHandle]::GetInfoExact($FinalParent).Identity)))) {
+        return Publish-CanonicalPreparedJsonArtifactAcrossVolumes -PreparedArtifact $PreparedArtifact -FinalParent $FinalParent -FinalPath $FinalPath -SourceParent $SourceParent -SourceName $SourceName
+    }
     $fileSddl = if ($PreparedArtifact.PSObject.Properties['FileSecurityDescriptorSddl']) { [string]$PreparedArtifact.FileSecurityDescriptorSddl } else { $null }
     try {
         if ($fileSddl) { [AiAgentDotfiles.NoFollowFile]::AssertHeldRegularFileSecurityDescriptor($tempHandle, $fileSddl) }
@@ -621,7 +730,7 @@ function Publish-CanonicalHeldJson {
     $prepared = $null
     try {
         $prepared = New-CanonicalPreparedJsonArtifact -Document $Document -PendingParent $PendingParent -PendingPath $PendingPath -PendingName $PendingName -SchemaPath $SchemaPath -FileSecurityDescriptorSddl $FileSecurityDescriptorSddl
-        return Publish-CanonicalPreparedJsonArtifact -PreparedArtifact $prepared -FinalParent $FinalParent -FinalPath $FinalPath
+        return Publish-CanonicalPreparedJsonArtifact -PreparedArtifact $prepared -FinalParent $FinalParent -FinalPath $FinalPath -SourceParent $PendingParent -SourceName $PendingName
     }
     catch {
         if ($prepared -and $prepared.HeldHandle) { $prepared.HeldHandle.Dispose() }

@@ -473,6 +473,144 @@ try{
         Assert ([string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($pnPaths.SetupStatePath).Sddl -ceq [string][AiAgentDotfiles.NoFollowFile]::GetRegularFileSecuritySnapshot($pnControlFile).Sddl) ($pendingCase+': the published state keeps the ordinary inherited create-new ACL')
     }
 
+    # Cross-volume publication (2026-10-07 real-machine defect): the split-volume layout
+    # puts the setup claim's pending in the git-dir transaction namespace (D:) while the
+    # claim's final path lives in the control base (C:), and the held rename primitive is
+    # same-volume only. The staged publisher moves the exact bytes through the destination
+    # volume (create-new, exclusive, descriptor-verified), renames them onto the final
+    # name, then removes the source pending by identity; a crashed attempt's exact staging
+    # file is adopted, a conflicting one is fatal. The volume decision is a pure function
+    # verified directly; the staged publisher itself is exercised end to end on one volume.
+    Write-Host "`n[cross-volume claim publication]" -ForegroundColor Cyan
+    Assert ((Test-CanonicalCrossVolumePublication -SourceIdentity 'acdb3ba5:0001000000935a75' -DestinationIdentity 'acdb3ba5:0002000000abcdef') -eq $false) 'cross-volume decision: identical volume serials stay on the direct held rename'
+    Assert ((Test-CanonicalCrossVolumePublication -SourceIdentity 'acdb3ba5:0001000000935a75' -DestinationIdentity '0293aa27:0002000000abcdef') -eq $true) 'cross-volume decision: distinct volume serials select the staged publication'
+    Assert-Throws {Test-CanonicalCrossVolumePublication -SourceIdentity 'not-an-identity' -DestinationIdentity '0293aa27:1'} 'canonical publication identities must be held-object identity strings' 'cross-volume decision: a malformed identity fails closed'
+    foreach($cvCase in @('cross-volume-staged','cross-volume-adopt-staging','cross-volume-staging-conflict')){
+        $cvRoot=Join-Path $root $cvCase
+        $cvSource=Join-Path $cvRoot 'source';$cvDestination=Join-Path $cvRoot 'destination'
+        [IO.Directory]::CreateDirectory($cvSource)|Out-Null;[IO.Directory]::CreateDirectory($cvDestination)|Out-Null
+        Set-TestCurrentUserOnlyAcl -Path $cvSource;Set-TestCurrentUserOnlyAcl -Path $cvDestination
+        $cvRepo=Join-Path $cvRoot 'repo';Initialize-TestRepo $cvRepo
+        $cvRecovery=Join-Path $cvRoot 'private/recovery';$cvControl=Join-Path $cvRoot 'private/control';$cvBackup=Join-Path $cvRoot 'private/backups';$cvProbeRoot=Join-Path $cvRoot 'probe'
+        foreach($path in @($cvRecovery,$cvControl,$cvBackup,$cvProbeRoot)){[IO.Directory]::CreateDirectory($path)|Out-Null}
+        foreach($path in @($cvRecovery,$cvControl,$cvBackup)){Set-TestCurrentUserOnlyAcl -Path $path}
+        $cvPayload=New-CanonicalSetupPlanPayload -RepoRoot $cvRepo -CanonicalRecoveryRoot $cvRecovery -ControlBase $cvControl -BackupRoot $cvBackup -ProbeRoot $cvProbeRoot
+        $cvDocument=$cvPayload.ExpectedRootClaim
+        $cvSddl=(ConvertTo-HomeAuthoritySecurityDescriptorSddl -SecurityTemplate (Get-HomeAuthorityCurrentUserOnlySecurityTemplate -TokenSid ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -ResourceKind File))
+        $cvPendingName='setup-claim-'+[guid]::NewGuid().ToString('N')+'.tmp'
+        $cvFinalName=[guid]::NewGuid().ToString('N')+'.json'
+        $cvFinalPath=Join-Path $cvDestination $cvFinalName
+        $cvSourceReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $cvSource -OwnershipReceiver $cvSourceReceiver
+        $cvSourceParents=$cvSourceReceiver.GetDeliveredExact();$cvSourceParent=$cvSourceParents[$cvSourceParents.Count-1]
+        $cvDestinationReceiver=[AiAgentDotfiles.SealedOwnershipTransferReceiver]::new()
+        Open-SafeDirectoryContainmentChain -Path $cvDestination -OwnershipReceiver $cvDestinationReceiver
+        $cvDestinationParents=$cvDestinationReceiver.GetDeliveredExact();$cvDestinationParent=$cvDestinationParents[$cvDestinationParents.Count-1]
+        $cvPrepared=New-CanonicalPreparedJsonArtifact -Document $cvDocument -PendingParent $cvSourceParent -PendingPath $cvSource -PendingName $cvPendingName -SchemaPath (Join-Path $RepoRoot 'schemas/canonical-root-claim.schema.json') -FileSecurityDescriptorSddl $cvSddl
+        $cvPendingPath=Join-Path $cvSource $cvPendingName
+        $cvOriginal=[pscustomobject]@{Sha256=[string]$cvPrepared.Sha256;Length=[long]$cvPrepared.Length}
+        $cvStagingPath=Join-Path $cvDestination (([IO.Path]::GetFileNameWithoutExtension($cvPendingName))+'.staging')
+        if($cvCase -ceq 'cross-volume-adopt-staging'){
+            $cvStagingSeed=[AiAgentDotfiles.NoFollowFile]::CreateAndHashChildRegularFileWithSecurityDescriptor($cvDestinationParent,([IO.Path]::GetFileNameWithoutExtension($cvPendingName))+'.staging',[AiAgentDotfiles.NoFollowFile]::ReadHeldRegularFileBytes($cvPrepared.HeldHandle,[long]$cvPrepared.Length),$cvSddl)
+            $cvStagingSeed.Dispose()
+        }
+        if($cvCase -ceq 'cross-volume-staging-conflict'){
+            [IO.File]::WriteAllText($cvStagingPath,'{"conflict":true}')
+        }
+        $cvPublication=$null
+        try{
+            if($cvCase -ceq 'cross-volume-staging-conflict'){
+                Assert-Throws {Publish-CanonicalPreparedJsonArtifactAcrossVolumes -PreparedArtifact $cvPrepared -FinalParent $cvDestinationParent -FinalPath $cvFinalPath -SourceParent $cvSourceParent -SourceName $cvPendingName} 'canonical cross-volume staging file conflicts with the reviewed bytes' ($cvCase+': a conflicting staging remnant is fatal')
+                Assert ((Test-Path -LiteralPath $cvPendingPath) -and -not (Test-Path -LiteralPath $cvFinalPath)) ($cvCase+': conflict leaves the pending and publishes nothing')
+            }
+            else {
+                $cvPublication=Publish-CanonicalPreparedJsonArtifactAcrossVolumes -PreparedArtifact $cvPrepared -FinalParent $cvDestinationParent -FinalPath $cvFinalPath -SourceParent $cvSourceParent -SourceName $cvPendingName
+                $cvPublication.HeldHandle.Dispose()
+                Assert (-not (Test-Path -LiteralPath $cvPendingPath)) ($cvCase+': the source pending is removed by identity after publication')
+                Assert (-not (Test-Path -LiteralPath $cvStagingPath)) ($cvCase+': the staging file is consumed by the rename')
+                $cvHeld=[AiAgentDotfiles.NoFollowFile]::OpenAndHashChildRegularFile($cvDestinationParent,[IO.Path]::GetFileName($cvFinalPath))
+                try{
+                    Assert ([string]$cvHeld.ReadResult.Sha256 -ceq [string]$cvOriginal.Sha256 -and [long]$cvHeld.ReadResult.Length -eq [long]$cvOriginal.Length) ($cvCase+': the published bytes are the exact held pending bytes')
+                    [AiAgentDotfiles.NoFollowFile]::AssertHeldRegularFileSecurityDescriptor($cvHeld,$cvSddl)
+                    Assert $true ($cvCase+': the published file keeps the exact create-time descriptor')
+                }finally{$cvHeld.Dispose()}
+            }
+        }
+        finally{
+            if($cvPublication -and $cvPublication.HeldHandle){$cvPublication.HeldHandle.Dispose()}
+            if($cvPrepared -and $cvPrepared.HeldHandle){try{$cvPrepared.HeldHandle.Dispose()}catch{}}
+            Close-SafeDirectoryContainmentChain -Handles $cvDestinationParents
+            Close-SafeDirectoryContainmentChain -Handles $cvSourceParents
+        }
+    }
+
+    # Residual pending after a crashed cross-volume publication: the claim and its exact
+    # pending remnant are the finished publication, not ambiguity; the finalize publisher
+    # removes the remnant by identity before touching anything else.
+    foreach($remnantCase in @('claim-remnant-exact','claim-remnant-mismatch','claim-remnant-identity-drift')){
+        $rmRoot=Join-Path $root $remnantCase;$rmRepo=Join-Path $rmRoot 'repo';Initialize-TestRepo $rmRepo
+        $rmRecovery=Join-Path $rmRoot 'private/recovery';$rmControl=Join-Path $rmRoot 'private/control';$rmBackup=Join-Path $rmRoot 'private/backups';$rmProbe=Join-Path $rmRoot 'probe'
+        foreach($path in @($rmRecovery,$rmControl,$rmBackup,$rmProbe)){[IO.Directory]::CreateDirectory($path)|Out-Null}
+        foreach($path in @($rmRecovery,$rmControl,$rmBackup)){Set-TestCurrentUserOnlyAcl -Path $path}
+        [IO.Directory]::CreateDirectory((Join-Path $rmControl 'canonical-roots'))|Out-Null
+        $rmPayload=New-CanonicalSetupPlanPayload -RepoRoot $rmRepo -CanonicalRecoveryRoot $rmRecovery -ControlBase $rmControl -BackupRoot $rmBackup -ProbeRoot $rmProbe
+        $rmFinal=New-CanonicalFinalSetupState -PlanPayload $rmPayload -RepoRoot $rmRepo
+        $rmGit=Get-CanonicalGitContext $rmRepo;$rmPaths=Get-CanonicalTransactionContractPaths $rmGit
+        $rmHeader=New-TestSetupJournalHeader -Payload $rmPayload -Git $rmGit -Paths $rmPaths -TransactionId ([Guid]::NewGuid().ToString('D').ToLowerInvariant())
+        $null=New-CanonicalJournalHeader -Document $rmHeader -TransactionNamespace $rmHeader.TransactionNamespace
+        $null=Add-CanonicalJournalRecord -TransactionNamespace $rmHeader.TransactionNamespace -Phase SETUP_CLAIM_INTENT -Data ([ordered]@{ClaimHash=[string](Get-SemanticJsonHash -InputObject $rmPayload.ExpectedRootClaim)})
+        $rmClaimPath=Join-Path $rmControl (Join-Path 'canonical-roots' ($rmPayload.ExpectedSetupStateProjection.RepoId+'.json'))
+        Write-TestSemanticJson $rmClaimPath $rmPayload.ExpectedRootClaim
+        $rmPendingPath=Join-Path (Join-Path $rmHeader.TransactionNamespace '_pending') ('setup-claim-'+[Guid]::NewGuid().ToString('N')+'.tmp')
+        if($remnantCase -ceq 'claim-remnant-mismatch'){
+            $rmBad=Copy-SemanticObject $rmPayload.ExpectedRootClaim;$rmBad.OwnerSid='S-1-5-18'
+            Write-TestSemanticJson $rmPendingPath $rmBad
+        }
+        else {Write-TestSemanticJson $rmPendingPath $rmPayload.ExpectedRootClaim}
+        $rmState=Read-CanonicalJournalDirectory -TransactionNamespace $rmHeader.TransactionNamespace -AllowUnfinished
+        if($remnantCase -ceq 'claim-remnant-identity-drift'){
+            # Replace the remnant with the same bytes after the snapshot: the captured
+            # identity no longer describes the on-disk file, so the tolerance must fall
+            # back to manual instead of reaching the identity-checked delete.
+            Remove-Item -LiteralPath $rmPendingPath -Force
+            Write-TestSemanticJson $rmPendingPath $rmPayload.ExpectedRootClaim
+        }
+        $rmClassification=Get-CanonicalTransactionRecoveryClassification -State $rmState -RepoRoot $rmRepo
+        if($remnantCase -ne 'claim-remnant-exact'){
+            Assert ([string]$rmClassification.Status -ceq 'manual' -and [string]$rmClassification.Reason -ceq 'setup-claim-pending-ambiguous') ($remnantCase+': a drifted remnant stays ambiguous manual recovery')
+            Assert ((Test-Path -LiteralPath $rmPendingPath) -and (Test-Path -LiteralPath $rmClaimPath)) ($remnantCase+': the drifted remnant and claim are preserved untouched')
+            continue
+        }
+        Assert ([string]$rmClassification.Status -ceq 'recovery' -and [string]$rmClassification.AllowedAction -ceq 'finalize' -and [string]$rmClassification.SetupState.ClaimPendingRemnantPath -ceq $rmPendingPath) ($remnantCase+': an exact pending remnant is the finished publication and finalize carries its locator')
+        $null=Publish-CanonicalSetupFinalStateForRecovery -State $rmState -Classification $rmClassification
+        Assert (-not (Test-Path -LiteralPath $rmPendingPath)) ($remnantCase+': finalize removes the exact remnant by identity')
+        Assert ((Test-Path -LiteralPath $rmClaimPath) -and (Test-Path -LiteralPath $rmPaths.SetupStatePath)) ($remnantCase+': finalize keeps the published claim and publishes the final state')
+        $rmAfter=Read-CanonicalJournalDirectory -TransactionNamespace $rmHeader.TransactionNamespace -AllowUnfinished
+        Assert (@($rmAfter.Records|Where-Object{[string]$_.Phase -ceq 'SETUP_CLAIM_PUBLISHED'}).Count -eq 1 -and @($rmAfter.Records|Where-Object{[string]$_.Phase -ceq 'SETUP_STATE_PUBLISHED'}).Count -eq 1) ($remnantCase+': finalize appends the claim and state published records exactly once')
+    }
+
+    # Race defense: if the remnant drifts between classification and removal, the delete
+    # must surface the manual-recovery token instead of an unmapped command failure.
+    $raceRoot=Join-Path $root 'claim-remnant-race';$raceRepo=Join-Path $raceRoot 'repo';Initialize-TestRepo $raceRepo
+    $raceRecovery=Join-Path $raceRoot 'private/recovery';$raceControl=Join-Path $raceRoot 'private/control';$raceBackup=Join-Path $raceRoot 'private/backups';$raceProbe=Join-Path $raceRoot 'probe'
+    foreach($path in @($raceRecovery,$raceControl,$raceBackup,$raceProbe)){[IO.Directory]::CreateDirectory($path)|Out-Null}
+    foreach($path in @($raceRecovery,$raceControl,$raceBackup)){Set-TestCurrentUserOnlyAcl -Path $path}
+    [IO.Directory]::CreateDirectory((Join-Path $raceControl 'canonical-roots'))|Out-Null
+    $racePayload=New-CanonicalSetupPlanPayload -RepoRoot $raceRepo -CanonicalRecoveryRoot $raceRecovery -ControlBase $raceControl -BackupRoot $raceBackup -ProbeRoot $raceProbe
+    $raceGit=Get-CanonicalGitContext $raceRepo;$racePaths=Get-CanonicalTransactionContractPaths $raceGit
+    $raceHeader=New-TestSetupJournalHeader -Payload $racePayload -Git $raceGit -Paths $racePaths -TransactionId ([Guid]::NewGuid().ToString('D').ToLowerInvariant())
+    $null=New-CanonicalJournalHeader -Document $raceHeader -TransactionNamespace $raceHeader.TransactionNamespace
+    $null=Add-CanonicalJournalRecord -TransactionNamespace $raceHeader.TransactionNamespace -Phase SETUP_CLAIM_INTENT -Data ([ordered]@{ClaimHash=[string](Get-SemanticJsonHash -InputObject $racePayload.ExpectedRootClaim)})
+    Write-TestSemanticJson (Join-Path $raceControl (Join-Path 'canonical-roots' ($racePayload.ExpectedSetupStateProjection.RepoId+'.json'))) $racePayload.ExpectedRootClaim
+    $racePendingPath=Join-Path (Join-Path $raceHeader.TransactionNamespace '_pending') ('setup-claim-'+[Guid]::NewGuid().ToString('N')+'.tmp')
+    Write-TestSemanticJson $racePendingPath $racePayload.ExpectedRootClaim
+    $raceState=Read-CanonicalJournalDirectory -TransactionNamespace $raceHeader.TransactionNamespace -AllowUnfinished
+    $raceClassification=Get-CanonicalTransactionRecoveryClassification -State $raceState -RepoRoot $raceRepo
+    Remove-Item -LiteralPath $racePendingPath -Force
+    Write-TestSemanticJson $racePendingPath $racePayload.ExpectedRootClaim
+    Assert-Throws {Publish-CanonicalSetupFinalStateForRecovery -State $raceState -Classification $raceClassification} 'manual-recovery-required: setup claim remnant removal failed' 'claim-remnant-race: a remnant drifting after classification surfaces the manual-recovery token'
+    Assert (Test-Path -LiteralPath $racePendingPath) 'claim-remnant-race: the drifted remnant is preserved for review'
+
     Write-Host "`n[missing-to-existing setup artifact graph]" -ForegroundColor Cyan
     $dagRepo=Join-Path $root 'dag-repo';Initialize-TestRepo $dagRepo
     $dagPrivate=Join-Path $root 'dag-private';[IO.Directory]::CreateDirectory($dagPrivate)|Out-Null;Set-TestCurrentUserOnlyAcl -Path $dagPrivate
