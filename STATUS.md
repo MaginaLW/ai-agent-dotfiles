@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-08 (item-7 closeout: #205 transient red closed by same-SHA rerun)
+Last updated: 2026-10-08 (item-8 closeout: on-machine material index verified; handoff 1-8 closed)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -173,7 +173,11 @@ showed one shard-2 `root-claims-registry` assertion red on those same docs-only 
 as a timing transient by the same-SHA rerun-failed-jobs attempt, green on all four jobs, with a local
 same-bytes rerun of the suite green at 955/0; see the
 [2026-10-08 note](status/active/live-safety-hardening.md#2026-10-08-收尾205-偶发红与同-sha-重跑结案).
-The only remaining open item is the low-priority on-machine material index. See the
+**2026-10-08 closeout: handoff items 1-8 are all closed.** Item 8 (the on-machine material index)
+was verified and updated on 2026-10-08 — `tmp/s7-open-items/evidence/shard2-205.log` added to the
+index, the 11 indexed `tmp/` paths and the machine-private external root's 6 subdirectories
+verified present, all materials still uncommitted; item 9 stays a non-open opportunistic entry
+per its reviewed deferral. See the
 [closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
 
 **2026-10-02: candidate accepted.** The branch head `dfa21d1` (code candidate `3897dc4`:
@@ -193,7 +197,8 @@ executed yet), the `@()` flattening parse-gate candidate, and the on-machine mat
 index. No real Apply, adopt, activate, deployment, or runner approval has been executed.
 *(Superseded 2026-10-07: the release path has since been executed — see the 2026-10-07 entry and
 the [closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口);
-only the two non-release-path items remain open.)*
+the two non-release-path items have since closed as well — item 7 on 2026-10-07 and item 8 on
+2026-10-08.)*
 Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
