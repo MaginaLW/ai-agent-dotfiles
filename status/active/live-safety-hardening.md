@@ -6460,3 +6460,22 @@ adopt/runner/部署。**本轮发现并确认一个产品级缺陷，按下述�
 **边界**：本接受 = 跨卷 claim 发布修复候选在三证据集上合格。merge 到 `main` 与真机
 recovery finalize/setup 续接按所有者授权链在后续步骤执行；真实部署、runner 批准等仍在
 发布路径的后续阶段。独立评审：R4A no blocking finding、R4B 一条 P1 已修并复验。
+
+### merge 执行与真机 setup 续接完成（2026-10-07）
+
+- **merge**（所有者授权链）：`codex/s7-cross-volume-claim`（接受对象 `ffee36e`）经 `--no-ff`
+  合并进 `main`：merge commit `6741e69`（main `cfcb511` → `6741e69`），已推送；merge 头与
+  记录头的 CI 样本随后产生。
+- **真机 recovery finalize（跨卷修复首次实跑）**：在合并后的 HEAD 重新生成 finalize 计划
+  （`f2d498c4…`；与旧计划 `b377e350…` 逐字段差异仅 commit/时间戳/派生哈希与工具链哈希——
+  后者因修复改了 scripts 而预期变化），`canonical recover finalize -Apply` 以
+  **`canonical-recovery-applied` PASS、exit 0** 完成：pending claim 经新 staged 发布路径跨卷
+  落位、源 pending 按身份删除、setup final state 发布、事务关闭。
+- **终态验证（只读）**：`canonical status` = **`canonical-ready` PASS**；`canonical recover
+  status` = **`no-canonical-transaction` PASS**；claim 文件在
+  `%LOCALAPPDATA%\ai-agent-dotfiles\control\canonical-roots\<repoId>.json`（4,165 字节，与
+  pending 精确同字节）；`_pending` 清空；事务目录含 `result.json` 与 7 条记录（终态
+  COMPLETE）。**首次真机 setup Apply 的中途失败窗口被修复后的 recovery finalize 完整续接**，
+  这是跨卷修复在其原始缺陷上的端到端实证。
+- 边界：adopt（环境名按证据选择）、逐机 runner 批准、真实部署仍未执行，按 R2 runbook 与
+  授权链推进；真实部署前照旧 reviewed plan。
