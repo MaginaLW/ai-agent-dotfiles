@@ -6441,3 +6441,22 @@ adopt/runner/部署。**本轮发现并确认一个产品级缺陷，按下述�
 - **CI**：run #194 四作业全绿（#192/#193 的红即上述垫片问题，同修复覆盖）。
 - **lab**：kit c24（candidate `ffee36e`，kit `c35a8e2f…`）`validation-c18-10` 运行中。
 - 边界：merge 与真机 recovery finalize/setup 续接待本轮证据齐全后执行（均已在授权链内）。
+
+### 候选接受：`ffee36e`（2026-10-07）
+
+**接受对象**：分支 `codex/s7-cross-volume-claim` 的代码候选 `ffee36e`（= 跨卷修复 `3384748`
++ 评审 P1 硬化 `287af6f` + 测试面修复；记录提交 `bb00ed2` 在其后）。**三证据集齐全**：
+
+1. **本地**：`-All` **43/43 零失败零超时**（ffee36e 字节）；定向：canonical-recovery 180/0、
+   seams 66/0、canonical-transaction 64/0 与 -apply 49/0、transaction-journal-exact-byte
+   12/0、automation-safety PASS、hard-kill `-Section primitives` 95/0；解析门 183 文件、
+   secret scan 无阻塞、`git diff --check` 干净。
+2. **一次性身份 lab**：`validation-c18-10`（kit c24 `c35a8e2f…`，candidate `ffee36e`）：
+   **11/11 门全 PASS、43/43 套件、0 失败 0 超时**，completion ExitCode 0，candidate/kit 与
+   冻结清单一致。
+3. **CI**：代码候选 run #194 四作业全绿；记录头 run #195 四作业全绿（#192/#193 的红为
+   测试垫片问题，已被 `ffee36e` 覆盖）。
+
+**边界**：本接受 = 跨卷 claim 发布修复候选在三证据集上合格。merge 到 `main` 与真机
+recovery finalize/setup 续接按所有者授权链在后续步骤执行；真实部署、runner 批准等仍在
+发布路径的后续阶段。独立评审：R4A no blocking finding、R4B 一条 P1 已修并复验。
