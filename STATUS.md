@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-07 (current-state entry only)
+Last updated: 2026-10-07 (flattening parse-gate slice, handoff item 7)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -159,9 +159,13 @@ The follow-on CI samples are all green: #197 `6741e69` (merge commit), #198 `239
 and the acceptance record #196 (`c8ba6a2`) has since gone green as well — every head from the
 candidate through the merge lineage carries its own all-green sample (verified 2026-10-07 by an
 authorized read-only API query; job-level JSON kept untracked under
-`tmp/s7-open-items/evidence/`). **Closeout: the 2026-09-29 handoff items 1-6 are all closed**;
-the only remaining open items are the two recorded low-priority ones — the `@()` array-flattening
-parse-gate candidate and the on-machine material index. See the
+`tmp/s7-open-items/evidence/`). **Closeout: the 2026-09-29 handoff items 1-6 are all closed**, and
+the 2026-10-07 follow-up window landed handoff item 7 — the `@()` array-statement flattening guard
+— in the parse gate (`scripts/check-powershell-syntax.ps1`) with its reviewed hard-kill exemption,
+fixture and exemption-pin assertions in `tests/powershell-syntax-gate.tests.ps1`, and the seams
+baseline re-pinned 17075→17098 (seams 66/0; parse gate 183 files; secret scan clean; all local,
+not yet pushed, so CI has not run on those bytes). The only remaining open item is the low-priority
+on-machine material index. See the
 [closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
 
 **2026-10-02: candidate accepted.** The branch head `dfa21d1` (code candidate `3897dc4`:

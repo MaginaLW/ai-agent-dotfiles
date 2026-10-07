@@ -6548,11 +6548,17 @@ setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执�
    claims/state/pair VALID）、逐机 runner 批准（`81c5e9c6…`，preview-only hooks，
    doctor PASS=27）。
 
-### 剩余开放项（仅此两项，均低优先、已记录）
+### 剩余开放项（仅剩第 8 项，均低优先、已记录）
 
-7. **`@()` 嵌套数组语句展平坑转可执行检查**：解析门禁 `scripts/check-powershell-syntax.ps1`
-   增加基于 AST 的展平检测，或在同仓代码评审清单中固化；触发实例与修法见 2026-09-30 节
-   待办 3 与机内记忆（`repo-validation-cadence`）。
+7. ~~**`@()` 嵌套数组语句展平坑转可执行检查**~~ ✅ 2026-10-07 追加窗口收口：解析门禁
+   `scripts/check-powershell-syntax.ps1` 新增基于 AST 的展平检测（`@()` 内 ≥2 个裸数组语句
+   即失败，含一层括号解包；同行相邻形式本就是解析错误）。全仓扫描仅一处命中——硬杀套件
+   11788 行的 302 个 mutation 名清单（11797 行行尾漏逗号，展平与逗号形式逐值等价），该文件
+   为自密封测试，按 and/or 门禁同款机制入 `$reviewedArrayStatementFlatteningExemptions`
+   豁免表（重密封窗口补逗号后退役）。夹具与豁免钉断言进
+   `tests/powershell-syntax-gate.tests.ps1`（33 断言 PASS）；seams 基线 17075→17098 重钉
+   （+23 行逐条评审，动态命令 194/digest 不变）后 **66/0** 全绿。CI 未跑（未推送）。
+   详见 [2026-10-07 追加窗口记录](#2026-10-07-追加待办-7-收口展平坑转解析门禁)。
 8. **机内材料索引**（不入库；2026-10-07 更新）：`tmp/lab-kit-source`（纯净 lab 源，含
    transport 修复）、`tmp/lab-postaudit-21`（c17 证据）、`tmp/lab-postaudit-22/23`（c18
    冻结 kit；c23 = 胜出 kit）、`tmp/lab-postaudit-24`（c24 kit，`validation-c18-10`
@@ -6565,6 +6571,7 @@ setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执�
    `setup-dryrun-20261003/20261006/20261006b`（setup 计划三代）、
    `recover-finalize-20261007/20261007b`（finalize 计划）、`adopt-20261007/`（环境名选择
    理由、计划与终态证据）。清理纪律：以上均属机内证据，不提交；删除前须确认无接手依赖。
+   （2026-10-07 追加窗口只读核验：上列 11 个 `tmp/` 路径全部存在。）
 
 ### 边界与所有者决定点（非本仓开放项）
 
@@ -6578,3 +6585,39 @@ setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执�
 - 机内路径脱敏：2026-10-06/10-07 两节中两处本机绝对路径（授权计划文件、recovery 根）
   改为 `<机内私有外部根>` / `<仓库父目录>` 占位，语义不变，符合「tracked 文档不写本机
   绝对路径」的约定。
+
+## 2026-10-07 追加：待办 7 收口——展平坑转解析门禁
+
+接手「2026-10-07 收尾：待办清单」第 7 项（所有者指示"完成待办任务"）。把 2026-09-30 记录的
+`@()` 内嵌套数组语句展平坑（第二次展平类踩坑）转成解析门禁的可执行检查，沿 and/or 参数坑
+门禁的既有机制落地。
+
+### 实现
+
+- **检测规则**（`scripts/check-powershell-syntax.ps1` 新第三段检查，扫全部已解析文件）：
+  `@()` 数组表达式的语句体里出现 **≥2 个"裸数组语句"**（Pipeline→CommandExpression 直接包
+  ArrayExpression/ArrayLiteral，含一层 ParenExpression 解包）即失败。可解析且会静默展平的
+  形式为分号分隔、换行分隔的 `@()`/逗号清单/括号对；同行相邻形式（如
+  `@(@('a','1') @('b','2'))` 字面写法）在 PowerShell 7 中本就是解析错误，由既有解析错误门禁
+  覆盖。逐变体验证过八种写法的解析/展平语义后定形谓词（分号 `@()` 对、换行 `@()` 对、
+  换行逗号清单三者命中；逗号嵌套、一元逗号包装、单层包装、含管道语句不命中）。
+- **豁免机制**：与 and/or 门禁同款 `$reviewedArrayStatementFlatteningExemptions` 表。全仓
+  AST 扫描仅一处命中：`tests/canonical-hard-kill.tests.ps1:11788` 的 302 个 mutation 名清单
+  ——11797 行行尾漏逗号使其解析为两个数组语句（65+237 元素），但展平结果与逗号形式**逐值
+  等价**（同一扁平 302 字符串清单，无嵌套意图），且该文件为自密封测试，为装饰性逗号重写
+  密封字节不成比例；入豁免表（精确行号 11788），重密封窗口补上逗号后退役该条目
+  （and/or 豁免 `bbfa6d5` 的同款退役路径）。
+- **测试**（`tests/powershell-syntax-gate.tests.ps1`）：RED 夹具三种展平形式各报一次、
+  GREEN 夹具三种合法嵌套形式通过；门禁源自检断言——豁免表恰好一次赋值、单一 hashtable、
+  恰好一条目且钉死 `tests/canonical-hard-kill.tests.ps1` + `@(11788)`（密封文件行号漂移时
+  fail-closed）、新 foreach 不在常量 if 开关内。
+
+### 验证（本机，未推送、CI 未跑）
+
+- 解析门禁全仓 **183 文件 PASS**（含豁免生效）；门禁套件 **33 断言 PASS**（预算 90s 内）。
+- seams 基线重钉：reflection-sensitive **17075→17098**（+23 行 = 3 InvokeMember
+  FindAll/errors.Add/ContainsKey + 20 Member AST 导航读取，用 `tmp/seams-delta.ps1`
+  逐行评审，REMOVED 0），动态命令 **194/count+digest 均不变**；重钉后 seams **66/0**。
+- `git diff --check` 干净；secret scan 无阻塞（keyword hints 均为非阻塞提示）。
+- 本轮临时产物（变体探针、Member 行比对脚本、delta 输出、seams-head 草稿）已清理；
+  待办 8 索引的 11 个 `tmp/` 路径只读核验全部存在。
