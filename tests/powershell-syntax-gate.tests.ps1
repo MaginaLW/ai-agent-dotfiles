@@ -145,6 +145,32 @@ try {
     Assert-True ($operatorHits -eq 1) "scripts/ bare -AND reports the operator message exactly once (got $operatorHits)"
     Assert-True ($double.Output -notmatch "unknown parameter '-AND'") 'scripts/ bare -AND is not also reported as an unknown parameter'
 
+    Write-Host '[array-statement flattening fixtures]'
+    $flatRoot = New-FixtureRepo -Files @{
+        'probe-flat.ps1' = @(
+            '$pairs = @(@(''a'',''1''); @(''b'',''2''))'
+            '$flat = @(''x'',''y'''
+            '''z'',''w'')'
+            '$parenPairs = @((''a'',''1'')'
+            '(''b'',''2''))'
+        ) -join "`n"
+    }
+    $flat = Invoke-SyntaxGate -TargetRoot $flatRoot
+    Assert-True ($flat.ExitCode -eq 1) "bare array statements in @() exit 1 (got $($flat.ExitCode))"
+    $flatHits = [regex]::Matches($flat.Output, 'bare array statements inside @\(\) flatten').Count
+    Assert-True ($flatHits -eq 3) "semicolon pairs, the missing-comma list, and parenthesised pairs each report once (got $flatHits)"
+
+    $nestedRoot = New-FixtureRepo -Files @{
+        'probe-nested.ps1' = @(
+            '$pairs = @(@(''a'',''1''), @(''b'',''2''))'
+            '$wrapped = @(,@(''a'',''1'') ,@(''b'',''2''))'
+            '$single = @(@(''a'',''1''))'
+        ) -join "`n"
+    }
+    $nested = Invoke-SyntaxGate -TargetRoot $nestedRoot
+    Assert-True ($nested.ExitCode -eq 0) "comma-nested pairs, unary-comma wraps, and a single nested array exit 0 (got $($nested.ExitCode))"
+    Assert-True ($nested.Output -match 'PowerShell syntax validation passed: 1 file\(s\)\.') 'intended nesting forms are accepted'
+
     Write-Host '[gate source: empty exemption table]'
     $tokens = $null
     $parseErrors = $null
@@ -173,6 +199,36 @@ try {
     Assert-True ($operatorLoops.Count -gt 0) 'operator-as-parameter foreach is present in the gate AST'
     $disabledLoops = @($operatorLoops | Where-Object { Test-NestedInConstantIf $_ })
     Assert-True ($disabledLoops.Count -eq 0) 'operator-as-parameter foreach is not nested in if ($true)/if ($false)'
+
+    Write-Host '[gate source: array-flattening exemption table is review-pinned]'
+    $flatteningAssignments = @($gateAst.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        [string]$node.Left.VariablePath.UserPath -eq 'reviewedArrayStatementFlatteningExemptions'
+    }, $true))
+    Assert-True ($flatteningAssignments.Count -eq 1) "exactly one assignment to `$reviewedArrayStatementFlatteningExemptions (got $($flatteningAssignments.Count))"
+    $flatteningTables = @($flatteningAssignments[0].Right.FindAll({
+        param($node) $node -is [System.Management.Automation.Language.HashtableAst]
+    }, $true))
+    Assert-True ($flatteningTables.Count -eq 1) "flattening exemption assignment is a single hashtable (got $($flatteningTables.Count))"
+    $flatteningEntries = @($flatteningTables[0].KeyValuePairs)
+    Assert-True ($flatteningEntries.Count -eq 1) "flattening exemption table holds exactly one reviewed entry (got $($flatteningEntries.Count))"
+    $flatteningKeyAst = $flatteningEntries[0].Item1
+    Assert-True ($flatteningKeyAst -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+        [string]$flatteningKeyAst.Value -ceq 'tests/canonical-hard-kill.tests.ps1') 'flattening exemption names only the sealed hard-kill mutation list'
+    $flatteningValueAst = $flatteningEntries[0].Item2
+    Assert-True ([string]$flatteningValueAst.Extent.Text -ceq '@(11788)') 'flattening exemption pins exactly the reviewed line 11788'
+
+    Write-Host '[gate source: array-flattening check is not a constant-if off switch]'
+    $flatteningLoops = @($gateAst.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.ForEachStatementAst] -and
+        $node.Extent.Text.Contains('bare array statements inside @() flatten')
+    }, $true))
+    Assert-True ($flatteningLoops.Count -gt 0) 'array-flattening foreach is present in the gate AST'
+    $flatteningDisabled = @($flatteningLoops | Where-Object { Test-NestedInConstantIf $_ })
+    Assert-True ($flatteningDisabled.Count -eq 0) 'array-flattening foreach is not nested in if ($true)/if ($false)'
 
     Write-Host '[repository as-is]'
     $repoRun = Invoke-SyntaxGate -TargetRoot $RepoRoot

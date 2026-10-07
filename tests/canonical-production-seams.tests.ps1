@@ -715,8 +715,15 @@ $reviewedAllScriptsDynamicCommandDigest='34b9d0b3a14c258b672d3ae3d7ad9665319bb3d
 # 5 Member: the identity reads and the remnant-entry access in the same branch and the
 # publisher's wrapped delete). Row-reviewed with the seams-delta tool; REMOVED 0,
 # dynamic-command count 194 and digest unchanged, no alias, shadow, or new reflection type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=17075
-$reviewedAllScriptsReflectionSensitiveDigest='18169ed534649cc462552e8fe43fc8f0d8f38fcbee758fb4b1468343710cf82e'
+# Re-pinned 2026-10-07 for the parse-gate array-statement flattening guard: +23 rows, all in
+# scripts/check-powershell-syntax.ps1 (3 InvokeMember: the ArrayExpressionAst FindAll walk,
+# the guard's errors.Add, and the flattening exemption table's ContainsKey; 20 Member: the
+# AST navigation reads SubExpression/Statements/PipelineElements/Extent/Expression/Pipeline
+# and the loop prelude's parsedFile Relative/Ast). Row-reviewed with the seams-delta tool;
+# REMOVED 0, dynamic-command count 194 and digest unchanged, no alias, shadow, or new
+# reflection type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=17098
+$reviewedAllScriptsReflectionSensitiveDigest='7fdc7244f76cde1208bb590649531b6a1105bc6e7bf7d2fbbe9c727109653c47'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

@@ -23,6 +23,18 @@ $excludedPrefixes = @('claude/skills/', 'codex/skills/', 'reasonix/skills/', 'en
 # reviewed re-seal. Keep the mechanism so a future reviewed exemption has a
 # declared home rather than an ad-hoc allowlist.
 $reviewedOperatorParameterExemptions = @{}
+
+# Reviewed exemptions for the array-statement flattening guard below. Each
+# entry is a file plus the exact reviewed line number of the offending @()
+# expression. The current entry is the hard-kill suite's sealed mutation-name
+# list: one of its source lines lacks a trailing comma, so the list parses as
+# two array statements inside @(). The flattening there is value-identical to
+# the comma form (the same flat 302-string list, no nesting intent), and
+# rewriting sealed test bytes for a cosmetic comma is disproportionate; retire
+# the entry in a re-seal window that adds the missing comma instead.
+$reviewedArrayStatementFlatteningExemptions = @{
+    'tests/canonical-hard-kill.tests.ps1' = @(11788)
+}
 $paths = @(& git -C $RepoRoot ls-files -co --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate current-worktree files for syntax validation.' }
 $errors = [System.Collections.Generic.List[object]]::new()
@@ -112,6 +124,52 @@ foreach ($parsedFile in @($parsedFiles)) {
                 Message = "operator '-$($element.ParameterName)' parsed as a command parameter; wrap the command call in parentheses"
             })
         }
+    }
+}
+foreach ($parsedFile in @($parsedFiles)) {
+    $normalized = [string] $parsedFile.Relative
+    $ast = $parsedFile.Ast
+    # A bare array statement inside @() unrolls into the collected output:
+    # @(@('a','1'); @('b','2')) evaluates to the flat four-string list
+    # @('a','1','b','2'), never the two pairs its shape suggests, and an
+    # element expression then reads characters instead of pairs ($_[0] is
+    # 'a') with no runtime error to notice. Semicolon, newline, and
+    # parenthesised forms all parse and flatten silently (same-line
+    # adjacency is already a parse error). That form shipped once as the
+    # live-operation token/severity pairing table (2026-09-30, fixed by a
+    # hashtable lookup), a repeat of an earlier comma-precedence cousin,
+    # so treat every hit as fatal. Comma-nest the arrays or wrap each with
+    # a unary comma instead.
+    foreach ($array in @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.ArrayExpressionAst] }, $true))) {
+        $bareArrayStatements = 0
+        foreach ($statement in @($array.SubExpression.Statements)) {
+            if ($statement -isnot [System.Management.Automation.Language.PipelineAst]) { continue }
+            if (@($statement.PipelineElements).Count -ne 1) { continue }
+            $element = $statement.PipelineElements[0]
+            if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst]) { continue }
+            $expression = $element.Expression
+            if ($expression -is [System.Management.Automation.Language.ParenExpressionAst]) {
+                $parenPipeline = $expression.Pipeline
+                if ($parenPipeline -is [System.Management.Automation.Language.PipelineAst] -and
+                    @($parenPipeline.PipelineElements).Count -eq 1 -and
+                    $parenPipeline.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) {
+                    $expression = $parenPipeline.PipelineElements[0].Expression
+                }
+            }
+            if ($expression -is [System.Management.Automation.Language.ArrayExpressionAst] -or $expression -is [System.Management.Automation.Language.ArrayLiteralAst]) { $bareArrayStatements++ }
+        }
+        if ($bareArrayStatements -lt 2) { continue }
+        $exempt = $false
+        if ($reviewedArrayStatementFlatteningExemptions.ContainsKey($normalized)) {
+            $exempt = ([int] $array.Extent.StartLineNumber) -in $reviewedArrayStatementFlatteningExemptions[$normalized]
+        }
+        if ($exempt) { continue }
+        $errors.Add([pscustomobject]@{
+            File = $normalized
+            Line = $array.Extent.StartLineNumber
+            Column = $array.Extent.StartColumnNumber
+            Message = "bare array statements inside @() flatten into one list; comma-nest or wrap each"
+        })
     }
 }
 foreach ($parsedFile in @($parsedFiles)) {
