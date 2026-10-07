@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-07 (flattening parse-gate slice, handoff item 7)
+Last updated: 2026-10-08 (item-7 closeout: #205 transient red closed by same-SHA rerun)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -168,8 +168,12 @@ the owner's 2026-10-07 authorization: CI run
 [#203](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/37618010892) on `3b11989` is green
 on all four jobs, and the out-of-window run #202 gave the prior head `5478aa9` its own green
 sample; the record head `3e1663e`'s run #204 is green as well, so every head pushed this day
-carries its own all-green sample). The only remaining open item is the low-priority
-on-machine material index. See the
+carries its own all-green sample — for the closeout head `b04613f`, run #205's first attempt
+showed one shard-2 `root-claims-registry` assertion red on those same docs-only bytes and was closed
+as a timing transient by the same-SHA rerun-failed-jobs attempt, green on all four jobs, with a local
+same-bytes rerun of the suite green at 955/0; see the
+[2026-10-08 note](status/active/live-safety-hardening.md#2026-10-08-收尾205-偶发红与同-sha-重跑结案).
+The only remaining open item is the low-priority on-machine material index. See the
 [closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
 
 **2026-10-02: candidate accepted.** The branch head `dfa21d1` (code candidate `3897dc4`:

@@ -6643,3 +6643,20 @@ setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执�
 - 本收尾提交自身的 CI 样本以其后续 run 为准（推送时在途；按 STATUS 顶部指引核对
   `git log origin/main..main` 与最新 run，绿后不再追改记录）。交接清单唯一开放项仍为
   待办 8（机内材料索引，不入库的维护性记录）。
+
+
+## 2026-10-08 收尾：#205 偶发红与同 SHA 重跑结案
+
+- 收尾头 `b04613f` 的 CI **#205 attempt 1** 在 shard 2 红：注解 `discovered=9 passed=8 failed=1
+  timed-out=0 failing=[root-claims-registry.tests.ps1:failed:exit=1]`，其余 8 套件全过、无其他
+  失败腿。作业日志已取回（`tmp/s7-open-items/evidence/shard2-205.log`，不入库），失败点为
+  `root-claims-registry.tests.ps1` 的「real PowerShell.Stop after safe-chain publication …
+  held handles are fully recoverable」断言——真实 PowerShell.Stop 的句柄拆除时序类用例
+  （R3 族），同族另三个 PowerShell.Stop 用例当次均通过。
+- `b04613f` 仅改两个 .md 文件，测试字节与全绿的 #203/#204 完全一致；**本地同字节重跑
+  root-claims-registry 全绿（955 断言、零失败，含该断言**，stranded-resolver NOTE 为已记录的
+  预期残留）。按 R3「同 SHA 重跑才成立」执行 **rerun-failed-jobs（#205 attempt 2，仅重跑
+  shard 2）→ 四作业全绿**。结案：时序性偶发（与 2026-10-01 窗口的 #181 docs-only root-claims
+  红灯同款），非代码缺陷；未改任何测试/夹具/预算。
+- 至此当日全部推送头（`5478aa9`/#202、`3b11989`/#203、`3e1663e`/#204、`b04613f`/#205-attempt-2）
+  均有自己的全绿样本。本条记录提交自身的样本以其后续 run 为准（推送时在途；绿后不追改）。
