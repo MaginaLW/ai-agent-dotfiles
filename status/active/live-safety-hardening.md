@@ -5828,7 +5828,10 @@ DryRun、部署。
 
 ## 2026-09-29 收尾：待办清单（接手入口）
 
-上节接受后，当前**全部开放项**（冲突时以本节为准）。2026-10-02 更新：待办 5 已收口——
+上节接受后，当前**全部开放项**（冲突时以本节为准）。**2026-10-07 更新：待办 1-6 已全部
+收口**（发布路径四项于 2026-10-07 执行完毕；在途 CI 样本核验见文末收尾节），当前开放项仅余
+待办 7/8 两项低优先项——**以文末「2026-10-07 收尾：待办清单（接手入口）」为准**。
+2026-10-02 更新：待办 5 已收口——
 候选 `dfa21d1`（代码候选 `3897dc4`）三证据集齐全并已写接受记录（见文末），14 条 mutation
 路线 14/14 PASS 刷新完成、证据时效限制关闭。2026-10-01 更新：窗口收尾，候选分支
 `codex/s7-open-items` 头 `0f07a59` 三 CI 样本全绿（#173/#175/#176），待办 5-8 为下窗口
@@ -6331,7 +6334,7 @@ DACL，不迁仓），以 `Assert-CanonicalControlledPrivateAncestorSecurity`（
   `Metadata.RepositoryCommit`、`PlanHash`、`PlanPayload.RepositoryCommit`），**根、SID、
   意图、claim、后置条件与 10-03 已做设计评审的版本完全一致**；② 效果边界核对：Apply 创建
   三个 MISSING 意图私有根——recovery 根
-  `D:\Repos\.ai-agent-dotfiles-canonical-recovery\<repoId>`（收紧 DACL 的父目录下）、
+  `<仓库父目录>\.ai-agent-dotfiles-canonical-recovery\<repoId>`（收紧 DACL 的父目录下）、
   control 与 backups 于 `%LOCALAPPDATA%\ai-agent-dotfiles\`；属主=当前用户 SID
   `S-1-5-21-…-1000`；③ 零写核对：DryRun 后两处私有根均不存在、无 `.target-capability-*`
   残留、计划目录仅 plan.json。
@@ -6350,7 +6353,7 @@ adopt/runner/部署。**本轮发现并确认一个产品级缺陷，按下述�
 
 ### setup Apply 首次执行与缺陷定性
 
-- 授权计划：`D:\ai-agent-dotfiles-machine\setup-dryrun-20261006b\plan.json`（HEAD `6f8642e`
+- 授权计划：`<机内私有外部根>\setup-dryrun-20261006b\plan.json`（HEAD `6f8642e`
   重新生成，PlanHash `56af9775…`，文件 SHA-256 `e6a32908…`）。R1（grok，独立检出）复核：
   哈希全闭合、绑定/时效静态推导通过、与对照计划仅 commit 类差异、效果边界与 schema 及机器
   现状逐字节相符，**no blocking finding**（非阻断观察一条：合法的 0 字节 `canonical.lock` 哨兵）。
@@ -6512,3 +6515,66 @@ setup 就绪（`canonical-ready`）后按 R2 runbook（独立研读产出）执�
 - **发布路径四项至此全部执行**：S5 只读/DryRun（2026-10-02）、真机 canonical setup（经跨卷
   修复的 recovery finalize 完成）、adopt（F5，work 环境）、逐机 runner 批准。边界：未做任何
   超出授权链的动作（无 force-push、无历史改写、无凭据导出）；hooks 保持 preview/event-only。
+
+## 2026-10-07 收尾：待办清单（接手入口）
+
+本节为当前接手入口，取代「2026-09-29 收尾：待办清单」的开放项列表（其待办 1-6 已全部收口，
+见下）。本窗口只做核验与记录：未执行任何新的 Apply/部署/推送，未改任何门禁。
+
+### 在途 CI 样本核验（本窗口，授权只读取数）
+
+此前 merge/记录提交留下的「CI 样本在途」未决项，经存储凭据只读 API 查询（run 级 + 作业级）关闭：
+
+- **#197 `6741e69`（跨卷修复 merge 头）、#198 `2396fd4`（merge+真机 finalize 记录头）、
+  #199 `d8e950a`（adopt+runner 批准记录头）、#200 `8a29ff1`（STATUS 发布路径记录头）、
+  #201 `b1da25d`（当前 `main` 头）——各自四作业（gates + 3 shards）全 success。**
+- 连同此前已记录的 #194（代码候选 `ffee36e`）、#195（修复周期记录 `bb00ed2`），以及
+  随后转绿的 #196（接受记录 `c8ba6a2`）：跨卷修复从候选到 merge 后的全部头字节在 `main`
+  与分支上均有自己的全绿样本；「候选/merge 头样本在途」的未决项全部关闭。
+- 只读边界：未重跑、未改任何门禁；token 仅在进程变量内使用，未打印、未落盘、未导出。
+  作业级 JSON 存证 `tmp/s7-open-items/evidence/ci-runs-20261007.json`（不入库）。
+
+### 已收口清单（待办 1-6，供索引）
+
+1. ~~merge 到 `main`~~ ✅ `616225c` + `55cadc0`（CI #171/#172 双绿）。
+2. ~~P2#2 延后修复~~ ✅ `0f7e295`（2026-09-30，RED 对照 + 157/0 + 全套重钉）。
+3. ~~live-operation-result 完整发射器切片~~ ✅ `8d48795`（2026-09-30）。
+4. ~~环境性 live-recovery 共享冲突~~ ✅ 2026-09-30 按 R3 收口（夹具树终止改静止等待）。
+5. ~~安静主机窗口补齐候选证据~~ ✅ 2026-10-02（lab `validation-c18-09`、14/14 路线、
+   本地 `-All` 43/43；merge `9e2469f`）。
+6. ~~发布路径四项~~ ✅ **2026-10-07 全部执行**：S5 只读/DryRun（2026-10-02）、真机 canonical
+   setup（跨卷缺陷修复 `ffee36e` → merge `6741e69` → recovery finalize
+   `canonical-recovery-applied` → `canonical-ready`）、adopt（F5，`work` 环境，reviewed plan，
+   claims/state/pair VALID）、逐机 runner 批准（`81c5e9c6…`，preview-only hooks，
+   doctor PASS=27）。
+
+### 剩余开放项（仅此两项，均低优先、已记录）
+
+7. **`@()` 嵌套数组语句展平坑转可执行检查**：解析门禁 `scripts/check-powershell-syntax.ps1`
+   增加基于 AST 的展平检测，或在同仓代码评审清单中固化；触发实例与修法见 2026-09-30 节
+   待办 3 与机内记忆（`repo-validation-cadence`）。
+8. **机内材料索引**（不入库；2026-10-07 更新）：`tmp/lab-kit-source`（纯净 lab 源，含
+   transport 修复）、`tmp/lab-postaudit-21`（c17 证据）、`tmp/lab-postaudit-22/23`（c18
+   冻结 kit；c23 = 胜出 kit）、`tmp/lab-postaudit-24`（c24 kit，`validation-c18-10`
+   跨卷修复 lab 证据）、`tmp/s7-open-items/`（启动器 v1-v5 与 c18
+   路线/validation 启动器、15 条路线 host 日志、lab/-All/路线汇总与 `evidence/`——本轮新增
+   grok r1-r4b 提示与产出、`setup-apply-20261007.out`、`crossvolume-fix.patch`、诊断脚本、
+   `all-summary-xvol*.txt`、`ci-runs-20261007.json`）、`tmp/s6-residuals/`、
+   `tmp/reseal-hard-kill.ps1`、`tmp/seams-delta.ps1`、`tmp/hk-closure-check.ps1`、
+   `tmp/closeout-audit-20261003/`。**机内私有外部根**（不入库，路径见机内记忆）现含：
+   `setup-dryrun-20261003/20261006/20261006b`（setup 计划三代）、
+   `recover-finalize-20261007/20261007b`（finalize 计划）、`adopt-20261007/`（环境名选择
+   理由、计划与终态证据）。清理纪律：以上均属机内证据，不提交；删除前须确认无接手依赖。
+
+### 边界与所有者决定点（非本仓开放项）
+
+- 本机发布路径已按授权链执行完毕；**其他机器的部署/接入**（I2 扩仓门、逐机 runner 批准、
+  逐机 setup/adopt）仍是所有者逐目标点名才启动，harness-model 侧门维持关闭。
+- hooks 保持 preview/event-only；`main` 的推送/合并仍按逐次授权执行。
+- 未做任何超出授权链的动作：无 force-push、无历史改写、无凭据导出。
+
+### 本窗口的记录性修正
+
+- 机内路径脱敏：2026-10-06/10-07 两节中两处本机绝对路径（授权计划文件、recovery 根）
+  改为 `<机内私有外部根>` / `<仓库父目录>` 占位，语义不变，符合「tracked 文档不写本机
+  绝对路径」的约定。

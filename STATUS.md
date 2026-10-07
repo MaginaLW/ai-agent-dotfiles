@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-03 (current-state entry only)
+Last updated: 2026-10-07 (current-state entry only)
 
 This is the repository's single global status file. Current task records belong in
 [`status/active/`](status/active/); completed records belong in
@@ -11,9 +11,14 @@ This is the repository's single global status file. Current task records belong 
 > **Superseded (2026-10-02).** The Task-8/Task-9 sequencing and rejected-candidate sentences in the
 > paragraph below describe the pre-acceptance audit state: candidate `dfa21d1` (code `3897dc4`) has
 > since been accepted on the three evidence sets and merged to `main` (see the 2026-10-02 entry
-> below). Still accurate: the release is not accepted — no real Apply, adoption, activation,
-> real-machine setup Apply, deployment, or runner approval has been executed — and the released
-> policy must not be read as a mechanical interlock.
+> below). Still accurate: the released policy must not be read as a mechanical interlock.
+> ~~Still accurate as of 2026-10-02: no real Apply, adoption, activation, real-machine setup
+> Apply, deployment, or runner approval had been executed.~~ **2026-10-07 update: this no longer
+> holds** — the real-machine canonical setup (completed through the cross-volume fix and the
+> recovery finalize), the `work` environment adoption, and the per-machine runner approval have
+> since been executed; see the 2026-10-07 entry below and the
+> [closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
+> Deployment to other machines has not been performed and remains owner-initiated.
 
 The checked-in [policy](scripts/live-safety-policy.psd1) is `ReleaseState=released`, but
 **the release is not accepted**. Phase 4 implementation Tasks 1–7 are complete; the remaining
@@ -149,6 +154,16 @@ completed canonical setup on this machine (`canonical-ready`, transaction termin
 approved (`81c5e9c6...`, preview-only hooks, doctor PASS). No force-push, history
 rewrite, or credential export was performed; hooks remain preview/event-only.
 
+The follow-on CI samples are all green: #197 `6741e69` (merge commit), #198 `2396fd4`,
+#199 `d8e950a`, #200 `8a29ff1` and #201 `b1da25d` (current head) each passed all four jobs,
+and the acceptance record #196 (`c8ba6a2`) has since gone green as well — every head from the
+candidate through the merge lineage carries its own all-green sample (verified 2026-10-07 by an
+authorized read-only API query; job-level JSON kept untracked under
+`tmp/s7-open-items/evidence/`). **Closeout: the 2026-09-29 handoff items 1-6 are all closed**;
+the only remaining open items are the two recorded low-priority ones — the `@()` array-flattening
+parse-gate candidate and the on-machine material index. See the
+[closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
+
 **2026-10-02: candidate accepted.** The branch head `dfa21d1` (code candidate `3897dc4`:
 the P2#2 snapshot-reload fix, the full live-operation-result command emitter, and the
 PID-reuse-immune quiesce rewrite) is **accepted on the three evidence sets**: local `-All`
@@ -164,6 +179,9 @@ Remaining open items: the release path (S5 read-only/DryRun, per-machine runner 
 real-machine canonical setup DryRun, real deployment — authorized 2026-10-01, none
 executed yet), the `@()` flattening parse-gate candidate, and the on-machine material
 index. No real Apply, adopt, activate, deployment, or runner approval has been executed.
+*(Superseded 2026-10-07: the release path has since been executed — see the 2026-10-07 entry and
+the [closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口);
+only the two non-release-path items remain open.)*
 Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
@@ -186,13 +204,15 @@ docs (the expand-repos/platforms gate); this repository's side has no new gaps a
 remains upstream-controlled. Nothing was Applied, adopted, activated, deployed, or
 runner-approved.
 
-Remote main and run-status snapshot, rechecked **2026-10-03 (authorized read-only API query)**:
-`main` is `e93d5b6`, with Validate runs #186 (merge commit `9e2469f`), #187 (`dca5f5c`) and #188
-(head `e93d5b6`) each green on all four jobs; raw run/job JSON is kept untracked under
-`tmp/closeout-audit-20261003/evidence/`. Earlier snapshots (the 2026-09-27 `5bf3740`/`#162`/`#163`
-recheck, the 2026-09-23 snapshot against `627ef3f`/`#135`, the `codex/ci-regressions-e4-preflight`
-integration at `68ef2ec`, and the budget-re-tier runs #147-#152) remain in the activity record and
-the [pins repair record](status/archived/2026-09-21-ci-released-pin-repair.md); they are history,
+Remote main and run-status snapshot, rechecked **2026-10-07 (authorized read-only API query)**:
+`main` is `b1da25d`, with Validate runs #197 (merge commit `6741e69`), #198 (`2396fd4`),
+#199 (`d8e950a`), #200 (`8a29ff1`) and #201 (head `b1da25d`) each green on all four jobs;
+job-level JSON is kept untracked under `tmp/s7-open-items/evidence/ci-runs-20261007.json`.
+Earlier snapshots (the 2026-10-03 `e93d5b6`/#186-#188 recheck with raw JSON under
+`tmp/closeout-audit-20261003/evidence/`, the 2026-09-27 `5bf3740`/`#162`/`#163` recheck, the
+2026-09-23 snapshot against `627ef3f`/`#135`, the `codex/ci-regressions-e4-preflight` integration
+at `68ef2ec`, and the budget-re-tier runs #147-#152) remain in the activity record and the
+[pins repair record](status/archived/2026-09-21-ci-released-pin-repair.md); they are history,
 not evidence about the current tree. Read `git log origin/main..main` rather than trusting any
 snapshot here.
 
