@@ -166,7 +166,9 @@ fixture and exemption-pin assertions in `tests/powershell-syntax-gate.tests.ps1`
 baseline re-pinned 17075→17098 (seams 66/0; parse gate 183 files; secret scan clean). Pushed under
 the owner's 2026-10-07 authorization: CI run
 [#203](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/37618010892) on `3b11989` is green
-on all four jobs (and the out-of-window run #202 gave the prior head `5478aa9` its own green sample). The only remaining open item is the low-priority
+on all four jobs, and the out-of-window run #202 gave the prior head `5478aa9` its own green
+sample; the record head `3e1663e`'s run #204 is green as well, so every head pushed this day
+carries its own all-green sample). The only remaining open item is the low-priority
 on-machine material index. See the
 [closeout handoff](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
 
