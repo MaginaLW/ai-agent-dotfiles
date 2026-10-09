@@ -1,276 +1,42 @@
 name: Validate
 
-# Owner decision 2026-10-09: push and pull_request run the gates job plus the fast suite
-# set. The three heavy test shards (the full suite) run nightly and on manual dispatch.
-# Push is limited to main so a pull request branch does not run CI twice.
+# One job on every push to main, every pull request and manual dispatch.
+# The gates (syntax, gitleaks, build, secret scan, doctor, manifests parity,
+# the full test suite, dangerous files, clean tree) run in
+# scripts/run-repository-validation.ps1 and stop at the first failure.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: '17 18 * * *'
 
 permissions:
   contents: read
 
 jobs:
-  validate-gates:
-    name: Validate repository gates
+  validate:
+    name: Validate repository
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Show PowerShell version
-        shell: pwsh
-        run: |
-          Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
-
-      - name: Install and verify pinned JSON Schema validator
-        shell: pwsh
-        run: |
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1')
-          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator install failed with exit code $LASTEXITCODE." }
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator verification failed with exit code $LASTEXITCODE." }
-
-      - name: Install and verify pinned gitleaks
+      - name: Install pinned gitleaks
         shell: pwsh
         run: |
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
           if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
+
+      - name: Verify pinned gitleaks
+        shell: pwsh
+        run: |
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
           if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
 
-      # Reviewed operational decision (owner, 2026-09-19): CI passes the test-only
-      # -SkipGates parameter to exclude the unified-test-runner gate from this job.
-      # The proven suite budget (43 suites after the 2026-09-27 guide-examples
-      # addition; RequiredJobTimeoutSeconds 30615 s = 510.25 min) exceeds the
-      # 360-minute GitHub hosted-runner job ceiling, so the suite matrix
-      # runs in the parallel validate-tests-1..3 shard jobs below instead (static
-      # partition: tests/test-shards.psd1; per-shard contract asserted by
-      # tests/test-runner.tests.ps1). All other gates and the artifact chain run here,
-      # exactly once, as before.
-      - name: Run repository validation orchestrator
+      - name: Run repository validation
         shell: pwsh
         run: |
-          $outputRoot = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-repository-validation'
-          $childManifestPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-validation-children-manifest.json'
-          $finalManifestPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-validation-final-manifest.json'
-          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-repository-validation-summary.json'
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-repository-validation.ps1') -OutputRoot $outputRoot -ChildArtifactManifestPath $childManifestPath -FinalArtifactManifestPath $finalManifestPath -JsonSummaryPath $summaryPath -SkipGates unified-test-runner
-          if ($LASTEXITCODE -ne 0) { throw "Repository validation orchestrator failed with exit code $LASTEXITCODE." }
-
-      - name: Run fast test suites
-        shell: pwsh
-        run: |
-          $suites = @(
-            'repository-policy'
-            'doctor'
-            'guide-examples'
-            'test-runner'
-            'powershell-syntax-gate'
-            'schema-validation'
-            'scan-input-boundary'
-            'path-safety'
-            'safe-tree-walker'
-            'private-path-boundary'
-            'json-canonicalization'
-            'json-artifact-exact-byte'
-            'transaction-journal-exact-byte'
-            'approved-runner-exact-byte'
-            'canonical-preflight'
-            'canonical-hard-kill-reap-semantics'
-            'config-sync'
-            'harness-profile'
-            'agent-dotfiles'
-          )
-          $failed = @()
-          foreach ($suite in $suites) {
-            $started = Get-Date
-            & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE "tests\$suite.tests.ps1")
-            $code = $LASTEXITCODE
-            Write-Host ('{0}: exit={1} {2:n0} s' -f $suite, $code, ((Get-Date) - $started).TotalSeconds)
-            if ($code -ne 0) { $failed += $suite }
-          }
-          if ($failed.Count -gt 0) {
-            Write-Host "::error title=Fast suites failed::$($failed -join ', ')"
-            throw "Fast suites failed: $($failed -join ', ')"
-          }
-
-  validate-tests-1:
-    name: Validate test shard 1 of 3
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    # Shard 1 budget 8280 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
-    # = 8700 s = 145 min; headroom to 170 min, below the 360-minute platform ceiling.
-    timeout-minutes: 170
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install and verify pinned JSON Schema validator
-        shell: pwsh
-        run: |
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1')
-          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator install failed with exit code $LASTEXITCODE." }
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator verification failed with exit code $LASTEXITCODE." }
-
-      - name: Install and verify pinned gitleaks
-        shell: pwsh
-        run: |
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
-          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
-
-      - name: Run test shard 1 of 3
-        shell: pwsh
-        run: |
-          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-1-summary.json'
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 1
-          $shardExitCode = $LASTEXITCODE
-          # The job log is not readable without repository admin rights, so a red shard
-          # names its failing suites in the failure annotation. Only counts, suite ids,
-          # states and exit codes are published: no suite output, paths or artifacts.
-          $shardReport = ''
-          $summaryShape = $null
-          if (Test-Path -LiteralPath $summaryPath) {
-            $summaryShape = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
-            $failingIds = @($summaryShape.Suites | Where-Object { [string]$_.State -cne 'passed' } |
-              ForEach-Object { '{0}:{1}:exit={2}' -f $_.SuiteId, $_.State, $_.ExitCode })
-            $shardReport = 'discovered={0} passed={1} failed={2} timed-out={3} failing=[{4}]' -f $summaryShape.Counts.Discovered, $summaryShape.Counts.Passed, $summaryShape.Counts.Failed, $summaryShape.Counts.TimedOut, ($failingIds -join ', ')
-            if ($shardReport.Length -gt 700) { $shardReport = $shardReport.Substring(0, 700) + '...' }
-            Write-Host "shard 1 summary: $shardReport"
-          }
-          if ($shardExitCode -ne 0) {
-            # A pwsh step's throw text never reaches the step annotation, so publish the
-            # report as an explicit error annotation, which the public API exposes.
-            Write-Host "::error title=Shard 1 failing suites::$shardReport"
-            throw "Test shard 1 failed with exit code $shardExitCode. $shardReport"
-          }
-          if ($null -eq $summaryShape) { throw "Test shard 1 published no summary at $summaryPath." }
-          if ([int]$summaryShape.Counts.Passed -ne [int]$summaryShape.Counts.Discovered) { throw "Test shard 1 summary has passed $($summaryShape.Counts.Passed) != discovered $($summaryShape.Counts.Discovered). $shardReport" }
-
-  validate-tests-2:
-    name: Validate test shard 2 of 3
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    # Shard 2 budget 9840 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
-    # = 10260 s = 171 min; headroom to 185 min, below the 360-minute platform ceiling.
-    # backup-recovery re-tiered 900 -> 1500 s on 2026-09-26 (R2): it timed out at 900 s
-    # in all three runs of that evening while the other seven suites passed.
-    # guide-examples.tests.ps1 joined at 60 s on 2026-09-27 (9780 -> 9840 s).
-    timeout-minutes: 185
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install and verify pinned JSON Schema validator
-        shell: pwsh
-        run: |
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1')
-          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator install failed with exit code $LASTEXITCODE." }
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator verification failed with exit code $LASTEXITCODE." }
-
-      - name: Install and verify pinned gitleaks
-        shell: pwsh
-        run: |
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
-          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
-
-      - name: Run test shard 2 of 3
-        shell: pwsh
-        run: |
-          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-2-summary.json'
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 2
-          $shardExitCode = $LASTEXITCODE
-          # The job log is not readable without repository admin rights, so a red shard
-          # names its failing suites in the failure annotation. Only counts, suite ids,
-          # states and exit codes are published: no suite output, paths or artifacts.
-          $shardReport = ''
-          $summaryShape = $null
-          if (Test-Path -LiteralPath $summaryPath) {
-            $summaryShape = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
-            $failingIds = @($summaryShape.Suites | Where-Object { [string]$_.State -cne 'passed' } |
-              ForEach-Object { '{0}:{1}:exit={2}' -f $_.SuiteId, $_.State, $_.ExitCode })
-            $shardReport = 'discovered={0} passed={1} failed={2} timed-out={3} failing=[{4}]' -f $summaryShape.Counts.Discovered, $summaryShape.Counts.Passed, $summaryShape.Counts.Failed, $summaryShape.Counts.TimedOut, ($failingIds -join ', ')
-            if ($shardReport.Length -gt 700) { $shardReport = $shardReport.Substring(0, 700) + '...' }
-            Write-Host "shard 2 summary: $shardReport"
-          }
-          if ($shardExitCode -ne 0) {
-            # A pwsh step's throw text never reaches the step annotation, so publish the
-            # report as an explicit error annotation, which the public API exposes.
-            Write-Host "::error title=Shard 2 failing suites::$shardReport"
-            throw "Test shard 2 failed with exit code $shardExitCode. $shardReport"
-          }
-          if ($null -eq $summaryShape) { throw "Test shard 2 published no summary at $summaryPath." }
-          if ([int]$summaryShape.Counts.Passed -ne [int]$summaryShape.Counts.Discovered) { throw "Test shard 2 summary has passed $($summaryShape.Counts.Passed) != discovered $($summaryShape.Counts.Discovered). $shardReport" }
-
-  validate-tests-3:
-    name: Validate test shard 3 of 3
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    # Shard 3 budget 12075 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
-    # = 12495 s = 208.25 min; headroom to 235 min, below the 360-minute platform ceiling.
-    # Re-tiered 2026-09-26 (R2): run #147 killed three shard-3 suites exactly at their
-    # budgets and run #150 killed live-recovery at its 900 s tier; each new tier is about
-    # twice its clean-run maximum.
-    timeout-minutes: 235
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install and verify pinned JSON Schema validator
-        shell: pwsh
-        run: |
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1')
-          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator install failed with exit code $LASTEXITCODE." }
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-schema-validator.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw "Pinned JSON Schema validator verification failed with exit code $LASTEXITCODE." }
-
-      - name: Install and verify pinned gitleaks
-        shell: pwsh
-        run: |
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
-          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
-
-      - name: Run test shard 3 of 3
-        shell: pwsh
-        run: |
-          $summaryPath = Join-Path $env:RUNNER_TEMP 'ai-agent-dotfiles-test-shard-3-summary.json'
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-tests.ps1') -All -JsonSummaryPath $summaryPath -ShardCount 3 -ShardIndex 3
-          $shardExitCode = $LASTEXITCODE
-          # The job log is not readable without repository admin rights, so a red shard
-          # names its failing suites in the failure annotation. Only counts, suite ids,
-          # states and exit codes are published: no suite output, paths or artifacts.
-          $shardReport = ''
-          $summaryShape = $null
-          if (Test-Path -LiteralPath $summaryPath) {
-            $summaryShape = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
-            $failingIds = @($summaryShape.Suites | Where-Object { [string]$_.State -cne 'passed' } |
-              ForEach-Object { '{0}:{1}:exit={2}' -f $_.SuiteId, $_.State, $_.ExitCode })
-            $shardReport = 'discovered={0} passed={1} failed={2} timed-out={3} failing=[{4}]' -f $summaryShape.Counts.Discovered, $summaryShape.Counts.Passed, $summaryShape.Counts.Failed, $summaryShape.Counts.TimedOut, ($failingIds -join ', ')
-            if ($shardReport.Length -gt 700) { $shardReport = $shardReport.Substring(0, 700) + '...' }
-            Write-Host "shard 3 summary: $shardReport"
-          }
-          if ($shardExitCode -ne 0) {
-            # A pwsh step's throw text never reaches the step annotation, so publish the
-            # report as an explicit error annotation, which the public API exposes.
-            Write-Host "::error title=Shard 3 failing suites::$shardReport"
-            throw "Test shard 3 failed with exit code $shardExitCode. $shardReport"
-          }
-          if ($null -eq $summaryShape) { throw "Test shard 3 published no summary at $summaryPath." }
-          if ([int]$summaryShape.Counts.Passed -ne [int]$summaryShape.Counts.Discovered) { throw "Test shard 3 summary has passed $($summaryShape.Counts.Passed) != discovered $($summaryShape.Counts.Discovered). $shardReport" }
+          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-repository-validation.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Repository validation failed with exit code $LASTEXITCODE." }
