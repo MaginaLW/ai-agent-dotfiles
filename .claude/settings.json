@@ -14,10 +14,8 @@
     "allow": [
       "PowerShell(pwsh -NoProfile -File scripts/build-skills.ps1*)",
       "PowerShell(pwsh -NoProfile -File scripts/scan-secrets.ps1*)",
-      "PowerShell(pwsh -NoProfile -File scripts/check-hooks.ps1*)",
       "Bash(pwsh -NoProfile -File scripts/build-skills.ps1*)",
-      "Bash(pwsh -NoProfile -File scripts/scan-secrets.ps1*)",
-      "Bash(pwsh -NoProfile -File scripts/check-hooks.ps1*)"
+      "Bash(pwsh -NoProfile -File scripts/scan-secrets.ps1*)"
     ]
   }
 }

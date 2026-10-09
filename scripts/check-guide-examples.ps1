@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory)] [string] $OutputPath,
     [string[]] $Guides = @(
         'CLAUDE.md', 'README.md', 'AGENTS.md',
-        'docs/README.md', 'docs/ONBOARD_NEW_MACHINE.md', 'docs/RESTORE.md', 'docs/ZCODE.md'
+        'docs/README.md', 'docs/ONBOARD_NEW_MACHINE.md', 'docs/ZCODE.md'
     )
 )
 Set-StrictMode -Version Latest

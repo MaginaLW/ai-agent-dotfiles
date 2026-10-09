@@ -172,7 +172,7 @@ try {
     Assert-True ($repoRun.Json.ArtifactKind -eq 'guide-example-static-check') 'summary carries the artifact kind'
     Assert-True ($repoRun.Json.Head -match '^[0-9a-f]{40,64}$') 'worktree summary pins the git head'
     $repoRows = @($repoRun.Json.Guides)
-    Assert-True ($repoRows.Count -eq 7) "all seven default guides are checked (got $($repoRows.Count))"
+    Assert-True ($repoRows.Count -eq 6) "all six default guides are checked (got $($repoRows.Count))"
     Assert-True (@($repoRows | Where-Object { $_.State -eq 'checked' }).Count -eq $repoRows.Count) 'no default guide row is missing'
     Assert-True (@($repoRows | Where-Object { [int]$_.Blocks -gt 0 }).Count -eq $repoRows.Count) 'every default guide has PowerShell blocks'
     Assert-True ($repoRun.Json.Totals.Errors -eq 0) "worktree summary totals zero errors (got $($repoRun.Json.Totals.Errors))"

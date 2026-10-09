@@ -22,19 +22,17 @@ Skill 或斜杠命令。ZCode 对项目指令的加载方式见[官方说明](ht
 
 用户提供具体任务后，在已授权范围内连续完成必要阅读、实现、验证、复核和小步提交。
 保留已有改动，提交只包含本任务已复核的文件；缺少会改变方向的决定或实际所需权限时才停下说明。
-普通文档、代码和 Git 工作按 `AGENTS.md` 的 Scope trigger 判断是否需要完整 skill-management
-workflow，不因使用 ZCode 就额外启动技能安装或同步流程。
+普通文档、代码和 Git 工作按 `AGENTS.md` 的 Skill rules 适用范围判断是否需要这些规则，
+不因使用 ZCode 就额外启动技能安装或部署流程。
 
 沿用用户选择的主会话、模型和推理设置；没有明确覆盖时使用当前运行时默认。实现与独立审查
 按职责安排，不固定型号，也不根据历史记录推断当前模型身份。具体产品权限、运行时能力和
 现有独立审查要求继续适用。
 
-执行前查看唯一的[当前发布与验收状态](../STATUS.md#current-state)，不在接入文档复制易过期的
-Policy 值或阶段结论。代码处于 released 状态不等于完成 lab 验收或获得 live 部署授权；
-接入 ZCode 也不提供这些授权。具体范围以当前项目规则、受控 Policy 和任务证据为准；
-不得通过改 Policy、替换入口或手工操作 live 目录绕过要求。hooks 仍只生成预览或事件。
-`apply-harness-profile.ps1 -Apply` 的项目本地
-允许清单例外继续按原规则执行，不扩展为 production live 部署权限。
+执行前查看唯一的[当前状态](../STATUS.md#current-state)，不在接入文档复制易过期的阶段结论。
+接入 ZCode 不提供 live 部署授权：`deploy-skills.ps1 -Apply` 等 live 写入仍须所有者逐次授权，
+不得通过替换入口或手工操作 live 目录绕过要求。`apply-harness-profile.ps1 -Apply` 只写目标
+项目的允许清单输出，不扩展为 live 部署权限。
 
 ## 验证沿用现有入口
 
@@ -62,7 +60,7 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
 
 检查依赖缺失或测试失败时保留失败事实，按脚本提示与项目约定处理；不能把跳过、未运行或历史
 成功写成当前通过。涉及 skill/config 等受管理范围时，再按 `AGENTS.md` 加上它要求的构建、
-扫描和预览检查，不将本页当作该流程的替代品。
+扫描和 dry-run 检查，不将本页当作该流程的替代品。
 
 ## 留下可接续的最小事实
 
@@ -120,8 +118,6 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
 5. **紧凑交接**：本仓权威交接入口为 `STATUS.md` 的 "Current state" 与
    "Open items"，加接手时从 Git 实读的候选版本与工作区状态；不另建第二份进度表。
 
-> 2026-10-09 起，以下历次记录中对 `STATUS.md` 日期小节或阶段小节的引用，均指
-
 ## 可复制的首次接手提示词
 
 ```text
@@ -132,7 +128,7 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
 
 等我给出具体工作项后，在授权范围内连续完成实现、必要验证、复核和小步提交，保留无关改动。
 沿用我的模型与主会话选择，遵守产品权限及现有独立审查要求。不要因本次接手启动后续阶段、
-重启已完成阶段、解除 production interlock、部署 live skills 或修改全局配置。
+重启已完成阶段、部署 live skills 或修改全局配置。
 收尾复用现有状态记录，按 docs/ZCODE.md 的任务收尾闭环筛选反馈并按版本回灌；记录实际
 验证与限制，无法核实的数据写 unknown，不收集原始会话。
 ```
