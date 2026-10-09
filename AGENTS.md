@@ -130,8 +130,11 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env authority status
   - Script changes also need `check-powershell-syntax.ps1` and the affected suites (run each with
     `pwsh -NoProfile -File tests/<suite>.tests.ps1`).
   - For a full regression, run `run-tests.ps1 -All -JsonSummaryPath <external file>`.
-- **CI.** Use the required CI (`.github/workflows/validate.yml`) without reducing its scope or
-  thresholds. Local checks do not stand in for CI. Diagnose a red `Validate` run with
+- **CI.** Push and pull request run the gates job plus a fast suite set. The three heavy test
+  shards (the full suite) run nightly and on manual dispatch. Do not delete or weaken any suite,
+  gate or budget. Before merging a change to `scripts/` or `tests/`, get a green full suite:
+  dispatch the `Validate` workflow or run `run-tests.ps1 -All` locally. Local checks do not
+  stand in for CI. Diagnose a red `Validate` run with
   [the CI failure rules](docs/CI_FAILURE_RULES.md) instead of guessing from the annotation.
 - **Pinned phrases.** The tests above check the entry and guide files:
   - `tests/repository-policy.tests.ps1` pins phrases in this file, `CLAUDE.md` (the import),

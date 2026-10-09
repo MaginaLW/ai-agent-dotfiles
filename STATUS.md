@@ -40,6 +40,9 @@ check `git log` and the latest GitHub Actions run.
   `work` environment was adopted through a reviewed plan: claims, state and pair are VALID, one
   unknown live directory was preserved, and Codex `.system` was not touched. The per-machine runner
   is approved, three preview-only Git hooks are installed, and doctor passes.
+  A second owner-authorized activation on 2026-10-09 (`work`, environment generation 2) added
+  `boring-engineering` to Claude, Codex and Reasonix; lock and live parity pass, no prune occurred,
+  the unknown Codex directory and the `.system` marker are preserved.
 - **Other machines.** No authority-based setup, adopt or runner approval has run on any other
   machine. Some may still carry legacy pre-live-safety deployments. Take their route from
   `canonical status` and `env authority status` (initial, migrate or adopt); do not assume their
@@ -60,8 +63,8 @@ The [2026-10-07 handoff list](status/archived/2026-10-08-live-safety-hardening.m
 1. **Owner:** name any further machine before onboarding starts. Each machine gets its own reviewed
    plans and runner approval.
 2. **Owner:** decide the over-engineering cleanup. The global entry files were slimmed and the docs/status
-   history was pruned on 2026-10-09. Still open: the CI scope and cost (AGENTS.md currently
-   forbids reducing CI scope), and whether to replace the transactional live-sync engine with a
+   history was pruned on 2026-10-09. CI was split the same day (fast suites per push,
+   full suite nightly). Still open: whether to replace the transactional live-sync engine with a
    simpler manifest-scoped copy.
 3. **Owner:** adopt, defer or drop the post-release packages F1 (CI evidence persistence),
    F2 (config pull/push boundary), F3 (platform capability registry) and F4 (module dedup).
@@ -93,8 +96,13 @@ The [2026-10-07 handoff list](status/archived/2026-10-08-live-safety-hardening.m
   - the recovery locator is phase-only;
   - `_pending` move records classify as manual recovery;
   - drift protection is hash-based;
-  - a rollback plan's `Current` identity binding is not enforced.
-- **CI.** CI runs four Windows jobs, about 97 minutes per push. A same-SHA rerun only shows
+  - a rollback plan's `Current` identity binding is not enforced;
+  - the authority-active status surface compares the recorded task-overlay hash to the computed
+    one with a case-sensitive `-cne` (`harness-authority-status-common.ps1`), while the recorded
+    intent hash is lowercase and the computed hash is uppercase; the derived "task skill overlay
+    changed since activation" suffix can therefore be a false signal, verified by case-insensitive
+    equality. Lock and live parity still pass and the command exits 0.
+- **CI.** Push and pull request run the gates job plus fast suites. The three heavy shards (about 97 minutes) run nightly and on manual dispatch. A same-SHA rerun only shows
   whether a red is unrelated to the commit (rule R3 in
   [docs/CI_FAILURE_RULES.md](docs/CI_FAILURE_RULES.md)). The `root-claims-registry`
   PowerShell.Stop timing red has recurred on docs-only commits (#181, #205); see open item 5. A further recurrence
@@ -109,17 +117,17 @@ The [2026-10-07 handoff list](status/archived/2026-10-08-live-safety-hardening.m
 
 | Scope | Canonical | Claude | Codex | Reasonix |
 |---|---:|---:|---:|---:|
-| Shared | 7 | 7 | 7 | 7 |
+| Shared | 8 | 8 | 8 | 8 |
 | Codex-only (Claude-only and Reasonix-only are empty) | 8 | - | 8 | - |
-| Managed total | 15 | 7 | 15 | 7 |
+| Managed total | 16 | 8 | 16 | 8 |
 
-- **Shared skills:** brainstorming, git-review, paper-polish, subagent-driven-development,
-  systematic-debugging, verification-before-completion, writing-plans.
+- **Shared skills:** boring-engineering, brainstorming, git-review, paper-polish,
+  subagent-driven-development, systematic-debugging, verification-before-completion, writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Reasonix): `minimal` 1/1/1, `work` 1/1/1
-  (`systematic-debugging`), `full` 7/15/7. Unknown live directories are preserved, and Codex
-  `.system` is never managed.
+- **Environments** (Claude/Codex/Reasonix): `minimal` 1/1/1, `work` 2/2/2
+  (`boring-engineering`, `systematic-debugging`), `full` 8/16/8. Unknown live directories are
+  preserved, and Codex `.system` is never managed.
 - **Retired:**
   - the MCP registration subsystem (no live MCP config was changed);
   - OpenClaw/OpenCode;

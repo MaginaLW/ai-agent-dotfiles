@@ -1,9 +1,15 @@
 name: Validate
 
+# Owner decision 2026-10-09: push and pull_request run the gates job plus the fast suite
+# set. The three heavy test shards (the full suite) run nightly and on manual dispatch.
+# Push is limited to main so a pull request branch does not run CI twice.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '17 18 * * *'
 
 permissions:
   contents: read
@@ -12,7 +18,7 @@ jobs:
   validate-gates:
     name: Validate repository gates
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -58,8 +64,46 @@ jobs:
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\run-repository-validation.ps1') -OutputRoot $outputRoot -ChildArtifactManifestPath $childManifestPath -FinalArtifactManifestPath $finalManifestPath -JsonSummaryPath $summaryPath -SkipGates unified-test-runner
           if ($LASTEXITCODE -ne 0) { throw "Repository validation orchestrator failed with exit code $LASTEXITCODE." }
 
+      - name: Run fast test suites
+        shell: pwsh
+        run: |
+          $suites = @(
+            'repository-policy'
+            'doctor'
+            'guide-examples'
+            'test-runner'
+            'powershell-syntax-gate'
+            'schema-validation'
+            'scan-input-boundary'
+            'path-safety'
+            'safe-tree-walker'
+            'private-path-boundary'
+            'json-canonicalization'
+            'json-artifact-exact-byte'
+            'transaction-journal-exact-byte'
+            'approved-runner-exact-byte'
+            'canonical-preflight'
+            'canonical-hard-kill-reap-semantics'
+            'config-sync'
+            'harness-profile'
+            'agent-dotfiles'
+          )
+          $failed = @()
+          foreach ($suite in $suites) {
+            $started = Get-Date
+            & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE "tests\$suite.tests.ps1")
+            $code = $LASTEXITCODE
+            Write-Host ('{0}: exit={1} {2:n0} s' -f $suite, $code, ((Get-Date) - $started).TotalSeconds)
+            if ($code -ne 0) { $failed += $suite }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "::error title=Fast suites failed::$($failed -join ', ')"
+            throw "Fast suites failed: $($failed -join ', ')"
+          }
+
   validate-tests-1:
     name: Validate test shard 1 of 3
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     # Shard 1 budget 8280 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
     # = 8700 s = 145 min; headroom to 170 min, below the 360-minute platform ceiling.
@@ -115,6 +159,7 @@ jobs:
 
   validate-tests-2:
     name: Validate test shard 2 of 3
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     # Shard 2 budget 9840 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
     # = 10260 s = 171 min; headroom to 185 min, below the 360-minute platform ceiling.
@@ -173,6 +218,7 @@ jobs:
 
   validate-tests-3:
     name: Validate test shard 3 of 3
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     # Shard 3 budget 12075 s + SetupAndNonSuiteBudgetSeconds 300 + MarginSeconds 120
     # = 12495 s = 208.25 min; headroom to 235 min, below the 360-minute platform ceiling.
