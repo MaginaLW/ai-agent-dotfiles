@@ -13,10 +13,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $skillsHelper = Join-Path $PSScriptRoot 'skills-common.ps1'
-$reportHelper = Join-Path $PSScriptRoot 'report-common.ps1'
 . $skillsHelper
-if (Test-Path -LiteralPath $reportHelper) { . $reportHelper }
-else { Write-Warning "Report helper missing: $reportHelper" }
 
 function Assert-DisjointBuildRoots {
     param([Parameter(Mandatory)][string[]]$Roots)
@@ -35,44 +32,6 @@ $CodexOutputRoot = Join-Path $RepoRoot 'codex/skills'
 $ReasonixOutputRoot = Join-Path $RepoRoot 'reasonix/skills'
 $ManifestOutputRoot = Join-Path $RepoRoot 'manifests'
 Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)
-
-function Write-BuildRunReport {
-    param(
-        [Parameter(Mandatory)] [ValidateSet('PASS', 'WARN', 'FAIL')] [string] $Result,
-        [Parameter(Mandatory)] [string] $NextAction,
-        [string[]] $Conflicts = @(),
-        [string[]] $ClaudeSkills = @(),
-        [string[]] $CodexSkills = @(),
-        [string[]] $ReasonixSkills = @()
-    )
-
-    $summary = [ordered]@{
-        Added = 'Not available (build recreates isolated output)'
-        Modified = 'Not available (build recreates isolated output)'
-        Removed = 'Not available (build recreates isolated output)'
-        Skipped = 'Not available'
-        Conflicts = $Conflicts.Count
-        Quarantined = 'Not available'
-        'Unknown live skills' = 'Not applicable'
-        '.system status' = 'preserved by exclusion; build does not manage .system'
-        'Secrets scan result' = 'Not run by build-skills.ps1'
-    }
-    $details = [ordered]@{
-        'Claude generated skill set' = @($ClaudeSkills | Sort-Object)
-        'Codex generated skill set' = @($CodexSkills | Sort-Object)
-        'Reasonix generated skill set' = @($ReasonixSkills | Sort-Object)
-        Conflicts = @($Conflicts | Sort-Object)
-        'Removed items' = @('Not available; generated roots are recreated and no previous snapshot is compared.')
-        '.system' = @('PRESERVED: .system is not a build source or generated skill.')
-    }
-
-    if (-not (Get-Command Write-RunReport -ErrorAction SilentlyContinue)) { return }
-    try {
-        $reportPath = Write-RunReport -RepoRoot $RepoRoot -ReportKind build -ScriptName 'scripts/build-skills.ps1' -Mode build -Summary $summary -Details $details -Result $Result -NextAction $NextAction
-        Write-Host "Build report: $reportPath"
-    }
-    catch { Write-Warning "Build completed its original flow, but report creation failed: $($_.Exception.Message)" }
-}
 
 $script:RuntimeExcludePatterns = @('MERGE_NOTES.md', 'CREATION-LOG.md', '*.magina-laptop.*')
 function Copy-SkillDirectory {
@@ -96,6 +55,7 @@ function Write-ManifestFile {
     [System.IO.File]::WriteAllText($Path, $content, [System.Text.UTF8Encoding]::new($false))
 }
 
+# Get-SkillDirectories excludes .system: .system is not a build source or generated skill.
 $sharedSource = Join-Path $SourceRoot 'shared'
 $claudeOnlySource = Join-Path $SourceRoot 'claude-only'
 $codexOnlySource = Join-Path $SourceRoot 'codex-only'
@@ -118,7 +78,6 @@ $sharedConflicts = @(
 if ($sharedConflicts.Count -gt 0) {
     Write-Host 'ERROR: Skill name conflict between shared and platform-only sources.'
     $sharedConflicts | ForEach-Object { Write-Host "Conflict: $_ (in shared and platform-only)" }
-    Write-BuildRunReport -Result FAIL -NextAction 'Resolve shared/platform-only name conflicts, then rerun the build.' -Conflicts $sharedConflicts
     exit 1
 }
 
@@ -128,10 +87,8 @@ foreach ($n in $codexOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $
 foreach ($n in $reasonixOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='reasonix-only' }
 $crossPlatformConflicts = @($platformOnlyAll.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($crossPlatformConflicts.Count -gt 0) {
-    $conflictNames = @($crossPlatformConflicts | ForEach-Object Key | Sort-Object)
     Write-Host 'ERROR: Skill name appears in more than one platform-only source.'
     $crossPlatformConflicts | ForEach-Object { Write-Host "Conflict: $($_.Key) in [$($_.Value -join ', ')]" }
-    Write-BuildRunReport -Result FAIL -NextAction 'Resolve cross-platform-only name conflicts, then rerun the build.' -Conflicts $conflictNames
     exit 1
 }
 
@@ -169,7 +126,3 @@ Write-Host "Built Claude skills: $($builtClaudeSkills.Count)"
 Write-Host "Built Codex skills: $($builtCodexSkills.Count)"
 Write-Host "Built Reasonix skills: $($builtReasonixSkills.Count)"
 Write-Host "Updated manifests: $ManifestOutputRoot"
-Write-BuildRunReport -Result PASS -NextAction 'Run scripts/scan-secrets.ps1, then review the scripts/deploy-skills.ps1 dry run.' `
-    -ClaudeSkills @($builtClaudeSkills | ForEach-Object Name) `
-    -CodexSkills @($builtCodexSkills | ForEach-Object Name) `
-    -ReasonixSkills @($builtReasonixSkills | ForEach-Object Name)
