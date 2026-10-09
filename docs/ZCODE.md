@@ -159,8 +159,8 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
    漂移并记录为反馈，但当时**并未修复**——本页曾误写"已修复"，2026-09-10 经 `git log -L`
    核实后更正：该断言在 `3d3aa7f` 升 schema 3 后从未同步，直到 `895c54f` 才修复，期间
    CI 连续 8 次失败。教训现固化为收尾核对项；"已修复"结论须绑定实际修复提交）。
-2. **可读取脱敏摘要**：收尾在权威记录（`STATUS.md` / `status/active/`）保留可读取的
-   逐检查摘要与定位；外部 JSON 摘要按现有约定用后即删，删除前文本摘要与 SHA 已入记录
+2. **可读取脱敏摘要**：收尾在 `status/active/<task>.md` 保留可读取的
+   逐检查摘要与定位（`STATUS.md` 只原地更新当前事实）；外部 JSON 摘要按现有约定用后即删，删除前文本摘要与 SHA 已入记录
    （本页"留下可接续的最小事实"一节为既有等价条款，不重复添加）。
 3. **测试发现范围**：收尾对照基线列明新增、停用、改名、移入非执行目录的检查及替代验证；
    必需检查不得静默退出（本仓 Task 2 曾把 content-aware 回归移入 `tests/helpers/` 并
@@ -170,8 +170,11 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
    图断言与分支钉值，并为此前未注册的 env lock 补上契约与 5 条图反例，即该条实例）。
 4. **实测耗时与预算**：分开记录实测耗时、配置上限、重跑原因与返工；提高上限不表示执行
    更慢（本仓既有记录已按此口径写 sync/备份回执套件实测与预算，属既有等价条款）。
-5. **紧凑交接**：本仓权威交接入口为 `STATUS.md` 的 "Remaining roadmap snapshot" 与
-   "Next actions"，加接手时从 Git 实读的候选版本与工作区状态；不另建第二份进度表。
+5. **紧凑交接**：本仓权威交接入口为 `STATUS.md` 的 "Current state" 与
+   "Open items"，加接手时从 Git 实读的候选版本与工作区状态；不另建第二份进度表。
+
+> 2026-10-09 起，以下历次记录中对 `STATUS.md` 日期小节或阶段小节的引用，均指
+> [归档日志](../status/archived/2026-10-08-status-history.md)中的同名小节。
 
 ### 首次闭环执行（2026-09-09）
 

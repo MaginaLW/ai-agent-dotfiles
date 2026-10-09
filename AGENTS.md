@@ -1,154 +1,150 @@
 # AGENTS.md
 
-Project instructions for coding agents, including Codex and ZCode, working in this repository.
+Project instructions for coding agents working in this repository, including Codex and ZCode.
+Claude Code loads this file through `CLAUDE.md`. Codex and ZCode do not expand linked documents,
+so every rule an agent must follow is written here. Links only point to detail for the area you
+are changing.
 
-## Model selection
+## Start of a task
 
-- Describe coordinator, implementer, and reviewer responsibilities and required capabilities without
-  binding them to a model family, version, or fixed reasoning effort.
-- Respect the user's explicit selection and existing personal settings. Otherwise use the current
-  session/runtime defaults; any task-specific override must be supported by the current runtime.
-- Keep reusable agent/config templates free of model and reasoning-effort defaults. Historical
-  model names and routing records remain evidence of their original runs, not current instructions.
-- Model selection does not change permissions, concurrency limits, or independent-review requirements.
-  Preserve personal overrides when maintaining templates or reviewing config deployment; see
-  [config-sync boundaries](docs/README.md#14-harness-配置同步config-sync).
-
-## ZCode entry and low-intervention workflow
-
-- Open this repository root as the ZCode workspace and start a new task after instruction changes.
-  Read this file and `STATUS.md`, then explicitly read instructions relevant to the files being changed.
-  ZCode does not automatically expand linked documents or nested instruction files; see
-  [the ZCode handoff](docs/ZCODE.md).
-- Check the Git root, existing changes, and the latest task evidence before acting. Preserve other
-  work and report conflicting progress records instead of treating an old summary as authorization
-  to start or repeat a roadmap task.
-- Complete the user's authorized, recoverable work through implementation, relevant validation,
-  and fixes without repeatedly asking whether to continue. Resolve routine details independently;
-  ask only for a missing direction or a genuinely required approval, and reuse valid decisions.
-- Delegate independent work when supported, assign non-overlapping write ownership, and keep the
-  coordinator responsible for integration and final verification. Use runtime defaults and the
-  user's choices as described above; do not copy another tool's model or permission settings.
-- Use this project's PowerShell 7+ checks and required CI without reducing their scope or thresholds.
-  Report exactly which checks ran and any missing checks; local checks do not stand in for CI.
-  Diagnose a red `Validate` run by
-  [the CI failure rules](docs/CI_FAILURE_RULES.md) instead of guessing from the GitHub annotation.
-  Make small, coherent local commits containing only reviewed changes from the current task.
-- Preserve the scope triggers, production interlock, and hard rules below. This lightweight adoption
-  adds no AI Flow task ledger, live deployment target, global configuration, or background collection.
-  Push, merge, deployment, destructive actions, credential export, and additional paid model calls
-  still require their applicable explicit authorization.
-- At task completion, summarize the task/commit range, actual checks, necessary human decisions,
-  and evidenced rework once. Reuse existing status records when appropriate; missing model identity,
-  fees, human work time, or defect evidence stays `unknown` and does not block delivery. Never infer
-  human effort from waiting time, commit raw conversations, or claim improvement from one sample.
-
-## 外部反馈闭环（harness-model）
-
-本项目是 `harness-model` ZCode 试点登记的反馈闭环成员。任务开始时显式读取本入口、
-`STATUS.md` 与 [docs/ZCODE.md](docs/ZCODE.md)。仅发现实质问题或用户明确请求时，才按
-`docs/ZCODE.md` 执行反馈与适用改进的回灌；普通任务完成、阶段提交或版本差异均不触发
-跨项目检查或新记录。方法来源、实际应用的上游版本与逐项适配记录在 `docs/ZCODE.md`。闭环只授权
-规则入口、接入文档与既有收尾记录的修改；不含源码、live 配置、部署、推送、合并、凭据导出
-或后台采集，也不放松任何原有门禁与审核要求。
+- Open the repository root as the workspace. After this file changes, start a new task so the
+  new rules are loaded ([ZCode notes](docs/ZCODE.md)).
+- Read [STATUS.md](STATUS.md) for the current state. Status entries and older task records are
+  evidence. They are not authorization to start or repeat roadmap work.
+- Windows and PowerShell 7+ only. Run repository scripts as
+  `pwsh -NoProfile -File scripts/<name>.ps1`. The unified CLI is `scripts/agent-dotfiles.ps1`.
+- On every task, push, merge, any live Apply, destructive actions, credential export and
+  additional paid model calls each need the owner's explicit authorization.
+- Finish authorized, recoverable work through validation without asking again whether to
+  continue. Ask only when a decision that changes direction is missing or an approval is required.
+- Make small commits that contain only reviewed changes from the current task, and report which
+  checks actually ran.
+- Templates in `harness-source/`, `claude/` and `codex/` carry no model or reasoning-effort
+  defaults. Use the user's selection or the runtime default. When deploying config, preserve the
+  user's personal overrides.
 
 ## Scope trigger
 
-Apply the full skill-management workflow below only when the task involves any of:
+The skill-management rules below apply only when a task touches one of these:
 
-- installing, uninstalling, importing, exporting, promoting, merging, pruning, syncing, deploying, or repairing Claude/Codex skills
-- `skills-source/`, `claude/skills/`, `codex/skills/`, `reasonix/skills/`
-- `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills` (Codex fallback), `%APPDATA%\reasonix\skills`
-- `imports/skills-inbox`, `imports/skills-archive`, `imports/skills-quarantine`
-- `manifests/managed-skills.txt`, `manifests/managed-skills.reasonix.txt`
-- `scripts/build-skills.ps1`, `scripts/scan-secrets.ps1`, `scripts/backup.ps1`, `scripts/sync.ps1`, `scripts/rollback-harness-env.ps1`
-- `scripts/config-status.ps1`, `scripts/config-pull.ps1`, `scripts/config-push.ps1`, `.claude/settings.json` (harness config-sync)
-- `harness-source/`, `.agent-harness/generated/`
-- `.agent-harness/task-skills.psd1`, `scripts/task-skills.ps1`, `scripts/auto-sync-after-git.ps1`, `tests/task-skills.tests.ps1`
-- `scripts/harness-profile-common.ps1`, `scripts/status-harness-profile.ps1`, `scripts/build-harness-profile.ps1`, `scripts/apply-harness-profile.ps1`, `tests/harness-profile.tests.ps1` (project harness profiles)
-- Codex `.system`
+- installing, importing, promoting, merging, pruning, syncing, deploying or repairing
+  Claude/Codex/Reasonix skills;
+- `skills-source/`, the generated `claude/skills/`, `codex/skills/` and `reasonix/skills/`,
+  `manifests/`, or `imports/`;
+- the live roots `~/.claude/skills`, `~/.codex/skills` (or the `~/.agents/skills` fallback when
+  only that one exists), `%APPDATA%\reasonix\skills`, and Codex `.system`;
+- sync, backup/restore, config-sync, harness profile, harness environment or task-skill scripts
+  and their tests, `harness-source/`, `.agent-harness/`, `envs/`, `state/`, or
+  `.claude/settings.json`.
 
-For unrelated tasks (ordinary docs, ordinary code, ordinary Git operations), do not expand this workflow or read the full skill manual unless it becomes relevant.
+Ordinary docs, code and Git work do not need this workflow.
 
-## Skill-management workflow
+## Skill-management rules
 
-When the scope trigger applies:
+Before acting, read the [docs/README.md](docs/README.md) section for the area you are changing:
+§4-6 for skills and sync, §14 for config-sync, §15 for profiles, §16 for environments. For rollback and recovery, read [docs/RESTORE.md](docs/RESTORE.md); never substitute `env rollback` for recovering an unfinished transaction.
 
-1. Read `docs/README.md` and `STATUS.md`.
-2. Treat `skills-source/` as the only source of truth.
-3. Put new skills in exactly one place:
-   - `skills-source/shared/<name>/`
-   - `skills-source/claude-only/<name>/`
-   - `skills-source/codex-only/<name>/`
-   - `skills-source/reasonix-only/<name>/`
-4. Never edit generated output directly:
-   - `claude/skills/`
-   - `codex/skills/`
-   - `reasonix/skills/`
-5. Never directly copy/delete live skills:
-   - `~/.claude/skills`
-   - `~/.codex/skills`
-   - `~/.agents/skills` (Codex fallback, used when `~/.codex/skills` doesn't exist)
-   - `%APPDATA%\reasonix\skills`
-6. Run validation before live changes:
-   ```powershell
-   pwsh -NoProfile -File scripts/build-skills.ps1
-   pwsh -NoProfile -File scripts/scan-secrets.ps1
-   ```
-   For maintenance validation, run schema 3 sync DryRun only inside the internal sandbox
-   with a create-new `-PlanPath` and host-injected roots. A released public call can resolve
-   a valid Windows identity and write a plan; expected rejection is not isolation. See
-   [docs/README.md §4](docs/README.md#4-日常同步流程) for the invocation shape.
-7. Check [current release and acceptance state](STATUS.md#current-state) before any production
-   operation; a released policy value is not deployment authorization or completed lab acceptance.
-   The public standalone backup entry is retired and exits `backup-is-transaction-internal`.
-   The commands below describe the reviewed contract only; execute Apply only within the owner's
-   authorized scope after the required acceptance and plan review:
-   ```powershell
-   $plan = Join-Path $env:TEMP 'ai-agent-dotfiles-sync-plan.json'
-   # Invocation shape only: maintenance validation uses the sandbox host (item 6).
-   # A released bare call may resolve Windows identity and write a plan.
-   pwsh -NoProfile -File scripts/sync.ps1 -DryRun -PlanPath $plan
-   # Review the plan, then apply the same fingerprint-bound plan.
-   pwsh -NoProfile -File scripts/sync.ps1 -Apply -PlanPath $plan
-   ```
-   This sync example is for pristine initial setup or explicit retirement, not routine environment
-   activation. For pristine initial setup, create its sync plan before canonical setup, complete the
-   reviewed canonical setup, then consume the original sync plan in a new invocation. Use the
-   authority status route and the current guide for other states.
-   When a reviewed canonical deletion has already removed the old name from the current manifests,
-   use an external one-shot JSON retirement manifest and pass the same file to both commands with
-   `-RetireManifestPath`. The retirement file, its resolved path, live/source roots, and target tree
-   hashes are plan-bound; it must never contain `.system` or an active/canonical skill. Do not commit
-   retirement manifests, do not expect auto-sync hooks to consume them, and delete the external plan
-   and retirement JSON after a successful Apply to prevent later replay.
-8. For a fresh clone, use the bootstrap entrypoint instead of hand-installing hooks. Bootstrap verifies
-   the pinned schema validator, pinned gitleaks cache, and Git-private approved runner in order. Follow
-   the exact installer/approval command it prints; hooks remain preview/event-only and never Apply:
-   ```powershell
-   pwsh -NoProfile -File .\bootstrap.ps1
-   ```
+1. **Single source.** `skills-source/` is the only source of truth. Put each skill in exactly one
+   of `skills-source/shared/<name>/`, `skills-source/claude-only/<name>/`,
+   `skills-source/codex-only/<name>/` or `skills-source/reasonix-only/<name>/`. The build rejects
+   name conflicts.
+2. **Generated output.** Never edit generated output directly: `claude/skills/`, `codex/skills/`,
+   `reasonix/skills/`, `envs/` and `.agent-harness/generated/`. Regenerate it with
+   `build-skills.ps1`, `build-harness-env.ps1` or `build-harness-profile.ps1`.
+3. **Managed routes only.** Change live roots only through `sync.ps1` or the `agent-dotfiles.ps1`
+   `env`, `canonical` and `live recover` routes. Never copy into or delete from a live root by
+   hand, and never hand-copy `envs/` staging into a home directory.
+4. **Plan-bound changes.** Every plan-bound live command runs in two steps. These commands are
+   sync, env activate/rollback/task/authority, canonical setup/recover and live recover. First run
+   `-DryRun -PlanPath <new external file>` and review the plan. Then run
+   `-Apply -PlanPath <same file>`. Never reuse a consumed plan.
+5. **Authorization and acceptance.** The tracked policy is `ReleaseState=released`, but
+   a released policy value is not deployment authorization or completed lab acceptance.
+   There is no mechanical interlock. Before any live Apply, check
+   [STATUS.md](STATUS.md#current-state) and confirm two things:
+   - the live-engine code at HEAD is covered by the accepted candidate recorded there. Live-engine code
+     means the files in `scripts/runner-policy.psd1` ToolchainPaths; check them with`n     `git diff --name-only <candidate>..HEAD`. A later change to any of them needs new acceptance first;
+   - the owner has explicitly authorized this Apply.
+6. **Sandbox for validation.** A bare public DryRun resolves the real Windows identity and writes a
+   real plan, so a rejection you expect does not prove isolation. For validation, run maintenance
+   DryRuns only inside the internal sandbox host (`scripts/internal/live-transaction-host.ps1`,
+   [docs/README.md §4](docs/README.md#4-日常同步流程)).
+7. **First deployment.** Plain `sync.ps1` only plans a pristine first deployment or an explicit
+   retirement. On a machine that already has an authority, run `agent-dotfiles.ps1 canonical status`
+   and then `agent-dotfiles.ps1 env authority status`, and follow the route they report
+   ([onboarding](docs/ONBOARD_NEW_MACHINE.md#5-select-the-machine-route)).
+8. **Retirement.** Deleting a skill's source leaves its live directory unknown and preserved. To
+   prune it, pass the same external one-shot JSON via `-RetireManifestPath` to both the DryRun and
+   the Apply. The JSON must never list `.system` or an active skill, and must never be committed.
+   After a successful Apply, delete both the plan and the JSON
+   ([format](docs/README.md#5-修改已有-skill-的流程)).
+9. **Task-only skills.** Use `agent-dotfiles.ps1 env task status|ensure-skill|sync|close`, which
+   follows the same plan rule
+   ([§16.1](docs/README.md#161-task-skill-overlay按任务热插拔)). Do not edit
+   `harness-source/envs/work.psd1` for one task. Commit `.agent-harness/task-skills.psd1` only when
+   collaborators should share the requirement.
+10. **Fresh clone.** Run `bootstrap.ps1` once on a fresh clone. It checks the pinned schema
+    validator, the pinned gitleaks and the runner approval in that order, and prints the exact next
+    command. Approving the runner on a machine is the owner's per-machine decision. Its Git hooks
+    remain preview/event-only and never Apply.
+11. **Config and profiles.**
+    - `config-pull` and `config-push` run as dry runs unless `-Apply` is given.
+    - `config-pull -Apply` overwrites home config: `~/.claude`, `~/.codex`, and `%APPDATA%\reasonix` with `-Platform Reasonix`. It needs the owner's
+      authorization after a review of the dry-run output and the user's personal overrides.
+    - Config deployment is not part of `env activate`. Adding it there needs a separate review.
+    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
+      It never writes a home directory or a live root.
 
-9. For a task-specific managed skill, use the repository-shared overlay commands instead of editing
-   `work.psd1`, generated output, or live roots:
-   ```powershell
-   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task status
-   $taskPlan = Join-Path $env:TEMP ('task-skill-' + [guid]::NewGuid().ToString('N') + '.json')
-   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task ensure-skill <name> -Platform Codex -DryRun -PlanPath $taskPlan
-   pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env task ensure-skill <name> -Platform Codex -Apply -PlanPath $taskPlan
-   ```
-   Commit `.agent-harness/task-skills.psd1` only when the task requirement should be shared with the
-   branch/worktree collaborators. Task close/removal always requires an explicit dry-run and apply.
+```powershell
+pwsh -NoProfile -File .\bootstrap.ps1
+pwsh -NoProfile -File scripts/build-skills.ps1
+pwsh -NoProfile -File scripts/scan-secrets.ps1
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 canonical status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env authority status
+```
 
 ## Hard rules
 
 - Never delete, move, overwrite, or modify `~/.codex/skills/.system`.
-- Never use `robocopy /MIR` against live skills roots.
-- Never weaken, bypass, or whitelist `scripts/scan-secrets.ps1` without explicit user approval.
-- Never commit generated output, imports, backups, live home files, or machine-private files.
-- Never put plaintext secrets, API keys, tokens, passwords, account info, or machine-private paths in skills.
-- Codex `config.toml` is excluded from config-sync (machine-private state). See `docs/README.md` §14.
-- Project Harness Profiles are project-local in the first version: `.agent-harness/generated/` is disposable generated output and must not be hand-edited or committed unless a future tracked-template decision explicitly says so.
-- `scripts/apply-harness-profile.ps1 -Apply` must not be treated as permission to write `~/.claude`, `~/.codex`, live skills roots, or Codex `.system`; first-version apply writes only project-local allowlist output.
-- Do not claim Project Harness Profiles install project-local skills or perform automatic global home harness switching.
-- Keep `AGENTS.md` tracked in Git so these instructions sync across machines.
+- Never use `robocopy /MIR` or any other whole-directory mirror against a live skills root.
+  Deployment is manifest-scoped, and unknown live directories are preserved.
+- Never weaken, bypass, or whitelist `scripts/scan-secrets.ps1` or `.gitleaks.toml` without
+  explicit user approval.
+- Never commit any of the following: generated output, `imports/` and `reports/` contents (other than their README placeholders), backups,
+  `state/`, transaction plans (`-PlanPath` JSON) or retirement JSON, live home files, or machine-private files.
+- Never commit a `config-push` capture until a human has reviewed its `git diff`. The secret scan
+  blocks tokens, not machine-private paths or personal content.
+- Never put plaintext secrets, tokens, account info, machine names or machine-private paths in
+  skills, tracked docs or commits.
+- Codex `config.toml`, Reasonix `config.toml`/`.env`, credentials, sessions and caches are
+  machine-private and never synced.
+
+## Checks and CI
+
+- **Local checks.**
+  - Every change needs `git diff --check` and `scan-secrets.ps1`.
+  - Changes to this file, `CLAUDE.md`, `README.md`, `STATUS.md` or the `docs/` guides also need
+    `tests/repository-policy.tests.ps1`, `tests/doctor.tests.ps1` and
+    `tests/guide-examples.tests.ps1`.
+  - Skill changes also need `build-skills.ps1`.
+  - Script changes also need `check-powershell-syntax.ps1` and the affected suites (run each with
+    `pwsh -NoProfile -File tests/<suite>.tests.ps1`).
+  - For a full regression, run `run-tests.ps1 -All -JsonSummaryPath <external file>`.
+- **CI.** Use the required CI (`.github/workflows/validate.yml`) without reducing its scope or
+  thresholds. Local checks do not stand in for CI. Diagnose a red `Validate` run with
+  [the CI failure rules](docs/CI_FAILURE_RULES.md) instead of guessing from the annotation.
+- **Pinned phrases.** The tests above check the entry and guide files:
+  - `tests/repository-policy.tests.ps1` pins phrases in this file, `CLAUDE.md` (the import),
+    `README.md` and `docs/README.md`.
+  - `tests/doctor.tests.ps1` requires `STATUS.md` and the guides to mention Reasonix, and never to
+    describe hooks or bootstrap as applying live changes.
+  - `tests/guide-examples.tests.ps1` requires each of the seven guides, including `CLAUDE.md` and
+    `docs/ZCODE.md`, to keep at least one valid `powershell` block.
+
+  Change the wording and its pins in the same commit.
+
+## harness-model feedback loop (ZCode pilot)
+
+Follow the feedback loop in [docs/ZCODE.md](docs/ZCODE.md) only when there is a substantive issue
+or an explicit user request. Ordinary task completion triggers nothing. The loop authorizes edits
+to rule entries and adoption docs only, and it relaxes no gate.
