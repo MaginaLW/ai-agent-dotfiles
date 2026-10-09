@@ -23,7 +23,7 @@ param(
     [string[]] $Retire = @(),
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = [Environment]::GetFolderPath('UserProfile'),
-    [string] $StateRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-agent-dotfiles'),
+    [string] $StateRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-agent-dotfiles.deploy'),
     [switch] $SkipBuild
 )
 

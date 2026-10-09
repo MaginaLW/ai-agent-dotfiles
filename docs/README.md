@@ -119,8 +119,8 @@
 - 逐目录给出 `install`、`update`、`unchanged`、`prune` 或 `unknown`。不带 `-Apply` 时只打印计划。
 - `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 显式点名的目录（`-Retire` 对三个平台同时生效，先看 dry-run）。
 - 未知目录只报告不碰；Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
-- `update` 和 `prune` 之前，先把旧目录复制到 `%LOCALAPPDATA%\ai-agent-dotfiles\skill-backups\<时间戳>`。
-- 已部署集合记录在机器私有的 `%LOCALAPPDATA%\ai-agent-dotfiles\deployed-skills.json`。没有这个文件时，首次运行不会清理任何目录。
+- `update` 和 `prune` 之前，先把旧目录复制到 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\skill-backups\<时间戳>`。
+- 已部署集合记录在机器私有的 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`。没有这个文件时，首次运行不会清理任何目录。
 
 ```powershell
 pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
