@@ -410,6 +410,13 @@ $after = Get-FileSnapshot -Root $project
 Assert ($r.Code -ne 0 -and $r.Out -match 'permissions\.deny') 'permissions.deny: removal is rejected'
 Assert (@(Compare-FileSnapshot -Before $before -After $after).Count -eq 0) 'permissions.deny: failed apply writes nothing'
 
+$sourceRepo = New-TestHarnessRepo -Name 'named-source-repo'
+Add-Component -HarnessRepo $sourceRepo -Path 'commands/named-source' -Id 'named-source' -Kind 'Command' -Target '.claude/commands/named.md' -Mode 'DirectoryFiles' -Source 'body.md' -Content "Named source body.`n"
+$project = New-TestProject -Name 'named-source-project' -ProfileText (New-ProjectProfileText -Commands @('named-source'))
+$r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $sourceRepo, '-ProjectRoot', $project, '-Apply')
+$written = Join-Path $project '.claude/commands/named.md'
+Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath $written) -and ((Get-Content -Raw -LiteralPath $written) -ceq "Named source body.`n")) 'DirectoryFiles: apply writes the declared Source file'
+
 # ===========================================================================
 Write-Host "`n[validation failures]" -ForegroundColor Cyan
 # ===========================================================================

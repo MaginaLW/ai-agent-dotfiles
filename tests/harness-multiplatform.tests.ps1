@@ -129,11 +129,6 @@ $unsafe = Invoke-Fixture $status @('-RepoRoot', $fakeRepo, '-ProjectRoot', $proj
 Assert ($unsafe.Code -ne 0 -and $unsafe.Out -match 'outside|unsafe|allowlist|escapes') 'target outside allowlist is rejected'
 Set-FixtureFile -Path $unsafeComponent -Content $originalComponent
 
-# Build a real secret-shaped key at runtime so the test file itself stays scan-clean.
-# 'sk-ant-...' trips both the gitleaks rule (anthropic-api-key in .gitleaks.toml) and
-# the fallback scanner, so the gate holds with or without gitleaks installed.
-$blockingContent = ('sk-ant-' + 'Kz9xQ4mNvB7wRpT2YcH8dE1')
-
 if ($fail -gt 0) {
     Write-Host "Results: $pass passed, $fail failed" -ForegroundColor Red
     throw 'Harness multi-platform regression failed.'
