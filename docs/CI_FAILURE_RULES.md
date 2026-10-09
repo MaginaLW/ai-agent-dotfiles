@@ -347,7 +347,7 @@ root-claims 的原日志没有保留下被杀子进程的 stdout/stderr；不能
 错配直接当作这次 15 秒失败的已证原因。应保留超时现场输出，并在固定候选完整 CI
 重新观察 released 路径。当前本机测试 token 在既有 fixture 的 SetOwner 操作被拒绝，
 仅修改 DACL 的独立探针则通过；这是完整本地套件的宿主前提限制，不是 GREEN。
-完整定位与回执见 [2026-09-23 CI 修复窗口](../status/active/live-safety-hardening.md)。
+完整定位与回执见 [2026-09-23 CI 修复窗口](../status/archived/2026-10-08-live-safety-hardening.md)。
 
 ## 3. 处置流程
 
@@ -390,7 +390,7 @@ root-claims 的原日志没有保留下被杀子进程的 stdout/stderr；不能
   `harness-env` 180 秒。受检提交 `45e9a50` 沿用了 `8e27e4a` 的脚本字节和旧 pin；
   `b86b8b1` 更新 pin，`06d1902` 记载后续本地 318/0，**不等于该 CI run 重跑通过**。
   原始日志、Git 字节核对及对旧记录的追加更正见
-  [归因更正记录](../status/active/live-safety-hardening.md#2026-09-22-ci-run-34851206631-attribution-correction)。
+  [归因更正记录](../status/archived/2026-10-08-live-safety-hardening.md#2026-09-22-ci-run-34851206631-attribution-correction)。
 - 2026-09-17 两次 runner 失联中，`35166789288`（`0c5ca92`）已由第三次尝试转绿关闭
   （2026-09-19 记录）；`35166625038`（`6488182`）仍无同 SHA 重跑样本。
 - 早期 `Run MCP tests` 步骤已随 MCP 工具退休从工作流移除，其历史失败不再适用（不是未决）。

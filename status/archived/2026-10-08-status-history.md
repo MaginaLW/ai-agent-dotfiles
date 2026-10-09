@@ -22,7 +22,7 @@ This is the repository's single global status file. Current task records belong 
 > holds** — the real-machine canonical setup (completed through the cross-volume fix and the
 > recovery finalize), the `work` environment adoption, and the per-machine runner approval have
 > since been executed; see the 2026-10-07 entry below and the
-> [closeout handoff](../../status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
+> [closeout handoff](2026-10-08-live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
 > Deployment to other machines has not been performed and remains owner-initiated.
 
 The checked-in [policy](../../scripts/live-safety-policy.psd1) is `ReleaseState=released`, but
@@ -32,7 +32,7 @@ and DryRun checkpoint. The disposable-identity lab rejected candidate `bffa7d7`.
 subsequent fixes (`097ff01`, `f553358`, `23f458b`) remain local at the audit baseline `344ed46`;
 their partial lab evidence does not replace a full run on a new immutable candidate.
 
-The [2026-09-23 multi-agent audit and ordered backlog](../../status/active/live-safety-hardening.md#2026-09-23-multi-agent-audit-and-ordered-backlog)
+The [2026-09-23 multi-agent audit and ordered backlog](2026-10-08-live-safety-hardening.md#2026-09-23-multi-agent-audit-and-ordered-backlog)
 is the audit handoff. Execution has isolated four canonical/repository-policy test callers using
 copied toolchains. The zero-target rollback and missing unfinished-sibling guard were reproduced
 and repaired; stronger journal validation closes a live recovery Status false-clean result, and its
@@ -51,7 +51,7 @@ gates. The `work`/`full` mismatch remains a lab parameter issue, with additive a
 unchanged-overlay rollback requirements now explicit in the guides. Report hygiene is updated.
 No new release acceptance is claimed.
 
-The [post-audit staged completion plan](../../docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)
+The [post-audit staged completion plan](../../docs/HISTORY.md)
 now defines the execution order, parallel ownership, acceptance criteria and release boundaries.
 Execution is authorized and S0-S2 are closed. Four release-blocking defects have since been repaired,
 independently reviewed and proven end to end: the retirement staleness comparison, the two
@@ -111,7 +111,7 @@ hard-kill/seams/closure pins re-verified, and **CI run
 [#173](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36672463140) all four jobs
 green**. The disposable-identity lab and the 14 mutation routes are deferred to a quiet-host
 window after three load-blocked attempts (evidence and diagnosis in
-[the 2026-09-30 record](../../status/active/live-safety-hardening.md#2026-09-30-晚补记ci-绿lab-三次尝试均被主机负载阻断)),
+[the 2026-09-30 record](2026-10-08-live-safety-hardening.md#2026-09-30-晚补记ci-绿lab-三次尝试均被主机负载阻断)),
 so **candidate `8d48795` acceptance is not claimed**; the remaining open items are the lab +
 route refresh, the local `-All`/hard-kill full green samples, and the release path (per-item
 owner authorization). The record-commit successor run
@@ -121,7 +121,7 @@ jobs green on `c63797d`; the one shard-3 `live-recovery` red on the docs-only `1
 as a flake by that same-bytes successor per the [CI failure rules](../../docs/CI_FAILURE_RULES.md),
 and the branch's final head `0f07a59` carries its own all-green sample
 ([#176](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/36716647375)). The
-[2026-09-30 handoff list](../../status/active/live-safety-hardening.md#2026-09-29-收尾待办清单接手入口)
+[2026-09-30 handoff list](2026-10-08-live-safety-hardening.md#2026-09-29-收尾待办清单接手入口)
 items 5-8 are the next window's entry: the quiet-host evidence bundle (lab, 14 mutation
 routes, local `-All`/hard-kill), the per-item release-path authorization (a 2026-09-30 ask
 went unanswered and stays per-item pending), the `@()` array-flattening parse-gate candidate,
@@ -177,13 +177,13 @@ carries its own all-green sample — for the closeout head `b04613f`, run #205's
 showed one shard-2 `root-claims-registry` assertion red on those same docs-only bytes and was closed
 as a timing transient by the same-SHA rerun-failed-jobs attempt, green on all four jobs, with a local
 same-bytes rerun of the suite green at 955/0; see the
-[2026-10-08 note](../../status/active/live-safety-hardening.md#2026-10-08-收尾205-偶发红与同-sha-重跑结案).
+[2026-10-08 note](2026-10-08-live-safety-hardening.md#2026-10-08-收尾205-偶发红与同-sha-重跑结案).
 **2026-10-08 closeout: handoff items 1-8 are all closed.** Item 8 (the on-machine material index)
 was verified and updated on 2026-10-08 — `tmp/s7-open-items/evidence/shard2-205.log` added to the
 index, the 11 indexed `tmp/` paths and the machine-private external root's 6 subdirectories
 verified present, all materials still uncommitted; item 9 stays a non-open opportunistic entry
 per its reviewed deferral. See the
-[closeout handoff](../../status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
+[closeout handoff](2026-10-08-live-safety-hardening.md#2026-10-07-收尾待办清单接手入口).
 
 **2026-10-02: candidate accepted.** The branch head `dfa21d1` (code candidate `3897dc4`:
 the P2#2 snapshot-reload fix, the full live-operation-result command emitter, and the
@@ -195,23 +195,23 @@ failures/timeouts, candidate/kit hashes matched); and CI runs #176-#184 all gree
 tip lineage. The 14 S4 mutation routes were also refreshed for the first time since C6/C10
 — **14/14 PASS** — closing the recorded evidence-age limitation. The owner authorized the
 merge on 2026-10-01; the merge execution and its CI samples are recorded in
-[the 2026-10-02 record](../../status/active/live-safety-hardening.md#候选接受分支头-dfa21d12026-10-02代码候选-3897dc4).
+[the 2026-10-02 record](2026-10-08-live-safety-hardening.md#候选接受分支头-dfa21d12026-10-02代码候选-3897dc4).
 Remaining open items: the release path (S5 read-only/DryRun, per-machine runner approval,
 real-machine canonical setup DryRun, real deployment — authorized 2026-10-01, none
 executed yet), the `@()` flattening parse-gate candidate, and the on-machine material
 index. No real Apply, adopt, activate, deployment, or runner approval has been executed.
 *(Superseded 2026-10-07: the release path has since been executed — see the 2026-10-07 entry and
-the [closeout handoff](../../status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口);
+the [closeout handoff](2026-10-08-live-safety-hardening.md#2026-10-07-收尾待办清单接手入口);
 the two non-release-path items have since closed as well — item 7 on 2026-10-07 and item 8 on
 2026-10-08.)*
 Earlier
 same-day closures: the guide-checker promotion (`scripts/check-guide-examples.ps1`, the
 `guide-examples` suite in shard 2 at 60 s, aggregate budget 30615 s). See the
-[execution record](../../status/active/live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
+[execution record](2026-10-08-live-safety-hardening.md#2026-09-23-post-audit-execution) for ownership,
 isolation boundaries and actual validation.
 
 **2026-10-03 closeout-audit window.** The read-only closeout audit's follow-ups were executed
-(record: [the 2026-10-03 activity section](../../status/active/live-safety-hardening.md#2026-10-03-收尾审计窗口ci-状态补证与-setup-dryrun-入口边界收口)).
+(record: [the 2026-10-03 activity section](2026-10-08-live-safety-hardening.md#2026-10-03-收尾审计窗口ci-状态补证与-setup-dryrun-入口边界收口)).
 The main-top CI gap is closed: an authorized read-only API query shows Validate runs #186 (merge
 commit `9e2469f`), #187 (`dca5f5c`) and #188 (head `e93d5b6`) each green on all four jobs. The
 real-machine setup-DryRun boundary is resolved and executed: the fail-closed cause is the
@@ -295,7 +295,7 @@ an in-repo regression suite, `2a90261`; the duplicated `Get-SkillDirectories` is
 the `:8256` taint arms have independent RED, `0c68ee3`; the record sweep and the rewrite-SHA
 correction, `23d2d37`; and the global Grok invocation guide) and published the Phase 4 decision
 package at
-[`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md),
+[`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/HISTORY.md),
 which the owner has not yet reviewed. The window closes with its definitive unified pass on the
 committed bytes of `d5a3cda`: 40 of 40 suites, zero failures, zero timeouts (the 40th is the new
 parse-gate suite). Everything committed after that pass is documentation plus the staging-lock
@@ -1427,7 +1427,7 @@ oute-cleanup-recovery` conflicts with the envelope projection's exact immediate-
 > implemented in Phase 2 (Slice 1 is recorded as implemented immediately below this list, and
 > Phase 2 closed at 52/52 on 2026-09-13). Do not start work from this list; the authoritative
 > pending set is at the end of
-> [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md).
+> [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md).
 
 1. **Slice 1 — durable recovery ticket** (Luna's 7-step list): descriptor + sibling root with the
    whitelist coupling above, canonical JSON/ContentHash/atomic protocol, `ReleaseExact` firstError
@@ -3300,7 +3300,7 @@ Production Apply remains interlocked, and no live root was touched.
 > kept as history.
 
 Task 6 Step 3 is four slices in with the recovery dispatcher executable for all three reviewed
-transitions; the checkpoint record lives in [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md).
+transitions; the checkpoint record lives in [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md).
 Landed: slice 1 `1423b78` (the `agent-dotfiles.ps1 live recover` route, dispatcher parameter sets,
 sandbox authority resolution with the complete-bootstrap gate, fail-closed stub, roadmap doc
 `61163cd`); slice 2 `5176e8b` (DryRun derives the schema-1 rollback/recovery plan under the origin
@@ -3333,7 +3333,7 @@ touched.
 ## Task 6 Step 3 completion (2026-09-12): authority state rollback, recovery failpoints, worktree dispatch
 
 Commit `0e04a2c` closes the Step 3 scope named at the previous checkpoint; the detailed record lives
-in [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md). Two
+in [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md). Two
 independent read-only Grok reviews preceded the commit: the first produced the state-rollback design
 note whose findings were applied, the second found two defects and four gaps in the delta; every
 finding is fixed in this commit or recorded as an explicit boundary.
@@ -3389,7 +3389,7 @@ Apply remains interlocked and no live root was touched.
 ## Task 6 Steps 4-5 (2026-09-12): deterministic failpoints, committed-finalize, and the restart gates
 
 Commits `528aec5` and `99a8e87` implement Step 4 and the Step 5 items it exposed; the detailed
-record lives in [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md).
+record lives in [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md).
 Every Step 4 boundary is now a configured checkpoint: `RESERVED` (namespace and header durable),
 `RECEIPT_FINALIZATION` (immediately before the managed receipt producer), `RECORD_PENDING:<Phase>`
 and `RECORD_PUBLISHED:<Phase>` around every journal-record publication (composed from the two
@@ -3450,7 +3450,7 @@ a killable child.
 ## Task 7 slices 1-2 (2026-09-13): receipt-based rollback entry and a plan-layer contradiction fix
 
 Commits `00e3632` and `50d6616` start Task 7; the detailed record and the remaining-scope map live in
-[`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md). The rollback
+[`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md). The rollback
 entry is rebuilt on receipts: only `-ReceiptPath` selects a rollback, the legacy
 `RunId`/`BackupPath`/`BackupRoot`/`HomeRoot` switches and the legacy whole-tree implementation are
 removed, Apply still stops at the Phase 0 interlock, and the preflight fails closed with
@@ -3482,7 +3482,7 @@ a real header, a real managed receipt with `SourceOperationKind=environment`, an
 ## Task 7 Step 1 completion (2026-09-13): source graph and eligibility gates
 
 Commit (this slice) completes Task 7 Step 1; the detailed record lives in
-[`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md). The rollback
+[`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md). The rollback
 entry now gathers the complete source-graph evidence and fails closed before the transition stub:
 receipt field/semantics/path/marker integrity, `HomeAuthorityKey` binding, managed snapshot tree
 hashes, both authority-preimage copies, current claims bytes, the linked `SourceTransactionId`
@@ -3527,7 +3527,7 @@ interlocked and no live root was touched.
 > history.
 
 The detailed record lives in
-[`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md). The rollback
+[`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md). The rollback
 entry now binds the calling repository as the origin candidate and runs everything after the receipt
 preflight under the origin canonical → worktree overlay → global lock order. Under those locks the
 Step 1 evidence and eligibility gates revalidate, a wrong origin clone fails closed
@@ -3562,7 +3562,7 @@ doctor passed; registered artifact validation 28/28/113 with zero failures; the 
 > checkpoint `e57c608`). Production Apply remains interlocked. The text is kept as history.
 
 The detailed record lives in
-[`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md).
+[`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md).
 `scripts/live-transaction-common.ps1` gains `Invoke-SealedEnvironmentRollbackTransaction`, the
 reviewed composition that executes a derived `environment-rollback` plan as a new original
 receipt-backed transaction under a caller-held reviewed lock order. Step 3 inside it creates the
@@ -4274,7 +4274,7 @@ could not execute — Task 6 Step 5's cross-authority overlapping-roots — is r
 3-bound finding rather than an open step).** **Phase 3 is complete (47/47: Tasks 1-9 all closed; the Task 7 carried cleanup item closed by `d6211c9` and the Task 9 checkpoint by `e57c608` — see the Phase 3 Task 8 section, the Task 7 carry-over section and the 2026-09-15 wrap-up section).**
 Phase 4 schema/CI contract and safe release remains downstream and has not started; it now has a
 decision package at
-[`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md)
+[`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/HISTORY.md)
 that awaits the owner's review, and releasing the interlock stays explicitly authorized-only. The
 commit-bound environment staging locks were rebuilt in the 2026-09-16/17 window and bind that
 window's final commit; any later commit makes them stale again, and rebuilding them before future
@@ -4294,7 +4294,7 @@ draft and that Task 9 remained (see the 2026-09-15 wrap-up section) is supersede
 `2ca0488` and Task 9 as `e57c608`. The Phase 4 schema/CI contract and
 safe release remain downstream and have not started. The Phase 3 plan and its per-task
 step lists are in
-[`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](../../docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md).
+[`docs/superpowers/plans/2026-08-09-live-safety-phase-3-shared-authority.md`](../../docs/HISTORY.md).
 
 ## Next actions
 
@@ -4306,7 +4306,7 @@ step lists are in
    and gitleaks caches verified, the dangerous-tracked-file check 0 violations over 569 tracked
    files, and `git diff --check` clean with exactly the four protected Reasonix literal negative
    pathspecs. The authoritative, itemised record lives in
-   [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md).
+   [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md).
    This window's own `-All` run passed 36 of 39 suites with zero failures and three timeouts
    (`harness-authority` 300 s, `harness-env` 180 s, `task-skills` 120 s) while a second full run
    held the machine. Re-run serially on a quiet machine all three suites pass clean but do not fit
@@ -4336,7 +4336,7 @@ step lists are in
    failed=0; timed-out=0` (summary `repin8256-unified-rerun-20260915.json`, SHA-256
    `3b3134d6…`). The raw run output for those gates is machine-local and gitignored (`tmp/hk-*-repin-20260915.log`);
    this entry is what the repository carries. The itemised record is in
-   [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md).
+   [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md).
 3. **Phase 2 live-safety hardening remains complete** (Tasks 1-9; see the closeout section above for
    the definitive unified pass). This window's implementation commits: `a9cb765` Task 7 Step 1
    source graph and eligibility gates, `56489e0` Task 7 Step 2 lock-ordered plan derivation,
@@ -4348,7 +4348,7 @@ step lists are in
    Phase 4: the cross-authority root-claim overlap rejection (a machine-wide claim store — both
    authorities commit on a shared custom root today). The rollback execution's production caller is
    closed by `976d0fe`. The authoritative, itemised record lives in
-   [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md) under
+   [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md) under
    "Pending items (2026-09-19, after the Phase 4 implementation window)".
 4. Carried boundaries: the locator stays phase-only by design, so a state file replaced without its
    `FILE_REPLACED` record surfaces as a dispatcher DryRun failure rather than a locator status; a
@@ -4374,7 +4374,7 @@ step lists are in
    scheduling decision this record cannot make. The transferable lessons are held in agent memory
    as the concurrent-session hazard note, not here. The window's ordered list is closed: items 1-4
    above record what was delivered, and the current pending set is in
-   [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md) under
+   [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md) under
    "Pending items (2026-09-19, after the Phase 4 implementation window)".
 9. **Added by the sealed-file slice window (2026-09-15) — closed by the parallel-grok window
    (2026-09-16).** All four items are done: the privacy narrative is corrected against the tree
@@ -4388,7 +4388,7 @@ step lists are in
    `-MaxTurns` ≤ 100). The same window closed the parse-gate RED gap (`2a90261`), the duplicated
    `Get-SkillDirectories` (`fc6e173`) and the `:8256` independent RED (`0c68ee3`). The current
    pending set, including the new Phase 4 decision package, is in
-   [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md) under
+   [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md) under
    "Pending items (2026-09-19, after the Phase 4 implementation window)".
 10. **Gate skip-list settlement — complete (`117a556`, 2026-09-17).** All five names the parse
     gate's unknown-parameter pass still skipped are now single definitions: the platform getters
@@ -4411,7 +4411,7 @@ step lists are in
     commit failed once in the root-claims-registry contention probe's 1000 ms bound — recorded
     under pending item 11. The itemised record
     is in
-    [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md) under
+    [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md) under
     "Gate skip-list settlement window (2026-09-17, complete)"; the current pending set is in the
     same file under "Pending items (2026-09-19, after the Phase 4 implementation window)".
 11. **Phase 4 interlocked implementation — Tasks 1-6, 10, and Task 7 Step 2 landed (2026-09-18/19,
@@ -4426,7 +4426,7 @@ step lists are in
     0, primitives 95/0); the CI R3 read-race recurrence got its fixture fix (`e0bb9d7`, 435/0).
     **Remaining**: Task 7 Steps 1 and 3 (production canonical engines; shared host resolver) —
     handed off with the full spec reference; then the owner-gated Task 8. The itemised record is
-    in [`status/active/live-safety-hardening.md`](../../status/active/live-safety-hardening.md) under
+    in [`status/active/live-safety-hardening.md`](2026-10-08-live-safety-hardening.md) under
     "Phase 4 implementation window (2026-09-18/19, Tasks 1-6+10 and Task 7 Step 2 landed)"; the
     current pending set is in the same file under "Pending items (2026-09-19, after the Phase 4
     implementation window)".

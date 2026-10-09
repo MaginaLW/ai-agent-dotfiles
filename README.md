@@ -78,5 +78,5 @@ authorization first.
 - [docs/ZCODE.md](docs/ZCODE.md): maintaining this repository with ZCode.
 - [STATUS.md](STATUS.md): current state and open items.
 - [status/active/](status/active/) and [status/archived/](status/archived/): task records and history.
-- [docs/archive/](docs/archive/): historical plans.
+- [docs/HISTORY.md](docs/HISTORY.md): where the removed design and plan docs live in Git history.
 - [AGENTS.md](AGENTS.md): rules for coding agents. `CLAUDE.md` imports it.

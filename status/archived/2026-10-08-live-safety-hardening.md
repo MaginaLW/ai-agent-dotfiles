@@ -1,5 +1,8 @@
 # Live Safety Hardening
 
+> Archived on 2026-10-09 from `status/active/` after the 2026-10-07/08 handoff list closed. Historical
+> log: its present-tense statements are not current instructions. Current state: [STATUS.md](../../STATUS.md).
+
 Last updated: 2026-09-23 (audit handoff)
 
 Status: Complete through Phase 3. Baseline-reconciliation Task 1 is complete (5/5), the Phase 0
@@ -20,7 +23,7 @@ completion order and several of them carry their own superseded markers. Earlier
 are historical snapshots, not instructions to restart completed work. The current task handoff is
 [the 2026-09-23 audit and ordered backlog](#2026-09-23-multi-agent-audit-and-ordered-backlog);
 repository-wide release and CI state belongs in [STATUS.md](../../STATUS.md#current-state).
-The [staged completion plan](../../docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)
+The [staged completion plan](../../docs/HISTORY.md)
 defines subsequent execution and acceptance; S0 is integrated and S1 is in progress. See the
 [execution record](#2026-09-23-post-audit-execution); S2–S6 have not started.
 
@@ -2951,7 +2954,7 @@ is the reference for text written after this window. Items 1-3 and 5-7 carry ove
 
 1. **Phase 4 — schema/CI contract and safe release — the only open roadmap item; it now has a
    decision package.**
-   [`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md)
+   [`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/HISTORY.md)
    stages the release (read-only CLIs → external create-new DryRun → per-machine revalidation →
    owner-authorized policy commit plus a disposable-identity lab → protocol rollback), names the
    contract gaps, and marks its own claims as proposal analysis rather than repository evidence.
@@ -3168,7 +3171,7 @@ by the CI failure-rules window recorded above; item 12 is appended by its review
 
 1. **Phase 4 — schema/CI contract and safe release — the only open roadmap item; it now has a
    decision package.**
-   [`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md)
+   [`docs/specs/2026-09-16-phase4-schema-ci-release-proposal.md`](../../docs/HISTORY.md)
    stages the release (read-only CLIs → external create-new DryRun → per-machine revalidation →
    owner-authorized policy commit plus a disposable-identity lab → protocol rollback), names the
    contract gaps, and marks its own claims as proposal analysis rather than repository evidence.
@@ -3939,7 +3942,7 @@ config-sync、平台能力注册、模块去重等发布后改进另列后续范
 
 ## 2026-09-23 Staged completion plan
 
-按所有者要求制定 [后续任务分阶段完成计划](../../docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)，
+按所有者要求制定 [后续任务分阶段完成计划](../../docs/HISTORY.md)，
 规划基线 `dfa9d20`；主 agent 与 3 个只读 sub-agent 分别整合安全修复、发布验收及延后工作。
 计划明确 S0 基线协调、S1 五路并行修复/审查、S2 固定候选、S3 全门禁、S4 lab/CI 接受、
 S5 Task 9 与归档、S6 独立后续工作包。后续执行按该细化计划安排，上节简表保留为审查时建议。
@@ -5616,7 +5619,7 @@ token manifest 第 9 行 = 已重钉的受审文件哈希表行、prelude digest
    （已记录的接受限制）。如需更强证据，在下一个候选窗口或专门窗口重跑。
 4. **发布路径（全部待所有者逐项授权）**：真实部署（S5 剩余 + F5）、逐机 runner 批准、真机 canonical
    setup DryRun（需 `scripts/internal/live-transaction-host.ps1` + 外部新计划，不得裸调用）。S6 工作
-   包 F1–F5 见[分阶段计划](../../docs/superpowers/plans/2026-09-23-post-audit-completion-plan.md)第 9 节。
+   包 F1–F5 见[分阶段计划](../../docs/HISTORY.md)第 9 节。
 5. **机内材料索引（不入库，gitignored）**：`tmp/zc-review/`（AST 探针生成器 `make_hk_probe_ast.ps1`、
    自读重定向 `fix_probe_selfread.py`、guide 校验器、各 grok 审查报告与流）；`tmp/lab-postaudit-{14,17,18,19,20}`
    （14 = C11、19 = c15、20 = **现接受候选 c783a01** 的 lab 证据；17/18 = 被取代/未启动的过程记录）；

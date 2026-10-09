@@ -54,13 +54,13 @@ check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-The [2026-10-07 handoff list](status/active/live-safety-hardening.md#2026-10-07-收尾待办清单接手入口)
+The [2026-10-07 handoff list](status/archived/2026-10-08-live-safety-hardening.md#2026-10-07-收尾待办清单接手入口)
 (items 1-8) is closed.
 
 1. **Owner:** name any further machine before onboarding starts. Each machine gets its own reviewed
    plans and runner approval.
-2. **Owner:** decide the over-engineering cleanup. The global entry files were slimmed on
-   2026-10-09. Still open: pruning docs/status history, the CI scope and cost (AGENTS.md currently
+2. **Owner:** decide the over-engineering cleanup. The global entry files were slimmed and the docs/status
+   history was pruned on 2026-10-09. Still open: the CI scope and cost (AGENTS.md currently
    forbids reducing CI scope), and whether to replace the transactional live-sync engine with a
    simpler manifest-scoped copy.
 3. **Owner:** adopt, defer or drop the post-release packages F1 (CI evidence persistence),
@@ -103,7 +103,7 @@ The [2026-10-07 handoff list](status/active/live-safety-hardening.md#2026-10-07-
   a full reseal.
 - **Out of scope.** Codex `config.toml`, Reasonix `config.toml`/`.env`, credentials, sessions and
   caches are outside sync scope. Machine-private evidence (`tmp/` and an external private root) is
-  not committed; check its index in the active task record before deleting any of it.
+  not committed; check its index in the archived live-safety record before deleting any of it.
 
 ## Inventory and scope
 
@@ -136,4 +136,6 @@ The [2026-10-07 handoff list](status/active/live-safety-hardening.md#2026-10-07-
 - Dated journal through 2026-10-08:
   [status/archived/2026-10-08-status-history.md](status/archived/2026-10-08-status-history.md).
 - Live-safety evidence and handoff lists:
-  [status/active/live-safety-hardening.md](status/active/live-safety-hardening.md).
+  [status/archived/2026-10-08-live-safety-hardening.md](status/archived/2026-10-08-live-safety-hardening.md).
+- ZCode feedback-loop runs: [status/archived/2026-10-09-zcode-feedback-loop-history.md](status/archived/2026-10-09-zcode-feedback-loop-history.md).
+- Removed design and plan docs: [docs/HISTORY.md](docs/HISTORY.md).
