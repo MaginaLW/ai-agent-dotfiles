@@ -1,17 +1,7 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [switch] $CanonicalPreflight,
-    [string] $CandidateWorkspace,
-    [string] $SourceRoot,
-    [string] $ClaudeOutputRoot,
-    [string] $CodexOutputRoot,
-    [string] $ReasonixOutputRoot,
-    [string] $ManifestOutputRoot,
-    [string] $CanonicalPreflightOutputRoot,
-    [string] $JsonPath,
-    [string] $ValidatorCacheRoot
+    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 )
 
 Set-StrictMode -Version Latest
@@ -22,73 +12,30 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$preflightHelper = Join-Path $PSScriptRoot 'canonical-preflight-common.ps1'
 $skillsHelper = Join-Path $PSScriptRoot 'skills-common.ps1'
 $reportHelper = Join-Path $PSScriptRoot 'report-common.ps1'
-. $preflightHelper
 . $skillsHelper
 if (Test-Path -LiteralPath $reportHelper) { . $reportHelper }
 else { Write-Warning "Report helper missing: $reportHelper" }
-
-function Test-SameOrDescendant {
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Root)
-    return Test-PathInsideRoot -Path ([System.IO.Path]::GetFullPath($Path)) -Root ([System.IO.Path]::GetFullPath($Root))
-}
 
 function Assert-DisjointBuildRoots {
     param([Parameter(Mandatory)][string[]]$Roots)
     for ($i = 0; $i -lt $Roots.Count; $i++) {
         for ($j = $i + 1; $j -lt $Roots.Count; $j++) {
             if ((Test-SameOrDescendant -Path $Roots[$i] -Root $Roots[$j]) -or (Test-SameOrDescendant -Path $Roots[$j] -Root $Roots[$i])) {
-                throw "Canonical preflight build roots overlap: $($Roots[$i]) and $($Roots[$j])"
+                throw "Build roots overlap: $($Roots[$i]) and $($Roots[$j])"
             }
         }
     }
 }
 
-$customNames = @('CandidateWorkspace','SourceRoot','ClaudeOutputRoot','CodexOutputRoot','ReasonixOutputRoot','ManifestOutputRoot','CanonicalPreflightOutputRoot','JsonPath','ValidatorCacheRoot')
-if (-not $CanonicalPreflight) {
-    foreach ($name in $customNames) {
-        if ($PSBoundParameters.ContainsKey($name)) { throw "$name is internal to -CanonicalPreflight." }
-    }
-    $SourceRoot = Join-Path $RepoRoot 'skills-source'
-    $ClaudeOutputRoot = Join-Path $RepoRoot 'claude/skills'
-    $CodexOutputRoot = Join-Path $RepoRoot 'codex/skills'
-    $ReasonixOutputRoot = Join-Path $RepoRoot 'reasonix/skills'
-    $ManifestOutputRoot = Join-Path $RepoRoot 'manifests'
-}
-else {
-    foreach ($name in @('CandidateWorkspace','SourceRoot','ClaudeOutputRoot','CodexOutputRoot','ReasonixOutputRoot','ManifestOutputRoot','CanonicalPreflightOutputRoot','JsonPath')) {
-        if (-not $PSBoundParameters.ContainsKey($name) -or [string]::IsNullOrWhiteSpace([string](Get-Variable -Name $name -ValueOnly))) {
-            throw "-CanonicalPreflight requires -$name."
-        }
-    }
-    $CandidateWorkspace = (Resolve-Path -LiteralPath $CandidateWorkspace).Path
-    $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
-    $ClaudeOutputRoot = [System.IO.Path]::GetFullPath($ClaudeOutputRoot)
-    $CodexOutputRoot = [System.IO.Path]::GetFullPath($CodexOutputRoot)
-    $ReasonixOutputRoot = [System.IO.Path]::GetFullPath($ReasonixOutputRoot)
-    $ManifestOutputRoot = [System.IO.Path]::GetFullPath($ManifestOutputRoot)
-    $CanonicalPreflightOutputRoot = [System.IO.Path]::GetFullPath($CanonicalPreflightOutputRoot)
-    $JsonPath = [System.IO.Path]::GetFullPath($JsonPath)
+$SourceRoot = Join-Path $RepoRoot 'skills-source'
+$ClaudeOutputRoot = Join-Path $RepoRoot 'claude/skills'
+$CodexOutputRoot = Join-Path $RepoRoot 'codex/skills'
+$ReasonixOutputRoot = Join-Path $RepoRoot 'reasonix/skills'
+$ManifestOutputRoot = Join-Path $RepoRoot 'manifests'
+Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)
 
-    foreach ($root in @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)) {
-        if (-not (Test-SameOrDescendant -Path $root -Root $CandidateWorkspace) -or $root -ceq $CandidateWorkspace) {
-            throw "Canonical preflight build root is outside CandidateWorkspace: $root"
-        }
-    }
-    Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)
-    if ((Test-SameOrDescendant -Path $CanonicalPreflightOutputRoot -Root $CandidateWorkspace) -or (Test-SameOrDescendant -Path $CandidateWorkspace -Root $CanonicalPreflightOutputRoot)) {
-        throw 'CanonicalPreflightOutputRoot and CandidateWorkspace must be disjoint.'
-    }
-    $null = Resolve-CanonicalPreflightArtifactPath -Path $JsonPath -CanonicalPreflightOutputRoot $CanonicalPreflightOutputRoot -RepoRoot $RepoRoot -ForbiddenRoots @($CandidateWorkspace) -AllowMissingLeaf
-    foreach ($root in @($ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)) {
-        if (Test-Path -LiteralPath $root) { throw "Canonical preflight build output must be create-new: $root" }
-    }
-    $null = Get-SafeTreeSnapshot -Root $SourceRoot
-}
-
-$script:BuildResultWritten = $false
 function Write-BuildRunReport {
     param(
         [Parameter(Mandatory)] [ValidateSet('PASS', 'WARN', 'FAIL')] [string] $Result,
@@ -119,27 +66,6 @@ function Write-BuildRunReport {
         '.system' = @('PRESERVED: .system is not a build source or generated skill.')
     }
 
-    if ($CanonicalPreflight) {
-        if ($script:BuildResultWritten) { throw 'Canonical preflight build result may only be published once.' }
-        $document = [ordered]@{
-            SchemaVersion = 1
-            ReportKind = 'build'
-            GeneratedAtUtc = [DateTime]::UtcNow.ToString('o')
-            Machine = 'redacted'
-            Git = [ordered]@{ Branch='Not available'; Commit='Not available' }
-            ScriptName = 'scripts/build-skills.ps1'
-            Mode = 'canonical-preflight'
-            Summary = $summary
-            Details = $details
-            Result = $Result
-            NextAction = $NextAction
-        }
-        $null = Publish-ValidatedPreflightJson -Document $document -Path $JsonPath -SchemaPath (Join-Path $RepoRoot 'schemas/run-report.schema.json') -ValidatorCacheRoot $ValidatorCacheRoot
-        $script:BuildResultWritten = $true
-        Write-Host "Build result: $JsonPath"
-        return
-    }
-
     if (-not (Get-Command Write-RunReport -ErrorAction SilentlyContinue)) { return }
     try {
         $reportPath = Write-RunReport -RepoRoot $RepoRoot -ReportKind build -ScriptName 'scripts/build-skills.ps1' -Mode build -Summary $summary -Details $details -Result $Result -NextAction $NextAction
@@ -152,12 +78,11 @@ $script:RuntimeExcludePatterns = @('MERGE_NOTES.md', 'CREATION-LOG.md', '*.magin
 function Copy-SkillDirectory {
     param([Parameter(Mandatory)] [System.IO.DirectoryInfo] $Source, [Parameter(Mandatory)] [string] $DestinationRoot)
     $destination = Join-Path $DestinationRoot $Source.Name
-    $null = Copy-SafeTree -SourceRoot $Source.FullName -DestinationRoot $destination
-    $snapshot = Get-SafeTreeSnapshot -Root $destination
-    foreach ($row in @($snapshot.ContentTreeRows | Where-Object Type -eq 'File')) {
-        $leaf = [System.IO.Path]::GetFileName([string]$row.RelativePath)
+    Copy-SkillTree -SourceRoot $Source.FullName -DestinationRoot $destination
+    foreach ($file in @(Get-ChildItem -LiteralPath $destination -File -Recurse -Force)) {
+        $leaf = $file.Name
         if (@($script:RuntimeExcludePatterns | Where-Object { $leaf -like $_ }).Count -gt 0) {
-            Remove-Item -LiteralPath (Join-Path $destination ([string]$row.RelativePath)) -Force
+            Remove-Item -LiteralPath $file.FullName -Force
         }
     }
 }
@@ -217,12 +142,10 @@ $unionSet = @($claudeSet + $codexSet + $reasonixSet | Sort-Object -Unique)
 
 foreach ($target in @($ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot)) {
     if (Test-Path -LiteralPath $target) {
-        if ($CanonicalPreflight) { throw "Canonical preflight output unexpectedly exists: $target" }
         Remove-Item -LiteralPath $target -Recurse -Force
     }
     [System.IO.Directory]::CreateDirectory($target) | Out-Null
 }
-if ($CanonicalPreflight -and (Test-Path -LiteralPath $ManifestOutputRoot)) { throw "Canonical preflight manifest root unexpectedly exists: $ManifestOutputRoot" }
 if (-not (Test-Path -LiteralPath $ManifestOutputRoot)) { [System.IO.Directory]::CreateDirectory($ManifestOutputRoot) | Out-Null }
 
 foreach ($skill in $sharedSkills) {
@@ -246,7 +169,7 @@ Write-Host "Built Claude skills: $($builtClaudeSkills.Count)"
 Write-Host "Built Codex skills: $($builtCodexSkills.Count)"
 Write-Host "Built Reasonix skills: $($builtReasonixSkills.Count)"
 Write-Host "Updated manifests: $ManifestOutputRoot"
-Write-BuildRunReport -Result PASS -NextAction 'Run scripts/scan-secrets.ps1, then review the canonical transaction plan.' `
+Write-BuildRunReport -Result PASS -NextAction 'Run scripts/scan-secrets.ps1, then review the scripts/deploy-skills.ps1 dry run.' `
     -ClaudeSkills @($builtClaudeSkills | ForEach-Object Name) `
     -CodexSkills @($builtCodexSkills | ForEach-Object Name) `
     -ReasonixSkills @($builtReasonixSkills | ForEach-Object Name)

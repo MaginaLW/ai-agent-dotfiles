@@ -1,10 +1,25 @@
 #requires -Version 7.0
+<#
+.SYNOPSIS
+    Normalizes one skill directory into skills-source/<TargetType>/<name>, creating or
+    updating it.
+
+.DESCRIPTION
+    -DryRun (the default) builds a normalized candidate (portable paths, canonical
+    front matter) under tmp/skill-candidates/<guid> and prints what would be written.
+    -Apply rebuilds the candidate and copies it into skills-source/. This is the update
+    mode: an existing skill of the same type is first moved to
+    tmp/skill-candidates/<guid>/backup/<type>/<name>. A name that already exists under
+    another type is rejected. build-skills.ps1 and scan-secrets.ps1 run after the copy.
+    Git is the recovery path.
+
+    Exit codes: 0 success, 1 error or failed check, 2 candidate rejected.
+#>
 [CmdletBinding()]
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [Parameter(Mandatory)] [string] $InputSkillPath,
     [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'reasonix-only')] [string] $TargetType,
-    [string] $PlanPath,
     [switch] $DryRun,
     [switch] $Apply
 )
@@ -16,51 +31,38 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-. (Join-Path $PSScriptRoot 'canonical-skill-adapter-common.ps1')
-$ToolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-. (Join-Path $PSScriptRoot 'canonical-command-result.ps1')
-$failureMessageId = 'canonical-command-failed'
+. (Join-Path $PSScriptRoot 'skill-candidate-common.ps1')
 
 try {
+    if ($DryRun -and $Apply) { throw 'Specify only one of -DryRun or -Apply.' }
     $RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
     $InputSkillPath = (Resolve-Path -LiteralPath $InputSkillPath).Path
-    if ([bool]$DryRun -eq [bool]$Apply) { throw 'Specify exactly one of -DryRun or -Apply.' }
-    if ([string]::IsNullOrWhiteSpace($PlanPath)) { throw 'Normalize requires -PlanPath; interactive parameter prompting is disabled.' }
-    if ($Apply) { $failureMessageId = 'canonical-plan-not-found' }
-    Resolve-PrivateArtifactPath -Path $PlanPath -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf:$DryRun | Out-Null
-    if ($DryRun -and (Test-Path -LiteralPath $PlanPath)) { throw 'DryRun PlanPath must be create-new.' }
-    if ($Apply -and -not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) { throw 'Apply requires an existing reviewed PlanPath.' }
-    $failureMessageId = 'canonical-command-failed'
+    Write-Host "Mode: $(if ($Apply) { 'apply' } else { 'dry-run' })"
 
-    if ($Apply) {
-        $failureMessageId = 'canonical-plan-stale'
-        $null = Assert-CanonicalSingleReplacementPlanBinding -RepoRoot $RepoRoot -PlanPath $PlanPath -OperationKind normalize -InputSkillPath $InputSkillPath -TargetType $TargetType
-        $failureMessageId = 'canonical-command-failed'
-        $child = Invoke-CanonicalTransactionChild -RepoRoot $RepoRoot -OperationKind normalize -Mode Apply -PlanPath $PlanPath
-        Write-CanonicalTransactionChildOutput -Child $child
-        exit $child.ExitCode
-    }
-
-    $failureMessageId = 'canonical-candidate-failed'
-    $workspace = New-CanonicalAdapterWorkspace -RepoRoot $RepoRoot
-    $batch = New-CanonicalBatchCandidateWorkspace -RepoRoot $RepoRoot -CandidateWorkspace $workspace -Proposals @(
-        [ordered]@{InputSkillPath=$InputSkillPath;TargetType=$TargetType}
+    $workspace = New-SkillCandidateWorkspace -RepoRoot $RepoRoot
+    $set = New-SkillCandidateSet -RepoRoot $RepoRoot -Workspace $workspace -Proposals @(
+        [pscustomobject]@{ InputSkillPath = $InputSkillPath; TargetType = $TargetType }
     )
-    if ([string]$batch.Status -cne 'candidate') {
-        $token = [string] $batch.Reason
-        $resultDocument = New-CanonicalPublicCommandResult -Result FAIL -CommandKind canonical-normalize -MessageToken $token
-        Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
-        [Console]::Error.WriteLine($token)
+    if ([string]$set.Status -cne 'candidate') {
+        Write-Host "rejected: $($set.Reason)"
         exit 2
     }
-    $failureMessageId = 'canonical-command-failed'
-    $preflightRoot = [IO.Path]::GetFullPath($PlanPath + '.preflight')
-    $child = Invoke-CanonicalTransactionChild -RepoRoot $RepoRoot -OperationKind normalize -Mode DryRun -PlanPath $PlanPath `
-        -CandidateWorkspace $workspace -InputPath $InputSkillPath -RewriteList @($batch.RewriteList) -CanonicalPreflightOutputRoot $preflightRoot
-    Write-CanonicalTransactionChildOutput -Child $child
-    exit $child.ExitCode
+    Write-SkillCandidatePlan -RepoRoot $RepoRoot -Results @($set.Results)
+    if (-not $Apply) {
+        Write-Host 'Dry run only: nothing was written to skills-source/. Rerun with -Apply to write the candidate.'
+        exit 0
+    }
+
+    $null = Install-SkillCandidate -RepoRoot $RepoRoot -Result @($set.Results)[0] -AllowReplace -BackupRoot (Join-Path $workspace 'backup')
+    $checks = Invoke-SkillCandidateChecks -RepoRoot $RepoRoot
+    if ($checks.Build -ne 'PASS' -or $checks.Scan -ne 'PASS') {
+        Write-Host 'Checks failed. Review the change with git status / git diff and revert it with Git if needed.'
+        exit 1
+    }
+    Write-Host 'Normalized. Review with git status / git diff before committing.'
+    exit 0
 }
 catch {
-    $failure = Write-CanonicalPublicCommandFailure -Exception $_.Exception -CommandKind canonical-normalize -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath -FallbackMessageToken $failureMessageId
-    exit ([int] $failure.ExitCode)
+    [Console]::Error.WriteLine("normalize-skill: $($_.Exception.Message)")
+    exit 1
 }

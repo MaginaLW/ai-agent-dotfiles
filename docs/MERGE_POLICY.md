@@ -1,6 +1,9 @@
 # Skills Import and Merge Policy
 
-> **Production interlock (`ReleaseState=interlocked`):** production merge/promote/live Apply, rollback, and explicit retirement
+> **Skills tools:** promote, normalize and merge use no plan file and never touch a live root; see
+> [§11.1](#111-promote--normalize--merge-执行方式).
+>
+> **Production interlock (`ReleaseState=interlocked`):** live Apply, rollback, and explicit retirement
 > remain unavailable where they reach managed live state. Bootstrap/hooks are preview/event-only and
 > cannot create or consume actionable plans. Expect `safety-protocol-upgrade-required` before mutation;
 > the public standalone backup entry is retired (`backup-is-transaction-internal`).
@@ -232,6 +235,23 @@ Agent 在处理一个 import batch 时 **必须**按以下顺序执行：
 - 合并同路径不同内容而不生成 conflict。
 - 删除未获得当前 explicit retirement 授权的 unknown，或删除 `.system`。
 - 在 scan、backup 或 dry-run 失败后继续 Apply。
+
+### 11.1 promote / normalize / merge 执行方式
+
+`promote-skill.ps1`、`normalize-skill.ps1` 和 `auto-merge-skills.ps1` 只写 `skills-source/`，不写 live 根目录，也不使用 `-PlanPath`。Git 是恢复路径：Apply 前工作树应当干净，Apply 后用 `git status` / `git diff` 审阅，出错时用 Git 撤销。
+
+- **`-DryRun`（默认）**：在 `tmp/skill-candidates/<guid>/` 下生成规范化候选（本机路径改写为 `$HOME`、frontmatter 规范化），并打印目标（`create` 或 `replace skills-source/<type>/<name>`）、文件列表和改写记录。`skills-source/` 不变。
+- **`-Apply`**：重新生成候选，复制到 `skills-source/<type>/<name>`，然后运行 `build-skills.ps1` 和 `scan-secrets.ps1`；任一失败时退出码为 1，已写入的改动留在工作树中待审阅。
+- **promote**：只允许新建。同名 skill 已存在于任一类型时结果为 retained（退出码 3），不替换。
+- **normalize**：更新模式。同类型已存在时，先把旧目录移到 `tmp/skill-candidates/<guid>/backup/<type>/<name>`，再写入候选；同名存在于其它类型时拒绝（`canonical-class-conflict`）。
+- **merge**：按第 4、5 节的矩阵给出决策，报告写到 `imports/skills-reports/auto-merge-report.json` 和 `.md`。Apply 只新建 `PROMOTE_CANDIDATE`，从不替换已有 canonical。已有 canonical 存在风险（`existing-canonical-risk`）时，两种模式都以退出码 1 停止，Apply 不写任何内容。
+- 候选被拒绝（secret、二进制、平台冲突、缺少 `SKILL.md`、reparse point 等）时退出码为 2，不写入。源树或目标路径上的 symlink、junction 等 reparse point 一律拒绝。
+
+```powershell
+pwsh -NoProfile -File scripts/promote-skill.ps1 -InputSkillPath 'imports/skills-inbox/<machine>/claude/<name>' -TargetType shared -DryRun
+pwsh -NoProfile -File scripts/normalize-skill.ps1 -InputSkillPath 'imports/skills-inbox/<machine>/claude/<name>' -TargetType shared -Apply
+pwsh -NoProfile -File scripts/auto-merge-skills.ps1 -DryRun
+```
 
 ## 12. 当前脚本能力与政策差距
 

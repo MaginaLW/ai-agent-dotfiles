@@ -56,12 +56,11 @@ function Write-DoctorJson {
         }
         SecretsScanSkipped = [bool] $SkipSecretsScan
     }
-    # Phase 4 Task 2: the status report publishes through the shared
-    # schema-validating adapter with the explicit registered ArtifactKind
-    # 'doctor-report'. The reviewed rerun contract replaces the previous
-    # report, so the validated overwrite switch is on; the bytes on disk are
-    # still only ever validated temp bytes moved atomically into place.
-    $null = Publish-ValidatedLiveArtifactJson -Document $document -Path $Path -ArtifactKind 'doctor-report' -JsonDepth 10 -AllowExistingReplace
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $fullPath
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) { [System.IO.Directory]::CreateDirectory($parent) | Out-Null }
+    $json = (ConvertTo-Json -InputObject $document -Depth 10) + "`n"
+    [System.IO.File]::WriteAllText($fullPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
@@ -229,8 +228,7 @@ foreach ($item in $requiredStructure) {
 
 Write-Section -Name 'Required scripts'
 foreach ($scriptPath in @(
-    'scripts\backup.ps1',
-    'scripts\sync.ps1',
+    'scripts\deploy-skills.ps1',
     'scripts\build-skills.ps1',
     'scripts\scan-secrets.ps1'
 )) {
@@ -284,20 +282,18 @@ $systemCandidates = @(
     @{ Label = 'Generated Codex .system'; Path = Join-Path $RepoRoot 'codex\skills\.system'; Live = $false }
 )
 $systemFound = 0
-. (Join-Path $PSScriptRoot 'scan-input-common.ps1')
-. (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
 foreach ($candidate in $systemCandidates) {
     if ([string]::IsNullOrWhiteSpace($candidate.Path)) {
         continue
     }
-    $entry = $null
-    try { $entry = [AiAgentDotfiles.NoFollowFile]::Inspect([string]$candidate.Path) } catch { continue }
+    # Get-Item reads only the root entry's attributes; it never opens or lists children.
+    $entry = Get-Item -LiteralPath ([string]$candidate.Path) -Force -ErrorAction SilentlyContinue
     if ($null -ne $entry) {
-        if ($entry.IsReparsePoint) {
+        if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
             Add-DoctorResult -Level 'WARN' -Message "$($candidate.Label) root entry is a reparse point; preserved-required and manual review apply."
             continue
         }
-        if (-not $entry.IsDirectory) {
+        if (-not $entry.PSIsContainer) {
             Add-DoctorResult -Level 'WARN' -Message "$($candidate.Label) root entry is not a directory; preserved-required and manual review apply."
             continue
         }
@@ -311,38 +307,6 @@ foreach ($candidate in $systemCandidates) {
 if ($systemFound -eq 0) {
     Add-DoctorResult -Level 'INFO' -Message 'No .system directory was detected in expected generated or live locations.'
 }
-
-Write-Section -Name 'Live safety protocol'
-$policyPath = Join-Path $RepoRoot 'scripts/live-safety-policy.psd1'
-if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) {
-    Add-DoctorResult -Level 'FAIL' -Message 'Live safety policy is missing.'
-}
-else {
-    $safetyPolicy = Import-PowerShellDataFile -LiteralPath $policyPath
-    Add-DoctorResult -Level 'INFO' -Message "Live safety protocol: version $($safetyPolicy.ProtocolVersion), release state $($safetyPolicy.ReleaseState)."
-    if ([string]$safetyPolicy.ReleaseState -eq 'interlocked') { Add-DoctorResult -Level 'WARN' -Message 'safety-protocol-upgrade-required: production Apply remains interlocked.' }
-}
-try {
-    . (Join-Path $PSScriptRoot 'approved-runner-common.ps1')
-    $runnerContext = Get-RunnerStorageContext -RepoRoot $RepoRoot
-    Add-DoctorResult -Level 'INFO' -Message "Pending preview namespace: $($runnerContext.PendingEventsRoot)"
-    $pendingCount = if (Test-Path -LiteralPath $runnerContext.PendingEventsRoot -PathType Container) { @(Get-ChildItem -LiteralPath $runnerContext.PendingEventsRoot -File).Count } else { 0 }
-    Add-DoctorResult -Level 'INFO' -Message "Pending registered events: $pendingCount"
-    if (Test-Path -LiteralPath $runnerContext.ApprovedStatePath -PathType Leaf) {
-        $runnerState = Get-ApprovedRunnerState -RepoRoot $RepoRoot
-        Add-DoctorResult -Level 'PASS' -Message "Approved runner hash: $($runnerState.ToolchainPolicyHash)"
-        $probe = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-doctor-runner-$([Guid]::NewGuid().ToString('N'))"
-        try {
-            $checkout = Get-RunnerPolicySnapshot -RepoRoot $RepoRoot -DestinationRoot $probe -BindingCommit ([string]$runnerState.ApprovedCommit) -ToolCacheRoot ([string]$runnerState.ToolCacheRoot)
-            if ([string]$checkout.ToolchainPolicyHash -ceq [string]$runnerState.ToolchainPolicyHash) { Add-DoctorResult -Level 'PASS' -Message "Checkout runner hash matches approval: $($checkout.ToolchainPolicyHash)" }
-            else { Add-DoctorResult -Level 'WARN' -Message 'runner-review-required: checkout toolchain differs from approved runner.' }
-        }
-        catch { Add-DoctorResult -Level 'WARN' -Message 'runner-review-required: checkout runner hash could not be validated.' }
-        finally { if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Recurse -Force } }
-    }
-    else { Add-DoctorResult -Level 'WARN' -Message 'runner-review-required: no approved runner state exists.' }
-}
-catch { Add-DoctorResult -Level 'WARN' -Message 'runner-review-required: approved runner metadata is invalid or unavailable.' }
 
 Write-Section -Name 'Secrets scan'
 $scanScript = Join-Path $RepoRoot 'scripts\scan-secrets.ps1'

@@ -3,11 +3,7 @@
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $JsonPath,
-    [switch] $CanonicalPreflight,
-    [string] $SourceRoot,
-    [string] $CanonicalPreflightOutputRoot,
-    [string] $ScannerConfigPath,
-    [string] $ValidatorCacheRoot
+    [string] $ScannerConfigPath
 )
 
 Set-StrictMode -Version Latest
@@ -18,54 +14,86 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$trustedConfigPath = Join-Path $RepoRoot '.gitleaks.toml'
-$configPath = $trustedConfigPath
+$configPath = if ($ScannerConfigPath) { (Resolve-Path -LiteralPath $ScannerConfigPath).Path } else { Join-Path $RepoRoot '.gitleaks.toml' }
 $gitleaksFailed = $false
-$preflightCommon = Join-Path $PSScriptRoot 'canonical-preflight-common.ps1'
-if (-not (Test-Path -LiteralPath $preflightCommon -PathType Leaf)) {
-    throw "Missing canonical preflight helper: $preflightCommon"
-}
-. $preflightCommon
+. (Join-Path $PSScriptRoot 'pinned-tool.ps1')
 
-if (-not $CanonicalPreflight) {
-    foreach ($name in @('SourceRoot','CanonicalPreflightOutputRoot','ScannerConfigPath','ValidatorCacheRoot')) {
-        if ($PSBoundParameters.ContainsKey($name)) { throw "$name is internal to -CanonicalPreflight." }
+# Scan input exclusions. They reproduce the former scan-input-common.ps1 policy
+# exactly (matched case-insensitively, like the old walker):
+#  - prefixes: New-FilteredScanInput / Get-NormalizedScanSourcePolicy default
+#    -ExcludedPrefixes (scan-input-common.ps1 L212, L237, L292);
+#  - exact paths: Get-ProtectedReasonixRelativePaths (scan-input-common.ps1 L176-185);
+#  - Git-ignored entries: the old walker skipped every entry `git check-ignore`
+#    reported; `git ls-files -co --exclude-standard` selects the same set
+#    (tracked files plus untracked, non-ignored files).
+# The fallback scanner additionally skips backup/* and tmp/* (Test-IsSkippedPath
+# below, unchanged); gitleaks still sees backup/ when it is not Git-ignored.
+$scanExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/')
+$scanExcludedExactPaths = @(
+    '.reasonix/desktop-topic-auto-title-meta.json',
+    '.reasonix/desktop-topic-created-at.json',
+    '.reasonix/desktop-topic-title-sources.json',
+    '.reasonix/desktop-topic-titles.json'
+)
+
+function Test-IsScanInputExcluded {
+    param([Parameter(Mandatory)] [string] $RelativePath)
+
+    foreach ($exact in $scanExcludedExactPaths) {
+        if ($RelativePath.Equals($exact, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
-    $SourceRoot = $RepoRoot
+    foreach ($prefix in $scanExcludedPrefixes) {
+        if ($RelativePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
 }
-else {
-    foreach ($name in @('SourceRoot','CanonicalPreflightOutputRoot','ScannerConfigPath','JsonPath')) {
-        if (-not $PSBoundParameters.ContainsKey($name) -or [string]::IsNullOrWhiteSpace([string](Get-Variable -Name $name -ValueOnly))) {
-            throw "-CanonicalPreflight requires -$name."
-        }
+
+function Assert-ScanInputNoReparse {
+    # Fail closed on any reparse point (symlink, junction) in the file's path,
+    # from the drive root down to the file itself, as the old no-follow walker did.
+    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $CheckedDirectories)
+
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "Scan input contains a reparse point: $Path" }
+    if ($item.PSIsContainer) { throw "Scan input entry is a directory (nested repository or submodule): $Path" }
+    $directory = $item.Directory
+    while ($null -ne $directory -and $CheckedDirectories.Add($directory.FullName)) {
+        if ($directory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "Scan input path contains a reparse point: $($directory.FullName)" }
+        $directory = $directory.Parent
     }
-    $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
-    $CanonicalPreflightOutputRoot = [System.IO.Path]::GetFullPath($CanonicalPreflightOutputRoot)
-    $JsonPath = [System.IO.Path]::GetFullPath($JsonPath)
-    $ScannerConfigPath = (Resolve-Path -LiteralPath $ScannerConfigPath).Path
-    if ($ScannerConfigPath -cne (Resolve-Path -LiteralPath $trustedConfigPath).Path) {
-        throw 'Canonical preflight scanner configuration must come from the approved toolchain.'
+}
+
+function Get-ScanInputRelativePaths {
+    param([Parameter(Mandatory)] [string] $Root)
+
+    # Decode Git's UTF-8 output explicitly so non-ASCII file names survive.
+    $previousEncoding = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        $listing = & git -C $Root ls-files -z --cached --others --exclude-standard
+        if ($LASTEXITCODE -ne 0) { throw "git ls-files failed for scan input: $Root" }
     }
-    $configPath = $ScannerConfigPath
-    if ((Test-PathInsideRoot -Path $CanonicalPreflightOutputRoot -Root $SourceRoot) -or (Test-PathInsideRoot -Path $SourceRoot -Root $CanonicalPreflightOutputRoot)) {
-        throw 'CanonicalPreflightOutputRoot and scan SourceRoot must be disjoint.'
+    finally { [Console]::OutputEncoding = $previousEncoding }
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $checkedDirectories = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $paths = [System.Collections.Generic.List[string]]::new()
+    foreach ($relative in @(($listing -join '') -split "`0")) {
+        if ([string]::IsNullOrEmpty($relative) -or -not $seen.Add($relative)) { continue }
+        if (Test-IsScanInputExcluded -RelativePath $relative) { continue }
+        $full = Join-Path $Root $relative
+        # A tracked file deleted from the working tree is not on disk to scan.
+        if ($null -eq (Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue)) { continue }
+        Assert-ScanInputNoReparse -Path $full -CheckedDirectories $checkedDirectories
+        $paths.Add($relative)
     }
-    $null = Resolve-CanonicalPreflightArtifactPath -Path $JsonPath -CanonicalPreflightOutputRoot $CanonicalPreflightOutputRoot -RepoRoot $RepoRoot -ForbiddenRoots @($SourceRoot) -AllowMissingLeaf
-    $null = Get-SafeTreeSnapshot -Root $SourceRoot -ExcludeRelativePaths @(Get-ProtectedReasonixRelativePaths)
+    return , $paths.ToArray()
 }
 
 $toolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $gitleaksLockPath = Join-Path $toolchainRoot 'tools/gitleaks/gitleaks.lock.json'
 $scanWorkspace = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-scan-$([Guid]::NewGuid().ToString('N'))"
 $scanRoot = Join-Path $scanWorkspace 'input'
-$scanManifestPath = Join-Path $scanWorkspace 'scan-input-manifest.json'
-$scanManifest = if ($CanonicalPreflight) {
-    New-FilteredScanInput -RepoRoot $SourceRoot -DestinationRoot $scanRoot -ExcludedPrefixes @() -SkipGitIgnore
-}
-else {
-    New-FilteredScanInput -RepoRoot $SourceRoot -DestinationRoot $scanRoot
-}
-Write-ScanInputManifest -Manifest $scanManifest -Path $scanManifestPath
+$scanInputPaths = Get-ScanInputRelativePaths -Root $RepoRoot
 
 function Test-IsSkippedPath {
     param(
@@ -123,30 +151,40 @@ function Test-IsAllowedPlaceholderLine {
 }
 
 try {
+    foreach ($relative in $scanInputPaths) {
+        $destination = Join-Path $scanRoot $relative
+        [System.IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
+        [System.IO.File]::Copy((Join-Path $RepoRoot $relative), $destination)
+    }
+    [System.IO.Directory]::CreateDirectory($scanRoot) | Out-Null
+
     $arguments = @('detect', '--no-git', '--source', $scanRoot, '--redact')
     if (Test-Path -LiteralPath $configPath) {
         $arguments += @('--config', $configPath)
     }
-    $gitleaksLease = $null
-    try {
-        $gitleaksLease = Open-PinnedToolLease -LockPath $gitleaksLockPath
-        Write-Host "Running pinned gitleaks from $($gitleaksLease.Paths.Executable) against a filtered no-follow input."
-        $gitleaksResult = Invoke-PinnedToolProcess `
-            -ToolLease $gitleaksLease `
-            -Arguments $arguments `
-            -Operation 'Pinned gitleaks secret scan' `
-            -TimeoutMilliseconds 120000 `
-            -ReapTimeoutMilliseconds 5000 `
-            -MaximumCombinedOutputBytes 1048576
-        if (-not [string]::IsNullOrWhiteSpace([string]$gitleaksResult.Output)) {
-            Write-Host ([string]$gitleaksResult.Output).TrimEnd()
-        }
-        if ($gitleaksResult.ExitCode -ne 0) {
-            $gitleaksFailed = $true
-        }
+    $gitleaks = Get-PinnedToolExecutable -LockPath $gitleaksLockPath
+    Write-Host "Running pinned gitleaks from $($gitleaks.Executable) against a filtered copy of $($scanInputPaths.Count) files."
+    # Same 120 s bound the old pinned-tool lease enforced: a hung scanner fails closed.
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new($gitleaks.Executable)
+    foreach ($argument in $arguments) { $startInfo.ArgumentList.Add($argument) }
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $gitleaksProcess = [System.Diagnostics.Process]::Start($startInfo)
+    $stdoutTask = $gitleaksProcess.StandardOutput.ReadToEndAsync()
+    $stderrTask = $gitleaksProcess.StandardError.ReadToEndAsync()
+    if (-not $gitleaksProcess.WaitForExit(120000)) {
+        $gitleaksProcess.Kill($true)
+        throw 'gitleaks-timeout: the pinned scanner did not finish within 120 seconds.'
     }
-    finally {
-        if ($null -ne $gitleaksLease) { Close-PinnedToolLease -ToolLease $gitleaksLease }
+    $gitleaksProcess.WaitForExit()
+    $gitleaksOutput = $stdoutTask.GetAwaiter().GetResult() + $stderrTask.GetAwaiter().GetResult()
+    $gitleaksExitCode = $gitleaksProcess.ExitCode
+    if (-not [string]::IsNullOrWhiteSpace($gitleaksOutput)) {
+        Write-Host $gitleaksOutput.TrimEnd()
+    }
+    if ($gitleaksExitCode -ne 0) {
+        $gitleaksFailed = $true
     }
 
 $blockingPatterns = @(
@@ -177,10 +215,6 @@ function Write-ScanJson {
         BlockingFindingCount = $findings.Count
         HintCount = $hints.Count
         Findings = @($findings)
-    }
-    if ($CanonicalPreflight) {
-        $null = Publish-ValidatedPreflightJson -Document $document -Path $Path -SchemaPath (Join-Path $RepoRoot 'schemas/secret-scan.schema.json') -ValidatorCacheRoot $ValidatorCacheRoot
-        return
     }
     $parent = Split-Path -Parent $Path
     if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }

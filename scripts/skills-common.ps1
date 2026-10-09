@@ -3,7 +3,6 @@
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
-. (Join-Path $PSScriptRoot 'safe-tree-walker.ps1')
 
 function Resolve-RepoRoot {
     param(
@@ -146,6 +145,42 @@ function Assert-PathUnderRoot {
     if ($fullPath -ne $fullRoot -and -not $fullPath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to touch path outside root: $fullPath"
     }
+}
+
+function Test-SameOrDescendant {
+    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string] $Root)
+    $fullPath = [System.IO.Path]::GetFullPath($Path).TrimEnd([char]92, [char]47)
+    $fullRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd([char]92, [char]47)
+    return $fullPath.Equals($fullRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $fullPath.StartsWith($fullRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+# Refuses a skill tree that is, or contains, a symlink, junction or other reparse point.
+# Get-ChildItem -Recurse lists reparse entries without following them.
+function Assert-SkillTreeNoReparsePoint {
+    param([Parameter(Mandatory)] [string] $Root)
+    $rootItem = Get-Item -LiteralPath $Root -Force
+    if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        throw "Skill tree root is not a plain directory: $Root"
+    }
+    foreach ($item in @(Get-ChildItem -LiteralPath $Root -Recurse -Force)) {
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "Skill tree contains a reparse point: $($item.FullName)"
+        }
+    }
+}
+
+# Copies a skill tree (hidden files and empty directories included) to a create-new destination.
+function Copy-SkillTree {
+    param([Parameter(Mandatory)] [string] $SourceRoot, [Parameter(Mandatory)] [string] $DestinationRoot)
+    $source = [System.IO.Path]::GetFullPath($SourceRoot)
+    $destination = [System.IO.Path]::GetFullPath($DestinationRoot)
+    if ((Test-SameOrDescendant -Path $source -Root $destination) -or (Test-SameOrDescendant -Path $destination -Root $source)) {
+        throw 'Skill tree source and destination must be disjoint.'
+    }
+    if (Test-Path -LiteralPath $destination) { throw "Skill tree destination must be create-new: $destination" }
+    Assert-SkillTreeNoReparsePoint -Root $source
+    Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
 }
 
 function Write-Utf8NoBomFile {
@@ -680,7 +715,7 @@ function New-NormalizedSkillCandidate {
     $RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
     $InputSkillPath = (Resolve-Path -LiteralPath $InputSkillPath).Path
     $CandidateWorkspace = (Resolve-Path -LiteralPath $CandidateWorkspace).Path
-    try { Get-SafeTreeSnapshot -Root $InputSkillPath | Out-Null }
+    try { Assert-SkillTreeNoReparsePoint -Root $InputSkillPath }
     catch { return [pscustomobject] @{ Status = 'quarantine'; Reason = 'unsafe-tree'; Rewrites = @(); Detail = $_.Exception.Message } }
     if (-not (Test-Path -LiteralPath (Join-Path $InputSkillPath 'SKILL.md'))) {
         return [pscustomobject] @{ Status = 'quarantine'; Reason = 'missing-skill-md'; Rewrites = @() }
@@ -721,7 +756,7 @@ function New-NormalizedSkillCandidate {
     Assert-PathUnderRoot -Root $CandidateWorkspace -Path $candidatePath
     if (Test-Path -LiteralPath $candidatePath) { throw "Candidate target must be create-new: $candidatePath" }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $candidatePath) | Out-Null
-    Copy-SafeTree -SourceRoot $InputSkillPath -DestinationRoot $candidatePath | Out-Null
+    Copy-SkillTree -SourceRoot $InputSkillPath -DestinationRoot $candidatePath
 
     $allRewrites = [System.Collections.Generic.List[object]]::new()
     $files = @(Get-ChildItem -LiteralPath $candidatePath -File -Recurse -Force)

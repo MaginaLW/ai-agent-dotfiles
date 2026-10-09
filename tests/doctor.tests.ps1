@@ -6,14 +6,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
-# Policy-state-aware behavioral pins (Phase 4 Task 8 Step 1 preparation): the
-# same committed suite bytes assert the interlocked fail-closed contract while
-# ReleaseState=interlocked, and each affected surface's observed released
-# post-Assert contract once the reviewed release candidate flips the policy.
-. (Join-Path $RepoRoot 'scripts/live-safety-interlock.ps1')
-$policyState = [string] (Get-LiveSafetyPolicy).ReleaseState
-$script:IsReleased = ($policyState -eq 'released')
-
 $work = Join-Path ([System.IO.Path]::GetTempPath()) "ai-agent-dotfiles-doctor-$([Guid]::NewGuid().ToString('N'))"
 $fakeHome = Join-Path $work 'home'
 $systemRoot = Join-Path $fakeHome '.codex/skills/.system'
@@ -35,12 +27,8 @@ try {
     $report = Get-Content -Raw -LiteralPath $jsonPath | ConvertFrom-Json
     if ([int]$report.SchemaVersion -ne 1 -or $report.Result -notin @('PASS','WARN','FAIL')) { throw 'doctor JSON summary shape is invalid' }
     if ($report.Counts.Fail -ne 0 -or -not $report.SecretsScanSkipped) { throw 'doctor JSON summary has unexpected gate state' }
-    if ($script:IsReleased) {
-        if ($output -notmatch 'release state released' -or $output -notmatch 'runner-review-required|Approved runner hash') { throw 'doctor omitted safety/runner diagnostics' }
-    }
-    else {
-        if ($output -notmatch 'safety-protocol-upgrade-required' -or $output -notmatch 'runner-review-required|Approved runner hash') { throw 'doctor omitted safety/runner diagnostics' }
-    }
+    if ($output -match 'Live safety protocol|runner-review-required|Approved runner hash') { throw 'doctor still reports retired live-safety/runner diagnostics' }
+    if ($output -notmatch 'scripts\\deploy-skills\.ps1 exists') { throw 'doctor did not check scripts/deploy-skills.ps1' }
 
     $reparseHome = Join-Path $work 'reparse-home'
     $outside = Join-Path $work 'outside-system'
@@ -55,7 +43,7 @@ try {
     if ($reparseCode -ne 0 -or $reparseOutput -notmatch 'root entry is a reparse point') { throw 'doctor did not classify a .system reparse root without traversal' }
     if ((Get-FileHash -LiteralPath $outsideChild -Algorithm SHA256).Hash -ne $outsideBefore) { throw 'outside sentinel changed' }
 
-    $currentGuides = @('AGENTS.md','CLAUDE.md','README.md','docs/README.md','docs/ONBOARD_NEW_MACHINE.md','docs/RESTORE.md','docs/MERGE_POLICY.md','STATUS.md')
+    $currentGuides = @('AGENTS.md','CLAUDE.md','README.md','docs/README.md','docs/ONBOARD_NEW_MACHINE.md','docs/MERGE_POLICY.md','STATUS.md')
     foreach ($relative in $currentGuides) {
         $text = [System.IO.File]::ReadAllText((Join-Path $RepoRoot $relative))
         if ($text -notmatch 'Reasonix') { throw "current guide omits Reasonix managed scope: $relative" }

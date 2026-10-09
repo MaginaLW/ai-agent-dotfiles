@@ -64,11 +64,7 @@ function New-TempRepo {
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $tr 'manifests') -Force
     foreach ($name in @(
         'scan-secrets.ps1'
-        'canonical-preflight-common.ps1'
-        'json-artifact-common.ps1'
-        'semantic-json.ps1'
-        'scan-input-common.ps1'
-        'safe-tree-walker.ps1'
+        'pinned-tool.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $tr 'scripts') -Force
     }

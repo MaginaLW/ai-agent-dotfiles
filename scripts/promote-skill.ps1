@@ -1,10 +1,22 @@
 #requires -Version 7.0
+<#
+.SYNOPSIS
+    Promotes one reviewed skill directory into skills-source/<TargetType>/<name>.
+
+.DESCRIPTION
+    -DryRun (the default) builds a normalized candidate under
+    tmp/skill-candidates/<guid> and prints what would be written. -Apply rebuilds the
+    candidate, copies it create-new into skills-source/, and runs build-skills.ps1 and
+    scan-secrets.ps1. Promote never replaces an existing skill (exit 3); use
+    normalize-skill.ps1 to update one. Git is the recovery path.
+
+    Exit codes: 0 success, 1 error or failed check, 2 candidate rejected, 3 retained.
+#>
 [CmdletBinding()]
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [Parameter(Mandatory)] [string] $InputSkillPath,
     [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'reasonix-only')] [string] $TargetType,
-    [string] $PlanPath,
     [switch] $Apply,
     [switch] $DryRun
 )
@@ -16,67 +28,46 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-. (Join-Path $PSScriptRoot 'canonical-skill-adapter-common.ps1')
-$ToolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-. (Join-Path $PSScriptRoot 'canonical-command-result.ps1')
-$failureMessageId = 'canonical-command-failed'
+. (Join-Path $PSScriptRoot 'skill-candidate-common.ps1')
 
 try {
+    if ($DryRun -and $Apply) { throw 'Specify only one of -DryRun or -Apply.' }
     $RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
     $InputSkillPath = (Resolve-Path -LiteralPath $InputSkillPath).Path
-    if ([bool]$DryRun -eq [bool]$Apply) { throw 'Specify exactly one of -DryRun or -Apply.' }
-    if ([string]::IsNullOrWhiteSpace($PlanPath)) { throw 'Promote requires -PlanPath; interactive parameter prompting is disabled.' }
-    if ($Apply) { $failureMessageId = 'canonical-plan-not-found' }
-    Resolve-PrivateArtifactPath -Path $PlanPath -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf:$DryRun | Out-Null
-    if ($DryRun -and (Test-Path -LiteralPath $PlanPath)) { throw 'DryRun PlanPath must be create-new.' }
-    if ($Apply -and -not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) { throw 'Apply requires an existing reviewed PlanPath.' }
-    $failureMessageId = 'canonical-command-failed'
-
-    if ($Apply) {
-        $failureMessageId = 'canonical-plan-stale'
-        $null = Assert-CanonicalSingleReplacementPlanBinding -RepoRoot $RepoRoot -PlanPath $PlanPath -OperationKind promote -InputSkillPath $InputSkillPath -TargetType $TargetType
-        $failureMessageId = 'canonical-command-failed'
-        $child = Invoke-CanonicalTransactionChild -RepoRoot $RepoRoot -OperationKind promote -Mode Apply -PlanPath $PlanPath
-        Write-CanonicalTransactionChildOutput -Child $child
-        exit $child.ExitCode
-    }
+    Write-Host "Mode: $(if ($Apply) { 'apply' } else { 'dry-run' })"
 
     $name = Get-SkillName -SkillPath $InputSkillPath
-    $existing = @()
     foreach ($type in @('shared', 'claude-only', 'codex-only', 'reasonix-only')) {
-        $existingPath = Join-RepoPath -RepoRoot $RepoRoot -RelativePath "skills-source/$type/$name"
-        if (Test-Path -LiteralPath (Join-Path $existingPath 'SKILL.md')) {
-            $existing += $existingPath
+        if (Test-Path -LiteralPath (Join-Path $RepoRoot "skills-source/$type/$name")) {
+            Write-Host "retained: skills-source/$type/$name already exists; promote never replaces a skill. Use normalize-skill.ps1 to update it."
+            exit 3
         }
     }
-    if ($existing.Count -gt 0) {
-        $messageId = 'canonical-retained'
-        $resultDocument = New-CanonicalPublicCommandResult -Result WARN -CommandKind canonical-promote -MessageToken $messageId
-        Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
-        [Console]::Error.WriteLine($messageId)
-        exit 3
-    }
 
-    $failureMessageId = 'canonical-candidate-failed'
-    $workspace = New-CanonicalAdapterWorkspace -RepoRoot $RepoRoot
-    $batch = New-CanonicalBatchCandidateWorkspace -RepoRoot $RepoRoot -CandidateWorkspace $workspace -Proposals @(
-        [ordered]@{InputSkillPath=$InputSkillPath;TargetType=$TargetType}
+    $workspace = New-SkillCandidateWorkspace -RepoRoot $RepoRoot
+    $set = New-SkillCandidateSet -RepoRoot $RepoRoot -Workspace $workspace -Proposals @(
+        [pscustomobject]@{ InputSkillPath = $InputSkillPath; TargetType = $TargetType }
     )
-    if ([string]$batch.Status -cne 'candidate') {
-        $token = [string] $batch.Reason
-        $resultDocument = New-CanonicalPublicCommandResult -Result FAIL -CommandKind canonical-promote -MessageToken $token
-        Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
-        [Console]::Error.WriteLine($token)
+    if ([string]$set.Status -cne 'candidate') {
+        Write-Host "rejected: $($set.Reason)"
         exit 2
     }
-    $failureMessageId = 'canonical-command-failed'
-    $preflightRoot = [IO.Path]::GetFullPath($PlanPath + '.preflight')
-    $child = Invoke-CanonicalTransactionChild -RepoRoot $RepoRoot -OperationKind promote -Mode DryRun -PlanPath $PlanPath `
-        -CandidateWorkspace $workspace -InputPath $InputSkillPath -RewriteList @($batch.RewriteList) -CanonicalPreflightOutputRoot $preflightRoot
-    Write-CanonicalTransactionChildOutput -Child $child
-    exit $child.ExitCode
+    Write-SkillCandidatePlan -RepoRoot $RepoRoot -Results @($set.Results)
+    if (-not $Apply) {
+        Write-Host 'Dry run only: nothing was written to skills-source/. Rerun with -Apply to promote.'
+        exit 0
+    }
+
+    $null = Install-SkillCandidate -RepoRoot $RepoRoot -Result @($set.Results)[0]
+    $checks = Invoke-SkillCandidateChecks -RepoRoot $RepoRoot
+    if ($checks.Build -ne 'PASS' -or $checks.Scan -ne 'PASS') {
+        Write-Host 'Checks failed. Review the change with git status / git diff and revert it with Git if needed.'
+        exit 1
+    }
+    Write-Host 'Promoted. Review with git status / git diff before committing.'
+    exit 0
 }
 catch {
-    $failure = Write-CanonicalPublicCommandFailure -Exception $_.Exception -CommandKind canonical-promote -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath -FallbackMessageToken $failureMessageId
-    exit ([int] $failure.ExitCode)
+    [Console]::Error.WriteLine("promote-skill: $($_.Exception.Message)")
+    exit 1
 }

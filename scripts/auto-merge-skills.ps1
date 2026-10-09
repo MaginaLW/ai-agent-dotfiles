@@ -1,8 +1,24 @@
 #requires -Version 7.0
+<#
+.SYNOPSIS
+    Decides how skills in imports/skills-inbox/ merge into skills-source/ and, with
+    -Apply, promotes the unambiguous candidates.
+
+.DESCRIPTION
+    Every inbox skill gets a decision (DEDUPLICATED, CANONICAL_RETAINED,
+    PROMOTE_CANDIDATE, CONFLICT or QUARANTINED; see docs/MERGE_POLICY.md). Reports are
+    written to imports/skills-reports/auto-merge-report.json and .md.
+
+    -DryRun (the default) builds the PROMOTE_CANDIDATE skills as normalized candidates
+    under tmp/skill-candidates/<guid> and prints what would be written. -Apply rebuilds
+    them, copies each create-new into skills-source/<type>/<name> (an existing skill is
+    never replaced), and runs build-skills.ps1 and scan-secrets.ps1. When an existing
+    skills-source skill fails the risk checks, both modes stop with exit 1 and Apply
+    writes nothing. Git is the recovery path.
+#>
 [CmdletBinding()]
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [string] $PlanPath,
     [switch] $Apply,
     [switch] $DryRun
 )
@@ -14,33 +30,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-. (Join-Path $PSScriptRoot 'canonical-skill-adapter-common.ps1')
-$ToolchainRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-. (Join-Path $PSScriptRoot 'canonical-command-result.ps1')
-$failureMessageId = 'canonical-command-failed'
-
-try {
-    $RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
-    if ([bool]$DryRun -eq [bool]$Apply) { throw 'Specify exactly one of -DryRun or -Apply.' }
-    if ([string]::IsNullOrWhiteSpace($PlanPath)) { throw 'Auto-merge requires -PlanPath; interactive parameter prompting is disabled.' }
-    if ($Apply) { $failureMessageId = 'canonical-plan-not-found' }
-    Resolve-PrivateArtifactPath -Path $PlanPath -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf:$DryRun | Out-Null
-    if ($DryRun -and (Test-Path -LiteralPath $PlanPath)) { throw 'DryRun PlanPath must be create-new.' }
-    if ($Apply -and -not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) { throw 'Apply requires an existing reviewed PlanPath.' }
-    $failureMessageId = 'canonical-command-failed'
-
-if ($Apply) {
-    $child = Invoke-CanonicalTransactionChild -RepoRoot $RepoRoot -OperationKind merge -Mode Apply -PlanPath $PlanPath
-    Write-CanonicalTransactionChildOutput -Child $child
-    exit $child.ExitCode
-}
-
-$reportsRoot = [IO.Path]::GetFullPath($PlanPath + '.reports')
-if (Test-Path -LiteralPath $reportsRoot) { throw 'Auto-merge report root must be create-new.' }
-$null = Resolve-PrivateArtifactPath -Path $reportsRoot -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf
-[IO.Directory]::CreateDirectory($reportsRoot) | Out-Null
-$reportProbe = Join-Path $reportsRoot 'auto-merge-report.json'
-$null = Resolve-PrivateArtifactPath -Path $reportProbe -Role ExternalUserArtifact -RepoRoot $RepoRoot -AllowMissingLeaf
+. (Join-Path $PSScriptRoot 'skill-candidate-common.ps1')
 
 $sourceTypes = @('shared', 'claude-only', 'codex-only', 'reasonix-only')
 
@@ -150,6 +140,12 @@ function Get-FingerprintRows {
         }
     })
 }
+
+try {
+if ($DryRun -and $Apply) { throw 'Specify only one of -DryRun or -Apply.' }
+$RepoRoot = Resolve-RepoRoot -RepoRoot $RepoRoot
+$mode = if ($Apply) { 'apply' } else { 'dry-run' }
+Write-Host "Mode: $mode"
 
 $inboxRecords = @(Get-InboxRecords)
 $decisions = [System.Collections.Generic.List[object]]::new()
@@ -338,40 +334,48 @@ foreach ($group in @($inboxRecords | Group-Object normalized_name | Sort-Object 
     })
 }
 
-$failureMessageId = 'canonical-candidate-failed'
-$workspace = New-CanonicalAdapterWorkspace -RepoRoot $RepoRoot
-$batch = New-CanonicalBatchCandidateWorkspace -RepoRoot $RepoRoot -CandidateWorkspace $workspace -Proposals @($proposals)
-if ([string]$batch.Status -cne 'candidate') { throw "Auto-merge candidate construction failed at index $($batch.FailedIndex): $($batch.Reason)" }
-$failureMessageId = 'canonical-command-failed'
-foreach ($result in @($batch.Results)) {
-    $proposal = @($proposals | Where-Object { [string]$_.Name -ceq [string]$result.Name })[0]
-    $promoted.Add([pscustomobject] @{ name=[string]$result.Name;target="skills-source/$([string]$result.TargetType)/$([string]$result.Name)";source=[string]$proposal.Source;status='PLANNED' })
+$blockedNames = @($decisions | Where-Object { @($_.reason_codes) -contains 'existing-canonical-risk' } | ForEach-Object name)
+$workspace = $null
+$results = @()
+if ($proposals.Count -gt 0) {
+    $workspace = New-SkillCandidateWorkspace -RepoRoot $RepoRoot
+    $set = New-SkillCandidateSet -RepoRoot $RepoRoot -Workspace $workspace -Proposals @($proposals)
+    if ([string]$set.Status -cne 'candidate') { throw "Auto-merge candidate construction failed at index $($set.FailedIndex): $($set.Reason)" }
+    $results = @($set.Results)
 }
-$preflightRoot = [IO.Path]::GetFullPath($PlanPath + '.preflight')
-$inboxRoot = Join-Path $RepoRoot 'imports/skills-inbox'
-$child = $null
-$preflightFailure = ''
-try {
-    $child = Invoke-CanonicalTransactionChild -RepoRoot $RepoRoot -OperationKind merge -Mode DryRun -PlanPath $PlanPath `
-        -CandidateWorkspace $workspace -InputPath $inboxRoot -RewriteList @($batch.RewriteList) -CanonicalPreflightOutputRoot $preflightRoot
-    if ($child.ExitCode -ne 0 -or [string]$child.Result.Result -cne 'PASS') { $preflightFailure = [string]$child.Stderr }
-}
-catch { $preflightFailure = $_.Exception.Message }
 
-$sourceStructure = [System.Collections.Generic.List[string]]::new()
+$buildSkillsResult = 'NOT_RUN'
+$scanSecretsResult = 'NOT_RUN'
+$promotedStatus = if ($blockedNames.Count -gt 0) { 'BLOCKED' } else { 'PLANNED' }
+if ($Apply -and $blockedNames.Count -eq 0 -and $results.Count -gt 0) {
+    foreach ($result in $results) {
+        $relative = "skills-source/$([string]$result.TargetType)/$([string]$result.Name)"
+        if (Test-Path -LiteralPath (Join-Path $RepoRoot $relative)) { throw "Refusing to overwrite existing skill: $relative" }
+    }
+    foreach ($result in $results) { $null = Install-SkillCandidate -RepoRoot $RepoRoot -Result $result }
+    $promotedStatus = 'WRITTEN'
+    $checks = Invoke-SkillCandidateChecks -RepoRoot $RepoRoot
+    $buildSkillsResult = [string]$checks.Build
+    $scanSecretsResult = [string]$checks.Scan
+}
+foreach ($result in $results) {
+    $proposal = @($proposals | Where-Object { [string]$_.Name -ceq [string]$result.Name })[0]
+    $promoted.Add([pscustomobject] @{ name=[string]$result.Name;target="skills-source/$([string]$result.TargetType)/$([string]$result.Name)";source=[string]$proposal.Source;status=$promotedStatus })
+}
+
+$sourceStructure = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 foreach ($type in $sourceTypes) {
-    $root = Join-Path ([string]$batch.CandidateSourceRoot) $type
-    foreach ($skill in @(Get-SkillDirectories -RootPath $root -ExcludeNames @('.system'))) {
-        $sourceStructure.Add("$type/$($skill.Name)")
+    foreach ($skill in @(Get-SkillDirectories -RootPath (Join-Path $RepoRoot "skills-source/$type") -ExcludeNames @('.system'))) {
+        $null = $sourceStructure.Add("$type/$($skill.Name)")
     }
 }
-
-$buildSkillsResult = if ([string]::IsNullOrWhiteSpace($preflightFailure)) { 'PASS' } else { 'FAIL' }
-$scanSecretsResult = if ([string]::IsNullOrWhiteSpace($preflightFailure)) { 'PASS' } else { 'FAIL' }
+if ($promotedStatus -ne 'BLOCKED') {
+    foreach ($result in $results) { $null = $sourceStructure.Add("$([string]$result.TargetType)/$([string]$result.Name)") }
+}
 
 $report = [pscustomobject] [ordered] @{
     generated_at = (Get-Date).ToString('o')
-    mode = 'dry-run'
+    mode = $mode
     scanned_skill_count = $inboxRecords.Count
     exact_duplicate_count = $exactDuplicateCount
     exact_duplicate_group_count = $exactDuplicateGroups.Count
@@ -390,11 +394,15 @@ $report = [pscustomobject] [ordered] @{
     merged_claude_only = @($promoted | Where-Object target -like 'skills-source/claude-only/*' | ForEach-Object name)
     merged_codex_only = @($promoted | Where-Object target -like 'skills-source/codex-only/*' | ForEach-Object name)
     merged_reasonix_only = @($promoted | Where-Object target -like 'skills-source/reasonix-only/*' | ForEach-Object name)
+    blocked_by_existing_canonical_risk = @($blockedNames)
+    candidate_workspace = if ($workspace) { Get-RelativeDisplayPath -Root $RepoRoot -Path $workspace } else { 'none' }
     final_skills_source_structure = @($sourceStructure | Sort-Object)
     build_skills_result = $buildSkillsResult
     scan_secrets_result = $scanSecretsResult
 }
 
+$reportsRoot = Join-Path $RepoRoot 'imports/skills-reports'
+Assert-SkillCandidateNoReparseChain -Root $RepoRoot -Path $reportsRoot
 $jsonPath = Join-Path $reportsRoot 'auto-merge-report.json'
 $mdPath = Join-Path $reportsRoot 'auto-merge-report.md'
 Write-Utf8NoBomFile -Path $jsonPath -Content (($report | ConvertTo-Json -Depth 50) + "`n")
@@ -416,6 +424,9 @@ foreach ($decision in $report.decisions) {
     $lines.Add("| $($decision.name) | $($decision.status) | $($decision.target_type) | $($decision.canonical_source) | $([string]::Join(', ', @($decision.reason_codes))) |")
 }
 $lines.Add('')
+$lines.Add('## Promoted')
+foreach ($item in $report.promoted) { $lines.Add("- $($item.name): $($item.target) ($($item.status))") }
+$lines.Add('')
 $lines.Add('## Conflicts')
 foreach ($conflict in $report.conflict_groups) {
     $lines.Add("- $($conflict.name): $([string]::Join(', ', @($conflict.reason_codes)))")
@@ -431,17 +442,26 @@ $lines.Add("Build: $($report.build_skills_result)")
 $lines.Add("Secret scan: $($report.scan_secrets_result)")
 Write-Utf8NoBomFile -Path $mdPath -Content (($lines -join "`n") + "`n")
 
-if (-not [string]::IsNullOrWhiteSpace($preflightFailure)) {
-    $messageId = 'canonical-merge-preflight-failed'
-    $resultDocument = New-CanonicalPublicCommandResult -Result FAIL -CommandKind canonical-merge -MessageToken $messageId
-    Write-CanonicalPublicCommandResult -Document $resultDocument -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath
-    [Console]::Error.WriteLine($messageId)
+Write-Host 'Report: imports/skills-reports/auto-merge-report.json and auto-merge-report.md'
+Write-Host ('Decisions: {0}; promote candidates: {1}; conflicts: {2}; quarantined: {3}' -f $decisions.Count, $results.Count, $conflictGroups.Count, $quarantined.Count)
+Write-SkillCandidatePlan -RepoRoot $RepoRoot -Results $results
+
+if ($blockedNames.Count -gt 0) {
+    Write-Host "blocked: existing skills-source skill(s) failed the risk checks: $([string]::Join(', ', $blockedNames)). Fix them first; nothing was written."
     exit 1
 }
-Write-CanonicalTransactionChildOutput -Child $child
-exit $child.ExitCode
+if (-not $Apply) {
+    Write-Host 'Dry run only: nothing was written to skills-source/. Rerun with -Apply to promote the candidates.'
+    exit 0
+}
+if ($buildSkillsResult -eq 'FAIL' -or $scanSecretsResult -eq 'FAIL') {
+    Write-Host 'Checks failed. Review the change with git status / git diff and revert it with Git if needed.'
+    exit 1
+}
+Write-Host 'Merge applied. Review with git status / git diff before committing.'
+exit 0
 }
 catch {
-    $failure = Write-CanonicalPublicCommandFailure -Exception $_.Exception -CommandKind canonical-merge -ToolchainRoot $ToolchainRoot -ValidationPath $PSCommandPath -FallbackMessageToken $failureMessageId
-    exit ([int] $failure.ExitCode)
+    [Console]::Error.WriteLine("auto-merge-skills: $($_.Exception.Message)")
+    exit 1
 }

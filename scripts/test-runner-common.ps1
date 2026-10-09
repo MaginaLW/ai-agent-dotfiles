@@ -2,8 +2,6 @@
 
 Set-StrictMode -Version Latest
 
-. (Join-Path $PSScriptRoot 'json-artifact-common.ps1')
-
 function Get-Utf8Sha256 {
     param([Parameter(Mandatory)] [string] $Text)
     $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Text)
@@ -55,77 +53,6 @@ function Get-RootTestSuitePaths {
         ForEach-Object { $_.FullName })
 }
 
-function Get-TestShardPartition {
-    # Validates the tracked static shard partition (tests/test-shards.psd1) against the
-    # discovered suite id set and returns it as an ordered map of shard number (string)
-    # -> sorted suite id array. Fails closed on any drift: a key outside 1..ShardCount,
-    # a missing or empty shard, a suite listed twice, a suite the discovery never
-    # produced, or a discovered suite no shard covers. Only the -ShardCount/-ShardIndex
-    # path of scripts/run-tests.ps1 loads the file; the local -All path never does.
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [int] $ShardCount,
-        [Parameter(Mandatory)] [string] $ShardConfigPath,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $DiscoveredSuiteIds
-    )
-
-    if ($ShardCount -lt 1) { throw 'test-shard-partition-invalid-count: ShardCount must be at least 1.' }
-    if (-not (Test-Path -LiteralPath $ShardConfigPath -PathType Leaf)) { throw "test-shard-partition-missing-config: $ShardConfigPath" }
-    $data = Import-PowerShellDataFile -LiteralPath $ShardConfigPath
-    $shardEntries = @{}
-    foreach ($key in @($data.Keys)) {
-        $shardNumber = 0
-        if (-not [int]::TryParse([string] $key, [ref] $shardNumber)) {
-            throw "test-shard-partition-invalid-key: shard configuration key '$key' is not a shard number."
-        }
-        if ($shardNumber -lt 1 -or $shardNumber -gt $ShardCount) {
-            throw "test-shard-partition-key-out-of-range: shard configuration key '$key' is outside 1..$ShardCount."
-        }
-        if ($shardEntries.ContainsKey($shardNumber)) {
-            throw "test-shard-partition-duplicate-key: shard $shardNumber is defined more than once."
-        }
-        $shardEntries[$shardNumber] = @($data[$key])
-    }
-    $coveredIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    $partition = [ordered]@{}
-    for ($number = 1; $number -le $ShardCount; $number++) {
-        if (-not $shardEntries.ContainsKey($number)) {
-            throw "test-shard-partition-missing-shard: shard configuration is missing shard $number."
-        }
-        $shardIds = [System.Collections.Generic.List[string]]::new()
-        foreach ($entry in $shardEntries[$number]) {
-            if ([string]::IsNullOrWhiteSpace([string] $entry)) {
-                throw "test-shard-partition-invalid-entry: shard $number carries a blank suite id."
-            }
-            $suiteId = ([string] $entry).Replace([char]92, [char]47).ToLowerInvariant()
-            if (-not $coveredIds.Add($suiteId)) {
-                throw "test-shard-partition-duplicate-suite: '$suiteId' is assigned to more than one shard."
-            }
-            $shardIds.Add($suiteId)
-        }
-        if ($shardIds.Count -eq 0) {
-            throw "test-shard-partition-empty-shard: shard $number lists no suites."
-        }
-        $partition[[string] $number] = @($shardIds | Sort-Object)
-    }
-    $discoveredSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    foreach ($suiteId in $DiscoveredSuiteIds) { $null = $discoveredSet.Add([string] $suiteId) }
-    if ($discoveredSet.Count -ne @($DiscoveredSuiteIds).Count) {
-        throw 'test-shard-partition-duplicate-discovery: discovery returned the same suite id twice.'
-    }
-    foreach ($suiteId in @($coveredIds)) {
-        if (-not $discoveredSet.Contains($suiteId)) {
-            throw "test-shard-partition-unknown-suite: '$suiteId' is not a discovered suite."
-        }
-    }
-    foreach ($suiteId in @($discoveredSet)) {
-        if (-not $coveredIds.Contains($suiteId)) {
-            throw "test-shard-partition-uncovered-suite: '$suiteId' is not assigned to any shard."
-        }
-    }
-    return $partition
-}
-
 function Get-TestSuiteId {
     param([Parameter(Mandatory)] [string] $SuitePath, [Parameter(Mandatory)] [string] $SuiteRoot)
 
@@ -150,93 +77,85 @@ function Get-SuiteTimeoutSeconds {
 }
 
 function Invoke-OneTestSuite {
+    # Runs one suite in a child pwsh with stdout/stderr read asynchronously. On timeout
+    # the whole process tree is killed. After exit, output is drained for at most
+    # $DrainMilliseconds so a descendant that keeps the inherited pipes open cannot
+    # hang the runner; that case is recorded as a failure.
     param(
         [Parameter(Mandatory)] [string] $SuitePath,
         [Parameter(Mandatory)] [string] $SuiteId,
         [Parameter(Mandatory)] [int] $TimeoutSeconds,
-        [hashtable] $Environment = @{}
+        [hashtable] $Environment = @{},
+        [int] $DrainMilliseconds = 5000
     )
 
-    $pwsh = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
     if ($TimeoutSeconds -gt [Math]::Floor([int]::MaxValue / 1000)) {
-        throw "Timeout for $SuiteId exceeds the native runner limit."
+        throw "Timeout for $SuiteId exceeds the runner limit."
     }
-    $arguments = [string[]] @('-NoProfile', '-File', $SuitePath)
-    $environmentEntries = [System.Collections.Generic.List[object]]::new()
-    $environmentNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
+    foreach ($argument in @('-NoProfile', '-File', $SuitePath)) { $startInfo.ArgumentList.Add($argument) }
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath
     foreach ($key in @($Environment.Keys | Sort-Object)) {
         $name = [string] $key
         if ([string]::IsNullOrWhiteSpace($name) -or $name.Contains('=') -or $name.Contains([char] 0)) {
             throw "Invalid suite environment variable name: $name"
         }
-        if (-not $environmentNames.Add($name)) {
-            throw "Duplicate suite environment variable name: $name"
-        }
-        $environmentEntries.Add([pscustomobject]@{ Name = $name; Value = [string] $Environment[$key] })
+        $startInfo.Environment[$name] = [string] $Environment[$key]
     }
 
-    $savedEnvironment = [ordered]@{}
-    $nativeResult = $null
     $timedOut = $false
-    $processFailed = $false
-    $failureMarker = ''
+    $treeKillFailed = $false
+    $drained = $false
+    $exitCode = -1
+    $stdout = ''
+    $stderr = ''
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $process = [System.Diagnostics.Process]::new()
     try {
-        foreach ($entry in $environmentEntries) {
-            $name = [string] $entry.Name
-            $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, [EnvironmentVariableTarget]::Process)
-            [Environment]::SetEnvironmentVariable($name, [string] $entry.Value, [EnvironmentVariableTarget]::Process)
-        }
-        $startedAt = [DateTime]::UtcNow
-        try {
-            $nativeResult = [AiAgentDotfiles.PinnedToolProcessRunner]::Run(
-                $pwsh,
-                $arguments,
-                $null,
-                $false,
-                $TimeoutSeconds * 1000,
-                5000,
-                67108864
-            )
-        }
-        catch [System.TimeoutException] {
+        $process.StartInfo = $startInfo
+        $null = $process.Start()
+        $process.StandardInput.Close()
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             $timedOut = $true
-            $failureMarker = 'test-runner-suite-timeout' # scan-ok
+            try { $process.Kill($true) } catch { $treeKillFailed = $true }
+            if (-not $process.WaitForExit(5000)) { $treeKillFailed = $true }
         }
-        catch [System.InvalidOperationException] {
-            # The sealed native runner returns from this controlled failure path
-            # only after terminating its Job and proving ActiveProcesses == 0
-            # plus settled pipes. Keep the mapping independent of exception text.
-            $processFailed = $true
-            $failureMarker = 'test-runner-suite-process-failed' # scan-ok
+        $drained = [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]] @($stdoutTask, $stderrTask), $DrainMilliseconds)
+        if ($drained) {
+            $stdout = [string] $stdoutTask.Result
+            $stderr = [string] $stderrTask.Result
         }
+        if (-not $timedOut) { $exitCode = [int] $process.ExitCode }
     }
     finally {
-        foreach ($name in @($savedEnvironment.Keys)) {
-            [Environment]::SetEnvironmentVariable(
-                [string] $name,
-                $savedEnvironment[$name],
-                [EnvironmentVariableTarget]::Process
-            )
-        }
+        $clock.Stop()
+        $process.Dispose()
     }
-    $endedAt = [DateTime]::UtcNow
-    $runnerFailed = $timedOut -or $processFailed
-    $exitCode = if ($runnerFailed) { -1 } else { [int] $nativeResult.ExitCode }
-    $stdout = if ($runnerFailed) { '' } else { [string] $nativeResult.Stdout }
-    $stderr = if ($runnerFailed) { $failureMarker } else { [string] $nativeResult.Stderr }
+
+    if ($timedOut) { $stderr = 'test-runner-suite-timeout' } # scan-ok
+    elseif (-not $drained) { $stderr = 'test-runner-suite-output-not-drained' } # scan-ok
+    $state = if ($timedOut) { 'timed-out' } elseif (-not $drained -or $exitCode -ne 0) { 'failed' } else { 'passed' }
 
     return [ordered]@{
         SuiteId = $SuiteId
         Path = [System.IO.Path]::GetFullPath($SuitePath)
-        State = if ($timedOut) { 'timed-out' } elseif ($processFailed -or $exitCode -ne 0) { 'failed' } else { 'passed' }
+        State = $state
         Started = $true
         Completed = -not $timedOut
         TimedOut = $timedOut
-        TreeKilled = $timedOut -or $processFailed
-        TreeKillFailed = $false
+        TreeKilled = $timedOut -and -not $treeKillFailed
+        TreeKillFailed = $treeKillFailed
         ExitCode = $exitCode
         TimeoutSeconds = $TimeoutSeconds
-        DurationMilliseconds = [long] [Math]::Ceiling(($endedAt - $startedAt).TotalMilliseconds)
+        DurationMilliseconds = [long] $clock.ElapsedMilliseconds
         Stdout = $stdout.TrimEnd("`r", "`n")
         Stderr = $stderr.TrimEnd("`r", "`n")
     }
@@ -249,16 +168,10 @@ function Invoke-TestSuiteCollection {
         [Parameter(Mandatory)] [string] $SuiteRoot,
         [Parameter(Mandatory)] [string] $TimeoutConfigPath,
         [Parameter(Mandatory)] [string] $JsonSummaryPath,
-        [hashtable] $Environment = @{},
-        [int] $ShardCount = 0,
-        [int] $ShardIndex = 0
+        [hashtable] $Environment = @{}
     )
 
-    $shardRequested = ($ShardCount -ne 0) -or ($ShardIndex -ne 0)
-    if ($shardRequested -and ($ShardCount -le 0 -or $ShardIndex -le 0 -or $ShardIndex -gt $ShardCount)) {
-        throw 'test-run-summary-invalid-shard-fields: ShardCount and ShardIndex must both be positive with 1 <= ShardIndex <= ShardCount.'
-    }
-
+    if (Test-Path -LiteralPath $JsonSummaryPath) { throw "Test summary already exists: $JsonSummaryPath" }
     $configuration = Get-TestRunnerConfiguration -Path $TimeoutConfigPath
     $descriptors = @($SuitePaths | ForEach-Object {
         [pscustomobject]@{ Path = [System.IO.Path]::GetFullPath($_); SuiteId = Get-TestSuiteId -SuitePath $_ -SuiteRoot $SuiteRoot }
@@ -324,40 +237,7 @@ function Invoke-TestSuiteCollection {
         }
         Result = $result
     }
-    if ($shardRequested) {
-        # Insert the shard binding next to the job-contract fields so sharded summaries
-        # are self-describing; the unsharded summary bytes stay exactly as before.
-        $summary.Insert(7, 'ShardCount', $ShardCount)
-        $summary.Insert(8, 'ShardIndex', $ShardIndex)
-    }
     $json = (ConvertTo-Json -InputObject $summary -Depth 20) + "`n"
     Write-CreateNewUtf8File -Path $JsonSummaryPath -Content $json
-    $null = Invoke-FixedJsonSchemaValidation -SchemaPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'schemas/test-run-summary.schema.json') -InstancePath $JsonSummaryPath
-    Test-TestRunSummaryForRunner -Summary $summary
     return [pscustomobject] $summary
-}
-
-function Test-TestRunSummaryForRunner {
-    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Summary)
-
-    $summaryKeys = @($Summary.Keys)
-    if ($summaryKeys -ccontains 'ShardCount' -or $summaryKeys -ccontains 'ShardIndex') {
-        if ($summaryKeys -cnotcontains 'ShardCount' -or $summaryKeys -cnotcontains 'ShardIndex') {
-            throw 'test-run-summary ShardCount and ShardIndex must be recorded together.'
-        }
-        if ([int] $Summary['ShardCount'] -lt 1 -or [int] $Summary['ShardIndex'] -lt 1 -or [int] $Summary['ShardIndex'] -gt [int] $Summary['ShardCount']) {
-            throw 'test-run-summary shard fields must satisfy 1 <= ShardIndex <= ShardCount.'
-        }
-    }
-    $counts = $Summary.Counts
-    if ([long] $counts.Started -ne ([long] $counts.Passed + [long] $counts.Failed + [long] $counts.TimedOut)) { throw 'test-run-summary Started count is inconsistent.' }
-    if ([long] $counts.Completed -ne ([long] $counts.Passed + [long] $counts.Failed)) { throw 'test-run-summary Completed count is inconsistent.' }
-    if ([string] $Summary.Result -eq 'PASS') {
-        foreach ($name in @('Failed', 'TimedOut', 'Duplicate', 'Missing', 'TreeKillFailed')) {
-            if ([long] $counts[$name] -ne 0) { throw "PASS test-run-summary has nonzero $name." }
-        }
-        if ([long] $counts.Discovered -ne [long] $counts.Started -or [long] $counts.Started -ne [long] $counts.Completed -or [long] $counts.Completed -ne [long] $counts.Passed) {
-            throw 'PASS test-run-summary does not prove exact once completion.'
-        }
-    }
 }
