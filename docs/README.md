@@ -252,7 +252,8 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -All -JsonSummaryPath $summary
 （per-platform 的 Push/Pull items 与 ExcludedItems）。
 
 - `.claude/settings.json`（项目级、已提交）：把硬规则变成 harness 强制 `permissions.deny`
-  （禁止 `Edit`/`Write` 生成物 `claude|codex/skills/**` 与 Codex `.system`、禁止 robocopy
+  （禁止 `Edit`/`Write` 生成物 `claude|codex|reasonix/skills/**` 与 Codex `.system`
+  ——`~/.codex/skills/.system` 和任意 `.codex/skills/.system` 两种写法都拦——、禁止 robocopy
   整目录 mirror），并 `allow` 安全的校验命令（build-skills / scan-secrets）。
   `deploy-skills.ps1` **故意不在** allow 名单，保证 `-Apply` 始终经过授权。
 - `scripts/config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告

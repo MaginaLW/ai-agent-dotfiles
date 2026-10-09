@@ -1,11 +1,15 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "deny": [
       "Edit(claude/skills/**)",
       "Write(claude/skills/**)",
       "Edit(codex/skills/**)",
       "Write(codex/skills/**)",
+      "Edit(reasonix/skills/**)",
+      "Write(reasonix/skills/**)",
+      "Edit(~/.codex/skills/.system/**)",
+      "Write(~/.codex/skills/.system/**)",
       "Edit(**/.codex/skills/.system/**)",
       "Write(**/.codex/skills/.system/**)",
       "Bash(robocopy *)",

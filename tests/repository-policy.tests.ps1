@@ -119,7 +119,7 @@ Write-Host '[Claude Code harness guard rails]'
 $settings = (Read-RepoText '.claude/settings.json') | ConvertFrom-Json
 $deny = @($settings.permissions.deny)
 $allow = @($settings.permissions.allow)
-foreach ($rule in @('Edit(claude/skills/**)', 'Write(claude/skills/**)', 'Edit(codex/skills/**)', 'Write(codex/skills/**)', 'Edit(**/.codex/skills/.system/**)', 'Write(**/.codex/skills/.system/**)', 'Bash(robocopy *)', 'PowerShell(robocopy *)')) {
+foreach ($rule in @('Edit(claude/skills/**)', 'Write(claude/skills/**)', 'Edit(codex/skills/**)', 'Write(codex/skills/**)', 'Edit(reasonix/skills/**)', 'Write(reasonix/skills/**)', 'Edit(~/.codex/skills/.system/**)', 'Write(~/.codex/skills/.system/**)', 'Edit(**/.codex/skills/.system/**)', 'Write(**/.codex/skills/.system/**)', 'Bash(robocopy *)', 'PowerShell(robocopy *)')) {
     Assert-TestCondition ($deny -ccontains $rule) ".claude/settings.json denies $rule"
 }
 $allowedScripts = @($allow | ForEach-Object { if ($_ -match 'scripts/([A-Za-z0-9-]+\.ps1)') { $Matches[1] } } | Sort-Object -Unique)
