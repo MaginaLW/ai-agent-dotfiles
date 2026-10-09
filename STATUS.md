@@ -47,8 +47,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 1. **Owner:** name any further machine before onboarding starts.
 2. **Owner:** adopt, defer or drop the post-release packages F1 (CI evidence persistence),
    F2 (config pull/push boundary), F3 (platform capability registry) and F4 (module dedup).
-3. **Owner:** decide whether to keep the ZCode pilot ([docs/ZCODE.md](docs/ZCODE.md)).
-4. **Owner, low priority:**
+3. **Owner, low priority:**
    - Which commit carries the privacy-rewrite content.
    - Other clones should re-clone or rebase instead of merging the old history.
    - Whether one agent at a time owns this repository; concurrent agents have collided before.
@@ -83,9 +82,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   - the MCP registration subsystem (no live MCP config was changed);
   - OpenClaw/OpenCode;
   - ArkCLI-managed skills.
-- **Integrations.** ZCode is a project-instruction integration, not a deployment target. The
-  harness-model feedback loop runs only for a substantive issue or an explicit request
-  ([docs/ZCODE.md](docs/ZCODE.md)).
+- **Integrations.** ZCode is used to maintain this repository through `AGENTS.md`; it is not a
+  deployment target ([docs/ZCODE.md](docs/ZCODE.md)). This repository's harness-model
+  feedback-loop pilot is paused (owner decision 2026-10-10); `r3s-VPS` remains a pilot.
 - **Skill retirement.** Deleting a skill's source leaves an old live directory that deploy-skills
   never deployed as unknown and preserved. `-Retire <name>` removes it; see
   [docs/README.md §5](docs/README.md#5-修改已有-skill-的流程).

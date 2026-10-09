@@ -66,3 +66,14 @@ code-block checker (`check-guide-examples.ps1`). The last commit that still has 
 git show 3341ec9:docs/MERGE_POLICY.md
 git show 3341ec9:scripts/auto-merge-skills.ps1
 ```
+
+## ZCode feedback-loop pilot (paused 2026-10-10)
+
+The owner paused this repository's harness-model feedback-loop pilot on 2026-10-10. The full
+`docs/ZCODE.md` (adoption notes, source versions, the five method adaptations) and the AGENTS.md
+feedback-loop section are in commit `08d9021`; the thirteen dated loop runs are in `3341ec9`.
+
+```powershell
+git show 08d9021:docs/ZCODE.md
+git show 3341ec9:status/archived/2026-10-09-zcode-feedback-loop-history.md
+```

@@ -116,9 +116,3 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
 - **Docs are not pinned.** No test checks documentation wording; keep the docs accurate by
   review. `tests/repository-policy.tests.ps1` checks working guard rails only (`CLAUDE.md`
   imports `AGENTS.md`, ignore rules, scan exclusions, `.claude/settings.json` denies).
-
-## harness-model feedback loop (ZCode pilot)
-
-Follow the feedback loop in [docs/ZCODE.md](docs/ZCODE.md) only when there is a substantive issue
-or an explicit user request. Ordinary task completion triggers nothing. The loop authorizes edits
-to rule entries and adoption docs only, and it relaxes no gate.
