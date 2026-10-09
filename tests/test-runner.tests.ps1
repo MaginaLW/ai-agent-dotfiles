@@ -112,6 +112,11 @@ try {
         if ((Get-SuiteTimeoutSeconds -Configuration $configuration -SuiteId $suiteId) -le 0) { $allPositive = $false }
     }
     Assert $allPositive 'every discovered repository suite resolves a positive timeout'
+    $suiteIds = @($repoSuites | ForEach-Object { Get-TestSuiteId -SuitePath $_ -SuiteRoot $repoTestsRoot })
+    Assert (@($suiteIds | Where-Object { -not $configuration.Suites.ContainsKey($_) }).Count -eq 0) 'every discovered repository suite has an explicit budget'
+    Assert (@($configuration.Suites.Keys | Where-Object { $_ -notin $suiteIds }).Count -eq 0) 'every budget names an existing suite'
+    $repoRequired = [int] $configuration.SetupAndNonSuiteBudgetSeconds + [int] $configuration.MarginSeconds + ($configuration.Suites.Values | Measure-Object -Sum).Sum
+    Assert ($repoRequired -le 2700) "suite budgets fit the 45-minute CI job (required $repoRequired s)"
 
     Write-Host '[run-tests.ps1 exit codes]'
     $runnerScriptPath = Join-Path $RepoRoot 'scripts/run-tests.ps1'

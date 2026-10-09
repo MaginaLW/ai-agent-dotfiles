@@ -18,14 +18,12 @@ $configPath = if ($ScannerConfigPath) { (Resolve-Path -LiteralPath $ScannerConfi
 $gitleaksFailed = $false
 . (Join-Path $PSScriptRoot 'pinned-tool.ps1')
 
-# Scan input exclusions. They reproduce the former scan-input-common.ps1 policy
-# exactly (matched case-insensitively, like the old walker):
-#  - prefixes: New-FilteredScanInput / Get-NormalizedScanSourcePolicy default
-#    -ExcludedPrefixes (scan-input-common.ps1 L212, L237, L292);
-#  - exact paths: Get-ProtectedReasonixRelativePaths (scan-input-common.ps1 L176-185);
-#  - Git-ignored entries: the old walker skipped every entry `git check-ignore`
-#    reported; `git ls-files -co --exclude-standard` selects the same set
-#    (tracked files plus untracked, non-ignored files).
+# Scan input exclusions (matched case-insensitively). They keep the exclusion set
+# of the earlier scan-input walker unchanged:
+#  - the path prefixes below;
+#  - the four protected .reasonix/desktop-topic-* files;
+#  - Git-ignored entries: `git ls-files -co --exclude-standard` selects tracked
+#    files plus untracked, non-ignored files.
 # The fallback scanner additionally skips backup/* and tmp/* (Test-IsSkippedPath
 # below, unchanged); gitleaks still sees backup/ when it is not Git-ignored.
 $scanExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/')

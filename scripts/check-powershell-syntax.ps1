@@ -16,25 +16,6 @@ foreach ($path in @(
 
 $excludedPrefixes = @('claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/')
 
-# Reviewed exemptions for the operator-as-parameter guard below. Each entry is
-# a file plus its exact reviewed line numbers. The table is empty: its only
-# entry was a self-sealed hard-kill analysis line whose intended three-call
-# condition parsed as a single call, retired once that slice landed its
-# reviewed re-seal. Keep the mechanism so a future reviewed exemption has a
-# declared home rather than an ad-hoc allowlist.
-$reviewedOperatorParameterExemptions = @{}
-
-# Reviewed exemptions for the array-statement flattening guard below. Each
-# entry is a file plus the exact reviewed line number of the offending @()
-# expression. The current entry is the hard-kill suite's sealed mutation-name
-# list: one of its source lines lacks a trailing comma, so the list parses as
-# two array statements inside @(). The flattening there is value-identical to
-# the comma form (the same flat 302-string list, no nesting intent), and
-# rewriting sealed test bytes for a cosmetic comma is disproportionate; retire
-# the entry in a re-seal window that adds the missing comma instead.
-$reviewedArrayStatementFlatteningExemptions = @{
-    'tests/canonical-hard-kill.tests.ps1' = @(11788)
-}
 $paths = @(& git -C $RepoRoot ls-files -co --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate current-worktree files for syntax validation.' }
 $errors = [System.Collections.Generic.List[object]]::new()
@@ -103,8 +84,7 @@ foreach ($parsedFile in @($parsedFiles)) {
     # function rejects the unknown parameter ("a parameter cannot be found
     # that matches parameter name 'and'"), but a simple function accepts it
     # as one more positional value and the condition silently degrades to
-    # the first check alone. The silent form is the one that shipped in
-    # tests/canonical-hard-kill.tests.ps1:8256, so treat every hit as fatal.
+    # the first check alone, so treat every hit as fatal.
     # Parenthesise the command call instead.
     foreach ($command in @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))) {
         foreach ($element in @($command.CommandElements)) {
@@ -112,11 +92,6 @@ foreach ($parsedFile in @($parsedFiles)) {
             # Case-insensitive on purpose: PowerShell parameter binding is case-insensitive,
             # so `-AND` collapses the same way and must not slip through the gate.
             if ([string] $element.ParameterName -notin @('and', 'or')) { continue }
-            $exempt = $false
-            if ($reviewedOperatorParameterExemptions.ContainsKey($normalized)) {
-                $exempt = ([int] $element.Extent.StartLineNumber) -in $reviewedOperatorParameterExemptions[$normalized]
-            }
-            if ($exempt) { continue }
             $errors.Add([pscustomobject]@{
                 File = $normalized
                 Line = $element.Extent.StartLineNumber
@@ -159,11 +134,6 @@ foreach ($parsedFile in @($parsedFiles)) {
             if ($expression -is [System.Management.Automation.Language.ArrayExpressionAst] -or $expression -is [System.Management.Automation.Language.ArrayLiteralAst]) { $bareArrayStatements++ }
         }
         if ($bareArrayStatements -lt 2) { continue }
-        $exempt = $false
-        if ($reviewedArrayStatementFlatteningExemptions.ContainsKey($normalized)) {
-            $exempt = ([int] $array.Extent.StartLineNumber) -in $reviewedArrayStatementFlatteningExemptions[$normalized]
-        }
-        if ($exempt) { continue }
         $errors.Add([pscustomobject]@{
             File = $normalized
             Line = $array.Extent.StartLineNumber

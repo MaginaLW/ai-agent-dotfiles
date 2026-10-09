@@ -27,7 +27,7 @@
 
 .PARAMETER HomeRoot
     Home directory root for resolving live config paths. Defaults to $env:USERPROFILE.
-    Override for tests (e.g. tests/fixtures/fake-home).
+    Override for tests (e.g. a temporary fake home).
 
 .PARAMETER Platform
     Optional filter: one or more of Claude, Codex, Reasonix. Defaults to all three.

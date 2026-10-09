@@ -5,13 +5,12 @@
 
 .DESCRIPTION
     Dispatches a supported subcommand to the existing repository script in a
-    separate PowerShell process. This wrapper does not implement build, scan,
-    backup, or sync behavior itself. Arguments after the subcommand are passed
+    separate PowerShell process. Arguments after the subcommand are passed
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, backup, sync, canonical, config, profile,
-    skills, inventory, analyze, merge, plans, env, or live.
+    One of: doctor, build, scan, sync, config, profile, skills, inventory,
+    analyze, merge, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -20,16 +19,12 @@
     pwsh -File scripts/agent-dotfiles.ps1 sync -DryRun
 
 .EXAMPLE
-    pwsh -File scripts/agent-dotfiles.ps1 env list
+    pwsh -File scripts/agent-dotfiles.ps1 env deploy work -DryRun
 
 .NOTES
-    The sync subcommand requires exactly one explicit mode: -DryRun or -Apply.
-    Apply is never selected or added by default.
-    The env subcommand requires a sub-action: list, status, build, activate, rollback, or task.
-    The env task sub-action requires a task action: status, ensure-skill, sync, or close.
-    The env activate sub-action requires exactly one explicit mode: -DryRun or
-    -Apply, mirroring sync. Rollback follows the same gate and also requires a
-    reviewed -PlanPath when applying.
+    sync and env deploy run scripts/deploy-skills.ps1 and require exactly one
+    explicit mode: -DryRun or -Apply. Apply is never selected or added by default.
+    env list prints the environments defined in harness-source/envs/.
 #>
 param(
     [Parameter(Position = 0)]
@@ -44,16 +39,54 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, backup, sync, canonical, config, profile, skills, inventory, analyze, merge, plans, env'
-    Write-Host 'Sync requires exactly one explicit mode: -DryRun or -Apply.'
+    Write-Host 'Commands: doctor, build, scan, sync, config, profile, skills, inventory, analyze, merge, env'
+    Write-Host 'Sync runs deploy-skills.ps1 and requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: inventory, analyze, dedupe, merge, normalize, promote.'
-    Write-Host 'Canonical actions: status, setup, recover status|abandon|rollback|finalize.'
-    Write-Host 'Live actions: recover status|abandon|rollback|finalize.'
-    Write-Host 'Env actions: list, status, build, activate, rollback, task.'
-    Write-Host 'Env task actions: status, ensure-skill, sync, close.'
+    Write-Host 'Env actions: list [-RepoRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
     Write-Host 'Mutating actions require exactly one explicit mode: -DryRun or -Apply.'
+}
+
+function Assert-ExplicitMode([object[]] $Arguments, [string] $Label) {
+    $hasDryRun = @($Arguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
+    $hasApply = @($Arguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
+    if (-not $hasDryRun -and -not $hasApply) {
+        Write-Error "The $Label command requires an explicit -DryRun or -Apply mode. Run -DryRun first." -ErrorAction Continue
+        exit 1
+    }
+    if ($hasDryRun -and $hasApply) {
+        Write-Error "The $Label command accepts only one mode. Specify -DryRun or -Apply, not both." -ErrorAction Continue
+        exit 1
+    }
+}
+
+function Remove-DryRunSwitch([object[]] $Arguments) {
+    # Some targets are dry-run by default and expose no -DryRun switch;
+    # consume the unified CLI spelling here.
+    return @($Arguments | Where-Object { $_ -isnot [string] -or $_ -ine '-DryRun' })
+}
+
+function Write-EnvironmentList([object[]] $Arguments) {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    $jsonPath = $null
+    for ($i = 0; $i -lt $Arguments.Count; $i++) {
+        $name = [string] $Arguments[$i]
+        if ($name -ieq '-RepoRoot' -and $i + 1 -lt $Arguments.Count) { $repoRoot = [string] $Arguments[++$i]; continue }
+        if ($name -ieq '-JsonPath' -and $i + 1 -lt $Arguments.Count) { $jsonPath = [string] $Arguments[++$i]; continue }
+        Write-Error "Unsupported env list argument: $name" -ErrorAction Continue
+        exit 1
+    }
+    $environments = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'harness-source\envs') -Filter '*.psd1' -File | Sort-Object Name | ForEach-Object {
+        $data = Import-PowerShellDataFile -LiteralPath $_.FullName
+        [ordered]@{ Name = $_.BaseName; Description = [string] $data['Description'] }
+    })
+    Write-Host 'Harness environments:'
+    foreach ($environment in $environments) { Write-Host ("  {0}  {1}" -f $environment.Name, $environment.Description) }
+    if ($jsonPath) {
+        $json = [ordered]@{ Environments = $environments } | ConvertTo-Json -Depth 5
+        [IO.File]::WriteAllText([IO.Path]::GetFullPath($jsonPath), $json + "`n", [Text.UTF8Encoding]::new($false))
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($Command)) {
@@ -66,189 +99,87 @@ $commandMap = @{
     doctor = 'doctor.ps1'
     build  = 'build-skills.ps1'
     scan   = 'scan-secrets.ps1'
-    backup = 'backup.ps1'
-    sync   = 'sync.ps1'
+    sync   = 'deploy-skills.ps1'
     inventory = 'inventory-skills.ps1'
     analyze = 'analyze-skills.ps1'
     merge = 'auto-merge-skills.ps1'
-    plans = 'plans.ps1'
 }
 
-$envCommandMap = @{
-    list     = 'list-harness-env.ps1'
-    status   = 'status-harness-env.ps1'
-    build    = 'build-harness-env.ps1'
-    activate = 'activate-harness-env.ps1'
-    rollback = 'rollback-harness-env.ps1'
-    authority = 'authority-harness-env.ps1'
-}
-$envTaskActions = @('status', 'ensure-skill', 'sync', 'close')
-$envAuthorityActions = @('status', 'migrate', 'adopt', 'repair-adopt', 'takeover')
-
-$configCommandMap = @{
-    status = 'config-status.ps1'
-    pull   = 'config-pull.ps1'
-    push   = 'config-push.ps1'
-}
-
-$profileCommandMap = @{
-    status = 'status-harness-profile.ps1'
-    build  = 'build-harness-profile.ps1'
-    apply  = 'apply-harness-profile.ps1'
-}
-
-$skillsCommandMap = @{
-    inventory = 'inventory-skills.ps1'
-    analyze   = 'analyze-skills.ps1'
-    dedupe    = 'dedupe-skills.ps1'
-    merge     = 'auto-merge-skills.ps1'
-    normalize = 'normalize-skill.ps1'
-    promote   = 'promote-skill.ps1'
-}
-
-$canonicalCommandMap = @{
-    status = 'setup-canonical-transaction.ps1'
-    setup  = 'setup-canonical-transaction.ps1'
-    recover = 'recover-canonical-transaction.ps1'
-}
-
-$liveCommandMap = @{
-    recover = 'recover-live-transaction.ps1'
+$groupCommandMaps = @{
+    config = @{
+        status = 'config-status.ps1'
+        pull   = 'config-pull.ps1'
+        push   = 'config-push.ps1'
+    }
+    profile = @{
+        status = 'status-harness-profile.ps1'
+        build  = 'build-harness-profile.ps1'
+        apply  = 'apply-harness-profile.ps1'
+    }
+    skills = @{
+        inventory = 'inventory-skills.ps1'
+        analyze   = 'analyze-skills.ps1'
+        dedupe    = 'dedupe-skills.ps1'
+        merge     = 'auto-merge-skills.ps1'
+        normalize = 'normalize-skill.ps1'
+        promote   = 'promote-skill.ps1'
+    }
+    env = @{
+        list   = $null
+        deploy = 'deploy-skills.ps1'
+    }
 }
 
 $normalizedCommand = $Command.ToLowerInvariant()
-if ($normalizedCommand -notin @('env', 'config', 'profile', 'skills', 'canonical', 'live') -and -not $commandMap.ContainsKey($normalizedCommand)) {
+if (-not $groupCommandMaps.ContainsKey($normalizedCommand) -and -not $commandMap.ContainsKey($normalizedCommand)) {
     Write-Error "Unsupported command: $Command" -ErrorAction Continue
     Write-Usage
     exit 1
 }
 
-$forwardedArguments = @($RemainingArguments)
-if ($normalizedCommand -in @('env', 'config', 'profile', 'skills', 'canonical', 'live')) {
-    if ($forwardedArguments.Count -eq 0 -or $null -eq $forwardedArguments[0]) {
+$forwardedArguments = @($RemainingArguments | Where-Object { $null -ne $_ })
+$groupAction = $null
+if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
+    if ($forwardedArguments.Count -eq 0) {
         Write-Error "The $normalizedCommand command requires a sub-action." -ErrorAction Continue
         Write-Usage
         exit 1
     }
-
-    $groupAction = ([string]$forwardedArguments[0]).ToLowerInvariant()
-    $isEnvTask = $normalizedCommand -eq 'env' -and $groupAction -eq 'task'
-    $isEnvAuthority = $normalizedCommand -eq 'env' -and $groupAction -eq 'authority'
-    if ($isEnvAuthority) {
-        if ($forwardedArguments.Count -lt 2 -or $null -eq $forwardedArguments[1]) {
-            Write-Error 'The env authority command requires an action: status, migrate, adopt, repair-adopt, or takeover.' -ErrorAction Continue
-            Write-Usage
-            exit 1
-        }
-        $authorityAction = ([string] $forwardedArguments[1]).ToLowerInvariant()
-        if ($authorityAction -notin $envAuthorityActions) {
-            Write-Error "Unsupported env authority action: $($forwardedArguments[1])" -ErrorAction Continue
-            Write-Usage
-            exit 1
-        }
-        # The authority transitions are plan-bound mutators: the dispatcher
-        # forwards the reviewed spelling and lets the script gate the mode.
-        $targetScriptName = 'authority-harness-env.ps1'
-        $forwardedArguments = @('-Action', $authorityAction) + @($forwardedArguments | Select-Object -Skip 2)
+    $groupAction = ([string] $forwardedArguments[0]).ToLowerInvariant()
+    $actionMap = $groupCommandMaps[$normalizedCommand]
+    if (-not $actionMap.ContainsKey($groupAction)) {
+        Write-Error "Unsupported $normalizedCommand sub-action: $($forwardedArguments[0])" -ErrorAction Continue
+        Write-Usage
+        exit 1
     }
-    elseif ($isEnvTask) {
-        if ($forwardedArguments.Count -lt 2 -or $null -eq $forwardedArguments[1]) {
-            Write-Error 'The env task command requires a task action: status, ensure-skill, sync, or close.' -ErrorAction Continue
-            Write-Usage
-            exit 1
-        }
-        $taskAction = ([string] $forwardedArguments[1]).ToLowerInvariant()
-        if ($taskAction -notin $envTaskActions) {
-            Write-Error "Unsupported env task action: $($forwardedArguments[1])" -ErrorAction Continue
-            Write-Usage
-            exit 1
-        }
-        $targetScriptName = 'task-skills.ps1'
-        $forwardedArguments = @('-Action', $taskAction) + @($forwardedArguments | Select-Object -Skip 2)
-    }
-    else {
-        $actionMap = switch ($normalizedCommand) {
-            'env' { $envCommandMap }
-            'config' { $configCommandMap }
-            'profile' { $profileCommandMap }
-            'skills' { $skillsCommandMap }
-            'canonical' { $canonicalCommandMap }
-            'live' { $liveCommandMap }
-        }
-        if (-not $actionMap.ContainsKey($groupAction)) {
-            Write-Error "Unsupported $normalizedCommand sub-action: $($forwardedArguments[0])" -ErrorAction Continue
-            Write-Usage
-            exit 1
-        }
+    $targetScriptName = $actionMap[$groupAction]
+    $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
 
-        $targetScriptName = $actionMap[$groupAction]
-        $forwardedArguments = @($forwardedArguments | Select-Object -Skip 1)
-        if($normalizedCommand -eq 'canonical' -and $groupAction -eq 'status'){$forwardedArguments=@('-Status')+@($forwardedArguments)}
-        if($normalizedCommand -in @('canonical','live') -and $groupAction -eq 'recover'){
-            if($forwardedArguments.Count -eq 0){Write-Error "$normalizedCommand recover requires status, abandon, rollback, or finalize." -ErrorAction Continue;exit 1}
-            $recoverAction=([string]$forwardedArguments[0]).ToLowerInvariant()
-            if($recoverAction -notin @('status','abandon','rollback','finalize')){Write-Error "Unsupported $normalizedCommand recover action: $($forwardedArguments[0])" -ErrorAction Continue;exit 1}
-            $forwardedArguments=@($forwardedArguments|Select-Object -Skip 1)
-            if($recoverAction -eq 'status'){$forwardedArguments=@('-Status')+@($forwardedArguments)}else{$forwardedArguments=@('-Action',$recoverAction)+@($forwardedArguments)}
+    if ($normalizedCommand -eq 'env' -and $groupAction -eq 'list') {
+        Write-EnvironmentList $forwardedArguments
+        exit 0
+    }
+    if ($normalizedCommand -eq 'env' -and $groupAction -eq 'deploy') {
+        if ($forwardedArguments.Count -eq 0 -or ([string] $forwardedArguments[0]).StartsWith('-')) {
+            Write-Error 'The env deploy command requires an environment name, for example: env deploy work -DryRun' -ErrorAction Continue
+            exit 1
         }
+        $forwardedArguments = @('-Environment', [string] $forwardedArguments[0]) + @($forwardedArguments | Select-Object -Skip 1)
     }
 
-    $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -in @('activate', 'rollback')) -or
-        ($isEnvAuthority -and $authorityAction -ne 'status') -or
-        ($isEnvTask -and $taskAction -in @('ensure-skill', 'sync', 'close')) -or
+    $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -eq 'deploy') -or
         ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
-        ($normalizedCommand -in @('canonical', 'live') -and ($groupAction -eq 'setup' -or ($groupAction -eq 'recover' -and $recoverAction -ne 'status'))) -or
         ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'normalize', 'promote')))
     if ($requiresExplicitMode) {
-        $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
-        $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
-
-        if (-not $hasDryRun -and -not $hasApply) {
-            Write-Error "The $normalizedCommand $groupAction command requires an explicit -DryRun or -Apply mode. Run -DryRun first." -ErrorAction Continue
-            exit 1
-        }
-        if ($hasDryRun -and $hasApply) {
-            Write-Error "The $normalizedCommand $groupAction command accepts only one mode. Specify -DryRun or -Apply, not both." -ErrorAction Continue
-            exit 1
-        }
-        # config/profile scripts are dry-run by default but intentionally do
-        # not expose a -DryRun switch; consume the unified CLI spelling here.
-        if ($hasDryRun -and $normalizedCommand -in @('config', 'profile')) {
-            $forwardedArguments = @($forwardedArguments | Where-Object { $_ -isnot [string] -or $_ -ine '-DryRun' })
-        }
+        Assert-ExplicitMode $forwardedArguments "$normalizedCommand $groupAction"
+        if ($normalizedCommand -in @('config', 'profile', 'env')) { $forwardedArguments = Remove-DryRunSwitch $forwardedArguments }
     }
 }
 else {
     $targetScriptName = $commandMap[$normalizedCommand]
-    # Platform-specific inventory is now handled by the common inventory script.
-}
-
-if ($normalizedCommand -eq 'sync') {
-    $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
-    $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
-
-    if (-not $hasDryRun -and -not $hasApply) {
-        Write-Error "The $normalizedCommand command requires an explicit -DryRun or -Apply mode. Run -DryRun first." -ErrorAction Continue
-        exit 1
-    }
-    if ($hasDryRun -and $hasApply) {
-        Write-Error "The $normalizedCommand command accepts only one mode. Specify -DryRun or -Apply, not both." -ErrorAction Continue
-        exit 1
-    }
-}
-
-if ($normalizedCommand -eq 'merge') {
-    $hasDryRun = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
-    $hasApply = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
-    if (-not $hasDryRun -and -not $hasApply) {
-        Write-Error 'The merge command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
-        exit 1
-    }
-    if ($hasDryRun -and $hasApply) {
-        Write-Error 'The merge command accepts only one mode. Specify -DryRun or -Apply, not both.' -ErrorAction Continue
-        exit 1
-    }
+    if ($normalizedCommand -in @('sync', 'merge')) { Assert-ExplicitMode $forwardedArguments $normalizedCommand }
+    if ($normalizedCommand -eq 'sync') { $forwardedArguments = Remove-DryRunSwitch $forwardedArguments }
 }
 
 $targetScript = Join-Path $PSScriptRoot $targetScriptName
@@ -264,11 +195,7 @@ if ($pwshCommands.Count -eq 0) {
 }
 $pwshPath = $pwshCommands[0].Source
 
-$canonicalMachineStdout = (
-    $normalizedCommand -in @('canonical', 'merge') -or
-    ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'normalize', 'promote'))
-)
-$jsonStdout = $canonicalMachineStdout -or @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0
+$jsonStdout = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0
 if (-not $jsonStdout) {
     Write-Host "Invoking script: $targetScript"
 }

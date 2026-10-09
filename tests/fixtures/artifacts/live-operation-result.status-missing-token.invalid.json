@@ -1,8 +1,0 @@
-{
-  "SchemaVersion": 1,
-  "ArtifactKind": "live-operation-result",
-  "ResultScope": "command",
-  "Result": "PASS",
-  "LifecycleKind": "no-transaction",
-  "CommandKind": "live-recover-status"
-}

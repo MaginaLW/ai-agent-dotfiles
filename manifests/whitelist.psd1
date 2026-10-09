@@ -68,7 +68,7 @@
         RepoRelativeRoot = 'reasonix'
         # config.toml / .env are machine-private (provider credentials, sessions,
         # workspace state) and must never be captured or deployed. skills/ is
-        # managed by scripts/sync.ps1, not config-sync. commands/ can be added
+        # managed by scripts/deploy-skills.ps1, not config-sync. commands/ can be added
         # here once repo-managed reasonix commands exist.
         PushItems = @('AGENTS.md', 'REASONIX.md')
         PullItems = @('AGENTS.md', 'REASONIX.md')

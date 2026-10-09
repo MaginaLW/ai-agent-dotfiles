@@ -31,7 +31,7 @@
       * On success the captured files are left UNCOMMITTED for human review; this
         script never commits.
 
-    Hard safety rules (mirror sync.ps1's posture):
+    Hard safety rules (mirror deploy-skills.ps1's posture):
       * Never whole-dir mirror; directories are copied file-by-file.
       * Never prune; repo-only files are left untouched and only reported.
       * Per-platform ExcludedItems + CommonExcludedItems are skipped, so credentials,

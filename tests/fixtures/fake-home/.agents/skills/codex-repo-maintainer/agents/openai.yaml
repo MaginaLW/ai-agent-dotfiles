@@ -1,4 +1,0 @@
-agent:
-  provider: openai
-  model: gpt-5-codex
-  purpose: repo-maintenance

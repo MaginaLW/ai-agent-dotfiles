@@ -14,7 +14,7 @@
         update   exists in both, content differs -> repo wins
         (no-op)  identical -> skipped
 
-    Hard safety rules (mirror sync.ps1's posture):
+    Hard safety rules (mirror deploy-skills.ps1's posture):
       * Never whole-dir mirror. Directories are copied file-by-file.
       * Never prune. Home-only files are left untouched and only reported.
       * -Apply runs a secret scan first and backs up every home file it is about

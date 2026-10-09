@@ -171,24 +171,11 @@ try {
     Assert-True ($nested.ExitCode -eq 0) "comma-nested pairs, unary-comma wraps, and a single nested array exit 0 (got $($nested.ExitCode))"
     Assert-True ($nested.Output -match 'PowerShell syntax validation passed: 1 file\(s\)\.') 'intended nesting forms are accepted'
 
-    Write-Host '[gate source: empty exemption table]'
+    Write-Host '[gate source: parses]'
     $tokens = $null
     $parseErrors = $null
     $gateAst = [System.Management.Automation.Language.Parser]::ParseFile($gateScript, [ref]$tokens, [ref]$parseErrors)
     Assert-True (@($parseErrors).Count -eq 0) 'gate script parses without errors'
-    $exemptionAssignments = @($gateAst.FindAll({
-        param($node)
-        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-        $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
-        [string]$node.Left.VariablePath.UserPath -eq 'reviewedOperatorParameterExemptions'
-    }, $true))
-    Assert-True ($exemptionAssignments.Count -eq 1) "exactly one assignment to `$reviewedOperatorParameterExemptions (got $($exemptionAssignments.Count))"
-    $exemptionTables = @($exemptionAssignments[0].Right.FindAll({
-        param($node) $node -is [System.Management.Automation.Language.HashtableAst]
-    }, $true))
-    Assert-True ($exemptionTables.Count -eq 1) "exemption assignment is a single hashtable (got $($exemptionTables.Count))"
-    $exemptionEntries = @($exemptionTables[0].KeyValuePairs)
-    Assert-True ($exemptionEntries.Count -eq 0) "exemption table is empty (got $($exemptionEntries.Count) entries)"
 
     Write-Host '[gate source: operator check is not a constant-if off switch]'
     $operatorLoops = @($gateAst.FindAll({
@@ -199,26 +186,6 @@ try {
     Assert-True ($operatorLoops.Count -gt 0) 'operator-as-parameter foreach is present in the gate AST'
     $disabledLoops = @($operatorLoops | Where-Object { Test-NestedInConstantIf $_ })
     Assert-True ($disabledLoops.Count -eq 0) 'operator-as-parameter foreach is not nested in if ($true)/if ($false)'
-
-    Write-Host '[gate source: array-flattening exemption table is review-pinned]'
-    $flatteningAssignments = @($gateAst.FindAll({
-        param($node)
-        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-        $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
-        [string]$node.Left.VariablePath.UserPath -eq 'reviewedArrayStatementFlatteningExemptions'
-    }, $true))
-    Assert-True ($flatteningAssignments.Count -eq 1) "exactly one assignment to `$reviewedArrayStatementFlatteningExemptions (got $($flatteningAssignments.Count))"
-    $flatteningTables = @($flatteningAssignments[0].Right.FindAll({
-        param($node) $node -is [System.Management.Automation.Language.HashtableAst]
-    }, $true))
-    Assert-True ($flatteningTables.Count -eq 1) "flattening exemption assignment is a single hashtable (got $($flatteningTables.Count))"
-    $flatteningEntries = @($flatteningTables[0].KeyValuePairs)
-    Assert-True ($flatteningEntries.Count -eq 1) "flattening exemption table holds exactly one reviewed entry (got $($flatteningEntries.Count))"
-    $flatteningKeyAst = $flatteningEntries[0].Item1
-    Assert-True ($flatteningKeyAst -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
-        [string]$flatteningKeyAst.Value -ceq 'tests/canonical-hard-kill.tests.ps1') 'flattening exemption names only the sealed hard-kill mutation list'
-    $flatteningValueAst = $flatteningEntries[0].Item2
-    Assert-True ([string]$flatteningValueAst.Extent.Text -ceq '@(11788)') 'flattening exemption pins exactly the reviewed line 11788'
 
     Write-Host '[gate source: array-flattening check is not a constant-if off switch]'
     $flatteningLoops = @($gateAst.FindAll({
