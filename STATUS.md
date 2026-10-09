@@ -109,6 +109,13 @@ The [2026-10-07 handoff list](status/archived/2026-10-08-live-safety-hardening.m
   needs the fixture fix or escalation R3 calls for, not another rerun, and never a weaker gate or
   budget. `canonical-hard-kill` seals the reviewed script bytes, so editing a sealed script needs
   a full reseal.
+- **Local validation on an onboarded machine.** `tests/harness-env.tests.ps1` cannot complete on
+  this machine. Its activation-reporting sections invoke the real status script without an identity
+  override, and the machine has a live authority with claims, so the run fails closed with
+  `authority-reasonix-root-switch-forbidden-after-claims` (seven assertions) and aborts before its
+  summary. The failure reproduces at a parent commit that lacks the change under test, so it is
+  machine-state-driven; use a control run like that before attributing this suite's red to a change,
+  and treat CI, where no authority exists, as its arbiter.
 - **Out of scope.** Codex `config.toml`, Reasonix `config.toml`/`.env`, credentials, sessions and
   caches are outside sync scope. Machine-private evidence (`tmp/` and an external private root) is
   not committed; check its index in the archived live-safety record before deleting any of it.

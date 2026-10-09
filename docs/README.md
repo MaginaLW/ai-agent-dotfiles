@@ -433,8 +433,8 @@ Harness Environments 是 conda 式的命名环境层：每个环境声明一个 
 
 ### 16.1 Task skill overlay（按任务热插拔）
 
-`work.psd1` 是稳定的基础集合，Claude/Codex/Reasonix 各保留 `systematic-debugging` 一个 skill；
-其余源 skill 保留在 `full` 中，按任务需要选择，`minimal` 保留测试样例选集。
+`work.psd1` 是稳定的日常基础集合，Claude/Codex/Reasonix 各保留 `boring-engineering` 与
+`systematic-debugging`；其余源 skill 保留在 `full` 中，按任务需要选择，`minimal` 保留测试样例选集。
 任务临时需要的已管理 skill 不会被永久写回基础环境，
 而是记录在当前分支/worktree 的 `.agent-harness/task-skills.psd1`。它是 Git 可审查的请求，
 不是 generated output，也不是 live home 状态；默认空文件形状为：
