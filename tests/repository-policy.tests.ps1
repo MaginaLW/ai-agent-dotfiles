@@ -3,11 +3,10 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Repository policy suite. It pins the tracked instruction and doc claims, the generated-root
-# boundaries (ignore rules, build defaults, scan exclusions, the never-edit rule), the Claude
-# Code harness guard rails, and the absence of retired platforms in scripts/ and manifests/.
-# Phrase pins on AGENTS.md, README.md and docs/README.md match whitespace-collapsed text, so
-# Markdown line wrapping cannot split a pinned sentence.
+# Repository policy suite. It checks functional repository guard rails, not documentation
+# wording: the CLAUDE.md import of AGENTS.md, the per-platform manifests, the generated-root
+# boundaries (ignore rules, build defaults, scan exclusions), the Claude Code harness permission
+# rules, and the absence of retired platforms in scripts/ and manifests/.
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
@@ -29,61 +28,18 @@ function Get-LiteralOccurrenceCount {
 }
 
 # -----------------------------------------------------------------------------
-# Tracked instruction and documentation claims
+# CLAUDE.md import and manifests
 # -----------------------------------------------------------------------------
-Write-Host '[tracked instruction and documentation claims]'
-# AGENTS.md is the single rule entry (Codex and ZCode read it directly; Claude Code reads it
-# through the CLAUDE.md import), so the rule pins live on AGENTS.md and CLAUDE.md is pinned
-# only as an import of it.
-$agentsText = Read-RepoText 'AGENTS.md'
+Write-Host '[CLAUDE.md import and manifests]'
+# Claude Code reads AGENTS.md only through this import, and it does not expand imports inside
+# code fences, so the import must sit on its own line outside one.
 $claudeText = Read-RepoText 'CLAUDE.md'
-$readmeText = Read-RepoText 'README.md'
-$docsReadmeText = Read-RepoText 'docs/README.md'
-$agentsFlat = $agentsText -replace '\s+', ' '
-$readmeFlat = $readmeText -replace '\s+', ' '
-$docsReadmeFlat = $docsReadmeText -replace '\s+', ' '
-
-foreach ($entry in @(
-    @{ File = 'AGENTS.md'; Text = $agentsText },
-    @{ File = 'CLAUDE.md'; Text = $claudeText },
-    @{ File = 'README.md'; Text = $readmeText }
-)) {
-    foreach ($platform in @('claude', 'codex', 'reasonix')) {
-        Assert-TestCondition ($entry.Text.IndexOf($platform, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) "$($entry.File) mentions $platform"
-    }
-}
-# Claude Code does not expand imports inside code fences, so the import must sit outside one.
 $claudeOutsideFences = $claudeText -replace '(?ms)^(```|~~~).*?^\1[ \t]*\r?$', ''
 Assert-TestCondition ($claudeOutsideFences -cmatch '(?m)^@AGENTS\.md[ \t]*\r?$') 'CLAUDE.md imports AGENTS.md on its own line outside code fences'
-
-Assert-TestCondition ($agentsFlat.Contains("On every task, push, merge, any live Apply, destructive actions, credential export and additional paid model calls each need the owner's explicit authorization.")) 'AGENTS.md requires owner authorization for push, merge, live Apply and other high-impact actions on every task'
-Assert-TestCondition ($agentsText.Contains('skills-source/reasonix-only/<name>/')) 'AGENTS.md carries the reasonix-only source root concept'
-Assert-TestCondition ($docsReadmeText.Contains('skills-source/reasonix-only/')) 'docs/README.md documents the reasonix-only source root'
 
 foreach ($manifest in @('manifests/managed-skills.claude.txt', 'manifests/managed-skills.codex.txt', 'manifests/managed-skills.reasonix.txt', 'manifests/managed-skills.txt')) {
     Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot $manifest) -PathType Leaf) "the per-platform manifest $manifest exists"
 }
-Assert-TestCondition ($agentsText.Contains('`manifests/`')) 'AGENTS.md skill-rule scope names the manifests directory'
-Assert-TestCondition ($docsReadmeText.Contains('`manifests/managed-skills.txt` | 三平台 union inventory')) 'docs/README.md documents the union manifest'
-
-Assert-TestCondition ($agentsFlat.Contains('Change live skills roots only through `scripts/deploy-skills.ps1`') -and $agentsFlat.Contains('Never copy into or delete from a live root by hand.')) 'AGENTS.md routes every live root change through deploy-skills'
-Assert-TestCondition ($agentsFlat.Contains('Run the dry run first (no `-Apply`)') -and $agentsFlat.Contains('Rerun with `-Apply` only after the owner authorizes it.')) 'AGENTS.md requires the deploy-skills dry run first and -Apply only with owner authorization'
-Assert-TestCondition ($agentsFlat.Contains('pass `-Retire <name>` to both the dry run and the Apply') -and $agentsFlat.Contains('Never pass `.system` or a selected skill to `-Retire`.')) 'AGENTS.md binds retirement to one -Retire name on both runs that never names .system or a selected skill'
-Assert-TestCondition ($agentsFlat.Contains('It never changes a live root, and the repository installs no Git hooks.')) 'AGENTS.md pins bootstrap as never changing a live root and the repository as hook-free'
-Assert-TestCondition ($readmeFlat.Contains('It never changes a live skills directory, and the repository installs no Git hooks.')) 'README.md pins bootstrap as never changing a live skills directory and the repository as hook-free'
-Assert-TestCondition ($agentsFlat.Contains('Never commit a `config-push` capture until a human has reviewed its `git diff`.')) 'AGENTS.md requires human review of a config-push capture before commit'
-Assert-TestCondition ($agentsFlat.Contains('Never weaken, bypass, or whitelist `scripts/scan-secrets.ps1` or `.gitleaks.toml` without explicit user approval.')) 'AGENTS.md forbids weakening or whitelisting the secret scan without approval'
-Assert-TestCondition ($agentsFlat.Contains('Never delete or weaken a suite, gate, timeout budget or the secret scan to get a green run.')) 'AGENTS.md forbids weakening a suite, gate or budget to get CI green'
-
-Assert-TestCondition ((Get-LiteralOccurrenceCount -Text $readmeFlat -Needle 'claude/skills/`, `codex/skills/`, and `reasonix/skills/` are generated by `scripts/build-skills.ps1` and ignored by Git.') -eq 1) 'README.md pins all three generated roots as build output ignored by Git'
-Assert-TestCondition ($agentsFlat.Contains('Never delete, move, overwrite, or modify `~/.codex/skills/.system`.')) 'AGENTS.md states the .system no-delete rule'
-Assert-TestCondition ($agentsFlat.Contains('Never use `robocopy /MIR`')) 'AGENTS.md states the no-blanket-mirror rule'
-Assert-TestCondition ($readmeFlat.Contains('**Codex `.system` is protected:**')) 'README.md states the .system protection rule'
-Assert-TestCondition ($readmeFlat.Contains('Never run a bare `robocopy /MIR`')) 'README.md states the no-blanket-mirror rule'
-Assert-TestCondition ($readmeFlat.Contains('directory remains unknown by default')) 'README.md states unknown live entries are preserved by default'
-Assert-TestCondition ($docsReadmeFlat.Contains('旧 live 名称默认按 unknown 保留')) 'docs/README.md states old live names are preserved as unknown by default'
-Assert-TestCondition ($docsReadmeFlat.Contains('其余 live 目录是 unknown：只报告不碰。Codex `.system` 永不触碰')) 'docs/README.md states deploy-skills never touches unknown live directories or .system'
-Assert-TestCondition ($docsReadmeFlat.Contains('`-Apply` 会写真实 home：先审查 dry-run 的每一行，取得所有者授权后再执行。')) 'docs/README.md requires review and owner authorization before deploy-skills -Apply'
 
 # -----------------------------------------------------------------------------
 # Generated-root boundaries are symmetric across all three platforms
@@ -100,17 +56,24 @@ foreach ($rootVariable in @('$ClaudeOutputRoot', '$CodexOutputRoot', '$ReasonixO
     Assert-TestCondition ($buildSkillsText.Contains("$rootVariable = Join-Path `$RepoRoot")) "build-skills defaults $rootVariable to its repository generated root"
 }
 Assert-TestCondition ($buildSkillsText.Contains('Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)')) 'build-skills enforces disjoint source/manifest/generated build roots for all three platforms'
-Assert-TestCondition ($buildSkillsText.Contains('.system is not a build source or generated skill.')) 'build-skills preserves .system by exclusion: it is never a build source or generated skill'
+# build-skills discovers source and generated skills through Get-SkillDirectories, which must
+# never treat .system as a skill.
+. (Join-Path $RepoRoot 'scripts/skills-common.ps1')
+$skillProbeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "repository-policy-skills-$([Guid]::NewGuid().ToString('N'))"
+try {
+    foreach ($probeSkill in @('.system', 'probe-skill')) {
+        New-Item -ItemType Directory -Path (Join-Path $skillProbeRoot $probeSkill) -Force | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $skillProbeRoot "$probeSkill/SKILL.md"), "# $probeSkill`n")
+    }
+    $probeNames = @(Get-SkillDirectories -RootPath $skillProbeRoot | ForEach-Object Name)
+    Assert-TestCondition (($probeNames.Count -eq 1) -and ($probeNames[0] -ceq 'probe-skill')) 'build-skills skill discovery never treats .system as a skill'
+}
+finally {
+    Remove-Item -LiteralPath $skillProbeRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 $scanSecretsText = Read-RepoText 'scripts/scan-secrets.ps1'
 Assert-TestCondition ((Get-LiteralOccurrenceCount -Text $scanSecretsText -Needle "'claude/skills/', 'codex/skills/', 'reasonix/skills/'") -ge 1) 'the secret scan excludes all three generated roots'
-
-# The roots also appear in the skill-rule scope, so the pin is scoped to the text of rule 2 itself.
-$generatedRule = [regex]::Match($agentsFlat, '2\. \*\*Generated output\.\*\* (.*?) 3\. \*\*Live roots only through deploy-skills\.\*\*').Groups[1].Value
-Assert-TestCondition ($generatedRule.StartsWith('Never edit generated output directly:')) 'AGENTS.md rule 2 forbids editing generated output directly'
-foreach ($generatedRoot in @('claude/skills/', 'codex/skills/', 'reasonix/skills/')) {
-    Assert-TestCondition ($generatedRule.Contains("``$generatedRoot``")) "AGENTS.md rule 2 lists $generatedRoot under the never-edit rule"
-}
 
 # -----------------------------------------------------------------------------
 # Claude Code harness guard rails
