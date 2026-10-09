@@ -9,8 +9,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, sync, config, profile, skills, inventory,
-    analyze, merge, or env.
+    One of: doctor, build, scan, sync, config, profile, skills, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -39,11 +38,11 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, sync, config, profile, skills, inventory, analyze, merge, env'
+    Write-Host 'Commands: doctor, build, scan, sync, config, profile, skills, env'
     Write-Host 'Sync runs deploy-skills.ps1 and requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
-    Write-Host 'Skills actions: inventory, analyze, dedupe, merge, normalize, promote.'
+    Write-Host 'Skills actions: promote -Path <dir> -Name <name> -Type <type> [-Replace] -DryRun|-Apply.'
     Write-Host 'Env actions: list [-RepoRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
     Write-Host 'Mutating actions require exactly one explicit mode: -DryRun or -Apply.'
 }
@@ -100,9 +99,6 @@ $commandMap = @{
     build  = 'build-skills.ps1'
     scan   = 'scan-secrets.ps1'
     sync   = 'deploy-skills.ps1'
-    inventory = 'inventory-skills.ps1'
-    analyze = 'analyze-skills.ps1'
-    merge = 'auto-merge-skills.ps1'
 }
 
 $groupCommandMaps = @{
@@ -117,12 +113,7 @@ $groupCommandMaps = @{
         apply  = 'apply-harness-profile.ps1'
     }
     skills = @{
-        inventory = 'inventory-skills.ps1'
-        analyze   = 'analyze-skills.ps1'
-        dedupe    = 'dedupe-skills.ps1'
-        merge     = 'auto-merge-skills.ps1'
-        normalize = 'normalize-skill.ps1'
-        promote   = 'promote-skill.ps1'
+        promote = 'promote-skill.ps1'
     }
     env = @{
         list   = $null
@@ -170,7 +161,7 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
     $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -eq 'deploy') -or
         ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
-        ($normalizedCommand -eq 'skills' -and $groupAction -in @('merge', 'normalize', 'promote')))
+        ($normalizedCommand -eq 'skills' -and $groupAction -eq 'promote'))
     if ($requiresExplicitMode) {
         Assert-ExplicitMode $forwardedArguments "$normalizedCommand $groupAction"
         if ($normalizedCommand -in @('config', 'profile', 'env')) { $forwardedArguments = Remove-DryRunSwitch $forwardedArguments }
@@ -178,7 +169,7 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
 }
 else {
     $targetScriptName = $commandMap[$normalizedCommand]
-    if ($normalizedCommand -in @('sync', 'merge')) { Assert-ExplicitMode $forwardedArguments $normalizedCommand }
+    if ($normalizedCommand -eq 'sync') { Assert-ExplicitMode $forwardedArguments $normalizedCommand }
     if ($normalizedCommand -eq 'sync') { $forwardedArguments = Remove-DryRunSwitch $forwardedArguments }
 }
 

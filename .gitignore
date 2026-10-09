@@ -61,23 +61,8 @@ tmp/
 /.reasonix/desktop-topic-title-sources.json
 /.reasonix/desktop-topic-titles.json
 
-# Machine- and run-specific reports and sidecars; only documentation is tracked.
-/reports/**
-!reports/README.md
+# Retired run-report directory. Keep it ignored: scan-secrets.ps1 skips reports/.
+/reports/
 
-# Raw imported skills awaiting review.
-imports/skills-inbox/**
-imports/skills-quarantine/**
-imports/skills-archive/**
-imports/skills-reports/**
-
-# Keep documentation placeholders only; generated import reports stay local.
-!imports/
-!imports/skills-inbox/
-!imports/skills-inbox/README.md
-!imports/skills-quarantine/
-!imports/skills-quarantine/README.md
-!imports/skills-archive/
-!imports/skills-archive/README.md
-!imports/skills-reports/
-!imports/skills-reports/README.md
+# Retired skill-import staging. Keep it ignored: scan-secrets.ps1 skips imports/.
+/imports/

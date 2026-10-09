@@ -87,19 +87,12 @@ foreach ($commandArgs in @(
 $result = Invoke-Entry -Arguments @('sync', '-DryRun', '-Apply')
 Assert ($result.Code -eq 1 -and $result.Out -match 'only one mode') 'sync rejects both modes'
 
-foreach ($commandArgs in @(
-    @('skills', 'normalize'),
-    @('skills', 'promote'),
-    @('skills', 'merge'),
-    @('merge')
-)) {
+$result = Invoke-Entry -Arguments @('skills', 'promote')
+Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') 'rejects implicit skill promotion'
+foreach ($commandArgs in @(@('merge'), @('inventory'), @('analyze'), @('skills', 'merge'), @('skills', 'normalize'))) {
     $result = Invoke-Entry -Arguments $commandArgs
-    Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') "rejects implicit skill mutation: $($commandArgs -join ' ')"
+    Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') "removed skills route is unsupported: $($commandArgs -join ' ')"
 }
-
-$dispatcherText = Get-Content -Raw -LiteralPath $entry
-$mergeAdapterCount = ([regex]::Matches($dispatcherText, "merge\s*=\s*'auto-merge-skills\.ps1'")).Count
-Assert ($mergeAdapterCount -eq 2) 'top-level merge and skills merge aliases route to the same fixed merge adapter'
 
 Write-Host ''
 Write-Host ("agent-dotfiles CLI tests: {0} passed, {1} failed" -f $pass, $fail)
