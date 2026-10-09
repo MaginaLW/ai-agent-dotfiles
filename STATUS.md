@@ -48,10 +48,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 2. **Owner:** adopt, defer or drop the post-release packages F1 (CI evidence persistence),
    F2 (config pull/push boundary), F3 (platform capability registry) and F4 (module dedup).
 3. **Owner:** decide whether to keep the ZCode pilot ([docs/ZCODE.md](docs/ZCODE.md)).
-4. **Owner (PINN-tFORM):** its `.agent-harness/profile.psd1` still has `McpTemplates = @()`, a key
-   rejected since the MCP retirement, so profile status/build/apply fail there. Delete that line
-   in PINN-tFORM to use profiles again.
-5. **Owner, low priority:**
+4. **Owner, low priority:**
    - Which commit carries the privacy-rewrite content.
    - Other clones should re-clone or rebase instead of merging the old history.
    - Whether one agent at a time owns this repository; concurrent agents have collided before.
