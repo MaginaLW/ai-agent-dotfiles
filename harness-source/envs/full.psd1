@@ -6,6 +6,7 @@
 
     Skills = @{
         Claude = @(
+            'boring-engineering',
             'brainstorming',
             'git-review',
             'paper-polish',
@@ -15,6 +16,7 @@
             'writing-plans'
         )
         Codex = @(
+            'boring-engineering',
             'brainstorming',
             'chatgpt-apps',
             'cli-creator',
@@ -32,6 +34,7 @@
             'writing-plans'
         )
         Reasonix = @(
+            'boring-engineering',
             'brainstorming',
             'git-review',
             'paper-polish',

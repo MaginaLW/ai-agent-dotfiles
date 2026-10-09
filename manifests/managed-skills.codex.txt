@@ -1,3 +1,4 @@
+boring-engineering
 brainstorming
 chatgpt-apps
 cli-creator

@@ -6,12 +6,15 @@
 
     Skills = @{
         Claude = @(
+            'boring-engineering',
             'systematic-debugging'
         )
         Codex = @(
+            'boring-engineering',
             'systematic-debugging'
         )
         Reasonix = @(
+            'boring-engineering',
             'systematic-debugging'
         )
     }
