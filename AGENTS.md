@@ -64,8 +64,10 @@ Before acting, read the [docs/README.md](docs/README.md) section for the area yo
    a released policy value is not deployment authorization or completed lab acceptance.
    There is no mechanical interlock. Before any live Apply, check
    [STATUS.md](STATUS.md#current-state) and confirm two things:
-   - the live-engine code at HEAD is covered by the accepted candidate recorded there. Live-engine code
-     means the files in `scripts/runner-policy.psd1` ToolchainPaths; check them with`n     `git diff --name-only <candidate>..HEAD`. A later change to any of them needs new acceptance first;
+   - the live-engine code at HEAD is covered by the accepted candidate recorded there. Live-engine
+     code means the files in `scripts/runner-policy.psd1` ToolchainPaths; check them with
+     `git diff --name-only <candidate>..HEAD`. A later change to any of them needs new acceptance
+     first;
    - the owner has explicitly authorized this Apply.
 6. **Sandbox for validation.** A bare public DryRun resolves the real Windows identity and writes a
    real plan, so a rejection you expect does not prove isolation. For validation, run maintenance
