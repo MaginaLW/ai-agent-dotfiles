@@ -66,7 +66,7 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
 
 复用既有提交、检查结果和状态记录，不为 ZCode 新建一套必填表单或额外任务账本。
 仓库整体状态变化时原地更新 `STATUS.md`；局部任务沿用 `status/active/`，已完成记录按
-现有约定归入 [`status/archived/`](../status/archived/)。不要为了记录一次普通任务而复制
+现有约定把结论写进 `STATUS.md` 后删除（历史见 [HISTORY.md](HISTORY.md)）。不要为了记录一次普通任务而复制
 整份项目状态，也不在本页持续追加执行日志。
 
 在适用的现有记录或交付说明中，简要写明任务与改动、关联提交、验证命令及实际结果、剩余问题
@@ -92,7 +92,7 @@ pwsh -NoProfile -File .\scripts\run-tests.ps1 -RepoRoot $repoRoot -All -JsonSumm
 - 闭环授权边界：harness-model 的 `docs/`、`examples/`，以及本项目的规则入口、接入文档
   与既有收尾记录。不含源码、CI、`.ai`、技能、全局/live 配置、部署、删除、推送、合并、
   凭据导出、付费调用或后台采集；越界反馈只形成提案并记 `pending`。
-- 历次来源版本与第一至第十三次闭环执行记录：[归档](../status/archived/2026-10-09-zcode-feedback-loop-history.md)。
+- 历次来源版本与第一至第十三次闭环执行记录在 Git 历史中，读取方式见 [HISTORY.md](HISTORY.md)。
 
 ### 五项方法的逐条适配
 

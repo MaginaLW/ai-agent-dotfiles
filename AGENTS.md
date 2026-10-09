@@ -36,7 +36,7 @@ project harness profiles. Detail: [docs/README.md](docs/README.md) (§4-6 skills
 ## Skill rules
 
 These rules apply when a task touches `skills-source/`, the generated roots, `manifests/`,
-`imports/`, `harness-source/`, a live skills root or Codex `.system`, or the build, deploy,
+`harness-source/`, a live skills root or Codex `.system`, or the build, deploy,
 skills, config-sync or profile scripts and their tests. Ordinary docs, code and Git work do not
 need them.
 
@@ -57,12 +57,15 @@ need them.
    skill that it never deployed stays in the live root as unknown and preserved. To remove it,
    pass `-Retire <name>` to both the dry run and the Apply. Never pass `.system` or a selected
    skill to `-Retire`.
-5. **Environments.** `harness-source/envs/<name>.psd1` selects the skills per platform; `work`
+5. **Adding a skill.** Put it into `skills-source/` by hand, or use `scripts/promote-skill.ps1
+   -Path <dir> -Name <name> -Type <type>` (dry run first, then `-Apply`, which builds and scans).
+   Review the source first: no secrets, tokens, machine-private paths, caches or runtime state.
+6. **Environments.** `harness-source/envs/<name>.psd1` selects the skills per platform; `work`
    is the daily set. Change a selection in a reviewed commit, not for one task.
-6. **Fresh clone.** Run `bootstrap.ps1` once on a fresh clone. It installs and verifies the
+7. **Fresh clone.** Run `bootstrap.ps1` once on a fresh clone. It installs and verifies the
    pinned gitleaks, builds the skills and prints the deploy-skills dry-run command. It never
    changes a live root, and the repository installs no Git hooks.
-7. **Config and profiles.**
+8. **Config and profiles.**
    - `config-pull` and `config-push` run as dry runs unless `-Apply` is given.
    - `config-pull -Apply` overwrites home config: `~/.claude`, `~/.codex`, and `%APPDATA%\reasonix`
      with `-Platform Reasonix`. It needs the owner's authorization after a review of the dry-run
@@ -84,9 +87,8 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
   Deployment works one skill directory at a time, and unknown live directories are preserved.
 - Never weaken, bypass, or whitelist `scripts/scan-secrets.ps1` or `.gitleaks.toml` without
   explicit user approval.
-- Never commit any of the following: generated output, `imports/` and `reports/` contents (other
-  than their README placeholders), backups, deploy state, live home files, or machine-private
-  files.
+- Never commit any of the following: generated output, `imports/` or `reports/` contents,
+  backups, deploy state, live home files, or machine-private files.
 - Never commit a `config-push` capture until a human has reviewed its `git diff`. The secret scan
   blocks tokens, not machine-private paths or personal content.
 - Never put plaintext secrets, tokens, account info, machine names or machine-private paths in
@@ -98,9 +100,6 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
 
 - **Local checks.**
   - Every change needs `git diff --check` and `scan-secrets.ps1`.
-  - Changes to this file, `CLAUDE.md`, `README.md`, `STATUS.md` or the `docs/` guides also need
-    `tests/repository-policy.tests.ps1`, `tests/doctor.tests.ps1` and
-    `tests/guide-examples.tests.ps1`.
   - Skill changes also need `build-skills.ps1`.
   - Script changes also need `check-powershell-syntax.ps1`, the affected suites (run each with
     `pwsh -NoProfile -File tests/<suite>.tests.ps1`) and, before merging, a full
@@ -114,15 +113,9 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
   runner or a download failed, rerun without changing code. Rerun the same commit once to test
   for a flake; if it fails again, fix the test or its fixture. Never delete or weaken a suite,
   gate, timeout budget or the secret scan to get a green run.
-- **Pinned phrases.** The tests above check the entry and guide files:
-  - `tests/repository-policy.tests.ps1` pins phrases in this file, `CLAUDE.md` (the import),
-    `README.md` and `docs/README.md`.
-  - `tests/doctor.tests.ps1` requires `STATUS.md` and the guides to mention Reasonix, and never to
-    describe hooks or bootstrap as applying live changes.
-  - `tests/guide-examples.tests.ps1` requires each of the six guides, including `CLAUDE.md` and
-    `docs/ZCODE.md`, to keep at least one valid `powershell` block.
-
-  Change the wording and its pins in the same commit.
+- **Docs are not pinned.** No test checks documentation wording; keep the docs accurate by
+  review. `tests/repository-policy.tests.ps1` checks working guard rails only (`CLAUDE.md`
+  imports `AGENTS.md`, ignore rules, scan exclusions, `.claude/settings.json` denies).
 
 ## harness-model feedback loop (ZCode pilot)
 

@@ -2,7 +2,7 @@
 
 面向"未来的我"和"接手的 Claude Code / Codex agent"。看完这份手册即可独立维护本项目。
 
-全局状态见 [STATUS.md](../STATUS.md)；新电脑接入见 [ONBOARD_NEW_MACHINE.md](ONBOARD_NEW_MACHINE.md)；skills 导入与合并规则见 [MERGE_POLICY.md](MERGE_POLICY.md)；当前局部任务见 [status/active/](../status/active/)；历史状态见 [status/archived/](../status/archived/)；已删除的代码与文档见 [HISTORY.md](HISTORY.md)。
+全局状态见 [STATUS.md](../STATUS.md)；新电脑接入见 [ONBOARD_NEW_MACHINE.md](ONBOARD_NEW_MACHINE.md)；当前局部任务见 [status/active/](../status/active/)；已删除的代码、文档与历史状态记录见 [HISTORY.md](HISTORY.md)。
 
 ---
 
@@ -34,7 +34,6 @@
 ### 不会部署
 - Codex `~/.codex/skills/.system`（平台内置，永远保留）
 - live 根下 deploy-skills 从未部署过的目录（unknown，只报告）
-- `imports/`（原始导入、归档、隔离）
 - 部署状态与备份（在 repo 外，`%LOCALAPPDATA%\ai-agent-dotfiles.deploy`）
 - generated output 不进 Git
 - 机器私有配置、API keys / tokens / secrets、临时日志
@@ -47,7 +46,7 @@
 |---|---|
 | `bootstrap.ps1` | 新 clone 的一次性入口：安装并校验 pinned gitleaks、build skills、打印 deploy-skills dry-run 命令；不写 live |
 | `STATUS.md` | 唯一全局状态文件，直接更新，不重复新建总体状态报告 |
-| `status/active/`、`status/archived/` | 当前局部任务记录与历史记录 |
+| `status/active/` | 进行中任务的记录；完成后把结论写进 `STATUS.md` 并删除记录（历史见 [HISTORY.md](HISTORY.md)） |
 | `.claude/settings.json` | 项目级 harness 护栏（deny 编辑生成物/`.system`、禁 robocopy；allow build-skills 与 scan-secrets） |
 | `skills-source/` | **唯一可信源**，手工维护的 skill 树（`shared/`、`claude-only/`、`codex-only/`、`reasonix-only/`） |
 | `claude/skills/`、`codex/skills/`、`reasonix/skills/` | **生成物**，Git-ignored，勿手改 |
@@ -62,10 +61,9 @@
 | `scripts/deploy-skills.ps1` | 按环境部署 skills 到三个 live 根，默认 dry-run，见 §4 |
 | `scripts/config-status.ps1` / `config-pull.ps1` / `config-push.ps1` | harness 配置同步，见 §14 |
 | `scripts/status-/build-/apply-harness-profile.ps1` | Project Harness Profiles，见 §15 |
-| `scripts/inventory-/analyze-/dedupe-skills.ps1`、`promote-skill.ps1`、`normalize-skill.ps1`、`auto-merge-skills.ps1` | skills 导入与合并工具，见 [MERGE_POLICY.md](MERGE_POLICY.md) |
+| `scripts/promote-skill.ps1` | 把一个审查过的 skill 目录放进 `skills-source/`，默认 dry-run，见 §6 |
 | `scripts/doctor.ps1` | 只读健康检查 |
 | `scripts/agent-dotfiles.ps1` | 统一 CLI，见 §17 |
-| `imports/skills-inbox/`、`skills-archive/`、`skills-quarantine/`、`skills-reports/` | 导入暂存、归档、隔离与报告；内容不提交 |
 
 ---
 
@@ -130,9 +128,20 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 
 - 跨平台：`skills-source/shared/<skill-name>/`
 - 单平台：`skills-source/claude-only/`、`codex-only/` 或 `reasonix-only/` 下的 `<skill-name>/`
-- 每个 skill 至少要有 `SKILL.md`。
-- 若来自其它电脑或 inbox，先按 [MERGE_POLICY.md](MERGE_POLICY.md) 审计：是否重复、是否含 secrets、
-  是否含机器私有路径（如 `C:\Users\<name>`）、该归哪个平台目录。
+- 每个 skill 至少要有 `SKILL.md`，不能含符号链接或 junction；`.system` 永远不是合法名称。
+- 放进来之前先审查：不重复、不含 secrets / tokens、不含机器私有路径（如 `C:\Users\<name>`）、
+  不含缓存或运行时状态，并确定该归哪个平台目录。
+- 可以手工复制，也可以用 `promote-skill.ps1`（先 dry-run，确认后加 `-Apply`，会自动 build 并扫描）：
+
+  ```powershell
+  pwsh -NoProfile -File scripts/promote-skill.ps1 -Path <dir> -Name <name> -Type shared
+  pwsh -NoProfile -File scripts/promote-skill.ps1 -Path <dir> -Name <name> -Type shared -Apply
+  ```
+
+  同名 skill 已存在时会拒绝；`-Replace` 只替换同一类型，并先把旧版本移到
+  `tmp/skill-backups/<时间戳>/`。build 或扫描失败时文件留在工作区等待审查，用 Git 回退。
+- `MERGE_NOTES.md`、`CREATION-LOG.md` 和 `*.magina-laptop.*` 可以留在 `skills-source/`，
+  build 会从生成物里剔除它们。
 - manifest 由 `build-skills.ps1` 自动刷新（名单来自源目录），不要手改。
 - build 后确认各平台 `Built ... skills: N` 数量变化符合预期。
 - 要部署到本机，把名称加入相应环境（§16），再走 §4。
@@ -142,7 +151,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 ## 7. 不能做的事情
 
 - 不要手动编辑 generated output（`claude/skills/`、`codex/skills/`、`reasonix/skills/`）。
-- 不要提交 generated output、`imports/` 内容、备份、部署状态或 live home 目录。
+- 不要提交 generated output、备份、部署状态或 live home 目录。
 - 不要删除 `~/.codex/skills/.system`。
 - 不要对 live skills 根用整目录 `robocopy /MIR` 或任何 mirror。
 - 不要手工复制进或删除 live 根下的目录（§9 的授权恢复除外）。
@@ -155,7 +164,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 
 - `.system` 是 Codex CLI **平台内置目录**（标记文件 `.codex-system-skills.marker`）。
 - 含平台能力：`imagegen`、`openai-docs`、`plugin-creator`、`skill-creator`、`skill-installer`。
-- deploy-skills、build、inventory 都**永远跳过**它（不读取内容、不更新、不删除、不备份）。
+- deploy-skills 与 build 都**永远跳过**它（不读取内容、不更新、不删除、不备份）。
 - doctor 只检查它的根条目，不遍历内容。
 - 它**不属于** repo-managed skill；删除它可能破坏 Codex 原生能力。
 
@@ -203,7 +212,8 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
 ## 11. 当前状态
 
 - 全局状态、managed counts、机器部署情况、风险和下一步统一维护在 [STATUS.md](../STATUS.md)。
-- 当前局部任务只放在 [status/active/](../status/active/)；任务完成后移动到 [status/archived/](../status/archived/)。
+- 当前局部任务只放在 [status/active/](../status/active/)；任务完成后把结论写进 `STATUS.md`，
+  再删除记录（Git 保留历史）。
 
 ---
 
@@ -339,11 +349,10 @@ env list                     列出 harness-source/envs/*.psd1
 env deploy <name>            -> scripts/deploy-skills.ps1 -Environment <name>
 config status | pull | push
 profile status | build | apply
-skills inventory | analyze | dedupe | merge | normalize | promote
-inventory | analyze | merge  （skills 命令的顶层别名）
+skills promote               -> scripts/promote-skill.ps1
 ```
 
-只读命令：`doctor`、`scan`、`env list`、`config status`、`profile status`、`skills inventory`、
-`skills analyze`、`skills dedupe`。`build` 与 `profile build` 只生成可重建输出。
-会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
-`profile apply`、`skills merge/normalize/promote`）默认 dry-run，统一入口不会自动补 `-Apply`。
+只读命令：`doctor`、`scan`、`env list`、`config status`、`profile status`。`build` 与
+`profile build` 只生成可重建输出。会写 live home、`skills-source/` 或项目目标的命令（`sync`、
+`env deploy`、`config pull/push`、`profile apply`、`skills promote`）要求显式 `-DryRun` 或
+`-Apply`，统一入口不会自动补 `-Apply`。

@@ -41,5 +41,28 @@ git show bd46b85:docs/superpowers/specs/2026-08-09-live-safety-hardening-design.
 git ls-tree -r --name-only bd46b85 -- docs/superpowers docs/specs docs/archive
 ```
 
-Dated status logs live in [`status/archived/`](../status/archived/). Archived records may link
-to files that no longer exist; read those files at the commits above.
+## Dated status journals and task records (removed 2026-10-10)
+
+The dated status journals and finished task records under `status/archived/` (about 1 MB, mostly
+about the removed transactional engine) were removed on 2026-10-10. The last commit that still
+has them is `3341ec9`. They may link to files that no longer exist; read those files at the
+commits above.
+
+```powershell
+git ls-tree -r --name-only 3341ec9 -- status/archived
+git show 3341ec9:status/archived/2026-10-08-status-history.md
+```
+
+## Skills import and merge pipeline (removed 2026-10-10)
+
+The import pipeline (`imports/` inbox, archive, quarantine and reports; `inventory-`, `analyze-`,
+`dedupe-skills.ps1`, `auto-merge-skills.ps1`, `normalize-skill.ps1`, `skill-candidate-common.ps1`
+and `docs/MERGE_POLICY.md`) was replaced by the small `scripts/promote-skill.ps1` on 2026-10-10,
+together with the build run reports (`report-common.ps1`, `reports/README.md`) and the guide
+code-block checker (`check-guide-examples.ps1`). The last commit that still has them is
+`3341ec9`.
+
+```powershell
+git show 3341ec9:docs/MERGE_POLICY.md
+git show 3341ec9:scripts/auto-merge-skills.ps1
+```

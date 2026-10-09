@@ -3,9 +3,9 @@
 Last updated: 2026-10-10.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
-lines in place. Put dated task logs and evidence in `status/active/<task>.md`, and move finished
-records to [`status/archived/`](status/archived/). Before trusting a commit or CI run named here,
-check `git log` and the latest GitHub Actions run.
+lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
+done, record its outcome here and delete the record (Git keeps it). Before trusting a commit or
+CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
@@ -13,9 +13,15 @@ check `git log` and the latest GitHub Actions run.
   Reasonix generated roots. `scripts/deploy-skills.ps1 -Environment <name>` deploys one
   environment's selection to the three live roots: dry run unless `-Apply`, prune only what it
   deployed before or what `-Retire` names, unknown directories and Codex `.system` untouched,
-  backups and deploy state under `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`. Config-sync, project
-  harness profiles, the skills import/merge tools and doctor are unchanged. Every live Apply
-  needs the owner's explicit authorization.
+  backups and deploy state under `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`. Skills are added to
+  `skills-source/` by hand or with `scripts/promote-skill.ps1`. Config-sync and project harness
+  profiles keep their behavior. Every live Apply needs the owner's explicit authorization.
+- **Second simplification (2026-10-10).** Removed the skills import/merge pipeline (replaced by
+  `promote-skill.ps1`), the documentation-wording pins and the guide code-block checker, the
+  build run reports, and the dated status journals (all in Git history). doctor now checks only
+  the current product. Project harness profiles were reimplemented (1656 -> 741 script lines)
+  with byte-identical results for this repo's profile and a copy of PINN-tFORM's; apply now
+  honors a component's declared `Source`, and plan.json is byte-stable.
 - **Engine removal (merged to `main` 2026-10-10).** The transactional live-sync engine is gone:
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
@@ -41,6 +47,10 @@ check `git log` and the latest GitHub Actions run.
 1. **Owner:** name any further machine before onboarding starts.
 2. **Owner:** adopt, defer or drop the post-release packages F1 (CI evidence persistence),
    F2 (config pull/push boundary), F3 (platform capability registry) and F4 (module dedup).
+3. **Owner:** decide whether to keep the ZCode pilot ([docs/ZCODE.md](docs/ZCODE.md)).
+4. **Owner (PINN-tFORM):** its `.agent-harness/profile.psd1` still has `McpTemplates = @()`, a key
+   rejected since the MCP retirement, so profile status/build/apply fail there. Delete that line
+   in PINN-tFORM to use profiles again.
 5. **Owner, low priority:**
    - Which commit carries the privacy-rewrite content.
    - Other clones should re-clone or rebase instead of merging the old history.
@@ -85,9 +95,6 @@ check `git log` and the latest GitHub Actions run.
 
 ## History
 
-- Dated journal through 2026-10-08:
-  [status/archived/2026-10-08-status-history.md](status/archived/2026-10-08-status-history.md).
-- Live-safety evidence and handoff lists:
-  [status/archived/2026-10-08-live-safety-hardening.md](status/archived/2026-10-08-live-safety-hardening.md).
-- ZCode feedback-loop runs: [status/archived/2026-10-09-zcode-feedback-loop-history.md](status/archived/2026-10-09-zcode-feedback-loop-history.md).
-- Removed engine, design and plan docs: [docs/HISTORY.md](docs/HISTORY.md).
+- The dated status journal, the live-safety record, the ZCode feedback-loop runs, the removed
+  engine, the import/merge pipeline and the old design and plan docs are all in Git history;
+  [docs/HISTORY.md](docs/HISTORY.md) names the commits and how to read them.

@@ -65,9 +65,8 @@ repository; restoring is described in [docs/README.md §9](docs/README.md#9-备�
 - [docs/README.md](docs/README.md): the usage manual, covering scope, layout, deployment,
   restore, config-sync, profiles, environments and the unified CLI.
 - [docs/ONBOARD_NEW_MACHINE.md](docs/ONBOARD_NEW_MACHINE.md): setting up a Windows machine.
-- [docs/MERGE_POLICY.md](docs/MERGE_POLICY.md): importing and merging skills from other machines.
 - [docs/ZCODE.md](docs/ZCODE.md): maintaining this repository with ZCode.
 - [STATUS.md](STATUS.md): current state and open items.
-- [status/active/](status/active/) and [status/archived/](status/archived/): task records and history.
-- [docs/HISTORY.md](docs/HISTORY.md): where removed code and docs live in Git history.
+- [status/active/](status/active/): records of tasks in progress.
+- [docs/HISTORY.md](docs/HISTORY.md): where removed code, docs and status history live in Git.
 - [AGENTS.md](AGENTS.md): rules for coding agents. `CLAUDE.md` imports it.
