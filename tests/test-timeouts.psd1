@@ -19,6 +19,7 @@
         'canonical-transaction-apply.tests.ps1' = 1800
         'canonical-transaction.tests.ps1' = 360
         'config-sync.tests.ps1' = 90
+        'deploy-skills.tests.ps1' = 120
         'doctor.tests.ps1' = 60
         'guide-examples.tests.ps1' = 60
         'home-authority.tests.ps1' = 180

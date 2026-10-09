@@ -110,6 +110,27 @@
 
 ## 4. 日常同步流程
 
+### 简单部署：`deploy-skills.ps1`（替换事务式引擎中）
+
+2026-10-09 起新增 `scripts/deploy-skills.ps1`，用来取代下面的事务式 sync/env/authority 路径。
+它按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单，逐个 skill 目录部署到三个 live 根：
+
+- 先跑 `build-skills.ps1` 与 `scan-secrets.ps1`，任一失败即停止。
+- 逐目录给出 `install`、`update`、`unchanged`、`prune` 或 `unknown`。不带 `-Apply` 时只打印计划。
+- `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 显式点名的目录（`-Retire` 对三个平台同时生效，先看 dry-run）。
+- 未知目录只报告不碰；Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
+- `update` 和 `prune` 之前，先把旧目录复制到 `%LOCALAPPDATA%\ai-agent-dotfiles\skill-backups\<时间戳>`。
+- 已部署集合记录在机器私有的 `%LOCALAPPDATA%\ai-agent-dotfiles\deployed-skills.json`。没有这个文件时，首次运行不会清理任何目录。
+
+```powershell
+pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
+pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Apply
+pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-skill> -Apply
+```
+
+`-Apply` 会写真实 home，执行前须获得所有者授权。切换完成之前，下文的事务式路径仍然保留；
+切换完成后，旧引擎及其测试、schema 和文档将整体删除。
+
 Git 出于安全原因不会在 `git clone` 时执行仓库里的 hook。每个新 clone 的固定入口是：
 
 ```powershell

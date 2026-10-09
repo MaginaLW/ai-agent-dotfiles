@@ -51,9 +51,11 @@ Before acting, read the [docs/README.md](docs/README.md) section for the area yo
 2. **Generated output.** Never edit generated output directly: `claude/skills/`, `codex/skills/`,
    `reasonix/skills/`, `envs/` and `.agent-harness/generated/`. Regenerate it with
    `build-skills.ps1`, `build-harness-env.ps1` or `build-harness-profile.ps1`.
-3. **Managed routes only.** Change live roots only through `sync.ps1` or the `agent-dotfiles.ps1`
-   `env`, `canonical` and `live recover` routes. Never copy into or delete from a live root by
-   hand, and never hand-copy `envs/` staging into a home directory.
+3. **Managed routes only.** Change live roots only through `deploy-skills.ps1`, `sync.ps1` or the
+   `agent-dotfiles.ps1` `env`, `canonical` and `live recover` routes. Never copy into or delete
+   from a live root by hand, and never hand-copy `envs/` staging into a home directory.
+   `deploy-skills.ps1` is the simple replacement for the transactional routes. It has no plan
+   file: review its dry-run output, then rerun with `-Apply` only after the owner authorizes it.
 4. **Plan-bound changes.** Every plan-bound live command runs in two steps. These commands are
    sync, env activate/rollback/task/authority, canonical setup/recover and live recover. First run
    `-DryRun -PlanPath <new external file>` and review the plan. Then run

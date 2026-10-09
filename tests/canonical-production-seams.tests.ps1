@@ -722,8 +722,13 @@ $reviewedAllScriptsDynamicCommandDigest='34b9d0b3a14c258b672d3ae3d7ad9665319bb3d
 # and the loop prelude's parsedFile Relative/Ast). Row-reviewed with the seams-delta tool;
 # REMOVED 0, dynamic-command count 194 and digest unchanged, no alias, shadow, or new
 # reflection type.
-$reviewedAllScriptsReflectionSensitiveSiteCount=17098
-$reviewedAllScriptsReflectionSensitiveDigest='7fdc7244f76cde1208bb590649531b6a1105bc6e7bf7d2fbbe9c727109653c47'
+# Re-pinned 2026-10-09 for the new scripts/deploy-skills.ps1 (simple manifest-scoped deploy that
+# replaces the transactional engine): +54 rows, all in that one new file (Member/InvokeMember
+# reads such as Name/Attributes/FullName/Hash/Keys, [IO.Path]/[Environment]/[guid] static calls
+# and pipeline command sites). No other scripts/ file changed; the dynamic-command digest is
+# unchanged, with no alias, shadow, Add-Type, Invoke-Expression or new runtime type.
+$reviewedAllScriptsReflectionSensitiveSiteCount=17152
+$reviewedAllScriptsReflectionSensitiveDigest='149b08a69eedcc2eefd5a5275b8a95516d88d995ba6761833330a266aaf6703c'
 $reviewedStaticCommandAliasMap=@{
     '%'='ForEach-Object';'?'='Where-Object';compare='Compare-Object';diff='Compare-Object'
     fc='Format-Custom';fl='Format-List';foreach='ForEach-Object';ft='Format-Table';fw='Format-Wide'

@@ -85,6 +85,7 @@
         'canonical-command-result.tests.ps1'       # 1800
         'canonical-production-seams.tests.ps1'     # 600
         'config-sync.tests.ps1'                    # 90
+        'deploy-skills.tests.ps1'                  # 120
         'doctor.tests.ps1'                         # 60
         'harness-authority.tests.ps1'              # 1500
         'harness-env.tests.ps1'                    # 1200

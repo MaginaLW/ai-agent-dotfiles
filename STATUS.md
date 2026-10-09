@@ -64,8 +64,13 @@ The [2026-10-07 handoff list](status/archived/2026-10-08-live-safety-hardening.m
    plans and runner approval.
 2. **Owner:** decide the over-engineering cleanup. The global entry files were slimmed and the docs/status
    history was pruned on 2026-10-09. CI was split the same day (fast suites per push,
-   full suite nightly). Still open: whether to replace the transactional live-sync engine with a
-   simpler manifest-scoped copy.
+   full suite nightly). The owner approved replacing the transactional live-sync engine. Its
+   simple replacement `scripts/deploy-skills.ps1` landed the same day with fake-home tests, but
+   it has not yet run against a real home. Next steps:
+   - **Cutover on the first onboarded machine.** Run a real dry run, then Apply with owner
+     authorization.
+   - **Engine removal.** After the cutover, delete the transactional engine, its hooks/runner,
+     tests, schemas and docs, and retire this machine's old control/backup/claim state.
 3. **Owner:** adopt, defer or drop the post-release packages F1 (CI evidence persistence),
    F2 (config pull/push boundary), F3 (platform capability registry) and F4 (module dedup).
 4. **Owner, low priority:**
