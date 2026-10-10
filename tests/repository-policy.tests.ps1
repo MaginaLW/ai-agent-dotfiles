@@ -37,7 +37,7 @@ $claudeText = Read-RepoText 'CLAUDE.md'
 $claudeOutsideFences = $claudeText -replace '(?ms)^(```|~~~).*?^\1[ \t]*\r?$', ''
 Assert-TestCondition ($claudeOutsideFences -cmatch '(?m)^@AGENTS\.md[ \t]*\r?$') 'CLAUDE.md imports AGENTS.md on its own line outside code fences'
 
-foreach ($manifest in @('manifests/managed-skills.claude.txt', 'manifests/managed-skills.codex.txt', 'manifests/managed-skills.reasonix.txt', 'manifests/managed-skills.txt')) {
+foreach ($manifest in @('manifests/managed-skills.claude.txt', 'manifests/managed-skills.codex.txt', 'manifests/managed-skills.reasonix.txt')) {
     Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot $manifest) -PathType Leaf) "the per-platform manifest $manifest exists"
 }
 

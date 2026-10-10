@@ -75,24 +75,6 @@
         ExcludedItems = @('config.toml', '.env', 'credentials', 'sessions', 'state', 'projects', 'stats', 'repair', 'crash-fatal', 'install-id', 'metrics-pending.json', 'desktop-*', 'global', 'global-workspace', 'commands', 'skills')
     }
 
-    Skills = @{
-        SourceRoot = 'skills-source'
-        SharedSource = 'skills-source/shared'
-        ClaudeOnlySource = 'skills-source/claude-only'
-        CodexOnlySource = 'skills-source/codex-only'
-        ReasonixOnlySource = 'skills-source/reasonix-only'
-        GeneratedClaude = 'claude/skills'
-        GeneratedCodex = 'codex/skills'
-        GeneratedReasonix = 'reasonix/skills'
-        InstallClaudeHomeRelative = '.claude/skills'
-        InstallCodexHomeRelative = '.agents/skills'
-        InstallReasonixHomeRelative = 'AppData/Roaming/reasonix/skills'
-        ManagedSkillsManifest = 'manifests/managed-skills.txt'
-        ManagedSkillsClaudeManifest = 'manifests/managed-skills.claude.txt'
-        ManagedSkillsCodexManifest = 'manifests/managed-skills.codex.txt'
-        ManagedSkillsReasonixManifest = 'manifests/managed-skills.reasonix.txt'
-    }
-
     CommonExcludedItems = @(
         '.env'
         '.env.*'

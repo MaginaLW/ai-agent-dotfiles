@@ -16,6 +16,9 @@ claude/skills/
 codex/skills/
 reasonix/skills/
 
+# Claude Code agent worktrees (machine-local checkouts).
+/.claude/worktrees/
+
 # Claude runtime and machine-local files.
 claude/**/*.local.json
 claude/projects/

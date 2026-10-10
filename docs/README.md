@@ -37,7 +37,7 @@
 | `.claude/settings.json` | 项目级 harness 护栏，见 [CLAUDE.md](../CLAUDE.md) |
 | `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`、`reasonix-only/`） |
 | `claude/skills/`、`codex/skills/`、`reasonix/skills/` | 生成物，Git-ignored，勿手改 |
-| `manifests/managed-skills*.txt` | 每平台受管名单与三平台 union，由 build 刷新，勿手改 |
+| `manifests/managed-skills.<platform>.txt` | 每平台受管名单，由 build 刷新，勿手改 |
 | `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§14） |
 | `harness-source/` | 环境定义 `envs/`（§16）与 profile/component 源（§15） |
 | `.agent-harness/generated/` | 项目本地 profile 生成物，Git-ignored，可重建 |

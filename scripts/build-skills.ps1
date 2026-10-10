@@ -95,7 +95,6 @@ if ($crossPlatformConflicts.Count -gt 0) {
 $claudeSet = @($sharedNames + $claudeOnlyNames | Sort-Object -Unique)
 $codexSet = @($sharedNames + $codexOnlyNames | Sort-Object -Unique)
 $reasonixSet = @($sharedNames + $reasonixOnlyNames | Sort-Object -Unique)
-$unionSet = @($claudeSet + $codexSet + $reasonixSet | Sort-Object -Unique)
 
 foreach ($target in @($ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot)) {
     if (Test-Path -LiteralPath $target) {
@@ -117,8 +116,6 @@ foreach ($skill in $reasonixOnlySkills) { Copy-SkillDirectory -Source $skill -De
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.claude.txt') -Names $claudeSet
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.codex.txt') -Names $codexSet
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.reasonix.txt') -Names $reasonixSet
-Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.txt') -Names $unionSet
-
 $builtClaudeSkills = @(Get-SkillDirectories -RootPath $ClaudeOutputRoot)
 $builtCodexSkills = @(Get-SkillDirectories -RootPath $CodexOutputRoot)
 $builtReasonixSkills = @(Get-SkillDirectories -RootPath $ReasonixOutputRoot)
