@@ -3,8 +3,6 @@
     Id = 'project-guards'
     Kind = 'ClaudeSettings'
     TargetPlatforms = @('Claude')
-    Requires = @()
-    Conflicts = @()
     Outputs = @(
         @{
             Target = '.claude/settings.json'

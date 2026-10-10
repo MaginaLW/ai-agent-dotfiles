@@ -83,6 +83,12 @@ function Escape-Psd1String {
     return ($Value -replace "'", "''")
 }
 
+function Join-Psd1Array([string[]] $Values) {
+    return '@(' + (($Values | ForEach-Object { "'" + (Escape-Psd1String $_) + "'" }) -join ', ') + ')'
+}
+
+# Writes only the Components buckets that are given; a profile without any bucket has no
+# Components key at all.
 function New-ProjectProfileText {
     param(
         [string[]] $TargetPlatforms = @('Claude', 'Codex'),
@@ -90,33 +96,25 @@ function New-ProjectProfileText {
         [string[]] $Rules = @(),
         [string[]] $Prompts = @(),
         [string[]] $Commands = @(),
+        [string[]] $Agents = @(),
         [string[]] $ClaudeSettings = @(),
-        [string] $ExtraComponentLine = ''
+        [string[]] $CodexAgents = @(),
+        [string] $ExtraComponentLine = '',
+        [string] $ExtraLine = ''
     )
 
-    function Join-Psd1Array([string[]] $Values) {
-        if ($Values.Count -eq 0) { return '@()' }
-        return '@(' + (($Values | ForEach-Object { "'" + (Escape-Psd1String $_) + "'" }) -join ', ') + ')'
-    }
-
+    $buckets = [ordered] @{ Rules = $Rules; Prompts = $Prompts; Commands = $Commands; Agents = $Agents; ClaudeSettings = $ClaudeSettings; CodexAgents = $CodexAgents }
+    $lines = @(foreach ($bucket in $buckets.Keys) {
+            if ($buckets[$bucket].Count -gt 0) { "        $bucket = $(Join-Psd1Array $buckets[$bucket])" }
+        }) + @($ExtraComponentLine | Where-Object { $_ })
+    $components = if ($lines.Count -gt 0) { "    Components = @{`n$($lines -join "`n")`n    }`n" } else { '' }
     return @"
 @{
     SchemaVersion = 1
     Name = 'harness-profile-test'
     TargetPlatforms = $(Join-Psd1Array $TargetPlatforms)
     Extends = $(Join-Psd1Array $Extends)
-    Components = @{
-        Rules = $(Join-Psd1Array $Rules)
-        Prompts = $(Join-Psd1Array $Prompts)
-        Commands = $(Join-Psd1Array $Commands)
-        Agents = @()
-        ClaudeSettings = $(Join-Psd1Array $ClaudeSettings)
-        CodexAgents = @()
-$ExtraComponentLine
-    }
-    Future = @{
-        ProjectSkills = @()
-    }
+$components$ExtraLine
 }
 "@
 }
@@ -140,8 +138,6 @@ function Add-Component {
         [Parameter(Mandatory)] [string] $Id,
         [string] $Kind = 'Rule',
         [string[]] $TargetPlatforms = @('Claude', 'Codex'),
-        [string[]] $Requires = @(),
-        [string[]] $Conflicts = @(),
         [Parameter(Mandatory)] [string] $Target,
         [Parameter(Mandatory)] [string] $Mode,
         [string] $BlockId,
@@ -158,9 +154,7 @@ function Add-Component {
     SchemaVersion = 1
     Id = '$(Escape-Psd1String $Id)'
     Kind = '$(Escape-Psd1String $Kind)'
-    TargetPlatforms = @($(($TargetPlatforms | ForEach-Object { "'" + (Escape-Psd1String $_) + "'" }) -join ', '))
-    Requires = @($(($Requires | ForEach-Object { "'" + (Escape-Psd1String $_) + "'" }) -join ', '))
-    Conflicts = @($(($Conflicts | ForEach-Object { "'" + (Escape-Psd1String $_) + "'" }) -join ', '))
+    TargetPlatforms = $(Join-Psd1Array $TargetPlatforms)
     Outputs = @(
         @{
             Target = '$(Escape-Psd1String $Target)'
@@ -418,6 +412,47 @@ $written = Join-Path $project '.claude/commands/named.md'
 Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath $written) -and ((Get-Content -Raw -LiteralPath $written) -ceq "Named source body.`n")) 'DirectoryFiles: apply writes the declared Source file'
 
 # ===========================================================================
+Write-Host "`n[Claude and Codex directory outputs]" -ForegroundColor Cyan
+# ===========================================================================
+# The project extends a library profile that extends base and selects one DirectoryFiles
+# component of every Kind, Claude-only and Codex-only.
+$platformRepo = New-TestHarnessRepo -Name 'platform-repo'
+Add-Component -HarnessRepo $platformRepo -Path 'agents/claude-reviewer' -Id 'claude-reviewer' -Kind 'ClaudeAgent' -TargetPlatforms @('Claude') -Target '.claude/agents/reviewer.md' -Mode 'DirectoryFiles' -Content "Claude reviewer.`n"
+Add-Component -HarnessRepo $platformRepo -Path 'codex-prompts/review-prompt' -Id 'review-prompt' -Kind 'CodexPrompt' -TargetPlatforms @('Codex') -Target '.codex/prompts/review.md' -Mode 'DirectoryFiles' -Content "Codex review prompt.`n"
+Add-Component -HarnessRepo $platformRepo -Path 'codex-agents/reviewer' -Id 'codex-reviewer' -Kind 'CodexAgent' -TargetPlatforms @('Codex') -Target '.codex/agents/reviewer.md' -Mode 'DirectoryFiles' -Content "Codex reviewer.`n"
+Set-File -Path (Join-Path $platformRepo 'harness-source/profiles/reviewers.psd1') -Content (New-ProjectProfileText -Extends @('base') -Commands @('command-helper') -Agents @('claude-reviewer') -CodexAgents @('review-prompt', 'codex-reviewer'))
+$platformProfile = New-ProjectProfileText -Extends @('reviewers')
+$directoryTargets = @('.claude/commands/harness-helper.md', '.claude/agents/reviewer.md', '.codex/prompts/review.md', '.codex/agents/reviewer.md')
+
+$project = New-TestProject -Name 'platform-build-project' -ProfileText $platformProfile
+$r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project)
+$generated = Join-Path $project '.agent-harness/generated'
+Assert ($r.Code -eq 0) 'directory outputs: build exits successfully'
+Assert (@($directoryTargets | Where-Object { -not (Test-Path -LiteralPath (Join-Path $generated "files/$_") -PathType Leaf) }).Count -eq 0) 'directory outputs: build emits every target under files/'
+$plan = Get-Content -Raw -LiteralPath (Join-Path $generated 'plan.json') | ConvertFrom-Json
+Assert ((@($plan.resolvedProfiles.name) -join ',') -eq 'base,reviewers') 'directory outputs: Extends resolves parent-first'
+Assert ((@($plan.componentIds) -join ',') -eq 'command-helper,claude-reviewer,review-prompt,codex-reviewer') 'directory outputs: component ids follow bucket order'
+
+$project = New-TestProject -Name 'platform-apply-project' -ProfileText $platformProfile
+$r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project, '-Apply')
+Assert ($r.Code -eq 0) 'directory outputs: apply exits successfully'
+Assert (@($directoryTargets | Where-Object { -not (Test-Path -LiteralPath (Join-Path $project $_) -PathType Leaf) }).Count -eq 0) 'directory outputs: apply writes every target'
+Assert (@(Get-ChildItem -LiteralPath (Join-Path $project '.agent-harness/backups') -Filter 'manifest.json' -File -Recurse -ErrorAction SilentlyContinue).Count -eq 1) 'directory outputs: apply writes a project-local backup manifest'
+$r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project, '-Json')
+$status = $r.Out | ConvertFrom-Json
+Assert ($r.Code -eq 0 -and @($status.Targets).Count -eq 4 -and @($status.Targets | Where-Object Action -NE 'noop').Count -eq 0) 'directory outputs: status after apply reports no-op'
+
+# A directory in place of the last target makes its write fail after the first three.
+$project = New-TestProject -Name 'platform-rollback-project' -ProfileText $platformProfile
+New-Item -ItemType Directory -Path (Join-Path $project '.codex/agents/reviewer.md') -Force | Out-Null
+$r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project, '-Apply')
+Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback for 3 changed file') 'rollback: failed apply is reported'
+Assert (@($directoryTargets[0..2] | Where-Object { Test-Path -LiteralPath (Join-Path $project $_) }).Count -eq 0) 'rollback: earlier writes are removed'
+
+$project = New-TestProject -Name 'platform-mismatch-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Codex') -Agents @('claude-reviewer'))
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project) } -Pattern 'does not support any selected target platform' -Message 'validation: component without a selected target platform fails'
+
+# ===========================================================================
 Write-Host "`n[validation failures]" -ForegroundColor Cyan
 # ===========================================================================
 $dupeRepo = New-TestHarnessRepo -Name 'duplicate-repo'
@@ -425,16 +460,19 @@ Add-Component -HarnessRepo $dupeRepo -Path 'rules/duplicate-safe-file-edits' -Id
 $project = New-TestProject -Name 'duplicate-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits'))
 Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $dupeRepo, '-ProjectRoot', $project) } -Pattern 'Duplicate harness component' -Message 'validation: duplicate component IDs fail'
 
-$requiresRepo = New-TestHarnessRepo -Name 'requires-repo'
-Add-Component -HarnessRepo $requiresRepo -Path 'rules/needs-helper' -Id 'needs-helper' -Kind 'Rule' -Requires @('missing-helper') -Target 'AGENTS.md' -Mode 'ManagedBlock' -Content 'needs helper'
-$project = New-TestProject -Name 'requires-project' -ProfileText (New-ProjectProfileText -Rules @('needs-helper'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $requiresRepo, '-ProjectRoot', $project) } -Pattern 'requires' -Message 'validation: Requires are enforced'
+$project = New-TestProject -Name 'unknown-key-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits') -ExtraLine '    Future = @{ ProjectSkills = @() }')
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key 'Future'" -Message 'validation: unknown top-level profile key is rejected'
 
-$conflictRepo = New-TestHarnessRepo -Name 'conflict-repo'
-Add-Component -HarnessRepo $conflictRepo -Path 'rules/left' -Id 'left' -Kind 'Rule' -Conflicts @('right') -Target 'AGENTS.md' -Mode 'ManagedBlock' -Content 'left'
-Add-Component -HarnessRepo $conflictRepo -Path 'rules/right' -Id 'right' -Kind 'Rule' -Target 'AGENTS.md' -Mode 'ManagedBlock' -Content 'right'
-$project = New-TestProject -Name 'conflict-project' -ProfileText (New-ProjectProfileText -Rules @('left', 'right'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $conflictRepo, '-ProjectRoot', $project) } -Pattern 'conflicts' -Message 'validation: Conflicts are enforced'
+$componentKeyRepo = New-TestHarnessRepo -Name 'component-key-repo'
+$keyComponent = Join-Path $componentKeyRepo 'harness-source/components/rules/safe-file-edits/component.psd1'
+Set-File -Path $keyComponent -Content ((Get-Content -Raw -LiteralPath $keyComponent) -replace "(?m)^(\s*Kind = 'Rule')", "`$1`n    Requires = @()")
+$project = New-TestProject -Name 'component-key-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits'))
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $componentKeyRepo, '-ProjectRoot', $project) } -Pattern "unknown key 'Requires'" -Message 'validation: unknown component key is rejected'
+
+$allowlistRepo = New-TestHarnessRepo -Name 'allowlist-repo'
+Add-Component -HarnessRepo $allowlistRepo -Path 'commands/misplaced' -Id 'misplaced' -Kind 'Command' -Target '.claude/agents/misplaced.md' -Mode 'DirectoryFiles' -Content "Misplaced.`n"
+$project = New-TestProject -Name 'allowlist-project' -ProfileText (New-ProjectProfileText -Commands @('misplaced'))
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $allowlistRepo, '-ProjectRoot', $project) } -Pattern 'outside the Command allowlist' -Message 'validation: target outside the Kind allowlist fails'
 
 $project = New-TestProject -Name 'platform-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Plan9') -Rules @('safe-file-edits'))
 Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern 'Unsupported TargetPlatform' -Message 'validation: unsupported target platform is reported'

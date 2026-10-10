@@ -6,17 +6,4 @@
     Extends = @('coding')
 
     RequiredEnv = 'work'
-
-    Components = @{
-        Rules = @()
-        Prompts = @()
-        Commands = @()
-        Agents = @()
-        ClaudeSettings = @()
-        CodexAgents = @()
-    }
-
-    Future = @{
-        ProjectSkills = @()
-    }
 }

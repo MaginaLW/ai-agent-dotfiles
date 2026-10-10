@@ -9,6 +9,7 @@
 #>
 
 # Profile buckets that may list component ids, in the order their ids are selected.
+# A profile lists only the buckets it uses; a missing bucket is empty.
 $script:HarnessBuckets = @('Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents')
 $script:HarnessPlatforms = @('Claude', 'Codex')
 # Kind -> output Mode, allowed project-relative targets (a trailing '/' allows files below that
@@ -123,7 +124,7 @@ function Add-HarnessLibraryProfile {
     if (@($Resolved | Where-Object Name -EQ $Name).Count -gt 0) { return }
     if (-not $Visiting.Add($Name)) { throw "Profile Extends contains a cycle at '$Name'." }
     $data = Import-HarnessData -Path $path -Kind 'library profile' -Required @('Name', 'TargetPlatforms') -Allowed @(
-        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components', 'Future')
+        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components')
     foreach ($parent in @($data['Extends'] | Where-Object { $_ })) {
         Add-HarnessLibraryProfile -Name $parent -ProfilesRoot $ProfilesRoot -Resolved $Resolved -Visiting $Visiting
     }
@@ -200,7 +201,7 @@ function New-HarnessProfilePlan {
 
     $profilePath = Join-Path $project '.agent-harness/profile.psd1'
     $projectProfile = Import-HarnessData -Path $profilePath -Kind 'project profile' -Required @('Name', 'TargetPlatforms') -Allowed @(
-        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components', 'Future', 'RequiredEnv')
+        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components', 'RequiredEnv')
     $resolved = [System.Collections.Generic.List[object]]::new()
     $visiting = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($name in @($projectProfile['Extends'] | Where-Object { $_ })) {
@@ -226,7 +227,7 @@ function New-HarnessProfilePlan {
             Sort-Object FullName | ForEach-Object {
                 $path = Join-Path $_.FullName 'component.psd1'
                 $data = Import-HarnessData -Path $path -Kind 'component' -Required @('Id', 'Kind', 'TargetPlatforms') -Allowed @(
-                    'SchemaVersion', 'Id', 'Kind', 'TargetPlatforms', 'Requires', 'Conflicts', 'Outputs', 'Future')
+                    'SchemaVersion', 'Id', 'Kind', 'TargetPlatforms', 'Outputs')
                 [pscustomobject] @{ Id = [string] $data.Id; Kind = [string] $data.Kind; Directory = $_.FullName; Path = $path; Data = $data }
             })
     $dupes = @($all | Group-Object Id | Where-Object Count -GT 1 | ForEach-Object { "$($_.Name) ($($_.Count))" })
@@ -242,12 +243,6 @@ function New-HarnessProfilePlan {
     foreach ($component in $selected) {
         if (@($platforms | Where-Object { $_ -in @($component.Data.TargetPlatforms) }).Count -eq 0) {
             throw "Target platform validation failed: $($component.Id) does not support any selected target platform."
-        }
-        foreach ($required in @($component.Data['Requires'] | Where-Object { $_ })) {
-            if ($required -notin $componentIds) { throw "Component validation failed: $($component.Id) requires '$required'." }
-        }
-        foreach ($conflict in @($component.Data['Conflicts'] | Where-Object { $_ })) {
-            if ($conflict -in $componentIds) { throw "Component validation failed: $($component.Id) conflicts with '$conflict'." }
         }
     }
 

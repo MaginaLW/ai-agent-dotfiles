@@ -3,8 +3,6 @@
     Id = 'no-generated-output-edits'
     Kind = 'Rule'
     TargetPlatforms = @('Claude', 'Codex')
-    Requires = @()
-    Conflicts = @()
     Outputs = @(
         @{
             Target = 'AGENTS.md'

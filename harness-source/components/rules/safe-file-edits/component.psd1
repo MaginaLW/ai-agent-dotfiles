@@ -3,8 +3,6 @@
     Id = 'safe-file-edits'
     Kind = 'Rule'
     TargetPlatforms = @('Claude', 'Codex')
-    Requires = @()
-    Conflicts = @()
     Outputs = @(
         @{
             Target = 'AGENTS.md'

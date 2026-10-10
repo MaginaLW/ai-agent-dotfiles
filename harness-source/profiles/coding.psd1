@@ -6,17 +6,8 @@
     Extends = @('base')
 
     Components = @{
-        Rules = @()
         Prompts = @(
             'commit-summary'
         )
-        Commands = @()
-        Agents = @()
-        ClaudeSettings = @()
-        CodexAgents = @()
-    }
-
-    Future = @{
-        ProjectSkills = @()
     }
 }

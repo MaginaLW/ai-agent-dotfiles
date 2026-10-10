@@ -217,7 +217,9 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 - `apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写 allowlisted 项目输出和 `.agent-harness/backups/`
   下的项目本地 rollback backup，不写 home 或 live skills。
 - 受控输出类型：Claude `.claude/commands/`、`.claude/agents/`，Codex `.codex/prompts/`、`.codex/agents/`。
-- 改 profile/component 后跑 `tests/harness-profile.tests.ps1`；多平台输出变化再跑 `tests/harness-multiplatform.tests.ps1`。
+- Profile 的 `Components` 只列用到的 bucket（`Rules`、`Prompts`、`Commands`、`Agents`、`ClaudeSettings`、
+  `CodexAgents`），没列的 bucket 视为空；未知 bucket 或未知顶层 key 会被拒绝。
+- 改 profile/component 或这几个脚本后跑 `tests/harness-profile.tests.ps1`。
 
 ---
 

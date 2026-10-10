@@ -10,16 +10,8 @@
             'safe-file-edits',
             'no-generated-output-edits'
         )
-        Prompts = @()
-        Commands = @()
-        Agents = @()
         ClaudeSettings = @(
             'project-guards'
         )
-        CodexAgents = @()
-    }
-
-    Future = @{
-        ProjectSkills = @()
     }
 }

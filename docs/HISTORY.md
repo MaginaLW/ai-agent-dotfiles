@@ -88,3 +88,16 @@ excluded them from the generated output. The last commit that has them is `ee963
 git ls-tree -r --name-only ee96301 -- skills-source | Select-String MERGE_NOTES
 git show ee96301:skills-source/shared/brainstorming/MERGE_NOTES.md
 ```
+
+## Multi-platform harness profile (removed 2026-10-10)
+
+The unused `multi-platform` library profile, the components only it selected (`commit-command`,
+`claude-reviewer`, `codex-reviewer`, `review-prompt`) and `tests/harness-multiplatform.tests.ps1`
+were removed on 2026-10-10, together with the unused `Future`, `Requires` and `Conflicts` schema
+fields. The Command, ClaudeAgent, CodexPrompt and CodexAgent kinds are still supported and tested
+in `tests/harness-profile.tests.ps1`. The last commit that still has them is `d11e081`.
+
+```powershell
+git show d11e081:harness-source/profiles/multi-platform.psd1
+git ls-tree -r --name-only d11e081 -- harness-source/components
+```
