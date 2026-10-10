@@ -21,7 +21,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   build run reports, and the dated status journals (all in Git history). doctor now checks only
   the current product. Project harness profiles were reimplemented (1656 -> 741 script lines)
   with byte-identical results for this repo's profile and a copy of PINN-tFORM's; apply now
-  honors a component's declared `Source`, and plan.json is byte-stable.
+  honors a component's declared `Source`, and plan.json is byte-stable. Follow-up: the leftover
+  `envs/`, `reports/`, `imports/` and `state/` ignore rules and scan exclusions were removed
+  (owner-approved), `run-tests.ps1` became one self-contained script without the JSON evidence
+  summary (per-suite budgets kept), and the post-release packages F1-F4 were dropped by the owner.
 - **Engine removal (merged to `main` 2026-10-10).** The transactional live-sync engine is gone:
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
@@ -45,9 +48,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 ## Open items
 
 1. **Owner:** name any further machine before onboarding starts.
-2. **Owner:** adopt, defer or drop the post-release packages F1 (CI evidence persistence),
-   F2 (config pull/push boundary), F3 (platform capability registry) and F4 (module dedup).
-3. **Owner, low priority:**
+2. **Owner, low priority:**
    - Which commit carries the privacy-rewrite content.
    - Other clones should re-clone or rebase instead of merging the old history.
    - Whether one agent at a time owns this repository; concurrent agents have collided before.
