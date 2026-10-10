@@ -28,6 +28,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   Third pass: the profile schema lost `Future`, `Requires` and `Conflicts` (buckets are optional),
   the unused `multi-platform` profile and its four components were removed, config-sync shares its
   whitelist loading in `config-common.ps1`, and the union `managed-skills.txt` manifest is gone.
+  PINN-tFORM's project profile was updated to match on 2026-10-10 (owner-authorized): dropping the
+  dead `Future` block and the empty buckets restored status/build/apply there with byte-identical
+  generated content (commit `8a43367` in that repository).
 - **Engine removal (merged to `main` 2026-10-10).** The transactional live-sync engine is gone:
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
@@ -51,10 +54,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 ## Open items
 
 1. **Owner:** name any further machine before onboarding starts.
-2. **PINN-tFORM profile:** its `.agent-harness/profile.psd1` still has the removed `Future` key, so
-   building it now fails with "unknown key 'Future'". Dropping that block (and the empty buckets)
-   gives byte-identical generated content; it needs the owner's go-ahead to edit that repository.
-3. **Owner, low priority:**
+2. **Owner, low priority:**
    - Which commit carries the privacy-rewrite content.
    - Other clones should re-clone or rebase instead of merging the old history.
    - Whether one agent at a time owns this repository; concurrent agents have collided before.
