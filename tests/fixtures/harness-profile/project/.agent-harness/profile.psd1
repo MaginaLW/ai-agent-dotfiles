@@ -4,17 +4,4 @@
     TargetPlatforms = @('Claude', 'Codex')
 
     Extends = @('coding')
-
-    Components = @{
-        Rules = @()
-        Prompts = @()
-        Commands = @()
-        Agents = @()
-        ClaudeSettings = @()
-        CodexAgents = @()
-    }
-
-    Future = @{
-        ProjectSkills = @()
-    }
 }
