@@ -14,7 +14,7 @@ foreach ($path in @(
     '.reasonix/desktop-topic-titles.json'
 )) { $null = $protected.Add($path) }
 
-$excludedPrefixes = @('claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/')
+$excludedPrefixes = @('claude/skills/', 'codex/skills/', 'reasonix/skills/', 'tmp/')
 
 $paths = @(& git -C $RepoRoot ls-files -co --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate current-worktree files for syntax validation.' }

@@ -75,8 +75,7 @@ try {
     $repo = New-ScanRepo 'excluded'
     $planted = "github = $q$githubToken$q`n"
     foreach ($relative in @(
-        'claude/skills/a/SKILL.md', 'codex/skills/a/SKILL.md', 'reasonix/skills/a/SKILL.md', 'envs/work/x.txt',
-        'reports/x.txt', 'tmp/x.txt', 'imports/x.txt',
+        'claude/skills/a/SKILL.md', 'codex/skills/a/SKILL.md', 'reasonix/skills/a/SKILL.md', 'tmp/x.txt',
         '.reasonix/desktop-topic-auto-title-meta.json', '.reasonix/desktop-topic-created-at.json',
         '.reasonix/desktop-topic-title-sources.json', '.reasonix/desktop-topic-titles.json', 'local/ignored.txt'
     )) { Set-TestFile (Join-Path $repo $relative) $planted }

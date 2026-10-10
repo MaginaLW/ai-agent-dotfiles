@@ -51,8 +51,6 @@ tmp/
 .agent-harness/backups/
 **/.agent-harness/generated/
 **/.agent-harness/backups/
-/envs/
-/state/
 
 # Reasonix machine-local task state.
 /.reasonix/tasks/
@@ -60,9 +58,3 @@ tmp/
 /.reasonix/desktop-topic-created-at.json
 /.reasonix/desktop-topic-title-sources.json
 /.reasonix/desktop-topic-titles.json
-
-# Retired run-report directory. Keep it ignored: scan-secrets.ps1 skips reports/.
-/reports/
-
-# Retired skill-import staging. Keep it ignored: scan-secrets.ps1 skips imports/.
-/imports/

@@ -1,7 +1,6 @@
 @{
-    DefaultTimeoutSeconds = 120
-    SetupAndNonSuiteBudgetSeconds = 300
-    MarginSeconds = 120
+    # Seconds per suite. scripts/run-tests.ps1 refuses to start unless every
+    # tests/*.tests.ps1 suite has exactly one entry here.
     Suites = @{
         'agent-dotfiles.tests.ps1' = 150
         'config-sync.tests.ps1' = 90

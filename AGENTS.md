@@ -87,8 +87,8 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
   Deployment works one skill directory at a time, and unknown live directories are preserved.
 - Never weaken, bypass, or whitelist `scripts/scan-secrets.ps1` or `.gitleaks.toml` without
   explicit user approval.
-- Never commit any of the following: generated output, `imports/` or `reports/` contents,
-  backups, deploy state, live home files, or machine-private files.
+- Never commit any of the following: generated output, backups, deploy state, live home files,
+  or machine-private files.
 - Never commit a `config-push` capture until a human has reviewed its `git diff`. The secret scan
   blocks tokens, not machine-private paths or personal content.
 - Never put plaintext secrets, tokens, account info, machine names or machine-private paths in
@@ -102,8 +102,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
   - Every change needs `git diff --check` and `scan-secrets.ps1`.
   - Skill changes also need `build-skills.ps1`.
   - Script changes also need `check-powershell-syntax.ps1`, the affected suites (run each with
-    `pwsh -NoProfile -File tests/<suite>.tests.ps1`) and, before merging, a full
-    `run-tests.ps1 -All -JsonSummaryPath <external file>`.
+    `pwsh -NoProfile -File tests/<suite>.tests.ps1`) and, before merging, a full `run-tests.ps1`.
 - **CI.** One `Validate` job runs `scripts/run-repository-validation.ps1` on push to `main`, on
   pull requests and on manual dispatch: PowerShell syntax, gitleaks verification, build, secret
   scan, doctor, manifest parity, every test suite, dangerous tracked files and a clean tree.

@@ -18,15 +18,15 @@ $configPath = if ($ScannerConfigPath) { (Resolve-Path -LiteralPath $ScannerConfi
 $gitleaksFailed = $false
 . (Join-Path $PSScriptRoot 'pinned-tool.ps1')
 
-# Scan input exclusions (matched case-insensitively). They keep the exclusion set
-# of the earlier scan-input walker unchanged:
-#  - the path prefixes below;
+# Scan input exclusions (matched case-insensitively). Change them only with the
+# owner's approval:
+#  - the path prefixes below (generated roots and tmp/);
 #  - the four protected .reasonix/desktop-topic-* files;
 #  - Git-ignored entries: `git ls-files -co --exclude-standard` selects tracked
 #    files plus untracked, non-ignored files.
 # The fallback scanner additionally skips backup/* and tmp/* (Test-IsSkippedPath
 # below, unchanged); gitleaks still sees backup/ when it is not Git-ignored.
-$scanExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'envs/', 'reports/', 'tmp/', 'imports/')
+$scanExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'tmp/')
 $scanExcludedExactPaths = @(
     '.reasonix/desktop-topic-auto-title-meta.json',
     '.reasonix/desktop-topic-created-at.json',

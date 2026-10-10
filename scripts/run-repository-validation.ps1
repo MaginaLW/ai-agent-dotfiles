@@ -6,7 +6,7 @@
 .DESCRIPTION
     Gates: powershell-syntax, gitleaks-verify, build-skills, secret-scan,
     doctor (isolated temp HomeRoot, -SkipSecretsScan), generated-manifests-parity,
-    run-tests -All, dangerous-tracked-files, clean-tracked-state.
+    run-tests, dangerous-tracked-files, clean-tracked-state.
     CI runs it on a clean checkout. Locally the last gate fails on a dirty tree.
 #>
 [CmdletBinding()]
@@ -51,10 +51,10 @@ try {
     Invoke-Gate 'generated-manifests-parity' {
         $changed = @(Get-GitLines @('status', '--porcelain', '--', 'manifests'))
         if ($changed.Count) { $changed | Write-Host; throw 'build-skills changed manifests/. Rebuild locally and commit the intended manifest changes.' }
-        $trackedGenerated = @(Get-GitLines @('ls-files', '--', 'claude/skills', 'codex/skills', 'reasonix/skills', 'envs'))
+        $trackedGenerated = @(Get-GitLines @('ls-files', '--', 'claude/skills', 'codex/skills', 'reasonix/skills'))
         if ($trackedGenerated.Count) { $trackedGenerated | Write-Host; throw 'Generated output must remain untracked.' }
     }
-    Invoke-Gate 'run-tests' { Invoke-RepoScript 'run-tests.ps1' @('-All', '-JsonSummaryPath', (Join-Path $work 'test-summary.json'), '-RepoRoot', $RepoRoot) }
+    Invoke-Gate 'run-tests' { Invoke-RepoScript 'run-tests.ps1' @('-RepoRoot', $RepoRoot) }
     Invoke-Gate 'dangerous-tracked-files' {
         $violations = @(Get-GitLines @('ls-files') | Where-Object {
             $path = $_ -replace '\\', '/'
