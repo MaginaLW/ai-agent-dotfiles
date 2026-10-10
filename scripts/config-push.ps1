@@ -1,67 +1,45 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Capture live home harness config back into the repo source (home -> repo).
-    Phase 3 of config-sync. Safe by default (dry-run); only mutates with -Apply,
-    and never keeps a captured file that trips the secret scan.
+    Capture live home config (PushItems in manifests/whitelist.psd1) into the repo.
+    Dry-run unless -Apply is given; never commits.
 
 .DESCRIPTION
-    Source of truth for what is managed is manifests/whitelist.psd1 (PushItems per
-    platform). For each managed item the script copies live home content into the
-    repo, computing an add / update plan:
+    Plans an add (absent in the repo) or update (content differs; home wins) for every
+    managed file. Claude is read from ~/.claude, Codex from ~/.codex and Reasonix from
+    %APPDATA%\reasonix, and written under claude/, codex/ and reasonix/ in the repo.
+    Directories are copied file-by-file and never pruned: repo-only files stay
+    untouched. ExcludedItems and CommonExcludedItems are never captured.
 
-        add      item (or file within it) exists in home, absent in repo
-        update   exists in both, content differs -> home wins
-        (no-op)  identical -> skipped
-
-    This is the secret-sensitive direction (home config can contain tokens), so the
-    secret scan is a hard gate that runs AFTER the files land in the working tree
-    (scan-secrets.ps1 scans the whole tree, including untracked files):
-
-      * Before writing, each repo file that already exists is staged to BackupRoot
-        so it can be restored.
-      * After writing, scripts/scan-secrets.ps1 runs over the repo. If it reports a
-        blocking secret, every captured file is REVERTED (updates restored from the
-        stage, adds deleted) and the script aborts non-zero. Nothing secret-bearing
-        is left in the tree.
-      * The captured files are then scanned for machine-private absolute paths
-        (drive-letter and UNC paths) that the secret scan does not catch. Any hit
-        reverts everything the same way. Use -SkipPathScan if such a path is
-        intentional.
-      * On success the captured files are left UNCOMMITTED for human review; this
-        script never commits.
-
-    Hard safety rules (mirror deploy-skills.ps1's posture):
-      * Never whole-dir mirror; directories are copied file-by-file.
-      * Never prune; repo-only files are left untouched and only reported.
-      * Per-platform ExcludedItems + CommonExcludedItems are skipped, so credentials,
-        sessions, caches, history and other machine-private files are never captured.
-
-    Scope defaults to Claude and Codex.
+    -Apply stages every repo file it overwrites to
+    <BackupRoot>\config-push-stage-<timestamp>\, writes the capture, then runs two
+    gates: scripts/scan-secrets.ps1 over the repo, and a scan of the captured files
+    for drive-letter and UNC paths. If a write or a gate fails, every captured file is
+    reverted (updates restored, adds deleted) and the script exits non-zero. On
+    success the capture is left uncommitted for review with git diff.
 
 .PARAMETER Apply
-    Actually perform the capture. Without it the script is a pure dry-run.
+    Perform the capture. Without it the script only prints the plan.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of this script's directory.
 
 .PARAMETER HomeRoot
-    Home directory root for resolving live config paths. Defaults to $env:USERPROFILE.
+    Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex. Defaults to Claude, Codex.
+    One or more of Claude, Codex, Reasonix. Defaults to Claude, Codex.
 
 .PARAMETER BackupRoot
-    Root for the revert stage created by -Apply. Defaults to
-    $env:USERPROFILE\.ai-agent-dotfiles-backups. Must be outside the repository so the
-    secret scan never inspects the staged originals.
+    Root for the revert stage. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.
+    Must be outside the repository so the secret scan never inspects the originals.
 
 .PARAMETER SkipSecretScan
-    Skip the secret scan after writing. NOT recommended; defeats the gate.
+    Skip the secret scan after writing. Not recommended; it defeats the gate.
 
 .PARAMETER SkipPathScan
     Skip the machine-private path scan. Use only when a captured absolute path is
-    intentional (e.g. a deliberately portable path).
+    intentional.
 #>
 [CmdletBinding()]
 param(
@@ -82,23 +60,9 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$whitelistPath = Join-Path $RepoRoot 'manifests/whitelist.psd1'
-if (-not (Test-Path -LiteralPath $whitelistPath)) {
-    throw "Missing manifest: $whitelistPath"
-}
-$whitelist = Import-PowerShellDataFile -LiteralPath $whitelistPath
-$commonExcluded = @($whitelist.CommonExcludedItems)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-# Test-Excluded / Get-FileHashHex / Get-PlannedCopies are defined once in
-# config-common.ps1; dot-sourcing it keeps the syntax gate's unknown-parameter
-# pass active for their call sites.
-
 . (Join-Path $PSScriptRoot 'config-common.ps1')
+
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
 function Find-MachinePrivatePaths {
     # Scan only the just-captured files (not the whole tree, which legitimately
@@ -128,23 +92,26 @@ function Find-MachinePrivatePaths {
     return $findings
 }
 
-# ---------------------------------------------------------------------------
-# Plan
-# ---------------------------------------------------------------------------
+function Restore-Plan {
+    param([Parameter(Mandatory)] [System.Collections.IEnumerable] $Operations)
+    foreach ($op in $Operations) {
+        if ($op.Existed) {
+            Copy-Item -LiteralPath $op.Stage -Destination $op.Dst -Force
+        }
+        elseif (Test-Path -LiteralPath $op.Dst) {
+            Remove-Item -LiteralPath $op.Dst -Force
+        }
+    }
+}
 
 $plan = [System.Collections.Generic.List[object]]::new()
-foreach ($name in $Platform) {
-    $cfg = $whitelist.$name
-    if (-not $cfg) { continue }
-    $repoRootP = Join-Path $RepoRoot $cfg.RepoRelativeRoot
-    $homeRootP = Join-Path $HomeRoot $cfg.HomeRelativeRoot
-    $excluded = @($cfg.ExcludedItems) + $commonExcluded
-    foreach ($item in (@($cfg.PushItems) | Select-Object -Unique)) {
+foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PushItems')) {
+    foreach ($item in $target.Items) {
         $ops = Get-PlannedCopies `
-            -SrcItem (Join-Path $homeRootP $item) `
-            -DstItem (Join-Path $repoRootP $item) `
-            -ItemLabel "$name/$item" `
-            -Excluded $excluded
+            -SrcItem (Join-Path $target.HomeRoot $item) `
+            -DstItem (Join-Path $target.RepoRoot $item) `
+            -ItemLabel "$($target.Name)/$item" `
+            -Excluded $target.Excluded
         foreach ($op in $ops) { $plan.Add($op) }
     }
 }
@@ -156,10 +123,7 @@ if ($plan.Count -eq 0) {
     return
 }
 
-foreach ($op in $plan) {
-    $color = if ($op.Action -eq 'add') { 'Green' } else { 'Yellow' }
-    Write-Host ('  {0,-7} {1}' -f $op.Action, $op.Rel) -ForegroundColor $color
-}
+Write-CopyPlan -Plan $plan
 $grouped = $plan | Group-Object Action | ForEach-Object { "$($_.Name)=$($_.Count)" }
 Write-Host ("Plan: " + ($grouped -join '  '))
 
@@ -168,15 +132,10 @@ if (-not $Apply) {
     return
 }
 
-# ---------------------------------------------------------------------------
-# Apply: stage originals -> write -> secret scan -> keep or revert
-# ---------------------------------------------------------------------------
-
+# Apply: stage originals -> write -> secret scan -> path scan -> keep or revert.
+# The stage dir is created lazily so pure-add runs leave no empty backup folder.
 $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $stageDir = Join-Path $BackupRoot "config-push-stage-$stamp"
-
-# Stage every existing repo file we are about to overwrite, and record adds.
-# The stage dir is created lazily so pure-add runs leave no empty backup folder.
 $index = 0
 foreach ($op in $plan) {
     $op.Existed = Test-Path -LiteralPath $op.Dst
@@ -188,18 +147,6 @@ foreach ($op in $plan) {
         Copy-Item -LiteralPath $op.Dst -Destination $op.Stage -Force
     }
     $index++
-}
-
-function Restore-Plan {
-    param([Parameter(Mandatory)] [System.Collections.IEnumerable] $Operations)
-    foreach ($op in $Operations) {
-        if ($op.Existed) {
-            Copy-Item -LiteralPath $op.Stage -Destination $op.Dst -Force
-        }
-        elseif (Test-Path -LiteralPath $op.Dst) {
-            Remove-Item -LiteralPath $op.Dst -Force
-        }
-    }
 }
 
 try {
@@ -237,9 +184,6 @@ if (-not $SkipPathScan) {
     }
 }
 
-foreach ($op in $plan) {
-    $color = if ($op.Action -eq 'add') { 'Green' } else { 'Yellow' }
-    Write-Host ('  {0,-7} {1}' -f $op.Action, $op.Rel) -ForegroundColor $color
-}
+Write-CopyPlan -Plan $plan
 Write-Host "Captured $($plan.Count) file(s) into the repo (UNCOMMITTED). Review with 'git diff' before committing." -ForegroundColor Cyan
 Write-Host 'Repo-only files were left untouched (no prune).' -ForegroundColor DarkGray

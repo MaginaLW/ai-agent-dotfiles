@@ -1,49 +1,36 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Deploy repo-managed harness config into the live home directories
-    (repo -> ~/.claude, ~/.codex). Phase 2 of config-sync. Safe by default
-    (dry-run); only mutates with -Apply.
+    Deploy repo-managed config (PullItems in manifests/whitelist.psd1) into the live
+    home directories. Dry-run unless -Apply is given.
 
 .DESCRIPTION
-    Source of truth for what is managed is manifests/whitelist.psd1 (PullItems per
-    platform). For each managed item the script copies repo content into the live
-    home location, computing an add / update plan:
+    Plans an add (absent in home) or update (content differs; repo wins) for every
+    managed file. Claude writes to ~/.claude, Codex to ~/.codex and Reasonix to
+    %APPDATA%\reasonix. Directories are copied file-by-file and never pruned:
+    home-only files stay untouched. ExcludedItems and CommonExcludedItems are skipped.
 
-        add      item (or file within it) exists in repo, absent in home
-        update   exists in both, content differs -> repo wins
-        (no-op)  identical -> skipped
-
-    Hard safety rules (mirror deploy-skills.ps1's posture):
-      * Never whole-dir mirror. Directories are copied file-by-file.
-      * Never prune. Home-only files are left untouched and only reported.
-      * -Apply runs a secret scan first and backs up every home file it is about
-        to overwrite before writing. Both must pass.
-      * The Codex platform .system dir is skills-only and never a config item, so
-        it is structurally out of scope here.
-
-    Scope defaults to Claude and Codex.
-
-    There is no push (home -> repo) here; capture is a later phase.
+    -Apply runs the secret scan first, then backs up every home file it overwrites to
+    <BackupRoot>\config-backup-<timestamp>\ before copying.
 
 .PARAMETER Apply
-    Actually perform the copy. Without it the script is a pure dry-run.
+    Perform the copy. Without it the script only prints the plan.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of this script's directory.
 
 .PARAMETER HomeRoot
-    Home directory root for resolving live config paths. Defaults to $env:USERPROFILE.
+    Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex. Defaults to Claude, Codex.
+    One or more of Claude, Codex, Reasonix. Defaults to Claude, Codex.
 
 .PARAMETER BackupRoot
-    Root for the pre-overwrite backup created by -Apply. Defaults to
+    Root for the pre-overwrite backup. Defaults to
     $env:USERPROFILE\.ai-agent-dotfiles-backups. Must be outside the repository.
 
 .PARAMETER SkipSecretScan
-    Skip running scripts/scan-secrets.ps1 before -Apply. Not recommended.
+    Skip scripts/scan-secrets.ps1 before -Apply. Not recommended.
 #>
 [CmdletBinding()]
 param(
@@ -63,41 +50,18 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$whitelistPath = Join-Path $RepoRoot 'manifests/whitelist.psd1'
-if (-not (Test-Path -LiteralPath $whitelistPath)) {
-    throw "Missing manifest: $whitelistPath"
-}
-$whitelist = Import-PowerShellDataFile -LiteralPath $whitelistPath
-$commonExcluded = @($whitelist.CommonExcludedItems)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-# Test-Excluded / Get-FileHashHex / Get-PlannedCopies are defined once in
-# config-common.ps1; dot-sourcing it keeps the syntax gate's unknown-parameter
-# pass active for their call sites.
-
 . (Join-Path $PSScriptRoot 'config-common.ps1')
 
-# ---------------------------------------------------------------------------
-# Plan
-# ---------------------------------------------------------------------------
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
 $plan = [System.Collections.Generic.List[object]]::new()
-foreach ($name in $Platform) {
-    $cfg = $whitelist.$name
-    if (-not $cfg) { continue }
-    $repoRootP = Join-Path $RepoRoot $cfg.RepoRelativeRoot
-    $homeRootP = Join-Path $HomeRoot $cfg.HomeRelativeRoot
-    $excluded = @($cfg.ExcludedItems) + $commonExcluded
-    foreach ($item in (@($cfg.PullItems) | Select-Object -Unique)) {
+foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PullItems')) {
+    foreach ($item in $target.Items) {
         $ops = Get-PlannedCopies `
-            -SrcItem (Join-Path $repoRootP $item) `
-            -DstItem (Join-Path $homeRootP $item) `
-            -ItemLabel "$name/$item" `
-            -Excluded $excluded
+            -SrcItem (Join-Path $target.RepoRoot $item) `
+            -DstItem (Join-Path $target.HomeRoot $item) `
+            -ItemLabel "$($target.Name)/$item" `
+            -Excluded $target.Excluded
         foreach ($op in $ops) { $plan.Add($op) }
     }
 }
@@ -109,10 +73,7 @@ if ($plan.Count -eq 0) {
     return
 }
 
-foreach ($op in $plan) {
-    $color = if ($op.Action -eq 'add') { 'Green' } else { 'Yellow' }
-    Write-Host ('  {0,-7} {1}' -f $op.Action, $op.Rel) -ForegroundColor $color
-}
+Write-CopyPlan -Plan $plan
 $grouped = $plan | Group-Object Action | ForEach-Object { "$($_.Name)=$($_.Count)" }
 Write-Host ("Plan: " + ($grouped -join '  '))
 
@@ -121,10 +82,7 @@ if (-not $Apply) {
     return
 }
 
-# ---------------------------------------------------------------------------
-# Apply: secret scan gate -> backup overwritten files -> copy (no prune)
-# ---------------------------------------------------------------------------
-
+# Apply: secret scan gate -> back up overwritten home files -> copy (no prune).
 if (-not $SkipSecretScan) {
     Write-Host 'Running secret scan before apply...' -ForegroundColor Cyan
     $scan = Join-Path $RepoRoot 'scripts/scan-secrets.ps1'

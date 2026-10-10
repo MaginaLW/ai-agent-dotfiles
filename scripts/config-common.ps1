@@ -1,18 +1,42 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Shared helpers for the config-sync CLIs (config-status, config-push, config-pull).
+    Shared helpers for config-status, config-pull and config-push. Dot-source only.
 
-.DESCRIPTION
-    This file is intended to be dot-sourced by all three config-sync entry
-    scripts. Every helper here must keep exactly one definition in the
-    repository: the PowerShell syntax gate's unknown-parameter pass skips
-    names that are defined in more than one script, so a local copy in an
-    entry script would silently drop call-site parameter checking for that
-    name.
+.NOTES
+    Keep exactly one definition of each helper in the repository: the syntax gate's
+    unknown-parameter pass skips names defined in more than one script.
 #>
 
 Set-StrictMode -Version Latest
+
+function Get-ConfigTargets {
+    # Loads manifests/whitelist.psd1 and returns one entry per selected platform it
+    # defines: Name, RepoRoot, HomeRoot, Excluded (platform + common) and the unique
+    # items listed under the given whitelist keys (PushItems and/or PullItems).
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string[]] $Platform,
+        [Parameter(Mandatory)] [string[]] $ItemKeys
+    )
+    $whitelistPath = Join-Path $RepoRoot 'manifests/whitelist.psd1'
+    if (-not (Test-Path -LiteralPath $whitelistPath)) {
+        throw "Missing manifest: $whitelistPath"
+    }
+    $whitelist = Import-PowerShellDataFile -LiteralPath $whitelistPath
+    foreach ($name in $Platform) {
+        $cfg = $whitelist.$name
+        if (-not $cfg) { continue }
+        [pscustomobject] @{
+            Name     = $name
+            RepoRoot = Join-Path $RepoRoot $cfg.RepoRelativeRoot
+            HomeRoot = Join-Path $HomeRoot $cfg.HomeRelativeRoot
+            Excluded = @($cfg.ExcludedItems) + @($whitelist.CommonExcludedItems)
+            Items    = @(@(foreach ($key in $ItemKeys) { @($cfg.$key) }) | Select-Object -Unique)
+        }
+    }
+}
 
 function Test-Excluded {
     # True if a repo/home-relative path matches any exclusion pattern, either as the
@@ -40,6 +64,21 @@ function Get-FileHashHex {
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
+function Get-ConfigFiles {
+    # Every non-excluded file under a directory, as FullName plus Rel (relative to
+    # the directory, native separators).
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Excluded
+    )
+    $rootFull = (Resolve-Path -LiteralPath $Root).Path
+    foreach ($file in (Get-ChildItem -LiteralPath $rootFull -File -Recurse -Force -ErrorAction SilentlyContinue)) {
+        $rel = $file.FullName.Substring($rootFull.Length).TrimStart('\', '/')
+        if (Test-Excluded -RelativePath $rel -Patterns $Excluded) { continue }
+        [pscustomobject] @{ FullName = $file.FullName; Rel = $rel }
+    }
+}
+
 function Get-PlannedCopies {
     # Returns a list of @{ Src; Dst; Rel; Action } for one managed item, from
     # the source item (home or repo) to the destination item (repo or home).
@@ -63,18 +102,23 @@ function Get-PlannedCopies {
     }
 
     # directory: copy file-by-file, never prune
-    $srcFull = (Resolve-Path -LiteralPath $SrcItem).Path
-    $files = Get-ChildItem -LiteralPath $srcFull -File -Recurse -Force -ErrorAction SilentlyContinue
-    foreach ($file in $files) {
-        $rel = $file.FullName.Substring($srcFull.Length).TrimStart('\', '/')
-        if (Test-Excluded -RelativePath $rel -Patterns $Excluded) { continue }
-        $dst = Join-Path $DstItem $rel
+    foreach ($file in (Get-ConfigFiles -Root $SrcItem -Excluded $Excluded)) {
+        $dst = Join-Path $DstItem $file.Rel
         $action = if (-not (Test-Path -LiteralPath $dst)) { 'add' }
         elseif ((Get-FileHashHex $file.FullName) -ne (Get-FileHashHex $dst)) { 'update' }
         else { 'noop' }
         if ($action -ne 'noop') {
-            $ops.Add(@{ Src = $file.FullName; Dst = $dst; Rel = "$ItemLabel/$($rel -replace '\\','/')"; Action = $action })
+            $ops.Add(@{ Src = $file.FullName; Dst = $dst; Rel = "$ItemLabel/$($file.Rel -replace '\\','/')"; Action = $action })
         }
     }
     return $ops
+}
+
+function Write-CopyPlan {
+    # One line per planned copy: adds in green, updates in yellow.
+    param([Parameter(Mandatory)] [object[]] $Plan)
+    foreach ($op in $Plan) {
+        $color = if ($op.Action -eq 'add') { 'Green' } else { 'Yellow' }
+        Write-Host ('  {0,-7} {1}' -f $op.Action, $op.Rel) -ForegroundColor $color
+    }
 }

@@ -1,42 +1,27 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Read-only drift report for repo-managed agent harness config (Claude / Codex /
-    Reasonix). Phase 1 of config-sync: it NEVER writes to the repo or to home.
+    Read-only drift report between the repo copy and the live home copy of the
+    config items managed by manifests/whitelist.psd1. Never writes anything.
 
 .DESCRIPTION
-    Source of truth for what counts as managed config is manifests/whitelist.psd1
-    (PushItems / PullItems per platform). For each managed item this script compares
-    the repo copy against the live home copy and reports one of:
-
-        in-sync     both present and identical
-        differs     both present, content differs (drift)
-        repo-only   present in repo, absent in home  (a pull would deploy it)
-        home-only   present in home, absent in repo  (a push would capture it)
-        absent      present in neither (nothing to do)
-
-    Per-platform ExcludedItems and the shared CommonExcludedItems from whitelist.psd1
-    are skipped while walking directories, so credentials, sessions, caches, history,
-    and other machine-private/runtime files are never inspected or reported.
-
-    This is a pure dry-run inspector. There is no -Apply. Deployment (pull) and
-    capture (push) are later phases and live in separate, gated scripts.
+    Each managed item (PushItems and PullItems) is reported as in-sync, differs,
+    repo-only (a pull would deploy it) or home-only (a push would capture it).
+    Items absent on both sides are omitted. ExcludedItems and CommonExcludedItems
+    are skipped inside directories.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of this script's directory.
 
 .PARAMETER HomeRoot
-    Home directory root for resolving live config paths. Defaults to $env:USERPROFILE.
-    Override for tests (e.g. a temporary fake home).
+    Home directory. Defaults to $env:USERPROFILE. Claude is read from .claude,
+    Codex from .codex and Reasonix from AppData\Roaming\reasonix.
 
 .PARAMETER Platform
-    Optional filter: one or more of Claude, Codex, Reasonix. Defaults to all three.
+    One or more of Claude, Codex, Reasonix. Defaults to all three.
 
 .PARAMETER Json
-    Emit the per-item results as JSON instead of the human-readable table.
-
-.OUTPUTS
-    Human-readable table plus a summary line, or a JSON array with -Json.
+    Emit the results as a JSON array instead of the table.
 #>
 [CmdletBinding()]
 param(
@@ -54,23 +39,10 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
 }
 
-$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$whitelistPath = Join-Path $RepoRoot 'manifests/whitelist.psd1'
-if (-not (Test-Path -LiteralPath $whitelistPath)) {
-    throw "Missing manifest: $whitelistPath"
-}
-$whitelist = Import-PowerShellDataFile -LiteralPath $whitelistPath
-$commonExcluded = @($whitelist.CommonExcludedItems)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-# Test-Excluded / Get-FileHashHex are defined once in config-common.ps1;
-# dot-sourcing it keeps the syntax gate's unknown-parameter pass active for
-# their call sites.
-
 . (Join-Path $PSScriptRoot 'config-common.ps1')
+
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+if (-not $Platform) { $Platform = @('Claude', 'Codex', 'Reasonix') }
 
 function Get-ItemKind {
     param([Parameter(Mandatory)] [string] $Path)
@@ -80,18 +52,14 @@ function Get-ItemKind {
 }
 
 function Get-DirFileMap {
-    # Map of excluded-filtered relative-path -> SHA256 for every file under $Root.
+    # Map of relative path ('/' separators) -> SHA256 for every non-excluded file under $Root.
     param(
         [Parameter(Mandatory)] [string] $Root,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Excluded
     )
     $map = @{}
-    $rootFull = (Resolve-Path -LiteralPath $Root).Path
-    $files = Get-ChildItem -LiteralPath $rootFull -File -Recurse -Force -ErrorAction SilentlyContinue
-    foreach ($file in $files) {
-        $rel = $file.FullName.Substring($rootFull.Length).TrimStart('\', '/')
-        if (Test-Excluded -RelativePath $rel -Patterns $Excluded) { continue }
-        $map[($rel -replace '\\', '/')] = Get-FileHashHex -Path $file.FullName
+    foreach ($file in (Get-ConfigFiles -Root $Root -Excluded $Excluded)) {
+        $map[($file.Rel -replace '\\', '/')] = Get-FileHashHex -Path $file.FullName
     }
     return $map
 }
@@ -125,7 +93,6 @@ function Compare-ConfigItem {
         return [pscustomobject] @{ Status = 'differs'; Detail = 'content differs' }
     }
 
-    # directory compare
     $repoMap = Get-DirFileMap -Root $RepoPath -Excluded $Excluded
     $homeMap = Get-DirFileMap -Root $HomePath -Excluded $Excluded
     $onlyRepo = @($repoMap.Keys | Where-Object { -not $homeMap.ContainsKey($_) })
@@ -141,30 +108,16 @@ function Compare-ConfigItem {
     return [pscustomobject] @{ Status = 'differs'; Detail = ($bits -join ', ') }
 }
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-$platformsToScan = if ($Platform) { $Platform } else { @('Claude', 'Codex', 'Reasonix') }
 $results = [System.Collections.Generic.List[object]]::new()
-
-foreach ($name in $platformsToScan) {
-    $cfg = $whitelist.$name
-    if (-not $cfg) { continue }
-
-    $repoRootP = Join-Path $RepoRoot $cfg.RepoRelativeRoot
-    $homeRootP = Join-Path $HomeRoot $cfg.HomeRelativeRoot
-    $excluded = @($cfg.ExcludedItems) + $commonExcluded
-    $items = @($cfg.PushItems) + @($cfg.PullItems) | Select-Object -Unique
-
-    foreach ($item in $items) {
+foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PushItems', 'PullItems')) {
+    foreach ($item in $target.Items) {
         $cmp = Compare-ConfigItem `
-            -RepoPath (Join-Path $repoRootP $item) `
-            -HomePath (Join-Path $homeRootP $item) `
-            -Excluded $excluded
+            -RepoPath (Join-Path $target.RepoRoot $item) `
+            -HomePath (Join-Path $target.HomeRoot $item) `
+            -Excluded $target.Excluded
         if ($cmp.Status -eq 'absent') { continue }
         $results.Add([pscustomobject] @{
-                Platform = $name
+                Platform = $target.Name
                 Item     = $item
                 Status   = $cmp.Status
                 Detail   = $cmp.Detail
@@ -200,4 +153,4 @@ else {
 Write-Host ''
 $summary = $results | Group-Object Status | ForEach-Object { "$($_.Name)=$($_.Count)" }
 Write-Host ("Summary: " + ($summary -join '  ')) -ForegroundColor Cyan
-Write-Host 'Read-only inspection. Pull/push are later, gated phases.' -ForegroundColor DarkGray
+Write-Host 'Read-only inspection. Use config-pull or config-push (dry-run unless -Apply) to sync.' -ForegroundColor DarkGray
