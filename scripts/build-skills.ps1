@@ -33,7 +33,7 @@ $ReasonixOutputRoot = Join-Path $RepoRoot 'reasonix/skills'
 $ManifestOutputRoot = Join-Path $RepoRoot 'manifests'
 Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)
 
-$script:RuntimeExcludePatterns = @('MERGE_NOTES.md', 'CREATION-LOG.md', '*.magina-laptop.*')
+$script:RuntimeExcludePatterns = @('CREATION-LOG.md')
 function Copy-SkillDirectory {
     param([Parameter(Mandatory)] [System.IO.DirectoryInfo] $Source, [Parameter(Mandatory)] [string] $DestinationRoot)
     $destination = Join-Path $DestinationRoot $Source.Name

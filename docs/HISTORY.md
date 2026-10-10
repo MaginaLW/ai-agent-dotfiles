@@ -77,3 +77,14 @@ feedback-loop section are in commit `08d9021`; the thirteen dated loop runs are 
 git show 08d9021:docs/ZCODE.md
 git show 3341ec9:status/archived/2026-10-09-zcode-feedback-loop-history.md
 ```
+
+## Skill merge notes (removed 2026-10-10)
+
+Each imported skill carried a `MERGE_NOTES.md` with its upstream source and import details. Some
+of them named a machine or a local backup path, so all of them were removed; build had always
+excluded them from the generated output. The last commit that has them is `ee96301`.
+
+```powershell
+git ls-tree -r --name-only ee96301 -- skills-source | Select-String MERGE_NOTES
+git show ee96301:skills-source/shared/brainstorming/MERGE_NOTES.md
+```

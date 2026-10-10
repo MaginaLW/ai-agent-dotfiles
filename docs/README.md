@@ -103,7 +103,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 
   同名 skill 已存在时拒绝；`-Replace` 只替换同一类型，旧版本先移到 `tmp/skill-backups/<时间戳>/`。
   build 或扫描失败时文件留在工作区等待审查，用 Git 回退。
-- `MERGE_NOTES.md`、`CREATION-LOG.md` 等备注文件可以留在源里，build 按 `RuntimeExcludePatterns` 从生成物剔除。
+- `CREATION-LOG.md` 这类备注文件可以留在源里，build 按 `RuntimeExcludePatterns` 从生成物剔除；备注里不要写机器名或本机路径。
 - build 后确认各平台 `Built ... skills: N` 的变化符合预期。
 - 要部署到本机，把名称加入相应环境（§16），再走 §4。
 
