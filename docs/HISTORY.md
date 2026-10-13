@@ -101,3 +101,34 @@ in `tests/harness-profile.tests.ps1`. The last commit that still has them is `d1
 git show d11e081:harness-source/profiles/multi-platform.psd1
 git ls-tree -r --name-only d11e081 -- harness-source/components
 ```
+
+## Privacy history rewrite (2026-08-25)
+
+An exact-path index rewrite redacted the 82 commits then on `main`: four Reasonix desktop-state
+paths were removed from every commit without opening their contents, and every historical
+`STATUS.md` snapshot was mechanically redacted (machine-local paths, device labels, the `.system`
+child fingerprint). The rewritten history was published with force-with-lease, and GitHub Support
+then ran the server-side GC (ticket `#4697323`, closed by commit `8a70ec0`). The rewrite did not
+touch commit messages, so subjects in the unchanged prefix still name the old machine.
+
+- First rewritten commit: `dd4014f` carries the rewritten content (the record names the first
+  changed pair old `58b4bc3` -> new `dd4014f`; the 30 commits before `dd4014f` should keep their
+  original SHAs by first-changed semantics — the old objects are gone and cannot be diffed).
+- Publish head: `bbba28f` ("chore(privacy): ignore local Reasonix desktop state", `.gitignore`
+  only, the 83rd commit). The rewrite tip before it was `490189d` (82 commits).
+- The contemporaneous record lives in the removed design docs at `91e871e`:
+  `docs/superpowers/plans/2026-08-09-live-safety-hardening-roadmap.md`.
+- Residual cleanups after the rewrite: `5478aa9` (redact two machine paths) and `d11e081`
+  (remove the import-era `MERGE_NOTES.md` files that named a machine and local backup paths).
+
+Clones that still resolve the pre-rewrite SHAs predate the rewrite. They must re-clone: export
+unique local work first (patches against the old `origin/main` tip, not the old published chain)
+and apply it on a fresh clone, then confirm the old SHA no longer resolves. Merging or rebasing
+the old chain onto `origin/main` reintroduces the purged objects, and after the server-side GC
+that would need another rewrite.
+
+```powershell
+git cat-file -t 58b4bc329e3acca6ed38dfe6e0319dcf0f56e173   # fatal on rewritten clones
+git rev-list --count bbba28f                                 # 83
+git show 91e871e:docs/superpowers/plans/2026-08-09-live-safety-hardening-roadmap.md
+```

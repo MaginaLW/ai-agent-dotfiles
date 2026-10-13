@@ -54,15 +54,21 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-1. **Owner, low priority:**
-   - Which commit carries the privacy-rewrite content.
-   - Other clones should re-clone or rebase instead of merging the old history.
+- None.
 
 ## Known boundaries
 
 - **Primary checkout is single-writer.** Parallel agent work uses a throwaway worktree or a
   separate checkout and integrates back serially; one full local validation run at a time
   ([AGENTS.md](AGENTS.md), decided 2026-10-13).
+- **Privacy history rewrite (2026-08-25).** An exact-path rewrite redacted the 82 commits then on
+  `main` (four Reasonix desktop-state paths removed, historical STATUS.md redacted) and was
+  published with force-with-lease; GitHub Support then ran the server-side GC (closed by
+  `8a70ec0`). `dd4014f` is the first rewritten commit and carries the rewritten content; the
+  pre-rewrite SHAs resolve nowhere ([docs/HISTORY.md](docs/HISTORY.md)).
+- **Old clones must re-clone.** A clone that still resolves the pre-rewrite chain must export its
+  unique local work and re-clone; merging or rebasing the old chain onto `origin/main`
+  reintroduces the purged objects.
 - **Deploy state is per machine.** deploy-skills prunes only directories recorded in its state
   file. On a machine without that file the first run prunes nothing, and directories an older
   setup deployed show as unknown until `-Retire` names them.
