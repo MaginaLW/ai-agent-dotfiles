@@ -31,6 +31,14 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   PINN-tFORM's project profile was updated to match on 2026-10-10 (owner-authorized): dropping the
   dead `Future` block and the empty buckets restored status/build/apply there with byte-identical
   generated content (commit `8a43367` in that repository).
+- **Fourth optimization pass (2026-10-13, grok-reviewed).** `scripts/repo-common.ps1` is the
+  single policy source (protected Reasonix files, binary extensions, drive/UNC patterns) and
+  carries the shared secret-scan gate; config-pull/push share their plan pipeline in
+  `config-common.ps1`. The syntax-gate suite's inverted child timeout is fixed, every suite that
+  waits on gitleaks has a budget above that wait, and pinned-tool/build-skills gained
+  failure-path suites (10 -> 12 suites, budget 990 -> 1380 s). docs/README.md merged its three
+  pointer sections (§1-§14 now) and its environment schema matches the code; the env files
+  dropped the dead `Profile` key.
 - **Engine removal (merged to `main` 2026-10-10).** The transactional live-sync engine is gone:
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
