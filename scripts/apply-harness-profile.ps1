@@ -51,7 +51,7 @@ if (-not $Apply) {
     return
 }
 
-Invoke-HarnessSecretScan -RepoRoot $repo
+Invoke-SecretScanGate -RepoRoot $repo
 
 # A relative -BackupRoot starting with .agent-harness/backups is project-relative; any other
 # relative value is resolved from the current directory. It must end up under the project's

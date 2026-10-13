@@ -45,3 +45,14 @@ function Test-IsBinaryExtension {
 # like https:// from matching as "s:/".
 $script:DriveAbsolutePathPattern = '(?<![A-Za-z])[A-Za-z]:[\\/]'
 $script:UncPathPattern = '\\\\[A-Za-z0-9?.$_-]'
+
+function Invoke-SecretScanGate {
+    # Runs scripts/scan-secrets.ps1 under the given repository root in a child pwsh and
+    # throws on failure. Callers decide when it runs (before writes, or after with a revert).
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+
+    $scan = Join-Path $RepoRoot 'scripts/scan-secrets.ps1'
+    if (-not (Test-Path -LiteralPath $scan -PathType Leaf)) { throw "Missing secret scan script: $scan" }
+    & pwsh -NoProfile -ExecutionPolicy Bypass -File $scan -RepoRoot $RepoRoot
+    if ($LASTEXITCODE -ne 0) { throw "scripts/scan-secrets.ps1 failed with exit code $LASTEXITCODE." }
+}

@@ -51,45 +51,20 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 . (Join-Path $PSScriptRoot 'config-common.ps1')
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
-$plan = [System.Collections.Generic.List[object]]::new()
-foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PullItems')) {
-    foreach ($item in $target.Items) {
-        $ops = Get-PlannedCopies `
-            -SrcItem (Join-Path $target.RepoRoot $item) `
-            -DstItem (Join-Path $target.HomeRoot $item) `
-            -ItemLabel "$($target.Name)/$item" `
-            -Excluded $target.Excluded
-        foreach ($op in $ops) { $plan.Add($op) }
-    }
-}
+$plan = Get-ConfigSyncPlan -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Direction Pull
 
 Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
-if ($plan.Count -eq 0) {
-    Write-Host 'Nothing to deploy: all managed config already in sync.' -ForegroundColor DarkGray
-    Write-Host ('Mode: ' + ($(if ($Apply) { 'APPLY (no changes needed)' } else { 'dry-run' })))
-    return
-}
-
-Write-CopyPlan -Plan $plan
-$grouped = $plan | Group-Object Action | ForEach-Object { "$($_.Name)=$($_.Count)" }
-Write-Host ("Plan: " + ($grouped -join '  '))
-
-if (-not $Apply) {
-    Write-Host 'Dry-run only. Re-run with -Apply to deploy.' -ForegroundColor DarkGray
-    return
-}
+if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to deploy: all managed config already in sync.' -DryRunMessage 'Dry-run only. Re-run with -Apply to deploy.' -Apply:$Apply)) { return }
 
 # Apply: secret scan gate -> back up overwritten home files -> copy (no prune).
 if (-not $SkipSecretScan) {
     Write-Host 'Running secret scan before apply...' -ForegroundColor Cyan
-    $scan = Join-Path $RepoRoot 'scripts/scan-secrets.ps1'
-    & pwsh -NoProfile -ExecutionPolicy Bypass -File $scan -RepoRoot $RepoRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw "Secret scan failed (exit $LASTEXITCODE). Aborting apply; no files written."
-    }
+    try { Invoke-SecretScanGate -RepoRoot $RepoRoot }
+    catch { throw "Secret scan failed. Aborting apply; no files written. ($($_.Exception.Message))" }
 }
 
 $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
@@ -106,12 +81,5 @@ if ($overwrites.Count -gt 0) {
     Write-Host "Backed up $($overwrites.Count) file(s) to $backupDir" -ForegroundColor Cyan
 }
 
-foreach ($op in $plan) {
-    $parent = Split-Path -Parent $op.Dst
-    if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    }
-    Copy-Item -LiteralPath $op.Src -Destination $op.Dst -Force
-    Write-Host ('  {0,-7} {1}' -f $op.Action, $op.Rel) -ForegroundColor Green
-}
+Invoke-ConfigPlanCopy -Plan $plan -Progress
 Write-Host "Applied $($plan.Count) change(s). Home-only files were left untouched (no prune)." -ForegroundColor Cyan

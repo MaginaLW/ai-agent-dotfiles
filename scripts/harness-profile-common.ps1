@@ -414,15 +414,6 @@ function Get-HarnessApplyChanges {
     }
 }
 
-function Invoke-HarnessSecretScan {
-    param([string] $RepoRoot)
-
-    $scan = Join-Path $RepoRoot 'scripts/scan-secrets.ps1'
-    if (-not (Test-Path -LiteralPath $scan -PathType Leaf)) { throw "Missing secret scan script: $scan" }
-    & pwsh -NoProfile -ExecutionPolicy Bypass -File $scan -RepoRoot $RepoRoot
-    if ($LASTEXITCODE -ne 0) { throw "scripts/scan-secrets.ps1 failed with exit code $LASTEXITCODE." }
-}
-
 function Assert-HarnessOutsideHome {
     param([AllowEmptyCollection()] [string[]] $Paths)
 

@@ -104,33 +104,10 @@ function Restore-Plan {
     }
 }
 
-$plan = [System.Collections.Generic.List[object]]::new()
-foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PushItems')) {
-    foreach ($item in $target.Items) {
-        $ops = Get-PlannedCopies `
-            -SrcItem (Join-Path $target.HomeRoot $item) `
-            -DstItem (Join-Path $target.RepoRoot $item) `
-            -ItemLabel "$($target.Name)/$item" `
-            -Excluded $target.Excluded
-        foreach ($op in $ops) { $plan.Add($op) }
-    }
-}
+$plan = Get-ConfigSyncPlan -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Direction Push
 
 Write-Host "config-push (home $HomeRoot -> repo)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
-if ($plan.Count -eq 0) {
-    Write-Host 'Nothing to capture: repo already matches the managed home config.' -ForegroundColor DarkGray
-    Write-Host ('Mode: ' + ($(if ($Apply) { 'APPLY (no changes needed)' } else { 'dry-run' })))
-    return
-}
-
-Write-CopyPlan -Plan $plan
-$grouped = $plan | Group-Object Action | ForEach-Object { "$($_.Name)=$($_.Count)" }
-Write-Host ("Plan: " + ($grouped -join '  '))
-
-if (-not $Apply) {
-    Write-Host 'Dry-run only. Re-run with -Apply to capture (secret scan gates the result).' -ForegroundColor DarkGray
-    return
-}
+if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to capture: repo already matches the managed home config.' -DryRunMessage 'Dry-run only. Re-run with -Apply to capture (secret scan gates the result).' -Apply:$Apply)) { return }
 
 # Apply: stage originals -> write -> secret scan -> path scan -> keep or revert.
 # The stage dir is created lazily so pure-add runs leave no empty backup folder.
@@ -150,13 +127,7 @@ foreach ($op in $plan) {
 }
 
 try {
-    foreach ($op in $plan) {
-        $parent = Split-Path -Parent $op.Dst
-        if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-            New-Item -ItemType Directory -Path $parent -Force | Out-Null
-        }
-        Copy-Item -LiteralPath $op.Src -Destination $op.Dst -Force
-    }
+    Invoke-ConfigPlanCopy -Plan $plan
 }
 catch {
     Restore-Plan -Operations $plan
@@ -165,9 +136,8 @@ catch {
 
 if (-not $SkipSecretScan) {
     Write-Host 'Running secret scan over the captured tree...' -ForegroundColor Cyan
-    $scan = Join-Path $RepoRoot 'scripts/scan-secrets.ps1'
-    & pwsh -NoProfile -ExecutionPolicy Bypass -File $scan -RepoRoot $RepoRoot
-    if ($LASTEXITCODE -ne 0) {
+    try { Invoke-SecretScanGate -RepoRoot $RepoRoot }
+    catch {
         Restore-Plan -Operations $plan
         throw 'Secret scan reported a blocking finding. Reverted all captured files; nothing secret-bearing was kept.'
     }

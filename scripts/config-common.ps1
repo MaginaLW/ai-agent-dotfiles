@@ -122,3 +122,70 @@ function Write-CopyPlan {
         Write-Host ('  {0,-7} {1}' -f $op.Action, $op.Rel) -ForegroundColor $color
     }
 }
+
+function Get-ConfigSyncPlan {
+    # The shared pull/push plan: PullItems repo -> home, PushItems home -> repo.
+    # Returns an object[] of @{ Src; Dst; Rel; Action } operations.
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string[]] $Platform,
+        [Parameter(Mandatory)] [ValidateSet('Pull', 'Push')] [string] $Direction
+    )
+    $itemKey = if ($Direction -eq 'Pull') { 'PullItems' } else { 'PushItems' }
+    $plan = [System.Collections.Generic.List[object]]::new()
+    foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys $itemKey)) {
+        foreach ($item in $target.Items) {
+            $srcRoot = if ($Direction -eq 'Pull') { $target.RepoRoot } else { $target.HomeRoot }
+            $dstRoot = if ($Direction -eq 'Pull') { $target.HomeRoot } else { $target.RepoRoot }
+            $ops = Get-PlannedCopies `
+                -SrcItem (Join-Path $srcRoot $item) `
+                -DstItem (Join-Path $dstRoot $item) `
+                -ItemLabel "$($target.Name)/$item" `
+                -Excluded $target.Excluded
+            foreach ($op in $ops) { $plan.Add($op) }
+        }
+    }
+    return , $plan.ToArray()
+}
+
+function Show-ConfigSyncPlan {
+    # Prints the empty-plan or dry-run message, or the plan and its summary. Returns $true
+    # when an apply should continue, $false when the script should stop after printing.
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Plan,
+        [Parameter(Mandatory)] [string] $EmptyMessage,
+        [Parameter(Mandatory)] [string] $DryRunMessage,
+        [switch] $Apply
+    )
+    if ($Plan.Count -eq 0) {
+        Write-Host $EmptyMessage -ForegroundColor DarkGray
+        Write-Host ('Mode: ' + ($(if ($Apply) { 'APPLY (no changes needed)' } else { 'dry-run' })))
+        return $false
+    }
+    Write-CopyPlan -Plan $Plan
+    $grouped = $Plan | Group-Object Action | ForEach-Object { "$($_.Name)=$($_.Count)" }
+    Write-Host ("Plan: " + ($grouped -join '  '))
+    if (-not $Apply) {
+        Write-Host $DryRunMessage -ForegroundColor DarkGray
+        return $false
+    }
+    return $true
+}
+
+function Invoke-ConfigPlanCopy {
+    # Applies every planned copy, creating destination parents as needed. -Progress prints
+    # one green line per file, the way config-pull reports during apply.
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Plan,
+        [switch] $Progress
+    )
+    foreach ($op in $Plan) {
+        $parent = Split-Path -Parent $op.Dst
+        if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $op.Src -Destination $op.Dst -Force
+        if ($Progress) { Write-Host ('  {0,-7} {1}' -f $op.Action, $op.Rel) -ForegroundColor Green }
+    }
+}

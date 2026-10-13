@@ -101,7 +101,7 @@ Write-HarnessGeneratedText 'manifest.json' ([ordered] @{
 
 $generatedFiles = @(Get-ChildItem -LiteralPath $generatedRoot -File -Recurse -Force | Sort-Object FullName)
 try {
-    Invoke-HarnessSecretScan -RepoRoot $repo
+    Invoke-SecretScanGate -RepoRoot $repo
     Assert-HarnessNoPrivatePaths -Paths (@($plan.SourceFiles | ForEach-Object Path) + @($generatedFiles | ForEach-Object FullName))
 }
 catch {
