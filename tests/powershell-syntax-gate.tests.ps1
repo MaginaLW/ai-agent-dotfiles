@@ -52,10 +52,12 @@ function Invoke-SyntaxGate {
         if (-not $process.Start()) { throw 'Unable to start the syntax-gate child process.' }
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(120000)) {
+        # The suite budget (tests/test-timeouts.psd1) is 90 s; keep the per-child bound
+        # well below it so a hung gate fails here with a clear message, not via the runner.
+        if (-not $process.WaitForExit(30000)) {
             try { $process.Kill($true) } catch { }
             $null = $process.WaitForExit(5000)
-            throw 'syntax-gate child process exceeded 120 seconds.'
+            throw 'syntax-gate child process exceeded 30 seconds.'
         }
         return [pscustomobject]@{
             ExitCode = $process.ExitCode
