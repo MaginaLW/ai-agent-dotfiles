@@ -55,7 +55,7 @@
 - `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录（三平台同时生效）。
 - 其余 live 目录是 unknown，只报告不碰。Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
 - 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时整体失败，不留半删的 skill。
-  残留的 `.deploying-*` 下次运行时清理。
+  残留的 `.deploying-*` 在下一次对该 skill 做 install/update/prune 时清理。
 - `update` 和 `prune` 前先备份旧目录（§8）。
 - 已部署集合记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`（每台机器各自一份）。
   没有该文件时首次运行不 prune；Apply 失败时保留旧状态。
@@ -115,7 +115,8 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 ## 7. Codex `.system` 规则
 
 `.system` 是 Codex 平台内置目录（标记文件 `.codex-system-skills.marker`），不受本仓库管理：build 与
-deploy-skills 永远跳过它，doctor 只检查根条目，所以 Codex live 根总比受管数量多一个目录。规则见
+deploy-skills 永远跳过它，doctor 只检查根条目。装有 Codex CLI 且 live 根没有 unknown 目录时，Codex live 根
+会比受管数量多出这一个 `.system` 目录。规则见
 [Hard rules](../AGENTS.md#hard-rules)。
 
 ---
@@ -161,6 +162,8 @@ pwsh -NoProfile -File scripts/run-tests.ps1
 ```
 
 它打印汇总，任一套件失败或超时即以 1 退出；每个套件的时间预算在 `tests/test-timeouts.psd1`。
+CI 同款的全量验证入口是 `scripts/run-repository-validation.ps1`（语法、gitleaks 校验、build、秘密扫描、
+doctor、manifest 一致性、全部测试套件、危险文件检查与干净树，逐 gate 顺序执行）。
 
 ---
 
@@ -199,7 +202,9 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 - `build-harness-profile.ps1`：只写目标项目的 `.agent-harness/generated/`。
 - `apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写 allowlisted 项目输出和 `.agent-harness/backups/`
   下的项目本地 rollback backup，不写 home 或 live skills。
-- 受控输出类型：Claude `.claude/commands/`、`.claude/agents/`，Codex `.codex/prompts/`、`.codex/agents/`。
+- 受控输出类型：Rule 写 `AGENTS.md` / `CLAUDE.md` 的 managed block，Prompt 只进
+  `.agent-harness/generated/`，Claude `.claude/commands/`、`.claude/agents/` 与
+  `.claude/settings.json`（结构化合并），Codex `.codex/prompts/`、`.codex/agents/`。
 - Profile 的 `Components` 只列用到的 bucket（`Rules`、`Prompts`、`Commands`、`Agents`、`ClaudeSettings`、
   `CodexAgents`），没列的 bucket 视为空；未知 bucket 或未知顶层 key 会被拒绝。
 - 改 profile/component 或这几个脚本后跑 `tests/harness-profile.tests.ps1`。

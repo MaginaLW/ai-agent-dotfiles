@@ -21,7 +21,8 @@ machine's live skill directories with one dry-run-first script.
 - Deployment handles one skill directory at a time. It prunes only directories it deployed
   itself or that `-Retire` names; every other live directory is unknown and left alone.
   Codex `.system` (the CLI's built-in skills) is never touched, and no live skills directory is
-  ever mirrored wholesale — a bare `robocopy /MIR` would delete both.
+  ever mirrored wholesale — a bare `robocopy /MIR` would delete `.system` along with every skill
+  the repository does not manage.
 - Secrets, auth files, sessions, caches and machine-private config such as Codex `config.toml` and
   Reasonix `config.toml`/`.env` never enter the repository. Scripts require PowerShell 7+ (`pwsh`).
 

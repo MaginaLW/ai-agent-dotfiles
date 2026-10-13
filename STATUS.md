@@ -99,7 +99,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   - ArkCLI-managed skills.
 - **Integrations.** ZCode is used to maintain this repository through `AGENTS.md`; it is not a
   deployment target ([docs/ZCODE.md](docs/ZCODE.md)). This repository's harness-model
-  feedback-loop pilot is paused (owner decision 2026-10-10); `r3s-VPS` remains a pilot.
+  feedback-loop pilot is paused (owner decision 2026-10-10); one remote VPS pilot remains active.
 - **Skill retirement.** Deleting a skill's source leaves an old live directory that deploy-skills
   never deployed as unknown and preserved. `-Retire <name>` removes it; see
   [docs/README.md §5](docs/README.md#5-修改已有-skill-的流程).
