@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-10.
+Last updated: 2026-10-13.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -57,10 +57,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 1. **Owner, low priority:**
    - Which commit carries the privacy-rewrite content.
    - Other clones should re-clone or rebase instead of merging the old history.
-   - Whether one agent at a time owns this repository; concurrent agents have collided before.
 
 ## Known boundaries
 
+- **Primary checkout is single-writer.** Parallel agent work uses a throwaway worktree or a
+  separate checkout and integrates back serially; one full local validation run at a time
+  ([AGENTS.md](AGENTS.md), decided 2026-10-13).
 - **Deploy state is per machine.** deploy-skills prunes only directories recorded in its state
   file. On a machine without that file the first run prunes nothing, and directories an older
   setup deployed show as unknown until `-Retire` names them.

@@ -11,6 +11,19 @@ are changing.
   new rules are loaded ([ZCode notes](docs/ZCODE.md)).
 - Read [STATUS.md](STATUS.md) for the current state. Status entries and older task records are
   evidence. They are not authorization to start or repeat roadmap work.
+- One writer on the primary checkout. Before editing, committing, stashing, checking out,
+  resetting or making any other write, confirm this working tree is the one this task owns; if
+  the primary tree is dirty or `status/active/` already names another task, continue in a
+  throwaway worktree or a separate checkout (or stop and ask). Read-only use of the primary
+  stays allowed. A task holding the primary leaves a record under `status/active/` and deletes
+  it when done.
+- Parallel write work uses its own branch in a throwaway worktree or a separate checkout. Stash,
+  checkout, reset and clean only the tree this task created. Integrate back into the primary
+  serially, one agent, in small commits. Push and merge still need the owner's authorization.
+  Remove the throwaway tree when the task ends.
+- Run only one full local `run-tests.ps1` or `run-repository-validation.ps1` on the machine at a
+  time. Live Applies still need per-run owner authorization and write shared home paths, so
+  those runs never overlap either.
 - Windows and PowerShell 7+ only. Run repository scripts as
   `pwsh -NoProfile -File scripts/<name>.ps1`. The unified CLI is `scripts/agent-dotfiles.ps1`.
 - On every task, push, merge, any live Apply, destructive actions, credential export and
