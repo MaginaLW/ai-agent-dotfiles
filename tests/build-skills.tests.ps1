@@ -37,7 +37,12 @@ try {
         (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/beta'))) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills/beta')))
     ) 'shared skills land on all three roots, codex-only on Codex only'
-    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/alpha/CREATION-LOG.md'))) 'CREATION-LOG.md is excluded from generated roots'
+    Assert-TestCondition (([IO.File]::ReadAllText((Join-Path $repo 'codex/skills/beta/SKILL.md'))) -ceq "# beta`n") 'generated SKILL.md content matches the source'
+    Assert-TestCondition (
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/alpha/CREATION-LOG.md'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/CREATION-LOG.md'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills/alpha/CREATION-LOG.md')))
+    ) 'CREATION-LOG.md is excluded from all generated roots'
     $claudeManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.claude.txt'))
     $codexManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.codex.txt'))
     $reasonixManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.reasonix.txt'))
@@ -50,7 +55,12 @@ try {
     Add-Skill $repo 'codex-only' 'dup'
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -eq 1 -and $r.Out -match 'Skill name conflict between shared and platform-only sources') "a shared/platform-only conflict exits 1 ($($r.Out))"
-    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills'))) 'a rejected build creates no generated roots'
+    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'manifests'))) 'a rejected build creates no manifests'
+    Assert-TestCondition (
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills')))
+    ) 'a rejected build creates no generated roots'
 
     Write-Host '[cross platform-only name conflict]'
     $repo = Join-Path $work 'conflict-cross'
@@ -59,7 +69,12 @@ try {
     Add-Skill $repo 'codex-only' 'dup'
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -eq 1 -and $r.Out -match 'more than one platform-only source') "a cross platform-only conflict exits 1 ($($r.Out))"
-    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills'))) 'a rejected build creates no generated roots'
+    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'manifests'))) 'a rejected build creates no manifests'
+    Assert-TestCondition (
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills')))
+    ) 'a rejected build creates no generated roots'
 
     Write-Host 'build-skills tests: PASS'
 }

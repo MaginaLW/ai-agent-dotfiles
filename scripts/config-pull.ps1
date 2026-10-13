@@ -64,7 +64,12 @@ if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to deploy: all 
 if (-not $SkipSecretScan) {
     Write-Host 'Running secret scan before apply...' -ForegroundColor Cyan
     try { Invoke-SecretScanGate -RepoRoot $RepoRoot }
-    catch { throw "Secret scan failed. Aborting apply; no files written. ($($_.Exception.Message))" }
+    catch {
+        $detail = $_.Exception.Message
+        $exit = if ($detail -match 'exit code (\d+)') { $Matches[1] } else { $null }
+        if ($exit) { throw "Secret scan failed (exit $exit). Aborting apply; no files written." }
+        throw "Secret scan failed. Aborting apply; no files written. ($detail)"
+    }
 }
 
 $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')

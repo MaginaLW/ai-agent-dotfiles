@@ -25,12 +25,16 @@ $script:ProtectedReasonixFiles = @(
 
 function Get-PorcelainStatusPaths {
     # git status pathspecs covering the whole tree minus the protected Reasonix files.
-    return @('.') + @($script:ProtectedReasonixFiles | ForEach-Object { ":(exclude)$_" })
+    $paths = @('.') + @($script:ProtectedReasonixFiles | ForEach-Object { ":(exclude)$_" })
+    return , $paths
 }
 
 function Test-IsProtectedReasonixFile {
     param([Parameter(Mandatory)] [string] $RelativePath)
-    return $RelativePath -in $script:ProtectedReasonixFiles
+    foreach ($path in $script:ProtectedReasonixFiles) {
+        if ($RelativePath.Equals($path, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
 }
 
 # Extensions whose files are never read line-by-line by a text scanner.

@@ -68,23 +68,24 @@ try {
     Write-Host '[lock-file validation]'
     Assert-ThrowsWith { Read-PinnedToolLockFile -LockPath (Write-LockFile -Lock (New-LockObject -Overrides @{ ExecutableSha256 = $null }) -Name 'missing-field') } 'missing ExecutableSha256' 'a lock without ExecutableSha256 is rejected'
     Assert-ThrowsWith { Read-PinnedToolLockFile -LockPath (Write-LockFile -Lock (New-LockObject -Overrides @{ SchemaVersion = 99 }) -Name 'bad-schema') } 'Unsupported pinned tool lock version: 99' 'an unsupported lock schema is rejected'
-    Assert-ThrowsWith { Read-PinnedToolLockFile -LockPath (Write-LockFile -Lock (New-LockObject -Overrides @{ AssetSha256 = 'not-hex' }) -Name 'bad-hash') } 'must be lowercase hexadecimal' 'a non-hexadecimal hash is rejected'
+    Assert-ThrowsWith { Read-PinnedToolLockFile -LockPath (Write-LockFile -Lock (New-LockObject -Overrides @{ AssetSha256 = 'not-hex' }) -Name 'bad-hash') } 'AssetSha256 must be lowercase hexadecimal' 'a non-hexadecimal hash is rejected'
     Assert-ThrowsWith { Read-PinnedToolLockFile -LockPath (Write-LockFile -Lock (New-LockObject -Overrides @{ AssetUrl = 'https://example.com/download/probe-tool.zip' }) -Name 'bad-url') } 'official GitHub release asset URL' 'a non-GitHub-release asset URL is rejected'
     Assert-ThrowsWith { Read-PinnedToolLockFile -LockPath (Write-LockFile -Lock (New-LockObject -Overrides @{ AssetName = 'other.zip' }) -Name 'bad-name') } 'asset name does not match its URL' 'an asset name that differs from the URL is rejected'
 
     Write-Host '[installed-cache verification]'
     $cacheEmpty = Join-Path $work 'cache-empty'
-    Assert-ThrowsWith { Get-PinnedToolExecutable -LockPath (Write-LockFile -Lock (New-LockObject) -Name 'not-installed') -CacheRoot $cacheEmpty } 'is not installed' 'an empty cache fails verification instead of passing silently'
+    Assert-ThrowsWith { Get-PinnedToolExecutable -LockPath (Write-LockFile -Lock (New-LockObject) -Name 'not-installed') -CacheRoot $cacheEmpty } 'Pinned probe-tool is not installed: .*probe-tool\.zip' 'an empty cache fails verification instead of passing silently'
+    Assert-ThrowsWith { Install-PinnedTool -LockPath (Write-LockFile -Lock (New-LockObject) -Name 'verify-missing') -CacheRoot $cacheEmpty -VerifyOnly } 'Pinned probe-tool is not installed' 'VerifyOnly on a missing install verifies instead of downloading'
 
     $cacheTampered = Join-Path $work 'cache-tampered'
     $tamperedLock = New-InstalledCache -CacheRoot $cacheTampered
     [IO.File]::WriteAllBytes((Join-Path $cacheTampered 'probe-tool/1.2.3/probe-tool.zip'), [byte[]](9..40))
-    Assert-ThrowsWith { Get-PinnedToolExecutable -LockPath (Write-LockFile -Lock $tamperedLock -Name 'tampered-archive') -CacheRoot $cacheTampered } 'archive hash mismatch' 'a modified archive fails the hash gate'
+    Assert-ThrowsWith { Get-PinnedToolExecutable -LockPath (Write-LockFile -Lock $tamperedLock -Name 'tampered-archive') -CacheRoot $cacheTampered } 'Pinned probe-tool archive hash mismatch' 'a modified archive fails the hash gate'
 
     $cacheExe = Join-Path $work 'cache-tampered-exe'
     $exeLock = New-InstalledCache -CacheRoot $cacheExe
     [IO.File]::WriteAllText((Join-Path $cacheExe 'probe-tool/1.2.3/bin/probe-tool.cmd'), "@echo off`r`necho replaced`r`n", [Text.UTF8Encoding]::new($false))
-    Assert-ThrowsWith { Get-PinnedToolExecutable -LockPath (Write-LockFile -Lock $exeLock -Name 'tampered-exe') -CacheRoot $cacheExe } 'executable hash mismatch' 'a modified executable fails the hash gate'
+    Assert-ThrowsWith { Get-PinnedToolExecutable -LockPath (Write-LockFile -Lock $exeLock -Name 'tampered-exe') -CacheRoot $cacheExe } 'Pinned probe-tool executable hash mismatch' 'a modified executable fails the hash gate'
 
     Write-Host '[version probe]'
     $cacheGood = Join-Path $work 'cache-good'
