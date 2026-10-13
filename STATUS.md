@@ -49,12 +49,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   pull requests and manual dispatch (about 3 minutes; first green run on `24114ef`).
 - **Other machines.** None has been set up yet. Some may still carry pre-repository or old-engine
   deployments; their dry run shows those directories as unknown. Onboarding starts only after the
-  owner names a target ([docs/ONBOARD_NEW_MACHINE.md](docs/ONBOARD_NEW_MACHINE.md)).
+  owner names a target ([docs/ONBOARD_NEW_MACHINE.md](docs/ONBOARD_NEW_MACHINE.md)). The owner
+  confirmed on 2026-10-13 that no further machine is planned for now.
 
 ## Open items
 
-1. **Owner:** name any further machine before onboarding starts.
-2. **Owner, low priority:**
+1. **Owner, low priority:**
    - Which commit carries the privacy-rewrite content.
    - Other clones should re-clone or rebase instead of merging the old history.
    - Whether one agent at a time owns this repository; concurrent agents have collided before.
