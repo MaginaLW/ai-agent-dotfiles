@@ -19,18 +19,11 @@ machine's live skill directories with one dry-run-first script.
   | Reasonix | `%APPDATA%\reasonix\skills` |
 
 - Deployment handles one skill directory at a time. It prunes only directories it deployed
-  itself or that `-Retire` names. Every other live directory is unknown: it is reported and left
-  alone.
-- **Codex `.system` is protected:** `~/.codex/skills/.system` holds the Codex CLI's own built-in
-  skills. It is never deployed, pruned or treated as a stale skill.
-- Never run a bare `robocopy /MIR` or any other whole-directory mirror against a live skills
-  directory. That would delete `.system` and any skill the repository does not manage.
-- When a skill is removed from the source and deploy-skills never deployed it on that machine,
-  its old live directory remains unknown by default. Only `-Retire <name>` removes it
-  ([docs/README.md §5](docs/README.md#5-修改已有-skill-的流程)).
+  itself or that `-Retire` names; every other live directory is unknown and left alone.
+  Codex `.system` (the CLI's built-in skills) is never touched, and no live skills directory is
+  ever mirrored wholesale — a bare `robocopy /MIR` would delete both.
 - Secrets, auth files, sessions, caches and machine-private config such as Codex `config.toml` and
-  Reasonix `config.toml`/`.env` never enter the repository.
-- Scripts require PowerShell 7+ (`pwsh`).
+  Reasonix `config.toml`/`.env` never enter the repository. Scripts require PowerShell 7+ (`pwsh`).
 
 ## New clone
 
@@ -42,9 +35,8 @@ pwsh -NoProfile -File .\bootstrap.ps1
 ```
 
 Bootstrap installs and verifies the pinned gitleaks scanner, builds the generated skills and
-prints the deploy-skills dry-run command to review next. It never changes a live skills
-directory, and the repository installs no Git hooks. Setting up a machine:
-[docs/ONBOARD_NEW_MACHINE.md](docs/ONBOARD_NEW_MACHINE.md).
+prints the deploy-skills dry-run command to review next; it never writes a live skills root.
+Machine setup: [docs/ONBOARD_NEW_MACHINE.md](docs/ONBOARD_NEW_MACHINE.md).
 
 ## Everyday commands
 
@@ -58,7 +50,7 @@ pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work -Apply
 Without `-Apply`, deploy-skills only prints what it would install, update, prune or leave as
 unknown. `-Apply` writes the live home, so it needs the owner's authorization after the dry run
 has been reviewed. Before an update or prune it copies the old directory to a backup outside the
-repository; restoring is described in [docs/README.md §9](docs/README.md#9-备份与恢复).
+repository; restoring is described in [docs/README.md §8](docs/README.md#8-备份与恢复).
 
 ## Documentation
 

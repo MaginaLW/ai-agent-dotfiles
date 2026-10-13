@@ -35,7 +35,7 @@ pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work -Apply
 ```
 
 Run it only after the owner authorizes this Apply for this machine. Old directories it replaces
-are backed up first ([docs/README.md §9](README.md#9-备份与恢复)). Run the dry run again: every
+are backed up first ([docs/README.md §8](README.md#8-备份与恢复)). Run the dry run again: every
 selected skill should now be `unchanged`.
 
 ## 4. Optional: remove skills an older setup left

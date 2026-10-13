@@ -1,8 +1,7 @@
 @{
     SchemaVersion = 1
     Name = 'full'
-    Description = '全量基线环境（等于当前全部受管 skills；激活为零裁剪）'
-    Profile = 'coding'
+    Description = '全量基线环境（全部受管 skills，不做裁剪）'
 
     Skills = @{
         Claude = @(

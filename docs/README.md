@@ -10,8 +10,9 @@
 
 用 Git 统一管理多台电脑上的 Claude / Codex / Reasonix skills：`skills-source/` 是唯一可信源，
 `build-skills.ps1` 生成三个平台的 runtime output，`deploy-skills.ps1` 把某个环境选中的 skills 逐目录部署到
-本机 live 根（默认 dry-run）。另外管理 harness 配置（§14）和项目级 harness profile（§15）。
-原则：保守、可审计、默认 dry-run、绝不整目录覆盖、绝不碰平台内置目录。
+本机 live 根（默认 dry-run）。另外管理 harness 配置（§11）和项目级 harness profile（§12）。
+原则：保守、可审计、默认 dry-run、绝不整目录覆盖、绝不碰平台内置目录。红线（Hard rules / Skill rules）以
+[AGENTS.md](../AGENTS.md) 为准；唯一允许手工写 live 根的情形是 §8 的授权恢复。
 
 ---
 
@@ -38,10 +39,10 @@
 | `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`、`reasonix-only/`） |
 | `claude/skills/`、`codex/skills/`、`reasonix/skills/` | 生成物，Git-ignored，勿手改 |
 | `manifests/managed-skills.<platform>.txt` | 每平台受管名单，由 build 刷新，勿手改 |
-| `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§14） |
-| `harness-source/` | 环境定义 `envs/`（§16）与 profile/component 源（§15） |
+| `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§11） |
+| `harness-source/` | 环境定义 `envs/`（§13）与 profile/component 源（§12） |
 | `.agent-harness/generated/` | 项目本地 profile 生成物，Git-ignored，可重建 |
-| `scripts/` | build、scan、deploy（§4）、promote（§6）、config（§14）、profile（§15）、只读 `doctor.ps1`、统一 CLI（§17） |
+| `scripts/` | build、scan、deploy（§4）、promote（§6）、config（§11）、profile（§12）、测试与校验入口（§10）、只读 `doctor.ps1`、统一 CLI（§14） |
 
 ---
 
@@ -55,7 +56,7 @@
 - 其余 live 目录是 unknown，只报告不碰。Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
 - 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时整体失败，不留半删的 skill。
   残留的 `.deploying-*` 下次运行时清理。
-- `update` 和 `prune` 前先备份旧目录（§9）。
+- `update` 和 `prune` 前先备份旧目录（§8）。
 - 已部署集合记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`（每台机器各自一份）。
   没有该文件时首次运行不 prune；Apply 失败时保留旧状态。
 
@@ -67,7 +68,9 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Apply
 ```
 
 `-Apply` 会写真实 home：先审查 dry-run 的每一行，取得所有者授权后再执行。统一 CLI 的 `sync` 与
-`env deploy <name>` 转发到同一脚本（§17）。仓库不安装 Git hooks，`git pull` 不会自动部署。
+`env deploy <name>` 转发到同一脚本（§14）。仓库不安装 Git hooks，`git pull` 不会自动部署。
+多台机器同步：一台修改并 push 后，其余机器各自 `git pull --ff-only` 再走本流程；部署状态每台机器各自
+记录，互不复制。
 
 ---
 
@@ -101,22 +104,15 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
   pwsh -NoProfile -File scripts/promote-skill.ps1 -Path <dir> -Name <name> -Type shared -Apply
   ```
 
-  同名 skill 已存在时拒绝；`-Replace` 只替换同一类型，旧版本先移到 `tmp/skill-backups/<时间戳>/`。
+  同名 skill 已存在时拒绝；`-Replace` 只替换同一类型，旧版本先移到 `tmp/skill-backups/<时间戳>/<Type>/<name>/`。
   build 或扫描失败时文件留在工作区等待审查，用 Git 回退。
 - `CREATION-LOG.md` 这类备注文件可以留在源里，build 按 `RuntimeExcludePatterns` 从生成物剔除；备注里不要写机器名或本机路径。
 - build 后确认各平台 `Built ... skills: N` 的变化符合预期。
-- 要部署到本机，把名称加入相应环境（§16），再走 §4。
+- 要部署到本机，把名称加入相应环境（§13），再走 §4。
 
 ---
 
-## 7. 不能做的事情
-
-见 AGENTS.md 的 [Hard rules](../AGENTS.md#hard-rules) 与 [Skill rules](../AGENTS.md#skill-rules)。
-唯一允许手工写 live 根的情形是 §9 的授权恢复。
-
----
-
-## 8. Codex `.system` 规则
+## 7. Codex `.system` 规则
 
 `.system` 是 Codex 平台内置目录（标记文件 `.codex-system-skills.marker`），不受本仓库管理：build 与
 deploy-skills 永远跳过它，doctor 只检查根条目，所以 Codex live 根总比受管数量多一个目录。规则见
@@ -124,7 +120,7 @@ deploy-skills 永远跳过它，doctor 只检查根条目，所以 Codex live �
 
 ---
 
-## 9. 备份与恢复
+## 8. 备份与恢复
 
 deploy-skills 在 `update` 或 `prune` 一个目录前，把旧目录复制到下面的路径（`<StateRoot>` 默认是
 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`）。每次 Apply 用一个新 `<stamp>`，结束时打印本次备份目录。
@@ -142,24 +138,11 @@ deploy-skills 在 `update` 或 `prune` 一个目录前，把旧目录复制到�
   若不再选中且曾由本工具部署，显示 `prune`，先调整环境再 Apply。
 
 备份不含 Codex `.system`、unknown 目录和 home 配置；整机 home 恢复由平台/所有者自行处理。
-config-pull 的备份见 §14。
+config-pull 的备份见 §11。
 
 ---
 
-## 10. 多电脑同步流程
-
-一台电脑修改并 push 后，其它电脑各自 `git pull --ff-only`，再走 §4 的 dry-run → 授权 `-Apply`。
-部署状态每台机器各自记录，互不复制。
-
----
-
-## 11. 当前状态
-
-见 [STATUS.md](../STATUS.md)；进行中任务见 [status/active/](../status/active/)。
-
----
-
-## 12. 常见问题
+## 9. 常见问题
 
 **dry-run 显示 `unknown`？** 那是 deploy-skills 从未部署过的 live 目录（手工安装、其它工具或旧部署方式留下的），
 会一直保留。确认不再需要后用 `-Retire <name>` 删除。
@@ -169,7 +152,7 @@ config-pull 的备份见 §14。
 
 ---
 
-## 13. 检查与 CI
+## 10. 检查与 CI
 
 本地检查清单、CI 和红灯处理见 AGENTS.md 的 [Checks and CI](../AGENTS.md#checks-and-ci)。全量测试：
 
@@ -181,7 +164,7 @@ pwsh -NoProfile -File scripts/run-tests.ps1
 
 ---
 
-## 14. Harness 配置同步（config-sync）
+## 11. Harness 配置同步（config-sync）
 
 除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与 ExcludedItems）。
 
@@ -200,7 +183,7 @@ pwsh -NoProfile -File scripts/run-tests.ps1
 
 ---
 
-## 15. Project Harness Profiles
+## 12. Project Harness Profiles
 
 `harness-source/` 存放可复用的 component/profile 定义，为某个项目生成 `.agent-harness/generated/` 下的本地输出。
 只处理项目本地文件，不切换全局 home harness。
@@ -223,11 +206,11 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 
 ---
 
-## 16. Harness Environments
+## 13. Harness Environments
 
-环境是命名的 skills 选集：`harness-source/envs/<name>.psd1`，字段为 `SchemaVersion`、`Name`（须与文件名一致）、
-`Description`、`Profile`（引用 `harness-source/profiles/`）和 `Skills`。`Skills` 必须恰好有 `Claude`、`Codex`、
-`Reasonix` 三个键（不要 skill 的平台写 `@()`），否则 deploy-skills 拒绝运行，避免把缺键误读成空选集而 prune 全部。
+环境是命名的 skills 选集：`harness-source/envs/<name>.psd1`。deploy-skills 只消费 `Skills`：必须恰好有
+`Claude`、`Codex`、`Reasonix` 三个键（不要 skill 的平台写 `@()`），否则拒绝运行，避免把缺键误读成空选集而
+prune 全部。`env list` 显示文件名与 `Description`；`SchemaVersion` 与 `Name` 是声明性元数据，脚本不校验。
 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
 
@@ -244,7 +227,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 
 ---
 
-## 17. 统一 CLI
+## 14. 统一 CLI
 
 `scripts/agent-dotfiles.ps1` 只负责路由，把参数原样转给底层脚本：
 

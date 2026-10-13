@@ -44,7 +44,7 @@ are changing.
 `~/.codex/skills` (or the `~/.agents/skills` fallback when only that one exists) and
 `%APPDATA%\reasonix\skills`. The repository also syncs harness config (config-sync) and builds
 project harness profiles. Detail: [docs/README.md](docs/README.md) (§4-6 skills and deployment,
-§9 restore, §14 config-sync, §15 profiles, §16 environments).
+§8 restore, §11 config-sync, §12 profiles, §13 environments).
 
 ## Skill rules
 
@@ -63,7 +63,7 @@ need them.
 3. **Live roots only through deploy-skills.** Change live skills roots only through
    `scripts/deploy-skills.ps1` (or its `agent-dotfiles.ps1 sync` and `env deploy <name>` routes).
    Never copy into or delete from a live root by hand. The one exception is restoring a
-   deploy-skills backup with the owner's authorization ([docs/README.md §9](docs/README.md#9-备份与恢复)).
+   deploy-skills backup with the owner's authorization ([docs/README.md §8](docs/README.md#8-备份与恢复)).
    Run the dry run first (no `-Apply`) and review every install, update, prune and unknown line.
    Rerun with `-Apply` only after the owner authorizes it.
 4. **Retiring a skill.** deploy-skills prunes only directories it deployed itself. A deleted
