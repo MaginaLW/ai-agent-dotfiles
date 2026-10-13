@@ -17,8 +17,9 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $work = Join-Path ([IO.Path]::GetTempPath()) ('repository-validation-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work -Force | Out-Null
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 # The four protected Reasonix files stay out of every porcelain check.
-$policyPaths = @('.') + @('auto-title-meta', 'created-at', 'title-sources', 'titles' | ForEach-Object { ":(exclude).reasonix/desktop-topic-$_.json" })
+$policyPaths = Get-PorcelainStatusPaths
 
 function Invoke-Gate([string] $Name, [scriptblock] $Body) {
     Write-Host "== $Name"

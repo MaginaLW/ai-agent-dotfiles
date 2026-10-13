@@ -17,29 +17,22 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $configPath = if ($ScannerConfigPath) { (Resolve-Path -LiteralPath $ScannerConfigPath).Path } else { Join-Path $RepoRoot '.gitleaks.toml' }
 $gitleaksFailed = $false
 . (Join-Path $PSScriptRoot 'pinned-tool.ps1')
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 # Scan input exclusions (matched case-insensitively). Change them only with the
 # owner's approval:
 #  - the path prefixes below (generated roots and tmp/);
-#  - the four protected .reasonix/desktop-topic-* files;
+#  - the four protected .reasonix/desktop-topic-* files (repo-common.ps1);
 #  - Git-ignored entries: `git ls-files -co --exclude-standard` selects tracked
 #    files plus untracked, non-ignored files.
 # The fallback scanner additionally skips backup/* and tmp/* (Test-IsSkippedPath
 # below, unchanged); gitleaks still sees backup/ when it is not Git-ignored.
 $scanExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'tmp/')
-$scanExcludedExactPaths = @(
-    '.reasonix/desktop-topic-auto-title-meta.json',
-    '.reasonix/desktop-topic-created-at.json',
-    '.reasonix/desktop-topic-title-sources.json',
-    '.reasonix/desktop-topic-titles.json'
-)
 
 function Test-IsScanInputExcluded {
     param([Parameter(Mandatory)] [string] $RelativePath)
 
-    foreach ($exact in $scanExcludedExactPaths) {
-        if ($RelativePath.Equals($exact, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
-    }
+    if (Test-IsProtectedReasonixFile -RelativePath $RelativePath) { return $true }
     foreach ($prefix in $scanExcludedPrefixes) {
         if ($RelativePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
@@ -106,15 +99,6 @@ function Test-IsSkippedPath {
         $normalized -like 'backup/*' -or
         $normalized -like 'tmp/*'
     )
-}
-
-function Test-IsBinaryExtension {
-    param(
-        [Parameter(Mandatory)] [string] $Path
-    )
-
-    $binaryExtensions = @('.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.7z', '.exe', '.dll', '.sqlite', '.db')
-    return [System.IO.Path]::GetExtension($Path).ToLowerInvariant() -in $binaryExtensions
 }
 
 function Test-IsAllowedPlaceholderLine {

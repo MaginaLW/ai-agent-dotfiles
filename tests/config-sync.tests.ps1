@@ -65,8 +65,9 @@ function New-TempRepo {
     foreach ($name in @(
         'scan-secrets.ps1'
         'pinned-tool.ps1'
+        'repo-common.ps1'
     )) {
-        Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $tr 'scripts') -Force
+        Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $tr "scripts/$name") -Force
     }
     New-Item -ItemType Directory -Path (Join-Path $tr 'tools/gitleaks') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $tr 'tools/gitleaks/gitleaks.lock.json') -Force

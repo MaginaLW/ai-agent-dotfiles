@@ -44,6 +44,7 @@ function Test-RequiredPath([string] $RelativePath, [ValidateSet('Leaf', 'Contain
 }
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 if ([string]::IsNullOrWhiteSpace($HomeRoot)) { throw 'The user home directory could not be determined; pass -HomeRoot.' }
 Write-Host 'ai-agent-dotfiles doctor (read-only)' -ForegroundColor White
 
@@ -119,7 +120,7 @@ else {
 
 Write-Section 'Working tree'
 if ($null -ne $git) {
-    $statusPaths = @('.') + @('auto-title-meta', 'created-at', 'title-sources', 'titles' | ForEach-Object { ":(exclude).reasonix/desktop-topic-$_.json" })
+    $statusPaths = Get-PorcelainStatusPaths
     $statusLines = @(& $git.Source -C $RepoRoot status --porcelain --untracked-files=all -- @statusPaths 2>$null)
     if ($LASTEXITCODE -ne 0) { Add-DoctorResult FAIL 'Git status could not be read.' }
     elseif ($statusLines.Count -eq 0) { Add-DoctorResult PASS 'Git working tree is clean.' }

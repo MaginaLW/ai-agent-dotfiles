@@ -23,8 +23,8 @@ $script:HarnessKinds = @{
     CodexAgent     = @{ Mode = 'DirectoryFiles'; Allowed = @('.codex/agents/'); Extra = @('Source') }
     ClaudeSettings = @{ Mode = 'StructuredMerge'; Allowed = @('.claude/settings.json'); Extra = @('MergeStrategy') }
 }
-$script:HarnessDrivePattern = '(?<![A-Za-z])[A-Za-z]:[\\/]'
-$script:HarnessUncPattern = '\\\\[A-Za-z0-9?.$_-]'
+# The drive/UNC machine-private path policy lives in repo-common.ps1.
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 function Import-HarnessData {
     param([string] $Path, [string] $Kind, [string[]] $Required, [string[]] $Allowed)
@@ -64,21 +64,20 @@ function Select-HarnessStableUnique {
 function Test-HarnessPrivatePathText {
     param([AllowNull()] [string] $Text)
     return (-not [string]::IsNullOrWhiteSpace($Text)) -and
-        (($Text -match $script:HarnessDrivePattern) -or ($Text -match ('^' + $script:HarnessUncPattern)))
+        (($Text -match $script:DriveAbsolutePathPattern) -or ($Text -match ('^' + $script:UncPathPattern)))
 }
 
 function Assert-HarnessNoPrivatePaths {
     param([AllowEmptyCollection()] [string[]] $Paths)
 
-    $binary = @('.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.7z', '.exe', '.dll', '.sqlite', '.db')
     $findings = foreach ($path in $Paths) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        if ([System.IO.Path]::GetExtension($path).ToLowerInvariant() -in $binary) { continue }
+        if (Test-IsBinaryExtension -Path $path) { continue }
         $line = 0
         foreach ($text in [System.IO.File]::ReadLines($path)) {
             $line++
-            if ($text -match $script:HarnessDrivePattern) { "${path}:$line Drive-absolute path" }
-            if ($text -match $script:HarnessUncPattern) { "${path}:$line UNC path" }
+            if ($text -match $script:DriveAbsolutePathPattern) { "${path}:$line Drive-absolute path" }
+            if ($text -match $script:UncPathPattern) { "${path}:$line UNC path" }
         }
     }
     if (@($findings).Count -gt 0) { throw "Machine-private path scan failed: $(@($findings) -join '; ')" }

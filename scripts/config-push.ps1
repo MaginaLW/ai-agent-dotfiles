@@ -61,6 +61,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 . (Join-Path $PSScriptRoot 'config-common.ps1')
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
@@ -71,14 +72,13 @@ function Find-MachinePrivatePaths {
     # negative lookbehind so URL schemes like https:// are not mistaken for "s:/".
     param([Parameter(Mandatory)] [System.Collections.IEnumerable] $Operations)
     $patterns = @(
-        @{ Name = 'Drive-absolute path'; Regex = '(?<![A-Za-z])[A-Za-z]:[\\/]' },
-        @{ Name = 'UNC path'; Regex = '\\\\[A-Za-z0-9?.$_-]' }
+        @{ Name = 'Drive-absolute path'; Regex = $script:DriveAbsolutePathPattern },
+        @{ Name = 'UNC path'; Regex = $script:UncPathPattern }
     )
-    $binaryExt = @('.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.7z', '.exe', '.dll', '.sqlite', '.db')
     $findings = [System.Collections.Generic.List[object]]::new()
     foreach ($op in $Operations) {
         if (-not (Test-Path -LiteralPath $op.Dst -PathType Leaf)) { continue }
-        if ([System.IO.Path]::GetExtension($op.Dst).ToLowerInvariant() -in $binaryExt) { continue }
+        if (Test-IsBinaryExtension -Path $op.Dst) { continue }
         $lineNumber = 0
         foreach ($line in [System.IO.File]::ReadLines($op.Dst)) {
             $lineNumber++

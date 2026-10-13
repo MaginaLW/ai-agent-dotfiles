@@ -178,7 +178,8 @@ function New-TestHarnessRepo {
     New-Item -ItemType Directory -Path (Join-Path $repo 'harness-source/profiles') -Force | Out-Null
     foreach ($name in @(
         'scan-secrets.ps1',
-        'pinned-tool.ps1'
+        'pinned-tool.ps1',
+        'repo-common.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $repo "scripts/$name") -Force
     }
