@@ -124,7 +124,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
 - **Environments** (Claude/Codex/Reasonix/Zcode): `minimal` 1/1/1/1, `work` 2/2/2/2
-  (`boring-engineering`, `systematic-debugging`), `full` 8/16/8/8. Unknown live directories are
+  (`boring-engineering`, `systematic-debugging`), `full` 9/17/9/9. Unknown live directories are
   preserved, and Codex `.system` is never managed.
 - **Retired:**
   - the transactional live-sync engine, its hooks, runner, schemas and tests (2026-10-09);
