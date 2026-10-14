@@ -40,7 +40,6 @@ codex/sessions/
 codex/log/
 codex/cache/
 codex/history.jsonl
-codex/**/*.sqlite
 codex/**/*.sqlite*
 codex/volumes/
 
@@ -50,8 +49,6 @@ tmp/
 /.tmp-*
 *.bak
 *.tmp
-.agent-harness/generated/
-.agent-harness/backups/
 **/.agent-harness/generated/
 **/.agent-harness/backups/
 

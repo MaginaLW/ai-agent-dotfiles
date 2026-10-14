@@ -56,7 +56,6 @@
             'log'
             'cache'
             'history.jsonl'
-            '*.sqlite'
             '*.sqlite*'
             'volumes'
             '*.local.toml'
