@@ -56,8 +56,8 @@ try {
     $repoSuites = @(Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter '*.tests.ps1' | ForEach-Object Name)
     Assert (@(Compare-Object @($repoBudgets.Keys) $repoSuites).Count -eq 0) 'every repository suite has exactly one budget'
     $total = ($repoBudgets.Values | Measure-Object -Sum).Sum
-    # The 45-minute CI job also runs the other validation gates; keep 7 minutes for them.
-    Assert ($total -le 2280) "suite budgets fit the 45-minute CI job (total $total s)"
+    # The 35-minute CI job also runs the other validation gates; keep 7 minutes for them.
+    Assert ($total -le 1680) "suite budgets fit the 35-minute CI job (total $total s)"
 
     Write-Host '[timeout kills the process tree]'
     $stateRoot = Join-Path $work 'process-tree-state'

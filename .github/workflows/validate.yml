@@ -13,11 +13,16 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same ref supersedes its queued run instead of piling up.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     name: Validate repository
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -28,12 +33,6 @@ jobs:
         run: |
           & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1')
           if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks install failed with exit code $LASTEXITCODE." }
-
-      - name: Verify pinned gitleaks
-        shell: pwsh
-        run: |
-          & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE 'scripts\install-gitleaks.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw "Pinned gitleaks verification failed with exit code $LASTEXITCODE." }
 
       - name: Run repository validation
         shell: pwsh

@@ -78,7 +78,19 @@ function Install-PinnedTool {
     [System.IO.Directory]::CreateDirectory($candidate) | Out-Null
     try {
         $archive = Join-Path $candidate ([string] $lock.AssetName)
-        Invoke-WebRequest -UseBasicParsing -Uri ([string] $lock.AssetUrl) -OutFile $archive
+        $downloadError = $null
+        foreach ($attempt in @(1, 2, 3)) {
+            try {
+                Invoke-WebRequest -UseBasicParsing -Uri ([string] $lock.AssetUrl) -OutFile $archive -TimeoutSec 300
+                $downloadError = $null
+                break
+            }
+            catch {
+                $downloadError = $_
+                if ($attempt -lt 3) { Start-Sleep -Seconds (5 * $attempt) }
+            }
+        }
+        if ($null -ne $downloadError) { throw "Downloading the pinned $($lock.ToolKind) archive failed after 3 attempts: $($downloadError.Exception.Message)" }
         if ((Get-PinnedToolFileSha256 -Path $archive) -cne [string] $lock.AssetSha256) { throw "Downloaded $($lock.ToolKind) archive hash mismatch." }
         $expanded = Join-Path $candidate 'expanded'
         Expand-Archive -LiteralPath $archive -DestinationPath $expanded
