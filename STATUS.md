@@ -44,7 +44,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   pinned-tool download retries with a timeout. deploy-skills hashes and reparse-checks each tree
   in one walk. promote-skill lost its redundant `-DryRun` switch (the unified CLI still accepts
   the spelling and strips it). Fatal script errors go to stderr, and scan-secrets is split into
-  named passes (input copy, gitleaks, fallback, JSON report).
+  named passes (input copy, gitleaks, fallback, JSON report). A final cleanup removed the dead
+  code the review listed (unused return property and parameter, unread lock fields, the misleading
+  fixture profile), the ignore lines covered by broader patterns, and unified backup stamps on
+  UTC, git ls-files UTF-8 decoding in the syntax gate, and the fallback skip list on the single
+  exclusion source.
 - **Engine removal (merged to `main` 2026-10-10).** The transactional live-sync engine is gone:
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
