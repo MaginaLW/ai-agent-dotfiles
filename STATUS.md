@@ -114,12 +114,13 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 | Scope | Canonical | Claude | Codex | Reasonix |
 |---|---:|---:|---:|---:|
-| Shared | 8 | 8 | 8 | 8 |
+| Shared | 9 | 9 | 9 | 9 |
 | Codex-only (Claude-only and Reasonix-only are empty) | 8 | - | 8 | - |
-| Managed total | 16 | 8 | 16 | 8 |
+| Managed total | 17 | 9 | 17 | 9 |
 
-- **Shared skills:** boring-engineering, brainstorming, git-review, paper-polish,
-  subagent-driven-development, systematic-debugging, verification-before-completion, writing-plans.
+- **Shared skills:** boring-engineering, brainstorming, git-review, meng-cmame-writing,
+  paper-polish, subagent-driven-development, systematic-debugging, verification-before-completion,
+  writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
 - **Environments** (Claude/Codex/Reasonix/Zcode): `minimal` 1/1/1/1, `work` 2/2/2/2

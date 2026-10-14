@@ -1,6 +1,7 @@
 boring-engineering
 brainstorming
 git-review
+meng-cmame-writing
 paper-polish
 subagent-driven-development
 systematic-debugging

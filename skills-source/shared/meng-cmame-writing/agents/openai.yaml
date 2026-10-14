@@ -1,0 +1,6 @@
+interface:
+  display_name: "CMAME 科研写作与润色"
+  short_description: "Evidence-led CMAME planning, writing, and editing"
+  default_prompt: "Use $meng-cmame-writing to prepare, draft, or polish the requested CMAME material, following the requested phase and preserving the scientific evidence."
+policy:
+  allow_implicit_invocation: true
