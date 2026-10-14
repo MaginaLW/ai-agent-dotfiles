@@ -76,8 +76,8 @@ $sharedConflicts = @(
         Sort-Object -Unique
 )
 if ($sharedConflicts.Count -gt 0) {
-    Write-Host 'ERROR: Skill name conflict between shared and platform-only sources.'
-    $sharedConflicts | ForEach-Object { Write-Host "Conflict: $_ (in shared and platform-only)" }
+    [Console]::Error.WriteLine('ERROR: Skill name conflict between shared and platform-only sources.')
+    $sharedConflicts | ForEach-Object { [Console]::Error.WriteLine("Conflict: $_ (in shared and platform-only)") }
     exit 1
 }
 
@@ -87,8 +87,8 @@ foreach ($n in $codexOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $
 foreach ($n in $reasonixOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='reasonix-only' }
 $crossPlatformConflicts = @($platformOnlyAll.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($crossPlatformConflicts.Count -gt 0) {
-    Write-Host 'ERROR: Skill name appears in more than one platform-only source.'
-    $crossPlatformConflicts | ForEach-Object { Write-Host "Conflict: $($_.Key) in [$($_.Value -join ', ')]" }
+    [Console]::Error.WriteLine('ERROR: Skill name appears in more than one platform-only source.')
+    $crossPlatformConflicts | ForEach-Object { [Console]::Error.WriteLine("Conflict: $($_.Key) in [$($_.Value -join ', ')]") }
     exit 1
 }
 

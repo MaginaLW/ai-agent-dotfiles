@@ -147,7 +147,7 @@ if (-not $SkipPathScan) {
     Write-Host 'Scanning captured files for machine-private paths...' -ForegroundColor Cyan
     $pathFindings = @(Find-MachinePrivatePaths -Operations $plan)
     if ($pathFindings.Count -gt 0) {
-        Write-Host 'ERROR: machine-private absolute path(s) found in captured config:' -ForegroundColor Red
+        [Console]::Error.WriteLine('ERROR: machine-private absolute path(s) found in captured config:')
         $pathFindings | Format-Table -AutoSize | Out-String | Write-Host
         Restore-Plan -Operations $plan
         throw 'Captured config contains machine-private paths. Reverted all captured files. Review the source, or re-run with -SkipPathScan if the paths are intentional.'
