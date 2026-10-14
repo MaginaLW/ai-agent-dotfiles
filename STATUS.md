@@ -69,8 +69,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   and canonical state, canonical recovery root, control base, receipt backups and bootstrap lock
   were archived on 2026-10-09 and deleted by the owner on 2026-10-10, together with the stale
   engine-era worktrees and the local `wt-p4g` branch. Nothing on this machine refers to them;
-  the `tmp/archive/engine-20261007` evidence folder survived that cleanup and remains under the
-  ignored `tmp/`.
+  the `tmp/archive/engine-20261007` evidence folder survived that cleanup and was removed on
+  2026-10-14 after a byte-verified copy went to
+  `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\archives\engine-20261007`.
 - **CI.** One `Validate` job runs `scripts/run-repository-validation.ps1` on push to `main`,
   pull requests and manual dispatch (about 3 minutes; first green run on `24114ef`).
 - **Other machines.** None has been set up yet. Some may still carry pre-repository or old-engine
