@@ -135,8 +135,10 @@ deploy-skills 在 `update` 或 `prune` 一个目录前，把旧目录复制到�
 - **从 Git 重新部署（首选）。** 受管 skill 被改坏时，检出想要的提交，跑 dry-run，审查后按授权 `-Apply`。
   被误删的受管 skill 加回环境后再部署。
 - **从备份复制回来。** 需要部署前的旧内容（例如被 prune 的目录）时，经所有者授权，把备份目录复制回对应
-  live 根下的 `<name>`（先确认目标不存在或已移开）。恢复后若仍被环境选中，下次 dry-run 显示 `update`；
-  若不再选中且曾由本工具部署，显示 `prune`，先调整环境再 Apply。
+  live 根下的 `<name>`（先确认目标不存在或已移开）。恢复后若仍被环境选中，下次 dry-run 按内容显示
+  `update` 或 `unchanged`；若不再选中，则看部署状态：名字仍在状态里（prune 后尚未成功 Apply，或 Apply
+  在写状态前失败）显示 `prune`，成功的 Apply 已把它从状态移除后显示 `unknown`，需要再删时用
+  `-Retire` 点名。
 
 备份不含 Codex `.system`、unknown 目录和 home 配置；整机 home 恢复由平台/所有者自行处理。
 config-pull 的备份见 §11。

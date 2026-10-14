@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-13.
+Last updated: 2026-10-14.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -58,11 +58,19 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   -Environment work -Apply` now manages it. The run found all six managed directories unchanged
   (`boring-engineering`, `systematic-debugging` on Claude, Codex and Reasonix), left the one
   unknown Codex directory and Codex `.system` alone, and wrote only its state file under
-  `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`.
+  `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`. That state file later disappeared (cause unknown);
+  an owner-authorized `work` Apply on 2026-10-14 rebuilt it and refreshed the three live
+  `boring-engineering` directories to LF, because the primary working tree still carried CRLF
+  copies from before the `.gitattributes` `eol=lf` rule and any fresh checkout built different
+  bytes. Generated output and the managed live directories are LF again, with the pre-change
+  copies in the deploy-skills backups; Codex `.system` and unknown directories keep their
+  original bytes.
 - **Old machine state (removed 2026-10-10).** The old engine's Git hooks, Git-private runner
   and canonical state, canonical recovery root, control base, receipt backups and bootstrap lock
   were archived on 2026-10-09 and deleted by the owner on 2026-10-10, together with the stale
-  engine-era worktrees and the local `wt-p4g` branch. Nothing on this machine refers to them.
+  engine-era worktrees and the local `wt-p4g` branch. Nothing on this machine refers to them;
+  the `tmp/archive/engine-20261007` evidence folder survived that cleanup and remains under the
+  ignored `tmp/`.
 - **CI.** One `Validate` job runs `scripts/run-repository-validation.ps1` on push to `main`,
   pull requests and manual dispatch (about 3 minutes; first green run on `24114ef`).
 - **Other machines.** None has been set up yet. Some may still carry pre-repository or old-engine
@@ -90,6 +98,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 - **Deploy state is per machine.** deploy-skills prunes only directories recorded in its state
   file. On a machine without that file the first run prunes nothing, and directories an older
   setup deployed show as unknown until `-Retire` names them.
+- **ZCode user-level skills are manual copies.** `~/.zcode/skills` holds hand-copied
+  `boring-engineering` and `systematic-debugging`; deploy-skills does not manage that root, so
+  those copies can drift until a direction-2 decision lands.
 - **Codex catalog refresh.** Codex may need a new task or thread before a changed skill set shows.
 - **Out of scope.** Codex `config.toml`, Reasonix `config.toml`/`.env`, credentials, sessions and
   caches are outside sync scope. Machine-private evidence (`tmp/` and external private roots) is
