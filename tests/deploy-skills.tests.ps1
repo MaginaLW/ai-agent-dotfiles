@@ -118,6 +118,13 @@ try {
     Set-TestEnvironment $repo @('alpha') @()
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+prune\s+alpha' -and (Get-Content -Raw (Join-Path $zcodeRoot 'hand-made-z/SKILL.md')) -eq 'manual') 'deselecting prunes the zcode-deployed dir but keeps unknown dirs'
+    Set-TestEnvironment $repo @('alpha') @('alpha')
+    $r = Invoke-Deploy $repo $homeDir @('-Apply')
+    Set-TestFile (Join-Path $repo 'claude/skills/alpha/SKILL.md') "# alpha v4`n"
+    $r = Invoke-Deploy $repo $homeDir @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'update Zcode/alpha') 'a changed Claude projection updates Zcode'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $zcodeRoot 'alpha/SKILL.md')) -eq "# alpha v4`n" -and (Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v3`n") 'zcode follows the Claude output while Codex keeps its own'
+    Set-TestEnvironment $repo @('alpha') @()
     Set-TestFile (Join-Path $repo 'codex/skills/gamma/SKILL.md') "# gamma v1`n"
     Set-TestEnvironment $repo @('alpha') @('gamma')
     $r = Invoke-Deploy $repo $homeDir

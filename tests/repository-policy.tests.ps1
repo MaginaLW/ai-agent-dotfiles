@@ -41,6 +41,15 @@ foreach ($manifest in @('manifests/managed-skills.claude.txt', 'manifests/manage
     Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot $manifest) -PathType Leaf) "the per-platform manifest $manifest exists"
 }
 
+# full is documented as selecting every managed skill, so its per-platform lists must equal the
+# corresponding manifests, and the Zcode projection list must equal Claude's.
+$fullSelection = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'harness-source/envs/full.psd1')).Skills
+foreach ($pair in @(@('Claude', 'claude'), @('Codex', 'codex'), @('Reasonix', 'reasonix'))) {
+    $manifestNames = @(Get-Content -LiteralPath (Join-Path $RepoRoot "manifests/managed-skills.$($pair[1]).txt") | Where-Object { $_ })
+    Assert-TestCondition (@(Compare-Object @($fullSelection[$pair[0]]) $manifestNames).Count -eq 0) "the full environment's $($pair[0]) selection equals the managed-skills manifest"
+}
+Assert-TestCondition (@(Compare-Object @($fullSelection['Zcode']) @($fullSelection['Claude'])).Count -eq 0) "the full environment's Zcode selection equals Claude (projection)"
+
 # -----------------------------------------------------------------------------
 # Generated-root boundaries are symmetric across all three platforms
 # -----------------------------------------------------------------------------

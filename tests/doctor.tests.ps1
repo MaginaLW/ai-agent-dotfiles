@@ -25,6 +25,7 @@ try {
     if ($output -notmatch 'root entry detected with no content traversal') { throw 'doctor did not report the no-follow .system root marker' }
     if ((Get-FileHash -LiteralPath $child -Algorithm SHA256).Hash -ne $beforeHash) { throw 'doctor changed the protected .system child' }
     if ($output -notmatch 'Codex live root is ambiguous') { throw 'doctor did not flag both Codex roots as ambiguous' }
+    if ($output -notmatch 'Zcode live root .* not found') { throw 'doctor did not warn about the missing Zcode live root' }
     if ($output -notmatch 'scripts\\deploy-skills\.ps1 exists') { throw 'doctor did not check scripts/deploy-skills.ps1' }
     if ($output -notmatch 'Secrets scan skipped') { throw 'doctor did not record the skipped secret scan' }
     if ($output -match 'status\\archived|Live safety protocol|runner-review-required|Approved runner hash') { throw 'doctor still reports retired engine diagnostics' }
@@ -42,6 +43,11 @@ try {
     if ($reparseCode -ne 0 -or $reparseOutput -notmatch 'root entry is a reparse point') { throw 'doctor did not classify a .system reparse root without traversal' }
     if ($reparseOutput -notmatch 'Codex live root: ~/\.codex/skills\.') { throw 'doctor did not report the preferred Codex root' }
     if ((Get-FileHash -LiteralPath $outsideChild -Algorithm SHA256).Hash -ne $outsideBefore) { throw 'outside sentinel changed' }
+
+    $zcodeHome = Join-Path $work 'zcode-home'
+    [System.IO.Directory]::CreateDirectory((Join-Path $zcodeHome '.zcode/skills')) | Out-Null
+    $zcodeOutput = & pwsh -NoProfile -File $doctor -RepoRoot $RepoRoot -HomeRoot $zcodeHome -SkipSecretsScan 2>&1 | Out-String; $zcodeCode=$LASTEXITCODE
+    if ($zcodeCode -ne 0 -or $zcodeOutput -notmatch 'Zcode live root .* detected') { throw "doctor did not detect the Zcode live root: $zcodeOutput" }
 
     Write-Host 'doctor tests: PASS'
 }
