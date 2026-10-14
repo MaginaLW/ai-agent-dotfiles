@@ -39,6 +39,13 @@ Bootstrap installs and verifies the pinned gitleaks scanner, builds the generate
 prints the deploy-skills dry-run command to review next; it never writes a live skills root.
 Machine setup: [docs/ONBOARD_NEW_MACHINE.md](docs/ONBOARD_NEW_MACHINE.md).
 
+Tests keep config-sync fixture repo, home and backup trees under the project's ignored
+`tmp/tests/config-sync/<run-id>/`. Normal failures save a small pre-cleanup receipt in
+`tmp/tests/config-sync/receipts/` before removing generated payload. A timeout or a child
+that skips finalization retains its exact owned tree; parent exit and drained output do
+not prove every writer stopped. Check actual tree and writer state before cleanup; a
+receipt's `cleanup_requested` field records intent, not completed deletion.
+
 ## Everyday commands
 
 ```powershell
