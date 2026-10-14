@@ -60,7 +60,7 @@ try {
 
     $backup = $null
     if ($replacing) {
-        $backup = Join-Path $RepoRoot ('tmp/skill-backups/{0}/{1}/{2}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), $Type, $Name)
+        $backup = Join-Path $RepoRoot ('tmp/skill-backups/{0}/{1}/{2}' -f (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff'), $Type, $Name)
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backup) | Out-Null
         Move-Item -LiteralPath $target -Destination $backup
         Write-Host "Backed up the old copy to $backup"

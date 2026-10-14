@@ -111,7 +111,7 @@ if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to capture: rep
 
 # Apply: stage originals -> write -> secret scan -> path scan -> keep or revert.
 # The stage dir is created lazily so pure-add runs leave no empty backup folder.
-$stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
 $stageDir = Join-Path $BackupRoot "config-push-stage-$stamp"
 $index = 0
 foreach ($op in $plan) {

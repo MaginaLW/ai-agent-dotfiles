@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 
 $platforms = @('Claude', 'Codex', 'Reasonix')
 $statePath = Join-Path $StateRoot 'deployed-skills.json'
-$backupRoot = Join-Path $StateRoot ('skill-backups\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+$backupRoot = Join-Path $StateRoot ('skill-backups\' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
 
 function Get-DeploySkillsLiveRoot([string] $Platform) {
     switch ($Platform) {

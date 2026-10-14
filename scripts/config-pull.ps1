@@ -72,7 +72,7 @@ if (-not $SkipSecretScan) {
     }
 }
 
-$stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
 $backupDir = Join-Path $BackupRoot "config-backup-$stamp"
 $overwrites = @($plan | Where-Object { $_.Action -eq 'update' })
 if ($overwrites.Count -gt 0) {

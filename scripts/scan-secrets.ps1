@@ -24,8 +24,8 @@ $configPath = if ($ScannerConfigPath) { (Resolve-Path -LiteralPath $ScannerConfi
 #  - the four protected .reasonix/desktop-topic-* files (repo-common.ps1);
 #  - Git-ignored entries: `git ls-files -co --exclude-standard` selects tracked
 #    files plus untracked, non-ignored files.
-# The fallback scanner additionally skips backup/* and tmp/* (Test-IsSkippedPath
-# below, unchanged); gitleaks still sees backup/ when it is not Git-ignored.
+# The fallback scanner re-checks the same prefixes plus backup/ (Test-IsSkippedPath
+# below, defense in depth); gitleaks still sees backup/ when it is not Git-ignored.
 $scanExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'tmp/')
 
 function Test-IsScanInputExcluded {
@@ -80,18 +80,17 @@ function Get-ScanInputRelativePaths {
 }
 
 function Test-IsSkippedPath {
+    # Defense in depth: the input exclusions already keep these prefixes out of the copy,
+    # and the fallback re-checks them plus backup/, which the copy can contain.
     param(
         [Parameter(Mandatory)] [string] $RelativePath
     )
 
-    $normalized = $RelativePath -replace '\\', '/'
-    return (
-        $normalized -like '.git/*' -or
-        $normalized -like 'claude/skills/*' -or
-        $normalized -like 'codex/skills/*' -or
-        $normalized -like 'backup/*' -or
-        $normalized -like 'tmp/*'
-    )
+    $normalized = ($RelativePath -replace '\\', '/')
+    foreach ($prefix in @($scanExcludedPrefixes) + @('backup/')) {
+        if ($normalized.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
 }
 
 function Test-IsAllowedPlaceholderLine {

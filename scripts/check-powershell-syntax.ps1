@@ -9,8 +9,16 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
 $excludedPrefixes = @('claude/skills/', 'codex/skills/', 'reasonix/skills/', 'tmp/')
 
-$paths = @(& git -C $RepoRoot ls-files -co --exclude-standard)
-if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate current-worktree files for syntax validation.' }
+# Decode Git's UTF-8 output explicitly so non-ASCII file names survive (same handling as
+# scan-secrets.ps1).
+$previousEncoding = [Console]::OutputEncoding
+try {
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $listing = & git -C $RepoRoot ls-files -z -co --exclude-standard
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate current-worktree files for syntax validation.' }
+}
+finally { [Console]::OutputEncoding = $previousEncoding }
+$paths = @(($listing -join '') -split "`0" | Where-Object { $_ })
 $errors = [System.Collections.Generic.List[object]]::new()
 $parsed = 0
 $parsedFiles = [System.Collections.Generic.List[object]]::new()
