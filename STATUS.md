@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-14.
+Last updated: 2026-10-15.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
