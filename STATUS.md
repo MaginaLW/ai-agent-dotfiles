@@ -39,6 +39,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   failure-path suites (10 -> 12 suites, budget 990 -> 1380 s). docs/README.md merged its three
   pointer sections (§1-§14 now) and its environment schema matches the code; the env files
   dropped the dead `Profile` key.
+- **Fourth-pass follow-ups (2026-10-14).** CI installs the pinned gitleaks once (the validation
+  gate re-verifies), runs with a 35-minute timeout and cancels superseded runs, and the
+  pinned-tool download retries with a timeout. deploy-skills hashes and reparse-checks each tree
+  in one walk. promote-skill lost its redundant `-DryRun` switch (the unified CLI still accepts
+  the spelling and strips it). Fatal script errors go to stderr, and scan-secrets is split into
+  named passes (input copy, gitleaks, fallback, JSON report).
 - **Engine removal (merged to `main` 2026-10-10).** The transactional live-sync engine is gone:
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
