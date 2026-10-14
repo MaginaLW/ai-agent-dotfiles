@@ -503,7 +503,7 @@ $fakeToken = 'sk-' + ('TESTTOKEN' * 3)
 Add-Component -HarnessRepo $secretRepo -Path 'prompts/unsafe-secret' -Id 'unsafe-secret' -Kind 'Prompt' -Target '.agent-harness/generated/prompts/unsafe-secret.md' -Mode 'GeneratedOnly' -Content ("Do not emit " + $fakeToken + "`n")
 $project = New-TestProject -Name 'secret-project' -ProfileText (New-ProjectProfileText -Prompts @('unsafe-secret'))
 $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $secretRepo, '-ProjectRoot', $project)
-Assert ($r.Code -ne 0 -and $r.Out -match 'secret|gitleaks|scan-secrets') 'safety gate: fake secret fails closed'
+Assert ($r.Code -ne 0 -and $r.Out -match 'scan-secrets\.ps1 failed with exit code') 'safety gate: fake secret fails closed'
 Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/generated'))) 'safety gate: fake secret leaves no generated output'
 
 $pathRepo = New-TestHarnessRepo -Name 'machine-path-repo'

@@ -7,17 +7,15 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 # Skill-tree helpers shared by build-skills.ps1 and promote-skill.ps1.
 
 function Get-SkillDirectories {
-    param(
-        [Parameter(Mandatory)] [string] $RootPath,
-        [string[]] $ExcludeNames = @('.system')
-    )
+    # .system is the Codex built-in root: never a build source or generated skill.
+    param([Parameter(Mandatory)] [string] $RootPath)
 
     if (-not (Test-Path -LiteralPath $RootPath)) {
         return @()
     }
     return @(Get-ChildItem -LiteralPath $RootPath -Directory -Force -ErrorAction SilentlyContinue |
         Where-Object {
-            $_.Name -notin $ExcludeNames -and
+            $_.Name -ne '.system' -and
             (Test-Path -LiteralPath (Join-Path $_.FullName 'SKILL.md'))
         } | Sort-Object Name)
 }

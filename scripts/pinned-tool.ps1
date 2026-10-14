@@ -60,7 +60,7 @@ function Get-PinnedToolExecutable {
     $versionOutput = ((& $tool.Executable @versionArguments 2>&1 | ForEach-Object { [string] $_ }) -join "`n").Trim()
     if ($LASTEXITCODE -ne 0) { throw "Pinned $($lock.ToolKind) version probe failed with exit code $LASTEXITCODE`: $versionOutput" }
     if ($versionOutput -notmatch [string] $lock.ExpectedVersionPattern) { throw "Pinned $($lock.ToolKind) version output did not match the lock: $versionOutput" }
-    return [pscustomobject]@{ Executable = $tool.Executable; ExecutableSha256 = $executableHash; VersionOutput = $versionOutput; Lock = $lock }
+    return [pscustomobject]@{ Executable = $tool.Executable; VersionOutput = $versionOutput; Lock = $lock }
 }
 
 function Install-PinnedTool {

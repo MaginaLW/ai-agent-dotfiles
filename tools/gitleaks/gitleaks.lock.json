@@ -6,8 +6,6 @@
   "AssetUrl": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_windows_x64.zip",
   "ReleaseUrl": "https://github.com/gitleaks/gitleaks/releases/tag/v8.30.0",
   "AssetSha256": "54fe94f644b832dd08e8c3a5915efb3bfa862386d59fb27ca0792cb687a83573",
-  "ChecksumAssetName": "gitleaks_8.30.0_checksums.txt",
-  "ChecksumAssetSha256": "78e53de2429bde6500a6f22793546babe6ae75634a0c250c37e3a07703856a90",
   "ExecutableName": "gitleaks.exe",
   "ExecutableSha256": "9d08e3f5cfb35a98f230b97bcda24f8d3fc66363c91868ffc98dac0afebdcb72",
   "VersionArguments": ["version"],
