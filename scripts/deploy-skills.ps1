@@ -59,9 +59,16 @@ function Assert-DeploySkillsPlainTree([string] $Path) {
 }
 
 function Get-DeploySkillsTreeHash([string] $Path) {
-    $rows = Get-ChildItem -LiteralPath $Path -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
+    # One walk replaces the separate plain-tree assert plus file-only hash walk: it refuses
+    # any reparse point at or below the root (same contract as Assert-DeploySkillsPlainTree)
+    # and returns the content hash of the plain tree, or $null when the path is absent.
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    if ((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "reparse-point-refused: $Path" }
+    $rows = @(Get-ChildItem -LiteralPath $Path -Recurse -Force | Sort-Object FullName | ForEach-Object {
+        if ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "reparse-point-refused: $($_.FullName)" }
+        if ($_.PSIsContainer) { return }
         [IO.Path]::GetRelativePath($Path, $_.FullName).Replace('\', '/') + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-    }
+    })
     return ($rows -join "`n")
 }
 
@@ -102,10 +109,9 @@ $plan = foreach ($platform in $platforms) {
         $source = Join-Path $sourceRoot $name
         if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "selected skill '$name' has no generated output for $platform at $source" }
         $target = Join-Path $liveRoot $name
-        Assert-DeploySkillsPlainTree $source
-        Assert-DeploySkillsPlainTree $target
+        $sourceHash = Get-DeploySkillsTreeHash $source
         $action = if ($name -notin $liveNames) { 'install' }
-            elseif ((Get-DeploySkillsTreeHash $source) -ceq (Get-DeploySkillsTreeHash $target)) { 'unchanged' }
+            elseif ($sourceHash -ceq (Get-DeploySkillsTreeHash $target)) { 'unchanged' }
             else { 'update' }
         [pscustomobject]@{ Platform = $platform; Action = $action; Name = $name; Source = $source; Target = $target }
     }
