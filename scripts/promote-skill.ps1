@@ -20,8 +20,7 @@ param(
     [Parameter(Mandatory)] [string] $Name,
     [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'reasonix-only')] [string] $Type,
     [switch] $Replace,
-    [switch] $Apply,
-    [switch] $DryRun
+    [switch] $Apply
 )
 
 Set-StrictMode -Version Latest
@@ -29,7 +28,6 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'skills-common.ps1')
 
 try {
-    if ($DryRun -and $Apply) { throw 'Specify only one of -DryRun or -Apply.' }
     $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
     if ($Name -ceq '.system' -or $Name -cnotmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?$') {
         throw "Invalid skill name: '$Name'"

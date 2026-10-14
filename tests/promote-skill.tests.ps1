@@ -38,7 +38,7 @@ try {
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'create skills-source/claude-only/new-skill' -and $r.Out -match 'file: refs/notes\.md') "dry run lists the target and files ($($r.Out))"
     Assert-TestCondition (-not (Test-Path -LiteralPath $target)) 'dry run writes nothing'
     $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'claude-only', '-DryRun')
-    Assert-TestCondition ($r.Code -eq 0 -and -not (Test-Path -LiteralPath $target)) 'explicit -DryRun is accepted and writes nothing'
+    Assert-TestCondition ($r.Code -ne 0 -and -not (Test-Path -LiteralPath $target)) 'the removed -DryRun switch is rejected and writes nothing'
 
     Write-Host '[apply]'
     $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'claude-only', '-Apply')

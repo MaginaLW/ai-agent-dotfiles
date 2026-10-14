@@ -61,7 +61,7 @@ function Assert-ExplicitMode([object[]] $Arguments, [string] $Label) {
 }
 
 function Remove-DryRunSwitch([object[]] $Arguments) {
-    # Some targets are dry-run by default and expose no -DryRun switch;
+    # Every target is dry-run by default and exposes no -DryRun switch;
     # consume the unified CLI spelling here.
     return @($Arguments | Where-Object { $_ -isnot [string] -or $_ -ine '-DryRun' })
 }
@@ -164,13 +164,15 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
         ($normalizedCommand -eq 'skills' -and $groupAction -eq 'promote'))
     if ($requiresExplicitMode) {
         Assert-ExplicitMode $forwardedArguments "$normalizedCommand $groupAction"
-        if ($normalizedCommand -in @('config', 'profile', 'env')) { $forwardedArguments = Remove-DryRunSwitch $forwardedArguments }
+        $forwardedArguments = Remove-DryRunSwitch $forwardedArguments
     }
 }
 else {
     $targetScriptName = $commandMap[$normalizedCommand]
-    if ($normalizedCommand -eq 'sync') { Assert-ExplicitMode $forwardedArguments $normalizedCommand }
-    if ($normalizedCommand -eq 'sync') { $forwardedArguments = Remove-DryRunSwitch $forwardedArguments }
+    if ($normalizedCommand -eq 'sync') {
+        Assert-ExplicitMode $forwardedArguments $normalizedCommand
+        $forwardedArguments = Remove-DryRunSwitch $forwardedArguments
+    }
 }
 
 $targetScript = Join-Path $PSScriptRoot $targetScriptName
