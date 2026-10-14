@@ -13,5 +13,8 @@
         Reasonix = @(
             'brainstorming'
         )
+        Zcode = @(
+            'brainstorming'
+        )
     }
 }

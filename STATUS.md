@@ -11,9 +11,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 - **Product.** `skills-source/` is built by `scripts/build-skills.ps1` into the Claude, Codex and
   Reasonix generated roots. `scripts/deploy-skills.ps1 -Environment <name>` deploys one
-  environment's selection to the three live roots: dry run unless `-Apply`, prune only what it
+  environment's selection to the four live roots: dry run unless `-Apply`, prune only what it
   deployed before or what `-Retire` names, unknown directories and Codex `.system` untouched,
-  backups and deploy state under `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`. Skills are added to
+  backups and deploy state under `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`. `~/.zcode/skills` is
+  a projection platform: it deploys from the Claude generated output and has no generated root or
+  manifest of its own. Skills are added to
   `skills-source/` by hand or with `scripts/promote-skill.ps1`. Config-sync and project harness
   profiles keep their behavior. Every live Apply needs the owner's explicit authorization.
 - **Second simplification (2026-10-10).** Removed the skills import/merge pipeline (replaced by
@@ -99,9 +101,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 - **Deploy state is per machine.** deploy-skills prunes only directories recorded in its state
   file. On a machine without that file the first run prunes nothing, and directories an older
   setup deployed show as unknown until `-Retire` names them.
-- **ZCode user-level skills are manual copies.** `~/.zcode/skills` holds hand-copied
-  `boring-engineering` and `systematic-debugging`; deploy-skills does not manage that root, so
-  those copies can drift until a direction-2 decision lands.
+- **ZCode user-level skills are deploy-managed.** `~/.zcode/skills` held hand-copied
+  `boring-engineering` and `systematic-debugging` until 2026-10-14, when the Zcode projection
+  platform first deployed there (the manual `boring-engineering` copy was CRLF and was replaced
+  through the normal update path).
 - **Codex catalog refresh.** Codex may need a new task or thread before a changed skill set shows.
 - **Out of scope.** Codex `config.toml`, Reasonix `config.toml`/`.env`, credentials, sessions and
   caches are outside sync scope. Machine-private evidence (`tmp/` and external private roots) is
@@ -119,16 +122,18 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   subagent-driven-development, systematic-debugging, verification-before-completion, writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Reasonix): `minimal` 1/1/1, `work` 2/2/2
-  (`boring-engineering`, `systematic-debugging`), `full` 8/16/8. Unknown live directories are
+- **Environments** (Claude/Codex/Reasonix/Zcode): `minimal` 1/1/1/1, `work` 2/2/2/2
+  (`boring-engineering`, `systematic-debugging`), `full` 8/16/8/8. Unknown live directories are
   preserved, and Codex `.system` is never managed.
 - **Retired:**
   - the transactional live-sync engine, its hooks, runner, schemas and tests (2026-10-09);
   - the MCP registration subsystem (no live MCP config was changed);
   - OpenClaw/OpenCode;
   - ArkCLI-managed skills.
-- **Integrations.** ZCode is used to maintain this repository through `AGENTS.md`; it is not a
-  deployment target ([docs/ZCODE.md](docs/ZCODE.md)). This repository's harness-model
+- **Integrations.** ZCode is used to maintain this repository through `AGENTS.md` and, since
+  2026-10-14, is also a deployment target: deploy-skills manages `~/.zcode/skills` through the
+  Zcode projection platform (Claude generated output)
+  ([docs/ZCODE.md](docs/ZCODE.md)). This repository's harness-model
   feedback-loop pilot is paused (owner decision 2026-10-10); one remote VPS pilot remains active.
 - **Skill retirement.** Deleting a skill's source leaves an old live directory that deploy-skills
   never deployed as unknown and preserved. `-Retire <name>` removes it; see

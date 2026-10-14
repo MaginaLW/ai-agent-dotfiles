@@ -74,7 +74,8 @@ elseif ($hasPreferred) { Add-DoctorResult PASS 'Codex live root: ~/.codex/skills
 else { Add-DoctorResult WARN 'Codex live root not found; deploy-skills would create ~/.codex/skills.' }
 foreach ($root in @(
     @{ Label = 'Claude live root (~/.claude/skills)'; Path = Join-Path $HomeRoot '.claude\skills' },
-    @{ Label = 'Reasonix live root (%APPDATA%\reasonix\skills)'; Path = Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills' }
+    @{ Label = 'Reasonix live root (%APPDATA%\reasonix\skills)'; Path = Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills' },
+    @{ Label = 'Zcode live root (~/.zcode/skills)'; Path = Join-Path $HomeRoot '.zcode\skills' }
 )) {
     if (Test-Path -LiteralPath $root.Path -PathType Container) { Add-DoctorResult PASS "$($root.Label) detected." }
     else { Add-DoctorResult WARN "$($root.Label) not found." }

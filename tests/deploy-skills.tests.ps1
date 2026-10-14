@@ -13,9 +13,10 @@ function Set-TestFile([string] $Path, [string] $Content) {
     New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
     [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
 }
-function Set-TestEnvironment([string] $Repo, [string[]] $Skills) {
+function Set-TestEnvironment([string] $Repo, [string[]] $Skills, [string[]] $ZcodeSkills = @()) {
     $list = ($Skills | ForEach-Object { "'$_'" }) -join ', '
-    Set-TestFile (Join-Path $Repo 'harness-source/envs/test.psd1') "@{ Skills = @{ Claude = @($list); Codex = @($list); Reasonix = @($list) } }"
+    $zlist = ($ZcodeSkills | ForEach-Object { "'$_'" }) -join ', '
+    Set-TestFile (Join-Path $Repo 'harness-source/envs/test.psd1') "@{ Skills = @{ Claude = @($list); Codex = @($list); Reasonix = @($list); Zcode = @($zlist) } }"
 }
 function Invoke-Deploy([string] $Repo, [string] $HomeDir, [string[]] $Extra = @()) {
     Invoke-TestProcess -ScriptPath $deploy -Arguments (@('-Environment', 'test', '-RepoRoot', $Repo, '-HomeRoot', $HomeDir, '-StateRoot', (Join-Path $HomeDir 'state'), '-SkipBuild') + $Extra)
@@ -103,15 +104,38 @@ try {
     Assert-TestCondition ($r.Code -eq 0 -and (Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v3`n") 'the next run completes the update'
     Assert-TestCondition (-not @(Get-ChildItem -LiteralPath (Join-Path $homeDir '.codex/skills') -Directory -Force | Where-Object Name -like '.deploying-*')) 'leftover staging is cleaned'
 
+    Write-Host '[Zcode projects the Claude generated output]'
+    $zcodeRoot = Join-Path $homeDir '.zcode/skills'
+    Set-TestFile (Join-Path $zcodeRoot 'hand-made-z/SKILL.md') 'manual'
+    Set-TestEnvironment $repo @('alpha') @('alpha')
+    $r = Invoke-Deploy $repo $homeDir
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+install\s+alpha' -and $r.Out -match 'Zcode\s+unknown\s+hand-made-z') 'zcode plans install from the projection and reports unknown dirs'
+    $r = Invoke-Deploy $repo $homeDir @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0 -and (Get-Content -Raw (Join-Path $zcodeRoot 'alpha/SKILL.md')) -eq "# alpha v2`n") 'zcode installs the Claude generated content'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $zcodeRoot 'hand-made-z/SKILL.md')) -eq 'manual') 'zcode unknown dir untouched'
+    $state = Get-Content -Raw (Join-Path $homeDir 'state/deployed-skills.json') | ConvertFrom-Json
+    Assert-TestCondition ((@($state.Zcode) -join ',') -eq 'alpha') 'state records the Zcode set'
+    Set-TestEnvironment $repo @('alpha') @()
+    $r = Invoke-Deploy $repo $homeDir @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+prune\s+alpha' -and (Get-Content -Raw (Join-Path $zcodeRoot 'hand-made-z/SKILL.md')) -eq 'manual') 'deselecting prunes the zcode-deployed dir but keeps unknown dirs'
+    Set-TestFile (Join-Path $repo 'codex/skills/gamma/SKILL.md') "# gamma v1`n"
+    Set-TestEnvironment $repo @('alpha') @('gamma')
+    $r = Invoke-Deploy $repo $homeDir
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'no generated output for Zcode') 'a Zcode selection without Claude output is refused'
+    Set-TestEnvironment $repo @('alpha') @()
+
     Write-Host '[malformed environments are refused]'
     $envFile = Join-Path $repo 'harness-source/envs/test.psd1'
     $good = [IO.File]::ReadAllText($envFile)
     [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codx = @('alpha'); Reasonix = @('alpha') } }")
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'a misspelled platform key is refused instead of pruning everything'
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha.'); Codex = @('alpha'); Reasonix = @('alpha') } }")
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha.'); Codex = @('alpha'); Reasonix = @('alpha'); Zcode = @() } }")
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid skill name') 'a trailing-dot name is refused'
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codex = @('alpha'); Reasonix = @('alpha') } }")
+    $r = Invoke-Deploy $repo $homeDir
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'an env without the Zcode key is refused'
     [IO.File]::WriteAllText($envFile, $good)
 
     Write-Host '[reparse points are refused]'

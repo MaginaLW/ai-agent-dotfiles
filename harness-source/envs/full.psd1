@@ -42,5 +42,15 @@
             'verification-before-completion',
             'writing-plans'
         )
+        Zcode = @(
+            'boring-engineering',
+            'brainstorming',
+            'git-review',
+            'paper-polish',
+            'subagent-driven-development',
+            'systematic-debugging',
+            'verification-before-completion',
+            'writing-plans'
+        )
     }
 }

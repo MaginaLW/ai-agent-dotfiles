@@ -1,7 +1,7 @@
 # AI Agent Dotfiles
 
-This is a Windows dotfiles repository for Claude Code, Codex and Reasonix. It builds each
-platform's skills from one shared source tree and deploys a selected set of them to each
+This is a Windows dotfiles repository for Claude Code, Codex, Reasonix and ZCode. It builds
+each platform's skills from one shared source tree and deploys a selected set of them to each
 machine's live skill directories with one dry-run-first script.
 
 ## How it works
@@ -17,6 +17,7 @@ machine's live skill directories with one dry-run-first script.
   | Claude | `~/.claude/skills` |
   | Codex | `~/.codex/skills`, or the `~/.agents/skills` fallback when only that one exists (having both is rejected as ambiguous) |
   | Reasonix | `%APPDATA%\reasonix\skills` |
+  | ZCode | `~/.zcode/skills` (projection: deploys the Claude generated output; no generated root of its own) |
 
 - Deployment handles one skill directory at a time. It prunes only directories it deployed
   itself or that `-Retire` names; every other live directory is unknown and left alone.

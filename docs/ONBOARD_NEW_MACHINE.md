@@ -1,6 +1,6 @@
 # New Windows Machine Onboarding
 
-Set up one Windows machine so its Claude, Codex and Reasonix live skill directories match an
+Set up one Windows machine so its Claude, Codex, Reasonix and ZCode live skill directories match an
 environment from this repository. Use PowerShell 7+. Start only after the owner names the machine.
 
 ## 1. Clone and bootstrap

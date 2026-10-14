@@ -2,7 +2,8 @@
 <#
 .SYNOPSIS
     Deploys the skills selected by one environment (harness-source/envs/<name>.psd1) to the
-    live Claude, Codex and Reasonix skill directories. Dry-run unless -Apply.
+    live Claude, Codex, Reasonix and Zcode skill directories. Zcode is a projection platform:
+    it deploys from the Claude generated output. Dry-run unless -Apply.
 
 .DESCRIPTION
     Builds the generated skills (scripts/build-skills.ps1) and scans for secrets
@@ -30,7 +31,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$platforms = @('Claude', 'Codex', 'Reasonix')
+$platforms = @('Claude', 'Codex', 'Reasonix', 'Zcode')
 $statePath = Join-Path $StateRoot 'deployed-skills.json'
 $backupRoot = Join-Path $StateRoot ('skill-backups\' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
 
@@ -38,6 +39,7 @@ function Get-DeploySkillsLiveRoot([string] $Platform) {
     switch ($Platform) {
         'Claude' { return Join-Path $HomeRoot '.claude\skills' }
         'Reasonix' { return Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills' }
+        'Zcode' { return Join-Path $HomeRoot '.zcode\skills' }
         'Codex' {
             $preferred = Join-Path $HomeRoot '.codex\skills'
             $fallback = Join-Path $HomeRoot '.agents\skills'
@@ -77,7 +79,7 @@ if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) { throw "unknown envi
 $selection = (Import-PowerShellDataFile -LiteralPath $envPath).Skills
 # A missing or misspelled platform key would read as an empty selection and prune everything.
 if ($selection -isnot [hashtable] -or @($platforms | Where-Object { -not $selection.ContainsKey($_) }).Count -or @($selection.Keys | Where-Object { $_ -notin $platforms }).Count) {
-    throw "env $Environment must define Skills with exactly the keys Claude, Codex and Reasonix (use @() for none)"
+    throw "env $Environment must define Skills with exactly the keys Claude, Codex, Reasonix and Zcode (use @() for none)"
 }
 
 if (-not $SkipBuild) {
@@ -96,7 +98,9 @@ foreach ($platform in $platforms) { if (-not $state.ContainsKey($platform)) { $s
 
 $plan = foreach ($platform in $platforms) {
     $liveRoot = Get-DeploySkillsLiveRoot $platform
-    $sourceRoot = Join-Path $RepoRoot ($platform.ToLowerInvariant() + '\skills')
+    # Zcode is a projection platform: it has no generated root of its own and deploys from the
+    # Claude output, so a skill is selectable for Zcode exactly when it is built for Claude.
+    $sourceRoot = if ($platform -eq 'Zcode') { Join-Path $RepoRoot 'claude\skills' } else { Join-Path $RepoRoot ($platform.ToLowerInvariant() + '\skills') }
     $selected = @($selection[$platform] | Where-Object { $_ })
     foreach ($name in @($selected) + @($Retire)) {
         # No trailing dot: Win32 strips it, so 'alpha.' would resolve to 'alpha'.

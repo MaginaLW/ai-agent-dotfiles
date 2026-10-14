@@ -16,5 +16,9 @@
             'boring-engineering',
             'systematic-debugging'
         )
+        Zcode = @(
+            'boring-engineering',
+            'systematic-debugging'
+        )
     }
 }

@@ -41,8 +41,10 @@ are changing.
 `scripts/build-skills.ps1` builds `skills-source/` into `claude/skills/`, `codex/skills/` and
 `reasonix/skills/`. `scripts/deploy-skills.ps1` copies the skills that one environment
 (`harness-source/envs/<name>.psd1`) selects into the live roots `~/.claude/skills`,
-`~/.codex/skills` (or the `~/.agents/skills` fallback when only that one exists) and
-`%APPDATA%\reasonix\skills`. The repository also syncs harness config (config-sync) and builds
+`~/.codex/skills` (or the `~/.agents/skills` fallback when only that one exists),
+`%APPDATA%\reasonix\skills` and `~/.zcode/skills`. Zcode is a projection platform: it has no
+generated root of its own and deploys from the Claude generated output. The repository also
+syncs harness config (config-sync) and builds
 project harness profiles. Detail: [docs/README.md](docs/README.md) (§4-6 skills and deployment,
 §8 restore, §11 config-sync, §12 profiles, §13 environments).
 

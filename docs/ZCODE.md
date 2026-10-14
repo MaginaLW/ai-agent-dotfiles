@@ -1,6 +1,7 @@
 # 在 ZCode 中维护本仓库
 
-ZCode 是维护本仓库的工作工具之一，不是 live skills 的部署平台。它读取项目根目录的
+ZCode 是维护本仓库的工作工具之一，也是 live skills 的部署目标之一：deploy-skills 把 Zcode
+作为投影平台，将 Claude 的生成物部署到 `~/.zcode/skills`。它读取项目根目录的
 [`AGENTS.md`](../AGENTS.md)（加载方式见[官方说明](https://zcode.z.ai/en/docs/agents)），
 所以 `AGENTS.md` 必须自包含：ZCode 不会展开其中的链接。
 
