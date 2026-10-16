@@ -280,12 +280,12 @@ try {
 
     if ($gitleaksResult.Failed) {
         [Console]::Error.WriteLine('ERROR: gitleaks reported one or more findings.')
-        if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'FAIL' -GitleaksFailed $true -Findings @() -Hints @() }
+        if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'FAIL' -GitleaksFailed $true -Findings @() -Hints $fallback.Hints }
         exit 1
     }
 
     Write-Host 'No blocking secrets found.'
-    if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'PASS' -GitleaksFailed $false -Findings @() -Hints @() }
+    if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'PASS' -GitleaksFailed $false -Findings @() -Hints $fallback.Hints }
 }
 finally {
     if (Test-Path -LiteralPath $scanWorkspace -PathType Container) {
