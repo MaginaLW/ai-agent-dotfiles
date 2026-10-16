@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-15.
+Last updated: 2026-10-16.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -16,8 +16,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   backups and deploy state under `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`. `~/.zcode/skills` is
   a projection platform: it deploys from the Claude generated output and has no generated root or
   manifest of its own. Skills are added to
-  `skills-source/` by hand or with `scripts/promote-skill.ps1`. Config-sync and project harness
-  profiles keep their behavior. Every live Apply needs the owner's explicit authorization.
+  `skills-source/` by hand or with `scripts/promote-skill.ps1`. Config-pull backs up overwrites
+  and attempts rollback after a caught copy failure; project harness profiles write only
+  project-local allowlisted targets. Every live Apply needs the owner's explicit authorization.
 - **Second simplification (2026-10-10).** Removed the skills import/merge pipeline (replaced by
   `promote-skill.ps1`), the documentation-wording pins and the guide code-block checker, the
   build run reports, and the dated status journals (all in Git history). doctor now checks only
@@ -51,6 +52,16 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   fixture profile), the ignore lines covered by broader patterns, and unified backup stamps on
   UTC, git ls-files UTF-8 decoding in the syntax gate, and the fallback skip list on the single
   exclusion source.
+- **Fifth optimization pass (2026-10-16, local).** Scan JSON preserves non-blocking hint counts
+  on success and gitleaks-only failure. The dangerous-tracked-file predicate has boundary tests;
+  pull and profile apply have source-scan failure fixtures. Pull recovery includes attempted
+  writes, warns on individual restore failures and rethrows the original copy error; it is
+  best-effort, not recovery from process termination. Backup stamps include milliseconds, push
+  retains scan failure details, and failed CLI tests print their retained workspace. Redundant
+  PS7 checks and test file-writer copies are removed. The profile schema no longer accepts the
+  unused `RequiredEnv` key; the known external project profile was checked before its removal.
+  These commits have not been published or validated in CI; a future merge still requires a
+  green `Validate` run.
 - **Engine removal (merged to `main` 2026-10-10).** The transactional live-sync engine is gone:
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
@@ -108,7 +119,8 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 - **Codex catalog refresh.** Codex may need a new task or thread before a changed skill set shows.
 - **Out of scope.** Codex `config.toml`, Reasonix `config.toml`/`.env`, credentials, sessions and
   caches are outside sync scope. Machine-private evidence (`tmp/` and external private roots) is
-  not committed.
+  not committed. Historical and current review/test evidence in `tmp/` is retained; no archive
+  migration or deletion is part of the fifth pass.
 
 ## Inventory and scope
 
