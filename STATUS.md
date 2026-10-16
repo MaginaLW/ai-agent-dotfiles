@@ -62,6 +62,14 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   unused `RequiredEnv` key; the known external project profile was checked before its removal.
   These commits have not been published or validated in CI; a future merge still requires a
   green `Validate` run.
+- **Claude home config (2026-10-16, owner-authorized).** One `config-pull` Apply synchronized
+  `settings.json` from a private candidate built from the repository template plus the existing
+  Boolean `agentPushNotifEnabled` override. The candidate was scanned and dry-run reviewed;
+  target and original-backup hashes matched, and its post-Apply plan is empty. The canonical
+  template remains unchanged, so a raw repository pull still reports intentional drift for
+  this personal field and must not remove it. Other platforms and live skills were not applied;
+  client loading was not tested. The private receipt and backup pointer are retained under
+  ignored `tmp/live-apply-20261016/`.
 - **Engine removal (merged to `main` 2026-10-10).** The transactional live-sync engine is gone:
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
