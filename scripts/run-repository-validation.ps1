@@ -58,16 +58,7 @@ try {
     Invoke-Gate 'run-tests' { Invoke-RepoScript 'run-tests.ps1' @('-RepoRoot', $RepoRoot) }
     Invoke-Gate 'dangerous-tracked-files' {
         $violations = @(Get-GitLines @('ls-files') | Where-Object {
-            $path = $_ -replace '\\', '/'
-            $leaf = [IO.Path]::GetFileName($path)
-            $leaf -match '(?i)\.(pem|key|p12|pfx)$' -or
-            $leaf -match '(?i)^id_(rsa|ed25519)$' -or
-            $leaf -match '(?i)^\.env(?:\..+)?$' -or
-            $leaf -match '(?i)^\.?tokens?(?:\.(txt|json|ya?ml))?$' -or
-            $leaf -match '(?i)\.tokens?$' -or
-            $leaf -match '(?i)^(auth|\.credentials)\.json$' -or
-            $path -match '(?i)(^|/)(backup|backups)(/|$)' -or
-            $path -match '(?i)(^|/)\.ssh(/|$)'
+            Test-IsDangerousTrackedPath -RelativePath $_
         })
         if ($violations.Count) {
             $violations | Sort-Object -Unique | ForEach-Object { Write-Host "Forbidden tracked file: $_" }
