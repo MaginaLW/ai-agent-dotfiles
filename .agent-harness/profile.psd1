@@ -4,6 +4,4 @@
     TargetPlatforms = @('Claude', 'Codex')
 
     Extends = @('coding')
-
-    RequiredEnv = 'work'
 }
