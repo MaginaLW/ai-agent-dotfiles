@@ -461,8 +461,10 @@ Add-Component -HarnessRepo $dupeRepo -Path 'rules/duplicate-safe-file-edits' -Id
 $project = New-TestProject -Name 'duplicate-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits'))
 Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $dupeRepo, '-ProjectRoot', $project) } -Pattern 'Duplicate harness component' -Message 'validation: duplicate component IDs fail'
 
-$project = New-TestProject -Name 'unknown-key-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits') -ExtraLine '    Future = @{ ProjectSkills = @() }')
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key 'Future'" -Message 'validation: unknown top-level profile key is rejected'
+foreach ($retiredKey in @('Future', 'RequiredEnv')) {
+    $project = New-TestProject -Name "unknown-$retiredKey-project" -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits') -ExtraLine "    $retiredKey = 'unused'")
+    Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key '$retiredKey'" -Message "validation: retired top-level key $retiredKey is rejected"
+}
 
 $componentKeyRepo = New-TestHarnessRepo -Name 'component-key-repo'
 $keyComponent = Join-Path $componentKeyRepo 'harness-source/components/rules/safe-file-edits/component.psd1'

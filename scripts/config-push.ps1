@@ -138,8 +138,9 @@ if (-not $SkipSecretScan) {
     Write-Host 'Running secret scan over the captured tree...' -ForegroundColor Cyan
     try { Invoke-SecretScanGate -RepoRoot $RepoRoot }
     catch {
+        $detail = $_.Exception.Message
         Restore-Plan -Operations $plan
-        throw 'Secret scan reported a blocking finding. Reverted all captured files; nothing secret-bearing was kept.'
+        throw "Secret scan failed. Reverted all captured files. $detail"
     }
 }
 

@@ -257,6 +257,7 @@ try {
     $beforeHash = (Get-FileHash -LiteralPath $captured).Hash
     $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0) "push: secret gate exits non-zero"
+    Assert ($r.Out -match 'exit code 1' -and $r.Out -match 'Reverted') 'push: scan failure reports its exit code and completed revert'
     Assert ((Get-FileHash -LiteralPath $captured).Hash -eq $beforeHash) "push: secret gate reverts the capture (no token kept)"
 
     # path gate blocks + reverts (planted machine-private path); secret scan skipped to isolate it

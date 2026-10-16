@@ -96,6 +96,9 @@ foreach ($commandArgs in @(@('merge'), @('inventory'), @('analyze'), @('skills',
 
 Write-Host ''
 Write-Host ("agent-dotfiles CLI tests: {0} passed, {1} failed" -f $pass, $fail)
-if ($fail -gt 0) { exit 1 }
+if ($fail -gt 0) {
+    Write-Host "Workspace kept for inspection: $work" -ForegroundColor Yellow
+    exit 1
+}
 Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 exit 0
