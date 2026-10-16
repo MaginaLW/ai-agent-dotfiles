@@ -18,10 +18,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
-}
-
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $statusScript = Join-Path $RepoRoot 'scripts/status-harness-profile.ps1'
 $buildScript = Join-Path $RepoRoot 'scripts/build-harness-profile.ps1'

@@ -1,9 +1,5 @@
 #requires -Version 7.0
 
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
-}
-
 # Skill-tree helpers shared by build-skills.ps1 and promote-skill.ps1.
 
 function Get-SkillDirectories {

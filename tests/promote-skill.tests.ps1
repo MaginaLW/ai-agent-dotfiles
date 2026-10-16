@@ -9,10 +9,6 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $promote = Join-Path $RepoRoot 'scripts/promote-skill.ps1'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('promote-skill-tests-' + [guid]::NewGuid().ToString('N'))
 
-function Set-TestFile([string] $Path, [string] $Content) {
-    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
-    [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
-}
 function New-FixtureRepo([string] $Name) {
     $repo = Join-Path $work $Name
     Set-TestFile (Join-Path $repo '.gitignore') "tmp/`nreports/`nclaude/skills/`ncodex/skills/`nreasonix/skills/`n"
