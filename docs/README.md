@@ -42,8 +42,14 @@
 | `manifests/managed-skills.<platform>.txt` | 每平台受管名单，由 build 刷新，勿手改 |
 | `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§11） |
 | `harness-source/` | 环境定义 `envs/`（§13）与 profile/component 源（§12） |
+| `.agent-harness/profile.psd1` | 当前项目的 profile 声明（§12） |
 | `.agent-harness/generated/` | 项目本地 profile 生成物，Git-ignored，可重建 |
+| `tools/gitleaks/` | pinned gitleaks 的版本、下载地址与校验锁 |
+| `.gitleaks.toml` | 仓库秘密扫描规则 |
 | `scripts/` | build、scan、deploy（§4）、promote（§6）、config（§11）、profile（§12）、测试与校验入口（§10）、只读 `doctor.ps1`、统一 CLI（§14） |
+
+`scripts/pinned-tool.ps1` 从调用方传入的 `-LockPath` 读取工具锁文件；gitleaks 的锁路径由
+`scripts/install-gitleaks.ps1`、扫描和 doctor 等调用方传入，不在通用 helper 中固定。
 
 ---
 
@@ -177,12 +183,15 @@ doctor、manifest 一致性、全部测试套件、危险文件检查与干净�
 
 - `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
 - `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再复制；
-  不整目录 mirror、不 prune（home-only 文件原样保留）。
+  不整目录 mirror、不 prune（home-only 文件原样保留）。捕获复制异常后，尽力回滚本次已尝试写入的文件：
+  更新项从备份恢复，新增项删除。单项回滚失败会告警并继续还原其他项，保留备份并重新抛出原始复制错误。
+  这是异常处理中的恢复，不保证进程被强制终止后的还原。
 - `config-push.ps1`：home → repo。默认 dry-run；`-Apply` 写入后过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
 - `-Platform Reasonix` 处理 `%APPDATA%\reasonix` 下的白名单项。Codex `config.toml` 与 Reasonix
-  `config.toml`/`.env` 不纳入。
+  `config.toml`/`.env` 不纳入。`reasonix/AGENTS.md` 与 `reasonix/REASONIX.md` 在首次 push 前可以不存在；
+  push 仅捕获本机已有的白名单文件。
 - 模板不带模型与推理档位，但这不表示可以删除个人设置：`config-pull` 按文件复制，**不按字段合并**，
   审查 dry-run 时须逐项比较并保留目标里的个人覆盖值。
 - deploy-skills 不包含 config-pull；把两者合并需要单独评审。
@@ -193,17 +202,24 @@ doctor、manifest 一致性、全部测试套件、危险文件检查与干净�
 ## 12. Project Harness Profiles
 
 `harness-source/` 存放可复用的 component/profile 定义，为某个项目生成 `.agent-harness/generated/` 下的本地输出。
-只处理项目本地文件，不切换全局 home harness。
+项目用 `.agent-harness/profile.psd1` 声明选择；只处理项目本地文件，不切换全局 home harness。
+
+项目与库 profile 的合法顶层键相同：`SchemaVersion`（必须为 `1`）、`Name`、`TargetPlatforms` 为必填，
+`Extends` 与 `Components` 可选。`Extends` 只接受 `harness-source/profiles/<id>.psd1` 的 profile id，
+不接受路径；库 profile 也能继续继承，循环会被拒绝。解析顺序为父先子后、项目最后，列表按该顺序合并去重。
+当前库链是 `coding` 继承 `base`；本仓项目继承 `coding`，因此依次应用 `base`、`coding`、项目声明。
 
 ```powershell
 pwsh -NoProfile -File scripts/status-harness-profile.ps1 -ProjectRoot <project>
+pwsh -NoProfile -File scripts/status-harness-profile.ps1 -ProjectRoot <project> -Json
 pwsh -NoProfile -File scripts/build-harness-profile.ps1 -ProjectRoot <project>
+pwsh -NoProfile -File scripts/build-harness-profile.ps1 -ProjectRoot <project> -Clean
 pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project>
 pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -Apply
 ```
 
-- `status-harness-profile.ps1`：只读状态/漂移报告。
-- `build-harness-profile.ps1`：只写目标项目的 `.agent-harness/generated/`。
+- `status-harness-profile.ps1`：只读状态/漂移报告；`-Json` 向 stdout 输出 JSON，含解析后的 profile、组件、目标与源文件。
+- `build-harness-profile.ps1`：只写目标项目的 `.agent-harness/generated/`；`-Clean` 先清空该生成目录再重建。
 - `apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写 allowlisted 项目输出和 `.agent-harness/backups/`
   下的项目本地 rollback backup，不写 home 或 live skills。
 - 受控输出类型：Rule 写 `AGENTS.md` / `CLAUDE.md` 的 managed block，Prompt 只进
@@ -226,10 +242,12 @@ prune 全部。`env list` 显示文件名与 `Description`；`SchemaVersion` 与
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list -JsonPath <report-file>
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -DryRun
 pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 ```
 
+- `env list -JsonPath <report-file>` 仍打印环境列表，同时把 `Environments`（每项 `Name`、`Description`）写入 JSON 文件。
 - 选集只能包含已有 generated output 的 skill，缺失时 deploy-skills 报错停止。
 - 切换到较小环境时，上次由 deploy-skills 部署、本次不再选中的目录进入 `prune`（先备份）。
 - 任务临时需要的 skill 不要写回 `work.psd1`；长期需要时在评审过的提交里改环境定义。
@@ -256,3 +274,6 @@ skills promote               -> scripts/promote-skill.ps1
 只读命令：`doctor`、`scan`、`env list`、`config status`、`profile status`。`build` 与 `profile build`
 只生成可重建输出。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
 `profile apply`、`skills promote`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
+
+底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json`；统一 CLI
+会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。
