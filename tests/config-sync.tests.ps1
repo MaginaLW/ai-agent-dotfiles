@@ -150,6 +150,90 @@ try {
     $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
     Assert ($r.Out -match 'Nothing to deploy') "pull: idempotent dry-run is a no-op"
 
+    # The scan must stop both adds and updates before even creating a backup.
+    $tr = New-TempRepo -Name 'pull-secret-repo'
+    $th = Join-Path $work 'pull-secret-home'
+    $bk = Join-Path $work 'pull-secret-backup'
+    $fakeToken = 'sk-' + 'ant-' + ('FAKE' * 5) + '000000'
+    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content ('unsafe ' + $fakeToken)
+    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"new":true}'
+    $original = Join-Path $th '.claude/CLAUDE.md'
+    Set-File -Path $original -Content 'keep original bytes'
+    $beforeHash = (Get-FileHash -LiteralPath $original).Hash
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'Secret scan failed') 'pull: planted source secret fails closed'
+    Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: failed scan preserves the existing home file'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/settings.json'))) 'pull: failed scan writes no add'
+    Assert (-not (Test-Path -LiteralPath $bk)) 'pull: failed scan creates no backup'
+
+    # Restore bytes and remove new files; empty parent directories may remain.
+    # The later commands parent is a file, so Copy-Item fails after an add and update.
+    $tr = New-TempRepo -Name 'pull-rollback-repo'
+    $th = Join-Path $work 'pull-rollback-home'
+    $bk = Join-Path $work 'pull-rollback-backup'
+    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"new":true}'
+    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'updated bytes'
+    Set-File -Path (Join-Path $tr 'claude/commands/fail.md') -Content 'later write'
+    $original = Join-Path $th '.claude/CLAUDE.md'
+    Set-File -Path $original -Content 'original bytes'
+    Set-File -Path (Join-Path $th '.claude/commands') -Content 'parent is a file'
+    $beforeHash = (Get-FileHash -LiteralPath $original).Hash
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: later copy failure reports attempted recovery'
+    Assert ($r.Out -match 'Could not find a part of the path') 'pull: original copy error remains visible'
+    Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: rollback restores an earlier update byte-for-byte'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/settings.json'))) 'pull: rollback removes an earlier add'
+    $bakFile = @(Get-ChildItem -LiteralPath $bk -Filter 'CLAUDE.md' -File -Recurse)
+    Assert ($bakFile.Count -eq 1 -and (Get-FileHash -LiteralPath $bakFile[0].FullName).Hash -eq $beforeHash) 'pull: original backup survives rollback'
+
+    # A pure-add plan has no mirrored backup directory to restore from.
+    $tr = New-TempRepo -Name 'pull-add-rollback-repo'
+    $th = Join-Path $work 'pull-add-rollback-home'
+    $bk = Join-Path $work 'pull-add-rollback-backup'
+    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{}'
+    Set-File -Path (Join-Path $tr 'claude/commands/fail.md') -Content 'later write'
+    Set-File -Path (Join-Path $th '.claude/commands') -Content 'parent is a file'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: pure-add failure reports recovery without a backup'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/settings.json'))) 'pull: pure-add rollback removes an earlier add'
+    Assert (-not (Test-Path -LiteralPath $bk)) 'pull: pure-add rollback does not invent a backup directory'
+
+    # Backups precede the guarded copy: a failed backup must leave home untouched.
+    $tr = New-TempRepo -Name 'pull-backup-failure-repo'
+    $th = Join-Path $work 'pull-backup-failure-home'
+    $bk = Join-Path $work 'pull-blocked-backup'
+    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"new":true}'
+    Set-File -Path (Join-Path $th '.claude/settings.json') -Content '{"original":true}'
+    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'new file'
+    Set-File -Path $bk -Content 'backup parent is a file'
+    $original = Join-Path $th '.claude/settings.json'
+    $beforeHash = (Get-FileHash -LiteralPath $original).Hash
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -ne 0 -and $r.Out -notmatch 'best-effort rollback') 'pull: backup failure does not run rollback'
+    Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: backup failure preserves existing home bytes'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/CLAUDE.md'))) 'pull: backup failure writes no add'
+
+    # Read sharing permits planning and backup, but prevents both copy and restore.
+    # A failed restore of the current item must not stop recovery of earlier writes.
+    $tr = New-TempRepo -Name 'pull-restore-warning-repo'
+    $th = Join-Path $work 'pull-restore-warning-home'
+    $bk = Join-Path $work 'pull-restore-warning-backup'
+    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"new":true}'
+    Set-File -Path (Join-Path $th '.claude/settings.json') -Content '{"original":true}'
+    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'updated bytes'
+    $locked = Join-Path $th '.claude/CLAUDE.md'
+    Set-File -Path $locked -Content 'locked original'
+    $original = Join-Path $th '.claude/settings.json'
+    $beforeHash = (Get-FileHash -LiteralPath $original).Hash
+    $handle = [IO.File]::Open($locked, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    }
+    finally { $handle.Dispose() }
+    Assert ($r.Code -ne 0 -and $r.Out -match 'Rollback could not restore') 'pull: restore failure warns and still exits non-zero'
+    Assert ($r.Out -match 'Copy-Item' -and $r.Out -match 'Original files are backed up') 'pull: restore failure retains the original copy error and backup location'
+    Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: another restore continues after one restore fails'
+
     # ===========================================================================
     Write-Host "`n[config-push]" -ForegroundColor Cyan
     # ===========================================================================

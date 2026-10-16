@@ -506,6 +506,16 @@ $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $secretRepo, 
 Assert ($r.Code -ne 0 -and $r.Out -match 'scan-secrets\.ps1 failed with exit code') 'safety gate: fake secret fails closed'
 Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/generated'))) 'safety gate: fake secret leaves no generated output'
 
+# Apply must scan the source repository before creating any target or backup.
+# GeneratedOnly would skip the apply write path, so use a real DirectoryFiles output.
+$applySecretRepo = New-TestHarnessRepo -Name 'apply-secret-repo'
+Add-Component -HarnessRepo $applySecretRepo -Path 'commands/unsafe-secret' -Id 'unsafe-secret' -Kind 'Command' -Target '.claude/commands/unsafe-secret.md' -Mode 'DirectoryFiles' -Content ("Do not emit " + $fakeToken + "`n")
+$project = New-TestProject -Name 'apply-secret-project' -ProfileText (New-ProjectProfileText -Commands @('unsafe-secret'))
+$r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $applySecretRepo, '-ProjectRoot', $project, '-Apply')
+Assert ($r.Code -ne 0 -and $r.Out -match 'scan-secrets\.ps1 failed with exit code') 'safety gate: apply rejects a source secret'
+Assert (-not (Test-Path -LiteralPath (Join-Path $project '.claude/commands/unsafe-secret.md'))) 'safety gate: rejected apply writes no target'
+Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/backups'))) 'safety gate: rejected apply creates no backup'
+
 $pathRepo = New-TestHarnessRepo -Name 'machine-path-repo'
 $privatePath = 'C:' + '\Users\example\tool'
 Add-Component -HarnessRepo $pathRepo -Path 'prompts/unsafe-path' -Id 'unsafe-path' -Kind 'Prompt' -Target '.agent-harness/generated/prompts/unsafe-path.md' -Mode 'GeneratedOnly' -Content ("Do not emit " + $privatePath + "`n")

@@ -65,7 +65,7 @@ if (-not ($backupRelative -ieq '.agent-harness/backups' -or $backupRelative.Star
     throw 'BackupRoot must resolve under .agent-harness/backups inside the project root.'
 }
 Assert-HarnessOutsideHome -Paths @($backupRootResolved)
-$backupDir = Join-Path $backupRootResolved "apply-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))"
+$backupDir = Join-Path $backupRootResolved "apply-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff'))"
 New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
 
 $entries = @(foreach ($change in $writeChanges) {
