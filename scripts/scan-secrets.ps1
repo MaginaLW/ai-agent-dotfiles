@@ -9,10 +9,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
-}
-
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $configPath = if ($ScannerConfigPath) { (Resolve-Path -LiteralPath $ScannerConfigPath).Path } else { Join-Path $RepoRoot '.gitleaks.toml' }
 . (Join-Path $PSScriptRoot 'pinned-tool.ps1')
@@ -280,12 +276,12 @@ try {
 
     if ($gitleaksResult.Failed) {
         [Console]::Error.WriteLine('ERROR: gitleaks reported one or more findings.')
-        if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'FAIL' -GitleaksFailed $true -Findings @() -Hints @() }
+        if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'FAIL' -GitleaksFailed $true -Findings @() -Hints $fallback.Hints }
         exit 1
     }
 
     Write-Host 'No blocking secrets found.'
-    if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'PASS' -GitleaksFailed $false -Findings @() -Hints @() }
+    if ($JsonPath) { Write-ScanJson -Path $JsonPath -Result 'PASS' -GitleaksFailed $false -Findings @() -Hints $fallback.Hints }
 }
 finally {
     if (Test-Path -LiteralPath $scanWorkspace -PathType Container) {

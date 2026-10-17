@@ -18,10 +18,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
-}
-
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $statusScript = Join-Path $RepoRoot 'scripts/status-harness-profile.ps1'
 $buildScript = Join-Path $RepoRoot 'scripts/build-harness-profile.ps1'
@@ -461,8 +457,10 @@ Add-Component -HarnessRepo $dupeRepo -Path 'rules/duplicate-safe-file-edits' -Id
 $project = New-TestProject -Name 'duplicate-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits'))
 Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $dupeRepo, '-ProjectRoot', $project) } -Pattern 'Duplicate harness component' -Message 'validation: duplicate component IDs fail'
 
-$project = New-TestProject -Name 'unknown-key-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits') -ExtraLine '    Future = @{ ProjectSkills = @() }')
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key 'Future'" -Message 'validation: unknown top-level profile key is rejected'
+foreach ($retiredKey in @('Future', 'RequiredEnv')) {
+    $project = New-TestProject -Name "unknown-$retiredKey-project" -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits') -ExtraLine "    $retiredKey = 'unused'")
+    Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key '$retiredKey'" -Message "validation: retired top-level key $retiredKey is rejected"
+}
 
 $componentKeyRepo = New-TestHarnessRepo -Name 'component-key-repo'
 $keyComponent = Join-Path $componentKeyRepo 'harness-source/components/rules/safe-file-edits/component.psd1'
@@ -505,6 +503,16 @@ $project = New-TestProject -Name 'secret-project' -ProfileText (New-ProjectProfi
 $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $secretRepo, '-ProjectRoot', $project)
 Assert ($r.Code -ne 0 -and $r.Out -match 'scan-secrets\.ps1 failed with exit code') 'safety gate: fake secret fails closed'
 Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/generated'))) 'safety gate: fake secret leaves no generated output'
+
+# Apply must scan the source repository before creating any target or backup.
+# GeneratedOnly would skip the apply write path, so use a real DirectoryFiles output.
+$applySecretRepo = New-TestHarnessRepo -Name 'apply-secret-repo'
+Add-Component -HarnessRepo $applySecretRepo -Path 'commands/unsafe-secret' -Id 'unsafe-secret' -Kind 'Command' -Target '.claude/commands/unsafe-secret.md' -Mode 'DirectoryFiles' -Content ("Do not emit " + $fakeToken + "`n")
+$project = New-TestProject -Name 'apply-secret-project' -ProfileText (New-ProjectProfileText -Commands @('unsafe-secret'))
+$r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $applySecretRepo, '-ProjectRoot', $project, '-Apply')
+Assert ($r.Code -ne 0 -and $r.Out -match 'scan-secrets\.ps1 failed with exit code') 'safety gate: apply rejects a source secret'
+Assert (-not (Test-Path -LiteralPath (Join-Path $project '.claude/commands/unsafe-secret.md'))) 'safety gate: rejected apply writes no target'
+Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/backups'))) 'safety gate: rejected apply creates no backup'
 
 $pathRepo = New-TestHarnessRepo -Name 'machine-path-repo'
 $privatePath = 'C:' + '\Users\example\tool'

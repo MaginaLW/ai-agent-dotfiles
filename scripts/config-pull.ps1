@@ -11,7 +11,10 @@
     home-only files stay untouched. ExcludedItems and CommonExcludedItems are skipped.
 
     -Apply runs the secret scan first, then backs up every home file it overwrites to
-    <BackupRoot>\config-backup-<timestamp>\ before copying.
+    <BackupRoot>\config-backup-<timestamp>\ before copying. A caught copy failure
+    triggers best-effort rollback of attempted writes, then rethrows the original
+    error. Failed restores warn and leave the backup available for manual recovery;
+    forced process termination cannot run rollback.
 
 .PARAMETER Apply
     Perform the copy. Without it the script only prints the plan.
@@ -46,10 +49,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
-}
-
 . (Join-Path $PSScriptRoot 'config-common.ps1')
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
@@ -72,7 +71,7 @@ if (-not $SkipSecretScan) {
     }
 }
 
-$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
+$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff')
 $backupDir = Join-Path $BackupRoot "config-backup-$stamp"
 $overwrites = @($plan | Where-Object { $_.Action -eq 'update' })
 if ($overwrites.Count -gt 0) {
@@ -86,5 +85,31 @@ if ($overwrites.Count -gt 0) {
     Write-Host "Backed up $($overwrites.Count) file(s) to $backupDir" -ForegroundColor Cyan
 }
 
-Invoke-ConfigPlanCopy -Plan $plan -Progress
+$attempted = [System.Collections.Generic.List[object]]::new()
+try {
+    foreach ($op in $plan) {
+        # Include the failing item: a copy can change a destination before throwing.
+        $attempted.Add($op)
+        Invoke-ConfigPlanCopy -Plan @($op) -Progress
+    }
+}
+catch {
+    $copyError = $_
+    Write-Warning "Config pull failed. Attempting best-effort rollback for $($attempted.Count) attempted file(s)."
+    if ($overwrites.Count -gt 0) { Write-Warning "Original files are backed up in $backupDir" }
+    for ($i = $attempted.Count - 1; $i -ge 0; $i--) {
+        $op = $attempted[$i]
+        try {
+            if ($op.Action -eq 'update') {
+                $rel = $op.Dst.Substring($HomeRoot.Length).TrimStart('\', '/')
+                Copy-Item -LiteralPath (Join-Path $backupDir $rel) -Destination $op.Dst -Force
+            }
+            elseif (Test-Path -LiteralPath $op.Dst -PathType Leaf) {
+                Remove-Item -LiteralPath $op.Dst -Force
+            }
+        }
+        catch { Write-Warning "Rollback could not restore $($op.Dst): $($_.Exception.Message)" }
+    }
+    throw $copyError
+}
 Write-Host "Applied $($plan.Count) change(s). Home-only files were left untouched (no prune)." -ForegroundColor Cyan

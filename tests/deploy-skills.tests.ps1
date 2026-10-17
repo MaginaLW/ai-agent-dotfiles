@@ -9,10 +9,6 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $deploy = Join-Path $RepoRoot 'scripts/deploy-skills.ps1'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('deploy-skills-tests-' + [guid]::NewGuid().ToString('N'))
 
-function Set-TestFile([string] $Path, [string] $Content) {
-    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
-    [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
-}
 function Set-TestEnvironment([string] $Repo, [string[]] $Skills, [string[]] $ZcodeSkills = @()) {
     $list = ($Skills | ForEach-Object { "'$_'" }) -join ', '
     $zlist = ($ZcodeSkills | ForEach-Object { "'$_'" }) -join ', '

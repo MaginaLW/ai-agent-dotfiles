@@ -7,10 +7,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
-}
-
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $skillsHelper = Join-Path $PSScriptRoot 'skills-common.ps1'
 . $skillsHelper

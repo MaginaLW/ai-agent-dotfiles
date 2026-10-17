@@ -56,10 +56,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw 'This script requires PowerShell 7 or newer. Run it with pwsh.'
-}
-
 . (Join-Path $PSScriptRoot 'config-common.ps1')
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
@@ -111,7 +107,7 @@ if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to capture: rep
 
 # Apply: stage originals -> write -> secret scan -> path scan -> keep or revert.
 # The stage dir is created lazily so pure-add runs leave no empty backup folder.
-$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
+$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff')
 $stageDir = Join-Path $BackupRoot "config-push-stage-$stamp"
 $index = 0
 foreach ($op in $plan) {
@@ -138,8 +134,9 @@ if (-not $SkipSecretScan) {
     Write-Host 'Running secret scan over the captured tree...' -ForegroundColor Cyan
     try { Invoke-SecretScanGate -RepoRoot $RepoRoot }
     catch {
+        $detail = $_.Exception.Message
         Restore-Plan -Operations $plan
-        throw 'Secret scan reported a blocking finding. Reverted all captured files; nothing secret-bearing was kept.'
+        throw "Secret scan failed. Reverted all captured files. $detail"
     }
 }
 

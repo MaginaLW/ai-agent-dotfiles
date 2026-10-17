@@ -200,7 +200,7 @@ function New-HarnessProfilePlan {
 
     $profilePath = Join-Path $project '.agent-harness/profile.psd1'
     $projectProfile = Import-HarnessData -Path $profilePath -Kind 'project profile' -Required @('Name', 'TargetPlatforms') -Allowed @(
-        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components', 'RequiredEnv')
+        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components')
     $resolved = [System.Collections.Generic.List[object]]::new()
     $visiting = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($name in @($projectProfile['Extends'] | Where-Object { $_ })) {

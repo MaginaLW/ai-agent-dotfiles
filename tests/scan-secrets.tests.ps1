@@ -17,10 +17,6 @@ $githubToken = 'gh' + 'p_' + ('a1B2' * 9)
 $fallbackOnlyLine = 'authorization: ' + 'bear' + 'er ' + ('x' * 24)
 $allCapsLine = 'pass' + 'word: ' + $q + 'CHANGE_ME_PLEASE' + $q
 
-function Set-TestFile([string] $Path, [string] $Content) {
-    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
-    [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
-}
 function New-ScanRepo([string] $Name) {
     $repo = Join-Path $work $Name
     New-Item -ItemType Directory -Path $repo -Force | Out-Null
@@ -57,10 +53,14 @@ try {
     Set-TestFile (Join-Path $repo 'config/app.toml') ('token = "${GITHUB_PAT}"' + "`n" + 'authorization = "Bearer ${GITHUB_PAT}"' + "`n" + 'bearer_token_env_var = "GITHUB_PAT"' + "`n")
     $r = Invoke-Scan $repo
     Assert-TestCondition ($r.Code -eq 0 -and $r.Json.BlockingFindingCount -eq 0) '${VAR} and *_env_var placeholders pass'
+    $hintWarning = [regex]::Match($r.Out, 'WARN: Keyword hints found \(non-blocking\): (\d+)')
+    Assert-TestCondition ($hintWarning.Success -and $r.Json.HintCount -eq [int] $hintWarning.Groups[1].Value) 'a passing scan reports the console keyword hint count in JSON'
     Set-TestFile (Join-Path $repo 'config/app.toml') "$allCapsLine`n"
     $r = Invoke-Scan $repo
     Assert-TestCondition ($r.Json.BlockingFindingCount -eq 0) 'an ALLCAPS placeholder is not a fallback finding'
     Assert-TestCondition ($r.Code -ne 0 -and $r.Json.GitleaksFailed) 'gitleaks still judges a long ALLCAPS literal on its own rules'
+    $hintWarning = [regex]::Match($r.Out, 'WARN: Keyword hints found \(non-blocking\): (\d+)')
+    Assert-TestCondition ($hintWarning.Success -and $r.Json.HintCount -eq [int] $hintWarning.Groups[1].Value) 'a gitleaks-only failure reports the console keyword hint count in JSON'
 
     Write-Host '[# scan-ok marker]'
     $repo = New-ScanRepo 'scan-ok'

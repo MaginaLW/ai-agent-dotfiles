@@ -51,6 +51,67 @@ foreach ($pair in @(@('Claude', 'claude'), @('Codex', 'codex'), @('Reasonix', 'r
 Assert-TestCondition (@(Compare-Object @($fullSelection['Zcode']) @($fullSelection['Claude'])).Count -eq 0) "the full environment's Zcode selection equals Claude (projection)"
 
 # -----------------------------------------------------------------------------
+# Dangerous tracked paths
+# -----------------------------------------------------------------------------
+Write-Host '[dangerous tracked paths]'
+. (Join-Path $RepoRoot 'scripts/repo-common.ps1')
+# Git quoted/octally escaped paths are outside this predicate's contract; the caller's
+# Get-GitLines decoding and core.quotepath behavior remain unchanged.
+$dangerousPathCases = @(
+    @{ Path = 'x.pem'; Expected = $true }
+    @{ Path = 'id_ed25519'; Expected = $true }
+    @{ Path = '.env'; Expected = $true }
+    @{ Path = '.env.local'; Expected = $true }
+    @{ Path = '.env.md'; Expected = $true }
+    @{ Path = 'tokens.yaml'; Expected = $true }
+    @{ Path = 'app.token'; Expected = $true }
+    @{ Path = 'auth.json'; Expected = $true }
+    @{ Path = 'backup/a/b'; Expected = $true }
+    @{ Path = '.ssh/config'; Expected = $true }
+    @{ Path = 'pem.md'; Expected = $false }
+    @{ Path = 'tokens.md'; Expected = $false }
+    @{ Path = 'mytokens.txt'; Expected = $false }
+    @{ Path = 'nested/PRIVATE.KEY'; Expected = $true }
+    @{ Path = 'nested/certificate.p12'; Expected = $true }
+    @{ Path = 'nested/certificate.PFX'; Expected = $true }
+    @{ Path = 'nested/ID_RSA'; Expected = $true }
+    @{ Path = 'nested/.ENV.LOCAL'; Expected = $true }
+    @{ Path = 'nested/token'; Expected = $true }
+    @{ Path = 'nested/.tokens'; Expected = $true }
+    @{ Path = 'nested/.TOKEN.TXT'; Expected = $true }
+    @{ Path = 'nested/tokens.json'; Expected = $true }
+    @{ Path = 'nested/token.yml'; Expected = $true }
+    @{ Path = 'nested/app.TOKENS'; Expected = $true }
+    @{ Path = 'nested/.CREDENTIALS.JSON'; Expected = $true }
+    @{ Path = 'nested/AUTH.JSON'; Expected = $true }
+    @{ Path = 'nested/BACKUPS/a'; Expected = $true }
+    @{ Path = 'nested/backup'; Expected = $true }
+    @{ Path = 'nested/.SSH'; Expected = $true }
+    @{ Path = 'nested\.ssh\config'; Expected = $true }
+    @{ Path = 'nested\BACKUP\a'; Expected = $true }
+    @{ Path = 'nested\private.PEM'; Expected = $true }
+    @{ Path = 'nested\id_ed25519'; Expected = $true }
+    @{ Path = 'nested\.env'; Expected = $true }
+    @{ Path = 'nested\auth.json'; Expected = $true }
+    @{ Path = 'nested/id_rsa.pub'; Expected = $false }
+    @{ Path = 'nested/.env.'; Expected = $false }
+    @{ Path = 'nested/my.env'; Expected = $false }
+    @{ Path = 'nested/credentials.json'; Expected = $false }
+    @{ Path = 'nested/auth.json.md'; Expected = $false }
+    @{ Path = 'nested/backup-notes/a'; Expected = $false }
+    @{ Path = 'nested/mybackups/a'; Expected = $false }
+    @{ Path = 'nested/.ssh-notes/config'; Expected = $false }
+    @{ Path = 'nested/ssh/config'; Expected = $false }
+    @{ Path = 'nested\mytokens.txt'; Expected = $false }
+    @{ Path = 'nested\backups.md'; Expected = $false }
+    @{ Path = 'nested\.ssh-notes\config'; Expected = $false }
+)
+foreach ($case in $dangerousPathCases) {
+    $result = @(Test-IsDangerousTrackedPath -RelativePath $case.Path)
+    Assert-TestCondition (($result.Count -eq 1) -and ($result[0] -is [bool]) -and ($result[0] -eq $case.Expected)) "dangerous path '$($case.Path)' returns only bool $($case.Expected)"
+}
+
+# -----------------------------------------------------------------------------
 # Generated-root boundaries are symmetric across all three platforms
 # -----------------------------------------------------------------------------
 Write-Host '[generated-root boundaries]'

@@ -37,6 +37,22 @@ function Test-IsProtectedReasonixFile {
     return $false
 }
 
+# Files that must never be tracked, independent of their contents.
+function Test-IsDangerousTrackedPath {
+    param([Parameter(Mandatory)] [string] $RelativePath)
+
+    $path = $RelativePath -replace '\\', '/'
+    $leaf = [IO.Path]::GetFileName($path)
+    return $leaf -match '(?i)\.(pem|key|p12|pfx)$' -or
+        $leaf -match '(?i)^id_(rsa|ed25519)$' -or
+        $leaf -match '(?i)^\.env(?:\..+)?$' -or
+        $leaf -match '(?i)^\.?tokens?(?:\.(txt|json|ya?ml))?$' -or
+        $leaf -match '(?i)\.tokens?$' -or
+        $leaf -match '(?i)^(auth|\.credentials)\.json$' -or
+        $path -match '(?i)(^|/)(backup|backups)(/|$)' -or
+        $path -match '(?i)(^|/)\.ssh(/|$)'
+}
+
 # Extensions whose files are never read line-by-line by a text scanner.
 $script:BinaryExtensions = @('.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.7z', '.exe', '.dll', '.sqlite', '.db')
 

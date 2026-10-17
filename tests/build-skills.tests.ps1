@@ -9,10 +9,6 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $build = Join-Path $RepoRoot 'scripts/build-skills.ps1'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('build-skills-tests-' + [guid]::NewGuid().ToString('N'))
 
-function Set-TestFile([string] $Path, [string] $Content) {
-    New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
-    [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
-}
 function Add-Skill([string] $Repo, [string] $Group, [string] $Name) {
     Set-TestFile (Join-Path $Repo "skills-source/$Group/$Name/SKILL.md") "# $Name`n"
 }
