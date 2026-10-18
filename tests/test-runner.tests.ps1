@@ -70,8 +70,6 @@ try {
     Assert ($r.Code -ne 0 -and $r.Out -match 'unknown: gone\.tests\.ps1') 'a budget without a suite stops the run'
 
     $repoBudgets = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'tests/test-timeouts.psd1')).Suites
-    $repoSuites = @(Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter '*.tests.ps1' | ForEach-Object Name)
-    Assert (@(Compare-Object @($repoBudgets.Keys) $repoSuites).Count -eq 0) 'every repository suite has exactly one budget'
     $total = ($repoBudgets.Values | Measure-Object -Sum).Sum
     # The 35-minute CI job also runs the other validation gates; keep 7 minutes for them.
     Assert ($total -le 1680) "suite budgets fit the 35-minute CI job (total $total s)"

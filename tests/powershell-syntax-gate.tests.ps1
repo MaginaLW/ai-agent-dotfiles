@@ -179,25 +179,20 @@ try {
     $gateAst = [System.Management.Automation.Language.Parser]::ParseFile($gateScript, [ref]$tokens, [ref]$parseErrors)
     Assert-True (@($parseErrors).Count -eq 0) 'gate script parses without errors'
 
-    Write-Host '[gate source: operator check is not a constant-if off switch]'
-    $operatorLoops = @($gateAst.FindAll({
+    Write-Host '[gate source: meta checks are not constant-if off switches]'
+    $allForeach = @($gateAst.FindAll({
         param($node)
-        $node -is [System.Management.Automation.Language.ForEachStatementAst] -and
-        $node.Extent.Text.Contains('parsed as a command parameter')
+        $node -is [System.Management.Automation.Language.ForEachStatementAst]
     }, $true))
-    Assert-True ($operatorLoops.Count -gt 0) 'operator-as-parameter foreach is present in the gate AST'
-    $disabledLoops = @($operatorLoops | Where-Object { Test-NestedInConstantIf $_ })
-    Assert-True ($disabledLoops.Count -eq 0) 'operator-as-parameter foreach is not nested in if ($true)/if ($false)'
-
-    Write-Host '[gate source: array-flattening check is not a constant-if off switch]'
-    $flatteningLoops = @($gateAst.FindAll({
-        param($node)
-        $node -is [System.Management.Automation.Language.ForEachStatementAst] -and
-        $node.Extent.Text.Contains('bare array statements inside @() flatten')
-    }, $true))
-    Assert-True ($flatteningLoops.Count -gt 0) 'array-flattening foreach is present in the gate AST'
-    $flatteningDisabled = @($flatteningLoops | Where-Object { Test-NestedInConstantIf $_ })
-    Assert-True ($flatteningDisabled.Count -eq 0) 'array-flattening foreach is not nested in if ($true)/if ($false)'
+    foreach ($marker in @(
+        @{ Needle = 'parsed as a command parameter'; Label = 'operator-as-parameter' },
+        @{ Needle = 'bare array statements inside @() flatten'; Label = 'array-flattening' }
+    )) {
+        $loops = @($allForeach | Where-Object { $_.Extent.Text.Contains($marker.Needle) })
+        Assert-True ($loops.Count -gt 0) ($marker.Label + ' foreach is present in the gate AST')
+        $disabled = @($loops | Where-Object { Test-NestedInConstantIf $_ })
+        Assert-True ($disabled.Count -eq 0) ($marker.Label + ' foreach is not nested in if ($true)/if ($false)')
+    }
 
     Write-Host '[repository as-is]'
     $repoRun = Invoke-SyntaxGate -TargetRoot $RepoRoot
