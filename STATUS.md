@@ -78,8 +78,8 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   `tests/helpers/test-common.ps1`. `docs/HISTORY.md` and `STATUS.md` now name the real last
   commits that still contain the removed engine (`9793fde`), the dated journals (`a1e3115`),
   the import pipeline (`d393999`) and the multi-platform profile (`e8ef4c2`). The full local
-  suite and repository validation passed on branch `codex/track-b-20261018`; merge and
-  publication await the owner.
+  suite and repository validation passed before the merge; the work is merged to `main` and
+  pushed (fast-forward `0f77b96..fed722b`) with Validate run 39088767066 green.
 - **Claude home config (2026-10-16, owner-authorized).** One `config-pull` Apply synchronized
   `settings.json` from a private candidate built from the repository template plus the existing
   Boolean `agentPushNotifEnabled` override. The candidate was scanned and dry-run reviewed;
