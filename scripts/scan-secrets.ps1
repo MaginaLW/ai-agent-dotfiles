@@ -2,15 +2,14 @@
 [CmdletBinding()]
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [string] $JsonPath,
-    [string] $ScannerConfigPath
+    [string] $JsonPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$configPath = if ($ScannerConfigPath) { (Resolve-Path -LiteralPath $ScannerConfigPath).Path } else { Join-Path $RepoRoot '.gitleaks.toml' }
+$configPath = Join-Path $RepoRoot '.gitleaks.toml'
 . (Join-Path $PSScriptRoot 'pinned-tool.ps1')
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
