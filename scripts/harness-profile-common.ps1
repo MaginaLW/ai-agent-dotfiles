@@ -23,6 +23,9 @@ $script:HarnessKinds = @{
     CodexAgent     = @{ Mode = 'DirectoryFiles'; Allowed = @('.codex/agents/'); Extra = @('Source') }
     ClaudeSettings = @{ Mode = 'StructuredMerge'; Allowed = @('.claude/settings.json'); Extra = @('MergeStrategy') }
 }
+# Legal top-level keys are identical for library and project profiles (docs/README.md §12).
+$script:HarnessProfileRequiredKeys = @('Name', 'TargetPlatforms')
+$script:HarnessProfileAllowedKeys = @('SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components')
 # The drive/UNC machine-private path policy lives in repo-common.ps1.
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
@@ -122,8 +125,7 @@ function Add-HarnessLibraryProfile {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Profile '$Name' was not found under harness-source/profiles." }
     if (@($Resolved | Where-Object Name -EQ $Name).Count -gt 0) { return }
     if (-not $Visiting.Add($Name)) { throw "Profile Extends contains a cycle at '$Name'." }
-    $data = Import-HarnessData -Path $path -Kind 'library profile' -Required @('Name', 'TargetPlatforms') -Allowed @(
-        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components')
+    $data = Import-HarnessData -Path $path -Kind 'library profile' -Required $script:HarnessProfileRequiredKeys -Allowed $script:HarnessProfileAllowedKeys
     foreach ($parent in @($data['Extends'] | Where-Object { $_ })) {
         Add-HarnessLibraryProfile -Name $parent -ProfilesRoot $ProfilesRoot -Resolved $Resolved -Visiting $Visiting
     }
@@ -199,8 +201,7 @@ function New-HarnessProfilePlan {
     $project = (Resolve-Path -LiteralPath $ProjectRoot).Path
 
     $profilePath = Join-Path $project '.agent-harness/profile.psd1'
-    $projectProfile = Import-HarnessData -Path $profilePath -Kind 'project profile' -Required @('Name', 'TargetPlatforms') -Allowed @(
-        'SchemaVersion', 'Name', 'TargetPlatforms', 'Extends', 'Components')
+    $projectProfile = Import-HarnessData -Path $profilePath -Kind 'project profile' -Required $script:HarnessProfileRequiredKeys -Allowed $script:HarnessProfileAllowedKeys
     $resolved = [System.Collections.Generic.List[object]]::new()
     $visiting = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($name in @($projectProfile['Extends'] | Where-Object { $_ })) {
