@@ -17,6 +17,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $statusScript = Join-Path $RepoRoot 'scripts/status-harness-profile.ps1'
@@ -63,15 +64,12 @@ New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 function Set-File {
     param([Parameter(Mandatory)] [string] $Path, [AllowNull()] [string] $Content)
-    $dir = Split-Path -Parent $Path
-    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    Set-Content -LiteralPath $Path -Value ($Content ?? '') -NoNewline -Encoding UTF8
+    Set-TestFile -Path $Path -Content ($Content ?? '')
 }
 
 function Invoke-Script {
     param([Parameter(Mandatory)] [string] $Script, [string[]] $ScriptArgs = @())
-    $out = & pwsh -NoProfile -File $Script @ScriptArgs 2>&1 | Out-String
-    return @{ Out = $out; Code = $LASTEXITCODE }
+    Invoke-TestProcess -ScriptPath $Script -Arguments $ScriptArgs
 }
 
 function Escape-Psd1String {

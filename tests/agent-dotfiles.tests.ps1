@@ -10,6 +10,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
 
 $entry = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('agent-dotfiles-cli-tests-' + [guid]::NewGuid().ToString('N'))
@@ -33,8 +34,7 @@ function Assert {
 }
 function Invoke-Entry {
     param([string[]] $Arguments)
-    $out = & pwsh -NoProfile -File $entry @Arguments 2>&1 | Out-String
-    return @{ Out = $out; Code = $LASTEXITCODE }
+    Invoke-TestProcess -ScriptPath $entry -Arguments $Arguments
 }
 
 Write-Host 'unified CLI: env and config/profile routing'

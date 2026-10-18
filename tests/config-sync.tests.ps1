@@ -24,6 +24,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $statusScript = Join-Path $RepoRoot 'scripts/config-status.ps1'
@@ -81,17 +82,14 @@ function New-TempRepo {
 }
 
 function Invoke-Script {
-    # Run a config script; return @{ Out; Code }.
+    # Run a config script through the shared helper.
     param([Parameter(Mandatory)] [string] $Script, [string[]] $ScriptArgs = @())
-    $out = & pwsh -NoProfile -File $Script @ScriptArgs 2>&1 | Out-String
-    return @{ Out = $out; Code = $LASTEXITCODE }
+    Invoke-TestProcess -ScriptPath $Script -Arguments $ScriptArgs
 }
 
 function Set-File {
     param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string] $Content)
-    $dir = Split-Path -Parent $Path
-    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    Set-Content -LiteralPath $Path -Value $Content -NoNewline
+    Set-TestFile -Path $Path -Content $Content
 }
 
 $outcome = 'Failed'
