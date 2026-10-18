@@ -6,7 +6,7 @@ Removed code and docs stay in Git history. This page says where to find them.
 
 The transactional engine was replaced by `scripts/deploy-skills.ps1` and removed on 2026-10-09,
 together with its tests, schemas, Git hooks, approved runner and docs. The last commit that
-still has all of it is `c011fb4`.
+still has all of it is `9793fde`.
 
 | Former path | Content |
 |---|---|
@@ -18,8 +18,8 @@ still has all of it is `c011fb4`.
 | `docs/RESTORE.md`, `docs/CI_FAILURE_RULES.md` | Rollback/transaction recovery guide and the CI failure rules R1-R11 |
 
 ```powershell
-git ls-tree -r --name-only c011fb4 -- scripts schemas tests docs
-git show c011fb4:docs/CI_FAILURE_RULES.md
+git ls-tree -r --name-only 9793fde -- scripts schemas tests docs
+git show 9793fde:docs/CI_FAILURE_RULES.md
 ```
 
 ## Design and plan docs (removed 2026-10-09)
@@ -45,12 +45,12 @@ git ls-tree -r --name-only bd46b85 -- docs/superpowers docs/specs docs/archive
 
 The dated status journals and finished task records under `status/archived/` (about 1 MB, mostly
 about the removed transactional engine) were removed on 2026-10-10. The last commit that still
-has them is `3341ec9`. They may link to files that no longer exist; read those files at the
+has them is `a1e3115`. They may link to files that no longer exist; read those files at the
 commits above.
 
 ```powershell
-git ls-tree -r --name-only 3341ec9 -- status/archived
-git show 3341ec9:status/archived/2026-10-08-status-history.md
+git ls-tree -r --name-only a1e3115 -- status/archived
+git show a1e3115:status/archived/2026-10-08-status-history.md
 ```
 
 ## Skills import and merge pipeline (removed 2026-10-10)
@@ -60,11 +60,11 @@ The import pipeline (`imports/` inbox, archive, quarantine and reports; `invento
 and `docs/MERGE_POLICY.md`) was replaced by the small `scripts/promote-skill.ps1` on 2026-10-10,
 together with the build run reports (`report-common.ps1`, `reports/README.md`) and the guide
 code-block checker (`check-guide-examples.ps1`). The last commit that still has them is
-`3341ec9`.
+`d393999`.
 
 ```powershell
-git show 3341ec9:docs/MERGE_POLICY.md
-git show 3341ec9:scripts/auto-merge-skills.ps1
+git show d393999:docs/MERGE_POLICY.md
+git show d393999:scripts/auto-merge-skills.ps1
 ```
 
 ## ZCode feedback-loop pilot (paused 2026-10-10)
@@ -95,11 +95,11 @@ The unused `multi-platform` library profile, the components only it selected (`c
 `claude-reviewer`, `codex-reviewer`, `review-prompt`) and `tests/harness-multiplatform.tests.ps1`
 were removed on 2026-10-10, together with the unused `Future`, `Requires` and `Conflicts` schema
 fields. The Command, ClaudeAgent, CodexPrompt and CodexAgent kinds are still supported and tested
-in `tests/harness-profile.tests.ps1`. The last commit that still has them is `d11e081`.
+in `tests/harness-profile.tests.ps1`. The last commit that still has them is `e8ef4c2`.
 
 ```powershell
-git show d11e081:harness-source/profiles/multi-platform.psd1
-git ls-tree -r --name-only d11e081 -- harness-source/components
+git show e8ef4c2:harness-source/profiles/multi-platform.psd1
+git ls-tree -r --name-only e8ef4c2 -- harness-source/components
 ```
 
 ## Privacy history rewrite (2026-08-25)

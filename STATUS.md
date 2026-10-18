@@ -80,7 +80,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   plan-bound sync and retirement, canonical and live recovery, environment
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
   Git hooks, schemas, the sandbox host, the live-safety policy and interlock, and the CI shards.
-  The last commit that still has it is `c011fb4` ([docs/HISTORY.md](docs/HISTORY.md)).
+  The last commit that still has it is `9793fde` ([docs/HISTORY.md](docs/HISTORY.md)).
 - **First onboarded machine (cut over 2026-10-09, owner-authorized).** `deploy-skills.ps1
   -Environment work -Apply` now manages it. The run found all six managed directories unchanged
   (`boring-engineering`, `systematic-debugging` on Claude, Codex and Reasonix), left the one
