@@ -62,6 +62,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   unused `RequiredEnv` key; the known external project profile was checked before its removal.
   Local full repository validation completed all 12 suites. Merge acceptance still requires
   a green `Validate` run at the final PR head; local checks do not replace CI.
+- **Branch disposition (2026-10-18).** The local branches `codex/fifth-dangerous-paths`,
+  `codex/fifth-profile-docs` and `codex/fifth-scan-report` are deleted after `git cherry -v main`
+  reported only `-` lines. `codex/fifth-optimization-20261016` is deleted locally;
+  `c0d8e94f48087eeaed027409bcbb8cc59138ab07` remains on `origin` until a separate owner
+  authorization. Disposing of a proven task branch is part of the parallel-write paragraph in
+  `AGENTS.md`.
 - **Claude home config (2026-10-16, owner-authorized).** One `config-pull` Apply synchronized
   `settings.json` from a private candidate built from the repository template plus the existing
   Boolean `agentPushNotifEnabled` override. The candidate was scanned and dry-run reviewed;
