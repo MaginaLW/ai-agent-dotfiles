@@ -68,6 +68,18 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   `origin`; `c0d8e94f48087eeaed027409bcbb8cc59138ab07` is an ancestor of `main`, and the remote
   delete had its own owner authorization. Disposing of a proven task branch is part of the
   parallel-write paragraph in `AGENTS.md`.
+- **Seventh round: track-B de-complexity (2026-10-18).** Entry points lost two unused knobs:
+  `scan-secrets.ps1 -ScannerConfigPath` (the scanner config is always the repository
+  `.gitleaks.toml`) and `install-gitleaks.ps1 -CacheRoot`; neither had an in-repo caller.
+  `promote-skill.ps1` no longer checks `.system` separately (the name regex rejects it), the
+  harness profile key lists are defined once, the syntax-gate meta checks are table-driven,
+  the runner suite no longer duplicates the budgets invariant that `run-tests.ps1` enforces
+  before any suite starts, and three suites delegate their local process/file wrappers to
+  `tests/helpers/test-common.ps1`. `docs/HISTORY.md` and `STATUS.md` now name the real last
+  commits that still contain the removed engine (`9793fde`), the dated journals (`a1e3115`),
+  the import pipeline (`d393999`) and the multi-platform profile (`e8ef4c2`). The full local
+  suite and repository validation passed on branch `codex/track-b-20261018`; merge and
+  publication await the owner.
 - **Claude home config (2026-10-16, owner-authorized).** One `config-pull` Apply synchronized
   `settings.json` from a private candidate built from the repository template plus the existing
   Boolean `agentPushNotifEnabled` override. The candidate was scanned and dry-run reviewed;
