@@ -29,7 +29,7 @@ $ErrorActionPreference = 'Stop'
 
 try {
     $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-    if ($Name -ceq '.system' -or $Name -cnotmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?$') {
+    if ($Name -cnotmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?$') {
         throw "Invalid skill name: '$Name'"
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "Source is not a directory: $Path" }
