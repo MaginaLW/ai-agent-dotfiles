@@ -147,6 +147,17 @@ try {
     Assert-True ($operatorHits -eq 1) "scripts/ bare -AND reports the operator message exactly once (got $operatorHits)"
     Assert-True ($double.Output -notmatch "unknown parameter '-AND'") 'scripts/ bare -AND is not also reported as an unknown parameter'
 
+    Write-Host '[scripts/ unknown-parameter refusal]'
+    $unknownRoot = New-FixtureRepo -Files @{
+        'scripts/unknown-param.ps1' = @(
+            'function Test-Foo { param([string] $Value) }'
+            "Test-Foo -NoSuch 'x'"
+        ) -join "`n"
+    }
+    $unknown = Invoke-SyntaxGate -TargetRoot $unknownRoot
+    Assert-True ($unknown.ExitCode -eq 1) "scripts/ a genuine unknown parameter exits 1 (got $($unknown.ExitCode))"
+    Assert-True ($unknown.Output -match "unknown parameter '-NoSuch'") 'scripts/ a genuine unknown parameter is reported'
+
     Write-Host '[array-statement flattening fixtures]'
     $flatRoot = New-FixtureRepo -Files @{
         'probe-flat.ps1' = @(

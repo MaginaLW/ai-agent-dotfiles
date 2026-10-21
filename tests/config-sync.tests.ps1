@@ -117,6 +117,15 @@ try {
     $claudeRow = $rows | Where-Object { $_.Item -eq 'CLAUDE.md' }
     Assert ($claudeRow.Status -eq 'differs') "status: differing file -> differs"
 
+    $tr = New-TempRepo -Name 'status-reasonix-repo'
+    $th = Join-Path $work 'status-reasonix-home'
+    Set-File -Path (Join-Path $tr 'reasonix/AGENTS.md') -Content 'same'
+    Set-File -Path (Join-Path $th 'AppData/Roaming/reasonix/AGENTS.md') -Content 'same'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Reasonix', '-Json')
+    $rows = $r.Out | ConvertFrom-Json
+    $reasonixRow = $rows | Where-Object { $_.Item -eq 'AGENTS.md' }
+    Assert ($reasonixRow.Status -eq 'in-sync') "status: Reasonix maps repo reasonix/ onto home AppData/Roaming/reasonix"
+
     # ===========================================================================
     Write-Host "`n[config-pull]" -ForegroundColor Cyan
     # ===========================================================================
@@ -143,6 +152,15 @@ try {
 
     $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
     Assert ($r.Out -match 'Nothing to deploy') "pull: idempotent dry-run is a no-op"
+
+    $tr = New-TempRepo -Name 'pull-commands-repo'
+    $th = Join-Path $work 'pull-commands-home'
+    $bk = Join-Path $work 'pull-commands-backup'
+    Set-File -Path (Join-Path $tr 'claude/commands/ok.md') -Content 'command bytes'
+    Set-File -Path (Join-Path $tr 'claude/commands/sketch.local.json') -Content '{"local":true}'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $th '.claude/commands/ok.md'))) "pull: apply copies a managed directory item"
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/commands/sketch.local.json'))) "pull: *.local.json inside a managed directory is not copied"
 
     # The scan must stop both adds and updates before even creating a backup.
     $tr = New-TempRepo -Name 'pull-secret-repo'

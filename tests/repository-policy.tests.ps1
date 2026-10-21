@@ -116,7 +116,6 @@ foreach ($case in $dangerousPathCases) {
 # -----------------------------------------------------------------------------
 Write-Host '[generated-root boundaries]'
 $gitignoreText = Read-RepoText '.gitignore'
-Assert-TestCondition ($gitignoreText.Contains('# Generated skills: build outputs, never committed.')) '.gitignore marks the generated skills block as never committed'
 foreach ($generatedRoot in @('claude/skills/', 'codex/skills/', 'reasonix/skills/')) {
     Assert-TestCondition ($gitignoreText.Contains("`n$generatedRoot`n") -or $gitignoreText.StartsWith("$generatedRoot`n")) ".gitignore ignores the generated root $generatedRoot"
 }
@@ -155,9 +154,14 @@ $allow = @($settings.permissions.allow)
 foreach ($rule in @('Edit(claude/skills/**)', 'Write(claude/skills/**)', 'Edit(codex/skills/**)', 'Write(codex/skills/**)', 'Edit(reasonix/skills/**)', 'Write(reasonix/skills/**)', 'Edit(~/.codex/skills/.system/**)', 'Write(~/.codex/skills/.system/**)', 'Edit(**/.codex/skills/.system/**)', 'Write(**/.codex/skills/.system/**)', 'Bash(robocopy *)', 'PowerShell(robocopy *)')) {
     Assert-TestCondition ($deny -ccontains $rule) ".claude/settings.json denies $rule"
 }
-$allowedScripts = @($allow | ForEach-Object { if ($_ -match 'scripts/([A-Za-z0-9-]+\.ps1)') { $Matches[1] } } | Sort-Object -Unique)
-Assert-TestCondition ((@(Compare-Object $allowedScripts @('build-skills.ps1', 'scan-secrets.ps1')).Count -eq 0)) '.claude/settings.json allow-lists only build-skills and scan-secrets'
-foreach ($scriptName in $allowedScripts) {
+$expectedAllow = @(
+    'PowerShell(pwsh -NoProfile -File scripts/build-skills.ps1*)'
+    'PowerShell(pwsh -NoProfile -File scripts/scan-secrets.ps1*)'
+    'Bash(pwsh -NoProfile -File scripts/build-skills.ps1*)'
+    'Bash(pwsh -NoProfile -File scripts/scan-secrets.ps1*)'
+)
+Assert-TestCondition ((@(Compare-Object @($allow | Sort-Object) @($expectedAllow | Sort-Object)).Count -eq 0)) '.claude/settings.json allow-lists exactly the build-skills and scan-secrets entries and nothing else'
+foreach ($scriptName in @('build-skills.ps1', 'scan-secrets.ps1')) {
     Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot "scripts/$scriptName") -PathType Leaf) "allow-listed scripts/$scriptName exists"
 }
 Assert-TestCondition ((Get-LiteralOccurrenceCount -Text (Read-RepoText 'bootstrap.ps1') -Needle '-Apply') -eq 0) 'bootstrap.ps1 carries no -Apply usage'

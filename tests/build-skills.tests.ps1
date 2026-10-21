@@ -22,6 +22,8 @@ try {
     New-Item -ItemType Directory -Path $repo -Force | Out-Null
     Add-Skill $repo 'shared' 'alpha'
     Add-Skill $repo 'codex-only' 'beta'
+    Add-Skill $repo 'claude-only' 'gamma'
+    Add-Skill $repo 'reasonix-only' 'delta'
     Set-TestFile (Join-Path $repo 'skills-source/shared/alpha/CREATION-LOG.md') "log`n"
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -eq 0) "a clean build exits 0 ($($r.Out))"
@@ -31,8 +33,14 @@ try {
         (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills/alpha/SKILL.md')) -and
         (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/beta/SKILL.md')) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/beta'))) -and
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills/beta')))
-    ) 'shared skills land on all three roots, codex-only on Codex only'
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills/beta'))) -and
+        (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/gamma/SKILL.md')) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/gamma'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills/gamma'))) -and
+        (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills/delta/SKILL.md')) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/delta'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/delta')))
+    ) 'shared skills land on all three roots, each platform-only skill on its own root only'
     Assert-TestCondition (([IO.File]::ReadAllText((Join-Path $repo 'codex/skills/beta/SKILL.md'))) -ceq "# beta`n") 'generated SKILL.md content matches the source'
     Assert-TestCondition (
         (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/alpha/CREATION-LOG.md'))) -and
@@ -42,7 +50,7 @@ try {
     $claudeManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.claude.txt'))
     $codexManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.codex.txt'))
     $reasonixManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.reasonix.txt'))
-    Assert-TestCondition ($claudeManifest -ceq "alpha`n" -and $codexManifest -ceq "alpha`nbeta`n" -and $reasonixManifest -ceq "alpha`n") 'manifests list each platform set sorted'
+    Assert-TestCondition ($claudeManifest -ceq "alpha`ngamma`n" -and $codexManifest -ceq "alpha`nbeta`n" -and $reasonixManifest -ceq "alpha`ndelta`n") 'manifests list each platform set sorted'
 
     Write-Host '[shared vs platform-only name conflict]'
     $repo = Join-Path $work 'conflict-shared'
