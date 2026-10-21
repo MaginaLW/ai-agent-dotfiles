@@ -13,6 +13,13 @@ $configPath = Join-Path $RepoRoot '.gitleaks.toml'
 . (Join-Path $PSScriptRoot 'pinned-tool.ps1')
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
+# The repository .gitleaks.toml is the scanner contract; gitleaks must never silently
+# fall back to its default rules.
+$configItem = Get-Item -LiteralPath $configPath -ErrorAction SilentlyContinue
+if (-not $configItem -or $configItem.PSIsContainer -or ($configItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw "scanner-config-required: $configPath must be a plain readable file"
+}
+
 # Scan input exclusions (matched case-insensitively). Change them only with the
 # owner's approval:
 #  - the path prefixes below (generated roots and tmp/);
@@ -150,10 +157,7 @@ function Invoke-GitleaksScan {
     # a hung scanner fails closed.
     param([Parameter(Mandatory)] [string] $ScanRoot, [Parameter(Mandatory)] [string] $ConfigPath, [Parameter(Mandatory)] [string] $LockPath, [Parameter(Mandatory)] [int] $InputCount)
 
-    $arguments = @('detect', '--no-git', '--source', $ScanRoot, '--redact')
-    if (Test-Path -LiteralPath $ConfigPath) {
-        $arguments += @('--config', $ConfigPath)
-    }
+    $arguments = @('detect', '--no-git', '--source', $ScanRoot, '--redact', '--config', $ConfigPath)
     $gitleaks = Get-PinnedToolExecutable -LockPath $LockPath
     Write-Host "Running pinned gitleaks from $($gitleaks.Executable) against a filtered copy of $InputCount files."
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new($gitleaks.Executable)

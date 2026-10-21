@@ -40,6 +40,13 @@ try {
     Assert-TestCondition ($r.Code -eq 0 -and $r.Json.Result -eq 'PASS') 'a clean fixture passes'
     Assert-TestCondition ($r.Out -match 'filtered copy of 2 files') 'the scan input is README.md and .gitleaks.toml'
 
+    Write-Host '[missing scanner config fails closed]'
+    $repo = New-ScanRepo 'no-config'
+    Remove-Item -LiteralPath (Join-Path $repo '.gitleaks.toml')
+    $r = Invoke-Scan $repo
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'scanner-config-required') 'a missing .gitleaks.toml fails instead of running gitleaks on default rules'
+    Assert-TestCondition ($null -eq $r.Json) 'no scan result is written when the config is missing'
+
     Write-Host '[planted token fails]'
     $repo = New-ScanRepo 'planted'
     Set-TestFile (Join-Path $repo 'config/app.toml') "github = $q$githubToken$q`n"
