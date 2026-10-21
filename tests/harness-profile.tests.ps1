@@ -541,6 +541,25 @@ $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $pathRepo, '-
 Assert ($r.Code -ne 0 -and $r.Out -match 'Generated root is not a plain directory') 'safety gate: build refuses a generated root that is a junction'
 Assert ((Get-Content -Raw (Join-Path $outside 'sentinel.txt')) -eq 'keep' -and @(Get-ChildItem $outside).Count -eq 1) 'safety gate: the junction target is untouched'
 
+# The home-write guard runs before the dry-run return, so a plain dry-run with pending
+# adds proves it. The guard skips an empty or non-existing USERPROFILE, so the fake home
+# must be a real directory.
+$fakeHome = Join-Path $work 'fake-home'
+New-Item -ItemType Directory -Path $fakeHome -Force | Out-Null
+$homeProject = Join-Path $fakeHome 'home-project'
+Copy-Item -LiteralPath $fixtureProject -Destination $homeProject -Recurse -Force
+Set-File -Path (Join-Path $homeProject '.agent-harness/profile.psd1') -Content (New-ProjectProfileText -Rules @('safe-file-edits'))
+$previousUserProfile = $env:USERPROFILE
+try {
+    $env:USERPROFILE = $fakeHome
+    $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $pathRepo, '-ProjectRoot', $homeProject)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'Refusing to write inside the home directory') 'safety gate: apply refuses to write inside the user home'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $homeProject 'AGENTS.md'))) 'safety gate: the refused apply writes nothing'
+}
+finally {
+    $env:USERPROFILE = $previousUserProfile
+}
+
 # ===========================================================================
 Write-Host ''
 Write-Host ("Results: {0} passed, {1} failed" -f $script:pass, $script:fail) -ForegroundColor Cyan

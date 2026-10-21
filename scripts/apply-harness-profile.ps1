@@ -8,8 +8,7 @@
 param(
     [switch] $Apply,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [string] $ProjectRoot = (Get-Location).Path,
-    [string] $BackupRoot = (Join-Path $ProjectRoot '.agent-harness/backups')
+    [string] $ProjectRoot = (Get-Location).Path
 )
 
 Set-StrictMode -Version Latest
@@ -53,17 +52,8 @@ if (-not $Apply) {
 
 Invoke-SecretScanGate -RepoRoot $repo
 
-# A relative -BackupRoot starting with .agent-harness/backups is project-relative; any other
-# relative value is resolved from the current directory. It must end up under the project's
-# .agent-harness/backups.
-$backupBase = if ([System.IO.Path]::IsPathFullyQualified($BackupRoot)) { $BackupRoot }
-elseif (($BackupRoot -replace '\\', '/').StartsWith('.agent-harness/backups', [System.StringComparison]::OrdinalIgnoreCase)) { Join-Path $project $BackupRoot }
-else { Join-Path (Get-Location).Path $BackupRoot }
-$backupRootResolved = [System.IO.Path]::GetFullPath($backupBase)
-$backupRelative = Get-HarnessRelativePath -Root $project -Path $backupRootResolved
-if (-not ($backupRelative -ieq '.agent-harness/backups' -or $backupRelative.StartsWith('.agent-harness/backups/', [System.StringComparison]::OrdinalIgnoreCase))) {
-    throw 'BackupRoot must resolve under .agent-harness/backups inside the project root.'
-}
+# Backups always live under the project's own .agent-harness/backups.
+$backupRootResolved = [System.IO.Path]::GetFullPath((Join-Path $project '.agent-harness/backups'))
 Assert-HarnessOutsideHome -Paths @($backupRootResolved)
 $backupDir = Join-Path $backupRootResolved "apply-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff'))"
 New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
