@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-18.
+Last updated: 2026-10-21.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -68,6 +68,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   `origin`; `c0d8e94f48087eeaed027409bcbb8cc59138ab07` is an ancestor of `main`, and the remote
   delete had its own owner authorization. Disposing of a proven task branch is part of the
   parallel-write paragraph in `AGENTS.md`.
+- **Branch disposition follow-up (2026-10-21).** The track-B task branch
+  `codex/track-b-20261018` (tip `fed722b`, already an ancestor of `main` from the
+  fast-forward merge) is deleted after the owner authorized it; the proof was re-run at
+  execution time against the recorded full tip SHA (`update-ref -d` with expected SHA).
 - **Seventh round: track-B de-complexity (2026-10-18).** Entry points lost two unused knobs:
   `scan-secrets.ps1 -ScannerConfigPath` (the scanner config is always the repository
   `.gitleaks.toml`) and `install-gitleaks.ps1 -CacheRoot`; neither had an in-repo caller.
