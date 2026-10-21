@@ -56,6 +56,7 @@ function Get-OutsideProfileWorkspace([string] $RepoRoot, [string] $Leaf) {
 $work = Get-OutsideProfileWorkspace -RepoRoot $RepoRoot -Leaf ".ai-agent-dotfiles-harness-profile-$([Guid]::NewGuid().ToString('N'))"
 function Remove-Work {
     if (($work -like '*.ai-agent-dotfiles-harness-profile-*') -and (Test-Path -LiteralPath $work)) {
+        Get-ChildItem -LiteralPath $work -Recurse -Force -Attributes ReparsePoint | ForEach-Object { $_.Delete() }
         Remove-Item -LiteralPath $work -Recurse -Force
     }
 }
@@ -305,6 +306,18 @@ $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $repo, '-Proj
 $metadata2 = Get-NormalizedGeneratedMetadata -ProjectRoot $project
 Assert ($r.Code -eq 0 -and $metadata1 -eq $metadata2) 'build: repeated build is idempotent except generatedAt'
 
+$project = New-TestProject -Name 'replace-project'
+$r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project)
+Assert ($r.Code -eq 0) 'build: baseline build succeeds'
+Set-File -Path (Join-Path $project '.agent-harness/generated/stale-extra.md') 'stale'
+Set-File -Path (Join-Path $project '.agent-harness/profile.psd1') -Content (New-ProjectProfileText -Rules @('safe-file-edits') -Commands @('command-helper'))
+$r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project)
+Assert ($r.Code -eq 0) 'build: rebuild after a profile change succeeds'
+Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/generated/stale-extra.md'))) 'a rebuild without -Clean removes stale generated files'
+Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/generated/prompts/commit-summary.md'))) 'a rebuild removes files the new profile no longer generates'
+$replaceManifest = Get-Content -Raw -LiteralPath (Join-Path $project '.agent-harness/generated/manifest.json') | ConvertFrom-Json
+Assert (@($replaceManifest.generatedFiles | Where-Object { $_.path -in @('stale-extra.md', 'prompts/commit-summary.md') }).Count -eq 0) 'the manifest lists no stale generated files'
+
 $project = New-TestProject -Name 'dry-run-project'
 $before = Get-FileSnapshot -Root $project
 $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project)
@@ -519,6 +532,14 @@ $project = New-TestProject -Name 'machine-path-project' -ProfileText (New-Projec
 $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $pathRepo, '-ProjectRoot', $project)
 Assert ($r.Code -ne 0 -and $r.Out -match 'Machine-private path') 'safety gate: machine-private path fails closed'
 Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/generated'))) 'safety gate: machine-private path leaves no generated output'
+
+$project = New-TestProject -Name 'junction-root-project'
+$outside = Join-Path $work 'junction-root-target'
+Set-File -Path (Join-Path $outside 'sentinel.txt') 'keep'
+New-Item -ItemType Junction -Path (Join-Path $project '.agent-harness/generated') -Target $outside | Out-Null
+$r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $pathRepo, '-ProjectRoot', $project)
+Assert ($r.Code -ne 0 -and $r.Out -match 'Generated root is not a plain directory') 'safety gate: build refuses a generated root that is a junction'
+Assert ((Get-Content -Raw (Join-Path $outside 'sentinel.txt')) -eq 'keep' -and @(Get-ChildItem $outside).Count -eq 1) 'safety gate: the junction target is untouched'
 
 # ===========================================================================
 Write-Host ''

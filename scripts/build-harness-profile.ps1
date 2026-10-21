@@ -19,7 +19,21 @@ $plan = New-HarnessProfilePlan -RepoRoot $RepoRoot -ProjectRoot $ProjectRoot -Mo
 $repo = $plan.RepoRoot
 $project = $plan.ProjectRoot
 $generatedRoot = Join-Path $project '.agent-harness\generated'
-if ($Clean -and (Test-Path -LiteralPath $generatedRoot)) { Remove-Item -LiteralPath $generatedRoot -Recurse -Force }
+# The generated root is build-owned output and every build replaces it wholesale.
+# -Clean stays accepted as a compatibility switch. Refusing a root that is not a plain
+# directory keeps the recursive delete from following a reparse point.
+if (Test-Path -LiteralPath $generatedRoot) {
+    $generatedRootItem = Get-Item -LiteralPath $generatedRoot -Force
+    if (-not $generatedRootItem.PSIsContainer -or ($generatedRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "Generated root is not a plain directory: $generatedRoot"
+    }
+    foreach ($nested in @(Get-ChildItem -LiteralPath $generatedRoot -Recurse -Force)) {
+        if ($nested.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Generated root contains a reparse point: $($nested.FullName)"
+        }
+    }
+    Remove-Item -LiteralPath $generatedRoot -Recurse -Force
+}
 New-Item -ItemType Directory -Path $generatedRoot -Force | Out-Null
 
 function Write-HarnessGeneratedText([string] $Name, [string] $Text) {

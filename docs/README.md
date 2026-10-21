@@ -213,13 +213,14 @@ doctor、manifest 一致性、全部测试套件、危险文件检查与干净�
 pwsh -NoProfile -File scripts/status-harness-profile.ps1 -ProjectRoot <project>
 pwsh -NoProfile -File scripts/status-harness-profile.ps1 -ProjectRoot <project> -Json
 pwsh -NoProfile -File scripts/build-harness-profile.ps1 -ProjectRoot <project>
-pwsh -NoProfile -File scripts/build-harness-profile.ps1 -ProjectRoot <project> -Clean
 pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project>
 pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -Apply
 ```
 
 - `status-harness-profile.ps1`：只读状态/漂移报告；`-Json` 向 stdout 输出 JSON，含解析后的 profile、组件、目标与源文件。
-- `build-harness-profile.ps1`：只写目标项目的 `.agent-harness/generated/`；`-Clean` 先清空该生成目录再重建。
+- `build-harness-profile.ps1`：只写目标项目的 `.agent-harness/generated/`；每次构建先确认该目录是普通目录
+  （reparse point 直接拒绝），然后整树替换再重建，manifest 只列本次产物。`-Clean` 仍被接受，仅为兼容
+  旧命令行的空开关。
 - `apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写 allowlisted 项目输出和 `.agent-harness/backups/`
   下的项目本地 rollback backup，不写 home 或 live skills。
 - 受控输出类型：Rule 写 `AGENTS.md` / `CLAUDE.md` 的 managed block，Prompt 只进
