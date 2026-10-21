@@ -94,6 +94,7 @@ $reasonixSet = @($sharedNames + $reasonixOnlyNames | Sort-Object -Unique)
 
 foreach ($target in @($ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot)) {
     if (Test-Path -LiteralPath $target) {
+        Assert-SkillTreeNoReparsePoint -Root $target
         Remove-Item -LiteralPath $target -Recurse -Force
     }
     [System.IO.Directory]::CreateDirectory($target) | Out-Null

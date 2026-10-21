@@ -72,8 +72,23 @@ try {
         (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills')))
     ) 'a rejected build creates no generated roots'
 
+    Write-Host '[reparse points are refused]'
+    $repo = Join-Path $work 'junction'
+    New-Item -ItemType Directory -Path $repo -Force | Out-Null
+    Add-Skill $repo 'shared' 'alpha'
+    $outside = Join-Path $work 'outside'
+    Set-TestFile (Join-Path $outside 'sentinel.txt') 'keep'
+    New-Item -ItemType Directory -Path (Join-Path $repo 'claude/skills') -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $repo 'claude/skills/alpha') -Target $outside | Out-Null
+    $r = Invoke-Build $repo
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse point') 'a junction under a generated root is refused before the wipe'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $outside 'sentinel.txt')) -eq 'keep' -and @(Get-ChildItem $outside).Count -eq 1) 'the junction target is untouched'
+
     Write-Host 'build-skills tests: PASS'
 }
 finally {
-    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $work) {
+        Get-ChildItem -LiteralPath $work -Recurse -Force -Attributes ReparsePoint | ForEach-Object { $_.Delete() }
+        Remove-Item -LiteralPath $work -Recurse -Force
+    }
 }
