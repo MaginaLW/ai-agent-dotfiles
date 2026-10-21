@@ -179,14 +179,17 @@ doctor、manifest 一致性、全部测试套件、危险文件检查与干净�
 
 ## 11. Harness 配置同步（config-sync）
 
-除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与 ExcludedItems）。
+除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与
+ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥、证书、备份与临时文件类）。
 
 - `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
-- `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再复制；
+- `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再复制，
+  备份默认写入 `~\.ai-agent-dotfiles-backups\config-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）；
   不整目录 mirror、不 prune（home-only 文件原样保留）。捕获复制异常后，尽力回滚本次已尝试写入的文件：
   更新项从备份恢复，新增项删除。单项回滚失败会告警并继续还原其他项，保留备份并重新抛出原始复制错误。
   这是异常处理中的恢复，不保证进程被强制终止后的还原。
-- `config-push.ps1`：home → repo。默认 dry-run；`-Apply` 写入后过两道 gate：扫密 + 机器私有路径扫描
+- `config-push.ps1`：home → repo。默认 dry-run；`-Apply` 先把捕获写入暂存目录
+  `~\.ai-agent-dotfiles-backups\config-push-stage-<UTC 时间戳>\`，再过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
 - `-Platform Reasonix` 处理 `%APPDATA%\reasonix` 下的白名单项。Codex `config.toml` 与 Reasonix
@@ -223,7 +226,8 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
   旧命令行的空开关。
 - `apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写 allowlisted 项目输出和 `.agent-harness/backups/`
   下的项目本地 rollback backup，不写 home 或 live skills。
-- 受控输出类型：Rule 写 `AGENTS.md` / `CLAUDE.md` 的 managed block，Prompt 只进
+- 受控输出类型：Rule 写 `AGENTS.md` / `CLAUDE.md` 的 managed block——已存在但没有任何
+  `BEGIN/END AGENT-HARNESS` 标记的文件按 skip 处理（不插入），只替换已有标记块；Prompt 只进
   `.agent-harness/generated/`，Claude `.claude/commands/`、`.claude/agents/` 与
   `.claude/settings.json`（结构化合并），Codex `.codex/prompts/`、`.codex/agents/`。
 - Profile 的 `Components` 只列用到的 bucket（`Rules`、`Prompts`、`Commands`、`Agents`、`ClaudeSettings`、
