@@ -72,6 +72,25 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   `codex/track-b-20261018` (tip `fed722b`, already an ancestor of `main` from the
   fast-forward merge) is deleted after the owner authorized it; the proof was re-run at
   execution time against the recorded full tip SHA (`update-ref -d` with expected SHA).
+- **Eighth-round optimization (2026-10-21, Grok-decided).** Five parallel read-only lanes
+  (three subagents plus two Grok worktree reviews) produced candidates; the owner delegated
+  the selection to a Grok decision lane whose factual premises the main agent re-verified.
+  Twelve items landed in six commits: scan-secrets fails closed when `.gitleaks.toml` is
+  missing and always passes `--config`; build-skills refuses reparse points under the
+  generated roots before the wipe; build-harness-profile always replaces the generated root
+  after confirming it is a plain directory (`-Clean` is a compatibility no-op) so the
+  manifest no longer carries stale files; apply-harness-profile lost the dead `-BackupRoot`
+  parameter; five test-coverage gaps closed (config-sync directory round-trip with
+  `*.local.json` exclusion and a Reasonix status case, the home-write refusal, an exact
+  settings.json allow assertion, claude-only/reasonix-only landing, a positive
+  unknown-parameter fixture) and the `.gitignore` comment pin is gone; docs name the
+  config-pull backup root, the config-push staging directory, `CommonExcludedItems` and the
+  Rule skip semantics. Excluded by the decision: fail-fast on `-Retire` of a selected skill
+  (documented §5 behavior; enforcement would block the legal cross-platform retirement),
+  generated-root prefix single-sourcing (three different literal shapes, no drift) and
+  copying Reasonix `ExcludedItems` into the docs (the whitelist is the source). Working
+  evidence is machine-local under ignored `tmp/grok21/` and
+  `tmp/optimization-plan-20261021-findings.md`.
 - **Seventh round: track-B de-complexity (2026-10-18).** Entry points lost two unused knobs:
   `scan-secrets.ps1 -ScannerConfigPath` (the scanner config is always the repository
   `.gitleaks.toml`) and `install-gitleaks.ps1 -CacheRoot`; neither had an in-repo caller.
