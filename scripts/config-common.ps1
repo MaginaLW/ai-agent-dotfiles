@@ -91,24 +91,22 @@ function Get-PlannedCopies {
     $ops = [System.Collections.Generic.List[object]]::new()
     if (-not (Test-Path -LiteralPath $SrcItem)) { return $ops }   # nothing to plan
 
-    if (Test-Path -LiteralPath $SrcItem -PathType Leaf) {
-        $action = if (-not (Test-Path -LiteralPath $DstItem)) { 'add' }
-        elseif ((Get-FileHashHex $SrcItem) -ne (Get-FileHashHex $DstItem)) { 'update' }
-        else { 'noop' }
-        if ($action -ne 'noop') {
-            $ops.Add(@{ Src = $SrcItem; Dst = $DstItem; Rel = $ItemLabel; Action = $action })
-        }
-        return $ops
+    $files = if (Test-Path -LiteralPath $SrcItem -PathType Leaf) {
+        [pscustomobject] @{ FullName = $SrcItem; Rel = '' }
+    }
+    else {
+        Get-ConfigFiles -Root $SrcItem -Excluded $Excluded
     }
 
-    # directory: copy file-by-file, never prune
-    foreach ($file in (Get-ConfigFiles -Root $SrcItem -Excluded $Excluded)) {
-        $dst = Join-Path $DstItem $file.Rel
+    # Single files and directories share the same comparison; never prune.
+    foreach ($file in $files) {
+        $dst = if ($file.Rel) { Join-Path $DstItem $file.Rel } else { $DstItem }
+        $rel = if ($file.Rel) { "$ItemLabel/$($file.Rel -replace '\\','/')" } else { $ItemLabel }
         $action = if (-not (Test-Path -LiteralPath $dst)) { 'add' }
         elseif ((Get-FileHashHex $file.FullName) -ne (Get-FileHashHex $dst)) { 'update' }
         else { 'noop' }
         if ($action -ne 'noop') {
-            $ops.Add(@{ Src = $file.FullName; Dst = $dst; Rel = "$ItemLabel/$($file.Rel -replace '\\','/')"; Action = $action })
+            $ops.Add(@{ Src = $file.FullName; Dst = $dst; Rel = $rel; Action = $action })
         }
     }
     return $ops

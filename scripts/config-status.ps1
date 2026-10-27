@@ -122,7 +122,7 @@ foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -
 }
 
 if ($Json) {
-    $results | ConvertTo-Json -Depth 5
+    ConvertTo-Json -InputObject $results.ToArray() -Depth 5
     return
 }
 

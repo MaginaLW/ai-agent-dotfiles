@@ -26,12 +26,15 @@ $unknown = @($budgets.Keys | Where-Object { $_ -notin $names })
 if ($unbudgeted.Count -or $unknown.Count) {
     throw "tests/test-timeouts.psd1 must give each suite exactly one budget. Missing: $($unbudgeted -join ', '); unknown: $($unknown -join ', ')"
 }
+foreach ($suite in $suites) {
+    $budgets[$suite.Name] = [int] $budgets[$suite.Name]
+    if ($budgets[$suite.Name] -le 0) { throw "Budget for $($suite.Name) must be positive." }
+}
 
 $pwsh = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
 $failures = [System.Collections.Generic.List[string]]::new()
 foreach ($suite in $suites) {
-    $timeout = [int] $budgets[$suite.Name]
-    if ($timeout -le 0) { throw "Budget for $($suite.Name) must be positive." }
+    $timeout = $budgets[$suite.Name]
     Write-Host "=== $($suite.Name) ==="
     $info = [System.Diagnostics.ProcessStartInfo]::new($pwsh)
     $workspace = $null

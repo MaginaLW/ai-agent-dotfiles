@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-21.
+Last updated: 2026-10-27.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -9,6 +9,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Test simplification (2026-10-27).** The test runner validates every suite's
+  numeric, positive budget before starting any suite. Config status JSON always emits
+  an array, including empty and single-item results. Config copy planning shares one
+  add/update/no-op comparison for single files and directory entries; exclusions,
+  destination-only files and dry-run behavior remain covered by fixture regressions.
+  No live configuration or skills deployment is part of this change.
 - **Product.** `skills-source/` is built by `scripts/build-skills.ps1` into the Claude, Codex and
   Reasonix generated roots. `scripts/deploy-skills.ps1 -Environment <name>` deploys one
   environment's selection to the four live roots: dry run unless `-Apply`, prune only what it

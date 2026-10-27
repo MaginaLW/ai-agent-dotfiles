@@ -69,6 +69,11 @@ try {
     $r = Invoke-Runner 'stale' @{ 'pass.tests.ps1' = 30; 'gone.tests.ps1' = 30 } @('pass.tests.ps1')
     Assert ($r.Code -ne 0 -and $r.Out -match 'unknown: gone\.tests\.ps1') 'a budget without a suite stops the run'
 
+    foreach ($invalidBudget in @(0, -1, "'not-seconds'")) {
+        $r = Invoke-Runner "invalid-budget-$invalidBudget" @{ 'pass.tests.ps1' = 30; 'z-invalid.tests.ps1' = $invalidBudget } @('pass.tests.ps1') -InlineSuites @{ 'z-invalid.tests.ps1' = 'exit 0' }
+        Assert ($r.Code -ne 0 -and $r.Out -notmatch 'fixture pass stdout') "invalid later budget $invalidBudget stops the run before any suite starts"
+    }
+
     $repoBudgets = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'tests/test-timeouts.psd1')).Suites
     $total = ($repoBudgets.Values | Measure-Object -Sum).Sum
     # The 35-minute CI job also runs the other validation gates; keep 7 minutes for them.

@@ -100,6 +100,11 @@ try {
     # ===========================================================================
     Write-Host "`n[config-status]" -ForegroundColor Cyan
     # ===========================================================================
+    $tr = New-TempRepo -Name 'status-empty-repo'
+    $th = Join-Path $work 'status-empty-home'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-Json')
+    Assert ($r.Code -eq 0 -and $r.Out.Trim() -eq '[]') 'status: no managed items emits an empty JSON array'
+
     $tr = New-TempRepo -Name 'status-repo'
     $th = Join-Path $work 'status-home'
     Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'same'
@@ -107,6 +112,7 @@ try {
     Set-File -Path (Join-Path $th '.claude/settings.json') -Content '{"a":1}'    # home-only
     $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-Json')
     $rows = $r.Out | ConvertFrom-Json
+    Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 2) 'status: multiple managed items emit a JSON array'
     $byItem = @{}; foreach ($row in $rows) { $byItem[$row.Item] = $row.Status }
     Assert ($byItem['CLAUDE.md'] -eq 'in-sync') "status: identical file -> in-sync"
     Assert ($byItem['settings.json'] -eq 'home-only') "status: home-only file -> home-only"
@@ -125,6 +131,7 @@ try {
     $rows = $r.Out | ConvertFrom-Json
     $reasonixRow = $rows | Where-Object { $_.Item -eq 'AGENTS.md' }
     Assert ($reasonixRow.Status -eq 'in-sync') "status: Reasonix maps repo reasonix/ onto home AppData/Roaming/reasonix"
+    Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 1) 'status: one managed item still emits a JSON array'
 
     # ===========================================================================
     Write-Host "`n[config-pull]" -ForegroundColor Cyan
@@ -161,6 +168,16 @@ try {
     $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $th '.claude/commands/ok.md'))) "pull: apply copies a managed directory item"
     Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/commands/sketch.local.json'))) "pull: *.local.json inside a managed directory is not copied"
+
+    Set-File -Path (Join-Path $tr 'claude/commands/ok.md') -Content 'updated command'
+    Set-File -Path (Join-Path $tr 'claude/commands/nested/new.md') -Content 'new command'
+    Set-File -Path (Join-Path $tr 'claude/commands/same.md') -Content 'same command'
+    Set-File -Path (Join-Path $th '.claude/commands/same.md') -Content 'same command'
+    Set-File -Path (Join-Path $th '.claude/commands/home-only.md') -Content 'keep command'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'update\s+Claude/commands/ok.md' -and $r.Out -match 'add\s+Claude/commands/nested/new.md') 'pull: directory plan identifies updates and nested adds'
+    Assert ($r.Out -notmatch 'same.md|home-only.md|sketch.local.json' -and $r.Out -match 'add=1' -and $r.Out -match 'update=1') 'pull: directory plan omits unchanged, destination-only and excluded files'
+    Assert ((Get-Content -LiteralPath (Join-Path $th '.claude/commands/ok.md') -Raw) -eq 'command bytes' -and -not (Test-Path -LiteralPath (Join-Path $th '.claude/commands/nested/new.md'))) 'pull: directory dry-run preserves destination bytes'
 
     # The scan must stop both adds and updates before even creating a backup.
     $tr = New-TempRepo -Name 'pull-secret-repo'
