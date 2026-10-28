@@ -9,7 +9,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: doctor, build, scan, sync, config, profile, skills, or env.
+    One of: help, doctor, build, scan, sync, config, profile, skills, or env.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: doctor, build, scan, sync, config, profile, skills, env'
+    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env'
     Write-Host 'Sync runs deploy-skills.ps1 and requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
@@ -92,6 +92,11 @@ if ([string]::IsNullOrWhiteSpace($Command)) {
     Write-Error 'A command is required.' -ErrorAction Continue
     Write-Usage
     exit 1
+}
+
+if ($Command -ieq 'help' -and @($RemainingArguments | Where-Object { $null -ne $_ }).Count -eq 0) {
+    Write-Usage
+    exit 0
 }
 
 $commandMap = @{

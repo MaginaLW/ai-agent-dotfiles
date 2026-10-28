@@ -281,6 +281,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 `scripts/agent-dotfiles.ps1` 只负责路由，把参数原样转给底层脚本：
 
 ```text
+help                         显示用法
 doctor                       -> scripts/doctor.ps1
 build                        -> scripts/build-skills.ps1
 scan                         -> scripts/scan-secrets.ps1
@@ -291,6 +292,8 @@ config status | pull | push
 profile status | build | apply
 skills promote               -> scripts/promote-skill.ps1
 ```
+
+用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help` 查看命令概览。
 
 只读命令：`doctor`、`scan`、`env list`、`config status`、`profile status`。`build` 与 `profile build`
 只生成可重建输出。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、

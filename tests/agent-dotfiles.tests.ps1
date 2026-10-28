@@ -38,6 +38,10 @@ function Invoke-Entry {
 }
 
 Write-Host 'unified CLI: env and config/profile routing'
+$result = Invoke-Entry -Arguments @('help')
+Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
+$result = Invoke-Entry -Arguments @()
+Assert ($result.Code -eq 1 -and $result.Out -match 'A command is required') 'missing command remains an error'
 $result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot)
 Assert ($result.Code -eq 0 -and $result.Out -match 'Harness environments') 'env list routes through the dispatcher'
 $listJsonPath = Join-Path $fakeHome 'env-list.json'
