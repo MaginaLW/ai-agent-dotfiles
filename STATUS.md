@@ -9,6 +9,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Platform retirement (2026-10-28).** One former platform was removed from the product,
+  environment selections and documentation. Its two managed live skills were backed up and
+  removed by an owner-authorized deploy; legacy privacy guards remain in place. The active
+  platforms' skills were unchanged in the deployment plan.
 - **Codex global agreements.** The repository template reflects the reviewed Codex agreements,
   with a portable Grok instruction path, missing-file guidance and model-recording guidance.
   An owner-authorized Codex config-pull Apply updated the live `AGENTS.md` on 2026-10-28;
