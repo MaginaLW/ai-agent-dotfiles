@@ -12,7 +12,7 @@
       update     selected, live content differs (old copy is backed up first)
       unchanged  selected, live content identical
       prune      deployed by this tool before but no longer selected, or named in -Retire
-      unknown    present live but never deployed by this tool: reported, never touched
+      unknown    unselected live directory absent from recorded state and -Retire: reported, not touched
     Codex .system, reparse points and whole-directory mirrors are never touched or used.
     The previously deployed set is kept in a machine-private state file, so pruning only
     ever removes directories this tool put there (or that -Retire names explicitly).

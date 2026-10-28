@@ -24,7 +24,7 @@
 - Codex：`~/.codex/skills`；仅当它不存在时 fallback 到 `~/.agents/skills`（两者都存在时拒绝）
 - ZCode：`~/.zcode/skills`（投影平台，部署 Claude 生成物，自身没有生成根与 manifest）
 
-不管理：Codex `.system`；deploy-skills 从未部署过的 live 目录（unknown，只报告）；部署状态与备份
+不管理：Codex `.system`；未选中、未记录在部署状态且未被 `-Retire` 点名的 live 目录（unknown，只报告）；部署状态与备份
 （repo 外的 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`）；机器私有配置与 secrets。
 
 ---
@@ -161,8 +161,9 @@ config-pull 的备份见 §11。
 
 ## 9. 常见问题
 
-**dry-run 显示 `unknown`？** 那是 deploy-skills 从未部署过的 live 目录（手工安装、其它工具或旧部署方式留下的），
-会一直保留。确认不再需要后用 `-Retire <name>` 删除。
+**dry-run 显示 `unknown`？** 该目录未被当前环境选中，也不在部署状态或 `-Retire` 中；它可能来自手工安装、
+其它工具或旧部署，状态文件丢失时也可能是本工具以前部署的目录。当前计划只报告并保留它；确认不再需要后，
+先用 `-Retire <name>` 预演，再按授权 Apply。
 
 **scan-secrets 报 false positive？** 改写源文档或示例措辞，让它不再像真实密钥（例如说明从环境变量读取），
 然后重新 build + scan。不要 whitelist 或削弱扫描。

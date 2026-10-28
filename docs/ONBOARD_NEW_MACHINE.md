@@ -23,10 +23,12 @@ embedded credentials, and fix any doctor FAIL before going on.
 pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work
 ```
 
-Check every line. `install` and `update` are the selected skills. `unknown` lines are live
-directories this tool never deployed (local skills, other tools, or an older setup); they stay
-untouched. Codex `.system` is never listed. To keep a local skill in the repository instead,
-review it and add it to `skills-source/` first ([docs/README.md §6](README.md#6-新增-skill-的流程)).
+Check every line. `install` and `update` are the selected skills. `unknown` lines are unselected
+live directories absent from deploy state and `-Retire`; they may be local skills, come from
+another tool or an older setup, or have been deployed here before state was lost. The current
+plan leaves them untouched. Codex `.system` is never listed. To keep a local skill in the
+repository instead, review it and add it to `skills-source/` first
+([docs/README.md §6](README.md#6-新增-skill-的流程)).
 
 ## 3. Apply with the owner's OK
 
