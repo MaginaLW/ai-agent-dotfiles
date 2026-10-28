@@ -17,31 +17,23 @@ Name the target tool, its source, and the first real jobs it should do:
 - Jobs: literal reads/writes such as `list drafts`, `download failed job logs`, `search messages`, `upload media`, `read queue schedule`.
 - Install name: a short binary name such as `ci-logs`, `slack-cli`, `sentry-cli`, or `buildkite-logs`.
 
-Prefer a new folder under `~/code/clis/<tool-name>` when the user wants a personal tool and has not named a repo.
+Follow the user's destination and the project's conventions. For a personal tool with no named destination, choose an appropriate workspace location for the host OS.
 
-Before scaffolding, check whether the proposed command already exists:
-
-```bash
-command -v <tool-name> || true
-```
+Before scaffolding, check whether the proposed command already exists using the host shell (PowerShell: `Get-Command <tool-name> -ErrorAction SilentlyContinue`; POSIX shell: `command -v <tool-name>`).
 
 If it exists, choose a clearer install name or ask the user.
 
 ## Choose the Runtime
 
-Before choosing, inspect the user's machine and source material:
-
-```bash
-command -v cargo rustc node pnpm npm python3 uv || true
-```
+Before choosing, inspect the user's machine and source material. Check available toolchains with the host shell, for example PowerShell `Get-Command cargo,rustc,node,pnpm,npm,python,uv -ErrorAction SilentlyContinue`.
 
 Then choose the least surprising toolchain:
 
-- Default to **Rust** for a durable CLI Codex should run from any repo: one fast binary, strong argument parsing, good JSON handling, easy copy/install into `~/.local/bin`.
+- Consider **Rust** for a durable CLI when the toolchain and single-binary distribution suit the environment.
 - Use **TypeScript/Node** when the official SDK, auth helper, browser automation library, or existing repo tooling is the reason the CLI can be better.
 - Use **Python** when the source is data science, local file transforms, notebooks, SQLite/CSV/JSON analysis, or Python-heavy admin tooling that can still be installed as a durable command.
 
-Do not pick a language that adds setup friction unless it materially improves the CLI. If the best language is not installed, either install the missing toolchain with the user's approval or choose the next-best installed option.
+Do not pick a language that adds setup friction unless it materially improves the CLI. Follow the user's and project's rules for installing missing tools; prefer an already available suitable toolchain.
 
 State the choice in one sentence before scaffolding, including the reason and the installed toolchain you found.
 
@@ -90,7 +82,7 @@ Use screenshots to infer workflow, UI vocabulary, fields, and confirmation point
 3. Scaffold the CLI with a README or equivalent repo-facing instructions.
 4. Implement `doctor`, discovery, resolve, read commands, one narrow draft or dry-run write path if requested, and the raw escape hatch.
 5. Install the CLI on PATH so `tool-name ...` works outside the source folder.
-6. Smoke test from another repo or `/tmp`, not only with `cargo run` or package-manager wrappers. Run `command -v <tool-name>`, `<tool-name> --help`, and `<tool-name> --json doctor`.
+6. Smoke test from another working directory or an appropriate disposable test directory, not only with `cargo run` or package-manager wrappers. Check command discovery using the host shell, then run `<tool-name> --help` and `<tool-name> --json doctor`.
 7. Run format, typecheck/build, unit tests for request builders, pagination/request-body builders, no-auth `doctor`, help output, and at least one fixture, dry-run, or live read-only API call.
 
 If a live write is needed for confidence, ask first and make it reversible or draft-only.
@@ -101,7 +93,7 @@ For raw escape hatches, support read-only calls first. Do not run raw non-GET/HE
 
 For media, artifact, or presigned upload flows, test each phase separately: create upload, transfer bytes, poll/read processing status, then attach or reference the resulting ID.
 
-For fixture-backed prototypes, keep fixtures in a predictable project path and make the CLI locate them after installation. Smoke-test from `/tmp` to catch binaries that only work inside the source folder.
+For fixture-backed prototypes, keep fixtures in a predictable project path and make the CLI locate them after installation. Smoke-test outside the source folder to catch binaries that depend on the working directory.
 
 For log-oriented CLIs, keep deterministic snippet extraction separate from model interpretation. Prefer a command that emits filenames, line numbers or byte ranges, matched rules, and short excerpts.
 
@@ -115,7 +107,7 @@ When building in Rust, use established crates instead of custom parsers:
 - `toml` for small config files
 - `anyhow` for CLI-shaped error context
 
-Add a `Makefile` target such as `make install-local` that builds release and installs the binary into `~/.local/bin`.
+Document a host-appropriate installation method that builds a release and places the command on PATH; use the project's existing tooling rather than requiring `make` on Windows.
 
 ## TypeScript/Node Defaults
 
@@ -127,7 +119,7 @@ When building in TypeScript/Node, keep the CLI installable as a normal command:
 - `package.json` `bin` entry for the installed command
 - `tsup`, `tsx`, or `tsc` using the repo's existing convention
 
-Add an install path such as `pnpm install`, `pnpm build`, and `pnpm link --global`, or a `Makefile` target that installs a small wrapper into `~/.local/bin`.
+Document an install path such as `pnpm install`, `pnpm build`, and `pnpm link --global`, adapted to the host and project conventions.
 
 ## Python Defaults
 
@@ -139,11 +131,11 @@ When building in Python, prefer boring standard-library pieces unless the workfl
 - `pyproject.toml` console script or a small executable wrapper for the installed command
 - `uv` or a virtualenv only when dependencies are actually needed
 
-Add a `Makefile` target such as `make install-local` that installs the command on PATH and document whether it depends on `uv`, a virtualenv, or only system Python.
+Document a host-appropriate installation method and whether it depends on `uv`, a virtualenv, or only system Python.
 
 ## Companion Skill
 
-After the CLI works, create or update a small skill for it. Use `$skill-creator` when it is available. Use `$CODEX_HOME/skills/<tool-name>/SKILL.md` for a personal companion skill unless the user names a repo-local `.codex/skills/...` path or another skill repo.
+Create or update a small companion skill only when the user requests it or the workflow demonstrably needs one. Use `$skill-creator` when available, follow the target project's skill source and deployment rules, and do not write directly to managed live skill roots.
 
 Write the companion skill in the order a future Codex thread should use the CLI, not as a tour of every feature. Explain:
 

@@ -18,7 +18,7 @@ While an active review is running, use bounded waits of no more than 60 seconds 
 coderabbit --version
 ```
 
-If the command is not found or reports that CodeRabbit is not installed, report the missing prerequisite and stop. Do not download or install CodeRabbit automatically. If the user explicitly asks you to install it, explain the intended installer and source, obtain action-time authorization, and only then run the approved installation command. Re-run `coderabbit --version` after any user-authorized installation.
+If the CLI is missing, follow the user's and project's rules for installing required tools. Verify the official installation instructions and account for cost, permissions and authentication; when installation cannot be authorized or completed, report the prerequisite. Re-run `coderabbit --version` after installation.
 
 3. Verify authentication in agent mode:
 

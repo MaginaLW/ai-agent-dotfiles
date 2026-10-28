@@ -29,7 +29,7 @@ From there it can operate in a few ways.
 
 2. The secondary mode is to passively detect vulnerabilities while working in the project and writing code for the user. Critical or very important vulnerabilities or major issues going against security guidance can be flagged and the user can be told about them. This passive mode should focus on the largest impact vulnerabilities and secure defaults.
 
-3. The user can ask for a security report or to improve the security of the codebase. In this case a full report should be produced describe anyways the project fails to follow security best practices guidance. The report should be prioritized and have clear sections of severity and urgency. Then offer to start working on fixes for these issues. See #fixes below.
+3. The user can ask for a security report or to improve the security of the codebase. Prioritize supported findings by severity and urgency. If fixes were requested, proceed within the authorized scope; otherwise report findings without assuming authorization to change code.
 
 ## Workflow Decision Tree
 
@@ -43,7 +43,7 @@ While these references contain the security best practices for languages and fra
 
 # Report Format
 
-When producing a report, you should write the report as a markdown file in `security_best_practices_report.md` or some other location if provided by the user. You can ask the user where they would like the report to be written to.
+Deliver the report in the requested form and location, following project conventions. A conversational review does not require creating a repository-root file.
 
 The report should have a short executive summary at the top.
 
@@ -55,13 +55,11 @@ Once the report is written, also report it to the user directly, although you ma
 
 Important: When referencing code in the report, make sure to find and include line numbers for the code you are referencing.
 
-After you write the report file, summarize the findings to the user.
-
-Also tell the user where the final report was written to
+If a report file is written, summarize the findings and tell the user its location.
 
 # Fixes
 
-If you produced a report, let the user read the report and ask to begin performing fixes.
+If the user requested fixes as well as a report, implement authorized fixes and validate them. For a report-only request, leave fixes for a later instruction.
 
 If you passively found a critical finding, notify the user and ask if they would like you to fix this finding.
 
@@ -79,8 +77,8 @@ Below is a few bits of secure coding advice that applies to almost any language 
 
 ### Avoid Using Incrementing IDs for Public IDs of Resources
 
-When assigning an ID for some resource, which will then be used by exposed to the internet, avoid using small auto-incrementing IDs. Use longer, random UUID4 or random hex string instead. This will prevent users from learning the quantity of a resource and being able to guess resource IDs.
+For public resource identifiers, random IDs can reduce enumeration, but do not replace authorization checks for every resource access. See [OWASP's IDOR guidance](https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html).
 
 ### A note on TLS
 
-While TLS is important for production deployments, most development work will be with TLS disabled or provided by some out-of-scope TLS proxy. Due to this, be very careful about not reporting lack of TLS as a security issue. Also be very careful around use of "secure" cookies. They should only be set if the application will actually be over TLS. If they are set on non-TLS applications (such as when deployed for local dev or testing), it will break the application. You can provide a env or other flag to override setting secure as a way to keep it off until on a TLS production deployment. Additionally avoid recommending HSTS. It is dangerous to use without full understanding of the lasting impacts (can cause major outages and user lockout) and it is not generally recommended for the scope of projects being reviewed by codex.
+Evaluate TLS and secure cookies against actual deployment and proxy boundaries. Local HTTP development can require a separate setting; do not weaken production defaults to accommodate it. Consider HSTS for stable HTTPS deployments after checking its duration, subdomains and rollback implications; see [OWASP's HSTS guidance](https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Strict_Transport_Security_Cheat_Sheet.html).

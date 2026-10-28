@@ -77,7 +77,7 @@ Use focused searches before fetching:
 - Set `_meta.ui.domain` for submission-ready apps
 - Always set `openai/widgetDescription` to inform the model what the widget is to be used for
 
-### Developer Mode / Local Testing
+### Developer Mode / Local Testing (when requested or needed)
 
 - Run the MCP server locally on `http://localhost:<port>/mcp`
 - Expose it with a public HTTPS tunnel for ChatGPT access during development
@@ -121,7 +121,7 @@ Use focused searches before fetching:
 7. Generate or patch the server scaffold.
 8. Generate or patch the widget scaffold.
 9. Validate the repo against the minimum working contract.
-10. Add local run + tunnel + ChatGPT Developer Mode app setup instructions.
+10. Add relevant local run instructions; include tunnel and ChatGPT app setup when the task requires them.
 11. Add hosting/deployment guidance when the task implies go-live.
 12. Add submission/readiness steps when the user intends public distribution.
 13. Call out compatibility aliases vs MCP Apps standard fields.

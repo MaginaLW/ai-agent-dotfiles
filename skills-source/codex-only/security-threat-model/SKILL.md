@@ -46,11 +46,9 @@ Deliver an actionable AppSec-grade threat model that is specific to the reposito
 - Set overall priority (critical/high/medium/low) using likelihood x impact, adjusted for existing controls.
 - State which assumptions most influence the ranking.
 
-### 6) Validate service context and assumptions with the user
-- Summarize key assumptions that materially affect threat ranking or scope, then ask the user to confirm or correct them.
-- Ask 1–3 targeted questions to resolve missing context (service owner and environment, scale/users, deployment model, authn/authz, internet exposure, data sensitivity, multi-tenancy).
-- Pause and wait for user feedback before producing the final report.
-- If the user declines or can’t answer, state which assumptions remain and how they influence priority.
+### 6) Validate service context and assumptions
+- Use available evidence for deployment, exposure, authentication and data sensitivity; state consequential assumptions and their effect on priority.
+- Ask targeted questions only where missing context would materially change the result. Continue independent analysis while awaiting an answer, and mark unresolved recommendations as conditional.
 
 ### 7) Recommend mitigations and focus paths
 - Distinguish existing mitigations (with evidence) from recommended mitigations.
@@ -65,7 +63,7 @@ Deliver an actionable AppSec-grade threat model that is specific to the reposito
 - Confirm user clarifications (or explicit non-responses) are reflected.
 - Confirm assumptions and open questions are explicit.
 - Confirm that the format of the report matches closely the required output format defined in prompt template: `references/prompt-template.md`
-- Write the final Markdown to a file named `<repo-or-dir-name>-threat-model.md` (use the basename of the repo root, or the in-scope directory if you were asked to model a subpath).
+- Deliver in the requested form and location. For a file, follow project conventions; a conversational review does not require a new repository-root report.
 
 
 ## Risk prioritization guidance (illustrative, not exhaustive)

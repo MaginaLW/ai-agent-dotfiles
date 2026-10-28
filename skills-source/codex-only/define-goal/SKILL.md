@@ -38,7 +38,7 @@ This skill covers goal definition and goal-tool creation only. Do not create int
    - Ask one concise clarification question when the missing detail changes the intended outcome or validation.
    - Reject pure activity goals such as "make progress," "keep investigating," "improve things," or "work on X" unless they are sharpened into a verifiable outcome.
 
-5. Check active goal state before creating a goal.
+5. If the user explicitly requested goal-backed work, check active goal state before creating a goal. Otherwise, provide the refined objective without calling goal tools.
    - Call `get_goal`.
    - If there is no active goal and the objective meets the quality bar, call `create_goal`.
    - If there is an active goal that still matches the user's intent, continue using it instead of creating a duplicate.
@@ -96,4 +96,4 @@ Useful question shapes:
 - "Which environment should I verify against: local, staging, or production?"
 - "What is the minimum evidence you want before I mark this goal complete?"
 
-If the user cannot provide a metric, propose the most honest binary validator available and ask for confirmation.
+If the user cannot provide a metric, propose the most honest binary validator available. Ask for confirmation only when the choice materially changes the intended outcome.

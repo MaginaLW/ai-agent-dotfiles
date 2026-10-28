@@ -208,11 +208,11 @@ Deterministic validation is necessary but not sufficient. Before calling the pet
 
 ## Subagent Row Generation
 
-After the base job has been recorded and `references/canonical-base.png` exists, row-strip visual generation must use subagents unless the user explicitly says not to use subagents for this session. Before row generation, state that subagents are being used and which row jobs are being delegated. If subagents cannot be spawned because the current environment or tool policy blocks them, stop before row-strip generation, explain the blocker, and ask for explicit user direction before continuing sequentially.
+After the base job has been recorded and `references/canonical-base.png` exists, use subagents for row-strip visual generation when permitted and useful, and state which row jobs are delegated. When they are unavailable or prohibited, generate and inspect the same jobs sequentially. Follow the user's and project's authorization rules for each paid model call.
 
 The parent agent must own the manifest and package writes.
 
-Default flow:
+Default delegated flow (when permitted; otherwise the parent performs the same jobs sequentially):
 
 1. Parent runs `prepare_pet_run.py`.
 2. Parent generates and records `base`.
@@ -259,7 +259,7 @@ selected_source=/absolute/path/to/$CODEX_HOME/generated_images/.../ig_*.png
 qa_note=<one sentence>
 ```
 
-No silent sequential fallback: if subagents cannot be used for row-strip visual generation, stop and ask for explicit user direction before continuing without them. Only an explicit user instruction such as "do not use subagents" or "run this sequentially" authorizes a normal sequential row-generation path. The final answer must report which row jobs were delegated to subagents and which, if any, were mirrored or repaired by the parent.
+When executing sequentially, retain the same grounding, inspection, provenance and package checks. The final answer must report which row jobs were delegated, generated sequentially, mirrored or repaired.
 
 ## Repair Workflow
 
@@ -296,10 +296,10 @@ The secondary fallback requires `OPENAI_API_KEY`.
 - Keep `$imagegen` as the primary generation layer.
 - Keep reference images attached/visible for `$imagegen` whenever the chosen path supports references.
 - Attach the row's `references/layout-guides/<state>.png` image to every row-strip job as a layout-only guide, and do not accept outputs that copy guide pixels.
-- Use subagents for row-strip visual generation after the parent records the base image. The parent may generate the base, but row-strip jobs belong to subagents unless the user explicitly says not to use subagents for this session.
+- Use subagents for row-strip visual generation when permitted and useful; otherwise perform the same grounded jobs sequentially after the base is recorded.
 - Generate every normal visual job with `$imagegen`: base plus all row strips that are not explicitly approved `running-left` mirror derivations.
 - Treat only the base job as eligible for prompt-only generation; every row job must attach its listed grounding images.
-- Delegate `running-right` first, then mirror `running-left` only when visual inspection confirms a mirror preserves identity and semantics; otherwise delegate `running-left` as a normal grounded `$imagegen` row.
+- Generate `running-right` first, then mirror `running-left` only when visual inspection confirms a mirror preserves identity and semantics; otherwise generate `running-left` as a normal grounded `$imagegen` row.
 - Never substitute locally drawn, tiled, transformed, or code-generated row strips for missing `$imagegen` outputs.
 - Never manually mutate `imagegen-jobs.json` to claim a visual job completed.
 - Do not rely on generated images for exact atlas geometry; use this skill's deterministic scripts.

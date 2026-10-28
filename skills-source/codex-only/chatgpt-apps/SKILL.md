@@ -41,10 +41,7 @@ Use `$openai-docs` first whenever building or changing a ChatGPT Apps SDK app.
 6. Prefer current docs guidance over older repo patterns when they differ, and call out compatibility aliases explicitly.
 7. If doc search times out or returns poor matches, fetch the canonical Apps SDK pages directly by URL and continue; do not let search failure block scaffolding.
 
-If `$openai-docs` is unavailable, use:
-
-- `mcp__openaiDeveloperDocs__search_openai_docs`
-- `mcp__openaiDeveloperDocs__fetch_openai_doc`
+If `$openai-docs` is unavailable, discover an available OpenAI documentation search and fetch tool; if none is connected, search and open the official documentation URLs. Do not assume a particular MCP tool name or connection is available.
 
 Read `references/apps-sdk-docs-workflow.md` for suggested doc queries and a compact checklist.
 Read `references/app-archetypes.md` to classify the request into a small number of supported app shapes before choosing examples or scaffolds.
@@ -244,7 +241,7 @@ Read `references/repo-contract-and-validation.md` for the validation ladder.
 
 ### 7. Connect and Test in ChatGPT (Developer Mode)
 
-For local development, include explicit ChatGPT setup steps (not just code/run commands).
+When the requested work includes connecting or testing the app in ChatGPT, include the relevant current setup steps and check the current official documentation for UI wording. Obtain any required authorization before exposing a local service.
 
 - Run the MCP server locally on `http://localhost:<port>/mcp`
 - Expose the local server with a public HTTPS tunnel (for example `ngrok http <port>`)
@@ -303,7 +300,7 @@ When using this skill to scaffold code, produce output in this order unless the 
 5. File tree to create or modify
 6. Implementation (server + widget)
 7. Validation performed against the minimum working repo contract
-8. Local run/test instructions (including tunnel + ChatGPT Developer Mode app setup)
+8. Local run/test instructions; include tunnel and ChatGPT app setup only when applicable
 9. Deployment/hosting guidance (if requested or implied)
 10. Submission-readiness checklist (for public launch requests)
 11. Risks, gaps, and follow-up improvements

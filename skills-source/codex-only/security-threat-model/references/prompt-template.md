@@ -166,11 +166,10 @@ You MUST follow this process and reflect outputs in the final document:
      * Overall priority: critical/high/medium/low (based on likelihood x impact, adjusted for existing controls)
    - Explicitly state which assumptions most affect risk.
 
-7) Validate assumptions and service context with the user (required before final report)
+7) Validate assumptions and service context
    - Summarize key assumptions that materially affect scope or risk ranking.
-   - Ask 1 to 3 targeted questions to resolve missing service meta-context (service owner/environment, scale/users, deployment model, authn/authz, internet exposure, data sensitivity, multi-tenancy).
-   - Pause and wait for user feedback before producing the final report.
-   - If the user cannot answer, proceed with explicit assumptions and mark any conditional conclusions.
+   - Ask targeted questions only when missing context materially affects the result; continue independent analysis while awaiting an answer.
+   - State unresolved assumptions and mark conditional conclusions.
 
 8) Mitigations and recommendations
    - For each high/critical threat:
@@ -192,10 +191,7 @@ You MUST follow this process and reflect outputs in the final document:
      * assumptions and open questions
 
 ## Required output format (exact)
-Before producing the final Markdown report, first provide an assumption-validation check-in:
-- List the key assumptions in 3 to 6 bullets.
-- Ask 1 to 3 targeted context questions.
-- Wait for the user response, then produce the final report below using the clarified context.
+List material assumptions in the report. Ask targeted context questions only when needed to resolve a consequential uncertainty, and state how unresolved assumptions affect the conclusions.
 
 Produce valid Markdown with these sections in this order:
 
