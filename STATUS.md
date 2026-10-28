@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-27.
+Last updated: 2026-10-28.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -9,6 +9,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Codex global agreements.** The repository template reflects the reviewed live Codex
+  agreements, with a portable Grok instruction path, missing-file guidance and explicit
+  model-recording guidance. The live file retains its machine-specific path and does not have
+  those two additions, so config status still reports a difference; no live configuration was
+  changed.
 - **Test simplification (2026-10-27).** The test runner validates every suite's
   numeric, positive budget before starting any suite. Config status JSON always emits
   an array, including empty and single-item results. Config copy planning shares one
