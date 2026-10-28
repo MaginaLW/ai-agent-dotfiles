@@ -9,6 +9,14 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Deployment state and config review (2026-10-28).** An injected partial-write failure
+  reproduced corruption of the previous deployment state. State is now written to a uniquely
+  created file in the state directory and published only after the write completes; fixture tests
+  cover partial writes, blocked replacement, retry and a blocked state directory. Completed skill
+  operations are not rolled back if publishing state fails. The comparison guide distinguishes
+  diff exit codes from access errors. A read-only config review found a known personal Claude
+  override, another home-only marketplace entry and Codex instruction differences; the raw pull
+  dry run would replace both files. No live Apply was performed.
 - **Environment and config experience (2026-10-28).** Unified CLI help identifies the commands
   requiring explicit modes. `env list` shows each platform's selection and the last recorded
   successful Apply environment, with unavailable or invalid state reported without assuming
@@ -204,7 +212,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- None.
+- **Config drift.** Preserve the personal Claude override. Whether the home-only marketplace
+  entry and the Codex instruction differences should be synchronized requires the owner's
+  decision; do not use a whole-file pull without preserving intended personal settings.
 
 ## Known boundaries
 
