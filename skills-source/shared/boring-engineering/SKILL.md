@@ -44,7 +44,7 @@ Prefer:
 - Flat over nested
 - Explicit over generic
 - Inline over extracted (when logic is used only once)
-- Compact over sprawling: single-line statements where still readable (short object literals, simple returns); blank lines only between functions
+- Compact over sprawling, while preserving readability and the project's formatting conventions
 
 Two correct solutions? Take the one with fewer moving parts.
 
@@ -79,7 +79,7 @@ Use `assets/decision-tree.md` as a quick reference for the full decision flow in
 
 ## Output
 
-Solution code first. Then at most three short lines: what you skipped, when it becomes worth adding. Do not narrate which check fired or walk through the examples unless asked. If the explanation is longer than the code, cut the explanation.
+Explain the result in the user's language and include the validation and limitations needed to assess it. Keep the explanation proportional to the change; do not narrate every check or walk through the examples unless asked.
 
 ## Avoid
 
