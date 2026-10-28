@@ -9,13 +9,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Skill personalization (2026-10-28).** Engineering guidance now preserves readable project
-  conventions and reports validation in the user's language. Academic polishing preserves
-  scientific evidence and defers Meng-informed CMAME work to its specialized skill; Git review
-  prioritizes actionable findings and reports actual verification. The environment selections
-  are unchanged. An owner-authorized `work` Apply updated `boring-engineering` on Claude,
-  Codex and ZCode; a second dry run found all selected skills unchanged and preserved the unknown
-  Codex `meng-cmame-writing`. The other two updated skills are not selected by `work`.
+- **Skill personalization (2026-10-28).** All 17 managed skills and the MCP boundary were
+  reviewed. Evidence-backed updates cover research writing, review, planning, debugging,
+  verification, security and Windows use. The brainstorm helper now requests shutdown through
+  its session instead of killing an unverified PID or deleting files. The `work` selection adds
+  research writing and Git review to all three platforms. An earlier owner-authorized Apply
+  updated `boring-engineering`; this later source and selection revision is not yet deployed.
 - **Retired platform branches (2026-10-28).** The owner authorized deletion of the three local
   `codex/retire-platform-{docs,scripts,tests}` branches. Each had one commit whose equivalent
   change was already in `main`, verified with `git cherry -v` before deletion; no worktree used
@@ -214,8 +213,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 2/2/2
-  (`boring-engineering`, `systematic-debugging`), `full` 9/17/9. Unknown live directories are
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 5/5/5
+  (`boring-engineering`, `git-review`, `meng-cmame-writing`, `paper-polish`,
+  `systematic-debugging`), `full` 9/17/9. Unselected unknown live directories are
   preserved, and Codex `.system` is never managed.
 - **Retired:**
   - the transactional live-sync engine, its hooks, runner, schemas and tests (2026-10-09);
