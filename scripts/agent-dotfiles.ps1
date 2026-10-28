@@ -44,7 +44,8 @@ function Write-Usage {
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: promote -Path <dir> -Name <name> -Type <type> [-Replace] -DryRun|-Apply.'
     Write-Host 'Env actions: list [-RepoRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
-    Write-Host 'Mutating actions require exactly one explicit mode: -DryRun or -Apply.'
+    Write-Host 'sync, env deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
+    Write-Host 'build generates output; env list -JsonPath writes a report without a mode.'
 }
 
 function Assert-ExplicitMode([object[]] $Arguments, [string] $Label) {

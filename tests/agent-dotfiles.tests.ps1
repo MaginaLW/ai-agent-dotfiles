@@ -40,6 +40,7 @@ function Invoke-Entry {
 Write-Host 'unified CLI: env and config/profile routing'
 $result = Invoke-Entry -Arguments @('help')
 Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
+Assert ($result.Out -match 'sync, env deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
 $result = Invoke-Entry -Arguments @()
 Assert ($result.Code -eq 1 -and $result.Out -match 'A command is required') 'missing command remains an error'
 $result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot)

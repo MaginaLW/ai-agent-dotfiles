@@ -298,8 +298,8 @@ skills promote               -> scripts/promote-skill.ps1
 
 用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help` 查看命令概览。
 
-只读命令：`doctor`、`scan`、`env list`、`config status`、`profile status`。`build` 与 `profile build`
-只生成可重建输出。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
+只读命令：`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`。`build` 与 `profile build`
+只生成可重建输出；`env list -JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
 `profile apply`、`skills promote`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
 
 底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json`；统一 CLI
