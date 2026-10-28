@@ -187,12 +187,12 @@ foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune'
 
 # Every previously deployed, no-longer-selected directory was pruned above, so the deployed
 # set is now exactly the selection. Publish the complete state only after writing it separately.
-New-Item -ItemType Directory -Path $StateRoot -Force | Out-Null
 $deployed = [ordered]@{ Environment = $Environment }
 foreach ($platform in $platforms) { $deployed[$platform] = @($selection[$platform] | Where-Object { $_ } | Sort-Object -Unique) }
 $tempStatePath = Join-Path $StateRoot ('deployed-skills.' + [guid]::NewGuid().ToString('N') + '.tmp')
 $ownsTempState = $false
 try {
+    New-Item -ItemType Directory -Path $StateRoot -Force | Out-Null
     $tempStream = [IO.File]::Open($tempStatePath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     $ownsTempState = $true
     $tempStream.Dispose()

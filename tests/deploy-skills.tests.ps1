@@ -121,6 +121,12 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $r = Invoke-Deploy $repo $writeFailureHome @('-Apply')
     $updatedState = Get-Content -Raw -LiteralPath $writeFailureState | ConvertFrom-Json
     Assert-TestCondition ($r.Code -eq 0 -and $updatedState.Environment -eq 'test' -and (@($updatedState.Claude) -join ',') -eq 'alpha') "retry replaces the existing state after the lock is released (exit $($r.Code), environment $($updatedState.Environment), output: $($r.Out))"
+
+    Write-Host '[unavailable state directory reports partial live changes]'
+    $blockedStateHome = Join-Path $work 'blocked-state-home'
+    Set-TestFile (Join-Path $blockedStateHome 'state') 'not a directory'
+    $r = Invoke-Deploy $repo $blockedStateHome @('-Apply')
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Deployment state update failed' -and $r.Out -match 'Live changes may already have occurred' -and (Test-Path (Join-Path $blockedStateHome '.claude/skills/alpha/SKILL.md'))) 'unavailable state directory reports the failure after completed installs'
     Set-TestEnvironment $repo @('alpha', 'beta')
 
     Write-Host '[lost state does not authorize pruning]'
