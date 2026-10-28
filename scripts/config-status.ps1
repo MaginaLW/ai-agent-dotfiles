@@ -9,6 +9,8 @@
     repo-only (a pull would deploy it) or home-only (a push would capture it).
     Items absent on both sides are omitted. ExcludedItems and CommonExcludedItems
     are skipped inside directories.
+    The table also compares fields in differing Claude settings.json objects,
+    without printing values. The JSON output remains the file-level report.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of this script's directory.
@@ -104,6 +106,108 @@ function Compare-ConfigItem {
     return [pscustomobject] @{ Status = 'differs'; Detail = ($bits -join ', ') }
 }
 
+function Get-JsonObjectMap {
+    param([System.Text.Json.JsonElement] $Element)
+    $map = [System.Collections.Generic.Dictionary[string, System.Text.Json.JsonElement]]::new([StringComparer]::Ordinal)
+    foreach ($property in $Element.EnumerateObject()) {
+        if ($map.ContainsKey($property.Name)) { throw 'duplicate JSON object key' }
+        $map.Add($property.Name, $property.Value)
+    }
+    return ,$map
+}
+
+function Assert-JsonUniqueObjectKeys {
+    param([System.Text.Json.JsonElement] $Element)
+    if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+        $map = Get-JsonObjectMap $Element
+        foreach ($value in $map.Values) { Assert-JsonUniqueObjectKeys $value }
+    }
+    elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+        foreach ($value in $Element.EnumerateArray()) { Assert-JsonUniqueObjectKeys $value }
+    }
+}
+
+function Test-JsonEqual {
+    param([System.Text.Json.JsonElement] $Left, [System.Text.Json.JsonElement] $Right)
+    if ($Left.ValueKind -ne $Right.ValueKind) { return $false }
+    switch ($Left.ValueKind.ToString()) {
+        'Object' {
+            $leftMap = Get-JsonObjectMap $Left
+            $rightMap = Get-JsonObjectMap $Right
+            if ($leftMap.Count -ne $rightMap.Count) { return $false }
+            foreach ($key in $leftMap.Keys) {
+                if (-not $rightMap.ContainsKey($key) -or -not (Test-JsonEqual $leftMap[$key] $rightMap[$key])) { return $false }
+            }
+            return $true
+        }
+        'Array' {
+            if ($Left.GetArrayLength() -ne $Right.GetArrayLength()) { return $false }
+            for ($i = 0; $i -lt $Left.GetArrayLength(); $i++) {
+                if (-not (Test-JsonEqual $Left[$i] $Right[$i])) { return $false }
+            }
+            return $true
+        }
+        'String' { return $Left.GetString() -ceq $Right.GetString() }
+        default { return $Left.GetRawText() -ceq $Right.GetRawText() }
+    }
+}
+
+function Get-JsonFieldDifferences {
+    param([System.Text.Json.JsonElement] $RepoJson, [System.Text.Json.JsonElement] $HomeJson, [string] $Path)
+    $repoFields = Get-JsonObjectMap $RepoJson
+    $homeFields = Get-JsonObjectMap $HomeJson
+    $allKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($key in $repoFields.Keys) { [void] $allKeys.Add($key) }
+    foreach ($key in $homeFields.Keys) { [void] $allKeys.Add($key) }
+    $keys = [string[]] @($allKeys)
+    [Array]::Sort($keys, [StringComparer]::Ordinal)
+    foreach ($key in $keys) {
+        # JSON Pointer escaping keeps keys containing '/' or '~' unambiguous.
+        $field = $Path + '/' + $key.Replace('~', '~0').Replace('/', '~1')
+        if (-not $repoFields.ContainsKey($key)) { [pscustomobject]@{ Kind = 'home-only'; Path = $field }; continue }
+        if (-not $homeFields.ContainsKey($key)) { [pscustomobject]@{ Kind = 'repo-only'; Path = $field }; continue }
+        $repoValue = $repoFields[$key]
+        $homeValue = $homeFields[$key]
+        if ($repoValue.ValueKind -ne $homeValue.ValueKind) { [pscustomobject]@{ Kind = 'type-changed'; Path = $field } }
+        elseif ($repoValue.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+            Get-JsonFieldDifferences $repoValue $homeValue $field
+        }
+        elseif (-not (Test-JsonEqual $repoValue $homeValue)) { [pscustomobject]@{ Kind = 'changed'; Path = $field } }
+    }
+}
+
+function Show-ClaudeSettingsFieldDifferences {
+    param([string] $RepoPath, [string] $HomePath)
+    $repoDoc = $null
+    $homeDoc = $null
+    try {
+        $repoDoc = [System.Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($RepoPath))
+        $homeDoc = [System.Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($HomePath))
+        if ($repoDoc.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Object -or $homeDoc.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) {
+            Write-Host '  Field comparison unavailable: both JSON roots must be objects.' -ForegroundColor Yellow
+            return
+        }
+        Assert-JsonUniqueObjectKeys $repoDoc.RootElement
+        Assert-JsonUniqueObjectKeys $homeDoc.RootElement
+        # Collect before printing so malformed or ambiguous nested objects never yield a partial report.
+        $fields = @(Get-JsonFieldDifferences $repoDoc.RootElement $homeDoc.RootElement '')
+        foreach ($field in $fields) {
+            $path = ConvertTo-Json -InputObject $field.Path -Compress
+            $suffix = if ($field.Kind -eq 'home-only') { ' (whole-file pull would remove this field)' } else { '' }
+            Write-Host "  $($field.Kind) $path$suffix" -ForegroundColor Yellow
+        }
+        if ($fields.Count -eq 0) { Write-Host '  JSON fields match; file bytes differ.' -ForegroundColor DarkGray }
+    }
+    catch {
+        # Parse errors can contain input snippets; do not print exception details.
+        Write-Host '  Field comparison unavailable: invalid, unsupported, or ambiguous JSON.' -ForegroundColor Yellow
+    }
+    finally {
+        if ($null -ne $repoDoc) { $repoDoc.Dispose() }
+        if ($null -ne $homeDoc) { $homeDoc.Dispose() }
+    }
+}
+
 $results = [System.Collections.Generic.List[object]]::new()
 foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PushItems', 'PullItems')) {
     foreach ($item in $target.Items) {
@@ -143,6 +247,10 @@ else {
         if ($row.Detail) { $label += "  ($($row.Detail))" }
         $color = if ($colorFor.ContainsKey($row.Status)) { $colorFor[$row.Status] } else { 'White' }
         Write-Host $label -ForegroundColor $color
+        if ($row.Platform -eq 'Claude' -and $row.Item -eq 'settings.json' -and $row.Status -eq 'differs' -and $row.Detail -eq 'content differs') {
+            $target = @(Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform @('Claude') -ItemKeys 'PushItems', 'PullItems')[0]
+            Show-ClaudeSettingsFieldDifferences -RepoPath (Join-Path $target.RepoRoot $row.Item) -HomePath (Join-Path $target.HomeRoot $row.Item)
+        }
     }
 }
 

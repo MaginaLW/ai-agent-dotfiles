@@ -190,7 +190,12 @@ doctor、manifest 一致性、全部测试套件、危险文件检查与干净�
 ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥、证书、备份与临时文件类）。
 
 - `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
+  Claude `settings.json` 两侧都是不同的 JSON 对象时，普通文本输出还显示字段的 JSON Pointer 路径：
+  `home-only` 字段会在整文件 pull 后消失，`repo-only` 字段会新增，`changed` 或 `type-changed` 字段会替换。
+  输出字段名但不输出字段值；数组按整体比较。JSON 无效、键重复或根不是对象时报告无法比较，须手工检查。
+  非 JSON 文件仍只报告文件级差异；`-Json` 保持原有文件级数组格式，不包含字段摘要。
 - `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再复制，
+  若计划更新 Claude `settings.json`，dry-run 会提示整文件覆盖风险，并指向同一 repo/home 的字段差异状态报告；
   备份默认写入 `~\.ai-agent-dotfiles-backups\config-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）；
   不整目录 mirror、不 prune（home-only 文件原样保留）。捕获复制异常后，尽力回滚本次已尝试写入的文件：
   更新项从备份恢复，新增项删除。单项回滚失败会告警并继续还原其他项，保留备份并重新抛出原始复制错误。

@@ -123,6 +123,38 @@ try {
     $claudeRow = $rows | Where-Object { $_.Item -eq 'CLAUDE.md' }
     Assert ($claudeRow.Status -eq 'differs') "status: differing file -> differs"
 
+    $repoSettings = Join-Path $tr 'claude/settings.json'
+    $homeSettings = Join-Path $th '.claude/settings.json'
+    Set-File -Path $repoSettings -Content '{"theme":"repo-private-value","nested":{"repoField":1,"same":true},"array":[1,{"x":2}]}'
+    Set-File -Path $homeSettings -Content '{"theme":"home-private-value","nested":{"homeField":2,"same":true},"array":[1,{"x":2}]}'
+    $homeHash = (Get-FileHash -LiteralPath $homeSettings).Hash
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'home-only "/nested/homeField".*whole-file pull would remove' -and $r.Out -match 'repo-only "/nested/repoField"' -and $r.Out -match 'changed "/theme"') 'status: JSON fields highlight home-only, repo-only and changed paths'
+    Assert ($r.Out -notmatch 'repo-private-value|home-private-value|changed "/array"' -and (Get-FileHash -LiteralPath $homeSettings).Hash -eq $homeHash) 'status: field comparison hides values, ignores unchanged arrays and preserves home bytes'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-Json')
+    $rows = @($r.Out | ConvertFrom-Json)
+    $settingsRow = $rows | Where-Object { $_.Item -eq 'settings.json' }
+    Assert ($r.Code -eq 0 -and ($settingsRow.PSObject.Properties.Name -join ',') -eq 'Platform,Item,Status,Detail' -and $settingsRow.Detail -eq 'content differs' -and $r.Out -notmatch 'private-value|homeField') 'status: JSON output keeps file-level schema and does not expose field data'
+
+    Set-File -Path $repoSettings -Content '{"case":1,"Case":2,"a/b~c":1,"arr":[1,2],"typed":{}}'
+    Set-File -Path $homeSettings -Content '{"case":1,"a/b~c":2,"arr":[1,3],"typed":"hidden"}'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'repo-only "/Case"' -and $r.Out -match 'changed "/a~1b~0c"' -and $r.Out -match 'changed "/arr"' -and $r.Out -match 'type-changed "/typed"' -and $r.Out -notmatch 'hidden') 'status: case-sensitive paths, pointer escaping, arrays and type differences are reported without values'
+
+    Set-File -Path $homeSettings -Content '{"nested":'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'Field comparison unavailable: invalid, unsupported, or ambiguous JSON' -and $r.Out -notmatch 'private-value') 'status: invalid JSON gives a value-free diagnostic'
+    Set-File -Path $homeSettings -Content '[1,2]'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'both JSON roots must be objects') 'status: non-object JSON root is reported without assuming fields'
+    Set-File -Path $homeSettings -Content '{"nested":{"same":true,"same":false}}'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'invalid, unsupported, or ambiguous JSON' -and $r.Out -notmatch 'home-only "') 'status: duplicate JSON keys are refused without a partial field report'
+
+    Set-File -Path $homeSettings -Content '{ "case":1, "Case":2, "a/b~c":1, "arr":[1, 2], "typed":{} }'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'JSON fields match; file bytes differ' -and $r.Out -notmatch 'home-only "|changed "|repo-only "') 'status: semantically matching JSON does not produce field differences'
+
     $tr = New-TempRepo -Name 'status-codex-repo'
     $th = Join-Path $work 'status-codex-home'
     Set-File -Path (Join-Path $tr 'codex/AGENTS.md') -Content 'same'
@@ -140,6 +172,15 @@ try {
     # ===========================================================================
     Write-Host "`n[config-pull]" -ForegroundColor Cyan
     # ===========================================================================
+    $tr = New-TempRepo -Name 'pull-settings-review-repo'
+    $th = Join-Path $work 'pull-settings-review-home'
+    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"shared":true}'
+    $reviewHomeFile = Join-Path $th '.claude/settings.json'
+    Set-File -Path $reviewHomeFile -Content '{"shared":true,"personal":"fixture-private-value"}'
+    $beforeHash = (Get-FileHash -LiteralPath $reviewHomeFile).Hash
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'home-only fields may be removed' -and $r.Out -match 'config-status.ps1.*same -RepoRoot and -HomeRoot' -and $r.Out -notmatch 'fixture-private-value' -and (Get-FileHash -LiteralPath $reviewHomeFile).Hash -eq $beforeHash) 'pull: dry-run warns of whole-file field loss and points to read-only status'
+
     $tr = New-TempRepo -Name 'pull-repo'
     $th = Join-Path $work 'pull-home'
     $bk = Join-Path $work 'pull-backup'

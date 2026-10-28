@@ -57,6 +57,10 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $plan = Get-ConfigSyncPlan -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Direction Pull
 
 Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
+if (-not $Apply -and @($plan | Where-Object { $_.Action -eq 'update' -and $_.Rel -eq 'Claude/settings.json' }).Count -gt 0) {
+    Write-Host 'Claude/settings.json is replaced as a whole; home-only fields may be removed.' -ForegroundColor Yellow
+    Write-Host 'Before applying, run scripts/config-status.ps1 with the same -RepoRoot and -HomeRoot and -Platform Claude to review field differences.' -ForegroundColor Yellow
+}
 if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to deploy: all managed config already in sync.' -DryRunMessage 'Dry-run only. Re-run with -Apply to deploy.' -Apply:$Apply)) { return }
 
 # Apply: secret scan gate -> back up overwritten home files -> copy (no prune).
