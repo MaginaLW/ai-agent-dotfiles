@@ -237,7 +237,8 @@ home-only 字段。对于只报告文件级差异的 Codex `AGENTS.md`，可以�
 git --no-pager diff --no-index --no-ext-diff -- codex/AGENTS.md "$env:USERPROFILE/.codex/AGENTS.md"
 ```
 
-两侧文件都存在时，退出码 `0` 表示相同，`1` 表示有差异；其他退出码表示比较出错。差异可能包含个人内容，
+先确认两侧文件可访问并检查错误输出：成功比较时退出码 `0` 表示相同，`1` 表示有差异；
+访问失败等错误也可能返回 `1`，不能只凭退出码判断比较成功。差异可能包含个人内容，
 不要直接粘贴、分享、重定向或提交到仓库。先区分仓库更新和个人覆盖，再审查对应的 config-pull 或 config-push
 dry-run；保留需要的个人覆盖，live `config-pull -Apply` 仍须在审核后取得所有者授权。不要因为发现漂移就直接覆盖。
 
