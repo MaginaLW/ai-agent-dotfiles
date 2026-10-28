@@ -219,6 +219,23 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
 - deploy-skills 不包含 config-pull；把两者合并需要单独评审。
 - 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1`。
 
+排查漂移时，先在仓库根目录运行只读状态报告：
+
+```powershell
+pwsh -NoProfile -File scripts/config-status.ps1
+```
+
+`differs` 只表示内容不同，不代表需要同步。Claude 字段摘要显示路径而不显示值；整文件 pull 可能移除
+home-only 字段。对于只报告文件级差异的 Codex `AGENTS.md`，可以在自己的终端本地比较：
+
+```powershell
+git --no-pager diff --no-index --no-ext-diff -- codex/AGENTS.md "$env:USERPROFILE/.codex/AGENTS.md"
+```
+
+两侧文件都存在时，退出码 `0` 表示相同，`1` 表示有差异；其他退出码表示比较出错。差异可能包含个人内容，
+不要直接粘贴、分享、重定向或提交到仓库。先区分仓库更新和个人覆盖，再审查对应的 config-pull 或 config-push
+dry-run；保留需要的个人覆盖，live `config-pull -Apply` 仍须在审核后取得所有者授权。不要因为发现漂移就直接覆盖。
+
 ---
 
 ## 12. Project Harness Profiles
