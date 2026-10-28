@@ -9,6 +9,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Environment and config experience (2026-10-28).** Unified CLI help identifies the commands
+  requiring explicit modes. `env list` shows each platform's selection and the last recorded
+  successful Apply environment, with unavailable or invalid state reported without assuming
+  live contents; its JSON report keeps the original shape. The manual includes a read-only
+  config drift investigation. CLI fixture tests, syntax validation, diff checks, secret scans
+  and a synthetic comparison passed; no live Apply was performed.
 - **Everyday experience (2026-10-28).** The daily command examples no longer depend on a
   session variable and call out pruning when switching environments. The unified CLI has a
   `help` command, and deployment plans include action counts while retaining per-item review.
@@ -198,7 +204,8 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- None.
+- Two synthetic comparison files remain under ignored `tmp/tests/config-diff-example/` after
+  automated approval rejected their removal; they contain only fixture text.
 
 ## Known boundaries
 
