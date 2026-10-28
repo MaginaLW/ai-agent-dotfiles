@@ -9,6 +9,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Plugin and MCP review (2026-10-28).** The Claude template retains the Codex plugin and its
+  marketplace; the `claude-code-plugins` marketplace declaration, unreferenced by the template,
+  was removed after a local configuration review. No live configuration was applied. The policy test
+  checks the Codex config-sync exclusion directly without requiring an MCP comment.
 - **Platform retirement (2026-10-28).** One former platform was removed from the product,
   environment selections and documentation. Its two managed live skills were backed up and
   removed by an owner-authorized deploy; legacy privacy guards remain in place. The active

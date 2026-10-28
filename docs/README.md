@@ -192,6 +192,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
 - Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
+- Claude 配置模板启用 `codex@openai-codex`；模板市场声明不代表插件已经安装或加载。
 - 模板不带模型与推理档位，但这不表示可以删除个人设置：`config-pull` 按文件复制，**不按字段合并**，
   审查 dry-run 时须逐项比较并保留目标里的个人覆盖值。
 - deploy-skills 不包含 config-pull；把两者合并需要单独评审。

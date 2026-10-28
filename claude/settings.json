@@ -1,11 +1,5 @@
 {
   "extraKnownMarketplaces": {
-    "claude-code-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-code"
-      }
-    },
     "openai-codex": {
       "source": {
         "source": "github",
