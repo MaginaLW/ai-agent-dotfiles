@@ -260,7 +260,7 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 环境是命名的 skills 选集：`harness-source/envs/<name>.psd1`。deploy-skills 只消费 `Skills`：必须恰好有
 `Claude`、`Codex`、`Zcode` 三个键（不要 skill 的平台写 `@()`；Zcode 从 Claude 生成物投影，
 只有 Claude 可构建的 skill 才能选给 Zcode），否则拒绝运行，避免把缺键误读成空选集而
-prune 全部。`env list` 显示文件名与 `Description`；`SchemaVersion` 与 `Name` 是声明性元数据，脚本不校验。
+prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 名称和数量；`SchemaVersion` 与 `Name` 是声明性元数据，脚本不校验。
 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
 
@@ -271,7 +271,9 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -DryRun
 pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 ```
 
-- `env list -JsonPath <report-file>` 仍打印环境列表，同时把 `Environments`（每项 `Name`、`Description`）写入 JSON 文件。
+- 列表末尾显示部署状态中记录的上次成功 Apply 环境；记录缺失、结构无效、无环境名或无法读取时显示 `unavailable`。
+  这只是记录，不验证 live 内容。`env list -StateRoot <path>` 可指定部署状态目录，默认与 deploy-skills 相同。
+- `env list -JsonPath <report-file>` 仍打印上述列表，同时把 `Environments`（每项仅有 `Name`、`Description`）写入 JSON 文件。
 - 选集只能包含已有 generated output 的 skill，缺失时 deploy-skills 报错停止。
 - 切换到较小环境时，上次由 deploy-skills 部署、本次不再选中的目录进入 `prune`（先备份）。
 - 任务临时需要的 skill 不要写回 `work.psd1`；长期需要时在评审过的提交里改环境定义。

@@ -43,13 +43,43 @@ Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -ma
 Assert ($result.Out -match 'sync, env deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
 $result = Invoke-Entry -Arguments @()
 Assert ($result.Code -eq 1 -and $result.Out -match 'A command is required') 'missing command remains an error'
-$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot)
+$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($result.Code -eq 0 -and $result.Out -match 'Harness environments') 'env list routes through the dispatcher'
 $listJsonPath = Join-Path $fakeHome 'env-list.json'
-$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-JsonPath', $listJsonPath)
+$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'), '-JsonPath', $listJsonPath)
 $listJson = $null
 try { $listJson = Get-Content -Raw -LiteralPath $listJsonPath | ConvertFrom-Json } catch { $listJson = $null }
 Assert ($result.Code -eq 0 -and $null -ne $listJson -and $listJson.PSObject.Properties.Name -contains 'Environments') 'env list writes machine-readable JSON'
+
+Write-Host 'unified CLI: environment selections and recorded deployment'
+$listRepo = Join-Path $work 'list-repo'
+$listEnvDir = Join-Path $listRepo 'harness-source/envs'
+$listState = Join-Path $work 'list-state'
+New-Item -ItemType Directory -Path $listEnvDir, $listState -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $listEnvDir 'sample.psd1') -Encoding utf8 -Value "@{ Description = 'sample'; Skills = @{ Claude = @('alpha', 'beta'); Codex = @('gamma'); Zcode = @() } }"
+$listArgs = @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $listState)
+$result = Invoke-Entry -Arguments $listArgs
+Assert ($result.Code -eq 0 -and $result.Out -match 'Claude: 2 \[alpha, beta\]' -and $result.Out -match 'Codex: 1 \[gamma\]' -and $result.Out -match 'Zcode: 0 \[\(none\)\]') 'environment selections show platform names and counts'
+Assert ($result.Out -match 'Last recorded successful Apply environment: unavailable \(record only; live contents may differ\)' -and -not (Test-Path (Join-Path $listState 'deployed-skills.json'))) 'missing deployment state is unavailable and not created'
+$listStatePath = Join-Path $listState 'deployed-skills.json'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{invalid'
+$result = Invoke-Entry -Arguments $listArgs
+Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable' -and $result.Out -match 'Claude: 2') 'malformed state leaves environment list available'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Claude":[],"Codex":[],"Zcode":[]}'
+$result = Invoke-Entry -Arguments $listArgs
+Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable') 'state without an environment is unavailable'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":"alpha","Codex":[],"Zcode":[]}'
+$result = Invoke-Entry -Arguments $listArgs
+Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable') 'structurally invalid state is unavailable'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":["alpha"],"Codex":[],"Zcode":[]}'
+$stateHash = (Get-FileHash -LiteralPath $listStatePath).Hash
+$fixtureJsonPath = Join-Path $work 'fixture-environments.json'
+$result = Invoke-Entry -Arguments ($listArgs + @('-JsonPath', $fixtureJsonPath))
+$fixtureJson = Get-Content -Raw -LiteralPath $fixtureJsonPath | ConvertFrom-Json
+$entryFields = @($fixtureJson.Environments[0].PSObject.Properties.Name | Sort-Object) -join ','
+Assert ($result.Code -eq 0 -and $result.Out -match 'environment: sample \(record only; live contents may differ\)') 'valid state is identified as a record, not verified live contents'
+Assert ($fixtureJson.Environments.Count -eq 1 -and $fixtureJson.Environments[0].Name -eq 'sample' -and $entryFields -eq 'Description,Name') 'environment report retains its existing JSON shape'
+Assert ((Get-FileHash -LiteralPath $listStatePath).Hash -eq $stateHash -and @(Get-ChildItem -LiteralPath $fakeHome -Force).Count -eq 1) 'listing preserves deploy state and live fixture home'
 
 $result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Json')
 $configJson = $null

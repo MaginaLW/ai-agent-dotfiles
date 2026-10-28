@@ -43,7 +43,7 @@ function Write-Usage {
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: promote -Path <dir> -Name <name> -Type <type> [-Replace] -DryRun|-Apply.'
-    Write-Host 'Env actions: list [-RepoRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
+    Write-Host 'Env actions: list [-RepoRoot <path>] [-StateRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
     Write-Host 'sync, env deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'build generates output; env list -JsonPath writes a report without a mode.'
 }
@@ -69,22 +69,56 @@ function Remove-DryRunSwitch([object[]] $Arguments) {
 
 function Write-EnvironmentList([object[]] $Arguments) {
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    $stateRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-agent-dotfiles.deploy'
     $jsonPath = $null
     for ($i = 0; $i -lt $Arguments.Count; $i++) {
         $name = [string] $Arguments[$i]
         if ($name -ieq '-RepoRoot' -and $i + 1 -lt $Arguments.Count) { $repoRoot = [string] $Arguments[++$i]; continue }
+        if ($name -ieq '-StateRoot' -and $i + 1 -lt $Arguments.Count) { $stateRoot = [string] $Arguments[++$i]; continue }
         if ($name -ieq '-JsonPath' -and $i + 1 -lt $Arguments.Count) { $jsonPath = [string] $Arguments[++$i]; continue }
         Write-Error "Unsupported env list argument: $name" -ErrorAction Continue
         exit 1
     }
     $environments = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'harness-source\envs') -Filter '*.psd1' -File | Sort-Object Name | ForEach-Object {
         $data = Import-PowerShellDataFile -LiteralPath $_.FullName
-        [ordered]@{ Name = $_.BaseName; Description = [string] $data['Description'] }
+        [pscustomobject]@{ Name = $_.BaseName; Description = [string] $data['Description']; Skills = $data['Skills'] }
     })
     Write-Host 'Harness environments:'
-    foreach ($environment in $environments) { Write-Host ("  {0}  {1}" -f $environment.Name, $environment.Description) }
+    foreach ($environment in $environments) {
+        Write-Host ("  {0}  {1}" -f $environment.Name, $environment.Description)
+        foreach ($platform in 'Claude', 'Codex', 'Zcode') {
+            if ($environment.Skills -isnot [hashtable] -or -not $environment.Skills.ContainsKey($platform)) {
+                Write-Host "    ${platform}: unavailable (invalid selection)"
+                continue
+            }
+            $skills = @($environment.Skills[$platform] | Where-Object { $_ })
+            $names = if ($skills.Count) { $skills -join ', ' } else { '(none)' }
+            Write-Host ("    {0}: {1} [{2}]" -f $platform, $skills.Count, $names)
+        }
+    }
+    $recordedEnvironment = $null
+    $statePath = Join-Path $stateRoot 'deployed-skills.json'
+    try {
+        if (Test-Path -LiteralPath $statePath -PathType Leaf) {
+            $state = Get-Content -Raw -LiteralPath $statePath -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            $validState = $state -is [System.Collections.IDictionary]
+            if ($validState) {
+                foreach ($platform in 'Claude', 'Codex', 'Zcode') {
+                    if ($state[$platform] -isnot [array] -or @($state[$platform] | Where-Object { $_ -isnot [string] }).Count -gt 0) { $validState = $false }
+                }
+            }
+            if ($validState -and $state['Environment'] -is [string] -and
+                -not [string]::IsNullOrWhiteSpace($state['Environment']) -and $state['Environment'] -notmatch '[\r\n]') {
+                $recordedEnvironment = $state['Environment']
+            }
+        }
+    }
+    catch { $recordedEnvironment = $null }
+    if ($null -eq $recordedEnvironment) { $recordedEnvironment = 'unavailable' }
+    Write-Host "Last recorded successful Apply environment: $recordedEnvironment (record only; live contents may differ)."
     if ($jsonPath) {
-        $json = [ordered]@{ Environments = $environments } | ConvertTo-Json -Depth 5
+        $jsonEnvironments = @($environments | ForEach-Object { [ordered]@{ Name = $_.Name; Description = $_.Description } })
+        $json = [ordered]@{ Environments = $jsonEnvironments } | ConvertTo-Json -Depth 5
         [IO.File]::WriteAllText([IO.Path]::GetFullPath($jsonPath), $json + "`n", [Text.UTF8Encoding]::new($false))
     }
 }
