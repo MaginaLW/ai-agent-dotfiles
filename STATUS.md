@@ -13,8 +13,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   reviewed. Evidence-backed updates cover research writing, review, planning, debugging,
   verification, security and Windows use. The brainstorm helper now requests shutdown through
   its session instead of killing an unverified PID or deleting files. The `work` selection adds
-  research writing and Git review to all three platforms. An earlier owner-authorized Apply
-  updated `boring-engineering`; this later source and selection revision is not yet deployed.
+  research writing and Git review to all three platforms. Owner-authorized `work` and `full`
+  Applies ran sequentially; the current live selection is `full` (9 Claude, 17 Codex, 9 ZCode),
+  and its post-Apply dry run reports every selected directory unchanged. The `work` Apply
+  backed up updated directories; `full` added the remaining skill directories.
 - **Retired platform branches (2026-10-28).** The owner authorized deletion of the three local
   `codex/retire-platform-{docs,scripts,tests}` branches. Each had one commit whose equivalent
   change was already in `main`, verified with `git cherry -v` before deletion; no worktree used
