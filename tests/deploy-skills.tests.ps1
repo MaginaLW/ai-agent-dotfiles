@@ -12,19 +12,19 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('deploy-skills-tests-' + [guid]::N
 function Set-TestEnvironment([string] $Repo, [string[]] $Skills, [string[]] $ZcodeSkills = @()) {
     $list = ($Skills | ForEach-Object { "'$_'" }) -join ', '
     $zlist = ($ZcodeSkills | ForEach-Object { "'$_'" }) -join ', '
-    Set-TestFile (Join-Path $Repo 'harness-source/envs/test.psd1') "@{ Skills = @{ Claude = @($list); Codex = @($list); Reasonix = @($list); Zcode = @($zlist) } }"
+    Set-TestFile (Join-Path $Repo 'harness-source/envs/test.psd1') "@{ Skills = @{ Claude = @($list); Codex = @($list); Zcode = @($zlist) } }"
 }
 function Invoke-Deploy([string] $Repo, [string] $HomeDir, [string[]] $Extra = @()) {
     Invoke-TestProcess -ScriptPath $deploy -Arguments (@('-Environment', 'test', '-RepoRoot', $Repo, '-HomeRoot', $HomeDir, '-StateRoot', (Join-Path $HomeDir 'state'), '-SkipBuild') + $Extra)
 }
 function Get-LiveRoots([string] $HomeDir) {
-    @((Join-Path $HomeDir '.claude/skills'), (Join-Path $HomeDir '.codex/skills'), (Join-Path $HomeDir 'AppData/Roaming/reasonix/skills'))
+    @((Join-Path $HomeDir '.claude/skills'), (Join-Path $HomeDir '.codex/skills'))
 }
 
 try {
     $repo = Join-Path $work 'repo'
     $homeDir = Join-Path $work 'home'
-    foreach ($platform in 'claude', 'codex', 'reasonix') {
+    foreach ($platform in 'claude', 'codex') {
         foreach ($skill in 'alpha', 'beta') { Set-TestFile (Join-Path $repo "$platform/skills/$skill/SKILL.md") "# $skill v1`n" }
     }
     Set-TestEnvironment $repo @('alpha', 'beta')
@@ -38,7 +38,7 @@ try {
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir '.claude/skills/alpha'))) 'dry run installs nothing'
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir 'state'))) 'dry run writes no state'
 
-    Write-Host '[first apply installs on all three platforms]'
+    Write-Host '[first apply installs selected platforms]'
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -eq 0) "first apply exits 0 ($($r.Out))"
     foreach ($root in Get-LiveRoots $homeDir) {
@@ -49,6 +49,20 @@ try {
     Assert-TestCondition ((Get-Content -Raw (Join-Path $homeDir '.claude/skills/hand-made/SKILL.md')) -eq 'mine') 'unknown live skill untouched'
     $state = Get-Content -Raw (Join-Path $homeDir 'state/deployed-skills.json') | ConvertFrom-Json
     Assert-TestCondition ((@($state.Codex) -join ',') -eq 'alpha,beta') 'state records the deployed set'
+
+    Write-Host '[legacy state is ignored and retired on apply]'
+    $statePath = Join-Path $homeDir 'state/deployed-skills.json'
+    $oldState = Get-Content -Raw $statePath | ConvertFrom-Json -AsHashtable
+    $oldState['Reasonix'] = @('alpha')
+    Set-TestFile $statePath ($oldState | ConvertTo-Json)
+    $stateHash = (Get-FileHash -LiteralPath $statePath).Hash
+    $legacyFile = Join-Path $homeDir 'AppData/Roaming/reasonix/skills/alpha/SKILL.md'
+    Set-TestFile $legacyFile 'legacy bytes'
+    $r = Invoke-Deploy $repo $homeDir
+    Assert-TestCondition ($r.Code -eq 0 -and (Get-FileHash -LiteralPath $statePath).Hash -eq $stateHash -and (Get-Content -Raw $legacyFile) -eq 'legacy bytes') 'dry run ignores legacy state without changing it or the retired root'
+    $r = Invoke-Deploy $repo $homeDir @('-Apply')
+    $state = Get-Content -Raw $statePath | ConvertFrom-Json -AsHashtable
+    Assert-TestCondition ($r.Code -eq 0 -and -not $state.ContainsKey('Reasonix') -and (Get-Content -Raw $legacyFile) -eq 'legacy bytes') 'apply writes active state only and preserves the retired root'
 
     Write-Host '[second apply is a no-op]'
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
@@ -130,15 +144,18 @@ try {
     Write-Host '[malformed environments are refused]'
     $envFile = Join-Path $repo 'harness-source/envs/test.psd1'
     $good = [IO.File]::ReadAllText($envFile)
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codx = @('alpha'); Reasonix = @('alpha') } }")
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codx = @('alpha'); Zcode = @() } }")
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'a misspelled platform key is refused instead of pruning everything'
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha.'); Codex = @('alpha'); Reasonix = @('alpha'); Zcode = @() } }")
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha.'); Codex = @('alpha'); Zcode = @() } }")
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid skill name') 'a trailing-dot name is refused'
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codex = @('alpha'); Reasonix = @('alpha') } }")
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codex = @('alpha') } }")
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'an env without the Zcode key is refused'
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codex = @('alpha'); Zcode = @(); Reasonix = @() } }")
+    $r = Invoke-Deploy $repo $homeDir
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'an env with a retired platform key is refused'
     [IO.File]::WriteAllText($envFile, $good)
 
     Write-Host '[reparse points are refused]'

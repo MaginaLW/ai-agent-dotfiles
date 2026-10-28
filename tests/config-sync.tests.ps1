@@ -123,15 +123,19 @@ try {
     $claudeRow = $rows | Where-Object { $_.Item -eq 'CLAUDE.md' }
     Assert ($claudeRow.Status -eq 'differs') "status: differing file -> differs"
 
-    $tr = New-TempRepo -Name 'status-reasonix-repo'
-    $th = Join-Path $work 'status-reasonix-home'
-    Set-File -Path (Join-Path $tr 'reasonix/AGENTS.md') -Content 'same'
-    Set-File -Path (Join-Path $th 'AppData/Roaming/reasonix/AGENTS.md') -Content 'same'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Reasonix', '-Json')
+    $tr = New-TempRepo -Name 'status-codex-repo'
+    $th = Join-Path $work 'status-codex-home'
+    Set-File -Path (Join-Path $tr 'codex/AGENTS.md') -Content 'same'
+    Set-File -Path (Join-Path $th '.codex/AGENTS.md') -Content 'same'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
     $rows = $r.Out | ConvertFrom-Json
-    $reasonixRow = $rows | Where-Object { $_.Item -eq 'AGENTS.md' }
-    Assert ($reasonixRow.Status -eq 'in-sync') "status: Reasonix maps repo reasonix/ onto home AppData/Roaming/reasonix"
+    $codexRow = $rows | Where-Object { $_.Item -eq 'AGENTS.md' }
+    Assert ($codexRow.Status -eq 'in-sync') 'status: Codex maps its repo item onto the home directory'
     Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 1) 'status: one managed item still emits a JSON array'
+    foreach ($scriptPath in @($statusScript, $pullScript, $pushScript)) {
+        $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Reasonix')
+        Assert ($r.Code -ne 0) "config: $([IO.Path]::GetFileName($scriptPath)) rejects the retired platform"
+    }
 
     # ===========================================================================
     Write-Host "`n[config-pull]" -ForegroundColor Cyan

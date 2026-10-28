@@ -37,14 +37,14 @@ $claudeText = Read-RepoText 'CLAUDE.md'
 $claudeOutsideFences = $claudeText -replace '(?ms)^(```|~~~).*?^\1[ \t]*\r?$', ''
 Assert-TestCondition ($claudeOutsideFences -cmatch '(?m)^@AGENTS\.md[ \t]*\r?$') 'CLAUDE.md imports AGENTS.md on its own line outside code fences'
 
-foreach ($manifest in @('manifests/managed-skills.claude.txt', 'manifests/managed-skills.codex.txt', 'manifests/managed-skills.reasonix.txt')) {
+foreach ($manifest in @('manifests/managed-skills.claude.txt', 'manifests/managed-skills.codex.txt')) {
     Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot $manifest) -PathType Leaf) "the per-platform manifest $manifest exists"
 }
 
 # full is documented as selecting every managed skill, so its per-platform lists must equal the
 # corresponding manifests, and the Zcode projection list must equal Claude's.
 $fullSelection = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'harness-source/envs/full.psd1')).Skills
-foreach ($pair in @(@('Claude', 'claude'), @('Codex', 'codex'), @('Reasonix', 'reasonix'))) {
+foreach ($pair in @(@('Claude', 'claude'), @('Codex', 'codex'))) {
     $manifestNames = @(Get-Content -LiteralPath (Join-Path $RepoRoot "manifests/managed-skills.$($pair[1]).txt") | Where-Object { $_ })
     Assert-TestCondition (@(Compare-Object @($fullSelection[$pair[0]]) $manifestNames).Count -eq 0) "the full environment's $($pair[0]) selection equals the managed-skills manifest"
 }
@@ -112,7 +112,7 @@ foreach ($case in $dangerousPathCases) {
 }
 
 # -----------------------------------------------------------------------------
-# Generated-root boundaries are symmetric across all three platforms
+# Generated-root boundaries and legacy output protection
 # -----------------------------------------------------------------------------
 Write-Host '[generated-root boundaries]'
 $gitignoreText = Read-RepoText '.gitignore'
@@ -121,10 +121,10 @@ foreach ($generatedRoot in @('claude/skills/', 'codex/skills/', 'reasonix/skills
 }
 
 $buildSkillsText = Read-RepoText 'scripts/build-skills.ps1'
-foreach ($rootVariable in @('$ClaudeOutputRoot', '$CodexOutputRoot', '$ReasonixOutputRoot')) {
+foreach ($rootVariable in @('$ClaudeOutputRoot', '$CodexOutputRoot')) {
     Assert-TestCondition ($buildSkillsText.Contains("$rootVariable = Join-Path `$RepoRoot")) "build-skills defaults $rootVariable to its repository generated root"
 }
-Assert-TestCondition ($buildSkillsText.Contains('Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)')) 'build-skills enforces disjoint source/manifest/generated build roots for all three platforms'
+Assert-TestCondition ($buildSkillsText.Contains('Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ManifestOutputRoot)')) 'build-skills enforces disjoint source/manifest/generated build roots'
 # build-skills discovers source and generated skills through Get-SkillDirectories, which must
 # never treat .system as a skill.
 . (Join-Path $RepoRoot 'scripts/skills-common.ps1')
@@ -142,7 +142,7 @@ finally {
 }
 
 $scanSecretsText = Read-RepoText 'scripts/scan-secrets.ps1'
-Assert-TestCondition ((Get-LiteralOccurrenceCount -Text $scanSecretsText -Needle "'claude/skills/', 'codex/skills/', 'reasonix/skills/'") -ge 1) 'the secret scan excludes all three generated roots'
+Assert-TestCondition ((Get-LiteralOccurrenceCount -Text $scanSecretsText -Needle "'claude/skills/', 'codex/skills/', 'reasonix/skills/'") -ge 1) 'the secret scan excludes active generated roots and protects the legacy root'
 
 # -----------------------------------------------------------------------------
 # Claude Code harness guard rails

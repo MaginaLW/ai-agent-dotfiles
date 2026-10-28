@@ -42,6 +42,8 @@ try {
     Assert-TestCondition ((Test-Path -LiteralPath (Join-Path $target 'refs/notes.md')) -and (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/new-skill/SKILL.md'))) 'Apply copies the tree and rebuilds generated output'
 
     Write-Host '[refusals]'
+    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'reasonix-only')
+    Assert-TestCondition ($r.Code -ne 0 -and -not (Test-Path -LiteralPath (Join-Path $repo 'skills-source/reasonix-only/new-skill'))) 'the retired platform type is refused without writing'
     foreach ($bad in '.system', '-dash', 'trailing.', 'a/b', '..') {
         $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', $bad, '-Type', 'shared', '-Apply')
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Invalid skill name') "refuses the name '$bad'"

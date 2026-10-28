@@ -21,7 +21,7 @@ New-Item -ItemType Directory -Path $fakeHome -Force | Out-Null
 $fixtureRepo = Join-Path $work 'repo'
 New-Item -ItemType Directory -Path (Join-Path $fixtureRepo 'harness-source/envs') -Force | Out-Null
 foreach ($envName in @('work', 'test')) {
-    Set-Content -LiteralPath (Join-Path $fixtureRepo "harness-source/envs/$envName.psd1") -Encoding utf8 -Value "@{ Name = '$envName'; Description = 'fixture'; Skills = @{ Claude = @(); Codex = @(); Reasonix = @(); Zcode = @() } }"
+    Set-Content -LiteralPath (Join-Path $fixtureRepo "harness-source/envs/$envName.psd1") -Encoding utf8 -Value "@{ Name = '$envName'; Description = 'fixture'; Skills = @{ Claude = @(); Codex = @(); Zcode = @() } }"
 }
 $deployArgs = @('-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'state'), '-SkipBuild')
 
