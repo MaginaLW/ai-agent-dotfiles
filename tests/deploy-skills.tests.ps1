@@ -84,6 +84,45 @@ try {
     $state = Get-Content -Raw (Join-Path $homeDir 'state/deployed-skills.json') | ConvertFrom-Json
     Assert-TestCondition ((@($state.Codex) -join ',') -eq 'alpha,beta') 'state records the deployed set'
 
+    Write-Host '[state write failure preserves existing state]'
+    $writeFailureHome = Join-Path $work 'state-write-failure-home'
+    $writeFailureState = Join-Path $writeFailureHome 'state/deployed-skills.json'
+    Set-TestFile $writeFailureState '{"Environment":"previous","Claude":[],"Codex":[],"Zcode":[]}'
+    $oldWriteHash = (Get-FileHash -LiteralPath $writeFailureState).Hash
+    $writeFailureHarness = Join-Path $work 'fail-state-write.ps1'
+    Set-TestFile $writeFailureHarness @'
+param([string] $Deploy, [string] $Repo, [string] $HomeDir)
+$ErrorActionPreference = 'Stop'
+function Set-Content {
+    param([string] $LiteralPath, [string] $Encoding, [Parameter(ValueFromPipeline = $true)] $Value)
+    process {
+        Microsoft.PowerShell.Management\Set-Content -LiteralPath $LiteralPath -Value '{"partial":' -Encoding utf8
+        throw 'injected partial state write failure'
+    }
+}
+try {
+    & $Deploy -Environment test -RepoRoot $Repo -HomeRoot $HomeDir -StateRoot (Join-Path $HomeDir 'state') -SkipBuild -Apply
+    exit 0
+}
+catch { Write-Error $_ -ErrorAction Continue; exit 1 }
+'@
+    Set-TestEnvironment $repo @('alpha')
+    $r = Invoke-TestProcess -ScriptPath $writeFailureHarness -Arguments @($deploy, $repo, $writeFailureHome)
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'injected partial state write failure') 'injected partial state write fails the Apply'
+    Assert-TestCondition ((Get-FileHash -LiteralPath $writeFailureState).Hash -eq $oldWriteHash) 'partial state write leaves previous state unchanged'
+    Assert-TestCondition ((Test-Path (Join-Path $writeFailureHome '.claude/skills/alpha/SKILL.md')) -and (Test-Path (Join-Path $writeFailureHome '.codex/skills/alpha/SKILL.md'))) 'completed skill installs remain after state write failure'
+    Assert-TestCondition ($r.Out -match 'Live changes may already have occurred' -and @(Get-ChildItem -LiteralPath (Split-Path -Parent $writeFailureState) -Filter 'deployed-skills.*.tmp').Count -eq 0) 'failure warns about live changes and removes its temporary state'
+
+    Write-Host '[blocked state replacement preserves existing state]'
+    $replacementLock = [IO.File]::Open($writeFailureState, 'Open', 'Read', 'Read')
+    try { $r = Invoke-Deploy $repo $writeFailureHome @('-Apply') } finally { $replacementLock.Dispose() }
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Deployment state update failed' -and (Get-FileHash -LiteralPath $writeFailureState).Hash -eq $oldWriteHash) 'blocked replacement fails and preserves the old state'
+    Assert-TestCondition (@(Get-ChildItem -LiteralPath (Split-Path -Parent $writeFailureState) -Filter 'deployed-skills.*.tmp').Count -eq 0) 'blocked replacement removes its temporary state'
+    $r = Invoke-Deploy $repo $writeFailureHome @('-Apply')
+    $updatedState = Get-Content -Raw -LiteralPath $writeFailureState | ConvertFrom-Json
+    Assert-TestCondition ($r.Code -eq 0 -and $updatedState.Environment -eq 'test' -and (@($updatedState.Claude) -join ',') -eq 'alpha') "retry replaces the existing state after the lock is released (exit $($r.Code), environment $($updatedState.Environment), output: $($r.Out))"
+    Set-TestEnvironment $repo @('alpha', 'beta')
+
     Write-Host '[lost state does not authorize pruning]'
     $lostStateHome = Join-Path $work 'lost-state-home'
     Set-TestFile (Join-Path $lostStateHome '.codex/skills/.system/marker.txt') 'platform'

@@ -186,11 +186,32 @@ foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune'
 }
 
 # Every previously deployed, no-longer-selected directory was pruned above, so the deployed
-# set is now exactly the selection. A failed Apply never reaches this line and keeps the old state.
+# set is now exactly the selection. Publish the complete state only after writing it separately.
 New-Item -ItemType Directory -Path $StateRoot -Force | Out-Null
 $deployed = [ordered]@{ Environment = $Environment }
 foreach ($platform in $platforms) { $deployed[$platform] = @($selection[$platform] | Where-Object { $_ } | Sort-Object -Unique) }
-$deployed | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding utf8
+$tempStatePath = Join-Path $StateRoot ('deployed-skills.' + [guid]::NewGuid().ToString('N') + '.tmp')
+$ownsTempState = $false
+try {
+    $tempStream = [IO.File]::Open($tempStatePath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $ownsTempState = $true
+    $tempStream.Dispose()
+    $deployed | ConvertTo-Json | Set-Content -LiteralPath $tempStatePath -Encoding utf8
+    # PowerShell binds $null to an empty string for this overload; NullString supplies a true null backup path.
+    if ([IO.File]::Exists($statePath)) { [IO.File]::Replace($tempStatePath, $statePath, [NullString]::Value) }
+    else { [IO.File]::Move($tempStatePath, $statePath) }
+    $ownsTempState = $false
+}
+catch {
+    Write-Warning 'Deployment state update failed. Live changes may already have occurred; inspect live directories and backups, then review a new dry run before retrying.'
+    throw
+}
+finally {
+    if ($ownsTempState -and (Test-Path -LiteralPath $tempStatePath)) {
+        try { Remove-Item -LiteralPath $tempStatePath -Force -ErrorAction Stop }
+        catch { Write-Warning "Could not remove this run's temporary state file: $tempStatePath" }
+    }
+}
 Write-Host "Applied environment '$Environment'. State: $statePath"
 if (Test-Path -LiteralPath $backupRoot) { Write-Host "Backups: $backupRoot" }
 }
