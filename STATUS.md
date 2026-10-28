@@ -9,11 +9,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Codex global agreements.** The repository template reflects the reviewed live Codex
-  agreements, with a portable Grok instruction path, missing-file guidance and explicit
-  model-recording guidance. The live file retains its machine-specific path and does not have
-  those two additions, so config status still reports a difference; no live configuration was
-  changed.
+- **Codex global agreements.** The repository template reflects the reviewed Codex agreements,
+  with a portable Grok instruction path, missing-file guidance and model-recording guidance.
+  An owner-authorized Codex config-pull Apply updated the live `AGENTS.md` on 2026-10-28;
+  its original was backed up, and config status and a second dry run confirmed alignment.
 - **Test simplification (2026-10-27).** The test runner validates every suite's
   numeric, positive budget before starting any suite. Config status JSON always emits
   an array, including empty and single-item results. Config copy planning shares one
