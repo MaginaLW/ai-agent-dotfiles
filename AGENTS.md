@@ -20,22 +20,24 @@ are changing.
 - Parallel write work uses its own branch in a throwaway worktree or a separate checkout. Stash,
   checkout, reset and clean only the tree this task created. Integrate back into the primary
   serially, one agent, in small commits. Push and merge still need the owner's authorization.
-  Remove the throwaway tree when the task ends. Delete a local branch created for this task only
-  after the owner explicitly authorizes that deletion and the recorded full tip SHA is proven
-  integrated: `git merge-base --is-ancestor <full-sha> main` exits 0, or, when the commits were
-  copied by rebase or cherry-pick, `git cherry -v main <branch>` prints one `-` line per commit
-  counted by `git rev-list --count main..<branch>` (at least one, no `+` line, no merge commit in
-  that range, and never an empty output). If the proof fails, or the owner asked to keep the
-  branch, keep it and report it. Never delete `main` or `origin/main`. A remote branch needs its
-  own explicit authorization, separate from any push or merge approval, with its pull request
-  merged or closed first. This does not relax the destructive-action rule above.
+  Remove the throwaway tree when the task ends. A local branch created for this task may be deleted
+  without further authorization after its recorded full tip SHA is proven integrated:
+  `git merge-base --is-ancestor <full-sha> main` exits 0, or, when the commits were copied by
+  rebase or cherry-pick, `git cherry -v main <full-sha>` prints one `-` line per commit counted
+  by `git rev-list --count main..<full-sha>` (at least one, no `+` line, no merge commit in that
+  range, and never an empty output). Immediately before deletion, verify that no worktree uses the
+  branch, and delete its ref only if it still points to that recorded SHA. If the proof fails or
+  the owner asked to keep the branch, keep it and report it. Never delete `main` or `origin/main`.
+  A remote branch needs its own explicit authorization, separate from any push or merge approval,
+  with its pull request merged or closed first.
 - Run only one full local `run-tests.ps1` or `run-repository-validation.ps1` on the machine at a
   time. Live Applies still need per-run owner authorization and write shared home paths, so
   those runs never overlap either.
 - Windows and PowerShell 7+ only. Run repository scripts as
   `pwsh -NoProfile -File scripts/<name>.ps1`. The unified CLI is `scripts/agent-dotfiles.ps1`.
 - On every task, push, merge, any live Apply, destructive actions, credential export and
-  additional paid model calls each need the owner's explicit authorization.
+  additional paid model calls each need the owner's explicit authorization, except deletion of
+  a proven-integrated local task branch as described above.
 - Finish authorized, recoverable work through validation without asking again whether to
   continue. Ask only when a decision that changes direction is missing or an approval is required.
 - Make small commits that contain only reviewed changes from the current task, and report which
