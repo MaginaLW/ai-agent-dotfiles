@@ -13,7 +13,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   conventions and reports validation in the user's language. Academic polishing preserves
   scientific evidence and defers Meng-informed CMAME work to its specialized skill; Git review
   prioritizes actionable findings and reports actual verification. The environment selections
-  are unchanged; these source updates have not been deployed to live skills roots.
+  are unchanged. An owner-authorized `work` Apply updated `boring-engineering` on Claude,
+  Codex and ZCode; a second dry run found all selected skills unchanged and preserved the unknown
+  Codex `meng-cmame-writing`. The other two updated skills are not selected by `work`.
 - **Retired platform branches (2026-10-28).** The owner authorized deletion of the three local
   `codex/retire-platform-{docs,scripts,tests}` branches. Each had one commit whose equivalent
   change was already in `main`, verified with `git cherry -v` before deletion; no worktree used
