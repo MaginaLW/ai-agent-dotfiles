@@ -17,8 +17,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   Isolated deployment and config fixtures cover these cases; no live Apply was performed.
 - **Skill assessment (2026-10-28).** Representative coding, review, debugging and research
   writing cases were checked against the five `work` skill instructions. The static review
-  found no evidence of a repeated problem requiring a skill or selection change. Actual
-  trigger rates, quality and time cost were not measured; the cases are not runtime results.
+  found no evidence of a repeated problem requiring a skill or selection change. A manual,
+  no-write trial on a three-sentence manuscript excerpt preserved fixed field parameters,
+  global collocation and the exclusion of reference-response supervision; it is not a
+  scientific validation. Local evidence is in ignored `tmp/skill-assessment-20261028.md`.
+  Trigger rates and comparative quality and time cost were not measured.
 - **Skill personalization (2026-10-28).** All 17 managed skills and the MCP boundary were
   reviewed. Evidence-backed updates cover research writing, review, planning, debugging,
   verification, security and Windows use. The brainstorm helper now requests shutdown through
