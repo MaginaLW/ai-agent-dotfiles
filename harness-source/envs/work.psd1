@@ -12,10 +12,7 @@
             'boring-engineering',
             'systematic-debugging'
         )
-        Reasonix = @(
-            'boring-engineering',
-            'systematic-debugging'
-        )
+        Reasonix = @()
         Zcode = @(
             'boring-engineering',
             'systematic-debugging'

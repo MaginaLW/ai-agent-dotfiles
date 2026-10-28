@@ -34,17 +34,7 @@
             'verification-before-completion',
             'writing-plans'
         )
-        Reasonix = @(
-            'boring-engineering',
-            'brainstorming',
-            'git-review',
-            'meng-cmame-writing',
-            'paper-polish',
-            'subagent-driven-development',
-            'systematic-debugging',
-            'verification-before-completion',
-            'writing-plans'
-        )
+        Reasonix = @()
         Zcode = @(
             'boring-engineering',
             'brainstorming',
