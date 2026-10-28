@@ -49,12 +49,19 @@ receipt's `cleanup_requested` field records intent, not completed deletion.
 
 ## Everyday commands
 
+From the repository root in PowerShell 7+:
+
 ```powershell
-pwsh -NoProfile -File .\scripts\build-skills.ps1 -RepoRoot $RepoRoot
-pwsh -NoProfile -File .\scripts\scan-secrets.ps1 -RepoRoot $RepoRoot
+pwsh -NoProfile -File .\scripts\build-skills.ps1
+pwsh -NoProfile -File .\scripts\scan-secrets.ps1
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 env list
 pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work
 pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work -Apply
 ```
+
+`work` is an example; choose the environment you want. Switching to a smaller selection can
+plan `prune` operations for skills previously deployed by this tool. Review every planned action
+before requesting authorization for Apply.
 
 Without `-Apply`, deploy-skills builds and scans before printing what it would install, update,
 prune or leave as unknown. The build may recreate ignored generated output in the repository;
