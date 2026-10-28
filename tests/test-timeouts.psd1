@@ -3,6 +3,7 @@
     # tests/*.tests.ps1 suite has exactly one entry here.
     Suites = @{
         'agent-dotfiles.tests.ps1' = 150
+        'brainstorm-helper.tests.ps1' = 60
         'build-skills.tests.ps1' = 60
         'config-sync.tests.ps1' = 150
         'deploy-skills.tests.ps1' = 120

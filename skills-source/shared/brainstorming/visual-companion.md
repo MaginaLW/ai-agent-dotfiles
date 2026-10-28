@@ -32,6 +32,8 @@ The server watches a directory for HTML files and serves the newest one to the b
 
 ## Starting a Session
 
+Prefer the platform's existing visual or browser tools when available. The helper below requires Bash and Node; on Windows use an available Git Bash and the host's supported persistent-terminal mechanism. If these are unavailable, continue with text or another available visual tool.
+
 ```bash
 # Start server with persistence (mockups saved to project)
 scripts/start-server.sh --project-dir /path/to/project
@@ -45,7 +47,7 @@ Save `screen_dir` and `state_dir` from the response. Tell user to open the URL.
 
 **Finding connection info:** The server writes its startup JSON to `$STATE_DIR/server-info`. If you launched the server in the background and didn't capture stdout, read that file to get the URL and port. When using `--project-dir`, check `<project>/.superpowers/brainstorm/` for the session directory.
 
-**Note:** Pass the project root as `--project-dir` so mockups persist in `.superpowers/brainstorm/` and survive server restarts. Without it, files go to `/tmp` and get cleaned up. Remind the user to add `.superpowers/` to `.gitignore` if it's not already there.
+**Note:** Pass the project root as `--project-dir` so mockups persist in `.superpowers/brainstorm/` and survive server restarts. Without it, files go to `/tmp`; stopping the server preserves them. Follow project ignore and cleanup rules.
 
 **Launching the server by platform:**
 
@@ -80,7 +82,7 @@ scripts/start-server.sh --project-dir /path/to/project --foreground
 
 **Other environments:** The server must keep running in the background across conversation turns. If your environment reaps detached processes, use `--foreground` and launch the command with your platform's background execution mechanism.
 
-If the URL is unreachable from your browser (common in remote/containerized setups), bind a non-loopback host:
+The default binds to loopback. If the URL is unreachable in a remote/containerized setup, use a non-loopback host only when needed and authorized, after considering who can reach it:
 
 ```bash
 scripts/start-server.sh \
@@ -279,7 +281,7 @@ If `$STATE_DIR/events` doesn't exist, the user didn't interact with the browser 
 scripts/stop-server.sh $SESSION_DIR
 ```
 
-If the session used `--project-dir`, mockup files persist in `.superpowers/brainstorm/` for later reference. Only `/tmp` sessions get deleted on stop.
+The stop helper requests shutdown through the session state and waits for acknowledgment; it does not kill a PID or delete session files. If shutdown is unconfirmed, report that and use the owning terminal or wait for idle shutdown. Clean up only the verified task-owned session under the applicable project and user rules.
 
 ## Reference
 

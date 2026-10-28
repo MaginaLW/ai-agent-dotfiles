@@ -171,6 +171,7 @@ pwsh -NoProfile -File scripts/run-tests.ps1
 ```
 
 它打印汇总，任一套件失败或超时即以 1 退出；每个套件的时间预算在 `tests/test-timeouts.psd1`。
+brainstorm 辅助服务器的行为测试需要 Node.js 和 Git Bash；缺少任一工具时该套件会明确报告 SKIP。
 CI 同款的全量验证入口是 `scripts/run-repository-validation.ps1`（语法、gitleaks 校验、build、秘密扫描、
 doctor、manifest 一致性、全部测试套件、危险文件检查与干净树，逐 gate 顺序执行）。
 

@@ -299,17 +299,28 @@ function startServer() {
   watcher.on('error', (err) => console.error('fs.watch error:', err.message));
 
   function shutdown(reason) {
-    console.log(JSON.stringify({ type: 'server-stopped', reason }));
-    const infoFile = path.join(STATE_DIR, 'server-info');
-    if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
-    fs.writeFileSync(
-      path.join(STATE_DIR, 'server-stopped'),
-      JSON.stringify({ reason, timestamp: Date.now() }) + '\n'
-    );
     watcher.close();
     clearInterval(lifecycleCheck);
-    server.close(() => process.exit(0));
+    clearInterval(stopCheck);
+    server.close(() => {
+      const infoFile = path.join(STATE_DIR, 'server-info');
+      if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
+      fs.writeFileSync(
+        path.join(STATE_DIR, 'server-stopped'),
+        JSON.stringify({ reason, timestamp: Date.now() }) + '\n'
+      );
+      console.log(JSON.stringify({ type: 'server-stopped', reason }));
+      process.exit(0);
+    });
+    for (const socket of clients) socket.destroy();
+    if (server.closeAllConnections) server.closeAllConnections();
   }
+
+  // Request shutdown through this session, without signaling an unverified PID.
+  const stopCheck = setInterval(() => {
+    if (fs.existsSync(path.join(STATE_DIR, 'stop-request'))) shutdown('stop requested');
+  }, 500);
+  stopCheck.unref();
 
   function ownerAlive() {
     if (!ownerPid) return true;
@@ -337,9 +348,10 @@ function startServer() {
   }
 
   server.listen(PORT, HOST, () => {
+    const listeningPort = server.address().port;
     const info = JSON.stringify({
-      type: 'server-started', port: Number(PORT), host: HOST,
-      url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + PORT,
+      type: 'server-started', port: listeningPort, host: HOST,
+      url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + listeningPort,
       screen_dir: CONTENT_DIR, state_dir: STATE_DIR
     });
     console.log(info);

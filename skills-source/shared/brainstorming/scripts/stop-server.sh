@@ -1,56 +1,34 @@
 #!/usr/bin/env bash
-# Stop the brainstorm server and clean up
-# Usage: stop-server.sh <session_dir>
-#
-# Kills the server process. Only deletes session directory if it's
-# under /tmp (ephemeral). Persistent directories (.superpowers/) are
-# kept so mockups can be reviewed later.
-
+# Request shutdown of this session without signaling an unverified PID or deleting files.
 SESSION_DIR="$1"
+STATE_DIR="${SESSION_DIR}/state"
 
 if [[ -z "$SESSION_DIR" ]]; then
   echo '{"error": "Usage: stop-server.sh <session_dir>"}'
   exit 1
 fi
-
-STATE_DIR="${SESSION_DIR}/state"
-PID_FILE="${STATE_DIR}/server.pid"
-
-if [[ -f "$PID_FILE" ]]; then
-  pid=$(cat "$PID_FILE")
-
-  # Try to stop gracefully, fallback to force if still alive
-  kill "$pid" 2>/dev/null || true
-
-  # Wait for graceful shutdown (up to ~2s)
-  for i in {1..20}; do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      break
-    fi
-    sleep 0.1
-  done
-
-  # If still running, escalate to SIGKILL
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -9 "$pid" 2>/dev/null || true
-
-    # Give SIGKILL a moment to take effect
-    sleep 0.1
-  fi
-
-  if kill -0 "$pid" 2>/dev/null; then
-    echo '{"status": "failed", "error": "process still running"}'
-    exit 1
-  fi
-
-  rm -f "$PID_FILE" "${STATE_DIR}/server.log"
-
-  # Only delete ephemeral /tmp directories
-  if [[ "$SESSION_DIR" == /tmp/* ]]; then
-    rm -rf "$SESSION_DIR"
-  fi
-
+if [[ -f "$STATE_DIR/server-stopped" ]]; then
   echo '{"status": "stopped"}'
-else
-  echo '{"status": "not_running"}'
+  exit 0
 fi
+if [[ ! -f "$STATE_DIR/server-info" ]]; then
+  echo '{"status": "not_running"}'
+  exit 0
+fi
+
+# Never overwrite an existing file, including a symlink.
+if [[ ! -e "$STATE_DIR/stop-request" && ! -L "$STATE_DIR/stop-request" ]]; then
+  (set -o noclobber; : > "$STATE_DIR/stop-request") 2>/dev/null || {
+    echo '{"error": "Could not create stop request"}'
+    exit 1
+  }
+fi
+for i in {1..30}; do
+  if [[ -f "$STATE_DIR/server-stopped" ]]; then
+    echo '{"status": "stopped"}'
+    exit 0
+  fi
+  sleep 0.1
+done
+echo '{"status": "unconfirmed", "error": "Server did not acknowledge shutdown"}'
+exit 1

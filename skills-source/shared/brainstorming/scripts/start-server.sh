@@ -87,15 +87,12 @@ STATE_DIR="${SESSION_DIR}/state"
 PID_FILE="${STATE_DIR}/server.pid"
 LOG_FILE="${STATE_DIR}/server.log"
 
-# Create fresh session directory with content and state peers
-mkdir -p "${SESSION_DIR}/content" "$STATE_DIR"
-
-# Kill any existing server
-if [[ -f "$PID_FILE" ]]; then
-  old_pid=$(cat "$PID_FILE")
-  kill "$old_pid" 2>/dev/null
-  rm -f "$PID_FILE"
+# Refuse a collision rather than trusting a pre-existing PID or session tree.
+if ! mkdir -p "$(dirname "$SESSION_DIR")" || ! mkdir "$SESSION_DIR"; then
+  echo '{"error": "Session directory already exists or could not be created"}'
+  exit 1
 fi
+mkdir -p "${SESSION_DIR}/content" "$STATE_DIR" || exit 1
 
 cd "$SCRIPT_DIR"
 
