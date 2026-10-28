@@ -204,8 +204,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- Two synthetic comparison files remain under ignored `tmp/tests/config-diff-example/` after
-  automated approval rejected their removal; they contain only fixture text.
+- None.
 
 ## Known boundaries
 
