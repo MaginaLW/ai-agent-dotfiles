@@ -63,6 +63,23 @@ try {
     $state = Get-Content -Raw (Join-Path $homeDir 'state/deployed-skills.json') | ConvertFrom-Json
     Assert-TestCondition ((@($state.Codex) -join ',') -eq 'alpha,beta') 'state records the deployed set'
 
+    Write-Host '[lost state does not authorize pruning]'
+    $lostStateHome = Join-Path $work 'lost-state-home'
+    Set-TestFile (Join-Path $lostStateHome '.codex/skills/.system/marker.txt') 'platform'
+    $r = Invoke-Deploy $repo $lostStateHome @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0) 'lost-state fixture starts with both managed skills'
+    Remove-Item -LiteralPath (Join-Path $lostStateHome 'state/deployed-skills.json')
+    Set-TestEnvironment $repo @('alpha')
+    $r = Invoke-Deploy $repo $lostStateHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Claude\s+unknown\s+beta' -and $r.Out -match 'Codex\s+unknown\s+beta' -and $r.Out -notmatch '(?m)^\s*(Claude|Codex)\s+prune\s+beta') 'previously deployed beta becomes unknown when state is lost'
+    $r = Invoke-Deploy $repo $lostStateHome @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0 -and (Test-Path (Join-Path $lostStateHome '.claude/skills/beta/SKILL.md')) -and (Test-Path (Join-Path $lostStateHome '.codex/skills/beta/SKILL.md'))) 'apply preserves formerly managed directories that are now unknown'
+    $r = Invoke-Deploy $repo $lostStateHome @('-Retire', 'beta')
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Claude\s+prune\s+beta' -and $r.Out -match 'Codex\s+prune\s+beta' -and (Test-Path (Join-Path $lostStateHome '.claude/skills/beta/SKILL.md'))) 'explicit retire is visible in dry run without removing beta'
+    $r = Invoke-Deploy $repo $lostStateHome @('-Apply', '-Retire', 'beta')
+    Assert-TestCondition ($r.Code -eq 0 -and -not (Test-Path (Join-Path $lostStateHome '.claude/skills/beta')) -and -not (Test-Path (Join-Path $lostStateHome '.codex/skills/beta')) -and (Get-Content -Raw (Join-Path $lostStateHome '.codex/skills/.system/marker.txt')) -eq 'platform') 'explicit retirement removes beta while preserving .system'
+    Set-TestEnvironment $repo @('alpha', 'beta')
+
     Write-Host '[legacy state is ignored and retired on apply]'
     $statePath = Join-Path $homeDir 'state/deployed-skills.json'
     $oldState = Get-Content -Raw $statePath | ConvertFrom-Json -AsHashtable
