@@ -9,6 +9,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Everyday experience (2026-10-28).** The daily command examples no longer depend on a
+  session variable and call out pruning when switching environments. The unified CLI has a
+  `help` command, and deployment plans include action counts while retaining per-item review.
+  The manual explains that Apply recomputes its plan and starts immediately. CLI and deployment
+  fixture suites, PowerShell syntax, diff checks and the secret scan passed locally; no live
+  Apply was performed for this change.
 - **Config review branch cleanup (2026-10-28).** The owner authorized deletion of local
   `codex/config-field-review` at `49ac06c416f7cb3ccb113110005b28a958f3e6d8`. Before deletion,
   `git cherry -v main` reported its one commit as equivalent to a change in `main`, the range
