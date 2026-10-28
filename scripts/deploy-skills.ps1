@@ -132,6 +132,11 @@ $plan = foreach ($platform in $platforms) {
 }
 
 $plan | Sort-Object Platform, Action, Name | Format-Table Platform, Action, Name -AutoSize | Out-String | Write-Host
+$summary = foreach ($action in 'install', 'update', 'unchanged', 'prune', 'unknown') {
+    $count = @($plan | Where-Object { $null -ne $_ -and $_.Action -eq $action }).Count
+    "${action}=$count"
+}
+Write-Host ("Plan summary: " + ($summary -join '  '))
 foreach ($step in @($plan | Where-Object Action -eq 'update')) {
     if ($step.Name -notin @($state[$step.Platform])) {
         Write-Host "Update not recorded in deploy state: $($step.Platform)/$($step.Name). Existing content will be backed up and overwritten; ownership is unknown."

@@ -67,6 +67,7 @@
   install/update/prune 时，先备份该操作的两个残留路径再清理；其他残留只报告，不自动清理。
   合法名称可能使一个 skill 的暂存路径与另一个 skill 的旧目录路径重合，所以不能仅凭名称判断其归属。
 - `update` 和 `prune` 前先备份旧目录（§8）。
+- 逐项计划后显示各操作的数量汇总；汇总不能代替逐项审查。
 - 已部署集合记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`（每台机器各自一份）。
   没有该文件时首次运行不 prune；Apply 失败时保留旧状态。
 
@@ -79,6 +80,8 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Apply
 
 `-Apply` 会写真实 home：先审查 dry-run 的每一行，取得所有者授权后再执行。统一 CLI 的 `sync` 与
 `env deploy <name>` 转发到同一脚本（§14）。仓库不安装 Git hooks，`git pull` 不会自动部署。
+dry-run 和 Apply 各自重新计算计划；审核后如果源、live 目标或部署状态变化，重新 dry-run 并审核后再授权。
+Apply 显示其计划后立即开始执行，不会暂停等待确认。
 多台机器同步：一台修改并 push 后，其余机器各自 `git pull --ff-only` 再走本流程；部署状态每台机器各自
 记录，互不复制。
 

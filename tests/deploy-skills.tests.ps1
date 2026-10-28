@@ -38,6 +38,27 @@ try {
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir '.claude/skills/alpha'))) 'dry run installs nothing'
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir 'state'))) 'dry run writes no state'
 
+    Write-Host '[plan summary counts mixed and empty plans]'
+    $summaryHome = Join-Path $work 'summary-home'
+    foreach ($platform in 'claude', 'codex') {
+        Set-TestFile (Join-Path $repo "$platform/skills/summary-extra/SKILL.md") "# summary-extra v1`n"
+    }
+    Set-TestEnvironment $repo @('alpha', 'beta', 'summary-extra')
+    Set-TestFile (Join-Path $summaryHome '.claude/skills/alpha/SKILL.md') "# alpha v1`n"
+    Set-TestFile (Join-Path $summaryHome '.claude/skills/beta/SKILL.md') 'older beta'
+    Set-TestFile (Join-Path $summaryHome '.claude/skills/obsolete/SKILL.md') 'obsolete'
+    Set-TestFile (Join-Path $summaryHome '.claude/skills/manual/SKILL.md') 'manual'
+    Set-TestFile (Join-Path $summaryHome 'state/deployed-skills.json') '{"Claude":["obsolete"],"Codex":[],"Zcode":[]}'
+    $summaryStateHash = (Get-FileHash (Join-Path $summaryHome 'state/deployed-skills.json')).Hash
+    $r = Invoke-Deploy $repo $summaryHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Plan summary: install=4\s+update=1\s+unchanged=1\s+prune=1\s+unknown=1') 'mixed plan reports each action count'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $summaryHome '.claude/skills/beta/SKILL.md')) -eq 'older beta' -and (Test-Path (Join-Path $summaryHome '.claude/skills/obsolete/SKILL.md')) -and -not (Test-Path (Join-Path $summaryHome '.claude/skills/summary-extra')) -and (Get-FileHash (Join-Path $summaryHome 'state/deployed-skills.json')).Hash -eq $summaryStateHash) 'mixed dry run preserves live content and state'
+    Set-TestEnvironment $repo @()
+    $emptyHome = Join-Path $work 'empty-home'
+    $r = Invoke-Deploy $repo $emptyHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Plan summary: install=0\s+update=0\s+unchanged=0\s+prune=0\s+unknown=0' -and -not (Test-Path $emptyHome)) 'empty plan reports zero counts without writing home or state'
+    Set-TestEnvironment $repo @('alpha', 'beta')
+
     Write-Host '[review updates absent from deploy state]'
     $reviewHome = Join-Path $work 'review-home'
     Set-TestFile (Join-Path $reviewHome '.claude/skills/alpha/SKILL.md') 'existing content'
