@@ -9,6 +9,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Config review branch cleanup (2026-10-28).** The owner authorized deletion of local
+  `codex/config-field-review` at `49ac06c416f7cb3ccb113110005b28a958f3e6d8`. Before deletion,
+  `git cherry -v main` reported its one commit as equivalent to a change in `main`, the range
+  contained no merges, and no worktree used the branch. A verified recovery bundle remains in
+  ignored `tmp/branch-recovery/config-field-review-49ac06c.bundle`.
 - **Deployment and config review (2026-10-28).** Deployment plans report interrupted
   `.deploying-*` directories and flag updates not recorded in deploy state without asserting
   ownership. An Apply that changes a skill backs up both potentially overlapping interrupted
