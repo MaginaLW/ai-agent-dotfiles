@@ -13,7 +13,7 @@ Build exactly what the current problem requires. No less, no more.
 
 ## Step 1 — Requirement Filter (YAGNI)
 
-Before writing any code, ask: is this explicitly required by the current task or an explicit stakeholder requirement?
+Before writing any code, ask: is this required by the current task, including necessary authorized validation and documentation, or an explicit stakeholder requirement?
 
 - NO → Do not build it. Stop.
 - YES → Continue to Step 2.
@@ -24,7 +24,7 @@ If uncertain, default to not building it. A missing feature is easier to add tha
 
 Ask: does something already exist in the codebase that solves this?
 
-- YES → Reuse it. Stop.
+- YES → Reuse it when it fully fits; extend it only as needed when it partly fits. Stop if no further work is needed.
 - NO → Continue to Step 3.
 
 Search the codebase before implementing. Prefer extending an existing solution over creating a parallel one.
@@ -33,7 +33,7 @@ Search the codebase before implementing. Prefer extending an existing solution o
 
 Ask: what is the simplest correct implementation?
 
-First, name the built-in. Before writing any parsing, formatting, validation, retry, or data-shaping logic, name the standard library or platform feature that already does it. If you can name it, use it — even if you have to look up its exact API. Hand-rolling a built-in is a defect, not a style choice.
+First, check for a standard library or platform feature that fits the requirements and environment. Prefer it over custom parsing, formatting, validation, retry, or data-shaping logic when it actually meets the need.
 
 Use current idiomatic language features — modern syntax is typically shorter and clearer. But existing project conventions win: a codebase on old style stays old style.
 
@@ -69,7 +69,7 @@ For detailed decision trees and worked examples, read `references/decision-frame
 Before completing any task, run this checklist:
 
 - [ ] Could any block here be replaced by a standard library or platform built-in?
-- [ ] Does the exported name and signature match exactly what was asked?
+- [ ] Does the exported name or signature fail to match what was asked?
 - [ ] Did I add anything the current requirement did not ask for?
 - [ ] Did I create an abstraction without enough proven evidence?
 

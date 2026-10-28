@@ -73,11 +73,10 @@ You MUST complete each phase before proceeding to the next.
 
    **WHEN system has multiple components (CI → build → signing, API → service → database):**
 
-   **BEFORE proposing fixes, add diagnostic instrumentation:**
+   **Before proposing fixes, inspect existing evidence and instrument only the boundaries needed:**
    ```
-   For EACH component boundary:
-     - Log what data enters component
-     - Log what data exits component
+   For relevant component boundaries:
+     - Check what data enters and exits, without exposing secrets or private values
      - Verify environment/config propagation
      - Check state at each layer
 
@@ -86,26 +85,7 @@ You MUST complete each phase before proceeding to the next.
    THEN investigate that specific component
    ```
 
-   **Example (multi-layer system):**
-   ```bash
-   # Layer 1: Workflow
-   echo "=== Secrets available in workflow: ==="
-   echo "IDENTITY: ${IDENTITY:+SET}${IDENTITY:-UNSET}"
-
-   # Layer 2: Build script
-   echo "=== Env vars in build script: ==="
-   env | grep IDENTITY || echo "IDENTITY not in environment"
-
-   # Layer 3: Signing script
-   echo "=== Keychain state: ==="
-   security list-keychains
-   security find-identity -v
-
-   # Layer 4: Actual signing
-   codesign --sign "$IDENTITY" --verbose=4 "$APP"
-   ```
-
-   **This reveals:** Which layer fails (secrets → workflow ✓, workflow → build ✗)
+   For example, report only whether a required environment variable is present at each relevant boundary; do not print its value or perform a real signing operation merely to diagnose propagation.
 
 5. **Trace Data Flow**
 
@@ -175,10 +155,10 @@ You MUST complete each phase before proceeding to the next.
    - Simplest possible reproduction
    - Automated test if possible
    - One-off test script if no framework
-   - MUST have before fixing
+   - Reproduce before fixing when safe and feasible; otherwise record the limitation and use the best available evidence
    - Capture the smallest input and observable expected result that expose the defect
-   - Run the case before the fix and confirm it fails for the investigated reason, not a setup error
-   - Keep a useful automated regression in the existing test suite; for a non-automatable issue, record reproducible steps and the observed failure
+   - When reproducible, run the case before the fix and confirm it fails for the investigated reason, not a setup error
+   - Keep a useful automated regression when warranted; otherwise record the observed failure, available reproduction steps and verification limits
 
 2. **Implement Single Fix**
    - Address the root cause identified
@@ -195,8 +175,7 @@ You MUST complete each phase before proceeding to the next.
    - STOP
    - Count: How many fixes have you tried?
    - If < 3: Return to Phase 1, re-analyze with new information
-   - **If ≥ 3: STOP and question the architecture (step 5 below)**
-   - DON'T attempt Fix #4 without architectural discussion
+   - If repeated hypotheses fail, reassess assumptions and consider whether the architecture is involved before another attempt
 
 5. **If 3+ Fixes Failed: Question Architecture**
 
@@ -210,9 +189,7 @@ You MUST complete each phase before proceeding to the next.
    - Are we "sticking with it through sheer inertia"?
    - Should we refactor architecture vs. continue fixing symptoms?
 
-   **Discuss with your human partner before attempting more fixes**
-
-   This is NOT a failed hypothesis - this is a wrong architecture.
+   Check the evidence before concluding the architecture is wrong. Ask the user only when a consequential direction or required authorization is missing; continue independent investigation otherwise.
 
 ## Red Flags - STOP and Follow Process
 
@@ -220,7 +197,7 @@ If you catch yourself thinking:
 - "Quick fix for now, investigate later"
 - "Just try changing X and see if it works"
 - "Add multiple changes, run tests"
-- "Skip the test, I'll manually verify"
+- "Skip verification without explaining why"
 - "It's probably X, let me fix that"
 - "I don't fully understand but this might work"
 - "Pattern says X but I'll adapt it differently"
@@ -251,11 +228,11 @@ If you catch yourself thinking:
 | "Issue is simple, don't need process" | Simple issues have root causes too. Process is fast for simple bugs. |
 | "Emergency, no time for process" | Systematic debugging is FASTER than guess-and-check thrashing. |
 | "Just try this first, then investigate" | First fix sets the pattern. Do it right from the start. |
-| "I'll write test after confirming fix works" | Untested fixes don't stick. Test first proves it. |
+| "I'll skip checking the original failure" | Verify the original failure when feasible and report any reproduction limits. |
 | "Multiple fixes at once saves time" | Can't isolate what worked. Causes new bugs. |
 | "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs. Read it completely. |
 | "I see the problem, let me fix it" | Seeing symptoms ≠ understanding root cause. |
-| "One more fix attempt" (after 2+ failures) | 3+ failures = architectural problem. Question pattern, don't fix again. |
+| "One more fix attempt" (after repeated failures) | Reassess the evidence and assumptions before another attempt. |
 
 ## Quick Reference
 
@@ -275,8 +252,6 @@ If systematic investigation reveals issue is truly environmental, timing-depende
 3. Implement appropriate handling (retry, timeout, error message)
 4. Add monitoring/logging for future investigation
 
-**But:** 95% of "no root cause" cases are incomplete investigation.
-
 ## Supporting Techniques
 
 These techniques are part of systematic debugging and available in this directory:
@@ -287,11 +262,3 @@ These techniques are part of systematic debugging and available in this director
 
 **Related skills:**
 - **verification-before-completion** - When available, verify the fix worked before claiming success; Phase 4 above provides the essential checks without another skill
-
-## Real-World Impact
-
-From debugging sessions:
-- Systematic approach: 15-30 minutes to fix
-- Random fixes approach: 2-3 hours of thrashing
-- First-time fix rate: 95% vs 40%
-- New bugs introduced: Near zero vs common

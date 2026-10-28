@@ -13,9 +13,7 @@ Assume the executor is capable but has little context. Give them the purpose, re
 
 **Announce at start:** "I'm using the writing-plans skill to create the execution plan."
 
-**Save plans to:** `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`
-- User preferences for plan location override this default.
-- Outside a repo, create a normal Markdown plan in the current workspace or present the plan in the conversation if no durable file is useful.
+Save durable plans where the user or project convention specifies. If no durable plan is needed, keep the plan in the conversation; do not create a new directory solely for this skill.
 
 ## Scope Check
 
@@ -35,6 +33,7 @@ Too broad:
 ## Work Structure
 
 Before defining tasks, map the work into clear units. For each unit, name what it produces, what it depends on, and how it will be checked.
+For parallelizable work, identify the sequential dependency chain, independent batches and a suitable concurrency level; account for available agents and conflicting write scopes.
 
 Use whatever structure fits the domain:
 - **Artifacts:** documents, spreadsheets, slides, files, code, diagrams, notes, datasets, tickets, emails, decisions.
@@ -63,7 +62,7 @@ Every plan MUST start with this header:
 ```markdown
 # [Outcome Name] Execution Plan
 
-> **For agentic workers:** REQUIRED EXECUTION FLOW: Use `subagent-driven-development` to execute this plan task-by-task when subagents are available. If no subagent capability is available, execute inline with the same task checklist and review checkpoints.
+> **For agentic workers:** Follow applicable delegation and workspace rules; execute independent tasks in parallel when permitted and useful, and review their results.
 
 **Goal:** [One sentence describing the outcome]
 
@@ -137,17 +136,4 @@ Fix issues inline before handing off.
 
 ## Execution Handoff
 
-After saving the plan, hand off execution:
-
-> "Plan complete and saved to `docs/superpowers/plans/<filename>.md`. Recommended next step: use `subagent-driven-development` so each task gets a fresh executor plus review. If this environment has no subagent capability, I can execute inline using the same checklist and review checkpoints."
-
-If subagent-driven execution is available:
-- Use `subagent-driven-development`.
-- Fresh subagent per task.
-- Review after each task: requirements match first, quality second.
-
-If executing inline:
-- Follow the same task order.
-- Run the stated checks.
-- Mark checkboxes as work is completed.
-- Do not skip review just because there is no subagent.
+Continue authorized execution after planning. Delegate only when permitted and useful, and use the available review process; otherwise execute and review inline. Respect an explicit plan-only request, and ask only when a missing decision or required authorization blocks the next action.

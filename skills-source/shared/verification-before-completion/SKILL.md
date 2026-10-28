@@ -1,6 +1,6 @@
 ---
 name: verification-before-completion
-description: Use before claiming work is complete, fixed, or passing, and before commits or pull requests; run fresh verification and cite the observed result.
+description: Use before claiming work is complete, fixed, or passing, and before commits or pull requests; verify the current state and cite the observed result.
 ---
 
 # Verification Before Completion
@@ -19,7 +19,7 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 ```
 
-If you haven't run the verification command in this message, you cannot claim it passes.
+Use evidence from checks that cover the current state. Rerun when relevant changes, failures or unresolved doubts make earlier evidence stale; do not repeat a valid check solely because another message was sent.
 
 ## The Gate Function
 
@@ -27,7 +27,7 @@ If you haven't run the verification command in this message, you cannot claim it
 BEFORE claiming any status or expressing satisfaction:
 
 1. IDENTIFY: What command proves this claim?
-2. RUN: Execute the FULL command (fresh, complete)
+2. RUN: Execute the appropriate complete check, or reuse a still-valid result for the unchanged state
 3. READ: Full output, check exit code, count failures
 4. VERIFY: Does output confirm the claim?
    - If NO: State actual status with evidence
@@ -41,7 +41,7 @@ Skip any step = lying, not verifying
 
 | Claim | Requires | Not Sufficient |
 |-------|----------|----------------|
-| Tests pass | Test command output: 0 failures | Previous run, "should pass" |
+| Tests pass | Applicable test command output: 0 failures for the current state | A stale run, "should pass" |
 | Linter clean | Linter output: 0 errors | Partial check, extrapolation |
 | Build succeeds | Build command: exit 0 | Linter passing, logs look good |
 | Bug fixed | Test original symptom: passes | Code changed, assumed fixed |
@@ -83,8 +83,8 @@ Skip any step = lying, not verifying
 
 **Regression tests (TDD Red-Green):**
 ```
-✅ Write → Run (pass) → Revert fix → Run (MUST FAIL) → Restore → Run (pass)
-❌ "I've written a regression test" (without red-green verification)
+✅ Reproduce the failure before the fix → apply the fix → run the same case successfully
+❌ Claim the test catches the original defect without confirming the pre-fix failure
 ```
 
 **Build:**
@@ -118,11 +118,7 @@ From 24 failure memories:
 
 **ALWAYS before:**
 - ANY variation of success/completion claims
-- ANY expression of satisfaction
-- ANY positive statement about work state
 - Committing, PR creation, task completion
-- Moving to next task
-- Delegating to agents
 
 **Rule applies to:**
 - Exact phrases
@@ -134,6 +130,6 @@ From 24 failure memories:
 
 **No shortcuts for verification.**
 
-Run the command. Read the output. THEN claim the result.
+Run the appropriate check, or use its still-valid result for the unchanged state. Read the output before claiming the result.
 
 This is non-negotiable.

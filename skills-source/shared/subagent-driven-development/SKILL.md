@@ -5,7 +5,7 @@ description: Use when executing multi-step plans with independent tasks in the c
 
 # Subagent-Driven Execution
 
-Execute an approved plan by dispatching a fresh subagent for each independent task, then reviewing the result before moving on. The historical skill name says "development", but this workflow is useful for any planned work: writing, research, analysis, document production, operations, and software.
+Execute authorized work by delegating independent tasks when permitted and useful, then review their results. The historical skill name says "development", but this workflow is useful for planned work across domains.
 
 **Core principle:** fresh context per task plus review checkpoints gives better work than one overloaded session trying to remember everything.
 
@@ -14,30 +14,30 @@ Execute an approved plan by dispatching a fresh subagent for each independent ta
 ## When To Use
 
 Use this when:
-- A written plan exists.
+- The work has a plan or clear task breakdown.
 - Tasks are mostly independent or can be executed sequentially without heavy shared state.
 - Subagents are available in the current environment.
 - Each task has clear acceptance criteria or can be reviewed against the plan.
 
 Do not use this when:
-- There is no plan yet. Use `brainstorming` or `writing-plans` first.
+- The task breakdown is too unclear to assign safely; clarify or plan first.
 - The work is one tiny edit that is faster and safer inline.
 - The task requires one continuous conversation with the user.
 - Subagents are unavailable; execute inline with the same checklist and review discipline instead.
 
 ## Process
 
-1. Read the plan once.
+1. Read the plan or task breakdown once.
 2. Extract every task with its full text, context, artifacts, and checks.
 3. Create a task tracker using TodoWrite, Codex `update_plan`, a Markdown checklist, or the platform equivalent.
-4. For each task:
+4. Dispatch independent tasks in parallel when permitted, with non-overlapping write scopes; keep dependent tasks sequential. For each task:
    - Dispatch an implementer/executor subagent using `./implementer-prompt.md`.
    - Give the subagent the full task text. Do not make it rediscover the plan.
    - Answer clarification questions with only the needed context.
    - After the subagent reports back, inspect the actual outputs.
-   - Dispatch a requirements reviewer using `./spec-reviewer-prompt.md`.
+   - Review requirements yourself or, when useful and permitted, dispatch a reviewer using `./spec-reviewer-prompt.md`.
    - If requirements are missing or extra work was added, send the task back for correction and re-review.
-   - Dispatch a quality reviewer using `./code-quality-reviewer-prompt.md`. Despite the filename, this prompt covers general quality as well as code quality.
+   - Review quality yourself or, when useful and permitted, dispatch a reviewer using `./code-quality-reviewer-prompt.md`. The prompt covers general quality as well as code quality.
    - If quality issues matter, correct them and re-review.
    - Mark the task complete only after requirements and quality both pass.
 5. After all tasks, run the plan's final validation checks.
@@ -93,7 +93,7 @@ Never:
 - Accept "close enough" when the reviewer found a real mismatch.
 - Move to the next task while review issues remain unresolved.
 - Treat a subagent's success report as proof without inspecting the output.
-- Commit, push, send, publish, delete, or apply irreversible changes unless the user or plan explicitly authorizes it.
+- Exceed the user's authorization or the applicable project and platform rules for commits, pushes, messages, publication, deletion, or live changes.
 
 ## Fallback
 
