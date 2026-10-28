@@ -154,7 +154,7 @@ deploy-skills 在 `update` 或 `prune` 一个目录前，把旧目录复制到�
   在写状态前失败）显示 `prune`，成功的 Apply 已把它从状态移除后显示 `unknown`，需要再删时用
   `-Retire` 点名。
 
-备份不含 Codex `.system`、unknown 目录和 home 配置；整机 home 恢复由平台/所有者自行处理。
+备份不含 Codex `.system`、未选中且未点名退休的 unknown 目录和 home 配置；整机 home 恢复由平台/所有者自行处理。
 config-pull 的备份见 §11。
 
 ---
@@ -192,7 +192,8 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
 - `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
   Claude `settings.json` 两侧都是不同的 JSON 对象时，普通文本输出还显示字段的 JSON Pointer 路径：
   `home-only` 字段会在整文件 pull 后消失，`repo-only` 字段会新增，`changed` 或 `type-changed` 字段会替换。
-  输出字段名但不输出字段值；数组按整体比较。JSON 无效、键重复或根不是对象时报告无法比较，须手工检查。
+  输出字段名但不输出字段值；字段名本身可能包含私有信息，分享终端输出前须审查。数组按整体比较。
+  JSON 无效、键重复或根不是对象时报告无法比较，须手工检查。
   非 JSON 文件仍只报告文件级差异；`-Json` 保持原有文件级数组格式，不包含字段摘要。
 - `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再复制，
   若计划更新 Claude `settings.json`，dry-run 会提示整文件覆盖风险，并指向同一 repo/home 的字段差异状态报告；

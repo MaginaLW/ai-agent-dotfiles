@@ -9,6 +9,16 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Deployment and config review (2026-10-28).** Deployment plans report interrupted
+  `.deploying-*` directories and flag updates not recorded in deploy state without asserting
+  ownership. An Apply that changes that skill preserves its interrupted old directory in a
+  backup before removing it, and caught Apply failures report any backup location. Claude `settings.json`
+  status shows field paths without values; pull dry-run warns about whole-file replacement.
+  Isolated deployment and config fixtures cover these cases; no live Apply was performed.
+- **Skill assessment (2026-10-28).** Representative coding, review, debugging and research
+  writing cases were checked against the five `work` skill instructions. The static review
+  found no evidence of a repeated problem requiring a skill or selection change. Actual
+  trigger rates, quality and time cost were not measured; the cases are not runtime results.
 - **Skill personalization (2026-10-28).** All 17 managed skills and the MCP boundary were
   reviewed. Evidence-backed updates cover research writing, review, planning, debugging,
   verification, security and Windows use. The brainstorm helper now requests shutdown through
