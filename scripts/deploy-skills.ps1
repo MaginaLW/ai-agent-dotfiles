@@ -153,11 +153,18 @@ foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune'
         New-Item -ItemType Directory -Path (Split-Path -Parent $backup) -Force | Out-Null
         Copy-Item -LiteralPath $step.Target -Destination $backup -Recurse -Force
     }
-    # Preserve an interrupted old directory even when the target is absent. It may be the
-    # only copy of the previous live content; never discard it before the backup succeeds.
+    # Both names can contain interrupted data: .deploying-old-alpha is also the staging
+    # name for the valid skill old-alpha. Preserve either leftover before deleting it.
     New-Item -ItemType Directory -Path $liveRoot -Force | Out-Null
     $staging = Join-Path $liveRoot ".deploying-$($step.Name)"
     $retired = Join-Path $liveRoot ".deploying-old-$($step.Name)"
+    if (Test-Path -LiteralPath $staging) {
+        Assert-DeploySkillsPlainTree $staging
+        $stagingBackup = Join-Path $backupRoot "interrupted-staging\$($step.Platform)\$($step.Name)"
+        New-Item -ItemType Directory -Path (Split-Path -Parent $stagingBackup) -Force | Out-Null
+        Copy-Item -LiteralPath $staging -Destination $stagingBackup -Recurse -Force
+        Write-Host "Preserved interrupted directory: $staging -> $stagingBackup"
+    }
     if (Test-Path -LiteralPath $retired) {
         Assert-DeploySkillsPlainTree $retired
         $interruptedBackup = Join-Path $backupRoot "interrupted\$($step.Platform)\$($step.Name)"

@@ -64,7 +64,8 @@
 - 其余 live 目录是 unknown，只报告不碰。Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
 - 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时不会半删旧目录。
   两次改名之间中断时目标可能暂时缺失。计划会报告 `.deploying-*` 残留及备份根；再次对该 skill 做
-  install/update/prune 时，先备份残留的 `.deploying-old-<name>` 再清理残留。其他残留只报告，不自动清理。
+  install/update/prune 时，先备份该操作的两个残留路径再清理；其他残留只报告，不自动清理。
+  合法名称可能使一个 skill 的暂存路径与另一个 skill 的旧目录路径重合，所以不能仅凭名称判断其归属。
 - `update` 和 `prune` 前先备份旧目录（§8）。
 - 已部署集合记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`（每台机器各自一份）。
   没有该文件时首次运行不 prune；Apply 失败时保留旧状态。
@@ -139,10 +140,12 @@ deploy-skills 在 `update` 或 `prune` 一个目录前，把旧目录复制到�
 ```text
 <StateRoot>\skill-backups\<stamp>\<Platform>\<name>
 <StateRoot>\skill-backups\<stamp>\interrupted\<Platform>\<name>
+<StateRoot>\skill-backups\<stamp>\interrupted-staging\<Platform>\<name>
 ```
 
-第二种路径保存的是上次中断留下的旧目录。先检查残留、备份和目标内容，决定是按以下方式恢复旧内容，
-还是在审查计划并取得授权后再次 Apply 安装当前选集；不要根据残留名称推断它一定是完整备份。
+后两种路径分别保存本次操作所用的旧目录路径和暂存路径上的残留。名称可能重合，内容不一定属于本次操作的
+skill；先检查残留、备份和目标内容，决定是按以下方式恢复旧内容，还是在审查计划并取得授权后再次 Apply
+安装当前选集。不要根据残留名称推断它一定是完整备份。
 
 恢复方式：
 

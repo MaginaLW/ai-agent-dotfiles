@@ -175,6 +175,29 @@ try {
     $r = Invoke-Deploy $repo $blockedHome @('-Apply')
     Assert-TestCondition ($r.Code -ne 0 -and (Get-Content -Raw (Join-Path $blockedRoot '.deploying-old-alpha/SKILL.md')) -eq "# alpha v2`n") 'backup failure leaves the interrupted old directory untouched'
 
+    Write-Host '[overlapping temporary names preserve interrupted data]'
+    $overlapHome = Join-Path $work 'overlap-home'
+    foreach ($platform in 'claude', 'codex') {
+        Set-TestFile (Join-Path $repo "$platform/skills/old-alpha/SKILL.md") "# old-alpha v1`n"
+    }
+    Set-TestEnvironment $repo @('alpha', 'old-alpha')
+    $r = Invoke-Deploy $repo $overlapHome @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0) 'overlap fixture deploys alpha and old-alpha'
+    $overlapRoot = Join-Path $overlapHome '.claude/skills'
+    Rename-Item -LiteralPath (Join-Path $overlapRoot 'alpha') -NewName '.deploying-old-alpha'
+    Set-TestFile (Join-Path $repo 'claude/skills/old-alpha/SKILL.md') "# old-alpha v2`n"
+    Set-TestEnvironment $repo @('old-alpha')
+    $r = Invoke-Deploy $repo $overlapHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match '\.deploying-old-alpha') 'dry run reports the ambiguous interrupted directory'
+    $overlapLock = [IO.File]::Open((Join-Path $overlapRoot '.deploying-old-alpha/SKILL.md'), 'Open', 'Read', 'None')
+    try { $r = Invoke-Deploy $repo $overlapHome @('-Apply') } finally { $overlapLock.Dispose() }
+    Assert-TestCondition ($r.Code -ne 0 -and (Get-Content -Raw (Join-Path $overlapRoot '.deploying-old-alpha/SKILL.md')) -eq "# alpha v2`n" -and (Get-Content -Raw (Join-Path $overlapRoot 'old-alpha/SKILL.md')) -eq "# old-alpha v1`n") 'failed staging backup leaves both the interrupted data and current target intact'
+    $r = Invoke-Deploy $repo $overlapHome @('-Apply')
+    $overlapBackups = @(Get-ChildItem -LiteralPath (Join-Path $overlapHome 'state/skill-backups') -Recurse -File -Filter SKILL.md | Where-Object { $_.FullName -match '[\\/]interrupted-staging[\\/]Claude[\\/]old-alpha[\\/]' })
+    Assert-TestCondition ($r.Code -eq 0 -and $overlapBackups.Count -eq 1 -and (Get-Content -Raw $overlapBackups[0].FullName) -eq "# alpha v2`n") 'ambiguous staging name is backed up before it is removed'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $overlapRoot 'old-alpha/SKILL.md')) -eq "# old-alpha v2`n") 'the requested update still completes'
+    Set-TestEnvironment $repo @('alpha')
+
     Write-Host '[Zcode projects the Claude generated output]'
     $zcodeRoot = Join-Path $homeDir '.zcode/skills'
     Set-TestFile (Join-Path $zcodeRoot 'hand-made-z/SKILL.md') 'manual'

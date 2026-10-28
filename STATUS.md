@@ -11,17 +11,16 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 - **Deployment and config review (2026-10-28).** Deployment plans report interrupted
   `.deploying-*` directories and flag updates not recorded in deploy state without asserting
-  ownership. An Apply that changes that skill preserves its interrupted old directory in a
-  backup before removing it, and caught Apply failures report any backup location. Claude `settings.json`
+  ownership. An Apply that changes a skill backs up both potentially overlapping interrupted
+  paths before removing them, and caught Apply failures report any backup location. Claude `settings.json`
   status shows field paths without values; pull dry-run warns about whole-file replacement.
   Isolated deployment and config fixtures cover these cases; no live Apply was performed.
-- **Skill assessment (2026-10-28).** Representative coding, review, debugging and research
-  writing cases were checked against the five `work` skill instructions. The static review
-  found no evidence of a repeated problem requiring a skill or selection change. A manual,
-  no-write trial on a three-sentence manuscript excerpt preserved fixed field parameters,
-  global collocation and the exclusion of reference-response supervision; it is not a
-  scientific validation. Local evidence is in ignored `tmp/skill-assessment-20261028.md`.
-  Trigger rates and comparative quality and time cost were not measured.
+- **Skill assessment (2026-10-28).** Four owner-authorized read-only cases covered coding,
+  review, debugging and research writing; workers reported using the relevant skill for each.
+  The review identified a temporary-name collision, reproduced in an isolated test and fixed.
+  The writing trial is not a scientific validation. Local evidence and limitations are in
+  ignored `tmp/skill-assessment-20261028.md`; trigger rates and comparative quality and cost
+  were not measured. No skill or environment selection change was justified by these samples.
 - **Skill personalization (2026-10-28).** All 17 managed skills and the MCP boundary were
   reviewed. Evidence-backed updates cover research writing, review, planning, debugging,
   verification, security and Windows use. The brainstorm helper now requests shutdown through
