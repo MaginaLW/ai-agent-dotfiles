@@ -14,7 +14,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   ownership. An Apply that changes a skill backs up both potentially overlapping interrupted
   paths before removing them, and caught Apply failures report any backup location. Claude `settings.json`
   status shows field paths without values; pull dry-run warns about whole-file replacement.
-  Isolated deployment and config fixtures cover these cases; no live Apply was performed.
+  Isolated deployment and config fixtures cover these cases. An owner-authorized `full` Apply
+  on 2026-10-28 found all 35 selected directories unchanged and refreshed deploy state; the
+  post-Apply dry run likewise reported all unchanged.
 - **Skill assessment (2026-10-28).** Four owner-authorized read-only cases covered coding,
   review, debugging and research writing; workers reported using the relevant skill for each.
   The review identified a temporary-name collision, reproduced in an isolated test and fixed.
