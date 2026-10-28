@@ -61,8 +61,9 @@
 - 每个目录给出 `install`、`update`、`unchanged`、`prune` 或 `unknown`；不带 `-Apply` 只打印计划。
 - `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录（三平台同时生效）。
 - 其余 live 目录是 unknown，只报告不碰。Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
-- 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时整体失败，不留半删的 skill。
-  残留的 `.deploying-*` 在下一次对该 skill 做 install/update/prune 时清理。
+- 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时不会半删旧目录。
+  两次改名之间中断时目标可能暂时缺失。计划会报告 `.deploying-*` 残留及备份根；再次对该 skill 做
+  install/update/prune 时，先备份残留的 `.deploying-old-<name>` 再清理残留。其他残留只报告，不自动清理。
 - `update` 和 `prune` 前先备份旧目录（§8）。
 - 已部署集合记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`（每台机器各自一份）。
   没有该文件时首次运行不 prune；Apply 失败时保留旧状态。
@@ -131,11 +132,16 @@ deploy-skills 永远跳过它，doctor 只检查根条目。装有 Codex CLI 且
 ## 8. 备份与恢复
 
 deploy-skills 在 `update` 或 `prune` 一个目录前，把旧目录复制到下面的路径（`<StateRoot>` 默认是
-`%LOCALAPPDATA%\ai-agent-dotfiles.deploy`）。每次 Apply 用一个新 `<stamp>`，结束时打印本次备份目录。
+`%LOCALAPPDATA%\ai-agent-dotfiles.deploy`）。每次 Apply 用一个新 `<stamp>`，成功或捕获异常时打印已创建的备份目录。
+进程被强制终止可能来不及打印，重新 dry-run 查看残留并在备份根下查找对应时间和平台。
 
 ```text
 <StateRoot>\skill-backups\<stamp>\<Platform>\<name>
+<StateRoot>\skill-backups\<stamp>\interrupted\<Platform>\<name>
 ```
+
+第二种路径保存的是上次中断留下的旧目录。先检查残留、备份和目标内容，决定是按以下方式恢复旧内容，
+还是在审查计划并取得授权后再次 Apply 安装当前选集；不要根据残留名称推断它一定是完整备份。
 
 恢复方式：
 

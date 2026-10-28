@@ -95,6 +95,7 @@ if (Test-Path -LiteralPath $statePath) {
 }
 foreach ($platform in $platforms) { if (-not $state.ContainsKey($platform)) { $state[$platform] = @() } }
 
+$interrupted = [System.Collections.Generic.List[object]]::new()
 $plan = foreach ($platform in $platforms) {
     $liveRoot = Get-DeploySkillsLiveRoot $platform
     # Zcode is a projection platform: it has no generated root of its own and deploys from the
@@ -107,6 +108,9 @@ $plan = foreach ($platform in $platforms) {
     }
     if ((Test-Path -LiteralPath $liveRoot) -and ((Get-Item -LiteralPath $liveRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "reparse-point-refused: $liveRoot" }
     $liveNames = if (Test-Path -LiteralPath $liveRoot) { @(Get-ChildItem -LiteralPath $liveRoot -Directory -Force | ForEach-Object Name) } else { @() }
+    foreach ($name in @($liveNames | Where-Object { $_.StartsWith('.deploying-') })) {
+        $interrupted.Add([pscustomobject]@{ Platform = $platform; Path = (Join-Path $liveRoot $name) })
+    }
 
     foreach ($name in $selected) {
         $source = Join-Path $sourceRoot $name
@@ -128,8 +132,14 @@ $plan = foreach ($platform in $platforms) {
 }
 
 $plan | Sort-Object Platform, Action, Name | Format-Table Platform, Action, Name -AutoSize | Out-String | Write-Host
+if ($interrupted.Count -gt 0) {
+    Write-Host 'Possible interrupted deployment remnants (inspect before applying):'
+    foreach ($item in $interrupted) { Write-Host "  $($item.Platform): $($item.Path)" }
+    Write-Host "Prior backups, if any: $(Join-Path $StateRoot 'skill-backups')"
+}
 if (-not $Apply) { Write-Host "Dry run for environment '$Environment'. Re-run with -Apply to make these changes."; return }
 
+try {
 foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune')) {
     $liveRoot = Split-Path -Parent $step.Target
     if ($step.Action -ne 'install') {
@@ -138,12 +148,18 @@ foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune'
         New-Item -ItemType Directory -Path (Split-Path -Parent $backup) -Force | Out-Null
         Copy-Item -LiteralPath $step.Target -Destination $backup -Recurse -Force
     }
-    # The live directory only ever changes by whole-directory renames: a locked file makes the
-    # rename fail as a unit instead of leaving a half-deleted skill. Leftover .deploying-* siblings
-    # are hidden from the planner and cleaned on the next run.
+    # Preserve an interrupted old directory even when the target is absent. It may be the
+    # only copy of the previous live content; never discard it before the backup succeeds.
     New-Item -ItemType Directory -Path $liveRoot -Force | Out-Null
     $staging = Join-Path $liveRoot ".deploying-$($step.Name)"
     $retired = Join-Path $liveRoot ".deploying-old-$($step.Name)"
+    if (Test-Path -LiteralPath $retired) {
+        Assert-DeploySkillsPlainTree $retired
+        $interruptedBackup = Join-Path $backupRoot "interrupted\$($step.Platform)\$($step.Name)"
+        New-Item -ItemType Directory -Path (Split-Path -Parent $interruptedBackup) -Force | Out-Null
+        Copy-Item -LiteralPath $retired -Destination $interruptedBackup -Recurse -Force
+        Write-Host "Preserved interrupted directory: $retired -> $interruptedBackup"
+    }
     foreach ($leftover in $staging, $retired) { if (Test-Path -LiteralPath $leftover) { Assert-DeploySkillsPlainTree $leftover; Remove-Item -LiteralPath $leftover -Recurse -Force } }
     if ($step.Action -ne 'prune') { Copy-Item -LiteralPath $step.Source -Destination $staging -Recurse }
     if (Test-Path -LiteralPath $step.Target) { Rename-Item -LiteralPath $step.Target -NewName (Split-Path -Leaf $retired) }
@@ -160,3 +176,8 @@ foreach ($platform in $platforms) { $deployed[$platform] = @($selection[$platfor
 $deployed | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding utf8
 Write-Host "Applied environment '$Environment'. State: $statePath"
 if (Test-Path -LiteralPath $backupRoot) { Write-Host "Backups: $backupRoot" }
+}
+catch {
+    if (Test-Path -LiteralPath $backupRoot) { Write-Warning "Apply failed; backups created so far: $backupRoot" }
+    throw
+}

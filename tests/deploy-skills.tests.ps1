@@ -108,11 +108,42 @@ try {
     Set-TestFile (Join-Path $repo 'codex/skills/alpha/SKILL.md') "# alpha v3`n"
     $lock = [IO.File]::Open((Join-Path $homeDir '.codex/skills/alpha/SKILL.md'), 'Open', 'Read', 'Read')
     try { $r = Invoke-Deploy $repo $homeDir @('-Apply') } finally { $lock.Dispose() }
-    Assert-TestCondition ($r.Code -ne 0) 'update over a locked file fails'
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Apply failed; backups created so far') 'update over a locked file fails and reports its backup location'
     Assert-TestCondition ((Test-Path (Join-Path $homeDir '.codex/skills/alpha/refs/a.md')) -and (Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v1`n") 'the live skill is left whole'
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -eq 0 -and (Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v3`n") 'the next run completes the update'
     Assert-TestCondition (-not @(Get-ChildItem -LiteralPath (Join-Path $homeDir '.codex/skills') -Directory -Force | Where-Object Name -like '.deploying-*')) 'leftover staging is cleaned'
+
+    Write-Host '[interrupted update preserves the old directory]'
+    $interruptedHome = Join-Path $work 'interrupted-home'
+    $r = Invoke-Deploy $repo $interruptedHome @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0) 'interrupted fixture is initially deployed'
+    $interruptedRoot = Join-Path $interruptedHome '.claude/skills'
+    $oldStatePath = Join-Path $interruptedHome 'state/deployed-skills.json'
+    $beforeState = Get-FileHash -LiteralPath $oldStatePath
+    New-Item -ItemType Directory -Path (Join-Path $interruptedHome 'state/skill-backups/prior/Claude') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $interruptedRoot 'alpha') -Destination (Join-Path $interruptedHome 'state/skill-backups/prior/Claude/alpha') -Recurse -Force
+    Rename-Item -LiteralPath (Join-Path $interruptedRoot 'alpha') -NewName '.deploying-old-alpha'
+    Set-TestFile (Join-Path $repo 'claude/skills/alpha/SKILL.md') "# alpha v5`n"
+    Copy-Item -LiteralPath (Join-Path $repo 'claude/skills/alpha') -Destination (Join-Path $interruptedRoot '.deploying-alpha') -Recurse
+    $r = Invoke-Deploy $repo $interruptedHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'interrupted' -and $r.Out -match '\.deploying-old-alpha' -and $r.Out -match 'skill-backups') 'dry run reports interrupted remnants and backup location'
+    Assert-TestCondition ((Get-FileHash -LiteralPath $oldStatePath).Hash -eq $beforeState.Hash -and (Test-Path (Join-Path $interruptedRoot '.deploying-old-alpha/SKILL.md'))) 'dry run preserves state and old directory'
+    $r = Invoke-Deploy $repo $interruptedHome @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Preserved interrupted') 'apply explicitly reports preservation of the old directory'
+    $preserved = @(Get-ChildItem -LiteralPath (Join-Path $interruptedHome 'state/skill-backups') -Recurse -File -Filter SKILL.md | Where-Object { $_.FullName -match '[\\/]interrupted[\\/]Claude[\\/]alpha[\\/]' })
+    Assert-TestCondition ($preserved.Count -gt 0 -and (Get-Content -Raw $preserved[0].FullName) -eq "# alpha v2`n") 'old content is copied to a backup before its leftover is removed'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $interruptedRoot 'alpha/SKILL.md')) -eq "# alpha v5`n") 'selected skill is installed after preserving the interrupted old directory'
+    Set-TestFile (Join-Path $repo 'claude/skills/alpha/SKILL.md') "# alpha v2`n"
+
+    $blockedHome = Join-Path $work 'backup-blocked-home'
+    $r = Invoke-Deploy $repo $blockedHome @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0) 'backup failure fixture is initially deployed'
+    $blockedRoot = Join-Path $blockedHome '.claude/skills'
+    Rename-Item -LiteralPath (Join-Path $blockedRoot 'alpha') -NewName '.deploying-old-alpha'
+    Set-TestFile (Join-Path $blockedHome 'state/skill-backups') 'blocks backup directory'
+    $r = Invoke-Deploy $repo $blockedHome @('-Apply')
+    Assert-TestCondition ($r.Code -ne 0 -and (Get-Content -Raw (Join-Path $blockedRoot '.deploying-old-alpha/SKILL.md')) -eq "# alpha v2`n") 'backup failure leaves the interrupted old directory untouched'
 
     Write-Host '[Zcode projects the Claude generated output]'
     $zcodeRoot = Join-Path $homeDir '.zcode/skills'
