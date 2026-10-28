@@ -9,6 +9,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Retired platform branches (2026-10-28).** The owner authorized deletion of the three local
+  `codex/retire-platform-{docs,scripts,tests}` branches. Each had one commit whose equivalent
+  change was already in `main`, verified with `git cherry -v` before deletion; no worktree used
+  those branches. Their former tips were `f2fdb44`, `776e602` and `931e8bd`, respectively.
 - **Plugin and MCP review (2026-10-28).** The Claude template retains the Codex plugin and its
   marketplace; the `claude-code-plugins` marketplace declaration, unreferenced by the template,
   was removed after a local configuration review. No live configuration was applied. The policy test
