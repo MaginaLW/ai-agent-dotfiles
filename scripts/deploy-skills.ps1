@@ -132,6 +132,11 @@ $plan = foreach ($platform in $platforms) {
 }
 
 $plan | Sort-Object Platform, Action, Name | Format-Table Platform, Action, Name -AutoSize | Out-String | Write-Host
+foreach ($step in @($plan | Where-Object Action -eq 'update')) {
+    if ($step.Name -notin @($state[$step.Platform])) {
+        Write-Host "Update not recorded in deploy state: $($step.Platform)/$($step.Name). Existing content will be backed up and overwritten; ownership is unknown."
+    }
+}
 if ($interrupted.Count -gt 0) {
     Write-Host 'Possible interrupted deployment remnants (inspect before applying):'
     foreach ($item in $interrupted) { Write-Host "  $($item.Platform): $($item.Path)" }

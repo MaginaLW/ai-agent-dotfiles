@@ -38,6 +38,19 @@ try {
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir '.claude/skills/alpha'))) 'dry run installs nothing'
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir 'state'))) 'dry run writes no state'
 
+    Write-Host '[review updates absent from deploy state]'
+    $reviewHome = Join-Path $work 'review-home'
+    Set-TestFile (Join-Path $reviewHome '.claude/skills/alpha/SKILL.md') 'existing content'
+    $r = Invoke-Deploy $repo $reviewHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Update not recorded in deploy state: Claude/alpha' -and $r.Out -match 'ownership is unknown') 'missing state warns of an update without claiming ownership'
+    Set-TestFile (Join-Path $reviewHome 'state/deployed-skills.json') '{"Claude":[],"Codex":[],"Zcode":[]}'
+    $r = Invoke-Deploy $repo $reviewHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Update not recorded in deploy state: Claude/alpha') 'existing state without the name warns'
+    Set-TestFile (Join-Path $reviewHome 'state/deployed-skills.json') '{"Claude":["alpha"],"Codex":[],"Zcode":[]}'
+    $r = Invoke-Deploy $repo $reviewHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -notmatch 'Update not recorded in deploy state: Claude/alpha') 'state-recorded updates do not produce the warning'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $reviewHome '.claude/skills/alpha/SKILL.md')) -eq 'existing content') 'review does not change the existing directory'
+
     Write-Host '[first apply installs selected platforms]'
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -eq 0) "first apply exits 0 ($($r.Out))"

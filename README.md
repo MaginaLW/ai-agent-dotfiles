@@ -56,10 +56,12 @@ pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work
 pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work -Apply
 ```
 
-Without `-Apply`, deploy-skills only prints what it would install, update, prune or leave as
-unknown. `-Apply` writes the live home, so it needs the owner's authorization after the dry run
-has been reviewed. Before an update or prune it copies the old directory to a backup outside the
-repository; restoring is described in [docs/README.md §8](docs/README.md#8-备份与恢复).
+Without `-Apply`, deploy-skills builds and scans before printing what it would install, update,
+prune or leave as unknown. The build may recreate ignored generated output in the repository;
+the dry run does not write live skills or deploy state. `-Apply` writes the live home, so it needs
+the owner's authorization after the dry run has been reviewed. Before an update or prune it copies
+the old directory to a backup outside the repository; restoring is described in
+[docs/README.md §8](docs/README.md#8-备份与恢复).
 
 ## MCP and connected tools
 
