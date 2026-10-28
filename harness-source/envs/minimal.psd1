@@ -10,7 +10,6 @@
         Codex = @(
             'brainstorming'
         )
-        Reasonix = @()
         Zcode = @(
             'brainstorming'
         )

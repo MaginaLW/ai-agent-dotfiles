@@ -25,9 +25,8 @@ function Assert-DisjointBuildRoots {
 $SourceRoot = Join-Path $RepoRoot 'skills-source'
 $ClaudeOutputRoot = Join-Path $RepoRoot 'claude/skills'
 $CodexOutputRoot = Join-Path $RepoRoot 'codex/skills'
-$ReasonixOutputRoot = Join-Path $RepoRoot 'reasonix/skills'
 $ManifestOutputRoot = Join-Path $RepoRoot 'manifests'
-Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot,$ManifestOutputRoot)
+Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ManifestOutputRoot)
 
 $script:RuntimeExcludePatterns = @('CREATION-LOG.md')
 function Copy-SkillDirectory {
@@ -55,20 +54,16 @@ function Write-ManifestFile {
 $sharedSource = Join-Path $SourceRoot 'shared'
 $claudeOnlySource = Join-Path $SourceRoot 'claude-only'
 $codexOnlySource = Join-Path $SourceRoot 'codex-only'
-$reasonixOnlySource = Join-Path $SourceRoot 'reasonix-only'
 $sharedSkills = Get-SkillDirectories -RootPath $sharedSource
 $claudeOnlySkills = Get-SkillDirectories -RootPath $claudeOnlySource
 $codexOnlySkills = Get-SkillDirectories -RootPath $codexOnlySource
-$reasonixOnlySkills = Get-SkillDirectories -RootPath $reasonixOnlySource
 $sharedNames = @($sharedSkills | ForEach-Object Name)
 $claudeOnlyNames = @($claudeOnlySkills | ForEach-Object Name)
 $codexOnlyNames = @($codexOnlySkills | ForEach-Object Name)
-$reasonixOnlyNames = @($reasonixOnlySkills | ForEach-Object Name)
 
 $sharedConflicts = @(
     @($claudeOnlyNames | Where-Object { $_ -in $sharedNames }) +
-    @($codexOnlyNames | Where-Object { $_ -in $sharedNames }) +
-    @($reasonixOnlyNames | Where-Object { $_ -in $sharedNames }) |
+    @($codexOnlyNames | Where-Object { $_ -in $sharedNames }) |
         Sort-Object -Unique
 )
 if ($sharedConflicts.Count -gt 0) {
@@ -80,7 +75,6 @@ if ($sharedConflicts.Count -gt 0) {
 $platformOnlyAll = @{}
 foreach ($n in $claudeOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='claude-only' }
 foreach ($n in $codexOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='codex-only' }
-foreach ($n in $reasonixOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='reasonix-only' }
 $crossPlatformConflicts = @($platformOnlyAll.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($crossPlatformConflicts.Count -gt 0) {
     [Console]::Error.WriteLine('ERROR: Skill name appears in more than one platform-only source.')
@@ -90,9 +84,7 @@ if ($crossPlatformConflicts.Count -gt 0) {
 
 $claudeSet = @($sharedNames + $claudeOnlyNames | Sort-Object -Unique)
 $codexSet = @($sharedNames + $codexOnlyNames | Sort-Object -Unique)
-$reasonixSet = @($sharedNames + $reasonixOnlyNames | Sort-Object -Unique)
-
-foreach ($target in @($ClaudeOutputRoot,$CodexOutputRoot,$ReasonixOutputRoot)) {
+foreach ($target in @($ClaudeOutputRoot,$CodexOutputRoot)) {
     if (Test-Path -LiteralPath $target) {
         Assert-SkillTreeNoReparsePoint -Root $target
         Remove-Item -LiteralPath $target -Recurse -Force
@@ -104,19 +96,14 @@ if (-not (Test-Path -LiteralPath $ManifestOutputRoot)) { [System.IO.Directory]::
 foreach ($skill in $sharedSkills) {
     Copy-SkillDirectory -Source $skill -DestinationRoot $ClaudeOutputRoot
     Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot
-    Copy-SkillDirectory -Source $skill -DestinationRoot $ReasonixOutputRoot
 }
 foreach ($skill in $claudeOnlySkills) { Copy-SkillDirectory -Source $skill -DestinationRoot $ClaudeOutputRoot }
 foreach ($skill in $codexOnlySkills) { Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot }
-foreach ($skill in $reasonixOnlySkills) { Copy-SkillDirectory -Source $skill -DestinationRoot $ReasonixOutputRoot }
 
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.claude.txt') -Names $claudeSet
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.codex.txt') -Names $codexSet
-Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.reasonix.txt') -Names $reasonixSet
 $builtClaudeSkills = @(Get-SkillDirectories -RootPath $ClaudeOutputRoot)
 $builtCodexSkills = @(Get-SkillDirectories -RootPath $CodexOutputRoot)
-$builtReasonixSkills = @(Get-SkillDirectories -RootPath $ReasonixOutputRoot)
 Write-Host "Built Claude skills: $($builtClaudeSkills.Count)"
 Write-Host "Built Codex skills: $($builtCodexSkills.Count)"
-Write-Host "Built Reasonix skills: $($builtReasonixSkills.Count)"
 Write-Host "Updated manifests: $ManifestOutputRoot"

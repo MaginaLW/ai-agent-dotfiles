@@ -6,8 +6,8 @@
 
 .DESCRIPTION
     Plans an add (absent in the repo) or update (content differs; home wins) for every
-    managed file. Claude is read from ~/.claude, Codex from ~/.codex and Reasonix from
-    %APPDATA%\reasonix, and written under claude/, codex/ and reasonix/ in the repo.
+    managed file. Claude is read from ~/.claude and Codex from ~/.codex, and written
+    under claude/ and codex/ in the repo.
     Directories are copied file-by-file and never pruned: repo-only files stay
     untouched. ExcludedItems and CommonExcludedItems are never captured.
 
@@ -28,7 +28,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Reasonix. Defaults to Claude, Codex.
+    One or more of Claude, Codex. Defaults to both.
 
 .PARAMETER BackupRoot
     Root for the revert stage. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.
@@ -46,7 +46,7 @@ param(
     [switch] $Apply,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex', 'Reasonix')]
+    [ValidateSet('Claude', 'Codex')]
     [string[]] $Platform = @('Claude', 'Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipSecretScan,

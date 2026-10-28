@@ -12,7 +12,6 @@
             'boring-engineering',
             'systematic-debugging'
         )
-        Reasonix = @()
         Zcode = @(
             'boring-engineering',
             'systematic-debugging'

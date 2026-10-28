@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Deploys the skills selected by one environment (harness-source/envs/<name>.psd1) to the
-    live Claude, Codex, Reasonix and Zcode skill directories. Zcode is a projection platform:
+    live Claude, Codex and Zcode skill directories. Zcode is a projection platform:
     it deploys from the Claude generated output. Dry-run unless -Apply.
 
 .DESCRIPTION
@@ -31,14 +31,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$platforms = @('Claude', 'Codex', 'Reasonix', 'Zcode')
+$platforms = @('Claude', 'Codex', 'Zcode')
 $statePath = Join-Path $StateRoot 'deployed-skills.json'
 $backupRoot = Join-Path $StateRoot ('skill-backups\' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
 
 function Get-DeploySkillsLiveRoot([string] $Platform) {
     switch ($Platform) {
         'Claude' { return Join-Path $HomeRoot '.claude\skills' }
-        'Reasonix' { return Join-Path $HomeRoot 'AppData\Roaming\reasonix\skills' }
         'Zcode' { return Join-Path $HomeRoot '.zcode\skills' }
         'Codex' {
             $preferred = Join-Path $HomeRoot '.codex\skills'
@@ -79,7 +78,7 @@ if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) { throw "unknown envi
 $selection = (Import-PowerShellDataFile -LiteralPath $envPath).Skills
 # A missing or misspelled platform key would read as an empty selection and prune everything.
 if ($selection -isnot [hashtable] -or @($platforms | Where-Object { -not $selection.ContainsKey($_) }).Count -or @($selection.Keys | Where-Object { $_ -notin $platforms }).Count) {
-    throw "env $Environment must define Skills with exactly the keys Claude, Codex, Reasonix and Zcode (use @() for none)"
+    throw "env $Environment must define Skills with exactly the keys Claude, Codex and Zcode (use @() for none)"
 }
 
 if (-not $SkipBuild) {

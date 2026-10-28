@@ -6,8 +6,8 @@
 
 .DESCRIPTION
     Plans an add (absent in home) or update (content differs; repo wins) for every
-    managed file. Claude writes to ~/.claude, Codex to ~/.codex and Reasonix to
-    %APPDATA%\reasonix. Directories are copied file-by-file and never pruned:
+    managed file. Claude writes to ~/.claude and Codex to ~/.codex.
+    Directories are copied file-by-file and never pruned:
     home-only files stay untouched. ExcludedItems and CommonExcludedItems are skipped.
 
     -Apply runs the secret scan first, then backs up every home file it overwrites to
@@ -26,7 +26,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Reasonix. Defaults to Claude, Codex.
+    One or more of Claude, Codex. Defaults to both.
 
 .PARAMETER BackupRoot
     Root for the pre-overwrite backup. Defaults to
@@ -40,7 +40,7 @@ param(
     [switch] $Apply,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex', 'Reasonix')]
+    [ValidateSet('Claude', 'Codex')]
     [string[]] $Platform = @('Claude', 'Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipSecretScan

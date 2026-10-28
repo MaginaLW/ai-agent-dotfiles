@@ -14,11 +14,11 @@
     Repository root. Defaults to the parent of this script's directory.
 
 .PARAMETER HomeRoot
-    Home directory. Defaults to $env:USERPROFILE. Claude is read from .claude,
-    Codex from .codex and Reasonix from AppData\Roaming\reasonix.
+    Home directory. Defaults to $env:USERPROFILE. Claude is read from .claude
+    and Codex from .codex.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Reasonix. Defaults to all three.
+    One or more of Claude, Codex. Defaults to both.
 
 .PARAMETER Json
     Emit the results as a JSON array instead of the table.
@@ -27,7 +27,7 @@
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex', 'Reasonix')]
+    [ValidateSet('Claude', 'Codex')]
     [string[]] $Platform,
     [switch] $Json
 )
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'config-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-if (-not $Platform) { $Platform = @('Claude', 'Codex', 'Reasonix') }
+if (-not $Platform) { $Platform = @('Claude', 'Codex') }
 
 function Get-ItemKind {
     param([Parameter(Mandatory)] [string] $Path)

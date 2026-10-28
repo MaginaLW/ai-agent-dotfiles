@@ -62,18 +62,6 @@
         )
     }
 
-    Reasonix = @{
-        HomeRelativeRoot = 'AppData/Roaming/reasonix'
-        RepoRelativeRoot = 'reasonix'
-        # config.toml / .env are machine-private (provider credentials, sessions,
-        # workspace state) and must never be captured or deployed. skills/ is
-        # managed by scripts/deploy-skills.ps1, not config-sync. commands/ can be added
-        # here once repo-managed reasonix commands exist.
-        PushItems = @('AGENTS.md', 'REASONIX.md')
-        PullItems = @('AGENTS.md', 'REASONIX.md')
-        ExcludedItems = @('config.toml', '.env', 'credentials', 'sessions', 'state', 'projects', 'stats', 'repair', 'crash-fatal', 'install-id', 'metrics-pending.json', 'desktop-*', 'global', 'global-workspace', 'commands', 'skills')
-    }
-
     CommonExcludedItems = @(
         '.env'
         '.env.*'

@@ -18,7 +18,7 @@ param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [Parameter(Mandatory)] [string] $Path,
     [Parameter(Mandatory)] [string] $Name,
-    [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only', 'reasonix-only')] [string] $Type,
+    [Parameter(Mandatory)] [ValidateSet('shared', 'claude-only', 'codex-only')] [string] $Type,
     [switch] $Replace,
     [switch] $Apply
 )
@@ -41,7 +41,7 @@ try {
     if ((Test-SameOrDescendant -Path $source -Root $target) -or (Test-SameOrDescendant -Path $target -Root $source)) {
         throw 'Source and target overlap.'
     }
-    foreach ($existingType in @('shared', 'claude-only', 'codex-only', 'reasonix-only')) {
+    foreach ($existingType in @('shared', 'claude-only', 'codex-only')) {
         if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot "skills-source/$existingType/$Name"))) { continue }
         if (-not $Replace) { throw "skills-source/$existingType/$Name already exists. Pass -Replace to replace a skill of the same type." }
         if ($existingType -cne $Type) { throw "skills-source/$existingType/$Name exists under another type; -Replace only replaces the same type." }
