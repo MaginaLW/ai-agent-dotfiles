@@ -8,8 +8,8 @@
 
 ## 1. 项目目的
 
-用 Git 统一管理多台电脑上的 Claude / Codex / Reasonix / ZCode skills：`skills-source/` 是唯一可信源，
-`build-skills.ps1` 生成三个平台的 runtime output，`deploy-skills.ps1` 把某个环境选中的 skills 逐目录部署到
+用 Git 统一管理多台电脑上的 Claude / Codex / ZCode skills：`skills-source/` 是唯一可信源，
+`build-skills.ps1` 生成两个平台的 runtime output，`deploy-skills.ps1` 把某个环境选中的 skills 逐目录部署到
 本机 live 根（默认 dry-run；ZCode 是投影平台，直接部署 Claude 生成物）。另外管理 harness 配置（§11）和项目级 harness profile（§12）。
 原则：保守、可审计、默认 dry-run、绝不整目录覆盖、绝不碰平台内置目录。红线（Hard rules / Skill rules）以
 [AGENTS.md](../AGENTS.md) 为准；唯一允许手工写 live 根的情形是 §8 的授权恢复。
@@ -18,11 +18,10 @@
 
 ## 2. 当前管理范围
 
-生成物 `claude/skills/`、`codex/skills/`、`reasonix/skills/`（Git-ignored）中由所选环境挑出的子集部署到：
+生成物 `claude/skills/`、`codex/skills/`（Git-ignored）中由所选环境挑出的子集部署到：
 
 - Claude：`~/.claude/skills`
 - Codex：`~/.codex/skills`；仅当它不存在时 fallback 到 `~/.agents/skills`（两者都存在时拒绝）
-- Reasonix：`%APPDATA%\reasonix\skills`
 - ZCode：`~/.zcode/skills`（投影平台，部署 Claude 生成物，自身没有生成根与 manifest）
 
 不管理：Codex `.system`；deploy-skills 从未部署过的 live 目录（unknown，只报告）；部署状态与备份
@@ -37,8 +36,8 @@
 | `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印 deploy-skills dry-run 命令；不写 live |
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
 | `.claude/settings.json` | 项目级 harness 护栏，见 [CLAUDE.md](../CLAUDE.md) |
-| `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`、`reasonix-only/`） |
-| `claude/skills/`、`codex/skills/`、`reasonix/skills/` | 生成物，Git-ignored，勿手改 |
+| `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`） |
+| `claude/skills/`、`codex/skills/` | 生成物，Git-ignored，勿手改 |
 | `manifests/managed-skills.<platform>.txt` | 每平台受管名单，由 build 刷新，勿手改 |
 | `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§11） |
 | `harness-source/` | 环境定义 `envs/`（§13）与 profile/component 源（§12） |
@@ -55,12 +54,12 @@
 
 ## 4. 日常同步流程
 
-`deploy-skills.ps1` 按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单（日常用 `work`）逐目录部署到四个 live 根
+`deploy-skills.ps1` 按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单（日常用 `work`）逐目录部署到三个 live 根
 （Zcode 从 Claude 生成物投影）：
 
 - 先跑 build 与 scan，任一失败即停止（`-SkipBuild` 跳过两者，只用于测试）。
 - 每个目录给出 `install`、`update`、`unchanged`、`prune` 或 `unknown`；不带 `-Apply` 只打印计划。
-- `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录（四平台同时生效）。
+- `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录（三平台同时生效）。
 - 其余 live 目录是 unknown，只报告不碰。Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
 - 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时整体失败，不留半删的 skill。
   残留的 `.deploying-*` 在下一次对该 skill 做 install/update/prune 时清理。
@@ -102,7 +101,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 
 ## 6. 新增 skill 的流程
 
-- 跨平台放 `skills-source/shared/<name>/`，单平台放 `claude-only/`、`codex-only/` 或 `reasonix-only/` 下。
+- 跨平台放 `skills-source/shared/<name>/`，单平台放 `claude-only/` 或 `codex-only/` 下。
 - 至少要有 `SKILL.md`，不能含符号链接或 junction；`.system` 不是合法名称。
 - 放进来前先审查：不重复、无 secrets / tokens、无机器私有路径（如 `C:\Users\<name>`）、无缓存或运行时状态。
 - 可以手工复制，也可以用 `promote-skill.ps1`（先 dry-run，确认后 `-Apply`，会自动 build 并扫描）：
@@ -192,9 +191,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `~\.ai-agent-dotfiles-backups\config-push-stage-<UTC 时间戳>\`，再过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
-- `-Platform Reasonix` 处理 `%APPDATA%\reasonix` 下的白名单项。Codex `config.toml` 与 Reasonix
-  `config.toml`/`.env` 不纳入。`reasonix/AGENTS.md` 与 `reasonix/REASONIX.md` 在首次 push 前可以不存在；
-  push 仅捕获本机已有的白名单文件。
+- Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
 - 模板不带模型与推理档位，但这不表示可以删除个人设置：`config-pull` 按文件复制，**不按字段合并**，
   审查 dry-run 时须逐项比较并保留目标里的个人覆盖值。
 - deploy-skills 不包含 config-pull；把两者合并需要单独评审。
@@ -239,7 +236,7 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 ## 13. Harness Environments
 
 环境是命名的 skills 选集：`harness-source/envs/<name>.psd1`。deploy-skills 只消费 `Skills`：必须恰好有
-`Claude`、`Codex`、`Reasonix`、`Zcode` 四个键（不要 skill 的平台写 `@()`；Zcode 从 Claude 生成物投影，
+`Claude`、`Codex`、`Zcode` 三个键（不要 skill 的平台写 `@()`；Zcode 从 Claude 生成物投影，
 只有 Claude 可构建的 skill 才能选给 Zcode），否则拒绝运行，避免把缺键误读成空选集而
 prune 全部。`env list` 显示文件名与 `Description`；`SchemaVersion` 与 `Name` 是声明性元数据，脚本不校验。
 

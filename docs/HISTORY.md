@@ -104,7 +104,7 @@ git ls-tree -r --name-only e8ef4c2 -- harness-source/components
 
 ## Privacy history rewrite (2026-08-25)
 
-An exact-path index rewrite redacted the 82 commits then on `main`: four Reasonix desktop-state
+An exact-path index rewrite redacted the 82 commits then on `main`: four private desktop-state
 paths were removed from every commit without opening their contents, and every historical
 `STATUS.md` snapshot was mechanically redacted (machine-local paths, device labels, the `.system`
 child fingerprint). The rewritten history was published with force-with-lease, and GitHub Support
@@ -114,8 +114,8 @@ touch commit messages, so subjects in the unchanged prefix still name the old ma
 - First rewritten commit: `dd4014f` carries the rewritten content (the record names the first
   changed pair old `58b4bc3` -> new `dd4014f`; the 30 commits before `dd4014f` should keep their
   original SHAs by first-changed semantics — the old objects are gone and cannot be diffed).
-- Publish head: `bbba28f` ("chore(privacy): ignore local Reasonix desktop state", `.gitignore`
-  only, the 83rd commit). The rewrite tip before it was `490189d` (82 commits).
+- Publish head: `bbba28f` (ignore local desktop state; `.gitignore` only, the 83rd commit).
+  The rewrite tip before it was `490189d` (82 commits).
 - The contemporaneous record lives in the removed design docs at `91e871e`:
   `docs/superpowers/plans/2026-08-09-live-safety-hardening-roadmap.md`.
 - Residual cleanups after the rewrite: `5478aa9` (redact two machine paths) and `d11e081`

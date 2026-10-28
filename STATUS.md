@@ -19,9 +19,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   add/update/no-op comparison for single files and directory entries; exclusions,
   destination-only files and dry-run behavior remain covered by fixture regressions.
   No live configuration or skills deployment is part of this change.
-- **Product.** `skills-source/` is built by `scripts/build-skills.ps1` into the Claude, Codex and
-  Reasonix generated roots. `scripts/deploy-skills.ps1 -Environment <name>` deploys one
-  environment's selection to the four live roots: dry run unless `-Apply`, prune only what it
+- **Product.** `skills-source/` is built by `scripts/build-skills.ps1` into the Claude and Codex
+  generated roots. `scripts/deploy-skills.ps1 -Environment <name>` deploys one
+  environment's selection to the three live roots: dry run unless `-Apply`, prune only what it
   deployed before or what `-Retire` names, unknown directories and Codex `.system` untouched,
   backups and deploy state under `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`. `~/.zcode/skills` is
   a projection platform: it deploys from the Claude generated output and has no generated root or
@@ -45,7 +45,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   dead `Future` block and the empty buckets restored status/build/apply there with byte-identical
   generated content (commit `8a43367` in that repository).
 - **Fourth optimization pass (2026-10-13, grok-reviewed).** `scripts/repo-common.ps1` is the
-  single policy source (protected Reasonix files, binary extensions, drive/UNC patterns) and
+  single policy source (protected private state files, binary extensions, drive/UNC patterns) and
   carries the shared secret-scan gate; config-pull/push share their plan pipeline in
   `config-common.ps1`. The syntax-gate suite's inverted child timeout is fixed, every suite that
   waits on gitleaks has a budget above that wait, and pinned-tool/build-skills gained
@@ -91,14 +91,14 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   after confirming it is a plain directory (`-Clean` is a compatibility no-op) so the
   manifest no longer carries stale files; apply-harness-profile lost the dead `-BackupRoot`
   parameter; five test-coverage gaps closed (config-sync directory round-trip with
-  `*.local.json` exclusion and a Reasonix status case, the home-write refusal, an exact
-  settings.json allow assertion, claude-only/reasonix-only landing, a positive
+  `*.local.json` exclusion and a platform status case, the home-write refusal, an exact
+  settings.json allow assertion, platform-specific skill landing, a positive
   unknown-parameter fixture) and the `.gitignore` comment pin is gone; docs name the
   config-pull backup root, the config-push staging directory, `CommonExcludedItems` and the
   Rule skip semantics. Excluded by the decision: fail-fast on `-Retire` of a selected skill
   (documented §5 behavior; enforcement would block the legal cross-platform retirement),
   generated-root prefix single-sourcing (three different literal shapes, no drift) and
-  copying Reasonix `ExcludedItems` into the docs (the whitelist is the source). Working
+  copying a former platform's `ExcludedItems` into the docs (the whitelist was the source). Working
   evidence is machine-local under ignored `tmp/grok21/` and
   `tmp/optimization-plan-20261021-findings.md`.
 - **Seventh round: track-B de-complexity (2026-10-18).** Entry points lost two unused knobs:
@@ -126,10 +126,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   activate/rollback/authority, the task-skill overlay, backup receipts, the approved runner and
   Git hooks, schemas, the sandbox host, the live-safety policy and interlock, and the CI shards.
   The last commit that still has it is `9793fde` ([docs/HISTORY.md](docs/HISTORY.md)).
-- **First onboarded machine (cut over 2026-10-09, owner-authorized).** `deploy-skills.ps1
-  -Environment work -Apply` now manages it. The run found all six managed directories unchanged
-  (`boring-engineering`, `systematic-debugging` on Claude, Codex and Reasonix), left the one
-  unknown Codex directory and Codex `.system` alone, and wrote only its state file under
+- **First onboarded machine (cut over 2026-10-09, owner-authorized).** The `deploy-skills.ps1
+  -Environment work -Apply` run found all six managed directories unchanged (`boring-engineering`
+  and `systematic-debugging` on the three platforms supported at the time), left the one unknown
+  Codex directory and Codex `.system` alone, and wrote only its state file under
   `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`. That state file later disappeared (cause unknown);
   an owner-authorized `work` Apply on 2026-10-14 rebuilt it and refreshed the three live
   `boring-engineering` directories to LF, because the primary working tree still carried CRLF
@@ -161,7 +161,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   separate checkout and integrates back serially; one full local validation run at a time
   ([AGENTS.md](AGENTS.md), decided 2026-10-13).
 - **Privacy history rewrite (2026-08-25).** An exact-path rewrite redacted the 82 commits then on
-  `main` (four Reasonix desktop-state paths removed, historical STATUS.md redacted) and was
+  `main` (four private desktop-state paths removed, historical STATUS.md redacted) and was
   published with force-with-lease; GitHub Support then ran the server-side GC (closed by
   `8a70ec0`). `dd4014f` is the first rewritten commit and carries the rewritten content; the
   pre-rewrite SHAs resolve nowhere ([docs/HISTORY.md](docs/HISTORY.md)).
@@ -176,26 +176,27 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   platform first deployed there (the manual `boring-engineering` copy was CRLF and was replaced
   through the normal update path).
 - **Codex catalog refresh.** Codex may need a new task or thread before a changed skill set shows.
-- **Out of scope.** Codex `config.toml`, Reasonix `config.toml`/`.env`, credentials, sessions and
-  caches are outside sync scope. Machine-private evidence (`tmp/` and external private roots) is
+- **Out of scope.** Machine-private configuration including Codex `config.toml` and private `.env`
+  files, credentials, sessions and caches are outside sync scope. Machine-private evidence
+  (`tmp/` and external private roots) is
   not committed. Historical and current review/test evidence in `tmp/` is retained; no archive
   migration or deletion is part of the fifth pass.
 
 ## Inventory and scope
 
-| Scope | Canonical | Claude | Codex | Reasonix |
-|---|---:|---:|---:|---:|
-| Shared | 9 | 9 | 9 | 9 |
-| Codex-only (Claude-only and Reasonix-only are empty) | 8 | - | 8 | - |
-| Managed total | 17 | 9 | 17 | 9 |
+| Scope | Canonical | Claude | Codex |
+|---|---:|---:|---:|
+| Shared | 9 | 9 | 9 |
+| Codex-only (Claude-only is empty) | 8 | - | 8 |
+| Managed total | 17 | 9 | 17 |
 
 - **Shared skills:** boring-engineering, brainstorming, git-review, meng-cmame-writing,
   paper-polish, subagent-driven-development, systematic-debugging, verification-before-completion,
   writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Reasonix/Zcode): `minimal` 1/1/1/1, `work` 2/2/2/2
-  (`boring-engineering`, `systematic-debugging`), `full` 9/17/9/9. Unknown live directories are
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 2/2/2
+  (`boring-engineering`, `systematic-debugging`), `full` 9/17/9. Unknown live directories are
   preserved, and Codex `.system` is never managed.
 - **Retired:**
   - the transactional live-sync engine, its hooks, runner, schemas and tests (2026-10-09);

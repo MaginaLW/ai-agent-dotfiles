@@ -46,11 +46,11 @@ are changing.
 
 ## What the repository does
 
-`scripts/build-skills.ps1` builds `skills-source/` into `claude/skills/`, `codex/skills/` and
-`reasonix/skills/`. `scripts/deploy-skills.ps1` copies the skills that one environment
+`scripts/build-skills.ps1` builds `skills-source/` into `claude/skills/` and `codex/skills/`.
+`scripts/deploy-skills.ps1` copies the skills that one environment
 (`harness-source/envs/<name>.psd1`) selects into the live roots `~/.claude/skills`,
 `~/.codex/skills` (or the `~/.agents/skills` fallback when only that one exists),
-`%APPDATA%\reasonix\skills` and `~/.zcode/skills`. Zcode is a projection platform: it has no
+and `~/.zcode/skills`. Zcode is a projection platform: it has no
 generated root of its own and deploys from the Claude generated output. The repository also
 syncs harness config (config-sync) and builds
 project harness profiles. Detail: [docs/README.md](docs/README.md) (§4-6 skills and deployment,
@@ -64,11 +64,11 @@ skills, config-sync or profile scripts and their tests. Ordinary docs, code and 
 need them.
 
 1. **Single source.** `skills-source/` is the only source of truth. Put each skill in exactly one
-   of `skills-source/shared/<name>/`, `skills-source/claude-only/<name>/`,
-   `skills-source/codex-only/<name>/` or `skills-source/reasonix-only/<name>/`. The build rejects
+   of `skills-source/shared/<name>/`, `skills-source/claude-only/<name>/` or
+   `skills-source/codex-only/<name>/`. The build rejects
    name conflicts.
-2. **Generated output.** Never edit generated output directly: `claude/skills/`, `codex/skills/`,
-   `reasonix/skills/` and `.agent-harness/generated/`. Regenerate it with `build-skills.ps1` or
+2. **Generated output.** Never edit generated output directly: `claude/skills/`, `codex/skills/`
+   and `.agent-harness/generated/`. Regenerate it with `build-skills.ps1` or
    `build-harness-profile.ps1`.
 3. **Live roots only through deploy-skills.** Change live skills roots only through
    `scripts/deploy-skills.ps1` (or its `agent-dotfiles.ps1 sync` and `env deploy <name>` routes).
@@ -90,8 +90,8 @@ need them.
    changes a live root, and the repository installs no Git hooks.
 8. **Config and profiles.**
    - `config-pull` and `config-push` run as dry runs unless `-Apply` is given.
-   - `config-pull -Apply` overwrites home config: `~/.claude`, `~/.codex`, and `%APPDATA%\reasonix`
-     with `-Platform Reasonix`. It needs the owner's authorization after a review of the dry-run
+   - `config-pull -Apply` overwrites home config in `~/.claude` and `~/.codex`.
+     It needs the owner's authorization after a review of the dry-run
      output and the user's personal overrides.
    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
      It never writes a home directory or a live root.
@@ -116,8 +116,8 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
   blocks tokens, not machine-private paths or personal content.
 - Never put plaintext secrets, tokens, account info, machine names or machine-private paths in
   skills, tracked docs or commits.
-- Codex `config.toml`, Reasonix `config.toml`/`.env`, credentials, sessions and caches are
-  machine-private and never synced.
+- Machine-private configuration including Codex `config.toml` and private `.env` files,
+  credentials, sessions and caches are never synced.
 
 ## Checks and CI
 
