@@ -11,9 +11,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 - **经验沉淀 skill（2026-10-31）。** 新增单文件 `session-learnings`，使用当前任务的已验证证据，
   按适用条件、有效做法和验证依据更新项目知识文档；发现反证时修正原条目。三平台 `work` 和显式
-  `full` 清单均已加入。skill 格式校验、构建与秘密扫描通过；`full` 部署预览为新增 3、不变 35，
-  无更新或删除。人工例子审查将“新增 skill 同步维护环境显式清单”的经验补入现有使用手册。
-  未新增测试套件，未执行 live Apply 或额外模型调用；尚未验证新会话中的自动触发率或节省效果。
+  `full` 清单均已加入。skill 格式校验、构建与秘密扫描通过；功能提交 `18d1766` 的
+  [CI 验证通过](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/41169491621)。用户授权的
+  `full` live Apply 新增 3 个目录，其余 35 个不变，无更新或删除；三平台新 skill 文件均与源文件
+  哈希一致，部署后预览全部 38 个目录不变。人工例子审查将“新增 skill 同步维护环境显式清单”的
+  经验补入现有使用手册。未新增测试套件或额外模型调用；尚未验证新会话中的自动触发率或节省效果。
 - **Deployment state and config review (2026-10-28).** An injected partial-write failure
   reproduced corruption of the previous deployment state. State is now written to a uniquely
   created file in the state directory and published only after the write completes; fixture tests
@@ -59,7 +61,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   verification, security and Windows use. The brainstorm helper now requests shutdown through
   its session instead of killing an unverified PID or deleting files. The `work` selection adds
   research writing and Git review to all three platforms. Owner-authorized `work` and `full`
-  Applies ran sequentially; the current live selection is `full` (9 Claude, 17 Codex, 9 ZCode),
+  Applies ran sequentially; the live selection then was `full` (9 Claude, 17 Codex, 9 ZCode),
   and its post-Apply dry run reports every selected directory unchanged. The `work` Apply
   backed up updated directories; `full` added the remaining skill directories.
 - **Retired platform branches (2026-10-28).** The owner authorized deletion of the three local
