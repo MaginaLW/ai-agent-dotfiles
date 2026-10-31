@@ -79,9 +79,11 @@ the old directory to a backup outside the repository; restoring is described in
 同一精简思路也用于 `work` 和 `full` 中的另两项能力：
 [systematic-debugging](skills-source/shared/systematic-debugging/SKILL.md) 在相同失败反复出现且没有新证据时，
 先归纳失败，再做一次有依据的改路；仍无进展则记录具体阻塞并推进独立工作。
-[tool-scope](skills-source/shared/tool-scope/SKILL.md) 用于按需发现和复用必要工具，可说
-“精简这次任务要加载的工具和 skills”。它提供工具选择及持久裁剪建议，实际关闭能力仍走配置与部署流程；
-纯 skill 不会自动卸载已加载的工具定义。
+[tool-scope](skills-source/shared/tool-scope/SKILL.md) 由宿主原生定时任务周期巡检，当前约定为每周一
+09:00（新加坡时间）；无需每次输入提示词。定时任务直接读取仓库源文件，复用 `env list` 等只读入口，
+检查选集及配置证据，有新问题或可执行建议时通知。实际关闭能力仍走配置与部署流程，纯 skill 不会
+自动卸载已加载的工具定义。调度记录留在本机，不随仓库复制；换机时需在宿主重新建立任务。
+本地定时任务需要电脑开机、桌面应用运行，见 [官方定时任务说明](https://learn.chatgpt.com/docs/automations)。
 
 ## MCP and connected tools
 
