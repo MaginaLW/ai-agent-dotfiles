@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-28.
+Last updated: 2026-10-31.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -9,6 +9,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **经验沉淀 skill（2026-10-31）。** 新增单文件 `session-learnings`，使用当前任务的已验证证据，
+  按适用条件、有效做法和验证依据更新项目知识文档；发现反证时修正原条目。三平台 `work` 和显式
+  `full` 清单均已加入。skill 格式校验、构建与秘密扫描通过；`full` 部署预览为新增 3、不变 35，
+  无更新或删除。人工例子审查将“新增 skill 同步维护环境显式清单”的经验补入现有使用手册。
+  未新增测试套件，未执行 live Apply 或额外模型调用；尚未验证新会话中的自动触发率或节省效果。
 - **Deployment state and config review (2026-10-28).** An injected partial-write failure
   reproduced corruption of the previous deployment state. State is now written to a uniquely
   created file in the state directory and published only after the write completes; fixture tests
@@ -249,18 +254,18 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 | Scope | Canonical | Claude | Codex |
 |---|---:|---:|---:|
-| Shared | 9 | 9 | 9 |
+| Shared | 10 | 10 | 10 |
 | Codex-only (Claude-only is empty) | 8 | - | 8 |
-| Managed total | 17 | 9 | 17 |
+| Managed total | 18 | 10 | 18 |
 
 - **Shared skills:** boring-engineering, brainstorming, git-review, meng-cmame-writing,
-  paper-polish, subagent-driven-development, systematic-debugging, verification-before-completion,
+  paper-polish, session-learnings, subagent-driven-development, systematic-debugging, verification-before-completion,
   writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 5/5/5
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 6/6/6
   (`boring-engineering`, `git-review`, `meng-cmame-writing`, `paper-polish`,
-  `systematic-debugging`), `full` 9/17/9. Unselected unknown live directories are
+  `session-learnings`, `systematic-debugging`), `full` 10/18/10. Unselected unknown live directories are
   preserved, and Codex `.system` is never managed.
 - **Retired:**
   - the transactional live-sync engine, its hooks, runner, schemas and tests (2026-10-09);

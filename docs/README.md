@@ -287,6 +287,10 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
 
+新增受管 skill 时，除放入 `skills-source/` 外，还要在目标环境的各平台 `Skills` 数组中选入；
+`full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。
+本次 `session-learnings` 的构建和 `full` 预览验证结果见 [STATUS.md](../STATUS.md)。
+
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list -JsonPath <report-file>

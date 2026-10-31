@@ -3,6 +3,7 @@ brainstorming
 git-review
 meng-cmame-writing
 paper-polish
+session-learnings
 subagent-driven-development
 systematic-debugging
 verification-before-completion

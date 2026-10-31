@@ -9,6 +9,7 @@
             'git-review',
             'meng-cmame-writing',
             'paper-polish',
+            'session-learnings',
             'systematic-debugging'
         )
         Codex = @(
@@ -16,6 +17,7 @@
             'git-review',
             'meng-cmame-writing',
             'paper-polish',
+            'session-learnings',
             'systematic-debugging'
         )
         Zcode = @(
@@ -23,6 +25,7 @@
             'git-review',
             'meng-cmame-writing',
             'paper-polish',
+            'session-learnings',
             'systematic-debugging'
         )
     }

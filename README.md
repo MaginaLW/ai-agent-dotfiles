@@ -70,6 +70,12 @@ the owner's authorization after the dry run has been reviewed. Before an update 
 the old directory to a backup outside the repository; restoring is described in
 [docs/README.md §8](docs/README.md#8-备份与恢复).
 
+`work` 和 `full` 均包含 [session-learnings](skills-source/shared/session-learnings/SKILL.md)。
+部署后在新会话中说“把这次排障中值得复用的经验沉淀到项目文档”，即可按
+“适用条件、有效做法、验证依据”整理已验证的发现，优先更新项目现有知识文档。
+该单文件 skill 借鉴 [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) 的经验复用思路，
+使用当前任务的证据，不安装插件、后台学习或调用额外模型。
+
 ## MCP and connected tools
 
 This repository does not register MCP servers or sync Codex `config.toml`. Discover tools in the

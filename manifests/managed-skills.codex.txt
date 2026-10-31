@@ -11,6 +11,7 @@ paper-polish
 security-best-practices
 security-ownership-map
 security-threat-model
+session-learnings
 subagent-driven-development
 systematic-debugging
 verification-before-completion
