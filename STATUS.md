@@ -12,9 +12,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 - **失败循环与工具范围（2026-10-31）。** `systematic-debugging` 增加无新证据的重复失败干预：
   归纳失败信号、做一次有依据的改路，仍无进展时记录阻塞并推进独立工作。新单文件 `tool-scope`
   加入三平台 `work/full`，指导按需发现和复用工具、提出可逆裁剪建议；纯 skill 不卸载运行时定义。
-  两个 skill 的格式校验、构建与秘密扫描通过；`full` 预览为新增 3、更新 3、不变 35，无删除。
+  两个 skill 的格式校验、构建与秘密扫描通过；功能提交 `0a9d23f` 的
+  [CI 验证通过](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/41169966353)。用户逐次授权的
+  `full` live Apply 新增 3、更新 3、其余 35 个不变，无删除。三平台的两份 live skill 均与源码
+  哈希一致，更新前的调试 skill 已备份并核对；部署后预览全部 41 个目录不变。
   人工场景审查覆盖重复同一失败、有进展的失败和本轮未使用的必要工具，未新增测试套件或额外模型
-  调用。未对这两项变更执行 live Apply，尚未测量自动触发率或成本收益。
+  调用；尚未测量自动触发率或成本收益。
 - **经验沉淀 skill（2026-10-31）。** 新增单文件 `session-learnings`，使用当前任务的已验证证据，
   按适用条件、有效做法和验证依据更新项目知识文档；发现反证时修正原条目。三平台 `work` 和显式
   `full` 清单均已加入。skill 格式校验、构建与秘密扫描通过；功能提交 `18d1766` 的
