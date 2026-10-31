@@ -9,6 +9,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **失败循环与工具范围（2026-10-31）。** `systematic-debugging` 增加无新证据的重复失败干预：
+  归纳失败信号、做一次有依据的改路，仍无进展时记录阻塞并推进独立工作。新单文件 `tool-scope`
+  加入三平台 `work/full`，指导按需发现和复用工具、提出可逆裁剪建议；纯 skill 不卸载运行时定义。
+  两个 skill 的格式校验、构建与秘密扫描通过；`full` 预览为新增 3、更新 3、不变 35，无删除。
+  人工场景审查覆盖重复同一失败、有进展的失败和本轮未使用的必要工具，未新增测试套件或额外模型
+  调用。未对这两项变更执行 live Apply，尚未测量自动触发率或成本收益。
 - **经验沉淀 skill（2026-10-31）。** 新增单文件 `session-learnings`，使用当前任务的已验证证据，
   按适用条件、有效做法和验证依据更新项目知识文档；发现反证时修正原条目。三平台 `work` 和显式
   `full` 清单均已加入。skill 格式校验、构建与秘密扫描通过；功能提交 `18d1766` 的
@@ -256,18 +262,18 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 | Scope | Canonical | Claude | Codex |
 |---|---:|---:|---:|
-| Shared | 10 | 10 | 10 |
+| Shared | 11 | 11 | 11 |
 | Codex-only (Claude-only is empty) | 8 | - | 8 |
-| Managed total | 18 | 10 | 18 |
+| Managed total | 19 | 11 | 19 |
 
 - **Shared skills:** boring-engineering, brainstorming, git-review, meng-cmame-writing,
-  paper-polish, session-learnings, subagent-driven-development, systematic-debugging, verification-before-completion,
-  writing-plans.
+  paper-polish, session-learnings, subagent-driven-development, systematic-debugging, tool-scope,
+  verification-before-completion, writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 6/6/6
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 7/7/7
   (`boring-engineering`, `git-review`, `meng-cmame-writing`, `paper-polish`,
-  `session-learnings`, `systematic-debugging`), `full` 10/18/10. Unselected unknown live directories are
+  `session-learnings`, `systematic-debugging`, `tool-scope`), `full` 11/19/11. Unselected unknown live directories are
   preserved, and Codex `.system` is never managed.
 - **Retired:**
   - the transactional live-sync engine, its hooks, runner, schemas and tests (2026-10-09);

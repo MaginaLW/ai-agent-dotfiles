@@ -10,7 +10,8 @@
             'meng-cmame-writing',
             'paper-polish',
             'session-learnings',
-            'systematic-debugging'
+            'systematic-debugging',
+            'tool-scope'
         )
         Codex = @(
             'boring-engineering',
@@ -18,7 +19,8 @@
             'meng-cmame-writing',
             'paper-polish',
             'session-learnings',
-            'systematic-debugging'
+            'systematic-debugging',
+            'tool-scope'
         )
         Zcode = @(
             'boring-engineering',
@@ -26,7 +28,8 @@
             'meng-cmame-writing',
             'paper-polish',
             'session-learnings',
-            'systematic-debugging'
+            'systematic-debugging',
+            'tool-scope'
         )
     }
 }

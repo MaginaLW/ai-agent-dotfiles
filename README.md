@@ -76,6 +76,13 @@ the old directory to a backup outside the repository; restoring is described in
 该单文件 skill 借鉴 [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) 的经验复用思路，
 使用当前任务的证据，不安装插件、后台学习或调用额外模型。
 
+同一精简思路也用于 `work` 和 `full` 中的另两项能力：
+[systematic-debugging](skills-source/shared/systematic-debugging/SKILL.md) 在相同失败反复出现且没有新证据时，
+先归纳失败，再做一次有依据的改路；仍无进展则记录具体阻塞并推进独立工作。
+[tool-scope](skills-source/shared/tool-scope/SKILL.md) 用于按需发现和复用必要工具，可说
+“精简这次任务要加载的工具和 skills”。它提供工具选择及持久裁剪建议，实际关闭能力仍走配置与部署流程；
+纯 skill 不会自动卸载已加载的工具定义。
+
 ## MCP and connected tools
 
 This repository does not register MCP servers or sync Codex `config.toml`. Discover tools in the

@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+description: Use when encountering any bug, test failure, unexpected behavior or repeated failed operations without new evidence, before proposing fixes or retrying.
 ---
 
 # Systematic Debugging
@@ -42,6 +42,16 @@ Use for ANY technical issue:
 - Issue seems simple (simple bugs have root causes too)
 - You're in a hurry (rushing guarantees rework)
 - Manager wants it fixed NOW (systematic is faster than thrashing)
+
+## 重复失败时的干预
+
+同一目标下，相同失败已经重复且没有新证据或状态变化时，在下一次重试前：
+
+1. 简短归纳已尝试的做法、相同的失败信号及仍未验证的假设；先读已有结果，避免反复获取同一份日志。
+2. 选择一个有依据的改路：缩小复现范围、检查缺失的前置条件，或换用能验证该假设的入口。说明这次改变什么、预期获得什么新证据，再做最小检查。
+3. 改路后仍无进展时，停止该分支的机械重试，记录具体阻塞和继续所需条件；有独立工作就继续推进，缺少必要信息或授权时才提问。
+
+按项目规程进行的瞬时故障重试、缩小了问题范围的失败、正常运行中的长测试都有明确目的或进展，不应仅按次数判定为循环。这里调整排障方法，不自动终止任务或进程，也不减少必需验证。
 
 ## The Four Phases
 

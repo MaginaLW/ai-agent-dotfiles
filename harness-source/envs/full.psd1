@@ -13,6 +13,7 @@
             'session-learnings',
             'subagent-driven-development',
             'systematic-debugging',
+            'tool-scope',
             'verification-before-completion',
             'writing-plans'
         )
@@ -33,6 +34,7 @@
             'session-learnings',
             'subagent-driven-development',
             'systematic-debugging',
+            'tool-scope',
             'verification-before-completion',
             'writing-plans'
         )
@@ -45,6 +47,7 @@
             'session-learnings',
             'subagent-driven-development',
             'systematic-debugging',
+            'tool-scope',
             'verification-before-completion',
             'writing-plans'
         )
