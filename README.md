@@ -79,7 +79,7 @@ the old directory to a backup outside the repository; restoring is described in
 同一精简思路也用于 `work` 和 `full` 中的另两项能力：
 [systematic-debugging](skills-source/shared/systematic-debugging/SKILL.md) 在相同失败反复出现且没有新证据时，
 先归纳失败，再做一次有依据的改路；仍无进展则记录具体阻塞并推进独立工作。
-[tool-scope](skills-source/shared/tool-scope/SKILL.md) 在工具密集任务开始时主动确定范围，之后约每 10 次
+[tool-scope](skills-source/shared/tool-scope/SKILL.md) 在工具密集任务开始时主动确定范围，之后约每 100 次
 工具调用自检；阶段切换、调用失败或反复查询同一入口时提前检查。agent 在当前上下文中近似追踪，
 复用已有证据，无变化就继续，不必手动输入提示词，也不另外运行扫描或整套测试。
 这是 skill 内的任务执行约定，不保证精确计数；不使用定时任务或后台进程，空闲时不运行。
