@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-31.
+Last updated: 2026-11-01.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -8,6 +8,16 @@ done, record its outcome here and delete the record (Git keeps it). Before trust
 CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
+
+- **Repository health fixes (2026-11-01).** Deployment rejects selected paths occupied by
+  ordinary files during planning, before any platform writes. Profile operations reject reparse
+  points in project paths and their ancestors; failed Apply writes include the current attempted
+  file in reverse-order, best-effort rollback. Profile tests keep fixtures in ignored
+  `tmp/tests/harness-profile/` and refuse home checkouts before creating fixtures. Regression
+  cases cover all three deployment platforms, linked profile/output/backup paths and partial
+  add/update writes. Syntax, pinned gitleaks verification, build, secret scan, isolated doctor,
+  manifest parity, dangerous tracked-file checks and all 13 local test suites passed. No live
+  Apply was performed.
 
 - **tool-scope 内部周期（2026-10-31）。** 按用户要求设为任务开始、约每 100 次工具调用及阶段切换
   时由执行中的 agent 主动自检；近似追踪次数，复用当前证据，无变化时直接继续。此前误建的每周

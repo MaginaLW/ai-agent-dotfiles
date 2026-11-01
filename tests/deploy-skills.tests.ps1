@@ -72,6 +72,23 @@ try {
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -notmatch 'Update not recorded in deploy state: Claude/alpha') 'state-recorded updates do not produce the warning'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $reviewHome '.claude/skills/alpha/SKILL.md')) -eq 'existing content') 'review does not change the existing directory'
 
+    Write-Host '[selected names that collide with ordinary files are refused]'
+    Set-TestEnvironment $repo @('alpha', 'beta') @('alpha', 'beta')
+    foreach ($platform in @('claude', 'codex', 'zcode')) {
+        foreach ($mode in @('dry-run', 'apply')) {
+            $collisionHome = Join-Path $work "collision-$platform-$mode"
+            $collision = Join-Path $collisionHome ".$platform/skills/beta"
+            Set-TestFile $collision 'preserve this ordinary file'
+            $extra = @()
+            if ($mode -eq 'apply') { $extra = @('-Apply') }
+            $r = Invoke-Deploy $repo $collisionHome $extra
+            Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'live-skill-target-not-directory') "$platform $mode rejects a selected ordinary file (exit $($r.Code): $($r.Out))"
+            Assert-TestCondition ((Test-Path -LiteralPath $collision -PathType Leaf) -and (Get-Content -Raw -LiteralPath $collision) -ceq 'preserve this ordinary file') "$platform $mode preserves the conflicting file"
+            Assert-TestCondition (@('claude', 'codex', 'zcode' | Where-Object { Test-Path (Join-Path $collisionHome ".$_/skills/alpha") }).Count -eq 0 -and -not (Test-Path (Join-Path $collisionHome 'state'))) "$platform $mode rejects the entire plan before any installation or state write"
+        }
+    }
+    Set-TestEnvironment $repo @('alpha', 'beta')
+
     Write-Host '[first apply installs selected platforms]'
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -eq 0) "first apply exits 0 ($($r.Out))"

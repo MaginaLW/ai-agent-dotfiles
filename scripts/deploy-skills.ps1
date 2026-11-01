@@ -116,6 +116,9 @@ $plan = foreach ($platform in $platforms) {
         $source = Join-Path $sourceRoot $name
         if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "selected skill '$name' has no generated output for $platform at $source" }
         $target = Join-Path $liveRoot $name
+        if ((Test-Path -LiteralPath $target) -and -not (Get-Item -LiteralPath $target -Force).PSIsContainer) {
+            throw "live-skill-target-not-directory: $target"
+        }
         $sourceHash = Get-DeploySkillsTreeHash $source
         $action = if ($name -notin $liveNames) { 'install' }
             elseif ($sourceHash -ceq (Get-DeploySkillsTreeHash $target)) { 'unchanged' }

@@ -5,10 +5,10 @@
 
 .DESCRIPTION
     No Pester dependency. Runs the real harness profile scripts against isolated
-    project and harness-source trees under an isolated sibling of the checkout.
-    This keeps project targets outside both the repository and the user home,
-    matching the production harness-profile boundary. The workspace is removed
-    on success and kept on failure.
+    project and harness-source trees under the repository's ignored tmp directory.
+    A checkout inside the user home is refused before fixtures are created, matching
+    the production home-write boundary. The workspace is removed on success and
+    kept on failure.
 #>
 [CmdletBinding()]
 param(
@@ -39,23 +39,22 @@ function Assert {
     }
 }
 
-# The profile apply entry refuses targets under the user home by design, so the
-# fixture workspace must live outside it: prefer the checkout's parent, else the
-# checkout's volume root. A checkout inside the profile (a normal clone location)
-# would otherwise fail every apply assertion on the product's own guard.
-function Get-OutsideProfileWorkspace([string] $RepoRoot, [string] $Leaf) {
-    $profile = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\')
-    foreach ($candidate in @((Split-Path -Parent $RepoRoot), [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)))) {
-        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
-        $full = [IO.Path]::GetFullPath($candidate).TrimEnd('\')
-        if ($full.Equals($profile, [StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($profile + '\', [StringComparison]::OrdinalIgnoreCase)) { continue }
-        return (Join-Path $full $Leaf)
+# Keep every fixture inside the checkout without weakening the product's home guard.
+if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+    $profile = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\', '/')
+    if ($RepoRoot -ieq $profile -or $RepoRoot.StartsWith($profile + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Harness profile tests require a checkout outside the user home; fixtures stay under the repository tmp directory.'
     }
-    throw 'harness workspace requires a root outside the user profile'
 }
-$work = Get-OutsideProfileWorkspace -RepoRoot $RepoRoot -Leaf ".ai-agent-dotfiles-harness-profile-$([Guid]::NewGuid().ToString('N'))"
+$workBase = Join-Path $RepoRoot 'tmp/tests/harness-profile'
+. (Join-Path $PSScriptRoot '../scripts/harness-profile-common.ps1')
+Assert-HarnessNoReparsePath -Paths @($workBase)
+$work = Join-Path $workBase ([Guid]::NewGuid().ToString('N'))
 function Remove-Work {
-    if (($work -like '*.ai-agent-dotfiles-harness-profile-*') -and (Test-Path -LiteralPath $work)) {
+    if ((Split-Path -Parent $work) -ne $workBase -or (Split-Path -Leaf $work) -notmatch '^[a-f0-9]{32}$') {
+        throw 'Refusing to clean an unowned harness profile test workspace.'
+    }
+    if (Test-Path -LiteralPath $work) {
         Get-ChildItem -LiteralPath $work -Recurse -Force -Attributes ReparsePoint | ForEach-Object { $_.Delete() }
         Remove-Item -LiteralPath $work -Recurse -Force
     }
@@ -454,8 +453,39 @@ Assert ($r.Code -eq 0 -and @($status.Targets).Count -eq 4 -and @($status.Targets
 $project = New-TestProject -Name 'platform-rollback-project' -ProfileText $platformProfile
 New-Item -ItemType Directory -Path (Join-Path $project '.codex/agents/reviewer.md') -Force | Out-Null
 $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project, '-Apply')
-Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback for 3 changed file') 'rollback: failed apply is reported'
+Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback for 4 attempted file') 'rollback: failed apply is reported'
 Assert (@($directoryTargets[0..2] | Where-Object { Test-Path -LiteralPath (Join-Path $project $_) }).Count -eq 0) 'rollback: earlier writes are removed'
+Assert (Test-Path -LiteralPath (Join-Path $project $directoryTargets[3]) -PathType Container) 'rollback: the pre-existing blocker directory is preserved'
+
+foreach ($existing in @($false, $true)) {
+    $project = New-TestProject -Name "partial-write-$existing" -ProfileText (New-ProjectProfileText -Commands @('command-helper'))
+    $target = Join-Path $project '.claude/commands/harness-helper.md'
+    if ($existing) { Set-File -Path $target -Content 'original command' }
+    $wrapper = Join-Path $work "partial-write-$existing.ps1"
+    Set-File -Path $wrapper -Content @'
+param([string]$ScriptPath,[string]$HarnessRepo,[string]$Project,[string]$FaultTarget)
+$ErrorActionPreference = 'Stop'
+$env:HARNESS_TEST_FAULT_TARGET = $FaultTarget
+function Set-Content {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline=$true)]$Value,[string]$LiteralPath,[string]$Encoding,[switch]$NoNewline)
+    process {
+        if ($LiteralPath -eq $env:HARNESS_TEST_FAULT_TARGET) {
+            [IO.File]::WriteAllText($LiteralPath, 'partial write')
+            throw 'injected profile write failure'
+        }
+        Microsoft.PowerShell.Management\Set-Content @PSBoundParameters
+    }
+}
+& $ScriptPath -RepoRoot $HarnessRepo -ProjectRoot $Project -Apply
+'@
+    $r = Invoke-Script -Script $wrapper -ScriptArgs @('-ScriptPath', $applyScript, '-HarnessRepo', $repo, '-Project', $project, '-FaultTarget', $target)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'injected profile write failure') "rollback: partial write is reported (existing=$existing)"
+    if ($existing) {
+        Assert ((Get-Content -Raw -LiteralPath $target) -ceq 'original command') 'rollback: the partially overwritten current file is restored'
+    }
+    else { Assert (-not (Test-Path -LiteralPath $target)) 'rollback: the partially created current file is removed' }
+}
 
 $project = New-TestProject -Name 'platform-mismatch-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Codex') -Agents @('claude-reviewer'))
 Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project) } -Pattern 'does not support any selected target platform' -Message 'validation: component without a selected target platform fails'
@@ -538,8 +568,37 @@ $outside = Join-Path $work 'junction-root-target'
 Set-File -Path (Join-Path $outside 'sentinel.txt') 'keep'
 New-Item -ItemType Junction -Path (Join-Path $project '.agent-harness/generated') -Target $outside | Out-Null
 $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $pathRepo, '-ProjectRoot', $project)
-Assert ($r.Code -ne 0 -and $r.Out -match 'Generated root is not a plain directory') 'safety gate: build refuses a generated root that is a junction'
+Assert ($r.Code -ne 0 -and $r.Out -match 'Harness path contains a reparse point') 'safety gate: build refuses a generated root that is a junction'
 Assert ((Get-Content -Raw (Join-Path $outside 'sentinel.txt')) -eq 'keep' -and @(Get-ChildItem $outside).Count -eq 1) 'safety gate: the junction target is untouched'
+
+$project = New-TestProject -Name 'junction-ancestor-project'
+$outside = Join-Path $work 'junction-ancestor-target'
+New-Item -ItemType Directory $outside -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $project '.agent-harness/profile.psd1') -Destination $outside
+Remove-Item -LiteralPath (Join-Path $project '.agent-harness/profile.psd1')
+Remove-Item -LiteralPath (Join-Path $project '.agent-harness')
+Set-File -Path (Join-Path $outside 'generated/sentinel.txt') 'keep'
+New-Item -ItemType Junction -Path (Join-Path $project '.agent-harness') -Target $outside | Out-Null
+$r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project)
+Assert ($r.Code -ne 0 -and $r.Out -match 'reparse point') 'safety gate: build refuses a junction above the generated root'
+Assert ((Test-Path -LiteralPath (Join-Path $outside 'generated/sentinel.txt')) -and -not (Test-Path -LiteralPath (Join-Path $outside 'generated/plan.json'))) 'safety gate: ancestor junction target is not rebuilt'
+
+foreach ($linkedPath in @('.claude', '.agent-harness/backups')) {
+    $case = $linkedPath -replace '[./]', '-'
+    $project = New-TestProject -Name "apply-junction-$case"
+    $outside = Join-Path $work "apply-junction-target-$case"
+    Set-File -Path (Join-Path $outside 'settings.json') -Content '{"personal":true}'
+    $before = Get-FileSnapshot -Root $outside
+    New-Item -ItemType Junction -Path (Join-Path $project $linkedPath) -Target $outside | Out-Null
+    foreach ($mode in @('dry-run', 'apply')) {
+        $extra = @()
+        if ($mode -eq 'apply') { $extra = @('-Apply') }
+        $r = Invoke-Script -Script $applyScript -ScriptArgs (@('-RepoRoot', $repo, '-ProjectRoot', $project) + $extra)
+        Assert ($r.Code -ne 0 -and $r.Out -match 'reparse point') "safety gate: $mode refuses linked $linkedPath"
+        Assert (@(Compare-FileSnapshot -Before $before -After (Get-FileSnapshot -Root $outside)).Count -eq 0) "safety gate: $mode leaves linked $linkedPath target untouched"
+        Assert (-not (Test-Path -LiteralPath (Join-Path $project 'AGENTS.md'))) "safety gate: $mode rejects all writes before linked $linkedPath"
+    }
+}
 
 # The home-write guard runs before the dry-run return, so a plain dry-run with pending
 # adds proves it. The guard skips an empty or non-existing USERPROFILE, so the fake home
@@ -555,6 +614,9 @@ try {
     $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $pathRepo, '-ProjectRoot', $homeProject)
     Assert ($r.Code -ne 0 -and $r.Out -match 'Refusing to write inside the home directory') 'safety gate: apply refuses to write inside the user home'
     Assert (-not (Test-Path -LiteralPath (Join-Path $homeProject 'AGENTS.md'))) 'safety gate: the refused apply writes nothing'
+    $r = Invoke-Script -Script $PSCommandPath -ScriptArgs @('-RepoRoot', $homeProject)
+    Assert ($r.Code -ne 0 -and $r.Out -match 'checkout outside the user home') 'test workspace: a home checkout is refused before fixture creation'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $homeProject 'tmp'))) 'test workspace: no fixture or external fallback is created for a home checkout'
 }
 finally {
     $env:USERPROFILE = $previousUserProfile

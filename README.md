@@ -47,6 +47,15 @@ that skips finalization retains its exact owned tree; parent exit and drained ou
 not prove every writer stopped. Check actual tree and writer state before cleanup; a
 receipt's `cleanup_requested` field records intent, not completed deletion.
 
+Profile tests likewise keep their fixtures under ignored `tmp/tests/harness-profile/`,
+remove them on success and retain them on failure. Run them from a checkout outside the user
+home: a checkout inside it is refused before creating fixtures, preserving the profile
+home-write guard without falling back to another directory.
+
+Deployment rejects selected skill paths occupied by ordinary files during planning, before
+any live changes. Profile build and apply reject reparse points in their project paths and
+ancestors; failed profile writes include the current attempted file in best-effort rollback.
+
 ## Everyday commands
 
 From the repository root in PowerShell 7+:

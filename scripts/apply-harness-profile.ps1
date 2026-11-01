@@ -21,6 +21,8 @@ $repo = $plan.RepoRoot
 $project = $plan.ProjectRoot
 Assert-HarnessNoPrivatePaths -Paths @($plan.SourceFiles | ForEach-Object Path)
 
+$backupRootResolved = [System.IO.Path]::GetFullPath((Join-Path $project '.agent-harness/backups'))
+Assert-HarnessNoReparsePath -Paths (@($plan.Targets | ForEach-Object FullPath) + @($backupRootResolved))
 $changes = @(Get-HarnessApplyChanges -Plan $plan)
 $writeChanges = @($changes | Where-Object Action -In @('add', 'update'))
 Assert-HarnessOutsideHome -Paths @($writeChanges | ForEach-Object FullPath)
@@ -53,7 +55,6 @@ if (-not $Apply) {
 Invoke-SecretScanGate -RepoRoot $repo
 
 # Backups always live under the project's own .agent-harness/backups.
-$backupRootResolved = [System.IO.Path]::GetFullPath((Join-Path $project '.agent-harness/backups'))
 Assert-HarnessOutsideHome -Paths @($backupRootResolved)
 $backupDir = Join-Path $backupRootResolved "apply-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff'))"
 New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
@@ -83,18 +84,20 @@ $manifestPath = Join-Path $backupDir 'manifest.json'
     entries     = $entries
 } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
-$applied = [System.Collections.Generic.List[object]]::new()
+$attempted = [System.Collections.Generic.List[object]]::new()
 try {
     foreach ($change in $writeChanges) {
         New-Item -ItemType Directory -Path (Split-Path -Parent $change.FullPath) -Force | Out-Null
+        # A failing write can already have truncated or partially created this file.
+        $attempted.Add($change)
         Set-Content -LiteralPath $change.FullPath -Value $change.Content -Encoding UTF8 -NoNewline
-        $applied.Add($change)
         Write-Output ('  {0,-7} {1}' -f $change.Action, $change.Target)
     }
 }
 catch {
-    Write-Warning "Apply failed. Attempting best-effort rollback for $($applied.Count) changed file(s)."
-    foreach ($change in @($applied | Sort-Object Target -Descending)) {
+    Write-Warning "Apply failed. Attempting best-effort rollback for $($attempted.Count) attempted file(s)."
+    for ($i = $attempted.Count - 1; $i -ge 0; $i--) {
+        $change = $attempted[$i]
         $entry = @($entries | Where-Object { $_.originalPath -eq $change.FullPath })[0]
         try {
             if ($entry.backupPath) { Copy-Item -LiteralPath $entry.backupPath -Destination $change.FullPath -Force }

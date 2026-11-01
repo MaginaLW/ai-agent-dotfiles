@@ -106,6 +106,25 @@ function Test-HarnessRelativePath {
     return $relative
 }
 
+function Assert-HarnessNoReparsePath {
+    param([Parameter(Mandatory)] [string[]] $Paths)
+
+    foreach ($path in $Paths) {
+        $current = [System.IO.Path]::GetFullPath($path)
+        while ($current) {
+            $item = $null
+            try { $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop }
+            catch [System.Management.Automation.ItemNotFoundException] { }
+            if ($item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                throw "Harness path contains a reparse point: $current"
+            }
+            $parent = Split-Path -Parent $current
+            if ($parent -eq $current) { break }
+            $current = $parent
+        }
+    }
+}
+
 function Get-HarnessRelativePath {
     param([string] $Root, [string] $Path)
     return ([System.IO.Path]::GetRelativePath($Root, $Path) -replace '\\', '/')
@@ -201,6 +220,7 @@ function New-HarnessProfilePlan {
     $project = (Resolve-Path -LiteralPath $ProjectRoot).Path
 
     $profilePath = Join-Path $project '.agent-harness/profile.psd1'
+    Assert-HarnessNoReparsePath -Paths @($profilePath)
     $projectProfile = Import-HarnessData -Path $profilePath -Kind 'project profile' -Required $script:HarnessProfileRequiredKeys -Allowed $script:HarnessProfileAllowedKeys
     $resolved = [System.Collections.Generic.List[object]]::new()
     $visiting = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)

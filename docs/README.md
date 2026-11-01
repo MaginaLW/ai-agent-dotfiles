@@ -246,6 +246,10 @@ dry-run；保留需要的个人覆盖，live `config-pull -Apply` 仍须在审�
 
 ## 12. Project Harness Profiles
 
+Build and apply reject reparse points in profile, generated, output and backup paths,
+including their existing ancestors. If an Apply write fails after changing its destination,
+best-effort rollback includes that current file as well as earlier attempted writes.
+
 `harness-source/` 存放可复用的 component/profile 定义，为某个项目生成 `.agent-harness/generated/` 下的本地输出。
 项目用 `.agent-harness/profile.psd1` 声明选择；只处理项目本地文件，不切换全局 home harness。
 

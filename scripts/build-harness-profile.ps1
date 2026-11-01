@@ -19,6 +19,7 @@ $plan = New-HarnessProfilePlan -RepoRoot $RepoRoot -ProjectRoot $ProjectRoot -Mo
 $repo = $plan.RepoRoot
 $project = $plan.ProjectRoot
 $generatedRoot = Join-Path $project '.agent-harness\generated'
+Assert-HarnessNoReparsePath -Paths @($generatedRoot)
 # The generated root is build-owned output and every build replaces it wholesale.
 # -Clean stays accepted as a compatibility switch. Refusing a root that is not a plain
 # directory keeps the recursive delete from following a reparse point.
