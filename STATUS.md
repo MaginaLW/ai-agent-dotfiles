@@ -9,7 +9,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Approval feedback interaction refinement (2026-11-01, update pending).** Source now
+- **Approval feedback interaction refinement (2026-11-01, owner-authorized update).** Source now
   gives each necessary confirmation a conversation-scoped short ID. Supported choice-style
   Asks combine explicit current permission with an optional score in one submitted answer;
   limited interfaces keep their original choices and show a one-line template. Native
@@ -18,9 +18,14 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   never become permission or threshold support. Sixteen targeted synthetic cases plus a
   fact-gap follow-up passed; a first overstatement of C64 counting was corrected after
   explicit missing-permission input. Skill format, build, generated hashes, diff and secret
-  checks passed. The actual full preview shows three updates, 41 unchanged, and zero
-  installs/prunes/unknowns. The prior version remains installed pending this revision's
-  per-run Apply authorization. Private evidence is in ignored `tmp/approval-feedback-interaction/`.
+  checks passed. The actual full preview and authorized Apply each reported three updates,
+  41 unchanged, and zero installs/prunes/unknowns. All 44 live directories match generated
+  output, the three new Skill copies match source, the 41 other directories and 49 Codex
+  `.system` files are unchanged, and all three previous-version backups match the baseline.
+  The post-update preview reports all 44 unchanged. One actual Ask captured the current
+  run's permission and optional feedback together; feedback was saved and read back only
+  in the separate private ledger, not in Git. No standing permission was enabled. Private
+  verification evidence is in ignored `tmp/approval-feedback-interaction/`.
 
 - **Approval feedback primary integration (2026-11-01, owner-authorized).** The four
   reviewed task commits through `54bbf97` are fast-forwarded into local `main`. The two
@@ -49,9 +54,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   to source, and the 41 original directories to their pre-Apply contents. All 49 Codex
   `.system` file hashes were unchanged. Deployment state matches `full`; the post-Apply
   dry run reports all 44 directories unchanged. Private receipts are under
-  ignored `tmp/approval-feedback-expansion/live-install/`. New-task loading, real feedback
-  collection and new standing permissions remain unverified or unrequested; no empty
-  private ledger was created, and no backup was needed for the three new directories.
+  ignored `tmp/approval-feedback-expansion/live-install/`. Codex discovery and later private
+  feedback capture are recorded above; Claude/ZCode model-level loading remains unverified.
+  No standing permission was enabled. The private ledger was created only for actual feedback;
+  the original three new-directory installs required no old-version backup.
 
 - **Owner-authorized full Apply (2026-11-01).** The dry run and Apply both reported all
   41 selected directories unchanged (Claude 11, Codex 19, ZCode 11), with no installs,
@@ -298,11 +304,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- The numbered one-interaction scoring revision is validated in source and ready for the
-  reviewed three-platform full Apply; it is not yet installed.
+- The numbered one-interaction scoring revision is installed on all three platforms;
+  its real feedback is held only in the private ledger and does not enable future approval.
 - `approval-feedback` is installed globally on all three platforms. Codex catalog discovery,
   live-file loading and autonomous selection were observed in two fresh-context simulations;
-  Claude/ZCode model-level loading and real feedback remain unverified. Installation enables
+  Claude/ZCode model-level loading and long-run selection behavior remain unverified. Installation enables
   no automatic approval or standing merge policy; automatic selection rates were not measured.
 
 ## Known boundaries
