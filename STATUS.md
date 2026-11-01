@@ -9,7 +9,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Approval feedback current-version interaction (2026-11-01, prepared).** A read-only
+- **Approval feedback current-version interaction (2026-11-01, owner-authorized).** A read-only
   audit found older Skill bodies retained in some long-running Codex turns. The source
   now checks current interaction text before a necessary new question; the global route
   states the minimum observable ID, optional-feedback entry and score meanings. Updates
@@ -19,8 +19,14 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   synthetic cases passed. Format, build, generated hashes, source/candidate secret scans and
   diff checks passed. Previews show three Skill updates, 41 unchanged and no installs/prunes/
   unknowns, plus exactly one Codex AGENTS update preserving personal agreements. These
-  concrete Apply runs await owner authorization; actual subsequent chat behavior remains
-  unverified. Existing private two-hour observation retains its original window.
+  owner-authorized Apply runs completed with that exact scope. All 44 live directories match
+  generated output; 41 unrelated directories and 49 protected Codex system files are unchanged.
+  Three previous Skill backups and the global original backup match the baseline; all personal
+  agreements are preserved. Both post-Apply previews are empty. The refreshed current-chat
+  global instructions contain the strengthened route; actual subsequent behavior in other
+  chats remains under observation. Feedback was saved and read back only in the private
+  ledger, without standing permission. Private receipts are in ignored
+  `tmp/approval-feedback-trigger-refresh/`; the existing observation retains its original window.
 
 - **Approval feedback Codex global routing (2026-11-01, owner-authorized).** The canonical
   Codex AGENTS template now explicitly routes execution confirmations, choice questions,
