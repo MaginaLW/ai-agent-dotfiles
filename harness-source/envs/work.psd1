@@ -5,6 +5,7 @@
 
     Skills = @{
         Claude = @(
+            'approval-feedback',
             'boring-engineering',
             'git-review',
             'meng-cmame-writing',
@@ -14,6 +15,7 @@
             'tool-scope'
         )
         Codex = @(
+            'approval-feedback',
             'boring-engineering',
             'git-review',
             'meng-cmame-writing',
@@ -23,6 +25,7 @@
             'tool-scope'
         )
         Zcode = @(
+            'approval-feedback',
             'boring-engineering',
             'git-review',
             'meng-cmame-writing',

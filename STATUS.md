@@ -9,6 +9,20 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Approval feedback Skill construction (2026-11-01).** Added shared `approval-feedback`
+  with a short core and an on-demand rule-amendment/Git workflow reference. All three
+  platforms select it in `work/full`; `minimal` is unchanged. The user chose global Skill
+  discovery for arbitrary projects, so no project or global `AGENTS.md` was changed.
+  Independent requirements/quality review passed after two local corrections. A blind
+  synthetic exercise covered C01-C60; all decisions matched the fixed acceptance behavior,
+  and C07/C11/C54 plus an explicit reauthorization case passed targeted follow-up after a
+  clarification of resumption evidence. Skill format, PowerShell syntax, build, generated
+  file hashes, environment counts, diff checks and the secret scan passed. The actual
+  `full` global dry run plans exactly three installs of `approval-feedback`, 41 unchanged
+  directories, and no updates, prunes or unknowns. Ignored receipts are under
+  `tmp/approval-feedback-expansion/`. Live Apply, new-task loading, real feedback collection
+  and any new standing permission have not occurred; no empty private ledger was created.
+
 - **Owner-authorized full Apply (2026-11-01).** The dry run and Apply both reported all
   41 selected directories unchanged (Claude 11, Codex 19, ZCode 11), with no installs,
   updates, prunes or unknown directories. Apply refreshed the existing deployment state;
@@ -254,7 +268,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- None.
+- `approval-feedback` is built and ready for the reviewed three-platform global Apply if
+  the owner authorizes that run. Runtime loading and real feedback remain unverified;
+  no automatic approval or standing merge policy is enabled by construction.
 
 ## Known boundaries
 
@@ -290,18 +306,18 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 | Scope | Canonical | Claude | Codex |
 |---|---:|---:|---:|
-| Shared | 11 | 11 | 11 |
+| Shared | 12 | 12 | 12 |
 | Codex-only (Claude-only is empty) | 8 | - | 8 |
-| Managed total | 19 | 11 | 19 |
+| Managed total | 20 | 12 | 20 |
 
-- **Shared skills:** boring-engineering, brainstorming, git-review, meng-cmame-writing,
+- **Shared skills:** approval-feedback, boring-engineering, brainstorming, git-review, meng-cmame-writing,
   paper-polish, session-learnings, subagent-driven-development, systematic-debugging, tool-scope,
   verification-before-completion, writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 7/7/7
-  (`boring-engineering`, `git-review`, `meng-cmame-writing`, `paper-polish`,
-  `session-learnings`, `systematic-debugging`, `tool-scope`), `full` 11/19/11. Unselected unknown live directories are
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 8/8/8
+  (`approval-feedback`, `boring-engineering`, `git-review`, `meng-cmame-writing`, `paper-polish`,
+  `session-learnings`, `systematic-debugging`, `tool-scope`), `full` 12/20/12. Unselected unknown live directories are
   preserved, and Codex `.system` is never managed.
 - **Retired:**
   - the transactional live-sync engine, its hooks, runner, schemas and tests (2026-10-09);

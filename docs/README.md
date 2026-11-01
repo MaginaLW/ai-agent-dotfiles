@@ -293,7 +293,16 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 
 新增受管 skill 时，除放入 `skills-source/` 外，还要在目标环境的各平台 `Skills` 数组中选入；
 `full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。
-本次 `session-learnings` 的构建和 `full` 预览验证结果见 [STATUS.md](../STATUS.md)。
+构建及部署准备的当前结果见 [STATUS.md](../STATUS.md)。
+
+`approval-feedback` 已选入三平台 `work/full`，以全局 Skill 发现方式使用，不要求给每个项目添加入口。
+它在真正准备执行确认、收到确认反馈或定位重复审批旧规则时介入，先核实已有授权及适用规则；
+可选评分只评价打断价值，不批准动作。私有台账建议用
+`%LOCALAPPDATA%/ai-agent-dotfiles.feedback/approval-feedback.md`，仅在真实反馈需要且写入获准时创建，
+由单一记录者维护，不与 Git、build、deploy 或 config-sync 混放。
+源码与条件性流程见 [Skill](../skills-source/shared/approval-feedback/SKILL.md)；设计依据见
+[总体纲领](APPROVAL_FEEDBACK_PRINCIPLES_2026-11-01.md)及[执行计划](APPROVAL_FEEDBACK_EXECUTION_PLAN_2026-11-01.md)。
+部署仍先审阅实际 dry-run，再逐次授权 Apply；客户端是否需要新任务加载另行验证。
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list

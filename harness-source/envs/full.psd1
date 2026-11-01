@@ -5,6 +5,7 @@
 
     Skills = @{
         Claude = @(
+            'approval-feedback',
             'boring-engineering',
             'brainstorming',
             'git-review',
@@ -18,6 +19,7 @@
             'writing-plans'
         )
         Codex = @(
+            'approval-feedback',
             'boring-engineering',
             'brainstorming',
             'chatgpt-apps',
@@ -39,6 +41,7 @@
             'writing-plans'
         )
         Zcode = @(
+            'approval-feedback',
             'boring-engineering',
             'brainstorming',
             'git-review',
