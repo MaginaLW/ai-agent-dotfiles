@@ -9,15 +9,22 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Approval feedback Codex global routing (2026-11-01, prepared).** The canonical
+- **Approval feedback Codex global routing (2026-11-01, owner-authorized).** The canonical
   Codex AGENTS template now explicitly routes execution confirmations, choice questions,
   confirmation feedback and repeated approvals caused by old rules to `approval-feedback`.
   Existing permission takes precedence; scores remain separate from permission, platform
   confirmations remain required, and an unavailable Skill adds no approval layer. A private
   candidate preserves every existing live agreement and adds only this route. Its unchanged
   secret-scan chain passed and the config-pull preview lists exactly one Codex AGENTS update.
-  Live deployment awaits this run's owner authorization after review. A new task is needed
-  to verify loading; a routing instruction does not create a platform approval hook.
+  The authorized config-pull Apply updated that one file. Live content matches the reviewed
+  candidate, the backup matches the original, and removing the route restores every original
+  byte. There is one route and no global override; the post-Apply preview is empty. The
+  refreshed instruction context in this chat contains the route, so instruction loading was
+  observed; later automatic Skill selection rates remain unmeasured. Actual optional feedback
+  was recorded and read back only in the private ledger, with no standing permission enabled.
+  A local verification wrapper initially miscounted the empty plan; correcting the wrapper
+  confirmed the unchanged deployment was complete. Private receipts remain in ignored
+  `tmp/approval-feedback-global-hook/`. A routing instruction creates no platform approval hook.
 
 - **Approval feedback interaction refinement (2026-11-01, owner-authorized update).** Source now
   gives each necessary confirmation a conversation-scoped short ID. Supported choice-style
@@ -323,6 +330,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Known boundaries
 
+- **Intentional Codex global agreement drift.** The live AGENTS file has personal agreements
+  beyond the canonical template. The routing update preserved them in a private candidate;
+  a raw whole-file pull from the canonical template would remove them. Preserve and review
+  these differences when preparing any future config pull.
 - **Intentional Claude config drift.** The personal notification override and home-only
   marketplace declaration are retained locally, outside the repository template. A raw
   whole-file config pull would remove them; preserve them when preparing any future pull.
