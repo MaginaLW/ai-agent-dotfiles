@@ -9,6 +9,20 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Approval feedback closeout and boundary review (2026-11-01, owner-authorized).** The twelve
+  reviewed local commits through `89b6d5b` were pushed to `origin/main`; Validate run 264 at that
+  exact head completed successfully. The integrated local branch
+  `codex/approval-feedback-expansion` was deleted only after its recorded tip
+  `54bbf97a51e3838ed043878ed704133e9089cafe` was proven an ancestor of `main` and no worktree
+  used it. No live Apply or config Apply happened in this closeout. Current OpenAI documentation
+  says Codex detects skill changes automatically and recommends restarting Codex when an update
+  does not appear; it does not rewrite a `SKILL.md` body already loaded by a running conversation.
+  The repository documentation therefore keeps the explicit reread guard for stale in-context
+  bodies. A read-only config-status check confirms the two intentional config drifts without
+  exposing values: Claude has home-only settings fields and Codex AGENTS has personal agreements.
+  Safe future relaxations are a reviewed JSON merge for Claude settings and a managed-block-style
+  split for Codex AGENTS; neither is implemented, and raw whole-file pulls remain unsafe.
+
 - **Approval feedback current-version interaction (2026-11-01, owner-authorized).** A read-only
   audit found older Skill bodies retained in some long-running Codex turns. The source
   now checks current interaction text before a necessary new question; the global route
@@ -75,9 +89,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   runtime-smoke evidence files were preserved under ignored `tmp/approval-feedback-expansion/`.
   The actual primary-checkout `full` dry run now reports all 44 directories unchanged,
   with no installs, updates, prunes or unknowns, eliminating the old checkout's three-skill
-  prune plan. No additional Apply or remote push occurred. The host rejects archiving the
-  task worktree because it remains this chat's primary checkout, so that tree and its
-  integrated local branch are retained. Integration receipts are in ignored
+  prune plan. No additional Apply or remote push occurred then. The host initially preserved
+  the task worktree and its integrated local branch; the later closeout found only the primary
+  checkout and deleted the proven-integrated branch. Integration receipts are in ignored
   `tmp/approval-feedback-integration/`.
 
 - **Approval feedback global installation (2026-11-01, owner-authorized).** Added shared `approval-feedback`
@@ -347,6 +361,8 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 - The numbered one-interaction scoring revision is installed on all three platforms;
   its real feedback is held only in the private ledger and does not enable future approval.
+  The owner deferred later manual confirmation of real-world long-run behavior; no reminder or
+  scheduled task was created for that review.
 - `approval-feedback` is installed globally on all three platforms. Codex catalog discovery,
   live-file loading and autonomous selection were observed in two fresh-context simulations;
   Claude/ZCode model-level loading and long-run selection behavior remain unverified. Installation enables
@@ -379,7 +395,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   `boring-engineering` and `systematic-debugging` until 2026-10-14, when the Zcode projection
   platform first deployed there (the manual `boring-engineering` copy was CRLF and was replaced
   through the normal update path).
-- **Codex catalog refresh.** Codex may need a new task or thread before a changed skill set shows.
+- **Codex catalog refresh and loaded skill bodies.** Official Codex behavior is automatic change
+  detection, with a restart when an update does not appear. A conversation that already loaded an
+  old `SKILL.md` can retain that body; the `approval-feedback` route requires rereading the
+  current file when its version is unknown.
 - **Out of scope.** Machine-private configuration including Codex `config.toml` and private `.env`
   files, credentials, sessions and caches are outside sync scope. Machine-private evidence
   (`tmp/` and external private roots) is

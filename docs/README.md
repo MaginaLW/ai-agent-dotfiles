@@ -221,6 +221,9 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
 - Claude 配置模板启用 `codex@openai-codex`；模板市场声明不代表插件已经安装或加载。
 - 模板不带模型与推理档位，但这不表示可以删除个人设置：`config-pull` 按文件复制，**不按字段合并**，
   审查 dry-run 时须逐项比较并保留目标里的个人覆盖值。
+  若后续要突破整文件覆盖限制，需单独评审并实现最小机制：Claude `settings.json` 使用结构化
+  JSON 合并，Codex `AGENTS.md` 使用受控 managed block；迁移 live 文件仍需逐次授权。不要把
+  本文档描述当作已经实现或已获部署许可。
 - deploy-skills 不包含 config-pull；把两者合并需要单独评审。
 - 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1`。
 
@@ -319,7 +322,9 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 - 选集只能包含已有 generated output 的 skill，缺失时 deploy-skills 报错停止。
 - 切换到较小环境时，上次由 deploy-skills 部署、本次不再选中的目录进入 `prune`（先备份）。
 - 任务临时需要的 skill 不要写回 `work.psd1`；长期需要时在评审过的提交里改环境定义。
-- Codex 已缓存的 skill catalog 可能要新 task/thread 才刷新。
+- Codex 官方行为是自动检测 skill 变更；若更新未出现，重启 Codex。已在同一上下文中加载的旧
+  `SKILL.md` 正文不会因目录刷新而改写，因此 `approval-feedback` 要求版本不明时重新读取当前文件。
+  参考 [Build skills](https://learn.chatgpt.com/docs/build-skills)。
 
 ---
 
