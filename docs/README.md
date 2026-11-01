@@ -297,7 +297,9 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 
 `approval-feedback` 已选入三平台 `work/full`，以全局 Skill 发现方式使用，不要求给每个项目添加入口。
 它在真正准备执行确认、收到确认反馈或定位重复审批旧规则时介入，先核实已有授权及适用规则；
-可选评分只评价打断价值，不批准动作。私有台账建议用
+每个必要确认带会话内短编号；支持的 Ask 在同一次选择中分别表达本次许可和可选 0–3 分，
+选项不足时保留原选择并给带编号的回复模板。原生批准按钮不自动产生分数，补评用 `A01=1`，
+不使用“刚才那次”猜归属；未关联反馈不计阈值、不追加评分询问。评分只评价打断价值，不批准动作。私有台账建议用
 `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/approval-feedback.md`，仅在真实反馈需要且写入获准时创建，
 由单一记录者维护，不与 Git、build、deploy 或 config-sync 混放。
 源码与条件性流程见 [Skill](../skills-source/shared/approval-feedback/SKILL.md)；设计依据见

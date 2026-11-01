@@ -9,6 +9,19 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Approval feedback interaction refinement (2026-11-01, update pending).** Source now
+  gives each necessary confirmation a conversation-scoped short ID. Supported choice-style
+  Asks combine explicit current permission with an optional score in one submitted answer;
+  limited interfaces keep their original choices and show a one-line template. Native
+  approval buttons are unchanged; supplemental feedback uses an explicit ID instead of
+  guessing the last popup. Unsubmitted defaults, denied actions and unresolved attribution
+  never become permission or threshold support. Sixteen targeted synthetic cases plus a
+  fact-gap follow-up passed; a first overstatement of C64 counting was corrected after
+  explicit missing-permission input. Skill format, build, generated hashes, diff and secret
+  checks passed. The actual full preview shows three updates, 41 unchanged, and zero
+  installs/prunes/unknowns. The prior version remains installed pending this revision's
+  per-run Apply authorization. Private evidence is in ignored `tmp/approval-feedback-interaction/`.
+
 - **Approval feedback primary integration (2026-11-01, owner-authorized).** The four
   reviewed task commits through `54bbf97` are fast-forwarded into local `main`. The two
   original untracked design drafts were preserved with SHA-256 verification under ignored
@@ -285,6 +298,8 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
+- The numbered one-interaction scoring revision is validated in source and ready for the
+  reviewed three-platform full Apply; it is not yet installed.
 - `approval-feedback` is installed globally on all three platforms. Codex catalog discovery,
   live-file loading and autonomous selection were observed in two fresh-context simulations;
   Claude/ZCode model-level loading and real feedback remain unverified. Installation enables
