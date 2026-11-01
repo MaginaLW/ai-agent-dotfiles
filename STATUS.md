@@ -9,6 +9,16 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Approval feedback Codex global routing (2026-11-01, prepared).** The canonical
+  Codex AGENTS template now explicitly routes execution confirmations, choice questions,
+  confirmation feedback and repeated approvals caused by old rules to `approval-feedback`.
+  Existing permission takes precedence; scores remain separate from permission, platform
+  confirmations remain required, and an unavailable Skill adds no approval layer. A private
+  candidate preserves every existing live agreement and adds only this route. Its unchanged
+  secret-scan chain passed and the config-pull preview lists exactly one Codex AGENTS update.
+  Live deployment awaits this run's owner authorization after review. A new task is needed
+  to verify loading; a routing instruction does not create a platform approval hook.
+
 - **Approval feedback interaction refinement (2026-11-01, owner-authorized update).** Source now
   gives each necessary confirmation a conversation-scoped short ID. Supported choice-style
   Asks combine explicit current permission with an optional score in one submitted answer;
