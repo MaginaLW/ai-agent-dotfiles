@@ -18,7 +18,7 @@
 
 已核实仓库使用 PowerShell 7+；`skills-source/` 是唯一 Skill 源，shared 构建到 Claude 和 Codex，ZCode 复用 Claude 生成物；环境选择由 `harness-source/envs/*.psd1` 管理；live 部署必须经过 `deploy-skills.ps1`，每次 Apply 需要单独授权。本轮在 shared 新增 `approval-feedback`；不新增仓库 `.agents/` 或隐含同步入口。
 
-文档放在既有 `docs/`，本轮按建设请求实现 shared Skill、三平台 `work/full` 选择和必要说明／清单；不修改任何实际 `AGENTS.md`、平台权限或自动合并设置，不执行合并。建设在既有隔离工作树完成，主树原稿保持不动；整合仍需 owner 许可。普通推送按现有规则办理，当前远端发送已被自动审批审查要求取得具体授权，未获准前保留本地提交。
+文档放在既有 `docs/`，按建设请求实现 shared Skill、三平台 `work/full` 选择和必要说明／清单，不修改任何实际 `AGENTS.md`、平台权限或自动合并设置。建设先在隔离工作树完成，随后用户另行授权快进合入本地 `main` 并替换两份原稿；原稿与验证凭证已保全，整合复验见第 11 节。此次按用户指定范围不推送远端。
 
 | 位置／对象 | 职责 | 何时创建或修改 |
 |---|---|---|
@@ -373,3 +373,11 @@ G1／G2 是执行者的内部检查，不新增人工审批。G3 为项目入口
 安装后逐文件核实：全部 44 个已选 live 目录与对应生成物一致；三平台新 Skill 的两份文件均与 shared 源一致；原有 41 个目录与安装前相同；Codex `.system` 的 49 个文件名称与 SHA-256 均不变。部署状态的环境及各平台清单与 full 选择一致，再次预演全部 44 个目录 unchanged，无 install／update／prune／unknown。新增目录无需备份旧版本。
 
 私有安装凭证在 ignored `tmp/approval-feedback-expansion/live-install/`，包括安装前哈希、重新预演、实际 Apply、安装后核验和最后预演。实际新任务加载与真实评分尚未验证，不把安装成功当持续免确认约定；可能需要新任务刷新客户端 Skill 目录。
+
+## 11. 主仓库整合与复验
+
+复查发现主仓库仍处于旧的 41 目录选集：只读 `full` 预演会 prune 三平台的新 Skill。用户明确授权本地整合后，先将两份未跟踪原稿逐文件备份到 ignored `tmp/approval-feedback-integration/original-docs/`，保全并核对 17 份构建、演练、安装与运行时验证资料，再将四个已复核提交快进合入 `main`（任务 tip 为 `54bbf97`）。
+
+从主目录重新构建、扫描并预演 `full` 后，结果为 install=0、update=0、unchanged=44、prune=0、unknown=0，三项删除计划已消失。此次未再次运行 Apply，未推送远端。宿主拒绝归档仍被识别为本聊天主检出的任务工作树，因此保留该树及其已整合分支，不强行删除；备份、证据清单和复验结果见 ignored `tmp/approval-feedback-integration/`。
+
+另有两次 fresh-context 模拟在未指定 Skill 名称的情况下自主读取安装目录中的核心／条件性流程，核实 Codex 目录发现、实际读取及相应判断；三平台六个安装文件均与源一致。该结果不等于实测 Claude／ZCode 模型内加载，不构成真实评分或未来触发率统计。

@@ -9,6 +9,18 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Approval feedback primary integration (2026-11-01, owner-authorized).** The four
+  reviewed task commits through `54bbf97` are fast-forwarded into local `main`. The two
+  original untracked design drafts were preserved with SHA-256 verification under ignored
+  `tmp/approval-feedback-integration/original-docs/`; 17 construction, installation and
+  runtime-smoke evidence files were preserved under ignored `tmp/approval-feedback-expansion/`.
+  The actual primary-checkout `full` dry run now reports all 44 directories unchanged,
+  with no installs, updates, prunes or unknowns, eliminating the old checkout's three-skill
+  prune plan. No additional Apply or remote push occurred. The host rejects archiving the
+  task worktree because it remains this chat's primary checkout, so that tree and its
+  integrated local branch are retained. Integration receipts are in ignored
+  `tmp/approval-feedback-integration/`.
+
 - **Approval feedback global installation (2026-11-01, owner-authorized).** Added shared `approval-feedback`
   with a short core and an on-demand rule-amendment/Git workflow reference. All three
   platforms select it in `work/full`; `minimal` is unchanged. The user chose global Skill
@@ -273,9 +285,10 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- `approval-feedback` is installed globally on all three platforms. New-task loading and
-  real feedback remain unverified; installation enables no automatic approval or standing
-  merge policy. Client catalog refresh may require a new task.
+- `approval-feedback` is installed globally on all three platforms. Codex catalog discovery,
+  live-file loading and autonomous selection were observed in two fresh-context simulations;
+  Claude/ZCode model-level loading and real feedback remain unverified. Installation enables
+  no automatic approval or standing merge policy; automatic selection rates were not measured.
 
 ## Known boundaries
 
