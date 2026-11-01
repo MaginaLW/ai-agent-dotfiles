@@ -23,10 +23,15 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   generated output; 41 unrelated directories and 49 protected Codex system files are unchanged.
   Three previous Skill backups and the global original backup match the baseline; all personal
   agreements are preserved. Both post-Apply previews are empty. The refreshed current-chat
-  global instructions contain the strengthened route; actual subsequent behavior in other
-  chats remains under observation. Feedback was saved and read back only in the private
-  ledger, without standing permission. Private receipts are in ignored
-  `tmp/approval-feedback-trigger-refresh/`; the existing observation retains its original window.
+  global instructions contain the strengthened route. Bounded observation saw one other
+  local chat emit an actual numbered approval with combined permission/score choices and
+  three chats reread the current check section; this does not establish universal success
+  or attribute the observed question to this revision. The owner requested early closeout:
+  the final installation/backup checks and no-op previews passed again, the temporary
+  heartbeat was deleted, and the full two-hour window was not completed. Feedback was saved
+  and read back only in the private ledger, without standing permission. Private receipts
+  remain in ignored `tmp/approval-feedback-trigger-refresh/` and
+  `tmp/approval-feedback-global-hook/monitor.json`.
 
 - **Approval feedback Codex global routing (2026-11-01, owner-authorized).** The canonical
   Codex AGENTS template now explicitly routes execution confirmations, choice questions,
