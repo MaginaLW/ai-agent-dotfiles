@@ -9,7 +9,7 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Approval feedback Skill construction (2026-11-01).** Added shared `approval-feedback`
+- **Approval feedback global installation (2026-11-01, owner-authorized).** Added shared `approval-feedback`
   with a short core and an on-demand rule-amendment/Git workflow reference. All three
   platforms select it in `work/full`; `minimal` is unchanged. The user chose global Skill
   discovery for arbitrary projects, so no project or global `AGENTS.md` was changed.
@@ -18,10 +18,15 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   and C07/C11/C54 plus an explicit reauthorization case passed targeted follow-up after a
   clarification of resumption evidence. Skill format, PowerShell syntax, build, generated
   file hashes, environment counts, diff checks and the secret scan passed. The actual
-  `full` global dry run plans exactly three installs of `approval-feedback`, 41 unchanged
-  directories, and no updates, prunes or unknowns. Ignored receipts are under
-  `tmp/approval-feedback-expansion/`. Live Apply, new-task loading, real feedback collection
-  and any new standing permission have not occurred; no empty private ledger was created.
+  `full` dry run and authorized Apply both reported three installs of `approval-feedback`,
+  41 unchanged directories, and no updates, prunes or unknowns. Independent file hashes
+  matched all 44 selected live directories to generated output, all three new Skill copies
+  to source, and the 41 original directories to their pre-Apply contents. All 49 Codex
+  `.system` file hashes were unchanged. Deployment state matches `full`; the post-Apply
+  dry run reports all 44 directories unchanged. Private receipts are under
+  ignored `tmp/approval-feedback-expansion/live-install/`. New-task loading, real feedback
+  collection and new standing permissions remain unverified or unrequested; no empty
+  private ledger was created, and no backup was needed for the three new directories.
 
 - **Owner-authorized full Apply (2026-11-01).** The dry run and Apply both reported all
   41 selected directories unchanged (Claude 11, Codex 19, ZCode 11), with no installs,
@@ -268,9 +273,9 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- `approval-feedback` is built and ready for the reviewed three-platform global Apply if
-  the owner authorizes that run. Runtime loading and real feedback remain unverified;
-  no automatic approval or standing merge policy is enabled by construction.
+- `approval-feedback` is installed globally on all three platforms. New-task loading and
+  real feedback remain unverified; installation enables no automatic approval or standing
+  merge policy. Client catalog refresh may require a new task.
 
 ## Known boundaries
 
