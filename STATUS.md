@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-01.
+Last updated: 2026-11-02.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -8,6 +8,23 @@ done, record its outcome here and delete the record (Git keeps it). Before trust
 CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
+
+- **Approval feedback recording and next-question repair (2026-11-02).** The shared skill
+  now handles received scores before the next related question or closeout, and uses
+  same-task low scores to diagnose repeated interruption and prepare a concrete rule amendment.
+  The three-independent-task threshold applies to cross-task standing-permission proposals;
+  current permission, platform approvals and effective per-round requirements remain intact.
+  A bundled PowerShell recorder accepts explicit private paths, deduplicates immutable
+  answer sources, serializes writes with an OS lock, atomically replaces the ledger and
+  reads it back. Legacy bytes remain unchanged; busy, conflicting or failed writes stay
+  pending without blocking authorized work. It neither collects other chats in the background
+  nor decides permission or sample independence. Independent read-only review covered six
+  decision scenarios; .NET compatibility and lock-error classification findings were fixed
+  and re-reviewed. Syntax, build, secret scan, diff checks and all 14 local suites passed.
+  The actual full deployment preview lists three updates and 41 unchanged directories,
+  with no installs, prunes or unknowns. Live deployment and real-world reduction in questions
+  remain unverified; private audit inputs and check logs are under ignored
+  `tmp/approval-feedback-loop/`. No other project's approval rule was changed.
 
 - **Approval feedback closeout and boundary review (2026-11-01, owner-authorized).** The twelve
   reviewed local commits through `89b6d5b` were pushed to `origin/main`; Validate run 264 at that

@@ -304,7 +304,12 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 选项不足时保留原选择并给带编号的回复模板。原生批准按钮不自动产生分数，补评用 `A01=1`，
 不使用“刚才那次”猜归属；未关联反馈不计阈值、不追加评分询问。评分只评价打断价值，不批准动作。私有台账建议用
 `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/approval-feedback.md`，仅在真实反馈需要且写入获准时创建，
-由单一记录者维护，不与 Git、build、deploy 或 config-sync 混放。
+使用随包 `scripts/record-feedback.ps1` 独占写入、按原始答复去重、原子替换并读回；
+旧人工记录保留，失败标待归并，不阻塞已授权工作。调用与并发边界见
+[记账说明](../skills-source/shared/approval-feedback/references/recording.md)，不与 Git、build、deploy 或 config-sync 混放。
+收到实际评分后，在下一次相关询问或收尾前核实保存结果；同任务重复低分立即用于纠错或具体规则提案，
+不增加独立样本。三个独立任务的门槛仅用于跨任务持续授权建议。Skill 不后台收集其他聊天，
+没有共享来源入口或写入许可时明确待归并；效果区分已保存、已提案、已生效及实际减少询问。
 源码与条件性流程见 [Skill](../skills-source/shared/approval-feedback/SKILL.md)；设计依据见
 [总体纲领](APPROVAL_FEEDBACK_PRINCIPLES_2026-11-01.md)及[执行计划](APPROVAL_FEEDBACK_EXECUTION_PLAN_2026-11-01.md)。
 部署仍先审阅实际 dry-run，再逐次授权 Apply；客户端是否需要新任务加载另行验证。
