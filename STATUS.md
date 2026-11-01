@@ -20,11 +20,18 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   pending without blocking authorized work. It neither collects other chats in the background
   nor decides permission or sample independence. Independent read-only review covered six
   decision scenarios; .NET compatibility and lock-error classification findings were fixed
-  and re-reviewed. Syntax, build, secret scan, diff checks and all 14 local suites passed.
-  The actual full deployment preview lists three updates and 41 unchanged directories,
-  with no installs, prunes or unknowns. Live deployment and real-world reduction in questions
-  remain unverified; private audit inputs and check logs are under ignored
-  `tmp/approval-feedback-loop/`. No other project's approval rule was changed.
+  and re-reviewed. Skill format, syntax, build, secret scan, diff checks and all 14 local
+  suites passed. Commit `a79e669` passed remote Validate run 41327431499. The actual full
+  preview listed three updates and 41 unchanged directories, with no installs, prunes or
+  unknowns. The owner authorized that exact Apply and private feedback reconciliation.
+  All 44 installed directories match generated output; 41 unrelated directories and 49
+  Codex system files are unchanged, and all three old-version backups match the baseline.
+  The post-Apply preview is empty. Eight verified omitted answers plus the current optional
+  feedback were recorded with exact-source readback and duplicate replay checks; original
+  ledger bytes are preserved and real inputs remain private. This chat reread the installed
+  receive-feedback section. Other chats' loading and a real-world reduction in questions
+  remain unverified. Private audit inputs and receipts are under ignored
+  `tmp/approval-feedback-loop/`. No other project's approval rule or standing permission changed.
 
 - **Approval feedback closeout and boundary review (2026-11-01, owner-authorized).** The twelve
   reviewed local commits through `89b6d5b` were pushed to `origin/main`; Validate run 264 at that
