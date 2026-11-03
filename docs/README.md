@@ -310,6 +310,10 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 收到实际评分后，在下一次相关询问或收尾前核实保存结果；同任务重复低分立即用于纠错或具体规则提案，
 不增加独立样本。三个独立任务的门槛仅用于跨任务持续授权建议。Skill 不后台收集其他聊天，
 没有共享来源入口或写入许可时明确待归并；效果区分已保存、已提案、已生效及实际减少询问。
+修订落地时留下旧／新来源和预期消除的确认，在下一实际相关决策及正常收尾按
+[效果核验](../skills-source/shared/approval-feedback/references/effectiveness.md)记录已免除、仍重复、
+证据不足及必要／范围外确认。只按完整交互和实际完成证据计数，无机会不算改善；复用原台账的任务说明，
+不新增评分、后台观察或权限，未获准写入时保留待归并摘要。
 源码与条件性流程见 [Skill](../skills-source/shared/approval-feedback/SKILL.md)；设计依据见
 [总体纲领](APPROVAL_FEEDBACK_PRINCIPLES_2026-11-01.md)及[执行计划](APPROVAL_FEEDBACK_EXECUTION_PLAN_2026-11-01.md)。
 部署仍先审阅实际 dry-run，再逐次授权 Apply；客户端是否需要新任务加载另行验证。

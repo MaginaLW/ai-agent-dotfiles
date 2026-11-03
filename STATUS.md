@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-02.
+Last updated: 2026-11-04.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -8,6 +8,25 @@ done, record its outcome here and delete the record (Git keeps it). Before trust
 CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
+
+- **Approval improvement effectiveness verification (2026-11-04).** The shared skill now
+  routes real follow-up decisions and normal closeout to a bounded effectiveness check,
+  including tasks with no new question or score. A conditional reference captures the
+  old/new source, current permission, loading state, expected removed confirmation and
+  observable task window. It distinguishes verified omissions, repeated questions,
+  insufficient evidence and necessary/out-of-scope approvals; only comparable real
+  decisions with complete interaction and completion evidence support an omission count.
+  Cross-chat replay is deduplicated without increasing independent rating-task counts.
+  Observation reuses private ledger task notes under existing permission and serial-write
+  conditions; it adds no rating, service, timer, script or standing permission. Independent
+  read-only review exercised six initial situations and one clarified batch-limit case;
+  a discovery/trigger gap was corrected and re-reviewed. Skill format, build, source/generated
+  hashes, diff checks and the pinned secret scan passed. The actual full preview is three
+  updates and 41 unchanged, with no installs, prunes or unknowns. No live Apply or private
+  ledger write has occurred in this task; installation needs the owner's per-run approval.
+  Synthetic review does not establish a real reduction in questions. Private validation
+  materials are under ignored `tmp/approval-effectiveness/`. No scripts or tests changed,
+  so the full local test suites were not rerun for this instruction-only revision.
 
 - **Approval feedback recording and next-question repair (2026-11-02).** The shared skill
   now handles received scores before the next related question or closeout, and uses
