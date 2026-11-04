@@ -32,6 +32,21 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   Concrete case proposals and local verification evidence remain private under ignored
   `tmp/approval-feedback-improvement/`. Actual reduction in interruptions remains unverified.
 
+  A follow-up evidence audit confirms that both historical recording calls preceded the
+  new diagnostics and used default restricted permissions excluding the global ledger and
+  lock from writable roots. A non-writing existing-lock probe reproduces Read succeeding
+  and ReadWrite failing with UnauthorizedAccessException / Win32 5; ledger and lock bytes
+  are unchanged. The missing write precondition is established, while the historical first
+  failing storage operation remains unrecorded. No real recording call was replayed.
+  A completed mobile-project task demonstrates real low-score feedback leading to a
+  separately approved finite-stage proposal, committed policy and successful push readback.
+  That task loaded the pre-existing proposal mechanism, so it does not establish an effect
+  of the newest revision. No comparable device-stage chain followed the policy change in
+  the inspected window; no omitted-confirmation count or success rate is established.
+  Independent read-only reviews and direct source/interaction checks support these limits.
+  Evidence and the non-writing probe remain private under ignored
+  `tmp/approval-feedback-verification/`; no other-project or live changes occurred.
+
 - **Approval improvement effectiveness verification (2026-11-04).** The shared skill now
   routes real follow-up decisions and normal closeout to a bounded effectiveness check,
   including tasks with no new question or score. A conditional reference captures the
