@@ -18,10 +18,19 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   Effect reviews separately report feedback-to-policy adoption and verified omissions,
   attribute behavior only to observed loaded versions, and close normally when no comparable
   opportunity occurs. Independent review corrected one overbroad pending rule and passed
-  six final scenarios. Skill format, build, source/generated hashes and diff checks passed.
-  No scripts or tests changed, so unchanged local suites were not repeated. The source
-  improvement is prepared for deployment; no new live Apply or ledger reconciliation has
-  occurred in this closeout. Private evidence is under ignored `tmp/approval-feedback-closeout/`.
+  six final scenarios. Skill format, build, source/generated hashes, diff checks and the
+  pinned secret scan passed. Implementation `964b1b6` passed remote Validate run 41853693712.
+  No scripts or tests changed, so unchanged local suites were not repeated. After the owner
+  approved A03, the exact three-update full Apply completed: all 44 selected directories
+  match generated output, 41 unrelated directories and 49 protected system files are unchanged,
+  and the three original backups match the pre-install baseline. The post-Apply preview has
+  no changes. This chat reread the installed permission and closeout sections; other chats'
+  loading remains unverified. Optional feedback is retained privately as pending because
+  the grant covered installation, not a global ledger write. No ledger reconciliation,
+  other-project rule change, background observation or further sampling was started.
+  Private evidence is under ignored `tmp/approval-feedback-closeout/`. The evidence review
+  is closed at its inspected window; actual omitted confirmations require a future natural
+  comparable opportunity and are not claimed by this installation.
 
 - **Approval feedback diagnostic and proposal routing (2026-11-04).** A bounded real-case
   review exposed ambiguous recording failures and a follow-up gap for low-rated questions
