@@ -11,13 +11,13 @@ Delegate bounded work with fresh, sufficient context. The lead owns integration 
 
 Read the relevant plan or task breakdown once. Reuse the existing tracker; do not require a separate planning artifact. Map sequential dependencies, independent batches and a suitable concurrency level. Avoid overlapping writes and parallel heavy checks against shared resources.
 
-Give each executor the outcome, non-goals, minimum inputs, write scope, dependencies, workspace/output boundaries and acceptance checks. Supply already-established decisions rather than making every agent rediscover the project. Use implementer-prompt.md when useful, adapting it to the actual task.
+Give each executor the outcome, non-goals, minimum inputs, write scope, dependencies, workspace/output boundaries and acceptance checks. Reuse already-established decisions and allocate each check to one owner; do not assign equivalent audits to both lead and worker without an independent-review requirement or concrete risk. Use implementer-prompt.md when useful, adapting it to the actual task.
 
 ## Execute continuously
 
 Continue independent work while agents run. Answer only consequential missing context. Existing authorization covers its stated finite chain; do not stop at every subtask, handoff or recoverable failure to request the same permission.
 
-Inspect actual changes and evidence when agents report. DONE means inspect and integrate; DONE_WITH_CONCERNS means assess material concerns; NEEDS_CONTEXT means supply missing decisive input; BLOCKED means change approach or report the actual dependency. Never retry an unchanged failure mechanically.
+The handoff identifies the target/version, environment, covered claims, commands/results, actual output paths and gaps in the existing reply or tracker. Inspect key changes and raw evidence, then reuse covered results; do not treat integration as a reason to rerun the worker's audit. A changed dependency, conflict, unverifiable result or missing coverage triggers only the affected checks. DONE means inspect and integrate; DONE_WITH_CONCERNS means assess material concerns; NEEDS_CONTEXT means supply missing decisive input; BLOCKED means change approach or report the actual dependency. Never retry an unchanged failure mechanically.
 
 ## Review and integrate
 

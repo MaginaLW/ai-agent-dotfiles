@@ -9,7 +9,7 @@ Make each claim no broader than the evidence. A changed file, green unit test or
 
 ## Select the evidence
 
-Identify the observable result and the smallest check that proves it, plus mandatory project gates. Inspect the actual artifact, diff or output rather than relying on a report.
+State the claim, target/version, environment and stopping condition in the current context or existing task record; do not create a separate verification ledger. Choose the smallest check that proves the observable result, plus mandatory project gates. Prefer the project's existing command and comparison contract, including generated-file mappings and exclusions, over an equivalent custom scan. Inspect the actual artifact, diff or output rather than relying on a report.
 
 - Local or low-impact change: focused check and review proportional to the risk.
 - Cross-component change: relevant integration or contract check and affected consumers.
@@ -20,7 +20,7 @@ Do not add tests that merely repeat implementation or match prose. Meaningful re
 
 ## Check current state once
 
-Run the appropriate check or reuse its still-valid result. Read the output and exit status. Rerun only when relevant changes, failures or unresolved doubts invalidate prior coverage; another message, handoff, review or commit boundary does not alone invalidate it.
+Run the appropriate check or reuse its still-valid result. Read the output and exit status, and stop when the claim is covered. Do not run a second implementation of the same check merely for confidence. Rerun only for a relevant change, failure, conflicting result or specific coverage gap; identify that trigger before expanding the check. Another message, handoff, review or commit boundary does not alone invalidate evidence. Required independent review and mandatory gates remain separate obligations.
 
 Keep heavy checks single-instance on shared resources. Consolidate final requirements and quality review rather than restarting a full chain for each small edit. Correct blockers, recheck affected parts and preserve required independent review.
 
@@ -28,4 +28,4 @@ Keep heavy checks single-instance on shared resources. Consolidate final require
 
 State what changed, what was checked, the observed result and material limits. Distinguish built, locally tested, pushed, installed, actually loaded and accepted in use. An empty deployment preview proves file consistency, not adoption by every running session or faster real-world delivery.
 
-For delegated work, inspect its actual output and evidence before accepting it. When verification is unavailable, say what is unverified and why; do not claim completion beyond the evidence or invent extra approvals to compensate.
+For delegated work, inspect its actual output and evidence before accepting it. Reuse covered results after confirming their target/version, environment, command and output location; check only missing or affected parts instead of repeating the worker's full audit. When verification is unavailable, say what is unverified and why; do not claim completion beyond the evidence or invent extra approvals to compensate.

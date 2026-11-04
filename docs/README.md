@@ -57,7 +57,7 @@
 `deploy-skills.ps1` 按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单（日常用 `work`）逐目录部署到三个 live 根
 （Zcode 从 Claude 生成物投影）：
 
-- 先跑 build 与 scan，任一失败即停止（`-SkipBuild` 跳过两者，只用于测试）。
+- 默认先跑 build 与 scan，任一失败即停止。`-SkipBuild` 同时跳过两者；除隔离测试外，只有已有成功结果覆盖当前未变的源码、构建输入和生成物时，才可在同一已授权部署链或只读复核中复用，不能把它当作省略必需检查的入口。
 - 每个目录给出 `install`、`update`、`unchanged`、`prune` 或 `unknown`；不带 `-Apply` 不写 live 根或部署状态。
   对状态中没有记录的同名目录，`update` 会提示其归属未知且将备份后覆盖；状态缺失不代表目录一定未受管。
 - `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录（三平台同时生效）。
@@ -85,6 +85,23 @@ dry-run 和 Apply 各自重新计算计划；审核后如果源、live 目标或
 Apply 显示其计划后立即开始执行，不会暂停等待确认。
 多台机器同步：一台修改并 push 后，其余机器各自 `git pull --ff-only` 再走本流程；部署状态每台机器各自
 记录，互不复制。
+
+### 部署后的只读复核
+
+先从当前上下文或既有记录确定要证明的结论、版本、部署环境与已通过的检查，不另建台账。
+若 build 和 scan 的输入未变，复用它们后运行以下现有入口；`<current-environment>` 使用实际部署集合，
+例如当前记录为 `full` 时不改用较小的默认 `work`：
+
+```powershell
+pwsh -NoProfile -File scripts/config-status.ps1 -Platform Codex
+pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment <current-environment> -SkipBuild
+```
+
+逐项读回配置状态与部署计划。请求的文件均 in-sync、技能均 unchanged 且无未解释项时结束；
+该结果只证明当前磁盘一致，不证明所有旧聊天已重载或开发速度已提升。若只问其中一类，只运行对应入口。
+源码、构建输入或生成物变动、构建证据缺失时，先补 build 与 scan；有真实差异时只定位相关项。
+源码与 runtime 的映射及排除由 build 定义，不另写全树比较去补回 `CREATION-LOG.md` 等源端备注。
+已读取实际输出且覆盖当前版本的子代理检查直接复用；只有冲突、缺项、状态变化或必需独审才补相应检查。
 
 ---
 

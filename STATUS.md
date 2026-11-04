@@ -9,6 +9,14 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Execution de-duplication.** Global guidance and three existing shared skills bind each
+  verification claim to a target/version, environment and stopping condition in the existing
+  context. The lead inspects delegated artifacts and reuses covered results, while retaining
+  mandatory gates, independent review and user-visible acceptance. History reads start with
+  a small window and filtered output. The deployment recheck recipe uses the existing commands,
+  current environment and build-owned runtime exclusions; SkipBuild requires still-valid build
+  and scan evidence. No new checker, ledger, skill or model configuration is introduced.
+
 - **Delivery-flow alignment (2026-11-04–05, owner-authorized).** Global guidance starts from
   user-visible acceptance, bounded continuous execution, short routine plans and relevant
   verification. Eight shared skills and direct references/templates avoid automatic full-workflow

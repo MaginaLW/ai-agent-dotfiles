@@ -137,6 +137,13 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
   - Skill changes also need `build-skills.ps1`.
   - Script changes also need `check-powershell-syntax.ps1`, the affected suites (run each with
     `pwsh -NoProfile -File tests/<suite>.tests.ps1`) and, before merging, a full `run-tests.ps1`.
+- **Read-only deployment rechecks.** Use the existing config-status and deploy-skills commands
+  with the recorded environment; inspect their actual output and stop when the requested claims
+  are covered. `-SkipBuild` requires a successful build and scan covering unchanged canonical
+  sources, build inputs and generated output; otherwise perform the missing checks once.
+  Do not repeat an equivalent source/live tree walk or an inspected delegated audit. Build owns
+  runtime exclusions, including source-only `CREATION-LOG.md`; apply its comparison contract.
+  See [the bounded recheck recipe](docs/README.md#部署后的只读复核).
 - **CI.** One `Validate` job runs `scripts/run-repository-validation.ps1` on push to `main`, on
   pull requests and on manual dispatch: PowerShell syntax, gitleaks verification, build, secret
   scan, doctor, manifest parity, every test suite, dangerous tracked files and a clean tree.
