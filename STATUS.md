@@ -22,11 +22,18 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   read-only review exercised six initial situations and one clarified batch-limit case;
   a discovery/trigger gap was corrected and re-reviewed. Skill format, build, source/generated
   hashes, diff checks and the pinned secret scan passed. The actual full preview is three
-  updates and 41 unchanged, with no installs, prunes or unknowns. No live Apply or private
-  ledger write has occurred in this task; installation needs the owner's per-run approval.
-  Synthetic review does not establish a real reduction in questions. Private validation
-  materials are under ignored `tmp/approval-effectiveness/`. No scripts or tests changed,
-  so the full local test suites were not rerun for this instruction-only revision.
+  updates and 41 unchanged, with no installs, prunes or unknowns. Implementation commit
+  `dbd3b45` passed remote Validate run 41743085657. After the owner approved A03, the exact
+  three-update full Apply completed: all 44 selected live directories match generated
+  output, 41 unrelated directories and 49 protected system files are unchanged, and the
+  three old-version backups match the pre-install snapshot. The post-Apply preview is empty.
+  This chat reread the installed effectiveness entry and reference. There was no comparable
+  follow-up decision in this installation-only task; other chats' loading and an actual
+  reduction remain unverified. The optional response is retained privately as pending
+  reconciliation because A03 covered installation, not a global feedback-ledger write;
+  no extra confirmation or standing permission was added. Private validation and installation
+  receipts are under ignored `tmp/approval-effectiveness/`. No scripts or tests changed,
+  so full local suites were not rerun; the implementation passed the full remote validation.
 
 - **Approval feedback recording and next-question repair (2026-11-02).** The shared skill
   now handles received scores before the next related question or closeout, and uses
