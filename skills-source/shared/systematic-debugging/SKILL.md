@@ -13,7 +13,7 @@ Read the actual error, relevant output and recent changes. Reuse available logs 
 
 For an unclear issue:
 1. Find the smallest safe reproduction and expected result.
-2. Inspect the relevant boundaries and configuration propagation. Report presence of secrets, never their values.
+2. Inspect the relevant boundaries and configuration propagation. Report presence of secrets, never their values. When validating an isolated checkout, verify the checking subprocess imports the intended code and dependencies after environment sanitization (for example, a runner stripping PYTHONPATH). A shared editable venv or a parent-process import does not prove isolation. If committed source omits required modules, preserve others' WIP and select a complete baseline or explicitly include the needed changes in the authorized scope; do not silently copy unrelated WIP to make checks pass.
 3. Compare the failing path with the closest working example. Read the necessary implementation completely enough to understand the relevant contract; do not read unrelated systems.
 4. Test one evidence-backed hypothesis with a minimal change, then inspect the result.
 

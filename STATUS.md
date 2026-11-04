@@ -19,6 +19,8 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   secret scan passed. Seven skills pass the system format validator; boring-engineering retains
   its unchanged compatibility field, unsupported by that validator but accepted by the build.
   No scripts or test suites changed; unchanged full local suites were not repeated.
+  A follow-up debugging clarification requires checking actual subprocess imports for isolated
+  checkouts and preserving others' WIP when selecting a complete committed validation baseline.
   The authorized full deployment preview and Apply reported 24 updates, 20 unchanged and no
   installs, prunes or unknowns; the post-Apply preview reports all 44 directories unchanged.
   Comparing the 251-file skill baseline found 45 changed files within the eight updated skills
