@@ -19,9 +19,16 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   Isolated tests cover blocked publication, unchanged original bytes, temporary-file cleanup,
   recovery and duplicate replay. Skill validation, PowerShell syntax (57 files), build,
   the pinned secret scan and all 14 local suites passed; independent requirements and
-  quality reviews passed, including six behavioral scenarios. The full deployment preview
-  lists three updates and 41 unchanged, with no installs, prunes or unknowns. No live Apply,
-  other-project rule change or real feedback reconciliation occurred in this repair.
+  quality reviews passed, including six behavioral scenarios. Implementation commit
+  `f4aae4c` passed remote Validate run 41847310460. The owner approved A02 after the full
+  preview listed three updates and 41 unchanged, with no installs, prunes or unknowns.
+  That exact Apply completed: all 44 selected live directories match generated output,
+  41 unrelated directories and 49 protected Codex system files are unchanged, and the three
+  original backups match the baseline. The post-Apply preview has no changes. This chat
+  reread the installed routing, recording and effectiveness changes; other chats' loading
+  remains unverified. No other-project rule change or real feedback reconciliation occurred.
+  The optional A02 feedback is retained privately as pending because installation approval
+  does not include a global ledger write; no extra confirmation or standing permission was added.
   Concrete case proposals and local verification evidence remain private under ignored
   `tmp/approval-feedback-improvement/`. Actual reduction in interruptions remains unverified.
 
