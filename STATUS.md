@@ -9,6 +9,20 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Permission-aware feedback recording closeout (2026-11-04).** The shared skill now checks
+  ledger-write authorization and effective tool write scope separately, including the
+  adjacent lock and temporary replacement. Incidental feedback with missing or unknown
+  conditions stays pending without a trial write or extra question. An explicit request
+  authorizing the exact ledger write reuses that permission through the platform's formal
+  access mechanism; denial remains pending without changing ACLs or storage destinations.
+  Effect reviews separately report feedback-to-policy adoption and verified omissions,
+  attribute behavior only to observed loaded versions, and close normally when no comparable
+  opportunity occurs. Independent review corrected one overbroad pending rule and passed
+  six final scenarios. Skill format, build, source/generated hashes and diff checks passed.
+  No scripts or tests changed, so unchanged local suites were not repeated. The source
+  improvement is prepared for deployment; no new live Apply or ledger reconciliation has
+  occurred in this closeout. Private evidence is under ignored `tmp/approval-feedback-closeout/`.
+
 - **Approval feedback diagnostic and proposal routing (2026-11-04).** A bounded real-case
   review exposed ambiguous recording failures and a follow-up gap for low-rated questions
   still required by current rules. Pending recorder results now include a fixed operation

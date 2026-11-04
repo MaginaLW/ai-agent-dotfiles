@@ -304,7 +304,10 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 选项不足时保留原选择并给带编号的回复模板。原生批准按钮不自动产生分数，补评用 `A01=1`，
 不使用“刚才那次”猜归属；未关联反馈不计阈值、不追加评分询问。评分只评价打断价值，不批准动作。私有台账建议用
 `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/approval-feedback.md`，仅在真实反馈需要且写入获准时创建，
-使用随包 `scripts/record-feedback.ps1` 独占写入、按原始答复去重、原子替换并读回；
+且当前工具可写范围须覆盖台账、锁和同目录临时替换文件；业务批准、评分或文件可读不代表可写。
+顺带记账条件缺失或未知时直接保留待归并，不尝试真实写入或增加确认；用户明确要求该精确台账写入时，复用许可走平台正式权限入口。
+条件具备时使用随包
+`scripts/record-feedback.ps1` 独占写入、按原始答复去重、原子替换并读回；
 旧人工记录保留，失败标待归并，不阻塞已授权工作；失败回执的固定 `Stage` 定位操作边界，不推定权限或代码根因。
 保留待重放的原始输入，访问条件恢复后在原授权内正常归并，不自动提权或换台账。调用与并发边界见
 [记账说明](../skills-source/shared/approval-feedback/references/recording.md)，不与 Git、build、deploy 或 config-sync 混放。
@@ -316,6 +319,7 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 证据不足及必要／范围外确认。只按完整交互和实际完成证据计数，无机会不算改善；复用原台账的任务说明，
 不新增评分、后台观察或权限，未获准写入时保留待归并摘要。现行规则下的必要确认若收到真实低分，
 且指向已知、可修改的重复打断条款，也应在下次相关询问前或正常收尾准备具体提案，保留原确认直至修订生效。
+真实反馈推动条款落地与后续实际省问分别验收；无可比机会时按现有证据正常收尾，不等待未来任务取样。
 源码与条件性流程见 [Skill](../skills-source/shared/approval-feedback/SKILL.md)；设计依据见
 [总体纲领](APPROVAL_FEEDBACK_PRINCIPLES_2026-11-01.md)及[执行计划](APPROVAL_FEEDBACK_EXECUTION_PLAN_2026-11-01.md)。
 部署仍先审阅实际 dry-run，再逐次授权 Apply；客户端是否需要新任务加载另行验证。
