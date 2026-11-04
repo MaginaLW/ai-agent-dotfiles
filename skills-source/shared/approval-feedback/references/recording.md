@@ -39,8 +39,14 @@ pwsh -NoProfile -File <skill-root>/scripts/record-feedback.ps1 -EntryPath <priva
 
 脚本向标准输出返回一条 JSON，退出码 0 为 `Recorded` 或 `Duplicate`，并已读回核实；
 退出码 1 为 `Pending`，携带简短原因，不输出输入或异常原文。无法启动脚本也属于待归并。
+`Pending.Stage` 只标明失败边界：`ValidateInput`、`ValidateStoragePath`、`PrepareStorage`、
+`AcquireLock`、`ReadLedger`、`WriteTemporary`、`PublishLedger`、`ReadBack` 或 `Cleanup`。
+例如 `StorageFailure / AcquireLock` 只证明锁操作失败；路径被目录占用和访问被拒都可能发生在此，
+不能据此推定 ACL、沙盒或代码缺陷。旧回执没有阶段时保留未知，不为补诊断重跑真实写入。
 检查退出码及状态，不能把执行过命令当作已保存。写入结果未知时先读回来源标记再重放同一输入，
 不要换来源制造新记录；内容不同的同来源提交返回 `Conflict`，保留原始记录后核实真实答复。
+待归并时保留原始输入和 `Source`，不要清理仍需重放的文件；正常访问条件恢复且已有写入授权仍有效时，
+在正常归并机会重放同一条目。访问拒绝不触发自动提权、改 ACL、换台账或换工具。
 
 ## 存储与协作边界
 

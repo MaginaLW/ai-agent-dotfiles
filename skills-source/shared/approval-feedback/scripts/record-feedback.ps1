@@ -7,7 +7,8 @@
     Score (integer 0..3), Permission (Approved/Denied/Unspecified), and Source.
     Source identifies the original submitted answer, including the question index.
     This helper does not grant permission, classify independent tasks, or count thresholds.
-    Exit 0 means Recorded or Duplicate with readback; exit 1 means Pending. A busy lock
+    Exit 0 means Recorded or Duplicate with readback; exit 1 means Pending with a fixed
+    failure Stage, never private paths or exception text. A busy lock
     is not retried. All writers must use this helper; the adjacent .lock file is retained.
 #>
 [CmdletBinding()]
@@ -22,6 +23,7 @@ $lock = $null
 $temporary = $null
 $entryId = $null
 $reason = 'InvalidInput'
+$stage = 'ValidateInput'
 $result = $null
 $utf8 = [Text.UTF8Encoding]::new($false, $true)
 
@@ -38,9 +40,11 @@ function Assert-PlainPath([string] $Path) {
 
 try {
     foreach ($path in @($EntryPath, $LedgerPath)) {
+        $stage = if ($path -eq $EntryPath) { 'ValidateInput' } else { 'ValidateStoragePath' }
         if (-not [IO.Path]::IsPathFullyQualified($path)) { throw 'Explicit absolute paths are required.' }
         Assert-PlainPath $path
     }
+    $stage = 'ValidateInput'
     $EntryPath = [IO.Path]::GetFullPath($EntryPath)
     $LedgerPath = [IO.Path]::GetFullPath($LedgerPath)
     if ($EntryPath -eq $LedgerPath -or $EntryPath -eq "$LedgerPath.lock") { throw 'Input and storage must differ.' }
@@ -74,8 +78,10 @@ try {
     $block = $marker + "`n" + '```json' + "`n" + $json + "`n" + '```' + "`n<!-- /feedback-entry: $entryId -->"
 
     $reason = 'StorageFailure'
+    $stage = 'PrepareStorage'
     $parent = Split-Path -Parent $LedgerPath
     [IO.Directory]::CreateDirectory($parent) | Out-Null
+    $stage = 'AcquireLock'
     Assert-PlainPath "$LedgerPath.lock"
     try { $lock = [IO.File]::Open("$LedgerPath.lock", [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
     catch {
@@ -83,6 +89,7 @@ try {
         if ($failure -is [IO.IOException] -and ($failure.HResult -band 0xffff) -in @(32, 33)) { $reason = 'Busy' }
         throw
     }
+    $stage = 'ReadLedger'
     Assert-PlainPath $LedgerPath
     $original = if (Test-Path -LiteralPath $LedgerPath) {
         if ((Get-Item -LiteralPath $LedgerPath).Length -gt 4194304) { throw 'Ledger is too large.' }
@@ -100,27 +107,30 @@ try {
         $result = @{ Status = 'Duplicate'; EntryId = $entryId }
     }
     else {
+        $stage = 'WriteTemporary'
         $updated = $original + "`n`n" + $block + "`n"
         $temporary = Join-Path $parent ('.' + [IO.Path]::GetFileName($LedgerPath) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
         $bytes = $utf8.GetBytes($updated)
         $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
         try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
         finally { $stream.Dispose() }
+        $stage = 'PublishLedger'
         # Match deploy-skills: PowerShell converts $null to an empty backup path.
         if (Test-Path -LiteralPath $LedgerPath) { [IO.File]::Replace($temporary, $LedgerPath, [NullString]::Value) }
         else { [IO.File]::Move($temporary, $LedgerPath) }
         $temporary = $null
+        $stage = 'ReadBack'
         if ($utf8.GetString([IO.File]::ReadAllBytes($LedgerPath)) -cne $updated) { throw 'Readback differs.' }
         $result = @{ Status = 'Recorded'; EntryId = $entryId }
     }
 }
 catch {
     # Never print entry contents, source paths or exception messages from private storage.
-    $result = @{ Status = 'Pending'; EntryId = $entryId; Reason = $reason }
+    $result = @{ Status = 'Pending'; EntryId = $entryId; Reason = $reason; Stage = $stage }
 }
 finally {
     try { if ($temporary -and [IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
-    catch { $result = @{ Status = 'Pending'; EntryId = $entryId; Reason = 'CleanupFailure' } }
+    catch { $result = @{ Status = 'Pending'; EntryId = $entryId; Reason = 'CleanupFailure'; Stage = 'Cleanup' } }
     finally { if ($lock) { $lock.Dispose() } }
 }
 $result | ConvertTo-Json -Compress

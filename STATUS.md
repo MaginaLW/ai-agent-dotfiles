@@ -9,6 +9,22 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Approval feedback diagnostic and proposal routing (2026-11-04).** A bounded real-case
+  review exposed ambiguous recording failures and a follow-up gap for low-rated questions
+  still required by current rules. Pending recorder results now include a fixed operation
+  `Stage`, preserving status, reason, identity, exit codes and the existing write protocol.
+  Stages do not reveal paths or exception text, diagnose historical failures, or authorize
+  escalation. Low-rated necessary questions now route to a narrow proposal before the next
+  related question or normal closeout; existing grants and stop conditions remain effective.
+  Isolated tests cover blocked publication, unchanged original bytes, temporary-file cleanup,
+  recovery and duplicate replay. Skill validation, PowerShell syntax (57 files), build,
+  the pinned secret scan and all 14 local suites passed; independent requirements and
+  quality reviews passed, including six behavioral scenarios. The full deployment preview
+  lists three updates and 41 unchanged, with no installs, prunes or unknowns. No live Apply,
+  other-project rule change or real feedback reconciliation occurred in this repair.
+  Concrete case proposals and local verification evidence remain private under ignored
+  `tmp/approval-feedback-improvement/`. Actual reduction in interruptions remains unverified.
+
 - **Approval improvement effectiveness verification (2026-11-04).** The shared skill now
   routes real follow-up decisions and normal closeout to a bounded effectiveness check,
   including tasks with no new question or score. A conditional reference captures the

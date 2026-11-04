@@ -74,7 +74,7 @@ try {
     $savedHash = (Get-FileHash $ledger).Hash
     $pending = New-Entry 'A05'
     $r = Invoke-Record $pending
-    Assert-TestCondition ($r.Code -eq 1 -and $r.Result.Reason -eq 'Busy' -and (Get-FileHash $ledger).Hash -eq $savedHash) 'a held OS lock returns pending without writing or retrying'
+    Assert-TestCondition ($r.Code -eq 1 -and $r.Result.Reason -eq 'Busy' -and $r.Result.Stage -eq 'AcquireLock' -and (Get-FileHash $ledger).Hash -eq $savedHash) 'a held OS lock identifies its stage without writing or retrying'
 }
 finally { $busy.Dispose() }
 $r = Invoke-Record $pending
@@ -82,11 +82,35 @@ Assert-TestCondition ($r.Code -eq 0 -and $r.Result.Status -eq 'Recorded') 'a lat
 $occupied = Join-Path $work 'occupied.md'
 New-Item -ItemType Directory $occupied | Out-Null
 $r = Invoke-Record $pending $occupied
-Assert-TestCondition ($r.Code -eq 1 -and $r.Result.Status -eq 'Pending' -and (Test-Path -LiteralPath $occupied -PathType Container)) 'storage failure preserves the existing destination'
+Assert-TestCondition ($r.Code -eq 1 -and $r.Result.Status -eq 'Pending' -and $r.Result.Stage -eq 'ReadLedger' -and (Test-Path -LiteralPath $occupied -PathType Container)) 'an occupied ledger identifies the read stage and preserves the directory'
 $blockedLockLedger = Join-Path $work 'blocked-lock.md'
 New-Item -ItemType Directory "$blockedLockLedger.lock" | Out-Null
 $r = Invoke-Record $pending $blockedLockLedger
-Assert-TestCondition ($r.Code -eq 1 -and $r.Result.Reason -eq 'StorageFailure' -and -not (Test-Path $blockedLockLedger)) 'an unusable lock path is storage failure, not temporary contention'
+Assert-TestCondition ($r.Code -eq 1 -and $r.Result.Reason -eq 'StorageFailure' -and $r.Result.Stage -eq 'AcquireLock' -and -not (Test-Path $blockedLockLedger)) 'an unusable lock path identifies the acquire stage without guessing a permissions cause'
+
+Write-Host '[capacity and blocked publication diagnostics]'
+$oversized = Join-Path $work 'oversized.md'
+Set-TestFile $oversized ('x' * 4194305)
+$savedHash = (Get-FileHash $oversized).Hash
+$r = Invoke-Record $pending $oversized
+Assert-TestCondition ($r.Code -eq 1 -and $r.Result.Stage -eq 'ReadLedger' -and (Get-FileHash $oversized).Hash -eq $savedHash) 'a ledger over the existing limit stops at read without changing bytes'
+$publishBlocked = Join-Path $work 'publish-blocked.md'
+Set-TestFile $publishBlocked 'private-publication-sentinel'
+$savedHash = (Get-FileHash $publishBlocked).Hash
+$reader = [IO.File]::Open($publishBlocked, 'Open', 'Read', 'Read')
+try {
+    $r = Invoke-Record $pending $publishBlocked
+    $diagnostic = $r.Result | ConvertTo-Json -Compress
+    Assert-TestCondition ($r.Code -eq 1 -and $r.Result.Reason -eq 'StorageFailure' -and $r.Result.Stage -eq 'PublishLedger' -and (Get-FileHash $publishBlocked).Hash -eq $savedHash) 'a replacement blocked by an open reader identifies publication and preserves original bytes'
+    Assert-TestCondition (-not $diagnostic.Contains($work) -and $diagnostic -notmatch 'private-publication-sentinel|publish-blocked') 'failure diagnostics reveal neither the private path nor ledger contents'
+    Assert-TestCondition (@(Get-ChildItem $work -Filter '*.tmp' -File -Recurse -Force).Count -eq 0) 'failed publication removes only its temporary replacement'
+}
+finally { $reader.Dispose() }
+$r = Invoke-Record $pending $publishBlocked
+Assert-TestCondition ($r.Code -eq 0 -and $r.Result.Status -eq 'Recorded') 'the same entry records after the publication blocker is released'
+$savedHash = (Get-FileHash $publishBlocked).Hash
+$r = Invoke-Record $pending $publishBlocked
+Assert-TestCondition ($r.Code -eq 0 -and $r.Result.Status -eq 'Duplicate' -and (Get-FileHash $publishBlocked).Hash -eq $savedHash) 'reconciliation replay remains idempotent after publication recovery'
 
 Write-Host '[invalid input never touches the ledger]'
 $savedHash = (Get-FileHash $ledger).Hash
