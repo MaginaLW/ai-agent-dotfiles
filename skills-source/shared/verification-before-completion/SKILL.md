@@ -1,135 +1,31 @@
 ---
 name: verification-before-completion
-description: Use before claiming work is complete, fixed, or passing, and before commits or pull requests; verify the current state and cite the observed result.
+description: Verify the actual result before claiming completion, a fix, passing checks, or preparing a commit or pull request. Reuse evidence that still covers the current state.
 ---
 
 # Verification Before Completion
 
-## Overview
+Make each claim no broader than the evidence. A changed file, green unit test or successful agent report alone does not prove the user's result.
 
-Claiming work is complete without verification is dishonesty, not efficiency.
+## Select the evidence
 
-**Core principle:** Evidence before claims, always.
+Identify the observable result and the smallest check that proves it, plus mandatory project gates. Inspect the actual artifact, diff or output rather than relying on a report.
 
-**Violating the letter of this rule is violating the spirit of this rule.**
+- Local or low-impact change: focused check and review proportional to the risk.
+- Cross-component change: relevant integration or contract check and affected consumers.
+- Real application, device, solver or external workflow: exercise the smallest safe user path when authorized and available. Otherwise distinguish local evidence from the unverified environment.
+- Full suites, independent review and CI: run when the project or change requires them; local evidence does not replace required CI.
 
-## The Iron Law
+Do not add tests that merely repeat implementation or match prose. Meaningful regression checks should expose the original defect when safe and feasible; report reproduction limits.
 
-```
-NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
-```
+## Check current state once
 
-Use evidence from checks that cover the current state. Rerun when relevant changes, failures or unresolved doubts make earlier evidence stale; do not repeat a valid check solely because another message was sent.
+Run the appropriate check or reuse its still-valid result. Read the output and exit status. Rerun only when relevant changes, failures or unresolved doubts invalidate prior coverage; another message, handoff, review or commit boundary does not alone invalidate it.
 
-## The Gate Function
+Keep heavy checks single-instance on shared resources. Consolidate final requirements and quality review rather than restarting a full chain for each small edit. Correct blockers, recheck affected parts and preserve required independent review.
 
-```
-BEFORE claiming any status or expressing satisfaction:
+## Report accurately
 
-1. IDENTIFY: What command proves this claim?
-2. RUN: Execute the appropriate complete check, or reuse a still-valid result for the unchanged state
-3. READ: Full output, check exit code, count failures
-4. VERIFY: Does output confirm the claim?
-   - If NO: State actual status with evidence
-   - If YES: State claim WITH evidence
-5. ONLY THEN: Make the claim
+State what changed, what was checked, the observed result and material limits. Distinguish built, locally tested, pushed, installed, actually loaded and accepted in use. An empty deployment preview proves file consistency, not adoption by every running session or faster real-world delivery.
 
-Skip any step = lying, not verifying
-```
-
-## Common Failures
-
-| Claim | Requires | Not Sufficient |
-|-------|----------|----------------|
-| Tests pass | Applicable test command output: 0 failures for the current state | A stale run, "should pass" |
-| Linter clean | Linter output: 0 errors | Partial check, extrapolation |
-| Build succeeds | Build command: exit 0 | Linter passing, logs look good |
-| Bug fixed | Test original symptom: passes | Code changed, assumed fixed |
-| Regression test works | Red-green cycle verified | Test passes once |
-| Agent completed | VCS diff shows changes | Agent reports "success" |
-| Requirements met | Line-by-line checklist | Tests passing |
-
-## Red Flags - STOP
-
-- Using "should", "probably", "seems to"
-- Expressing satisfaction before verification ("Great!", "Perfect!", "Done!", etc.)
-- About to commit/push/PR without verification
-- Trusting agent success reports
-- Relying on partial verification
-- Thinking "just this once"
-- Tired and wanting work over
-- **ANY wording implying success without having run verification**
-
-## Rationalization Prevention
-
-| Excuse | Reality |
-|--------|---------|
-| "Should work now" | RUN the verification |
-| "I'm confident" | Confidence ≠ evidence |
-| "Just this once" | No exceptions |
-| "Linter passed" | Linter ≠ compiler |
-| "Agent said success" | Verify independently |
-| "I'm tired" | Exhaustion ≠ excuse |
-| "Partial check is enough" | Partial proves nothing |
-| "Different words so rule doesn't apply" | Spirit over letter |
-
-## Key Patterns
-
-**Tests:**
-```
-✅ [Run test command] [See: 34/34 pass] "All tests pass"
-❌ "Should pass now" / "Looks correct"
-```
-
-**Regression tests (TDD Red-Green):**
-```
-✅ Reproduce the failure before the fix → apply the fix → run the same case successfully
-❌ Claim the test catches the original defect without confirming the pre-fix failure
-```
-
-**Build:**
-```
-✅ [Run build] [See: exit 0] "Build passes"
-❌ "Linter passed" (linter doesn't check compilation)
-```
-
-**Requirements:**
-```
-✅ Re-read plan → Create checklist → Verify each → Report gaps or completion
-❌ "Tests pass, phase complete"
-```
-
-**Agent delegation:**
-```
-✅ Agent reports success → Check VCS diff → Verify changes → Report actual state
-❌ Trust agent report
-```
-
-## Why This Matters
-
-From 24 failure memories:
-- your human partner said "I don't believe you" - trust broken
-- Undefined functions shipped - would crash
-- Missing requirements shipped - incomplete features
-- Time wasted on false completion → redirect → rework
-- Violates: "Honesty is a core value. If you lie, you'll be replaced."
-
-## When To Apply
-
-**ALWAYS before:**
-- ANY variation of success/completion claims
-- Committing, PR creation, task completion
-
-**Rule applies to:**
-- Exact phrases
-- Paraphrases and synonyms
-- Implications of success
-- ANY communication suggesting completion/correctness
-
-## The Bottom Line
-
-**No shortcuts for verification.**
-
-Run the appropriate check, or use its still-valid result for the unchanged state. Read the output before claiming the result.
-
-This is non-negotiable.
+For delegated work, inspect its actual output and evidence before accepting it. When verification is unavailable, say what is unverified and why; do not claim completion beyond the evidence or invent extra approvals to compensate.

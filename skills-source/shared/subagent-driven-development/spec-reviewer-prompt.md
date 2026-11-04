@@ -1,6 +1,7 @@
 # Requirements Reviewer Prompt Template
 
-Use this template when dispatching a reviewer to check whether task output matches the plan.
+Use this template when a requirements reviewer is required or useful. A combined requirements
+and quality review is valid; this template does not create an automatic per-subtask gate.
 
 ```
 Task tool (general-purpose):
@@ -41,4 +42,7 @@ Task tool (general-purpose):
 
     - **Status:** Spec compliant | Issues found
     - **Issues:** Specific missing/extra/misaligned items with file:line, artifact, or evidence references
+
+    Separate actual blockers from advisory improvements. Reuse evidence covering unchanged
+    state; do not reopen the full workflow or unrelated tasks for a local correction.
 ```

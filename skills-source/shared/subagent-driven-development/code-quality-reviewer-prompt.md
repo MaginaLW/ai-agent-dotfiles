@@ -1,6 +1,7 @@
 # Quality Reviewer Prompt Template
 
-Use this template when dispatching a reviewer to check quality after requirements review passes.
+Use this template when a quality reviewer is required or useful. Requirements and quality
+may be checked in one bounded review; this template does not require a separate prior round.
 
 ```
 Task tool (general-purpose):
@@ -29,4 +30,8 @@ Task tool (general-purpose):
     - Strengths
     - Issues grouped as Critical, Important, or Minor, with references
     - Assessment: Approved | Changes Requested
+
+    Block only on concrete failures, missing requirements or mandatory gates. Keep advisory
+    improvements separate. Reuse still-valid evidence and recheck only affected parts; do not
+    restart discovery, planning or full validation merely because this review occurred.
 ```

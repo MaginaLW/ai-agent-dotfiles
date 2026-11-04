@@ -31,15 +31,19 @@ are changing.
   A remote branch needs its own explicit authorization, separate from any push or merge approval,
   with its pull request merged or closed first.
 - Run only one full local `run-tests.ps1` or `run-repository-validation.ps1` on the machine at a
-  time. Live Applies still need per-run owner authorization and write shared home paths, so
-  those runs never overlap either.
+  time. Live Applies write shared home paths and never overlap either. Each Apply must be
+  covered by explicit owner authorization; a finite, already-authorized task chain does not
+  need a repeated question at every stage.
 - Windows and PowerShell 7+ only. Run repository scripts as
   `pwsh -NoProfile -File scripts/<name>.ps1`. The unified CLI is `scripts/agent-dotfiles.ps1`.
 - Commit reviewed changes and push them normally after validation, verifying the target remote
   and branch first. Force pushes still need the owner's explicit authorization.
-- On every task, merge, any live Apply, destructive actions, credential export and additional
-  paid model calls each need the owner's explicit authorization, except deletion of a
-  proven-integrated local task branch as described above.
+- Merge, live Apply, destructive actions, credential export and additional paid model calls
+  need explicit owner authorization covering their actual scope. Reuse an existing task grant
+  that explicitly includes the action and finite recovery; do not infer it from a plan, score
+  or ordinary implementation permission. New scope, revoked permission or unknown side effects
+  pause only the affected action. Proven-integrated local task branch deletion follows the
+  exception above.
 - Finish authorized, recoverable work through validation without asking again whether to
   continue. Ask only when a decision that changes direction is missing or an approval is required.
 - Make small commits that contain only reviewed changes from the current task, and report which
@@ -79,7 +83,9 @@ need them.
    Never copy into or delete from a live root by hand. The one exception is restoring a
    deploy-skills backup with the owner's authorization ([docs/README.md §8](docs/README.md#8-备份与恢复)).
    Run the dry run first (no `-Apply`) and review every install, update, prune and unknown line.
-   Rerun with `-Apply` only after the owner authorizes it.
+   Use `-Apply` only within explicit owner authorization for that reviewed scope. Reuse an
+   existing grant covering this finite deployment; ask only for a missing or materially changed
+   decision, not for the same authorization again.
 4. **Retiring a skill.** deploy-skills prunes only directories it deployed itself. A deleted
    skill that it never deployed stays in the live root as unknown and preserved. To remove it,
    pass `-Retire <name>` to both the dry run and the Apply. Never pass `.system` or a selected
@@ -95,8 +101,9 @@ need them.
 8. **Config and profiles.**
    - `config-pull` and `config-push` run as dry runs unless `-Apply` is given.
    - `config-pull -Apply` overwrites home config in `~/.claude` and `~/.codex`.
-     It needs the owner's authorization after a review of the dry-run
-     output and the user's personal overrides.
+     Review the dry-run output and preserve the user's personal overrides before applying.
+     It needs explicit owner authorization covering this config deployment; an existing
+     finite task grant can satisfy it without another question.
    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
      It never writes a home directory or a live root.
 

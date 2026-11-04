@@ -1,139 +1,36 @@
 ---
 name: writing-plans
-description: Use when you have a spec, decision, or requirements for a multi-step task, before execution
+description: Plan work with consequential dependencies, multiple affected components, or a real handoff. Use a short in-chat plan for routine changes; do not turn clear implementation into a document workflow.
 ---
 
 # Writing Plans
 
-## Overview
+Make the next useful result and its checks clear, then continue authorized execution.
 
-Write concrete execution plans for multi-step work. This skill is for software projects, writing projects, research, operations, design reviews, personal workflows, and any task where the next agent or human needs a clear path from intent to verified outcome.
+## Choose the useful level
 
-Assume the executor is capable but has little context. Give them the purpose, relevant materials, exact artifacts or locations, steps, checks, and decision points they need. Keep the plan bite-sized, practical, and free of vague placeholders.
+- Routine local work: keep a few steps in the conversation or existing tracker. State the observable result and necessary check; no plan file, fixed header, step timing or approval ceremony.
+- Complex dependencies or handoff: write a durable plan in the project's existing location. Include the outcome, non-goals, acceptance environment, actual dependencies, affected consumers, work units and required checks.
+- Planning-only request: deliver the requested plan and honor the phase boundary.
 
-**Announce at start:** "I'm using the writing-plans skill to create the execution plan."
+Use existing decisions and authorization. Do not create unresolved choices, alternative designs or a new spec to justify planning. Clarify only missing information that materially changes the result.
 
-Save durable plans where the user or project convention specifies. If no durable plan is needed, keep the plan in the conversation; do not create a new directory solely for this skill.
+## Work units
 
-## Scope Check
+Group work that changes together. Give each independent unit its inputs, write scope, output and observable pass condition. Name actual files, commands or source criteria when the executor needs them; detail only what prevents ambiguity. Do not repeat the whole project context in every step.
 
-If the spec covers multiple independent outcomes, split it into separate plans. Each plan should produce one useful, reviewable result on its own.
+Identify the sequential chain and independent batches when parallel work is useful; choose concurrency from available capacity and conflicting write scopes. A tracker may be the plan itself; do not create a second one.
 
-Good scope:
-- Draft and review one proposal.
-- Analyze one dataset and produce one summary.
-- Complete one bounded deliverable.
-- Prepare one repeatable operating procedure.
+## Validation and authorization
 
-Too broad:
-- "Launch the whole product."
-- "Fix all documentation."
-- "Research every possible option."
+Define the smallest check that demonstrates the user's actual result, plus mandatory repository gates. Distinguish local checks, full/shared-resource checks and real user or external-environment acceptance. Keep heavy checks single-instance where they share resources.
 
-## Work Structure
+State finite execution boundaries for actions that need them: actual environment, object, destination, budget, recoverable failures and stop conditions. Reuse valid authorization through implementation, verification, necessary repair and explicitly included release actions. A plan does not itself authorize deployment, sending, production access or other external effects.
 
-Before defining tasks, map the work into clear units. For each unit, name what it produces, what it depends on, and how it will be checked.
-For parallelizable work, identify the sequential dependency chain, independent batches and a suitable concurrency level; account for available agents and conflicting write scopes.
+Reuse checks that still cover unchanged state. Consolidate requirements and quality review at a useful delivery boundary; fix blockers and recheck affected parts. Do not add repeated full review for each small step, or waive required CI or independent review.
 
-Use whatever structure fits the domain:
-- **Artifacts:** documents, spreadsheets, slides, files, code, diagrams, notes, datasets, tickets, emails, decisions.
-- **Locations:** exact file paths, Drive docs, repo areas, issue URLs, folders, or conversation sections.
-- **Inputs:** source material, constraints, examples, acceptance criteria, stakeholders.
-- **Validation:** tests, review checklists, calculations, source checks, visual QA, manual acceptance, or user approval.
+## Finish the plan and execute
 
-Prefer focused units over large blended tasks. Work that changes together should be planned together; unrelated cleanup should stay out unless it is necessary for the outcome.
+Check once that the plan covers requirements, scope, sequence and observable acceptance. Fix concrete gaps inline. Continue within authorized scope; ask only for a consequential missing decision or required authorization.
 
-## Bite-Sized Task Granularity
-
-Each task should be small enough to complete and review without losing the thread. Use 2-10 minute steps when practical.
-
-Good step shapes:
-- Read a named source and extract the required facts.
-- Draft a specific section.
-- Run a named command or check.
-- Compare output against exact acceptance criteria.
-- Revise a concrete artifact.
-- Commit only when the plan is for git-tracked work and a commit is requested or expected.
-
-## Plan Document Header
-
-Every plan MUST start with this header:
-
-```markdown
-# [Outcome Name] Execution Plan
-
-> **For agentic workers:** Follow applicable delegation and workspace rules; execute independent tasks in parallel when permitted and useful, and review their results.
-
-**Goal:** [One sentence describing the outcome]
-
-**Approach:** [2-3 sentences about how the work is organized]
-
-**Materials:** [Key source files, docs, links, data, examples, or constraints]
-
-**Validation:** [How completion will be checked]
-
----
-```
-
-## Task Structure
-
-Use this shape for each task. Adapt labels to the domain, but keep exact artifacts and checks.
-
-````markdown
-### Task N: [Task Name]
-
-**Artifacts / Locations:**
-- Create: `exact/path-or-location`
-- Modify: `exact/path-or-location`
-- Review: `exact/source-or-reference`
-
-- [ ] **Step 1: Gather the needed input**
-
-Read: `exact/source-or-reference`
-Extract: [specific facts, constraints, examples, or requirements]
-
-- [ ] **Step 2: Produce the task output**
-
-Create or modify: `exact/path-or-location`
-Include:
-- [specific content or change]
-- [specific content or change]
-
-- [ ] **Step 3: Verify the output**
-
-Check: [exact command, checklist, comparison, review, or acceptance test]
-Expected: [specific pass condition]
-
-- [ ] **Step 4: Record the result**
-
-Update: [task tracker, plan checkbox, commit, note, or handoff]
-```
-````
-
-For software tasks, include exact test commands and code snippets where useful. For non-software tasks, include the actual checklist, outline, calculation, source comparison, or review prompt the executor should use.
-
-## No Placeholders
-
-Never write:
-- "TBD", "TODO", "fill in later", "handle edge cases"
-- "Write tests/checks for the above" without saying what those checks are
-- "Use appropriate sources" without naming the sources or source criteria
-- "Polish this" without defining the quality bar
-- "Similar to Task N" when the executor may read tasks independently
-
-Every step must tell the executor exactly what to do and how to know it worked.
-
-## Self-Review
-
-After writing the complete plan, review it yourself:
-
-1. **Coverage:** Does every requirement in the spec map to a task?
-2. **Placeholders:** Are there any vague instructions or missing checks?
-3. **Sequence:** Can tasks be done in the written order without hidden dependencies?
-4. **Validation:** Is there an observable pass condition for each task and for the whole plan?
-
-Fix issues inline before handing off.
-
-## Execution Handoff
-
-Continue authorized execution after planning. Delegate only when permitted and useful, and use the available review process; otherwise execute and review inline. Respect an explicit plan-only request, and ask only when a missing decision or required authorization blocks the next action.
+The optional plan-document-reviewer-prompt.md is for a requested or necessary independent plan review, not an automatic extra gate. Existing valid plans and checks remain usable; a template must not restart discovery, design or the full workflow.

@@ -4,7 +4,9 @@ Use this template when dispatching a plan reviewer.
 
 **Purpose:** Verify the plan is complete, matches the spec, and decomposes work into executable tasks.
 
-**Dispatch after:** The complete plan is written.
+**Dispatch when:** Independent plan review is required or materially useful. Routine short
+plans do not need a document or separate reviewer. Existing valid decisions and checks remain
+usable; a review does not restart design, planning or full validation.
 
 ```
 Task tool (general-purpose):

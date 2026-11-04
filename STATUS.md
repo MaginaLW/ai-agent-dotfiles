@@ -9,6 +9,19 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Delivery-flow alignment (2026-11-04, owner-authorized).** Global guidance now starts from
+  user-visible acceptance, bounded continuous execution, short routine plans and relevant
+  verification. Eight shared skills and their direct references/templates avoid automatic
+  full-workflow restarts; required independent review, CI, safety and deployment previews remain.
+  Existing private global agreements must be merged during config deployment, including workspace
+  hygiene and the actual agent limit. Independent review passed six behavioral scenarios and
+  corrected preserved global boundaries and the complexity allowance. Skill build, source/generated
+  byte checks, diff checks and the pinned secret scan passed. Seven skills pass the system format
+  validator; boring-engineering retains its unchanged compatibility field, unsupported by that
+  validator but accepted by the repository build. No scripts or test suites changed; unchanged full
+  local suites were not repeated. Source closeout does not claim live deployment or measured speedup;
+  installation and client loading remain a separate authorized step.
+
 - **Permission-aware feedback recording closeout (2026-11-04).** The shared skill now checks
   ledger-write authorization and effective tool write scope separately, including the
   adjacent lock and temporary replacement. Incidental feedback with missing or unknown

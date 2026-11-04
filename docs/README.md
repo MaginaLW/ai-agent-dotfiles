@@ -222,7 +222,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
 - 模板不带模型与推理档位，但这不表示可以删除个人设置：`config-pull` 按文件复制，**不按字段合并**，
   审查 dry-run 时须逐项比较并保留目标里的个人覆盖值。
   若后续要突破整文件覆盖限制，需单独评审并实现最小机制：Claude `settings.json` 使用结构化
-  JSON 合并，Codex `AGENTS.md` 使用受控 managed block；迁移 live 文件仍需逐次授权。不要把
+  JSON 合并，Codex `AGENTS.md` 使用受控 managed block；迁移 live 文件仍需明确覆盖该动作的授权，已有有限任务授权不重复询问。不要把
   本文档描述当作已经实现或已获部署许可。
 - deploy-skills 不包含 config-pull；把两者合并需要单独评审。
 - 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1`。

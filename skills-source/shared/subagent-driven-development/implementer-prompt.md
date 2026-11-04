@@ -18,8 +18,9 @@ Task tool (general-purpose):
 
     ## Before You Begin
 
-    If anything is unclear about the requirements, source material, output format,
-    verification, dependencies, or permissions, ask before starting.
+    Reuse the supplied decisions and valid authorization. Resolve routine details from the
+    context. Ask only when missing decisive information or required permission blocks dependent
+    work, and continue independent authorized work.
 
     ## Your Job
 
@@ -44,7 +45,7 @@ Task tool (general-purpose):
     ## Escalate Instead of Guessing
 
     Report NEEDS_CONTEXT or BLOCKED if:
-    - Requirements can be interpreted multiple ways.
+    - A consequential ambiguity cannot reasonably be resolved from the supplied context.
     - Required files, sources, credentials, or tools are unavailable.
     - The task asks for an unsafe or irreversible action without explicit authorization.
     - You cannot verify the output.

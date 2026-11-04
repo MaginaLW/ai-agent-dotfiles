@@ -11,6 +11,11 @@ metadata:
 
 Build exactly what the current problem requires. No less, no more.
 
+Use these questions inline with the existing task; they are not separate phases, documents or
+approval gates. Read references only for an actual unresolved structure choice. Reuse the task's
+acceptance checks and consolidate this review at its delivery boundary; do not start another
+full review or test cycle for unchanged work.
+
 ## Step 1 — Requirement Filter (YAGNI)
 
 Before writing any code, ask: is this required by the current task, including necessary authorized validation and documentation, or an explicit stakeholder requirement?
@@ -66,7 +71,7 @@ For detailed decision trees and worked examples, read `references/decision-frame
 
 ## Step 5 — Final Review
 
-Before completing any task, run this checklist:
+When reviewing a design or implementation covered by this skill, check what applies:
 
 - [ ] Could any block here be replaced by a standard library or platform built-in?
 - [ ] Does the exported name or signature fail to match what was asked?
@@ -95,7 +100,10 @@ Explain the result in the user's language and include the validation and limitat
 
 ## When Complexity Is Allowed
 
-Do not simplify by removing legitimate requirements. Complexity is always acceptable for:
+Do not simplify by removing legitimate requirements. Allow necessary complexity only when
+an actual invariant, explicit requirement or established failure calls for it; choose the
+smallest sufficient implementation. The following areas may supply such a requirement, but
+naming one alone does not justify another mechanism:
 
 - Security and authentication
 - Input validation and error handling

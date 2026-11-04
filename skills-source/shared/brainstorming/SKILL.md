@@ -15,6 +15,11 @@ Use this workflow when exploration will resolve a meaningful uncertainty, not fo
 
 If a missing user decision determines the outcome and cannot reasonably be inferred, ask before doing dependent work and continue independent preparation. Honor an explicit design-only phase stop. A design or plan does not authorize publishing, sending messages, deployment, destructive changes, or other actions outside the user's authorized scope; obtain any required authorization at the action boundary.
 
+For a small unresolved choice, resolve that choice briefly in the conversation and continue.
+Do not run the full checklist, create a design note or invoke planning just because a choice
+exists. Check the acceptance environment and affected consumers before a consequential design.
+Consolidate review at the useful delivery boundary; preserve required independent review.
+
 ## Checklist
 
 Adapt these steps to the unresolved decisions; do not create a separate task or approval checkpoint for every item:
@@ -113,7 +118,7 @@ Share the design note when one was written. Ask for review when the user request
 
 **Next Step:**
 
-- Use `writing-plans` when a detailed execution plan is useful and the skill is available.
+- Use `writing-plans` only when consequential dependencies or handoff warrant detail; routine work uses short in-chat steps.
 - For clear, authorized work, proceed directly.
 - For research or writing, continue with the approved direction and validation method.
 

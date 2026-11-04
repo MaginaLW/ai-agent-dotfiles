@@ -4,7 +4,8 @@ Use this template when dispatching a spec document reviewer subagent.
 
 **Purpose:** Verify the design note is complete, consistent, and ready for the approved next step.
 
-**Dispatch after:** Spec document is written to docs/superpowers/specs/
+**Dispatch when:** An independent design review is required or useful and a design note exists
+in the project's chosen location. No mandatory spec directory or extra approval round.
 
 ```
 Task tool (general-purpose):
