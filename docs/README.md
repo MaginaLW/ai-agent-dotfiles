@@ -339,7 +339,11 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 真实反馈推动条款落地与后续实际省问分别验收；无可比机会时按现有证据正常收尾，不等待未来任务取样。
 源码与条件性流程见 [Skill](../skills-source/shared/approval-feedback/SKILL.md)；设计依据见
 [总体纲领](APPROVAL_FEEDBACK_PRINCIPLES_2026-11-01.md)及[执行计划](APPROVAL_FEEDBACK_EXECUTION_PLAN_2026-11-01.md)。
-部署仍先审阅实际 dry-run，再逐次授权 Apply；客户端是否需要新任务加载另行验证。
+确需时限的未来授权提案应写清一次激活事件、持续时长、最晚激活时刻或条件及停止条件；
+同链执行者共用窗口，不延续已过期许可、不重置累计预算。委派时区分本阶段只读与用户／平台硬禁令，
+把必要隔离依赖准备纳入已授权链，不将阶段安排写成整个任务的绝对禁令。
+部署仍先审阅实际 dry-run，再按覆盖实际范围的有效授权 Apply；只补确实缺少的决定，
+不为同一已授权链重复询问。客户端是否需要新任务加载另行验证。
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list

@@ -9,6 +9,12 @@ CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Finite windows and dependency boundaries.** Future proposals that genuinely need an expiry
+  define one activation event, a duration and a latest activation condition; existing expired
+  grants and consumed budgets are not extended or reset. Delegation distinguishes a read-only
+  stage from owner/platform prohibitions and includes necessary isolated preparation only within
+  the existing grant. These rules add no timer, ledger, task framework or automatic permission.
+
 - **Execution de-duplication.** Global guidance and three existing shared skills bind each
   verification claim to a target/version, environment and stopping condition in the existing
   context. The lead inspects delegated artifacts and reuses covered results, while retaining

@@ -13,6 +13,8 @@ Read the relevant plan or task breakdown once. Reuse the existing tracker; do no
 
 Give each executor the outcome, non-goals, minimum inputs, write scope, dependencies, workspace/output boundaries and acceptance checks. Reuse already-established decisions and allocate each check to one owner; do not assign equivalent audits to both lead and worker without an independent-review requirement or concrete risk. Use implementer-prompt.md when useful, adapting it to the actual task.
 
+Include dependencies and necessary isolated preparation in the already-authorized delivery chain. Distinguish owner/platform prohibitions from this stage's actions: a read-only preparation worker can be told "inspect only; do not install in this stage" without inventing a task-wide installation ban. Preserve the source and scope of real prohibitions; do not silently rewrite an existing ban. Missing authority pauses only the affected action, and this guidance grants no paid, credential, production, destructive or new data-transfer permission.
+
 ## Execute continuously
 
 Continue independent work while agents run. Answer only consequential missing context. Existing authorization covers its stated finite chain; do not stop at every subtask, handoff or recoverable failure to request the same permission.
