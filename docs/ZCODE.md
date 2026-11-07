@@ -5,6 +5,10 @@ ZCode 是维护本仓库的工作工具之一，也是 live skills 的部署目�
 [`AGENTS.md`](../AGENTS.md)（加载方式见[官方说明](https://zcode.z.ai/en/docs/agents)），
 所以 `AGENTS.md` 必须自包含：ZCode 不会展开其中的链接。
 
+ZCode 还会先加载用户全局指令 `~/.zcode/AGENTS.md`。该文件不由本仓库的 config-sync 管理，
+ZCode 也不展开 `@import`，因此其中的共享工作协议需要按 `codex/AGENTS.md` 手工同步；ZCode
+专属条款保留在该文件末尾。修改 canonical 条款后同步该文件，并在新任务中核对实际加载。
+
 ## 使用方式
 
 - 在 ZCode 中打开本仓库**根目录**，再新建任务；无需专用关键词、Skill 或斜杠命令。
