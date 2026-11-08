@@ -29,6 +29,19 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   `approval-feedback` at deployed/loaded with older-version application; its post-`f430c27`
   outcome remains unmeasured.
 
+- **Skill effect guardrail deployment (2026-11-08).** Source commit `67fb263` adds a
+  `session-learnings` closeout/reuse check and concrete Windows/PowerShell boundaries for
+  bounded `tool-scope` file inspection. Build, generated-output hashes, diff checks and the
+  pinned secret scan passed, and the post-deployment full local repository validation passed
+  all 14 suites. The reviewed `full` dry run and Apply both reported exactly six
+  updates—only these two skills on Claude, Codex and ZCode—with 38 unchanged and no installs,
+  prunes or unknowns. The post-Apply dry run reports all 44 selected directories unchanged;
+  source/generated/live hashes match, and all six backups match the previous deployed bytes.
+  Remote Validate run 42467036745 failed twice in pinned gitleaks download with GitHub 504
+  before repository validation ran; the release API still reports the pinned asset, while the
+  release download endpoint returned 504 in local checks. No CI success is claimed and no
+  downloader workaround was added.
+
 - **Finite windows and dependency boundaries.** Future proposals that genuinely need an expiry
   define one activation event, a duration and a latest activation condition; existing expired
   grants and consumed budgets are not extended or reset. Delegation distinguishes a read-only
