@@ -15,11 +15,10 @@ CI run, check `git log` and the latest GitHub Actions run.
   Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every
   managed skill, while `work` is the daily set.
 - **Skills and deployment.** There are 20 managed skills: 12 shared and 8 Codex-only. The
-  2026-11-08 live `full` Apply completed with 44 `unchanged`; its post-Apply dry run also reports
-  44 unchanged, with no installs, updates, prunes or unknowns. The later approval-feedback source
-  change is not yet deployed; live still contains the prior revision. The preceding optimization
-  pass changed scripts, tests and documentation only; that Apply updated deploy state, not skill
-  content.
+  2026-11-08 `full` Apply updated `approval-feedback` on Claude, Codex and Zcode (3 updates,
+  41 unchanged); its post-Apply dry run reports 44 unchanged, with no installs, prunes or unknowns.
+  An earlier 2026-11-08 `full` Apply had 44 unchanged after the optimization pass; that pass
+  changed scripts, tests and documentation only, not skill content.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
   `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
   Catalog discovery and installation do not prove behavior change, and one applied case does not
@@ -36,7 +35,8 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Latest local verification.** The 2026-11-08 optimization pass passed the syntax gate,
   pinned secret scan, all 14 local test suites and the full repository validation. The same-day
   approval-feedback source/status update passed build, pinned secret scan, `git diff --check`
-  and the focused approval-feedback suite. Remote Validate remains a separate CI check.
+  and the focused approval-feedback suite. The live Apply updated 3 directories; its post-Apply
+  dry run reports 44 unchanged. Remote Validate remains a separate CI check.
 - **Pinned gitleaks.** The lock pins gitleaks 8.30.0 by archive and executable SHA-256. The
   official GitHub Releases API fallback is used only after direct downloads fail and still
   passes both hash gates.
