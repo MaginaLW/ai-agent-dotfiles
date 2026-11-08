@@ -16,10 +16,9 @@ CI run, check `git log` and the latest GitHub Actions run.
   managed skill, while `work` is the daily set.
 - **Skills and deployment.** There are 19 managed skills: 12 shared and 7 Codex-only. The
   2026-11-08 source cleanup retired `hatch-pet` and removed the custom brainstorming browser
-  server. The last completed live deployment remains the earlier `full` Apply (3 updates,
-  41 unchanged; post-Apply dry run 44 unchanged). A reviewed `work` dry-run now plans
-  0 installs, 0 updates, 24 unchanged, 20 prunes and 0 unknowns; its live Apply awaits explicit
-  owner authorization.
+  server. The `work` live Apply completed with 0 installs, 0 updates, 24 unchanged, 20 prunes
+  and 0 unknowns; its post-Apply dry run reports 24 unchanged. Claude, Codex and ZCode now each
+  expose the same eight-skill daily set, while Codex `.system` remains untouched.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
   `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
   Catalog discovery and installation do not prove behavior change, and one applied case does not
@@ -36,7 +35,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Latest local verification.** The 2026-11-08 cleanup commit passed the CI-equivalent
   repository validation: syntax, pinned gitleaks verification, build, secret scan, doctor,
   manifest parity, all 13 local test suites, dangerous-file checks and clean-tree checks.
-  Remote Validate remains a separate CI check.
+  Remote Validate #295 also passed for the pushed cleanup head.
 - **Pinned gitleaks.** The lock pins gitleaks 8.30.0 by archive and executable SHA-256. The
   official GitHub Releases API fallback is used only after direct downloads fail and still
   passes both hash gates.
