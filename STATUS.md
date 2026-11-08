@@ -31,7 +31,8 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is
   absent. Enumeration errors now stop the build instead of looking like an empty skill set.
 - **Latest local verification.** The 2026-11-08 optimization pass passed the syntax gate,
-  pinned secret scan and all 14 local test suites. Remote Validate remains a separate CI check.
+  pinned secret scan, all 14 local test suites and the full repository validation. Remote
+  Validate remains a separate CI check.
 - **Pinned gitleaks.** The lock pins gitleaks 8.30.0 by archive and executable SHA-256. The
   official GitHub Releases API fallback is used only after direct downloads fail and still
   passes both hash gates.
