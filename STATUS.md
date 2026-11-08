@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-05.
+Last updated: 2026-11-08.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -8,6 +8,18 @@ done, record its outcome here and delete the record (Git keeps it). Before trust
 CI run named here, check `git log` and the latest GitHub Actions run.
 
 ## Current state
+
+- **New-skill deployment and execution recheck (2026-11-08).** A read-only review with one
+  delegated reviewer plus primary-agent spot checks confirmed the recently added skills remain
+  installed and consistent. Remote Validate completed successfully for approval-feedback revision
+  `f430c27` (run 42087770925) and current HEAD `d0d74a8` (run 42385458468). The current `full`
+  dry run reports all 44 selected directories unchanged, with no installs, updates, prunes or
+  unknowns; source/generated/live hashes match for `approval-feedback`, `tool-scope` and
+  `session-learnings` across Claude, Codex and ZCode. Codex config status reports `AGENTS.md`
+  in sync, and the manually synchronized user-level ZCode instructions retain one
+  approval-feedback route plus the workspace-boundary material. Recorded private feedback writes
+  predate `f430c27`, so the latest revision's real-world effect remains unverified; no background
+  sampling was started.
 
 - **Finite windows and dependency boundaries.** Future proposals that genuinely need an expiry
   define one activation event, a duration and a latest activation condition; existing expired
@@ -43,8 +55,8 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   The separate Codex config Apply updated only global AGENTS, backed up the original and passed
   a no-change preview; installed AGENTS matches source bytes. Refreshed global agreements were
   observed in the current chat. Complete adoption by other running chats and improved development
-  speed remain unverified. Source commit 060af89 was pushed; its remote Validate run 41863379732
-  was queued at the last observation, so a passing CI result is not claimed.
+  speed remain unverified. Source commit 060af89 was pushed; a 2026-11-08 read-only recheck
+  confirmed its remote Validate run 41863379732 completed successfully.
 
 - **Permission-aware feedback recording closeout (2026-11-04).** The shared skill now checks
   ledger-write authorization and effective tool write scope separately, including the
