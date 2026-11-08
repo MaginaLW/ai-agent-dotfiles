@@ -9,7 +9,7 @@ function Get-SkillDirectories {
     if (-not (Test-Path -LiteralPath $RootPath)) {
         return @()
     }
-    return @(Get-ChildItem -LiteralPath $RootPath -Directory -Force -ErrorAction SilentlyContinue |
+    return @(Get-ChildItem -LiteralPath $RootPath -Directory -Force |
         Where-Object {
             $_.Name -ne '.system' -and
             (Test-Path -LiteralPath (Join-Path $_.FullName 'SKILL.md'))

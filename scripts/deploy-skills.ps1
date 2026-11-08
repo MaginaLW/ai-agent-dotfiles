@@ -30,6 +30,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 $platforms = @('Claude', 'Codex', 'Zcode')
 $statePath = Join-Path $StateRoot 'deployed-skills.json'
@@ -40,13 +41,9 @@ function Get-DeploySkillsLiveRoot([string] $Platform) {
         'Claude' { return Join-Path $HomeRoot '.claude\skills' }
         'Zcode' { return Join-Path $HomeRoot '.zcode\skills' }
         'Codex' {
-            $preferred = Join-Path $HomeRoot '.codex\skills'
-            $fallback = Join-Path $HomeRoot '.agents\skills'
-            $hasPreferred = Test-Path -LiteralPath $preferred
-            $hasFallback = Test-Path -LiteralPath $fallback
-            if ($hasPreferred -and $hasFallback) { throw "codex-live-root-ambiguous: both $preferred and $fallback exist" }
-            if ($hasFallback) { return $fallback }
-            return $preferred
+            $roots = Get-CodexLiveSkillRoots -HomeRoot $HomeRoot
+            if ($roots.Ambiguous) { throw "codex-live-root-ambiguous: both $($roots.Preferred) and $($roots.Fallback) exist" }
+            return $roots.Selected
         }
     }
 }

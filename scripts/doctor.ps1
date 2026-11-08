@@ -64,13 +64,12 @@ foreach ($name in 'deploy-skills', 'build-skills', 'scan-secrets') { Test-Requir
 
 Write-Section 'Live skill roots'
 # Same rule as deploy-skills: ~/.agents/skills only when it is the sole Codex root; both is ambiguous.
-$codexPreferred = Join-Path $HomeRoot '.codex\skills'
-$codexFallback = Join-Path $HomeRoot '.agents\skills'
-$hasPreferred = Test-Path -LiteralPath $codexPreferred
-$hasFallback = Test-Path -LiteralPath $codexFallback
-if ($hasPreferred -and $hasFallback) { Add-DoctorResult WARN 'Codex live root is ambiguous: both ~/.codex/skills and ~/.agents/skills exist, so deploy-skills refuses Codex.' }
-elseif ($hasFallback) { Add-DoctorResult PASS 'Codex live root: ~/.agents/skills (fallback; ~/.codex/skills is absent).' }
-elseif ($hasPreferred) { Add-DoctorResult PASS 'Codex live root: ~/.codex/skills.' }
+$codexRoots = Get-CodexLiveSkillRoots -HomeRoot $HomeRoot
+$codexPreferred = $codexRoots.Preferred
+$codexFallback = $codexRoots.Fallback
+if ($codexRoots.Ambiguous) { Add-DoctorResult WARN 'Codex live root is ambiguous: both ~/.codex/skills and ~/.agents/skills exist, so deploy-skills refuses Codex.' }
+elseif ($codexRoots.FallbackExists) { Add-DoctorResult PASS 'Codex live root: ~/.agents/skills (fallback; ~/.codex/skills is absent).' }
+elseif ($codexRoots.PreferredExists) { Add-DoctorResult PASS 'Codex live root: ~/.codex/skills.' }
 else { Add-DoctorResult WARN 'Codex live root not found; deploy-skills would create ~/.codex/skills.' }
 foreach ($root in @(
     @{ Label = 'Claude live root (~/.claude/skills)'; Path = Join-Path $HomeRoot '.claude\skills' },

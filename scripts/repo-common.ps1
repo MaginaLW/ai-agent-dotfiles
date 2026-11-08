@@ -5,11 +5,12 @@
 
 .DESCRIPTION
     The single definition of the policy literals several scripts and gates share: the
-    protected Reasonix desktop-state files, the porcelain status pathspecs built from them,
-    the binary-extension list, and the drive-letter/UNC machine-private path patterns.
-    Change these only with the owner's approval; every consumer fails closed around them.
-    Keep exactly one definition of each helper in the repository: the syntax gate's
-    unknown-parameter pass skips names defined in more than one script.
+    generated skill roots, scan-input prefixes, protected Reasonix desktop-state files,
+    porcelain status pathspecs, binary-extension list, Codex live-root rule and the
+    drive-letter/UNC machine-private path patterns. Change these only with the owner's
+    approval; every consumer fails closed around them. Keep exactly one definition of each
+    helper in the repository: the syntax gate's unknown-parameter pass skips names defined
+    in more than one script.
 #>
 
 Set-StrictMode -Version Latest
@@ -27,6 +28,41 @@ function Get-PorcelainStatusPaths {
     # git status pathspecs covering the whole tree minus the protected Reasonix files.
     $paths = @('.') + @($script:ProtectedReasonixFiles | ForEach-Object { ":(exclude)$_" })
     return , $paths
+}
+
+# Generated output roots and the filtered input prefixes shared by the build/scan gates.
+$script:GeneratedSkillRoots = @('claude/skills', 'codex/skills', 'reasonix/skills')
+$script:GeneratedSkillRootPrefixes = @($script:GeneratedSkillRoots | ForEach-Object { "$_/" })
+$script:ScanExcludedPrefixes = @('.git/') + $script:GeneratedSkillRootPrefixes + @('tmp/')
+
+function Get-GeneratedSkillRoots {
+    # Repository-relative generated roots, without trailing separators.
+    return $script:GeneratedSkillRoots
+}
+
+function Get-ScanExcludedPrefixes {
+    # Secret-scan and syntax-gate input prefixes, including the Git and temporary roots.
+    return $script:ScanExcludedPrefixes
+}
+
+function Get-CodexLiveSkillRoots {
+    # Returns both Codex candidates and the selected root. When both exist the callers
+    # decide whether to refuse (deploy) or warn (doctor); neither may guess.
+    param([Parameter(Mandatory)] [string] $HomeRoot)
+    $preferred = Join-Path $HomeRoot '.codex\skills'
+    $fallback = Join-Path $HomeRoot '.agents\skills'
+    $preferredExists = Test-Path -LiteralPath $preferred
+    $fallbackExists = Test-Path -LiteralPath $fallback
+    $ambiguous = $preferredExists -and $fallbackExists
+    $selected = if ($ambiguous) { $null } elseif ($fallbackExists) { $fallback } else { $preferred }
+    return [pscustomobject] @{
+        Preferred = $preferred
+        Fallback = $fallback
+        PreferredExists = $preferredExists
+        FallbackExists = $fallbackExists
+        Ambiguous = $ambiguous
+        Selected = $selected
+    }
 }
 
 function Test-IsProtectedReasonixFile {

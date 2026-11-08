@@ -116,9 +116,16 @@ foreach ($case in $dangerousPathCases) {
 # -----------------------------------------------------------------------------
 Write-Host '[generated-root boundaries]'
 $gitignoreText = Read-RepoText '.gitignore'
-foreach ($generatedRoot in @('claude/skills/', 'codex/skills/', 'reasonix/skills/')) {
-    Assert-TestCondition ($gitignoreText.Contains("`n$generatedRoot`n") -or $gitignoreText.StartsWith("$generatedRoot`n")) ".gitignore ignores the generated root $generatedRoot"
+$generatedSkillRoots = @(Get-GeneratedSkillRoots)
+foreach ($generatedRoot in $generatedSkillRoots) {
+    $ignored = "$generatedRoot/"
+    Assert-TestCondition ($gitignoreText.Contains("`n$ignored`n") -or $gitignoreText.StartsWith("$ignored`n")) ".gitignore ignores the generated root $ignored"
 }
+$scanPrefixes = @(Get-ScanExcludedPrefixes)
+foreach ($generatedRoot in $generatedSkillRoots) {
+    Assert-TestCondition ($scanPrefixes -contains "$generatedRoot/") "the shared scan policy covers $generatedRoot/"
+}
+Assert-TestCondition ($scanPrefixes -ccontains '.git/' -and $scanPrefixes -ccontains 'tmp/') 'the shared scan policy covers Git and temporary inputs'
 
 $buildSkillsText = Read-RepoText 'scripts/build-skills.ps1'
 foreach ($rootVariable in @('$ClaudeOutputRoot', '$CodexOutputRoot')) {
@@ -142,7 +149,16 @@ finally {
 }
 
 $scanSecretsText = Read-RepoText 'scripts/scan-secrets.ps1'
-Assert-TestCondition ((Get-LiteralOccurrenceCount -Text $scanSecretsText -Needle "'claude/skills/', 'codex/skills/', 'reasonix/skills/'") -ge 1) 'the secret scan excludes active generated roots and protects the legacy root'
+Assert-TestCondition ($scanSecretsText.Contains('Get-ScanExcludedPrefixes')) 'the secret scan consumes the shared prefix policy'
+$syntaxGateText = Read-RepoText 'scripts/check-powershell-syntax.ps1'
+Assert-TestCondition ($syntaxGateText.Contains('Get-ScanExcludedPrefixes')) 'the syntax gate consumes the shared prefix policy'
+$validationText = Read-RepoText 'scripts/run-repository-validation.ps1'
+Assert-TestCondition ($validationText.Contains('Get-GeneratedSkillRoots')) 'repository validation consumes the shared generated-root policy'
+$deploySkillsText = Read-RepoText 'scripts/deploy-skills.ps1'
+$doctorText = Read-RepoText 'scripts/doctor.ps1'
+Assert-TestCondition ($deploySkillsText.Contains('Get-CodexLiveSkillRoots') -and $doctorText.Contains('Get-CodexLiveSkillRoots')) 'deploy and doctor consume the shared Codex live-root policy'
+$skillsCommonText = Read-RepoText 'scripts/skills-common.ps1'
+Assert-TestCondition (-not $skillsCommonText.Contains('-ErrorAction SilentlyContinue')) 'skill discovery does not suppress enumeration errors'
 
 # -----------------------------------------------------------------------------
 # Claude Code harness guard rails

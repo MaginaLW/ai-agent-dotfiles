@@ -22,13 +22,13 @@ if (-not $configItem -or $configItem.PSIsContainer -or ($configItem.Attributes -
 
 # Scan input exclusions (matched case-insensitively). Change them only with the
 # owner's approval:
-#  - the path prefixes below (generated roots and tmp/);
+#  - the shared path prefixes from repo-common.ps1 (generated roots and tmp/);
 #  - the four protected .reasonix/desktop-topic-* files (repo-common.ps1);
 #  - Git-ignored entries: `git ls-files -co --exclude-standard` selects tracked
 #    files plus untracked, non-ignored files.
 # The fallback scanner re-checks the same prefixes plus backup/ (Test-IsSkippedPath
 # below, defense in depth); gitleaks still sees backup/ when it is not Git-ignored.
-$scanExcludedPrefixes = @('.git/', 'claude/skills/', 'codex/skills/', 'reasonix/skills/', 'tmp/')
+$scanExcludedPrefixes = @(Get-ScanExcludedPrefixes)
 
 function Test-IsScanInputExcluded {
     param([Parameter(Mandatory)] [string] $RelativePath)

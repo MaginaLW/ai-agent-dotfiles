@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
-$excludedPrefixes = @('claude/skills/', 'codex/skills/', 'reasonix/skills/', 'tmp/')
+$excludedPrefixes = @(Get-ScanExcludedPrefixes | Where-Object { $_ -ne '.git/' })
 
 # Decode Git's UTF-8 output explicitly so non-ASCII file names survive (same handling as
 # scan-secrets.ps1).

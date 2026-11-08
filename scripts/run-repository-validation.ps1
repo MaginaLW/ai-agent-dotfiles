@@ -52,7 +52,7 @@ try {
     Invoke-Gate 'generated-manifests-parity' {
         $changed = @(Get-GitLines @('status', '--porcelain', '--', 'manifests'))
         if ($changed.Count) { $changed | Write-Host; throw 'build-skills changed manifests/. Rebuild locally and commit the intended manifest changes.' }
-        $trackedGenerated = @(Get-GitLines @('ls-files', '--', 'claude/skills', 'codex/skills', 'reasonix/skills'))
+        $trackedGenerated = @(Get-GitLines (@('ls-files', '--') + @(Get-GeneratedSkillRoots)))
         if ($trackedGenerated.Count) { $trackedGenerated | Write-Host; throw 'Generated output must remain untracked.' }
     }
     Invoke-Gate 'run-tests' { Invoke-RepoScript 'run-tests.ps1' @('-RepoRoot', $RepoRoot) }
