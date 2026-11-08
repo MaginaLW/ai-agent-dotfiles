@@ -9,6 +9,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Grok routing.** The Codex agreement template routes explicitly requested Grok work through agent-bridge and preserves its current schema, available engines and approval flow; it has no local Grok Build CLI fallback.
 - **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates
   `claude/skills/` and `codex/skills/`; `deploy-skills.ps1` deploys one environment to the live
   Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every
