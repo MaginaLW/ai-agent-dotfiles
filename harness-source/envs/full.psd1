@@ -27,7 +27,6 @@
             'coderabbit-review',
             'define-goal',
             'git-review',
-            'hatch-pet',
             'meng-cmame-writing',
             'paper-polish',
             'security-best-practices',

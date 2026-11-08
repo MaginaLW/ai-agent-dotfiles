@@ -4,7 +4,6 @@
     Suites = @{
         'agent-dotfiles.tests.ps1' = 150
         'approval-feedback.tests.ps1' = 90
-        'brainstorm-helper.tests.ps1' = 60
         'build-skills.tests.ps1' = 60
         'config-sync.tests.ps1' = 150
         'deploy-skills.tests.ps1' = 120

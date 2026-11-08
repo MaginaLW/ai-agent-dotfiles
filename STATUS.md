@@ -14,11 +14,12 @@ CI run, check `git log` and the latest GitHub Actions run.
   `claude/skills/` and `codex/skills/`; `deploy-skills.ps1` deploys one environment to the live
   Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every
   managed skill, while `work` is the daily set.
-- **Skills and deployment.** There are 20 managed skills: 12 shared and 8 Codex-only. The
-  2026-11-08 `full` Apply updated `approval-feedback` on Claude, Codex and Zcode (3 updates,
-  41 unchanged); its post-Apply dry run reports 44 unchanged, with no installs, prunes or unknowns.
-  An earlier 2026-11-08 `full` Apply had 44 unchanged after the optimization pass; that pass
-  changed scripts, tests and documentation only, not skill content.
+- **Skills and deployment.** There are 19 managed skills: 12 shared and 7 Codex-only. The
+  2026-11-08 source cleanup retired `hatch-pet` and removed the custom brainstorming browser
+  server. The last completed live deployment remains the earlier `full` Apply (3 updates,
+  41 unchanged; post-Apply dry run 44 unchanged). A reviewed `work` dry-run now plans
+  0 installs, 0 updates, 24 unchanged, 20 prunes and 0 unknowns; its live Apply awaits explicit
+  owner authorization.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
   `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
   Catalog discovery and installation do not prove behavior change, and one applied case does not
@@ -99,19 +100,20 @@ CI run, check `git log` and the latest GitHub Actions run.
 | Scope | Canonical | Claude | Codex |
 |---|---:|---:|---:|
 | Shared | 12 | 12 | 12 |
-| Codex-only (Claude-only is empty) | 8 | - | 8 |
-| Managed total | 20 | 12 | 20 |
+| Codex-only (Claude-only is empty) | 7 | - | 7 |
+| Managed total | 19 | 12 | 19 |
 
 - **Shared skills:** approval-feedback, boring-engineering, brainstorming, git-review,
   meng-cmame-writing, paper-polish, session-learnings, subagent-driven-development,
   systematic-debugging, tool-scope, verification-before-completion, writing-plans.
-- **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal, hatch-pet,
+- **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal,
   security-best-practices, security-ownership-map, security-threat-model.
 - **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 8/8/8,
-  `full` 12/20/12. Unselected unknown live directories are preserved, and Codex `.system` is
+  `full` 12/19/12. Unselected unknown live directories are preserved, and Codex `.system` is
   never managed.
 - **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the MCP
-  registration subsystem; OpenClaw/OpenCode; ArkCLI-managed skills.
+  registration subsystem; OpenClaw/OpenCode; ArkCLI-managed skills; the legacy local
+  `hatch-pet` v1 packaging workflow; the custom brainstorming browser-companion server.
 - **Integrations.** ZCode maintains this repository through `AGENTS.md` and is a deployment
   target through the Claude projection. The harness-model feedback-loop pilot is paused; one
   remote VPS pilot remains active.

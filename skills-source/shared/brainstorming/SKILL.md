@@ -131,18 +131,15 @@ Share the design note when one was written. Ask for review when the user request
 - **Proportional validation** - Reuse existing decisions and request input only where needed
 - **Be flexible** - Go back and clarify when something doesn't make sense
 
-## Visual Companion
+## Visual Choices
 
-A browser-based companion for showing mockups, diagrams, and visual options during brainstorming. Available as a tool — not a mode. Accepting the companion means it's available for questions that benefit from visual treatment; it does NOT mean every question goes through the browser.
-
-**Choosing visuals:** Use an available inline visualization or a simple diagram when it helps resolve a design choice. The optional browser companion is useful for interactive mockups; check its setup requirements and the user's preferences before launching it. Do not make visual setup a prerequisite for unrelated design work.
+Use an available platform visualization tool when seeing the alternatives would materially improve the decision. A normal diagram or concise text comparison is enough when it resolves the choice; visual output is not a prerequisite for design work.
 
 **Per-question decision:** Decide whether the user would understand this better by seeing it than reading it.
 
-- **Use the browser** for content that IS visual — mockups, wireframes, layout comparisons, architecture diagrams, side-by-side visual designs
-- **Use the terminal** for content that is text — requirements questions, conceptual choices, tradeoff lists, A/B/C/D text options, scope decisions
+- Use a visual for mockups, layout comparisons, spatial relationships, and side-by-side visual designs.
+- Use text for requirements questions, conceptual choices, tradeoff lists, scope decisions, and ordinary A/B/C/D options.
 
-A question about a UI topic is not automatically a visual question. "What does personality mean in this context?" is a conceptual question — use the terminal. "Which wizard layout works better?" is a visual question — use the browser.
+A question about a UI topic is not automatically a visual question. "What does personality mean in this context?" is a conceptual question — use text. "Which wizard layout works better?" is a visual question — use the available visualization tool.
 
-If using the browser companion, read its setup and consent instructions before launching it:
-`./visual-companion.md`
+Do not start a local browser server or background companion for this skill. If no suitable visualization surface is available, present a simple text or diagram alternative and continue.
