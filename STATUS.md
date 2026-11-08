@@ -10,6 +10,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 ## Current state
 
 - **Grok routing.** The Codex agreement template routes explicitly requested Grok work through agent-bridge and preserves its current schema, available engines and approval flow; it has no local Grok Build CLI fallback.
+- **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions now require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial; public destinations are limited to repositories explicitly authorized to publish their own content.
 - **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates
   `claude/skills/` and `codex/skills/`; `deploy-skills.ps1` deploys one environment to the live
   Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every
