@@ -39,8 +39,11 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   source/generated/live hashes match, and all six backups match the previous deployed bytes.
   Remote Validate run 42467036745 failed twice in pinned gitleaks download with GitHub 504
   before repository validation ran; the release API still reports the pinned asset, while the
-  release download endpoint returned 504 in local checks. No CI success is claimed and no
-  downloader workaround was added.
+  release download endpoint returned 504 in local checks. The owner then adopted the
+  recommended completion path: commit `7491de5` adds an official GitHub Releases API fallback
+  keyed by the locked owner, repository, tag and asset name, while retaining both locked
+  SHA-256 gates. A clean-cache local install exercised the fallback, returned gitleaks 8.30.0
+  and the locked archive hash, and the full repository validation passed with a clean tree.
 
 - **Finite windows and dependency boundaries.** Future proposals that genuinely need an expiry
   define one activation event, a duration and a latest activation condition; existing expired
