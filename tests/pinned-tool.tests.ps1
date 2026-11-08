@@ -72,6 +72,11 @@ try {
     Assert-ThrowsWith { Read-PinnedToolLockFile -LockPath (Write-LockFile -Lock (New-LockObject -Overrides @{ AssetUrl = 'https://example.com/download/probe-tool.zip' }) -Name 'bad-url') } 'official GitHub release asset URL' 'a non-GitHub-release asset URL is rejected'
     Assert-ThrowsWith { Read-PinnedToolLockFile -LockPath (Write-LockFile -Lock (New-LockObject -Overrides @{ AssetName = 'other.zip' }) -Name 'bad-name') } 'asset name does not match its URL' 'an asset name that differs from the URL is rejected'
 
+    Write-Host '[release API URL mapping]'
+    $releaseApiUrl = Get-PinnedToolReleaseApiUrl -AssetUrl 'https://github.com/example/probe-tool/releases/download/v1.2.3/probe-tool.zip'
+    Assert-TestCondition ($releaseApiUrl -ceq 'https://api.github.com/repos/example/probe-tool/releases/tags/v1.2.3') 'a GitHub release download URL maps to its official tag API URL'
+    Assert-ThrowsWith { Get-PinnedToolReleaseApiUrl -AssetUrl 'https://github.com/example/probe-tool/releases/latest/probe-tool.zip' } 'cannot be mapped' 'an unmappable release URL is rejected'
+
     Write-Host '[installed-cache verification]'
     $cacheEmpty = Join-Path $work 'cache-empty'
     Assert-ThrowsWith { Get-PinnedToolExecutable -LockPath (Write-LockFile -Lock (New-LockObject) -Name 'not-installed') -CacheRoot $cacheEmpty } 'Pinned probe-tool is not installed: .*probe-tool\.zip' 'an empty cache fails verification instead of passing silently'

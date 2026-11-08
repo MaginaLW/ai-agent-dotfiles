@@ -49,6 +49,8 @@
 
 `scripts/pinned-tool.ps1` 从调用方传入的 `-LockPath` 读取工具锁文件；gitleaks 的锁路径由
 `scripts/install-gitleaks.ps1`、扫描和 doctor 等调用方传入，不在通用 helper 中固定。
+直接 release 下载失败时，按锁定的 owner／repo／tag／asset 名称查询官方 GitHub Releases
+API；下载结果仍必须通过锁文件中的压缩包与可执行文件 SHA-256 双重校验。
 
 ---
 

@@ -63,6 +63,15 @@ function Get-PinnedToolExecutable {
     return [pscustomobject]@{ Executable = $tool.Executable; VersionOutput = $versionOutput; Lock = $lock }
 }
 
+function Get-PinnedToolReleaseApiUrl {
+    param([Parameter(Mandatory)] [string] $AssetUrl)
+
+    if ($AssetUrl -cnotmatch '^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/[^/]+$') {
+        throw 'Pinned tool asset URL cannot be mapped to a GitHub release API URL.'
+    }
+    return "https://api.github.com/repos/$($Matches[1])/$($Matches[2])/releases/tags/$($Matches[3])"
+}
+
 function Install-PinnedTool {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $LockPath, [string] $CacheRoot, [switch] $VerifyOnly)
@@ -90,7 +99,26 @@ function Install-PinnedTool {
                 if ($attempt -lt 3) { Start-Sleep -Seconds (5 * $attempt) }
             }
         }
-        if ($null -ne $downloadError) { throw "Downloading the pinned $($lock.ToolKind) archive failed after 3 attempts: $($downloadError.Exception.Message)" }
+        if ($null -ne $downloadError) {
+            try {
+                $apiHeaders = @{
+                    Accept                 = 'application/vnd.github+json'
+                    'User-Agent'           = 'ai-agent-dotfiles-pinned-tool'
+                    'X-GitHub-Api-Version' = '2022-11-28'
+                }
+                $release = Invoke-RestMethod -Uri (Get-PinnedToolReleaseApiUrl -AssetUrl ([string] $lock.AssetUrl)) -Headers $apiHeaders -TimeoutSec 300
+                $asset = @($release.assets | Where-Object { ([string] $_.name) -ceq ([string] $lock.AssetName) -and ([string] $_.state) -ceq 'uploaded' })
+                if ($asset.Count -ne 1) { throw "Expected exactly one uploaded GitHub release asset named $($lock.AssetName)." }
+                Invoke-WebRequest -UseBasicParsing -Uri ([string] $asset[0].url) -Headers (@{
+                    Accept                 = 'application/octet-stream'
+                    'User-Agent'           = 'ai-agent-dotfiles-pinned-tool'
+                    'X-GitHub-Api-Version' = '2022-11-28'
+                }) -OutFile $archive -TimeoutSec 300
+            }
+            catch {
+                throw "Downloading the pinned $($lock.ToolKind) archive failed after 3 direct attempts and the official release API fallback. Direct: $($downloadError.Exception.Message); API: $($_.Exception.Message)"
+            }
+        }
         if ((Get-PinnedToolFileSha256 -Path $archive) -cne [string] $lock.AssetSha256) { throw "Downloaded $($lock.ToolKind) archive hash mismatch." }
         $expanded = Join-Path $candidate 'expanded'
         Expand-Archive -LiteralPath $archive -DestinationPath $expanded
