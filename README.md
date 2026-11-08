@@ -94,15 +94,10 @@ the old directory to a backup outside the repository; restoring is described in
 这是 skill 内的任务执行约定，不保证精确计数；不使用定时任务或后台进程，空闲时不运行。
 实际关闭能力仍走配置与部署流程，纯 skill 不会自动卸载已加载的工具定义。
 
-[approval-feedback](skills-source/shared/approval-feedback/SKILL.md) 也已选入三平台 `work/full`。
-部署后由客户端全局发现，适用于任意仓库；先复用已有授权，必要确认带 `A01` 等短编号。
-支持的 Ask 可一次选择“本次批准，不评分”或“本次批准＋0–3 分”；受限界面保留原选择并给一行回复模板。
-原生批准弹窗不新增评分按钮，可按 `A01=1` 补评，不依赖“刚才那次”。评分表示打断价值，
-不授予未来执行权限；三个独立低分只产生一次具体建议，不评分不阻塞已授权工作。
-旧指令导致重复审批时，它会定位源文件、准备最小差异和影响／恢复说明，按所缺许可请求授权，
-再修改并验证实际加载。提交、普通推送与合并分别遵守任务及项目规则，不跳过 CI、独审或平台硬确认。
-私有台账仅在有真实反馈且位置可写、获准时创建，单写者记录，不进 Git；没有台账不阻塞已授权工作。
-安装 Skill 与新增免重复确认规则分别授权。构建／预演不表示 live 已部署或新任务已加载。
+[approval-feedback](skills-source/shared/approval-feedback/SKILL.md) 已选入三平台 `work/full`，用于在确认、评分反馈或重复审批规则上
+先复用授权。
+评分只评价打断价值、不授予权限；私有台账和效果核验均以该 Skill 及其 `references/` 为准。
+安装 Skill 与新增免重复确认规则分别授权；构建／预演不表示 live 已部署或新任务已加载。
 
 ## MCP and connected tools
 
