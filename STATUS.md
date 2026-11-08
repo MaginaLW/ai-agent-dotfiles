@@ -21,6 +21,14 @@ CI run named here, check `git log` and the latest GitHub Actions run.
   predate `f430c27`, so the latest revision's real-world effect remains unverified; no background
   sampling was started.
 
+- **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
+  `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
+  Catalog discovery and installation do not prove behavior change, and one applied case does not
+  prove long-run improvement. Current evidence places `session-learnings` at
+  deployed/loaded/applied/reused, `tool-scope` at deployed/loaded/applied, and
+  `approval-feedback` at deployed/loaded with older-version application; its post-`f430c27`
+  outcome remains unmeasured.
+
 - **Finite windows and dependency boundaries.** Future proposals that genuinely need an expiry
   define one activation event, a duration and a latest activation condition; existing expired
   grants and consumed budgets are not extended or reset. Delegation distinguishes a read-only
