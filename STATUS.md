@@ -16,16 +16,17 @@ CI run, check `git log` and the latest GitHub Actions run.
   managed skill, while `work` is the daily set.
 - **Skills and deployment.** There are 20 managed skills: 12 shared and 8 Codex-only. The
   2026-11-08 live `full` Apply completed with 44 `unchanged`; its post-Apply dry run also reports
-  44 unchanged, with no installs, updates, prunes or unknowns. The preceding optimization pass
-  changed scripts, tests and documentation only; this Apply updated deploy state, not skill
+  44 unchanged, with no installs, updates, prunes or unknowns. The later approval-feedback source
+  change is not yet deployed; live still contains the prior revision. The preceding optimization
+  pass changed scripts, tests and documentation only; that Apply updated deploy state, not skill
   content.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
   `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
   Catalog discovery and installation do not prove behavior change, and one applied case does not
   prove long-run improvement. Current evidence places `session-learnings` at
   deployed/loaded/applied/reused, `tool-scope` at deployed/loaded/applied, and
-  `approval-feedback` at deployed/loaded with older-version application; its latest long-run
-  effect remains unmeasured.
+  `approval-feedback` at deployed/loaded with historical Codex application; its current-revision
+  and Claude/ZCode model-level effects remain unmeasured.
 - **Policy centralization.** Generated skill roots, scan-input prefixes and the Codex live-root
   rule live in `scripts/repo-common.ps1`. Build, secret scan, syntax gate, doctor, deploy and
   repository validation consume those definitions; generated/legacy roots remain excluded from
@@ -33,8 +34,9 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is
   absent. Enumeration errors now stop the build instead of looking like an empty skill set.
 - **Latest local verification.** The 2026-11-08 optimization pass passed the syntax gate,
-  pinned secret scan, all 14 local test suites and the full repository validation. Remote
-  Validate remains a separate CI check.
+  pinned secret scan, all 14 local test suites and the full repository validation. The same-day
+  approval-feedback source/status update passed build, pinned secret scan, `git diff --check`
+  and the focused approval-feedback suite. Remote Validate remains a separate CI check.
 - **Pinned gitleaks.** The lock pins gitleaks 8.30.0 by archive and executable SHA-256. The
   official GitHub Releases API fallback is used only after direct downloads fail and still
   passes both hash gates.
@@ -52,14 +54,16 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- The numbered one-interaction scoring revision is installed on all three platforms; its real
-  feedback is held only in the private ledger and does not enable future approval. The owner
-  deferred later manual confirmation of long-run behavior; no reminder or scheduled task was
-  created.
+- The numbered one-interaction scoring revision is installed on all three platforms. The private
+  ledger holds 20 real records (17 structured plus 3 manual; all Codex; 16 at 1, 4 at 0); at least
+  three known records remain pending. They show repeated low interruption value and have produced
+  concrete narrow proposals, one applied and published, but not a same-scope three-independent-task
+  threshold or measured reduction. The last ledger write predates the current skill revision; no
+  post-update feedback exists. No future approval is enabled.
 - `approval-feedback` is installed globally on all three platforms. Codex catalog discovery,
-  live-file loading and autonomous selection were observed in two fresh-context simulations;
-  Claude/ZCode model-level loading and long-run selection behavior remain unverified.
-  Installation enables no automatic approval or standing merge policy.
+  live-file loading and selection have fresh-context and partial thread evidence; Claude/ZCode
+  model-level loading and long-run selection remain unverified because those clients are not in
+  active use. Installation enables no automatic approval or standing merge policy.
 
 ## Known boundaries
 
