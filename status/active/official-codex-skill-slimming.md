@@ -22,6 +22,9 @@ Started: 2026-11-08
 - 2026-11-08 pinned secret scan: no blocking secrets; `git diff --check` passed.
 - Affected suites passed outside the sandbox (junction fixtures are rejected by the sandbox):
   build-skills, deploy-skills, test-runner, repository-policy and powershell-syntax-gate.
+- Full repository validation passed after cleanup commit `23300bb`: syntax, pinned gitleaks
+  verification, build, secret scan, doctor, manifest parity, all 13 suites, dangerous-file and
+  clean-tree gates.
 - Reviewed `work` dry-run: install=0, update=0, unchanged=24, prune=20, unknown=0. Planned
   prunes are the four non-work shared skills on Claude/ZCode and twelve full-only skills on Codex.
 - The live Apply was not run: the platform approval reviewer required a fresh explicit owner

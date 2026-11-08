@@ -33,11 +33,10 @@ CI run, check `git log` and the latest GitHub Actions run.
   scans and untracked-output checks.
 - **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is
   absent. Enumeration errors now stop the build instead of looking like an empty skill set.
-- **Latest local verification.** The 2026-11-08 optimization pass passed the syntax gate,
-  pinned secret scan, all 14 local test suites and the full repository validation. The same-day
-  approval-feedback source/status update passed build, pinned secret scan, `git diff --check`
-  and the focused approval-feedback suite. The live Apply updated 3 directories; its post-Apply
-  dry run reports 44 unchanged. Remote Validate remains a separate CI check.
+- **Latest local verification.** The 2026-11-08 cleanup commit passed the CI-equivalent
+  repository validation: syntax, pinned gitleaks verification, build, secret scan, doctor,
+  manifest parity, all 13 local test suites, dangerous-file checks and clean-tree checks.
+  Remote Validate remains a separate CI check.
 - **Pinned gitleaks.** The lock pins gitleaks 8.30.0 by archive and executable SHA-256. The
   official GitHub Releases API fallback is used only after direct downloads fail and still
   passes both hash gates.
@@ -55,6 +54,11 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
+- The reviewed `work` deployment is waiting for an explicit owner Apply authorization. It would
+  prune 20 previously deployed managed directories across Claude/Codex/ZCode, preserve the 24
+  selected directories, create deploy backups, and never touch Codex `.system`. The unused
+  home-only `claude-code-plugins` marketplace declaration also remains unchanged pending a
+  separate explicit decision; the tracked official `codex@openai-codex` plugin is retained.
 - The numbered one-interaction scoring revision is installed on all three platforms. The private
   ledger holds 20 real records (17 structured plus 3 manual; all Codex; 16 at 1, 4 at 0); at least
   three known records remain pending. They show repeated low interruption value and have produced
