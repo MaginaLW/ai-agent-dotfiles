@@ -13,10 +13,11 @@ CI run, check `git log` and the latest GitHub Actions run.
   `claude/skills/` and `codex/skills/`; `deploy-skills.ps1` deploys one environment to the live
   Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every
   managed skill, while `work` is the daily set.
-- **Skills and deployment.** There are 20 managed skills: 12 shared and 8 Codex-only. The latest
-  reviewed `full` dry run reports 44 selected directories unchanged, with no installs, updates,
-  prunes or unknowns. This pass changes scripts, tests and documentation only and performs
-  no live Apply.
+- **Skills and deployment.** There are 20 managed skills: 12 shared and 8 Codex-only. The
+  2026-11-08 live `full` Apply completed with 44 `unchanged`; its post-Apply dry run also reports
+  44 unchanged, with no installs, updates, prunes or unknowns. The preceding optimization pass
+  changed scripts, tests and documentation only; this Apply updated deploy state, not skill
+  content.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
   `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
   Catalog discovery and installation do not prove behavior change, and one applied case does not
