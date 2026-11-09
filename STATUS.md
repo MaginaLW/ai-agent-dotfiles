@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-09.
+Last updated: 2026-11-10.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -15,6 +15,12 @@ CI run, check `git log` and the latest GitHub Actions run.
   `claude/skills/` and `codex/skills/`; `deploy-skills.ps1` deploys one environment to the live
   Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every
   managed skill, while `work` is the daily set.
+- **Combined deploy and config merge.** `deploy.ps1` runs the selected skills environment and
+  `config-pull` in one dry-run/apply entry point; the unified `sync` and `env deploy` routes use
+  it. Claude `settings.json` uses structured object merge (home-only fields survive, arrays
+  replace as a whole), Codex `AGENTS.md` updates only its `AI-AGENT-DOTFILES` managed block, and
+  config-push captures only that block body. The 2026-11-10 live `work` Apply left all 24 skills
+  unchanged and added the block to the live Codex file; the post-Apply config status is in-sync.
 - **Skills and deployment.** There are 19 managed skills: 12 shared and 7 Codex-only. The
   2026-11-08 source cleanup retired `hatch-pet` and removed the custom brainstorming browser
   server. The `work` live Apply completed with 0 installs, 0 updates, 24 unchanged, 20 prunes
@@ -33,10 +39,9 @@ CI run, check `git log` and the latest GitHub Actions run.
   scans and untracked-output checks.
 - **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is
   absent. Enumeration errors now stop the build instead of looking like an empty skill set.
-- **Latest local verification.** The 2026-11-08 cleanup commit passed the CI-equivalent
-  repository validation: syntax, pinned gitleaks verification, build, secret scan, doctor,
-  manifest parity, all 13 local test suites, dangerous-file checks and clean-tree checks.
-  Remote Validate #295 also passed for the pushed cleanup head.
+- **Latest local verification.** The 2026-11-10 config/deploy change passed the PowerShell syntax
+  gate and all 14 local test suites, including the new combined deploy suite. Remote Validate is
+  the separate CI gate for the pushed head.
 - **Pinned gitleaks.** The lock pins gitleaks 8.30.0 by archive and executable SHA-256. The
   official GitHub Releases API fallback is used only after direct downloads fail and still
   passes both hash gates.
@@ -54,8 +59,6 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- The unused home-only `claude-code-plugins` marketplace declaration remains unchanged pending
-  a separate explicit decision; the tracked official `codex@openai-codex` plugin is retained.
 - The numbered one-interaction scoring revision is installed on all three platforms. The private
   ledger holds 20 real records (17 structured plus 3 manual; all Codex; 16 at 1, 4 at 0); at least
   three known records remain pending. They show repeated low interruption value and have produced
@@ -69,12 +72,15 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Known boundaries
 
-- **Codex global agreements are tracked as-is.** The live Codex `AGENTS.md` matches
-  `codex/AGENTS.md` as of 2026-11-09, including the personal agreements. Review the tracked file
-  before any wholesale replacement; older drift notes do not describe the current state.
-- **Intentional Claude config drift.** The personal notification override and home-only
-  marketplace declaration are retained locally, outside the repository template. A raw
-  whole-file pull would remove them; preserve them before any future pull.
+- **Codex global agreements use a managed block.** `codex/AGENTS.md` is the canonical body; the
+  live Codex file wraps it in `<!-- BEGIN/END AI-AGENT-DOTFILES: codex/AGENTS.md -->` markers.
+  Content outside the block is local and preserved, and config-status compares the block body.
+- **Intentional Claude config drift.** The personal `agentPushNotifEnabled` override remains
+  home-only and is preserved by structured merge. The unused `claude-code-plugins` marketplace
+  declaration was removed on 2026-11-10; the tracked `openai-codex` declaration remains.
+- **Combined deploy is not atomic.** The skills stage and config stage share one command and
+  authorization boundary but do not share a transaction. A config failure leaves completed skill
+  changes in place; each stage keeps its own backups and rollback behavior.
 - **Primary checkout is single-writer.** Parallel agent work uses a throwaway worktree or a
   separate checkout and integrates back serially; one full local validation run at a time
   ([AGENTS.md](AGENTS.md)).

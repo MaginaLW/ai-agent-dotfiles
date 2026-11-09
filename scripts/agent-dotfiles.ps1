@@ -21,8 +21,9 @@
     pwsh -File scripts/agent-dotfiles.ps1 env deploy work -DryRun
 
 .NOTES
-    sync and env deploy run scripts/deploy-skills.ps1 and require exactly one
-    explicit mode: -DryRun or -Apply. Apply is never selected or added by default.
+    sync and env deploy run scripts/deploy.ps1 (skills plus managed config) and
+    require exactly one explicit mode: -DryRun or -Apply. Apply is never selected
+    or added by default.
     env list prints the environments defined in harness-source/envs/.
 #>
 param(
@@ -39,7 +40,7 @@ $ErrorActionPreference = 'Stop'
 function Write-Usage {
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
     Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env'
-    Write-Host 'Sync runs deploy-skills.ps1 and requires exactly one explicit mode: -DryRun or -Apply.'
+    Write-Host 'Sync runs deploy.ps1 (skills plus config) and requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: promote -Path <dir> -Name <name> -Type <type> [-Replace] -DryRun|-Apply.'
@@ -138,7 +139,7 @@ $commandMap = @{
     doctor = 'doctor.ps1'
     build  = 'build-skills.ps1'
     scan   = 'scan-secrets.ps1'
-    sync   = 'deploy-skills.ps1'
+    sync   = 'deploy.ps1'
 }
 
 $groupCommandMaps = @{
@@ -157,7 +158,7 @@ $groupCommandMaps = @{
     }
     env = @{
         list   = $null
-        deploy = 'deploy-skills.ps1'
+        deploy = 'deploy.ps1'
     }
 }
 

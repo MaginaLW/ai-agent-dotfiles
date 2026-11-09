@@ -9,7 +9,7 @@
 ## 1. 项目目的
 
 用 Git 统一管理多台电脑上的 Claude / Codex / ZCode skills：`skills-source/` 是唯一可信源，
-`build-skills.ps1` 生成两个平台的 runtime output，`deploy-skills.ps1` 把某个环境选中的 skills 逐目录部署到
+`build-skills.ps1` 生成两个平台的 runtime output；`deploy.ps1` 把某个环境选中的 skills 逐目录部署到
 本机 live 根（默认 dry-run；ZCode 是投影平台，直接部署 Claude 生成物）。另外管理 harness 配置（§11）和项目级 harness profile（§12）。
 原则：保守、可审计、默认 dry-run、绝不整目录覆盖、绝不碰平台内置目录。红线（Hard rules / Skill rules）以
 [AGENTS.md](../AGENTS.md) 为准；唯一允许手工写 live 根的情形是 §8 的授权恢复。
@@ -33,7 +33,7 @@
 
 | 路径 | 说明 |
 |---|---|
-| `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印 deploy-skills dry-run 命令；不写 live |
+| `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印联合 deploy dry-run 命令；不写 live |
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
 | `.claude/settings.json` | 项目级 harness 护栏，见 [CLAUDE.md](../CLAUDE.md) |
 | `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`） |
@@ -56,7 +56,9 @@ API；下载结果仍必须通过锁文件中的压缩包与可执行文件 SHA-
 
 ## 4. 日常同步流程
 
-`deploy-skills.ps1` 按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单（日常用 `work`）逐目录部署到三个 live 根
+`deploy.ps1` 是日常联合入口：先按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单（日常用 `work`）部署 skills，
+再运行 `config-pull.ps1`。两阶段不是原子事务；config 阶段失败时已完成的 skill 阶段保持完成，并明确报告边界。
+`deploy-skills.ps1` 仍是只部署 skills 的底层入口，按同一环境逐目录部署到三个 live 根
 （Zcode 从 Claude 生成物投影）：
 
 - 默认先跑 build 与 scan，任一失败即停止。`-SkipBuild` 同时跳过两者；除隔离测试外，只有已有成功结果覆盖当前未变的源码、构建输入和生成物时，才可在同一已授权部署链或只读复核中复用，不能把它当作省略必需检查的入口。
@@ -79,10 +81,13 @@ Set-Location '<repo-root>'
 git pull --ff-only
 pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
 pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Apply
+pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
+pwsh -NoProfile -File scripts/deploy.ps1 -Environment work -Apply
 ```
 
 `-Apply` 会写真实 home：先审查 dry-run 的每一行，取得所有者授权后再执行。统一 CLI 的 `sync` 与
-`env deploy <name>` 转发到同一脚本（§14）。仓库不安装 Git hooks，`git pull` 不会自动部署。
+`env deploy <name>` 转发到 `deploy.ps1`；直接运行 `deploy-skills.ps1` 只处理 skills（§14）。
+仓库不安装 Git hooks，`git pull` 不会自动部署。
 dry-run 和 Apply 各自重新计算计划；审核后如果源、live 目标或部署状态变化，重新 dry-run 并审核后再授权。
 Apply 显示其计划后立即开始执行，不会暂停等待确认。
 多台机器同步：一台修改并 push 后，其余机器各自 `git pull --ff-only` 再走本流程；部署状态每台机器各自
@@ -96,7 +101,7 @@ Apply 显示其计划后立即开始执行，不会暂停等待确认。
 
 ```powershell
 pwsh -NoProfile -File scripts/config-status.ps1 -Platform Codex
-pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment <current-environment> -SkipBuild
+pwsh -NoProfile -File scripts/deploy.ps1 -Environment <current-environment> -SkipBuild
 ```
 
 逐项读回配置状态与部署计划。请求的文件均 in-sync、技能均 unchanged 且无未解释项时结束；
@@ -111,7 +116,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment <current-environmen
 
 1. 只改 `skills-source/`，然后运行 `build-skills.ps1` 与 `scan-secrets.ps1`。
 2. 提交 source / manifest / docs 变更（不提交 generated output），按授权 push。
-3. 每台机器各自跑 deploy-skills dry-run，审查后按授权 `-Apply`。
+3. 每台机器各自跑 `deploy.ps1` dry-run，审查后按授权 `-Apply`。
 
 **删除 skill** 时，build 同时从生成物和 manifest 移除名称。本机由 deploy-skills 部署过的目录下次 dry-run
 显示为 `prune`；deploy-skills 从未部署过的旧目录按 unknown 保留，逐项审查后用 `-Retire` 显式点名：
@@ -221,12 +226,18 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
 
 - `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
   Claude `settings.json` 两侧都是不同的 JSON 对象时，普通文本输出还显示字段的 JSON Pointer 路径：
-  `home-only` 字段会在整文件 pull 后消失，`repo-only` 字段会新增，`changed` 或 `type-changed` 字段会替换。
+  `home-only` 字段会由结构化合并保留，`repo-only` 字段会新增，`changed` 或 `type-changed` 字段会替换。
+  `in-sync` 也可能带 `home-only field(s) preserved` 说明；文件字节不同不代表需要同步。
   输出字段名但不输出字段值；字段名本身可能包含私有信息，分享终端输出前须审查。数组按整体比较。
+  Codex `AGENTS.md` 比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
   JSON 无效、键重复或根不是对象时报告无法比较，须手工检查。
   非 JSON 文件仍只报告文件级差异；`-Json` 保持原有文件级数组格式，不包含字段摘要。
-- `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再复制，
-  若计划更新 Claude `settings.json`，dry-run 会提示整文件覆盖风险，并指向同一 repo/home 的字段差异状态报告；
+- `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再写入。
+  Claude `settings.json` 递归合并对象：repo 中的键和值覆盖 home，数组整体替换，home-only 键保留；
+  repo 中不存在的 home 键不会被删除，因此字段删除仍需人工审查。
+  Codex `AGENTS.md` 只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` 与
+  `<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->` 之间的内容，block 外的个人文本保留。
+  已有文件没有 block 时，仅当内容已等于 repo 才自动包裹；否则 fail closed，要求先手工放置 block。
   备份默认写入 `~\.ai-agent-dotfiles-backups\config-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）；
   不整目录 mirror、不 prune（home-only 文件原样保留）。捕获复制异常后，尽力回滚本次已尝试写入的文件：
   更新项从备份恢复，新增项删除。单项回滚失败会告警并继续还原其他项，保留备份并重新抛出原始复制错误。
@@ -235,15 +246,15 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `~\.ai-agent-dotfiles-backups\config-push-stage-<UTC 时间戳>\`，再过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
+  Codex `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
 - Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
 - Claude 配置模板启用 `codex@openai-codex`；模板市场声明不代表插件已经安装或加载。
-- 模板不带模型与推理档位，但这不表示可以删除个人设置：`config-pull` 按文件复制，**不按字段合并**，
-  审查 dry-run 时须逐项比较并保留目标里的个人覆盖值。
-  若后续要突破整文件覆盖限制，需单独评审并实现最小机制：Claude `settings.json` 使用结构化
-  JSON 合并，Codex `AGENTS.md` 使用受控 managed block；迁移 live 文件仍需明确覆盖该动作的授权，已有有限任务授权不重复询问。不要把
-  本文档描述当作已经实现或已获部署许可。
-- deploy-skills 不包含 config-pull；把两者合并需要单独评审。
-- 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1`。
+- 模板不带模型与推理档位，但这不表示可以删除个人设置：结构化合并会保留 home-only 顶层和嵌套字段；
+  审查 dry-run 时仍须确认 repo 管理的字段变化。
+- `deploy.ps1` 把 skills 与 config-pull 串成一个 dry-run/apply 入口；两阶段不原子，
+  config 失败不会回滚已完成的 skills。只用 skills 时直接运行 `deploy-skills.ps1`。
+- 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1` 和
+  `pwsh -NoProfile -File tests/deploy.tests.ps1`。
 
 排查漂移时，先在仓库根目录运行只读状态报告：
 
@@ -251,8 +262,8 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
 pwsh -NoProfile -File scripts/config-status.ps1
 ```
 
-`differs` 只表示内容不同，不代表需要同步。Claude 字段摘要显示路径而不显示值；整文件 pull 可能移除
-home-only 字段。对于只报告文件级差异的 Codex `AGENTS.md`，可以在自己的终端本地比较：
+`differs` 只表示当前同步口径不同，不代表可以盲目覆盖。Claude 字段摘要显示路径而不显示值；
+home-only 字段由结构化合并保留。Codex `AGENTS.md` 的状态按受管 block 比较，仍可在自己的终端本地检查：
 
 ```powershell
 git --no-pager diff --no-index --no-ext-diff -- codex/AGENTS.md "$env:USERPROFILE/.codex/AGENTS.md"
@@ -351,9 +362,9 @@ help                         显示用法
 doctor                       -> scripts/doctor.ps1
 build                        -> scripts/build-skills.ps1
 scan                         -> scripts/scan-secrets.ps1
-sync                         -> scripts/deploy-skills.ps1
+sync                         -> scripts/deploy.ps1
 env list                     列出 harness-source/envs/*.psd1
-env deploy <name>            -> scripts/deploy-skills.ps1 -Environment <name>
+env deploy <name>            -> scripts/deploy.ps1 -Environment <name>
 config status | pull | push
 profile status | build | apply
 skills promote               -> scripts/promote-skill.ps1
@@ -364,6 +375,7 @@ skills promote               -> scripts/promote-skill.ps1
 只读命令：`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`。`build` 与 `profile build`
 只生成可重建输出；`env list -JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
 `profile apply`、`skills promote`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
+`sync` 与 `env deploy` 都串行执行 skills 和 config；两阶段不原子。直接运行低层脚本可只执行单个阶段。
 
 底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json`；统一 CLI
 会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。

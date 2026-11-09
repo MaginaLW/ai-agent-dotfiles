@@ -27,6 +27,7 @@ try {
     if ($output -notmatch 'Codex live root is ambiguous') { throw 'doctor did not flag both Codex roots as ambiguous' }
     if ($output -notmatch 'Zcode live root .* not found') { throw 'doctor did not warn about the missing Zcode live root' }
     if ($output -notmatch 'scripts\\deploy-skills\.ps1 exists') { throw 'doctor did not check scripts/deploy-skills.ps1' }
+    if ($output -notmatch 'scripts\\deploy\.ps1 exists') { throw 'doctor did not check scripts/deploy.ps1' }
     if ($output -notmatch 'Secrets scan skipped') { throw 'doctor did not record the skipped secret scan' }
     if ($output -match 'status\\archived|Live safety protocol|runner-review-required|Approved runner hash') { throw 'doctor still reports retired engine diagnostics' }
 

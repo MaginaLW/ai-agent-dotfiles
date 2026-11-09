@@ -1,7 +1,7 @@
 #requires -Version 7.0
 # One-time setup for a fresh clone: install and verify the pinned gitleaks,
 # build the generated skills, then print the deploy dry-run to review.
-# It never changes a live skills root.
+# It never changes a live skills root or config.
 [CmdletBinding()]
 param([string] $RepoRoot = $PSScriptRoot)
 
@@ -21,5 +21,5 @@ foreach ($step in @(
 }
 
 Write-Host ''
-Write-Host 'Bootstrap complete. Review the skill deployment dry run next:'
-Write-Host '  pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work'
+Write-Host 'Bootstrap complete. Review the combined deployment dry run next:'
+Write-Host '  pwsh -NoProfile -File scripts/deploy.ps1 -Environment work'

@@ -60,7 +60,7 @@ foreach ($file in 'AGENTS.md', 'CLAUDE.md', 'STATUS.md') { Test-RequiredPath $fi
 foreach ($dir in 'docs', 'scripts', 'skills-source', 'status\active') { Test-RequiredPath $dir Container }
 
 Write-Section 'Required scripts'
-foreach ($name in 'deploy-skills', 'build-skills', 'scan-secrets') { Test-RequiredPath "scripts\$name.ps1" Leaf }
+foreach ($name in 'deploy', 'deploy-skills', 'build-skills', 'scan-secrets') { Test-RequiredPath "scripts\$name.ps1" Leaf }
 
 Write-Section 'Live skill roots'
 # Same rule as deploy-skills: ~/.agents/skills only when it is the sole Codex root; both is ambiguous.

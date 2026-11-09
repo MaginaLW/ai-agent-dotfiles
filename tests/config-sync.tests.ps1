@@ -129,12 +129,12 @@ try {
     Set-File -Path $homeSettings -Content '{"theme":"home-private-value","nested":{"homeField":2,"same":true},"array":[1,{"x":2}]}'
     $homeHash = (Get-FileHash -LiteralPath $homeSettings).Hash
     $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'home-only "/nested/homeField".*whole-file pull would remove' -and $r.Out -match 'repo-only "/nested/repoField"' -and $r.Out -match 'changed "/theme"') 'status: JSON fields highlight home-only, repo-only and changed paths'
+    Assert ($r.Code -eq 0 -and $r.Out -match 'home-only "/nested/homeField".*structured merge preserves' -and $r.Out -match 'repo-only "/nested/repoField"' -and $r.Out -match 'changed "/theme"') 'status: JSON fields highlight home-only, repo-only and changed paths'
     Assert ($r.Out -notmatch 'repo-private-value|home-private-value|changed "/array"' -and (Get-FileHash -LiteralPath $homeSettings).Hash -eq $homeHash) 'status: field comparison hides values, ignores unchanged arrays and preserves home bytes'
     $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-Json')
     $rows = @($r.Out | ConvertFrom-Json)
     $settingsRow = $rows | Where-Object { $_.Item -eq 'settings.json' }
-    Assert ($r.Code -eq 0 -and ($settingsRow.PSObject.Properties.Name -join ',') -eq 'Platform,Item,Status,Detail' -and $settingsRow.Detail -eq 'content differs' -and $r.Out -notmatch 'private-value|homeField') 'status: JSON output keeps file-level schema and does not expose field data'
+    Assert ($r.Code -eq 0 -and ($settingsRow.PSObject.Properties.Name -join ',') -eq 'Platform,Item,Status,Detail' -and $settingsRow.Detail -eq 'managed fields differ' -and $r.Out -notmatch 'private-value|homeField') 'status: JSON output keeps file-level schema and does not expose field data'
 
     Set-File -Path $repoSettings -Content '{"case":1,"Case":2,"a/b~c":1,"arr":[1,2],"typed":{}}'
     Set-File -Path $homeSettings -Content '{"case":1,"a/b~c":2,"arr":[1,3],"typed":"hidden"}'
@@ -162,7 +162,11 @@ try {
     $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
     $rows = $r.Out | ConvertFrom-Json
     $codexRow = $rows | Where-Object { $_.Item -eq 'AGENTS.md' }
-    Assert ($codexRow.Status -eq 'in-sync') 'status: Codex maps its repo item onto the home directory'
+    Assert ($codexRow.Status -eq 'differs' -and $codexRow.Detail -eq 'managed block missing; pull would add it') 'status: identical Codex content still needs its managed block'
+    Set-File -Path (Join-Path $th '.codex/AGENTS.md') -Content "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`nsame`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->`n"
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
+    $codexRow = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq 'AGENTS.md' }
+    Assert ($codexRow.Status -eq 'in-sync' -and $codexRow.Detail -eq 'managed block') 'status: a matching Codex managed block is in sync'
     Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 1) 'status: one managed item still emits a JSON array'
     foreach ($scriptPath in @($statusScript, $pullScript, $pushScript)) {
         $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Reasonix')
@@ -172,14 +176,60 @@ try {
     # ===========================================================================
     Write-Host "`n[config-pull]" -ForegroundColor Cyan
     # ===========================================================================
-    $tr = New-TempRepo -Name 'pull-settings-review-repo'
-    $th = Join-Path $work 'pull-settings-review-home'
-    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"shared":true}'
-    $reviewHomeFile = Join-Path $th '.claude/settings.json'
-    Set-File -Path $reviewHomeFile -Content '{"shared":true,"personal":"fixture-private-value"}'
-    $beforeHash = (Get-FileHash -LiteralPath $reviewHomeFile).Hash
+    $tr = New-TempRepo -Name 'pull-settings-merge-repo'
+    $th = Join-Path $work 'pull-settings-merge-home'
+    $bk = Join-Path $work 'pull-settings-merge-backup'
+    $repoSettings = Join-Path $tr 'claude/settings.json'
+    $homeSettings = Join-Path $th '.claude/settings.json'
+    Set-File -Path $repoSettings -Content '{"shared":true,"theme":"repo","nested":{"managed":1},"array":[1,2]}'
+    Set-File -Path $homeSettings -Content '{"shared":false,"personal":"fixture-private-value","nested":{"home":2},"array":[9]}'
+    $beforeHash = (Get-FileHash -LiteralPath $homeSettings).Hash
     $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'home-only fields may be removed' -and $r.Out -match 'config-status.ps1.*same -RepoRoot and -HomeRoot' -and $r.Out -notmatch 'fixture-private-value' -and (Get-FileHash -LiteralPath $reviewHomeFile).Hash -eq $beforeHash) 'pull: dry-run warns of whole-file field loss and points to read-only status'
+    Assert ($r.Code -eq 0 -and $r.Out -match 'update\s+Claude/settings.json' -and $r.Out -match 'will be merged; home-only fields are preserved' -and $r.Out -notmatch 'fixture-private-value' -and (Get-FileHash -LiteralPath $homeSettings).Hash -eq $beforeHash) 'pull: settings dry-run plans a merge and leaves home bytes unchanged'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    $merged = Get-Content -Raw -LiteralPath $homeSettings | ConvertFrom-Json
+    Assert ($r.Code -eq 0 -and $merged.shared -eq $true -and $merged.theme -eq 'repo' -and $merged.nested.managed -eq 1 -and $merged.nested.home -eq 2 -and $merged.personal -eq 'fixture-private-value' -and (@($merged.array) -join ',') -eq '1,2') 'pull: settings merge updates repo fields, replaces arrays and preserves home-only fields'
+    $mergedBackup = Get-ChildItem -LiteralPath $bk -Recurse -File -Filter settings.json | Select-Object -First 1
+    Assert ($null -ne $mergedBackup -and (Get-FileHash -LiteralPath $mergedBackup.FullName).Hash -eq $beforeHash) 'pull: settings merge backs up the original file'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    Assert ($r.Out -match 'Nothing to deploy') 'pull: settings merge is idempotent'
+
+    Set-File -Path $homeSettings -Content '{"broken":'
+    $brokenHash = (Get-FileHash -LiteralPath $homeSettings).Hash
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -ne 0 -and (Get-FileHash -LiteralPath $homeSettings).Hash -eq $brokenHash) 'pull: invalid home JSON fails closed without writing'
+
+    $tr = New-TempRepo -Name 'pull-codex-block-repo'
+    $th = Join-Path $work 'pull-codex-block-home'
+    $bk = Join-Path $work 'pull-codex-block-backup'
+    $repoAgents = Join-Path $tr 'codex/AGENTS.md'
+    $homeAgents = Join-Path $th '.codex/AGENTS.md'
+    Set-File -Path $repoAgents -Content "# Managed`n`nRule v1.`n"
+    Set-File -Path $homeAgents -Content "# Managed`n`nRule v1.`n"
+    $beforeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'update\s+Codex/AGENTS.md' -and $r.Out -match 'managed block.*content outside it is preserved' -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $beforeHash) 'pull: Codex dry-run plans managed-block migration without writing'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    $text = Get-Content -Raw -LiteralPath $homeAgents
+    Assert ($r.Code -eq 0 -and $text -match 'BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md' -and $text -match 'Rule v1' -and $text -match 'END AI-AGENT-DOTFILES: codex/AGENTS.md') 'pull: Codex equal legacy content is wrapped in the managed block'
+    [IO.File]::AppendAllText($homeAgents, "`n## Personal`nMine`n", [Text.UTF8Encoding]::new($false))
+    Set-File -Path $repoAgents -Content "# Managed`n`nRule v2.`n"
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    $text = Get-Content -Raw -LiteralPath $homeAgents
+    Assert ($r.Code -eq 0 -and $text -match 'Rule v2' -and $text -notmatch 'Rule v1' -and $text -match '## Personal' -and $text -match 'Mine') 'pull: Codex updates only the managed block and preserves personal content'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
+    $codexRow = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq 'AGENTS.md' }
+    Assert ($r.Code -eq 0 -and $codexRow.Status -eq 'in-sync' -and $codexRow.Detail -eq 'managed block') 'status: the merged Codex file is in sync'
+
+    $tr = New-TempRepo -Name 'pull-codex-no-marker-repo'
+    $th = Join-Path $work 'pull-codex-no-marker-home'
+    $bk = Join-Path $work 'pull-codex-no-marker-backup'
+    Set-File -Path (Join-Path $tr 'codex/AGENTS.md') -Content "# Managed`n"
+    Set-File -Path (Join-Path $th '.codex/AGENTS.md') -Content "# Personal only`n"
+    $noMarker = Join-Path $th '.codex/AGENTS.md'
+    $noMarkerHash = (Get-FileHash -LiteralPath $noMarker).Hash
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'no AI-AGENT-DOTFILES managed block' -and (Get-FileHash -LiteralPath $noMarker).Hash -eq $noMarkerHash) 'pull: differing Codex content without a block fails closed'
 
     $tr = New-TempRepo -Name 'pull-repo'
     $th = Join-Path $work 'pull-home'
@@ -344,6 +394,17 @@ try {
     # -SkipPathScan bypass keeps the path-bearing capture
     $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan', '-SkipPathScan')
     Assert ($r.Code -eq 0 -and ((Get-Content -Raw -LiteralPath $captured) -match 'C:\\Users')) "push: -SkipPathScan bypasses the path gate"
+
+    $tr = New-TempRepo -Name 'push-codex-block-repo'
+    $th = Join-Path $work 'push-codex-block-home'
+    $bk = Join-Path $work 'push-codex-block-backup'
+    $repoAgents = Join-Path $tr 'codex/AGENTS.md'
+    $homeAgents = Join-Path $th '.codex/AGENTS.md'
+    Set-File -Path $repoAgents -Content "# Managed v1`n"
+    Set-File -Path $homeAgents -Content "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`n# Managed v1`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->`n`n## Personal`nMine`n"
+    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    $capturedAgents = Get-Content -Raw -LiteralPath $repoAgents
+    Assert ($r.Code -eq 0 -and $capturedAgents.TrimEnd("`r", "`n") -eq '# Managed v1' -and $capturedAgents -notmatch 'Personal|Mine') 'push: Codex capture takes only the managed block'
 
     if ($script:fail -eq 0) { $outcome = 'Passed' }
 }

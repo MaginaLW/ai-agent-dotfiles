@@ -10,6 +10,10 @@
     Directories are copied file-by-file and never pruned:
     home-only files stay untouched. ExcludedItems and CommonExcludedItems are skipped.
 
+    Claude settings.json is merged object-by-object so home-only fields survive; repo
+    arrays replace the corresponding home array. Codex AGENTS.md uses one marked managed
+    block and leaves content outside it untouched.
+
     -Apply runs the secret scan first, then backs up every home file it overwrites to
     <BackupRoot>\config-backup-<timestamp>\ before copying. A caught copy failure
     triggers best-effort rollback of attempted writes, then rethrows the original
@@ -54,12 +58,57 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
-$plan = Get-ConfigSyncPlan -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Direction Pull
+function Get-ConfigPullPlan {
+    $plan = [System.Collections.Generic.List[object]]::new()
+    foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PullItems')) {
+        foreach ($item in $target.Items) {
+            $repoItem = Join-Path $target.RepoRoot $item
+            $homeItem = Join-Path $target.HomeRoot $item
+            if (-not (Test-Path -LiteralPath $repoItem)) { continue }
+            if ($target.Name -eq 'Claude' -and $item -eq 'settings.json') {
+                if (-not (Test-Path -LiteralPath $repoItem -PathType Leaf)) { throw 'Claude/settings.json source is not a file.' }
+                if (Test-Path -LiteralPath $homeItem -PathType Container) { throw 'Claude/settings.json destination is a directory.' }
+                if (-not (Test-Path -LiteralPath $homeItem -PathType Leaf)) {
+                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = 'Claude/settings.json'; Action = 'add'; Mode = 'copy' })
+                    continue
+                }
+                $merge = Get-ClaudeSettingsMergeResult -RepoPath $repoItem -HomePath $homeItem
+                if ($merge.Changed) {
+                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = 'Claude/settings.json'; Action = 'update'; Mode = 'content'; Content = $merge.Content })
+                }
+                continue
+            }
+            if ($target.Name -eq 'Codex' -and $item -eq 'AGENTS.md') {
+                if (-not (Test-Path -LiteralPath $repoItem -PathType Leaf)) { throw 'Codex/AGENTS.md source is not a file.' }
+                if (Test-Path -LiteralPath $homeItem -PathType Container) { throw 'Codex/AGENTS.md destination is a directory.' }
+                $homeExists = Test-Path -LiteralPath $homeItem -PathType Leaf
+                $homeText = if ($homeExists) { [IO.File]::ReadAllText($homeItem) } else { '' }
+                $block = Get-CodexAgentsManagedBlockResult -RepoText ([IO.File]::ReadAllText($repoItem)) -HomeText $homeText -HomeExists $homeExists
+                if ($block.Changed) {
+                    $action = if ($homeExists) { 'update' } else { 'add' }
+                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = 'Codex/AGENTS.md'; Action = $action; Mode = 'content'; Content = $block.Content })
+                }
+                continue
+            }
+            $ops = Get-PlannedCopies `
+                -SrcItem $repoItem `
+                -DstItem $homeItem `
+                -ItemLabel "$($target.Name)/$item" `
+                -Excluded $target.Excluded
+            foreach ($op in $ops) { $op.Mode = 'copy'; $plan.Add($op) }
+        }
+    }
+    return , $plan.ToArray()
+}
+
+$plan = Get-ConfigPullPlan
 
 Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
-if (-not $Apply -and @($plan | Where-Object { $_.Action -eq 'update' -and $_.Rel -eq 'Claude/settings.json' }).Count -gt 0) {
-    Write-Host 'Claude/settings.json is replaced as a whole; home-only fields may be removed.' -ForegroundColor Yellow
-    Write-Host 'Before applying, run scripts/config-status.ps1 with the same -RepoRoot and -HomeRoot and -Platform Claude to review field differences.' -ForegroundColor Yellow
+if (@($plan | Where-Object { $_.Rel -eq 'Claude/settings.json' }).Count -gt 0) {
+    Write-Host 'Claude/settings.json will be merged; home-only fields are preserved.' -ForegroundColor Yellow
+}
+if (@($plan | Where-Object { $_.Rel -eq 'Codex/AGENTS.md' }).Count -gt 0) {
+    Write-Host 'Only the managed block in Codex/AGENTS.md will be updated; content outside it is preserved.' -ForegroundColor Yellow
 }
 if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to deploy: all managed config already in sync.' -DryRunMessage 'Dry-run only. Re-run with -Apply to deploy.' -Apply:$Apply)) { return }
 
@@ -94,7 +143,7 @@ try {
     foreach ($op in $plan) {
         # Include the failing item: a copy can change a destination before throwing.
         $attempted.Add($op)
-        Invoke-ConfigPlanCopy -Plan @($op) -Progress
+        Invoke-ConfigPlanWrite -Plan @($op) -Progress
     }
 }
 catch {

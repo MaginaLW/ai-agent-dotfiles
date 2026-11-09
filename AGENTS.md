@@ -55,6 +55,7 @@ are changing.
 ## What the repository does
 
 `scripts/build-skills.ps1` builds `skills-source/` into `claude/skills/` and `codex/skills/`.
+`scripts/deploy.ps1` runs `deploy-skills.ps1` for one environment and then `config-pull.ps1`;
 `scripts/deploy-skills.ps1` copies the skills that one environment
 (`harness-source/envs/<name>.psd1`) selects into the live roots `~/.claude/skills`,
 `~/.codex/skills` (or the `~/.agents/skills` fallback when only that one exists),
@@ -78,8 +79,9 @@ need them.
 2. **Generated output.** Never edit generated output directly: `claude/skills/`, `codex/skills/`
    and `.agent-harness/generated/`. Regenerate it with `build-skills.ps1` or
    `build-harness-profile.ps1`.
-3. **Live roots only through deploy-skills.** Change live skills roots only through
-   `scripts/deploy-skills.ps1` (or its `agent-dotfiles.ps1 sync` and `env deploy <name>` routes).
+3. **Live roots only through deploy.** Change live skills roots only through
+   `scripts/deploy-skills.ps1` or `scripts/deploy.ps1` (the `agent-dotfiles.ps1 sync` and
+   `env deploy <name>` routes now use the combined entry point).
    Never copy into or delete from a live root by hand. The one exception is restoring a
    deploy-skills backup with the owner's authorization ([docs/README.md §8](docs/README.md#8-备份与恢复)).
    Run the dry run first (no `-Apply`) and review every install, update, prune and unknown line.
@@ -96,12 +98,13 @@ need them.
 6. **Environments.** `harness-source/envs/<name>.psd1` selects the skills per platform; `work`
    is the daily set. Change a selection in a reviewed commit, not for one task.
 7. **Fresh clone.** Run `bootstrap.ps1` once on a fresh clone. It installs and verifies the
-   pinned gitleaks, builds the skills and prints the deploy-skills dry-run command. It never
-   changes a live root, and the repository installs no Git hooks.
+   pinned gitleaks, builds the skills and prints the combined deploy dry-run command. It never
+   changes a live root or config, and the repository installs no Git hooks.
 8. **Config and profiles.**
    - `config-pull` and `config-push` run as dry runs unless `-Apply` is given.
-   - `config-pull -Apply` overwrites home config in `~/.claude` and `~/.codex`.
-     Review the dry-run output and preserve the user's personal overrides before applying.
+   - `config-pull -Apply` writes home config in `~/.claude` and `~/.codex`. Claude
+     `settings.json` is merged object-by-object and Codex `AGENTS.md` updates only its marked
+     block; other files are copied. Review the dry-run and confirm the managed changes.
      It needs explicit owner authorization covering this config deployment; an existing
      finite task grant can satisfy it without another question.
    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
@@ -111,7 +114,7 @@ need them.
 pwsh -NoProfile -File .\bootstrap.ps1
 pwsh -NoProfile -File scripts/build-skills.ps1
 pwsh -NoProfile -File scripts/scan-secrets.ps1
-pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work
+pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
 ```
 
 ## Hard rules

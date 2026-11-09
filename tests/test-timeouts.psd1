@@ -6,6 +6,7 @@
         'approval-feedback.tests.ps1' = 90
         'build-skills.tests.ps1' = 60
         'config-sync.tests.ps1' = 150
+        'deploy.tests.ps1' = 120
         'deploy-skills.tests.ps1' = 120
         'doctor.tests.ps1' = 60
         'pinned-tool.tests.ps1' = 60

@@ -66,7 +66,9 @@ function Compare-ConfigItem {
     param(
         [Parameter(Mandatory)] [string] $RepoPath,
         [Parameter(Mandatory)] [string] $HomePath,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Excluded
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Excluded,
+        [Parameter(Mandatory)] [string] $Platform,
+        [Parameter(Mandatory)] [string] $Item
     )
     $repoKind = Get-ItemKind -Path $RepoPath
     $homeKind = Get-ItemKind -Path $HomePath
@@ -85,6 +87,29 @@ function Compare-ConfigItem {
     }
 
     if ($repoKind -eq 'file') {
+        if ($Platform -eq 'Claude' -and $Item -eq 'settings.json') {
+            try {
+                $merge = Get-ClaudeSettingsMergeResult -RepoPath $RepoPath -HomePath $HomePath
+                if ($merge.Changed) { return [pscustomobject] @{ Status = 'differs'; Detail = 'managed fields differ' } }
+                $detail = if ($merge.HomeOnlyFieldCount -gt 0) {
+                    "managed fields match; $($merge.HomeOnlyFieldCount) home-only field(s) preserved"
+                }
+                else { 'managed fields match' }
+                return [pscustomobject] @{ Status = 'in-sync'; Detail = $detail }
+            }
+            catch { return [pscustomobject] @{ Status = 'differs'; Detail = 'JSON merge unavailable' } }
+        }
+        if ($Platform -eq 'Codex' -and $Item -eq 'AGENTS.md') {
+            try {
+                $block = Get-CodexAgentsManagedBlockResult -RepoText ([IO.File]::ReadAllText($RepoPath)) -HomeText ([IO.File]::ReadAllText($HomePath)) -HomeExists $true
+                if ($block.Changed) {
+                    $detail = if ($block.HasBlock) { 'managed block differs' } else { 'managed block missing; pull would add it' }
+                    return [pscustomobject] @{ Status = 'differs'; Detail = $detail }
+                }
+                return [pscustomobject] @{ Status = 'in-sync'; Detail = 'managed block' }
+            }
+            catch { return [pscustomobject] @{ Status = 'differs'; Detail = 'managed block missing or invalid' } }
+        }
         if ((Get-FileHashHex -Path $RepoPath) -eq (Get-FileHashHex -Path $HomePath)) {
             return [pscustomobject] @{ Status = 'in-sync'; Detail = '' }
         }
@@ -106,76 +131,6 @@ function Compare-ConfigItem {
     return [pscustomobject] @{ Status = 'differs'; Detail = ($bits -join ', ') }
 }
 
-function Get-JsonObjectMap {
-    param([System.Text.Json.JsonElement] $Element)
-    $map = [System.Collections.Generic.Dictionary[string, System.Text.Json.JsonElement]]::new([StringComparer]::Ordinal)
-    foreach ($property in $Element.EnumerateObject()) {
-        if ($map.ContainsKey($property.Name)) { throw 'duplicate JSON object key' }
-        $map.Add($property.Name, $property.Value)
-    }
-    return ,$map
-}
-
-function Assert-JsonUniqueObjectKeys {
-    param([System.Text.Json.JsonElement] $Element)
-    if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
-        $map = Get-JsonObjectMap $Element
-        foreach ($value in $map.Values) { Assert-JsonUniqueObjectKeys $value }
-    }
-    elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
-        foreach ($value in $Element.EnumerateArray()) { Assert-JsonUniqueObjectKeys $value }
-    }
-}
-
-function Test-JsonEqual {
-    param([System.Text.Json.JsonElement] $Left, [System.Text.Json.JsonElement] $Right)
-    if ($Left.ValueKind -ne $Right.ValueKind) { return $false }
-    switch ($Left.ValueKind.ToString()) {
-        'Object' {
-            $leftMap = Get-JsonObjectMap $Left
-            $rightMap = Get-JsonObjectMap $Right
-            if ($leftMap.Count -ne $rightMap.Count) { return $false }
-            foreach ($key in $leftMap.Keys) {
-                if (-not $rightMap.ContainsKey($key) -or -not (Test-JsonEqual $leftMap[$key] $rightMap[$key])) { return $false }
-            }
-            return $true
-        }
-        'Array' {
-            if ($Left.GetArrayLength() -ne $Right.GetArrayLength()) { return $false }
-            for ($i = 0; $i -lt $Left.GetArrayLength(); $i++) {
-                if (-not (Test-JsonEqual $Left[$i] $Right[$i])) { return $false }
-            }
-            return $true
-        }
-        'String' { return $Left.GetString() -ceq $Right.GetString() }
-        default { return $Left.GetRawText() -ceq $Right.GetRawText() }
-    }
-}
-
-function Get-JsonFieldDifferences {
-    param([System.Text.Json.JsonElement] $RepoJson, [System.Text.Json.JsonElement] $HomeJson, [string] $Path)
-    $repoFields = Get-JsonObjectMap $RepoJson
-    $homeFields = Get-JsonObjectMap $HomeJson
-    $allKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($key in $repoFields.Keys) { [void] $allKeys.Add($key) }
-    foreach ($key in $homeFields.Keys) { [void] $allKeys.Add($key) }
-    $keys = [string[]] @($allKeys)
-    [Array]::Sort($keys, [StringComparer]::Ordinal)
-    foreach ($key in $keys) {
-        # JSON Pointer escaping keeps keys containing '/' or '~' unambiguous.
-        $field = $Path + '/' + $key.Replace('~', '~0').Replace('/', '~1')
-        if (-not $repoFields.ContainsKey($key)) { [pscustomobject]@{ Kind = 'home-only'; Path = $field }; continue }
-        if (-not $homeFields.ContainsKey($key)) { [pscustomobject]@{ Kind = 'repo-only'; Path = $field }; continue }
-        $repoValue = $repoFields[$key]
-        $homeValue = $homeFields[$key]
-        if ($repoValue.ValueKind -ne $homeValue.ValueKind) { [pscustomobject]@{ Kind = 'type-changed'; Path = $field } }
-        elseif ($repoValue.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
-            Get-JsonFieldDifferences $repoValue $homeValue $field
-        }
-        elseif (-not (Test-JsonEqual $repoValue $homeValue)) { [pscustomobject]@{ Kind = 'changed'; Path = $field } }
-    }
-}
-
 function Show-ClaudeSettingsFieldDifferences {
     param([string] $RepoPath, [string] $HomePath)
     $repoDoc = $null
@@ -193,7 +148,7 @@ function Show-ClaudeSettingsFieldDifferences {
         $fields = @(Get-JsonFieldDifferences $repoDoc.RootElement $homeDoc.RootElement '')
         foreach ($field in $fields) {
             $path = ConvertTo-Json -InputObject $field.Path -Compress
-            $suffix = if ($field.Kind -eq 'home-only') { ' (whole-file pull would remove this field)' } else { '' }
+            $suffix = if ($field.Kind -eq 'home-only') { ' (structured merge preserves this field)' } else { '' }
             Write-Host "  $($field.Kind) $path$suffix" -ForegroundColor Yellow
         }
         if ($fields.Count -eq 0) { Write-Host '  JSON fields match; file bytes differ.' -ForegroundColor DarkGray }
@@ -214,7 +169,9 @@ foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -
         $cmp = Compare-ConfigItem `
             -RepoPath (Join-Path $target.RepoRoot $item) `
             -HomePath (Join-Path $target.HomeRoot $item) `
-            -Excluded $target.Excluded
+            -Excluded $target.Excluded `
+            -Platform $target.Name `
+            -Item $item
         if ($cmp.Status -eq 'absent') { continue }
         $results.Add([pscustomobject] @{
                 Platform = $target.Name
@@ -247,9 +204,15 @@ else {
         if ($row.Detail) { $label += "  ($($row.Detail))" }
         $color = if ($colorFor.ContainsKey($row.Status)) { $colorFor[$row.Status] } else { 'White' }
         Write-Host $label -ForegroundColor $color
-        if ($row.Platform -eq 'Claude' -and $row.Item -eq 'settings.json' -and $row.Status -eq 'differs' -and $row.Detail -eq 'content differs') {
+        if ($row.Platform -eq 'Claude' -and $row.Item -eq 'settings.json' -and $row.Status -in @('differs', 'in-sync')) {
             $target = @(Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform @('Claude') -ItemKeys 'PushItems', 'PullItems')[0]
-            Show-ClaudeSettingsFieldDifferences -RepoPath (Join-Path $target.RepoRoot $row.Item) -HomePath (Join-Path $target.HomeRoot $row.Item)
+            $repoPath = Join-Path $target.RepoRoot $row.Item
+            $homePath = Join-Path $target.HomeRoot $row.Item
+            if ((Test-Path -LiteralPath $repoPath -PathType Leaf) -and
+                (Test-Path -LiteralPath $homePath -PathType Leaf) -and
+                (Get-FileHashHex $repoPath) -ne (Get-FileHashHex $homePath)) {
+                Show-ClaudeSettingsFieldDifferences -RepoPath $repoPath -HomePath $homePath
+            }
         }
     }
 }

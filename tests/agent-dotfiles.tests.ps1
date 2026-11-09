@@ -20,6 +20,8 @@ New-Item -ItemType Directory -Path $fakeHome -Force | Out-Null
 # dry run needs no generated output and never touches a real home.
 $fixtureRepo = Join-Path $work 'repo'
 New-Item -ItemType Directory -Path (Join-Path $fixtureRepo 'harness-source/envs') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $fixtureRepo 'manifests') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $fixtureRepo 'manifests/whitelist.psd1') -Force
 foreach ($envName in @('work', 'test')) {
     Set-Content -LiteralPath (Join-Path $fixtureRepo "harness-source/envs/$envName.psd1") -Encoding utf8 -Value "@{ Name = '$envName'; Description = 'fixture'; Skills = @{ Claude = @(); Codex = @(); Zcode = @() } }"
 }
@@ -97,9 +99,9 @@ Assert ($result.Code -eq 0) 'config pull routes through the explicit dry-run gat
 
 Write-Host 'unified CLI: deploy routes'
 $result = Invoke-Entry -Arguments (@('sync', '-DryRun') + $deployArgs)
-Assert ($result.Code -eq 0 -and $result.Out -match "Dry run for environment 'work'" -and $result.Out -match 'deploy-skills\.ps1') 'sync -DryRun routes to deploy-skills with the -DryRun spelling consumed'
+Assert ($result.Code -eq 0 -and $result.Out -match "Dry run for environment 'work'" -and $result.Out -match '=== skills ===' -and $result.Out -match '=== config ===') 'sync -DryRun routes to the combined deploy entry point with the -DryRun spelling consumed'
 $result = Invoke-Entry -Arguments (@('env', 'deploy', 'test', '-DryRun') + $deployArgs)
-Assert ($result.Code -eq 0 -and $result.Out -match "Dry run for environment 'test'") 'env deploy <name> -DryRun routes to deploy-skills -Environment <name>'
+Assert ($result.Code -eq 0 -and $result.Out -match "Dry run for environment 'test'" -and $result.Out -match '=== config ===') 'env deploy <name> -DryRun routes to the combined deploy entry point with -Environment <name>'
 $result = Invoke-Entry -Arguments @('env', 'deploy', '-DryRun')
 Assert ($result.Code -eq 1 -and $result.Out -match 'requires an environment name') 'env deploy without a name fails with guidance'
 Assert (-not (Test-Path -LiteralPath (Join-Path $work 'state'))) 'deploy dry runs write no state'

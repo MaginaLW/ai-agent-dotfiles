@@ -11,6 +11,9 @@
     Directories are copied file-by-file and never pruned: repo-only files stay
     untouched. ExcludedItems and CommonExcludedItems are never captured.
 
+    When Codex AGENTS.md contains the config-sync managed block, only that block's
+    content is captured; personal content outside the block stays local.
+
     -Apply stages every repo file it overwrites to
     <BackupRoot>\config-push-stage-<timestamp>\, writes the capture, then runs two
     gates: scripts/scan-secrets.ps1 over the repo, and a scan of the captured files
@@ -100,7 +103,39 @@ function Restore-Plan {
     }
 }
 
-$plan = Get-ConfigSyncPlan -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Direction Push
+function Get-ConfigPushPlan {
+    $plan = [System.Collections.Generic.List[object]]::new()
+    foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PushItems')) {
+        foreach ($item in $target.Items) {
+            $homeItem = Join-Path $target.HomeRoot $item
+            $repoItem = Join-Path $target.RepoRoot $item
+            if (-not (Test-Path -LiteralPath $homeItem)) { continue }
+            if ($target.Name -eq 'Codex' -and $item -eq 'AGENTS.md') {
+                if (-not (Test-Path -LiteralPath $homeItem -PathType Leaf)) { throw 'Codex/AGENTS.md source is not a file.' }
+                if (Test-Path -LiteralPath $repoItem -PathType Container) { throw 'Codex/AGENTS.md destination is a directory.' }
+                $content = Get-CodexAgentsManagedContent -HomeText ([IO.File]::ReadAllText($homeItem))
+                if ($null -ne $content) {
+                    $exists = Test-Path -LiteralPath $repoItem -PathType Leaf
+                    $same = $exists -and ([IO.File]::ReadAllText($repoItem) -ceq $content)
+                    if (-not $same) {
+                        $action = if ($exists) { 'update' } else { 'add' }
+                        $plan.Add(@{ Src = $homeItem; Dst = $repoItem; Rel = 'Codex/AGENTS.md'; Action = $action; Mode = 'content'; Content = $content })
+                    }
+                    continue
+                }
+            }
+            $ops = Get-PlannedCopies `
+                -SrcItem $homeItem `
+                -DstItem $repoItem `
+                -ItemLabel "$($target.Name)/$item" `
+                -Excluded $target.Excluded
+            foreach ($op in $ops) { $op.Mode = 'copy'; $plan.Add($op) }
+        }
+    }
+    return , $plan.ToArray()
+}
+
+$plan = Get-ConfigPushPlan
 
 Write-Host "config-push (home $HomeRoot -> repo)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
 if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to capture: repo already matches the managed home config.' -DryRunMessage 'Dry-run only. Re-run with -Apply to capture (secret scan gates the result).' -Apply:$Apply)) { return }
@@ -123,7 +158,7 @@ foreach ($op in $plan) {
 }
 
 try {
-    Invoke-ConfigPlanCopy -Plan $plan
+    Invoke-ConfigPlanWrite -Plan $plan
 }
 catch {
     Restore-Plan -Operations $plan

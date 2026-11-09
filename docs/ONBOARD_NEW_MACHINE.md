@@ -1,7 +1,7 @@
 # New Windows Machine Onboarding
 
-Set up one Windows machine so its Claude, Codex and ZCode live skill directories match an
-environment from this repository. Use PowerShell 7+. Start only after the owner names the machine.
+Set up one Windows machine so its Claude, Codex and ZCode live skill directories and managed
+config match this repository. Use PowerShell 7+. Start only after the owner names the machine.
 
 ## 1. Clone and bootstrap
 
@@ -14,16 +14,18 @@ pwsh -NoProfile -File .\scripts\doctor.ps1 -RepoRoot $RepoRoot
 ```
 
 Bootstrap installs and verifies the pinned gitleaks, builds the generated skills and prints the
-deploy-skills dry-run command. It never changes a live skills directory. Use a URL without
+combined deploy dry-run command. It never changes a live skills directory or config. Use a URL without
 embedded credentials, and fix any doctor FAIL before going on.
 
 ## 2. Review the dry run
 
 ```powershell
-pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work
+pwsh -NoProfile -File .\scripts\deploy.ps1 -Environment work
 ```
 
-Check every line. `install` and `update` are the selected skills. `unknown` lines are unselected
+Check every line from both stages. `install` and `update` are the selected skills; the config stage
+shows whether Claude `settings.json` needs a merge and whether the Codex `AGENTS.md` managed block
+needs to be added or updated. `unknown` lines are unselected
 live directories absent from deploy state and `-Retire`; they may be local skills, come from
 another tool or an older setup, or have been deployed here before state was lost. The current
 plan leaves them untouched. Codex `.system` is never listed. To keep a local skill in the
@@ -33,18 +35,19 @@ repository instead, review it and add it to `skills-source/` first
 ## 3. Apply with the owner's OK
 
 ```powershell
-pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work -Apply
+pwsh -NoProfile -File .\scripts\deploy.ps1 -Environment work -Apply
 ```
 
-Run it only after the owner authorizes this Apply for this machine. Old directories it replaces
-are backed up first ([docs/README.md §8](README.md#8-备份与恢复)). Run the dry run again: every
-selected skill should now be `unchanged`.
+Run it only after the owner authorizes this Apply for this machine. Old skill directories are
+backed up first ([docs/README.md §8](README.md#8-备份与恢复)); config-pull backs up files it
+overwrites. Run the dry run again: every selected skill should now be `unchanged`, and config
+should report no pending changes.
 
 ## 4. Optional: remove skills an older setup left
 
-If the dry run shows `unknown` directories that an older setup deployed and that are no longer
-wanted, name them with `-Retire` in a dry run, review the `prune` lines, then Apply with the
-owner's OK:
+If the skill dry run shows `unknown` directories that an older setup deployed and that are no
+longer wanted, name them with `-Retire` in a skills-only dry run, review the `prune` lines, then
+Apply with the owner's OK:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work -Retire <old-skill>
