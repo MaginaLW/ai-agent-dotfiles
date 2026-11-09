@@ -39,9 +39,10 @@ CI run, check `git log` and the latest GitHub Actions run.
   scans and untracked-output checks.
 - **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is
   absent. Enumeration errors now stop the build instead of looking like an empty skill set.
-- **Latest local verification.** The 2026-11-10 config/deploy change passed the PowerShell syntax
-  gate and all 14 local test suites, including the new combined deploy suite. Remote Validate is
-  the separate CI gate for the pushed head.
+- **Latest local verification.** The 2026-11-10 config/deploy commit passed the full repository
+  validation: PowerShell syntax, pinned gitleaks, build, secret scan, doctor, manifest parity,
+  all 14 local test suites, dangerous-file checks and the clean-tree gate. Remote Validate is the
+  separate CI gate for the pushed head.
 - **Pinned gitleaks.** The lock pins gitleaks 8.30.0 by archive and executable SHA-256. The
   official GitHub Releases API fallback is used only after direct downloads fail and still
   passes both hash gates.
