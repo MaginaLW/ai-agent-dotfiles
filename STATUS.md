@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-08.
+Last updated: 2026-11-09.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -54,11 +54,8 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- The reviewed `work` deployment is waiting for an explicit owner Apply authorization. It would
-  prune 20 previously deployed managed directories across Claude/Codex/ZCode, preserve the 24
-  selected directories, create deploy backups, and never touch Codex `.system`. The unused
-  home-only `claude-code-plugins` marketplace declaration also remains unchanged pending a
-  separate explicit decision; the tracked official `codex@openai-codex` plugin is retained.
+- The unused home-only `claude-code-plugins` marketplace declaration remains unchanged pending
+  a separate explicit decision; the tracked official `codex@openai-codex` plugin is retained.
 - The numbered one-interaction scoring revision is installed on all three platforms. The private
   ledger holds 20 real records (17 structured plus 3 manual; all Codex; 16 at 1, 4 at 0); at least
   three known records remain pending. They show repeated low interruption value and have produced
@@ -72,9 +69,9 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Known boundaries
 
-- **Intentional Codex global agreement drift.** The live AGENTS file has personal agreements
-  beyond the canonical template. A raw whole-file pull from the template would remove them;
-  preserve and review these differences before any future config pull.
+- **Codex global agreements are tracked as-is.** The live Codex `AGENTS.md` matches
+  `codex/AGENTS.md` as of 2026-11-09, including the personal agreements. Review the tracked file
+  before any wholesale replacement; older drift notes do not describe the current state.
 - **Intentional Claude config drift.** The personal notification override and home-only
   marketplace declaration are retained locally, outside the repository template. A raw
   whole-file pull would remove them; preserve them before any future pull.
