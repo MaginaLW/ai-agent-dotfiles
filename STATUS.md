@@ -62,12 +62,14 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 - The numbered one-interaction scoring revision is installed on all three platforms. The private
   ledger holds 23 real records (20 structured plus 3 manual; all Codex; 19 at 1, 4 at 0) across
-  8 task references. The three retained local pending inputs were reconciled on 2026-11-10 with
+  11 task references. The three retained local pending inputs were reconciled on 2026-11-10 with
   source attribution and readback; no further pending input was found in the inspected local
-  evidence. The feedback still shows repeated low interruption value and has produced concrete
-  narrow proposals, one applied and published, but not a same-scope three-independent-task
-  threshold or measured reduction. The newly reconciled feedback predates the current skill
-  revision; no post-update feedback exists. No future approval is enabled.
+  evidence. Three independent Codex tasks now cover the same core action, a full-environment
+  approval-feedback live update, with scores of 1 and no 2/3 or permission conflict. That meets
+  the threshold for one narrow future-authorization proposal; no future approval is enabled.
+  The feedback still shows repeated low interruption value and has produced concrete narrow
+  proposals, one applied and published, but no measured reduction. The newly reconciled feedback
+  predates the current skill revision; no post-update feedback exists.
 - `approval-feedback` is installed globally on all three platforms. Codex catalog discovery,
   live-file loading and selection have fresh-context and partial thread evidence; Claude/ZCode
   model-level loading and long-run selection remain unverified because those clients are not in
