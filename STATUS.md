@@ -21,6 +21,11 @@ CI run, check `git log` and the latest GitHub Actions run.
   replace as a whole), Codex `AGENTS.md` updates only its `AI-AGENT-DOTFILES` managed block, and
   config-push captures only that block body. The 2026-11-10 live `work` Apply left all 24 skills
   unchanged and added the block to the live Codex file; the post-Apply config status is in-sync.
+- **Approval-feedback deployment exception.** The owner approved the narrow Codex-only exception
+  in `AGENTS.md` Skill rules 9: one reviewed `approval-feedback` update in `full` may use a single
+  skills-only `deploy-skills.ps1 -Environment full -Apply` without another per-run question when
+  its preconditions hold. It covers only the three `approval-feedback` directories and does not
+  authorize config, other skills, environments or clients, retries, commits, pushes or merges.
 - **Skills and deployment.** There are 19 managed skills: 12 shared and 7 Codex-only. The
   2026-11-08 source cleanup retired `hatch-pet` and removed the custom brainstorming browser
   server. The `work` live Apply completed with 0 installs, 0 updates, 24 unchanged, 20 prunes
@@ -65,8 +70,9 @@ CI run, check `git log` and the latest GitHub Actions run.
   11 task references. The three retained local pending inputs were reconciled on 2026-11-10 with
   source attribution and readback; no further pending input was found in the inspected local
   evidence. Three independent Codex tasks now cover the same core action, a full-environment
-  approval-feedback live update, with scores of 1 and no 2/3 or permission conflict. That meets
-  the threshold for one narrow future-authorization proposal; no future approval is enabled.
+  approval-feedback live update, with scores of 1 and no 2/3 or permission conflict. That
+  threshold led to the owner-approved narrow exception in Skill rules 9; no other future
+  approval is enabled.
   The feedback still shows repeated low interruption value and has produced concrete narrow
   proposals, one applied and published, but no measured reduction. The newly reconciled feedback
   predates the current skill revision; no post-update feedback exists.

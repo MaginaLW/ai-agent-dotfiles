@@ -85,10 +85,14 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
 pwsh -NoProfile -File scripts/deploy.ps1 -Environment work -Apply
 ```
 
-`-Apply` 会写真实 home：先审查 dry-run 的每一行，取得所有者授权后再执行。统一 CLI 的 `sync` 与
-`env deploy <name>` 转发到 `deploy.ps1`；直接运行 `deploy-skills.ps1` 只处理 skills（§14）。
-仓库不安装 Git hooks，`git pull` 不会自动部署。
-dry-run 和 Apply 各自重新计算计划；审核后如果源、live 目标或部署状态变化，重新 dry-run 并审核后再授权。
+`-Apply` 会写真实 home：先审查 dry-run 的每一行，取得所有者授权后再执行。唯一例外是 `AGENTS.md`
+Skill rules 9 的 `approval-feedback` / `full` 环境窄例外：必须满足该节的 reviewed source、
+build/scan/diff、仅三个 `update`、其他选中目录 `unchanged`、无 install/prune/unknown/残留、只用
+`deploy-skills.ps1` 且一次 Apply 不重试；不得用于 `deploy.ps1`、config、其他 skill/环境/客户端。
+统一 CLI 的 `sync` 与 `env deploy <name>` 转发到 `deploy.ps1`；直接运行 `deploy-skills.ps1` 只处理
+skills（§14）。仓库不安装 Git hooks，`git pull` 不会自动部署。
+dry-run 和 Apply 各自重新计算计划；审核后如果源、live 目标或部署状态变化，重新 dry-run 并审核；
+例外范围内条件不变时无需再次询问，任一变化即停止。
 Apply 显示其计划后立即开始执行，不会暂停等待确认。
 多台机器同步：一台修改并 push 后，其余机器各自 `git pull --ff-only` 再走本流程；部署状态每台机器各自
 记录，互不复制。
@@ -116,7 +120,8 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment <current-environment> -Ski
 
 1. 只改 `skills-source/`，然后运行 `build-skills.ps1` 与 `scan-secrets.ps1`。
 2. 提交 source / manifest / docs 变更（不提交 generated output），按授权 push。
-3. 每台机器各自跑 `deploy.ps1` dry-run，审查后按授权 `-Apply`。
+3. 每台机器各自跑 `deploy.ps1` dry-run，审查后按授权 `-Apply`；`approval-feedback` 的 `full`
+   环境窄例外见 §4。
 
 **删除 skill** 时，build 同时从生成物和 manifest 移除名称。本机由 deploy-skills 部署过的目录下次 dry-run
 显示为 `prune`；deploy-skills 从未部署过的旧目录按 unknown 保留，逐项审查后用 `-Retire` 显式点名：

@@ -80,9 +80,11 @@ before requesting authorization for Apply.
 Without `-Apply`, the combined deploy builds and scans the skills, prints what it would install,
 update, prune or leave as unknown, then prints the config pull plan. The build may recreate ignored
 generated output in the repository; the dry run does not write live skills, config or deploy state.
-`-Apply` writes the live home, so it needs the owner's authorization after the dry run has been
-reviewed. The skills and config stages are not atomic: a config failure leaves completed skill
-changes in place. Before an update or prune, deploy-skills copies the old directory to a backup
+`-Apply` writes the live home, so it normally needs the owner's authorization after the dry run
+has been reviewed. The only exception is the narrowly scoped `approval-feedback`
+full-environment update in [AGENTS.md](AGENTS.md); it is skills-only and must satisfy every
+condition there. The skills and config stages are not atomic: a config failure leaves completed
+skill changes in place. Before an update or prune, deploy-skills copies the old directory to a backup
 outside the repository; restoring is described in
 [docs/README.md §8](docs/README.md#8-备份与恢复).
 

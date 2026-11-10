@@ -32,18 +32,19 @@ are changing.
   with its pull request merged or closed first.
 - Run only one full local `run-tests.ps1` or `run-repository-validation.ps1` on the machine at a
   time. Live Applies write shared home paths and never overlap either. Each Apply must be
-  covered by explicit owner authorization; a finite, already-authorized task chain does not
-  need a repeated question at every stage.
+  covered by explicit owner authorization, except the narrow approval-feedback exception in
+  Skill rules 9; a finite, already-authorized task chain does not need a repeated question at
+  every stage.
 - Windows and PowerShell 7+ only. Run repository scripts as
   `pwsh -NoProfile -File scripts/<name>.ps1`. The unified CLI is `scripts/agent-dotfiles.ps1`.
 - Commit reviewed changes and push them normally after validation, verifying the target remote
   and branch first. Force pushes still need the owner's explicit authorization.
-- Merge, live Apply, destructive actions, credential export and additional paid model calls
-  need explicit owner authorization covering their actual scope. Reuse an existing task grant
-  that explicitly includes the action and finite recovery; do not infer it from a plan, score
-  or ordinary implementation permission. New scope, revoked permission or unknown side effects
-  pause only the affected action. Proven-integrated local task branch deletion follows the
-  exception above.
+- Merge, live Apply other than the approval-feedback exception in Skill rules 9, destructive
+  actions, credential export and additional paid model calls need explicit owner authorization
+  covering their actual scope. Reuse an existing task grant that explicitly includes the action
+  and finite recovery; do not infer it from a plan, score or ordinary implementation permission.
+  New scope, revoked permission or unknown side effects pause only the affected action.
+  Proven-integrated local task branch deletion follows the exception above.
 - Finish authorized, recoverable work through validation without asking again whether to
   continue. Ask only when a decision that changes direction is missing or an approval is required.
 - Make small commits that contain only reviewed changes from the current task, and report which
@@ -109,6 +110,21 @@ need them.
      finite task grant can satisfy it without another question.
    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
      It never writes a home directory or a live root.
+9. **Approval-feedback full-environment exception.** When the current client is Codex, the owner's
+   current task explicitly authorizes updating `approval-feedback` in the `full` environment, and
+   the exact source diff and full dry-run were presented for that task, one skills-only
+   `deploy-skills.ps1 -Environment full -Apply` may run without a separate per-run confirmation
+   only if all of the following hold: the reviewed source is the current checkout and no
+   unrelated tracked changes exist; build, secret scan and `git diff --check` pass; the dry run
+   shows exactly the three `approval-feedback` directories as `update`, every other selected
+   directory as `unchanged`, and no install, prune, unknown, staging residue, reparse point or
+   concurrent writer. Use only `deploy-skills.ps1`, never the combined `deploy.ps1`/`config-pull`;
+   make one Apply attempt with no retry. Stop before writing if any condition changes, and stop
+   without retry if the result is unknown. After Apply, read back the three live directories and
+   run the same dry run again; report the counts and readback in the task. This exception does not
+   cover config, global instructions, other skills, environments or clients, commits, pushes,
+   merges or a second Apply. It is limited to the reviewed source revision, can be revoked by the
+   owner, and pauses on any 2/3 score, scope change or unexpected result.
 
 ```powershell
 pwsh -NoProfile -File .\bootstrap.ps1
