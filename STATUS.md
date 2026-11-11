@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-10.
+Last updated: 2026-11-11.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -74,8 +74,11 @@ CI run, check `git log` and the latest GitHub Actions run.
   threshold led to the owner-approved narrow exception in Skill rules 9; no other future
   approval is enabled.
   The feedback still shows repeated low interruption value and has produced concrete narrow
-  proposals, one applied and published, but no measured reduction. The newly reconciled feedback
-  predates the current skill revision; no post-update feedback exists.
+  proposals, one applied and published, but no measured reduction. The current skill revision is
+  `3aa4391`; its source matches all three live roots, and the Codex managed block is in-sync. A
+  fresh Codex task on 2026-11-11 discovered and read the current body, but had no comparable
+  approval opportunity, so the current-revision S/Q effect remains unmeasured (U). The next
+  natural checkpoint is the next real Codex approval request.
 - `approval-feedback` is installed globally on all three platforms. Codex catalog discovery,
   live-file loading and selection have fresh-context and partial thread evidence; Claude/ZCode
   model-level loading and long-run selection remain unverified because those clients are not in
