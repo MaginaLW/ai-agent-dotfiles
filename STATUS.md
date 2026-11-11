@@ -17,7 +17,8 @@ CI run, check `git log` and the latest GitHub Actions run.
   skill validation, generated parity and independent review pass. The source is integrated into
   `main` at `a104f9f`; the Validate run `43027745386` completed successfully. The live `work`
   deployment and the Codex managed-block config update were verified (post-deploy dry run:
-  25 unchanged; config in sync).
+  25 unchanged; config in sync). `README.md` and the usage manual document the asymmetric
+  Codex `work` selection and the skill's authority boundary.
 - **Grok routing.** The Codex agreement template routes explicitly requested Grok work through agent-bridge and preserves its current schema, available engines and approval flow; it has no local Grok Build CLI fallback.
 - **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions now require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial; public destinations are limited to repositories explicitly authorized to publish their own content.
 - **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates
