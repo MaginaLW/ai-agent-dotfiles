@@ -624,6 +624,16 @@ finally {
 
 # ===========================================================================
 Write-Host ''
+# Real parent-platform union must not reintroduce Claude into a Codex-only project.
+$dailyRepo = New-TestHarnessRepo 'codex-library-defaults'
+foreach ($profileName in 'base', 'coding') {
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "harness-source/profiles/$profileName.psd1") -Destination (Join-Path $dailyRepo "harness-source/profiles/$profileName.psd1") -Force
+}
+$dailyProject = New-TestProject -Name 'codex-library-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Codex') -Extends @('coding'))
+$dailyRun = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $dailyRepo, '-ProjectRoot', $dailyProject, '-Json')
+$dailyStatus = $dailyRun.Out | ConvertFrom-Json
+Assert ($dailyRun.Code -eq 0 -and (@($dailyStatus.TargetPlatforms) -join ',') -eq 'Codex' -and @($dailyStatus.Targets | Where-Object { $_.Target -match '(^CLAUDE\.md$|^\.claude/)' }).Count -eq 0) 'library defaults keep inherited Codex-only projects free of Claude outputs'
+
 Write-Host ("Results: {0} passed, {1} failed" -f $script:pass, $script:fail) -ForegroundColor Cyan
 if ($script:fail -eq 0) {
     Remove-Work

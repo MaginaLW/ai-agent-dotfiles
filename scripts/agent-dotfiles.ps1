@@ -46,7 +46,7 @@ function Write-Usage([string] $Group) {
                 Write-Host 'pull: repository -> home; Apply backs up overwritten files and preserves local-only settings.'
                 Write-Host 'push: home -> repository capture; this is not git push. Review the captured diff before committing.'
                 Write-Host 'Examples: config status; config pull -DryRun; config push -DryRun'
-                Write-Host 'Options: -Platform Claude|Codex, -RepoRoot <path>, -HomeRoot <path>.'
+                Write-Host 'Options: -Platform Claude|Codex (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
             }
             env {
                 Write-Host 'list: read-only environment selections and last recorded Apply environment; it does not verify live contents.'

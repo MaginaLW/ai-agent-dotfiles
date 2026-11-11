@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-11.
+Last updated: 2026-11-12.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -8,6 +8,17 @@ done, record its outcome here and delete the record (Git keeps it). Before trust
 CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
+
+- **Claude retirement.** The source selection for `work` is Claude/Codex/ZCode 0/9/8.
+  Config status/pull/push and combined deployment default to Codex only. The shared
+  `base`/`coding` and this repository profile target Codex without automatic ClaudeSettings.
+  The Claude generated skills remain the ZCode projection source; legacy templates and
+  explicit Claude tools stay compatible. The old full-environment exception is retired,
+  and the standing `work` grant covers Codex/ZCode only. This source change does not
+  remove live Claude state or perform a live deployment.
+  Local syntax, build, pinned secret scan and all 14 isolated test suites pass, including
+  the actual work-selection deployment fixture and Codex-only profile inheritance.
+  Default config dry-run is Codex-only and in sync; no live Apply was performed.
 
 - **Proactive Git approval requests.** The Codex global agreement source explicitly requests
   missing commit, push or merge permission once the diff and checks are reviewable; it reuses
@@ -51,7 +62,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   descendants with the lead excluded, no lifetime creation-count cap, human approval for a
   higher task/stage limit, and the host's effective open/active limits. The shared execution
   skill uses active expansion and staged minimal context without a platform-specific count.
-  The `work` selection is Claude/Codex/ZCode 8/9/8; `full` is unchanged. Build, secret scan,
+  The previous `work` deployment used Claude/Codex/ZCode 8/9/8; `full` is unchanged. Build, secret scan,
   skill validation, generated parity and independent review pass. The source is integrated into
   `main` at `a104f9f`; the Validate run `43027745386` completed successfully. The live `work`
   deployment and the Codex managed-block config update were verified (post-deploy dry run:
@@ -69,16 +80,14 @@ CI run, check `git log` and the latest GitHub Actions run.
   replace as a whole), Codex `AGENTS.md` updates only its `AI-AGENT-DOTFILES` managed block, and
   config-push captures only that block body. The 2026-11-10 live `work` Apply left all 24 skills
   unchanged and added the block to the live Codex file; the post-Apply config status is in-sync.
-- **Approval-feedback deployment exception.** The owner approved the narrow Codex-only exception
-  in `AGENTS.md` Skill rules 9: one reviewed `approval-feedback` update in `full` may use a single
-  skills-only `deploy-skills.ps1 -Environment full -Apply` without another per-run question when
-  its preconditions hold. It covers only the three `approval-feedback` directories and does not
-  authorize config, other skills, environments or clients, retries, commits, pushes or merges.
+- **Historical approval-feedback deployment exception.** The former three-platform full
+  exception is retired in AGENTS.md Skill rules 9. Its earlier approval and deployment
+  readbacks remain historical evidence; current work updates use the Codex/ZCode grant.
 - **Skills and deployment.** There are 19 managed skills: 12 shared and 7 Codex-only. The
   2026-11-08 source cleanup retired `hatch-pet` and removed the custom brainstorming browser
   server. The `work` live Apply completed with 0 installs, 0 updates, 24 unchanged, 20 prunes
-  and 0 unknowns; its post-Apply dry run reports 24 unchanged. Claude, Codex and ZCode now each
-  expose the same eight-skill daily set, while Codex `.system` remains untouched.
+  and 0 unknowns; its post-Apply dry run reported 24 unchanged. That historical deployment
+  exposed the same eight-skill daily set on three platforms; Codex `.system` remains untouched.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
   `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
   Catalog discovery and installation do not prove behavior change, and one applied case does not
@@ -177,7 +186,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   systematic-debugging, tool-scope, verification-before-completion, writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 8/9/8,
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 0/9/8,
   `full` 12/19/12. Unselected unknown live directories are preserved, and Codex `.system` is
   never managed.
 - **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the MCP

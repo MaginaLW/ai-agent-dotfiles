@@ -31,7 +31,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex. Defaults to both.
+    One or more of Claude, Codex. Defaults to Codex; Claude requires an explicit opt-in.
 
 .PARAMETER BackupRoot
     Root for the revert stage. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.
@@ -50,7 +50,7 @@ param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
     [ValidateSet('Claude', 'Codex')]
-    [string[]] $Platform = @('Claude', 'Codex'),
+    [string[]] $Platform = @('Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipSecretScan,
     [switch] $SkipPathScan

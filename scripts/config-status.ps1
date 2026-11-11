@@ -20,7 +20,7 @@
     and Codex from .codex.
 
 .PARAMETER Platform
-    One or more of Claude, Codex. Defaults to both.
+    One or more of Claude, Codex. Defaults to Codex; Claude requires an explicit opt-in.
 
 .PARAMETER Json
     Emit the results as a JSON array instead of the table.
@@ -40,7 +40,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'config-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-if (-not $Platform) { $Platform = @('Claude', 'Codex') }
+if (-not $Platform) { $Platform = @('Codex') }
 
 function Get-ItemKind {
     param([Parameter(Mandatory)] [string] $Path)

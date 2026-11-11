@@ -1,6 +1,6 @@
 # AI Agent Dotfiles
 
-在 Windows 上统一维护 Claude Code、Codex 和 ZCode 的 skills 与受管配置。
+在 Windows 上统一维护 Codex 和 ZCode 的日常 skills 与受管配置；保留 Claude 兼容构建与显式工具入口。
 使用 PowerShell 7+；先预览，再按已授权范围执行 Apply。个人配置、凭据、会话和缓存不入库。
 
 ## 先选你的操作
@@ -81,11 +81,11 @@ unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 sk
 ## 管理范围
 
 - `skills-source/` 是 skills 唯一源；build 生成 `claude/skills/`、`codex/skills/`，生成物不提交。
-- 环境定义位于 `harness-source/envs/`。当前 `work` 的 Claude/Codex/ZCode 为 8/9/8，
+- 环境定义位于 `harness-source/envs/`。当前 `work` 的 Claude/Codex/ZCode 为 0/9/8，
   `subagent-driven-development` 仅选入 Codex 的 `work`；`full` 在三平台均包含它。
 - 部署逐个 skill 目录进行，只 prune 本工具记录过或显式 `-Retire` 点名的目录；未知目录保留，Codex `.system` 不受管。
-- Claude `settings.json` 按对象合并，保留 home-only 字段；Codex `AGENTS.md` 只更新受管 block，保留 block 外文本。
-- ZCode 从 Claude 生成物投影部署。Codex 同时存在 `~/.codex/skills` 与 `~/.agents/skills` 时拒绝部署，需先人工判断。
+- 配置 status/pull/push 及组合部署默认只处理 Codex，不会重建 Claude live 配置；旧 Claude 配置工具须显式 `-Platform Claude`。Codex `AGENTS.md` 只更新受管 block，保留 block 外文本。
+- ZCode 继续从 Claude 生成物投影部署；这不需要 Claude 账号、CLI 或 live 根。共享 `base`/`coding` profile 默认只生成 Codex 项目目标。Codex 同时存在 `~/.codex/skills` 与 `~/.agents/skills` 时拒绝部署，需先人工判断。
 - 不同步 Codex `config.toml`、私有 `.env`、凭据、会话或缓存；不注册 MCP servers。
   需要外部能力时使用当前会话可用的连接器，并核实访问权限。
 

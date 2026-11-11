@@ -1,7 +1,7 @@
 @{
     SchemaVersion = 1
     Name = 'coding'
-    TargetPlatforms = @('Claude', 'Codex')
+    TargetPlatforms = @('Codex')
 
     Extends = @('base')
 
