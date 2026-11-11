@@ -222,6 +222,15 @@ pwsh -NoProfile -File scripts/run-tests.ps1
 CI 同款的全量验证入口是 `scripts/run-repository-validation.ps1`（语法、gitleaks 校验、build、秘密扫描、
 doctor、manifest 一致性、全部测试套件、危险文件检查与干净树，逐 gate 顺序执行）。
 
+config-sync 测试的 repo/home/backup fixtures 位于忽略的 `tmp/tests/config-sync/<run-id>/`。
+正常失败会先在 `receipts/` 保存小型记录再清理；超时或跳过 finalization 的子进程保留其所属目录。
+父进程退出和输出排空不证明所有 writer 已停止；`cleanup_requested` 只表示清理意图。
+profile fixtures 位于 `tmp/tests/harness-profile/`，成功清理、失败保留；仓库位于用户 home 内时拒绝生成 fixtures，
+不回落到其他目录。清理前核对实际目录、归属和 writer 状态。
+
+部署规划会拒绝被普通文件占用的选中 skill 目标。profile build/apply 拒绝目标路径及祖先的 reparse point；
+profile 写失败时，将当前尝试写入的文件也纳入 best-effort rollback。
+
 ---
 
 ## 11. Harness 配置同步（config-sync）
@@ -351,6 +360,9 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 
 - 列表末尾显示部署状态中记录的上次成功 Apply 环境；记录缺失、结构无效、无环境名或无法读取时显示 `unavailable`。
   这只是记录，不验证 live 内容。`env list -StateRoot <path>` 可指定部署状态目录，默认与 deploy-skills 相同。
+  `unavailable` 后另列固定原因：`missing-state`（文件不存在）、`invalid-json`（无法解析）、
+  `invalid-state`（结构或环境值无效）、`missing-environment`（缺少或空白环境名）、`read-error`（读取失败）。
+  不打印原始记录或异常内容；该原因不能用来推断 live skills 是否存在。
 - `env list -JsonPath <report-file>` 仍打印上述列表，同时把 `Environments`（每项仅有 `Name`、`Description`）写入 JSON 文件。
 - 选集只能包含已有 generated output 的 skill，缺失时 deploy-skills 报错停止。
 - 切换到较小环境时，上次由 deploy-skills 部署、本次不再选中的目录进入 `prune`（先备份）。
@@ -379,6 +391,12 @@ skills promote               -> scripts/promote-skill.ps1
 ```
 
 用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help` 查看命令概览。
+用 `help config` 或 `config help` 查看分组帮助；`env`、`profile`、`skills` 支持相同拼法。
+帮助说明操作方向、写入范围和常用示例，不执行子脚本。`config push` 仅捕获本机配置到仓库，不是 Git push。
+
+doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `Deploy blockers`。
+双 Codex live 根会阻塞部署；未安装的平台根、dirty tree 和跳过 secret scan 等提醒不自动归为阻塞。
+`none detected by these checks` 也不表示部署已通过预检，仍须审查 dry-run。
 
 只读命令：`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`。`build` 与 `profile build`
 只生成可重建输出；`env list -JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、

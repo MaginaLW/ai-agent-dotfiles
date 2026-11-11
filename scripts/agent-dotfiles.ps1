@@ -37,7 +37,39 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Write-Usage {
+function Write-Usage([string] $Group) {
+    if ($Group) {
+        Write-Host "Usage: pwsh -File scripts/agent-dotfiles.ps1 $Group <action> [arguments]"
+        switch ($Group) {
+            config {
+                Write-Host 'status: read-only comparison of repository and home configuration.'
+                Write-Host 'pull: repository -> home; Apply backs up overwritten files and preserves local-only settings.'
+                Write-Host 'push: home -> repository capture; this is not git push. Review the captured diff before committing.'
+                Write-Host 'Examples: config status; config pull -DryRun; config push -DryRun'
+                Write-Host 'Options: -Platform Claude|Codex, -RepoRoot <path>, -HomeRoot <path>.'
+            }
+            env {
+                Write-Host 'list: read-only environment selections and last recorded Apply environment; it does not verify live contents.'
+                Write-Host 'deploy <name>: skills plus managed home config. Switching to a smaller selection may prune previously managed skills.'
+                Write-Host 'Examples: env list; env deploy work -DryRun'
+                Write-Host 'List options: -StateRoot <path>; -JsonPath <file> writes a report.'
+                Write-Host 'Deploy options: -Environment is supplied by <name>; -Retire <skill>, -HomeRoot <path>, -StateRoot <path>.'
+            }
+            profile {
+                Write-Host 'status: read-only project profile status. build: generates rebuildable project output.'
+                Write-Host 'apply: writes allowlisted files inside the target project; never writes home config or live skills.'
+                Write-Host 'Examples: profile status -ProjectRoot <project>; profile build -ProjectRoot <project>; profile apply -ProjectRoot <project> -DryRun'
+                Write-Host 'Options: -ProjectRoot <path>, -RepoRoot <path>; status also supports -Json.'
+            }
+            skills {
+                Write-Host 'promote: imports a reviewed skill into skills-source, then builds and scans on Apply; it does not deploy live skills.'
+                Write-Host 'Example: skills promote -Path <dir> -Name <name> -Type shared -DryRun'
+                Write-Host 'Options: -Type shared|claude-only|codex-only; -Replace replaces a source skill of the same type with a backup.'
+            }
+        }
+        Write-Host 'deploy, pull/push, apply and promote require exactly one mode: -DryRun or -Apply. Review the dry run before authorized Apply.'
+        return
+    }
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
     Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env'
     Write-Host 'Sync runs deploy.ps1 (skills plus config) and requires exactly one explicit mode: -DryRun or -Apply.'
@@ -47,6 +79,7 @@ function Write-Usage {
     Write-Host 'Env actions: list [-RepoRoot <path>] [-StateRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
     Write-Host 'sync, env deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'build generates output; env list -JsonPath writes a report without a mode.'
+    Write-Host 'Group help: help config (or config help); also env, profile and skills.'
 }
 
 function Assert-ExplicitMode([object[]] $Arguments, [string] $Label) {
@@ -98,25 +131,38 @@ function Write-EnvironmentList([object[]] $Arguments) {
         }
     }
     $recordedEnvironment = $null
+    $stateReason = 'missing-state'
     $statePath = Join-Path $stateRoot 'deployed-skills.json'
     try {
         if (Test-Path -LiteralPath $statePath -PathType Leaf) {
-            $state = Get-Content -Raw -LiteralPath $statePath -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            $stateReason = 'read-error'
+            $stateText = Get-Content -Raw -LiteralPath $statePath -ErrorAction Stop
+            $stateReason = 'invalid-json'
+            $state = ConvertFrom-Json -InputObject $stateText -AsHashtable -ErrorAction Stop
+            $stateReason = 'invalid-state'
             $validState = $state -is [System.Collections.IDictionary]
             if ($validState) {
                 foreach ($platform in 'Claude', 'Codex', 'Zcode') {
                     if ($state[$platform] -isnot [array] -or @($state[$platform] | Where-Object { $_ -isnot [string] }).Count -gt 0) { $validState = $false }
                 }
             }
-            if ($validState -and $state['Environment'] -is [string] -and
-                -not [string]::IsNullOrWhiteSpace($state['Environment']) -and $state['Environment'] -notmatch '[\r\n]') {
-                $recordedEnvironment = $state['Environment']
+            if ($validState) {
+                if ($null -eq $state['Environment'] -or ($state['Environment'] -is [string] -and [string]::IsNullOrWhiteSpace($state['Environment']))) {
+                    $stateReason = 'missing-environment'
+                }
+                elseif ($state['Environment'] -is [string] -and $state['Environment'] -notmatch '[\r\n]') {
+                    $recordedEnvironment = $state['Environment']
+                    $stateReason = $null
+                }
             }
         }
     }
     catch { $recordedEnvironment = $null }
     if ($null -eq $recordedEnvironment) { $recordedEnvironment = 'unavailable' }
     Write-Host "Last recorded successful Apply environment: $recordedEnvironment (record only; live contents may differ)."
+    if ($stateReason) {
+        Write-Host "Record unavailable reason: $stateReason. Inspect the local deploy record; use the deployment dry run to check live contents."
+    }
     if ($jsonPath) {
         $jsonEnvironments = @($environments | ForEach-Object { [ordered]@{ Name = $_.Name; Description = $_.Description } })
         $json = [ordered]@{ Environments = $jsonEnvironments } | ConvertTo-Json -Depth 5
@@ -130,8 +176,14 @@ if ([string]::IsNullOrWhiteSpace($Command)) {
     exit 1
 }
 
-if ($Command -ieq 'help' -and @($RemainingArguments | Where-Object { $null -ne $_ }).Count -eq 0) {
-    Write-Usage
+if ($Command -ieq 'help') {
+    $topics = @($RemainingArguments | Where-Object { $null -ne $_ })
+    if ($topics.Count -eq 0) { Write-Usage; exit 0 }
+    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills')) {
+        Write-Error 'Unsupported help topic. Use help config, help env, help profile or help skills.' -ErrorAction Continue
+        exit 1
+    }
+    Write-Usage ([string] $topics[0]).ToLowerInvariant()
     exit 0
 }
 
@@ -178,6 +230,10 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
         exit 1
     }
     $groupAction = ([string] $forwardedArguments[0]).ToLowerInvariant()
+    if ($groupAction -eq 'help' -and $forwardedArguments.Count -eq 1) {
+        Write-Usage $normalizedCommand
+        exit 0
+    }
     $actionMap = $groupCommandMaps[$normalizedCommand]
     if (-not $actionMap.ContainsKey($groupAction)) {
         Write-Error "Unsupported $normalizedCommand sub-action: $($forwardedArguments[0])" -ErrorAction Continue

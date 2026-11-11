@@ -25,6 +25,7 @@ try {
     if ($output -notmatch 'root entry detected with no content traversal') { throw 'doctor did not report the no-follow .system root marker' }
     if ((Get-FileHash -LiteralPath $child -Algorithm SHA256).Hash -ne $beforeHash) { throw 'doctor changed the protected .system child' }
     if ($output -notmatch 'Codex live root is ambiguous') { throw 'doctor did not flag both Codex roots as ambiguous' }
+    if ($output -notmatch 'Deploy blockers: 1' -or $output -notmatch 'Inspect both roots and decide' -or $output -notmatch 'Doctor result: PASS with warnings') { throw 'doctor did not distinguish a deployment blocker while preserving the warning/exit contract' }
     if ($output -notmatch 'Zcode live root .* not found') { throw 'doctor did not warn about the missing Zcode live root' }
     if ($output -notmatch 'scripts\\deploy-skills\.ps1 exists') { throw 'doctor did not check scripts/deploy-skills.ps1' }
     if ($output -notmatch 'scripts\\deploy\.ps1 exists') { throw 'doctor did not check scripts/deploy.ps1' }
@@ -49,6 +50,7 @@ try {
     [System.IO.Directory]::CreateDirectory((Join-Path $zcodeHome '.zcode/skills')) | Out-Null
     $zcodeOutput = & pwsh -NoProfile -File $doctor -RepoRoot $RepoRoot -HomeRoot $zcodeHome -SkipSecretsScan 2>&1 | Out-String; $zcodeCode=$LASTEXITCODE
     if ($zcodeCode -ne 0 -or $zcodeOutput -notmatch 'Zcode live root .* detected') { throw "doctor did not detect the Zcode live root: $zcodeOutput" }
+    if ($zcodeOutput -notmatch 'Deploy blockers: none detected by these checks' -or $zcodeOutput -match 'deployment cannot proceed') { throw 'ordinary warnings were incorrectly reported as deployment blockers' }
 
     Write-Host 'doctor tests: PASS'
 }
