@@ -9,6 +9,35 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Proactive Git approval requests.** The Codex global agreement source explicitly requests
+  missing commit, push or merge permission once the diff and checks are reviewable; it reuses
+  explicit existing grants instead of ending with an unexplained uncommitted/unmerged result.
+  The requested Codex-only managed-block deployment completed, its readback is in sync, and
+  personal text outside the block is unchanged. The owner approved A04 for this change's
+  commit/push and sequential integration of PRs #3 and #4 after current CI passes; verify
+  their actual merge state and current main ref rather than inferring it from this grant.
+- **Approval-feedback project grants.** The source immediately proposes project-level standing
+  permission after relevant blocking feedback, with an exact rule diff, reasons, risks, scope,
+  inheritance and revocation. There is no multi-task score threshold. Owner approval is still
+  required to adopt a specific grant; subsequent matching tasks reuse the current formal rule.
+  Existing permission is used directly when no expansion is needed. An independent read-only
+  pass covered immediate proposals, inherited permission, absent formal rules, an unapproved
+  grant and execution misreads; it does not establish real cross-task behavior improvement.
+  Repeated expansion events also trigger consolidation of related permission files: clarify
+  categories, remove superseded requirements and repair inheritance; new authority still
+  requires owner approval. The owner's final clarification permits permission-neutral cleanup
+  with notification; new or permanent substantive permission changes require an exact diff,
+  reasons and risks for approval. Approved scopes are inherited without repeated approval.
+  The usage manual records this distinction; dated design/plan documents are historical.
+  The owner approved A02 and the exact standing `work` skills-only
+  grant is now in AGENTS.md Skill rules 10, with its task-entry cross-reference clarified.
+  Skill validation, build, secret scan, diff checks and independent review pass. The authorized
+  deployment updated only the three approval-feedback copies; 22 other skills were unchanged.
+  All 12 changed live files match generated output, three backups exist and the post-Apply
+  dry run reports 25 unchanged, with no updates, installs, prunes or unknowns. No config Apply
+  was performed. Tasks must load the current approved project rule before relying on it;
+  approval history alone does not establish inheritance. Future real cross-task improvement
+  remains unmeasured.
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.

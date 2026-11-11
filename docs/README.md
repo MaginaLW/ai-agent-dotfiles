@@ -91,8 +91,10 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
 pwsh -NoProfile -File scripts/deploy.ps1 -Environment work -Apply
 ```
 
-`-Apply` 会写真实 home：先审查 dry-run 的每一行，取得所有者授权后再执行。唯一例外是 `AGENTS.md`
-Skill rules 9 的 `approval-feedback` / `full` 环境窄例外：必须满足该节的 reviewed source、
+`-Apply` 会写真实 home：先审查 dry-run 的每一行，复用覆盖实际范围的有效所有者授权；缺少授权时才询问。
+`AGENTS.md` Skill rules 10 的已批准持续授权覆盖 `work` 环境已选技能的更新；满足该节条件时，
+后续任务可用 `deploy-skills.ps1` 完成部署和复核，无需再次申请同范围许可，不覆盖 combined/config Apply。
+Skill rules 9 另有 `approval-feedback` / `full` 环境窄例外：必须满足该节的 reviewed source、
 build/scan/diff、仅三个 `update`、其他选中目录 `unchanged`、无 install/prune/unknown/残留、只用
 `deploy-skills.ps1` 且一次 Apply 不重试；不得用于 `deploy.ps1`、config、其他 skill/环境/客户端。
 统一 CLI 的 `sync` 与 `env deploy <name>` 转发到 `deploy.ps1`；直接运行 `deploy-skills.ps1` 只处理
@@ -126,8 +128,8 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment <current-environment> -Ski
 
 1. 只改 `skills-source/`，然后运行 `build-skills.ps1` 与 `scan-secrets.ps1`。
 2. 提交 source / manifest / docs 变更（不提交 generated output），按授权 push。
-3. 每台机器各自跑 `deploy.ps1` dry-run，审查后按授权 `-Apply`；`approval-feedback` 的 `full`
-   环境窄例外见 §4。
+3. 每台机器各自跑 dry-run，审查后按有效授权 `-Apply`。`work` 技能更新的持续授权只走
+   `deploy-skills.ps1`；combined `deploy.ps1` 及 `full` 窄例外的边界见 §4。
 
 **删除 skill** 时，build 同时从生成物和 manifest 移除名称。本机由 deploy-skills 部署过的目录下次 dry-run
 显示为 `prune`；deploy-skills 从未部署过的旧目录按 unknown 保留，逐项审查后用 `-Retire` 显式点名：
@@ -363,6 +365,21 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 
 `approval-feedback` 已选入三平台 `work/full`，以全局 Skill 发现方式使用。它在准备执行确认、
 收到评分反馈或定位重复审批旧规则时介入，先复用已有授权；评分只评价打断价值，不授予权限。
+收到 0／1 分或“纠错未落实”的反馈时，在当前响应中处理具体来源：纠正执行误读并完成已授权工作，
+或立即提出项目级持续扩权：给出精确规则差异、原因、风险、继承范围和撤销方式，由用户一次审批规则写入
+及所列执行范围。批准后落到项目正式入口，后续任务／会话读取有效条款后直接继承，不重复批准同类动作；
+不等更多评分或多个独立任务。平台硬审批保留。源码、部署、加载与实际行为效果分别报告。
+同一项目反复扩权时，检查权限源文件的分类、冲突和继承入口，合并同类规则而非叠加临时例外；
+按是否改变实际权限区分处理，不以编辑了源文件就一律增加审批：
+
+| 情形 | 处理 |
+|---|---|
+| 整理、合并、澄清，权限含义不变 | 直接完成并在原任务结果中通知用户 |
+| 新增权限，或在源文件中永久改变有效权限及其边界 | 先给出精确差异、原因、风险和继承范围，由用户审批后落实 |
+| 已批准范围内的写入、验证及所列执行 | 连续完成；后续任务读取有效正式条款后继承，不为同一权限重复审批 |
+
+相关变更真正超出授权、用户撤销或平台强制审批时，才补相应决定；纯整理不以“权限修正”为名扩大权限。
+本次 `work` 部署的三平台读回及 25 项不变结果见 [STATUS.md](../STATUS.md)，这不代表未来会话效果已验证。
 详细交互、私有台账、失败处理和效果核验以
 [Skill](../skills-source/shared/approval-feedback/SKILL.md) 及其 `references/` 为准；
 安装 Skill 与新增免重复确认规则分别授权。部署仍先审阅实际 dry-run，再按覆盖实际范围的有效授权 Apply；

@@ -32,9 +32,9 @@ are changing.
   with its pull request merged or closed first.
 - Run only one full local `run-tests.ps1` or `run-repository-validation.ps1` on the machine at a
   time. Live Applies write shared home paths and never overlap either. Each Apply must be
-  covered by explicit owner authorization, except the narrow approval-feedback exception in
-  Skill rules 9; a finite, already-authorized task chain does not need a repeated question at
-  every stage.
+  covered by explicit owner authorization, including the standing grant in Skill rules 10,
+  except the narrow approval-feedback exception in Skill rules 9. An authorized finite task
+  chain or matching standing grant does not need a repeated question at every stage or task.
 - Windows and PowerShell 7+ only. Run repository scripts as
   `pwsh -NoProfile -File scripts/<name>.ps1`. The unified CLI is `scripts/agent-dotfiles.ps1`.
 - Commit reviewed changes and push them normally after validation, verifying the target remote
@@ -125,6 +125,33 @@ need them.
    cover config, global instructions, other skills, environments or clients, commits, pushes,
    merges or a second Apply. It is limited to the reviewed source revision, can be revoked by the
    owner, and pauses on any 2/3 score, scope change or unexpected result.
+
+10. **Owner-approved standing skills deployment grant.** Once the owner explicitly approves
+    this clause, an authorized task that changes selected skill sources may complete the
+    skills-only deployment to the last-recorded `work` environment without another owner
+    confirmation. The grant covers Claude, Codex and ZCode and subsequent tasks or chats in
+    this project that read this current rule, until the owner revokes or narrows it.
+    - Review the exact source diff; build, secret scan and diff checks must pass. Run and review
+      the complete dry run for each changed version. The selection must be unchanged, and every
+      selected directory must be `update` for a reviewed task change or `unchanged`; stop for any
+      install, prune, unknown, unexpected change, staging residue, reparse point or other writer.
+    - Use only `deploy-skills.ps1 -Environment work -Apply`. Verify the deployment readback and
+      repeat the same dry run. Report the result in the original task. Recover startup or
+      preparation failures only after proving no live side effect; do not blindly retry unknown
+      or partially applied writes. Read back first. Recovery may restore only this task's
+      verified pre-Apply backups of directories actually changed by this deployment; confirm
+      backup provenance and current state before restoring, never touch `.system` or unrelated
+      directories. Stop for a concrete decision when recovery falls outside this scope.
+    - This permits writes to the three selected live roots and the deployment script's normal
+      backups/state. Risks include changed agent instructions and automated replacement of live
+      skill files. Preserve backups; rollback is limited to the verified task-owned scope above.
+      It does not authorize environment/selection changes, installs, retirement or pruning,
+      config/global instructions, credentials, extra paid calls, merge, branch deletion or
+      bypassing platform approval. Other actions retain their existing authorization rules.
+    - Approval to adopt this exact clause also covers the reviewed current skills deployment.
+      This clause cannot authorize its own adoption, expansion or reinstatement after revocation.
+      Further tasks must verify the effective project rule and revocation state, not rely only
+      on an old chat, private ledger or an unintegrated branch.
 
 ```powershell
 pwsh -NoProfile -File .\bootstrap.ps1
