@@ -9,6 +9,13 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Proactive Git approval requests.** The Codex global agreement source explicitly requests
+  missing commit, push or merge permission once the diff and checks are reviewable; it reuses
+  explicit existing grants instead of ending with an unexplained uncommitted/unmerged result.
+  The requested Codex-only managed-block deployment completed, its readback is in sync, and
+  personal text outside the block is unchanged. The owner approved A04 for this change's
+  commit/push and sequential integration of PRs #3 and #4 after current CI passes; verify
+  their actual merge state and current main ref rather than inferring it from this grant.
 - **Approval-feedback project grants.** The source immediately proposes project-level standing
   permission after relevant blocking feedback, with an exact rule diff, reasons, risks, scope,
   inheritance and revocation. There is no multi-task score threshold. Owner approval is still
@@ -28,8 +35,9 @@ CI run, check `git log` and the latest GitHub Actions run.
   deployment updated only the three approval-feedback copies; 22 other skills were unchanged.
   All 12 changed live files match generated output, three backups exist and the post-Apply
   dry run reports 25 unchanged, with no updates, installs, prunes or unknowns. No config Apply
-  was performed. The project grant is on the current task branch; other checkouts must load
-  the approved rule before relying on it. Future real cross-task improvement remains unmeasured.
+  was performed. Tasks must load the current approved project rule before relying on it;
+  approval history alone does not establish inheritance. Future real cross-task improvement
+  remains unmeasured.
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
