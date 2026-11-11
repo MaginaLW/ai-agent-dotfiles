@@ -18,7 +18,11 @@ CI run, check `git log` and the latest GitHub Actions run.
   grant and execution misreads; it does not establish real cross-task behavior improvement.
   Repeated expansion events also trigger consolidation of related permission files: clarify
   categories, remove superseded requirements and repair inheritance; new authority still
-  requires owner approval. The owner approved A02 and the exact standing `work` skills-only
+  requires owner approval. The owner's final clarification permits permission-neutral cleanup
+  with notification; new or permanent substantive permission changes require an exact diff,
+  reasons and risks for approval. Approved scopes are inherited without repeated approval.
+  The usage manual records this distinction; dated design/plan documents are historical.
+  The owner approved A02 and the exact standing `work` skills-only
   grant is now in AGENTS.md Skill rules 10, with its task-entry cross-reference clarified.
   Skill validation, build, secret scan, diff checks and independent review pass. The authorized
   deployment updated only the three approval-feedback copies; 22 other skills were unchanged.

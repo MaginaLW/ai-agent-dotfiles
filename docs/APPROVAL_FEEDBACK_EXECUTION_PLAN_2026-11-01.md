@@ -1,5 +1,9 @@
 # 审批反馈 Skill 落地 Execution Plan
 
+> 历史执行计划与验收记录（2026-11-01），不作为继续执行旧任务的授权。
+> 2026-11-11 起的即时项目扩权、持续继承及权限中性整理约定见
+> [Skill](../skills-source/shared/approval-feedback/SKILL.md)、[使用手册](README.md#13-harness-environments)和 [STATUS.md](../STATUS.md)；下文旧评分门槛及逐次授权描述保留为历史。
+
 > **For agentic workers:** Follow applicable delegation and workspace rules; execute independent tasks in parallel when permitted and useful, and review their results.
 
 **Goal:** 用三平台可全局发现的轻量 Skill 和按需私有反馈台账减少多余确认，覆盖连续交付、执行偏好及提交／推送／合并；新增窄范围约定须有明确授权。
