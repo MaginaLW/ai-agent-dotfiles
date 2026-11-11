@@ -1,6 +1,6 @@
 # Implementer / Executor Subagent Prompt Template
 
-Use this template when dispatching a subagent to execute one task from a plan.
+Use this template for the first bounded stage of an independent task. Include only the context needed now; send important deltas at later stages instead of copying the full chat or plan. Reuse a suitable instance for the same responsibility; use a fresh one for a new responsibility or contaminated context, within the same root-task concurrent allowance and existing execution budgets.
 
 ```
 Task tool (general-purpose):
@@ -10,11 +10,11 @@ Task tool (general-purpose):
 
     ## Task Description
 
-    [FULL TEXT of task from plan - paste it here, do not make the subagent read the plan file]
+    [Current-stage outcome, scope and non-goals; include only the relevant plan excerpt or precise source pointers]
 
     ## Context
 
-    [Where this task fits, relevant constraints, source material, artifacts, and acceptance criteria]
+    [Minimum inputs, dependencies, target/version, acceptance criteria, write ownership, workspace/output paths, authorization, shared root-task concurrent allowance, current host limits and any separate execution budgets]
 
     ## Before You Begin
 
@@ -35,7 +35,11 @@ Task tool (general-purpose):
 
     ## Work Organization
 
-    - Follow the structure defined in the plan.
+    - Follow the relevant plan structure and report important deltas before the next stage.
+    - Delegate useful independent work when permitted; all descendants share the root-task
+      concurrent allowance under host open/active limits. Lifetime creation count is not capped
+      by that allowance. Stages, context changes and nested delegation grant no separate
+      allowance and do not reset native, paid-call or execution-count budgets.
     - Keep outputs focused and easy to review.
     - For code, follow local patterns and keep files focused.
     - For documents, write for the stated audience and keep claims grounded.

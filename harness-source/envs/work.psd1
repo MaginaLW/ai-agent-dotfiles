@@ -21,6 +21,7 @@
             'meng-cmame-writing',
             'paper-polish',
             'session-learnings',
+            'subagent-driven-development',
             'systematic-debugging',
             'tool-scope'
         )

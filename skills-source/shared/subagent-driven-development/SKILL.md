@@ -1,17 +1,17 @@
 ---
 name: subagent-driven-development
-description: Delegate independent work when its delivery benefit exceeds coordination cost and delegation is permitted. Keep small tasks and tightly coupled changes inline.
+description: Actively delegate independent work in complex tasks, expand as useful work emerges, and refresh context by stage. Keep small tasks and tightly coupled changes inline.
 ---
 
 # Subagent-Driven Execution
 
-Delegate bounded work with fresh, sufficient context. The lead owns integration and final user-visible acceptance.
+Actively delegate bounded independent work after the minimum necessary exploration. The lead owns integration and final user-visible acceptance.
 
 ## Before dispatch
 
-Read the relevant plan or task breakdown once. Reuse the existing tracker; do not require a separate planning artifact. Map sequential dependencies, independent batches and a suitable concurrency level. Avoid overlapping writes and parallel heavy checks against shared resources.
+Read the relevant plan or task breakdown once. Reuse the existing tracker; do not require a separate planning artifact. Map sequential dependencies and independent batches, then expand delegation as useful independent work emerges. Do not impose an arbitrarily small default or split trivial work to fill capacity. Respect the current host's open/active counting rules and any authorized concurrent allowance shared by the entire root task's descendants, with lower host limits taking precedence. A concurrent allowance does not limit lifetime creation count; stages, context changes and nested delegation do not grant separate allowances or reset native, paid-call or execution-count budgets. Obtain required human approval before exceeding the authorized concurrent limit. Avoid overlapping writes and parallel heavy checks against shared resources.
 
-Give each executor the outcome, non-goals, minimum inputs, write scope, dependencies, workspace/output boundaries and acceptance checks. Reuse already-established decisions and allocate each check to one owner; do not assign equivalent audits to both lead and worker without an independent-review requirement or concrete risk. Use implementer-prompt.md when useful, adapting it to the actual task.
+Give each executor only the outcome, non-goals, minimum inputs, write scope, dependencies, workspace/output boundaries, authorization and acceptance checks needed for its first stage. Do not copy the full chat or unrelated plan sections. Send important changes and next-stage context as they become relevant; reuse the instance while its responsibility and context remain suitable, and use a fresh instance for a new responsibility or contaminated context. Reuse already-established decisions and allocate each check to one owner; do not assign equivalent audits to both lead and worker without an independent-review requirement or concrete risk. Use implementer-prompt.md when useful, adapting it to the actual task.
 
 Include dependencies and necessary isolated preparation in the already-authorized delivery chain. Distinguish owner/platform prohibitions from this stage's actions: a read-only preparation worker can be told "inspect only; do not install in this stage" without inventing a task-wide installation ban. Preserve the source and scope of real prohibitions; do not silently rewrite an existing ban. Missing authority pauses only the affected action, and this guidance grants no paid, credential, production, destructive or new data-transfer permission.
 

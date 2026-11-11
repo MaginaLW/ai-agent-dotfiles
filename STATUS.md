@@ -9,6 +9,13 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Subagent policy candidate.** Codex agreements now specify a whole-root concurrent allowance
+  of 50 descendants with the lead excluded, no lifetime creation-count cap, human approval for
+  a higher task/stage limit, and the host's effective open/active limits. The shared execution skill uses active expansion and
+  staged minimal context without a platform-specific count. The `work` source selection is
+  Claude/Codex/ZCode 8/9/8; `full` is unchanged. Build, secret scan, skill validation and generated
+  parity pass; independent review is pending. These source changes have not been deployed to
+  live roots or home instructions.
 - **Grok routing.** The Codex agreement template routes explicitly requested Grok work through agent-bridge and preserves its current schema, available engines and approval flow; it has no local Grok Build CLI fallback.
 - **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions now require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial; public destinations are limited to repositories explicitly authorized to publish their own content.
 - **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates
@@ -129,7 +136,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   systematic-debugging, tool-scope, verification-before-completion, writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal,
   security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 8/8/8,
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 8/9/8 (source candidate),
   `full` 12/19/12. Unselected unknown live directories are preserved, and Codex `.system` is
   never managed.
 - **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the MCP
