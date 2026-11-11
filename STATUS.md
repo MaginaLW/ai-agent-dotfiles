@@ -9,14 +9,17 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Approval-feedback correction timing.** The source now handles a low score or a report of
-  uncorrected blocking in the current response, before optional recording: complete authorized
-  work after an execution misread, prepare an exact rule diff, or identify the concrete evidence
-  or platform limit. The linked workflows use the same timing. A read-only independent pass
-  covered existing permission, missing live-Apply permission and missing original evidence;
-  these scenarios do not establish real-world interruption reduction. Skill validation, build,
-  secret scan and diff checks pass. The `work` dry run reports 3 updates and 22 unchanged,
-  with no installs, prunes or unknowns. Live deployment is pending owner authorization.
+- **Approval-feedback project grants.** The source immediately proposes project-level standing
+  permission after relevant blocking feedback, with an exact rule diff, reasons, risks, scope,
+  inheritance and revocation. There is no multi-task score threshold. Owner approval is still
+  required to adopt a specific grant; subsequent matching tasks reuse the current formal rule.
+  Existing permission is used directly when no expansion is needed. An independent read-only
+  pass covered immediate proposals, inherited permission, absent formal rules, an unapproved
+  grant and execution misreads; it does not establish real cross-task behavior improvement.
+  Skill validation and build pass; the reviewed `work` plan changes only the three managed
+  approval-feedback copies, with all other selected skills preserved.
+  A concrete standing `work` skills-only deployment clause is prepared for owner review;
+  it has not been adopted, and live deployment remains pending owner authorization.
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
