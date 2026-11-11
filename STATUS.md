@@ -9,6 +9,15 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
+  for config/env/profile/skills; unavailable Apply records explain their fixed reason without
+  changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
+  The README starts with install/update/inspect/recover paths. Skill plans show relative file
+  additions/changes/removals, recorded-to-target environments and prune reasons, reusing the
+  existing comparison. Combined Apply runs both planners before live writes, reuses the skills
+  build/scan and retains config's pre-write scan. Preflight failures write no live/state data;
+  runtime failures remain non-atomic. Recovery guidance and natural-task effect checks are in
+  the usage manual. No live Apply was performed for these script/documentation changes.
 - **Subagent policy.** Codex agreements specify a whole-root concurrent allowance of 50
   descendants with the lead excluded, no lifetime creation-count cap, human approval for a
   higher task/stage limit, and the host's effective open/active limits. The shared execution
@@ -54,7 +63,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   scans and untracked-output checks.
 - **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is
   absent. Enumeration errors now stop the build instead of looking like an empty skill set.
-- **Latest local verification.** The 2026-11-10 config/deploy commit passed the full repository
+- **Latest local verification.** The 2026-11-11 CLI/deployment changes passed the full repository
   validation: PowerShell syntax, pinned gitleaks, build, secret scan, doctor, manifest parity,
   all 14 local test suites, dangerous-file checks and the clean-tree gate. Remote Validate is the
   separate CI gate for the pushed head.

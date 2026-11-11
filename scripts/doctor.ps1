@@ -29,6 +29,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:Counts = [ordered]@{ PASS = 0; WARN = 0; FAIL = 0; INFO = 0 }
+$deployBlockers = [System.Collections.Generic.List[string]]::new()
 
 function Add-DoctorResult([ValidateSet('PASS', 'WARN', 'FAIL', 'INFO')] [string] $Level, [string] $Message) {
     $script:Counts[$Level]++
@@ -67,7 +68,10 @@ Write-Section 'Live skill roots'
 $codexRoots = Get-CodexLiveSkillRoots -HomeRoot $HomeRoot
 $codexPreferred = $codexRoots.Preferred
 $codexFallback = $codexRoots.Fallback
-if ($codexRoots.Ambiguous) { Add-DoctorResult WARN 'Codex live root is ambiguous: both ~/.codex/skills and ~/.agents/skills exist, so deploy-skills refuses Codex.' }
+if ($codexRoots.Ambiguous) {
+    Add-DoctorResult WARN 'Codex live root is ambiguous: both ~/.codex/skills and ~/.agents/skills exist, so deploy-skills refuses Codex.'
+    $deployBlockers.Add('Ambiguous Codex live roots. Inspect both roots and decide which one to use before deployment; do not delete either automatically or change .system.')
+}
 elseif ($codexRoots.FallbackExists) { Add-DoctorResult PASS 'Codex live root: ~/.agents/skills (fallback; ~/.codex/skills is absent).' }
 elseif ($codexRoots.PreferredExists) { Add-DoctorResult PASS 'Codex live root: ~/.codex/skills.' }
 else { Add-DoctorResult WARN 'Codex live root not found; deploy-skills would create ~/.codex/skills.' }
@@ -128,6 +132,11 @@ if ($null -ne $git) {
 
 Write-Section 'Summary'
 Write-Host (($script:Counts.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' ') -ForegroundColor White
+if ($deployBlockers.Count) {
+    Write-Host "Deploy blockers: $($deployBlockers.Count) (deployment cannot proceed)." -ForegroundColor Yellow
+    foreach ($blocker in $deployBlockers) { Write-Host "  $blocker" -ForegroundColor Yellow }
+}
+else { Write-Host 'Deploy blockers: none detected by these checks; review a deployment dry run before Apply.' }
 if ($script:Counts.FAIL -gt 0) { Write-Host 'Doctor result: FAIL' -ForegroundColor Red; exit 1 }
 if ($script:Counts.WARN -gt 0) { Write-Host 'Doctor result: PASS with warnings' -ForegroundColor Yellow }
 else { Write-Host 'Doctor result: PASS' -ForegroundColor Green }

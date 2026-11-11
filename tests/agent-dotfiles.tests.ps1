@@ -43,6 +43,19 @@ Write-Host 'unified CLI: env and config/profile routing'
 $result = Invoke-Entry -Arguments @('help')
 Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
 Assert ($result.Out -match 'sync, env deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
+foreach ($group in @('config', 'env', 'profile', 'skills')) {
+    foreach ($helpArgs in @(@('help', $group), @($group, 'help'))) {
+        $result = Invoke-Entry -Arguments $helpArgs
+        Assert ($result.Code -eq 0 -and $result.Out -match "agent-dotfiles.ps1 $group <action>" -and $result.Out -notmatch 'Invoking script') "group help returns without executing a child: $($helpArgs -join ' ')"
+        if ($group -eq 'config') {
+            Assert ($result.Out -match 'repository -> home' -and $result.Out -match 'home -> repository' -and $result.Out -match 'not git push') 'config help explains directions and distinguishes capture from Git publication'
+        }
+    }
+}
+foreach ($helpArgs in @(@('help', 'unknown'), @('config', 'help', 'extra'))) {
+    $result = Invoke-Entry -Arguments $helpArgs
+    Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') 'invalid help requests remain errors'
+}
 $result = Invoke-Entry -Arguments @()
 Assert ($result.Code -eq 1 -and $result.Out -match 'A command is required') 'missing command remains an error'
 $result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'))
@@ -63,16 +76,32 @@ $listArgs = @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $listState)
 $result = Invoke-Entry -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'Claude: 2 \[alpha, beta\]' -and $result.Out -match 'Codex: 1 \[gamma\]' -and $result.Out -match 'Zcode: 0 \[\(none\)\]') 'environment selections show platform names and counts'
 Assert ($result.Out -match 'Last recorded successful Apply environment: unavailable \(record only; live contents may differ\)' -and -not (Test-Path (Join-Path $listState 'deployed-skills.json'))) 'missing deployment state is unavailable and not created'
+Assert ($result.Out -match 'Record unavailable reason: missing-state') 'missing deploy record has a distinct explanation'
 $listStatePath = Join-Path $listState 'deployed-skills.json'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{invalid'
 $result = Invoke-Entry -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable' -and $result.Out -match 'Claude: 2') 'malformed state leaves environment list available'
+Assert ($result.Out -match 'Record unavailable reason: invalid-json' -and $result.Out -notmatch '\{invalid') 'invalid JSON reports only a fixed reason, not its content'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Claude":[],"Codex":[],"Zcode":[]}'
 $result = Invoke-Entry -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable') 'state without an environment is unavailable'
+Assert ($result.Out -match 'Record unavailable reason: missing-environment') 'missing environment is distinct from a malformed record'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":"alpha","Codex":[],"Zcode":[]}'
 $result = Invoke-Entry -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable') 'structurally invalid state is unavailable'
+Assert ($result.Out -match 'Record unavailable reason: invalid-state') 'invalid selection structure is explained'
+foreach ($badState in @('[]', '{"Environment":123,"Claude":[],"Codex":[],"Zcode":[]}', '{"Environment":"sample\nprivate-value","Claude":[],"Codex":[],"Zcode":[]}')) {
+    Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value $badState
+    $result = Invoke-Entry -Arguments $listArgs
+    Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: invalid-state' -and $result.Out -notmatch 'private-value') 'invalid roots and unsafe environment values are not printed'
+}
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":" ","Claude":[],"Codex":[],"Zcode":[]}'
+$result = Invoke-Entry -Arguments $listArgs
+Assert ($result.Out -match 'Record unavailable reason: missing-environment') 'blank environment has a missing-environment explanation'
+$stateLock = [IO.File]::Open($listStatePath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+try { $result = Invoke-Entry -Arguments $listArgs }
+finally { $stateLock.Dispose() }
+Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: read-error') 'unreadable record does not hide the available environments'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":["alpha"],"Codex":[],"Zcode":[]}'
 $stateHash = (Get-FileHash -LiteralPath $listStatePath).Hash
 $fixtureJsonPath = Join-Path $work 'fixture-environments.json'
@@ -80,6 +109,7 @@ $result = Invoke-Entry -Arguments ($listArgs + @('-JsonPath', $fixtureJsonPath))
 $fixtureJson = Get-Content -Raw -LiteralPath $fixtureJsonPath | ConvertFrom-Json
 $entryFields = @($fixtureJson.Environments[0].PSObject.Properties.Name | Sort-Object) -join ','
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: sample \(record only; live contents may differ\)') 'valid state is identified as a record, not verified live contents'
+Assert ($result.Out -notmatch 'Record unavailable reason:') 'valid records have no error explanation'
 Assert ($fixtureJson.Environments.Count -eq 1 -and $fixtureJson.Environments[0].Name -eq 'sample' -and $entryFields -eq 'Description,Name') 'environment report retains its existing JSON shape'
 Assert ((Get-FileHash -LiteralPath $listStatePath).Hash -eq $stateHash -and @(Get-ChildItem -LiteralPath $fakeHome -Force).Count -eq 1) 'listing preserves deploy state and live fixture home'
 

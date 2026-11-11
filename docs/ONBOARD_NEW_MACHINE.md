@@ -32,6 +32,11 @@ plan leaves them untouched. Codex `.system` is never listed. To keep a local ski
 repository instead, review it and add it to `skills-source/` first
 ([docs/README.md §6](README.md#6-新增-skill-的流程)).
 
+Skill install/update entries also list added, changed and removed relative files. The plan shows
+the recorded previous environment and the target environment; a recorded environment is not a
+live-content check. Prunes distinguish deselection from explicit retirement. Review filenames
+for private information before sharing the output.
+
 ## 3. Apply with the owner's OK
 
 ```powershell
@@ -42,6 +47,11 @@ Run it only after the owner authorizes this Apply for this machine. Old skill di
 backed up first ([docs/README.md §8](README.md#8-备份与恢复)); config-pull backs up files it
 overwrites. Run the dry run again: every selected skill should now be `unchanged`, and config
 should report no pending changes.
+
+Combined Apply runs both planners before live writes. `Preflight failed` leaves live skills,
+config and deploy state untouched, although the skill build may regenerate repository output.
+Preflight does not guarantee write access or prevent concurrent changes. A runtime config failure
+can still leave skills completed; use the [recovery table](README.md#8-备份与恢复) before retrying.
 
 ## 4. Optional: remove skills an older setup left
 
