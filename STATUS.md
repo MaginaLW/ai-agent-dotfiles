@@ -16,10 +16,16 @@ CI run, check `git log` and the latest GitHub Actions run.
   Existing permission is used directly when no expansion is needed. An independent read-only
   pass covered immediate proposals, inherited permission, absent formal rules, an unapproved
   grant and execution misreads; it does not establish real cross-task behavior improvement.
-  Skill validation and build pass; the reviewed `work` plan changes only the three managed
-  approval-feedback copies, with all other selected skills preserved.
-  A concrete standing `work` skills-only deployment clause is prepared for owner review;
-  it has not been adopted, and live deployment remains pending owner authorization.
+  Repeated expansion events also trigger consolidation of related permission files: clarify
+  categories, remove superseded requirements and repair inheritance; new authority still
+  requires owner approval. The owner approved A02 and the exact standing `work` skills-only
+  grant is now in AGENTS.md Skill rules 10, with its task-entry cross-reference clarified.
+  Skill validation, build, secret scan, diff checks and independent review pass. The authorized
+  deployment updated only the three approval-feedback copies; 22 other skills were unchanged.
+  All 12 changed live files match generated output, three backups exist and the post-Apply
+  dry run reports 25 unchanged, with no updates, installs, prunes or unknowns. No config Apply
+  was performed. The project grant is on the current task branch; other checkouts must load
+  the approved rule before relying on it. Future real cross-task improvement remains unmeasured.
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
