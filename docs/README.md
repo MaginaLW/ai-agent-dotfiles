@@ -327,6 +327,9 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 名称和数量；`SchemaVersion` 与 `Name` 是声明性元数据，脚本不校验。
 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
+当前 `work` 为 Claude/Codex/ZCode 8/9/8：shared `subagent-driven-development` 仅在 Codex `work` 选入，
+`full` 三平台均包含。该 Skill 是委派执行约定，不授予新权限；具体额度以 [AGENTS.md](../AGENTS.md)
+和当前宿主限制为准，操作细节见 [Skill](../skills-source/shared/subagent-driven-development/SKILL.md)。
 
 新增受管 skill 时，除放入 `skills-source/` 外，还要在目标环境的各平台 `Skills` 数组中选入；
 `full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。
