@@ -5,9 +5,10 @@
 
 .DESCRIPTION
     Runs scripts/deploy-skills.ps1 and then scripts/config-pull.ps1. Without -Apply
-    both stages are dry runs. With -Apply both stages perform their reviewed writes;
-    the two stages are not atomic, so a config failure leaves completed skill changes
-    in place and reports that boundary.
+    both stages are dry runs. With -Apply, run both dry-run planners before any live
+    writes, then perform each stage's reviewed writes. Preflight reuses the skill
+    build/scan; config retains its own pre-write scan. The stages are not atomic:
+    runtime failures can still leave completed skill changes in place.
 
     Use deploy-skills.ps1 or config-pull.ps1 directly when only one stage is intended.
 #>
@@ -39,13 +40,21 @@ function Invoke-DeployStage {
 }
 
 $skillArgs = @('-Environment', $Environment, '-RepoRoot', $RepoRoot, '-HomeRoot', $HomeRoot, '-StateRoot', $StateRoot)
-if ($Apply) { $skillArgs += '-Apply' }
 if ($Retire.Count -gt 0) { $skillArgs += '-Retire'; $skillArgs += $Retire }
 if ($SkipBuild) { $skillArgs += '-SkipBuild' }
-Invoke-DeployStage -Name 'skills' -ScriptName 'deploy-skills.ps1' -Arguments $skillArgs
-
 $configArgs = @('-RepoRoot', $RepoRoot, '-HomeRoot', $HomeRoot, '-BackupRoot', $BackupRoot)
-if ($Apply) { $configArgs += '-Apply' }
+if ($Apply) {
+    try {
+        Invoke-DeployStage -Name 'skills preflight' -ScriptName 'deploy-skills.ps1' -Arguments $skillArgs
+        Invoke-DeployStage -Name 'config preflight' -ScriptName 'config-pull.ps1' -Arguments $configArgs
+    }
+    catch { throw "Preflight failed; no live skills, config or deploy state written. $($_.Exception.Message)" }
+    Write-Host 'Preflight passed. Runtime writes can still fail; the two stages are not atomic.' -ForegroundColor Cyan
+    $skillArgs += '-Apply'
+    if (-not $SkipBuild) { $skillArgs += '-SkipBuild' }
+    $configArgs += '-Apply'
+}
+Invoke-DeployStage -Name 'skills' -ScriptName 'deploy-skills.ps1' -Arguments $skillArgs
 try {
     Invoke-DeployStage -Name 'config' -ScriptName 'config-pull.ps1' -Arguments $configArgs
 }

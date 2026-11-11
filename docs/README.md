@@ -57,7 +57,10 @@ API；下载结果仍必须通过锁文件中的压缩包与可执行文件 SHA-
 ## 4. 日常同步流程
 
 `deploy.ps1` 是日常联合入口：先按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单（日常用 `work`）部署 skills，
-再运行 `config-pull.ps1`。两阶段不是原子事务；config 阶段失败时已完成的 skill 阶段保持完成，并明确报告边界。
+再运行 `config-pull.ps1`。Apply 前先顺序运行两阶段现有的 dry-run 规划器，规划失败时不写 live skills、
+config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills Apply 中复用，config Apply 仍保留写前扫描。
+预检不验证所有写权限、备份可用性或并发变化，也不冻结计划；两阶段不是原子事务，运行时 config 阶段失败时
+已完成的 skill 阶段保持完成，并明确报告边界。
 `deploy-skills.ps1` 仍是只部署 skills 的底层入口，按同一环境逐目录部署到三个 live 根
 （Zcode 从 Claude 生成物投影）：
 
@@ -72,6 +75,9 @@ API；下载结果仍必须通过锁文件中的压缩包与可执行文件 SHA-
   合法名称可能使一个 skill 的暂存路径与另一个 skill 的旧目录路径重合，所以不能仅凭名称判断其归属。
 - `update` 和 `prune` 前先备份旧目录（§8）。
 - 逐项计划后显示各操作的数量汇总；汇总不能代替逐项审查。
+- 显示上次记录的环境 → 本次目标环境（记录不证明 live 内容）；prune 区分“此前受管、本次未选中”
+  和显式 `-Retire`。install/update 复用现有文件哈希比较，列出相对文件名的 add/change/remove，
+  不打印文件内容或哈希。文件名本身也可能包含私有信息，分享输出前仍需审查。
 - 已部署集合记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`（每台机器各自一份）。
   没有该文件时首次运行不 prune。Apply 先在状态目录写入唯一临时文件，写完后替换正式状态；
   写入或替换失败且正式文件未被外部改动时保留旧状态，但此前成功的 live 操作不会因此回滚。
@@ -196,6 +202,17 @@ skill；先检查残留、备份和目标内容，决定是按以下方式恢复
 
 备份不含 Codex `.system`、未选中且未点名退休的 unknown 目录和 home 配置；整机 home 恢复由平台/所有者自行处理。
 config-pull 的备份见 §11。
+
+按失败阶段选择下一步：
+
+| 看到的结果 | 先核对什么 | 后续操作 |
+|---|---|---|
+| `Preflight failed` | 两个预览中的具体错误；预检可能重建仓库生成物，但尚未写 live 或部署状态 | 修复该阻塞，重新预览后按原授权范围执行 |
+| `Skills stage completed; config stage failed` | skills 当前内容、部署状态、config 错误与其备份 | 不假定整体回滚；释放文件占用等阻塞后，重新预览所需阶段 |
+| `Deployment state update failed` | live 目录与本次备份；此前成功操作可能已生效 | 不依据旧状态认定未部署，核对新的逐项计划 |
+| `.deploying-*` 残留或强制终止 | writer 是否停止、精确残留和备份内容 | 不按名称批量删除；依本节恢复说明逐项判断 |
+
+恢复或重试不能扩大授权范围；原授权要求失败即停或结果未知时保留其边界。
 
 ---
 
@@ -370,6 +387,12 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 - Codex 官方行为是自动检测 skill 变更；若更新未出现，重启 Codex。已在同一上下文中加载的旧
   `SKILL.md` 正文不会因目录刷新而改写，因此 `approval-feedback` 要求版本不明时重新读取当前文件。
   参考 [Build skills](https://learn.chatgpt.com/docs/build-skills)。
+
+技能使用效果沿用 [STATUS.md](../STATUS.md) 的证据层级：部署后先确认客户端发现并读取当前版本，
+再在下一次自然发生的适用任务中观察是否实际采用、是否减少重复确认或排障绕路。
+例如需要沉淀经验时可说“把这次排障中值得复用的经验沉淀到项目文档”，核对是否得到有适用条件、
+有效做法和验证依据的内容。用当前任务记录保留有证据的结果和未测项；不为验证 skill 人造审批、
+启动后台采集或额外付费调用，一次采用也不能证明长期效果提升。
 
 ---
 

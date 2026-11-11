@@ -56,18 +56,22 @@ function Assert-DeploySkillsPlainTree([string] $Path) {
     if ($link) { throw "reparse-point-refused: $($link.FullName)" }
 }
 
-function Get-DeploySkillsTreeHash([string] $Path) {
+function Get-DeploySkillsTreeState([string] $Path) {
     # One walk replaces the separate plain-tree assert plus file-only hash walk: it refuses
     # any reparse point at or below the root (same contract as Assert-DeploySkillsPlainTree)
-    # and returns the content hash of the plain tree, or $null when the path is absent.
-    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    # and retains relative file hashes for the preview without another tree walk.
+    $files = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+    if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ Hash = $null; Files = $files } }
     if ((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "reparse-point-refused: $Path" }
     $rows = @(Get-ChildItem -LiteralPath $Path -Recurse -Force | Sort-Object FullName | ForEach-Object {
         if ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "reparse-point-refused: $($_.FullName)" }
         if ($_.PSIsContainer) { return }
-        [IO.Path]::GetRelativePath($Path, $_.FullName).Replace('\', '/') + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        $relativePath = [IO.Path]::GetRelativePath($Path, $_.FullName).Replace('\', '/')
+        $fileHash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        $files.Add($relativePath, $fileHash)
+        $relativePath + ':' + $fileHash
     })
-    return ($rows -join "`n")
+    return [pscustomobject]@{ Hash = ($rows -join "`n"); Files = $files }
 }
 
 $envPath = Join-Path $RepoRoot "harness-source\envs\$Environment.psd1"
@@ -86,9 +90,13 @@ if (-not $SkipBuild) {
 }
 
 $state = @{}
+$previousEnvironment = 'unavailable'
 if (Test-Path -LiteralPath $statePath) {
     $saved = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json -AsHashtable
     foreach ($platform in $platforms) { $state[$platform] = @($saved[$platform] | Where-Object { $_ }) }
+    if ($saved['Environment'] -is [string] -and -not [string]::IsNullOrWhiteSpace($saved['Environment']) -and $saved['Environment'] -notmatch '[\r\n]') {
+        $previousEnvironment = $saved['Environment']
+    }
 }
 foreach ($platform in $platforms) { if (-not $state.ContainsKey($platform)) { $state[$platform] = @() } }
 
@@ -116,27 +124,46 @@ $plan = foreach ($platform in $platforms) {
         if ((Test-Path -LiteralPath $target) -and -not (Get-Item -LiteralPath $target -Force).PSIsContainer) {
             throw "live-skill-target-not-directory: $target"
         }
-        $sourceHash = Get-DeploySkillsTreeHash $source
+        $sourceState = Get-DeploySkillsTreeState $source
+        $targetState = Get-DeploySkillsTreeState $target
         $action = if ($name -notin $liveNames) { 'install' }
-            elseif ($sourceHash -ceq (Get-DeploySkillsTreeHash $target)) { 'unchanged' }
+            elseif ($sourceState.Hash -ceq $targetState.Hash) { 'unchanged' }
             else { 'update' }
-        [pscustomobject]@{ Platform = $platform; Action = $action; Name = $name; Source = $source; Target = $target }
+        $fileChanges = @(if ($action -in @('install', 'update')) {
+            foreach ($path in @($sourceState.Files.Keys | Sort-Object -CaseSensitive)) {
+                if (-not $targetState.Files.ContainsKey($path)) { [pscustomobject]@{ Action = 'add'; Path = $path } }
+                elseif ($sourceState.Files[$path] -cne $targetState.Files[$path]) { [pscustomobject]@{ Action = 'change'; Path = $path } }
+            }
+            foreach ($path in @($targetState.Files.Keys | Sort-Object -CaseSensitive)) {
+                if (-not $sourceState.Files.ContainsKey($path)) { [pscustomobject]@{ Action = 'remove'; Path = $path } }
+            }
+        })
+        [pscustomobject]@{ Platform = $platform; Action = $action; Name = $name; Source = $source; Target = $target; FileChanges = $fileChanges }
     }
     $prunable = @($state[$platform]) + @($Retire)
     foreach ($name in $liveNames) {
         if ($name -in $selected -or $name -eq '.system' -or $name.StartsWith('.deploying-')) { continue }
         $action = if ($name -in $prunable) { 'prune' } else { 'unknown' }
         if ($action -eq 'prune') { Assert-DeploySkillsPlainTree (Join-Path $liveRoot $name) }
-        [pscustomobject]@{ Platform = $platform; Action = $action; Name = $name; Source = $null; Target = (Join-Path $liveRoot $name) }
+        $reason = if ($name -in $Retire) { 'explicit -Retire' } else { 'previously managed; not selected in target environment' }
+        [pscustomobject]@{ Platform = $platform; Action = $action; Name = $name; Source = $null; Target = (Join-Path $liveRoot $name); Reason = $reason }
     }
 }
 
+Write-Host "Environment: last recorded '$previousEnvironment' -> target '$Environment' (record only; live contents may differ)."
 $plan | Sort-Object Platform, Action, Name | Format-Table Platform, Action, Name -AutoSize | Out-String | Write-Host
 $summary = foreach ($action in 'install', 'update', 'unchanged', 'prune', 'unknown') {
     $count = @($plan | Where-Object { $null -ne $_ -and $_.Action -eq $action }).Count
     "${action}=$count"
 }
 Write-Host ("Plan summary: " + ($summary -join '  '))
+foreach ($step in @($plan | Where-Object { $null -ne $_ -and $_.Action -in @('install', 'update') })) {
+    Write-Host "File changes for $($step.Platform)/$($step.Name):"
+    foreach ($change in $step.FileChanges) { Write-Host ('  {0,-7} {1}' -f $change.Action, $change.Path) }
+}
+foreach ($step in @($plan | Where-Object { $null -ne $_ -and $_.Action -eq 'prune' })) {
+    Write-Host "Prune reason for $($step.Platform)/$($step.Name): $($step.Reason)."
+}
 foreach ($step in @($plan | Where-Object Action -eq 'update')) {
     if ($step.Name -notin @($state[$step.Platform])) {
         Write-Host "Update not recorded in deploy state: $($step.Platform)/$($step.Name). Existing content will be backed up and overwritten; ownership is unknown."

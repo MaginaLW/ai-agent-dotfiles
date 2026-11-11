@@ -51,6 +51,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -Apply
 ```
 
 源码、目标或状态变化时重新预览。Apply 不会停下来等确认；授权规则见 [AGENTS.md](AGENTS.md)。
+联合 Apply 会先完成 skills 和 config 的规划预检，再开始写入；权限、锁或并发变化仍可能导致运行时失败。
 完成后按[部署后复核](docs/README.md#部署后的只读复核)检查：选中 skills 应为 unchanged，受管配置应无待更新项。
 磁盘一致不代表旧聊天已加载新 skill，也不代表实际任务效果已经改善。
 
@@ -72,6 +73,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ## 失败与恢复
 
 先读失败阶段、部署预览和备份提示，再按[手册 §8](docs/README.md#8-备份与恢复)处理。
+`Preflight failed` 表示尚未写 live 或部署状态；`Skills stage completed; config stage failed` 表示 skills 已完成，配置阶段失败。
 联合部署的 skills 与 config 不构成原子事务；发生运行时失败时，已完成的 skills 可能仍然保留。
 unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 skill 或重新 Apply 都应先核对具体对象和授权范围。
 不要手工清理 Codex `.system` 或整目录镜像 live skills。

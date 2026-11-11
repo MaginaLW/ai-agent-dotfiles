@@ -41,4 +41,10 @@ are scoped to this task. No unrelated fixes or changes to AGENTS.md/skill bodies
   task-oriented README. Syntax passed; CLI suite: 61 passed, 0 failed; doctor suite passed.
   Doctor's isolated junction fixture required the normal host context. The pinned scanner
   was absent only in the sandbox's redirected cache; the unchanged host scan passed.
-- Deployment preview and preflight implementation in progress.
+- Stage 2 implemented: file-level preview reuses the existing comparison, environment/prune
+  explanations, and both planners run before combined Apply. Both deployment suites passed,
+  including preflight zero-write failures, runtime locking/recovery, case-only paths,
+  unknown/.system preservation, and one-build/two-scan gate coverage. Read-only review found
+  no blockers. Syntax, build (Claude 12 / Codex 19) and secret scan passed.
+- Documentation includes recovery choices, preflight limitations and natural-task effect checks.
+- Full committed-state repository validation next; no live Apply performed.

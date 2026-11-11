@@ -38,6 +38,28 @@ try {
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir '.claude/skills/alpha'))) 'dry run installs nothing'
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir 'state'))) 'dry run writes no state'
 
+    Write-Host '[file preview explains changes without printing contents]'
+    $previewRepo = Join-Path $work 'preview-repo'
+    $previewHome = Join-Path $work 'preview-home'
+    Set-TestEnvironment $previewRepo @('alpha')
+    foreach ($platform in 'claude', 'codex') {
+        Set-TestFile (Join-Path $previewRepo "$platform/skills/alpha/SKILL.md") 'do-not-print-preview-body new'
+        Set-TestFile (Join-Path $previewRepo "$platform/skills/alpha/references/added.md") 'do-not-print-preview-body added'
+        Set-TestFile (Join-Path $previewRepo "$platform/skills/alpha/Case.md") 'same'
+        Set-TestFile (Join-Path $previewHome ".$platform/skills/alpha/SKILL.md") 'do-not-print-preview-body old'
+        Set-TestFile (Join-Path $previewHome ".$platform/skills/alpha/removed.md") 'do-not-print-preview-body removed'
+        Set-TestFile (Join-Path $previewHome ".$platform/skills/alpha/case.md") 'same'
+    }
+    Set-TestFile (Join-Path $previewHome '.claude/skills/obsolete/SKILL.md') 'old'
+    Set-TestFile (Join-Path $previewHome '.claude/skills/retired/SKILL.md') 'old'
+    Set-TestFile (Join-Path $previewHome 'state/deployed-skills.json') '{"Environment":"full","Claude":["alpha","obsolete"],"Codex":["alpha"],"Zcode":[]}'
+    $r = Invoke-Deploy $previewRepo $previewHome @('-Retire', 'retired')
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'change\s+SKILL.md' -and $r.Out -match 'add\s+references/added.md' -and $r.Out -match 'remove\s+removed.md') "preview identifies changed, added and removed relative files ($($r.Out))"
+    Assert-TestCondition ($r.Out -cmatch 'add\s+Case.md' -and $r.Out -cmatch 'remove\s+case.md') 'preview retains case-only path changes'
+    Assert-TestCondition ($r.Out -notmatch 'do-not-print-preview-body' -and $r.Out -notmatch [regex]::Escape($previewHome)) 'preview omits file bodies and full home paths'
+    Assert-TestCondition ($r.Out -match "last recorded 'full' -> target 'test'" -and $r.Out -match 'Prune reason for Claude/obsolete: previously managed' -and $r.Out -match 'Prune reason for Claude/retired: explicit -Retire') 'environment transition and both prune causes are explicit'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $previewHome '.claude/skills/alpha/SKILL.md')) -eq 'do-not-print-preview-body old' -and (Test-Path (Join-Path $previewHome '.claude/skills/obsolete'))) 'detailed preview remains read-only'
+
     Write-Host '[plan summary counts mixed and empty plans]'
     $summaryHome = Join-Path $work 'summary-home'
     foreach ($platform in 'claude', 'codex') {
