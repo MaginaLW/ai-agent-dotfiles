@@ -94,4 +94,4 @@ unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 sk
 - [使用手册](docs/README.md)：部署、恢复、配置、项目 profile、环境、CLI 与维护检查。
 - [新电脑接入](docs/ONBOARD_NEW_MACHINE.md)、[ZCode 使用说明](docs/ZCODE.md)。
 - [当前状态与未完成事项](STATUS.md)、[进行中任务](status/active/)、[历史索引](docs/HISTORY.md)。
-- [Agent 工作规则](AGENTS.md)：源文件、权限、部署、检查与提交边界；`CLAUDE.md` 导入此文件。
+- [Agent 工作规则](AGENTS.md)：源文件、权限、部署、检查与提交边界。

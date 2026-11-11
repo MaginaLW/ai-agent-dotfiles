@@ -4,9 +4,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # Repository policy suite. It checks functional repository guard rails, not documentation
-# wording: the CLAUDE.md import of AGENTS.md, the per-platform manifests, the generated-root
-# boundaries (ignore rules, build defaults, scan exclusions), the Claude Code harness permission
-# rules, and the absence of retired platforms in scripts/ and manifests/.
+# wording: retired local entry points, per-platform manifests, generated-root boundaries
+# (ignore rules, build defaults, scan exclusions), and retired platform exclusions in
+# scripts/ and manifests/.
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
@@ -28,14 +28,12 @@ function Get-LiteralOccurrenceCount {
 }
 
 # -----------------------------------------------------------------------------
-# CLAUDE.md import and manifests
+# Retired local entry points and manifests
 # -----------------------------------------------------------------------------
-Write-Host '[CLAUDE.md import and manifests]'
-# Claude Code reads AGENTS.md only through this import, and it does not expand imports inside
-# code fences, so the import must sit on its own line outside one.
-$claudeText = Read-RepoText 'CLAUDE.md'
-$claudeOutsideFences = $claudeText -replace '(?ms)^(```|~~~).*?^\1[ \t]*\r?$', ''
-Assert-TestCondition ($claudeOutsideFences -cmatch '(?m)^@AGENTS\.md[ \t]*\r?$') 'CLAUDE.md imports AGENTS.md on its own line outside code fences'
+Write-Host '[Retired local entry points and manifests]'
+foreach ($entry in 'CLAUDE.md', '.claude/settings.json') {
+    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $entry))) "retired local Claude entry $entry is absent"
+}
 
 foreach ($manifest in @('manifests/managed-skills.claude.txt', 'manifests/managed-skills.codex.txt')) {
     Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot $manifest) -PathType Leaf) "the per-platform manifest $manifest exists"
@@ -161,24 +159,11 @@ $skillsCommonText = Read-RepoText 'scripts/skills-common.ps1'
 Assert-TestCondition (-not $skillsCommonText.Contains('-ErrorAction SilentlyContinue')) 'skill discovery does not suppress enumeration errors'
 
 # -----------------------------------------------------------------------------
-# Claude Code harness guard rails
+# Required local checks
 # -----------------------------------------------------------------------------
-Write-Host '[Claude Code harness guard rails]'
-$settings = (Read-RepoText '.claude/settings.json') | ConvertFrom-Json
-$deny = @($settings.permissions.deny)
-$allow = @($settings.permissions.allow)
-foreach ($rule in @('Edit(claude/skills/**)', 'Write(claude/skills/**)', 'Edit(codex/skills/**)', 'Write(codex/skills/**)', 'Edit(reasonix/skills/**)', 'Write(reasonix/skills/**)', 'Edit(~/.codex/skills/.system/**)', 'Write(~/.codex/skills/.system/**)', 'Edit(**/.codex/skills/.system/**)', 'Write(**/.codex/skills/.system/**)', 'Bash(robocopy *)', 'PowerShell(robocopy *)')) {
-    Assert-TestCondition ($deny -ccontains $rule) ".claude/settings.json denies $rule"
-}
-$expectedAllow = @(
-    'PowerShell(pwsh -NoProfile -File scripts/build-skills.ps1*)'
-    'PowerShell(pwsh -NoProfile -File scripts/scan-secrets.ps1*)'
-    'Bash(pwsh -NoProfile -File scripts/build-skills.ps1*)'
-    'Bash(pwsh -NoProfile -File scripts/scan-secrets.ps1*)'
-)
-Assert-TestCondition ((@(Compare-Object @($allow | Sort-Object) @($expectedAllow | Sort-Object)).Count -eq 0)) '.claude/settings.json allow-lists exactly the build-skills and scan-secrets entries and nothing else'
+Write-Host '[Required local checks]'
 foreach ($scriptName in @('build-skills.ps1', 'scan-secrets.ps1')) {
-    Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot "scripts/$scriptName") -PathType Leaf) "allow-listed scripts/$scriptName exists"
+    Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot "scripts/$scriptName") -PathType Leaf) "required scripts/$scriptName exists"
 }
 Assert-TestCondition ((Get-LiteralOccurrenceCount -Text (Read-RepoText 'bootstrap.ps1') -Needle '-Apply') -eq 0) 'bootstrap.ps1 carries no -Apply usage'
 

@@ -35,7 +35,7 @@
 |---|---|
 | `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印联合 deploy dry-run 命令；不写 live |
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
-| `.claude/settings.json` | 项目级 harness 护栏，见 [CLAUDE.md](../CLAUDE.md) |
+| `claude/settings.json`、`claude/CLAUDE.md` | 仅供显式旧平台配置同步的分发模板；本仓 Claude 开发入口已退役 |
 | `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`） |
 | `claude/skills/`、`codex/skills/` | 生成物，Git-ignored，勿手改 |
 | `manifests/managed-skills.<platform>.txt` | 每平台受管名单，由 build 刷新，勿手改 |

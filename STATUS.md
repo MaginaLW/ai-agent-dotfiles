@@ -12,12 +12,15 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Claude retirement.** The source selection for `work` is Claude/Codex/ZCode 0/9/8.
   Config status/pull/push and combined deployment default to Codex only. The shared
   `base`/`coding` and this repository profile target Codex without automatic ClaudeSettings.
-  The Claude generated skills remain the ZCode projection source; legacy templates and
+  Root `CLAUDE.md` and `.claude/settings.json` developer entries are removed. The Claude
+  generated skills remain the ZCode projection source; distributable templates and
   explicit Claude tools stay compatible. The old full-environment exception is retired,
   and the standing `work` grant covers Codex/ZCode only. This source change does not
   remove live Claude state or perform a live deployment.
-  Local syntax, build, pinned secret scan and all 14 isolated test suites pass, including
-  the actual work-selection deployment fixture and Codex-only profile inheritance.
+  The first retirement candidate passed local syntax, build, pinned secret scan and all
+  14 isolated suites, including the work-selection fixture and Codex-only inheritance.
+  After local entry removal, syntax, repository-policy, doctor and pinned secret-scan
+  checks pass. The final exact-head Validate run remains the merge gate.
   Default config dry-run is Codex-only and in sync; no live Apply was performed.
 
 - **Proactive Git approval requests.** The Codex global agreement source explicitly requests

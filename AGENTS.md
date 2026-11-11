@@ -1,9 +1,9 @@
 # AGENTS.md
 
 Project instructions for coding agents working in this repository, including Codex and ZCode.
-Claude Code loads this file through `CLAUDE.md`. Codex and ZCode do not expand linked documents,
-so every rule an agent must follow is written here. Links only point to detail for the area you
-are changing.
+Codex and ZCode do not expand linked documents, so every rule an agent must follow is written
+here. Links only point to detail for the area you are changing. Local Claude developer entry
+files are retired; distributable Claude compatibility templates remain under `claude/`.
 
 ## Start of a task
 
@@ -190,5 +190,5 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
   for a flake; if it fails again, fix the test or its fixture. Never delete or weaken a suite,
   gate, timeout budget or the secret scan to get a green run.
 - **Docs are not pinned.** No test checks documentation wording; keep the docs accurate by
-  review. `tests/repository-policy.tests.ps1` checks working guard rails only (`CLAUDE.md`
-  imports `AGENTS.md`, ignore rules, scan exclusions, `.claude/settings.json` denies).
+  review. `tests/repository-policy.tests.ps1` checks working guard rails only (retired local
+  entry points, manifests, generated-root boundaries, ignore rules and scan exclusions).
