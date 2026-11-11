@@ -9,6 +9,14 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Approval-feedback correction timing.** The source now handles a low score or a report of
+  uncorrected blocking in the current response, before optional recording: complete authorized
+  work after an execution misread, prepare an exact rule diff, or identify the concrete evidence
+  or platform limit. The linked workflows use the same timing. A read-only independent pass
+  covered existing permission, missing live-Apply permission and missing original evidence;
+  these scenarios do not establish real-world interruption reduction. Skill validation, build,
+  secret scan and diff checks pass. The `work` dry run reports 3 updates and 22 unchanged,
+  with no installs, prunes or unknowns. Live deployment is pending owner authorization.
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
