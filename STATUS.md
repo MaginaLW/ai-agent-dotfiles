@@ -15,13 +15,16 @@ CI run, check `git log` and the latest GitHub Actions run.
   Root `CLAUDE.md` and `.claude/settings.json` developer entries are removed. The Claude
   generated skills remain the ZCode projection source; distributable templates and
   explicit Claude tools stay compatible. The old full-environment exception is retired,
-  and the standing `work` grant covers Codex/ZCode only. This source change does not
-  remove live Claude state or perform a live deployment.
+  and the standing `work` grant covers Codex/ZCode only. This source change did not
+  remove live Claude state or perform a live deployment. A post-merge read-only check
+  found the live Claude root absent on the current machine; the `work` dry run reported
+  17 unchanged skills, no prunes and no config changes.
   The first retirement candidate passed local syntax, build, pinned secret scan and all
   14 isolated suites, including the work-selection fixture and Codex-only inheritance.
   After local entry removal, syntax, repository-policy, doctor and pinned secret-scan
-  checks pass. The final exact-head Validate run remains the merge gate.
-  Default config dry-run is Codex-only and in sync; no live Apply was performed.
+  checks pass. PR #5 merged to `main` at `50574f6`; Validate passed for both the exact
+  PR head and the merged main commit. Default config dry-run is Codex-only and in sync;
+  no live Apply was performed.
 
 - **Proactive Git approval requests.** The Codex global agreement source explicitly requests
   missing commit, push or merge permission once the diff and checks are reviewable; it reuses
