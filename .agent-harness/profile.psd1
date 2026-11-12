@@ -1,7 +1,7 @@
 @{
     SchemaVersion = 1
     Name = 'ai-agent-dotfiles'
-    TargetPlatforms = @('Claude', 'Codex')
+    TargetPlatforms = @('Codex')
 
     Extends = @('coding')
 }

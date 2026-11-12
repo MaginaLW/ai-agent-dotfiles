@@ -10,6 +10,8 @@
     build/scan; config retains its own pre-write scan. The stages are not atomic:
     runtime failures can still leave completed skill changes in place.
 
+    Config uses config-pull's Codex-only default; legacy Claude config requires
+    an explicit config-pull.ps1 -Platform Claude invocation and matching authorization.
     Use deploy-skills.ps1 or config-pull.ps1 directly when only one stage is intended.
 #>
 [CmdletBinding()]

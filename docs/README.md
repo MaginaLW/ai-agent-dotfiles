@@ -35,7 +35,7 @@
 |---|---|
 | `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印联合 deploy dry-run 命令；不写 live |
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
-| `.claude/settings.json` | 项目级 harness 护栏，见 [CLAUDE.md](../CLAUDE.md) |
+| `claude/settings.json`、`claude/CLAUDE.md` | 仅供显式旧平台配置同步的分发模板；本仓 Claude 开发入口已退役 |
 | `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`） |
 | `claude/skills/`、`codex/skills/` | 生成物，Git-ignored，勿手改 |
 | `manifests/managed-skills.<platform>.txt` | 每平台受管名单，由 build 刷新，勿手改 |
@@ -57,7 +57,7 @@ API；下载结果仍必须通过锁文件中的压缩包与可执行文件 SHA-
 ## 4. 日常同步流程
 
 `deploy.ps1` 是日常联合入口：先按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单（日常用 `work`）部署 skills，
-再运行 `config-pull.ps1`。Apply 前先顺序运行两阶段现有的 dry-run 规划器，规划失败时不写 live skills、
+再按 Codex-only 默认运行 `config-pull.ps1`；不会恢复 Claude live 配置。Apply 前先顺序运行两阶段现有的 dry-run 规划器，规划失败时不写 live skills、
 config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills Apply 中复用，config Apply 仍保留写前扫描。
 预检不验证所有写权限、备份可用性或并发变化，也不冻结计划；两阶段不是原子事务，运行时 config 阶段失败时
 已完成的 skill 阶段保持完成，并明确报告边界。
@@ -94,9 +94,8 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work -Apply
 `-Apply` 会写真实 home：先审查 dry-run 的每一行，复用覆盖实际范围的有效所有者授权；缺少授权时才询问。
 `AGENTS.md` Skill rules 10 的已批准持续授权覆盖 `work` 环境已选技能的更新；满足该节条件时，
 后续任务可用 `deploy-skills.ps1` 完成部署和复核，无需再次申请同范围许可，不覆盖 combined/config Apply。
-Skill rules 9 另有 `approval-feedback` / `full` 环境窄例外：必须满足该节的 reviewed source、
-build/scan/diff、仅三个 `update`、其他选中目录 `unchanged`、无 install/prune/unknown/残留、只用
-`deploy-skills.ps1` 且一次 Apply 不重试；不得用于 `deploy.ps1`、config、其他 skill/环境/客户端。
+旧 Skill rules 9 的三平台 full 窄例外已随 Claude 退役，不再提供执行授权。
+当前 work 持续授权仅覆盖 Codex/ZCode；选择变化、首次退役/prune、config Apply 仍按实际批准范围执行。
 统一 CLI 的 `sync` 与 `env deploy <name>` 转发到 `deploy.ps1`；直接运行 `deploy-skills.ps1` 只处理
 skills（§14）。仓库不安装 Git hooks，`git pull` 不会自动部署。
 dry-run 和 Apply 各自重新计算计划；审核后如果源、live 目标或部署状态变化，重新 dry-run 并审核；
@@ -254,6 +253,9 @@ profile 写失败时，将当前尝试写入的文件也纳入 best-effort rollb
 
 ## 11. Harness 配置同步（config-sync）
 
+配置 status/pull/push 默认仅处理 Codex；只有显式 `-Platform Claude` 才会读写旧 Claude 配置。
+组合部署沿用 Codex-only 默认。
+
 除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与
 ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥、证书、备份与临时文件类）。
 
@@ -355,7 +357,9 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 名称和数量；`SchemaVersion` 与 `Name` 是声明性元数据，脚本不校验。
 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
-当前 `work` 为 Claude/Codex/ZCode 8/9/8：shared `subagent-driven-development` 仅在 Codex `work` 选入，
+`work.Claude` 为空；`claude/skills/` 仍为 ZCode 提供构建投影，保留共享源和生成链。
+共享 `base`/`coding` 及本仓 profile 默认仅 Codex，不再自动选择 ClaudeSettings；旧 Claude 组件仍可显式选择。
+当前 `work` 为 Claude/Codex/ZCode 0/9/8：shared `subagent-driven-development` 仅在 Codex `work` 选入，
 `full` 三平台均包含。该 Skill 是委派执行约定，不授予新权限；具体额度以 [AGENTS.md](../AGENTS.md)
 和当前宿主限制为准，操作细节见 [Skill](../skills-source/shared/subagent-driven-development/SKILL.md)。
 
@@ -363,7 +367,7 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 `full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。
 构建及部署准备的当前结果见 [STATUS.md](../STATUS.md)。
 
-`approval-feedback` 已选入三平台 `work/full`，以全局 Skill 发现方式使用。它在准备执行确认、
+`approval-feedback` 已选入 Codex/ZCode `work`；兼容 `full` 仍包含三平台，以全局 Skill 发现方式使用。它在准备执行确认、
 收到评分反馈或定位重复审批旧规则时介入，先复用已有授权；评分只评价打断价值，不授予权限。
 收到 0／1 分或“纠错未落实”的反馈时，在当前响应中处理具体来源：纠正执行误读并完成已授权工作，
 或立即提出项目级持续扩权：给出精确规则差异、原因、风险、继承范围和撤销方式，由用户一次审批规则写入
@@ -379,7 +383,7 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 | 已批准范围内的写入、验证及所列执行 | 连续完成；后续任务读取有效正式条款后继承，不为同一权限重复审批 |
 
 相关变更真正超出授权、用户撤销或平台强制审批时，才补相应决定；纯整理不以“权限修正”为名扩大权限。
-本次 `work` 部署的三平台读回及 25 项不变结果见 [STATUS.md](../STATUS.md)，这不代表未来会话效果已验证。
+退役前 `work` 部署的三平台读回及 25 项不变历史结果见 [STATUS.md](../STATUS.md)，这不代表未来会话效果已验证。
 详细交互、私有台账、失败处理和效果核验以
 [Skill](../skills-source/shared/approval-feedback/SKILL.md) 及其 `references/` 为准；
 安装 Skill 与新增免重复确认规则分别授权。部署仍先审阅实际 dry-run，再按覆盖实际范围的有效授权 Apply；

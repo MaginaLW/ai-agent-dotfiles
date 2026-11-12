@@ -1,7 +1,7 @@
 @{
     SchemaVersion = 1
     Name = 'base'
-    TargetPlatforms = @('Claude', 'Codex')
+    TargetPlatforms = @('Codex')
 
     Extends = @()
 
@@ -9,9 +9,6 @@
         Rules = @(
             'safe-file-edits',
             'no-generated-output-edits'
-        )
-        ClaudeSettings = @(
-            'project-guards'
         )
     }
 }

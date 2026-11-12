@@ -97,6 +97,17 @@ $exceptionType = ''
 $failureScript = ''
 $failureLine = 0
 try {
+    $defaultRepo = New-TempRepo 'codex-default-repo'
+    $defaultHome = Join-Path $work 'codex-default-home'
+    Set-File (Join-Path $defaultRepo 'claude/settings.json') '{"legacy":true}'
+    Set-File (Join-Path $defaultRepo 'codex/AGENTS.md') '# Managed defaults'
+    Set-File (Join-Path $defaultHome '.claude/settings.json') '{"personal":true}'
+    Set-File (Join-Path $defaultHome '.codex/AGENTS.md') '# Managed defaults'
+    foreach ($configScript in @($statusScript, $pullScript, $pushScript)) {
+        $defaultRun = Invoke-Script -Script $configScript -ScriptArgs @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome)
+        Assert ($defaultRun.Code -eq 0 -and $defaultRun.Out -match 'Codex' -and $defaultRun.Out -notmatch 'Claude') "config defaults to Codex without reading legacy Claude fields: $(Split-Path -Leaf $configScript)"
+    }
+
     # ===========================================================================
     Write-Host "`n[config-status]" -ForegroundColor Cyan
     # ===========================================================================

@@ -57,7 +57,7 @@ elseif ((& $git.Source -C $RepoRoot rev-parse --is-inside-work-tree 2>$null) -ne
 else { Add-DoctorResult PASS 'Git is available and RepoRoot is a Git worktree.' }
 
 Write-Section 'Repository structure'
-foreach ($file in 'AGENTS.md', 'CLAUDE.md', 'STATUS.md') { Test-RequiredPath $file Leaf }
+foreach ($file in 'AGENTS.md', 'STATUS.md') { Test-RequiredPath $file Leaf }
 foreach ($dir in 'docs', 'scripts', 'skills-source', 'status\active') { Test-RequiredPath $dir Container }
 
 Write-Section 'Required scripts'

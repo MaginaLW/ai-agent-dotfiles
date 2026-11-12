@@ -1,7 +1,10 @@
 # New Windows Machine Onboarding
 
-Set up one Windows machine so its Claude, Codex and ZCode live skill directories and managed
-config match this repository. Use PowerShell 7+. Start only after the owner names the machine.
+Set up one Windows machine for the daily Codex/ZCode environment and Codex managed config.
+The work selection is Claude/Codex/ZCode 0/9/8. Keep the generated Claude skills as the ZCode
+projection source; they need no Claude account, CLI or live directory. Legacy Claude config
+requires an explicit config-pull.ps1 -Platform Claude invocation and matching authorization.
+Use PowerShell 7+. Start only after the owner names the machine.
 
 ## 1. Clone and bootstrap
 
@@ -23,9 +26,9 @@ embedded credentials, and fix any doctor FAIL before going on.
 pwsh -NoProfile -File .\scripts\deploy.ps1 -Environment work
 ```
 
-Check every line from both stages. `install` and `update` are the selected skills; the config stage
-shows whether Claude `settings.json` needs a merge and whether the Codex `AGENTS.md` managed block
-needs to be added or updated. `unknown` lines are unselected
+Check every line from both stages. `install` and `update` are the selected Codex/ZCode skills;
+the config stage only shows whether the Codex `AGENTS.md` managed block needs to be added or
+updated. It does not recreate Claude live config. `unknown` lines are unselected
 live directories absent from deploy state and `-Retire`; they may be local skills, come from
 another tool or an older setup, or have been deployed here before state was lost. The current
 plan leaves them untouched. Codex `.system` is never listed. To keep a local skill in the

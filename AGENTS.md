@@ -1,9 +1,9 @@
 # AGENTS.md
 
 Project instructions for coding agents working in this repository, including Codex and ZCode.
-Claude Code loads this file through `CLAUDE.md`. Codex and ZCode do not expand linked documents,
-so every rule an agent must follow is written here. Links only point to detail for the area you
-are changing.
+Codex and ZCode do not expand linked documents, so every rule an agent must follow is written
+here. Links only point to detail for the area you are changing. Local Claude developer entry
+files are retired; distributable Claude compatibility templates remain under `claude/`.
 
 ## Start of a task
 
@@ -97,39 +97,29 @@ need them.
    -Path <dir> -Name <name> -Type <type>` (dry run first, then `-Apply`, which builds and scans).
    Review the source first: no secrets, tokens, machine-private paths, caches or runtime state.
 6. **Environments.** `harness-source/envs/<name>.psd1` selects the skills per platform; `work`
-   is the daily set. Change a selection in a reviewed commit, not for one task.
+   is the daily Codex/ZCode set with an empty Claude selection. Keep the Claude build
+   output as the ZCode projection source. Change a selection in a reviewed commit, not for one task.
 7. **Fresh clone.** Run `bootstrap.ps1` once on a fresh clone. It installs and verifies the
    pinned gitleaks, builds the skills and prints the combined deploy dry-run command. It never
    changes a live root or config, and the repository installs no Git hooks.
 8. **Config and profiles.**
    - `config-pull` and `config-push` run as dry runs unless `-Apply` is given.
-   - `config-pull -Apply` writes home config in `~/.claude` and `~/.codex`. Claude
+   - `config-pull -Apply` defaults to Codex home config in `~/.codex`; Claude requires
+     explicit `-Platform Claude` and separate authorization. Claude
      `settings.json` is merged object-by-object and Codex `AGENTS.md` updates only its marked
      block; other files are copied. Review the dry-run and confirm the managed changes.
      It needs explicit owner authorization covering this config deployment; an existing
      finite task grant can satisfy it without another question.
    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
      It never writes a home directory or a live root.
-9. **Approval-feedback full-environment exception.** When the current client is Codex, the owner's
-   current task explicitly authorizes updating `approval-feedback` in the `full` environment, and
-   the exact source diff and full dry-run were presented for that task, one skills-only
-   `deploy-skills.ps1 -Environment full -Apply` may run without a separate per-run confirmation
-   only if all of the following hold: the reviewed source is the current checkout and no
-   unrelated tracked changes exist; build, secret scan and `git diff --check` pass; the dry run
-   shows exactly the three `approval-feedback` directories as `update`, every other selected
-   directory as `unchanged`, and no install, prune, unknown, staging residue, reparse point or
-   concurrent writer. Use only `deploy-skills.ps1`, never the combined `deploy.ps1`/`config-pull`;
-   make one Apply attempt with no retry. Stop before writing if any condition changes, and stop
-   without retry if the result is unknown. After Apply, read back the three live directories and
-   run the same dry run again; report the counts and readback in the task. This exception does not
-   cover config, global instructions, other skills, environments or clients, commits, pushes,
-   merges or a second Apply. It is limited to the reviewed source revision, can be revoked by the
-   owner, and pauses on any 2/3 score, scope change or unexpected result.
+9. **Retired full-environment exception.** The former approval-feedback three-platform
+   exception is retired with Claude. It grants no new full-environment or Claude live
+   writes. Use the current `work` grant below for matching Codex/ZCode updates.
 
 10. **Owner-approved standing skills deployment grant.** Once the owner explicitly approves
     this clause, an authorized task that changes selected skill sources may complete the
     skills-only deployment to the last-recorded `work` environment without another owner
-    confirmation. The grant covers Claude, Codex and ZCode and subsequent tasks or chats in
+    confirmation. The grant covers Codex and ZCode and subsequent tasks or chats in
     this project that read this current rule, until the owner revokes or narrows it.
     - Review the exact source diff; build, secret scan and diff checks must pass. Run and review
       the complete dry run for each changed version. The selection must be unchanged, and every
@@ -142,7 +132,7 @@ need them.
       verified pre-Apply backups of directories actually changed by this deployment; confirm
       backup provenance and current state before restoring, never touch `.system` or unrelated
       directories. Stop for a concrete decision when recovery falls outside this scope.
-    - This permits writes to the three selected live roots and the deployment script's normal
+    - This permits writes to the two selected live roots and the deployment script's normal
       backups/state. Risks include changed agent instructions and automated replacement of live
       skill files. Preserve backups; rollback is limited to the verified task-owned scope above.
       It does not authorize environment/selection changes, installs, retirement or pruning,
@@ -200,5 +190,5 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
   for a flake; if it fails again, fix the test or its fixture. Never delete or weaken a suite,
   gate, timeout budget or the secret scan to get a green run.
 - **Docs are not pinned.** No test checks documentation wording; keep the docs accurate by
-  review. `tests/repository-policy.tests.ps1` checks working guard rails only (`CLAUDE.md`
-  imports `AGENTS.md`, ignore rules, scan exclusions, `.claude/settings.json` denies).
+  review. `tests/repository-policy.tests.ps1` checks working guard rails only (retired local
+  entry points, manifests, generated-root boundaries, ignore rules and scan exclusions).
