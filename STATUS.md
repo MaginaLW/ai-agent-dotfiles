@@ -33,9 +33,9 @@ CI run, check `git log` and the latest GitHub Actions run.
   personal text outside the block is unchanged. The owner approved A04 for this change's
   commit/push and sequential integration of PRs #3 and #4 after current CI passes; both PRs
   are merged.
-- **Repository branches.** Only `main` remains locally and on `origin`. The task branches for
+- **Repository branches.** The subagent-dispatch task branch is retained locally and on `origin`; remote deletion is not authorized. Earlier task branches for
   PRs #3, #4 and #5 were deleted after their merge state and full-tip ancestry were verified;
-  no feature branch remains.
+  their cleanup does not include the current task branch.
 - **Approval-feedback project grants.** The source immediately proposes project-level standing
   permission after relevant blocking feedback, with an exact rule diff, reasons, risks, scope,
   inheritance and revocation. There is no multi-task score threshold. Owner approval is still
@@ -69,16 +69,20 @@ CI run, check `git log` and the latest GitHub Actions run.
   the usage manual. No live Apply was performed for these script/documentation changes.
 - **Subagent policy.** Codex agreements retain the whole-root concurrent allowance of 50
   descendants with the lead excluded, the host's lower open/active limits and existing budgets.
-  The current candidate dispatches ready substantive work promptly, releases independent parts
-  when inputs are incomplete, checks for follow-on work at dependency/result/wait boundaries,
-  and contracts affected expansion at integration bottlenecks. Implementation and necessary
-  tests normally share an owner; independent review stays independent when required.
-  The shared skill has matching platform-neutral guidance. Build, pinned secret scan,
-  diff checks and independent review pass. The unchanged `work` selection previews only one
-  Codex skill update and 16 unchanged skills, with no installs, prunes or unknowns; config
-  previews only the Codex managed block. Source integration and live deployment are pending;
-  global-block Apply and merge need explicit owner approval. No model acceptance was run and
-  no speedup or existing-chat hot reload is established.
+  Ready substantive work is dispatched promptly; independent parts proceed when other inputs
+  are missing, and dependency/result/wait boundaries trigger follow-on dispatch. Integration
+  bottlenecks contract only affected expansion. Implementation and necessary tests normally
+  share an owner, with independent review kept independent when required. The shared skill
+  has matching platform-neutral guidance; the unchanged `work` selection uses it only on Codex.
+  Build, pinned secret scan, diff checks and independent review passed. PR #6 integrated
+  source `fc60c19` with merge commit `15b2a5e` after Validate `43228587969` passed.
+  Owner grant A01 covered the public PR, normal merge and both sequential Codex deployments.
+  The skills Apply updated only the target skill; its source, generated and live files match.
+  The post-Apply preview reports 17 unchanged, no updates/installs/prunes/unknowns. Config
+  status and pull readback show the managed block in sync; personal config and outside-block
+  text are unchanged, and both task-owned backups match their pre-Apply content. The current
+  chat received refreshed global instructions; loading in other existing chats and real-task
+  speedup remain unverified. No extra model acceptance was run and no standing grant changed.
 - **Grok routing.** The Codex agreement template routes explicitly requested Grok work through agent-bridge and preserves its current schema, available engines and approval flow; it has no local Grok Build CLI fallback.
 - **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions now require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial; public destinations are limited to repositories explicitly authorized to publish their own content.
 - **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates
