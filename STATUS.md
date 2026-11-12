@@ -67,16 +67,18 @@ CI run, check `git log` and the latest GitHub Actions run.
   build/scan and retains config's pre-write scan. Preflight failures write no live/state data;
   runtime failures remain non-atomic. Recovery guidance and natural-task effect checks are in
   the usage manual. No live Apply was performed for these script/documentation changes.
-- **Subagent policy.** Codex agreements specify a whole-root concurrent allowance of 50
-  descendants with the lead excluded, no lifetime creation-count cap, human approval for a
-  higher task/stage limit, and the host's effective open/active limits. The shared execution
-  skill uses active expansion and staged minimal context without a platform-specific count.
-  The previous `work` deployment used Claude/Codex/ZCode 8/9/8; `full` is unchanged. Build, secret scan,
-  skill validation, generated parity and independent review pass. The source is integrated into
-  `main` at `a104f9f`; the Validate run `43027745386` completed successfully. The live `work`
-  deployment and the Codex managed-block config update were verified (post-deploy dry run:
-  25 unchanged; config in sync). `README.md` and the usage manual document the asymmetric
-  Codex `work` selection and the skill's authority boundary.
+- **Subagent policy.** Codex agreements retain the whole-root concurrent allowance of 50
+  descendants with the lead excluded, the host's lower open/active limits and existing budgets.
+  The current candidate dispatches ready substantive work promptly, releases independent parts
+  when inputs are incomplete, checks for follow-on work at dependency/result/wait boundaries,
+  and contracts affected expansion at integration bottlenecks. Implementation and necessary
+  tests normally share an owner; independent review stays independent when required.
+  The shared skill has matching platform-neutral guidance. Build, pinned secret scan,
+  diff checks and independent review pass. The unchanged `work` selection previews only one
+  Codex skill update and 16 unchanged skills, with no installs, prunes or unknowns; config
+  previews only the Codex managed block. Source integration and live deployment are pending;
+  global-block Apply and merge need explicit owner approval. No model acceptance was run and
+  no speedup or existing-chat hot reload is established.
 - **Grok routing.** The Codex agreement template routes explicitly requested Grok work through agent-bridge and preserves its current schema, available engines and approval flow; it has no local Grok Build CLI fallback.
 - **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions now require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial; public destinations are limited to repositories explicitly authorized to publish their own content.
 - **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates
