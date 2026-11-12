@@ -31,8 +31,11 @@ CI run, check `git log` and the latest GitHub Actions run.
   explicit existing grants instead of ending with an unexplained uncommitted/unmerged result.
   The requested Codex-only managed-block deployment completed, its readback is in sync, and
   personal text outside the block is unchanged. The owner approved A04 for this change's
-  commit/push and sequential integration of PRs #3 and #4 after current CI passes; verify
-  their actual merge state and current main ref rather than inferring it from this grant.
+  commit/push and sequential integration of PRs #3 and #4 after current CI passes; both PRs
+  are merged.
+- **Repository branches.** Only `main` remains locally and on `origin`. The task branches for
+  PRs #3, #4 and #5 were deleted after their merge state and full-tip ancestry were verified;
+  no feature branch remains.
 - **Approval-feedback project grants.** The source immediately proposes project-level standing
   permission after relevant blocking feedback, with an exact rule diff, reasons, risks, scope,
   inheritance and revocation. There is no multi-task score threshold. Owner approval is still
@@ -100,7 +103,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   prove long-run improvement. Current evidence places `session-learnings` at
   deployed/loaded/applied/reused, `tool-scope` at deployed/loaded/applied, and
   `approval-feedback` at deployed/loaded with historical Codex application; its current-revision
-  and Claude/ZCode model-level effects remain unmeasured.
+  ZCode model-level effect remains unmeasured, and the current machine has no Claude live root.
 - **Policy centralization.** Generated skill roots, scan-input prefixes and the Codex live-root
   rule live in `scripts/repo-common.ps1`. Build, secret scan, syntax gate, doctor, deploy and
   repository validation consume those definitions; generated/legacy roots remain excluded from
@@ -128,24 +131,25 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- The numbered one-interaction scoring revision is installed on all three platforms. The private
-  ledger holds 23 real records (20 structured plus 3 manual; all Codex; 19 at 1, 4 at 0) across
-  11 task references. The three retained local pending inputs were reconciled on 2026-11-10 with
-  source attribution and readback; no further pending input was found in the inspected local
-  evidence. Three independent Codex tasks now cover the same core action, a full-environment
-  approval-feedback live update, with scores of 1 and no 2/3 or permission conflict. That
-  threshold led to the owner-approved narrow exception in Skill rules 9; no other future
-  approval is enabled.
+- The numbered one-interaction scoring revision is installed on Codex and ZCode; the current
+  machine has no Claude live root. The private ledger holds 23 real records (20 structured plus
+  3 manual; all Codex; 19 at 1, 4 at 0) across 11 task references. The three retained local
+  pending inputs were reconciled on 2026-11-10 with source attribution and readback; no further
+  pending input was found in the inspected local evidence. Three independent Codex tasks now
+  cover the same core action, a full-environment approval-feedback live update, with scores of
+  1 and no 2/3 or permission conflict. That threshold led to the owner-approved narrow exception
+  in Skill rules 9; no other future approval is enabled.
   The feedback still shows repeated low interruption value and has produced concrete narrow
   proposals, one applied and published, but no measured reduction. The current skill revision is
-  `3aa4391`; its source matches all three live roots, and the Codex managed block is in-sync. A
-  fresh Codex task on 2026-11-11 discovered and read the current body, but had no comparable
-  approval opportunity, so the current-revision S/Q effect remains unmeasured (U). The next
-  natural checkpoint is the next real Codex approval request.
-- `approval-feedback` is installed globally on all three platforms. Codex catalog discovery,
-  live-file loading and selection have fresh-context and partial thread evidence; Claude/ZCode
-  model-level loading and long-run selection remain unverified because those clients are not in
-  active use. Installation enables no automatic approval or standing merge policy.
+  `3aa4391`; its source matches the Codex and ZCode live roots, and the Codex managed block is
+  in-sync. A fresh Codex task on 2026-11-11 discovered and read the current body, but had no
+  comparable approval opportunity, so the current-revision S/Q effect remains unmeasured (U).
+  The next natural checkpoint is the next real Codex approval request.
+- `approval-feedback` is installed in the Codex and ZCode live roots; the current machine has
+  no Claude live root. Codex catalog discovery, live-file loading and selection have
+  fresh-context and partial thread evidence; ZCode model-level loading and long-run selection
+  remain unverified because that client is not in active use. Installation enables no automatic
+  approval or standing merge policy.
 
 ## Known boundaries
 
