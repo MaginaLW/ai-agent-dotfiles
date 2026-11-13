@@ -509,3 +509,14 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 并在另一会话用无关问题检查非触发。须有读取正文或工具轨迹证据，口头声称使用不算证明；不可见时记 UNKNOWN。
 原生模型任务需要覆盖客户端、实际调用和已有订阅/付费预算的具体许可，不从 Codex 包装发起。
 未测量时不报告 outcome-improved。任一客户端或使用层未完成时，准确保留缺口，不把静态测试当作原生使用结果。
+
+已安装后，App 可在输入框键入 `/git-review` 并选择来源 `AI Agent Dotfiles`；CLI 使用原生命名空间：
+
+```powershell
+agy --print "/ai-agent-dotfiles:git-review <synthetic-diff>" --output-format stream-json
+```
+
+CLI 新进程不传 `--continue` 或 `--conversation` 时为独立会话。显式 skill 展开可能直接内联正文，
+以 init 的 expanded_commands、原生展开日志及安装文件 readback 核对；自然触发仍需实际正文读取轨迹。
+`--mode plan` 是提示前缀，不能当作只读权限隔离。原生诊断日志可能含账户信息，保持在私有 ignored
+目录，对外仅发布必要的脱敏结论。0.1.0 的 App/CLI 六次合成验收结果见[执行计划](ANTIGRAVITY_PLUGIN_EXECUTION_PLAN_2026-11-13.md#2026-11-14-执行结果)。
