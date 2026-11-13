@@ -19,6 +19,7 @@
             'writing-plans'
         )
         Codex = @(
+            'antigravity-delegation',
             'approval-feedback',
             'boring-engineering',
             'brainstorming',
