@@ -155,11 +155,15 @@ function Get-AgNativeValidation {
     $result = Invoke-AgNativeCommand @('plugin','validate',$Root,'--strict','--json')
     if ($result.Code -ne 0) { throw 'Native strict plugin validation failed.' }
     $data = ConvertFrom-Json -InputObject $result.Out -AsHashtable
+    if ($data -isnot [hashtable]) { throw 'Unknown native validation schema.' }
     foreach ($key in 'dir','components','findings','agentPluginsSpec') { if (-not $data.ContainsKey($key)) { throw 'Unknown native validation schema.' } }
+    if ($data.dir -isnot [string] -or $data.agentPluginsSpec -isnot [bool] -or $data.components -isnot [hashtable] -or $data.findings -isnot [array] -or
+        @($data.Keys | Where-Object { $_ -notin @('dir','manifest','name','agentPluginsSpec','components','findings') }).Count -or
+        @($data.components.Keys | Where-Object { $_ -notin @('agents','hooks','mcpServers','rules','sidecars','skills') }).Count) { throw 'Unknown native validation schema.' }
     foreach ($kind in 'agents','hooks','mcpServers','rules','sidecars','skills') {
         if (-not $data.components.ContainsKey($kind)) { throw 'Unknown native component schema.' }
         $expected = if ($kind -eq 'skills') { 2 } else { 0 }
-        if ($data.components[$kind] -ne $expected) { throw 'Native validation found unexpected components.' }
+        if (($data.components[$kind] -isnot [int] -and $data.components[$kind] -isnot [long]) -or $data.components[$kind] -ne $expected) { throw 'Native validation found unexpected components.' }
     }
     foreach ($finding in @($data.findings)) {
         if (-not $finding.ContainsKey('severity') -or $finding.severity -notin @('note')) { throw 'Native validation has warnings, errors or unknown findings.' }
@@ -212,6 +216,12 @@ function New-AgPluginBuild {
         $expected = Get-AgExpectedFiles
         $digest = Get-AgMapDigest $expected
         $gate = Get-AgGateFingerprint
+        $version = $null
+        if ($script:AgNative) {
+            $versionProbe = Invoke-AgNativeCommand @('--version')
+            if ($versionProbe.Code -ne 0) { throw 'Cannot identify agy version for the build.' }
+            $version = $versionProbe.Out.Trim()
+        }
         if (Test-Path -LiteralPath $script:AgPackage) {
             if (-not (Test-Path -LiteralPath $script:AgBuildReceipt)) { throw 'Unowned candidate directory; preserve it for review.' }
             $old = Read-AgJsonFile $script:AgBuildReceipt
@@ -248,7 +258,6 @@ function New-AgPluginBuild {
         Move-Item -LiteralPath $stage -Destination $script:AgPackage
         $revision = (& git -C $script:AgRepo rev-parse HEAD | Out-String).Trim()
         if ($LASTEXITCODE -ne 0) { throw 'Cannot identify source revision.' }
-        $version = if ($script:AgNative) { (Invoke-AgNativeCommand @('--version')).Out.Trim() } else { $null }
         $receipt = [ordered]@{
             SchemaVersion=1; Name='ai-agent-dotfiles'; Version=$script:AgConfig.ManagedPlugin.Version
             Digest=$digest; Files=$expected; SourceRevision=$revision; GateFingerprint=$gate

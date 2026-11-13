@@ -105,7 +105,7 @@ function New-PluginFixture([string] $Name) {
     $script:AgTestFailScan=''
     $script:AgTestTrace=[Collections.Generic.List[string]]::new()
     $script:AgTestValidationHook=$null
-    $script:AgTestValidation=@{ dir='fixture'; components=@{agents=0;hooks=0;mcpServers=0;rules=0;sidecars=0;skills=2}; findings=@(); agentPluginsSpec=@{} }
+    $script:AgTestValidation=@{ dir='fixture'; components=@{agents=0;hooks=0;mcpServers=0;rules=0;sidecars=0;skills=2}; findings=@(); agentPluginsSpec=$false }
     Initialize-AgPluginContext $root
     $script:AgNative='fixture-only'
     return $root
@@ -176,14 +176,15 @@ try {
         $script:AgTestListJson=$badJson
         Assert-PluginThrows { Get-AgPluginPlan } 'native.*schema' 'malformed native inventory fails closed'
     }
-    foreach ($issue in @('warning','extra-component','missing-field')) {
+    foreach ($issue in @('warning','extra-component','missing-field','wrong-type')) {
         $null = New-PluginFixture ('validate-' + $issue)
         switch ($issue) {
+            wrong-type { $script:AgTestValidation.agentPluginsSpec='unknown' }
             warning { $script:AgTestValidation.findings=@(@{severity='warning'}) }
             extra-component { $script:AgTestValidation.components.rules=1 }
             missing-field { $script:AgTestValidation.components.Remove('skills') }
         }
-        Assert-PluginThrows { Get-AgNativeValidation $script:AgRepo } 'Native validation|native component' 'strict native validation rejects warnings, extra components and unknown schema'
+        Assert-PluginThrows { Get-AgNativeValidation $script:AgRepo } 'Native validation|native component|native validation schema' 'strict native validation rejects warnings, extra components and unknown schema'
     }
 
     Write-Host 'Antigravity: identity, ownership and lifecycle limits'
