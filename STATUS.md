@@ -16,7 +16,14 @@ CI run, check `git log` and the latest GitHub Actions run.
   with 12 added files. Existing platform selections and default sync/config routes are unchanged.
   Installation, App/CLI loading and native model use have not run. Same-name unknown ownership,
   drift, version reuse, configuration overrides and unproven updates/rollback block writes.
-  The source task is still completing lifecycle fixtures, independent review and current-head CI.
+  The CLI suite passes 114 assertions and lifecycle fixtures pass 91. Independent review is
+  complete. The first full local run is retained as FAIL (12/15 suites): the host worktree's
+  home location tripped the existing profile guard, and two integration gates found the new
+  suite budget and unrelated-component naming. The affected suites pass in a home-external
+  validation checkout after repairs; the 82 profile assertions pass without changing the guard.
+  Native schema data remains explicit, unknown fields fail closed, and the new 90-second suite
+  budget keeps the existing 1680-second aggregate limit. No existing gate was changed.
+  Exact-head Validate remains the separate merge gate; read its current result from GitHub.
 
 - **Claude retirement.** The source selection for `work` is Claude/Codex/ZCode 0/9/8.
   Config status/pull/push and combined deployment default to Codex only. The shared

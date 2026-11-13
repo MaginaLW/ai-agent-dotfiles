@@ -83,6 +83,7 @@ T0 的原生合同调查与源技能兼容性阅读可并行。缺少部署许�
 ~~~powershell
 @{
     SchemaVersion = 1
+    NativeValidationComponents = @('agents', 'hooks', 'mcpServers', 'rules', 'sidecars', 'skills')
     ManagedPlugin = @{
         Name = 'ai-agent-dotfiles'
         DisplayName = 'AI Agent Dotfiles'
