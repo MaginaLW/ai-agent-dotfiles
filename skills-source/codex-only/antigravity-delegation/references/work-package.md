@@ -5,6 +5,12 @@ A reviewed continuation adds `--resume-successor <absolute-review-json>`.
 It loads `routes.json` and `deployment.json` from the one private `agent-delegation` directory
 under `LOCALAPPDATA`. Caller arguments cannot select a different route or state directory.
 The preflight is read-only and launches neither agy nor the Windows ownership helper.
+Run this entry in the authorized native host environment. A Codex sandbox can redirect
+`LOCALAPPDATA` or isolate the host keyring, so a missing file or login refusal there does not
+establish that the native host lacks configuration or credentials. Verify the actual execution
+environment before repairing anything; do not guess a host path, add another configuration,
+repeat login or change the state root. Existing permission for the same task remains usable;
+retain any required platform approval for native host execution.
 
 `routes.json` contains only distinct `primary` and `fallback` objects, each with a model ID.
 The actual IDs and reasoning levels stay in private configuration. Validate them against the

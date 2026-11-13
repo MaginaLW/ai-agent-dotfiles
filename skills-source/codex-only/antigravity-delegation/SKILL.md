@@ -17,6 +17,11 @@ Antigravity really loads. Codex skills, MCP connections and plugins are not auto
 Use `node <this-skill>/scripts/invoke.mjs --package <absolute-json> --preflight` to inspect the frozen
 routing and installation without launching an engine. The private configuration lives at
 `%LOCALAPPDATA%/agent-delegation/`; never create or replace it from a model's instructions.
+Invoke the entry in the authorized native host environment: the Codex sandbox may redirect
+`LOCALAPPDATA` and isolate keyring access. If configuration is missing or login is refused,
+first verify the execution environment. Do not create a second configuration, log in again or
+select another state root to work around that isolation. Reuse existing task authorization;
+platform hard approval still applies.
 The deployment must already be enabled for the reviewed native channel. Google does not support
 wrapping consumer-plan agy in third-party coding agents and describes account suspension/termination
 risk. Source preparation is not agreement to that use, API access or enterprise entitlement.
