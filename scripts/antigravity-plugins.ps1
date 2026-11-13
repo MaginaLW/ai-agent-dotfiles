@@ -158,12 +158,13 @@ function Get-AgNativeValidation {
     if ($data -isnot [hashtable]) { throw 'Unknown native validation schema.' }
     foreach ($key in 'dir','components','findings','agentPluginsSpec') { if (-not $data.ContainsKey($key)) { throw 'Unknown native validation schema.' } }
     if ($data.dir -isnot [string] -or $data.agentPluginsSpec -isnot [bool] -or $data.components -isnot [hashtable] -or $data.findings -isnot [array] -or
-        @($data.Keys | Where-Object { $_ -notin @('dir','manifest','name','agentPluginsSpec','components','findings') }).Count -or
-        @($data.components.Keys | Where-Object { $_ -notin @('agents','hooks','mcpServers','rules','sidecars','skills') }).Count) { throw 'Unknown native validation schema.' }
-    foreach ($kind in 'agents','hooks','mcpServers','rules','sidecars','skills') {
-        if (-not $data.components.ContainsKey($kind)) { throw 'Unknown native component schema.' }
-        $expected = if ($kind -eq 'skills') { 2 } else { 0 }
-        if (($data.components[$kind] -isnot [int] -and $data.components[$kind] -isnot [long]) -or $data.components[$kind] -ne $expected) { throw 'Native validation found unexpected components.' }
+        @($data.Keys | Where-Object { $_ -notin @('dir','manifest','name','agentPluginsSpec','components','findings') }).Count) { throw 'Unknown native validation schema.' }
+    # This package permits only skills. Check every other reported component is absent,
+    # without adding handlers or dependencies for the native loader's other capabilities.
+    if ($data.components.Count -ne 6 -or -not $data.components.ContainsKey('skills')) { throw 'Unknown native component schema.' }
+    foreach ($entry in $data.components.GetEnumerator()) {
+        $expected = if ($entry.Key -ceq 'skills') { 2 } else { 0 }
+        if (($entry.Value -isnot [int] -and $entry.Value -isnot [long]) -or $entry.Value -ne $expected) { throw 'Native validation found unexpected components.' }
     }
     foreach ($finding in @($data.findings)) {
         if (-not $finding.ContainsKey('severity') -or $finding.severity -notin @('note')) { throw 'Native validation has warnings, errors or unknown findings.' }
