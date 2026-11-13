@@ -9,19 +9,21 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Antigravity delegation candidate.** A Codex-only skill and minimal private-config invocation
-  entry are in source, selected only for Codex in `work` (source selection 0/10/8).
-  The entry uses frozen primary/fallback roles and the Bridge managed host; it does not add
-  a Bridge engine or install routes. Runtime defaults remain disabled. A new-skill install,
-  private deployment and the consumer-channel decision are pending explicit deployment scope;
-  no live Apply, global default change or real model acceptance has run for this candidate.
-  Build, pinned secret scan, PowerShell syntax, skill schema, 13 wrapper assertions and the actual
-  wrapper-to-Bridge read-only preflight pass, with no native or model launch. The single full
-  local run passed 13 of 14 suites; repository-policy found the missing new skill in the `full`
-  Codex selection. That selection is repaired and the affected policy recheck passes; the
-  original failed run is preserved. No test or gate was changed. Exact-head CI remains required
-  before merge. The reviewed skills-only preview reports one Codex install and 17 unchanged
-  directories, with no update, prune or unknown.
+- **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
+  selected only for Codex in `work` (source selection 0/10/8). The source default is disabled;
+  the entry uses frozen primary/fallback roles and the Bridge managed host without adding a
+  Bridge engine or distributing model defaults, credentials or private routes. Source build,
+  pinned secret scan, syntax/schema, 13 wrapper assertions and the actual read-only preflight
+  pass. The original full local run passed 13 of 14 suites; the missing `full` selection found
+  by repository-policy was repaired and the affected recheck passed. Exact-head Validate is
+  required before merge. Independent source review passed. The owning Bridge task's bounded
+  native acceptance proved both configured High models reading the plugin Skill, calling the
+  fixture MCP, consuming its random result, repairing the allowed files and passing tests;
+  command denial and original Job cleanup were independently checked. This does not establish
+  all-tool isolation or arbitrary plugin/account capabilities. Live enablement, default-model
+  state and deployment readback are machine-private: inspect the owning task's receipts rather
+  than infer them from this source status. New installs and consumer-channel use retain their
+  explicit authorization boundary; the reviewed preview is one install and 17 unchanged skills.
 - **Claude retirement.** The retirement baseline selected Claude/Codex/ZCode 0/9/8; the
   Antigravity source candidate above adds one Codex selection.
   Config status/pull/push and combined deployment default to Codex only. The shared
