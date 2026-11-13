@@ -270,19 +270,53 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
     }
 
     if ($normalizedCommand -eq 'antigravity') {
-        $modes = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -imatch '^-(DryRun|Apply)(:.*)?$' })
-        if ($groupAction -ne 'deploy' -and $modes.Count -gt 0) {
-            Write-Error "The antigravity $groupAction command accepts no -DryRun or -Apply mode." -ErrorAction Continue
+        # Parse only this route's exact public contract. PowerShell accepts parameter
+        # abbreviations downstream, so unknown tokens must never reach the child.
+        $pluginArguments = @('-Action', $groupAction)
+        $seenParameters = @{}
+        $pluginMode = $null
+        for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
+            $argument = [string] $forwardedArguments[$i]
+            if ($argument -in @('-RepoRoot', '-JsonPath')) {
+                if ($seenParameters.ContainsKey($argument)) {
+                    Write-Error 'Duplicate Antigravity path parameter.' -ErrorAction Continue
+                    exit 1
+                }
+                if ($i + 1 -ge $forwardedArguments.Count -or
+                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
+                    $forwardedArguments[$i + 1] -in @('-RepoRoot', '-JsonPath')) {
+                    Write-Error 'Antigravity path parameters require a value.' -ErrorAction Continue
+                    exit 1
+                }
+                $seenParameters[$argument] = $true
+                # A single colon-bound token preserves literal values such as -Apply;
+                # forwarding them as separate tokens would change child binding.
+                $pluginArguments += $argument + ':' + [string] $forwardedArguments[++$i]
+                continue
+            }
+            if ($argument -notin @('-DryRun', '-Apply')) {
+                Write-Error 'Unsupported antigravity argument. Use exact -RepoRoot, -JsonPath, -DryRun or -Apply names.' -ErrorAction Continue
+                exit 1
+            }
+            if ($groupAction -ne 'deploy') {
+                Write-Error "The antigravity $groupAction command accepts no -DryRun or -Apply mode." -ErrorAction Continue
+                exit 1
+            }
+            if ($null -ne $pluginMode) {
+                Write-Error 'The antigravity deploy command accepts only one mode: -DryRun or -Apply.' -ErrorAction Continue
+                exit 1
+            }
+            $pluginMode = $argument
+            if ($argument -eq '-Apply') { $pluginArguments += '-Apply' }
+        }
+        if ($groupAction -eq 'deploy' -and $null -eq $pluginMode) {
+            Write-Error 'The antigravity deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
             exit 1
         }
-        if ($groupAction -eq 'deploy' -and $modes.Count -gt 1) {
-            Write-Error 'The antigravity deploy command accepts only one mode: -DryRun or -Apply.' -ErrorAction Continue
-            exit 1
-        }
-        $forwardedArguments = @('-Action', $groupAction) + $forwardedArguments
+        $forwardedArguments = $pluginArguments
     }
 
-    $requiresExplicitMode = (($normalizedCommand -in @('env', 'antigravity') -and $groupAction -eq 'deploy') -or
+    $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -eq 'deploy') -or
         ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
         ($normalizedCommand -eq 'skills' -and $groupAction -eq 'promote'))
