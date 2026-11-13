@@ -6,6 +6,7 @@
     Skills = @{
         Claude = @()
         Codex = @(
+            'antigravity-delegation',
             'approval-feedback',
             'boring-engineering',
             'git-review',

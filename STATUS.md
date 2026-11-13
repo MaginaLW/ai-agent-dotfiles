@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-12.
+Last updated: 2026-11-13.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -25,7 +25,23 @@ CI run, check `git log` and the latest GitHub Actions run.
   budget keeps the existing 1680-second aggregate limit. No existing gate was changed.
   Exact-head Validate remains the separate merge gate; read its current result from GitHub.
 
-- **Claude retirement.** The source selection for `work` is Claude/Codex/ZCode 0/9/8.
+- **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
+  selected only for Codex in `work` (source selection 0/10/8). The source default is disabled;
+  the entry uses frozen primary/fallback roles and the Bridge managed host without adding a
+  Bridge engine or distributing model defaults, credentials or private routes. Source build,
+  pinned secret scan, syntax/schema, 13 wrapper assertions and the actual read-only preflight
+  pass. The original full local run passed 13 of 14 suites; the missing `full` selection found
+  by repository-policy was repaired and the affected recheck passed. Exact-head Validate is
+  required before merge. Independent source review passed. The owning Bridge task's bounded
+  native acceptance proved both configured High models reading the plugin Skill, calling the
+  fixture MCP, consuming its random result, repairing the allowed files and passing tests;
+  command denial and original Job cleanup were independently checked. This does not establish
+  all-tool isolation or arbitrary plugin/account capabilities. Live enablement, default-model
+  state and deployment readback are machine-private: inspect the owning task's receipts rather
+  than infer them from this source status. New installs and consumer-channel use retain their
+  explicit authorization boundary; the reviewed preview is one install and 17 unchanged skills.
+- **Claude retirement.** The retirement baseline selected Claude/Codex/ZCode 0/9/8; the
+  Antigravity source candidate above adds one Codex selection.
   Config status/pull/push and combined deployment default to Codex only. The shared
   `base`/`coding` and this repository profile target Codex without automatic ClaudeSettings.
   Root `CLAUDE.md` and `.claude/settings.json` developer entries are removed. The Claude
