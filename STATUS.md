@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-12.
+Last updated: 2026-11-13.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -9,7 +9,21 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Claude retirement.** The source selection for `work` is Claude/Codex/ZCode 0/9/8.
+- **Antigravity delegation candidate.** A Codex-only skill and minimal private-config invocation
+  entry are in source, selected only for Codex in `work` (source selection 0/10/8).
+  The entry uses frozen primary/fallback roles and the Bridge managed host; it does not add
+  a Bridge engine or install routes. Runtime defaults remain disabled. A new-skill install,
+  private deployment and the consumer-channel decision are pending explicit deployment scope;
+  no live Apply, global default change or real model acceptance has run for this candidate.
+  Build, pinned secret scan, PowerShell syntax, skill schema, 13 wrapper assertions and the actual
+  wrapper-to-Bridge read-only preflight pass, with no native or model launch. The single full
+  local run passed 13 of 14 suites; repository-policy found the missing new skill in the `full`
+  Codex selection. That selection is repaired and the affected policy recheck passes; the
+  original failed run is preserved. No test or gate was changed. Exact-head CI remains required
+  before merge. The reviewed skills-only preview reports one Codex install and 17 unchanged
+  directories, with no update, prune or unknown.
+- **Claude retirement.** The retirement baseline selected Claude/Codex/ZCode 0/9/8; the
+  Antigravity source candidate above adds one Codex selection.
   Config status/pull/push and combined deployment default to Codex only. The shared
   `base`/`coding` and this repository profile target Codex without automatic ClaudeSettings.
   Root `CLAUDE.md` and `.claude/settings.json` developer entries are removed. The Claude
