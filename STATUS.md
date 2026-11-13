@@ -13,6 +13,8 @@ CI run, check `git log` and the latest GitHub Actions run.
   builds `ai-agent-dotfiles` 0.1.0 from only shared `boring-engineering` and `git-review`.
   Canonical and final-package scans, reproducible file maps and native strict validation pass.
   PR #9 merged at `fad4433`; Validate passed for its exact head `3900374` and merged main.
+  Acceptance closeout PR #10 merged at `19e9c4c`; its exact head `b302a7d` and merged main
+  also passed Validate (runs `43475060639` and `43476333032`).
   Owner grant A01 covered the first installation and six native acceptance sessions. All 12
   installed files match the approved package; enabled readback and the final preview report
   `unchanged`. The native config file is byte-identical before and after installation, preserving
@@ -21,6 +23,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   primary checkout's ignored `tmp/antigravity/`, outside temporary task worktrees.
   App and CLI each pass explicit review, natural design-skill loading and an unrelated
   translation in separate conversations (6/6 sessions, no added purchases or Bridge calls).
+  The finite native-session allowance is exhausted; further model calls need new authorization.
   CLI expansion metadata identifies `ai-agent-dotfiles:git-review`; both clients' natural cases
   show the installed `boring-engineering/SKILL.md` being read. Unrelated cases show no skill
   reads in their visible traces. Evidence reaches built/validated/installed/enabled/loaded/used;
@@ -30,6 +33,11 @@ CI run, check `git log` and the latest GitHub Actions run.
   including 82 profile assertions, pass without changing existing guards. The original full
   local FAIL (12/15) is retained privately alongside its diagnosed fixes; exact-head CI covers
   all 15 suites. Native diagnostic logs remain private and are not publication artifacts.
+  The clean temporary validation clone was removed after its six test logs were preserved.
+  Both managed task worktrees remain: the host refused removal of the task's primary checkout
+  and reported another active task using the CLI tree. No manual removal bypassed those guards;
+  task branches remain. The primary checkout's unrelated WIP was preserved, so its local main
+  was not fast-forwarded. Final CI and cleanup receipts stay locally in ignored `tmp/antigravity/`.
 
 - **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
   selected only for Codex in `work` (source selection 0/10/8). The source default is disabled;
