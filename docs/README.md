@@ -432,10 +432,11 @@ env deploy <name>            -> scripts/deploy.ps1 -Environment <name>
 config status | pull | push
 profile status | build | apply
 skills promote               -> scripts/promote-skill.ps1
+antigravity build | status | deploy -> scripts/antigravity-plugins.ps1 -Action <action>
 ```
 
 用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help` 查看命令概览。
-用 `help config` 或 `config help` 查看分组帮助；`env`、`profile`、`skills` 支持相同拼法。
+用 `help config` 或 `config help` 查看分组帮助；`env`、`profile`、`skills`、`antigravity` 支持相同拼法。
 帮助说明操作方向、写入范围和常用示例，不执行子脚本。`config push` 仅捕获本机配置到仓库，不是 Git push。
 
 doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `Deploy blockers`。
@@ -444,8 +445,67 @@ doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `De
 
 只读命令：`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`。`build` 与 `profile build`
 只生成可重建输出；`env list -JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
-`profile apply`、`skills promote`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
+`profile apply`、`skills promote`、`antigravity deploy`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
 `sync` 与 `env deploy` 都串行执行 skills 和 config；两阶段不原子。直接运行低层脚本可只执行单个阶段。
 
 底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json`；统一 CLI
 会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。
+
+
+## 15. Antigravity 插件
+
+首版插件 `ai-agent-dotfiles`（`0.1.0`）只包含 canonical `skills-source/shared/` 中的
+`boring-engineering` 和 `git-review` 及其附属文件。选择与元数据来自
+`harness-source/antigravity/plugins.psd1`；第三方期望清单为空表示暂不托管第三方插件，
+不表示本机第三方插件必须为空。第三方来源、版本和启用状态只报告与比较，未知字段保留 UNKNOWN。
+本入口不打包 rules、MCP、hooks、agents 或 Codex 的 Antigravity delegation，也不调用 Bridge。
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity build
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
+```
+
+`build` 只生成 `tmp/antigravity/plugins/ai-agent-dotfiles/`，扫描 canonical 输入与最终包，
+并在有 `agy` 时运行原生严格校验。无 `agy` 可准备包，但原生校验未完成。
+不要手改生成包；同输入应生成相同文件与 digest，包内容发布变化须递增版本。
+`status` 只读候选包和原生插件状态，不构建、不安装、不启停、不修复；包不存在时报告 missing。
+原生 CLI 可能写自己的日志，因此只读不等于承诺完全零磁盘写入。
+两个命令均不接受 `-DryRun` 或 `-Apply`。三种动作均可传 `-RepoRoot` 和 `-JsonPath`，
+其中 `-JsonPath` 显式写报告；不提供未证明可用的原生 HomeRoot/ConfigRoot 隔离参数。
+
+`deploy` 在统一 CLI 中要求恰好一个 `-DryRun` 或 `-Apply`；底层脚本默认 dry run。
+预览应核对原生版本与目标根、插件身份、候选版本与 digest、选中技能、相对文件差异、
+启用状态、扫描与校验结果，以及保留的外部插件。它不运行现有 `sync`、`env deploy` 或 Codex config-pull。
+
+| 结果 | 操作含义 |
+|---|---|
+| install | 可准备首装；只有获得具体许可的 Apply 才调用官方安装 |
+| unchanged | 身份、内容与版本一致；不执行原生变更 |
+| update | 还须证明官方更新合同并审阅实际范围；首版未证明时仍阻塞 |
+| blocked / unknown | 同名未知、内容漂移、同版本异内容或合同不明；停止目标写入 |
+| external | 非本项目管理或内置组件；报告并保留 |
+
+首次安装可能立即启用技能。审阅当前完整预览后，所有者许可须明确覆盖目标插件身份、版本、包、
+原生目标根与注册状态、启用影响和有限恢复范围；Codex/ZCode 的 standing work grant 不覆盖此安装。
+许可有效且源、包、目标与状态未变时，才运行：
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -Apply
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
+```
+
+只通过受管入口调用官方 `agy plugin` 命令，不手写 live 插件或注册配置。无论安装返回成功还是失败，
+都读取注册和目标文件；结果未知或 partial 时保留包与最小 pre-state，停止写入链，不盲重试。
+不备份整个原生配置根，不把凭据写入仓库。无可信旧包和已证明的官方合同，不承诺更新、降级或一键回滚；
+停用、卸载与重装须有覆盖实际动作的许可，不能用“恢复”无限扩展范围。
+安装是复制还是持续引用须以实际读回确认；确认前保留构建包和工作树。
+
+安装读回、启用、加载与使用分别记录为 built / validated / installed / enabled / loaded / used。
+在 App 和 CLI 中分别核对插件面板、项目 Customizations、`/skills` 的身份、版本、来源与加载路径；
+需要时使用 `/skills reload` 或新会话，不推断旧聊天已经加载。
+实际使用验收在原生会话中以合成小 diff 显式调用 `git-review`，以独立设计题检查 `boring-engineering` 自然触发，
+并在另一会话用无关问题检查非触发。须有读取正文或工具轨迹证据，口头声称使用不算证明；不可见时记 UNKNOWN。
+原生模型任务需要覆盖客户端、实际调用和已有订阅/付费预算的具体许可，不从 Codex 包装发起。
+未测量时不报告 outcome-improved。任一客户端或使用层未完成时，准确保留缺口，不把静态测试当作原生使用结果。

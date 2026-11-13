@@ -11,6 +11,7 @@
 | 更新当前电脑 | 下方“日常更新” |
 | 只检查，不部署 | 下方“查看状态与帮助” |
 | 部署失败或想恢复旧内容 | 下方“失败与恢复”及[手册 §8](docs/README.md#8-备份与恢复) |
+| 使用 Antigravity 双技能插件 | [手册 §15](docs/README.md#15-antigravity-插件) |
 | 修改或新增 skill | [手册 §5–6](docs/README.md#5-修改已有-skill-的流程) |
 
 ## 首次安装
@@ -66,7 +67,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ```
 
-`config help` 与 `help config` 等价；`env`、`profile`、`skills` 也支持分组帮助。
+`config help` 与 `help config` 等价；`env`、`profile`、`skills`、`antigravity` 也支持分组帮助。
 `config pull` 是仓库 → 本机，`config push` 是本机 → 仓库的配置捕获，和 Git push 无关。
 捕获的 diff 必须由人审查后才能提交。`env list -JsonPath <file>` 会写报告文件，属于只读列表的显式写出例外。
 
@@ -77,6 +78,21 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 联合部署的 skills 与 config 不构成原子事务；发生运行时失败时，已完成的 skills 可能仍然保留。
 unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 skill 或重新 Apply 都应先核对具体对象和授权范围。
 不要手工清理 Codex `.system` 或整目录镜像 live skills。
+
+## Antigravity 插件
+
+Antigravity 使用独立入口，首版 `ai-agent-dotfiles` 版本为 `0.1.0`，只含 `boring-engineering` 与 `git-review`：
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity build
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
+```
+
+构建从 canonical 源生成到 `tmp/antigravity/plugins/ai-agent-dotfiles/`，不会安装；`status` 不构建或修复。
+第三方插件只读核对，原有 `sync`、`env deploy` 与三平台选择保持不变。首次安装可能立即启用技能，
+须先审阅预览并取得覆盖具体身份、版本和启用影响的许可；原生模型验收另须覆盖实际调用范围。
+未证明的更新与回滚保持 blocked。安装、启用、加载和实际使用分别验收，详见[手册 §15](docs/README.md#15-antigravity-插件)。
 
 ## 管理范围
 
