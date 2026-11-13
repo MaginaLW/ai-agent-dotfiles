@@ -1,7 +1,7 @@
 # Decision Framework — Deep Reference
 
 This file is loaded on demand by `boring-engineering` when the agent needs detailed reasoning
-behind the four-step decision process. For the quick-reference version, see `assets/decision-tree.md`.
+behind the four-step decision process. For the quick-reference version, see `../assets/decision-tree.md`.
 
 ---
 

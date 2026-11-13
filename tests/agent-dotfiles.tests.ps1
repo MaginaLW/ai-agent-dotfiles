@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
 
 $entry = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
-$work = Join-Path ([IO.Path]::GetTempPath()) ('agent-dotfiles-cli-tests-' + [guid]::NewGuid().ToString('N'))
+$work = Join-Path $RepoRoot ('tmp/tests/agent-dotfiles/' + [guid]::NewGuid().ToString('N'))
 $fakeHome = Join-Path $work 'home'
 New-Item -ItemType Directory -Path $fakeHome -Force | Out-Null
 # Fixture repo for the deploy routes: environments that select no skills, so a
@@ -42,8 +42,8 @@ function Invoke-Entry {
 Write-Host 'unified CLI: env and config/profile routing'
 $result = Invoke-Entry -Arguments @('help')
 Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
-Assert ($result.Out -match 'sync, env deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
-foreach ($group in @('config', 'env', 'profile', 'skills')) {
+Assert ($result.Out -match 'sync, env deploy, antigravity deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
+foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity')) {
     foreach ($helpArgs in @(@('help', $group), @($group, 'help'))) {
         $result = Invoke-Entry -Arguments $helpArgs
         Assert ($result.Code -eq 0 -and $result.Out -match "agent-dotfiles.ps1 $group <action>" -and $result.Out -notmatch 'Invoking script') "group help returns without executing a child: $($helpArgs -join ' ')"
@@ -139,6 +139,74 @@ foreach ($removed in @(@('env', 'activate', 'work'), @('env', 'status'), @('cano
     $result = Invoke-Entry -Arguments $removed
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') "removed route is rejected: $($removed -join ' ')"
 }
+
+Write-Host 'unified CLI: Antigravity routes and mode boundaries'
+# Isolated dispatcher and strict stub: no native command or live root is used.
+$pluginScripts = Join-Path $work 'plugin-router/scripts'
+New-Item -ItemType Directory -Path $pluginScripts -Force | Out-Null
+$pluginEntry = Join-Path $pluginScripts 'agent-dotfiles.ps1'
+Copy-Item -LiteralPath $entry -Destination $pluginEntry
+Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content (@(
+    '[CmdletBinding()]',
+    'param([ValidateSet("Build","Status","Deploy")][string] $Action, [string] $RepoRoot, [string] $JsonPath, [switch] $Apply)',
+    '[pscustomobject]@{ Action=$Action; RepoRoot=$RepoRoot; JsonPath=$JsonPath; Apply=[bool]$Apply } | ConvertTo-Json -Compress'
+) -join "`n")
+foreach ($action in @('build', 'status', 'deploy')) {
+    $routeArgs = @('antigravity', $action, '-RepoRoot', $fixtureRepo, '-JsonPath', (Join-Path $work 'plugin-report.json'))
+    if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
+    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments $routeArgs
+    $payload = $null
+    try { $payload = ($result.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $payload = $null }
+    Assert ($result.Code -eq 0 -and $null -ne $payload -and $payload.Action -eq $action -and $payload.RepoRoot -eq $fixtureRepo -and $payload.JsonPath -eq (Join-Path $work 'plugin-report.json') -and -not $payload.Apply) "antigravity $action forwards Action and paths without a mutation switch"
+}
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', '-Apply')
+Assert ($result.Code -eq 0 -and $result.Out -match '"Apply":true') 'antigravity deploy forwards explicit Apply only to its plugin entry'
+foreach ($action in @('build', 'status')) {
+    foreach ($mode in @('-Apply', '-DryRun')) {
+        $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', $action, $mode)
+        Assert ($result.Code -eq 1 -and $result.Out -match 'accepts no' -and $result.Out -notmatch 'Invoking script') "antigravity $action rejects $mode before dispatch"
+    }
+}
+foreach ($modes in @(@('-Apply', '-DryRun'), @('-Apply', '-Apply'), @('-DryRun', '-DryRun'))) {
+    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $modes)
+    Assert ($result.Code -eq 1 -and $result.Out -match 'only one mode' -and $result.Out -notmatch 'Invoking script') 'antigravity deploy rejects multiple mode switches'
+}
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy')
+Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply' -and $result.Out -notmatch 'Invoking script') 'antigravity deploy rejects implicit mode'
+foreach ($action in @('build', 'status', 'deploy')) {
+    foreach ($badArgument in @('-Appl', '-App', '-Apply:$true', '-Apply:true', '-DryRun:$false', '-Repo', '-Json', 'extra-position')) {
+        $routeArgs = @('antigravity', $action)
+        if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
+        $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments ($routeArgs + $badArgument)
+        Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported antigravity argument|accepts no|only one mode' -and $result.Out -notmatch 'Invoking script') "antigravity $action rejects abbreviated, alternate or positional input: $badArgument"
+    }
+    $routeArgs = @('antigravity', $action, '-RepoRoot', '-Apply', '-JsonPath', '-DryRun')
+    if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
+    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments $routeArgs
+    $payload = $null
+    try { $payload = ($result.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $payload = $null }
+    Assert ($result.Code -eq 0 -and $null -ne $payload -and $payload.RepoRoot -eq '-Apply' -and $payload.JsonPath -eq '-DryRun' -and -not $payload.Apply) "antigravity $action preserves literal mode strings as path values without activation"
+}
+# -File may split colon boolean syntax before the script sees it; a lone
+# alternate mode must also fail, not just conflict with an explicit dry run.
+foreach ($mode in @('-Apply:$true', '-Apply:$false', '-Apply:true', '-DryRun:$false')) {
+    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', $mode)
+    Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported antigravity argument' -and $result.Out -notmatch 'Invoking script') 'antigravity rejects a lone alternate mode spelling before dispatch'
+}
+foreach ($badArguments in @(
+    @('-DryRun', '-RepoRoot'),
+    @('-DryRun', '-JsonPath'),
+    @('-DryRun', '-RepoRoot', '-JsonPath', 'report.json'),
+    @('-DryRun', '-RepoRoot', 'one', '-RepoRoot', 'two'),
+    @('-DryRun', '-JsonPath', 'one', '-JsonPath', 'two'),
+    @('-RepoRoot', '-DryRun'),
+    @('-JsonPath', '-Apply')
+)) {
+    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $badArguments)
+    Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') 'antigravity rejects missing path values, duplicate path options or value-only modes before dispatch'
+}
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'update', '-Apply')
+Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported' -and $result.Out -notmatch 'Invoking script') 'antigravity exposes no unverified update route'
 
 Write-Host 'unified CLI: apply gates'
 foreach ($commandArgs in @(

@@ -9,6 +9,22 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Antigravity plugin implementation.** The independent `antigravity build/status/deploy`
+  route prepares `ai-agent-dotfiles` 0.1.0 with only shared `boring-engineering` and `git-review`.
+  Canonical input and final package scans and native strict validation pass; two builds have
+  identical file maps and digest. The real CLI build-to-preview path reports a first install
+  with 12 added files. Existing platform selections and default sync/config routes are unchanged.
+  Installation, App/CLI loading and native model use have not run. Same-name unknown ownership,
+  drift, version reuse, configuration overrides and unproven updates/rollback block writes.
+  The CLI suite passes 114 assertions and lifecycle fixtures pass 91. Independent review is
+  complete. The first full local run is retained as FAIL (12/15 suites): the host worktree's
+  home location tripped the existing profile guard, and two integration gates found the new
+  suite budget and unrelated-component naming. The affected suites pass in a home-external
+  validation checkout after repairs; the 82 profile assertions pass without changing the guard.
+  Native schema data remains explicit, unknown fields fail closed, and the new 90-second suite
+  budget keeps the existing 1680-second aggregate limit. No existing gate was changed.
+  Exact-head Validate remains the separate merge gate; read its current result from GitHub.
+
 - **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
   selected only for Codex in `work` (source selection 0/10/8). The source default is disabled;
   the entry uses frozen primary/fallback roles and the Bridge managed host without adding a

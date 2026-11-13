@@ -9,7 +9,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: help, doctor, build, scan, sync, config, profile, skills, or env.
+    One of: help, doctor, build, scan, sync, config, profile, skills, env, or antigravity.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -41,6 +41,14 @@ function Write-Usage([string] $Group) {
     if ($Group) {
         Write-Host "Usage: pwsh -File scripts/agent-dotfiles.ps1 $Group <action> [arguments]"
         switch ($Group) {
+            antigravity {
+                Write-Host 'build: generates the reviewed two-skill plugin; no live installation.'
+                Write-Host 'status: reads candidate and native plugin state without building or repairing.'
+                Write-Host 'deploy: previews by default; authorized Apply installs through the official agy plugin command.'
+                Write-Host 'Examples: antigravity build; antigravity status; antigravity deploy -DryRun'
+                Write-Host 'Options: -RepoRoot <path>, -JsonPath <file>. Only deploy accepts -DryRun or -Apply.'
+                Write-Host 'Third-party plugins are read-only; unsupported update and rollback remain blocked.'
+            }
             config {
                 Write-Host 'status: read-only comparison of repository and home configuration.'
                 Write-Host 'pull: repository -> home; Apply backs up overwritten files and preserves local-only settings.'
@@ -71,15 +79,16 @@ function Write-Usage([string] $Group) {
         return
     }
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env'
+    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity'
+    Write-Host 'Antigravity actions: build, status, deploy -DryRun|-Apply; separate from sync and env deploy.'
     Write-Host 'Sync runs deploy.ps1 (skills plus config) and requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: promote -Path <dir> -Name <name> -Type <type> [-Replace] -DryRun|-Apply.'
     Write-Host 'Env actions: list [-RepoRoot <path>] [-StateRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
-    Write-Host 'sync, env deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
+    Write-Host 'sync, env deploy, antigravity deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'build generates output; env list -JsonPath writes a report without a mode.'
-    Write-Host 'Group help: help config (or config help); also env, profile and skills.'
+    Write-Host 'Group help: help config (or config help); also env, profile, skills and antigravity.'
 }
 
 function Assert-ExplicitMode([object[]] $Arguments, [string] $Label) {
@@ -179,8 +188,8 @@ if ([string]::IsNullOrWhiteSpace($Command)) {
 if ($Command -ieq 'help') {
     $topics = @($RemainingArguments | Where-Object { $null -ne $_ })
     if ($topics.Count -eq 0) { Write-Usage; exit 0 }
-    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills')) {
-        Write-Error 'Unsupported help topic. Use help config, help env, help profile or help skills.' -ErrorAction Continue
+    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity')) {
+        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills or help antigravity.' -ErrorAction Continue
         exit 1
     }
     Write-Usage ([string] $topics[0]).ToLowerInvariant()
@@ -195,6 +204,11 @@ $commandMap = @{
 }
 
 $groupCommandMaps = @{
+    antigravity = @{
+        build  = 'antigravity-plugins.ps1'
+        status = 'antigravity-plugins.ps1'
+        deploy = 'antigravity-plugins.ps1'
+    }
     config = @{
         status = 'config-status.ps1'
         pull   = 'config-pull.ps1'
@@ -253,6 +267,53 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
             exit 1
         }
         $forwardedArguments = @('-Environment', [string] $forwardedArguments[0]) + @($forwardedArguments | Select-Object -Skip 1)
+    }
+
+    if ($normalizedCommand -eq 'antigravity') {
+        # Parse only this route's exact public contract. PowerShell accepts parameter
+        # abbreviations downstream, so unknown tokens must never reach the child.
+        $pluginArguments = @('-Action', $groupAction)
+        $seenParameters = @{}
+        $pluginMode = $null
+        for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
+            $argument = [string] $forwardedArguments[$i]
+            if ($argument -in @('-RepoRoot', '-JsonPath')) {
+                if ($seenParameters.ContainsKey($argument)) {
+                    Write-Error 'Duplicate Antigravity path parameter.' -ErrorAction Continue
+                    exit 1
+                }
+                if ($i + 1 -ge $forwardedArguments.Count -or
+                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
+                    $forwardedArguments[$i + 1] -in @('-RepoRoot', '-JsonPath')) {
+                    Write-Error 'Antigravity path parameters require a value.' -ErrorAction Continue
+                    exit 1
+                }
+                $seenParameters[$argument] = $true
+                # A single colon-bound token preserves literal values such as -Apply;
+                # forwarding them as separate tokens would change child binding.
+                $pluginArguments += $argument + ':' + [string] $forwardedArguments[++$i]
+                continue
+            }
+            if ($argument -notin @('-DryRun', '-Apply')) {
+                Write-Error 'Unsupported antigravity argument. Use exact -RepoRoot, -JsonPath, -DryRun or -Apply names.' -ErrorAction Continue
+                exit 1
+            }
+            if ($groupAction -ne 'deploy') {
+                Write-Error "The antigravity $groupAction command accepts no -DryRun or -Apply mode." -ErrorAction Continue
+                exit 1
+            }
+            if ($null -ne $pluginMode) {
+                Write-Error 'The antigravity deploy command accepts only one mode: -DryRun or -Apply.' -ErrorAction Continue
+                exit 1
+            }
+            $pluginMode = $argument
+            if ($argument -eq '-Apply') { $pluginArguments += '-Apply' }
+        }
+        if ($groupAction -eq 'deploy' -and $null -eq $pluginMode) {
+            Write-Error 'The antigravity deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
+            exit 1
+        }
+        $forwardedArguments = $pluginArguments
     }
 
     $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -eq 'deploy') -or
