@@ -1,5 +1,6 @@
 @{
     SchemaVersion = 1
+    NativeValidationComponents = @('agents', 'hooks', 'mcpServers', 'rules', 'sidecars', 'skills')
     ManagedPlugin = @{
         Name = 'ai-agent-dotfiles'
         DisplayName = 'AI Agent Dotfiles'

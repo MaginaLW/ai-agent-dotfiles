@@ -67,7 +67,10 @@ function Initialize-AgPluginContext {
     $script:AgLoadedConfigHash = (Get-FileHash -LiteralPath $script:AgConfigPath -Algorithm SHA256).Hash
     $script:AgConfig = Import-PowerShellDataFile -LiteralPath $script:AgConfigPath
     if ((Get-FileHash -LiteralPath $script:AgConfigPath -Algorithm SHA256).Hash -cne $script:AgLoadedConfigHash) { throw 'Plugin configuration changed during loading.' }
-    if (($script:AgConfig.Keys | Sort-Object) -join ',' -cne 'ExternalPlugins,ManagedPlugin,SchemaVersion' -or $script:AgConfig.SchemaVersion -ne 1) { throw 'Unsupported plugin configuration schema.' }
+    if (($script:AgConfig.Keys | Sort-Object) -join ',' -cne 'ExternalPlugins,ManagedPlugin,NativeValidationComponents,SchemaVersion' -or $script:AgConfig.SchemaVersion -ne 1) { throw 'Unsupported plugin configuration schema.' }
+    $components = @($script:AgConfig.NativeValidationComponents)
+    if ($components.Count -ne 6 -or @($components | Sort-Object -Unique).Count -ne 6 -or 'skills' -cnotin $components -or
+        @($components | Where-Object { $_ -isnot [string] -or $_ -cnotmatch '^[A-Za-z][A-Za-z0-9]*$' }).Count) { throw 'Invalid native validation component schema data.' }
     $managed = $script:AgConfig.ManagedPlugin
     if ($managed -isnot [hashtable] -or ($managed.Keys | Sort-Object) -join ',' -cne 'Description,DisplayName,Name,Skills,Version' -or
         $managed.Name -cne 'ai-agent-dotfiles' -or $managed.Version -cnotmatch '^\d+\.\d+\.\d+$' -or
@@ -161,7 +164,7 @@ function Get-AgNativeValidation {
         @($data.Keys | Where-Object { $_ -notin @('dir','manifest','name','agentPluginsSpec','components','findings') }).Count) { throw 'Unknown native validation schema.' }
     # This package permits only skills. Check every other reported component is absent,
     # without adding handlers or dependencies for the native loader's other capabilities.
-    if ($data.components.Count -ne 6 -or -not $data.components.ContainsKey('skills')) { throw 'Unknown native component schema.' }
+    if ((($data.components.Keys | Sort-Object -CaseSensitive) -join ',') -cne (($script:AgConfig.NativeValidationComponents | Sort-Object -CaseSensitive) -join ',')) { throw 'Unknown native component schema.' }
     foreach ($entry in $data.components.GetEnumerator()) {
         $expected = if ($entry.Key -ceq 'skills') { 2 } else { 0 }
         if (($entry.Value -isnot [int] -and $entry.Value -isnot [long]) -or $entry.Value -ne $expected) { throw 'Native validation found unexpected components.' }
