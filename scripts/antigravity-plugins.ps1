@@ -64,7 +64,9 @@ function Initialize-AgPluginContext {
     $script:AgInstallReceipt = Join-Path $script:AgWork 'installed.json'
     $script:AgConfigPath = Join-Path $script:AgRepo 'harness-source/antigravity/plugins.psd1'
     Assert-AgPlainPath $script:AgConfigPath
+    $script:AgLoadedConfigHash = (Get-FileHash -LiteralPath $script:AgConfigPath -Algorithm SHA256).Hash
     $script:AgConfig = Import-PowerShellDataFile -LiteralPath $script:AgConfigPath
+    if ((Get-FileHash -LiteralPath $script:AgConfigPath -Algorithm SHA256).Hash -cne $script:AgLoadedConfigHash) { throw 'Plugin configuration changed during loading.' }
     if (($script:AgConfig.Keys | Sort-Object) -join ',' -cne 'ExternalPlugins,ManagedPlugin,SchemaVersion' -or $script:AgConfig.SchemaVersion -ne 1) { throw 'Unsupported plugin configuration schema.' }
     $managed = $script:AgConfig.ManagedPlugin
     if ($managed -isnot [hashtable] -or ($managed.Keys | Sort-Object) -join ',' -cne 'Description,DisplayName,Name,Skills,Version' -or
@@ -187,6 +189,7 @@ function Invoke-AgPackageScan {
 }
 
 function Get-AgGateFingerprint {
+    if ((Get-FileHash -LiteralPath $script:AgConfigPath -Algorithm SHA256).Hash -cne $script:AgLoadedConfigHash) { throw 'Plugin configuration changed; reload context and review again.' }
     $paths = @('.gitleaks.toml','tools/gitleaks/gitleaks.lock.json','harness-source/antigravity/plugins.psd1')
     $map = [ordered]@{}
     foreach ($path in $paths) {
@@ -208,6 +211,7 @@ function New-AgPluginBuild {
     try {
         $expected = Get-AgExpectedFiles
         $digest = Get-AgMapDigest $expected
+        $gate = Get-AgGateFingerprint
         if (Test-Path -LiteralPath $script:AgPackage) {
             if (-not (Test-Path -LiteralPath $script:AgBuildReceipt)) { throw 'Unowned candidate directory; preserve it for review.' }
             $old = Read-AgJsonFile $script:AgBuildReceipt
@@ -234,7 +238,11 @@ function New-AgPluginBuild {
         Invoke-AgPackageScan $stage
         $validation = if ($script:AgNative) { Get-AgNativeValidation $stage } else { $null }
         if ((Get-AgMapDigest (Get-AgExpectedFiles)) -cne $digest -or (Get-AgMapDigest (Get-AgTreeFiles $stage)) -cne $digest) { throw 'Source or candidate changed during build gates.' }
+        if ((Get-AgGateFingerprint) -cne $gate) { throw 'Build gate inputs changed during scanning.' }
         Assert-AgPlainPath $script:AgPackage
+        if (Test-Path -LiteralPath $script:AgPackage) {
+            if ((Get-AgMapDigest (Get-AgTreeFiles $script:AgPackage)) -cne $old.Digest) { throw 'Previous candidate changed during build gates; preserve it.' }
+        }
         if (Test-Path -LiteralPath $script:AgPackage) { Remove-Item -LiteralPath $script:AgPackage -Recurse -Force }
         [IO.Directory]::CreateDirectory((Split-Path -Parent $script:AgPackage)) | Out-Null
         Move-Item -LiteralPath $stage -Destination $script:AgPackage
@@ -243,13 +251,58 @@ function New-AgPluginBuild {
         $version = if ($script:AgNative) { (Invoke-AgNativeCommand @('--version')).Out.Trim() } else { $null }
         $receipt = [ordered]@{
             SchemaVersion=1; Name='ai-agent-dotfiles'; Version=$script:AgConfig.ManagedPlugin.Version
-            Digest=$digest; Files=$expected; SourceRevision=$revision; GateFingerprint=(Get-AgGateFingerprint)
+            Digest=$digest; Files=$expected; SourceRevision=$revision; GateFingerprint=$gate
             CanonicalScan='PASS'; PackageScan='PASS'; NativeValidation=$(if ($validation) { 'PASS' } else { 'UNKNOWN' }); NativeVersion=$version
         }
         Write-AgJsonFile $script:AgBuildReceipt $receipt
         return $receipt
     }
     finally { $lock.Dispose() }
+}
+
+function Get-AgRegistrationHash {
+    param([string] $ConfigRoot)
+    $path = Join-Path $ConfigRoot 'config.json'
+    Assert-AgPlainPath $path
+    if (-not (Test-Path -LiteralPath $path)) { return 'missing' }
+    return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+}
+
+function Get-AgInventoryToken {
+    param([hashtable] $Inventory)
+    $plugins = @($Inventory.Plugins | Sort-Object name,path | ForEach-Object {
+        $entry = [ordered]@{}
+        foreach ($key in @($_.Keys | Sort-Object)) { $entry[$key] = $_[$key] }
+        $entry
+    })
+    return Get-AgTextHash (ConvertTo-Json -InputObject @{ Version=$Inventory.Version; ConfigRoot=$Inventory.ConfigRoot; Plugins=$plugins } -Depth 30 -Compress)
+}
+
+function Enter-AgDeploymentMutex {
+    param([string] $ConfigRoot)
+    $name = 'Local\ai-agent-dotfiles-antigravity-' + (Get-AgTextHash ([IO.Path]::GetFullPath($ConfigRoot).ToLowerInvariant()))
+    $mutex = [Threading.Mutex]::new($false,$name)
+    try { if (-not $mutex.WaitOne(0)) { throw 'Another managed plugin deployment owns this native target.' } }
+    catch { $mutex.Dispose(); throw }
+    return $mutex
+}
+
+function Read-AgTargetSnapshot {
+    param([string] $Path)
+    $snapshot = @{ Path=$Path; Present=$false; Files=$null; Identity=$null; Error=$null }
+    try {
+        Assert-AgPlainPath $Path
+        if (Test-Path -LiteralPath $Path) {
+            $snapshot.Present=$true
+            $snapshot.Files=Get-AgTreeFiles $Path
+            if (Test-Path -LiteralPath (Join-Path $Path 'plugin.json')) {
+                $manifest=Read-AgJsonFile (Join-Path $Path 'plugin.json')
+                $snapshot.Identity=@{ Name=$manifest['name']; Version=$manifest['version'] }
+            }
+        }
+    }
+    catch { $snapshot.Error=$_.Exception.Message }
+    return $snapshot
 }
 
 function Get-AgInventory {
@@ -289,8 +342,9 @@ function Get-AgPluginPlan {
     $managed = $script:AgConfig.ManagedPlugin
     $plan = [ordered]@{
         SchemaVersion=1; Action='blocked'; Reason='candidate-missing'; NativeVersion=$inventory.Version
+        InventoryToken=(Get-AgInventoryToken $inventory); RegistrationHash=(Get-AgRegistrationHash $inventory.ConfigRoot)
         ConfigRoot=$inventory.ConfigRoot; Name=$managed.Name; Version=$managed.Version; Skills=@($managed.Skills)
-        Package=$script:AgPackage; Digest=$digest; SourceRevision=$null; Enabled=$null; InstalledPath=$null
+        Package=$script:AgPackage; Digest=$digest; GateFingerprint=(Get-AgGateFingerprint); SourceRevision=$null; Enabled=$null; InstalledPath=$null
         Changes=(Get-AgFileChanges ([ordered]@{}) $expected); CanonicalScan='UNKNOWN'; PackageScan='UNKNOWN'; NativeValidation='UNKNOWN'
         NativeAction=$null; WriteScope=@(); External=@(); ExternalExpectations=@()
         Limitations=@('Native App is not locked by this script.','Updates and rollback remain blocked until their native contracts are proven.','Installation may immediately enable the two skills.')
@@ -362,19 +416,22 @@ function Invoke-AgPluginDeploy {
     $plan = Get-AgPluginPlan
     if (-not $DoApply -or $plan.Action -eq 'unchanged') { return $plan }
     if ($plan.Action -ne 'install') { throw ('Plugin deployment blocked: ' + $plan.Reason) }
-    $lock = Enter-AgPluginLock
+    $mutex = Enter-AgDeploymentMutex $plan.ConfigRoot
+    $lock = $null
     try {
+        $lock = Enter-AgPluginLock
         $fresh = Get-AgPluginPlan
         if ((Get-AgTextHash ($plan | ConvertTo-Json -Depth 30 -Compress)) -cne (Get-AgTextHash ($fresh | ConvertTo-Json -Depth 30 -Compress))) { throw 'Source, package or live state changed after planning.' }
         $null = Get-AgNativeValidation $script:AgPackage
         $before = Get-AgInventory
+        if ((Get-AgInventoryToken $before) -cne $plan.InventoryToken -or (Get-AgRegistrationHash $plan.ConfigRoot) -cne $plan.RegistrationHash) { throw 'Native state changed during pre-install validation.' }
         $attempt = Join-Path $script:AgWork ('attempt-' + [Guid]::NewGuid().ToString('N'))
         [IO.Directory]::CreateDirectory($attempt) | Out-Null
         Copy-SkillTree -SourceRoot $script:AgPackage -DestinationRoot (Join-Path $attempt 'package')
         Write-AgJsonFile (Join-Path $attempt 'pre-state.json') @{ Plan=$plan; Inventory=$before }
         # Recheck immediately before the sole mutating command, including every unrelated plugin.
-        if ((Get-AgMapDigest (Get-AgExpectedFiles)) -cne $plan.Digest -or (Get-AgMapDigest (Get-AgTreeFiles $script:AgPackage)) -cne $plan.Digest -or
-            (Get-AgTextHash ((Get-AgInventory) | ConvertTo-Json -Depth 30 -Compress)) -cne (Get-AgTextHash ($before | ConvertTo-Json -Depth 30 -Compress))) { throw 'Inputs changed immediately before native installation.' }
+        $finalPlan = Get-AgPluginPlan
+        if ((Get-AgTextHash ($plan | ConvertTo-Json -Depth 30 -Compress)) -cne (Get-AgTextHash ($finalPlan | ConvertTo-Json -Depth 30 -Compress))) { throw 'Inputs changed immediately before native installation.' }
         Write-AgJsonFile (Join-Path $script:AgWork 'pending-install.json') @{ Attempt=$attempt; Digest=$plan.Digest }
         $native = $null
         $failure = $null
@@ -383,11 +440,19 @@ function Invoke-AgPluginDeploy {
         # Always read back, even after timeout, nonzero exit or an exception. No automatic retry.
         $after = $null
         try { $after = Get-AgInventory } catch { $failure = 'Native readback unavailable; installation state UNKNOWN.' }
-        Write-AgJsonFile (Join-Path $attempt 'result.json') @{ Native=$native; Failure=$failure; Inventory=$after }
+        $approvedPath = Join-Path $plan.ConfigRoot 'plugins/ai-agent-dotfiles'
+        $snapshots = @((Read-AgTargetSnapshot $approvedPath))
+        if ($after) {
+            foreach ($entry in @($after.Plugins | Where-Object name -IEQ 'ai-agent-dotfiles')) {
+                if ([IO.Path]::GetFullPath($entry.path) -ine [IO.Path]::GetFullPath($approvedPath)) { $snapshots += Read-AgTargetSnapshot $entry.path }
+            }
+        }
+        Write-AgJsonFile (Join-Path $attempt 'result.json') @{ Native=$native; Failure=$failure; Inventory=$after; Targets=$snapshots }
         if ($failure -or -not $native -or $native.Code -ne 0 -or -not $after) { throw 'Native install failed or is uncertain; inspect the retained attempt and do not blindly retry.' }
         $targets = @($after.Plugins | Where-Object name -IEQ 'ai-agent-dotfiles')
         if ($targets.Count -ne 1) { throw 'Installation readback has an unexpected target identity; stop.' }
         $target = $targets[0]
+        if ([IO.Path]::GetFullPath($target.path) -ine [IO.Path]::GetFullPath($approvedPath)) { throw 'Native installation used a path outside the reviewed target; state needs review.' }
         $manifest = Read-AgJsonFile (Join-Path $target.path 'plugin.json')
         if ($manifest.name -cne $plan.Name -or $manifest.version -cne $plan.Version) { throw 'Installed manifest does not match the approved identity and version.' }
         $files = Get-AgInstalledFiles $target.path
@@ -401,7 +466,7 @@ function Invoke-AgPluginDeploy {
         if ($readback.Action -ne 'unchanged') { throw 'Post-install preview did not converge to unchanged.' }
         return $readback
     }
-    finally { $lock.Dispose() }
+    finally { if ($lock) { $lock.Dispose() }; $mutex.ReleaseMutex(); $mutex.Dispose() }
 }
 
 # Dot-sourcing exposes the same functions for isolated contract fixtures without live commands.

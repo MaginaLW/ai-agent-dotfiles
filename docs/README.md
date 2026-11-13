@@ -496,11 +496,11 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 ```
 
-只通过受管入口调用官方 `agy plugin` 命令，不手写 live 插件或注册配置。无论安装返回成功还是失败，
+安装只通过受管入口调用官方 `agy plugin install`，不手写 live 插件或注册配置。无论安装返回成功还是失败，
 都读取注册和目标文件；结果未知或 partial 时保留包与最小 pre-state，停止写入链，不盲重试。
 不备份整个原生配置根，不把凭据写入仓库。无可信旧包和已证明的官方合同，不承诺更新、降级或一键回滚；
 停用、卸载与重装须有覆盖实际动作的许可，不能用“恢复”无限扩展范围。
-安装是复制还是持续引用须以实际读回确认；确认前保留构建包和工作树。
+安装是复制还是持续引用须以实际读回确认；确认前保留构建包和工作树。私有构建/归属记录与安装尝试保存在该工作树的 `tmp/antigravity/`；换工作树或丢失可信记录后，同名插件保留为 unknown，不自动接管。未解决的安装尝试保留 pending 标记，阻止继续首装；先审阅读回，不能删除标记来盲重试。原生路径覆写变量非空时拒绝猜测目标。
 
 安装读回、启用、加载与使用分别记录为 built / validated / installed / enabled / loaded / used。
 在 App 和 CLI 中分别核对插件面板、项目 Customizations、`/skills` 的身份、版本、来源与加载路径；

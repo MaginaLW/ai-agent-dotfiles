@@ -79,7 +79,9 @@ need them.
    name conflicts.
 2. **Generated output.** Never edit generated output directly: `claude/skills/`, `codex/skills/`
    and `.agent-harness/generated/`. Regenerate it with `build-skills.ps1` or
-   `build-harness-profile.ps1`.
+   `build-harness-profile.ps1`. Antigravity packages are generated only by
+   `scripts/antigravity-plugins.ps1` from the reviewed `skills-source/shared/` selection
+   into `tmp/antigravity/`; never edit the generated package.
 3. **Live roots only through deploy.** Change live skills roots only through
    `scripts/deploy-skills.ps1` or `scripts/deploy.ps1` (the `agent-dotfiles.ps1 sync` and
    `env deploy <name>` routes now use the combined entry point).
@@ -89,6 +91,13 @@ need them.
    Use `-Apply` only within explicit owner authorization for that reviewed scope. Reuse an
    existing grant covering this finite deployment; ask only for a missing or materially changed
    decision, not for the same authorization again.
+   Antigravity plugin installation uses the separate `antigravity-plugins.ps1` entry to call
+   official `agy plugin` commands; never write live plugin files or registration config by hand.
+   Review its complete preview before Apply. Owner authorization must cover the exact plugin
+   identity, version, package, enablement effects and recovery scope. Preserve unknown plugins
+   and built-in components. Updates and rollback stay blocked until their native contracts are
+   proven. Official disable/uninstall recovery also needs authorization for that specific action.
+   Skill rules 10 grants no Antigravity install, enable/disable, uninstall or config permission.
 4. **Retiring a skill.** deploy-skills prunes only directories it deployed itself. A deleted
    skill that it never deployed stays in the live root as unknown and preserved. To remove it,
    pass `-Retire <name>` to both the dry run and the Apply. Never pass `.system` or a selected

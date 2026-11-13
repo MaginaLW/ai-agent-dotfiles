@@ -9,6 +9,15 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Antigravity plugin implementation.** The independent `antigravity build/status/deploy`
+  route prepares `ai-agent-dotfiles` 0.1.0 with only shared `boring-engineering` and `git-review`.
+  Canonical input and final package scans and native strict validation pass; two builds have
+  identical file maps and digest. The real CLI build-to-preview path reports a first install
+  with 12 added files. Existing platform selections and default sync/config routes are unchanged.
+  Installation, App/CLI loading and native model use have not run. Same-name unknown ownership,
+  drift, version reuse, configuration overrides and unproven updates/rollback block writes.
+  The source task is still completing lifecycle fixtures, independent review and current-head CI.
+
 - **Claude retirement.** The source selection for `work` is Claude/Codex/ZCode 0/9/8.
   Config status/pull/push and combined deployment default to Codex only. The shared
   `base`/`coding` and this repository profile target Codex without automatic ClaudeSettings.
