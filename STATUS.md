@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-13.
+Last updated: 2026-11-14.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -9,21 +9,27 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Antigravity plugin implementation.** The independent `antigravity build/status/deploy`
-  route prepares `ai-agent-dotfiles` 0.1.0 with only shared `boring-engineering` and `git-review`.
-  Canonical input and final package scans and native strict validation pass; two builds have
-  identical file maps and digest. The real CLI build-to-preview path reports a first install
-  with 12 added files. Existing platform selections and default sync/config routes are unchanged.
-  Installation, App/CLI loading and native model use have not run. Same-name unknown ownership,
-  drift, version reuse, configuration overrides and unproven updates/rollback block writes.
-  The CLI suite passes 114 assertions and lifecycle fixtures pass 91. Independent review is
-  complete. The first full local run is retained as FAIL (12/15 suites): the host worktree's
-  home location tripped the existing profile guard, and two integration gates found the new
-  suite budget and unrelated-component naming. The affected suites pass in a home-external
-  validation checkout after repairs; the 82 profile assertions pass without changing the guard.
-  Native schema data remains explicit, unknown fields fail closed, and the new 90-second suite
-  budget keeps the existing 1680-second aggregate limit. No existing gate was changed.
-  Exact-head Validate remains the separate merge gate; read its current result from GitHub.
+- **Antigravity plugin connected.** The independent `antigravity build/status/deploy` route
+  builds `ai-agent-dotfiles` 0.1.0 from only shared `boring-engineering` and `git-review`.
+  Canonical and final-package scans, reproducible file maps and native strict validation pass.
+  PR #9 merged at `fad4433`; Validate passed for its exact head `3900374` and merged main.
+  Owner grant A01 covered the first installation and six native acceptance sessions. All 12
+  installed files match the approved package; enabled readback and the final preview report
+  `unchanged`. The native config file is byte-identical before and after installation, preserving
+  built-in swarm and other settings. Installation copies the package into an ordinary native
+  plugin directory; the stable source package, ownership receipt and backup stay under the
+  primary checkout's ignored `tmp/antigravity/`, outside temporary task worktrees.
+  App and CLI each pass explicit review, natural design-skill loading and an unrelated
+  translation in separate conversations (6/6 sessions, no added purchases or Bridge calls).
+  CLI expansion metadata identifies `ai-agent-dotfiles:git-review`; both clients' natural cases
+  show the installed `boring-engineering/SKILL.md` being read. Unrelated cases show no skill
+  reads in their visible traces. Evidence reaches built/validated/installed/enabled/loaded/used;
+  long-run outcome improvement is unmeasured. Existing platform selections and default sync
+  routes are unchanged. Unknown ownership, drift, version reuse and unproven updates/rollback
+  still block writes. The CLI/lifecycle suites pass 114/91 assertions; affected rechecks,
+  including 82 profile assertions, pass without changing existing guards. The original full
+  local FAIL (12/15) is retained privately alongside its diagnosed fixes; exact-head CI covers
+  all 15 suites. Native diagnostic logs remain private and are not publication artifacts.
 
 - **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
   selected only for Codex in `work` (source selection 0/10/8). The source default is disabled;
