@@ -11,7 +11,7 @@
 | 更新当前电脑 | 下方“日常更新” |
 | 只检查，不部署 | 下方“查看状态与帮助” |
 | 部署失败或想恢复旧内容 | 下方“失败与恢复”及[手册 §8](docs/README.md#8-备份与恢复) |
-| 使用 Antigravity 双技能插件 | [手册 §15](docs/README.md#15-antigravity-插件) |
+| 使用 Antigravity 插件 | [手册 §15](docs/README.md#15-antigravity-插件) |
 | 修改或新增 skill | [手册 §5–6](docs/README.md#5-修改已有-skill-的流程) |
 
 ## 首次安装
@@ -81,7 +81,7 @@ unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 sk
 
 ## Antigravity 插件
 
-Antigravity 使用独立入口，首版 `ai-agent-dotfiles` 版本为 `0.1.0`，只含 `boring-engineering` 与 `git-review`：
+Antigravity 使用独立入口，当前 `ai-agent-dotfiles` 候选版本为 `0.2.0`，包含 `boring-engineering`、`git-review`、`systematic-debugging` 与 `verification-before-completion`：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity build

@@ -86,7 +86,9 @@ function New-PluginFixture([string] $Name) {
         Copy-Item -LiteralPath (Join-Path $suiteRepo $path) -Destination $destination
     }
     [IO.Directory]::CreateDirectory((Join-Path $root 'skills-source/shared')) | Out-Null
-    foreach ($name in @('boring-engineering','git-review')) {
+    $configured = Import-PowerShellDataFile -LiteralPath (Join-Path $suiteRepo 'harness-source/antigravity/plugins.psd1')
+    $selectedSkills = @($configured.ManagedPlugin.Skills)
+    foreach ($name in $selectedSkills) {
         Copy-SkillTree -SourceRoot (Join-Path $suiteRepo ('skills-source/shared/' + $name)) -DestinationRoot (Join-Path $root ('skills-source/shared/' + $name))
     }
     Set-TestFile -Path (Join-Path $root 'skills-source/shared/git-review/CREATION-LOG.md') -Content 'source only'
@@ -105,7 +107,7 @@ function New-PluginFixture([string] $Name) {
     $script:AgTestFailScan=''
     $script:AgTestTrace=[Collections.Generic.List[string]]::new()
     $script:AgTestValidationHook=$null
-    $script:AgTestValidation=@{ dir='fixture'; components=@{agents=0;hooks=0;mcpServers=0;rules=0;sidecars=0;skills=2}; findings=@(); agentPluginsSpec=$false }
+    $script:AgTestValidation=@{ dir='fixture'; components=@{agents=0;hooks=0;mcpServers=0;rules=0;sidecars=0;skills=$selectedSkills.Count}; findings=@(); agentPluginsSpec=$false }
     Initialize-AgPluginContext $root
     $script:AgNative='fixture-only'
     return $root
@@ -132,8 +134,8 @@ try {
     $second = New-AgPluginBuild
     Assert-PluginTest ($first.Digest -ceq $second.Digest -and (Get-AgMapDigest $firstFiles) -ceq (Get-AgMapDigest (Get-AgTreeFiles $script:AgPackage))) 'identical inputs produce identical package files and digest'
     $skillDirs = @(Get-ChildItem (Join-Path $script:AgPackage 'skills') -Directory | Sort-Object Name | ForEach-Object Name)
-    Assert-PluginTest (($skillDirs -join ',') -ceq 'boring-engineering,git-review') 'only the two reviewed canonical shared skills are packaged'
-    Assert-PluginTest (-not (Test-Path (Join-Path $script:AgPackage 'skills/git-review/CREATION-LOG.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/boring-engineering/LICENSE'))) 'source-only creation log is excluded and license is preserved'
+    Assert-PluginTest (($skillDirs -join ',') -ceq 'boring-engineering,git-review,systematic-debugging,verification-before-completion') 'only the reviewed canonical shared skills are packaged'
+    Assert-PluginTest (-not (Test-Path (Join-Path $script:AgPackage 'skills/git-review/CREATION-LOG.md')) -and -not (Test-Path (Join-Path $script:AgPackage 'skills/systematic-debugging/CREATION-LOG.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/boring-engineering/LICENSE')) -and (Test-Path (Join-Path $script:AgPackage 'skills/systematic-debugging/root-cause-tracing.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/verification-before-completion/SKILL.md'))) 'source-only creation log is excluded and skill assets are preserved'
     $manifest = Read-AgJsonFile (Join-Path $script:AgPackage 'plugin.json')
     Assert-PluginTest (($manifest.Keys | Sort-Object) -join ',' -ceq '$schema,description,displayName,name,version') 'manifest contains only the reviewed metadata without extra components'
     Assert-PluginTest ($script:AgTestCanonicalScans -eq 2 -and $script:AgTestPackageScans -eq 2 -and $second.NativeValidation -eq 'PASS') 'both canonical inputs and final package pass gates on each build'
@@ -157,14 +159,25 @@ try {
     Assert-PluginTest ($build.NativeValidation -eq 'UNKNOWN' -and (Get-AgPluginPlan).Action -eq 'blocked') 'build without agy remains unvalidated and cannot deploy'
 
     Write-Host 'Antigravity: reject unsafe selection, links and incompatible native data'
-    foreach ($replacement in @("Skills = @('../git-review', 'boring-engineering')", "Skills = @('boring-engineering', 'boring-engineering')")) {
+    foreach ($replacement in @("Skills = @('../git-review', 'boring-engineering')", "Skills = @('boring-engineering', 'boring-engineering')", "Skills = @()")) {
         $root = New-PluginFixture ('selection-' + [Guid]::NewGuid().ToString('N'))
         $config = Get-Content $script:AgConfigPath -Raw
-        Set-TestFile -Path $script:AgConfigPath -Content ($config.Replace("Skills = @('boring-engineering', 'git-review')",$replacement))
-        Assert-PluginThrows { Initialize-AgPluginContext $root } 'two reviewed shared skills' 'traversal and duplicate skill selections are rejected'
+        $updated = [regex]::Replace($config, 'Skills\s*=\s*@\([\s\S]*?\)', $replacement)
+        Set-TestFile -Path $script:AgConfigPath -Content $updated
+        Assert-PluginThrows { Initialize-AgPluginContext $root } 'Invalid managed plugin skill selection' 'traversal, empty and duplicate skill selections are rejected'
     }
+    $root = New-PluginFixture 'missing-skill'
+    $config = Get-Content $script:AgConfigPath -Raw
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace($config, 'Skills\s*=\s*@\([\s\S]*?\)', "Skills = @('missing-skill')"))
+    Assert-PluginThrows { Initialize-AgPluginContext $root } 'missing SKILL\.md' 'missing selected skill source is rejected'
+    $previousAppData = [Environment]::GetEnvironmentVariable('ANTIGRAVITY_APP_DATA_DIR')
+    try {
+        [Environment]::SetEnvironmentVariable('ANTIGRAVITY_APP_DATA_DIR', (Join-Path $suiteWork 'custom-appdata'))
+        Assert-PluginThrows { Initialize-AgPluginContext $root } 'Native configuration overrides' 'non-default ANTIGRAVITY_APP_DATA_DIR override is rejected'
+    }
+    finally { [Environment]::SetEnvironmentVariable('ANTIGRAVITY_APP_DATA_DIR', $previousAppData) }
     $root = New-PluginFixture 'components'
-    Set-TestFile -Path $script:AgConfigPath -Content ((Get-Content $script:AgConfigPath -Raw).Replace("Version = '0.1.0'", "Version = '0.1.0'; Hooks = @()"))
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.2.0'; Hooks = @()"))
     Assert-PluginThrows { Initialize-AgPluginContext $root } 'unsupported components' 'unreviewed component configuration is rejected'
     $root = New-PluginFixture 'reparse'
     $link = Join-Path $root 'skills-source/shared/git-review/linked'
@@ -210,7 +223,7 @@ try {
     $script:AgTestPlugins += @{name='ai-agent-dotfiles';path=$unknownPath;enabled=$true}
     Assert-PluginTest ((Get-AgPluginPlan).Reason -eq 'ambiguous-native-identity') 'multiple native identities are blocked without takeover'
 
-    foreach ($version in @('same','0.2.0','0.0.9')) {
+    foreach ($version in @('same','0.3.0','0.1.0')) {
         $root = New-PluginFixture ('version-' + $version)
         $null = New-AgPluginBuild
         $null = Invoke-AgPluginDeploy -DoApply
@@ -219,10 +232,10 @@ try {
             $reason='same-version-different-content'
         }
         else {
-            Set-TestFile -Path $script:AgConfigPath -Content ((Get-Content $script:AgConfigPath -Raw).Replace("Version = '0.1.0'", "Version = '$version'"))
+            Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '$version'"))
             Initialize-AgPluginContext $root
             $script:AgNative='fixture-only'
-            $reason=if ($version -eq '0.2.0') { 'native-update-contract-unproven' } else { 'downgrade-or-version-reuse' }
+            $reason=if ($version -eq '0.3.0') { 'native-update-contract-unproven' } else { 'downgrade-or-version-reuse' }
         }
         $null = New-AgPluginBuild
         Assert-PluginTest ((Get-AgPluginPlan).Reason -eq $reason -and $script:AgTestInstallCalls -eq 1) 'same-version replacement, unproven update and downgrade never mutate the installed plugin'

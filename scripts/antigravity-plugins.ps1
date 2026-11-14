@@ -54,7 +54,16 @@ function Read-AgJsonFile {
 function Initialize-AgPluginContext {
     param([string] $Root)
     foreach ($variable in 'ANTIGRAVITY_GEMINI_DIR','ANTIGRAVITY_CONFIG_REL_DIR','ANTIGRAVITY_APP_DATA_DIR','JETSKI_APP_DATA_DIR') {
-        if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($variable))) { throw 'Native configuration overrides are unsupported until their target contract is verified.' }
+        $override = [Environment]::GetEnvironmentVariable($variable)
+        if ([string]::IsNullOrEmpty($override)) { continue }
+        if ($variable -ceq 'ANTIGRAVITY_APP_DATA_DIR') {
+            $defaultAppData = [IO.Path]::GetFullPath((Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gemini/antigravity')).TrimEnd('\','/')
+            try {
+                if ([IO.Path]::GetFullPath($override).TrimEnd('\','/') -ieq $defaultAppData) { continue }
+            }
+            catch { }
+        }
+        throw 'Native configuration overrides are unsupported until their target contract is verified.'
     }
     $script:AgRepo = (Resolve-Path -LiteralPath $Root).Path
     Assert-AgPlainPath $script:AgRepo
@@ -76,10 +85,14 @@ function Initialize-AgPluginContext {
         $managed.Name -cne 'ai-agent-dotfiles' -or $managed.Version -cnotmatch '^\d+\.\d+\.\d+$' -or
         [string]::IsNullOrWhiteSpace($managed.DisplayName) -or [string]::IsNullOrWhiteSpace($managed.Description)) { throw 'Invalid managed plugin identity or unsupported components.' }
     $names = @($managed.Skills)
-    if ($names.Count -ne 2 -or @($names | Sort-Object -Unique).Count -ne 2 -or ($names | Sort-Object) -join ',' -cne 'boring-engineering,git-review') { throw 'Only the two reviewed shared skills are supported.' }
+    if ($names.Count -lt 1 -or @($names | Where-Object { $_ -isnot [string] -or $_ -cnotmatch '^[a-z0-9][a-z0-9-]*$' }).Count -or
+        @($names | Sort-Object -Unique).Count -ne $names.Count) {
+        throw 'Invalid managed plugin skill selection.'
+    }
     foreach ($name in $names) {
         $source = Join-Path $script:AgRepo ('skills-source/shared/' + $name)
         Assert-AgPlainPath $source
+        if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw 'Selected skill is missing SKILL.md.' }
         Assert-SkillTreeNoReparsePoint -Root $source
         if (-not (Test-Path -LiteralPath (Join-Path $source 'SKILL.md') -PathType Leaf)) { throw 'Selected skill is missing SKILL.md.' }
     }
@@ -166,7 +179,7 @@ function Get-AgNativeValidation {
     # without adding handlers or dependencies for the native loader's other capabilities.
     if ((($data.components.Keys | Sort-Object -CaseSensitive) -join ',') -cne (($script:AgConfig.NativeValidationComponents | Sort-Object -CaseSensitive) -join ',')) { throw 'Unknown native component schema.' }
     foreach ($entry in $data.components.GetEnumerator()) {
-        $expected = if ($entry.Key -ceq 'skills') { 2 } else { 0 }
+        $expected = if ($entry.Key -ceq 'skills') { @($script:AgConfig.ManagedPlugin.Skills).Count } else { 0 }
         if (($entry.Value -isnot [int] -and $entry.Value -isnot [long]) -or $entry.Value -ne $expected) { throw 'Native validation found unexpected components.' }
     }
     foreach ($finding in @($data.findings)) {
@@ -360,7 +373,7 @@ function Get-AgPluginPlan {
         Package=$script:AgPackage; Digest=$digest; GateFingerprint=(Get-AgGateFingerprint); SourceRevision=$null; Enabled=$null; InstalledPath=$null
         Changes=(Get-AgFileChanges ([ordered]@{}) $expected); CanonicalScan='UNKNOWN'; PackageScan='UNKNOWN'; NativeValidation='UNKNOWN'
         NativeAction=$null; WriteScope=@(); External=@(); ExternalExpectations=@()
-        Limitations=@('Native App is not locked by this script.','Updates and rollback remain blocked until their native contracts are proven.','Installation may immediately enable the two skills.')
+        Limitations=@('Native App is not locked by this script.','Updates and rollback remain blocked until their native contracts are proven.',"Installation may immediately enable the $(@($managed.Skills).Count) selected skills.")
     }
     $matches = [Collections.Generic.List[object]]::new()
     foreach ($plugin in @($inventory.Plugins)) {

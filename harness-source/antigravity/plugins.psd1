@@ -4,9 +4,14 @@
     ManagedPlugin = @{
         Name = 'ai-agent-dotfiles'
         DisplayName = 'AI Agent Dotfiles'
-        Version = '0.1.0'
+        Version = '0.2.0'
         Description = 'Reviewed skills maintained by this repository.'
-        Skills = @('boring-engineering', 'git-review')
+        Skills = @(
+            'boring-engineering',
+            'git-review',
+            'systematic-debugging',
+            'verification-before-completion'
+        )
     }
     ExternalPlugins = @()
 }

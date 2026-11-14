@@ -454,8 +454,8 @@ doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `De
 
 ## 15. Antigravity 插件
 
-首版插件 `ai-agent-dotfiles`（`0.1.0`）只包含 canonical `skills-source/shared/` 中的
-`boring-engineering` 和 `git-review` 及其附属文件。选择与元数据来自
+受管插件 `ai-agent-dotfiles`（当前候选 `0.2.0`）包含 canonical `skills-source/shared/` 中的
+`boring-engineering`、`git-review`、`systematic-debugging` 和 `verification-before-completion` 及其附属文件。选择与元数据来自
 `harness-source/antigravity/plugins.psd1`；第三方期望清单为空表示暂不托管第三方插件，
 不表示本机第三方插件必须为空。第三方来源、版本和启用状态只报告与比较，未知字段保留 UNKNOWN。
 本入口不打包 rules、MCP、hooks、agents 或 Codex 的 Antigravity delegation，也不调用 Bridge。
