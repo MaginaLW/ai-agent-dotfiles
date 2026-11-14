@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-14.
+Last updated: 2026-11-15.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -10,34 +10,28 @@ CI run, check `git log` and the latest GitHub Actions run.
 ## Current state
 
 - **Antigravity plugin connected.** The independent `antigravity build/status/deploy` route
-  builds `ai-agent-dotfiles` 0.1.0 from only shared `boring-engineering` and `git-review`.
-  Canonical and final-package scans, reproducible file maps and native strict validation pass.
-  PR #9 merged at `fad4433`; Validate passed for its exact head `3900374` and merged main.
-  Acceptance closeout PR #10 merged at `19e9c4c`; its exact head `b302a7d` and merged main
-  also passed Validate (runs `43475060639` and `43476333032`).
-  Owner grant A01 covered the first installation and six native acceptance sessions. All 12
-  installed files match the approved package; enabled readback and the final preview report
-  `unchanged`. The native config file is byte-identical before and after installation, preserving
-  built-in swarm and other settings. Installation copies the package into an ordinary native
-  plugin directory; the stable source package, ownership receipt and backup stay under the
-  primary checkout's ignored `tmp/antigravity/`, outside temporary task worktrees.
-  App and CLI each pass explicit review, natural design-skill loading and an unrelated
-  translation in separate conversations (6/6 sessions, no added purchases or Bridge calls).
-  The finite native-session allowance is exhausted; further model calls need new authorization.
-  CLI expansion metadata identifies `ai-agent-dotfiles:git-review`; both clients' natural cases
-  show the installed `boring-engineering/SKILL.md` being read. Unrelated cases show no skill
-  reads in their visible traces. Evidence reaches built/validated/installed/enabled/loaded/used;
-  long-run outcome improvement is unmeasured. Existing platform selections and default sync
-  routes are unchanged. Unknown ownership, drift, version reuse and unproven updates/rollback
-  still block writes. The CLI/lifecycle suites pass 114/91 assertions; affected rechecks,
-  including 82 profile assertions, pass without changing existing guards. The original full
-  local FAIL (12/15) is retained privately alongside its diagnosed fixes; exact-head CI covers
-  all 15 suites. Native diagnostic logs remain private and are not publication artifacts.
-  The clean temporary validation clone was removed after its six test logs were preserved.
-  Both managed task worktrees remain: the host refused removal of the task's primary checkout
-  and reported another active task using the CLI tree. No manual removal bypassed those guards;
-  task branches remain. The primary checkout's unrelated WIP was preserved, so its local main
-  was not fast-forwarded. Final CI and cleanup receipts stay locally in ignored `tmp/antigravity/`.
+  builds `ai-agent-dotfiles` 0.2.0 from four shared skills (`boring-engineering`, `git-review`,
+  `systematic-debugging`, `verification-before-completion`; 19 files, digest `efb4a591...`).
+  Skill selection is schema-validated dynamically instead of hardcoded to two skills, and the
+  host-exported default `ANTIGRAVITY_APP_DATA_DIR` (`<UserProfile>/.gemini/antigravity`) is
+  accepted while non-default overrides remain rejected. Canonical and final-package scans,
+  reproducible file maps and native strict validation (`agy 1.5.9`) pass; the lifecycle suite
+  passes 94 assertions and all 15 local suites pass (`scripts/run-tests.ps1`).
+  Historical 0.1.0 merged via PR #9 (`fad4433`) and PRs #10/#11 (`19e9c4c`/`9b78244`), passing
+  6/6 App/CLI acceptance sessions for `boring-engineering` and `git-review`.
+  For 0.2.0, in-place `agy plugin install` failed with `Access is denied` while Antigravity
+  Desktop App watched `~/.gemini/config/plugins/`, leaving 0.1.0 untouched. After backing up
+  0.1.0 locally, uninstalling 0.1.0 (`agy plugin uninstall`) and running `antigravity deploy
+  -Apply` via Codex with Antigravity App closed installed 0.2.0 cleanly. Post-install readback
+  (`agy plugin list --json`, `antigravity status`, `antigravity deploy -DryRun`) confirms
+  `0.2.0`, `enabled: true`, all 4 skills, `Action: unchanged` and preserved `config.json`
+  (`swarm` enabled, `sidecars`, `userSettings`). Native session loading and real-use acceptance
+  for `systematic-debugging` and `verification-before-completion` remain unverified. Existing
+  platform selections and default sync routes are unchanged; unknown ownership, drift, version
+  reuse and unproven in-place updates/rollback still block writes.
+  The primary checkout's unrelated WIP (`codex/AGENTS.md`) was preserved, so its local `main`
+  was not fast-forwarded. Local 0.1.0 backup stays under the primary checkout's ignored
+  `tmp/antigravity/`.
 
 - **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
   selected only for Codex in `work` (source selection 0/10/8). The source default is disabled;
