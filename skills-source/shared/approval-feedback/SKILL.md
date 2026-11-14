@@ -54,8 +54,18 @@ description: 减少无谓打断并处理必要确认、低分纠错与规则扩�
 
 1. **执行误读：** 已有规则或本轮授权已覆盖时，取消多余确认并直接完成受影响工作。
 2. **项目规则导致的文字打断：** 按 [workflows.md 的旧规则修订](references/workflows.md#旧规则修订) 定位真实源文件（如 `AGENTS.md`），给出精确 diff、减少的确认、风险与回滚范围，交用户一次审批。同类动作多次扩权时按[权限规则归整](references/workflows.md#权限规则归整)合并同类条款。
-3. **原生命令行/沙箱频繁弹窗：** 若阻塞来自 Codex 原生审批而非 `AGENTS.md` 文字规则，直接给出可由用户审阅后加入本机 `~/.codex/rules/default.rules` 的 `prefix_rule(...)` 白名单片段（可附 `codex execpolicy check` 验证命令）或 `[sandbox_workspace_write].writable_roots` 建议，并准确说明本 Skill 不能直接改写本机私有配置。
+3. **原生命令行/沙箱频繁弹窗：** 若阻塞来自 Codex 原生审批而非 `AGENTS.md` 文字规则，先给出可由用户审阅后加入本机 `%USERPROFILE%\.codex\rules\default.rules` 的 `prefix_rule(...)` 白名单片段（可附 `codex execpolicy check` 验证命令）或 `[sandbox_workspace_write].writable_roots` 建议；未经用户明确批准，不自行改写本机私有配置。
 4. **平台限制或证据不足：** 说明具体限制并继续其他独立已授权工作；未批准或暂缓的提案不反复推销。
+
+## 超过两次低分后开启“削弱弹窗模式”
+
+当同类打断或原生审批在可核实的 `0/1` 分低分评价中**累计超过两次（第 3 次及以上，按独立任务计数，含私有台账既有记录与当前会话可核实低分；存在 `2/3` 分或否定反例的类别不混入免批）**时，主动向用户提议并询问是否开启**削弱弹窗模式**（保持用户原有的 `model_reasoning_effort` 不降）：
+
+1. **询问前一次说清范围、措施与回滚：** 列出要消除的弹窗来源、对应拟变更的本机文件与精确内容、减少了哪些人工检查，以及改前备份位置与恢复方式：
+   - **默认首选（建设方式 3）：** 将该类高频安全命令前缀追加到 `%USERPROFILE%\.codex\rules\default.rules`（`prefix_rule(..., decision = "allow")`，高危/强推仍留 `prompt`），或将高频跨目录缓存/输出精确路径追加到 `~/.codex/config.toml`（或受信任项目 `.codex/config.toml`）的 `[sandbox_workspace_write].writable_roots`。
+   - **可选升级项（仅由用户明选时启用）：** 若补齐 `default.rules` 后仍频繁被 `auto_review` 拦停，列出可选路径供用户选择——移除/停用 `approvals_reviewer = "auto_review"`（改靠 `default.rules` + `on-request`），或由用户在当前桌面线程临时切 `Full access` / CLI 使用 `fast` profile。
+2. **批准后再落地并校验：** 收到明确批准后，先备份将改动的本机 `config.toml` / `default.rules`，再执行精确写入，并用 `codex execpolicy check --rules ... -- <命令>` 读回验证命中；同时明确提示用户：**桌面版 Codex 需重启 App（CLI 需 `codex resume --last` 重拉进程）才会生效**。
+3. **不越权与撤销：** 用户拒绝或暂缓时不反复推销；后续如要求恢复严格确认或出现 `2/3` 分反例，暂停依赖新增白名单并按备份恢复或改回 `prompt`。
 
 仅在需要把真实评分归并到私有台账、涉及有时限窗口提案、或用户要求核验审批修订效果时，才按需读取 [recording.md](references/recording.md)、[workflows.md](references/workflows.md) 或 [effectiveness.md](references/effectiveness.md)；普通开发不加载这些流程，也不为加载 Skill 创建空台账。
 
