@@ -629,6 +629,7 @@ $dailyRepo = New-TestHarnessRepo 'codex-library-defaults'
 foreach ($profileName in 'base', 'coding') {
     Copy-Item -LiteralPath (Join-Path $RepoRoot "harness-source/profiles/$profileName.psd1") -Destination (Join-Path $dailyRepo "harness-source/profiles/$profileName.psd1") -Force
 }
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/components/rules/lean-changes') -Destination (Join-Path $dailyRepo 'harness-source/components/rules/lean-changes') -Recurse -Force
 $dailyProject = New-TestProject -Name 'codex-library-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Codex') -Extends @('coding'))
 $dailyRun = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $dailyRepo, '-ProjectRoot', $dailyProject, '-Json')
 $dailyStatus = $dailyRun.Out | ConvertFrom-Json
