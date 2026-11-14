@@ -1,10 +1,10 @@
 ---
 name: boring-engineering
-description: "Prevents overengineering when designing, implementing, refactoring, or reviewing software. Use when the user asks to implement a feature, add an abstraction, refactor code, review a design, simplify existing code, or make an architectural decision. Also triggers when the user asks if code is too complex, whether to abstract something, or how to structure something. Do not use for deployment, infrastructure configuration, or debugging runtime errors unrelated to code structure."
+description: "Prevents overengineering, excessive defensive code, and unnecessary test bloat when implementing features, fixing bugs, writing tests, refactoring, or reviewing code. Use when the user asks to implement a feature, fix a bug, add validation or tests, refactor code, review a design, simplify existing code, or make an architectural decision. Do not use for deployment, infrastructure configuration, or debugging runtime errors unrelated to code structure."
 license: MIT
 compatibility: Works in any Agent Skills-compatible runtime (Claude Code, Kiro, Cursor, GitHub Copilot, VS Code).
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Boring Engineering
@@ -24,6 +24,10 @@ Before writing any code, ask: is this required by the current task, including ne
 - YES → Continue to Step 2.
 
 If uncertain, default to not building it. A missing feature is easier to add than a wrong abstraction is to remove.
+
+**Surgical changes only:** Modify only the files and behavior required for the current request. Do not perform drive-by refactoring, reformat unrelated code, or rewrite untouched comments. Clean up only unused imports or variables introduced by your own edits.
+
+**Risk-list outlet:** If you notice adjacent bugs, missing edge cases, or tech debt outside the current task scope, list them briefly in your final response **without** adding defensive branches, compatibility shims, or extra tests for them in the diff.
 
 ## Step 2 — Reuse Check
 
@@ -53,6 +57,13 @@ Prefer:
 
 Two correct solutions? Take the one with fewer moving parts.
 
+**Defensive programming boundary:** Validate and guard only at untrusted external inputs, user/API/process boundaries, and real I/O boundaries. Let internal invariants fail directly; do not add redundant null checks for already-typed or guaranteed internal values, broad `try/catch` blocks around safe internal operations, or speculative fallback/compatibility layers.
+
+**Test and regression discipline:**
+- Do not write tests that merely mirror the implementation, assert trivial getters/setters/constants, or probe impossible internal states.
+- When a bug fix or new feature requires a test, follow an existing nearby test file as an exemplar; do not invent new mocking layers, custom test harnesses, or heavy scaffolding for a localized change.
+- Do not automatically run full or E2E test suites after minor edits unless explicitly required by the task or touching shared core code; run the smallest targeted test covering the changed behavior once.
+
 Implement that. Continue to Step 4.
 
 ## Step 4 — Abstraction Check (Practical DRY)
@@ -75,8 +86,9 @@ When reviewing a design or implementation covered by this skill, check what appl
 
 - [ ] Could any block here be replaced by a standard library or platform built-in?
 - [ ] Does the exported name or signature fail to match what was asked?
-- [ ] Did I add anything the current requirement did not ask for?
-- [ ] Did I create an abstraction without enough proven evidence?
+- [ ] Did I add anything the current requirement did not ask for (including drive-by edits or unrequested tests)?
+- [ ] Did I add defensive checks or fallbacks for guaranteed internal invariants instead of limiting guards to real boundaries?
+- [ ] Did I create an abstraction or test helper without enough proven evidence?
 
 If any box is checked — revise before finishing.
 
@@ -84,13 +96,17 @@ Use `assets/decision-tree.md` as a quick reference for the full decision flow in
 
 ## Output
 
-Explain the result in the user's language and include the validation and limitations needed to assess it. Keep the explanation proportional to the change; do not narrate every check or walk through the examples unless asked.
+Explain the result in the user's language and include the validation and limitations needed to assess it. Keep the explanation proportional to the change; list any out-of-scope observations concisely instead of implementing them, and do not narrate every check or walk through the examples unless asked.
 
 ## Avoid
 
 - Unnecessary design patterns (factory, registry, strategy) for single use cases
 - Generic abstractions before there are multiple real consumers
-- Future-proofing without an explicit requirement
+- Future-proofing or compatibility shims without an explicit requirement
+- Redundant null checks, fallback branches, or `try/catch` wrappers on trusted internal state
+- Unsolicited test suites, implementation-mirroring assertions, or novel mock harnesses for simple edits
+- Auto-running full regression suites after every small edit
+- Drive-by refactoring or reformatting outside the changed path
 - Extra configuration options with only one known value
 - Unused utilities, helpers, or dependencies
 - Hand-rolled versions of standard library or platform features (parsing, formatting, cloning, debouncing, retries)
@@ -101,15 +117,15 @@ Explain the result in the user's language and include the validation and limitat
 ## When Complexity Is Allowed
 
 Do not simplify by removing legitimate requirements. Allow necessary complexity only when
-an actual invariant, explicit requirement or established failure calls for it; choose the
-smallest sufficient implementation. The following areas may supply such a requirement, but
-naming one alone does not justify another mechanism:
+an actual invariant, explicit requirement or established failure at a real boundary calls for it;
+choose the smallest sufficient implementation. The following areas may supply such a requirement,
+but naming one alone does not justify speculative defensive branches or extra test scaffolding:
 
 - Security and authentication
-- Input validation and error handling
+- Boundary input validation and I/O error handling
 - Accessibility compliance
 - Measured performance requirements
-- Reliability and fault tolerance
+- Reliability and fault tolerance at real failure boundaries
 - Existing project architecture and conventions
 - Explicit requirements from stakeholders
 

@@ -1,7 +1,7 @@
 # ai-agent-dotfiles 使用说明
 
 面向"未来的我"和接手的 Claude Code / Codex agent。必须遵守的规则以 [AGENTS.md](../AGENTS.md) 为准；
-本手册只补充操作细节。全局状态见 [STATUS.md](../STATUS.md)，新电脑接入见
+本手册只补充操作细节。全局状态见 [STATUS.md](../STATUS.md)，Codex 本机调优与减打断见 [CODEX_TUNING.md](CODEX_TUNING.md)，新电脑接入见
 [ONBOARD_NEW_MACHINE.md](ONBOARD_NEW_MACHINE.md)，已删除内容见 [HISTORY.md](HISTORY.md)。
 
 ---
