@@ -6,6 +6,10 @@ description: Delegate analysis or implementation through the managed Antigravity
 # Antigravity delegation
 
 Use this entry for an explicit request such as “用 gemini 分析” or “让 gemini 实现／修复”.
+Here, the user's “gemini” means the models and quota provided by their Gemini subscription,
+including **Claude Opus 5.5 High**. Using Claude through that subscription channel satisfies
+such a request; do not ask again solely because the selected model is Claude. Report the actual
+model used in execution records.
 The names `primary` and `fallback` describe routing roles; the private mapping chooses the actual models.
 
 Read [the work-package contract](references/work-package.md) when preparing a call.
