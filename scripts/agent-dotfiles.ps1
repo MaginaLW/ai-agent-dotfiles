@@ -9,7 +9,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: help, doctor, build, scan, sync, config, profile, skills, env, or antigravity.
+    One of: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, or mcp.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -74,13 +74,21 @@ function Write-Usage([string] $Group) {
                 Write-Host 'Example: skills promote -Path <dir> -Name <name> -Type shared -DryRun'
                 Write-Host 'Options: -Type shared|claude-only|codex-only; -Replace replaces a source skill of the same type with a backup.'
             }
+            mcp {
+                Write-Host 'status: read-only inspection of Antigravity, Codex, and ZCode managed MCP projections.'
+                Write-Host 'deploy: previews per-entry projection with -DryRun; authorized -Apply merges Antigravity/ZCode JSON and runs codex mcp CLI.'
+                Write-Host 'Examples: mcp status; mcp deploy -DryRun; mcp deploy -Platform Codex,ZCode -DryRun'
+                Write-Host 'Options: -Platform Antigravity|Codex|ZCode, -Server <name>, -RepoRoot <path>, -HomeRoot <path>, -BackupRoot <path>, -JsonPath <file>, -Json, -SkipSecretScan.'
+                Write-Host 'Only deploy accepts -DryRun, -Apply, -BackupRoot, or -SkipSecretScan.'
+            }
         }
         Write-Host 'deploy, pull/push, apply and promote require exactly one mode: -DryRun or -Apply. Review the dry run before authorized Apply.'
         return
     }
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity'
+    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp'
     Write-Host 'Antigravity actions: build, status, deploy -DryRun|-Apply; separate from sync and env deploy.'
+    Write-Host 'MCP actions: status, deploy -DryRun|-Apply; separate from sync and requires -DryRun or -Apply.'
     Write-Host 'Sync runs deploy.ps1 (skills plus config) and requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
@@ -88,7 +96,7 @@ function Write-Usage([string] $Group) {
     Write-Host 'Env actions: list [-RepoRoot <path>] [-StateRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
     Write-Host 'sync, env deploy, antigravity deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'build generates output; env list -JsonPath writes a report without a mode.'
-    Write-Host 'Group help: help config (or config help); also env, profile, skills and antigravity.'
+    Write-Host 'Group help: help config (or config help); also env, profile, skills, antigravity and mcp.'
 }
 
 function Assert-ExplicitMode([object[]] $Arguments, [string] $Label) {
@@ -188,8 +196,8 @@ if ([string]::IsNullOrWhiteSpace($Command)) {
 if ($Command -ieq 'help') {
     $topics = @($RemainingArguments | Where-Object { $null -ne $_ })
     if ($topics.Count -eq 0) { Write-Usage; exit 0 }
-    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity')) {
-        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills or help antigravity.' -ErrorAction Continue
+    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')) {
+        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills, help antigravity or help mcp.' -ErrorAction Continue
         exit 1
     }
     Write-Usage ([string] $topics[0]).ToLowerInvariant()
@@ -225,6 +233,10 @@ $groupCommandMaps = @{
     env = @{
         list   = $null
         deploy = 'deploy.ps1'
+    }
+    mcp = @{
+        status = 'mcp-sync.ps1'
+        deploy = 'mcp-sync.ps1'
     }
 }
 
@@ -335,6 +347,125 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
         }
         if ($externalPlugins.Count -gt 0) { $pluginArguments += '-ExternalPlugin:' + ($externalPlugins -join ',') }
         $forwardedArguments = $pluginArguments
+    }
+
+    if ($normalizedCommand -eq 'mcp') {
+        $mcpArguments = @('-Action', $groupAction)
+        $seenParameters = @{}
+        $mcpPlatforms = @()
+        $mcpServers = @()
+        $mcpMode = $null
+        $mcpValueParams = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath')
+        $mcpNamedValueFlags = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath', '-Platform', '-Server')
+        for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
+            $argument = [string] $forwardedArguments[$i]
+            if ($argument -in $mcpValueParams) {
+                if ($argument -eq '-BackupRoot' -and $groupAction -ne 'deploy') {
+                    Write-Error "The mcp $groupAction command accepts no -BackupRoot parameter." -ErrorAction Continue
+                    exit 1
+                }
+                if ($seenParameters.ContainsKey($argument)) {
+                    Write-Error "Duplicate MCP path parameter: $argument." -ErrorAction Continue
+                    exit 1
+                }
+                if ($i + 1 -ge $forwardedArguments.Count -or
+                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
+                    $forwardedArguments[$i + 1] -in $mcpNamedValueFlags) {
+                    Write-Error "MCP parameter $argument requires a value." -ErrorAction Continue
+                    exit 1
+                }
+                $seenParameters[$argument] = $true
+                $mcpArguments += $argument + ':' + [string] $forwardedArguments[++$i]
+                continue
+            }
+            if ($argument -eq '-Platform') {
+                if ($i + 1 -ge $forwardedArguments.Count -or
+                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
+                    $forwardedArguments[$i + 1] -in ($mcpNamedValueFlags + @('-DryRun', '-Apply', '-Json', '-SkipSecretScan'))) {
+                    Write-Error 'MCP -Platform requires a value.' -ErrorAction Continue
+                    exit 1
+                }
+                $platRaw = [string] $forwardedArguments[++$i]
+                $platTokens = @($platRaw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                if ($platTokens.Count -eq 0) {
+                    Write-Error 'MCP -Platform requires at least one platform name.' -ErrorAction Continue
+                    exit 1
+                }
+                foreach ($token in $platTokens) {
+                    if ($token -notin @('Antigravity', 'Codex', 'ZCode')) {
+                        Write-Error "Unsupported MCP platform '$token'. Expected Antigravity, Codex or ZCode." -ErrorAction Continue
+                        exit 1
+                    }
+                    if ($token -notin $mcpPlatforms) { $mcpPlatforms += $token }
+                }
+                continue
+            }
+            if ($argument -eq '-Server') {
+                if ($i + 1 -ge $forwardedArguments.Count -or
+                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
+                    $forwardedArguments[$i + 1] -in ($mcpNamedValueFlags + @('-DryRun', '-Apply', '-Json', '-SkipSecretScan'))) {
+                    Write-Error 'MCP -Server requires a value.' -ErrorAction Continue
+                    exit 1
+                }
+                $srvRaw = [string] $forwardedArguments[++$i]
+                $srvTokens = @($srvRaw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                if ($srvTokens.Count -eq 0) {
+                    Write-Error 'MCP -Server requires at least one server name.' -ErrorAction Continue
+                    exit 1
+                }
+                foreach ($token in $srvTokens) {
+                    if ($token -cnotmatch '^[a-z0-9][a-z0-9_-]*$') {
+                        Write-Error 'MCP -Server value must be a valid lowercase server name.' -ErrorAction Continue
+                        exit 1
+                    }
+                    if ($token -cnotin $mcpServers) { $mcpServers += $token }
+                }
+                continue
+            }
+            if ($argument -eq '-Json') {
+                if ($seenParameters.ContainsKey('-Json')) {
+                    Write-Error 'Duplicate MCP -Json switch.' -ErrorAction Continue
+                    exit 1
+                }
+                $seenParameters['-Json'] = $true
+                $mcpArguments += '-Json'
+                continue
+            }
+            if ($argument -eq '-SkipSecretScan') {
+                if ($groupAction -ne 'deploy') {
+                    Write-Error "The mcp $groupAction command accepts no -SkipSecretScan parameter." -ErrorAction Continue
+                    exit 1
+                }
+                if ($seenParameters.ContainsKey('-SkipSecretScan')) {
+                    Write-Error 'Duplicate MCP -SkipSecretScan switch.' -ErrorAction Continue
+                    exit 1
+                }
+                $seenParameters['-SkipSecretScan'] = $true
+                $mcpArguments += '-SkipSecretScan'
+                continue
+            }
+            if ($argument -notin @('-DryRun', '-Apply')) {
+                Write-Error 'Unsupported mcp argument. Use exact -RepoRoot, -HomeRoot, -BackupRoot, -JsonPath, -Platform, -Server, -Json, -SkipSecretScan, -DryRun or -Apply names.' -ErrorAction Continue
+                exit 1
+            }
+            if ($groupAction -ne 'deploy') {
+                Write-Error "The mcp $groupAction command accepts no -DryRun or -Apply mode." -ErrorAction Continue
+                exit 1
+            }
+            if ($null -ne $mcpMode) {
+                Write-Error 'The mcp deploy command accepts only one mode: -DryRun or -Apply.' -ErrorAction Continue
+                exit 1
+            }
+            $mcpMode = $argument
+            if ($argument -eq '-Apply') { $mcpArguments += '-Apply' }
+        }
+        if ($groupAction -eq 'deploy' -and $null -eq $mcpMode) {
+            Write-Error 'The mcp deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
+            exit 1
+        }
+        if ($mcpPlatforms.Count -gt 0) { $mcpArguments += '-Platform:' + ($mcpPlatforms -join ',') }
+        if ($mcpServers.Count -gt 0) { $mcpArguments += '-Server:' + ($mcpServers -join ',') }
+        $forwardedArguments = $mcpArguments
     }
 
     $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -eq 'deploy') -or

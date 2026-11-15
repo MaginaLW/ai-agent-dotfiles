@@ -168,29 +168,42 @@ foreach ($scriptName in @('build-skills.ps1', 'scan-secrets.ps1')) {
 Assert-TestCondition ((Get-LiteralOccurrenceCount -Text (Read-RepoText 'bootstrap.ps1') -Needle '-Apply') -eq 0) 'bootstrap.ps1 carries no -Apply usage'
 
 # -----------------------------------------------------------------------------
-# No MCP / OpenClaw / OpenCode reintroduction in scripts or manifests
+# Retired platforms and managed MCP projection boundaries
 # -----------------------------------------------------------------------------
-Write-Host '[retired platform absence]'
+Write-Host '[retired platform absence and MCP boundaries]'
 $policyFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'scripts'), (Join-Path $RepoRoot 'manifests') -Recurse -File)
+$scriptsRootFull = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts'))
+$allowedMcpScripts = @(
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts/mcp-sync.ps1')),
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'))
+)
 $retiredHits = @()
 $mcpScriptHits = @()
 $mcpManifestNonCommentHits = @()
 foreach ($file in $policyFiles) {
+    $full = [System.IO.Path]::GetFullPath($file.FullName)
     $lineNumber = 0
     foreach ($line in [System.IO.File]::ReadLines($file.FullName)) {
         $lineNumber++
         if ($line -match '(?i)openclaw|opencode') { $retiredHits += "$($file.FullName):$lineNumber" }
         if ($line -match '(?i)mcp') {
-            if ($file.FullName -like "$([System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts')))*") { $mcpScriptHits += "$($file.FullName):$lineNumber" }
+            if ($full.StartsWith($scriptsRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                if ($full -notin $allowedMcpScripts) { $mcpScriptHits += "$($file.FullName):$lineNumber" }
+            }
             elseif ($line -notmatch '^\s*#') { $mcpManifestNonCommentHits += "$($file.FullName):$lineNumber" }
         }
     }
 }
 Assert-TestCondition ($retiredHits.Count -eq 0) 'no OpenClaw or OpenCode reference exists under scripts/ or manifests/'
-Assert-TestCondition ($mcpScriptHits.Count -eq 0) 'no MCP reference exists under scripts/'
+Assert-TestCondition ($mcpScriptHits.Count -eq 0) 'MCP references under scripts/ are confined to mcp-sync.ps1 and agent-dotfiles.ps1'
 Assert-TestCondition ($mcpManifestNonCommentHits.Count -eq 0) 'MCP appears in manifests/ only as descriptive comments, never as an active operation'
 $codexConfig = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1')).Codex
 Assert-TestCondition (@($codexConfig.ExcludedItems) -contains 'config.toml') 'Codex config.toml is excluded from sync'
 Assert-TestCondition ((@($codexConfig.PushItems) -notcontains 'config.toml') -and (@($codexConfig.PullItems) -notcontains 'config.toml')) 'Codex config.toml is not selected for push or pull'
+Assert-TestCondition (-not (Read-RepoText 'scripts/deploy.ps1').Contains('mcp-sync')) 'combined deploy.ps1 does not automatically project MCP servers'
+
+. (Join-Path $RepoRoot 'scripts/mcp-sync.ps1')
+$mcpRegistry = Read-McpServerRegistry -RepoRoot $RepoRoot
+Assert-TestCondition (@($mcpRegistry.Servers | Where-Object { $_.Name -ceq 'blender' -and $_.Command -ceq 'uvx' }).Count -eq 1) 'harness-source/mcp/servers.psd1 passes schema validation and declares blender'
 
 Write-Host 'repository policy tests: PASS'

@@ -43,7 +43,7 @@ Write-Host 'unified CLI: env and config/profile routing'
 $result = Invoke-Entry -Arguments @('help')
 Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
 Assert ($result.Out -match 'sync, env deploy, antigravity deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
-foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity')) {
+foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')) {
     foreach ($helpArgs in @(@('help', $group), @($group, 'help'))) {
         $result = Invoke-Entry -Arguments $helpArgs
         Assert ($result.Code -eq 0 -and $result.Out -match "agent-dotfiles.ps1 $group <action>" -and $result.Out -notmatch 'Invoking script') "group help returns without executing a child: $($helpArgs -join ' ')"
@@ -213,6 +213,45 @@ foreach ($badArguments in @(
 }
 $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'update', '-Apply')
 Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported' -and $result.Out -notmatch 'Invoking script') 'antigravity exposes no unverified update route'
+
+Write-Host 'unified CLI: MCP routes and mode boundaries'
+Set-TestFile -Path (Join-Path $pluginScripts 'mcp-sync.ps1') -Content (@(
+    '[CmdletBinding()]',
+    'param([ValidateSet("Status","Deploy")][string] $Action = "Status", [string] $RepoRoot, [string] $HomeRoot, [string[]] $Platform = @(), [string[]] $Server = @(), [string] $BackupRoot, [string] $JsonPath, [switch] $Json, [switch] $Apply, [switch] $SkipSecretScan)',
+    '[pscustomobject]@{ Action=$Action; RepoRoot=$RepoRoot; HomeRoot=$HomeRoot; Platform=@($Platform); Server=@($Server); BackupRoot=$BackupRoot; JsonPath=$JsonPath; Json=[bool]$Json; Apply=[bool]$Apply; SkipSecretScan=[bool]$SkipSecretScan } | ConvertTo-Json -Compress'
+) -join "`n")
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-Platform', 'Antigravity,ZCode', '-Server', 'blender', '-Json')
+$mcpPayload = $null
+try { $mcpPayload = $result.Out | ConvertFrom-Json } catch { $mcpPayload = $null }
+Assert ($result.Code -eq 0 -and $null -ne $mcpPayload -and $mcpPayload.Action -eq 'status' -and ($mcpPayload.Platform -join ',') -eq 'Antigravity,ZCode' -and ($mcpPayload.Server -join ',') -eq 'blender' -and $mcpPayload.Json -and (-not $mcpPayload.Apply) -and $result.Out -notmatch 'Invoking script|Command result') 'mcp status -Json forwards filtered arguments without banners or mutation'
+
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'deploy', '-DryRun', '-Platform', 'Codex', '-Platform', 'ZCode')
+Assert ($result.Code -eq 0 -and $result.Out -match '"Action":"deploy"' -and $result.Out -match '"Apply":false' -and $result.Out -match '"Codex,ZCode"') 'mcp deploy -DryRun forwards without Apply'
+
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'deploy', '-Apply', '-SkipSecretScan')
+Assert ($result.Code -eq 0 -and $result.Out -match '"Apply":true' -and $result.Out -match '"SkipSecretScan":true') 'mcp deploy forwards explicit Apply only when requested'
+
+foreach ($badMcp in @(
+    @('status', '-DryRun'),
+    @('status', '-Apply'),
+    @('status', '-BackupRoot', $work),
+    @('status', '-SkipSecretScan'),
+    @('deploy'),
+    @('deploy', '-DryRun', '-Apply'),
+    @('deploy', '-Apply:$true'),
+    @('deploy', '-DryRun', '-Platform', 'Invalid'),
+    @('deploy', '-DryRun', '-Server', 'Bad Name'),
+    @('deploy', '-DryRun', '-Repo'),
+    @('deploy', '-DryRun', 'extra-pos')
+)) {
+    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('mcp') + $badMcp)
+    Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') "mcp rejects invalid route arguments before dispatch: $($badMcp -join ' ')"
+}
+
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'deploy', '-RepoRoot', '-Apply', '-HomeRoot', '-DryRun', '-DryRun')
+$mcpLiteral = $null
+try { $mcpLiteral = ($result.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $mcpLiteral = $null }
+Assert ($result.Code -eq 0 -and $null -ne $mcpLiteral -and $mcpLiteral.RepoRoot -eq '-Apply' -and $mcpLiteral.HomeRoot -eq '-DryRun' -and (-not $mcpLiteral.Apply)) 'mcp deploy preserves literal mode strings as path values without activation'
 
 Write-Host 'unified CLI: apply gates'
 foreach ($commandArgs in @(
