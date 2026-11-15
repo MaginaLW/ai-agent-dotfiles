@@ -76,7 +76,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Repository branches.** The subagent-dispatch task branch is retained locally and on `origin`; remote deletion is not authorized. Earlier task branches for
   PRs #3, #4 and #5 were deleted after their merge state and full-tip ancestry were verified;
   their cleanup does not include the current task branch.
-- **Approval-feedback retirement & codex/AGENTS.md inlining.** `approval-feedback` (including its private `%LOCALAPPDATA%` ledger script and test suite) is retired from source, `work` and `full` after its non-ledger capabilities (direct workspace execution, `A01 + optional 0-3`, same-turn `0/1` rule-diff proposals, `>2` low-score opt-in popup reduction, permission consolidation, timed-window 4-tuple and ledgerless `S/Q/U/H` closeout) were folded into `harness-model` (PRs #161/#162/#163) and inlined into `codex/AGENTS.md`. `boring-engineering` is also retired from the Codex/ZCode `work` selection (`0/8/6` vs former `0/10/8`, with its Practical DRY three-part gate and 5-item delivery-boundary check now explicit in `codex/AGENTS.md`); `skills-source/shared/boring-engineering/` remains only as the pinned input for the installed `0.2.0` Antigravity plugin (since Antigravity IDE sessions do not load `codex/AGENTS.md` and live plugin updates/uninstalls remain blocked pending proven native contracts and explicit authorization). Generated outputs rebuilt, syntax/secret checks and tests pass (see commit validation); live pruning of `approval-feedback` and `boring-engineering` from `~/.codex/skills` and `~/.zcode/skills` plus `config-pull -Apply` on `~/.codex/AGENTS.md` await explicit owner review of the dry-run previews and Apply authorization.
+- **Approval-feedback retirement & codex/AGENTS.md inlining.** `approval-feedback` (including its private `%LOCALAPPDATA%` ledger script and test suite) is retired from source, `work` and `full` after its non-ledger capabilities (direct workspace execution, `A01 + optional 0-3`, same-turn `0/1` rule-diff proposals, `>2` low-score opt-in popup reduction, permission consolidation, timed-window 4-tuple and ledgerless `S/Q/U/H` closeout) were folded into `harness-model` (PRs #161/#162/#163) and inlined into `codex/AGENTS.md`. `boring-engineering` is also retired from the Codex/ZCode `work` selection (`0/8/6` vs former `0/10/8`, with its Practical DRY three-part gate and 5-item delivery-boundary check now explicit in `codex/AGENTS.md`); `skills-source/shared/boring-engineering/` remains only as the pinned input for the installed `0.2.0` Antigravity plugin (since Antigravity IDE sessions do not load `codex/AGENTS.md` and live plugin updates/uninstalls remain blocked pending proven native contracts and explicit authorization). Generated outputs rebuilt, syntax/secret checks and repository validation pass, and owner-authorized `deploy.ps1 -Environment work -Apply` completed on `2026-11-15`: `approval-feedback` and `boring-engineering` were pruned from `~/.codex/skills` and `~/.zcode/skills` (Codex `.system` and unknown directories preserved), `~/.codex/AGENTS.md` managed block updated (`skill-backups\20261115-051504-833-cb6a61` and `config-backup-20261115-051507-283` retained), and post-Apply readbacks returned `unchanged=14, prune=0, unknown=0` plus config `in-sync`.
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
@@ -156,25 +156,14 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- The numbered one-interaction scoring revision is installed on Codex and ZCode; the current
-  machine has no Claude live root. The private ledger holds 23 real records (20 structured plus
-  3 manual; all Codex; 19 at 1, 4 at 0) across 11 task references. The three retained local
-  pending inputs were reconciled on 2026-11-10 with source attribution and readback; no further
-  pending input was found in the inspected local evidence. Three independent Codex tasks now
-  cover the same core action, a full-environment approval-feedback live update, with scores of
-  1 and no 2/3 or permission conflict. That threshold led to the owner-approved narrow exception
-  in Skill rules 9; no other future approval is enabled.
-  The feedback still shows repeated low interruption value and has produced concrete narrow
-  proposals, one applied and published, but no measured reduction. The current skill revision is
-  `3aa4391`; its source matches the Codex and ZCode live roots, and the Codex managed block is
-  in-sync. A fresh Codex task on 2026-11-11 discovered and read the current body, but had no
-  comparable approval opportunity, so the current-revision S/Q effect remains unmeasured (U).
-  The next natural checkpoint is the next real Codex approval request.
-- `approval-feedback` is installed in the Codex and ZCode live roots; the current machine has
-  no Claude live root. Codex catalog discovery, live-file loading and selection have
-  fresh-context and partial thread evidence; ZCode model-level loading and long-run selection
-  remain unverified because that client is not in active use. Installation enables no automatic
-  approval or standing merge policy.
+- **Historical `approval-feedback` ledger & open item closed (`2026-11-15`).** The former
+  standalone `approval-feedback` skill (prior revision `3aa4391` and private local ledger
+  records) has been retired from source, `work`/`full` selections, and both Codex/ZCode live
+  roots; future tasks no longer maintain `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` and report
+  ledgerless `S/Q/U/H` summaries in-thread per `codex/AGENTS.md` and `harness-model`. The
+  earlier Skill rules 9 full-environment exception remains retired, and `skills-source/shared/boring-engineering/`
+  remains open solely as the pinned input for the existing `0.2.0` Antigravity plugin until
+  native plugin update/uninstall contracts and separate authorization exist.
 
 ## Known boundaries
 
