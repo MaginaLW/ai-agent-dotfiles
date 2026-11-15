@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-15.
+Last updated: 2026-11-16.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -84,7 +84,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Repository branches.** The subagent-dispatch task branch is retained locally and on `origin`; remote deletion is not authorized. Earlier task branches for
   PRs #3, #4 and #5 were deleted after their merge state and full-tip ancestry were verified;
   their cleanup does not include the current task branch.
-- **Approval-feedback & boring-engineering retired and codex/AGENTS.md streamlined.** Both standalone skills (including the former `%LOCALAPPDATA%` feedback ledger, `A01` scoring prompts, and `S/Q/U/H` summaries) and `boring-engineering` are retired from canonical source, `work`/`full`, Antigravity `ai-agent-dotfiles`, `codex/AGENTS.md`, and docs. `codex/AGENTS.md` retains only the non-scoring engineering-restraint and low-intervention clauses.
+- **Approval-feedback & boring-engineering retired and codex/AGENTS.md streamlined.** Both standalone skills (including the former `%LOCALAPPDATA%` feedback ledger, `A01` scoring prompts, and `S/Q/U/H` summaries) and `boring-engineering` are retired from canonical source, `work`/`full`, Antigravity `ai-agent-dotfiles`, `codex/AGENTS.md`, and docs. `codex/AGENTS.md` retains only the non-scoring engineering-restraint and low-intervention clauses. Follow-up cleanup (`2026-11-16`) also removed residual `approval-feedback`/`A01`/`S/Q/U/H` rules from `~/.zcode/AGENTS.md` and sibling `agent-bridge` (`AGENTS.md` and `docs/local-bridge.md`, PR #11 `db227b6`), retired pre-PR-#21 worktrees (`wt-ag-020`, `wt-ag-030`, and integrated branch `codex/antigravity-plugins-020-20261114`; `wt-ag-040` stays for the `0.4.0` receipt), and cleared readable `tmp/approval-*` scratch directories (`tmp/approval-effectiveness/validation-deps/` stays ACL-restricted).
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
