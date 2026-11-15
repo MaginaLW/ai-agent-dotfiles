@@ -81,7 +81,7 @@ unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 sk
 
 ## Antigravity 插件
 
-Antigravity 使用独立入口，当前 `ai-agent-dotfiles` 版本为 `0.3.0`，包含 `git-review`、`systematic-debugging` 与 `verification-before-completion`：
+Antigravity 使用独立入口。源候选 `ai-agent-dotfiles` 版本为 `0.4.0`，包含 `git-review`、`multimodal-generation`、`systematic-debugging` 与 `verification-before-completion`；本机 live 升级须另行授权（当前已安装 `0.3.0`）：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity build
@@ -97,7 +97,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 ## 管理范围
 
 - `skills-source/` 是 skills 唯一源；build 生成 `claude/skills/`、`codex/skills/`，生成物不提交。
-- 环境定义位于 `harness-source/envs/`。当前 `work` 的 Claude/Codex/ZCode 为 0/9/8，
+- 环境定义位于 `harness-source/envs/`。当前 `work` 的 Claude/Codex/ZCode 为 0/9/7，
   `subagent-driven-development` 仅选入 Codex 的 `work`；`full` 在三平台均包含它。
 - 部署逐个 skill 目录进行，只 prune 本工具记录过或显式 `-Retire` 点名的目录；未知目录保留，Codex `.system` 不受管。
 - 配置 status/pull/push 及组合部署默认只处理 Codex，不会重建 Claude live 配置；旧 Claude 配置工具须显式 `-Platform Claude`。Codex `AGENTS.md` 只更新受管 block，保留 block 外文本。

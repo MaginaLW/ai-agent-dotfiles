@@ -9,6 +9,7 @@
             'antigravity-delegation',
             'git-review',
             'meng-cmame-writing',
+            'multimodal-generation',
             'paper-polish',
             'session-learnings',
             'subagent-driven-development',
@@ -18,6 +19,7 @@
         Zcode = @(
             'git-review',
             'meng-cmame-writing',
+            'multimodal-generation',
             'paper-polish',
             'session-learnings',
             'systematic-debugging',
