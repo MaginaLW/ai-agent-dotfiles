@@ -9,14 +9,15 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Antigravity plugin connected.** The independent `antigravity build/status/deploy` route
-  builds `ai-agent-dotfiles` 0.2.0 from four shared skills (`boring-engineering`, `git-review`,
-  `systematic-debugging`, `verification-before-completion`; 19 files, digest `efb4a591...`).
+- **Antigravity plugin updated to 0.3.0 (boring-engineering retired; live 0.2.0 uninstalled).** The independent `antigravity build/status/deploy` route
+  now builds `ai-agent-dotfiles` 0.3.0 from three shared skills (`git-review`,
+  `systematic-debugging`, `verification-before-completion`; 9 files, digest `45956d01...`) after retiring `boring-engineering`.
+  Canonical and final-package scans and native strict validation (`agy 1.5.9`) pass; live `0.2.0` was cleanly uninstalled (`agy plugin uninstall ai-agent-dotfiles`, `agy plugin list --json` -> `[]`), and `0.3.0` `Deploy -Apply` hit Windows `Access is denied` on rename while Antigravity Desktop App watched `~/.gemini/config/plugins/` (target absent, `pending-install.json` retained without blind retry), awaiting fresh `antigravity build` + `antigravity deploy -Apply` with Antigravity closed.
   Skill selection is schema-validated dynamically instead of hardcoded to two skills, and the
   host-exported default `ANTIGRAVITY_APP_DATA_DIR` (`<UserProfile>/.gemini/antigravity`) is
   accepted while non-default overrides remain rejected. Canonical and final-package scans,
   reproducible file maps and native strict validation (`agy 1.5.9`) pass; the lifecycle suite
-  passes 94 assertions and all 15 local suites pass (`scripts/run-tests.ps1`).
+  passes 94 assertions and all 14 local suites pass (`scripts/run-tests.ps1`).
   Historical 0.1.0 merged via PR #9 (`fad4433`) and PRs #10/#11 (`19e9c4c`/`9b78244`), passing
   6/6 App/CLI acceptance sessions for `boring-engineering` and `git-review`.
   For 0.2.0, in-place `agy plugin install` failed with `Access is denied` while Antigravity
@@ -76,7 +77,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Repository branches.** The subagent-dispatch task branch is retained locally and on `origin`; remote deletion is not authorized. Earlier task branches for
   PRs #3, #4 and #5 were deleted after their merge state and full-tip ancestry were verified;
   their cleanup does not include the current task branch.
-- **Approval-feedback retirement & codex/AGENTS.md inlining.** `approval-feedback` (including its private `%LOCALAPPDATA%` ledger script and test suite) is retired from source, `work` and `full` after its non-ledger capabilities (direct workspace execution, `A01 + optional 0-3`, same-turn `0/1` rule-diff proposals, `>2` low-score opt-in popup reduction, permission consolidation, timed-window 4-tuple and ledgerless `S/Q/U/H` closeout) were folded into `harness-model` (PRs #161/#162/#163) and inlined into `codex/AGENTS.md`. `boring-engineering` is also retired from the Codex/ZCode `work` selection (`0/8/6` vs former `0/10/8`, with its Practical DRY three-part gate and 5-item delivery-boundary check now explicit in `codex/AGENTS.md`); `skills-source/shared/boring-engineering/` remains only as the pinned input for the installed `0.2.0` Antigravity plugin (since Antigravity IDE sessions do not load `codex/AGENTS.md` and live plugin updates/uninstalls remain blocked pending proven native contracts and explicit authorization). Generated outputs rebuilt, syntax/secret checks and repository validation pass, and owner-authorized `deploy.ps1 -Environment work -Apply` completed on `2026-11-15`: `approval-feedback` and `boring-engineering` were pruned from `~/.codex/skills` and `~/.zcode/skills` (Codex `.system` and unknown directories preserved), `~/.codex/AGENTS.md` managed block updated (`skill-backups\20261115-051504-833-cb6a61` and `config-backup-20261115-051507-283` retained), and post-Apply readbacks returned `unchanged=14, prune=0, unknown=0` plus config `in-sync`.
+- **Approval-feedback & boring-engineering retirement and codex/AGENTS.md inlining.** Both `approval-feedback` (including its private `%LOCALAPPDATA%` feedback ledger directory, script and test suite) and `boring-engineering` are now retired from canonical source, `work` (`0/8/6`) and `full` (`10/18/10`), and Antigravity `ai-agent-dotfiles` (`0.3.0`, three skills), after their non-ledger engineering-restraint and low-intervention rules were folded into `harness-model` (PRs #161/#162/#163), `agent-bridge` (PR #9), and `codex/AGENTS.md`. Codex/ZCode `deploy.ps1 -Environment work -Apply` pruned both skills from `~/.codex/skills` and `~/.zcode/skills` and updated the `~/.codex/AGENTS.md` managed block (`skill-backups\20261115-051504-833-cb6a61` and `config-backup-20261115-051507-283` retained; post-Apply readbacks returned `unchanged=14, prune=0, unknown=0` plus config `in-sync`).
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
@@ -156,14 +157,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- **Historical `approval-feedback` ledger & open item closed (`2026-11-15`).** The former
-  standalone `approval-feedback` skill (prior revision `3aa4391` and private local ledger
-  records) has been retired from source, `work`/`full` selections, and both Codex/ZCode live
-  roots; future tasks no longer maintain `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` and report
-  ledgerless `S/Q/U/H` summaries in-thread per `codex/AGENTS.md` and `harness-model`. The
-  earlier Skill rules 9 full-environment exception remains retired, and `skills-source/shared/boring-engineering/`
-  remains open solely as the pinned input for the existing `0.2.0` Antigravity plugin until
-  native plugin update/uninstall contracts and separate authorization exist.
+- **Historical `approval-feedback` ledger & `boring-engineering` open items closed (`2026-11-15`); Antigravity `0.3.0` live install pending Desktop App close.** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory) have been removed from canonical source, `work`/`full` selections, Codex/ZCode live roots, and Antigravity (`0.2.0` uninstalled cleanly; `0.3.0` built & validated with 3 skills, pending fresh `antigravity deploy -Apply` with Antigravity Desktop App closed due to `~/.gemini/config/plugins/` file lock). Future tasks report ledgerless `S/Q/U/H` summaries in-thread per `codex/AGENTS.md` and `harness-model`. The earlier Skill rules 9 full-environment exception remains retired.
 
 ## Known boundaries
 
@@ -200,18 +194,17 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 | Scope | Canonical | Claude | Codex |
 |---|---:|---:|---:|
-| Shared | 11 | 11 | 11 |
+| Shared | 10 | 10 | 10 |
 | Codex-only (Claude-only is empty) | 8 | - | 8 |
-| Managed total | 19 | 11 | 19 |
+| Managed total | 18 | 10 | 18 |
 
-- **Shared skills:** boring-engineering (retained for Antigravity `0.2.0` plugin parity only),
-  brainstorming, git-review, meng-cmame-writing, paper-polish, session-learnings,
-  subagent-driven-development, systematic-debugging, tool-scope,
+- **Shared skills:** brainstorming, git-review, meng-cmame-writing, paper-polish,
+  session-learnings, subagent-driven-development, systematic-debugging, tool-scope,
   verification-before-completion, writing-plans.
 - **Codex-only skills:** antigravity-delegation, chatgpt-apps, cli-creator, coderabbit-review,
   define-goal, security-best-practices, security-ownership-map, security-threat-model.
 - **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 0/8/6,
-  `full` 11/19/11. Unselected unknown live directories are preserved, and Codex `.system` is
+  `full` 10/18/10. Unselected unknown live directories are preserved, and Codex `.system` is
   never managed.
 - **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the MCP
   registration subsystem; OpenClaw/OpenCode; ArkCLI-managed skills; the legacy local
