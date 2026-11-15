@@ -367,13 +367,10 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 `full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。
 构建及部署准备的当前结果见 [STATUS.md](../STATUS.md)。
 
-`approval-feedback` 已选入 Codex/ZCode `work`；兼容 `full` 仍包含三平台，以全局 Skill 发现方式使用。它在准备执行确认、
-收到评分反馈或定位重复审批旧规则时介入，先复用已有授权；评分只评价打断价值，不授予权限。
-收到 0／1 分或“纠错未落实”的反馈时，在当前响应中处理具体来源：纠正执行误读并完成已授权工作，
-或立即提出项目级持续扩权：给出精确规则差异、原因、风险、继承范围和撤销方式，由用户一次审批规则写入
-及所列执行范围。批准后落到项目正式入口，后续任务／会话读取有效条款后直接继承，不重复批准同类动作；
-不等更多评分或多个独立任务。平台硬审批保留。源码、部署、加载与实际行为效果分别报告。
-同一项目反复扩权时，检查权限源文件的分类、冲突和继承入口，合并同类规则而非叠加临时例外；
+`approval-feedback` 与 `boring-engineering` 的核心工程克制与低打断交互协议已合入 `harness-model`（运维文档、入口 `AGENTS.md`、AI Flow 模板与技能）并内联进 [codex/AGENTS.md](../codex/AGENTS.md)：不再通过独立 `approval-feedback` Skill 或本机私有台账维护，`approval-feedback` 已从源码与环境清退；`boring-engineering` 已从 Codex/ZCode `work` 清退（`skills-source/shared/boring-engineering/` 仅暂时保留作为当前已安装 Antigravity `0.2.0` 插件的固定打包输入，因 Antigravity 会话不读取 `codex/AGENTS.md` 且官方升级/卸载合同尚待另行验证授权）。现有交互约定如下：先复用项目既有有效授权；仅缺业务方向、超常设授权（含授权/策略变更）或高风险外部动作时附 `A01 | 可选 0–3` 提问，评分只评价打断价值，不授予权限。
+收到 0／1 分或“纠错未落实”的反馈时，在当前响应中同时处理具体来源：纠正执行误读并完成已授权工作，
+或立即给出精确项目规则 diff 建议（含原因、风险、继承范围和撤销方式），由用户一次审批落实；超过两次低分才在用户明确同意后起草宿主削弱弹窗规则；收尾按已有事实附 `S / Q / U / H` 汇总。
+同一项目反复扩权时，检查权限源文件的分类、冲突和继承入口，先做最小权限规则归整而非叠加临时例外；
 按是否改变实际权限区分处理，不以编辑了源文件就一律增加审批：
 
 | 情形 | 处理 |
@@ -383,9 +380,6 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 | 已批准范围内的写入、验证及所列执行 | 连续完成；后续任务读取有效正式条款后继承，不为同一权限重复审批 |
 
 相关变更真正超出授权、用户撤销或平台强制审批时，才补相应决定；纯整理不以“权限修正”为名扩大权限。
-退役前 `work` 部署的三平台读回及 25 项不变历史结果见 [STATUS.md](../STATUS.md)，这不代表未来会话效果已验证。
-详细交互、私有台账、失败处理和效果核验以
-[Skill](../skills-source/shared/approval-feedback/SKILL.md) 及其 `references/` 为准；
 安装 Skill 与新增免重复确认规则分别授权。部署仍先审阅实际 dry-run，再按覆盖实际范围的有效授权 Apply；
 客户端是否需要新任务加载另行验证。
 
@@ -406,7 +400,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 - 切换到较小环境时，上次由 deploy-skills 部署、本次不再选中的目录进入 `prune`（先备份）。
 - 任务临时需要的 skill 不要写回 `work.psd1`；长期需要时在评审过的提交里改环境定义。
 - Codex 官方行为是自动检测 skill 变更；若更新未出现，重启 Codex。已在同一上下文中加载的旧
-  `SKILL.md` 正文不会因目录刷新而改写，因此 `approval-feedback` 要求版本不明时重新读取当前文件。
+  `SKILL.md` 正文不会因目录刷新而改写，因此版本或路径不明确时应重新读取当前有效入口与文件。
   参考 [Build skills](https://learn.chatgpt.com/docs/build-skills)。
 
 技能使用效果沿用 [STATUS.md](../STATUS.md) 的证据层级：部署后先确认客户端发现并读取当前版本，

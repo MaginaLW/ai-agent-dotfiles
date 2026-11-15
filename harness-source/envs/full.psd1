@@ -1,11 +1,10 @@
-@{
+﻿@{
     SchemaVersion = 1
     Name = 'full'
     Description = '全量基线环境（全部受管 skills，不做裁剪）'
 
     Skills = @{
         Claude = @(
-            'approval-feedback',
             'boring-engineering',
             'brainstorming',
             'git-review',
@@ -20,7 +19,6 @@
         )
         Codex = @(
             'antigravity-delegation',
-            'approval-feedback',
             'boring-engineering',
             'brainstorming',
             'chatgpt-apps',
@@ -41,7 +39,6 @@
             'writing-plans'
         )
         Zcode = @(
-            'approval-feedback',
             'boring-engineering',
             'brainstorming',
             'git-review',
