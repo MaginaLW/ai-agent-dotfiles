@@ -6,13 +6,14 @@
 
 .DESCRIPTION
     Plans an add (absent in home) or update (content differs; repo wins) for every
-    managed file. Claude writes to ~/.claude and Codex to ~/.codex.
+    managed file. Claude writes to ~/.claude, Codex to ~/.codex, and Antigravity
+    to ~/.gemini/config.
     Directories are copied file-by-file and never pruned:
     home-only files stay untouched. ExcludedItems and CommonExcludedItems are skipped.
 
     Claude settings.json is merged object-by-object so home-only fields survive; repo
-    arrays replace the corresponding home array. Codex AGENTS.md uses one marked managed
-    block and leaves content outside it untouched.
+    arrays replace the corresponding home array. Codex and Antigravity AGENTS.md each
+    use one marked managed block and leave content outside it untouched.
 
     -Apply runs the secret scan first, then backs up every home file it overwrites to
     <BackupRoot>\config-backup-<timestamp>\ before copying. A caught copy failure
@@ -30,7 +31,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex. Defaults to Codex; Claude requires an explicit opt-in.
+    One or more of Claude, Codex, Antigravity. Defaults to Codex; Claude and Antigravity require an explicit opt-in.
 
 .PARAMETER BackupRoot
     Root for the pre-overwrite backup. Defaults to
@@ -44,7 +45,7 @@ param(
     [switch] $Apply,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex')]
+    [ValidateSet('Claude', 'Codex', 'Antigravity')]
     [string[]] $Platform = @('Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipSecretScan
@@ -78,15 +79,16 @@ function Get-ConfigPullPlan {
                 }
                 continue
             }
-            if ($target.Name -eq 'Codex' -and $item -eq 'AGENTS.md') {
-                if (-not (Test-Path -LiteralPath $repoItem -PathType Leaf)) { throw 'Codex/AGENTS.md source is not a file.' }
-                if (Test-Path -LiteralPath $homeItem -PathType Container) { throw 'Codex/AGENTS.md destination is a directory.' }
+            $blockSpec = Get-ManagedAgentsBlockSpec -Platform $target.Name -Item $item
+            if ($null -ne $blockSpec) {
+                if (-not (Test-Path -LiteralPath $repoItem -PathType Leaf)) { throw "$($blockSpec.Label) source is not a file." }
+                if (Test-Path -LiteralPath $homeItem -PathType Container) { throw "$($blockSpec.Label) destination is a directory." }
                 $homeExists = Test-Path -LiteralPath $homeItem -PathType Leaf
                 $homeText = if ($homeExists) { [IO.File]::ReadAllText($homeItem) } else { '' }
-                $block = Get-CodexAgentsManagedBlockResult -RepoText ([IO.File]::ReadAllText($repoItem)) -HomeText $homeText -HomeExists $homeExists
+                $block = Get-ManagedAgentsBlockResult -RepoText ([IO.File]::ReadAllText($repoItem)) -HomeText $homeText -HomeExists $homeExists -BlockId $blockSpec.BlockId -Label $blockSpec.Label
                 if ($block.Changed) {
                     $action = if ($homeExists) { 'update' } else { 'add' }
-                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = 'Codex/AGENTS.md'; Action = $action; Mode = 'content'; Content = $block.Content })
+                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = $blockSpec.Label; Action = $action; Mode = 'content'; Content = $block.Content })
                 }
                 continue
             }
@@ -107,8 +109,10 @@ Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -Fo
 if (@($plan | Where-Object { $_.Rel -eq 'Claude/settings.json' }).Count -gt 0) {
     Write-Host 'Claude/settings.json will be merged; home-only fields are preserved.' -ForegroundColor Yellow
 }
-if (@($plan | Where-Object { $_.Rel -eq 'Codex/AGENTS.md' }).Count -gt 0) {
-    Write-Host 'Only the managed block in Codex/AGENTS.md will be updated; content outside it is preserved.' -ForegroundColor Yellow
+foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md')) {
+    if (@($plan | Where-Object { $_.Rel -eq $managedLabel }).Count -gt 0) {
+        Write-Host "Only the managed block in $managedLabel will be updated; content outside it is preserved." -ForegroundColor Yellow
+    }
 }
 if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to deploy: all managed config already in sync.' -DryRunMessage 'Dry-run only. Re-run with -Apply to deploy.' -Apply:$Apply)) { return }
 

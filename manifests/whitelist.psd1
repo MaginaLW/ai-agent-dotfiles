@@ -62,6 +62,26 @@
         )
     }
 
+    Antigravity = @{
+        HomeRelativeRoot = '.gemini/config'
+        RepoRelativeRoot = 'antigravity'
+        # Runtime settings, plugin caches, project state and machine-local files stay outside sync scope.
+        PushItems = @(
+            'AGENTS.md'
+        )
+        PullItems = @(
+            'AGENTS.md'
+        )
+        ExcludedItems = @(
+            'config.json'
+            'import_manifest.json'
+            'node_modules'
+            'plugins'
+            'projects'
+            'sidecars'
+        )
+    }
+
     CommonExcludedItems = @(
         '.env'
         '.env.*'

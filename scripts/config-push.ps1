@@ -6,13 +6,13 @@
 
 .DESCRIPTION
     Plans an add (absent in the repo) or update (content differs; home wins) for every
-    managed file. Claude is read from ~/.claude and Codex from ~/.codex, and written
-    under claude/ and codex/ in the repo.
+    managed file. Claude is read from ~/.claude, Codex from ~/.codex, and Antigravity
+    from ~/.gemini/config, and written under claude/, codex/, and antigravity/ in the repo.
     Directories are copied file-by-file and never pruned: repo-only files stay
     untouched. ExcludedItems and CommonExcludedItems are never captured.
 
-    When Codex AGENTS.md contains the config-sync managed block, only that block's
-    content is captured; personal content outside the block stays local.
+    When Codex or Antigravity AGENTS.md contains the config-sync managed block, only that
+    block's content is captured; personal content outside the block stays local.
 
     -Apply stages every repo file it overwrites to
     <BackupRoot>\config-push-stage-<timestamp>\, writes the capture, then runs two
@@ -31,7 +31,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex. Defaults to Codex; Claude requires an explicit opt-in.
+    One or more of Claude, Codex, Antigravity. Defaults to Codex; Claude and Antigravity require an explicit opt-in.
 
 .PARAMETER BackupRoot
     Root for the revert stage. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.
@@ -49,7 +49,7 @@ param(
     [switch] $Apply,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex')]
+    [ValidateSet('Claude', 'Codex', 'Antigravity')]
     [string[]] $Platform = @('Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipSecretScan,
@@ -110,16 +110,17 @@ function Get-ConfigPushPlan {
             $homeItem = Join-Path $target.HomeRoot $item
             $repoItem = Join-Path $target.RepoRoot $item
             if (-not (Test-Path -LiteralPath $homeItem)) { continue }
-            if ($target.Name -eq 'Codex' -and $item -eq 'AGENTS.md') {
-                if (-not (Test-Path -LiteralPath $homeItem -PathType Leaf)) { throw 'Codex/AGENTS.md source is not a file.' }
-                if (Test-Path -LiteralPath $repoItem -PathType Container) { throw 'Codex/AGENTS.md destination is a directory.' }
-                $content = Get-CodexAgentsManagedContent -HomeText ([IO.File]::ReadAllText($homeItem))
+            $blockSpec = Get-ManagedAgentsBlockSpec -Platform $target.Name -Item $item
+            if ($null -ne $blockSpec) {
+                if (-not (Test-Path -LiteralPath $homeItem -PathType Leaf)) { throw "$($blockSpec.Label) source is not a file." }
+                if (Test-Path -LiteralPath $repoItem -PathType Container) { throw "$($blockSpec.Label) destination is a directory." }
+                $content = Get-ManagedAgentsContent -HomeText ([IO.File]::ReadAllText($homeItem)) -BlockId $blockSpec.BlockId -Label $blockSpec.Label
                 if ($null -ne $content) {
                     $exists = Test-Path -LiteralPath $repoItem -PathType Leaf
                     $same = $exists -and ([IO.File]::ReadAllText($repoItem) -ceq $content)
                     if (-not $same) {
                         $action = if ($exists) { 'update' } else { 'add' }
-                        $plan.Add(@{ Src = $homeItem; Dst = $repoItem; Rel = 'Codex/AGENTS.md'; Action = $action; Mode = 'content'; Content = $content })
+                        $plan.Add(@{ Src = $homeItem; Dst = $repoItem; Rel = $blockSpec.Label; Action = $action; Mode = 'content'; Content = $content })
                     }
                     continue
                 }
