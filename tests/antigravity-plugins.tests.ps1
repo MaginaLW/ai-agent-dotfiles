@@ -58,6 +58,20 @@ function Invoke-AgNativeCommand {
     }
     if ($Arguments.Count -eq 3 -and $Arguments[0] -ceq 'plugin' -and $Arguments[1] -ceq 'install') {
         $script:AgTestInstallCalls++
+        if ($Arguments[2] -match '^([a-z0-9-]+)@([a-z0-9-]+)$') {
+            $extName = $Matches[1]; $extSource = $Matches[2]
+            $extTarget = Join-Path $script:AgTestNativeRoot ("plugins/$extName")
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $extTarget)) | Out-Null
+            if ($script:AgTestExternalMode -eq 'nonzero') { return @{ Code=1; Out=''; Error='Access is denied' } }
+            if ($script:AgTestExternalMode -eq 'throw') { throw 'fixture external transport exception' }
+            if ($script:AgTestExternalMode -eq 'wrong-source') { $extSource = 'unexpected-marketplace' }
+            Set-TestFile -Path (Join-Path $extTarget 'plugin.json') -Content "{`"name`":`"$extName`",`"version`":`"0.1.9-beta`"}"
+            if ($script:AgTestExternalMode -ne 'missing-after') {
+                $script:AgTestPlugins += @{ name=$extName; path=$extTarget; enabled=$true; version='0.1.9-beta'; source=$extSource }
+            }
+            if ($script:AgTestExternalMode -eq 'readback-fails') { $script:AgTestFailList=$true }
+            return @{ Code=0; Out="Installed plugin `"$extName`" from $extSource"; Error='' }
+        }
         $target = Join-Path $script:AgTestNativeRoot 'plugins/ai-agent-dotfiles'
         if ($script:AgTestInstallMode -eq 'wrong-path') { $target = Join-Path $script:AgTestNativeRoot 'unexpected/ai-agent-dotfiles' }
         [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
@@ -101,6 +115,7 @@ function New-PluginFixture([string] $Name) {
     $script:AgTestListJson=$null
     $script:AgTestFailList=$false
     $script:AgTestInstallMode='success'
+    $script:AgTestExternalMode='success'
     $script:AgTestInstallCalls=0
     $script:AgTestCanonicalScans=0
     $script:AgTestPackageScans=0
@@ -244,7 +259,7 @@ try {
     $root = New-PluginFixture 'external-expectations'
     $null = Add-ExternalFixture
     $expectation = "ExternalPlugins = @(@{ Name='unrelated'; Source='https://example.org/plugin'; Version='2.0.0'; Enabled=`$false })"
-    Set-TestFile -Path $script:AgConfigPath -Content ((Get-Content $script:AgConfigPath -Raw).Replace('ExternalPlugins = @()',$expectation))
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), 'ExternalPlugins\s*=\s*@\([\s\S]*?\n\s*\)', $expectation))
     Initialize-AgPluginContext $root
     $script:AgNative='fixture-only'
     Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'unchanged') 'third-party exact source, version and enabled expectations are compared read-only'
@@ -252,6 +267,35 @@ try {
     Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'different') 'third-party drift is reported without changing the external plugin'
     $script:AgTestPlugins[0].Remove('source')
     Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'UNKNOWN' -and $script:AgTestInstallCalls -eq 0) 'unavailable third-party provenance stays UNKNOWN without automatic repair'
+
+    Write-Host 'Antigravity: marketplace external plugin expectations and explicit install'
+    $null = New-PluginFixture 'external-marketplace'
+    $null = New-AgPluginBuild
+    $planMissing = Get-AgPluginPlan
+    Assert-PluginTest ($planMissing.ExternalExpectations.Count -eq 1 -and $planMissing.ExternalExpectations[0].Name -eq 'unity' -and $planMissing.ExternalExpectations[0].State -eq 'missing' -and $planMissing.ExternalExpectations[0].Action -eq 'install' -and $planMissing.ExternalExpectations[0].InstallTarget -eq 'unity@antigravity-plugins-partners') 'missing marketplace expectation plans install target'
+    $managedOnly = Invoke-AgPluginDeploy -DoApply
+    Assert-PluginTest ($managedOnly.Action -eq 'unchanged' -and $script:AgTestInstallCalls -eq 1 -and $managedOnly.ExternalExpectations[0].State -eq 'missing') 'default Apply installs only managed plugin and leaves missing external plugin untouched'
+    $extDry = Invoke-AgPluginDeploy -ExternalNames @('unity')
+    Assert-PluginTest ($script:AgTestInstallCalls -eq 1 -and $extDry.ExternalExpectations[0].State -eq 'missing') 'external dry-run does not mutate native inventory'
+    $extApplied = Invoke-AgPluginDeploy -DoApply -ExternalNames @('unity')
+    Assert-PluginTest ($script:AgTestInstallCalls -eq 2 -and $extApplied.ExternalExpectations[0].State -eq 'unchanged' -and $extApplied.Action -eq 'unchanged') 'explicit ExternalPlugin Apply installs unity and converges to unchanged'
+    $extIdempotent = Invoke-AgPluginDeploy -DoApply -ExternalNames @('unity')
+    Assert-PluginTest ($script:AgTestInstallCalls -eq 2 -and $extIdempotent.ExternalExpectations[0].State -eq 'unchanged') 'repeat ExternalPlugin Apply skips agy install once matched'
+    $script:AgTestPlugins[1].version = '0.2.0'
+    Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'unchanged') 'Version=ANY accepts upstream marketplace version updates'
+    $script:AgTestPlugins[1].enabled = $false
+    Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'different' -and (Get-AgPluginPlan).ExternalExpectations[0].Action -eq 'blocked') 'external enabled drift is reported as different and blocked'
+    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply -ExternalNames @('unity') } 'External plugin deployment blocked' 'external drift is never automatically reinstalled'
+    Assert-PluginTest ($script:AgTestInstallCalls -eq 2) 'blocked external drift invokes no native install'
+
+    $null = New-PluginFixture 'external-unregistered'
+    [IO.Directory]::CreateDirectory((Join-Path $script:AgTestNativeRoot 'plugins/unity')) | Out-Null
+    Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'blocked' -and (Get-AgPluginPlan).ExternalExpectations[0].Reason -eq 'unregistered-target-directory') 'unregistered external target directory blocks install'
+
+    $null = New-PluginFixture 'external-failure'
+    $script:AgTestExternalMode = 'nonzero'
+    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply -ExternalNames @('unity') } 'External plugin install failed' 'nonzero external install stops write chain'
+    Assert-PluginTest ((Test-Path (Join-Path $script:AgWork 'pending-external-unity.json')) -and (Get-AgPluginPlan).ExternalExpectations[0].State -eq 'blocked' -and $script:AgTestInstallCalls -eq 1) 'failed external install retains pending marker and blocks retry'
 
     Write-Host 'Antigravity: failed writes always read back without automatic retry'
     foreach ($mode in @('partial-nonzero','partial-throw','readback-fails','wrong-path','extra-metadata','unrelated-change')) {

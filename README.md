@@ -90,7 +90,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 ```
 
 构建从 canonical 源生成到 `tmp/antigravity/plugins/ai-agent-dotfiles/`，不会安装；`status` 不构建或修复。
-第三方插件只读核对，原有 `sync`、`env deploy` 与三平台选择保持不变。首次安装可能立即启用技能，
+第三方插件（`ExternalPlugins`）目前声明 `unity`（`unity@antigravity-plugins-partners`）；未安装且获明确许可时仅可通过 `antigravity deploy -ExternalPlugin <name> -Apply` 安装缺失项，已安装项保持只读核对、不自动重装或变更版本。原有 `sync`、`env deploy` 与三平台选择保持不变。首次安装可能立即启用技能，
 须先审阅预览并取得覆盖具体身份、版本和启用影响的许可；原生模型验收另须覆盖实际调用范围。
 未证明的更新与回滚保持 blocked。安装、启用、加载和实际使用分别验收，详见[手册 §15](docs/README.md#15-antigravity-插件)。
 

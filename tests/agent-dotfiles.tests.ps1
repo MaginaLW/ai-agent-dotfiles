@@ -148,8 +148,8 @@ $pluginEntry = Join-Path $pluginScripts 'agent-dotfiles.ps1'
 Copy-Item -LiteralPath $entry -Destination $pluginEntry
 Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content (@(
     '[CmdletBinding()]',
-    'param([ValidateSet("Build","Status","Deploy")][string] $Action, [string] $RepoRoot, [string] $JsonPath, [switch] $Apply)',
-    '[pscustomobject]@{ Action=$Action; RepoRoot=$RepoRoot; JsonPath=$JsonPath; Apply=[bool]$Apply } | ConvertTo-Json -Compress'
+    'param([ValidateSet("Build","Status","Deploy")][string] $Action, [string] $RepoRoot, [string] $JsonPath, [string[]] $ExternalPlugin = @(), [switch] $Apply)',
+    '[pscustomobject]@{ Action=$Action; RepoRoot=$RepoRoot; JsonPath=$JsonPath; ExternalPlugin=@($ExternalPlugin); Apply=[bool]$Apply } | ConvertTo-Json -Compress'
 ) -join "`n")
 foreach ($action in @('build', 'status', 'deploy')) {
     $routeArgs = @('antigravity', $action, '-RepoRoot', $fixtureRepo, '-JsonPath', (Join-Path $work 'plugin-report.json'))
@@ -161,6 +161,12 @@ foreach ($action in @('build', 'status', 'deploy')) {
 }
 $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', '-Apply')
 Assert ($result.Code -eq 0 -and $result.Out -match '"Apply":true') 'antigravity deploy forwards explicit Apply only to its plugin entry'
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', '-ExternalPlugin', 'unity', '-DryRun')
+Assert ($result.Code -eq 0 -and $result.Out -match '"ExternalPlugin":\["unity"\]' -and $result.Out -match '"Apply":false') 'antigravity deploy forwards ExternalPlugin without Apply'
+foreach ($badExt in @(@('status', '-ExternalPlugin', 'unity'), @('deploy', '-DryRun', '-ExternalPlugin'), @('deploy', '-DryRun', '-ExternalPlugin', 'bad,name'))) {
+    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity') + $badExt)
+    Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') "antigravity rejects invalid ExternalPlugin route: $($badExt -join ' ')"
+}
 foreach ($action in @('build', 'status')) {
     foreach ($mode in @('-Apply', '-DryRun')) {
         $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', $action, $mode)

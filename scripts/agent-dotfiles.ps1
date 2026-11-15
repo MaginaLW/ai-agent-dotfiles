@@ -274,6 +274,7 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
         # abbreviations downstream, so unknown tokens must never reach the child.
         $pluginArguments = @('-Action', $groupAction)
         $seenParameters = @{}
+        $externalPlugins = @()
         $pluginMode = $null
         for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
             $argument = [string] $forwardedArguments[$i]
@@ -284,7 +285,7 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
                 }
                 if ($i + 1 -ge $forwardedArguments.Count -or
                     [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
-                    $forwardedArguments[$i + 1] -in @('-RepoRoot', '-JsonPath')) {
+                    $forwardedArguments[$i + 1] -in @('-RepoRoot', '-JsonPath', '-ExternalPlugin')) {
                     Write-Error 'Antigravity path parameters require a value.' -ErrorAction Continue
                     exit 1
                 }
@@ -294,8 +295,27 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
                 $pluginArguments += $argument + ':' + [string] $forwardedArguments[++$i]
                 continue
             }
+            if ($argument -eq '-ExternalPlugin') {
+                if ($groupAction -ne 'deploy') {
+                    Write-Error "The antigravity $groupAction command accepts no -ExternalPlugin parameter." -ErrorAction Continue
+                    exit 1
+                }
+                if ($i + 1 -ge $forwardedArguments.Count -or
+                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
+                    $forwardedArguments[$i + 1] -in @('-RepoRoot', '-JsonPath', '-ExternalPlugin', '-DryRun', '-Apply')) {
+                    Write-Error 'Antigravity -ExternalPlugin requires a value.' -ErrorAction Continue
+                    exit 1
+                }
+                $extValue = [string] $forwardedArguments[++$i]
+                if ($extValue -cnotmatch '^[a-z0-9][a-z0-9-]*$') {
+                    Write-Error 'Antigravity -ExternalPlugin value must be a single lowercase plugin name.' -ErrorAction Continue
+                    exit 1
+                }
+                $externalPlugins += $extValue
+                continue
+            }
             if ($argument -notin @('-DryRun', '-Apply')) {
-                Write-Error 'Unsupported antigravity argument. Use exact -RepoRoot, -JsonPath, -DryRun or -Apply names.' -ErrorAction Continue
+                Write-Error 'Unsupported antigravity argument. Use exact -RepoRoot, -JsonPath, -ExternalPlugin, -DryRun or -Apply names.' -ErrorAction Continue
                 exit 1
             }
             if ($groupAction -ne 'deploy') {
@@ -313,6 +333,7 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
             Write-Error 'The antigravity deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
             exit 1
         }
+        if ($externalPlugins.Count -gt 0) { $pluginArguments += '-ExternalPlugin:' + ($externalPlugins -join ',') }
         $forwardedArguments = $pluginArguments
     }
 
