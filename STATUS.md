@@ -17,30 +17,27 @@ CI run, check `git log` and the latest GitHub Actions run.
   `config pull -Platform Antigravity -Apply` deployed the `antigravity/AGENTS.md` managed block
   to `~/.gemini/config/AGENTS.md`, and post-Apply `config status` / `config pull -DryRun`
   readbacks confirm `in-sync` (`managed block`).
-- **Antigravity plugin updated to 0.3.0 (boring-engineering retired; live 0.3.0 installed).** The independent `antigravity build/status/deploy` route
-  now builds and deploys `ai-agent-dotfiles` 0.3.0 from three shared skills (`git-review`,
-  `systematic-debugging`, `verification-before-completion`; 9 files, digest `45956d01...`) after retiring `boring-engineering`.
-  Canonical and final-package scans and native strict validation (`agy 1.5.9`) pass; after uninstalling `0.2.0` (`agy plugin uninstall ai-agent-dotfiles`), a clean detached `main` worktree installed `0.3.0` (`antigravity deploy -Apply`) with Antigravity Desktop App closed. Post-install readbacks (`agy plugin list --json`, `antigravity status`, `antigravity deploy -DryRun`) confirm `0.3.0`, `enabled: true`, the 3 skills (`git-review`, `systematic-debugging`, `verification-before-completion`), `Action: unchanged` (`Reason: identity-version-and-content-match`), and intact `config.json` (`plugins`, `sidecars`, `userSettings`); the `0.3.0` ownership receipt (`installed.json`) stays in that dedicated worktree's ignored `tmp/antigravity/`.
-  Skill selection is schema-validated dynamically instead of hardcoded to two skills, and the
-  host-exported default `ANTIGRAVITY_APP_DATA_DIR` (`<UserProfile>/.gemini/antigravity`) is
-  accepted while non-default overrides remain rejected. Canonical and final-package scans,
-  reproducible file maps and native strict validation (`agy 1.5.9`) pass; the lifecycle suite
-  passes 94 assertions and all 14 local suites pass (`scripts/run-tests.ps1`).
-  Historical 0.1.0 merged via PR #9 (`fad4433`) and PRs #10/#11 (`19e9c4c`/`9b78244`), passing
-  6/6 App/CLI acceptance sessions for `boring-engineering` and `git-review`.
-  For 0.2.0, in-place `agy plugin install` failed with `Access is denied` while Antigravity
-  Desktop App watched `~/.gemini/config/plugins/`, leaving 0.1.0 untouched. After backing up
-  0.1.0 locally, uninstalling 0.1.0 (`agy plugin uninstall`) and running `antigravity deploy
-  -Apply` via Codex with Antigravity App closed installed 0.2.0 cleanly. Post-install readback
-  (`agy plugin list --json`, `antigravity status`, `antigravity deploy -DryRun`) confirms
-  `0.2.0`, `enabled: true`, all 4 skills, `Action: unchanged` and preserved `config.json`
-  (`swarm` enabled, `sidecars`, `userSettings`). Native session loading and real-use acceptance
-  for `systematic-debugging` and `verification-before-completion` remain unverified. Existing
+- **Antigravity plugin updated to 0.4.0 (multimodal-generation added; live 0.4.0 installed).** The independent `antigravity build/status/deploy` route
+  now builds and deploys `ai-agent-dotfiles` 0.4.0 from four shared skills (`git-review`,
+  `multimodal-generation`, `systematic-debugging`, `verification-before-completion`; 10 files,
+  digest `41449b6e...`). Canonical and final-package scans and native strict validation
+  (`agy 1.5.9`) pass; after uninstalling `0.3.0` (`agy plugin uninstall ai-agent-dotfiles`), a
+  clean detached `main` worktree (`7c8841d`) installed `0.4.0` (`antigravity deploy -Apply`) with
+  Antigravity Desktop App closed. Post-install readbacks (`agy plugin list --json`,
+  `antigravity status`, `antigravity deploy -DryRun`) confirm `0.4.0`, `enabled: true`, all 4
+  skills, `Action: unchanged` (`Reason: identity-version-and-content-match`), `SKILL.md` present
+  under `~/.gemini/config/plugins/ai-agent-dotfiles/skills/multimodal-generation/`, and intact
+  `config.json` (`plugins.swarm`, `sidecars`, `userSettings`); the `0.4.0` ownership receipt
+  (`installed.json`) stays in that dedicated worktree's ignored `tmp/antigravity/`.
+  Skill selection is schema-validated dynamically, and the host-exported default
+  `ANTIGRAVITY_APP_DATA_DIR` (`<UserProfile>/.gemini/antigravity`) is accepted while non-default
+  overrides remain rejected. Earlier `0.1.0` (PR #9 `fad4433`, PRs #10/#11 `19e9c4c`/`9b78244`),
+  `0.2.0` (PR #15 `c697d0a`), and `0.3.0` (PR #17 `6eb9664`, `boring-engineering` retired)
+  installs remain historical baselines; native real-use acceptance for `systematic-debugging`,
+  `verification-before-completion`, and `multimodal-generation` remains unverified. Existing
   platform selections and default sync routes are unchanged; unknown ownership, drift, version
-  reuse and unproven in-place updates/rollback still block writes.
-  The primary checkout's unrelated WIP (`codex/AGENTS.md`) was preserved, so its local `main`
-  was not fast-forwarded. Local 0.1.0 backup stays under the primary checkout's ignored
-  `tmp/antigravity/`.
+  reuse and unproven in-place updates/rollback still block writes. Local `0.1.0` backup and its
+  historical `installed.json` remain under the primary checkout's ignored `tmp/antigravity/`.
 
 - **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
   selected only for Codex in `work` (source selection 0/10/8). The source default is disabled;
@@ -160,13 +157,15 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- **Multimodal/MCP extension (track A in progress).** The owner approved the plan in
+- **Multimodal/MCP extension (track A closed; tracks B and C pending).** Under the owner-approved plan in
   [docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md](docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md)
-  §6 as tracks A → B → C. Track A adds the shared `multimodal-generation` skill (subscription-quota
-  first, paid API opt-in only) to `work` Codex/ZCode, `full` and Antigravity source candidate
-  `0.4.0`. Not deployed: the `work` install and the Antigravity 0.3.0 → 0.4.0 reinstall each need
-  explicit authorization. Tracks B (ExternalPlugins) and C (MCP sync, AGENTS.md hard-rule
-  amendment) have not started. Task record: `status/active/multimodal-track-a.md`.
+  §6 (tracks A → B → C), track A is complete: `multimodal-generation` (subscription-quota first,
+  paid API opt-in only) was merged in PR #19 (`112f418`), deployed to `work` Codex/ZCode via
+  `deploy-skills.ps1 -Environment work -Apply` (post-Apply `-SkipBuild` readback:
+  `install=0, update=0, unchanged=16, prune=0, unknown=0`; live `SKILL.md` verified under
+  `~/.codex/skills` and `~/.zcode/skills`), and installed via Antigravity `0.4.0`. End-to-end
+  multimodal acceptance runs across hosts remain unrun. Tracks B (Antigravity `ExternalPlugins`)
+  and C (managed MCP sync + `AGENTS.md` hard-rule amendment) have not started.
 
 - **Historical `approval-feedback` & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory, `A01` scoring prompts, `S/Q/U/H` summaries, and the two `docs/APPROVAL_FEEDBACK_*.md` design/plan docs) have been removed. The earlier Skill rules 9 full-environment exception remains retired.
 
