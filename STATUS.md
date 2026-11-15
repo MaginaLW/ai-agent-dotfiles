@@ -157,6 +157,14 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
+- **Multimodal/MCP extension (track A in progress).** The owner approved the plan in
+  [docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md](docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md)
+  §6 as tracks A → B → C. Track A adds the shared `multimodal-generation` skill (subscription-quota
+  first, paid API opt-in only) to `work` Codex/ZCode, `full` and Antigravity source candidate
+  `0.4.0`. Not deployed: the `work` install and the Antigravity 0.3.0 → 0.4.0 reinstall each need
+  explicit authorization. Tracks B (ExternalPlugins) and C (MCP sync, AGENTS.md hard-rule
+  amendment) have not started. Task record: `status/active/multimodal-track-a.md`.
+
 - **Historical `approval-feedback` ledger & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory) have been removed from canonical source, `work`/`full` selections, Codex/ZCode live roots, and Antigravity (`0.2.0` uninstalled and `0.3.0` installed cleanly with the 3 remaining skills). Future tasks report ledgerless `S/Q/U/H` summaries in-thread per `codex/AGENTS.md` and `harness-model`. The earlier Skill rules 9 full-environment exception remains retired.
 
 ## Known boundaries
@@ -194,17 +202,17 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 | Scope | Canonical | Claude | Codex |
 |---|---:|---:|---:|
-| Shared | 10 | 10 | 10 |
+| Shared | 11 | 11 | 11 |
 | Codex-only (Claude-only is empty) | 8 | - | 8 |
-| Managed total | 18 | 10 | 18 |
+| Managed total | 19 | 11 | 19 |
 
-- **Shared skills:** brainstorming, git-review, meng-cmame-writing, paper-polish,
-  session-learnings, subagent-driven-development, systematic-debugging, tool-scope,
-  verification-before-completion, writing-plans.
+- **Shared skills:** brainstorming, git-review, meng-cmame-writing, multimodal-generation,
+  paper-polish, session-learnings, subagent-driven-development, systematic-debugging,
+  tool-scope, verification-before-completion, writing-plans.
 - **Codex-only skills:** antigravity-delegation, chatgpt-apps, cli-creator, coderabbit-review,
   define-goal, security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 0/8/6,
-  `full` 10/18/10. Unselected unknown live directories are preserved, and Codex `.system` is
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 0/9/7,
+  `full` 11/19/11. Unselected unknown live directories are preserved, and Codex `.system` is
   never managed.
 - **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the MCP
   registration subsystem; OpenClaw/OpenCode; ArkCLI-managed skills; the legacy local

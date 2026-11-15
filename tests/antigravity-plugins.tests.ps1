@@ -134,7 +134,7 @@ try {
     $second = New-AgPluginBuild
     Assert-PluginTest ($first.Digest -ceq $second.Digest -and (Get-AgMapDigest $firstFiles) -ceq (Get-AgMapDigest (Get-AgTreeFiles $script:AgPackage))) 'identical inputs produce identical package files and digest'
     $skillDirs = @(Get-ChildItem (Join-Path $script:AgPackage 'skills') -Directory | Sort-Object Name | ForEach-Object Name)
-    Assert-PluginTest (($skillDirs -join ',') -ceq 'git-review,systematic-debugging,verification-before-completion') 'only the reviewed canonical shared skills are packaged'
+    Assert-PluginTest (($skillDirs -join ',') -ceq 'git-review,multimodal-generation,systematic-debugging,verification-before-completion') 'only the reviewed canonical shared skills are packaged'
     Assert-PluginTest (-not (Test-Path (Join-Path $script:AgPackage 'skills/git-review/CREATION-LOG.md')) -and -not (Test-Path (Join-Path $script:AgPackage 'skills/systematic-debugging/CREATION-LOG.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/git-review/SKILL.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/systematic-debugging/root-cause-tracing.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/verification-before-completion/SKILL.md'))) 'source-only creation log is excluded and skill assets are preserved'
     $manifest = Read-AgJsonFile (Join-Path $script:AgPackage 'plugin.json')
     Assert-PluginTest (($manifest.Keys | Sort-Object) -join ',' -ceq '$schema,description,displayName,name,version') 'manifest contains only the reviewed metadata without extra components'
@@ -223,7 +223,7 @@ try {
     $script:AgTestPlugins += @{name='ai-agent-dotfiles';path=$unknownPath;enabled=$true}
     Assert-PluginTest ((Get-AgPluginPlan).Reason -eq 'ambiguous-native-identity') 'multiple native identities are blocked without takeover'
 
-    foreach ($version in @('same','0.4.0','0.1.0')) {
+    foreach ($version in @('same','99.0.0','0.1.0')) {
         $root = New-PluginFixture ('version-' + $version)
         $null = New-AgPluginBuild
         $null = Invoke-AgPluginDeploy -DoApply
@@ -235,7 +235,7 @@ try {
             Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '$version'"))
             Initialize-AgPluginContext $root
             $script:AgNative='fixture-only'
-            $reason=if ($version -eq '0.4.0') { 'native-update-contract-unproven' } else { 'downgrade-or-version-reuse' }
+            $reason=if ($version -eq '99.0.0') { 'native-update-contract-unproven' } else { 'downgrade-or-version-reuse' }
         }
         $null = New-AgPluginBuild
         Assert-PluginTest ((Get-AgPluginPlan).Reason -eq $reason -and $script:AgTestInstallCalls -eq 1) 'same-version replacement, unproven update and downgrade never mutate the installed plugin'

@@ -6,6 +6,7 @@ coderabbit-review
 define-goal
 git-review
 meng-cmame-writing
+multimodal-generation
 paper-polish
 security-best-practices
 security-ownership-map
