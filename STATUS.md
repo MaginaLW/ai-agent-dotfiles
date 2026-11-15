@@ -76,28 +76,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Repository branches.** The subagent-dispatch task branch is retained locally and on `origin`; remote deletion is not authorized. Earlier task branches for
   PRs #3, #4 and #5 were deleted after their merge state and full-tip ancestry were verified;
   their cleanup does not include the current task branch.
-- **Approval-feedback project grants.** The source immediately proposes project-level standing
-  permission after relevant blocking feedback, with an exact rule diff, reasons, risks, scope,
-  inheritance and revocation. There is no multi-task score threshold. Owner approval is still
-  required to adopt a specific grant; subsequent matching tasks reuse the current formal rule.
-  Existing permission is used directly when no expansion is needed. An independent read-only
-  pass covered immediate proposals, inherited permission, absent formal rules, an unapproved
-  grant and execution misreads; it does not establish real cross-task behavior improvement.
-  Repeated expansion events also trigger consolidation of related permission files: clarify
-  categories, remove superseded requirements and repair inheritance; new authority still
-  requires owner approval. The owner's final clarification permits permission-neutral cleanup
-  with notification; new or permanent substantive permission changes require an exact diff,
-  reasons and risks for approval. Approved scopes are inherited without repeated approval.
-  The usage manual records this distinction; dated design/plan documents are historical.
-  The owner approved A02 and the exact standing `work` skills-only
-  grant is now in AGENTS.md Skill rules 10, with its task-entry cross-reference clarified.
-  Skill validation, build, secret scan, diff checks and independent review pass. The authorized
-  deployment updated only the three approval-feedback copies; 22 other skills were unchanged.
-  All 12 changed live files match generated output, three backups exist and the post-Apply
-  dry run reports 25 unchanged, with no updates, installs, prunes or unknowns. No config Apply
-  was performed. Tasks must load the current approved project rule before relying on it;
-  approval history alone does not establish inheritance. Future real cross-task improvement
-  remains unmeasured.
+- **Approval-feedback retirement & codex/AGENTS.md inlining.** `approval-feedback` (including its private `%LOCALAPPDATA%` ledger script and test suite) is retired from source, `work` and `full` after its non-ledger capabilities (direct workspace execution, `A01 + optional 0-3`, same-turn `0/1` rule-diff proposals, `>2` low-score opt-in popup reduction, permission consolidation, timed-window 4-tuple and ledgerless `S/Q/U/H` closeout) were folded into `harness-model` (PRs #161/#162/#163) and inlined into `codex/AGENTS.md`. `boring-engineering` is also retired from the Codex/ZCode `work` selection (`0/8/6` vs former `0/10/8`, with its Practical DRY three-part gate and 5-item delivery-boundary check now explicit in `codex/AGENTS.md`); `skills-source/shared/boring-engineering/` remains only as the pinned input for the installed `0.2.0` Antigravity plugin (since Antigravity IDE sessions do not load `codex/AGENTS.md` and live plugin updates/uninstalls remain blocked pending proven native contracts and explicit authorization). Generated outputs rebuilt, syntax/secret checks and tests pass (see commit validation); live pruning of `approval-feedback` and `boring-engineering` from `~/.codex/skills` and `~/.zcode/skills` plus `config-pull -Apply` on `~/.codex/AGENTS.md` await explicit owner review of the dry-run previews and Apply authorization.
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
@@ -223,8 +202,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   generated projection through deploy-skills; it has no generated root or manifest of its own.
 - **Codex catalog refresh and loaded skill bodies.** Codex detects skill changes automatically
   and may need a restart when an update does not appear. A conversation that already loaded an
-  old `SKILL.md` can retain that body; `approval-feedback` requires rereading the current file
-  when its version is unknown.
+  old `SKILL.md` or `AGENTS.md` body can retain that text until reloaded.
 - **Out of scope.** Machine-private configuration including Codex `config.toml` and private
   `.env` files, credentials, sessions and caches are outside sync scope. Machine-private
   evidence under `tmp/` and external private roots is not committed.
@@ -233,17 +211,18 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 | Scope | Canonical | Claude | Codex |
 |---|---:|---:|---:|
-| Shared | 12 | 12 | 12 |
-| Codex-only (Claude-only is empty) | 7 | - | 7 |
-| Managed total | 19 | 12 | 19 |
+| Shared | 11 | 11 | 11 |
+| Codex-only (Claude-only is empty) | 8 | - | 8 |
+| Managed total | 19 | 11 | 19 |
 
-- **Shared skills:** approval-feedback, boring-engineering, brainstorming, git-review,
-  meng-cmame-writing, paper-polish, session-learnings, subagent-driven-development,
-  systematic-debugging, tool-scope, verification-before-completion, writing-plans.
-- **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review, define-goal,
-  security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 0/9/8,
-  `full` 12/19/12. Unselected unknown live directories are preserved, and Codex `.system` is
+- **Shared skills:** boring-engineering (retained for Antigravity `0.2.0` plugin parity only),
+  brainstorming, git-review, meng-cmame-writing, paper-polish, session-learnings,
+  subagent-driven-development, systematic-debugging, tool-scope,
+  verification-before-completion, writing-plans.
+- **Codex-only skills:** antigravity-delegation, chatgpt-apps, cli-creator, coderabbit-review,
+  define-goal, security-best-practices, security-ownership-map, security-threat-model.
+- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 0/8/6,
+  `full` 11/19/11. Unselected unknown live directories are preserved, and Codex `.system` is
   never managed.
 - **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the MCP
   registration subsystem; OpenClaw/OpenCode; ArkCLI-managed skills; the legacy local

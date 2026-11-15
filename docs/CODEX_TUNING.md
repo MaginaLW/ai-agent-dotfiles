@@ -6,7 +6,7 @@
 
 ## 1. 为什么只靠 Skill 和 `AGENTS.md` 还不够
 
-- **过度工程与全量测试惯性**：编码模型在 `high` 推理档位下更容易主动推演边缘故障并补写冗余防御与测试；除了保持 `codex/AGENTS.md` 与 `boring-engineering` 的硬性负向约束外，配合 `personality = "pragmatic"` 能减少废话与套路化扩张。
+- **过度工程与全量测试惯性**：编码模型在 `high` 推理档位下更容易主动推演边缘故障并补写冗余防御与测试；除了保持 `codex/AGENTS.md`（已内联工程克制与低打断规范）与项目 `AGENTS.md` 的硬性负向约束外，配合 `personality = "pragmatic"` 能减少废话与套路化扩张。
 - **频繁原生弹窗的根因（尤其 Windows + PowerShell）**：
   1. `approval_policy = "on-request"` + 空 `default.rules` 时，任何触及受保护路径（如 `.git` 写操作、工作区外目录、联网请求）或被判定不够明确的子命令都会触发审批；
   2. Windows 下命令常被外层 `pwsh`/`powershell -Command` 包装，若命令包含 `&&` 串接、复杂管道或未加引号的逗号参数（如 `gh ... --json a,b,c`），极易导致“点过允许”的命令在下次变体中失配并再次弹窗；
@@ -32,9 +32,8 @@ approval_policy = "never"
 # approvals_reviewer = "auto_review"
 
 [sandbox_workspace_write]
-# 将高频需要写入的工作区外目录（例如包缓存、私有反馈台账目录）加入可写根
+# 将高频需要写入的工作区外目录（例如包缓存目录）加入可写根
 writable_roots = [
-    # "${LOCALAPPDATA}/ai-agent-dotfiles.feedback"
 ]
 network_access = false
 ```
