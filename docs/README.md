@@ -94,7 +94,6 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work -Apply
 `-Apply` 会写真实 home：先审查 dry-run 的每一行，复用覆盖实际范围的有效所有者授权；缺少授权时才询问。
 `AGENTS.md` Skill rules 10 的已批准持续授权覆盖 `work` 环境已选技能的更新；满足该节条件时，
 后续任务可用 `deploy-skills.ps1` 完成部署和复核，无需再次申请同范围许可，不覆盖 combined/config Apply。
-旧 Skill rules 9 的三平台 full 窄例外已随 Claude 退役，不再提供执行授权。
 当前 work 持续授权仅覆盖 Codex/ZCode；选择变化、首次退役/prune、config Apply 仍按实际批准范围执行。
 统一 CLI 的 `sync` 与 `env deploy <name>` 转发到 `deploy.ps1`；直接运行 `deploy-skills.ps1` 只处理
 skills（§14）。仓库不安装 Git hooks，`git pull` 不会自动部署。
@@ -367,9 +366,7 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 `full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。
 构建及部署准备的当前结果见 [STATUS.md](../STATUS.md)。
 
-`approval-feedback` 与 `boring-engineering` 的核心工程克制与低打断交互协议已合入 `harness-model`（运维文档、入口 `AGENTS.md`、AI Flow 模板与技能）并内联进 [codex/AGENTS.md](../codex/AGENTS.md)：两个技能均已从 `skills-source/shared/`、各环境清单（`work` / `full`）及 Antigravity 受管插件（`0.3.0`）完全清退，本机历史私有台账亦已清理。现有交互约定如下：先复用项目既有有效授权；仅缺业务方向、超常设授权（含授权/策略变更）或高风险外部动作时附 `A01 | 可选 0–3` 提问，评分只评价打断价值，不授予权限。
-收到 0／1 分或“纠错未落实”的反馈时，在当前响应中同时处理具体来源：纠正执行误读并完成已授权工作，
-或立即给出精确项目规则 diff 建议（含原因、风险、继承范围和撤销方式），由用户一次审批落实；超过两次低分才在用户明确同意后起草宿主削弱弹窗规则；收尾按已有事实附 `S / Q / U / H` 汇总。
+日常交互与工程克制以 [codex/AGENTS.md](../codex/AGENTS.md) 为准：先复用项目既有有效授权；仅缺业务方向、超常设授权（含授权/策略变更）或高风险外部动作时集中确认。
 同一项目反复扩权时，检查权限源文件的分类、冲突和继承入口，先做最小权限规则归整而非叠加临时例外；
 按是否改变实际权限区分处理，不以编辑了源文件就一律增加审批：
 
