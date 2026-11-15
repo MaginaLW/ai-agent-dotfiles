@@ -17,6 +17,8 @@ CI run, check `git log` and the latest GitHub Actions run.
   `config pull -Platform Antigravity -Apply` deployed the `antigravity/AGENTS.md` managed block
   to `~/.gemini/config/AGENTS.md`, and post-Apply `config status` / `config pull -DryRun`
   readbacks confirm `in-sync` (`managed block`).
+- **Antigravity external plugins (`ExternalPlugins`) track B implemented.** `harness-source/antigravity/plugins.psd1` now declares `unity` (`Source = 'antigravity-plugins-partners'`, `Version = 'ANY'`, `Enabled = $true`; `gemini-api` excluded per zero-extra-API-cost decision). `scripts/antigravity-plugins.ps1` and `scripts/agent-dotfiles.ps1` support marketplace `Source` validation, `Version = 'ANY'`, `missing`/`blocked` planning states, and explicit opt-in `-ExternalPlugin <name>` installation of missing marketplace entries (`agy plugin install <name>@<marketplace>` once with pre/post readback and pending-marker failure stops). Default `deploy -Apply` leaves missing external plugins untouched, and already-installed or drifted external plugins remain blocked from automatic reinstall (T0 live verification proved `agy plugin install unity@antigravity-plugins-partners` exits `0` on clean install with `source = 'antigravity-plugins-partners'` and `version = '0.1.9-beta'`, while repeating it with Antigravity running fails with `Access is denied` and preserves the installed plugin). Live read-only `antigravity status` confirms `unity` `State: unchanged`; `antigravity-plugins.tests.ps1` passes 106 assertions and `agent-dotfiles.tests.ps1` passes 118 cases.
+
 - **Antigravity plugin updated to 0.4.0 (multimodal-generation added; live 0.4.0 installed).** The independent `antigravity build/status/deploy` route
   now builds and deploys `ai-agent-dotfiles` 0.4.0 from four shared skills (`git-review`,
   `multimodal-generation`, `systematic-debugging`, `verification-before-completion`; 10 files,
@@ -157,15 +159,12 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- **Multimodal/MCP extension (track A closed; tracks B and C pending).** Under the owner-approved plan in
+- **Multimodal/MCP extension (tracks A and B complete; track C pending).** Under the owner-approved plan in
   [docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md](docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md)
-  §6 (tracks A → B → C), track A is complete: `multimodal-generation` (subscription-quota first,
-  paid API opt-in only) was merged in PR #19 (`112f418`), deployed to `work` Codex/ZCode via
-  `deploy-skills.ps1 -Environment work -Apply` (post-Apply `-SkipBuild` readback:
-  `install=0, update=0, unchanged=16, prune=0, unknown=0`; live `SKILL.md` verified under
-  `~/.codex/skills` and `~/.zcode/skills`), and installed via Antigravity `0.4.0`. End-to-end
-  multimodal acceptance runs across hosts remain unrun. Tracks B (Antigravity `ExternalPlugins`)
-  and C (managed MCP sync + `AGENTS.md` hard-rule amendment) have not started.
+  §6 (tracks A → B → C):
+  - Track A is complete: `multimodal-generation` (subscription-quota first, paid API opt-in only) merged in PR #19 (`112f418`), deployed to `work` Codex/ZCode (`unchanged=16, prune=0, unknown=0`), and installed via Antigravity `0.4.0`.
+  - Track B is complete: `ExternalPlugins` declares `unity` (`antigravity-plugins-partners`), T0 live install verified `unity` `0.1.9-beta` (`enabled: true`, 35 skills) and non-idempotent repeat behavior, and `antigravity-plugins.ps1` / `agent-dotfiles.ps1` add explicit `-ExternalPlugin` missing-install support.
+  - Track C (managed MCP sync + `AGENTS.md` hard-rule amendment) and end-to-end multimodal/Unity real-use acceptance remain pending.
 
 - **Historical `approval-feedback` & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory, `A01` scoring prompts, `S/Q/U/H` summaries, and the two `docs/APPROVAL_FEEDBACK_*.md` design/plan docs) have been removed. The earlier Skill rules 9 full-environment exception remains retired.
 

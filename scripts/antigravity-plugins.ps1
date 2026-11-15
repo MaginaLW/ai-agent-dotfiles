@@ -4,6 +4,7 @@ param(
     [ValidateSet('Build','Status','Deploy')] [string] $Action = 'Status',
     [string] $RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string] $JsonPath,
+    [string[]] $ExternalPlugin = @(),
     [switch] $Apply
 )
 
@@ -99,7 +100,8 @@ function Initialize-AgPluginContext {
     foreach ($external in @($script:AgConfig.ExternalPlugins)) {
         if ($external -isnot [hashtable] -or ($external.Keys | Sort-Object) -join ',' -cne 'Enabled,Name,Source,Version' -or
             $external.Name -cnotmatch '^[a-z0-9][a-z0-9-]*$' -or $external.Name -eq $managed.Name -or
-            $external.Source -cnotmatch '^https://[^\s]+$' -or [string]::IsNullOrWhiteSpace($external.Version) -or $external.Enabled -isnot [bool]) { throw 'Invalid read-only external plugin expectation.' }
+            ($external.Source -cnotmatch '^https://[^\s]+$' -and $external.Source -cnotmatch '^[a-z0-9][a-z0-9-]*$') -or
+            [string]::IsNullOrWhiteSpace($external.Version) -or $external.Enabled -isnot [bool]) { throw 'Invalid read-only external plugin expectation.' }
     }
     if (@($script:AgConfig.ExternalPlugins | ForEach-Object Name | Sort-Object -Unique).Count -ne @($script:AgConfig.ExternalPlugins).Count) { throw 'Duplicate external plugin identity.' }
     Assert-AgPlainPath $script:AgWork
@@ -375,30 +377,69 @@ function Get-AgPluginPlan {
         NativeAction=$null; WriteScope=@(); External=@(); ExternalExpectations=@()
         Limitations=@('Native App is not locked by this script.','Updates and rollback remain blocked until their native contracts are proven.',"Installation may immediately enable the $(@($managed.Skills).Count) selected skills.")
     }
-    $matches = [Collections.Generic.List[object]]::new()
+    $targetMatches = [Collections.Generic.List[object]]::new()
     foreach ($plugin in @($inventory.Plugins)) {
         $isTarget = $plugin.name -ieq $managed.Name
         if (Test-Path -LiteralPath (Join-Path $plugin.path 'plugin.json')) {
             $manifest = Read-AgJsonFile (Join-Path $plugin.path 'plugin.json')
             if ($manifest.ContainsKey('name') -and $manifest.name -ieq $managed.Name) { $isTarget = $true }
         }
-        if ($isTarget) { $matches.Add($plugin) }
+        if ($isTarget) { $targetMatches.Add($plugin) }
         else {
             $plan.External += @{ Name=$plugin.name; Enabled=$plugin.enabled; Version=$(if ($plugin.ContainsKey('version')) { $plugin.version } else { 'UNKNOWN' }); Source=$(if ($plugin.ContainsKey('source')) { $plugin.source } else { 'UNKNOWN' }) }
         }
     }
     foreach ($expectation in @($script:AgConfig.ExternalPlugins)) {
         $found = @($plan.External | Where-Object Name -CEQ $expectation.Name)
+        $isMarketplace = $expectation.Source -cmatch '^[a-z0-9][a-z0-9-]*$'
+        $installTarget = if ($isMarketplace) { "$($expectation.Name)@$($expectation.Source)" } else { $null }
         $state = 'UNKNOWN'
-        if ($found.Count -eq 1 -and $found[0].Version -ne 'UNKNOWN' -and $found[0].Source -ne 'UNKNOWN') {
-            $state = if ($found[0].Version -ceq $expectation.Version -and $found[0].Source -ceq $expectation.Source -and $found[0].Enabled -eq $expectation.Enabled) { 'unchanged' } else { 'different' }
+        $extAction = 'blocked'
+        $extReason = 'unavailable-external-provenance'
+        if ($found.Count -gt 1) {
+            $state = 'blocked'
+            $extReason = 'ambiguous-native-identity'
         }
-        $plan.ExternalExpectations += @{ Name=$expectation.Name; State=$state; Expected=$expectation }
+        elseif ($found.Count -eq 0) {
+            $extTarget = Join-Path $inventory.ConfigRoot ('plugins/' + $expectation.Name)
+            Assert-AgPlainPath $extTarget
+            if (Test-Path -LiteralPath (Join-Path $script:AgWork ("pending-external-$($expectation.Name).json"))) {
+                $state = 'blocked'
+                $extReason = 'previous-install-needs-readback-review'
+            }
+            elseif (Test-Path -LiteralPath $extTarget) {
+                $state = 'blocked'
+                $extReason = 'unregistered-target-directory'
+            }
+            else {
+                $state = 'missing'
+                if (-not $isMarketplace) { $extReason = 'non-marketplace-source-unmanaged' }
+                elseif (-not $expectation.Enabled) { $extReason = 'install-would-enable' }
+                else { $extAction = 'install'; $extReason = 'missing-marketplace-plugin' }
+            }
+        }
+        elseif ($found[0].Version -ne 'UNKNOWN' -and $found[0].Source -ne 'UNKNOWN') {
+            $versionMatch = ($expectation.Version -ceq 'ANY') -or ($found[0].Version -ceq $expectation.Version)
+            if ($versionMatch -and $found[0].Source -ceq $expectation.Source -and $found[0].Enabled -eq $expectation.Enabled) {
+                $state = 'unchanged'
+                $extAction = 'unchanged'
+                $extReason = 'identity-source-and-enabled-match'
+            }
+            else {
+                $state = 'different'
+                $extReason = 'external-drift-or-update-blocked'
+            }
+        }
+        $plan.ExternalExpectations += [ordered]@{
+            Name=$expectation.Name; State=$state; Action=$extAction; Reason=$extReason
+            InstallTarget=$installTarget; Expected=$expectation
+            Installed=$(if ($found.Count -eq 1) { $found[0] } else { $null })
+        }
     }
-    if ($matches.Count -gt 1) { $plan.Reason='ambiguous-native-identity'; return $plan }
-    if ($matches.Count -eq 1) {
-        $plan.InstalledPath=$matches[0].path
-        $plan.Enabled=$matches[0].enabled
+    if ($targetMatches.Count -gt 1) { $plan.Reason='ambiguous-native-identity'; return $plan }
+    if ($targetMatches.Count -eq 1) {
+        $plan.InstalledPath=$targetMatches[0].path
+        $plan.Enabled=$targetMatches[0].enabled
     }
     if (-not (Test-Path -LiteralPath $script:AgPackage) -or -not (Test-Path -LiteralPath $script:AgBuildReceipt)) { return $plan }
     $build = Read-AgJsonFile $script:AgBuildReceipt
@@ -410,7 +451,7 @@ function Get-AgPluginPlan {
     $plan.PackageScan=$build.PackageScan
     $plan.NativeValidation=$build.NativeValidation
     if ($build.CanonicalScan -cne 'PASS' -or $build.PackageScan -cne 'PASS' -or $build.NativeValidation -cne 'PASS' -or $build.NativeVersion -cne $inventory.Version) { $plan.Reason='build-gates-incomplete-or-native-version-changed'; return $plan }
-    if ($matches.Count -eq 0) {
+    if ($targetMatches.Count -eq 0) {
         if (Test-Path -LiteralPath (Join-Path $script:AgWork 'pending-install.json')) { $plan.Reason='previous-install-needs-readback-review'; return $plan }
         $target = Join-Path $inventory.ConfigRoot 'plugins/ai-agent-dotfiles'
         Assert-AgPlainPath $target
@@ -437,9 +478,95 @@ function Get-AgPluginPlan {
     return $plan
 }
 
+function Invoke-AgExternalPluginInstall {
+    param([string[]] $Names)
+    if (@($Names).Count -eq 0) { return ,@() }
+    $clean = @($Names | ForEach-Object { $_ -split ',' })
+    if ($clean.Count -eq 0 -or @($clean | Where-Object { $_ -cnotmatch '^[a-z0-9][a-z0-9-]*$' }).Count -gt 0 -or
+        @($clean | Sort-Object -Unique).Count -ne $clean.Count) { throw 'Invalid external plugin target.' }
+    $declared = @($script:AgConfig.ExternalPlugins | ForEach-Object Name)
+    foreach ($name in $clean) {
+        if ($name -cnotin $declared) { throw "Unknown external plugin expectation: $name" }
+    }
+    return ,$clean
+}
+
 function Invoke-AgPluginDeploy {
-    param([switch] $DoApply)
+    param([switch] $DoApply, [string[]] $ExternalNames = @())
     $plan = Get-AgPluginPlan
+    $targetsExternal = Invoke-AgExternalPluginInstall -Names $ExternalNames
+    if ($targetsExternal.Count -gt 0) {
+        if (-not $DoApply) { return $plan }
+        $pendingInstall = @()
+        foreach ($name in $targetsExternal) {
+            $exp = @($plan.ExternalExpectations | Where-Object Name -CEQ $name)[0]
+            if ($exp.State -ceq 'unchanged') { continue }
+            if ($exp.Action -cne 'install') { throw "External plugin deployment blocked ($name): $($exp.Reason)" }
+            $pendingInstall += $name
+        }
+        if ($pendingInstall.Count -eq 0) { return $plan }
+        $mutex = Enter-AgDeploymentMutex $plan.ConfigRoot
+        $lock = $null
+        try {
+            $lock = Enter-AgPluginLock
+            foreach ($name in $pendingInstall) {
+                $current = Get-AgPluginPlan
+                $exp = @($current.ExternalExpectations | Where-Object Name -CEQ $name)[0]
+                if ($exp.State -ceq 'unchanged') { continue }
+                if ($exp.Action -cne 'install') { throw "External plugin state changed before install ($name): $($exp.Reason)" }
+                $before = Get-AgInventory
+                if ((Get-AgInventoryToken $before) -cne $current.InventoryToken -or (Get-AgRegistrationHash $current.ConfigRoot) -cne $current.RegistrationHash) {
+                    throw 'Native state changed before external plugin installation.'
+                }
+                $attempt = Join-Path $script:AgWork ("attempt-ext-$name-" + [Guid]::NewGuid().ToString('N'))
+                [IO.Directory]::CreateDirectory($attempt) | Out-Null
+                Write-AgJsonFile (Join-Path $attempt 'pre-state.json') @{ Plan=$current; Inventory=$before; Target=$name }
+                $pendingMarker = Join-Path $script:AgWork "pending-external-$name.json"
+                Write-AgJsonFile $pendingMarker @{ Attempt=$attempt; Name=$name; InstallTarget=$exp.InstallTarget }
+                $native = $null
+                $failure = $null
+                try { $native = Invoke-AgNativeCommand @('plugin','install',$exp.InstallTarget) }
+                catch { $failure = $_.Exception.Message }
+                $after = $null
+                try { $after = Get-AgInventory } catch { $failure = 'Native readback unavailable; external installation state UNKNOWN.' }
+                $approvedPath = Join-Path $current.ConfigRoot ('plugins/' + $name)
+                $snapshots = @((Read-AgTargetSnapshot $approvedPath))
+                if ($after) {
+                    foreach ($entry in @($after.Plugins | Where-Object name -IEQ $name)) {
+                        if ([IO.Path]::GetFullPath($entry.path) -ine [IO.Path]::GetFullPath($approvedPath)) { $snapshots += Read-AgTargetSnapshot $entry.path }
+                    }
+                }
+                Write-AgJsonFile (Join-Path $attempt 'result.json') @{ Native=$native; Failure=$failure; Inventory=$after; Targets=$snapshots }
+                if ($failure -or -not $native -or $native.Code -ne 0 -or -not $after) {
+                    throw "External plugin install failed or is uncertain ($name); inspect the retained attempt and do not blindly retry."
+                }
+                $installedMatches = @($after.Plugins | Where-Object name -CEQ $name)
+                if ($installedMatches.Count -ne 1) { throw "External installation readback has unexpected count for $name." }
+                $installedEntry = $installedMatches[0]
+                if ([IO.Path]::GetFullPath($installedEntry.path) -ine [IO.Path]::GetFullPath($approvedPath)) {
+                    throw "External installation used an unexpected path for $name."
+                }
+                if (-not $installedEntry.ContainsKey('source') -or $installedEntry.source -cne $exp.Expected.Source -or -not $installedEntry.enabled) {
+                    throw "External installation metadata mismatch for $name."
+                }
+                if ($exp.Expected.Version -cne 'ANY' -and (-not $installedEntry.ContainsKey('version') -or $installedEntry.version -cne $exp.Expected.Version)) {
+                    throw "External installation version mismatch for $name."
+                }
+                $oldOthers = @($before.Plugins | Where-Object name -CNE $name)
+                $newOthers = @($after.Plugins | Where-Object name -CNE $name)
+                if ((ConvertTo-Json -InputObject $oldOthers -Depth 30 -Compress) -cne (ConvertTo-Json -InputObject $newOthers -Depth 30 -Compress)) {
+                    throw 'Other plugin inventory changed during external installation; stop.'
+                }
+                Remove-Item -LiteralPath $pendingMarker
+                $readback = Get-AgPluginPlan
+                $afterExp = @($readback.ExternalExpectations | Where-Object Name -CEQ $name)[0]
+                if ($afterExp.State -cne 'unchanged') { throw "Post-install external preview did not converge to unchanged for $name." }
+                $plan = $readback
+            }
+            return $plan
+        }
+        finally { if ($lock) { $lock.Dispose() }; $mutex.ReleaseMutex(); $mutex.Dispose() }
+    }
     if (-not $DoApply -or $plan.Action -eq 'unchanged') { return $plan }
     if ($plan.Action -ne 'install') { throw ('Plugin deployment blocked: ' + $plan.Reason) }
     $mutex = Enter-AgDeploymentMutex $plan.ConfigRoot
@@ -498,11 +625,12 @@ function Invoke-AgPluginDeploy {
 # Dot-sourcing exposes the same functions for isolated contract fixtures without live commands.
 if ($MyInvocation.InvocationName -eq '.') { return }
 if ($Apply -and $Action -ne 'Deploy') { throw '-Apply is supported only for Deploy.' }
+if ($ExternalPlugin.Count -gt 0 -and $Action -ne 'Deploy') { throw '-ExternalPlugin is supported only for Deploy.' }
 Initialize-AgPluginContext $RepoRoot
 $report = switch ($Action) {
     Build { New-AgPluginBuild }
     Status { Get-AgPluginPlan }
-    Deploy { Invoke-AgPluginDeploy -DoApply:$Apply }
+    Deploy { Invoke-AgPluginDeploy -DoApply:$Apply -ExternalNames $ExternalPlugin }
 }
 if ($JsonPath) { Write-AgJsonFile ([IO.Path]::GetFullPath($JsonPath)) $report }
 $report | ConvertTo-Json -Depth 30

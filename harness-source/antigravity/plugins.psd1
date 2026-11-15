@@ -13,5 +13,12 @@
             'verification-before-completion'
         )
     }
-    ExternalPlugins = @()
+    ExternalPlugins = @(
+        @{
+            Name = 'unity'
+            Source = 'antigravity-plugins-partners'
+            Version = 'ANY'
+            Enabled = $true
+        }
+    )
 }
