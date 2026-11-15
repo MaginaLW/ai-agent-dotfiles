@@ -170,8 +170,15 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
   blocks tokens, not machine-private paths or personal content.
 - Never put plaintext secrets, tokens, account info, machine names or machine-private paths in
   skills, tracked docs or commits.
-- Machine-private configuration including Codex `config.toml` and private `.env` files,
-  credentials, sessions and caches are never synced.
+- Machine-private configuration including whole Codex `config.toml`, private `.env` files,
+  credentials, sessions and caches are never synced (`config-pull` and `config-push` continue to
+  exclude `config.toml` completely). Managed MCP server definitions declared under
+  `harness-source/mcp/` (no secrets, tokens or machine-private paths) may be projected only per
+  declared server entry — via the official `codex mcp` CLI for Codex and structured per-entry
+  JSON merge for Antigravity (`~/.gemini/config/mcp_config.json`) and ZCode
+  (`~/.zcode/cli/config.json`, `mcp.servers`) — preserving all unmanaged servers and personal
+  settings. Every MCP Apply requires dry-run review and explicit owner authorization (not covered
+  by Skill rules 10).
 
 ## Checks and CI
 
