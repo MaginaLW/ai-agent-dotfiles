@@ -10,7 +10,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 ## Current state
 
 - **Antigravity global `AGENTS.md` managed via config-sync.** Added [antigravity/AGENTS.md](antigravity/AGENTS.md)
-  (distilled from `codex/AGENTS.md` for Antigravity without `A01`, `S/Q/U/H`, `agent-bridge` or
+  (distilled from `codex/AGENTS.md` for Antigravity without `agent-bridge` or
   Codex-only approval/sandbox clauses) and `Antigravity` config-sync support in
   `manifests/whitelist.psd1`, `scripts/config-common.ps1`, `config-status/pull/push.ps1`, and
   `agent-dotfiles.ps1`. Defaults remain Codex-only (`-Platform Antigravity` is explicit); live
@@ -85,7 +85,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Repository branches.** The subagent-dispatch task branch is retained locally and on `origin`; remote deletion is not authorized. Earlier task branches for
   PRs #3, #4 and #5 were deleted after their merge state and full-tip ancestry were verified;
   their cleanup does not include the current task branch.
-- **Approval-feedback & boring-engineering retirement and codex/AGENTS.md inlining.** Both `approval-feedback` (including its private `%LOCALAPPDATA%` feedback ledger directory, script and test suite) and `boring-engineering` are now retired from canonical source, `work` (`0/8/6`) and `full` (`10/18/10`), and Antigravity `ai-agent-dotfiles` (`0.3.0`, three skills), after their non-ledger engineering-restraint and low-intervention rules were folded into `harness-model` (PRs #161/#162/#163), `agent-bridge` (PR #9), and `codex/AGENTS.md`. Codex/ZCode `deploy.ps1 -Environment work -Apply` pruned both skills from `~/.codex/skills` and `~/.zcode/skills` and updated the `~/.codex/AGENTS.md` managed block (`skill-backups\20261115-051504-833-cb6a61` and `config-backup-20261115-051507-283` retained; post-Apply readbacks returned `unchanged=14, prune=0, unknown=0` plus config `in-sync`).
+- **Approval-feedback & boring-engineering retired and codex/AGENTS.md streamlined.** Both standalone skills (including the former `%LOCALAPPDATA%` feedback ledger, `A01` scoring prompts, and `S/Q/U/H` summaries) and `boring-engineering` are retired from canonical source, `work`/`full`, Antigravity `ai-agent-dotfiles`, `codex/AGENTS.md`, and docs. `codex/AGENTS.md` retains only the non-scoring engineering-restraint and low-intervention clauses.
 - **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
   for config/env/profile/skills; unavailable Apply records explain their fixed reason without
   changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
@@ -123,20 +123,15 @@ CI run, check `git log` and the latest GitHub Actions run.
   replace as a whole), Codex `AGENTS.md` updates only its `AI-AGENT-DOTFILES` managed block, and
   config-push captures only that block body. The 2026-11-10 live `work` Apply left all 24 skills
   unchanged and added the block to the live Codex file; the post-Apply config status is in-sync.
-- **Historical approval-feedback deployment exception.** The former three-platform full
-  exception is retired in AGENTS.md Skill rules 9. Its earlier approval and deployment
-  readbacks remain historical evidence; current work updates use the Codex/ZCode grant.
-- **Skills and deployment.** There are 19 managed skills: 12 shared and 7 Codex-only. The
+- **Skills and deployment.** There are 19 managed skills: 11 shared and 8 Codex-only. The
   2026-11-08 source cleanup retired `hatch-pet` and removed the custom brainstorming browser
-  server. The `work` live Apply completed with 0 installs, 0 updates, 24 unchanged, 20 prunes
-  and 0 unknowns; its post-Apply dry run reported 24 unchanged. That historical deployment
-  exposed the same eight-skill daily set on three platforms; Codex `.system` remains untouched.
+  server; `approval-feedback` and `boring-engineering` were retired on 2026-11-15. Codex
+  `.system` remains untouched.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
   `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
   Catalog discovery and installation do not prove behavior change, and one applied case does not
   prove long-run improvement. Current evidence places `session-learnings` at
-  deployed/loaded/applied/reused, `tool-scope` at deployed/loaded/applied, and
-  `approval-feedback` at deployed/loaded with historical Codex application; its current-revision
+  deployed/loaded/applied/reused and `tool-scope` at deployed/loaded/applied; current-revision
   ZCode model-level effect remains unmeasured, and the current machine has no Claude live root.
 - **Policy centralization.** Generated skill roots, scan-input prefixes and the Codex live-root
   rule live in `scripts/repo-common.ps1`. Build, secret scan, syntax gate, doctor, deploy and
@@ -173,7 +168,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   explicit authorization. Tracks B (ExternalPlugins) and C (MCP sync, AGENTS.md hard-rule
   amendment) have not started. Task record: `status/active/multimodal-track-a.md`.
 
-- **Historical `approval-feedback` ledger & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory) have been removed from canonical source, `work`/`full` selections, Codex/ZCode live roots, and Antigravity (`0.2.0` uninstalled and `0.3.0` installed cleanly with the 3 remaining skills). Future tasks report ledgerless `S/Q/U/H` summaries in-thread per `codex/AGENTS.md` and `harness-model`. The earlier Skill rules 9 full-environment exception remains retired.
+- **Historical `approval-feedback` & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory, `A01` scoring prompts, `S/Q/U/H` summaries, and the two `docs/APPROVAL_FEEDBACK_*.md` design/plan docs) have been removed. The earlier Skill rules 9 full-environment exception remains retired.
 
 ## Known boundaries
 

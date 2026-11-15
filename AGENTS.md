@@ -32,16 +32,15 @@ files are retired; distributable Claude compatibility templates remain under `cl
   with its pull request merged or closed first.
 - Run only one full local `run-tests.ps1` or `run-repository-validation.ps1` on the machine at a
   time. Live Applies write shared home paths and never overlap either. Each Apply must be
-  covered by explicit owner authorization, including the standing grant in Skill rules 10,
-  except the narrow approval-feedback exception in Skill rules 9. An authorized finite task
-  chain or matching standing grant does not need a repeated question at every stage or task.
+  covered by explicit owner authorization, including the standing grant in Skill rules 10.
+  An authorized finite task chain or matching standing grant does not need a repeated question at
+  every stage or task.
 - Windows and PowerShell 7+ only. Run repository scripts as
   `pwsh -NoProfile -File scripts/<name>.ps1`. The unified CLI is `scripts/agent-dotfiles.ps1`.
 - Commit reviewed changes and push them normally after validation, verifying the target remote
   and branch first. Force pushes still need the owner's explicit authorization.
-- Merge, live Apply other than the approval-feedback exception in Skill rules 9, destructive
-  actions, credential export and additional paid model calls need explicit owner authorization
-  covering their actual scope. Reuse an existing task grant that explicitly includes the action
+- Merge, live Apply, destructive actions, credential export and additional paid model calls need
+  explicit owner authorization covering their actual scope. Reuse an existing task grant that explicitly includes the action
   and finite recovery; do not infer it from a plan, score or ordinary implementation permission.
   New scope, revoked permission or unknown side effects pause only the affected action.
   Proven-integrated local task branch deletion follows the exception above.
@@ -121,9 +120,8 @@ need them.
      finite task grant can satisfy it without another question.
    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
      It never writes a home directory or a live root.
-9. **Retired full-environment exception.** The former approval-feedback three-platform
-   exception is retired with Claude. It grants no new full-environment or Claude live
-   writes. Use the current `work` grant below for matching Codex/ZCode updates.
+9. **Retired full-environment exception.** No full-environment or Claude live-write exception
+   applies; use Skill rules 10 for matching `work` Codex/ZCode updates.
 
 10. **Owner-approved standing skills deployment grant.** Once the owner explicitly approves
     this clause, an authorized task that changes selected skill sources may complete the
