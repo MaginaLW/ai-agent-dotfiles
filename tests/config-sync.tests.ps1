@@ -101,12 +101,19 @@ try {
     $defaultHome = Join-Path $work 'codex-default-home'
     Set-File (Join-Path $defaultRepo 'claude/settings.json') '{"legacy":true}'
     Set-File (Join-Path $defaultRepo 'codex/AGENTS.md') '# Managed defaults'
+    Set-File (Join-Path $defaultRepo 'antigravity/AGENTS.md') '# Antigravity defaults'
     Set-File (Join-Path $defaultHome '.claude/settings.json') '{"personal":true}'
     Set-File (Join-Path $defaultHome '.codex/AGENTS.md') '# Managed defaults'
+    Set-File (Join-Path $defaultHome '.gemini/config/AGENTS.md') '# Antigravity defaults'
     foreach ($configScript in @($statusScript, $pullScript, $pushScript)) {
         $defaultRun = Invoke-Script -Script $configScript -ScriptArgs @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome)
-        Assert ($defaultRun.Code -eq 0 -and $defaultRun.Out -match 'Codex' -and $defaultRun.Out -notmatch 'Claude') "config defaults to Codex without reading legacy Claude fields: $(Split-Path -Leaf $configScript)"
+        Assert ($defaultRun.Code -eq 0 -and $defaultRun.Out -match 'Codex' -and $defaultRun.Out -notmatch 'Claude|Antigravity') "config defaults to Codex without reading Claude or Antigravity fields: $(Split-Path -Leaf $configScript)"
     }
+
+    $managedAgentsTargets = @(
+        @{ Platform = 'Codex'; RepoRel = 'codex/AGENTS.md'; HomeRel = '.codex/AGENTS.md'; BlockId = 'codex/AGENTS.md' }
+        @{ Platform = 'Antigravity'; RepoRel = 'antigravity/AGENTS.md'; HomeRel = '.gemini/config/AGENTS.md'; BlockId = 'antigravity/AGENTS.md' }
+    )
 
     # ===========================================================================
     Write-Host "`n[config-status]" -ForegroundColor Cyan
@@ -166,19 +173,21 @@ try {
     $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
     Assert ($r.Code -eq 0 -and $r.Out -match 'JSON fields match; file bytes differ' -and $r.Out -notmatch 'home-only "|changed "|repo-only "') 'status: semantically matching JSON does not produce field differences'
 
-    $tr = New-TempRepo -Name 'status-codex-repo'
-    $th = Join-Path $work 'status-codex-home'
-    Set-File -Path (Join-Path $tr 'codex/AGENTS.md') -Content 'same'
-    Set-File -Path (Join-Path $th '.codex/AGENTS.md') -Content 'same'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
-    $rows = $r.Out | ConvertFrom-Json
-    $codexRow = $rows | Where-Object { $_.Item -eq 'AGENTS.md' }
-    Assert ($codexRow.Status -eq 'differs' -and $codexRow.Detail -eq 'managed block missing; pull would add it') 'status: identical Codex content still needs its managed block'
-    Set-File -Path (Join-Path $th '.codex/AGENTS.md') -Content "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`nsame`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->`n"
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
-    $codexRow = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq 'AGENTS.md' }
-    Assert ($codexRow.Status -eq 'in-sync' -and $codexRow.Detail -eq 'managed block') 'status: a matching Codex managed block is in sync'
-    Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 1) 'status: one managed item still emits a JSON array'
+    foreach ($target in $managedAgentsTargets) {
+        $tr = New-TempRepo -Name "status-$($target.Platform.ToLowerInvariant())-repo"
+        $th = Join-Path $work "status-$($target.Platform.ToLowerInvariant())-home"
+        Set-File -Path (Join-Path $tr $target.RepoRel) -Content 'same'
+        Set-File -Path (Join-Path $th $target.HomeRel) -Content 'same'
+        $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-Json')
+        $rows = $r.Out | ConvertFrom-Json
+        $row = $rows | Where-Object { $_.Item -eq 'AGENTS.md' }
+        Assert ($row.Status -eq 'differs' -and $row.Detail -eq 'managed block missing; pull would add it') "status: identical $($target.Platform) content still needs its managed block"
+        Set-File -Path (Join-Path $th $target.HomeRel) -Content "<!-- BEGIN AI-AGENT-DOTFILES: $($target.BlockId) -->`nsame`n<!-- END AI-AGENT-DOTFILES: $($target.BlockId) -->`n"
+        $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-Json')
+        $row = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq 'AGENTS.md' }
+        Assert ($row.Status -eq 'in-sync' -and $row.Detail -eq 'managed block') "status: a matching $($target.Platform) managed block is in sync"
+        Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 1) "status: one managed $($target.Platform) item still emits a JSON array"
+    }
     foreach ($scriptPath in @($statusScript, $pullScript, $pushScript)) {
         $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Reasonix')
         Assert ($r.Code -ne 0) "config: $([IO.Path]::GetFileName($scriptPath)) rejects the retired platform"
@@ -210,37 +219,40 @@ try {
     $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0 -and (Get-FileHash -LiteralPath $homeSettings).Hash -eq $brokenHash) 'pull: invalid home JSON fails closed without writing'
 
-    $tr = New-TempRepo -Name 'pull-codex-block-repo'
-    $th = Join-Path $work 'pull-codex-block-home'
-    $bk = Join-Path $work 'pull-codex-block-backup'
-    $repoAgents = Join-Path $tr 'codex/AGENTS.md'
-    $homeAgents = Join-Path $th '.codex/AGENTS.md'
-    Set-File -Path $repoAgents -Content "# Managed`n`nRule v1.`n"
-    Set-File -Path $homeAgents -Content "# Managed`n`nRule v1.`n"
-    $beforeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'update\s+Codex/AGENTS.md' -and $r.Out -match 'managed block.*content outside it is preserved' -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $beforeHash) 'pull: Codex dry-run plans managed-block migration without writing'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
-    $text = Get-Content -Raw -LiteralPath $homeAgents
-    Assert ($r.Code -eq 0 -and $text -match 'BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md' -and $text -match 'Rule v1' -and $text -match 'END AI-AGENT-DOTFILES: codex/AGENTS.md') 'pull: Codex equal legacy content is wrapped in the managed block'
-    [IO.File]::AppendAllText($homeAgents, "`n## Personal`nMine`n", [Text.UTF8Encoding]::new($false))
-    Set-File -Path $repoAgents -Content "# Managed`n`nRule v2.`n"
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
-    $text = Get-Content -Raw -LiteralPath $homeAgents
-    Assert ($r.Code -eq 0 -and $text -match 'Rule v2' -and $text -notmatch 'Rule v1' -and $text -match '## Personal' -and $text -match 'Mine') 'pull: Codex updates only the managed block and preserves personal content'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
-    $codexRow = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq 'AGENTS.md' }
-    Assert ($r.Code -eq 0 -and $codexRow.Status -eq 'in-sync' -and $codexRow.Detail -eq 'managed block') 'status: the merged Codex file is in sync'
+    foreach ($target in $managedAgentsTargets) {
+        $slug = $target.Platform.ToLowerInvariant()
+        $tr = New-TempRepo -Name "pull-$slug-block-repo"
+        $th = Join-Path $work "pull-$slug-block-home"
+        $bk = Join-Path $work "pull-$slug-block-backup"
+        $repoAgents = Join-Path $tr $target.RepoRel
+        $homeAgents = Join-Path $th $target.HomeRel
+        Set-File -Path $repoAgents -Content "# Managed`n`nRule v1.`n"
+        Set-File -Path $homeAgents -Content "# Managed`n`nRule v1.`n"
+        $beforeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform)
+        Assert ($r.Code -eq 0 -and $r.Out -match "update\s+$([regex]::Escape($target.Platform))/AGENTS\.md" -and $r.Out -match 'managed block.*content outside it is preserved' -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $beforeHash) "pull: $($target.Platform) dry-run plans managed-block migration without writing"
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        $text = Get-Content -Raw -LiteralPath $homeAgents
+        Assert ($r.Code -eq 0 -and $text -match "BEGIN AI-AGENT-DOTFILES: $([regex]::Escape($target.BlockId))" -and $text -match 'Rule v1' -and $text -match "END AI-AGENT-DOTFILES: $([regex]::Escape($target.BlockId))") "pull: $($target.Platform) equal legacy content is wrapped in the managed block"
+        [IO.File]::AppendAllText($homeAgents, "`n## Personal`nMine`n", [Text.UTF8Encoding]::new($false))
+        Set-File -Path $repoAgents -Content "# Managed`n`nRule v2.`n"
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        $text = Get-Content -Raw -LiteralPath $homeAgents
+        Assert ($r.Code -eq 0 -and $text -match 'Rule v2' -and $text -notmatch 'Rule v1' -and $text -match '## Personal' -and $text -match 'Mine') "pull: $($target.Platform) updates only the managed block and preserves personal content"
+        $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-Json')
+        $row = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq 'AGENTS.md' }
+        Assert ($r.Code -eq 0 -and $row.Status -eq 'in-sync' -and $row.Detail -eq 'managed block') "status: the merged $($target.Platform) file is in sync"
 
-    $tr = New-TempRepo -Name 'pull-codex-no-marker-repo'
-    $th = Join-Path $work 'pull-codex-no-marker-home'
-    $bk = Join-Path $work 'pull-codex-no-marker-backup'
-    Set-File -Path (Join-Path $tr 'codex/AGENTS.md') -Content "# Managed`n"
-    Set-File -Path (Join-Path $th '.codex/AGENTS.md') -Content "# Personal only`n"
-    $noMarker = Join-Path $th '.codex/AGENTS.md'
-    $noMarkerHash = (Get-FileHash -LiteralPath $noMarker).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
-    Assert ($r.Code -ne 0 -and $r.Out -match 'no AI-AGENT-DOTFILES managed block' -and (Get-FileHash -LiteralPath $noMarker).Hash -eq $noMarkerHash) 'pull: differing Codex content without a block fails closed'
+        $tr = New-TempRepo -Name "pull-$slug-no-marker-repo"
+        $th = Join-Path $work "pull-$slug-no-marker-home"
+        $bk = Join-Path $work "pull-$slug-no-marker-backup"
+        Set-File -Path (Join-Path $tr $target.RepoRel) -Content "# Managed`n"
+        Set-File -Path (Join-Path $th $target.HomeRel) -Content "# Personal only`n"
+        $noMarker = Join-Path $th $target.HomeRel
+        $noMarkerHash = (Get-FileHash -LiteralPath $noMarker).Hash
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        Assert ($r.Code -ne 0 -and $r.Out -match 'no AI-AGENT-DOTFILES managed block' -and (Get-FileHash -LiteralPath $noMarker).Hash -eq $noMarkerHash) "pull: differing $($target.Platform) content without a block fails closed"
+    }
 
     $tr = New-TempRepo -Name 'pull-repo'
     $th = Join-Path $work 'pull-home'
@@ -406,16 +418,19 @@ try {
     $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan', '-SkipPathScan')
     Assert ($r.Code -eq 0 -and ((Get-Content -Raw -LiteralPath $captured) -match 'C:\\Users')) "push: -SkipPathScan bypasses the path gate"
 
-    $tr = New-TempRepo -Name 'push-codex-block-repo'
-    $th = Join-Path $work 'push-codex-block-home'
-    $bk = Join-Path $work 'push-codex-block-backup'
-    $repoAgents = Join-Path $tr 'codex/AGENTS.md'
-    $homeAgents = Join-Path $th '.codex/AGENTS.md'
-    Set-File -Path $repoAgents -Content "# Managed v1`n"
-    Set-File -Path $homeAgents -Content "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`n# Managed v1`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->`n`n## Personal`nMine`n"
-    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
-    $capturedAgents = Get-Content -Raw -LiteralPath $repoAgents
-    Assert ($r.Code -eq 0 -and $capturedAgents.TrimEnd("`r", "`n") -eq '# Managed v1' -and $capturedAgents -notmatch 'Personal|Mine') 'push: Codex capture takes only the managed block'
+    foreach ($target in $managedAgentsTargets) {
+        $slug = $target.Platform.ToLowerInvariant()
+        $tr = New-TempRepo -Name "push-$slug-block-repo"
+        $th = Join-Path $work "push-$slug-block-home"
+        $bk = Join-Path $work "push-$slug-block-backup"
+        $repoAgents = Join-Path $tr $target.RepoRel
+        $homeAgents = Join-Path $th $target.HomeRel
+        Set-File -Path $repoAgents -Content "# Managed v1`n"
+        Set-File -Path $homeAgents -Content "<!-- BEGIN AI-AGENT-DOTFILES: $($target.BlockId) -->`n# Managed v1`n<!-- END AI-AGENT-DOTFILES: $($target.BlockId) -->`n`n## Personal`nMine`n"
+        $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        $capturedAgents = Get-Content -Raw -LiteralPath $repoAgents
+        Assert ($r.Code -eq 0 -and $capturedAgents.TrimEnd("`r", "`n") -eq '# Managed v1' -and $capturedAgents -notmatch 'Personal|Mine') "push: $($target.Platform) capture takes only the managed block"
+    }
 
     if ($script:fail -eq 0) { $outcome = 'Passed' }
 }

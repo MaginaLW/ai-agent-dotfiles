@@ -16,11 +16,11 @@
     Repository root. Defaults to the parent of this script's directory.
 
 .PARAMETER HomeRoot
-    Home directory. Defaults to $env:USERPROFILE. Claude is read from .claude
-    and Codex from .codex.
+    Home directory. Defaults to $env:USERPROFILE. Claude is read from .claude,
+    Codex from .codex, and Antigravity from .gemini/config.
 
 .PARAMETER Platform
-    One or more of Claude, Codex. Defaults to Codex; Claude requires an explicit opt-in.
+    One or more of Claude, Codex, Antigravity. Defaults to Codex; Claude and Antigravity require an explicit opt-in.
 
 .PARAMETER Json
     Emit the results as a JSON array instead of the table.
@@ -29,7 +29,7 @@
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex')]
+    [ValidateSet('Claude', 'Codex', 'Antigravity')]
     [string[]] $Platform,
     [switch] $Json
 )
@@ -99,9 +99,10 @@ function Compare-ConfigItem {
             }
             catch { return [pscustomobject] @{ Status = 'differs'; Detail = 'JSON merge unavailable' } }
         }
-        if ($Platform -eq 'Codex' -and $Item -eq 'AGENTS.md') {
+        $blockSpec = Get-ManagedAgentsBlockSpec -Platform $Platform -Item $Item
+        if ($null -ne $blockSpec) {
             try {
-                $block = Get-CodexAgentsManagedBlockResult -RepoText ([IO.File]::ReadAllText($RepoPath)) -HomeText ([IO.File]::ReadAllText($HomePath)) -HomeExists $true
+                $block = Get-ManagedAgentsBlockResult -RepoText ([IO.File]::ReadAllText($RepoPath)) -HomeText ([IO.File]::ReadAllText($HomePath)) -HomeExists $true -BlockId $blockSpec.BlockId -Label $blockSpec.Label
                 if ($block.Changed) {
                     $detail = if ($block.HasBlock) { 'managed block differs' } else { 'managed block missing; pull would add it' }
                     return [pscustomobject] @{ Status = 'differs'; Detail = $detail }

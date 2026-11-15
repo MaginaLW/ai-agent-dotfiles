@@ -9,6 +9,14 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Antigravity global `AGENTS.md` managed via config-sync.** Added [antigravity/AGENTS.md](antigravity/AGENTS.md)
+  (distilled from `codex/AGENTS.md` for Antigravity without `A01`, `S/Q/U/H`, `agent-bridge` or
+  Codex-only approval/sandbox clauses) and `Antigravity` config-sync support in
+  `manifests/whitelist.psd1`, `scripts/config-common.ps1`, `config-status/pull/push.ps1`, and
+  `agent-dotfiles.ps1`. Defaults remain Codex-only (`-Platform Antigravity` is explicit); live
+  `config pull -Platform Antigravity -Apply` deployed the `antigravity/AGENTS.md` managed block
+  to `~/.gemini/config/AGENTS.md`, and post-Apply `config status` / `config pull -DryRun`
+  readbacks confirm `in-sync` (`managed block`).
 - **Antigravity plugin updated to 0.3.0 (boring-engineering retired; live 0.3.0 installed).** The independent `antigravity build/status/deploy` route
   now builds and deploys `ai-agent-dotfiles` 0.3.0 from three shared skills (`git-review`,
   `systematic-debugging`, `verification-before-completion`; 9 files, digest `45956d01...`) after retiring `boring-engineering`.

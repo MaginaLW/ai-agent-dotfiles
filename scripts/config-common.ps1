@@ -64,7 +64,29 @@ function Get-FileHashHex {
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
-$script:CodexAgentsBlockId = 'codex/AGENTS.md'
+$script:ManagedAgentsBlocks = @{
+    Codex = @{
+        Item    = 'AGENTS.md'
+        BlockId = 'codex/AGENTS.md'
+        Label   = 'Codex/AGENTS.md'
+    }
+    Antigravity = @{
+        Item    = 'AGENTS.md'
+        BlockId = 'antigravity/AGENTS.md'
+        Label   = 'Antigravity/AGENTS.md'
+    }
+}
+
+function Get-ManagedAgentsBlockSpec {
+    param(
+        [Parameter(Mandatory)] [string] $Platform,
+        [Parameter(Mandatory)] [string] $Item
+    )
+    if (-not $script:ManagedAgentsBlocks.ContainsKey($Platform)) { return $null }
+    $spec = $script:ManagedAgentsBlocks[$Platform]
+    if ($spec.Item -cne $Item) { return $null }
+    return $spec
+}
 
 function Get-JsonObjectMap {
     param([System.Text.Json.JsonElement] $Element)
@@ -201,18 +223,22 @@ function Get-ClaudeSettingsMergeResult {
     }
 }
 
-function Get-CodexAgentsBlockPattern {
-    $id = [regex]::Escape($script:CodexAgentsBlockId)
+function Get-ManagedAgentsBlockPattern {
+    param([string] $BlockId = 'codex/AGENTS.md')
+    $id = [regex]::Escape($BlockId)
     return "(?s)<!--\s*BEGIN AI-AGENT-DOTFILES:\s*$id\s*-->.*?<!--\s*END AI-AGENT-DOTFILES:\s*$id\s*-->"
 }
 
-function Get-CodexAgentsBlockText {
-    param([Parameter(Mandatory)] [string] $RepoText)
+function Get-ManagedAgentsBlockText {
+    param(
+        [Parameter(Mandatory)] [string] $RepoText,
+        [string] $BlockId = 'codex/AGENTS.md'
+    )
     $body = $RepoText.TrimEnd("`r", "`n")
-    return "<!-- BEGIN AI-AGENT-DOTFILES: $($script:CodexAgentsBlockId) -->`n$body`n<!-- END AI-AGENT-DOTFILES: $($script:CodexAgentsBlockId) -->"
+    return "<!-- BEGIN AI-AGENT-DOTFILES: $BlockId -->`n$body`n<!-- END AI-AGENT-DOTFILES: $BlockId -->"
 }
 
-function Get-CodexAgentsManagedBlockResult {
+function Get-ManagedAgentsBlockResult {
     # The repo owns one marked block. Existing content outside that block is preserved.
     # A legacy home file without markers is migrated only when it already equals the repo
     # content; otherwise the caller must add the block manually so no personal section is
@@ -220,16 +246,18 @@ function Get-CodexAgentsManagedBlockResult {
     param(
         [Parameter(Mandatory)] [string] $RepoText,
         [Parameter(Mandatory)] [AllowEmptyString()] [string] $HomeText,
-        [Parameter(Mandatory)] [bool] $HomeExists
+        [Parameter(Mandatory)] [bool] $HomeExists,
+        [string] $BlockId = 'codex/AGENTS.md',
+        [string] $Label = 'Codex/AGENTS.md'
     )
     if ($RepoText -match '<!--\s*(?:BEGIN|END) AI-AGENT-DOTFILES:') {
-        throw 'repository Codex/AGENTS.md must not contain config-sync managed markers'
+        throw "repository $Label must not contain config-sync managed markers"
     }
-    $blockText = Get-CodexAgentsBlockText -RepoText $RepoText
+    $blockText = Get-ManagedAgentsBlockText -RepoText $RepoText -BlockId $BlockId
     $content = if ($HomeExists) { $HomeText } else { '' }
-    $pattern = Get-CodexAgentsBlockPattern
+    $pattern = Get-ManagedAgentsBlockPattern -BlockId $BlockId
     $matches = [regex]::Matches($content, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-    if ($matches.Count -gt 1) { throw 'multiple Codex/AGENTS.md managed blocks found' }
+    if ($matches.Count -gt 1) { throw "multiple $Label managed blocks found" }
     if ($matches.Count -eq 1) {
         $updated = [regex]::Replace($content, $pattern,
             [System.Text.RegularExpressions.MatchEvaluator] { param($match) $blockText },
@@ -240,19 +268,23 @@ function Get-CodexAgentsManagedBlockResult {
         return [pscustomobject] @{ HasBlock = $false; Changed = $true; Content = ($blockText + "`n") }
     }
     if ($HomeText.TrimEnd("`r", "`n") -cne $RepoText.TrimEnd("`r", "`n")) {
-        throw 'Codex/AGENTS.md has no AI-AGENT-DOTFILES managed block; add one manually before pulling'
+        throw "$Label has no AI-AGENT-DOTFILES managed block; add one manually before pulling"
     }
     return [pscustomobject] @{ HasBlock = $false; Changed = $true; Content = ($blockText + "`n") }
 }
 
-function Get-CodexAgentsManagedContent {
+function Get-ManagedAgentsContent {
     # Return the managed block body for config-push, or $null when the home file has no block.
-    param([Parameter(Mandatory)] [string] $HomeText)
-    $id = [regex]::Escape($script:CodexAgentsBlockId)
+    param(
+        [Parameter(Mandatory)] [string] $HomeText,
+        [string] $BlockId = 'codex/AGENTS.md',
+        [string] $Label = 'Codex/AGENTS.md'
+    )
+    $id = [regex]::Escape($BlockId)
     $pattern = "(?s)<!--\s*BEGIN AI-AGENT-DOTFILES:\s*$id\s*-->(?<content>.*?)<!--\s*END AI-AGENT-DOTFILES:\s*$id\s*-->"
     $matches = [regex]::Matches($HomeText, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     if ($matches.Count -eq 0) { return $null }
-    if ($matches.Count -gt 1) { throw 'multiple Codex/AGENTS.md managed blocks found' }
+    if ($matches.Count -gt 1) { throw "multiple $Label managed blocks found" }
     $inner = $matches[0].Groups['content'].Value
     $inner = $inner -replace '^\r?\n', ''
     return ($inner.TrimEnd("`r", "`n") + "`n")

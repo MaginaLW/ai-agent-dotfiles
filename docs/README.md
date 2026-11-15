@@ -253,7 +253,7 @@ profile 写失败时，将当前尝试写入的文件也纳入 best-effort rollb
 
 ## 11. Harness 配置同步（config-sync）
 
-配置 status/pull/push 默认仅处理 Codex；只有显式 `-Platform Claude` 才会读写旧 Claude 配置。
+配置 status/pull/push 默认仅处理 Codex；只有显式 `-Platform Claude` 或 `-Platform Antigravity` 才会读写对应配置（Antigravity 全局协议位于 `antigravity/AGENTS.md` ↔ `~/.gemini/config/AGENTS.md`）。
 组合部署沿用 Codex-only 默认。
 
 除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与
@@ -264,14 +264,14 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `home-only` 字段会由结构化合并保留，`repo-only` 字段会新增，`changed` 或 `type-changed` 字段会替换。
   `in-sync` 也可能带 `home-only field(s) preserved` 说明；文件字节不同不代表需要同步。
   输出字段名但不输出字段值；字段名本身可能包含私有信息，分享终端输出前须审查。数组按整体比较。
-  Codex `AGENTS.md` 比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
+  Codex 与 Antigravity `AGENTS.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
   JSON 无效、键重复或根不是对象时报告无法比较，须手工检查。
   非 JSON 文件仍只报告文件级差异；`-Json` 保持原有文件级数组格式，不包含字段摘要。
 - `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再写入。
   Claude `settings.json` 递归合并对象：repo 中的键和值覆盖 home，数组整体替换，home-only 键保留；
   repo 中不存在的 home 键不会被删除，因此字段删除仍需人工审查。
-  Codex `AGENTS.md` 只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` 与
-  `<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->` 之间的内容，block 外的个人文本保留。
+  Codex `AGENTS.md` 与 Antigravity `AGENTS.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
+  `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` 对应的受管 block，block 外的个人文本保留。
   已有文件没有 block 时，仅当内容已等于 repo 才自动包裹；否则 fail closed，要求先手工放置 block。
   备份默认写入 `~\.ai-agent-dotfiles-backups\config-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）；
   不整目录 mirror、不 prune（home-only 文件原样保留）。捕获复制异常后，尽力回滚本次已尝试写入的文件：
@@ -281,7 +281,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `~\.ai-agent-dotfiles-backups\config-push-stage-<UTC 时间戳>\`，再过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
-  Codex `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
+  Codex 与 Antigravity `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
 - Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
 - Claude 配置模板启用 `codex@openai-codex`；模板市场声明不代表插件已经安装或加载。
 - 模板不带模型与推理档位，但这不表示可以删除个人设置：结构化合并会保留 home-only 顶层和嵌套字段；
