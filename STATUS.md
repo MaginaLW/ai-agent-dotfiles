@@ -9,10 +9,10 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Antigravity plugin updated to 0.3.0 (boring-engineering retired; live 0.2.0 uninstalled).** The independent `antigravity build/status/deploy` route
-  now builds `ai-agent-dotfiles` 0.3.0 from three shared skills (`git-review`,
+- **Antigravity plugin updated to 0.3.0 (boring-engineering retired; live 0.3.0 installed).** The independent `antigravity build/status/deploy` route
+  now builds and deploys `ai-agent-dotfiles` 0.3.0 from three shared skills (`git-review`,
   `systematic-debugging`, `verification-before-completion`; 9 files, digest `45956d01...`) after retiring `boring-engineering`.
-  Canonical and final-package scans and native strict validation (`agy 1.5.9`) pass; live `0.2.0` was cleanly uninstalled (`agy plugin uninstall ai-agent-dotfiles`, `agy plugin list --json` -> `[]`), and `0.3.0` `Deploy -Apply` hit Windows `Access is denied` on rename while Antigravity Desktop App watched `~/.gemini/config/plugins/` (target absent, `pending-install.json` retained without blind retry), awaiting fresh `antigravity build` + `antigravity deploy -Apply` with Antigravity closed.
+  Canonical and final-package scans and native strict validation (`agy 1.5.9`) pass; after uninstalling `0.2.0` (`agy plugin uninstall ai-agent-dotfiles`), a clean detached `main` worktree installed `0.3.0` (`antigravity deploy -Apply`) with Antigravity Desktop App closed. Post-install readbacks (`agy plugin list --json`, `antigravity status`, `antigravity deploy -DryRun`) confirm `0.3.0`, `enabled: true`, the 3 skills (`git-review`, `systematic-debugging`, `verification-before-completion`), `Action: unchanged` (`Reason: identity-version-and-content-match`), and intact `config.json` (`plugins`, `sidecars`, `userSettings`); the `0.3.0` ownership receipt (`installed.json`) stays in that dedicated worktree's ignored `tmp/antigravity/`.
   Skill selection is schema-validated dynamically instead of hardcoded to two skills, and the
   host-exported default `ANTIGRAVITY_APP_DATA_DIR` (`<UserProfile>/.gemini/antigravity`) is
   accepted while non-default overrides remain rejected. Canonical and final-package scans,
@@ -157,7 +157,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- **Historical `approval-feedback` ledger & `boring-engineering` open items closed (`2026-11-15`); Antigravity `0.3.0` live install pending Desktop App close.** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory) have been removed from canonical source, `work`/`full` selections, Codex/ZCode live roots, and Antigravity (`0.2.0` uninstalled cleanly; `0.3.0` built & validated with 3 skills, pending fresh `antigravity deploy -Apply` with Antigravity Desktop App closed due to `~/.gemini/config/plugins/` file lock). Future tasks report ledgerless `S/Q/U/H` summaries in-thread per `codex/AGENTS.md` and `harness-model`. The earlier Skill rules 9 full-environment exception remains retired.
+- **Historical `approval-feedback` ledger & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory) have been removed from canonical source, `work`/`full` selections, Codex/ZCode live roots, and Antigravity (`0.2.0` uninstalled and `0.3.0` installed cleanly with the 3 remaining skills). Future tasks report ledgerless `S/Q/U/H` summaries in-thread per `codex/AGENTS.md` and `harness-model`. The earlier Skill rules 9 full-environment exception remains retired.
 
 ## Known boundaries
 
