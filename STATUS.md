@@ -164,7 +164,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   §6 (tracks A → B → C):
   - Track A is complete: `multimodal-generation` (subscription-quota first, paid API opt-in only) merged in PR #19 (`112f418`), deployed to `work` Codex/ZCode (`unchanged=16, prune=0, unknown=0`), and installed via Antigravity `0.4.0`.
   - Track B is complete: `ExternalPlugins` declares `unity` (`antigravity-plugins-partners`), T0 live install verified `unity` `0.1.9-beta` (`enabled: true`, 35 skills) and non-idempotent repeat behavior, and `antigravity-plugins.ps1` / `agent-dotfiles.ps1` add explicit `-ExternalPlugin` missing-install support.
-  - Track C (managed MCP sync + `AGENTS.md` hard-rule amendment) and end-to-end multimodal/Unity real-use acceptance remain pending.
+  - Track C (in progress): Part 1 amends `AGENTS.md` hard rules for per-entry managed MCP projection (Codex via `codex mcp` CLI; Antigravity `mcp_config.json` and ZCode `~/.zcode/cli/config.json` `mcp.servers` via structured JSON merge) and records T0 probe results; Part 2 (`harness-source/mcp/`, `scripts/mcp-sync.ps1`, Pester suites, and policy test update) follows in a new task after the rule PR merges. End-to-end multimodal/Unity/Blender real-use acceptance remains pending.
 
 - **Historical `approval-feedback` & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory, `A01` scoring prompts, `S/Q/U/H` summaries, and the two `docs/APPROVAL_FEEDBACK_*.md` design/plan docs) have been removed. The earlier Skill rules 9 full-environment exception remains retired.
 
@@ -195,8 +195,9 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Codex catalog refresh and loaded skill bodies.** Codex detects skill changes automatically
   and may need a restart when an update does not appear. A conversation that already loaded an
   old `SKILL.md` or `AGENTS.md` body can retain that text until reloaded.
-- **Out of scope.** Machine-private configuration including Codex `config.toml` and private
-  `.env` files, credentials, sessions and caches are outside sync scope. Machine-private
+- **Out of scope.** Machine-private configuration including whole Codex `config.toml`, private
+  `.env` files, credentials, sessions and caches are outside `config-sync` scope (only per-entry
+  managed MCP projection under `AGENTS.md` hard rules is permitted). Machine-private
   evidence under `tmp/` and external private roots is not committed.
 
 ## Inventory and scope

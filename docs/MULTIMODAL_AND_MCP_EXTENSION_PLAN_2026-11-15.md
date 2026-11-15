@@ -1,7 +1,7 @@
 # 三端统一扩展方案（MCP、第三方插件与跨端多模态接入）
 
 日期：2026-11-15。
-状态：**已立项，按 §6 决策拆为轨道 A → B → C 三个独立任务；轨道 A（共享多模态 Skill）与轨道 B（`ExternalPlugins` 声明与显式缺失安装）均已完成实现与实测，等待轨道 B 合并后启动轨道 C。**
+状态：**已立项，按 §6 决策拆为轨道 A → B → C 三个独立任务；轨道 A/B 已完成合并，轨道 C 第一阶段（`AGENTS.md` 硬规则修订 + T0 实机调查）已就绪，待合并后新开任务实施 `mcp-sync`。**
 
 ## 1. 背景与目标
 
@@ -83,3 +83,16 @@
    - API 通道（Pro 附带每月 \$10 Google Cloud 开发者额度）默认关闭：需要绑定付款方式的结算账号，预算提醒不是硬性上限，超出即计费。仅在所有者针对具体任务显式开启并确认预算拦截后使用。
    - 消费级 `agy` 被第三方编码代理包装调用存在账号风险（见 `antigravity-delegation` 说明），不作为多模态默认路径。
 4. **实施顺序**：A（共享多模态 Skill）→ B（Antigravity 第三方插件声明）→ C（MCP 受管分发），各自独立分支、PR 与授权。
+
+## 7. 轨道 B/C T0 实机调查记录（2026-11-15）
+
+- **ZCode MCP 格式已实机核实**（来自本机 `zcode-guide` 0.3.0 `diagnosing-mcp` 技能与 `~/.zcode/cli/config.json`）：
+  - 用户级配置文件为 `~/.zcode/cli/config.json`，字段为 `mcp.servers.<name>`（对象内含 `model`、`provider`、`plugins` 等字段，必须结构化合并并保留其余键和非托管 server）。
+  - Stdio 规范字段为 `type: "stdio"`、`command`（字符串）、`args`（字符串数组）、`env`（键值对象；**禁用 `environment` 等旧字段，schema 严格且未知键会被丢弃，配置文件不展开 `${...}` 模板**）、`enabled`、`timeoutMs`。
+- **Codex MCP CLI 已实机核实**（`codex mcp`）：
+  - 支持 `list --json`、`get <name> --json`、`add <name> [--env KEY=VALUE ...] -- <command> <args...>`、`remove <name>`；通过官方 CLI 仅维护声明条目，可完全保留 `[projects.*]`、`[model_providers.*]`、个人配置及非托管 `[mcp_servers.*]`。
+- **Antigravity MCP 格式已实机核实**：
+  - 全局配置为 `~/.gemini/config/mcp_config.json`，字段为 `mcpServers.<name>`（`command` / `args` / `env` 或 `url`），结构化合并保留非托管条目。
+- **`mcp-for-blender`（`2.3.0`）与 Blender 5.3**：
+  - `uvx mcp-for-blender` 可直接作为 Stdio server 运行（默认连接 `BLENDER_HOST=localhost`、`BLENDER_PORT=9876`，无需 API 密钥）；
+  - 本机已安装 `Blender 5.3`，但用户配置目录 `%APPDATA%\Blender Foundation\Blender\5.3` 尚未生成（`uvx mcp-for-blender addon-paths` 返回空），正式 T3 验收前需先启动一次 Blender 5.3 或运行 `uvx mcp-for-blender install-addon` 并启用插件。
