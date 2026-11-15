@@ -367,7 +367,7 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 `full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。
 构建及部署准备的当前结果见 [STATUS.md](../STATUS.md)。
 
-`approval-feedback` 与 `boring-engineering` 的核心工程克制与低打断交互协议已合入 `harness-model`（运维文档、入口 `AGENTS.md`、AI Flow 模板与技能）并内联进 [codex/AGENTS.md](../codex/AGENTS.md)：不再通过独立 `approval-feedback` Skill 或本机私有台账维护，`approval-feedback` 已从源码与环境清退；`boring-engineering` 已从 Codex/ZCode `work` 清退（`skills-source/shared/boring-engineering/` 仅暂时保留作为当前已安装 Antigravity `0.2.0` 插件的固定打包输入，因 Antigravity 会话不读取 `codex/AGENTS.md` 且官方升级/卸载合同尚待另行验证授权）。现有交互约定如下：先复用项目既有有效授权；仅缺业务方向、超常设授权（含授权/策略变更）或高风险外部动作时附 `A01 | 可选 0–3` 提问，评分只评价打断价值，不授予权限。
+`approval-feedback` 与 `boring-engineering` 的核心工程克制与低打断交互协议已合入 `harness-model`（运维文档、入口 `AGENTS.md`、AI Flow 模板与技能）并内联进 [codex/AGENTS.md](../codex/AGENTS.md)：两个技能均已从 `skills-source/shared/`、各环境清单（`work` / `full`）及 Antigravity 受管插件（`0.3.0`）完全清退，本机历史私有台账亦已清理。现有交互约定如下：先复用项目既有有效授权；仅缺业务方向、超常设授权（含授权/策略变更）或高风险外部动作时附 `A01 | 可选 0–3` 提问，评分只评价打断价值，不授予权限。
 收到 0／1 分或“纠错未落实”的反馈时，在当前响应中同时处理具体来源：纠正执行误读并完成已授权工作，
 或立即给出精确项目规则 diff 建议（含原因、风险、继承范围和撤销方式），由用户一次审批落实；超过两次低分才在用户明确同意后起草宿主削弱弹窗规则；收尾按已有事实附 `S / Q / U / H` 汇总。
 同一项目反复扩权时，检查权限源文件的分类、冲突和继承入口，先做最小权限规则归整而非叠加临时例外；
@@ -448,8 +448,8 @@ doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `De
 
 ## 15. Antigravity 插件
 
-受管插件 `ai-agent-dotfiles`（`0.2.0`）包含 canonical `skills-source/shared/` 中的
-`boring-engineering`、`git-review`、`systematic-debugging` 和 `verification-before-completion` 及其附属文件。选择与元数据来自
+受管插件 `ai-agent-dotfiles`（`0.3.0`）包含 canonical `skills-source/shared/` 中的
+`git-review`、`systematic-debugging` 和 `verification-before-completion` 及其附属文件。选择与元数据来自
 `harness-source/antigravity/plugins.psd1`；第三方期望清单为空表示暂不托管第三方插件，
 不表示本机第三方插件必须为空。第三方来源、版本和启用状态只报告与比较，未知字段保留 UNKNOWN。
 本入口不打包 rules、MCP、hooks、agents 或 Codex 的 Antigravity delegation，也不调用 Bridge。
@@ -499,7 +499,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 安装读回、启用、加载与使用分别记录为 built / validated / installed / enabled / loaded / used。
 在 App 和 CLI 中分别核对插件面板、项目 Customizations、`/skills` 的身份、版本、来源与加载路径；
 需要时使用 `/skills reload` 或新会话，不推断旧聊天已经加载。
-实际使用验收在原生会话中以合成小 diff 显式调用 `git-review`，以独立设计题检查 `boring-engineering` 自然触发，
+实际使用验收在原生会话中以合成小 diff 显式调用 `git-review`，以典型排错/核验场景检查 `systematic-debugging` / `verification-before-completion` 触发，
 并在另一会话用无关问题检查非触发。须有读取正文或工具轨迹证据，口头声称使用不算证明；不可见时记 UNKNOWN。
 原生模型任务需要覆盖客户端、实际调用和已有订阅/付费预算的具体许可，不从 Codex 包装发起。
 未测量时不报告 outcome-improved。任一客户端或使用层未完成时，准确保留缺口，不把静态测试当作原生使用结果。

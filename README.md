@@ -81,7 +81,7 @@ unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 sk
 
 ## Antigravity 插件
 
-Antigravity 使用独立入口，当前 `ai-agent-dotfiles` 版本为 `0.2.0`，包含 `boring-engineering`、`git-review`、`systematic-debugging` 与 `verification-before-completion`：
+Antigravity 使用独立入口，当前 `ai-agent-dotfiles` 版本为 `0.3.0`，包含 `git-review`、`systematic-debugging` 与 `verification-before-completion`：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity build
