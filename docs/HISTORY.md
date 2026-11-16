@@ -2,6 +2,14 @@
 
 Removed code and docs stay in Git history. This page says where to find them.
 
+## Antigravity 0.1.0 execution plan (removed 2026-11-16)
+
+The initial Antigravity plugin onboarding plan (`docs/ANTIGRAVITY_PLUGIN_EXECUTION_PLAN_2026-11-13.md`, covering `0.1.0` design, gates, and the six-session App/CLI synthetic acceptance record) was archived after PR #9 (`fad4433`) and subsequent `0.4.0` updates superseded it. The last commit that still has it is `9e81abe`.
+
+```powershell
+git show 9e81abe:docs/ANTIGRAVITY_PLUGIN_EXECUTION_PLAN_2026-11-13.md
+```
+
 ## Transactional live-sync engine (removed 2026-10-09)
 
 The transactional engine was replaced by `scripts/deploy-skills.ps1` and removed on 2026-10-09,

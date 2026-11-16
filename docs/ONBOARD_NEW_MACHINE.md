@@ -1,9 +1,9 @@
 # New Windows Machine Onboarding
 
-Set up one Windows machine for the daily Codex/ZCode environment and Codex managed config.
-The work selection is Claude/Codex/ZCode 0/9/8. Keep the generated Claude skills as the ZCode
+Set up one Windows machine for the daily Codex, ZCode, and Antigravity workflow (skills, global agreements, plugins, and managed MCP servers).
+The `work` selection is Claude/Codex/ZCode `0/9/7`. Keep the generated Claude skills as the ZCode
 projection source; they need no Claude account, CLI or live directory. Legacy Claude config
-requires an explicit config-pull.ps1 -Platform Claude invocation and matching authorization.
+requires an explicit `config-pull.ps1 -Platform Claude` invocation and matching authorization.
 Use PowerShell 7+. Start only after the owner names the machine.
 
 ## 1. Clone and bootstrap
@@ -56,7 +56,45 @@ config and deploy state untouched, although the skill build may regenerate repos
 Preflight does not guarantee write access or prevent concurrent changes. A runtime config failure
 can still leave skills completed; use the [recovery table](README.md#8-备份与恢复) before retrying.
 
-## 4. Optional: remove skills an older setup left
+## 4. Sync ZCode global instructions (`~/.zcode/AGENTS.md`)
+
+`~/.zcode/AGENTS.md` is outside `config-sync` and ZCode does not expand `@import`. When setting up or updating a machine, manually sync the shared agreement section from `codex/AGENTS.md` into `~/.zcode/AGENTS.md` while keeping any ZCode-specific tail clauses intact ([docs/ZCODE.md](ZCODE.md)).
+
+## 5. Set up Antigravity (`AGENTS.md` and plugins)
+
+1. Preview and apply the Antigravity managed `AGENTS.md` block (`~/.gemini/config/AGENTS.md`) with explicit `-Platform Antigravity` and owner authorization:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform Antigravity -DryRun
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform Antigravity -Apply
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config status -Platform Antigravity
+```
+
+2. Build, inspect, and deploy the managed `ai-agent-dotfiles` plugin (and optionally install missing declared `ExternalPlugins` such as `unity` via `-ExternalPlugin <name>` after reviewing the dry-run and securing owner authorization covering identity, version, and enablement; close the Antigravity Desktop App before installing external marketplace entries if file locks occur):
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity build
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity status
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity deploy -DryRun
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity deploy -Apply
+```
+
+See [docs/README.md §15](README.md#15-antigravity-插件) for ownership, `ExternalPlugins`, and post-install readback details.
+
+## 6. Project managed MCP servers (`mcp-sync`)
+
+Ensure required runtimes/CLIs for declared servers (for example `uv` / `uvx` for `blender`, and `codex` on `PATH` for Codex projection) are installed. Preview across Antigravity, Codex, and ZCode, then run `-Apply` only after explicit owner authorization (Codex/ZCode standing `work` skill grant does not cover MCP Apply):
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp deploy -DryRun
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp deploy -Apply
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
+```
+
+See [docs/README.md §16](README.md#16-受管-mcp-分发mcp-sync) for per-client projection targets, unmanaged-entry preservation, and backup recovery.
+
+## 7. Optional: remove skills an older setup left
 
 If the skill dry run shows `unknown` directories that an older setup deployed and that are no
 longer wanted, name them with `-Retire` in a skills-only dry run, review the `prune` lines, then

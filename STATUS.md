@@ -9,6 +9,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Managed MCP projection (`mcp-sync`) and documentation/CLI alignment.** Track C (`harness-source/mcp/servers.psd1` declaring `blender`, `scripts/mcp-sync.ps1`, `agent-dotfiles.ps1 mcp`, `tests/mcp-sync.tests.ps1`, and updated `tests/repository-policy.tests.ps1`) merged in PR #25 (`7a63a13`); live read-only `mcp status` reports Codex and ZCode `blender` `unchanged` and Antigravity `blender` `update` (`~ /args`, preserving unmanaged entries). Follow-up alignment simplified `codex/AGENTS.md` workspace-boundary wording (inlining target-path/scope confirmation and removing the untracked `instructions/workspace-file-hygiene.md` reference), updated `agent-dotfiles.ps1` help (`antigravity` `-ExternalPlugin` and `mcp deploy` mode gating) and `tests/agent-dotfiles.tests.ps1`, archived `docs/ANTIGRAVITY_PLUGIN_EXECUTION_PLAN_2026-11-13.md` to `docs/HISTORY.md` (last commit `9e81abe`), and aligned `README.md`, `docs/README.md` (§16), `docs/ONBOARD_NEW_MACHINE.md`, `docs/ZCODE.md`, and `docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md`.
 - **Antigravity global `AGENTS.md` managed via config-sync.** Added [antigravity/AGENTS.md](antigravity/AGENTS.md)
   (distilled from `codex/AGENTS.md` for Antigravity without `agent-bridge` or
   Codex-only approval/sandbox clauses) and `Antigravity` config-sync support in
@@ -42,7 +43,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   historical `installed.json` remain under the primary checkout's ignored `tmp/antigravity/`.
 
 - **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
-  selected only for Codex in `work` (source selection 0/10/8). The source default is disabled;
+  selected only for Codex in `work` (at that baseline: 0/10/8; current `work` is 0/9/7 after 2026-11-15 skill retirements). The source default is disabled;
   the entry uses frozen primary/fallback roles and the Bridge managed host without adding a
   Bridge engine or distributing model defaults, credentials or private routes. Source build,
   pinned secret scan, syntax/schema, 13 wrapper assertions and the actual read-only preflight
@@ -56,7 +57,7 @@ CI run, check `git log` and the latest GitHub Actions run.
   state and deployment readback are machine-private: inspect the owning task's receipts rather
   than infer them from this source status. New installs and consumer-channel use retain their
   explicit authorization boundary; the reviewed preview is one install and 17 unchanged skills.
-- **Claude retirement.** The retirement baseline selected Claude/Codex/ZCode 0/9/8; the
+- **Claude retirement.** The retirement baseline selected Claude/Codex/ZCode 0/9/8 (current `work` is 0/9/7 after 2026-11-15 skill retirements); the
   Antigravity source candidate above adds one Codex selection.
   Config status/pull/push and combined deployment default to Codex only. The shared
   `base`/`coding` and this repository profile target Codex without automatic ClaudeSettings.
@@ -159,12 +160,12 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- **Multimodal/MCP extension (tracks A and B complete; track C pending).** Under the owner-approved plan in
+- **Multimodal/MCP extension (tracks A, B, and C merged; live Antigravity MCP alignment and T3 acceptance pending).** Under the owner-approved plan in
   [docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md](docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md)
   §6 (tracks A → B → C):
   - Track A is complete: `multimodal-generation` (subscription-quota first, paid API opt-in only) merged in PR #19 (`112f418`), deployed to `work` Codex/ZCode (`unchanged=16, prune=0, unknown=0`), and installed via Antigravity `0.4.0`.
   - Track B is complete: `ExternalPlugins` declares `unity` (`antigravity-plugins-partners`), T0 live install verified `unity` `0.1.9-beta` (`enabled: true`, 35 skills) and non-idempotent repeat behavior, and `antigravity-plugins.ps1` / `agent-dotfiles.ps1` add explicit `-ExternalPlugin` missing-install support.
-  - Track C (in progress): Part 1 amends `AGENTS.md` hard rules for per-entry managed MCP projection (Codex via `codex mcp` CLI; Antigravity `mcp_config.json` and ZCode `~/.zcode/cli/config.json` `mcp.servers` via structured JSON merge) and records T0 probe results; Part 2 (`harness-source/mcp/`, `scripts/mcp-sync.ps1`, Pester suites, and policy test update) follows in a new task after the rule PR merges. End-to-end multimodal/Unity/Blender real-use acceptance remains pending.
+  - Track C is merged: PR #24 (`c9e71dc`) amended `AGENTS.md` hard rules for per-entry managed MCP projection and recorded T0 findings; PR #25 (`7a63a13`) added `harness-source/mcp/servers.psd1` (`blender`), `scripts/mcp-sync.ps1`, `agent-dotfiles.ps1 mcp`, `tests/mcp-sync.tests.ps1`, and updated `tests/repository-policy.tests.ps1`. Remaining open items: aligning live Antigravity `blender` `/args` drift via authorized `mcp deploy` and completing end-to-end multimodal/Unity/Blender real-use acceptance (T3).
 
 - **Historical `approval-feedback` & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory, `A01` scoring prompts, `S/Q/U/H` summaries, and the two `docs/APPROVAL_FEEDBACK_*.md` design/plan docs) have been removed. The earlier Skill rules 9 full-environment exception remains retired.
 
@@ -216,8 +217,8 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 0/9/7,
   `full` 11/19/11. Unselected unknown live directories are preserved, and Codex `.system` is
   never managed.
-- **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the MCP
-  registration subsystem; OpenClaw/OpenCode; ArkCLI-managed skills; the legacy local
+- **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the former engine's
+  MCP registration subsystem (replaced by per-entry `scripts/mcp-sync.ps1`); OpenClaw/OpenCode; ArkCLI-managed skills; the legacy local
   `hatch-pet` v1 packaging workflow; the custom brainstorming browser-companion server.
 - **Integrations.** ZCode maintains this repository through `AGENTS.md` and is a deployment
   target through the Claude projection. The harness-model feedback-loop pilot is paused; one

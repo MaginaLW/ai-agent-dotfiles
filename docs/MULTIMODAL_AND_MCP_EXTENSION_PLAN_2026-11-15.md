@@ -1,7 +1,7 @@
 # 三端统一扩展方案（MCP、第三方插件与跨端多模态接入）
 
 日期：2026-11-15。
-状态：**已立项，按 §6 决策拆为轨道 A → B → C 三个独立任务；轨道 A/B 已完成合并，轨道 C 第一阶段（`AGENTS.md` 硬规则修订 + T0 实机调查）已就绪，待合并后新开任务实施 `mcp-sync`。**
+状态：**已立项并完成轨道 A → B → C 源码合并：轨道 A（`multimodal-generation` PR #19 `112f418`）、轨道 B（`ExternalPlugins` PR #23 `faeece9`）、轨道 C 规则修订（PR #24 `c9e71dc`）与 `mcp-sync` 实现（PR #25 `7a63a13`）均已并入 `main`；当前仅余 Antigravity 端 `blender` `/args` 实机对齐与 T3 端到端实测验收。**
 
 ## 1. 背景与目标
 
@@ -28,23 +28,23 @@
 
 ## 3. 拟定架构设计（草案）
 
-### 3.1 单一声明源
+### 3.1 单一声明源（已落地）
 
-1. **MCP 定义源（拟新增 `harness-source/mcp/`）**
-   - 每个受管 MCP Server 一份结构化声明（例如 `mcp-for-blender.psd1` 或 `servers.psd1`），记录 `Name`、`Transport`（`stdio` / `streamable-http`）、`Command`、`Args`、所需环境变量键名（仅键名，不含值）及适用平台（`Antigravity` / `Codex` / `ZCode`）。
-2. **Antigravity 第三方清单（复用 `harness-source/antigravity/plugins.psd1`）**
-   - 保留 `ManagedPlugin` 承载本项目自维护插件 `ai-agent-dotfiles`；
-   - 按需向 `ExternalPlugins` 填入受管第三方条目（如 Marketplace catalog ID 与期望启用状态）。
-3. **共享多模态 Skill（复用 `skills-source/shared/`）**
-   - 新增经审阅的共享 Skill（待定名），统一描述三端共同遵守的命令行/MCP 调用入口、输出目录规范、文件命名、后处理检验及敏感凭据约束。
+1. **MCP 定义源（`harness-source/mcp/servers.psd1`）**
+   - 统一声明受管 MCP Server（当前声明 `blender`），记录 `Name`、`Transport`（`stdio` / `streamable-http`）、`Command`、`Args`、`Env`（仅键名或 `${ENV_VAR}` 占位符，不含明文凭据）、`Enabled` 及适用平台（`Antigravity` / `Codex` / `ZCode`）。
+2. **Antigravity 第三方清单（`harness-source/antigravity/plugins.psd1`）**
+   - 保留 `ManagedPlugin` 承载本项目自维护插件 `ai-agent-dotfiles`（当前 `0.4.0`）；
+   - 通过 `ExternalPlugins` 声明第三方条目（当前为 `unity@antigravity-plugins-partners`）。
+3. **共享多模态 Skill（`skills-source/shared/multimodal-generation/`）**
+   - 统一描述三端共同遵守的订阅额度优先、落盘规范、落盘校验及敏感凭据约束。
 
-### 3.2 三端部署投影（先 DryRun 预览，再显式 Apply）
+### 3.2 三端部署投影（已落地于 `scripts/mcp-sync.ps1`：先 DryRun 预览，再显式 Apply）
 
-| 目标客户端 | MCP 落点与合并策略 | 第三方插件 / 技能落点 |
+| 目标客户端 | 实际落点与合并策略 | 第三方插件 / 技能落点 |
 | --- | --- | --- |
-| **Antigravity** | 选项一：作为 `ai-agent-dotfiles` 受管插件内 `mcp_config.json` 组件打包；<br>选项二：结构化合并写入 `~/.gemini/config/mcp_config.json` 的受管条目（保留非托管条目）。 | `ExternalPlugins` 通过官方 `agy plugin install` 处理；共享 Skill 随 `ai-agent-dotfiles` 插件或全局技能路由更新。 |
-| **Codex** | 仅在 `~/.codex/config.toml` 中维护受管标记区块或按 `[mcp_servers.<name>]` 表项精确合并，**不覆盖**用户模型选择、审批档位及其他个人配置。 | 共享 Skill 继续通过 `deploy-skills.ps1` 部署至 `~/.codex/skills`（或 `~/.agents/skills`）。 |
-| **ZCode** | 待实机核对 ZCode 实际读取的 MCP 配置文件路径与 JSON/TOML 结构后再定生成器，未核实前保持 `blocked`。 | 共享 Skill 继续从 `claude/skills/` 投影部署至 `~/.zcode/skills`。 |
+| **Antigravity** | 结构化逐项合并写入 `~/.gemini/config/mcp_config.json` 的 `mcpServers.<name>`（保留非托管条目与其余配置）。 | `ExternalPlugins` 通过显式 `-ExternalPlugin <name>` 触发官方 `agy plugin install <name>@<source>`；共享 Skill 随 `ai-agent-dotfiles` 插件更新。 |
+| **Codex** | 仅通过官方 `codex mcp list/get/add/remove` CLI 逐项投影声明条目，**不直接改写**整个 `config.toml`，完整保留用户模型选择、审批档位与个人配置。 | 共享 Skill 继续通过 `deploy-skills.ps1` 部署至 `~/.codex/skills`（或 `~/.agents/skills`）。 |
+| **ZCode** | 结构化逐项合并写入 `~/.zcode/cli/config.json` 的 `mcp.servers.<name>`（`type: "stdio"` / `http`，保留 `model`、`provider`、`plugins` 与非托管条目）。 | 共享 Skill 继续从 `claude/skills/` 投影部署至 `~/.zcode/skills`。 |
 
 ### 3.3 安全与回滚门禁
 
