@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-16.
+Last updated: 2026-11-17.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -159,6 +159,8 @@ CI run, check `git log` and the latest GitHub Actions run.
   [docs/HISTORY.md](docs/HISTORY.md).
 
 ## Open items
+
+- **Repository optimization roadmap (tracks O1–O5 planned).** [docs/OPTIMIZATION_PLAN_2026-11-17.md](docs/OPTIMIZATION_PLAN_2026-11-17.md) records the 14-item repository and live-inspection audit, the owner's 6 design decisions (ZCode AGENTS.md managed-block sync, Antigravity `%LOCALAPPDATA%` receipt decoupling + live-first status + controlled update, doctor vs top-level read-only status split, targeted secret-scan rules, Reasonix retirement and Harness Profile passive observation window, and merged-branch cleanup), and five independent execution tracks (O1–O5) for cross-client handoff.
 
 - **Multimodal/MCP extension (tracks A, B, and C merged; live Antigravity MCP alignment and T3 acceptance pending).** Under the owner-approved plan in
   [docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md](docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md)
