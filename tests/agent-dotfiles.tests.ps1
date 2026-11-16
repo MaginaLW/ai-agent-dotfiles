@@ -42,13 +42,16 @@ function Invoke-Entry {
 Write-Host 'unified CLI: env and config/profile routing'
 $result = Invoke-Entry -Arguments @('help')
 Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
-Assert ($result.Out -match 'sync, env deploy, antigravity deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
+Assert ($result.Out -match 'sync, env deploy, antigravity deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
 foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')) {
     foreach ($helpArgs in @(@('help', $group), @($group, 'help'))) {
         $result = Invoke-Entry -Arguments $helpArgs
         Assert ($result.Code -eq 0 -and $result.Out -match "agent-dotfiles.ps1 $group <action>" -and $result.Out -notmatch 'Invoking script') "group help returns without executing a child: $($helpArgs -join ' ')"
         if ($group -eq 'config') {
             Assert ($result.Out -match 'repository -> home' -and $result.Out -match 'home -> repository' -and $result.Out -match 'not git push') 'config help explains directions and distinguishes capture from Git publication'
+        }
+        if ($group -eq 'antigravity') {
+            Assert ($result.Out -match '-ExternalPlugin' -and $result.Out -notmatch 'two-skill') 'antigravity help documents -ExternalPlugin and avoids stale two-skill wording'
         }
     }
 }

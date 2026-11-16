@@ -9,6 +9,11 @@ ZCode 还会先加载用户全局指令 `~/.zcode/AGENTS.md`。该文件不由�
 ZCode 也不展开 `@import`，因此其中的共享工作协议需要按 `codex/AGENTS.md` 手工同步；ZCode
 专属条款保留在该文件末尾。修改 canonical 条款后同步该文件，并在新任务中核对实际加载。
 
+用户级受管 MCP server（`harness-source/mcp/servers.psd1`）则由 `scripts/mcp-sync.ps1`
+（`scripts/agent-dotfiles.ps1 mcp status|deploy`）按条目结构化合并到 `~/.zcode/cli/config.json`
+的 `mcp.servers` 中，保留 `model`、`provider`、`plugins` 及非托管条目，详见
+[使用手册 §16](README.md#16-受管-mcp-分发mcp-sync)。
+
 ## 使用方式
 
 - 在 ZCode 中打开本仓库**根目录**，再新建任务；无需专用关键词、Skill 或斜杠命令。

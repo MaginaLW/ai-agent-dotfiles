@@ -42,12 +42,12 @@ function Write-Usage([string] $Group) {
         Write-Host "Usage: pwsh -File scripts/agent-dotfiles.ps1 $Group <action> [arguments]"
         switch ($Group) {
             antigravity {
-                Write-Host 'build: generates the reviewed two-skill plugin; no live installation.'
+                Write-Host 'build: generates the reviewed plugin package from harness-source/antigravity/plugins.psd1; no live installation.'
                 Write-Host 'status: reads candidate and native plugin state without building or repairing.'
                 Write-Host 'deploy: previews by default; authorized Apply installs through the official agy plugin command.'
                 Write-Host 'Examples: antigravity build; antigravity status; antigravity deploy -DryRun'
-                Write-Host 'Options: -RepoRoot <path>, -JsonPath <file>. Only deploy accepts -DryRun or -Apply.'
-                Write-Host 'Third-party plugins are read-only; unsupported update and rollback remain blocked.'
+                Write-Host 'Options: -RepoRoot <path>, -JsonPath <file>; deploy also accepts -ExternalPlugin <name> and requires -DryRun or -Apply.'
+                Write-Host 'Default deploy leaves external plugins untouched; missing marketplace entries require explicit -ExternalPlugin <name>. Unsupported update and rollback remain blocked.'
             }
             config {
                 Write-Host 'status: read-only comparison of repository and home configuration.'
@@ -94,7 +94,7 @@ function Write-Usage([string] $Group) {
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: promote -Path <dir> -Name <name> -Type <type> [-Replace] -DryRun|-Apply.'
     Write-Host 'Env actions: list [-RepoRoot <path>] [-StateRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
-    Write-Host 'sync, env deploy, antigravity deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
+    Write-Host 'sync, env deploy, antigravity deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'build generates output; env list -JsonPath writes a report without a mode.'
     Write-Host 'Group help: help config (or config help); also env, profile, skills, antigravity and mcp.'
 }

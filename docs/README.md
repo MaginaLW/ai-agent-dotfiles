@@ -8,9 +8,9 @@
 
 ## 1. 项目目的
 
-用 Git 统一管理多台电脑上的 Claude / Codex / ZCode skills：`skills-source/` 是唯一可信源，
+用 Git 统一管理多台电脑上的 Claude / Codex / ZCode skills 与全局工作协议：`skills-source/` 是唯一可信源，
 `build-skills.ps1` 生成两个平台的 runtime output；`deploy.ps1` 把某个环境选中的 skills 逐目录部署到
-本机 live 根（默认 dry-run；ZCode 是投影平台，直接部署 Claude 生成物）。另外管理 harness 配置（§11）和项目级 harness profile（§12）。
+本机 live 根（默认 dry-run；ZCode 是投影平台，直接部署 Claude 生成物）。另外管理 harness 配置（§11，含 Codex 与显式 `-Platform Antigravity` 全局 `AGENTS.md`）、项目级 harness profile（§12）、Antigravity 插件（§15）和三端受管 MCP servers（§16）。
 原则：保守、可审计、默认 dry-run、绝不整目录覆盖、绝不碰平台内置目录。红线（Hard rules / Skill rules）以
 [AGENTS.md](../AGENTS.md) 为准；唯一允许手工写 live 根的情形是 §8 的授权恢复。
 
@@ -35,12 +35,13 @@
 |---|---|
 | `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印联合 deploy dry-run 命令；不写 live |
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
+| `antigravity/AGENTS.md` | Antigravity 全局工作协议源（受管 block 同步至 `~/.gemini/config/AGENTS.md`，§11） |
 | `claude/settings.json`、`claude/CLAUDE.md` | 仅供显式旧平台配置同步的分发模板；本仓 Claude 开发入口已退役 |
 | `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`） |
 | `claude/skills/`、`codex/skills/` | 生成物，Git-ignored，勿手改 |
 | `manifests/managed-skills.<platform>.txt` | 每平台受管名单，由 build 刷新，勿手改 |
 | `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§11） |
-| `harness-source/` | 环境定义 `envs/`（§13）与 profile/component 源（§12） |
+| `harness-source/` | 环境定义 `envs/`（§13）、profile/component 源（§12）、Antigravity 插件清单（§15）与受管 MCP 注册表 `mcp/servers.psd1`（§16） |
 | `.agent-harness/profile.psd1` | 当前项目的 profile 声明（§12） |
 | `.agent-harness/generated/` | 项目本地 profile 生成物，Git-ignored，可重建 |
 | `tools/gitleaks/` | pinned gitleaks 的版本、下载地址与校验锁 |
@@ -358,7 +359,7 @@ prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
 `work.Claude` 为空；`claude/skills/` 仍为 ZCode 提供构建投影，保留共享源和生成链。
 共享 `base`/`coding` 及本仓 profile 默认仅 Codex，不再自动选择 ClaudeSettings；旧 Claude 组件仍可显式选择。
-当前 `work` 为 Claude/Codex/ZCode 0/9/8：shared `subagent-driven-development` 仅在 Codex `work` 选入，
+当前 `work` 为 Claude/Codex/ZCode 0/9/7：shared `subagent-driven-development` 仅在 Codex `work` 选入，
 `full` 三平台均包含。该 Skill 是委派执行约定，不授予新权限；具体额度以 [AGENTS.md](../AGENTS.md)
 和当前宿主限制为准，操作细节见 [Skill](../skills-source/shared/subagent-driven-development/SKILL.md)。
 
@@ -424,22 +425,23 @@ config status | pull | push
 profile status | build | apply
 skills promote               -> scripts/promote-skill.ps1
 antigravity build | status | deploy -> scripts/antigravity-plugins.ps1 -Action <action>
+mcp status | deploy          -> scripts/mcp-sync.ps1 -Action <action>
 ```
 
 用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help` 查看命令概览。
-用 `help config` 或 `config help` 查看分组帮助；`env`、`profile`、`skills`、`antigravity` 支持相同拼法。
+用 `help config` 或 `config help` 查看分组帮助；`env`、`profile`、`skills`、`antigravity`、`mcp` 支持相同拼法。
 帮助说明操作方向、写入范围和常用示例，不执行子脚本。`config push` 仅捕获本机配置到仓库，不是 Git push。
 
 doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `Deploy blockers`。
 双 Codex live 根会阻塞部署；未安装的平台根、dirty tree 和跳过 secret scan 等提醒不自动归为阻塞。
 `none detected by these checks` 也不表示部署已通过预检，仍须审查 dry-run。
 
-只读命令：`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`。`build` 与 `profile build`
-只生成可重建输出；`env list -JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
-`profile apply`、`skills promote`、`antigravity deploy`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
+只读命令：`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`、`antigravity status`、`mcp status`。`build` 与 `profile build`
+只生成可重建输出；`env list -JsonPath`、`antigravity` 与 `mcp` 传入 `-JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
+`profile apply`、`skills promote`、`antigravity deploy`、`mcp deploy`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
 `sync` 与 `env deploy` 都串行执行 skills 和 config；两阶段不原子。直接运行低层脚本可只执行单个阶段。
 
-底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json`；统一 CLI
+底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json` 或 `mcp status -Json`；统一 CLI
 会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。
 
 
@@ -509,4 +511,38 @@ agy --print "/ai-agent-dotfiles:git-review <synthetic-diff>" --output-format str
 CLI 新进程不传 `--continue` 或 `--conversation` 时为独立会话。显式 skill 展开可能直接内联正文，
 以 init 的 expanded_commands、原生展开日志及安装文件 readback 核对；自然触发仍需实际正文读取轨迹。
 `--mode plan` 是提示前缀，不能当作只读权限隔离。原生诊断日志可能含账户信息，保持在私有 ignored
-目录，对外仅发布必要的脱敏结论。0.1.0 的 App/CLI 六次合成验收结果见[执行计划](ANTIGRAVITY_PLUGIN_EXECUTION_PLAN_2026-11-13.md#2026-11-14-执行结果)。
+目录，对外仅发布必要的脱敏结论。0.1.0 的历史归档记录与获取命令见[历史索引](HISTORY.md)。
+
+---
+
+## 16. 受管 MCP 分发（mcp-sync）
+
+`harness-source/mcp/servers.psd1`（`SchemaVersion = 1`、`Servers`）声明跨 **Antigravity、Codex、ZCode** 三端投影的受管 MCP server（当前声明 `blender`），严禁写入明文密钥、Token、回车换行或本机盘符/UNC 路径：
+
+- **支持的传输与字段**：`stdio`（`Command`、`Args`、`Env`、可选 `TimeoutMs`）与 `streamable-http`（`Url`、可选 `BearerTokenEnvVar`、`Headers`），并带 `Name`、`Enabled`、`Platforms`。
+- **凭据与平台约束**：注册表读取阶段要求 `Env` 中敏感键名（`api_key` / `token` / `secret` / `password` / `passwd` / `credential`）必须写成 `${ENV_VAR}` 占位符，而 `ZCode` / `Codex` 投影器目前不支持 `${...}` 环境变量模板展开，`ZCode` 亦暂不投影 `streamable-http`；遇到不兼容项、重复键、非法 JSON 或缺失 `codex` CLI 时，规划器 fail closed 报告 `blocked`，不会猜测或写入。
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -DryRun
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Platform Antigravity -Server blender -DryRun
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
+```
+
+常用参数：`-Platform Antigravity|Codex|ZCode`（可逗号分隔）、`-Server <name>`、`-Json`、`-JsonPath <file>`、`-BackupRoot <path>`、`-SkipSecretScan`（仅 `deploy` 接受 `-DryRun` / `-Apply` / `-BackupRoot` / `-SkipSecretScan`）。
+
+各端按条目投影并保留非托管条目与个人设置：
+
+| 客户端 | 落点与投影方式 | 保留内容 |
+|---|---|---|
+| **Antigravity** | `~/.gemini/config/mcp_config.json` 下的 `mcpServers.<name>`（结构化 JSON 合并） | 其他非托管 `mcpServers` 与顶层字段 |
+| **Codex** | 仅通过官方 `codex mcp list/get/add/remove` CLI 逐项投影 | `[projects.*]`、`[model_providers.*]`、模型设置与非托管 `[mcp_servers.*]`（不整文件改写 `config.toml`） |
+| **ZCode** | `~/.zcode/cli/config.json` 下的 `mcp.servers.<name>`（结构化 JSON 合并，写入 `type` / `command` / `args` / `env` / `enabled`） | `model`、`provider`、`plugins` 及其他非托管 server |
+
+安全与回滚门禁：
+
+- `mcp status` 与 `mcp deploy -DryRun` 只读不写；若 plan 存在任何 `blocked` 项，`-Apply` 直接拒绝执行。
+- 存在待写入的 `add` / `update` 项时，`-Apply` 先执行秘密扫描门禁（除非显式 `-SkipSecretScan`）并复核最新计划，写前将已存在的目标配置文件备份到 `~/.ai-agent-dotfiles-backups/mcp-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）。
+- JSON 写入失败时尽力按反序从本次备份恢复或清理新建目标文件；`-Apply` 完成后执行读回校验，确认受管条目收敛为 `unchanged` 且非托管数量未减少。
+- `mcp deploy` 独立于 `sync` / `deploy.ps1`，`AGENTS.md` Skill rules 10 不覆盖 MCP Apply；每次执行 `-Apply` 前须审查完整 dry-run 并获得明确授权。
+- 回归测试：`pwsh -NoProfile -File tests/mcp-sync.tests.ps1`。

@@ -12,6 +12,7 @@
 | 只检查，不部署 | 下方“查看状态与帮助” |
 | 部署失败或想恢复旧内容 | 下方“失败与恢复”及[手册 §8](docs/README.md#8-备份与恢复) |
 | 使用 Antigravity 插件 | [手册 §15](docs/README.md#15-antigravity-插件) |
+| 同步受管 MCP servers | 下方“受管 MCP 分发”及[手册 §16](docs/README.md#16-受管-mcp-分发mcp-sync) |
 | 修改或新增 skill | [手册 §5–6](docs/README.md#5-修改已有-skill-的流程) |
 
 ## 首次安装
@@ -64,10 +65,12 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -Apply
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 doctor
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status -Platform Antigravity
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ```
 
-`config help` 与 `help config` 等价；`env`、`profile`、`skills`、`antigravity` 也支持分组帮助。
+`config help` 与 `help config` 等价；`env`、`profile`、`skills`、`antigravity`、`mcp` 也支持分组帮助。
 `config pull` 是仓库 → 本机，`config push` 是本机 → 仓库的配置捕获，和 Git push 无关。
 捕获的 diff 必须由人审查后才能提交。`env list -JsonPath <file>` 会写报告文件，属于只读列表的显式写出例外。
 
@@ -94,16 +97,26 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 须先审阅预览并取得覆盖具体身份、版本和启用影响的许可；原生模型验收另须覆盖实际调用范围。
 未证明的更新与回滚保持 blocked。安装、启用、加载和实际使用分别验收，详见[手册 §15](docs/README.md#15-antigravity-插件)。
 
+## 受管 MCP 分发
+
+`harness-source/mcp/servers.psd1` 集中声明需要跨 Antigravity、Codex 和 ZCode 同步的受管 MCP servers（当前声明 `blender`），零明文凭据与私有路径：
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -DryRun
+```
+
+`mcp deploy` 独立于 `sync` 与 `env deploy`，按条目投影到 Antigravity（`~/.gemini/config/mcp_config.json`）、Codex（官方 `codex mcp` CLI）和 ZCode（`~/.zcode/cli/config.json`），保留各端非托管条目与个人设置。授权前仅运行只读 `status` 或 `-DryRun`，`-Apply` 须获得明确授权（不继承 Codex/ZCode `work` 持续技能授权），详见[手册 §16](docs/README.md#16-受管-mcp-分发mcp-sync)。
+
 ## 管理范围
 
 - `skills-source/` 是 skills 唯一源；build 生成 `claude/skills/`、`codex/skills/`，生成物不提交。
 - 环境定义位于 `harness-source/envs/`。当前 `work` 的 Claude/Codex/ZCode 为 0/9/7，
   `subagent-driven-development` 仅选入 Codex 的 `work`；`full` 在三平台均包含它。
 - 部署逐个 skill 目录进行，只 prune 本工具记录过或显式 `-Retire` 点名的目录；未知目录保留，Codex `.system` 不受管。
-- 配置 status/pull/push 及组合部署默认只处理 Codex，不会重建 Claude live 配置；旧 Claude 配置工具须显式 `-Platform Claude`。Codex `AGENTS.md` 只更新受管 block，保留 block 外文本。
+- 配置 status/pull/push 及组合部署默认只处理 Codex，不会重建 Claude live 配置；Antigravity 全局协议（`antigravity/AGENTS.md`）与旧 Claude 配置工具须分别显式传入 `-Platform Antigravity` / `-Platform Claude`。`AGENTS.md` 均只更新受管 block，保留 block 外文本。
 - ZCode 继续从 Claude 生成物投影部署；这不需要 Claude 账号、CLI 或 live 根。共享 `base`/`coding` profile 默认只生成 Codex 项目目标。Codex 同时存在 `~/.codex/skills` 与 `~/.agents/skills` 时拒绝部署，需先人工判断。
-- 不同步 Codex `config.toml`、私有 `.env`、凭据、会话或缓存；不注册 MCP servers。
-  需要外部能力时使用当前会话可用的连接器，并核实访问权限。
+- 整份 Codex `config.toml`、私有 `.env`、凭据、会话或缓存永不同步；`harness-source/mcp/servers.psd1` 声明的受管 MCP 条目仅通过显式 `mcp deploy` 按条目投影，不并入默认 `sync`。
 
 ## 进一步阅读
 
