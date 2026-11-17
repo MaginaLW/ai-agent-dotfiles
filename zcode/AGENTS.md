@@ -1,7 +1,7 @@
 
-<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->
 # Global working agreements
 
+<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->
 ## 编码与测试底线（优先执行）
 
 - **外科手术式最小改动：** 先核对标准库与代码库既有能力再实现，只实现验收标准要求的行为；禁止顺手重构、格式化或改写无关代码与注释。仅当“表达同一业务规则、未来同向演进、合并后不增标志位”三条件同时满足时抽取共用函数；不新增未要求的性能优化、抽象层、兼容胶水或依赖。
