@@ -1,16 +1,27 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    Runs every tests/*.tests.ps1 suite in its own pwsh process.
+    Runs tests/*.tests.ps1 suites in individual pwsh processes.
 
 .DESCRIPTION
     Each suite gets the budget that tests/test-timeouts.psd1 names for it; a suite
     without a budget, or a budget without a suite, stops the run before anything
     starts. On timeout the suite's whole process tree is killed. Exits 1 when any
-    suite fails or times out.
+    suite fails or times out. When -Suite is specified, validates the entire
+    test-timeouts.psd1 table against disk, then executes only the selected suite.
+
+.PARAMETER RepoRoot
+    Repository root. Defaults to the parent of this script's directory.
+
+.PARAMETER Suite
+    Optional suite name to run (e.g. 'deploy' or 'deploy.tests.ps1').
+    When omitted, all suites are run.
 #>
 [CmdletBinding()]
-param([string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path)
+param(
+    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [string] $Suite
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -26,20 +37,43 @@ $unknown = @($budgets.Keys | Where-Object { $_ -notin $names })
 if ($unbudgeted.Count -or $unknown.Count) {
     throw "tests/test-timeouts.psd1 must give each suite exactly one budget. Missing: $($unbudgeted -join ', '); unknown: $($unknown -join ', ')"
 }
-foreach ($suite in $suites) {
-    $budgets[$suite.Name] = [int] $budgets[$suite.Name]
-    if ($budgets[$suite.Name] -le 0) { throw "Budget for $($suite.Name) must be positive." }
+foreach ($suiteFile in $suites) {
+    $budgets[$suiteFile.Name] = [int] $budgets[$suiteFile.Name]
+    if ($budgets[$suiteFile.Name] -le 0) { throw "Budget for $($suiteFile.Name) must be positive." }
+}
+
+if ($PSBoundParameters.ContainsKey('Suite')) {
+    if ([string]::IsNullOrWhiteSpace($Suite)) {
+        throw 'Suite parameter cannot be empty or whitespace.'
+    }
+    $targetName = (Split-Path -Leaf $Suite).Trim()
+    if ($targetName -notmatch '\.tests\.ps1$') {
+        if ($targetName -match '\.tests$') {
+            $targetName = "$targetName.ps1"
+        }
+        elseif ($targetName -match '\.ps1$') {
+            $targetName = ($targetName -replace '\.ps1$', '.tests.ps1')
+        }
+        else {
+            $targetName = "$targetName.tests.ps1"
+        }
+    }
+    $matched = @($suites | Where-Object { $_.Name -ieq $targetName })
+    if ($matched.Count -eq 0) {
+        throw "Suite '$Suite' (resolved as '$targetName') was not found in $testsRoot."
+    }
+    $suites = $matched
 }
 
 $pwsh = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
 $failures = [System.Collections.Generic.List[string]]::new()
-foreach ($suite in $suites) {
-    $timeout = $budgets[$suite.Name]
-    Write-Host "=== $($suite.Name) ==="
+foreach ($suiteFile in $suites) {
+    $timeout = $budgets[$suiteFile.Name]
+    Write-Host "=== $($suiteFile.Name) ==="
     $info = [System.Diagnostics.ProcessStartInfo]::new($pwsh)
     $workspace = $null
-    if ($suite.Name -eq 'config-sync.tests.ps1') { $workspace = New-ConfigSyncTestWork -RepoRoot $RepoRoot }
-    foreach ($argument in @('-NoProfile', '-File', $suite.FullName)) { $info.ArgumentList.Add($argument) }
+    if ($suiteFile.Name -eq 'config-sync.tests.ps1') { $workspace = New-ConfigSyncTestWork -RepoRoot $RepoRoot }
+    foreach ($argument in @('-NoProfile', '-File', $suiteFile.FullName)) { $info.ArgumentList.Add($argument) }
     if ($workspace) {
         foreach ($argument in @('-WorkRoot', $workspace.Root, '-WorkspaceRunId', $workspace.RunId)) { $info.ArgumentList.Add($argument) }
     }
@@ -97,11 +131,11 @@ foreach ($suite in $suites) {
     }
     $seconds = '{0:n1}s' -f $clock.Elapsed.TotalSeconds
     if ($problem) {
-        $failures.Add("$($suite.Name): $problem")
-        Write-Host "--- $($suite.Name) FAIL: $problem ($seconds)" -ForegroundColor Red
+        $failures.Add("$($suiteFile.Name): $problem")
+        Write-Host "--- $($suiteFile.Name) FAIL: $problem ($seconds)" -ForegroundColor Red
     }
     else {
-        Write-Host "--- $($suite.Name) PASS ($seconds)"
+        Write-Host "--- $($suiteFile.Name) PASS ($seconds)"
     }
 }
 

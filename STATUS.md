@@ -9,167 +9,38 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Managed MCP projection (`mcp-sync`) and documentation/CLI alignment.** Track C (`harness-source/mcp/servers.psd1` declaring `blender`, `scripts/mcp-sync.ps1`, `agent-dotfiles.ps1 mcp`, `tests/mcp-sync.tests.ps1`, and updated `tests/repository-policy.tests.ps1`) merged in PR #25 (`7a63a13`); live read-only `mcp status` reports Codex and ZCode `blender` `unchanged` and Antigravity `blender` `update` (`~ /args`, preserving unmanaged entries). Follow-up alignment simplified `codex/AGENTS.md` workspace-boundary wording (inlining target-path/scope confirmation and removing the untracked `instructions/workspace-file-hygiene.md` reference), updated `agent-dotfiles.ps1` help (`antigravity` `-ExternalPlugin` and `mcp deploy` mode gating) and `tests/agent-dotfiles.tests.ps1`, archived `docs/ANTIGRAVITY_PLUGIN_EXECUTION_PLAN_2026-11-13.md` to `docs/HISTORY.md` (last commit `9e81abe`), and aligned `README.md`, `docs/README.md` (§16), `docs/ONBOARD_NEW_MACHINE.md`, `docs/ZCODE.md`, and `docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md`.
-- **Antigravity global `AGENTS.md` managed via config-sync.** Added [antigravity/AGENTS.md](antigravity/AGENTS.md)
-  (distilled from `codex/AGENTS.md` for Antigravity without `agent-bridge` or
-  Codex-only approval/sandbox clauses) and `Antigravity` config-sync support in
-  `manifests/whitelist.psd1`, `scripts/config-common.ps1`, `config-status/pull/push.ps1`, and
-  `agent-dotfiles.ps1`. Defaults remain Codex-only (`-Platform Antigravity` is explicit); live
-  `config pull -Platform Antigravity -Apply` deployed the `antigravity/AGENTS.md` managed block
-  to `~/.gemini/config/AGENTS.md`, and post-Apply `config status` / `config pull -DryRun`
-  readbacks confirm `in-sync` (`managed block`).
-- **Antigravity external plugins (`ExternalPlugins`) track B implemented.** `harness-source/antigravity/plugins.psd1` now declares `unity` (`Source = 'antigravity-plugins-partners'`, `Version = 'ANY'`, `Enabled = $true`; `gemini-api` excluded per zero-extra-API-cost decision). `scripts/antigravity-plugins.ps1` and `scripts/agent-dotfiles.ps1` support marketplace `Source` validation, `Version = 'ANY'`, `missing`/`blocked` planning states, and explicit opt-in `-ExternalPlugin <name>` installation of missing marketplace entries (`agy plugin install <name>@<marketplace>` once with pre/post readback and pending-marker failure stops). Default `deploy -Apply` leaves missing external plugins untouched, and already-installed or drifted external plugins remain blocked from automatic reinstall (T0 live verification proved `agy plugin install unity@antigravity-plugins-partners` exits `0` on clean install with `source = 'antigravity-plugins-partners'` and `version = '0.1.9-beta'`, while repeating it with Antigravity running fails with `Access is denied` and preserves the installed plugin). Live read-only `antigravity status` confirms `unity` `State: unchanged`; `antigravity-plugins.tests.ps1` passes 106 assertions and `agent-dotfiles.tests.ps1` passes 118 cases.
-
-- **Antigravity plugin updated to 0.4.0 (multimodal-generation added; live 0.4.0 installed).** The independent `antigravity build/status/deploy` route
-  now builds and deploys `ai-agent-dotfiles` 0.4.0 from four shared skills (`git-review`,
-  `multimodal-generation`, `systematic-debugging`, `verification-before-completion`; 10 files,
-  digest `41449b6e...`). Canonical and final-package scans and native strict validation
-  (`agy 1.5.9`) pass; after uninstalling `0.3.0` (`agy plugin uninstall ai-agent-dotfiles`), a
-  clean detached `main` worktree (`7c8841d`) installed `0.4.0` (`antigravity deploy -Apply`) with
-  Antigravity Desktop App closed. Post-install readbacks (`agy plugin list --json`,
-  `antigravity status`, `antigravity deploy -DryRun`) confirm `0.4.0`, `enabled: true`, all 4
-  skills, `Action: unchanged` (`Reason: identity-version-and-content-match`), `SKILL.md` present
-  under `~/.gemini/config/plugins/ai-agent-dotfiles/skills/multimodal-generation/`, and intact
-  `config.json` (`plugins.swarm`, `sidecars`, `userSettings`); the `0.4.0` ownership receipt
-  (`installed.json`) stays in that dedicated worktree's ignored `tmp/antigravity/`.
-  Skill selection is schema-validated dynamically, and the host-exported default
-  `ANTIGRAVITY_APP_DATA_DIR` (`<UserProfile>/.gemini/antigravity`) is accepted while non-default
-  overrides remain rejected. Earlier `0.1.0` (PR #9 `fad4433`, PRs #10/#11 `19e9c4c`/`9b78244`),
-  `0.2.0` (PR #15 `c697d0a`), and `0.3.0` (PR #17 `6eb9664`, `boring-engineering` retired)
-  installs remain historical baselines; native real-use acceptance for `systematic-debugging`,
-  `verification-before-completion`, and `multimodal-generation` remains unverified. Existing
-  platform selections and default sync routes are unchanged; unknown ownership, drift, version
-  reuse and unproven in-place updates/rollback still block writes. Local `0.1.0` backup and its
-  historical `installed.json` remain under the primary checkout's ignored `tmp/antigravity/`.
-
-- **Antigravity delegation.** The Codex-only skill and private-config invocation entry are
-  selected only for Codex in `work` (at that baseline: 0/10/8; current `work` is 0/9/7 after 2026-11-15 skill retirements). The source default is disabled;
-  the entry uses frozen primary/fallback roles and the Bridge managed host without adding a
-  Bridge engine or distributing model defaults, credentials or private routes. Source build,
-  pinned secret scan, syntax/schema, 13 wrapper assertions and the actual read-only preflight
-  pass. The original full local run passed 13 of 14 suites; the missing `full` selection found
-  by repository-policy was repaired and the affected recheck passed. Exact-head Validate is
-  required before merge. Independent source review passed. The owning Bridge task's bounded
-  native acceptance proved both configured High models reading the plugin Skill, calling the
-  fixture MCP, consuming its random result, repairing the allowed files and passing tests;
-  command denial and original Job cleanup were independently checked. This does not establish
-  all-tool isolation or arbitrary plugin/account capabilities. Live enablement, default-model
-  state and deployment readback are machine-private: inspect the owning task's receipts rather
-  than infer them from this source status. New installs and consumer-channel use retain their
-  explicit authorization boundary; the reviewed preview is one install and 17 unchanged skills.
-- **Claude retirement.** The retirement baseline selected Claude/Codex/ZCode 0/9/8 (current `work` is 0/9/7 after 2026-11-15 skill retirements); the
-  Antigravity source candidate above adds one Codex selection.
-  Config status/pull/push and combined deployment default to Codex only. The shared
-  `base`/`coding` and this repository profile target Codex without automatic ClaudeSettings.
-  Root `CLAUDE.md` and `.claude/settings.json` developer entries are removed. The Claude
-  generated skills remain the ZCode projection source; distributable templates and
-  explicit Claude tools stay compatible. The old full-environment exception is retired,
-  and the standing `work` grant covers Codex/ZCode only. This source change did not
-  remove live Claude state or perform a live deployment. A post-merge read-only check
-  found the live Claude root absent on the current machine; the `work` dry run reported
-  17 unchanged skills, no prunes and no config changes.
-  The first retirement candidate passed local syntax, build, pinned secret scan and all
-  14 isolated suites, including the work-selection fixture and Codex-only inheritance.
-  After local entry removal, syntax, repository-policy, doctor and pinned secret-scan
-  checks pass. PR #5 merged to `main` at `50574f6`; Validate passed for both the exact
-  PR head and the merged main commit. Default config dry-run is Codex-only and in sync;
-  no live Apply was performed.
-
-- **Proactive Git approval requests.** The Codex global agreement source explicitly requests
-  missing commit, push or merge permission once the diff and checks are reviewable; it reuses
-  explicit existing grants instead of ending with an unexplained uncommitted/unmerged result.
-  The requested Codex-only managed-block deployment completed, its readback is in sync, and
-  personal text outside the block is unchanged. The owner approved A04 for this change's
-  commit/push and sequential integration of PRs #3 and #4 after current CI passes; both PRs
-  are merged.
-- **Repository branches.** The subagent-dispatch task branch is retained locally and on `origin`; remote deletion is not authorized. Earlier task branches for
-  PRs #3, #4 and #5 were deleted after their merge state and full-tip ancestry were verified;
-  their cleanup does not include the current task branch.
-- **Approval-feedback & boring-engineering retired and codex/AGENTS.md streamlined.** Both standalone skills (including the former `%LOCALAPPDATA%` feedback ledger, `A01` scoring prompts, and `S/Q/U/H` summaries) and `boring-engineering` are retired from canonical source, `work`/`full`, Antigravity `ai-agent-dotfiles`, `codex/AGENTS.md`, and docs. `codex/AGENTS.md` retains only the non-scoring engineering-restraint and low-intervention clauses. Follow-up cleanup (`2026-11-16`) also removed residual `approval-feedback`/`A01`/`S/Q/U/H` rules from `~/.zcode/AGENTS.md` and sibling `agent-bridge` (`AGENTS.md` and `docs/local-bridge.md`, PR #11 `db227b6`), retired pre-PR-#21 worktrees (`wt-ag-020`, `wt-ag-030`, and integrated branch `codex/antigravity-plugins-020-20261114`; `wt-ag-040` stays for the `0.4.0` receipt), and cleared readable `tmp/approval-*` scratch directories (`tmp/approval-effectiveness/validation-deps/` stays ACL-restricted).
-- **CLI and deployment experience.** Group help works as `help <group>` and `<group> help`
-  for config/env/profile/skills; unavailable Apply records explain their fixed reason without
-  changing the JSON contract. Doctor lists known deployment blockers separately from warnings.
-  The README starts with install/update/inspect/recover paths. Skill plans show relative file
-  additions/changes/removals, recorded-to-target environments and prune reasons, reusing the
-  existing comparison. Combined Apply runs both planners before live writes, reuses the skills
-  build/scan and retains config's pre-write scan. Preflight failures write no live/state data;
-  runtime failures remain non-atomic. Recovery guidance and natural-task effect checks are in
-  the usage manual. No live Apply was performed for these script/documentation changes.
-- **Subagent policy.** Codex agreements retain the whole-root concurrent allowance of 50
-  descendants with the lead excluded, the host's lower open/active limits and existing budgets.
-  Ready substantive work is dispatched promptly; independent parts proceed when other inputs
-  are missing, and dependency/result/wait boundaries trigger follow-on dispatch. Integration
-  bottlenecks contract only affected expansion. Implementation and necessary tests normally
-  share an owner, with independent review kept independent when required. The shared skill
-  has matching platform-neutral guidance; the unchanged `work` selection uses it only on Codex.
-  Build, pinned secret scan, diff checks and independent review passed. PR #6 integrated
-  source `fc60c19` with merge commit `15b2a5e` after Validate `43228587969` passed.
-  Owner grant A01 covered the public PR, normal merge and both sequential Codex deployments.
-  The skills Apply updated only the target skill; its source, generated and live files match.
-  The post-Apply preview reports 17 unchanged, no updates/installs/prunes/unknowns. Config
-  status and pull readback show the managed block in sync; personal config and outside-block
-  text are unchanged, and both task-owned backups match their pre-Apply content. The current
-  chat received refreshed global instructions; loading in other existing chats and real-task
-  speedup remain unverified. No extra model acceptance was run and no standing grant changed.
+- **Managed MCP projection (`mcp-sync`).** Managed MCP projection (`harness-source/mcp/servers.psd1`, `scripts/mcp-sync.ps1`, `agent-dotfiles.ps1 mcp`) projects declared MCP server definitions (`blender`) per-entry to Codex, Antigravity, and ZCode while preserving unmanaged entries. Live read-only `mcp status` reports Codex, Antigravity, and ZCode `blender` all `unchanged` (`add=0 update=0 unchanged=3 blocked=0`).
+- **Global `AGENTS.md` managed via config-sync.** [antigravity/AGENTS.md](antigravity/AGENTS.md) and [zcode/AGENTS.md](zcode/AGENTS.md) sync to `~/.gemini/config/AGENTS.md` and `~/.zcode/AGENTS.md` respectively via config-sync (`-Platform Antigravity,ZCode`) as `AI-AGENT-DOTFILES` managed blocks. Config-sync defaults remain Codex-only; structured merge preserves personal content outside markers.
+- **Antigravity external plugins (`ExternalPlugins`).** `harness-source/antigravity/plugins.psd1` declares marketplace external plugins (`unity`). `scripts/antigravity-plugins.ps1` supports explicit opt-in `-ExternalPlugin <name>` installation of missing entries; default `deploy -Apply` leaves missing external plugins untouched. Live read-only `antigravity status` confirms `unity` `State: unchanged`.
+- **Antigravity plugin (`ai-agent-dotfiles` 0.4.0 installed).** `scripts/antigravity-plugins.ps1` packages and deploys `ai-agent-dotfiles` 0.4.0 from four shared skills (`git-review`, `multimodal-generation`, `systematic-debugging`, `verification-before-completion`). Plugin installation receipt and attempt state are relocated to `%LOCALAPPDATA%/ai-agent-dotfiles.deploy/antigravity/`; status reporting directly compares live installed files against canonical source digests; controlled updates perform pre-write backups, official uninstall/install, and readback verification. Live installation at `~/.gemini/config/plugins/ai-agent-dotfiles/` is verified `enabled: true`, matching canonical source digests.
+- **Antigravity delegation.** The Codex-only skill `antigravity-delegation` is selected for Codex in `work` (0/9/7) and `full`. Default is disabled, using the Bridge managed host without distributing model defaults or credentials.
+- **Claude developer entry retirement.** Local developer entry files (`CLAUDE.md`, `.claude/settings.json`) are retired; config-sync and deployment default to Codex. Claude generated skills (`claude/skills/`) serve as the projection source for ZCode; distributable templates remain in `claude/`. The live Claude skills root is absent on the current machine.
+- **Proactive Git approval requests.** Agent instructions require explicit approval requests for commit, push, or merge once diffs and verification are ready, reusing existing task grants rather than ending with unexplained uncommitted changes.
+- **Repository branches and worktree hygiene.** Local task branch `codex/subagent-dispatch-20261112` is deleted following ancestor proof against `main`, and temporary worktree `wt-ag-040` is removed. All 20 remote historical branches are verified fully merged into `main`; remote branch deletion is deferred pending explicit owner authorization.
+- **Retired skills cleanup.** Standalone skills `approval-feedback` and `boring-engineering` are fully retired across canonical sources, manifests, Antigravity plugin, and documentation.
+- **CLI and observability.** `agent-dotfiles.ps1` provides unified CLI entry points (`help <group>` and `<group> help`), structured skill plan previews with file-level diffs, preflight secret scanning, and non-atomic stage rollback guidance. The top-level `agent-dotfiles.ps1 status` command aggregates read-only status and drift detection across Git working tree, config sync, skill deployment, Antigravity plugins, and managed MCP projections. `doctor.ps1` modernizes environment checks by treating absent optional Claude roots as INFO and verifying existence of all 9 core repository scripts.
+- **Subagent policy.** Codex agreements permit up to 50 concurrent descendant subagents (lead excluded). Substantive ready work is dispatched promptly, with implementation and tests sharing an owner and independent review kept separate when required.
 - **Grok routing.** The Codex agreement template routes explicitly requested Grok work through agent-bridge and preserves its current schema, available engines and approval flow; it has no local Grok Build CLI fallback.
-- **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions now require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial; public destinations are limited to repositories explicitly authorized to publish their own content.
-- **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates
-  `claude/skills/` and `codex/skills/`; `deploy-skills.ps1` deploys one environment to the live
-  Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every
-  managed skill, while `work` is the daily set.
-- **Combined deploy and config merge.** `deploy.ps1` runs the selected skills environment and
-  `config-pull` in one dry-run/apply entry point; the unified `sync` and `env deploy` routes use
-  it. Claude `settings.json` uses structured object merge (home-only fields survive, arrays
-  replace as a whole), Codex `AGENTS.md` updates only its `AI-AGENT-DOTFILES` managed block, and
-  config-push captures only that block body. The 2026-11-10 live `work` Apply left all 24 skills
-  unchanged and added the block to the live Codex file; the post-Apply config status is in-sync.
-- **Skills and deployment.** There are 19 managed skills: 11 shared and 8 Codex-only. The
-  2026-11-08 source cleanup retired `hatch-pet` and removed the custom brainstorming browser
-  server; `approval-feedback` and `boring-engineering` were retired on 2026-11-15. Codex
-  `.system` remains untouched.
-- **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`,
-  `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one.
-  Catalog discovery and installation do not prove behavior change, and one applied case does not
-  prove long-run improvement. Current evidence places `session-learnings` at
-  deployed/loaded/applied/reused and `tool-scope` at deployed/loaded/applied; current-revision
-  ZCode model-level effect remains unmeasured, and the current machine has no Claude live root.
-- **Policy centralization.** Generated skill roots, scan-input prefixes and the Codex live-root
-  rule live in `scripts/repo-common.ps1`. Build, secret scan, syntax gate, doctor, deploy and
-  repository validation consume those definitions; generated/legacy roots remain excluded from
-  scans and untracked-output checks.
-- **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is
-  absent. Enumeration errors now stop the build instead of looking like an empty skill set.
-- **Latest local verification.** The 2026-11-11 CLI/deployment changes passed the full repository
-  validation: PowerShell syntax, pinned gitleaks, build, secret scan, doctor, manifest parity,
-  all 14 local test suites, dangerous-file checks and the clean-tree gate. Remote Validate is the
-  separate CI gate for the pushed head.
-- **Pinned gitleaks.** The lock pins gitleaks 8.30.0 by archive and executable SHA-256. The
-  official GitHub Releases API fallback is used only after direct downloads fail and still
-  passes both hash gates.
-- **CI.** One `Validate` job runs `scripts/run-repository-validation.ps1` on push to `main`,
-  pull requests and manual dispatch. GitHub Actions is the source of truth for the latest head;
-  this file does not name a moving commit.
-- **Finite windows and de-duplication.** Future proposals that need an expiry state one
-  activation event, duration, latest activation condition and stop condition. Verification
-  claims bind to a target, version, environment and stopping condition; delegated evidence is
-  reused after inspection. These rules add no timer, ledger, background collector or automatic
-  permission.
-- **Status history.** The former dated journal is preserved in Git; this file now keeps only
-  facts that still affect current decisions. Historical and removed documentation is indexed by
-  [docs/HISTORY.md](docs/HISTORY.md).
+- **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial.
+- **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates `claude/skills/` and `codex/skills/`; `deploy-skills.ps1` deploys one environment to the live Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every managed skill, while `work` is the daily set.
+- **Combined deploy and config merge.** `deploy.ps1` combines skills deployment and `config-pull` into one unified dry-run/apply entry point (used by `agent-dotfiles.ps1 sync`). Claude `settings.json` merges structured objects; Codex, Antigravity, and ZCode `AGENTS.md` update their respective managed blocks.
+- **Skills and deployment.** There are 19 managed skills: 11 shared and 8 Codex-only. Codex `.system` remains untouched.
+- **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`, `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one. Catalog discovery and installation do not prove behavior change, and one applied case does not prove long-run improvement.
+- **Policy centralization.** Generated skill roots, scan-input prefixes and the Codex live-root rule live in `scripts/repo-common.ps1`. Build, secret scan, syntax gate, doctor, deploy and repository validation consume those definitions; generated/legacy roots remain excluded from scans and untracked-output checks.
+- **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is absent. Enumeration errors stop the build instead of appearing as an empty skill set.
+- **Local verification and CI.** Repository validation covers PowerShell syntax, pinned gitleaks, build, secret scan, doctor, manifest parity, all 15 local test suites, dangerous-file checks, and clean-tree gate. GitHub Actions `Validate` is the CI gate on push and PR.
+- **Pinned gitleaks.** Gitleaks 8.30.0 is pinned by archive and executable SHA-256 with official GitHub Releases API fallback.
+- **CI.** One `Validate` job runs `scripts/run-repository-validation.ps1` on push to `main`, pull requests and manual dispatch. GitHub Actions is the source of truth for the latest head.
+- **Repository hygiene and execution optimizations.** Secret scan pattern enforcement includes precision detection for Google API keys (`AIza...`), PKCS#8 private keys, and GitHub token prefixes (`gho_`, `ghu_`, `ghs_`, `ghr_`). Runtime `.gitignore` exclusions prevent local Antigravity runtime state contamination. Reasonix infrastructure and references are fully retired. `deploy.ps1 -Apply` deduplicates preflight secret scans when skills preflight has already verified the tree (`-SkipSecretScan`), and `run-tests.ps1` supports selective suite execution (`-Suite`) while enforcing timeout budgets across all test suites.
+- **Observation windows.** Project Harness Profiles (`scripts/*-harness-profile.ps1`) are frozen under a 90-day passive observation window (2026-11-17 through 2027-02-15) per owner decision #5; repository evaluation safely skips non-marked files without accidental writes. Verification claims bind to a target, version, environment, and stopping condition; delegated evidence is reused after inspection.
+- **Status history.** The former dated journal is preserved in Git; this file now keeps only facts that still affect current decisions. Historical and removed documentation is indexed by [docs/HISTORY.md](docs/HISTORY.md).
 
 ## Open items
 
-- **Repository optimization roadmap (tracks O1–O5 planned).** [docs/OPTIMIZATION_PLAN_2026-11-17.md](docs/OPTIMIZATION_PLAN_2026-11-17.md) records the 14-item repository and live-inspection audit, the owner's 6 design decisions (ZCode AGENTS.md managed-block sync, Antigravity `%LOCALAPPDATA%` receipt decoupling + live-first status + controlled update, doctor vs top-level read-only status split, targeted secret-scan rules, Reasonix retirement and Harness Profile passive observation window, and merged-branch cleanup), and five independent execution tracks (O1–O5) for cross-client handoff.
-
-- **Multimodal/MCP extension (tracks A, B, and C merged; live Antigravity MCP alignment and T3 acceptance pending).** Under the owner-approved plan in
-  [docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md](docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md)
-  §6 (tracks A → B → C):
-  - Track A is complete: `multimodal-generation` (subscription-quota first, paid API opt-in only) merged in PR #19 (`112f418`), deployed to `work` Codex/ZCode (`unchanged=16, prune=0, unknown=0`), and installed via Antigravity `0.4.0`.
-  - Track B is complete: `ExternalPlugins` declares `unity` (`antigravity-plugins-partners`), T0 live install verified `unity` `0.1.9-beta` (`enabled: true`, 35 skills) and non-idempotent repeat behavior, and `antigravity-plugins.ps1` / `agent-dotfiles.ps1` add explicit `-ExternalPlugin` missing-install support.
-  - Track C is merged: PR #24 (`c9e71dc`) amended `AGENTS.md` hard rules for per-entry managed MCP projection and recorded T0 findings; PR #25 (`7a63a13`) added `harness-source/mcp/servers.psd1` (`blender`), `scripts/mcp-sync.ps1`, `agent-dotfiles.ps1 mcp`, `tests/mcp-sync.tests.ps1`, and updated `tests/repository-policy.tests.ps1`. Remaining open items: aligning live Antigravity `blender` `/args` drift via authorized `mcp deploy` and completing end-to-end multimodal/Unity/Blender real-use acceptance (T3).
-
-- **Historical `approval-feedback` & `boring-engineering` open items closed (`2026-11-15`).** Both standalone skills (along with the deleted `%LOCALAPPDATA%/ai-agent-dotfiles.feedback/` directory, `A01` scoring prompts, `S/Q/U/H` summaries, and the two `docs/APPROVAL_FEEDBACK_*.md` design/plan docs) have been removed. The earlier Skill rules 9 full-environment exception remains retired.
+- **Repository optimization roadmap (Tracks O1–O5 complete).** All 14 optimization items across Tracks O1–O5 from [docs/OPTIMIZATION_PLAN_2026-11-17.md](docs/OPTIMIZATION_PLAN_2026-11-17.md) are fully implemented and validated: secret scan expansions, runtime gitignore rules, Reasonix retirement, config-sync multi-platform unification, ZCode AGENTS.md managed block, deploy scan deduplication, test runner `-Suite` filter, Antigravity plugin state relocation to `%LOCALAPPDATA%`, decoupled plugin status, controlled update workflow, doctor modernization, top-level unified `status` command, Antigravity blender MCP alignment, passive observation window documentation, and local branch/worktree hygiene.
+- **Multimodal/MCP extension (Tracks A, B, and C completed and accepted).** Under [docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md](docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md), all tracks are merged and operational: Track A (`multimodal-generation` skill deployed), Track B (`unity` external plugin verified in Antigravity), and Track C (per-entry managed MCP projection via `mcp-sync.ps1`, `servers.psd1`, with live `blender` MCP aligned and converged across Codex, Antigravity, and ZCode).
+- **Active observation window: Project Harness Profiles (through 2027-02-15).** 90-day passive observation window per owner design decision #5 to ascertain downstream project requirements before deciding on active maintenance or clean retirement.
+- **Remote historical branch cleanup (pending owner authorization).** All 20 remote historical branches are confirmed merged into `main`; deletion from `origin` is deferred until explicit owner authorization is granted per AGENTS.md hard rules.
 
 ## Known boundaries
 

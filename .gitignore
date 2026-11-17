@@ -14,7 +14,6 @@ id_ed25519
 # Generated skills: build outputs, never committed.
 claude/skills/
 codex/skills/
-reasonix/skills/
 
 # Claude Code agent worktrees (machine-local checkouts).
 /.claude/worktrees/
@@ -43,6 +42,15 @@ codex/history.jsonl
 codex/**/*.sqlite*
 codex/volumes/
 
+# Antigravity runtime and machine-local files.
+antigravity/config.json
+antigravity/mcp_config.json
+antigravity/import_manifest.json
+antigravity/node_modules/
+antigravity/plugins/
+antigravity/projects/
+antigravity/sidecars/
+
 # Generated, backup, and temporary files.
 backup/
 tmp/
@@ -51,10 +59,3 @@ tmp/
 *.tmp
 **/.agent-harness/generated/
 **/.agent-harness/backups/
-
-# Reasonix machine-local task state.
-/.reasonix/tasks/
-/.reasonix/desktop-topic-auto-title-meta.json
-/.reasonix/desktop-topic-created-at.json
-/.reasonix/desktop-topic-title-sources.json
-/.reasonix/desktop-topic-titles.json

@@ -61,7 +61,19 @@ foreach ($file in 'AGENTS.md', 'STATUS.md') { Test-RequiredPath $file Leaf }
 foreach ($dir in 'docs', 'scripts', 'skills-source', 'status\active') { Test-RequiredPath $dir Container }
 
 Write-Section 'Required scripts'
-foreach ($name in 'deploy', 'deploy-skills', 'build-skills', 'scan-secrets') { Test-RequiredPath "scripts\$name.ps1" Leaf }
+$requiredScripts = @(
+    'agent-dotfiles',
+    'antigravity-plugins',
+    'mcp-sync',
+    'config-status',
+    'config-pull',
+    'config-push',
+    'deploy',
+    'deploy-skills',
+    'build-skills',
+    'scan-secrets'
+)
+foreach ($name in $requiredScripts) { Test-RequiredPath "scripts\$name.ps1" Leaf }
 
 Write-Section 'Live skill roots'
 # Same rule as deploy-skills: ~/.agents/skills only when it is the sole Codex root; both is ambiguous.
@@ -76,11 +88,11 @@ elseif ($codexRoots.FallbackExists) { Add-DoctorResult PASS 'Codex live root: ~/
 elseif ($codexRoots.PreferredExists) { Add-DoctorResult PASS 'Codex live root: ~/.codex/skills.' }
 else { Add-DoctorResult WARN 'Codex live root not found; deploy-skills would create ~/.codex/skills.' }
 foreach ($root in @(
-    @{ Label = 'Claude live root (~/.claude/skills)'; Path = Join-Path $HomeRoot '.claude\skills' },
-    @{ Label = 'Zcode live root (~/.zcode/skills)'; Path = Join-Path $HomeRoot '.zcode\skills' }
+    @{ Label = 'Claude live root (~/.claude/skills)'; Path = Join-Path $HomeRoot '.claude\skills'; MissingLevel = 'INFO' },
+    @{ Label = 'Zcode live root (~/.zcode/skills)'; Path = Join-Path $HomeRoot '.zcode\skills'; MissingLevel = 'WARN' }
 )) {
     if (Test-Path -LiteralPath $root.Path -PathType Container) { Add-DoctorResult PASS "$($root.Label) detected." }
-    else { Add-DoctorResult WARN "$($root.Label) not found." }
+    else { Add-DoctorResult $root.MissingLevel "$($root.Label) not found." }
 }
 
 Write-Section 'Codex .system protection'

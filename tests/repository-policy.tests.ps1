@@ -175,7 +175,8 @@ $policyFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'scripts'), (Jo
 $scriptsRootFull = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts'))
 $allowedMcpScripts = @(
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts/mcp-sync.ps1')),
-    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'))
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1')),
+    [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts/doctor.ps1'))
 )
 $retiredHits = @()
 $mcpScriptHits = @()
@@ -185,7 +186,7 @@ foreach ($file in $policyFiles) {
     $lineNumber = 0
     foreach ($line in [System.IO.File]::ReadLines($file.FullName)) {
         $lineNumber++
-        if ($line -match '(?i)openclaw|opencode') { $retiredHits += "$($file.FullName):$lineNumber" }
+        if ($line -match '(?i)openclaw|opencode|reasonix') { $retiredHits += "$($file.FullName):$lineNumber" }
         if ($line -match '(?i)mcp') {
             if ($full.StartsWith($scriptsRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
                 if ($full -notin $allowedMcpScripts) { $mcpScriptHits += "$($file.FullName):$lineNumber" }
@@ -194,12 +195,16 @@ foreach ($file in $policyFiles) {
         }
     }
 }
-Assert-TestCondition ($retiredHits.Count -eq 0) 'no OpenClaw or OpenCode reference exists under scripts/ or manifests/'
-Assert-TestCondition ($mcpScriptHits.Count -eq 0) 'MCP references under scripts/ are confined to mcp-sync.ps1 and agent-dotfiles.ps1'
+Assert-TestCondition ($retiredHits.Count -eq 0) 'no OpenClaw, OpenCode, or Reasonix reference exists under scripts/ or manifests/'
+Assert-TestCondition ($mcpScriptHits.Count -eq 0) 'MCP references under scripts/ are confined to mcp-sync.ps1, agent-dotfiles.ps1, and doctor.ps1'
 Assert-TestCondition ($mcpManifestNonCommentHits.Count -eq 0) 'MCP appears in manifests/ only as descriptive comments, never as an active operation'
 $codexConfig = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1')).Codex
 Assert-TestCondition (@($codexConfig.ExcludedItems) -contains 'config.toml') 'Codex config.toml is excluded from sync'
 Assert-TestCondition ((@($codexConfig.PushItems) -notcontains 'config.toml') -and (@($codexConfig.PullItems) -notcontains 'config.toml')) 'Codex config.toml is not selected for push or pull'
+$zcodeConfig = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1')).ZCode
+Assert-TestCondition ($null -ne $zcodeConfig) 'ZCode platform is defined in manifests/whitelist.psd1'
+Assert-TestCondition ($zcodeConfig.HomeRelativeRoot -eq '.zcode' -and $zcodeConfig.RepoRelativeRoot -eq 'zcode') 'ZCode roots are .zcode and zcode'
+Assert-TestCondition ((@($zcodeConfig.PushItems) -contains 'AGENTS.md') -and (@($zcodeConfig.PullItems) -contains 'AGENTS.md')) 'ZCode AGENTS.md is selected for push and pull'
 Assert-TestCondition (-not (Read-RepoText 'scripts/deploy.ps1').Contains('mcp-sync')) 'combined deploy.ps1 does not automatically project MCP servers'
 
 . (Join-Path $RepoRoot 'scripts/mcp-sync.ps1')

@@ -172,6 +172,18 @@ try {
     $badSecretFix = New-McpFixture -Name 'bad-secret' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ API_KEY = '$badSecret' }; Enabled = `$true; Platforms = @('Antigravity') }) }"
     Assert-McpThrows { Read-McpServerRegistry -RepoRoot $badSecretFix.Repo } 'literal secret|placeholder' 'rejects literal secret values in Env'
 
+    $badGoogleKey = 'AI' + 'za' + ('SyA1B2C3D4E5' * 3).Substring(0, 35)
+    $badGoogleFix = New-McpFixture -Name 'bad-google-key' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ API_KEY = '$badGoogleKey' }; Enabled = `$true; Platforms = @('Antigravity') }) }"
+    Assert-McpThrows { Read-McpServerRegistry -RepoRoot $badGoogleFix.Repo } 'literal secret' 'rejects literal Google API key in Env'
+
+    $badPkcs8 = '-----' + 'BEGIN PRIVATE KEY-----'
+    $badPkcs8Fix = New-McpFixture -Name 'bad-pkcs8' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ KEY_HEADER = '$badPkcs8' }; Enabled = `$true; Platforms = @('Antigravity') }) }"
+    Assert-McpThrows { Read-McpServerRegistry -RepoRoot $badPkcs8Fix.Repo } 'literal secret' 'rejects literal PKCS#8 private key header in Env'
+
+    $badGho = 'gh' + 'o_' + ('a1B2' * 9)
+    $badGhoFix = New-McpFixture -Name 'bad-gho' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ TOKEN = '$badGho' }; Enabled = `$true; Platforms = @('Antigravity') }) }"
+    Assert-McpThrows { Read-McpServerRegistry -RepoRoot $badGhoFix.Repo } 'literal secret' 'rejects literal GitHub OAuth token in Env'
+
     $badKeyFix = New-McpFixture -Name 'bad-key' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); environment = @{}; Enabled = `$true; Platforms = @('ZCode') }) }"
     Assert-McpThrows { Read-McpServerRegistry -RepoRoot $badKeyFix.Repo } "Unsupported MCP server key 'environment'" 'rejects legacy environment key'
 

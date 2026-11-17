@@ -87,7 +87,7 @@ try {
     Set-TestFile (Join-Path $repo 'codex/AGENTS.md') "# Managed next revision`n"
     $normalArgs = @($deployArgs | Where-Object { $_ -ne '-SkipBuild' }) + @('-Apply')
     $normal = Invoke-TestProcess -ScriptPath $deploy -Arguments $normalArgs
-    Assert-TestCondition ($normal.Code -eq 0 -and ([regex]::Matches($normal.Out, 'Fixture build invocation')).Count -eq 1 -and ([regex]::Matches($normal.Out, 'Running pinned gitleaks')).Count -eq 2) 'Apply builds once and retains both the skills and config scan gates'
+    Assert-TestCondition ($normal.Code -eq 0 -and ([regex]::Matches($normal.Out, 'Fixture build invocation')).Count -eq 1 -and ([regex]::Matches($normal.Out, 'Running pinned gitleaks')).Count -eq 1) 'Apply builds once and deduplicates the config secret scan after skills preflight'
 }
 finally {
     if (Test-Path -LiteralPath $work) {

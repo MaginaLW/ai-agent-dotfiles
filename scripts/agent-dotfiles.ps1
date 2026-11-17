@@ -9,7 +9,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, or mcp.
+    One of: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp, or status.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -39,6 +39,14 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Usage([string] $Group) {
     if ($Group) {
+        if ($Group -eq 'status') {
+            Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 status [-Json] [-RepoRoot <path>] [-HomeRoot <path>] [-StateRoot <path>]'
+            Write-Host 'status: read-only overview aggregating env list, config status, antigravity status, and mcp status.'
+            Write-Host 'Examples: status; status -Json'
+            Write-Host 'Options: -Json, -RepoRoot <path>, -HomeRoot <path>, -StateRoot <path>.'
+            Write-Host 'The status command is strictly read-only and accepts no -DryRun or -Apply mode.'
+            return
+        }
         Write-Host "Usage: pwsh -File scripts/agent-dotfiles.ps1 $Group <action> [arguments]"
         switch ($Group) {
             antigravity {
@@ -54,7 +62,7 @@ function Write-Usage([string] $Group) {
                 Write-Host 'pull: repository -> home; Apply backs up overwritten files and preserves local-only settings.'
                 Write-Host 'push: home -> repository capture; this is not git push. Review the captured diff before committing.'
                 Write-Host 'Examples: config status; config pull -DryRun; config push -DryRun'
-                Write-Host 'Options: -Platform Claude|Codex|Antigravity (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
+                Write-Host 'Options: -Platform Claude|Codex|Antigravity|ZCode (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
             }
             env {
                 Write-Host 'list: read-only environment selections and last recorded Apply environment; it does not verify live contents.'
@@ -86,7 +94,8 @@ function Write-Usage([string] $Group) {
         return
     }
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp'
+    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp, status'
+    Write-Host 'Status actions: status [-Json] aggregates env list, config status, antigravity status, and mcp status.'
     Write-Host 'Antigravity actions: build, status, deploy -DryRun|-Apply; separate from sync and env deploy.'
     Write-Host 'MCP actions: status, deploy -DryRun|-Apply; separate from sync and requires -DryRun or -Apply.'
     Write-Host 'Sync runs deploy.ps1 (skills plus config) and requires exactly one explicit mode: -DryRun or -Apply.'
@@ -115,41 +124,21 @@ function Assert-ExplicitMode([object[]] $Arguments, [string] $Label) {
 function Remove-DryRunSwitch([object[]] $Arguments) {
     # Every target is dry-run by default and exposes no -DryRun switch;
     # consume the unified CLI spelling here.
-    return @($Arguments | Where-Object { $_ -isnot [string] -or $_ -ine '-DryRun' })
+    return , @($Arguments | Where-Object { $_ -isnot [string] -or $_ -ine '-DryRun' })
 }
 
-function Write-EnvironmentList([object[]] $Arguments) {
-    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-    $stateRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-agent-dotfiles.deploy'
-    $jsonPath = $null
-    for ($i = 0; $i -lt $Arguments.Count; $i++) {
-        $name = [string] $Arguments[$i]
-        if ($name -ieq '-RepoRoot' -and $i + 1 -lt $Arguments.Count) { $repoRoot = [string] $Arguments[++$i]; continue }
-        if ($name -ieq '-StateRoot' -and $i + 1 -lt $Arguments.Count) { $stateRoot = [string] $Arguments[++$i]; continue }
-        if ($name -ieq '-JsonPath' -and $i + 1 -lt $Arguments.Count) { $jsonPath = [string] $Arguments[++$i]; continue }
-        Write-Error "Unsupported env list argument: $name" -ErrorAction Continue
-        exit 1
-    }
-    $environments = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'harness-source\envs') -Filter '*.psd1' -File | Sort-Object Name | ForEach-Object {
+function Get-EnvironmentStatusReport {
+    param(
+        [string] $RepoRoot,
+        [string] $StateRoot
+    )
+    $environments = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'harness-source\envs') -Filter '*.psd1' -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object {
         $data = Import-PowerShellDataFile -LiteralPath $_.FullName
         [pscustomobject]@{ Name = $_.BaseName; Description = [string] $data['Description']; Skills = $data['Skills'] }
     })
-    Write-Host 'Harness environments:'
-    foreach ($environment in $environments) {
-        Write-Host ("  {0}  {1}" -f $environment.Name, $environment.Description)
-        foreach ($platform in 'Claude', 'Codex', 'Zcode') {
-            if ($environment.Skills -isnot [hashtable] -or -not $environment.Skills.ContainsKey($platform)) {
-                Write-Host "    ${platform}: unavailable (invalid selection)"
-                continue
-            }
-            $skills = @($environment.Skills[$platform] | Where-Object { $_ })
-            $names = if ($skills.Count) { $skills -join ', ' } else { '(none)' }
-            Write-Host ("    {0}: {1} [{2}]" -f $platform, $skills.Count, $names)
-        }
-    }
     $recordedEnvironment = $null
     $stateReason = 'missing-state'
-    $statePath = Join-Path $stateRoot 'deployed-skills.json'
+    $statePath = Join-Path $StateRoot 'deployed-skills.json'
     try {
         if (Test-Path -LiteralPath $statePath -PathType Leaf) {
             $stateReason = 'read-error'
@@ -176,14 +165,367 @@ function Write-EnvironmentList([object[]] $Arguments) {
     }
     catch { $recordedEnvironment = $null }
     if ($null -eq $recordedEnvironment) { $recordedEnvironment = 'unavailable' }
-    Write-Host "Last recorded successful Apply environment: $recordedEnvironment (record only; live contents may differ)."
-    if ($stateReason) {
-        Write-Host "Record unavailable reason: $stateReason. Inspect the local deploy record; use the deployment dry run to check live contents."
+    return [pscustomobject]@{
+        Recorded     = $recordedEnvironment
+        StateReason  = $stateReason
+        Available    = @($environments | ForEach-Object { $_.Name })
+        Environments = $environments
+    }
+}
+
+function Write-EnvironmentList([object[]] $Arguments) {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    $stateRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-agent-dotfiles.deploy'
+    $jsonPath = $null
+    for ($i = 0; $i -lt $Arguments.Count; $i++) {
+        $name = [string] $Arguments[$i]
+        if ($name -ieq '-RepoRoot' -and $i + 1 -lt $Arguments.Count) { $repoRoot = [string] $Arguments[++$i]; continue }
+        if ($name -ieq '-StateRoot' -and $i + 1 -lt $Arguments.Count) { $stateRoot = [string] $Arguments[++$i]; continue }
+        if ($name -ieq '-JsonPath' -and $i + 1 -lt $Arguments.Count) { $jsonPath = [string] $Arguments[++$i]; continue }
+        Write-Error "Unsupported env list argument: $name" -ErrorAction Continue
+        exit 1
+    }
+    $report = Get-EnvironmentStatusReport -RepoRoot $repoRoot -StateRoot $stateRoot
+    Write-Host 'Harness environments:'
+    foreach ($environment in $report.Environments) {
+        Write-Host ("  {0}  {1}" -f $environment.Name, $environment.Description)
+        foreach ($platform in 'Claude', 'Codex', 'Zcode') {
+            if ($environment.Skills -isnot [hashtable] -or -not $environment.Skills.ContainsKey($platform)) {
+                Write-Host "    ${platform}: unavailable (invalid selection)"
+                continue
+            }
+            $skills = @($environment.Skills[$platform] | Where-Object { $_ })
+            $names = if ($skills.Count) { $skills -join ', ' } else { '(none)' }
+            Write-Host ("    {0}: {1} [{2}]" -f $platform, $skills.Count, $names)
+        }
+    }
+    Write-Host ("Last recorded successful Apply environment: {0} (record only; live contents may differ)." -f $report.Recorded)
+    if ($report.StateReason) {
+        Write-Host ("Record unavailable reason: {0}. Inspect the local deploy record; use the deployment dry run to check live contents." -f $report.StateReason)
     }
     if ($jsonPath) {
-        $jsonEnvironments = @($environments | ForEach-Object { [ordered]@{ Name = $_.Name; Description = $_.Description } })
+        $jsonEnvironments = @($report.Environments | ForEach-Object { [ordered]@{ Name = $_.Name; Description = $_.Description } })
         $json = [ordered]@{ Environments = $jsonEnvironments } | ConvertTo-Json -Depth 5
         [IO.File]::WriteAllText([IO.Path]::GetFullPath($jsonPath), $json + "`n", [Text.UTF8Encoding]::new($false))
+    }
+}
+
+function Get-SafeProperty {
+    param(
+        [object] $Target,
+        [string] $Name
+    )
+    if ($null -eq $Target) { return $null }
+    if ($Target -is [System.Collections.IDictionary]) {
+        if ($Target.Contains($Name)) { return $Target[$Name] }
+        return $null
+    }
+    if ($Target -is [pscustomobject] -or ($null -ne $Target.PSObject -and $null -ne $Target.PSObject.Properties)) {
+        $prop = $Target.PSObject.Properties[$Name]
+        if ($null -ne $prop) { return $prop.Value }
+    }
+    return $null
+}
+
+function Convert-ChildJson {
+    param([object] $RawOutput)
+    if ($null -eq $RawOutput) { return $null }
+    $text = if ($RawOutput -is [array]) { $RawOutput -join "`n" } else { [string] $RawOutput }
+    $trimmed = $text.Trim()
+    if ([string]::IsNullOrEmpty($trimmed)) { return $null }
+    try {
+        return (ConvertFrom-Json -InputObject $trimmed -ErrorAction Stop)
+    }
+    catch {
+        $firstBracket = $trimmed.IndexOfAny(@([char]'{', [char]'['))
+        $lastBracket = [Math]::Max($trimmed.LastIndexOf('}'), $trimmed.LastIndexOf(']'))
+        if ($firstBracket -ge 0 -and $lastBracket -gt $firstBracket) {
+            $jsonPart = $trimmed.Substring($firstBracket, $lastBracket - $firstBracket + 1)
+            try {
+                return (ConvertFrom-Json -InputObject $jsonPart -ErrorAction Stop)
+            } catch { }
+        }
+        return [ordered]@{ Error = 'Failed to parse JSON output'; Raw = $trimmed }
+    }
+}
+
+function Invoke-UnifiedStatus {
+    param([object[]] $Arguments)
+    $isJson = $false
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    $homeRoot = [Environment]::GetFolderPath('UserProfile')
+    $stateRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-agent-dotfiles.deploy'
+    $seenParameters = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    for ($i = 0; $i -lt $Arguments.Count; $i++) {
+        $arg = [string] $Arguments[$i]
+        if ($arg -match '(?i)^-(DryRun|Apply)') {
+            Write-Error 'The status command is read-only and accepts no -DryRun or -Apply mode.' -ErrorAction Continue
+            exit 1
+        }
+        if ($arg -ieq '-Json') {
+            if (-not $seenParameters.Add('-Json')) {
+                Write-Error "Duplicate status argument: $arg" -ErrorAction Continue
+                exit 1
+            }
+            $isJson = $true
+            continue
+        }
+        if ($arg -in @('-RepoRoot', '-HomeRoot', '-StateRoot')) {
+            if (-not $seenParameters.Add($arg)) {
+                Write-Error "Duplicate status argument: $arg" -ErrorAction Continue
+                exit 1
+            }
+            if ($i + 1 -ge $Arguments.Count -or [string]::IsNullOrWhiteSpace([string] $Arguments[$i + 1]) -or ([string] $Arguments[$i + 1]).StartsWith('-')) {
+                Write-Error "Missing path value for $arg." -ErrorAction Continue
+                exit 1
+            }
+            $val = [string] $Arguments[++$i]
+            switch ($arg.ToLowerInvariant()) {
+                '-reporoot'  { $repoRoot = $val }
+                '-homeroot'  { $homeRoot = $val }
+                '-stateroot' { $stateRoot = $val }
+            }
+            continue
+        }
+        Write-Error "Unsupported status argument: $arg" -ErrorAction Continue
+        exit 1
+    }
+
+    $pwshCommands = @(Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue)
+    if ($pwshCommands.Count -eq 0) {
+        Write-Error 'PowerShell 7 executable (pwsh) is not available on PATH.' -ErrorAction Continue
+        exit 1
+    }
+    $pwshPath = $pwshCommands[0].Source
+
+    # 1. Environment status
+    $envReport = Get-EnvironmentStatusReport -RepoRoot $repoRoot -StateRoot $stateRoot
+
+    # 2. Config status
+    $configStatusScript = Join-Path $PSScriptRoot 'config-status.ps1'
+    $configJson = $null
+    if (Test-Path -LiteralPath $configStatusScript -PathType Leaf) {
+        $configArgs = @('-Platform', 'Codex,Antigravity,ZCode', '-Json')
+        if ($repoRoot) { $configArgs += @('-RepoRoot', $repoRoot) }
+        if ($seenParameters.Contains('-HomeRoot')) { $configArgs += @('-HomeRoot', $homeRoot) }
+        $configOut = & $pwshPath -NoProfile -File $configStatusScript @configArgs 2>&1
+        $configCode = $LASTEXITCODE
+        if ($configCode -eq 0) {
+            $configJson = Convert-ChildJson $configOut
+            if ($configJson -isnot [array] -and $configJson -isnot [System.Collections.IDictionary] -and $null -eq (Get-SafeProperty $configJson 'Error')) {
+                $configJson = @($configJson)
+            }
+        }
+        else {
+            $configJson = [ordered]@{ Error = "config-status.ps1 failed (exit $configCode)"; Raw = ($configOut -join "`n") }
+        }
+    }
+    else {
+        $configJson = [ordered]@{ Error = "config-status.ps1 not found at $configStatusScript" }
+    }
+
+    # 3. Antigravity plugin status
+    $agScript = Join-Path $PSScriptRoot 'antigravity-plugins.ps1'
+    $agJson = $null
+    if (Test-Path -LiteralPath $agScript -PathType Leaf) {
+        $agArgs = @('-Action', 'Status')
+        if ($repoRoot) { $agArgs += @('-RepoRoot', $repoRoot) }
+        if ($seenParameters.Contains('-StateRoot')) {
+            $agCommand = Get-Command $agScript -ErrorAction SilentlyContinue
+            if ($null -ne $agCommand -and $agCommand.Parameters.ContainsKey('StateRoot')) {
+                $agArgs += @('-StateRoot', (Join-Path $stateRoot 'antigravity'))
+            }
+        }
+        $agOut = & $pwshPath -NoProfile -File $agScript @agArgs 2>&1
+        $agCode = $LASTEXITCODE
+        if ($agCode -eq 0) {
+            $agJson = Convert-ChildJson $agOut
+        }
+        else {
+            $agJson = [ordered]@{ Error = "antigravity-plugins.ps1 failed (exit $agCode)"; Raw = ($agOut -join "`n") }
+        }
+    }
+    else {
+        $agJson = [ordered]@{ Error = "antigravity-plugins.ps1 not found at $agScript" }
+    }
+
+    # 4. MCP status
+    $mcpScript = Join-Path $PSScriptRoot 'mcp-sync.ps1'
+    $mcpJson = $null
+    if (Test-Path -LiteralPath $mcpScript -PathType Leaf) {
+        $mcpArgs = @('-Action', 'Status', '-Json')
+        if ($repoRoot) { $mcpArgs += @('-RepoRoot', $repoRoot) }
+        if ($seenParameters.Contains('-HomeRoot')) { $mcpArgs += @('-HomeRoot', $homeRoot) }
+        $mcpOut = & $pwshPath -NoProfile -File $mcpScript @mcpArgs 2>&1
+        $mcpCode = $LASTEXITCODE
+        if ($mcpCode -eq 0) {
+            $mcpJson = Convert-ChildJson $mcpOut
+        }
+        else {
+            $mcpJson = [ordered]@{ Error = "mcp-sync.ps1 failed (exit $mcpCode)"; Raw = ($mcpOut -join "`n") }
+        }
+    }
+    else {
+        $mcpJson = [ordered]@{ Error = "mcp-sync.ps1 not found at $mcpScript" }
+    }
+
+    # Summary calculations
+    $configSummary = [ordered]@{
+        'in-sync'   = 0
+        'differs'   = 0
+        'repo-only' = 0
+        'home-only' = 0
+    }
+    if ($configJson -is [array]) {
+        foreach ($item in $configJson) {
+            $itemStatus = Get-SafeProperty $item 'Status'
+            if ($null -ne $itemStatus -and $configSummary.Contains([string]$itemStatus)) {
+                $configSummary[[string]$itemStatus]++
+            }
+        }
+    }
+
+    $agAction = 'unavailable'
+    $agActionVal = Get-SafeProperty $agJson 'Action'
+    $agReasonVal = Get-SafeProperty $agJson 'Reason'
+    $agErrorVal  = Get-SafeProperty $agJson 'Error'
+    $agNameVal   = Get-SafeProperty $agJson 'Name'
+    $agVersionVal= Get-SafeProperty $agJson 'Version'
+    $agExternals = Get-SafeProperty $agJson 'ExternalExpectations'
+
+    if ($null -ne $agActionVal) { $agAction = [string] $agActionVal }
+    elseif ($null -ne $agReasonVal) { $agAction = [string] $agReasonVal }
+    elseif ($null -ne $agErrorVal) { $agAction = 'error' }
+
+    $mcpSummary = [ordered]@{
+        'add'       = 0
+        'update'    = 0
+        'unchanged' = 0
+        'blocked'   = 0
+    }
+    $mcpSummaryObj = Get-SafeProperty $mcpJson 'Summary'
+    $mcpItems      = Get-SafeProperty $mcpJson 'Items'
+    $mcpErrorVal   = Get-SafeProperty $mcpJson 'Error'
+
+    if ($null -ne $mcpSummaryObj) {
+        foreach ($k in @('add', 'update', 'unchanged', 'blocked')) {
+            $val = Get-SafeProperty $mcpSummaryObj $k
+            if ($null -ne $val) {
+                $mcpSummary[$k] = [int] $val
+            }
+        }
+    }
+    elseif ($mcpItems -is [array]) {
+        foreach ($item in $mcpItems) {
+            $act = Get-SafeProperty $item 'Action'
+            if ($null -ne $act -and $mcpSummary.Contains([string]$act)) {
+                $mcpSummary[[string]$act]++
+            }
+        }
+    }
+
+    $summary = [ordered]@{
+        Environment = $envReport.Recorded
+        Config      = $configSummary
+        Antigravity = $agAction
+        Mcp         = $mcpSummary
+    }
+
+    $aggregatedReport = [ordered]@{
+        SchemaVersion = 1
+        Environment   = [ordered]@{
+            Recorded  = $envReport.Recorded
+            Reason    = $envReport.StateReason
+            Available = $envReport.Available
+        }
+        Config        = $configJson
+        Antigravity   = $agJson
+        Mcp           = $mcpJson
+        Summary       = $summary
+    }
+
+    if ($isJson) {
+        $jsonStr = ConvertTo-Json -InputObject $aggregatedReport -Depth 20
+        Write-Output $jsonStr
+        return
+    }
+
+    # Human-readable layout
+    Write-Host '=== Unified Status ===' -ForegroundColor White
+    Write-Host ''
+    Write-Host '[Environment]' -ForegroundColor Cyan
+    Write-Host ("  Last recorded Apply environment: {0} (record only; live contents may differ)" -f $envReport.Recorded)
+    if ($envReport.StateReason) {
+        Write-Host ("  Record unavailable reason: {0}. Inspect local deploy record." -f $envReport.StateReason) -ForegroundColor Yellow
+    }
+    Write-Host ("  Available environments: {0}" -f ($envReport.Available -join ', '))
+    Write-Host ''
+
+    Write-Host '[Config Status]' -ForegroundColor Cyan
+    $configError = Get-SafeProperty $configJson 'Error'
+    if ($configJson -is [array] -and $configJson.Count -gt 0) {
+        foreach ($item in $configJson) {
+            $itemStatus = Get-SafeProperty $item 'Status'
+            $itemPlatform = Get-SafeProperty $item 'Platform'
+            $itemItem = Get-SafeProperty $item 'Item'
+            $itemDetail = Get-SafeProperty $item 'Detail'
+            $color = switch ($itemStatus) {
+                'in-sync' { 'Green' }
+                'differs' { 'Yellow' }
+                default   { 'Cyan' }
+            }
+            Write-Host ("  {0,-12} {1,-9} {2} ({3})" -f $itemPlatform, $itemStatus, $itemItem, $itemDetail) -ForegroundColor $color
+        }
+        Write-Host ("  Summary: in-sync={0}  differs={1}  repo-only={2}  home-only={3}" -f $configSummary['in-sync'], $configSummary['differs'], $configSummary['repo-only'], $configSummary['home-only'])
+    }
+    elseif ($null -ne $configError) {
+        Write-Host ("  Error querying config status: {0}" -f $configError) -ForegroundColor Red
+    }
+    else {
+        Write-Host '  No config items found or status unavailable.' -ForegroundColor Yellow
+    }
+    Write-Host ''
+
+    Write-Host '[Antigravity Plugins]' -ForegroundColor Cyan
+    if ($null -ne $agNameVal) {
+        $agColor = if ($agActionVal -eq 'unchanged') { 'Green' } else { 'Yellow' }
+        Write-Host ("  Plugin: {0} v{1}  action={2} ({3})" -f $agNameVal, $agVersionVal, $agActionVal, $agReasonVal) -ForegroundColor $agColor
+        if ($agExternals -is [array]) {
+            foreach ($ext in $agExternals) {
+                $extName = Get-SafeProperty $ext 'Name'
+                $extAction = Get-SafeProperty $ext 'Action'
+                $extReason = Get-SafeProperty $ext 'Reason'
+                $extColor = if ($extAction -eq 'unchanged') { 'Green' } else { 'Yellow' }
+                Write-Host ("  External: {0}  action={1} ({2})" -f $extName, $extAction, $extReason) -ForegroundColor $extColor
+            }
+        }
+    }
+    elseif ($null -ne $agErrorVal) {
+        Write-Host ("  Error querying Antigravity plugins: {0}" -f $agErrorVal) -ForegroundColor Red
+    }
+    else {
+        Write-Host '  Antigravity plugin status unavailable.' -ForegroundColor Yellow
+    }
+    Write-Host ''
+
+    Write-Host '[MCP Projections]' -ForegroundColor Cyan
+    if ($mcpItems -is [array] -and $mcpItems.Count -gt 0) {
+        foreach ($item in $mcpItems) {
+            $mcpPlatform = Get-SafeProperty $item 'Platform'
+            $mcpServer = Get-SafeProperty $item 'Server'
+            $mcpAction = Get-SafeProperty $item 'Action'
+            $mcpReason = Get-SafeProperty $item 'Reason'
+            $mcpColor = if ($mcpAction -eq 'unchanged') { 'Green' } elseif ($mcpAction -eq 'blocked') { 'Red' } else { 'Yellow' }
+            Write-Host ("  [{0,-11}] {1,-16} {2,-9} ({3})" -f $mcpPlatform, $mcpServer, $mcpAction, $mcpReason) -ForegroundColor $mcpColor
+        }
+        Write-Host ("  Summary: add={0}  update={1}  unchanged={2}  blocked={3}" -f $mcpSummary['add'], $mcpSummary['update'], $mcpSummary['unchanged'], $mcpSummary['blocked'])
+    }
+    elseif ($null -ne $mcpErrorVal) {
+        Write-Host ("  Error querying MCP projections: {0}" -f $mcpErrorVal) -ForegroundColor Red
+    }
+    else {
+        Write-Host '  MCP projection status unavailable.' -ForegroundColor Yellow
     }
 }
 
@@ -196,8 +538,8 @@ if ([string]::IsNullOrWhiteSpace($Command)) {
 if ($Command -ieq 'help') {
     $topics = @($RemainingArguments | Where-Object { $null -ne $_ })
     if ($topics.Count -eq 0) { Write-Usage; exit 0 }
-    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')) {
-        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills, help antigravity or help mcp.' -ErrorAction Continue
+    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp', 'status')) {
+        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills, help antigravity, help mcp, or help status.' -ErrorAction Continue
         exit 1
     }
     Write-Usage ([string] $topics[0]).ToLowerInvariant()
@@ -209,6 +551,7 @@ $commandMap = @{
     build  = 'build-skills.ps1'
     scan   = 'scan-secrets.ps1'
     sync   = 'deploy.ps1'
+    status = $null
 }
 
 $groupCommandMaps = @{
@@ -248,6 +591,14 @@ if (-not $groupCommandMaps.ContainsKey($normalizedCommand) -and -not $commandMap
 }
 
 $forwardedArguments = @($RemainingArguments | Where-Object { $null -ne $_ })
+if ($normalizedCommand -eq 'status') {
+    if ($forwardedArguments.Count -eq 1 -and [string]$forwardedArguments[0] -ieq 'help') {
+        Write-Usage 'status'
+        exit 0
+    }
+    Invoke-UnifiedStatus $forwardedArguments
+    exit 0
+}
 $groupAction = $null
 if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
     if ($forwardedArguments.Count -eq 0) {
@@ -468,6 +819,32 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
         $forwardedArguments = $mcpArguments
     }
 
+    if ($normalizedCommand -eq 'config') {
+        $consolidatedArgs = [System.Collections.Generic.List[object]]::new()
+        $platformValues = [System.Collections.Generic.List[string]]::new()
+        for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
+            $arg = [string] $forwardedArguments[$i]
+            if ($arg -ieq '-Platform') {
+                if ($i + 1 -lt $forwardedArguments.Count -and -not ([string]$forwardedArguments[$i + 1]).StartsWith('-')) {
+                    $platformValues.Add([string]$forwardedArguments[++$i])
+                }
+                else {
+                    $consolidatedArgs.Add($arg)
+                }
+                continue
+            }
+            if ($arg -ilike '-Platform:*') {
+                $platformValues.Add($arg.Substring(10))
+                continue
+            }
+            $consolidatedArgs.Add($forwardedArguments[$i])
+        }
+        if ($platformValues.Count -gt 0) {
+            $consolidatedArgs.Add('-Platform:' + ($platformValues -join ','))
+        }
+        $forwardedArguments = @($consolidatedArgs)
+    }
+
     $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -eq 'deploy') -or
         ($normalizedCommand -eq 'config' -and $groupAction -in @('pull', 'push')) -or
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
@@ -502,7 +879,8 @@ $jsonStdout = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ie
 if (-not $jsonStdout) {
     Write-Host "Invoking script: $targetScript"
 }
-& $pwshPath -NoProfile -File $targetScript @forwardedArguments
+$forwardList = @($forwardedArguments)
+& $pwshPath -NoProfile -File $targetScript @forwardList
 $childExitCode = $LASTEXITCODE
 
 if (-not $jsonStdout) {

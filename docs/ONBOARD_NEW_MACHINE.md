@@ -58,7 +58,15 @@ can still leave skills completed; use the [recovery table](README.md#8-备份与
 
 ## 4. Sync ZCode global instructions (`~/.zcode/AGENTS.md`)
 
-`~/.zcode/AGENTS.md` is outside `config-sync` and ZCode does not expand `@import`. When setting up or updating a machine, manually sync the shared agreement section from `codex/AGENTS.md` into `~/.zcode/AGENTS.md` while keeping any ZCode-specific tail clauses intact ([docs/ZCODE.md](ZCODE.md)).
+Preview and apply the ZCode managed `AGENTS.md` block (`~/.zcode/AGENTS.md`) with explicit `-Platform ZCode` and owner authorization:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform ZCode -DryRun
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform ZCode -Apply
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config status -Platform ZCode
+```
+
+This updates only the managed block (`<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->` ... `<!-- END AI-AGENT-DOTFILES: zcode/AGENTS.md -->`) and preserves any ZCode-specific tail clauses intact ([docs/ZCODE.md](ZCODE.md)).
 
 ## 5. Set up Antigravity (`AGENTS.md` and plugins)
 

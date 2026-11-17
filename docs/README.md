@@ -36,6 +36,7 @@
 | `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印联合 deploy dry-run 命令；不写 live |
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
 | `antigravity/AGENTS.md` | Antigravity 全局工作协议源（受管 block 同步至 `~/.gemini/config/AGENTS.md`，§11） |
+| `zcode/AGENTS.md` | ZCode 全局工作协议源（受管 block 同步至 `~/.zcode/AGENTS.md`，§11） |
 | `claude/settings.json`、`claude/CLAUDE.md` | 仅供显式旧平台配置同步的分发模板；本仓 Claude 开发入口已退役 |
 | `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`） |
 | `claude/skills/`、`codex/skills/` | 生成物，Git-ignored，勿手改 |
@@ -253,7 +254,7 @@ profile 写失败时，将当前尝试写入的文件也纳入 best-effort rollb
 
 ## 11. Harness 配置同步（config-sync）
 
-配置 status/pull/push 默认仅处理 Codex；只有显式 `-Platform Claude` 或 `-Platform Antigravity` 才会读写对应配置（Antigravity 全局协议位于 `antigravity/AGENTS.md` ↔ `~/.gemini/config/AGENTS.md`）。
+配置 status/pull/push 默认仅处理 Codex；只有显式 `-Platform Claude`、`-Platform Antigravity` 或 `-Platform ZCode` 才会读写对应配置（Antigravity 全局协议位于 `antigravity/AGENTS.md` ↔ `~/.gemini/config/AGENTS.md`，ZCode 全局协议位于 `zcode/AGENTS.md` ↔ `~/.zcode/AGENTS.md`）。
 组合部署沿用 Codex-only 默认。
 
 除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与
@@ -264,14 +265,14 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `home-only` 字段会由结构化合并保留，`repo-only` 字段会新增，`changed` 或 `type-changed` 字段会替换。
   `in-sync` 也可能带 `home-only field(s) preserved` 说明；文件字节不同不代表需要同步。
   输出字段名但不输出字段值；字段名本身可能包含私有信息，分享终端输出前须审查。数组按整体比较。
-  Codex 与 Antigravity `AGENTS.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
+  Codex、Antigravity 与 ZCode `AGENTS.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
   JSON 无效、键重复或根不是对象时报告无法比较，须手工检查。
   非 JSON 文件仍只报告文件级差异；`-Json` 保持原有文件级数组格式，不包含字段摘要。
 - `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再写入。
   Claude `settings.json` 递归合并对象：repo 中的键和值覆盖 home，数组整体替换，home-only 键保留；
   repo 中不存在的 home 键不会被删除，因此字段删除仍需人工审查。
-  Codex `AGENTS.md` 与 Antigravity `AGENTS.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
-  `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` 对应的受管 block，block 外的个人文本保留。
+  Codex、Antigravity 与 ZCode `AGENTS.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
+  `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` / `<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->` 对应的受管 block，block 外的个人文本保留。
   已有文件没有 block 时，仅当内容已等于 repo 才自动包裹；否则 fail closed，要求先手工放置 block。
   备份默认写入 `~\.ai-agent-dotfiles-backups\config-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）；
   不整目录 mirror、不 prune（home-only 文件原样保留）。捕获复制异常后，尽力回滚本次已尝试写入的文件：
@@ -281,7 +282,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `~\.ai-agent-dotfiles-backups\config-push-stage-<UTC 时间戳>\`，再过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
-  Codex 与 Antigravity `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
+  Codex、Antigravity 与 ZCode `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
 - Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
 - Claude 配置模板启用 `codex@openai-codex`；模板市场声明不代表插件已经安装或加载。
 - 模板不带模型与推理档位，但这不表示可以删除个人设置：结构化合并会保留 home-only 顶层和嵌套字段；
@@ -415,6 +416,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 
 ```text
 help                         显示用法
+status                       -> 统一只读状态汇总（环境、config、antigravity、mcp）[-Json]
 doctor                       -> scripts/doctor.ps1
 build                        -> scripts/build-skills.ps1
 scan                         -> scripts/scan-secrets.ps1
@@ -429,19 +431,19 @@ mcp status | deploy          -> scripts/mcp-sync.ps1 -Action <action>
 ```
 
 用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help` 查看命令概览。
-用 `help config` 或 `config help` 查看分组帮助；`env`、`profile`、`skills`、`antigravity`、`mcp` 支持相同拼法。
+用 `help config` 或 `config help` 查看分组帮助；`status`、`env`、`profile`、`skills`、`antigravity`、`mcp` 支持相同拼法。
 帮助说明操作方向、写入范围和常用示例，不执行子脚本。`config push` 仅捕获本机配置到仓库，不是 Git push。
 
 doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `Deploy blockers`。
-双 Codex live 根会阻塞部署；未安装的平台根、dirty tree 和跳过 secret scan 等提醒不自动归为阻塞。
+缺失已退役的 `~/.claude/skills` 提示为 INFO，不产生 WARN；双 Codex live 根会阻塞部署；未安装的平台根、dirty tree 和跳过 secret scan 等提醒不自动归为阻塞。
 `none detected by these checks` 也不表示部署已通过预检，仍须审查 dry-run。
 
-只读命令：`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`、`antigravity status`、`mcp status`。`build` 与 `profile build`
+只读命令：`status`、`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`、`antigravity status`、`mcp status`。`build` 与 `profile build`
 只生成可重建输出；`env list -JsonPath`、`antigravity` 与 `mcp` 传入 `-JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
 `profile apply`、`skills promote`、`antigravity deploy`、`mcp deploy`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
 `sync` 与 `env deploy` 都串行执行 skills 和 config；两阶段不原子。直接运行低层脚本可只执行单个阶段。
 
-底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json` 或 `mcp status -Json`；统一 CLI
+顶层 `status` 命令支持 `-Json` 原生输出结构化对象；底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json` 或 `mcp status -Json`；统一 CLI
 会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。
 
 
@@ -474,7 +476,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 |---|---|
 | install | 可准备首装；只有获得具体许可的 Apply 才调用官方安装 |
 | unchanged | 身份、内容与版本一致；不执行原生变更 |
-| update | 还须证明官方更新合同并审阅实际范围；首版未证明时仍阻塞 |
+| update | 版本递增且线上内容无漂移；经审阅与授权后，Apply 执行写前备份 + 官方 uninstall + install + 读回校验 |
 | blocked / unknown | 同名未知、内容漂移、同版本异内容或合同不明；停止目标写入 |
 | external | 非本项目管理或内置组件；报告并保留 |
 
@@ -488,11 +490,12 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 ```
 
-安装只通过受管入口调用官方 `agy plugin install`，不手写 live 插件或注册配置。无论安装返回成功还是失败，
+安装与更新只通过受管入口调用官方 `agy plugin` 命令，不手写 live 插件或注册配置。无论安装或更新返回成功还是失败，
 都读取注册和目标文件；结果未知或 partial 时保留包与最小 pre-state，停止写入链，不盲重试。
-不备份整个原生配置根，不把凭据写入仓库。无可信旧包和已证明的官方合同，不承诺更新、降级或一键回滚；
-停用、卸载与重装须有覆盖实际动作的许可，不能用“恢复”无限扩展范围。
-安装是复制还是持续引用须以实际读回确认；确认前保留构建包和工作树。私有构建/归属记录与安装尝试保存在该工作树的 `tmp/antigravity/`；换工作树或丢失可信记录后，同名插件保留为 unknown，不自动接管。未解决的安装尝试保留 pending 标记，阻止继续首装；先审阅读回，不能删除标记来盲重试。原生路径覆写变量非空时拒绝猜测目标。
+不备份整个原生配置根，不把凭据写入仓库。受控更新通过写前备份 live 目录到 attempt/backup，
+随后顺序执行官方 `agy plugin uninstall` 与 `agy plugin install` 并进行全量读回校验与外部插件无变动验证；
+降级与自动盲目回滚仍保持阻塞，卸载、停用与手动恢复须有覆盖实际动作的许可。
+构建候选包保存在工作区 `tmp/antigravity/`；本机部署收据、尝试记录与 pending 标记持久化在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\antigravity\`（可通过内部 `-StateRoot` 参数进行隔离测试），解除了跨工作树部署归属割裂问题。`status` 命令直接解耦对比 live 文件与源码 digest，无需依赖本地未构建包或受门禁改动干扰。未解决的尝试保留 pending 标记阻止继续变更；先审阅读回，不能删除标记来盲重试。原生路径覆写变量非空时拒绝猜测目标。
 
 安装读回、启用、加载与使用分别记录为 built / validated / installed / enabled / loaded / used。
 在 App 和 CLI 中分别核对插件面板、项目 Customizations、`/skills` 的身份、版本、来源与加载路径；

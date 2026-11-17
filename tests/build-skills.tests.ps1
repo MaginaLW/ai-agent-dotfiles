@@ -25,6 +25,7 @@ try {
     Add-Skill $repo 'claude-only' 'gamma'
     Add-Skill $repo 'reasonix-only' 'legacy'
     Set-TestFile (Join-Path $repo 'skills-source/shared/alpha/CREATION-LOG.md') "log`n"
+    Set-TestFile (Join-Path $repo 'skills-source/shared/alpha/agents/openai.yaml') "agent`n"
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -eq 0) "a clean build exits 0 ($($r.Out))"
     Assert-TestCondition (
@@ -43,6 +44,10 @@ try {
         (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/alpha/CREATION-LOG.md'))) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/CREATION-LOG.md')))
     ) 'CREATION-LOG.md is excluded from all generated roots'
+    Assert-TestCondition (
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/alpha/agents/openai.yaml'))) -and
+        (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/agents/openai.yaml'))
+    ) 'agents/openai.yaml is excluded from Claude generated root but preserved in Codex'
     $claudeManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.claude.txt'))
     $codexManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.codex.txt'))
     Assert-TestCondition ($claudeManifest -ceq "alpha`ngamma`n" -and $codexManifest -ceq "alpha`nbeta`n") 'manifests list each platform set sorted'

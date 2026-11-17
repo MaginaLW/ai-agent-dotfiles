@@ -82,6 +82,22 @@
         )
     }
 
+    ZCode = @{
+        HomeRelativeRoot = '.zcode'
+        RepoRelativeRoot = 'zcode'
+        PushItems = @(
+            'AGENTS.md'
+        )
+        PullItems = @(
+            'AGENTS.md'
+        )
+        ExcludedItems = @(
+            'skills'
+            'cli'
+            'cache'
+        )
+    }
+
     CommonExcludedItems = @(
         '.env'
         '.env.*'

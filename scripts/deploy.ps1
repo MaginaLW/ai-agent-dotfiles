@@ -6,8 +6,8 @@
 .DESCRIPTION
     Runs scripts/deploy-skills.ps1 and then scripts/config-pull.ps1. Without -Apply
     both stages are dry runs. With -Apply, run both dry-run planners before any live
-    writes, then perform each stage's reviewed writes. Preflight reuses the skill
-    build/scan; config retains its own pre-write scan. The stages are not atomic:
+    writes, then perform each stage's reviewed writes. Preflight runs the skill
+    build/scan; config reuses the preflight scan during Apply. The stages are not atomic:
     runtime failures can still leave completed skill changes in place.
 
     Config uses config-pull's Codex-only default; legacy Claude config requires
@@ -53,7 +53,10 @@ if ($Apply) {
     catch { throw "Preflight failed; no live skills, config or deploy state written. $($_.Exception.Message)" }
     Write-Host 'Preflight passed. Runtime writes can still fail; the two stages are not atomic.' -ForegroundColor Cyan
     $skillArgs += '-Apply'
-    if (-not $SkipBuild) { $skillArgs += '-SkipBuild' }
+    if (-not $SkipBuild) {
+        $skillArgs += '-SkipBuild'
+        $configArgs += '-SkipSecretScan'
+    }
     $configArgs += '-Apply'
 }
 Invoke-DeployStage -Name 'skills' -ScriptName 'deploy-skills.ps1' -Arguments $skillArgs

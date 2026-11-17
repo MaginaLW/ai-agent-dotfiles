@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     The single definition of the policy literals several scripts and gates share: the
-    generated skill roots, scan-input prefixes, protected Reasonix desktop-state files,
+    generated skill roots, scan-input prefixes,
     porcelain status pathspecs, binary-extension list, Codex live-root rule and the
     drive-letter/UNC machine-private path patterns. Change these only with the owner's
     approval; every consumer fails closed around them. Keep exactly one definition of each
@@ -15,23 +15,13 @@
 
 Set-StrictMode -Version Latest
 
-# Live Reasonix desktop state that may sit untracked in a checkout; it stays out of the
-# secret-scan input, the syntax gate and every porcelain status check.
-$script:ProtectedReasonixFiles = @(
-    '.reasonix/desktop-topic-auto-title-meta.json',
-    '.reasonix/desktop-topic-created-at.json',
-    '.reasonix/desktop-topic-title-sources.json',
-    '.reasonix/desktop-topic-titles.json'
-)
-
 function Get-PorcelainStatusPaths {
-    # git status pathspecs covering the whole tree minus the protected Reasonix files.
-    $paths = @('.') + @($script:ProtectedReasonixFiles | ForEach-Object { ":(exclude)$_" })
-    return , $paths
+    # git status pathspecs covering the whole tree.
+    return , @('.')
 }
 
 # Generated output roots and the filtered input prefixes shared by the build/scan gates.
-$script:GeneratedSkillRoots = @('claude/skills', 'codex/skills', 'reasonix/skills')
+$script:GeneratedSkillRoots = @('claude/skills', 'codex/skills')
 $script:GeneratedSkillRootPrefixes = @($script:GeneratedSkillRoots | ForEach-Object { "$_/" })
 $script:ScanExcludedPrefixes = @('.git/') + $script:GeneratedSkillRootPrefixes + @('tmp/')
 
@@ -63,14 +53,6 @@ function Get-CodexLiveSkillRoots {
         Ambiguous = $ambiguous
         Selected = $selected
     }
-}
-
-function Test-IsProtectedReasonixFile {
-    param([Parameter(Mandatory)] [string] $RelativePath)
-    foreach ($path in $script:ProtectedReasonixFiles) {
-        if ($RelativePath.Equals($path, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
-    }
-    return $false
 }
 
 # Files that must never be tracked, independent of their contents.

@@ -56,6 +56,20 @@ function Invoke-AgNativeCommand {
         if ($script:AgTestValidationHook) { & $script:AgTestValidationHook }
         return @{ Code=0; Out=(ConvertTo-Json -InputObject $script:AgTestValidation -Depth 20 -Compress); Error='' }
     }
+    if ($Arguments.Count -eq 3 -and $Arguments[0] -ceq 'plugin' -and $Arguments[1] -ceq 'uninstall') {
+        $script:AgTestUninstallCalls++
+        $targetName = $Arguments[2]
+        if ($script:AgTestUninstallMode -eq 'nonzero') { return @{ Code=1; Out=''; Error='fixture uninstall failed' } }
+        if ($script:AgTestUninstallMode -eq 'throw') { throw 'fixture uninstall transport exception' }
+        $matching = @($script:AgTestPlugins | Where-Object name -EQ $targetName)
+        if ($matching.Count -gt 0) {
+            $targetDir = $matching[0].path
+            if (Test-Path -LiteralPath $targetDir) { Remove-Item -LiteralPath $targetDir -Recurse -Force }
+            $script:AgTestPlugins = @($script:AgTestPlugins | Where-Object name -NE $targetName)
+        }
+        Set-TestFile -Path (Join-Path $script:AgTestNativeRoot 'config.json') -Content '{"plugins":{}}'
+        return @{ Code=0; Out="Uninstalled plugin `"$targetName`""; Error='' }
+    }
     if ($Arguments.Count -eq 3 -and $Arguments[0] -ceq 'plugin' -and $Arguments[1] -ceq 'install') {
         $script:AgTestInstallCalls++
         if ($Arguments[2] -match '^([a-z0-9-]+)@([a-z0-9-]+)$') {
@@ -89,7 +103,7 @@ function Invoke-AgNativeCommand {
         if ($script:AgTestInstallMode -eq 'readback-fails') { $script:AgTestFailList=$true }
         return @{ Code=0; Out='fixture installed'; Error='' }
     }
-    throw 'Unexpected native command: the fixture permits only version/list/strict validate/single install.'
+    throw 'Unexpected native command: the fixture permits only version/list/strict validate/install/uninstall.'
 }
 function New-PluginFixture([string] $Name) {
     $root = Join-Path $suiteWork $Name
@@ -110,6 +124,8 @@ function New-PluginFixture([string] $Name) {
     $script:AgTestNativeRoot = Join-Path $root 'native-config'
     [IO.Directory]::CreateDirectory($script:AgTestNativeRoot) | Out-Null
     Set-TestFile -Path (Join-Path $script:AgTestNativeRoot 'config.json') -Content '{"plugins":{}}'
+    $state = Join-Path $root 'state'
+    [IO.Directory]::CreateDirectory($state) | Out-Null
     $script:AgTestVersion='1.5.8'
     $script:AgTestPlugins=@()
     $script:AgTestListJson=$null
@@ -117,13 +133,15 @@ function New-PluginFixture([string] $Name) {
     $script:AgTestInstallMode='success'
     $script:AgTestExternalMode='success'
     $script:AgTestInstallCalls=0
+    $script:AgTestUninstallCalls=0
+    $script:AgTestUninstallMode='success'
     $script:AgTestCanonicalScans=0
     $script:AgTestPackageScans=0
     $script:AgTestFailScan=''
     $script:AgTestTrace=[Collections.Generic.List[string]]::new()
     $script:AgTestValidationHook=$null
     $script:AgTestValidation=@{ dir='fixture'; components=@{agents=0;hooks=0;mcpServers=0;rules=0;sidecars=0;skills=$selectedSkills.Count}; findings=@(); agentPluginsSpec=$false }
-    Initialize-AgPluginContext $root
+    Initialize-AgPluginContext -Root $root -StateRoot $state
     $script:AgNative='fixture-only'
     return $root
 }
@@ -134,7 +152,7 @@ function Add-ExternalFixture {
     return $path
 }
 function Get-OnlyAttemptResult {
-    $attempts = @(Get-ChildItem -LiteralPath $script:AgWork -Directory -Filter 'attempt-*')
+    $attempts = @(Get-ChildItem -LiteralPath $script:AgStateRoot -Directory -Filter 'attempt-*')
     Assert-PluginTest ($attempts.Count -eq 1) 'exactly one attempt is retained without retry'
     return Read-AgJsonFile (Join-Path $attempts[0].FullName 'result.json')
 }
@@ -238,7 +256,7 @@ try {
     $script:AgTestPlugins += @{name='ai-agent-dotfiles';path=$unknownPath;enabled=$true}
     Assert-PluginTest ((Get-AgPluginPlan).Reason -eq 'ambiguous-native-identity') 'multiple native identities are blocked without takeover'
 
-    foreach ($version in @('same','99.0.0','0.1.0')) {
+    foreach ($version in @('same','0.1.0')) {
         $root = New-PluginFixture ('version-' + $version)
         $null = New-AgPluginBuild
         $null = Invoke-AgPluginDeploy -DoApply
@@ -248,19 +266,106 @@ try {
         }
         else {
             Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '$version'"))
-            Initialize-AgPluginContext $root
+            Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
             $script:AgNative='fixture-only'
-            $reason=if ($version -eq '99.0.0') { 'native-update-contract-unproven' } else { 'downgrade-or-version-reuse' }
+            $reason='downgrade-or-version-reuse'
         }
         $null = New-AgPluginBuild
-        Assert-PluginTest ((Get-AgPluginPlan).Reason -eq $reason -and $script:AgTestInstallCalls -eq 1) 'same-version replacement, unproven update and downgrade never mutate the installed plugin'
+        Assert-PluginTest ((Get-AgPluginPlan).Action -eq 'blocked' -and (Get-AgPluginPlan).Reason -eq $reason -and $script:AgTestInstallCalls -eq 1) 'same-version replacement and downgrade never mutate the installed plugin'
     }
+
+    Write-Host 'Antigravity: controlled update workflow, backup and readback verification'
+    $root = New-PluginFixture 'version-update-preview'
+    $externalPath = Add-ExternalFixture
+    $null = New-AgPluginBuild
+    $null = Invoke-AgPluginDeploy -DoApply
+    Assert-PluginTest ($script:AgTestInstallCalls -eq 1 -and $script:AgTestUninstallCalls -eq 0) 'baseline installed'
+
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.5.0'"))
+    Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
+    $script:AgNative = 'fixture-only'
+
+    # Unbuilt update preview
+    $unbuiltPlan = Get-AgPluginPlan
+    Assert-PluginTest ($unbuiltPlan.Action -eq 'update' -and $unbuiltPlan.Reason -eq 'version-upgrade' -and $unbuiltPlan.NativeAction[1] -eq 'uninstall' -and $unbuiltPlan.NativeAction[5] -eq 'install') 'unbuilt status accurately plans update without requiring rebuild'
+    Assert-PluginTest ($unbuiltPlan.Changes.Changed.Contains('plugin.json')) 'version bump reports plugin.json changed'
+
+    # Built update preview
+    $null = New-AgPluginBuild
+    $builtPlan = Get-AgPluginPlan
+    Assert-PluginTest ($builtPlan.Action -eq 'update' -and $builtPlan.Reason -eq 'version-upgrade') 'built update plan is update'
+    $dryPlan = Invoke-AgPluginDeploy
+    Assert-PluginTest ($dryPlan.Action -eq 'update' -and $script:AgTestInstallCalls -eq 1 -and $script:AgTestUninstallCalls -eq 0) 'update dry run does not mutate native state'
+
+    # Update Apply
+    $appliedUpdate = Invoke-AgPluginDeploy -DoApply
+    Assert-PluginTest ($appliedUpdate.Action -eq 'unchanged' -and $appliedUpdate.Version -eq '0.5.0' -and $script:AgTestUninstallCalls -eq 1 -and $script:AgTestInstallCalls -eq 2) 'update apply uninstalls then installs and converges to unchanged'
+    $receipt = Read-AgJsonFile $script:AgInstallReceipt
+    Assert-PluginTest ($receipt.Version -eq '0.5.0' -and $receipt.PreviousVersion -eq '0.4.0') 'update receipt records target version and previous version'
+    $attemptDir = $receipt.Attempt
+    Assert-PluginTest (Test-Path -LiteralPath (Join-Path $attemptDir 'backup/plugin.json')) 'pre-write backup is preserved in attempt folder'
+    $backupReceipt = Read-AgJsonFile (Join-Path $attemptDir 'backup/plugin.json')
+    Assert-PluginTest ($backupReceipt.version -eq '0.4.0') 'pre-write backup contains original 0.4.0 files'
+    Assert-PluginTest (-not (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json'))) 'pending install marker removed on successful convergence'
+    Assert-PluginTest ($appliedUpdate.External.Count -eq 1 -and $appliedUpdate.External[0].Name -eq 'unrelated') 'unrelated external plugins remain invariant across update'
+
+    # Uninstall failure halts before install
+    $root = New-PluginFixture 'version-update-uninstall-fails'
+    $null = New-AgPluginBuild
+    $null = Invoke-AgPluginDeploy -DoApply
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.5.0'"))
+    Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
+    $script:AgNative = 'fixture-only'
+    $null = New-AgPluginBuild
+    $script:AgTestUninstallMode = 'nonzero'
+    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'failed|uncertain' 'uninstall failure stops write chain'
+    Assert-PluginTest ($script:AgTestUninstallCalls -eq 1 -and $script:AgTestInstallCalls -eq 1) 'install is NEVER called when uninstall fails'
+    Assert-PluginTest (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json')) 'pending marker retained after uninstall failure'
+    $attempts = @(Get-ChildItem -LiteralPath $script:AgStateRoot -Directory -Filter 'attempt-*' | Sort-Object CreationTime -Descending)
+    Assert-PluginTest ($attempts.Count -ge 2 -and (Test-Path -LiteralPath (Join-Path $attempts[0].FullName 'backup/plugin.json'))) 'pre-write backup intact after uninstall failure'
+
+    # Install failure after uninstall retains backup
+    $root = New-PluginFixture 'version-update-install-fails'
+    $null = New-AgPluginBuild
+    $null = Invoke-AgPluginDeploy -DoApply
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.5.0'"))
+    Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
+    $script:AgNative = 'fixture-only'
+    $null = New-AgPluginBuild
+    $script:AgTestUninstallMode = 'success'
+    $script:AgTestInstallMode = 'partial-nonzero'
+    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'failed|uncertain' 'install failure after uninstall stops write chain'
+    Assert-PluginTest ($script:AgTestUninstallCalls -eq 1 -and $script:AgTestInstallCalls -eq 2) 'both uninstall and install were invoked'
+    Assert-PluginTest (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json')) 'pending marker retained after install failure'
+    $attempts = @(Get-ChildItem -LiteralPath $script:AgStateRoot -Directory -Filter 'attempt-*' | Sort-Object CreationTime -Descending)
+    Assert-PluginTest (Test-Path -LiteralPath (Join-Path $attempts[0].FullName 'backup/plugin.json')) 'pre-write backup intact after install failure'
+
+    Write-Host 'Antigravity: decoupled status and state relocation'
+    $root = New-PluginFixture 'decoupled-status'
+    $null = New-AgPluginBuild
+    $null = Invoke-AgPluginDeploy -DoApply
+    Remove-Item -LiteralPath $script:AgWork -Recurse -Force
+    Assert-PluginTest (-not (Test-Path -LiteralPath $script:AgWork)) 'build candidate package and receipt removed from worktree'
+    $decoupledPlan = Get-AgPluginPlan
+    Assert-PluginTest ($decoupledPlan.Action -eq 'unchanged' -and $decoupledPlan.Reason -eq 'identity-version-and-content-match') 'status reports unchanged even when tmp/antigravity is clean'
+    Assert-PluginTest ($decoupledPlan.Changes.Added.Count -eq 0 -and $decoupledPlan.Changes.Changed.Count -eq 0 -and $decoupledPlan.Changes.Removed.Count -eq 0) 'no false Added files when tmp/antigravity is clean'
+    Add-Content -LiteralPath (Join-Path $root '.gitleaks.toml') -Value '# comment changed gate'
+    $gateChangedPlan = Get-AgPluginPlan
+    Assert-PluginTest ($gateChangedPlan.Action -eq 'unchanged' -and $gateChangedPlan.Reason -eq 'identity-version-and-content-match') 'gate fingerprint change does not block status of unchanged plugin'
+
+    $root = New-PluginFixture 'state-relocation'
+    $null = New-AgPluginBuild
+    $null = Invoke-AgPluginDeploy -DoApply
+    Assert-PluginTest (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'installed.json')) 'installed.json resides in dedicated state root'
+    Assert-PluginTest (-not (Test-Path -LiteralPath (Join-Path $script:AgWork 'installed.json'))) 'installed.json is NOT in workspace tmp/antigravity'
+    $defaultRoot = Get-AgDefaultStateRoot
+    Assert-PluginTest ($defaultRoot -like '*ai-agent-dotfiles.deploy*antigravity*') 'default state root resolves to local appdata deploy path'
 
     $root = New-PluginFixture 'external-expectations'
     $null = Add-ExternalFixture
     $expectation = "ExternalPlugins = @(@{ Name='unrelated'; Source='https://example.org/plugin'; Version='2.0.0'; Enabled=`$false })"
     Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), 'ExternalPlugins\s*=\s*@\([\s\S]*?\n\s*\)', $expectation))
-    Initialize-AgPluginContext $root
+    Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
     $script:AgNative='fixture-only'
     Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'unchanged') 'third-party exact source, version and enabled expectations are compared read-only'
     $script:AgTestPlugins[0].version='2.1.0'
@@ -295,7 +400,7 @@ try {
     $null = New-PluginFixture 'external-failure'
     $script:AgTestExternalMode = 'nonzero'
     Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply -ExternalNames @('unity') } 'External plugin install failed' 'nonzero external install stops write chain'
-    Assert-PluginTest ((Test-Path (Join-Path $script:AgWork 'pending-external-unity.json')) -and (Get-AgPluginPlan).ExternalExpectations[0].State -eq 'blocked' -and $script:AgTestInstallCalls -eq 1) 'failed external install retains pending marker and blocks retry'
+    Assert-PluginTest ((Test-Path (Join-Path $script:AgStateRoot 'pending-external-unity.json')) -and (Get-AgPluginPlan).ExternalExpectations[0].State -eq 'blocked' -and $script:AgTestInstallCalls -eq 1) 'failed external install retains pending marker and blocks retry'
 
     Write-Host 'Antigravity: failed writes always read back without automatic retry'
     foreach ($mode in @('partial-nonzero','partial-throw','readback-fails','wrong-path','extra-metadata','unrelated-change')) {
@@ -305,7 +410,7 @@ try {
         $script:AgTestInstallMode=$mode
         Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'failed|uncertain|outside|metadata|inventory changed' "native $mode stops the write chain"
         $result = Get-OnlyAttemptResult
-        Assert-PluginTest ($script:AgTestInstallCalls -eq 1 -and -not (Test-Path $script:AgInstallReceipt) -and (Test-Path (Join-Path $script:AgWork 'pending-install.json'))) 'failed or unverified install retains pending state and never claims ownership'
+        Assert-PluginTest ($script:AgTestInstallCalls -eq 1 -and -not (Test-Path $script:AgInstallReceipt) -and (Test-Path (Join-Path $script:AgStateRoot 'pending-install.json'))) 'failed or unverified install retains pending state and never claims ownership'
         Assert-PluginTest (@($result.Targets).Count -ge 1 -and ($result.Targets[0].Present -or $mode -eq 'wrong-path')) 'failure receipt includes best-effort target filesystem readback'
         $installIndex = $script:AgTestTrace.FindIndex([Predicate[string]]{ param($line) $line.StartsWith('plugin install ') })
         Assert-PluginTest (@($script:AgTestTrace | Select-Object -Skip ($installIndex + 1) | Where-Object { $_ -eq 'plugin list --json' }).Count -eq 1) 'native inventory is read after each install result, including exceptions'
@@ -328,7 +433,7 @@ try {
             target { { [IO.Directory]::CreateDirectory((Join-Path $script:AgTestNativeRoot 'plugins/ai-agent-dotfiles')) | Out-Null } }
         }
         Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'changed|Inputs changed' "$change race invalidates the plan before mutation"
-        Assert-PluginTest ($script:AgTestInstallCalls -eq 0 -and -not (Test-Path (Join-Path $script:AgWork 'pending-install.json'))) 'race detection never reaches native install or pending marker'
+        Assert-PluginTest ($script:AgTestInstallCalls -eq 0 -and -not (Test-Path (Join-Path $script:AgStateRoot 'pending-install.json'))) 'race detection never reaches native install or pending marker'
     }
     $null = New-PluginFixture 'writer-lock'
     $null = New-AgPluginBuild

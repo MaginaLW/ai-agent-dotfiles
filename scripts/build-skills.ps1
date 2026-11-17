@@ -30,13 +30,28 @@ Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoo
 
 $script:RuntimeExcludePatterns = @('CREATION-LOG.md')
 function Copy-SkillDirectory {
-    param([Parameter(Mandatory)] [System.IO.DirectoryInfo] $Source, [Parameter(Mandatory)] [string] $DestinationRoot)
+    param(
+        [Parameter(Mandatory)] [System.IO.DirectoryInfo] $Source,
+        [Parameter(Mandatory)] [string] $DestinationRoot,
+        [string[]] $ExcludeRelativePaths = @()
+    )
     $destination = Join-Path $DestinationRoot $Source.Name
     Copy-SkillTree -SourceRoot $Source.FullName -DestinationRoot $destination
     foreach ($file in @(Get-ChildItem -LiteralPath $destination -File -Recurse -Force)) {
         $leaf = $file.Name
         if (@($script:RuntimeExcludePatterns | Where-Object { $leaf -like $_ }).Count -gt 0) {
             Remove-Item -LiteralPath $file.FullName -Force
+        }
+    }
+    foreach ($relPath in $ExcludeRelativePaths) {
+        $normalizedRel = $relPath.Replace('/', [System.IO.Path]::DirectorySeparatorChar).Replace('\', [System.IO.Path]::DirectorySeparatorChar)
+        $targetPath = Join-Path $destination $normalizedRel
+        if (Test-Path -LiteralPath $targetPath) {
+            Remove-Item -LiteralPath $targetPath -Force
+            $parent = Split-Path -Parent $targetPath
+            if ((Test-Path -LiteralPath $parent) -and @(Get-ChildItem -LiteralPath $parent -Force).Count -eq 0) {
+                Remove-Item -LiteralPath $parent -Force
+            }
         }
     }
 }
@@ -93,12 +108,17 @@ foreach ($target in @($ClaudeOutputRoot,$CodexOutputRoot)) {
 }
 if (-not (Test-Path -LiteralPath $ManifestOutputRoot)) { [System.IO.Directory]::CreateDirectory($ManifestOutputRoot) | Out-Null }
 
+$claudeExcludeRelativePaths = @(Join-Path 'agents' 'openai.yaml')
 foreach ($skill in $sharedSkills) {
-    Copy-SkillDirectory -Source $skill -DestinationRoot $ClaudeOutputRoot
+    Copy-SkillDirectory -Source $skill -DestinationRoot $ClaudeOutputRoot -ExcludeRelativePaths $claudeExcludeRelativePaths
     Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot
 }
-foreach ($skill in $claudeOnlySkills) { Copy-SkillDirectory -Source $skill -DestinationRoot $ClaudeOutputRoot }
-foreach ($skill in $codexOnlySkills) { Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot }
+foreach ($skill in $claudeOnlySkills) {
+    Copy-SkillDirectory -Source $skill -DestinationRoot $ClaudeOutputRoot -ExcludeRelativePaths $claudeExcludeRelativePaths
+}
+foreach ($skill in $codexOnlySkills) {
+    Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot
+}
 
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.claude.txt') -Names $claudeSet
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.codex.txt') -Names $codexSet

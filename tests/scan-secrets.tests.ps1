@@ -13,6 +13,12 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('scan-secrets-tests-' + [guid]::Ne
 
 $q = [char] 34
 $githubToken = 'gh' + 'p_' + ('a1B2' * 9)
+$googleApiKey = 'AI' + 'za' + ('SyA1B2C3D4E5' * 3).Substring(0, 35)
+$pkcs8Header = '-----' + 'BEGIN ' + 'PRIVATE KEY' + '-----'
+$ghoToken = 'gh' + 'o_' + ('a1B2' * 9)
+$ghuToken = 'gh' + 'u_' + ('a1B2' * 9)
+$ghsToken = 'gh' + 's_' + ('a1B2' * 9)
+$ghrToken = 'gh' + 'r_' + ('a1B2' * 9)
 # Lowercase 'bearer' matches only the case-insensitive fallback scanner, not gitleaks.
 $fallbackOnlyLine = 'authorization: ' + 'bear' + 'er ' + ('x' * 24)
 $allCapsLine = 'pass' + 'word: ' + $q + 'CHANGE_ME_PLEASE' + $q
@@ -55,6 +61,31 @@ try {
     Assert-TestCondition ($r.Json.Result -eq 'FAIL' -and $r.Json.GitleaksFailed -and $r.Json.BlockingFindingCount -ge 1) 'both gitleaks and the fallback report it'
     Assert-TestCondition ($r.Out -notmatch [regex]::Escape($githubToken)) 'the token is not echoed'
 
+    Write-Host '[planted google api key fails]'
+    $repo = New-ScanRepo 'planted-google'
+    Set-TestFile (Join-Path $repo 'config/app.toml') "api_key = $q$googleApiKey$q`n"
+    $r = Invoke-Scan $repo
+    Assert-TestCondition ($r.Code -ne 0) 'a planted Google API key exits non-zero'
+    Assert-TestCondition ($r.Json.Result -eq 'FAIL' -and $r.Json.GitleaksFailed -and $r.Json.BlockingFindingCount -ge 1) 'both gitleaks and fallback report Google API key'
+    Assert-TestCondition ($r.Out -notmatch [regex]::Escape($googleApiKey)) 'the Google API key is not echoed'
+
+    Write-Host '[planted pkcs8 private key fails]'
+    $repo = New-ScanRepo 'planted-pkcs8'
+    Set-TestFile (Join-Path $repo 'key.pem') "$pkcs8Header`n"
+    $r = Invoke-Scan $repo
+    Assert-TestCondition ($r.Code -ne 0) 'a planted PKCS#8 private key exits non-zero'
+    Assert-TestCondition ($r.Json.Result -eq 'FAIL' -and $r.Json.GitleaksFailed -and $r.Json.BlockingFindingCount -ge 1) 'both gitleaks and fallback report PKCS#8 private key'
+
+    Write-Host '[planted github token prefixes fail]'
+    foreach ($tok in @($ghoToken, $ghuToken, $ghsToken, $ghrToken)) {
+        $pfx = $tok.Substring(0, 4)
+        $repo = New-ScanRepo "planted-$pfx"
+        Set-TestFile (Join-Path $repo 'config/app.toml') "token = $q$tok$q`n"
+        $r = Invoke-Scan $repo
+        Assert-TestCondition ($r.Code -ne 0) "planted GitHub token $pfx exits non-zero"
+        Assert-TestCondition ($r.Json.Result -eq 'FAIL' -and $r.Json.GitleaksFailed -and $r.Json.BlockingFindingCount -ge 1) "both gitleaks and fallback report GitHub token $pfx"
+    }
+
     Write-Host '[placeholders pass]'
     $repo = New-ScanRepo 'placeholders'
     Set-TestFile (Join-Path $repo 'config/app.toml') ('token = "${GITHUB_PAT}"' + "`n" + 'authorization = "Bearer ${GITHUB_PAT}"' + "`n" + 'bearer_token_env_var = "GITHUB_PAT"' + "`n")
@@ -82,9 +113,7 @@ try {
     $repo = New-ScanRepo 'excluded'
     $planted = "github = $q$githubToken$q`n"
     foreach ($relative in @(
-        'claude/skills/a/SKILL.md', 'codex/skills/a/SKILL.md', 'reasonix/skills/a/SKILL.md', 'tmp/x.txt',
-        '.reasonix/desktop-topic-auto-title-meta.json', '.reasonix/desktop-topic-created-at.json',
-        '.reasonix/desktop-topic-title-sources.json', '.reasonix/desktop-topic-titles.json', 'local/ignored.txt'
+        'claude/skills/a/SKILL.md', 'codex/skills/a/SKILL.md', 'tmp/x.txt', 'local/ignored.txt'
     )) { Set-TestFile (Join-Path $repo $relative) $planted }
     Set-TestFile (Join-Path $repo '.gitignore') "local/`n"
     Set-TestFile (Join-Path $repo 'backup/notes.txt') "$fallbackOnlyLine`n"
@@ -93,11 +122,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'git add failed' }
     Remove-Item -LiteralPath (Join-Path $repo 'tracked.txt')
     $r = Invoke-Scan $repo
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Json.Result -eq 'PASS') 'excluded roots, protected .reasonix files and ignored files are not scanned'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Json.Result -eq 'PASS') 'excluded roots and ignored files are not scanned'
     Assert-TestCondition ($r.Out -match 'filtered copy of 4 files') 'the input is README.md, .gitleaks.toml, .gitignore and backup/notes.txt'
-    Set-TestFile (Join-Path $repo '.reasonix/other.json') $planted
-    $r = Invoke-Scan $repo
-    Assert-TestCondition ($r.Code -ne 0) 'other .reasonix files are still scanned'
 
     Write-Host '[reparse points are refused]'
     $repo = New-ScanRepo 'junction'

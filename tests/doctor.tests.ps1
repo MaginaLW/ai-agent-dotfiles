@@ -27,8 +27,18 @@ try {
     if ($output -notmatch 'Codex live root is ambiguous') { throw 'doctor did not flag both Codex roots as ambiguous' }
     if ($output -notmatch 'Deploy blockers: 1' -or $output -notmatch 'Inspect both roots and decide' -or $output -notmatch 'Doctor result: PASS with warnings') { throw 'doctor did not distinguish a deployment blocker while preserving the warning/exit contract' }
     if ($output -notmatch 'Zcode live root .* not found') { throw 'doctor did not warn about the missing Zcode live root' }
-    if ($output -notmatch 'scripts\\deploy-skills\.ps1 exists') { throw 'doctor did not check scripts/deploy-skills.ps1' }
-    if ($output -notmatch 'scripts\\deploy\.ps1 exists') { throw 'doctor did not check scripts/deploy.ps1' }
+    if ($output -notmatch '\[INFO\] Claude live root \(~/\.claude/skills\) not found\.') { throw 'doctor did not report missing Claude live root as INFO' }
+    if ($output -match '\[WARN\] Claude live root') { throw 'doctor reported WARN for missing Claude live root' }
+    $coreScripts = @(
+        'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'mcp-sync.ps1',
+        'config-status.ps1', 'config-pull.ps1', 'config-push.ps1',
+        'deploy.ps1', 'deploy-skills.ps1', 'build-skills.ps1', 'scan-secrets.ps1'
+    )
+    foreach ($s in $coreScripts) {
+        if ($output -notmatch [regex]::Escape("scripts\$s exists")) {
+            throw "doctor did not check scripts/$s"
+        }
+    }
     if ($output -notmatch 'Secrets scan skipped') { throw 'doctor did not record the skipped secret scan' }
     if ($output -match 'status\\archived|Live safety protocol|runner-review-required|Approved runner hash') { throw 'doctor still reports retired engine diagnostics' }
 
@@ -51,6 +61,61 @@ try {
     $zcodeOutput = & pwsh -NoProfile -File $doctor -RepoRoot $RepoRoot -HomeRoot $zcodeHome -SkipSecretsScan 2>&1 | Out-String; $zcodeCode=$LASTEXITCODE
     if ($zcodeCode -ne 0 -or $zcodeOutput -notmatch 'Zcode live root .* detected') { throw "doctor did not detect the Zcode live root: $zcodeOutput" }
     if ($zcodeOutput -notmatch 'Deploy blockers: none detected by these checks' -or $zcodeOutput -match 'deployment cannot proceed') { throw 'ordinary warnings were incorrectly reported as deployment blockers' }
+
+    $claudeHome = Join-Path $work 'claude-home'
+    [System.IO.Directory]::CreateDirectory((Join-Path $claudeHome '.claude/skills')) | Out-Null
+    $claudeOutput = & pwsh -NoProfile -File $doctor -RepoRoot $RepoRoot -HomeRoot $claudeHome -SkipSecretsScan 2>&1 | Out-String; $claudeCode=$LASTEXITCODE
+    if ($claudeCode -ne 0 -or $claudeOutput -notmatch '\[PASS\] Claude live root \(~/\.claude/skills\) detected\.') {
+        throw "doctor did not detect present Claude live root: $claudeOutput"
+    }
+
+    $cleanRepo = Join-Path $work 'clean-repo'
+    New-Item -ItemType Directory -Path $cleanRepo -Force | Out-Null
+    & git -C $cleanRepo init -q
+    & git -C $cleanRepo config user.email "test@example.com"
+    & git -C $cleanRepo config user.name "Test"
+
+    foreach ($dir in 'docs', 'scripts', 'skills-source', 'status/active', 'tools/gitleaks') {
+        New-Item -ItemType Directory -Path (Join-Path $cleanRepo $dir) -Force | Out-Null
+    }
+    foreach ($file in 'AGENTS.md', 'STATUS.md') {
+        [System.IO.File]::WriteAllText((Join-Path $cleanRepo $file), "# $file`n", [System.Text.UTF8Encoding]::new($false))
+    }
+    Copy-Item -LiteralPath $doctor -Destination (Join-Path $cleanRepo 'scripts/doctor.ps1')
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/repo-common.ps1') -Destination (Join-Path $cleanRepo 'scripts/repo-common.ps1')
+
+    $dummyScripts = @(
+        'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'mcp-sync.ps1',
+        'config-status.ps1', 'config-pull.ps1', 'config-push.ps1',
+        'deploy.ps1', 'deploy-skills.ps1', 'build-skills.ps1'
+    )
+    foreach ($s in $dummyScripts) {
+        [System.IO.File]::WriteAllText((Join-Path $cleanRepo "scripts/$s"), "# $s`n", [System.Text.UTF8Encoding]::new($false))
+    }
+    [System.IO.File]::WriteAllText((Join-Path $cleanRepo 'scripts/scan-secrets.ps1'), "exit 0`n", [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $cleanRepo 'scripts/pinned-tool.ps1'), "function Get-PinnedToolExecutable { [pscustomobject]@{ Lock = [pscustomobject]@{ Version = '1.0' } } }`n", [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $cleanRepo 'tools/gitleaks/gitleaks.lock.json'), "{}`n", [System.Text.UTF8Encoding]::new($false))
+
+    & git -C $cleanRepo config core.autocrlf false
+    & git -C $cleanRepo add .
+    & git -C $cleanRepo commit -q -m "initial commit"
+
+    $cleanHome = Join-Path $work 'clean-home'
+    New-Item -ItemType Directory -Path (Join-Path $cleanHome '.codex/skills') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $cleanHome '.zcode/skills') -Force | Out-Null
+
+    $cleanOutput = & pwsh -NoProfile -File (Join-Path $cleanRepo 'scripts/doctor.ps1') -RepoRoot $cleanRepo -HomeRoot $cleanHome 2>&1 | Out-String; $cleanCode=$LASTEXITCODE
+    if ($cleanCode -ne 0) { throw "clean fixture doctor failed with exit code $($cleanCode): $cleanOutput" }
+    if ($cleanOutput -notmatch 'Doctor result: PASS\r?\n?$') { throw "clean fixture did not report Doctor result: PASS: $cleanOutput" }
+    if ($cleanOutput -match 'Doctor result: PASS with warnings') { throw "clean fixture unexpectedly reported warnings: $cleanOutput" }
+    if ($cleanOutput -notmatch 'WARN=0') { throw "clean fixture had WARN count > 0: $cleanOutput" }
+    if ($cleanOutput -notmatch '\[INFO\] Claude live root \(~/\.claude/skills\) not found\.') { throw "clean fixture did not report Claude missing as INFO: $cleanOutput" }
+
+    Remove-Item -LiteralPath (Join-Path $cleanRepo 'scripts/mcp-sync.ps1') -Force
+    $missingOutput = & pwsh -NoProfile -File (Join-Path $cleanRepo 'scripts/doctor.ps1') -RepoRoot $cleanRepo -HomeRoot $cleanHome -SkipSecretsScan 2>&1 | Out-String; $missingCode=$LASTEXITCODE
+    if ($missingCode -ne 1) { throw "missing script did not exit 1 (got $($missingCode)): $missingOutput" }
+    if ($missingOutput -notmatch '\[FAIL\] scripts\\mcp-sync\.ps1 is missing\.') { throw "missing script FAIL line missing: $missingOutput" }
+    if ($missingOutput -notmatch 'Doctor result: FAIL') { throw "missing script did not report Doctor result: FAIL: $missingOutput" }
 
     Write-Host 'doctor tests: PASS'
 }

@@ -31,7 +31,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Antigravity. Defaults to Codex; Claude and Antigravity require an explicit opt-in.
+    One or more of Claude, Codex, Antigravity, ZCode. Defaults to Codex; Claude, Antigravity, and ZCode require an explicit opt-in.
 
 .PARAMETER BackupRoot
     Root for the pre-overwrite backup. Defaults to
@@ -45,7 +45,6 @@ param(
     [switch] $Apply,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex', 'Antigravity')]
     [string[]] $Platform = @('Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipSecretScan
@@ -58,6 +57,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+$Platform = Resolve-ConfigPlatforms -Values $Platform
 
 function Get-ConfigPullPlan {
     $plan = [System.Collections.Generic.List[object]]::new()
@@ -109,7 +109,7 @@ Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -Fo
 if (@($plan | Where-Object { $_.Rel -eq 'Claude/settings.json' }).Count -gt 0) {
     Write-Host 'Claude/settings.json will be merged; home-only fields are preserved.' -ForegroundColor Yellow
 }
-foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md')) {
+foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md', 'ZCode/AGENTS.md')) {
     if (@($plan | Where-Object { $_.Rel -eq $managedLabel }).Count -gt 0) {
         Write-Host "Only the managed block in $managedLabel will be updated; content outside it is preserved." -ForegroundColor Yellow
     }

@@ -23,7 +23,6 @@ if (-not $configItem -or $configItem.PSIsContainer -or ($configItem.Attributes -
 # Scan input exclusions (matched case-insensitively). Change them only with the
 # owner's approval:
 #  - the shared path prefixes from repo-common.ps1 (generated roots and tmp/);
-#  - the four protected .reasonix/desktop-topic-* files (repo-common.ps1);
 #  - Git-ignored entries: `git ls-files -co --exclude-standard` selects tracked
 #    files plus untracked, non-ignored files.
 # The fallback scanner re-checks the same prefixes plus backup/ (Test-IsSkippedPath
@@ -33,7 +32,6 @@ $scanExcludedPrefixes = @(Get-ScanExcludedPrefixes)
 function Test-IsScanInputExcluded {
     param([Parameter(Mandatory)] [string] $RelativePath)
 
-    if (Test-IsProtectedReasonixFile -RelativePath $RelativePath) { return $true }
     foreach ($prefix in $scanExcludedPrefixes) {
         if ($RelativePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
@@ -129,10 +127,11 @@ function Test-IsAllowedPlaceholderLine {
 $script:ScanBlockingPatterns = @(
     @{ Name = 'Anthropic API key'; Regex = 'sk-ant-[A-Za-z0-9_-]{20,}' },
     @{ Name = 'OpenAI API key'; Regex = 'sk-(proj-)?[A-Za-z0-9_-]{20,}' },
-    @{ Name = 'GitHub classic PAT'; Regex = 'ghp_[A-Za-z0-9]{36}' },
+    @{ Name = 'Google API key'; Regex = 'AIza[0-9A-Za-z-_]{35}' },
+    @{ Name = 'GitHub token'; Regex = 'gh[opusr]_[A-Za-z0-9_]{36}' },
     @{ Name = 'GitHub fine-grained PAT'; Regex = 'github_pat_[A-Za-z0-9_]{22,}' },
     @{ Name = 'Slack token'; Regex = 'xox[bpars]-[A-Za-z0-9-]{10,}' },
-    @{ Name = 'Private key'; Regex = '-----BEGIN (RSA|OPENSSH|EC) PRIVATE KEY-----' },
+    @{ Name = 'Private key'; Regex = '-----BEGIN ((RSA|OPENSSH|EC) )?PRIVATE KEY-----' },
     @{ Name = 'Bearer token'; Regex = 'Bearer\s+[A-Za-z0-9._-]{20,}' },
     @{ Name = 'Literal secret assignment'; Regex = '(?i)(api_key|token|secret|password|client_secret|refresh_token|access_token)\s*[:=]\s*["''][^$][^"'']{8,}["'']' }
 )

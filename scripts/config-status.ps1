@@ -20,7 +20,7 @@
     Codex from .codex, and Antigravity from .gemini/config.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Antigravity. Defaults to Codex; Claude and Antigravity require an explicit opt-in.
+    One or more of Claude, Codex, Antigravity, ZCode. Defaults to Codex; Claude, Antigravity, and ZCode require an explicit opt-in.
 
 .PARAMETER Json
     Emit the results as a JSON array instead of the table.
@@ -29,8 +29,7 @@
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex', 'Antigravity')]
-    [string[]] $Platform,
+    [string[]] $Platform = @('Codex'),
     [switch] $Json
 )
 
@@ -40,7 +39,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'config-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-if (-not $Platform) { $Platform = @('Codex') }
+$Platform = Resolve-ConfigPlatforms -Values $Platform
 
 function Get-ItemKind {
     param([Parameter(Mandatory)] [string] $Path)

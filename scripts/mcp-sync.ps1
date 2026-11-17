@@ -63,7 +63,7 @@ function Assert-McpSafeValue {
     if (($Value -match $script:DriveAbsolutePathPattern) -or ($Value -match $script:UncPathPattern)) {
         throw "MCP registry value for $Context must not contain a machine-private drive or UNC path."
     }
-    if ($Value -match '(?:sk-ant-[A-Za-z0-9_-]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|xox[bpars]-[A-Za-z0-9-]{10,}|Bearer\s+[A-Za-z0-9._-]{20,})') {
+    if ($Value -match '(?:sk-ant-[A-Za-z0-9_-]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z-_]{35}|gh[opusr]_[A-Za-z0-9_]{36}|github_pat_[A-Za-z0-9_]{22,}|xox[bpars]-[A-Za-z0-9-]{10,}|-----BEGIN ((?:RSA|OPENSSH|EC) )?PRIVATE KEY-----|Bearer\s+[A-Za-z0-9._-]{20,})') {
         throw "MCP registry value for $Context appears to contain a literal secret."
     }
 }

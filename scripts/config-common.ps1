@@ -10,6 +10,37 @@
 
 Set-StrictMode -Version Latest
 
+function Resolve-ConfigPlatforms {
+    param(
+        [Alias('PlatformInput')]
+        [string[]] $Values
+    )
+    $canonical = @{
+        claude      = 'Claude'
+        codex       = 'Codex'
+        antigravity = 'Antigravity'
+        zcode       = 'ZCode'
+    }
+    $selected = [System.Collections.Generic.List[string]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($raw in @($Values)) {
+        foreach ($token in ([string]$raw -split ',')) {
+            $trimmed = $token.Trim()
+            if ([string]::IsNullOrEmpty($trimmed)) { continue }
+            $key = $trimmed.ToLowerInvariant()
+            if (-not $canonical.ContainsKey($key)) {
+                throw "Unsupported config platform '$trimmed'. Expected Claude, Codex, Antigravity, or ZCode."
+            }
+            $name = $canonical[$key]
+            if ($seen.Add($name)) { $selected.Add($name) }
+        }
+    }
+    if ($selected.Count -eq 0 -and @($Values).Count -gt 0) {
+        throw "Config -Platform requires at least one platform name. Expected Claude, Codex, Antigravity, or ZCode."
+    }
+    return @($selected)
+}
+
 function Get-ConfigTargets {
     # Loads manifests/whitelist.psd1 and returns one entry per selected platform it
     # defines: Name, RepoRoot, HomeRoot, Excluded (platform + common) and the unique
@@ -74,6 +105,11 @@ $script:ManagedAgentsBlocks = @{
         Item    = 'AGENTS.md'
         BlockId = 'antigravity/AGENTS.md'
         Label   = 'Antigravity/AGENTS.md'
+    }
+    ZCode = @{
+        Item    = 'AGENTS.md'
+        BlockId = 'zcode/AGENTS.md'
+        Label   = 'ZCode/AGENTS.md'
     }
 }
 

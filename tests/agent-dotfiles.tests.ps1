@@ -1,4 +1,4 @@
-#requires -Version 7.0
+﻿#requires -Version 7.0
 <#!
 .SYNOPSIS
     Smoke tests for the unified agent-dotfiles dispatcher.
@@ -54,6 +54,10 @@ foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')
             Assert ($result.Out -match '-ExternalPlugin' -and $result.Out -notmatch 'two-skill') 'antigravity help documents -ExternalPlugin and avoids stale two-skill wording'
         }
     }
+}
+foreach ($helpArgs in @(@('help', 'status'), @('status', 'help'))) {
+    $result = Invoke-Entry -Arguments $helpArgs
+    Assert ($result.Code -eq 0 -and $result.Out -match 'agent-dotfiles.ps1 status' -and $result.Out -match 'strictly read-only' -and $result.Out -notmatch 'Invoking script') "status help returns usage: $($helpArgs -join ' ')"
 }
 foreach ($helpArgs in @(@('help', 'unknown'), @('config', 'help', 'extra'))) {
     $result = Invoke-Entry -Arguments $helpArgs
@@ -122,6 +126,15 @@ try { $configJson = $result.Out | ConvertFrom-Json } catch { $configJson = $null
 Assert ($result.Code -eq 0 -and $null -ne $configJson) 'config status JSON is not polluted by dispatcher text'
 Assert ($result.Out -notmatch 'Invoking script|Command result') 'JSON stdout excludes dispatcher banners'
 
+$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex,Antigravity', '-Json')
+Assert ($result.Code -eq 0) 'config status routes comma-separated platforms'
+
+$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex', '-Platform', 'Claude', '-Json')
+Assert ($result.Code -eq 0) 'config status routes repeated -Platform arguments without parameter binding error'
+
+$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Invalid', '-Json')
+Assert ($result.Code -ne 0) 'config status rejects invalid platform'
+
 $result = Invoke-Entry -Arguments @('profile', 'status', '-RepoRoot', $RepoRoot, '-ProjectRoot', $RepoRoot, '-Json')
 $profileJson = $null
 try { $profileJson = $result.Out | ConvertFrom-Json } catch { $profileJson = $null }
@@ -129,6 +142,15 @@ Assert ($result.Code -eq 0 -and $null -ne $profileJson) 'profile status routes a
 
 $result = Invoke-Entry -Arguments @('config', 'pull', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-DryRun')
 Assert ($result.Code -eq 0) 'config pull routes through the explicit dry-run gate'
+
+$result = Invoke-Entry -Arguments @('config', 'push', '-Platform', 'ZCode', '-DryRun')
+Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config push -Platform ZCode -DryRun forwards single argument without character splatting'
+
+$result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'ZCode', '-DryRun')
+Assert ($result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform ZCode -DryRun forwards single argument without character splatting'
+
+$result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'Codex', '-DryRun')
+Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform Codex -DryRun forwards single argument without character splatting'
 
 Write-Host 'unified CLI: deploy routes'
 $result = Invoke-Entry -Arguments (@('sync', '-DryRun') + $deployArgs)
@@ -255,6 +277,116 @@ $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'deplo
 $mcpLiteral = $null
 try { $mcpLiteral = ($result.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $mcpLiteral = $null }
 Assert ($result.Code -eq 0 -and $null -ne $mcpLiteral -and $mcpLiteral.RepoRoot -eq '-Apply' -and $mcpLiteral.HomeRoot -eq '-DryRun' -and (-not $mcpLiteral.Apply)) 'mcp deploy preserves literal mode strings as path values without activation'
+
+Write-Host 'unified CLI: top-level status command and aggregation'
+foreach ($badStatus in @(
+    @('-DryRun'),
+    @('-Apply'),
+    @('-DryRun:$true'),
+    @('-Apply:true'),
+    @('-DryRun', '-Apply'),
+    @('-Unknown'),
+    @('-RepoRoot'),
+    @('-HomeRoot'),
+    @('-StateRoot'),
+    @('-Json', '-Json'),
+    @('extra-positional')
+)) {
+    $result = Invoke-Entry -Arguments (@('status') + $badStatus)
+    Assert ($result.Code -eq 1 -and ($result.Out -match 'accepts no -DryRun or -Apply mode|Unsupported status argument|Missing path value|Duplicate status argument') -and $result.Out -notmatch 'Invoking script') "status rejects invalid argument: $($badStatus -join ' ')"
+}
+
+$statusOut = Invoke-Entry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
+Assert ($statusOut.Code -eq 0) 'status human-readable executes successfully (exit 0)'
+Assert ($statusOut.Out -match '=== Unified Status ===') 'status output contains header'
+Assert ($statusOut.Out -match '\[Environment\]' -and $statusOut.Out -match 'Available environments:') 'status output contains Environment section'
+Assert ($statusOut.Out -match '\[Config Status\]') 'status output contains Config Status section'
+Assert ($statusOut.Out -match '\[Antigravity Plugins\]') 'status output contains Antigravity Plugins section'
+Assert ($statusOut.Out -match '\[MCP Projections\]') 'status output contains MCP Projections section'
+Assert ($statusOut.Out -notmatch 'Invoking script|Command result') 'status human-readable emits no wrapper invocation banners'
+
+$jsonResult = Invoke-Entry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
+Assert ($jsonResult.Code -eq 0) 'status -Json executes successfully (exit 0)'
+Assert ($jsonResult.Out -notmatch 'Invoking script|Command result') 'status -Json emits zero wrapper banners'
+$parsedStatus = $null
+try { $parsedStatus = ConvertFrom-Json -InputObject $jsonResult.Out } catch { $parsedStatus = $null }
+Assert ($null -ne $parsedStatus) 'status -Json produces valid parseable JSON'
+Assert ($parsedStatus.SchemaVersion -eq 1) 'status JSON contains SchemaVersion = 1'
+Assert ($null -ne $parsedStatus.Environment -and $parsedStatus.Environment.Available -contains 'work') 'status JSON contains Environment section'
+Assert ($null -ne $parsedStatus.Config -and ($parsedStatus.Config -is [array] -or $null -ne $parsedStatus.Config.Error)) 'status JSON contains Config section'
+Assert ($null -ne $parsedStatus.Antigravity) 'status JSON contains Antigravity section'
+Assert ($null -ne $parsedStatus.Mcp) 'status JSON contains Mcp section'
+Assert ($null -ne $parsedStatus.Summary -and $null -ne $parsedStatus.Summary.Environment -and $null -ne $parsedStatus.Summary.Config -and $null -ne $parsedStatus.Summary.Antigravity -and $null -ne $parsedStatus.Summary.Mcp) 'status JSON contains Summary section with all 4 subsystems'
+
+# Mock stub aggregation tests in isolated pluginScripts
+Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content (@(
+    '[CmdletBinding()]',
+    'param([string] $RepoRoot, [string] $HomeRoot, [string[]] $Platform, [switch] $Json)',
+    '@(',
+    '  [pscustomobject]@{ Platform="Codex"; Item="AGENTS.md"; Status="in-sync"; Detail="mock-block" },',
+    '  [pscustomobject]@{ Platform="Antigravity"; Item="AGENTS.md"; Status="in-sync"; Detail="mock-block" },',
+    '  [pscustomobject]@{ Platform="ZCode"; Item="AGENTS.md"; Status="differs"; Detail="mock-block" }',
+    ') | ConvertTo-Json -Depth 5'
+) -join "`n")
+
+Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content (@(
+    '[CmdletBinding()]',
+    'param([ValidateSet("Build","Status","Deploy")][string] $Action, [string] $RepoRoot, [string] $StateRoot, [string] $JsonPath, [string[]] $ExternalPlugin = @(), [switch] $Apply)',
+    'if ($Action -eq "Status") {',
+    '  [pscustomobject]@{',
+    '    SchemaVersion = 1;',
+    '    Action = "unchanged";',
+    '    Reason = "mock-match";',
+    '    Name = "ai-agent-dotfiles";',
+    '    Version = "0.4.0";',
+    '    ExternalExpectations = @(',
+    '      [pscustomobject]@{ Name = "unity"; Action = "unchanged"; Reason = "mock-external" }',
+    '    )',
+    '  } | ConvertTo-Json -Depth 5',
+    '  return',
+    '}',
+    '[pscustomobject]@{ Action=$Action; RepoRoot=$RepoRoot; JsonPath=$JsonPath; ExternalPlugin=@($ExternalPlugin); Apply=[bool]$Apply } | ConvertTo-Json -Compress'
+) -join "`n")
+
+Set-TestFile -Path (Join-Path $pluginScripts 'mcp-sync.ps1') -Content (@(
+    '[CmdletBinding()]',
+    'param([ValidateSet("Status","Deploy")][string] $Action = "Status", [string] $RepoRoot, [string] $HomeRoot, [string[]] $Platform = @(), [string[]] $Server = @(), [string] $BackupRoot, [string] $JsonPath, [switch] $Json, [switch] $Apply, [switch] $SkipSecretScan)',
+    'if ($Action -eq "Status") {',
+    '  [pscustomobject]@{',
+    '    SchemaVersion = 1;',
+    '    Platforms = @("Antigravity", "Codex", "ZCode");',
+    '    Servers = @("blender");',
+    '    Summary = [pscustomobject]@{ add = 0; update = 1; unchanged = 2; blocked = 0 };',
+    '    Items = @(',
+    '      [pscustomobject]@{ Platform="Antigravity"; Server="blender"; Action="update"; Reason="mock-diff" },',
+    '      [pscustomobject]@{ Platform="Codex"; Server="blender"; Action="unchanged"; Reason="mock-match" }',
+    '    )',
+    '  } | ConvertTo-Json -Depth 5',
+    '  return',
+    '}',
+    '[pscustomobject]@{ Action=$Action; RepoRoot=$RepoRoot; HomeRoot=$HomeRoot; Platform=@($Platform); Server=@($Server); BackupRoot=$BackupRoot; JsonPath=$JsonPath; Json=[bool]$Json; Apply=[bool]$Apply; SkipSecretScan=[bool]$SkipSecretScan } | ConvertTo-Json -Compress'
+) -join "`n")
+
+Copy-Item -LiteralPath $entry -Destination $pluginEntry -Force
+
+$mockResult = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
+Assert ($mockResult.Code -eq 0 -and $mockResult.Out -notmatch 'Invoking script|Command result') 'mock stub status -Json exits 0 without banners'
+$mockJson = $null
+try { $mockJson = ConvertFrom-Json -InputObject $mockResult.Out } catch { $mockJson = $null }
+Assert ($null -ne $mockJson) 'mock stub status produces valid JSON'
+Assert ($mockJson.Config.Count -eq 3) 'mock stub config items merged correctly'
+Assert ($mockJson.Antigravity.Name -eq 'ai-agent-dotfiles') 'mock stub Antigravity report merged correctly'
+Assert ($mockJson.Mcp.Summary.update -eq 1) 'mock stub MCP summary merged correctly'
+Assert ($mockJson.Summary.Config.'in-sync' -eq 2 -and $mockJson.Summary.Config.differs -eq 1) 'mock stub Config summary counted correctly'
+Assert ($mockJson.Summary.Antigravity -eq 'unchanged') 'mock stub Antigravity summary action matched'
+Assert ($mockJson.Summary.Mcp.update -eq 1 -and $mockJson.Summary.Mcp.unchanged -eq 2) 'mock stub Mcp summary matched'
+
+$mockHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
+Assert ($mockHuman.Code -eq 0) 'mock stub human-readable status exits 0'
+Assert ($mockHuman.Out -match '=== Unified Status ===') 'mock stub human-readable contains header'
+Assert ($mockHuman.Out -match 'mock-block') 'mock stub human-readable contains config detail'
+Assert ($mockHuman.Out -match 'mock-match') 'mock stub human-readable contains antigravity plugin reason'
+Assert ($mockHuman.Out -match 'mock-diff') 'mock stub human-readable contains mcp projection reason'
 
 Write-Host 'unified CLI: apply gates'
 foreach ($commandArgs in @(

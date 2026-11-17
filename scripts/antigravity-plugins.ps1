@@ -3,6 +3,7 @@
 param(
     [ValidateSet('Build','Status','Deploy')] [string] $Action = 'Status',
     [string] $RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [string] $StateRoot,
     [string] $JsonPath,
     [string[]] $ExternalPlugin = @(),
     [switch] $Apply
@@ -13,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'skills-common.ps1')
 . (Join-Path $PSScriptRoot 'pinned-tool.ps1')
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
+$script:AgStateRoot = $null
 
 function Assert-AgPlainPath {
     param([string] $Path)
@@ -52,8 +54,15 @@ function Read-AgJsonFile {
     return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -AsHashtable
 }
 
+function Get-AgDefaultStateRoot {
+    $base = [Environment]::GetFolderPath('LocalApplicationData')
+    if ([string]::IsNullOrWhiteSpace($base) -and $env:LOCALAPPDATA) { $base = $env:LOCALAPPDATA }
+    if ([string]::IsNullOrWhiteSpace($base)) { $base = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'AppData\Local' }
+    return (Join-Path $base 'ai-agent-dotfiles.deploy\antigravity')
+}
+
 function Initialize-AgPluginContext {
-    param([string] $Root)
+    param([string] $Root, [string] $StateRoot = '')
     foreach ($variable in 'ANTIGRAVITY_GEMINI_DIR','ANTIGRAVITY_CONFIG_REL_DIR','ANTIGRAVITY_APP_DATA_DIR','JETSKI_APP_DATA_DIR') {
         $override = [Environment]::GetEnvironmentVariable($variable)
         if ([string]::IsNullOrEmpty($override)) { continue }
@@ -71,7 +80,17 @@ function Initialize-AgPluginContext {
     $script:AgWork = Join-Path $script:AgRepo 'tmp/antigravity'
     $script:AgPackage = Join-Path $script:AgWork 'plugins/ai-agent-dotfiles'
     $script:AgBuildReceipt = Join-Path $script:AgWork 'build.json'
-    $script:AgInstallReceipt = Join-Path $script:AgWork 'installed.json'
+
+    $resolvedStateRoot = if (-not [string]::IsNullOrWhiteSpace($StateRoot)) {
+        [IO.Path]::GetFullPath($StateRoot)
+    } elseif ($script:AgStateRoot -and (Test-SameOrDescendant -Path $script:AgStateRoot -Root $script:AgRepo)) {
+        $script:AgStateRoot
+    } else {
+        Get-AgDefaultStateRoot
+    }
+    $script:AgStateRoot = $resolvedStateRoot
+    Assert-AgPlainPath $script:AgStateRoot
+    $script:AgInstallReceipt = Join-Path $script:AgStateRoot 'installed.json'
     $script:AgConfigPath = Join-Path $script:AgRepo 'harness-source/antigravity/plugins.psd1'
     Assert-AgPlainPath $script:AgConfigPath
     $script:AgLoadedConfigHash = (Get-FileHash -LiteralPath $script:AgConfigPath -Algorithm SHA256).Hash
@@ -223,13 +242,14 @@ function Get-AgGateFingerprint {
 }
 
 function Enter-AgPluginLock {
-    [IO.Directory]::CreateDirectory($script:AgWork) | Out-Null
-    Assert-AgPlainPath (Join-Path $script:AgWork 'writer.lock')
-    return [IO.File]::Open((Join-Path $script:AgWork 'writer.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    param([string] $LockRoot = $script:AgStateRoot)
+    [IO.Directory]::CreateDirectory($LockRoot) | Out-Null
+    Assert-AgPlainPath (Join-Path $LockRoot 'writer.lock')
+    return [IO.File]::Open((Join-Path $LockRoot 'writer.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 }
 
 function New-AgPluginBuild {
-    $lock = Enter-AgPluginLock
+    $lock = Enter-AgPluginLock -LockRoot $script:AgWork
     $stage = Join-Path $script:AgWork ('build-' + [Guid]::NewGuid().ToString('N'))
     try {
         $expected = Get-AgExpectedFiles
@@ -375,7 +395,19 @@ function Get-AgPluginPlan {
         Package=$script:AgPackage; Digest=$digest; GateFingerprint=(Get-AgGateFingerprint); SourceRevision=$null; Enabled=$null; InstalledPath=$null
         Changes=(Get-AgFileChanges ([ordered]@{}) $expected); CanonicalScan='UNKNOWN'; PackageScan='UNKNOWN'; NativeValidation='UNKNOWN'
         NativeAction=$null; WriteScope=@(); External=@(); ExternalExpectations=@()
-        Limitations=@('Native App is not locked by this script.','Updates and rollback remain blocked until their native contracts are proven.',"Installation may immediately enable the $(@($managed.Skills).Count) selected skills.")
+        Limitations=@('Native App is not locked by this script.','Downgrades and automatic rollback remain blocked.',"Installation may immediately enable the $(@($managed.Skills).Count) selected skills.")
+    }
+    if ((Test-Path -LiteralPath $script:AgPackage) -and (Test-Path -LiteralPath $script:AgBuildReceipt)) {
+        $build = Read-AgJsonFile $script:AgBuildReceipt
+        if ($build.Name -ceq $managed.Name -and $build.Version -ceq $managed.Version -and $build.Digest -ceq $digest) {
+            $actual = Get-AgTreeFiles $script:AgPackage
+            if ((Get-AgMapDigest $actual) -ceq $digest -and $build.GateFingerprint -ceq (Get-AgGateFingerprint)) {
+                $plan.SourceRevision = $build.SourceRevision
+                $plan.CanonicalScan = $build.CanonicalScan
+                $plan.PackageScan = $build.PackageScan
+                $plan.NativeValidation = $build.NativeValidation
+            }
+        }
     }
     $targetMatches = [Collections.Generic.List[object]]::new()
     foreach ($plugin in @($inventory.Plugins)) {
@@ -403,7 +435,7 @@ function Get-AgPluginPlan {
         elseif ($found.Count -eq 0) {
             $extTarget = Join-Path $inventory.ConfigRoot ('plugins/' + $expectation.Name)
             Assert-AgPlainPath $extTarget
-            if (Test-Path -LiteralPath (Join-Path $script:AgWork ("pending-external-$($expectation.Name).json"))) {
+            if (Test-Path -LiteralPath (Join-Path $script:AgStateRoot ("pending-external-$($expectation.Name).json"))) {
                 $state = 'blocked'
                 $extReason = 'previous-install-needs-readback-review'
             }
@@ -438,43 +470,46 @@ function Get-AgPluginPlan {
     }
     if ($targetMatches.Count -gt 1) { $plan.Reason='ambiguous-native-identity'; return $plan }
     if ($targetMatches.Count -eq 1) {
-        $plan.InstalledPath=$targetMatches[0].path
-        $plan.Enabled=$targetMatches[0].enabled
+        $plan.InstalledPath = $targetMatches[0].path
+        $plan.Enabled = $targetMatches[0].enabled
+        $live = if (Test-Path -LiteralPath $plan.InstalledPath) { Get-AgInstalledFiles $plan.InstalledPath } else { [ordered]@{} }
+        $plan.Changes = Get-AgFileChanges $live $expected
+
+        $plan.Reason = 'same-name-unknown-owner'
+        if (-not (Test-Path -LiteralPath $script:AgInstallReceipt)) { return $plan }
+        $installed = Read-AgJsonFile $script:AgInstallReceipt
+        if ($installed.Name -cne $managed.Name -or $installed.Path -cne $plan.InstalledPath -or $installed.SchemaVersion -ne 1) { return $plan }
+
+        if ((Get-AgMapDigest $live) -cne $installed.Digest) { $plan.Reason='installed-content-drift'; return $plan }
+        if ($installed.Version -ceq $managed.Version) {
+            if ($installed.Digest -cne $digest) { $plan.Reason='same-version-different-content'; return $plan }
+            $plan.Action = 'unchanged'; $plan.Reason = 'identity-version-and-content-match'; return $plan
+        }
+        if ([version]$managed.Version -le [version]$installed.Version) { $plan.Reason='downgrade-or-version-reuse'; return $plan }
+        $plan.Action = 'update'
+        $plan.Reason = 'version-upgrade'
+        $plan.NativeAction = @('plugin', 'uninstall', $managed.Name, '&&', 'plugin', 'install', $script:AgPackage)
+        $plan.WriteScope = @($plan.InstalledPath, (Join-Path $inventory.ConfigRoot 'config.json'), 'Pre-update live backup retained; other plugins unchanged.')
+        return $plan
     }
+    if (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json')) { $plan.Reason='previous-install-needs-readback-review'; return $plan }
+    $target = Join-Path $inventory.ConfigRoot 'plugins/ai-agent-dotfiles'
+    Assert-AgPlainPath $target
+    if (Test-Path -LiteralPath $target) { $plan.Reason='unregistered-target-directory'; return $plan }
+    if (Test-Path -LiteralPath $script:AgInstallReceipt) { $plan.Reason='recorded-installation-missing'; return $plan }
     if (-not (Test-Path -LiteralPath $script:AgPackage) -or -not (Test-Path -LiteralPath $script:AgBuildReceipt)) { return $plan }
     $build = Read-AgJsonFile $script:AgBuildReceipt
-    $plan.SourceRevision=$build.SourceRevision
+    $plan.SourceRevision = $build.SourceRevision
     $actual = Get-AgTreeFiles $script:AgPackage
     if ($build.Name -cne $managed.Name -or $build.Version -cne $managed.Version -or $build.Digest -cne $digest -or
         (Get-AgMapDigest $actual) -cne $digest -or $build.GateFingerprint -cne (Get-AgGateFingerprint)) { $plan.Reason='source-candidate-or-gates-changed'; return $plan }
-    $plan.CanonicalScan=$build.CanonicalScan
-    $plan.PackageScan=$build.PackageScan
-    $plan.NativeValidation=$build.NativeValidation
+    $plan.CanonicalScan = $build.CanonicalScan
+    $plan.PackageScan = $build.PackageScan
+    $plan.NativeValidation = $build.NativeValidation
     if ($build.CanonicalScan -cne 'PASS' -or $build.PackageScan -cne 'PASS' -or $build.NativeValidation -cne 'PASS' -or $build.NativeVersion -cne $inventory.Version) { $plan.Reason='build-gates-incomplete-or-native-version-changed'; return $plan }
-    if ($targetMatches.Count -eq 0) {
-        if (Test-Path -LiteralPath (Join-Path $script:AgWork 'pending-install.json')) { $plan.Reason='previous-install-needs-readback-review'; return $plan }
-        $target = Join-Path $inventory.ConfigRoot 'plugins/ai-agent-dotfiles'
-        Assert-AgPlainPath $target
-        if (Test-Path -LiteralPath $target) { $plan.Reason='unregistered-target-directory'; return $plan }
-        if (Test-Path -LiteralPath $script:AgInstallReceipt) { $plan.Reason='recorded-installation-missing'; return $plan }
-        $plan.Action='install'; $plan.Reason='first-install'
-        $plan.NativeAction=@('plugin','install',$script:AgPackage)
-        $plan.WriteScope=@($target,(Join-Path $inventory.ConfigRoot 'config.json'),'Native CLI logs and registration state; other plugins must remain unchanged.')
-        return $plan
-    }
-    $plan.Reason='same-name-unknown-owner'
-    if (-not (Test-Path -LiteralPath $script:AgInstallReceipt)) { return $plan }
-    $installed = Read-AgJsonFile $script:AgInstallReceipt
-    if ($installed.Name -cne $managed.Name -or $installed.Path -cne $plan.InstalledPath -or $installed.SchemaVersion -ne 1) { return $plan }
-    $live = Get-AgInstalledFiles $plan.InstalledPath
-    $plan.Changes=Get-AgFileChanges $live $actual
-    if ((Get-AgMapDigest $live) -cne $installed.Digest) { $plan.Reason='installed-content-drift'; return $plan }
-    if ($installed.Version -ceq $managed.Version) {
-        if ($installed.Digest -cne $digest) { $plan.Reason='same-version-different-content'; return $plan }
-        $plan.Action='unchanged'; $plan.Reason='identity-version-and-content-match'; return $plan
-    }
-    if ([version]$managed.Version -le [version]$installed.Version) { $plan.Reason='downgrade-or-version-reuse'; return $plan }
-    $plan.Reason='native-update-contract-unproven'
+    $plan.Action = 'install'; $plan.Reason = 'first-install'
+    $plan.NativeAction = @('plugin','install',$script:AgPackage)
+    $plan.WriteScope = @($target,(Join-Path $inventory.ConfigRoot 'config.json'),'Native CLI logs and registration state; other plugins must remain unchanged.')
     return $plan
 }
 
@@ -518,10 +553,10 @@ function Invoke-AgPluginDeploy {
                 if ((Get-AgInventoryToken $before) -cne $current.InventoryToken -or (Get-AgRegistrationHash $current.ConfigRoot) -cne $current.RegistrationHash) {
                     throw 'Native state changed before external plugin installation.'
                 }
-                $attempt = Join-Path $script:AgWork ("attempt-ext-$name-" + [Guid]::NewGuid().ToString('N'))
+                $attempt = Join-Path $script:AgStateRoot ("attempt-ext-$name-" + [Guid]::NewGuid().ToString('N'))
                 [IO.Directory]::CreateDirectory($attempt) | Out-Null
                 Write-AgJsonFile (Join-Path $attempt 'pre-state.json') @{ Plan=$current; Inventory=$before; Target=$name }
-                $pendingMarker = Join-Path $script:AgWork "pending-external-$name.json"
+                $pendingMarker = Join-Path $script:AgStateRoot "pending-external-$name.json"
                 Write-AgJsonFile $pendingMarker @{ Attempt=$attempt; Name=$name; InstallTarget=$exp.InstallTarget }
                 $native = $null
                 $failure = $null
@@ -568,7 +603,7 @@ function Invoke-AgPluginDeploy {
         finally { if ($lock) { $lock.Dispose() }; $mutex.ReleaseMutex(); $mutex.Dispose() }
     }
     if (-not $DoApply -or $plan.Action -eq 'unchanged') { return $plan }
-    if ($plan.Action -ne 'install') { throw ('Plugin deployment blocked: ' + $plan.Reason) }
+    if ($plan.Action -notin @('install', 'update')) { throw ('Plugin deployment blocked: ' + $plan.Reason) }
     $mutex = Enter-AgDeploymentMutex $plan.ConfigRoot
     $lock = $null
     try {
@@ -578,21 +613,69 @@ function Invoke-AgPluginDeploy {
         $null = Get-AgNativeValidation $script:AgPackage
         $before = Get-AgInventory
         if ((Get-AgInventoryToken $before) -cne $plan.InventoryToken -or (Get-AgRegistrationHash $plan.ConfigRoot) -cne $plan.RegistrationHash) { throw 'Native state changed during pre-install validation.' }
-        $attempt = Join-Path $script:AgWork ('attempt-' + [Guid]::NewGuid().ToString('N'))
+        $attempt = Join-Path $script:AgStateRoot ('attempt-' + [Guid]::NewGuid().ToString('N'))
         [IO.Directory]::CreateDirectory($attempt) | Out-Null
         Copy-SkillTree -SourceRoot $script:AgPackage -DestinationRoot (Join-Path $attempt 'package')
-        Write-AgJsonFile (Join-Path $attempt 'pre-state.json') @{ Plan=$plan; Inventory=$before }
-        # Recheck immediately before the sole mutating command, including every unrelated plugin.
+
+        $backupDir = $null
+        $installed = $null
+        if ($plan.Action -eq 'update') {
+            $installed = Read-AgJsonFile $script:AgInstallReceipt
+            $backupDir = Join-Path $attempt 'backup'
+            Copy-SkillTree -SourceRoot $plan.InstalledPath -DestinationRoot $backupDir
+            Assert-AgPlainPath $backupDir
+            $backupFiles = Get-AgInstalledFiles $backupDir
+            if ((Get-AgMapDigest $backupFiles) -cne $installed.Digest) {
+                throw 'Pre-update backup verification failed: digest mismatch.'
+            }
+        }
+
+        Write-AgJsonFile (Join-Path $attempt 'pre-state.json') @{ Plan=$plan; Inventory=$before; Backup=$backupDir }
+        # Recheck immediately before the mutating command, including every unrelated plugin.
         $finalPlan = Get-AgPluginPlan
         if ((Get-AgTextHash ($plan | ConvertTo-Json -Depth 30 -Compress)) -cne (Get-AgTextHash ($finalPlan | ConvertTo-Json -Depth 30 -Compress))) { throw 'Inputs changed immediately before native installation.' }
-        Write-AgJsonFile (Join-Path $script:AgWork 'pending-install.json') @{ Attempt=$attempt; Digest=$plan.Digest }
+        Write-AgJsonFile (Join-Path $script:AgStateRoot 'pending-install.json') @{ Attempt=$attempt; Digest=$plan.Digest; Action=$plan.Action }
+
         $native = $null
+        $uninstallNative = $null
         $failure = $null
-        try { $native = Invoke-AgNativeCommand @('plugin','install',$script:AgPackage) }
-        catch { $failure = $_.Exception.Message }
+        if ($plan.Action -eq 'update') {
+            try {
+                $uninstallNative = Invoke-AgNativeCommand @('plugin', 'uninstall', $plan.Name)
+                if ($uninstallNative.Code -ne 0) {
+                    $failure = "Native uninstall failed with code $($uninstallNative.Code): $($uninstallNative.Error)"
+                }
+            }
+            catch {
+                $failure = $_.Exception.Message
+            }
+            if (-not $failure) {
+                try {
+                    $native = Invoke-AgNativeCommand @('plugin', 'install', $script:AgPackage)
+                    if ($native.Code -ne 0) {
+                        $failure = "Native install failed with code $($native.Code): $($native.Error)"
+                    }
+                }
+                catch {
+                    $failure = $_.Exception.Message
+                }
+            }
+        }
+        else {
+            try {
+                $native = Invoke-AgNativeCommand @('plugin', 'install', $script:AgPackage)
+                if ($native.Code -ne 0) {
+                    $failure = "Native install failed with code $($native.Code): $($native.Error)"
+                }
+            }
+            catch {
+                $failure = $_.Exception.Message
+            }
+        }
+
         # Always read back, even after timeout, nonzero exit or an exception. No automatic retry.
         $after = $null
-        try { $after = Get-AgInventory } catch { $failure = 'Native readback unavailable; installation state UNKNOWN.' }
+        try { $after = Get-AgInventory } catch { if (-not $failure) { $failure = 'Native readback unavailable; installation state UNKNOWN.' } }
         $approvedPath = Join-Path $plan.ConfigRoot 'plugins/ai-agent-dotfiles'
         $snapshots = @((Read-AgTargetSnapshot $approvedPath))
         if ($after) {
@@ -600,8 +683,10 @@ function Invoke-AgPluginDeploy {
                 if ([IO.Path]::GetFullPath($entry.path) -ine [IO.Path]::GetFullPath($approvedPath)) { $snapshots += Read-AgTargetSnapshot $entry.path }
             }
         }
-        Write-AgJsonFile (Join-Path $attempt 'result.json') @{ Native=$native; Failure=$failure; Inventory=$after; Targets=$snapshots }
-        if ($failure -or -not $native -or $native.Code -ne 0 -or -not $after) { throw 'Native install failed or is uncertain; inspect the retained attempt and do not blindly retry.' }
+        Write-AgJsonFile (Join-Path $attempt 'result.json') @{ Native=$native; UninstallNative=$uninstallNative; Failure=$failure; Inventory=$after; Targets=$snapshots; Backup=$backupDir }
+        if ($failure -or ($plan.Action -eq 'update' -and (-not $uninstallNative -or $uninstallNative.Code -ne 0)) -or -not $native -or $native.Code -ne 0 -or -not $after) {
+            throw 'Native install failed or is uncertain; inspect the retained attempt and do not blindly retry.'
+        }
         $targets = @($after.Plugins | Where-Object name -IEQ 'ai-agent-dotfiles')
         if ($targets.Count -ne 1) { throw 'Installation readback has an unexpected target identity; stop.' }
         $target = $targets[0]
@@ -613,8 +698,21 @@ function Invoke-AgPluginDeploy {
         $oldExternal = @($before.Plugins | Where-Object name -INE 'ai-agent-dotfiles')
         $newExternal = @($after.Plugins | Where-Object name -INE 'ai-agent-dotfiles')
         if ((ConvertTo-Json -InputObject $oldExternal -Depth 30 -Compress) -cne (ConvertTo-Json -InputObject $newExternal -Depth 30 -Compress)) { throw 'Unrelated plugin inventory changed during installation; stop.' }
-        Write-AgJsonFile $script:AgInstallReceipt @{ SchemaVersion=1; Name=$plan.Name; Version=$plan.Version; Digest=$plan.Digest; Path=$target.path; Files=$files; Attempt=$attempt }
-        Remove-Item -LiteralPath (Join-Path $script:AgWork 'pending-install.json')
+
+        $receipt = [ordered]@{
+            SchemaVersion = 1
+            Name = $plan.Name
+            Version = $plan.Version
+            Digest = $plan.Digest
+            Path = $target.path
+            Files = $files
+            Attempt = $attempt
+        }
+        if ($installed -and $installed.ContainsKey('Version')) {
+            $receipt['PreviousVersion'] = $installed.Version
+        }
+        Write-AgJsonFile $script:AgInstallReceipt $receipt
+        Remove-Item -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json')
         $readback = Get-AgPluginPlan
         if ($readback.Action -ne 'unchanged') { throw 'Post-install preview did not converge to unchanged.' }
         return $readback
@@ -626,7 +724,7 @@ function Invoke-AgPluginDeploy {
 if ($MyInvocation.InvocationName -eq '.') { return }
 if ($Apply -and $Action -ne 'Deploy') { throw '-Apply is supported only for Deploy.' }
 if ($ExternalPlugin.Count -gt 0 -and $Action -ne 'Deploy') { throw '-ExternalPlugin is supported only for Deploy.' }
-Initialize-AgPluginContext $RepoRoot
+Initialize-AgPluginContext -Root $RepoRoot -StateRoot $StateRoot
 $report = switch ($Action) {
     Build { New-AgPluginBuild }
     Status { Get-AgPluginPlan }

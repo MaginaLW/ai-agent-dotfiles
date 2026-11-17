@@ -23,7 +23,8 @@ function Invoke-Runner {
         [Parameter(Mandatory)] [string] $Label,
         [Parameter(Mandatory)] [hashtable] $Budgets,
         [string[]] $Suites = @(),
-        [hashtable] $InlineSuites = @{}
+        [hashtable] $InlineSuites = @{},
+        [string[]] $RunnerArgs = @()
     )
 
     $caseTests = Join-Path $work "$Label/tests"
@@ -41,7 +42,8 @@ function Invoke-Runner {
     }
     $entries = @($Budgets.Keys | ForEach-Object { "        '$_' = $($Budgets[$_])" })
     Set-Content -LiteralPath (Join-Path $caseTests 'test-timeouts.psd1') -Value (@('@{', '    Suites = @{') + $entries + @('    }', '}'))
-    $output = & pwsh -NoProfile -File $runner -RepoRoot (Join-Path $work $Label) 2>&1 | Out-String
+    $arguments = @('-NoProfile', '-File', $runner, '-RepoRoot', (Join-Path $work $Label)) + $RunnerArgs
+    $output = & pwsh @arguments 2>&1 | Out-String
     return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $output; Repo = (Join-Path $work $Label) }
 }
 
@@ -78,6 +80,25 @@ try {
     $total = ($repoBudgets.Values | Measure-Object -Sum).Sum
     # The 35-minute CI job also runs the other validation gates; keep 7 minutes for them.
     Assert ($total -le 1680) "suite budgets fit the 35-minute CI job (total $total s)"
+
+    Write-Host '[selective suite execution]'
+    $r = Invoke-Runner 'suite-filter-bare' @{ 'pass.tests.ps1' = 30; 'fail.tests.ps1' = 30 } @('pass.tests.ps1', 'fail.tests.ps1') -RunnerArgs @('-Suite', 'pass')
+    Assert ($r.Code -eq 0 -and $r.Out -match '=== pass\.tests\.ps1 ===' -and $r.Out -match 'fixture pass stdout' -and $r.Out -notmatch 'fail\.tests\.ps1' -and $r.Out -match 'Test summary: PASS; suites=1; failed=0') 'selecting a single suite executes only that suite even when another failing suite exists'
+
+    $r = Invoke-Runner 'suite-filter-fullname' @{ 'pass.tests.ps1' = 30; 'fail.tests.ps1' = 30 } @('pass.tests.ps1', 'fail.tests.ps1') -RunnerArgs @('-Suite', 'PASS.TESTS.PS1')
+    Assert ($r.Code -eq 0 -and $r.Out -match '=== pass\.tests\.ps1 ===' -and $r.Out -match 'Test summary: PASS; suites=1; failed=0') 'selecting a suite by full filename case-insensitively works'
+
+    $r = Invoke-Runner 'suite-invalid' @{ 'pass.tests.ps1' = 30 } @('pass.tests.ps1') -RunnerArgs @('-Suite', 'nonexistent')
+    Assert ($r.Code -ne 0 -and $r.Out -match "Suite 'nonexistent' \(resolved as 'nonexistent\.tests\.ps1'\) was not found" -and $r.Out -notmatch 'fixture pass stdout') 'an unknown suite name stops execution with an error'
+
+    $r = Invoke-Runner 'suite-empty' @{ 'pass.tests.ps1' = 30 } @('pass.tests.ps1') -RunnerArgs @('-Suite', '   ')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'Suite parameter cannot be empty or whitespace' -and $r.Out -notmatch 'fixture pass stdout') 'whitespace suite name stops execution with an error'
+
+    $r = Invoke-Runner 'suite-timeout' @{ 'pass.tests.ps1' = 30; 'sleep.tests.ps1' = 2 } @('pass.tests.ps1') -InlineSuites @{ 'sleep.tests.ps1' = 'Start-Sleep -Seconds 10' } -RunnerArgs @('-Suite', 'sleep')
+    Assert ($r.Code -eq 1 -and $r.Out -match 'sleep\.tests\.ps1: timed out after 2 s' -and $r.Out -notmatch 'pass\.tests\.ps1' -and $r.Out -match 'Test summary: FAIL; suites=1; failed=1') 'single selected suite enforces its specific timeout budget'
+
+    $r = Invoke-Runner 'suite-contract-preserved' @{ 'pass.tests.ps1' = 30 } @('pass.tests.ps1', 'fail.tests.ps1') -RunnerArgs @('-Suite', 'pass')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'Missing: fail\.tests\.ps1' -and $r.Out -notmatch 'fixture pass stdout') 'suite timeout table contract is enforced across all disk suites even when -Suite is used'
 
     Write-Host '[config-sync workspace ownership and receipts]'
     $configSetup = @'

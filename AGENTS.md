@@ -1,5 +1,8 @@
 # AGENTS.md
 
+# AGENTS.md
+
+<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->
 Project instructions for coding agents working in this repository, including Codex and ZCode.
 Codex and ZCode do not expand linked documents, so every rule an agent must follow is written
 here. Links only point to detail for the area you are changing. Local Claude developer entry
@@ -90,13 +93,18 @@ need them.
    Use `-Apply` only within explicit owner authorization for that reviewed scope. Reuse an
    existing grant covering this finite deployment; ask only for a missing or materially changed
    decision, not for the same authorization again.
-   Antigravity plugin installation uses the separate `antigravity-plugins.ps1` entry to call
-   official `agy plugin` commands; never write live plugin files or registration config by hand.
-   Review its complete preview before Apply. Owner authorization must cover the exact plugin
-   identity, version, package, enablement effects and recovery scope. Preserve unknown plugins
-   and built-in components. Updates and rollback stay blocked until their native contracts are
-   proven. Official disable/uninstall recovery also needs authorization for that specific action.
-   Skill rules 10 grants no Antigravity install, enable/disable, uninstall or config permission.
+   Antigravity plugin installation and controlled update use the separate
+   `antigravity-plugins.ps1` entry to call official `agy plugin` commands; never write live
+   plugin files or registration config by hand. Review its complete preview before Apply.
+   Owner authorization must cover the exact plugin identity, previous/target versions, package,
+   enablement effects and recovery scope. Controlled update performs a pre-write backup of the
+   live plugin directory, followed by official `agy plugin uninstall` and `agy plugin install`,
+   with readback verification of installed files and external plugin invariance. In case of
+   failure, the pre-write backup is preserved in the attempt state and writes halt without
+   blind retry. Preserve unknown plugins and built-in components. Downgrades and automatic
+   rollback remain blocked; manual rollback or official restore requires explicit owner
+   authorization. Skill rules 10 grants no Antigravity install, update, enable/disable,
+   uninstall or config permission.
 4. **Retiring a skill.** deploy-skills prunes only directories it deployed itself. A deleted
    skill that it never deployed stays in the live root as unknown and preserved. To remove it,
    pass `-Retire <name>` to both the dry run and the Apply. Never pass `.system` or a selected
@@ -206,3 +214,4 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
 - **Docs are not pinned.** No test checks documentation wording; keep the docs accurate by
   review. `tests/repository-policy.tests.ps1` checks working guard rails only (retired local
   entry points, manifests, generated-root boundaries, ignore rules and scan exclusions).
+<!-- END AI-AGENT-DOTFILES: antigravity/AGENTS.md -->

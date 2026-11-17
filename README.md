@@ -29,7 +29,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list
 ```
 
 Bootstrap 安装并校验固定版本的 gitleaks，构建 skills，并打印下一步预览命令；不写 live skills 或 home 配置。
-检查 doctor 的 FAIL 和 Deploy blockers；普通 WARN 也需按提示判断，但不等同于部署阻塞。
+检查 doctor 的 FAIL 和 Deploy blockers；普通 WARN 也需按提示判断，但不等同于部署阻塞。干净系统上缺失已退役的 Claude live 根会提示为 INFO，不产生 WARN。
 环境 `work` 是日常集合，`full` 包含全部受管 skills，`minimal` 是最小验证样例。
 
 ## 日常更新
@@ -62,15 +62,19 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -Apply
 以下命令只读；`env list` 显示的上次 Apply 环境只是记录，不验证 live 内容：
 
 ```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 status -Json
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 doctor
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status -Platform Antigravity
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ```
 
-`config help` 与 `help config` 等价；`env`、`profile`、`skills`、`antigravity`、`mcp` 也支持分组帮助。
+`agent-dotfiles.ps1 status` 一站式只读汇总上次 Apply 环境、三端配置漂移（Codex、Antigravity、ZCode）、Antigravity 插件状态与受管 MCP 状态；支持 `-Json` 输出纯净结构化对象。
+`config help` 与 `help config` 等价；`status`、`env`、`profile`、`skills`、`antigravity`、`mcp` 也支持分组帮助。
 `config pull` 是仓库 → 本机，`config push` 是本机 → 仓库的配置捕获，和 Git push 无关。
 捕获的 diff 必须由人审查后才能提交。`env list -JsonPath <file>` 会写报告文件，属于只读列表的显式写出例外。
 

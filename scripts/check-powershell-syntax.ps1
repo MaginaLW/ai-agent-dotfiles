@@ -27,7 +27,6 @@ $ambiguousFunctions = [System.Collections.Generic.HashSet[string]]::new([System.
 foreach ($relative in @($paths | Sort-Object -Unique)) {
     $normalized = ([string]$relative).Replace([char]92, [char]47)
     if ($normalized.StartsWith('./', [System.StringComparison]::Ordinal)) { $normalized = $normalized.Substring(2) }
-    if (Test-IsProtectedReasonixFile -RelativePath $normalized) { continue }
     if (@($excludedPrefixes | Where-Object { $normalized.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0) { continue }
     if ([System.IO.Path]::GetExtension($normalized) -notin @('.ps1', '.psm1', '.psd1')) { continue }
     $full = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $normalized))

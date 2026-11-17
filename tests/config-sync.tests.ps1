@@ -48,6 +48,7 @@ function Assert {
 }
 
 . (Join-Path $RepoRoot 'scripts/config-sync-test-workspace.ps1')
+. (Join-Path $RepoRoot 'scripts/config-common.ps1')
 if ($WorkRoot -or $WorkspaceRunId) {
     if (-not $WorkRoot -or -not $WorkspaceRunId) { throw 'WorkRoot and WorkspaceRunId must be provided together.' }
     $work = Assert-ConfigSyncTestWork -RepoRoot $RepoRoot -WorkRoot $WorkRoot -RunId $WorkspaceRunId
@@ -102,17 +103,32 @@ try {
     Set-File (Join-Path $defaultRepo 'claude/settings.json') '{"legacy":true}'
     Set-File (Join-Path $defaultRepo 'codex/AGENTS.md') '# Managed defaults'
     Set-File (Join-Path $defaultRepo 'antigravity/AGENTS.md') '# Antigravity defaults'
+    Set-File (Join-Path $defaultRepo 'zcode/AGENTS.md') '# ZCode defaults'
     Set-File (Join-Path $defaultHome '.claude/settings.json') '{"personal":true}'
     Set-File (Join-Path $defaultHome '.codex/AGENTS.md') '# Managed defaults'
     Set-File (Join-Path $defaultHome '.gemini/config/AGENTS.md') '# Antigravity defaults'
+    Set-File (Join-Path $defaultHome '.zcode/AGENTS.md') '# ZCode defaults'
     foreach ($configScript in @($statusScript, $pullScript, $pushScript)) {
         $defaultRun = Invoke-Script -Script $configScript -ScriptArgs @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome)
-        Assert ($defaultRun.Code -eq 0 -and $defaultRun.Out -match 'Codex' -and $defaultRun.Out -notmatch 'Claude|Antigravity') "config defaults to Codex without reading Claude or Antigravity fields: $(Split-Path -Leaf $configScript)"
+        Assert ($defaultRun.Code -eq 0 -and $defaultRun.Out -match 'Codex' -and $defaultRun.Out -notmatch 'Claude|Antigravity|ZCode') "config defaults to Codex without reading Claude, Antigravity or ZCode fields: $(Split-Path -Leaf $configScript)"
+        $emptyPlatformRun = Invoke-Script -Script $configScript -ScriptArgs @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome, '-Platform', '')
+        Assert ($emptyPlatformRun.Code -ne 0 -and $emptyPlatformRun.Out -match 'requires at least one platform name') "config script rejects empty -Platform with descriptive error: $(Split-Path -Leaf $configScript)"
     }
+
+    # Platform parsing unification tests (Resolve-ConfigPlatforms)
+    Assert ((Resolve-ConfigPlatforms -Values @('Codex,Antigravity')) -join ',' -eq 'Codex,Antigravity') 'Resolve-ConfigPlatforms splits comma-separated strings'
+    Assert ((Resolve-ConfigPlatforms -Values @(' codex , ZCODE , claude ')) -join ',' -eq 'Codex,ZCode,Claude') 'Resolve-ConfigPlatforms trims whitespace and normalizes case'
+    Assert ((Resolve-ConfigPlatforms -Values @('Codex', 'codex', 'CODEX')) -join ',' -eq 'Codex') 'Resolve-ConfigPlatforms deduplicates names preserving order'
+    Assert ((Resolve-ConfigPlatforms -Values @('Claude', 'Codex', 'Antigravity', 'ZCode')) -join ',' -eq 'Claude,Codex,Antigravity,ZCode') 'Resolve-ConfigPlatforms supports all four config platforms'
+    try { $null = Resolve-ConfigPlatforms -Values @('BadPlatform'); Assert $false 'Expected exception on unsupported platform' }
+    catch { Assert ($_.Exception.Message -match "Unsupported config platform 'BadPlatform'") 'Resolve-ConfigPlatforms rejects unsupported platform' }
+    try { $null = Resolve-ConfigPlatforms -Values @(''); Assert $false 'Expected exception on empty platform string' }
+    catch { Assert ($_.Exception.Message -match 'requires at least one platform name') 'Resolve-ConfigPlatforms rejects empty platform string' }
 
     $managedAgentsTargets = @(
         @{ Platform = 'Codex'; RepoRel = 'codex/AGENTS.md'; HomeRel = '.codex/AGENTS.md'; BlockId = 'codex/AGENTS.md' }
         @{ Platform = 'Antigravity'; RepoRel = 'antigravity/AGENTS.md'; HomeRel = '.gemini/config/AGENTS.md'; BlockId = 'antigravity/AGENTS.md' }
+        @{ Platform = 'ZCode'; RepoRel = 'zcode/AGENTS.md'; HomeRel = '.zcode/AGENTS.md'; BlockId = 'zcode/AGENTS.md' }
     )
 
     # ===========================================================================
@@ -191,7 +207,12 @@ try {
     foreach ($scriptPath in @($statusScript, $pullScript, $pushScript)) {
         $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Reasonix')
         Assert ($r.Code -ne 0) "config: $([IO.Path]::GetFileName($scriptPath)) rejects the retired platform"
+        Assert ($r.Out -match "Unsupported config platform 'Reasonix'") "config: $([IO.Path]::GetFileName($scriptPath)) reports descriptive unsupported platform error"
     }
+
+    # Multi-platform status execution test
+    $multiStatus = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'codex, claude', '-Json')
+    Assert ($multiStatus.Code -eq 0) 'config-status accepts comma-separated mixed-case platforms'
 
     # ===========================================================================
     Write-Host "`n[config-pull]" -ForegroundColor Cyan

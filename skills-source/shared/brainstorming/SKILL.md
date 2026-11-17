@@ -25,7 +25,7 @@ Consolidate review at the useful delivery boundary; preserve required independen
 Adapt these steps to the unresolved decisions; do not create a separate task or approval checkpoint for every item:
 
 1. **Explore project context** — check relevant files, docs, notes, examples, constraints, or recent decisions
-2. **Use visuals if helpful** — see the Visual Companion section below
+2. **Use visuals if helpful** — see the [Visual Choices](#visual-choices) section below
 3. **Ask necessary clarifying questions** — understand unresolved purpose/constraints/success criteria
 4. **Compare plausible approaches** — with trade-offs and your recommendation when alternatives matter
 5. **Present design** — scale detail to complexity and surface any decisions that still require user input
@@ -100,7 +100,6 @@ digraph brainstorming {
 **Documentation:**
 
 - Write a design note when the complexity or requested deliverable warrants one; follow existing project conventions and user preferences
-- Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit only if this is git-tracked work and the user or repo workflow expects commits
 
 **Spec Self-Review:**
@@ -114,7 +113,7 @@ After writing the spec document, look at it with fresh eyes:
 Fix any issues inline. No need to re-review — just fix and move on.
 
 **Review and Remaining Decisions:**
-Share the design note when one was written. Ask for review when the user requested a design review, the project requires it, or an unresolved decision blocks dependent work. Otherwise continue the authorized task without adding a written-spec approval gate. Incorporate requested changes and check their effect on scope and consistency.
+Share the design note when one was written. Ask for review when the user requested a design review, the project requires it, or an unresolved decision blocks dependent work. When an independent design review is required or useful, use the companion [spec-document-reviewer-prompt.md](spec-document-reviewer-prompt.md) template. Otherwise continue the authorized task without adding a written-spec approval gate. Incorporate requested changes and check their effect on scope and consistency.
 
 **Next Step:**
 

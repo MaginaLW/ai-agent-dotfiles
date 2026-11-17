@@ -11,7 +11,7 @@
     Directories are copied file-by-file and never pruned: repo-only files stay
     untouched. ExcludedItems and CommonExcludedItems are never captured.
 
-    When Codex or Antigravity AGENTS.md contains the config-sync managed block, only that
+    When Codex, Antigravity, or ZCode AGENTS.md contains the config-sync managed block, only that
     block's content is captured; personal content outside the block stays local.
 
     -Apply stages every repo file it overwrites to
@@ -31,7 +31,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Antigravity. Defaults to Codex; Claude and Antigravity require an explicit opt-in.
+    One or more of Claude, Codex, Antigravity, ZCode. Defaults to Codex; Claude, Antigravity, and ZCode require an explicit opt-in.
 
 .PARAMETER BackupRoot
     Root for the revert stage. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.
@@ -49,7 +49,6 @@ param(
     [switch] $Apply,
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = $env:USERPROFILE,
-    [ValidateSet('Claude', 'Codex', 'Antigravity')]
     [string[]] $Platform = @('Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
     [switch] $SkipSecretScan,
@@ -63,6 +62,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+$Platform = Resolve-ConfigPlatforms -Values $Platform
 
 function Find-MachinePrivatePaths {
     # Scan only the just-captured files (not the whole tree, which legitimately
