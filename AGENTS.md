@@ -1,8 +1,6 @@
 # AGENTS.md
 
-# AGENTS.md
-
-<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->
+<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->
 Project instructions for coding agents working in this repository, including Codex and ZCode.
 Codex and ZCode do not expand linked documents, so every rule an agent must follow is written
 here. Links only point to detail for the area you are changing. Local Claude developer entry
@@ -214,4 +212,4 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
 - **Docs are not pinned.** No test checks documentation wording; keep the docs accurate by
   review. `tests/repository-policy.tests.ps1` checks working guard rails only (retired local
   entry points, manifests, generated-root boundaries, ignore rules and scan exclusions).
-<!-- END AI-AGENT-DOTFILES: antigravity/AGENTS.md -->
+<!-- END AI-AGENT-DOTFILES: zcode/AGENTS.md -->
