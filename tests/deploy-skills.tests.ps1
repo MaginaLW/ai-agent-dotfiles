@@ -339,6 +339,11 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha.'); Codex = @('alpha'); Zcode = @() } }")
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid skill name') 'a trailing-dot name is refused'
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codex = @(''); Zcode = @() } }")
+    $stateFile = Join-Path $homeDir 'state/deployed-skills.json'
+    $stateHash = (Get-FileHash -LiteralPath $stateFile).Hash
+    $r = Invoke-Deploy $repo $homeDir @('-Apply')
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid skill name' -and (Test-Path -LiteralPath (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -and (Get-FileHash -LiteralPath $stateFile).Hash -eq $stateHash) 'a blank skill name cannot prune a managed skill or publish empty state'
     [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Claude = @('alpha'); Codex = @('alpha') } }")
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'an env without the Zcode key is refused'

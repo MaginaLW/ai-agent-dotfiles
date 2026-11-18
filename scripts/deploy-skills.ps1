@@ -81,6 +81,14 @@ $selection = (Import-PowerShellDataFile -LiteralPath $envPath).Skills
 if ($selection -isnot [hashtable] -or @($platforms | Where-Object { -not $selection.ContainsKey($_) }).Count -or @($selection.Keys | Where-Object { $_ -notin $platforms }).Count) {
     throw "env $Environment must define Skills with exactly the keys Claude, Codex and Zcode (use @() for none)"
 }
+foreach ($platform in $platforms) {
+    foreach ($name in @($selection[$platform]) + @($Retire)) {
+        # Only an empty selection means none. A blank name or trailing dot is invalid on Windows.
+        if ($name -isnot [string] -or $name -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?\z') {
+            throw "invalid skill name for ${platform}: '$name'"
+        }
+    }
+}
 
 if (-not $SkipBuild) {
     & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts\build-skills.ps1') -RepoRoot $RepoRoot
@@ -106,11 +114,7 @@ $plan = foreach ($platform in $platforms) {
     # Zcode is a projection platform: it has no generated root of its own and deploys from the
     # Claude output, so a skill is selectable for Zcode exactly when it is built for Claude.
     $sourceRoot = if ($platform -eq 'Zcode') { Join-Path $RepoRoot 'claude\skills' } else { Join-Path $RepoRoot ($platform.ToLowerInvariant() + '\skills') }
-    $selected = @($selection[$platform] | Where-Object { $_ })
-    foreach ($name in @($selected) + @($Retire)) {
-        # No trailing dot: Win32 strips it, so 'alpha.' would resolve to 'alpha'.
-        if ($name -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?$') { throw "invalid skill name: '$name'" }
-    }
+    $selected = @($selection[$platform])
     if ((Test-Path -LiteralPath $liveRoot) -and ((Get-Item -LiteralPath $liveRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "reparse-point-refused: $liveRoot" }
     $liveNames = if (Test-Path -LiteralPath $liveRoot) { @(Get-ChildItem -LiteralPath $liveRoot -Directory -Force | ForEach-Object Name) } else { @() }
     foreach ($name in @($liveNames | Where-Object { $_.StartsWith('.deploying-') })) {
@@ -215,7 +219,7 @@ foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune'
 # Every previously deployed, no-longer-selected directory was pruned above, so the deployed
 # set is now exactly the selection. Publish the complete state only after writing it separately.
 $deployed = [ordered]@{ Environment = $Environment }
-foreach ($platform in $platforms) { $deployed[$platform] = @($selection[$platform] | Where-Object { $_ } | Sort-Object -Unique) }
+foreach ($platform in $platforms) { $deployed[$platform] = @($selection[$platform] | Sort-Object -Unique) }
 $tempStatePath = Join-Path $StateRoot ('deployed-skills.' + [guid]::NewGuid().ToString('N') + '.tmp')
 $ownsTempState = $false
 try {
