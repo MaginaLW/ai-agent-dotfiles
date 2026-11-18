@@ -278,7 +278,7 @@ try {
     $root = New-PluginFixture 'version-update-preview'
     $externalPath = Add-ExternalFixture
     $null = New-AgPluginBuild
-    $null = Invoke-AgPluginDeploy -DoApply
+    $baseline = Invoke-AgPluginDeploy -DoApply
     Assert-PluginTest ($script:AgTestInstallCalls -eq 1 -and $script:AgTestUninstallCalls -eq 0) 'baseline installed'
 
     Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.5.0'"))
@@ -289,6 +289,8 @@ try {
     $unbuiltPlan = Get-AgPluginPlan
     Assert-PluginTest ($unbuiltPlan.Action -eq 'update' -and $unbuiltPlan.Reason -eq 'version-upgrade' -and $unbuiltPlan.NativeAction[1] -eq 'uninstall' -and $unbuiltPlan.NativeAction[5] -eq 'install') 'unbuilt status accurately plans update without requiring rebuild'
     Assert-PluginTest ($unbuiltPlan.Changes.Changed.Contains('plugin.json')) 'version bump reports plugin.json changed'
+    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'Rebuild the target plugin' 'a stale candidate cannot be used to apply an update'
+    Assert-PluginTest ($script:AgTestUninstallCalls -eq 0 -and $script:AgTestInstallCalls -eq 1) 'the installed plugin survives a rejected candidate'
 
     # Built update preview
     $null = New-AgPluginBuild
@@ -296,16 +298,20 @@ try {
     Assert-PluginTest ($builtPlan.Action -eq 'update' -and $builtPlan.Reason -eq 'version-upgrade') 'built update plan is update'
     $dryPlan = Invoke-AgPluginDeploy
     Assert-PluginTest ($dryPlan.Action -eq 'update' -and $script:AgTestInstallCalls -eq 1 -and $script:AgTestUninstallCalls -eq 0) 'update dry run does not mutate native state'
+    $originalNativeVersion = $script:AgTestVersion
+    $script:AgTestVersion = '1.5.9'
+    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'Rebuild the target plugin' 'a changed native CLI invalidates the update build'
+    $script:AgTestVersion = $originalNativeVersion
 
     # Update Apply
     $appliedUpdate = Invoke-AgPluginDeploy -DoApply
     Assert-PluginTest ($appliedUpdate.Action -eq 'unchanged' -and $appliedUpdate.Version -eq '0.5.0' -and $script:AgTestUninstallCalls -eq 1 -and $script:AgTestInstallCalls -eq 2) 'update apply uninstalls then installs and converges to unchanged'
     $receipt = Read-AgJsonFile $script:AgInstallReceipt
-    Assert-PluginTest ($receipt.Version -eq '0.5.0' -and $receipt.PreviousVersion -eq '0.4.0') 'update receipt records target version and previous version'
+    Assert-PluginTest ($receipt.Version -eq '0.5.0' -and $receipt.PreviousVersion -eq $baseline.Version) 'update receipt records target version and previous version'
     $attemptDir = $receipt.Attempt
     Assert-PluginTest (Test-Path -LiteralPath (Join-Path $attemptDir 'backup/plugin.json')) 'pre-write backup is preserved in attempt folder'
     $backupReceipt = Read-AgJsonFile (Join-Path $attemptDir 'backup/plugin.json')
-    Assert-PluginTest ($backupReceipt.version -eq '0.4.0') 'pre-write backup contains original 0.4.0 files'
+    Assert-PluginTest ($backupReceipt.version -eq $baseline.Version) 'pre-write backup contains the original version'
     Assert-PluginTest (-not (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json'))) 'pending install marker removed on successful convergence'
     Assert-PluginTest ($appliedUpdate.External.Count -eq 1 -and $appliedUpdate.External[0].Name -eq 'unrelated') 'unrelated external plugins remain invariant across update'
 

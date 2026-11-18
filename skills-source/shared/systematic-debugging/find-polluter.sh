@@ -1,63 +1,45 @@
 #!/usr/bin/env bash
-# Bisection script to find which test creates unwanted files/state
-# Usage: ./find-polluter.sh <file_or_dir_to_check> <test_pattern>
-# Example: ./find-polluter.sh '.git' 'src/**/*.test.ts'
-
+# Find the first npm test file that creates the given path.
 set -e
 
-if [ $# -ne 2 ]; then
-  echo "Usage: $0 <file_to_check> <test_pattern>"
-  echo "Example: $0 '.git' 'src/**/*.test.ts'"
-  exit 1
+if [[ $# -ne 2 ]]; then
+  echo "Usage: bash $0 <path-that-should-not-exist> '<test-file-glob>'" >&2
+  exit 2
 fi
 
-POLLUTION_CHECK="$1"
-TEST_PATTERN="$2"
+target=$1
+pattern=$2
+if [[ -e $target || -L $target ]]; then
+  echo "Cannot attribute pollution: $target already exists before testing." >&2
+  exit 2
+fi
 
-echo "🔍 Searching for test that creates: $POLLUTION_CHECK"
-echo "Test pattern: $TEST_PATTERN"
-echo ""
+shopt -s globstar nullglob
+# Expand the user's glob without splitting paths that contain whitespace.
+IFS=
+tests=()
+for file in $pattern; do
+  if [[ -f $file ]]; then tests+=("$file"); fi
+done
 
-# Get list of test files
-TEST_FILES=$(find . -path "$TEST_PATTERN" | sort)
-TOTAL=$(echo "$TEST_FILES" | wc -l | tr -d ' ')
+if (( ${#tests[@]} == 0 )); then
+  echo "No test files matched: $pattern" >&2
+  exit 2
+fi
 
-echo "Found $TOTAL test files"
-echo ""
-
-COUNT=0
-for TEST_FILE in $TEST_FILES; do
-  COUNT=$((COUNT + 1))
-
-  # Skip if pollution already exists
-  if [ -e "$POLLUTION_CHECK" ]; then
-    echo "⚠️  Pollution already exists before test $COUNT/$TOTAL"
-    echo "   Skipping: $TEST_FILE"
-    continue
-  fi
-
-  echo "[$COUNT/$TOTAL] Testing: $TEST_FILE"
-
-  # Run the test
-  npm test "$TEST_FILE" > /dev/null 2>&1 || true
-
-  # Check if pollution appeared
-  if [ -e "$POLLUTION_CHECK" ]; then
-    echo ""
-    echo "🎯 FOUND POLLUTER!"
-    echo "   Test: $TEST_FILE"
-    echo "   Created: $POLLUTION_CHECK"
-    echo ""
-    echo "Pollution details:"
-    ls -la "$POLLUTION_CHECK"
-    echo ""
-    echo "To investigate:"
-    echo "  npm test $TEST_FILE    # Run just this test"
-    echo "  cat $TEST_FILE         # Review test code"
+echo "Found ${#tests[@]} test files"
+for file in "${tests[@]}"; do
+  echo "Testing: $file"
+  status=0
+  npm test -- "$file" || status=$?
+  if [[ -e $target || -L $target ]]; then
+    echo "Found polluter: $file created $target"
     exit 1
+  fi
+  if (( status != 0 )); then
+    echo "Inconclusive: npm test failed for $file (exit $status)." >&2
+    exit 2
   fi
 done
 
-echo ""
-echo "✅ No polluter found - all tests clean!"
-exit 0
+echo "All ${#tests[@]} test files passed without creating $target."

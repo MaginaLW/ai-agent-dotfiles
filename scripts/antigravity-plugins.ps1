@@ -405,7 +405,7 @@ function Get-AgPluginPlan {
                 $plan.SourceRevision = $build.SourceRevision
                 $plan.CanonicalScan = $build.CanonicalScan
                 $plan.PackageScan = $build.PackageScan
-                $plan.NativeValidation = $build.NativeValidation
+                if ($build.NativeVersion -ceq $inventory.Version) { $plan.NativeValidation = $build.NativeValidation }
             }
         }
     }
@@ -604,6 +604,9 @@ function Invoke-AgPluginDeploy {
     }
     if (-not $DoApply -or $plan.Action -eq 'unchanged') { return $plan }
     if ($plan.Action -notin @('install', 'update')) { throw ('Plugin deployment blocked: ' + $plan.Reason) }
+    if ($plan.Action -eq 'update' -and ($plan.CanonicalScan -cne 'PASS' -or $plan.PackageScan -cne 'PASS' -or $plan.NativeValidation -cne 'PASS')) {
+        throw 'Rebuild the target plugin with the current agy version before applying the update.'
+    }
     $mutex = Enter-AgDeploymentMutex $plan.ConfigRoot
     $lock = $null
     try {
