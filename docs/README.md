@@ -231,7 +231,7 @@ config-pull 的备份见 §11。
 
 ## 10. 检查与 CI
 
-本地检查清单、CI 和红灯处理见 AGENTS.md 的 [Checks and CI](../AGENTS.md#checks-and-ci)。全量测试：
+运行全量测试前，先确认当前检出位于 `$env:USERPROFILE` 之外。`harness-profile` 套件会在创建测试目录前拒绝位于用户主目录内的检出。若当前工作树在主目录内，请从主目录外的干净检出核对 `git rev-parse HEAD` 与待验提交一致，再运行下面的命令。[本地检查与 CI](../AGENTS.md#checks-and-ci)
 
 ```powershell
 pwsh -NoProfile -File scripts/run-tests.ps1
@@ -244,8 +244,7 @@ doctor、manifest 一致性、全部测试套件、危险文件检查与干净�
 config-sync 测试的 repo/home/backup fixtures 位于忽略的 `tmp/tests/config-sync/<run-id>/`。
 正常失败会先在 `receipts/` 保存小型记录再清理；超时或跳过 finalization 的子进程保留其所属目录。
 父进程退出和输出排空不证明所有 writer 已停止；`cleanup_requested` 只表示清理意图。
-profile fixtures 位于 `tmp/tests/harness-profile/`，成功清理、失败保留；仓库位于用户 home 内时拒绝生成 fixtures，
-不回落到其他目录。清理前核对实际目录、归属和 writer 状态。
+profile fixtures 位于 `tmp/tests/harness-profile/`，成功清理、失败保留。清理前核对实际目录、归属和 writer 状态。
 
 部署规划会拒绝被普通文件占用的选中 skill 目标。profile build/apply 拒绝目标路径及祖先的 reparse point；
 profile 写失败时，将当前尝试写入的文件也纳入 best-effort rollback。
