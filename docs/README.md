@@ -6,7 +6,7 @@
 
 跨项目偏好写入各宿主的全局文件。某个仓库特有的构建命令、验收条件和批准范围写进该项目入口。Claude 兼容模板用相对 `@../.codex/AGENTS.md` 引用部署后的 Codex 协议；Antigravity 的受管全局路径适用于 App 和 CLI。各宿主加载行为见 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md)、[Claude Code](https://code.claude.com/docs/en/memory#import-additional-files)、[Antigravity](https://antigravity.google/docs/rules/) 和 [ZCode](ZCODE.md)。
 
-重复流程写成 skill，描述开头点明适用任务，详细步骤和资料随用随读。需要一起分发的技能或连接才组成插件。需要读取实时数据或执行外部动作时，再为对应宿主声明 MCP 服务并核实工具调用结果。[OpenAI 对新模型的指引](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) · [技能与 MCP 的分工](https://developers.openai.com/plugins/concepts/skills) · [Claude Code 插件](https://code.claude.com/docs/en/plugins)
+重复流程写成 skill，描述开头点明适用任务，详细步骤和资料随用随读。需要一起分发的技能或连接才组成插件。需要读取实时数据或执行外部动作时，再为对应宿主声明 MCP 服务并核实工具调用结果。[GPT-6.2 任务示例](CODEX_TUNING.md#用-gpt-62-交代任务) · [技能与 MCP 的分工](https://developers.openai.com/plugins/concepts/skills) · [Claude Code 插件](https://code.claude.com/docs/en/plugins)
 
 同步默认预览，部署逐目录进行。手工恢复 live 技能仅限 §8 的已授权恢复。
 
