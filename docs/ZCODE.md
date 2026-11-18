@@ -1,41 +1,17 @@
 # 在 ZCode 中维护本仓库
 
-ZCode 是维护本仓库的工作工具之一，也是 live skills 的部署目标之一：deploy-skills 把 Zcode
-作为投影平台，将 Claude 的生成物部署到 `~/.zcode/skills`。它读取项目根目录的
-[`AGENTS.md`](../AGENTS.md)（加载方式见[官方说明](https://zcode.z.ai/en/docs/agents)），
-所以 `AGENTS.md` 必须自包含：ZCode 不会展开其中的链接。
+从仓库根目录新建任务。ZCode 依次读取 `~/.zcode/AGENTS.md` 和当前工作区根目录的 `AGENTS.md`，不会递归合并子目录规则或展开导入。将项目必须遵守的规则留在根文件，修改后用新任务验证加载。[官方规则](https://zcode.z.ai/en/docs/agents)
 
-ZCode 还会先加载用户全局指令 `~/.zcode/AGENTS.md`。该文件由本仓库的 config-sync 通过受管 block
-（`<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->` ... `<!-- END AI-AGENT-DOTFILES: zcode/AGENTS.md -->`）管理，
-可使用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config pull -Platform ZCode`（或 `scripts/config-pull.ps1 -Platform ZCode`）进行同步；
-ZCode 专属条款保留在受管 block 之外（如文末）。修改 canonical 条款后同步该文件，并在新任务中核对实际加载。
+| 维护对象 | 本仓入口 | 如何验证 |
+|---|---|---|
+| 全局规则 | 编辑 [zcode/AGENTS.md](../zcode/AGENTS.md)，运行 `pwsh -NoProfile -File scripts/config-pull.ps1 -Platform ZCode` 预览受管块 | 获准同步后查配置状态，保留块外个人内容 |
+| 技能 | 修改 `skills-source/`，ZCode 从 Claude 构建产物投影到 `~/.zcode/skills` | 在新任务用 `$技能名` 指定技能，给出符合其触发条件的任务并检查结果 |
+| MCP | 修改 [受管服务注册表](../harness-source/mcp/servers.psd1)，用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status` 查看配置 | 要确认可用性，在 ZCode 中发现该工具并执行已授权的只读调用 |
 
-用户级受管 MCP server（`harness-source/mcp/servers.psd1`）则由 `scripts/mcp-sync.ps1`
-（`scripts/agent-dotfiles.ps1 mcp status|deploy`）按条目结构化合并到 `~/.zcode/cli/config.json`
-的 `mcp.servers` 中，保留 `model`、`provider`、`plugins` 及非托管条目，详见
-[使用手册 §16](README.md#16-受管-mcp-分发mcp-sync)。
+ZCode 按名称和简短描述发现技能，因此触发场景应写在描述开头。已启用的插件还可能提供 hooks 和 MCP。原生 `~/.zcode/cli/config.json` 的 `mcp.servers` 已有服务时，ZCode 会跳过同一作用域的兼容 MCP 文件。[技能](https://zcode.z.ai/en/docs/skill) · [插件](https://zcode.z.ai/en/docs/plugin) · [MCP](https://zcode.z.ai/en/docs/mcp-services)
 
-## 使用方式
-
-- 在 ZCode 中打开本仓库**根目录**，再新建任务；无需专用关键词、Skill 或斜杠命令。
-- `AGENTS.md` 改动后要新开任务；已有任务不会自动读到新规则。
-- 首次接手时让 Agent 显式读取并简述项目规则，以确认文件可读；不要把模型自述当作自动注入的证明。
-- 先读 `AGENTS.md` 和 [`STATUS.md`](../STATUS.md)，核对当前分支和工作区改动，再按用户给出的
-  工作项推进；live 写入（如 `deploy-skills.ps1 -Apply`）仍须所有者逐次授权。
-- 检查与提交沿用 `AGENTS.md` 的 Checks and CI 一节；本页不另立规则。
-
-可复制的接手提示词：
-
-```text
-请在 ai-agent-dotfiles 项目根目录接手。先读取 AGENTS.md 和 STATUS.md，核对当前分支与
-工作区改动，只读报告当前状态和建议的下一步，不修改文件。等我给出具体工作项后，在授权
-范围内完成实现、验证和小步提交，保留无关改动；不部署 live skills，不修改全局配置。
-```
+按[项目规则](../AGENTS.md)审查部署预览。第 10 条覆盖符合条件的 `work` 技能更新。全局配置和 MCP Apply 各需覆盖其具体范围的授权。
 
 ## harness-model 反馈闭环（已暂停）
 
-本仓库曾是 `harness-model` 外仓反馈闭环的登记试点（2026-09-09 至 2026-09-17 共十三次闭环，
-最后应用的上游提交为 `0893232`）。闭环观察的对象（事务式部署引擎及其 CI）已于 2026-10-09
-删除，所有者于 2026-10-10 决定暂停本仓库的试点：任务收尾不再筛选或回灌反馈。
-完整的接入说明、五项方法适配与历次闭环记录在 Git 历史中（见 [HISTORY.md](HISTORY.md)）；
-恢复试点需要所有者重新登记。
+该试点于 2026-10-10 暂停，恢复需所有者重新登记。[历史记录](HISTORY.md)

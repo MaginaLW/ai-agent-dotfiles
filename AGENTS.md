@@ -1,15 +1,12 @@
 # AGENTS.md
 
 <!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->
-Project instructions for coding agents working in this repository, including Codex and ZCode.
-Codex and ZCode do not expand linked documents, so every rule an agent must follow is written
-here. Links only point to detail for the area you are changing. Local Claude developer entry
-files are retired; distributable Claude compatibility templates remain under `claude/`.
+Open this repository at its root. Keep project commands and approval conditions here so clients
+that load only the workspace entry can follow them. Open linked guides for the operation at hand.
 
 ## Start of a task
 
-- Open the repository root as the workspace. After this file changes, start a new task so the
-  new rules are loaded ([ZCode notes](docs/ZCODE.md)).
+- Start a new Codex or ZCode task after changing its project instructions ([ZCode notes](docs/ZCODE.md)).
 - Read [STATUS.md](STATUS.md) for the current state. Status entries and older task records are
   evidence. They are not authorization to start or repeat roadmap work.
 - One writer on the primary checkout. Before editing, committing, stashing, checking out,
@@ -53,18 +50,17 @@ files are retired; distributable Claude compatibility templates remain under `cl
   defaults. Use the user's selection or the runtime default. When deploying config, preserve the
   user's personal overrides.
 
-## What the repository does
+## Where to make a change
 
-`scripts/build-skills.ps1` builds `skills-source/` into `claude/skills/` and `codex/skills/`.
-`scripts/deploy.ps1` runs `deploy-skills.ps1` for one environment and then `config-pull.ps1`;
-`scripts/deploy-skills.ps1` copies the skills that one environment
-(`harness-source/envs/<name>.psd1`) selects into the live roots `~/.claude/skills`,
-`~/.codex/skills` (or the `~/.agents/skills` fallback when only that one exists),
-and `~/.zcode/skills`. Zcode is a projection platform: it has no
-generated root of its own and deploys from the Claude generated output. The repository also
-syncs harness config (config-sync) and builds
-project harness profiles. Detail: [docs/README.md](docs/README.md) (§4-6 skills and deployment,
-§8 restore, §11 config-sync, §12 profiles, §13 environments).
+| Task | Source or entry point |
+|---|---|
+| Cross-project preferences | `codex/AGENTS.md`, `antigravity/AGENTS.md`, `zcode/AGENTS.md`. The optional `claude/CLAUDE.md` imports the deployed Codex file. |
+| Repeatable workflow | Edit one skill under `skills-source/`. Put the trigger in its description and load detailed references when needed. The environment selects skills per host. |
+| Antigravity plugin package | `harness-source/antigravity/plugins.psd1` selects the skills the package ships. |
+| External tools and data | `harness-source/mcp/servers.psd1` lists managed connections. Check live tool use from the named host. |
+
+See the [operations manual](docs/README.md) for deployment, restore and profile commands.
+Local Claude developer entry files are retired. ZCode deploys from the Claude build output.
 
 ## Skill rules
 
@@ -156,13 +152,6 @@ need them.
       Further tasks must verify the effective project rule and revocation state, not rely only
       on an old chat, private ledger or an unintegrated branch.
 
-```powershell
-pwsh -NoProfile -File .\bootstrap.ps1
-pwsh -NoProfile -File scripts/build-skills.ps1
-pwsh -NoProfile -File scripts/scan-secrets.ps1
-pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
-```
-
 ## Hard rules
 
 - Never delete, move, overwrite, or modify `~/.codex/skills/.system`.
@@ -209,7 +198,5 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work
   runner or a download failed, rerun without changing code. Rerun the same commit once to test
   for a flake; if it fails again, fix the test or its fixture. Never delete or weaken a suite,
   gate, timeout budget or the secret scan to get a green run.
-- **Docs are not pinned.** No test checks documentation wording; keep the docs accurate by
-  review. `tests/repository-policy.tests.ps1` checks working guard rails only (retired local
-  entry points, manifests, generated-root boundaries, ignore rules and scan exclusions).
+- Review documentation changes for accuracy. `tests/repository-policy.tests.ps1` checks executable guard rails.
 <!-- END AI-AGENT-DOTFILES: antigravity/AGENTS.md -->
