@@ -100,6 +100,12 @@ pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp deploy -Apply
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
 ```
 
+`unchanged` confirms that the client configuration matches the registry. To check the Blender connection:
+
+1. Open Blender with the **MCP for Blender** add-on enabled. Use its regular windowed mode. The add-on needs the UI event loop.
+2. In the 3D Viewport sidebar, select **MCP for Blender → Connect to MCP server**. The default endpoint is `localhost:9876`.
+3. From the MCP client you want to check, call `get_addon_status`. Confirm that it returns a Blender version and that the reported protocol version matches the expected version. A connection refusal at the default endpoint calls for checking the running Blender instance and its add-on listener first.
+
 See [docs/README.md §16](README.md#16-受管-mcp-分发mcp-sync) for per-client projection targets, unmanaged-entry preservation, and backup recovery.
 
 ## 7. Optional: remove skills an older setup left

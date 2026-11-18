@@ -449,7 +449,7 @@ doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `De
 
 ## 15. Antigravity 插件
 
-受管插件 `ai-agent-dotfiles`（`0.4.0`）包含 canonical `skills-source/shared/` 中的
+受管插件 `ai-agent-dotfiles` 包含 canonical `skills-source/shared/` 中的
 `git-review`、`multimodal-generation`、`systematic-debugging` 和 `verification-before-completion` 及其附属文件。选择与元数据来自
 `harness-source/antigravity/plugins.psd1`；`ExternalPlugins` 现声明 `unity`（`Source = 'antigravity-plugins-partners'`、`Version = 'ANY'`、`Enabled = $true`）。第三方来源、版本和启用状态在 `status` 与 `deploy -DryRun` 中对比报告（`unchanged` / `missing` / `different` / `blocked` / `UNKNOWN`）。仅当明确传入 `-ExternalPlugin <name>` 并经 `-DryRun` 审阅及单独授权后，`deploy -Apply` 才对 `missing` 的 marketplace 项调用一次 `agy plugin install <name>@<source>`；默认 `deploy -Apply` 不触碰第三方插件，已安装、漂移或未登记同名目录均保持只读阻塞（不自动重装或卸载）。
 本入口不打包 rules、MCP、hooks、agents 或 Codex 的 Antigravity delegation，也不调用 Bridge。

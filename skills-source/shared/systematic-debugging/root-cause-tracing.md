@@ -98,13 +98,13 @@ npm test 2>&1 | grep 'DEBUG git init'
 
 If something appears during tests but you don't know which test:
 
-Use the bisection script `find-polluter.sh` in this directory:
+Open Bash in the npm project's root and use the helper bundled alongside this guide. Choose a target path that is absent before the run. Quote the glob so the helper can match and run each test separately.
 
 ```bash
-./find-polluter.sh '.git' 'src/**/*.test.ts'
+bash /path/to/systematic-debugging/find-polluter.sh 'packages/core/.git' 'src/**/*.test.ts'
 ```
 
-Runs tests one-by-one, stops at first polluter. See script for usage.
+The npm test script must accept a test file argument. Exit 0 means every matched file passed without creating the target. Exit 1 identifies the first file that created it, even when that test also failed. Exit 2 means the run was inconclusive (for example, no matching files or a failing test).
 
 ## Real Example: Empty projectDir
 

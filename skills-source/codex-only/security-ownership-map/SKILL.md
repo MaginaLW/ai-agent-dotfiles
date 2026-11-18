@@ -12,7 +12,7 @@ Build a bipartite graph of people and files from git history, then compute owner
 ## Requirements
 
 - Python 3
-- `networkx` (required; community detection is enabled by default)
+- `networkx` for default community detection or `--graphml`. For CSV and summary output with Python alone, use `--no-communities`.
 
 Install with:
 

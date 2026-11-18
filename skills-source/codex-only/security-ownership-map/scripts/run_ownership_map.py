@@ -133,11 +133,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    try:
-        import networkx  # noqa: F401
-    except ImportError:
-        print("networkx is required. Install with: pip install networkx", file=sys.stderr)
-        return 2
+    if not args.no_communities or args.graphml:
+        try:
+            import networkx  # noqa: F401
+        except ImportError:
+            print("Community detection and GraphML require networkx. Install with: pip install networkx", file=sys.stderr)
+            return 2
 
     script_path = Path(__file__).resolve().parent / "build_ownership_map.py"
     cmd = [

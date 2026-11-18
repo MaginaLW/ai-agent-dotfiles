@@ -4,7 +4,7 @@
     ManagedPlugin = @{
         Name = 'ai-agent-dotfiles'
         DisplayName = 'AI Agent Dotfiles'
-        Version = '0.4.0'
+        Version = '0.4.1'
         Description = 'Reviewed skills maintained by this repository.'
         Skills = @(
             'git-review',
