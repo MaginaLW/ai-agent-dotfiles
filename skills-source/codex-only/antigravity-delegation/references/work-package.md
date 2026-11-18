@@ -15,7 +15,9 @@ retain any required platform approval for native host execution.
 `routes.json` contains only distinct `primary` and `fallback` objects, each with a model ID.
 The actual IDs and reasoning levels stay in private configuration. Validate them against the
 frozen CLI model catalog; an unknown role/model, unavailable ID or duplicate mapping must fail.
-A running package keeps its frozen mapping even if the user later edits the private routes.
+The initial call uses `routes.primary.model` unless the work package supplies an exact `model`
+from the private catalog. All paths to a quota successor use `routes.fallback.model` and require
+a different model from the initial call. A running package keeps its frozen inputs.
 
 `deployment.json` names the reviewed installation:
 
@@ -54,6 +56,7 @@ The runner validates this work-package shape (all paths are absolute and example
 {
   "id": "<unique-package-id>",
   "target": "<goal and necessary context>",
+  "model": "<optional-exact-catalog-id>",
   "workspace": "<absolute-project-checkout>",
   "writeScope": ["<task-owned-relative-path>"],
   "existingWip": ["<preserved-existing-change>"],
@@ -69,8 +72,11 @@ The runner validates this work-package shape (all paths are absolute and example
 Every capability entry is `{ "path": "<absolute-file>", "sha256": "<frozen-file-sha256>" }`.
 Set `budget.fallback` to `0` when fallback is not authorized; that package cannot continue to a successor.
 Use `permissions.mode: "read-only"` with an empty `writeScope` for analysis. The reviewed
-session settings must match the package's allowed-tool list. The catalog is
-`{ "models": [{ "id": "<available-cli-model-id>" }] }` and remains private.
+session settings must match the package's allowed-tool list. The private catalog holds
+`models` entries of the form `{ "id": "<allowed-cli-model-id>" }`. It can also contain a
+`preferences` object with any of `routine`, `deepReasoning`, and `independentReview`, each
+pointing to an exact ID in `models`. Omit the work package's `model` field to use the primary.
+To prepare a separate review, create a fresh read-only package and choose the reviewer there.
 Keep goal, scope, budget and permission decisions in
 that package; do not put credentials, unrelated chat history or complete personal configuration
 in prompts. Prompt instructions alone are not a sandbox or proof of tool permission.
