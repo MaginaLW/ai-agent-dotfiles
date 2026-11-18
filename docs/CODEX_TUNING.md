@@ -1,6 +1,18 @@
-# Codex 本机权限与命令规则
+# Codex 的任务提示、模型选择与本机权限
 
 本仓库用 [codex/AGENTS.md](../codex/AGENTS.md) 分发工作约定。模型、推理档位和本机权限由用户或管理员选择。`config-sync` 不同步整份 `~/.codex/config.toml` 或个人 `.rules` 文件。[配置作用域](https://learn.chatgpt.com/docs/config-file/config-basic)
+
+## 用 GPT-6.2 交代任务
+
+OpenAI 将 Sol 定位于日常编码与写作，例如按评审意见修订补丁；Astra 适合需要跨系统追因或权衡多组证据的工作。用户可在 Codex 的模型选择器或 CLI 的 `/model` 中选择。推理档位按调查深度决定：快速盘点可用 Medium，跨系统追一个原因可用 High，多个原因可能相互作用时可考虑 Extra High。这些是选用示例，仓库不设置默认型号或档位。[6.2 发布说明](https://learn.chatgpt.com/docs/whats-new/gpt-62-astra-sol) · [Codex 提示指南](https://learn.chatgpt.com/guides/prompting-gpt-6-2-astra)
+
+把目标、可用输入和验收结果放在同一条请求里，让模型选择实现步骤。比如，要判断本机 Codex 规则是否需要同步，可以这样写：
+
+> 请从仓库根目录运行 `pwsh -NoProfile -File scripts/config-pull.ps1 -Platform Codex`。这次只预览。告诉我哪个受管文件待更新，或是否已经一致；如果读不到本机文件，指出缺少的依据。
+
+视觉任务可给一张参考图和实际展示尺寸，要求渲染后在该尺寸核对，交互交付再试用指定操作。并行调查则写明哪些问题能分别验证，最后由主代理对照同一个验收目标整合结果。[Codex 提示指南](https://learn.chatgpt.com/guides/prompting-gpt-6-2-astra)
+
+如果文件缺失或工具调用受阻，结论中应写明它影响了哪项判断。OpenAI 在 6.2 发布评估中记录了漏报阻塞的情况；报告实际读到的证据，让读者能区分已验证和待确认的结果。[发布评估](https://openai.com/index/introducing-gpt-6-2-astra-sol/#alignment)
 
 ## 定位一次审批
 
