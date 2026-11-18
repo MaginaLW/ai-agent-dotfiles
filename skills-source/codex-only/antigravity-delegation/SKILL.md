@@ -6,11 +6,16 @@ description: Delegate analysis or implementation through the managed Antigravity
 # Antigravity delegation
 
 Use this entry for an explicit request such as “用 gemini 分析” or “让 gemini 实现／修复”.
-Here, the user's “gemini” means the models and quota provided by their Gemini subscription,
-including **Claude Opus 5.5 High**. Using Claude through that subscription channel satisfies
-such a request; do not ask again solely because the selected model is Claude. Report the actual
-model used in execution records.
-The names `primary` and `fallback` describe routing roles; the private mapping chooses the actual models.
+“Gemini” names the subscription channel, which can include partner models. Honor an explicitly
+requested model and effort using its exact ID in the private catalog. If the request is ambiguous or the model is absent from the catalog,
+resolve the selection with the user before starting a package. Record the model actually used.
+
+For a general implementation request, use the configured primary. For a well-defined edit or
+test, a task needing sustained reasoning, or an independent review, consult the private catalog's
+`routine`, `deepReasoning`, or `independentReview` preference respectively. When the relevant
+preference is present, put its ID in the work package's `model` field; otherwise use the primary.
+An independent review gets its own read-only package with the requirements, diff and test evidence.
+When a different reviewer model is requested, confirm its ID differs from the implementation model.
 
 Read [the work-package contract](references/work-package.md) when preparing a call.
 For analysis, use read-only permissions. Implementation may inherit the authorized task's read,
@@ -37,7 +42,13 @@ enable extra credits or weaken native approval settings. Routine authorized work
 another confirmation merely because the executor changes. Model/native acceptance and sensitive
 external actions retain their applicable authorization boundaries.
 
-Each package allows one primary and at most one quota-only fallback. A general 429, timeout,
+For parallel workers, use the native interactive [Antigravity Swarm](https://antigravity.google/docs/swarm)
+workflow only when the task authorizes its workers, scopes and model calls. Give workers separate ownership and check their diffs,
+tests and terminal states. The managed headless entry does not launch `/swarm`; a coordinator's
+reply alone cannot establish worker completion.
+
+Each package allows one initial call and at most one quota-only fallback to a different model.
+When the user requires a single model, set `budget.fallback` to `0`. A general 429, timeout,
 network, login, region or protocol failure is not quota exhaustion. On a quota pause, read the
 receipt, actual diff, tests and side effects; confirm the original process tree is closed, then
 prepare an explicit remaining-work successor through the managed continuation contract.
