@@ -451,6 +451,16 @@ try {
         $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
         $capturedAgents = Get-Content -Raw -LiteralPath $repoAgents
         Assert ($r.Code -eq 0 -and $capturedAgents.TrimEnd("`r", "`n") -eq '# Managed v1' -and $capturedAgents -notmatch 'Personal|Mine') "push: $($target.Platform) capture takes only the managed block"
+
+        $begin = "<!-- BEGIN AI-AGENT-DOTFILES: $($target.BlockId) -->"
+        $end = "<!-- END AI-AGENT-DOTFILES: $($target.BlockId) -->"
+        Set-File -Path $homeAgents -Content (@($begin, 'Personal notes', $begin, 'Old rules', $end) -join "`n")
+        $homeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
+        $repoHash = (Get-FileHash -LiteralPath $repoAgents).Hash
+        foreach ($scriptPath in @($pullScript, $pushScript)) {
+            $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+            Assert ($r.Code -ne 0 -and $r.Out -match 'managed block boundaries' -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $homeHash -and (Get-FileHash -LiteralPath $repoAgents).Hash -eq $repoHash) "$($target.Platform): $(Split-Path -Leaf $scriptPath) preserves both files when a start marker is duplicated"
+        }
     }
 
     if ($script:fail -eq 0) { $outcome = 'Passed' }

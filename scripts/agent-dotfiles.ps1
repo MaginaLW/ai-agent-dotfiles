@@ -108,23 +108,19 @@ function Write-Usage([string] $Group) {
     Write-Host 'Group help: help config (or config help); also env, profile, skills, antigravity and mcp.'
 }
 
-function Assert-ExplicitMode([object[]] $Arguments, [string] $Label) {
-    $hasDryRun = @($Arguments | Where-Object { $_ -is [string] -and $_ -ieq '-DryRun' }).Count -gt 0
-    $hasApply = @($Arguments | Where-Object { $_ -is [string] -and $_ -ieq '-Apply' }).Count -gt 0
-    if (-not $hasDryRun -and -not $hasApply) {
+function ConvertTo-ExplicitModeArguments([object[]] $Arguments, [string] $Label) {
+    $modes = @($Arguments | Where-Object { $_ -in @('-DryRun', '-Apply') })
+    if ($modes.Count -eq 0) {
         Write-Error "The $Label command requires an explicit -DryRun or -Apply mode. Run -DryRun first." -ErrorAction Continue
         exit 1
     }
-    if ($hasDryRun -and $hasApply) {
+    if ($modes.Count -gt 1) {
         Write-Error "The $Label command accepts only one mode. Specify -DryRun or -Apply, not both." -ErrorAction Continue
         exit 1
     }
-}
-
-function Remove-DryRunSwitch([object[]] $Arguments) {
-    # Every target is dry-run by default and exposes no -DryRun switch;
-    # consume the unified CLI spelling here.
-    return , @($Arguments | Where-Object { $_ -isnot [string] -or $_ -ine '-DryRun' })
+    # Bind Apply explicitly so another spelling cannot override the reviewed mode.
+    $childMode = if ($modes[0] -eq '-Apply') { '-Apply' } else { '-Apply:$false' }
+    return ,(@($childMode) + @($Arguments | Where-Object { $_ -notin @('-DryRun', '-Apply') }))
 }
 
 function Get-EnvironmentStatusReport {
@@ -217,12 +213,12 @@ function Get-SafeProperty {
     )
     if ($null -eq $Target) { return $null }
     if ($Target -is [System.Collections.IDictionary]) {
-        if ($Target.Contains($Name)) { return $Target[$Name] }
+        if ($Target.Contains($Name)) { return ,$Target[$Name] }
         return $null
     }
     if ($Target -is [pscustomobject] -or ($null -ne $Target.PSObject -and $null -ne $Target.PSObject.Properties)) {
         $prop = $Target.PSObject.Properties[$Name]
-        if ($null -ne $prop) { return $prop.Value }
+        if ($null -ne $prop) { return ,$prop.Value }
     }
     return $null
 }
@@ -234,7 +230,7 @@ function Convert-ChildJson {
     $trimmed = $text.Trim()
     if ([string]::IsNullOrEmpty($trimmed)) { return $null }
     try {
-        return (ConvertFrom-Json -InputObject $trimmed -ErrorAction Stop)
+        return ,(ConvertFrom-Json -InputObject $trimmed -NoEnumerate -ErrorAction Stop)
     }
     catch {
         $firstBracket = $trimmed.IndexOfAny(@([char]'{', [char]'['))
@@ -242,7 +238,7 @@ function Convert-ChildJson {
         if ($firstBracket -ge 0 -and $lastBracket -gt $firstBracket) {
             $jsonPart = $trimmed.Substring($firstBracket, $lastBracket - $firstBracket + 1)
             try {
-                return (ConvertFrom-Json -InputObject $jsonPart -ErrorAction Stop)
+                return ,(ConvertFrom-Json -InputObject $jsonPart -NoEnumerate -ErrorAction Stop)
             } catch { }
         }
         return [ordered]@{ Error = 'Failed to parse JSON output'; Raw = $trimmed }
@@ -850,15 +846,13 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
         ($normalizedCommand -eq 'profile' -and $groupAction -eq 'apply') -or
         ($normalizedCommand -eq 'skills' -and $groupAction -eq 'promote'))
     if ($requiresExplicitMode) {
-        Assert-ExplicitMode $forwardedArguments "$normalizedCommand $groupAction"
-        $forwardedArguments = Remove-DryRunSwitch $forwardedArguments
+        $forwardedArguments = ConvertTo-ExplicitModeArguments $forwardedArguments "$normalizedCommand $groupAction"
     }
 }
 else {
     $targetScriptName = $commandMap[$normalizedCommand]
     if ($normalizedCommand -eq 'sync') {
-        Assert-ExplicitMode $forwardedArguments $normalizedCommand
-        $forwardedArguments = Remove-DryRunSwitch $forwardedArguments
+        $forwardedArguments = ConvertTo-ExplicitModeArguments $forwardedArguments $normalizedCommand
     }
 }
 

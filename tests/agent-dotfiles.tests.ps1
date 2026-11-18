@@ -171,6 +171,13 @@ $pluginScripts = Join-Path $work 'plugin-router/scripts'
 New-Item -ItemType Directory -Path $pluginScripts -Force | Out-Null
 $pluginEntry = Join-Path $pluginScripts 'agent-dotfiles.ps1'
 Copy-Item -LiteralPath $entry -Destination $pluginEntry
+Set-TestFile -Path (Join-Path $pluginScripts 'config-pull.ps1') -Content 'param([switch] $Apply) Write-Output "child apply=$([bool]$Apply)"'
+foreach ($case in @(@('-DryRun', 'False'), @('-Apply', 'True'))) {
+    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('config', 'pull', $case[0])
+    Assert ($result.Code -eq 0 -and $result.Out -match "child apply=$($case[1])") "config pull forwards $($case[0]) to the child"
+}
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('config', 'pull', '-DryRun', '-Apply:$true')
+Assert ($result.Code -ne 0 -and $result.Out -notmatch 'child apply=') 'a conflicting switch cannot activate the child during a preview'
 Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content (@(
     '[CmdletBinding()]',
     'param([ValidateSet("Build","Status","Deploy")][string] $Action, [string] $RepoRoot, [string] $JsonPath, [string[]] $ExternalPlugin = @(), [switch] $Apply)',
@@ -386,6 +393,7 @@ Assert ($mockHuman.Code -eq 0) 'mock stub human-readable status exits 0'
 Assert ($mockHuman.Out -match '=== Unified Status ===') 'mock stub human-readable contains header'
 Assert ($mockHuman.Out -match 'mock-block') 'mock stub human-readable contains config detail'
 Assert ($mockHuman.Out -match 'mock-match') 'mock stub human-readable contains antigravity plugin reason'
+Assert ($mockHuman.Out -match 'External: unity\s+action=unchanged') 'status displays a single external plugin'
 Assert ($mockHuman.Out -match 'mock-diff') 'mock stub human-readable contains mcp projection reason'
 
 Write-Host 'unified CLI: apply gates'
