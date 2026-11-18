@@ -259,10 +259,18 @@ function Get-ClaudeSettingsMergeResult {
     }
 }
 
-function Get-ManagedAgentsBlockPattern {
-    param([string] $BlockId = 'codex/AGENTS.md')
-    $id = [regex]::Escape($BlockId)
-    return "(?s)<!--\s*BEGIN AI-AGENT-DOTFILES:\s*$id\s*-->.*?<!--\s*END AI-AGENT-DOTFILES:\s*$id\s*-->"
+function Find-ManagedAgentsBlock {
+    param([string] $Text, [string] $BlockId, [string] $Label)
+    $markers = [regex]::Matches($Text, '(?i)<!--\s*(?:BEGIN|END) AI-AGENT-DOTFILES:')
+    if ($markers.Count -eq 0) { return $null }
+    $pattern = '(?is)<!--\s*BEGIN AI-AGENT-DOTFILES:\s*(?<id>[^\s<>]+)\s*-->(?<content>.*?)<!--\s*END AI-AGENT-DOTFILES:\s*\k<id>\s*-->'
+    $blocks = [regex]::Matches($Text, $pattern)
+    # Every marker must belong to one complete block, including neighboring blocks.
+    if ($markers.Count -ne 2 * $blocks.Count) { throw "invalid $Label managed block boundaries" }
+    $selected = @($blocks | Where-Object { $_.Groups['id'].Value -ieq $BlockId })
+    if ($selected.Count -eq 0) { throw "$Label has markers but no matching managed block" }
+    if ($selected.Count -gt 1) { throw "multiple $Label managed blocks found" }
+    return $selected[0]
 }
 
 function Get-ManagedAgentsBlockText {
@@ -291,13 +299,9 @@ function Get-ManagedAgentsBlockResult {
     }
     $blockText = Get-ManagedAgentsBlockText -RepoText $RepoText -BlockId $BlockId
     $content = if ($HomeExists) { $HomeText } else { '' }
-    $pattern = Get-ManagedAgentsBlockPattern -BlockId $BlockId
-    $matches = [regex]::Matches($content, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-    if ($matches.Count -gt 1) { throw "multiple $Label managed blocks found" }
-    if ($matches.Count -eq 1) {
-        $updated = [regex]::Replace($content, $pattern,
-            [System.Text.RegularExpressions.MatchEvaluator] { param($match) $blockText },
-            [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $block = Find-ManagedAgentsBlock -Text $content -BlockId $BlockId -Label $Label
+    if ($null -ne $block) {
+        $updated = $content.Remove($block.Index, $block.Length).Insert($block.Index, $blockText)
         return [pscustomobject] @{ HasBlock = $true; Changed = ($updated -cne $content); Content = $updated }
     }
     if (-not $HomeExists) {
@@ -316,12 +320,9 @@ function Get-ManagedAgentsContent {
         [string] $BlockId = 'codex/AGENTS.md',
         [string] $Label = 'Codex/AGENTS.md'
     )
-    $id = [regex]::Escape($BlockId)
-    $pattern = "(?s)<!--\s*BEGIN AI-AGENT-DOTFILES:\s*$id\s*-->(?<content>.*?)<!--\s*END AI-AGENT-DOTFILES:\s*$id\s*-->"
-    $matches = [regex]::Matches($HomeText, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-    if ($matches.Count -eq 0) { return $null }
-    if ($matches.Count -gt 1) { throw "multiple $Label managed blocks found" }
-    $inner = $matches[0].Groups['content'].Value
+    $block = Find-ManagedAgentsBlock -Text $HomeText -BlockId $BlockId -Label $Label
+    if ($null -eq $block) { return $null }
+    $inner = $block.Groups['content'].Value
     $inner = $inner -replace '^\r?\n', ''
     return ($inner.TrimEnd("`r", "`n") + "`n")
 }
