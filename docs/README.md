@@ -1,18 +1,14 @@
 # ai-agent-dotfiles 使用说明
 
-面向"未来的我"和接手的 Claude Code / Codex agent。必须遵守的规则以 [AGENTS.md](../AGENTS.md) 为准；
-本手册只补充操作细节。全局状态见 [STATUS.md](../STATUS.md)，Codex 本机调优与减打断见 [CODEX_TUNING.md](CODEX_TUNING.md)，新电脑接入见
-[ONBOARD_NEW_MACHINE.md](ONBOARD_NEW_MACHINE.md)，已删除内容见 [HISTORY.md](HISTORY.md)。
-
----
+日常工作环境是 Codex 和 ZCode；Antigravity 另有插件与全局规则。操作权限见 [AGENTS.md](../AGENTS.md)。首次安装见[新电脑接入](ONBOARD_NEW_MACHINE.md)，配置排查见 [Codex 本机指南](CODEX_TUNING.md)，当前进展见 [STATUS.md](../STATUS.md)。
 
 ## 1. 项目目的
 
-用 Git 统一管理多台电脑上的 Claude / Codex / ZCode skills 与全局工作协议：`skills-source/` 是唯一可信源，
-`build-skills.ps1` 生成两个平台的 runtime output；`deploy.ps1` 把某个环境选中的 skills 逐目录部署到
-本机 live 根（默认 dry-run；ZCode 是投影平台，直接部署 Claude 生成物）。另外管理 harness 配置（§11，含 Codex 与显式 `-Platform Antigravity` 全局 `AGENTS.md`）、项目级 harness profile（§12）、Antigravity 插件（§15）和三端受管 MCP servers（§16）。
-原则：保守、可审计、默认 dry-run、绝不整目录覆盖、绝不碰平台内置目录。红线（Hard rules / Skill rules）以
-[AGENTS.md](../AGENTS.md) 为准；唯一允许手工写 live 根的情形是 §8 的授权恢复。
+跨项目偏好写入各宿主的全局文件。某个仓库特有的构建命令、验收条件和批准范围写进该项目入口。Claude 兼容模板用相对 `@../.codex/AGENTS.md` 引用部署后的 Codex 协议；Antigravity 的受管全局路径适用于 App 和 CLI。各宿主加载行为见 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md)、[Claude Code](https://code.claude.com/docs/en/memory#import-additional-files)、[Antigravity](https://antigravity.google/docs/rules/) 和 [ZCode](ZCODE.md)。
+
+重复流程写成 skill，描述开头点明适用任务，详细步骤和资料随用随读。需要一起分发的技能或连接才组成插件。需要读取实时数据或执行外部动作时，再为对应宿主声明 MCP 服务并核实工具调用结果。[OpenAI 对新模型的指引](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) · [技能与 MCP 的分工](https://developers.openai.com/plugins/concepts/skills) · [Claude Code 插件](https://code.claude.com/docs/en/plugins)
+
+同步默认预览，部署逐目录进行。手工恢复 live 技能仅限 §8 的已授权恢复。
 
 ---
 
