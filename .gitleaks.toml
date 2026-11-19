@@ -49,8 +49,8 @@ keywords = ["xox"]
 
 [[rules]]
 id = "private-key"
-description = "Private key block"
-regex = '''-----BEGIN ((RSA|OPENSSH|EC) )?PRIVATE KEY-----'''
+description = "Private key block (including PKCS#8)"
+regex = '''-----BEGIN ((RSA|OPENSSH|EC|ENCRYPTED|PKCS8) )?PRIVATE KEY-----'''
 keywords = ["-----BEGIN"]
 
 [[rules]]
