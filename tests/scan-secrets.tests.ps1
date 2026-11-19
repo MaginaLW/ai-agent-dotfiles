@@ -14,7 +14,6 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('scan-secrets-tests-' + [guid]::Ne
 $q = [char] 34
 $githubToken = 'gh' + 'p_' + ('a1B2' * 9)
 $googleApiKey = 'AI' + 'za' + ('SyA1B2C3D4E5' * 3).Substring(0, 35)
-$pkcs8Header = '-----' + 'BEGIN ' + 'PRIVATE KEY' + '-----'
 $ghoToken = 'gh' + 'o_' + ('a1B2' * 9)
 $ghuToken = 'gh' + 'u_' + ('a1B2' * 9)
 $ghsToken = 'gh' + 's_' + ('a1B2' * 9)
@@ -69,12 +68,15 @@ try {
     Assert-TestCondition ($r.Json.Result -eq 'FAIL' -and $r.Json.GitleaksFailed -and $r.Json.BlockingFindingCount -ge 1) 'both gitleaks and fallback report Google API key'
     Assert-TestCondition ($r.Out -notmatch [regex]::Escape($googleApiKey)) 'the Google API key is not echoed'
 
-    Write-Host '[planted pkcs8 private key fails]'
-    $repo = New-ScanRepo 'planted-pkcs8'
-    Set-TestFile (Join-Path $repo 'key.pem') "$pkcs8Header`n"
-    $r = Invoke-Scan $repo
-    Assert-TestCondition ($r.Code -ne 0) 'a planted PKCS#8 private key exits non-zero'
-    Assert-TestCondition ($r.Json.Result -eq 'FAIL' -and $r.Json.GitleaksFailed -and $r.Json.BlockingFindingCount -ge 1) 'both gitleaks and fallback report PKCS#8 private key'
+    Write-Host '[private key headers fail both scanners]'
+    foreach ($label in @('PRIVATE KEY', 'ENCRYPTED PRIVATE KEY', 'PKCS8 PRIVATE KEY')) {
+        $repo = New-ScanRepo ('planted-' + $label.Replace(' ', '-'))
+        $header = '-----' + "BEGIN $label-----"
+        Set-TestFile (Join-Path $repo 'key.pem') "$header`n"
+        $r = Invoke-Scan $repo
+        Assert-TestCondition ($r.Code -ne 0) "$label exits non-zero"
+        Assert-TestCondition ($r.Json.Result -eq 'FAIL' -and $r.Json.GitleaksFailed -and $r.Json.BlockingFindingCount -ge 1) "both gitleaks and fallback report $label"
+    }
 
     Write-Host '[planted github token prefixes fail]'
     foreach ($tok in @($ghoToken, $ghuToken, $ghsToken, $ghrToken)) {

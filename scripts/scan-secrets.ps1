@@ -131,7 +131,7 @@ $script:ScanBlockingPatterns = @(
     @{ Name = 'GitHub token'; Regex = 'gh[opusr]_[A-Za-z0-9_]{36}' },
     @{ Name = 'GitHub fine-grained PAT'; Regex = 'github_pat_[A-Za-z0-9_]{22,}' },
     @{ Name = 'Slack token'; Regex = 'xox[bpars]-[A-Za-z0-9-]{10,}' },
-    @{ Name = 'Private key'; Regex = '-----BEGIN ((RSA|OPENSSH|EC) )?PRIVATE KEY-----' },
+    @{ Name = 'Private key'; Regex = '-----BEGIN ((RSA|OPENSSH|EC|ENCRYPTED|PKCS8) )?PRIVATE KEY-----' },
     @{ Name = 'Bearer token'; Regex = 'Bearer\s+[A-Za-z0-9._-]{20,}' },
     @{ Name = 'Literal secret assignment'; Regex = '(?i)(api_key|token|secret|password|client_secret|refresh_token|access_token)\s*[:=]\s*["''][^$][^"'']{8,}["'']' }
 )
