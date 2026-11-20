@@ -27,8 +27,6 @@ try {
     if ($output -notmatch 'Codex live root is ambiguous') { throw 'doctor did not flag both Codex roots as ambiguous' }
     if ($output -notmatch 'Deploy blockers: 1' -or $output -notmatch 'Inspect both roots and decide' -or $output -notmatch 'Doctor result: PASS with warnings') { throw 'doctor did not distinguish a deployment blocker while preserving the warning/exit contract' }
     if ($output -notmatch 'Zcode live root .* not found') { throw 'doctor did not warn about the missing Zcode live root' }
-    if ($output -notmatch '\[INFO\] Claude live root \(~/\.claude/skills\) not found\.') { throw 'doctor did not report missing Claude live root as INFO' }
-    if ($output -match '\[WARN\] Claude live root') { throw 'doctor reported WARN for missing Claude live root' }
     $coreScripts = @(
         'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'mcp-sync.ps1',
         'config-status.ps1', 'config-pull.ps1', 'config-push.ps1',
@@ -59,15 +57,9 @@ try {
     $zcodeHome = Join-Path $work 'zcode-home'
     [System.IO.Directory]::CreateDirectory((Join-Path $zcodeHome '.zcode/skills')) | Out-Null
     $zcodeOutput = & pwsh -NoProfile -File $doctor -RepoRoot $RepoRoot -HomeRoot $zcodeHome -SkipSecretsScan 2>&1 | Out-String; $zcodeCode=$LASTEXITCODE
+    if ($zcodeOutput -match 'Claude live root') { throw 'doctor probed a retired platform' }
     if ($zcodeCode -ne 0 -or $zcodeOutput -notmatch 'Zcode live root .* detected') { throw "doctor did not detect the Zcode live root: $zcodeOutput" }
     if ($zcodeOutput -notmatch 'Deploy blockers: none detected by these checks' -or $zcodeOutput -match 'deployment cannot proceed') { throw 'ordinary warnings were incorrectly reported as deployment blockers' }
-
-    $claudeHome = Join-Path $work 'claude-home'
-    [System.IO.Directory]::CreateDirectory((Join-Path $claudeHome '.claude/skills')) | Out-Null
-    $claudeOutput = & pwsh -NoProfile -File $doctor -RepoRoot $RepoRoot -HomeRoot $claudeHome -SkipSecretsScan 2>&1 | Out-String; $claudeCode=$LASTEXITCODE
-    if ($claudeCode -ne 0 -or $claudeOutput -notmatch '\[PASS\] Claude live root \(~/\.claude/skills\) detected\.') {
-        throw "doctor did not detect present Claude live root: $claudeOutput"
-    }
 
     $cleanRepo = Join-Path $work 'clean-repo'
     New-Item -ItemType Directory -Path $cleanRepo -Force | Out-Null
@@ -109,7 +101,6 @@ try {
     if ($cleanOutput -notmatch 'Doctor result: PASS\r?\n?$') { throw "clean fixture did not report Doctor result: PASS: $cleanOutput" }
     if ($cleanOutput -match 'Doctor result: PASS with warnings') { throw "clean fixture unexpectedly reported warnings: $cleanOutput" }
     if ($cleanOutput -notmatch 'WARN=0') { throw "clean fixture had WARN count > 0: $cleanOutput" }
-    if ($cleanOutput -notmatch '\[INFO\] Claude live root \(~/\.claude/skills\) not found\.') { throw "clean fixture did not report Claude missing as INFO: $cleanOutput" }
 
     Remove-Item -LiteralPath (Join-Path $cleanRepo 'scripts/mcp-sync.ps1') -Force
     $missingOutput = & pwsh -NoProfile -File (Join-Path $cleanRepo 'scripts/doctor.ps1') -RepoRoot $cleanRepo -HomeRoot $cleanHome -SkipSecretsScan 2>&1 | Out-String; $missingCode=$LASTEXITCODE

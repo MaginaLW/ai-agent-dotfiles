@@ -11,17 +11,16 @@ try {
     $repo = Join-Path $work 'repo'
     $homeDir = Join-Path $work 'home'
     New-Item -ItemType Directory -Path (Join-Path $repo 'harness-source/envs'), (Join-Path $repo 'manifests'), (Join-Path $repo 'scripts'), (Join-Path $repo 'tools/gitleaks') -Force | Out-Null
-    foreach ($platform in 'claude', 'codex') {
+    foreach ($platform in 'zcode', 'codex') {
         Set-TestFile (Join-Path $repo "$platform/skills/alpha/SKILL.md") "# alpha`n"
     }
-    Set-TestFile (Join-Path $repo 'harness-source/envs/test.psd1') "@{ Skills = @{ Claude = @('alpha'); Codex = @('alpha'); Zcode = @() } }"
+    Set-TestFile (Join-Path $repo 'harness-source/envs/test.psd1') "@{ Skills = @{ Codex = @('alpha'); Zcode = @('alpha') } }"
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $repo 'manifests/whitelist.psd1') -Force
     foreach ($name in @('scan-secrets.ps1', 'pinned-tool.ps1', 'repo-common.ps1')) {
         Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $repo "scripts/$name") -Force
     }
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $repo 'tools/gitleaks/gitleaks.lock.json') -Force
     Copy-Item -LiteralPath (Join-Path $RepoRoot '.gitleaks.toml') -Destination $repo -Force
-    Set-TestFile (Join-Path $repo 'claude/settings.json') '{"shared":true}'
     Set-TestFile (Join-Path $repo 'codex/AGENTS.md') "# Managed`n"
     & git -C $repo init --quiet
     if ($LASTEXITCODE -ne 0) { throw 'Unable to initialize deploy fixture repository.' }
@@ -30,7 +29,7 @@ try {
     $dry = Invoke-TestProcess -ScriptPath $deploy -Arguments $deployArgs
     Assert-TestCondition ($dry.Code -eq 0) "dry run exits 0 ($($dry.Out))"
     Assert-TestCondition ($dry.Out -match "Dry run for environment 'test'" -and $dry.Out -match 'config-pull' -and $dry.Out -notmatch 'add\s+Claude/settings.json' -and $dry.Out -match 'add\s+Codex/AGENTS.md') 'dry run plans skills and Codex-only config'
-    Assert-TestCondition (-not (Test-Path (Join-Path $homeDir '.claude/skills/alpha')) -and -not (Test-Path (Join-Path $homeDir '.codex/AGENTS.md')) -and -not (Test-Path (Join-Path $homeDir 'state'))) 'dry run writes no skills, config or state'
+    Assert-TestCondition (-not (Test-Path (Join-Path $homeDir '.zcode/skills/alpha')) -and -not (Test-Path (Join-Path $homeDir '.codex/AGENTS.md')) -and -not (Test-Path (Join-Path $homeDir 'state'))) 'dry run writes no skills, config or state'
 
     $blockedHome = Join-Path $work 'blocked-home'
     $personalAgents = Join-Path $blockedHome '.codex/AGENTS.md'
@@ -39,26 +38,26 @@ try {
     $blockedArgs = @('-Environment', 'test', '-RepoRoot', $repo, '-HomeRoot', $blockedHome, '-StateRoot', (Join-Path $blockedHome 'state'), '-BackupRoot', (Join-Path $blockedHome 'backups'), '-SkipBuild', '-Apply')
     $blocked = Invoke-TestProcess -ScriptPath $deploy -Arguments $blockedArgs
     Assert-TestCondition ($blocked.Code -ne 0 -and $blocked.Out -match 'Preflight failed; no live skills, config or deploy state written') 'config planning failure is reported before Apply'
-    Assert-TestCondition ((Get-FileHash -LiteralPath $personalAgents).Hash -eq $personalHash -and -not (Test-Path (Join-Path $blockedHome '.claude')) -and -not (Test-Path (Join-Path $blockedHome '.codex/skills')) -and -not (Test-Path (Join-Path $blockedHome 'state')) -and -not (Test-Path (Join-Path $blockedHome 'backups'))) 'config preflight failure preserves personal config and writes no skills, state or backups'
+    Assert-TestCondition ((Get-FileHash -LiteralPath $personalAgents).Hash -eq $personalHash -and -not (Test-Path (Join-Path $blockedHome '.zcode')) -and -not (Test-Path (Join-Path $blockedHome '.codex/skills')) -and -not (Test-Path (Join-Path $blockedHome 'state')) -and -not (Test-Path (Join-Path $blockedHome 'backups'))) 'config preflight failure preserves personal config and writes no skills, state or backups'
 
     $collisionHome = Join-Path $work 'collision-home'
     Set-TestFile (Join-Path $collisionHome '.codex/skills/alpha') 'preserve ordinary file'
     $collisionArgs = @('-Environment', 'test', '-RepoRoot', $repo, '-HomeRoot', $collisionHome, '-StateRoot', (Join-Path $collisionHome 'state'), '-BackupRoot', (Join-Path $collisionHome 'backups'), '-SkipBuild', '-Apply')
     $collision = Invoke-TestProcess -ScriptPath $deploy -Arguments $collisionArgs
-    Assert-TestCondition ($collision.Code -ne 0 -and $collision.Out -match 'Preflight failed' -and (Get-Content -Raw (Join-Path $collisionHome '.codex/skills/alpha')) -eq 'preserve ordinary file' -and -not (Test-Path (Join-Path $collisionHome '.claude')) -and -not (Test-Path (Join-Path $collisionHome '.codex/AGENTS.md')) -and -not (Test-Path (Join-Path $collisionHome 'state'))) 'skills planning failure stops before any config or skills write'
+    Assert-TestCondition ($collision.Code -ne 0 -and $collision.Out -match 'Preflight failed' -and (Get-Content -Raw (Join-Path $collisionHome '.codex/skills/alpha')) -eq 'preserve ordinary file' -and -not (Test-Path (Join-Path $collisionHome '.zcode')) -and -not (Test-Path (Join-Path $collisionHome '.codex/AGENTS.md')) -and -not (Test-Path (Join-Path $collisionHome 'state'))) 'skills planning failure stops before any config or skills write'
 
     $applied = Invoke-TestProcess -ScriptPath $deploy -Arguments ($deployArgs + @('-Apply'))
     Assert-TestCondition ($applied.Code -eq 0) "apply exits 0 ($($applied.Out))"
     Assert-TestCondition ($applied.Out.IndexOf('=== skills preflight ===') -lt $applied.Out.IndexOf('=== config preflight ===') -and $applied.Out.IndexOf('=== config preflight ===') -lt $applied.Out.IndexOf('=== skills ===') -and $applied.Out.IndexOf('=== skills ===') -lt $applied.Out.IndexOf('=== config ===')) 'both planners finish before either Apply stage'
-    Assert-TestCondition ((Test-Path (Join-Path $homeDir '.claude/skills/alpha/SKILL.md')) -and (Test-Path (Join-Path $homeDir '.codex/skills/alpha/SKILL.md'))) 'apply installs both skill projections'
+    Assert-TestCondition ((Test-Path (Join-Path $homeDir '.zcode/skills/alpha/SKILL.md')) -and (Test-Path (Join-Path $homeDir '.codex/skills/alpha/SKILL.md'))) 'apply installs both skill projections'
     Assert-TestCondition ((-not (Test-Path (Join-Path $homeDir '.claude/settings.json'))) -and ((Get-Content -Raw (Join-Path $homeDir '.codex/AGENTS.md')) -match 'BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md')) 'apply deploys Codex config without restoring Claude config'
     $state = Get-Content -Raw (Join-Path $homeDir 'state/deployed-skills.json') | ConvertFrom-Json
-    Assert-TestCondition ($state.Environment -eq 'test' -and (@($state.Claude) -join ',') -eq 'alpha') 'apply records the skill environment'
+    Assert-TestCondition ($state.Environment -eq 'test' -and (@($state.Zcode) -join ',') -eq 'alpha') 'apply records the skill environment'
 
     $again = Invoke-TestProcess -ScriptPath $deploy -Arguments ($deployArgs + @('-Apply'))
     Assert-TestCondition ($again.Code -eq 0 -and $again.Out -match 'unchanged' -and $again.Out -match 'Nothing to deploy') 'second apply is idempotent'
 
-    Set-TestFile (Join-Path $repo 'claude/skills/alpha/SKILL.md') "# alpha updated`n"
+    Set-TestFile (Join-Path $repo 'zcode/skills/alpha/SKILL.md') "# alpha updated`n"
     Set-TestFile (Join-Path $repo 'codex/AGENTS.md') "# Managed updated`n"
     $liveAgents = Join-Path $homeDir '.codex/AGENTS.md'
     $beforeLockHash = (Get-FileHash -LiteralPath $liveAgents).Hash
@@ -66,7 +65,7 @@ try {
     try { $partial = Invoke-TestProcess -ScriptPath $deploy -Arguments ($deployArgs + @('-Apply')) }
     finally { $readLock.Dispose() }
     Assert-TestCondition ($partial.Code -ne 0 -and $partial.Out -match 'Preflight passed' -and $partial.Out -match 'Skills stage completed; config stage failed') 'runtime config write failure still reports partial completion after preflight'
-    Assert-TestCondition ((Get-Content -Raw (Join-Path $homeDir '.claude/skills/alpha/SKILL.md')) -eq "# alpha updated`n" -and (Get-FileHash -LiteralPath $liveAgents).Hash -eq $beforeLockHash) 'completed skill update remains and locked config is preserved'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $homeDir '.zcode/skills/alpha/SKILL.md')) -eq "# alpha updated`n" -and (Get-FileHash -LiteralPath $liveAgents).Hash -eq $beforeLockHash) 'completed skill update remains and locked config is preserved'
     $recovered = Invoke-TestProcess -ScriptPath $deploy -Arguments ($deployArgs + @('-Apply'))
     Assert-TestCondition ($recovered.Code -eq 0 -and (Get-Content -Raw $liveAgents) -match '# Managed updated') 'normal reviewed Apply can complete after the lock is released'
 
@@ -74,13 +73,13 @@ try {
     $daily = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'harness-source/envs/work.psd1')
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'harness-source/envs/work.psd1') -Destination (Join-Path $repo 'harness-source/envs/work.psd1') -Force
     foreach ($name in @($daily.Skills.Codex) + @($daily.Skills.Zcode) | Sort-Object -Unique) {
-        Set-TestFile (Join-Path $repo "claude/skills/$name/SKILL.md") "# $name`n"
+        Set-TestFile (Join-Path $repo "zcode/skills/$name/SKILL.md") "# $name`n"
         Set-TestFile (Join-Path $repo "codex/skills/$name/SKILL.md") "# $name`n"
     }
     $retiredHome = Join-Path $work 'retired-claude-home'
     $retiredArgs = @('-Environment', 'work', '-RepoRoot', $repo, '-HomeRoot', $retiredHome, '-StateRoot', (Join-Path $retiredHome 'state'), '-BackupRoot', (Join-Path $retiredHome 'backups'), '-SkipBuild', '-Apply')
     $retired = Invoke-TestProcess -ScriptPath $deploy -Arguments $retiredArgs
-    Assert-TestCondition ($retired.Code -eq 0 -and @($daily.Skills.Claude).Count -eq 0 -and -not (Test-Path (Join-Path $retiredHome '.claude'))) 'work Apply never recreates the retired Claude live root'
+    Assert-TestCondition ($retired.Code -eq 0 -and -not $daily.Skills.ContainsKey('Claude') -and -not (Test-Path (Join-Path $retiredHome '.claude'))) 'work Apply never recreates the retired Claude live root'
     Assert-TestCondition ((Test-Path (Join-Path $retiredHome '.codex/AGENTS.md')) -and @(Get-ChildItem -LiteralPath (Join-Path $retiredHome '.codex/skills') -Directory).Count -eq @($daily.Skills.Codex).Count -and @(Get-ChildItem -LiteralPath (Join-Path $retiredHome '.zcode/skills') -Directory).Count -eq @($daily.Skills.Zcode).Count) 'work Apply preserves Codex config and every selected Codex/ZCode skill'
 
     Set-TestFile (Join-Path $repo 'scripts/build-skills.ps1') "Write-Host 'Fixture build invocation'"

@@ -4,19 +4,6 @@
     Description = '全量基线环境（全部受管 skills，不做裁剪）'
 
     Skills = @{
-        Claude = @(
-            'brainstorming',
-            'git-review',
-            'meng-cmame-writing',
-            'multimodal-generation',
-            'paper-polish',
-            'session-learnings',
-            'subagent-driven-development',
-            'systematic-debugging',
-            'tool-scope',
-            'verification-before-completion',
-            'writing-plans'
-        )
         Codex = @(
             'antigravity-delegation',
             'brainstorming',
