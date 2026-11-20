@@ -55,6 +55,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $Platform = Resolve-ConfigPlatforms -Values $Platform
+$BackupRoot = Resolve-ConfigBackupRoot -RepoRoot $RepoRoot -BackupRoot $BackupRoot
 
 function Get-ConfigPullPlan {
     $plan = [System.Collections.Generic.List[object]]::new()

@@ -352,6 +352,31 @@ $destination = Join-Path (Split-Path -Parent $RepoRoot) "$homeName/.codex/AGENTS
     Assert (-not (Test-Path -LiteralPath (Join-Path $th '.zcode/AGENTS.md'))) 'pull: pure-add rollback removes an earlier add'
     Assert (-not (Test-Path -LiteralPath $bk)) 'pull: pure-add rollback does not invent a backup directory'
 
+    # Pull and push must reject in-repository backup paths before changing either tree.
+    $tr = New-TempRepo -Name 'backup-boundary-repo'
+    $th = Join-Path $work 'backup-boundary-home'
+    $repoFile = Join-Path $tr 'codex/prompts/example.md'
+    $homeFile = Join-Path $th '.codex/prompts/example.md'
+    Set-File $repoFile 'repository text'
+    Set-File $homeFile 'personal text'
+    $aliasPath = Join-Path $work 'backup-boundary-link'
+    New-Item -ItemType Junction -Path $aliasPath -Target $tr | Out-Null
+    Push-Location -LiteralPath $work
+    try {
+        foreach ($scriptPath in @($pullScript, $pushScript)) {
+            foreach ($badRoot in @($tr, './backup-boundary-repo/new', (Join-Path $tr 'new'), (Join-Path $aliasPath 'new'))) {
+                $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $badRoot, '-Apply')
+                Assert ($r.Code -ne 0 -and $r.Out -match 'BackupRoot must be outside') "$(Split-Path -Leaf $scriptPath): refuses backup root $badRoot"
+            }
+        }
+        Assert ([IO.File]::ReadAllText($homeFile) -ceq 'personal text' -and [IO.File]::ReadAllText($repoFile) -ceq 'repository text') 'refused backup roots preserve both originals'
+        Assert (-not (Test-Path (Join-Path $tr 'new')) -and @(Get-ChildItem -LiteralPath $tr -Directory -Filter 'config-*').Count -eq 0) 'refused backup roots create no backup or stage'
+    }
+    finally {
+        Pop-Location
+        [IO.Directory]::Delete($aliasPath)
+    }
+
     # Backups precede the guarded copy: a failed backup must leave home untouched.
     $tr = New-TempRepo -Name 'pull-backup-failure-repo'
     $th = Join-Path $work 'pull-backup-failure-home'

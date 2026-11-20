@@ -62,6 +62,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $Platform = Resolve-ConfigPlatforms -Values $Platform
+$BackupRoot = Resolve-ConfigBackupRoot -RepoRoot $RepoRoot -BackupRoot $BackupRoot
 
 function Find-MachinePrivatePaths {
     # Scan only the just-captured files (not the whole tree, which legitimately
