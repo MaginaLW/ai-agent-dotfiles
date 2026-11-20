@@ -10,6 +10,32 @@
 
 Set-StrictMode -Version Latest
 
+function Resolve-ConfigBackupRoot {
+    param([Parameter(Mandatory)] [string] $RepoRoot, [Parameter(Mandatory)] [string] $BackupRoot)
+
+    # Resolve existing junctions and symlinks even if the backup directory is new.
+    function Get-ConfigDirectoryTarget([IO.DirectoryInfo] $Directory, [int] $LinksLeft = 63) {
+        if ($null -eq $Directory.Parent) { return $Directory.FullName }
+        $parent = Get-ConfigDirectoryTarget $Directory.Parent $LinksLeft
+        $item = [IO.DirectoryInfo]::new([IO.Path]::Combine($parent, $Directory.Name))
+        if ($null -ne $item.LinkTarget) {
+            if ($LinksLeft -eq 0) { throw 'Too many links in config directory path.' }
+            return Get-ConfigDirectoryTarget ($item.ResolveLinkTarget($false)) ($LinksLeft - 1)
+        }
+        return $item.FullName
+    }
+
+    $path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BackupRoot)
+    $backup = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($path))
+    $repo = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($RepoRoot))
+    $relative = [IO.Path]::GetRelativePath($repo, $backup)
+    if (-not [IO.Path]::IsPathRooted($relative) -and $relative -ne '..' -and
+        -not $relative.StartsWith('..' + [IO.Path]::DirectorySeparatorChar)) {
+        throw 'BackupRoot must be outside the repository.'
+    }
+    return $backup
+}
+
 function Resolve-ConfigPlatforms {
     param(
         [Alias('PlatformInput')]

@@ -318,7 +318,7 @@ try {
     # Uninstall failure halts before install
     $root = New-PluginFixture 'version-update-uninstall-fails'
     $null = New-AgPluginBuild
-    $null = Invoke-AgPluginDeploy -DoApply
+    $originalInstall = Invoke-AgPluginDeploy -DoApply
     Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.5.0'"))
     Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
     $script:AgNative = 'fixture-only'
@@ -326,9 +326,17 @@ try {
     $script:AgTestUninstallMode = 'nonzero'
     Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'failed|uncertain' 'uninstall failure stops write chain'
     Assert-PluginTest ($script:AgTestUninstallCalls -eq 1 -and $script:AgTestInstallCalls -eq 1) 'install is NEVER called when uninstall fails'
-    Assert-PluginTest (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json')) 'pending marker retained after uninstall failure'
-    $attempts = @(Get-ChildItem -LiteralPath $script:AgStateRoot -Directory -Filter 'attempt-*' | Sort-Object CreationTime -Descending)
-    Assert-PluginTest ($attempts.Count -ge 2 -and (Test-Path -LiteralPath (Join-Path $attempts[0].FullName 'backup/plugin.json'))) 'pre-write backup intact after uninstall failure'
+    $markerPath = Join-Path $script:AgStateRoot 'pending-install.json'
+    $failedAttempt = (Read-AgJsonFile $markerPath).Attempt
+    $status = Get-AgPluginPlan
+    $preview = Invoke-AgPluginDeploy
+    foreach ($plan in @($status, $preview)) {
+        Assert-PluginTest ($plan.Action -eq 'blocked' -and $plan.Reason -eq 'previous-install-needs-readback-review') 'status and preview report the pending upgrade'
+    }
+    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'previous-install-needs-readback-review' 'pending upgrade blocks another apply'
+    Assert-PluginTest ($script:AgTestUninstallCalls -eq 1 -and $script:AgTestInstallCalls -eq 1) 'retry never invokes native uninstall or install'
+    Assert-PluginTest ((Read-AgJsonFile $markerPath).Attempt -ceq $failedAttempt) 'marker still identifies the original failed attempt'
+    Assert-PluginTest ((Read-AgJsonFile (Join-Path $failedAttempt 'backup/plugin.json')).version -eq $originalInstall.Version) 'original pre-write backup remains readable'
 
     # Install failure after uninstall retains backup
     $root = New-PluginFixture 'version-update-install-fails'

@@ -55,6 +55,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $Platform = Resolve-ConfigPlatforms -Values $Platform
+$BackupRoot = Resolve-ConfigBackupRoot -RepoRoot $RepoRoot -BackupRoot $BackupRoot
 
 function Get-ConfigPullPlan {
     $plan = [System.Collections.Generic.List[object]]::new()
@@ -72,7 +73,7 @@ function Get-ConfigPullPlan {
                 $block = Get-ManagedAgentsBlockResult -RepoText ([IO.File]::ReadAllText($repoItem)) -HomeText $homeText -HomeExists $homeExists -BlockId $blockSpec.BlockId -Label $blockSpec.Label
                 if ($block.Changed) {
                     $action = if ($homeExists) { 'update' } else { 'add' }
-                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = $blockSpec.Label; Action = $action; Mode = 'content'; Content = $block.Content })
+                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = $blockSpec.Label; Action = $action; Mode = 'content'; Content = $block.Content; OriginalText = $homeText })
                 }
                 continue
             }
@@ -126,9 +127,46 @@ if ($overwrites.Count -gt 0) {
 $attempted = [System.Collections.Generic.List[object]]::new()
 try {
     foreach ($op in $plan) {
-        # Include the failing item: a copy can change a destination before throwing.
-        $attempted.Add($op)
-        Invoke-ConfigPlanWrite -Plan @($op) -Progress
+        if ($op.Mode -eq 'copy' -and $op.Action -eq 'update') {
+            # A copy can change the destination before throwing.
+            $attempted.Add($op)
+            Invoke-ConfigPlanWrite -Plan @($op) -Progress
+            continue
+        }
+
+        # CreateNew claims a planned add atomically. For a managed update, hold
+        # the same handle while comparing and writing so an editor cannot race the check.
+        $mode = [IO.FileMode]::Open
+        if ($op.Action -eq 'add') {
+            $parent = Split-Path -Parent $op.Dst
+            if (-not (Test-Path -LiteralPath $parent)) {
+                New-Item -ItemType Directory -Path $parent -Force | Out-Null
+            }
+            $mode = [IO.FileMode]::CreateNew
+        }
+        $stream = [IO.File]::Open($op.Dst, $mode, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+        try {
+            if ($mode -eq [IO.FileMode]::Open) {
+                $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true, 1024, $true)
+                try { $current = $reader.ReadToEnd() } finally { $reader.Dispose() }
+                if (-not [string]::Equals($current, $op.OriginalText, [StringComparison]::Ordinal)) {
+                    throw "$($op.Rel) changed since planning. Run config pull again to review it."
+                }
+            }
+            $attempted.Add($op)
+            if ($op.Mode -eq 'content') {
+                $bytes = [Text.Encoding]::UTF8.GetBytes($op.Content)
+                $stream.Position = 0
+                $stream.Write($bytes)
+                $stream.SetLength($bytes.Length)
+            }
+            else {
+                $source = [IO.File]::OpenRead($op.Src)
+                try { $source.CopyTo($stream) } finally { $source.Dispose() }
+            }
+        }
+        finally { $stream.Dispose() }
+        Write-Host ('  {0,-7} {1}' -f $op.Action, $op.Rel) -ForegroundColor Green
     }
 }
 catch {

@@ -277,6 +277,33 @@ try {
     Assert ($r.Out -notmatch 'same.md|home-only.md|sketch.local.toml' -and $r.Out -match 'add=1' -and $r.Out -match 'update=1') 'pull: directory plan omits unchanged, destination-only and excluded files'
     Assert ((Get-Content -LiteralPath (Join-Path $th '.codex/prompts/ok.md') -Raw) -eq 'prompt bytes' -and -not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/nested/new.md'))) 'pull: directory dry-run preserves destination bytes'
 
+    # Let the real scan finish, then save a personal edit before the planned write.
+    foreach ($action in @('update', 'add')) {
+        $tr = New-TempRepo -Name "pull-race-$action-repo"
+        $th = Join-Path $work "pull-race-$action-home"
+        $bk = Join-Path $work "pull-race-$action-backup"
+        $file = Join-Path $th '.codex/AGENTS.md'
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $file)) | Out-Null
+        Set-File (Join-Path $tr 'codex/AGENTS.md') 'updated rules'
+        if ($action -eq 'update') {
+            Set-File $file "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`nold rules`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->`n"
+        }
+        $expected = if ($action -eq 'update') { [IO.File]::ReadAllText($file) } else { '' }
+        $expected += 'concurrent personal edit'
+        $scan = Join-Path $tr 'scripts/scan-secrets.ps1'
+        Rename-Item -LiteralPath $scan -NewName 'original-scan.ps1'
+        Set-File $scan @'
+param([string] $RepoRoot)
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'original-scan.ps1') -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$homeName = (Split-Path -Leaf $RepoRoot) -replace '-repo$', '-home'
+$destination = Join-Path (Split-Path -Parent $RepoRoot) "$homeName/.codex/AGENTS.md"
+[IO.File]::AppendAllText($destination, 'concurrent personal edit')
+'@
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $bk, '-Apply')
+        Assert ($r.Code -ne 0 -and [IO.File]::ReadAllText($file) -ceq $expected) "pull: a concurrent personal save survives a planned $action"
+    }
+
     # The scan must stop both adds and updates before even creating a backup.
     $tr = New-TempRepo -Name 'pull-secret-repo'
     $th = Join-Path $work 'pull-secret-home'
@@ -324,6 +351,31 @@ try {
     Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: pure-add failure reports recovery without a backup'
     Assert (-not (Test-Path -LiteralPath (Join-Path $th '.zcode/AGENTS.md'))) 'pull: pure-add rollback removes an earlier add'
     Assert (-not (Test-Path -LiteralPath $bk)) 'pull: pure-add rollback does not invent a backup directory'
+
+    # Pull and push must reject in-repository backup paths before changing either tree.
+    $tr = New-TempRepo -Name 'backup-boundary-repo'
+    $th = Join-Path $work 'backup-boundary-home'
+    $repoFile = Join-Path $tr 'codex/prompts/example.md'
+    $homeFile = Join-Path $th '.codex/prompts/example.md'
+    Set-File $repoFile 'repository text'
+    Set-File $homeFile 'personal text'
+    $aliasPath = Join-Path $work 'backup-boundary-link'
+    New-Item -ItemType Junction -Path $aliasPath -Target $tr | Out-Null
+    Push-Location -LiteralPath $work
+    try {
+        foreach ($scriptPath in @($pullScript, $pushScript)) {
+            foreach ($badRoot in @($tr, './backup-boundary-repo/new', (Join-Path $tr 'new'), (Join-Path $aliasPath 'new'))) {
+                $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $badRoot, '-Apply')
+                Assert ($r.Code -ne 0 -and $r.Out -match 'BackupRoot must be outside') "$(Split-Path -Leaf $scriptPath): refuses backup root $badRoot"
+            }
+        }
+        Assert ([IO.File]::ReadAllText($homeFile) -ceq 'personal text' -and [IO.File]::ReadAllText($repoFile) -ceq 'repository text') 'refused backup roots preserve both originals'
+        Assert (-not (Test-Path (Join-Path $tr 'new')) -and @(Get-ChildItem -LiteralPath $tr -Directory -Filter 'config-*').Count -eq 0) 'refused backup roots create no backup or stage'
+    }
+    finally {
+        Pop-Location
+        [IO.Directory]::Delete($aliasPath)
+    }
 
     # Backups precede the guarded copy: a failed backup must leave home untouched.
     $tr = New-TempRepo -Name 'pull-backup-failure-repo'
