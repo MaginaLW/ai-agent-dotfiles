@@ -9,18 +9,15 @@
     repo-only (a pull would deploy it) or home-only (a push would capture it).
     Items absent on both sides are omitted. ExcludedItems and CommonExcludedItems
     are skipped inside directories.
-    The table also compares fields in differing Claude settings.json objects,
-    without printing values. The JSON output remains the file-level report.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of this script's directory.
 
 .PARAMETER HomeRoot
-    Home directory. Defaults to $env:USERPROFILE. Claude is read from .claude,
-    Codex from .codex, and Antigravity from .gemini/config.
+    Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Antigravity, ZCode. Defaults to Codex; Claude, Antigravity, and ZCode require an explicit opt-in.
+    One or more of Codex, Antigravity, ZCode. Defaults to Codex.
 
 .PARAMETER Json
     Emit the results as a JSON array instead of the table.
@@ -86,18 +83,6 @@ function Compare-ConfigItem {
     }
 
     if ($repoKind -eq 'file') {
-        if ($Platform -eq 'Claude' -and $Item -eq 'settings.json') {
-            try {
-                $merge = Get-ClaudeSettingsMergeResult -RepoPath $RepoPath -HomePath $HomePath
-                if ($merge.Changed) { return [pscustomobject] @{ Status = 'differs'; Detail = 'managed fields differ' } }
-                $detail = if ($merge.HomeOnlyFieldCount -gt 0) {
-                    "managed fields match; $($merge.HomeOnlyFieldCount) home-only field(s) preserved"
-                }
-                else { 'managed fields match' }
-                return [pscustomobject] @{ Status = 'in-sync'; Detail = $detail }
-            }
-            catch { return [pscustomobject] @{ Status = 'differs'; Detail = 'JSON merge unavailable' } }
-        }
         $blockSpec = Get-ManagedAgentsBlockSpec -Platform $Platform -Item $Item
         if ($null -ne $blockSpec) {
             try {
@@ -129,38 +114,6 @@ function Compare-ConfigItem {
     if ($onlyRepo.Count) { $bits += "$($onlyRepo.Count) repo-only" }
     if ($onlyHome.Count) { $bits += "$($onlyHome.Count) home-only" }
     return [pscustomobject] @{ Status = 'differs'; Detail = ($bits -join ', ') }
-}
-
-function Show-ClaudeSettingsFieldDifferences {
-    param([string] $RepoPath, [string] $HomePath)
-    $repoDoc = $null
-    $homeDoc = $null
-    try {
-        $repoDoc = [System.Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($RepoPath))
-        $homeDoc = [System.Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($HomePath))
-        if ($repoDoc.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Object -or $homeDoc.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) {
-            Write-Host '  Field comparison unavailable: both JSON roots must be objects.' -ForegroundColor Yellow
-            return
-        }
-        Assert-JsonUniqueObjectKeys $repoDoc.RootElement
-        Assert-JsonUniqueObjectKeys $homeDoc.RootElement
-        # Collect before printing so malformed or ambiguous nested objects never yield a partial report.
-        $fields = @(Get-JsonFieldDifferences $repoDoc.RootElement $homeDoc.RootElement '')
-        foreach ($field in $fields) {
-            $path = ConvertTo-Json -InputObject $field.Path -Compress
-            $suffix = if ($field.Kind -eq 'home-only') { ' (structured merge preserves this field)' } else { '' }
-            Write-Host "  $($field.Kind) $path$suffix" -ForegroundColor Yellow
-        }
-        if ($fields.Count -eq 0) { Write-Host '  JSON fields match; file bytes differ.' -ForegroundColor DarkGray }
-    }
-    catch {
-        # Parse errors can contain input snippets; do not print exception details.
-        Write-Host '  Field comparison unavailable: invalid, unsupported, or ambiguous JSON.' -ForegroundColor Yellow
-    }
-    finally {
-        if ($null -ne $repoDoc) { $repoDoc.Dispose() }
-        if ($null -ne $homeDoc) { $homeDoc.Dispose() }
-    }
 }
 
 $results = [System.Collections.Generic.List[object]]::new()
@@ -204,16 +157,6 @@ else {
         if ($row.Detail) { $label += "  ($($row.Detail))" }
         $color = if ($colorFor.ContainsKey($row.Status)) { $colorFor[$row.Status] } else { 'White' }
         Write-Host $label -ForegroundColor $color
-        if ($row.Platform -eq 'Claude' -and $row.Item -eq 'settings.json' -and $row.Status -in @('differs', 'in-sync')) {
-            $target = @(Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform @('Claude') -ItemKeys 'PushItems', 'PullItems')[0]
-            $repoPath = Join-Path $target.RepoRoot $row.Item
-            $homePath = Join-Path $target.HomeRoot $row.Item
-            if ((Test-Path -LiteralPath $repoPath -PathType Leaf) -and
-                (Test-Path -LiteralPath $homePath -PathType Leaf) -and
-                (Get-FileHashHex $repoPath) -ne (Get-FileHashHex $homePath)) {
-                Show-ClaudeSettingsFieldDifferences -RepoPath $repoPath -HomePath $homePath
-            }
-        }
     }
 }
 

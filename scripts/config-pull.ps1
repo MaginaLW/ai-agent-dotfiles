@@ -6,14 +6,11 @@
 
 .DESCRIPTION
     Plans an add (absent in home) or update (content differs; repo wins) for every
-    managed file. Claude writes to ~/.claude, Codex to ~/.codex, and Antigravity
-    to ~/.gemini/config.
+    managed file. Codex writes to ~/.codex, Antigravity to ~/.gemini/config, and ZCode to ~/.zcode.
     Directories are copied file-by-file and never pruned:
     home-only files stay untouched. ExcludedItems and CommonExcludedItems are skipped.
 
-    Claude settings.json is merged object-by-object so home-only fields survive; repo
-    arrays replace the corresponding home array. Codex and Antigravity AGENTS.md each
-    use one marked managed block and leave content outside it untouched.
+    Each platform's AGENTS.md uses one marked managed block and preserves content outside it.
 
     -Apply runs the secret scan first, then backs up every home file it overwrites to
     <BackupRoot>\config-backup-<timestamp>\ before copying. A caught copy failure
@@ -31,7 +28,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Antigravity, ZCode. Defaults to Codex; Claude, Antigravity, and ZCode require an explicit opt-in.
+    One or more of Codex, Antigravity, ZCode. Defaults to Codex.
 
 .PARAMETER BackupRoot
     Root for the pre-overwrite backup. Defaults to
@@ -66,19 +63,6 @@ function Get-ConfigPullPlan {
             $repoItem = Join-Path $target.RepoRoot $item
             $homeItem = Join-Path $target.HomeRoot $item
             if (-not (Test-Path -LiteralPath $repoItem)) { continue }
-            if ($target.Name -eq 'Claude' -and $item -eq 'settings.json') {
-                if (-not (Test-Path -LiteralPath $repoItem -PathType Leaf)) { throw 'Claude/settings.json source is not a file.' }
-                if (Test-Path -LiteralPath $homeItem -PathType Container) { throw 'Claude/settings.json destination is a directory.' }
-                if (-not (Test-Path -LiteralPath $homeItem -PathType Leaf)) {
-                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = 'Claude/settings.json'; Action = 'add'; Mode = 'copy' })
-                    continue
-                }
-                $merge = Get-ClaudeSettingsMergeResult -RepoPath $repoItem -HomePath $homeItem
-                if ($merge.Changed) {
-                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = 'Claude/settings.json'; Action = 'update'; Mode = 'content'; Content = $merge.Content })
-                }
-                continue
-            }
             $blockSpec = Get-ManagedAgentsBlockSpec -Platform $target.Name -Item $item
             if ($null -ne $blockSpec) {
                 if (-not (Test-Path -LiteralPath $repoItem -PathType Leaf)) { throw "$($blockSpec.Label) source is not a file." }
@@ -106,9 +90,6 @@ function Get-ConfigPullPlan {
 $plan = Get-ConfigPullPlan
 
 Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
-if (@($plan | Where-Object { $_.Rel -eq 'Claude/settings.json' }).Count -gt 0) {
-    Write-Host 'Claude/settings.json will be merged; home-only fields are preserved.' -ForegroundColor Yellow
-}
 foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md', 'ZCode/AGENTS.md')) {
     if (@($plan | Where-Object { $_.Rel -eq $managedLabel }).Count -gt 0) {
         Write-Host "Only the managed block in $managedLabel will be updated; content outside it is preserved." -ForegroundColor Yellow

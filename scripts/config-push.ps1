@@ -6,8 +6,7 @@
 
 .DESCRIPTION
     Plans an add (absent in the repo) or update (content differs; home wins) for every
-    managed file. Claude is read from ~/.claude, Codex from ~/.codex, and Antigravity
-    from ~/.gemini/config, and written under claude/, codex/, and antigravity/ in the repo.
+    managed file. Codex reads from ~/.codex, Antigravity from ~/.gemini/config, and ZCode from ~/.zcode.
     Directories are copied file-by-file and never pruned: repo-only files stay
     untouched. ExcludedItems and CommonExcludedItems are never captured.
 
@@ -31,7 +30,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Claude, Codex, Antigravity, ZCode. Defaults to Codex; Claude, Antigravity, and ZCode require an explicit opt-in.
+    One or more of Codex, Antigravity, ZCode. Defaults to Codex.
 
 .PARAMETER BackupRoot
     Root for the revert stage. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.
