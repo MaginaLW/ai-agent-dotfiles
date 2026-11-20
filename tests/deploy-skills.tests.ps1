@@ -157,10 +157,13 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     try { $r = Invoke-Deploy $repo $writeFailureHome @('-Apply') } finally { $replacementLock.Dispose() }
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Deployment state update failed' -and (Get-FileHash -LiteralPath $writeFailureState).Hash -eq $oldWriteHash) 'blocked replacement fails and preserves the old state'
     Assert-TestCondition (@(Get-ChildItem -LiteralPath (Split-Path -Parent $writeFailureState) -Filter 'deployed-skills.*.tmp').Count -eq 0) 'blocked replacement removes its temporary state'
-    Set-TestFile (Join-Path $writeFailureHome '.zcode/skills/alpha/SKILL.md') 'needs replacement'
     $r = Invoke-Deploy $repo $writeFailureHome @('-Apply')
     $updatedState = Get-Content -Raw -LiteralPath $writeFailureState | ConvertFrom-Json
-    Assert-TestCondition ($r.Code -eq 0 -and $updatedState.Environment -eq 'test' -and (@($updatedState.Zcode) -join ',') -eq 'alpha') "retry replaces the existing state after the lock is released (exit $($r.Code), environment $($updatedState.Environment), output: $($r.Out))"
+    Assert-TestCondition ($r.Code -eq 0 -and $updatedState.Environment -eq 'test') "retry replaces the existing state after the lock is released (exit $($r.Code), environment $($updatedState.Environment), output: $($r.Out))"
+    foreach ($platform in 'Zcode', 'Codex') {
+        $file = Join-Path $writeFailureHome ".$platform/skills/alpha/SKILL.md"
+        Assert-TestCondition ($updatedState.$platform.Count -eq 0 -and (Get-Content -Raw -LiteralPath $file) -ceq "# alpha v1`n") "retry preserves the $platform skill without a recorded owner"
+    }
 
     Write-Host '[unavailable state directory reports partial live changes]'
     $blockedStateHome = Join-Path $work 'blocked-state-home'
