@@ -47,13 +47,8 @@ function Copy-HarnessGeneratedFile([string] $Source, [string] $Relative) {
 }
 
 foreach ($group in @($plan.Targets | Where-Object Mode -EQ 'ManagedBlock' | Group-Object Target)) {
-    $name = if ($group.Name -ieq 'CLAUDE.md') { 'CLAUDE.generated.md' } else { 'AGENTS.generated.md' }
     $blocks = @(Get-HarnessManagedBlocks -Plan $plan -Targets @($group.Group))
-    Write-HarnessGeneratedText $name ((@($blocks.Text) -join "`n`n") + "`n")
-}
-foreach ($group in @($plan.Targets | Where-Object Mode -EQ 'StructuredMerge' | Group-Object Target)) {
-    $merged = Merge-HarnessSettings -Plan $plan -Base ([ordered] @{}) -Targets @($group.Group)
-    Write-HarnessGeneratedText 'claude-settings.generated.json' ($merged | ConvertTo-Json -Depth 50)
+    Write-HarnessGeneratedText 'AGENTS.generated.md' ((@($blocks.Text) -join "`n`n") + "`n")
 }
 foreach ($target in @($plan.Targets | Where-Object Mode -EQ 'DirectoryFiles')) {
     $component = Get-HarnessPlanComponent -Plan $plan -Target $target

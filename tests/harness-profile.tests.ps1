@@ -85,19 +85,16 @@ function Join-Psd1Array([string[]] $Values) {
 # Components key at all.
 function New-ProjectProfileText {
     param(
-        [string[]] $TargetPlatforms = @('Claude', 'Codex'),
+        [string[]] $TargetPlatforms = @('Codex'),
         [string[]] $Extends = @(),
         [string[]] $Rules = @(),
         [string[]] $Prompts = @(),
-        [string[]] $Commands = @(),
-        [string[]] $Agents = @(),
-        [string[]] $ClaudeSettings = @(),
         [string[]] $CodexAgents = @(),
         [string] $ExtraComponentLine = '',
         [string] $ExtraLine = ''
     )
 
-    $buckets = [ordered] @{ Rules = $Rules; Prompts = $Prompts; Commands = $Commands; Agents = $Agents; ClaudeSettings = $ClaudeSettings; CodexAgents = $CodexAgents }
+    $buckets = [ordered] @{ Rules = $Rules; Prompts = $Prompts; CodexAgents = $CodexAgents }
     $lines = @(foreach ($bucket in $buckets.Keys) {
             if ($buckets[$bucket].Count -gt 0) { "        $bucket = $(Join-Psd1Array $buckets[$bucket])" }
         }) + @($ExtraComponentLine | Where-Object { $_ })
@@ -116,7 +113,7 @@ $components$ExtraLine
 function New-TestProject {
     param(
         [Parameter(Mandatory)] [string] $Name,
-        [string] $ProfileText = (New-ProjectProfileText -Rules @('safe-file-edits', 'no-generated-output-edits') -Prompts @('commit-summary') -Commands @('command-helper') -ClaudeSettings @('project-guards'))
+        [string] $ProfileText = (New-ProjectProfileText -Rules @('safe-file-edits', 'no-generated-output-edits') -Prompts @('commit-summary') -CodexAgents @('prompt-helper'))
     )
     $project = Join-Path $work $Name
     if (Test-Path -LiteralPath $project) { Remove-Item -LiteralPath $project -Recurse -Force }
@@ -131,12 +128,11 @@ function Add-Component {
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [string] $Id,
         [string] $Kind = 'Rule',
-        [string[]] $TargetPlatforms = @('Claude', 'Codex'),
+        [string[]] $TargetPlatforms = @('Codex'),
         [Parameter(Mandatory)] [string] $Target,
         [Parameter(Mandatory)] [string] $Mode,
         [string] $BlockId,
         [string] $Content,
-        [string] $SettingsJson,
         [string] $Source
     )
     $dir = Join-Path (Join-Path $HarnessRepo 'harness-source/components') $Path
@@ -162,7 +158,6 @@ $extra        }
         $contentName = if ([string]::IsNullOrWhiteSpace($Source)) { 'content.md' } else { $Source }
         Set-File -Path (Join-Path $dir $contentName) -Content $Content
     }
-    if ($PSBoundParameters.ContainsKey('SettingsJson')) { Set-File -Path (Join-Path $dir 'settings.json') -Content $SettingsJson }
 }
 
 function New-TestHarnessRepo {
@@ -184,27 +179,11 @@ function New-TestHarnessRepo {
     & git -C $repo init --quiet
     if ($LASTEXITCODE -ne 0) { throw "Unable to initialize harness fixture repository: $repo" }
 
-    Set-File -Path (Join-Path $repo 'harness-source/profiles/base.psd1') -Content (New-ProjectProfileText -TargetPlatforms @('Claude', 'Codex'))
+    Set-File -Path (Join-Path $repo 'harness-source/profiles/base.psd1') -Content (New-ProjectProfileText -TargetPlatforms @('Codex'))
     Add-Component -HarnessRepo $repo -Path 'rules/safe-file-edits' -Id 'safe-file-edits' -Kind 'Rule' -Target 'AGENTS.md' -Mode 'ManagedBlock' -BlockId 'safe-file-edits' -Content "Safe file edit rule.`n"
     Add-Component -HarnessRepo $repo -Path 'rules/no-generated-output-edits' -Id 'no-generated-output-edits' -Kind 'Rule' -Target 'AGENTS.md' -Mode 'ManagedBlock' -BlockId 'no-generated-output-edits' -Content "Generated output rule.`n"
     Add-Component -HarnessRepo $repo -Path 'prompts/commit-summary' -Id 'commit-summary' -Kind 'Prompt' -Target '.agent-harness/generated/prompts/commit-summary.md' -Mode 'GeneratedOnly' -Content "Summarize commits clearly.`n"
-    Add-Component -HarnessRepo $repo -Path 'commands/command-helper' -Id 'command-helper' -Kind 'Command' -Target '.claude/commands/harness-helper.md' -Mode 'DirectoryFiles' -Content "Run the harness helper.`n"
-    Add-Component -HarnessRepo $repo -Path 'claude-settings/project-guards' -Id 'project-guards' -Kind 'ClaudeSettings' -Target '.claude/settings.json' -Mode 'StructuredMerge' -SettingsJson @'
-{
-  "permissions": {
-    "deny": [
-      "Bash(git reset --hard:*)",
-      "Bash(robocopy /MIR:*)"
-    ],
-    "allow": [
-      "Read(*)"
-    ]
-  },
-  "env": {
-    "harnessProfile": "enabled"
-  }
-}
-'@
+    Add-Component -HarnessRepo $repo -Path 'codex-prompts/prompt-helper' -Id 'prompt-helper' -Kind 'CodexPrompt' -Target '.codex/prompts/harness-helper.md' -Mode 'DirectoryFiles' -Content "Run the harness helper.`n"
     return $repo
 }
 
@@ -309,7 +288,7 @@ $project = New-TestProject -Name 'replace-project'
 $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project)
 Assert ($r.Code -eq 0) 'build: baseline build succeeds'
 Set-File -Path (Join-Path $project '.agent-harness/generated/stale-extra.md') 'stale'
-Set-File -Path (Join-Path $project '.agent-harness/profile.psd1') -Content (New-ProjectProfileText -Rules @('safe-file-edits') -Commands @('command-helper'))
+Set-File -Path (Join-Path $project '.agent-harness/profile.psd1') -Content (New-ProjectProfileText -Rules @('safe-file-edits') -CodexAgents @('prompt-helper'))
 $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project)
 Assert ($r.Code -eq 0) 'build: rebuild after a profile change succeeds'
 Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/generated/stale-extra.md'))) 'a rebuild without -Clean removes stale generated files'
@@ -331,8 +310,7 @@ $after = Get-FileSnapshot -Root $project
 $changes = @(Compare-FileSnapshot -Before $before -After $after)
 $allowedWrites = @(
     'AGENTS.md',
-    '.claude/settings.json',
-    '.claude/commands/harness-helper.md'
+    '.codex/prompts/harness-helper.md'
 )
 $unexpected = @($changes | Where-Object {
     ($_.Path -notin $allowedWrites) -and
@@ -344,8 +322,8 @@ Assert ($unexpected.Count -eq 0) 'apply: writes only allowlisted project targets
 $before = Get-FileSnapshot -Root $project
 $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project)
 $after = Get-FileSnapshot -Root $project
-Assert ($r.Code -eq 0 -and $r.Out -match 'noop\s+AGENTS.md' -and $r.Out -match 'noop\s+\.claude/settings.json') 'repeat dry-run: reports no-op for applied targets'
-Assert ($r.Out -notmatch '(?m)^\s+(add|update)\s+(AGENTS\.md|\.claude/settings\.json|\.claude/commands/harness-helper\.md)') 'repeat dry-run: no add/update for applied targets'
+Assert ($r.Code -eq 0 -and $r.Out -match 'noop\s+AGENTS.md' -and $r.Out -match 'noop\s+\.codex/prompts/harness-helper\.md') 'repeat dry-run: reports no-op for applied targets'
+Assert ($r.Out -notmatch '(?m)^\s+(add|update)\s+(AGENTS\.md|\.codex/prompts/harness-helper\.md)') 'repeat dry-run: no add/update for applied targets'
 Assert (@(Compare-FileSnapshot -Before $before -After $after).Count -eq 0) 'repeat dry-run: writes nothing'
 $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project, '-Json')
 $status = $r.Out | ConvertFrom-Json
@@ -353,7 +331,7 @@ $statusWritable = @($status.Targets | Where-Object { $_.Mode -ne 'GeneratedOnly'
 Assert ($r.Code -eq 0 -and @($statusWritable | Where-Object { $_.Action -ne 'noop' }).Count -eq 0) 'status after apply: writable targets report no-op'
 
 # ===========================================================================
-Write-Host "`n[managed blocks and settings]" -ForegroundColor Cyan
+Write-Host "`n[managed blocks]" -ForegroundColor Cyan
 # ===========================================================================
 $ruleOnlyProfile = New-ProjectProfileText -Rules @('safe-file-edits')
 $project = New-TestProject -Name 'no-marker-project' -ProfileText $ruleOnlyProfile
@@ -378,58 +356,24 @@ $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $repo, '-Proj
 $afterText = Get-Content -Raw -LiteralPath $agentsPath
 Assert ($r.Code -eq 0 -and $afterText -match 'Safe file edit rule' -and $afterText -notmatch 'old managed text') 'managed block: marker block replacement works'
 
-$settingsOnlyProfile = New-ProjectProfileText -ClaudeSettings @('project-guards')
-$project = New-TestProject -Name 'settings-project' -ProfileText $settingsOnlyProfile
-Set-File -Path (Join-Path $project '.claude/settings.json') -Content @'
-{
-  "theme": "dark",
-  "nested": {
-    "keep": true
-  },
-  "permissions": {
-    "deny": [
-      "Bash(rm -rf:*)"
-    ],
-    "allow": [
-      "Write(*)"
-    ]
-  }
-}
-'@
-$r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project, '-Apply')
-$settings = Get-Content -Raw -LiteralPath (Join-Path $project '.claude/settings.json') | ConvertFrom-Json
-Assert ($r.Code -eq 0 -and $settings.theme -eq 'dark' -and $settings.nested.keep -eq $true) '.claude/settings.json: preserves unmanaged keys'
-Assert (@($settings.permissions.deny) -contains 'Bash(rm -rf:*)') '.claude/settings.json: preserves existing permissions.deny entries'
-
-$denyRepo = New-TestHarnessRepo -Name 'deny-removal-repo'
-Add-Component -HarnessRepo $denyRepo -Path 'claude-settings/bad-permissions' -Id 'bad-permissions' -Kind 'ClaudeSettings' -Target '.claude/settings.json' -Mode 'StructuredMerge' -SettingsJson '{"permissions":"replace"}'
-$project = New-TestProject -Name 'deny-removal-project' -ProfileText (New-ProjectProfileText -ClaudeSettings @('bad-permissions'))
-Set-File -Path (Join-Path $project '.claude/settings.json') -Content '{"permissions":{"deny":["Bash(rm -rf:*)"]}}'
-$before = Get-FileSnapshot -Root $project
-$r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $denyRepo, '-ProjectRoot', $project, '-Apply')
-$after = Get-FileSnapshot -Root $project
-Assert ($r.Code -ne 0 -and $r.Out -match 'permissions\.deny') 'permissions.deny: removal is rejected'
-Assert (@(Compare-FileSnapshot -Before $before -After $after).Count -eq 0) 'permissions.deny: failed apply writes nothing'
-
 $sourceRepo = New-TestHarnessRepo -Name 'named-source-repo'
-Add-Component -HarnessRepo $sourceRepo -Path 'commands/named-source' -Id 'named-source' -Kind 'Command' -Target '.claude/commands/named.md' -Mode 'DirectoryFiles' -Source 'body.md' -Content "Named source body.`n"
-$project = New-TestProject -Name 'named-source-project' -ProfileText (New-ProjectProfileText -Commands @('named-source'))
+Add-Component -HarnessRepo $sourceRepo -Path 'codex-prompts/named-source' -Id 'named-source' -Kind 'CodexPrompt' -Target '.codex/prompts/named.md' -Mode 'DirectoryFiles' -Source 'body.md' -Content "Named source body.`n"
+$project = New-TestProject -Name 'named-source-project' -ProfileText (New-ProjectProfileText -CodexAgents @('named-source'))
 $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $sourceRepo, '-ProjectRoot', $project, '-Apply')
-$written = Join-Path $project '.claude/commands/named.md'
+$written = Join-Path $project '.codex/prompts/named.md'
 Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath $written) -and ((Get-Content -Raw -LiteralPath $written) -ceq "Named source body.`n")) 'DirectoryFiles: apply writes the declared Source file'
 
 # ===========================================================================
-Write-Host "`n[Claude and Codex directory outputs]" -ForegroundColor Cyan
+Write-Host "`n[Codex directory outputs]" -ForegroundColor Cyan
 # ===========================================================================
 # The project extends a library profile that extends base and selects one DirectoryFiles
-# component of every Kind, Claude-only and Codex-only.
+# component of each Codex directory-output kind.
 $platformRepo = New-TestHarnessRepo -Name 'platform-repo'
-Add-Component -HarnessRepo $platformRepo -Path 'agents/claude-reviewer' -Id 'claude-reviewer' -Kind 'ClaudeAgent' -TargetPlatforms @('Claude') -Target '.claude/agents/reviewer.md' -Mode 'DirectoryFiles' -Content "Claude reviewer.`n"
 Add-Component -HarnessRepo $platformRepo -Path 'codex-prompts/review-prompt' -Id 'review-prompt' -Kind 'CodexPrompt' -TargetPlatforms @('Codex') -Target '.codex/prompts/review.md' -Mode 'DirectoryFiles' -Content "Codex review prompt.`n"
 Add-Component -HarnessRepo $platformRepo -Path 'codex-agents/reviewer' -Id 'codex-reviewer' -Kind 'CodexAgent' -TargetPlatforms @('Codex') -Target '.codex/agents/reviewer.md' -Mode 'DirectoryFiles' -Content "Codex reviewer.`n"
-Set-File -Path (Join-Path $platformRepo 'harness-source/profiles/reviewers.psd1') -Content (New-ProjectProfileText -Extends @('base') -Commands @('command-helper') -Agents @('claude-reviewer') -CodexAgents @('review-prompt', 'codex-reviewer'))
+Set-File -Path (Join-Path $platformRepo 'harness-source/profiles/reviewers.psd1') -Content (New-ProjectProfileText -Extends @('base') -CodexAgents @('review-prompt', 'codex-reviewer'))
 $platformProfile = New-ProjectProfileText -Extends @('reviewers')
-$directoryTargets = @('.claude/commands/harness-helper.md', '.claude/agents/reviewer.md', '.codex/prompts/review.md', '.codex/agents/reviewer.md')
+$directoryTargets = @('.codex/prompts/review.md', '.codex/agents/reviewer.md')
 
 $project = New-TestProject -Name 'platform-build-project' -ProfileText $platformProfile
 $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project)
@@ -438,7 +382,7 @@ Assert ($r.Code -eq 0) 'directory outputs: build exits successfully'
 Assert (@($directoryTargets | Where-Object { -not (Test-Path -LiteralPath (Join-Path $generated "files/$_") -PathType Leaf) }).Count -eq 0) 'directory outputs: build emits every target under files/'
 $plan = Get-Content -Raw -LiteralPath (Join-Path $generated 'plan.json') | ConvertFrom-Json
 Assert ((@($plan.resolvedProfiles.name) -join ',') -eq 'base,reviewers') 'directory outputs: Extends resolves parent-first'
-Assert ((@($plan.componentIds) -join ',') -eq 'command-helper,claude-reviewer,review-prompt,codex-reviewer') 'directory outputs: component ids follow bucket order'
+Assert ((@($plan.componentIds) -join ',') -eq 'review-prompt,codex-reviewer') 'directory outputs: component ids follow bucket order'
 
 $project = New-TestProject -Name 'platform-apply-project' -ProfileText $platformProfile
 $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project, '-Apply')
@@ -447,20 +391,20 @@ Assert (@($directoryTargets | Where-Object { -not (Test-Path -LiteralPath (Join-
 Assert (@(Get-ChildItem -LiteralPath (Join-Path $project '.agent-harness/backups') -Filter 'manifest.json' -File -Recurse -ErrorAction SilentlyContinue).Count -eq 1) 'directory outputs: apply writes a project-local backup manifest'
 $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project, '-Json')
 $status = $r.Out | ConvertFrom-Json
-Assert ($r.Code -eq 0 -and @($status.Targets).Count -eq 4 -and @($status.Targets | Where-Object Action -NE 'noop').Count -eq 0) 'directory outputs: status after apply reports no-op'
+Assert ($r.Code -eq 0 -and @($status.Targets).Count -eq 2 -and @($status.Targets | Where-Object Action -NE 'noop').Count -eq 0) 'directory outputs: status after apply reports no-op'
 
-# A directory in place of the last target makes its write fail after the first three.
+# A directory in place of the last target makes its write fail after the first target.
 $project = New-TestProject -Name 'platform-rollback-project' -ProfileText $platformProfile
 New-Item -ItemType Directory -Path (Join-Path $project '.codex/agents/reviewer.md') -Force | Out-Null
 $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project, '-Apply')
-Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback for 4 attempted file') 'rollback: failed apply is reported'
-Assert (@($directoryTargets[0..2] | Where-Object { Test-Path -LiteralPath (Join-Path $project $_) }).Count -eq 0) 'rollback: earlier writes are removed'
-Assert (Test-Path -LiteralPath (Join-Path $project $directoryTargets[3]) -PathType Container) 'rollback: the pre-existing blocker directory is preserved'
+Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback for 2 attempted file') 'rollback: failed apply is reported'
+Assert (-not (Test-Path -LiteralPath (Join-Path $project $directoryTargets[0]))) 'rollback: the earlier write is removed'
+Assert (Test-Path -LiteralPath (Join-Path $project $directoryTargets[1]) -PathType Container) 'rollback: the pre-existing blocker directory is preserved'
 
 foreach ($existing in @($false, $true)) {
-    $project = New-TestProject -Name "partial-write-$existing" -ProfileText (New-ProjectProfileText -Commands @('command-helper'))
-    $target = Join-Path $project '.claude/commands/harness-helper.md'
-    if ($existing) { Set-File -Path $target -Content 'original command' }
+    $project = New-TestProject -Name "partial-write-$existing" -ProfileText (New-ProjectProfileText -CodexAgents @('prompt-helper'))
+    $target = Join-Path $project '.codex/prompts/harness-helper.md'
+    if ($existing) { Set-File -Path $target -Content 'original prompt' }
     $wrapper = Join-Path $work "partial-write-$existing.ps1"
     Set-File -Path $wrapper -Content @'
 param([string]$ScriptPath,[string]$HarnessRepo,[string]$Project,[string]$FaultTarget)
@@ -482,13 +426,10 @@ function Set-Content {
     $r = Invoke-Script -Script $wrapper -ScriptArgs @('-ScriptPath', $applyScript, '-HarnessRepo', $repo, '-Project', $project, '-FaultTarget', $target)
     Assert ($r.Code -ne 0 -and $r.Out -match 'injected profile write failure') "rollback: partial write is reported (existing=$existing)"
     if ($existing) {
-        Assert ((Get-Content -Raw -LiteralPath $target) -ceq 'original command') 'rollback: the partially overwritten current file is restored'
+        Assert ((Get-Content -Raw -LiteralPath $target) -ceq 'original prompt') 'rollback: the partially overwritten current file is restored'
     }
     else { Assert (-not (Test-Path -LiteralPath $target)) 'rollback: the partially created current file is removed' }
 }
-
-$project = New-TestProject -Name 'platform-mismatch-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Codex') -Agents @('claude-reviewer'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $platformRepo, '-ProjectRoot', $project) } -Pattern 'does not support any selected target platform' -Message 'validation: component without a selected target platform fails'
 
 # ===========================================================================
 Write-Host "`n[validation failures]" -ForegroundColor Cyan
@@ -510,17 +451,26 @@ $project = New-TestProject -Name 'component-key-project' -ProfileText (New-Proje
 Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $componentKeyRepo, '-ProjectRoot', $project) } -Pattern "unknown key 'Requires'" -Message 'validation: unknown component key is rejected'
 
 $allowlistRepo = New-TestHarnessRepo -Name 'allowlist-repo'
-Add-Component -HarnessRepo $allowlistRepo -Path 'commands/misplaced' -Id 'misplaced' -Kind 'Command' -Target '.claude/agents/misplaced.md' -Mode 'DirectoryFiles' -Content "Misplaced.`n"
-$project = New-TestProject -Name 'allowlist-project' -ProfileText (New-ProjectProfileText -Commands @('misplaced'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $allowlistRepo, '-ProjectRoot', $project) } -Pattern 'outside the Command allowlist' -Message 'validation: target outside the Kind allowlist fails'
+Add-Component -HarnessRepo $allowlistRepo -Path 'codex-prompts/misplaced' -Id 'misplaced' -Kind 'CodexPrompt' -Target '.claude/agents/misplaced.md' -Mode 'DirectoryFiles' -Content "Misplaced.`n"
+$project = New-TestProject -Name 'allowlist-project' -ProfileText (New-ProjectProfileText -CodexAgents @('misplaced'))
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $allowlistRepo, '-ProjectRoot', $project) } -Pattern 'outside the CodexPrompt allowlist' -Message 'validation: target outside the Kind allowlist fails'
 
-$project = New-TestProject -Name 'platform-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Plan9') -Rules @('safe-file-edits'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern 'Unsupported TargetPlatform' -Message 'validation: unsupported target platform is reported'
+Add-Component -HarnessRepo $allowlistRepo -Path 'rules/no-platform' -Id 'no-platform' -TargetPlatforms @() -Target 'AGENTS.md' -Mode 'ManagedBlock' -Content 'Fixture rule.'
+$project = New-TestProject -Name 'platform-mismatch-project' -ProfileText (New-ProjectProfileText -Rules @('no-platform'))
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $allowlistRepo, '-ProjectRoot', $project) } -Pattern 'does not support any selected target platform' -Message 'validation: component without a selected target platform fails'
 
-$project = New-TestProject -Name 'retired-mcp-bucket-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits') -ExtraComponentLine '        McpTemplates = @()')
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key 'McpTemplates'" -Message 'validation: retired MCP template bucket is rejected'
+$project = New-TestProject -Name 'platform-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Claude') -Rules @('safe-file-edits'))
+$before = Get-FileSnapshot -Root $project
+Assert-Fails -Run { Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project, '-Apply') } -Pattern "Unsupported TargetPlatform 'Claude'" -Message 'validation: retired project platform is rejected'
+Assert (@(Compare-FileSnapshot -Before $before -After (Get-FileSnapshot -Root $project)).Count -eq 0) 'retired project platform writes nothing'
+
+foreach ($bucket in @('McpTemplates', 'Commands', 'Agents', 'ClaudeSettings')) {
+    $project = New-TestProject -Name "retired-$bucket-project" -ProfileText (New-ProjectProfileText -ExtraComponentLine "        $bucket = @()")
+    Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key '$bucket'" -Message "validation: retired $bucket bucket is rejected"
+}
 
 $invalidTargets = @(
+    @{ Name = 'retired-rule'; Target = 'CLAUDE.md'; Pattern = 'outside the Rule allowlist' },
     @{ Name = 'dotdot'; Target = '../outside.md'; Pattern = 'Path escapes' },
     @{ Name = 'absolute'; Target = (Join-Path ([System.IO.Path]::GetPathRoot($RepoRoot)) 'outside.md'); Pattern = 'Absolute|UNC' },
     @{ Name = 'unc'; Target = ('\\' + 'server\share\file.md'); Pattern = 'Absolute|UNC' },
@@ -548,11 +498,11 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/generat
 # Apply must scan the source repository before creating any target or backup.
 # GeneratedOnly would skip the apply write path, so use a real DirectoryFiles output.
 $applySecretRepo = New-TestHarnessRepo -Name 'apply-secret-repo'
-Add-Component -HarnessRepo $applySecretRepo -Path 'commands/unsafe-secret' -Id 'unsafe-secret' -Kind 'Command' -Target '.claude/commands/unsafe-secret.md' -Mode 'DirectoryFiles' -Content ("Do not emit " + $fakeToken + "`n")
-$project = New-TestProject -Name 'apply-secret-project' -ProfileText (New-ProjectProfileText -Commands @('unsafe-secret'))
+Add-Component -HarnessRepo $applySecretRepo -Path 'codex-prompts/unsafe-secret' -Id 'unsafe-secret' -Kind 'CodexPrompt' -Target '.codex/prompts/unsafe-secret.md' -Mode 'DirectoryFiles' -Content ("Do not emit " + $fakeToken + "`n")
+$project = New-TestProject -Name 'apply-secret-project' -ProfileText (New-ProjectProfileText -CodexAgents @('unsafe-secret'))
 $r = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $applySecretRepo, '-ProjectRoot', $project, '-Apply')
 Assert ($r.Code -ne 0 -and $r.Out -match 'scan-secrets\.ps1 failed with exit code') 'safety gate: apply rejects a source secret'
-Assert (-not (Test-Path -LiteralPath (Join-Path $project '.claude/commands/unsafe-secret.md'))) 'safety gate: rejected apply writes no target'
+Assert (-not (Test-Path -LiteralPath (Join-Path $project '.codex/prompts/unsafe-secret.md'))) 'safety gate: rejected apply writes no target'
 Assert (-not (Test-Path -LiteralPath (Join-Path $project '.agent-harness/backups'))) 'safety gate: rejected apply creates no backup'
 
 $pathRepo = New-TestHarnessRepo -Name 'machine-path-repo'
@@ -583,11 +533,11 @@ $r = Invoke-Script -Script $buildScript -ScriptArgs @('-RepoRoot', $repo, '-Proj
 Assert ($r.Code -ne 0 -and $r.Out -match 'reparse point') 'safety gate: build refuses a junction above the generated root'
 Assert ((Test-Path -LiteralPath (Join-Path $outside 'generated/sentinel.txt')) -and -not (Test-Path -LiteralPath (Join-Path $outside 'generated/plan.json'))) 'safety gate: ancestor junction target is not rebuilt'
 
-foreach ($linkedPath in @('.claude', '.agent-harness/backups')) {
+foreach ($linkedPath in @('.codex', '.agent-harness/backups')) {
     $case = $linkedPath -replace '[./]', '-'
     $project = New-TestProject -Name "apply-junction-$case"
     $outside = Join-Path $work "apply-junction-target-$case"
-    Set-File -Path (Join-Path $outside 'settings.json') -Content '{"personal":true}'
+    Set-File -Path (Join-Path $outside 'personal.md') -Content 'Preserve me.'
     $before = Get-FileSnapshot -Root $outside
     New-Item -ItemType Junction -Path (Join-Path $project $linkedPath) -Target $outside | Out-Null
     foreach ($mode in @('dry-run', 'apply')) {

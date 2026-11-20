@@ -2,7 +2,7 @@
     SchemaVersion = 1
     Id = 'no-generated-output-edits'
     Kind = 'Rule'
-    TargetPlatforms = @('Claude', 'Codex')
+    TargetPlatforms = @('Codex')
     Outputs = @(
         @{
             Target = 'AGENTS.md'

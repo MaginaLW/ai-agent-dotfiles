@@ -10,18 +10,15 @@
 
 # Profile buckets that may list component ids, in the order their ids are selected.
 # A profile lists only the buckets it uses; a missing bucket is empty.
-$script:HarnessBuckets = @('Rules', 'Prompts', 'Commands', 'Agents', 'ClaudeSettings', 'CodexAgents')
-$script:HarnessPlatforms = @('Claude', 'Codex')
+$script:HarnessBuckets = @('Rules', 'Prompts', 'CodexAgents')
+$script:HarnessPlatforms = @('Codex')
 # Kind -> output Mode, allowed project-relative targets (a trailing '/' allows files below that
 # directory) and the output keys allowed besides Target and Mode.
 $script:HarnessKinds = @{
-    Rule           = @{ Mode = 'ManagedBlock'; Allowed = @('AGENTS.md', 'CLAUDE.md'); Extra = @('BlockId') }
+    Rule           = @{ Mode = 'ManagedBlock'; Allowed = @('AGENTS.md'); Extra = @('BlockId') }
     Prompt         = @{ Mode = 'GeneratedOnly'; Allowed = @('.agent-harness/generated/'); Extra = @() }
-    Command        = @{ Mode = 'DirectoryFiles'; Allowed = @('.claude/commands/'); Extra = @('Source') }
-    ClaudeAgent    = @{ Mode = 'DirectoryFiles'; Allowed = @('.claude/agents/'); Extra = @('Source') }
     CodexPrompt    = @{ Mode = 'DirectoryFiles'; Allowed = @('.codex/prompts/'); Extra = @('Source') }
     CodexAgent     = @{ Mode = 'DirectoryFiles'; Allowed = @('.codex/agents/'); Extra = @('Source') }
-    ClaudeSettings = @{ Mode = 'StructuredMerge'; Allowed = @('.claude/settings.json'); Extra = @('MergeStrategy') }
 }
 # Legal top-level keys are identical for library and project profiles (docs/README.md §12).
 $script:HarnessProfileRequiredKeys = @('Name', 'TargetPlatforms')
@@ -173,13 +170,8 @@ function Test-HarnessComponent {
     if (-not $Component.Data.ContainsKey('Outputs')) { throw "Component '$id' is missing Outputs." }
     $outputs = @($Component.Data.Outputs)
     if ($outputs.Count -eq 0) { throw "Component '$id' must declare at least one output." }
-    $required = @{ Rule = 'content.md'; Prompt = 'content.md'; ClaudeSettings = 'settings.json' }[$Component.Kind]
-    if ($required -and -not (Test-Path -LiteralPath (Join-Path $Component.Directory $required) -PathType Leaf)) {
-        throw "Component '$id' is missing required $required."
-    }
-    if ($Component.Kind -eq 'ClaudeSettings') {
-        try { $null = Get-Content -Raw -LiteralPath (Join-Path $Component.Directory 'settings.json') | ConvertFrom-Json }
-        catch { throw "Component '$id' settings.json is not valid JSON: $($_.Exception.Message)" }
+    if ($Component.Kind -in @('Rule', 'Prompt') -and -not (Test-Path -LiteralPath (Join-Path $Component.Directory 'content.md') -PathType Leaf)) {
+        throw "Component '$id' is missing required content.md."
     }
     foreach ($platform in @($Component.Data.TargetPlatforms)) {
         if ($platform -notin $script:HarnessPlatforms) { throw "Target platform validation failed: $id declares unsupported TargetPlatform '$platform'." }
@@ -192,9 +184,6 @@ function Test-HarnessComponent {
         }
         if ([string]::IsNullOrWhiteSpace([string] $output['Target'])) { throw "Component '$id' has an output without Target." }
         if ([string] $output['Mode'] -ne $contract.Mode) { throw "Component '$id' Kind '$($Component.Kind)' requires Mode '$($contract.Mode)'." }
-        if ($output.ContainsKey('MergeStrategy') -and [string] $output.MergeStrategy -ne 'JsonObject') {
-            throw "Component '$id' StructuredMerge requires MergeStrategy 'JsonObject'."
-        }
         $relative = Test-HarnessRelativePath -Candidate ([string] $output.Target)
         $allowed = @($contract.Allowed | Where-Object {
                 if ($_.EndsWith('/')) { $relative.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) } else { $relative -ieq $_ } })
@@ -291,61 +280,9 @@ function New-HarnessProfilePlan {
     }
 }
 
-function ConvertTo-HarnessPlainObject {
-    param([AllowNull()] $Value)
-
-    if ($null -eq $Value) { return $null }
-    if ($Value -is [System.Collections.IDictionary] -or $Value -is [pscustomobject]) {
-        $result = [ordered] @{}
-        $pairs = if ($Value -is [System.Collections.IDictionary]) { $Value.GetEnumerator() } else { $Value.PSObject.Properties }
-        foreach ($pair in $pairs) {
-            $key = if ($Value -is [System.Collections.IDictionary]) { [string] $pair.Key } else { $pair.Name }
-            $result[$key] = ConvertTo-HarnessPlainObject -Value $pair.Value
-        }
-        return $result
-    }
-    if ($Value -is [array]) {
-        $items = [System.Collections.Generic.List[object]]::new()
-        foreach ($item in $Value) { $items.Add((ConvertTo-HarnessPlainObject -Value $item)) }
-        return , $items.ToArray()
-    }
-    return $Value
-}
-
-function Merge-HarnessJsonObject {
-    param([AllowNull()] $Base, [AllowNull()] $Overlay)
-
-    if ($null -eq $Base) { return $Overlay }
-    if ($null -eq $Overlay) { return $Base }
-    if ($Base -is [System.Collections.IDictionary] -and $Overlay -is [System.Collections.IDictionary]) {
-        $merged = [ordered] @{}
-        foreach ($key in $Base.Keys) { $merged[[string] $key] = $Base[$key] }
-        foreach ($key in $Overlay.Keys) {
-            # Assign directly in each branch: an if-expression would unroll array values.
-            if ($merged.Contains($key)) { $merged[[string] $key] = Merge-HarnessJsonObject -Base $merged[$key] -Overlay $Overlay[$key] }
-            else { $merged[[string] $key] = $Overlay[$key] }
-        }
-        return $merged
-    }
-    if (($Base -is [array]) -or ($Overlay -is [array])) { return , @(Select-HarnessStableUnique -Values (@($Base) + @($Overlay))) }
-    return $Overlay
-}
-
 function Get-HarnessPlanComponent {
     param($Plan, $Target)
     return @($Plan.Components | Where-Object Id -EQ $Target.ComponentId)[0]
-}
-
-# Merges the settings.json of every component in $Targets over $Base (an ordered dictionary).
-function Merge-HarnessSettings {
-    param($Plan, $Base, [object[]] $Targets)
-
-    $merged = $Base
-    foreach ($target in $Targets) {
-        $path = Join-Path (Get-HarnessPlanComponent -Plan $Plan -Target $target).Directory 'settings.json'
-        $merged = Merge-HarnessJsonObject -Base $merged -Overlay (ConvertTo-HarnessPlainObject -Value (Get-Content -Raw -LiteralPath $path | ConvertFrom-Json))
-    }
-    return $merged
 }
 
 function Get-HarnessManagedBlocks {
@@ -359,15 +296,6 @@ function Get-HarnessManagedBlocks {
             Text = "<!-- BEGIN AGENT-HARNESS: $blockId -->`n$(($content ?? '').TrimEnd())`n<!-- END AGENT-HARNESS: $blockId -->"
         }
     }
-}
-
-function Get-HarnessJsonDenyList {
-    param([AllowNull()] $Settings)
-
-    if (-not ($Settings -is [System.Collections.IDictionary]) -or -not $Settings.Contains('permissions')) { return @() }
-    $permissions = $Settings['permissions']
-    if (-not ($permissions -is [System.Collections.IDictionary]) -or -not $permissions.Contains('deny')) { return @() }
-    return @($permissions['deny'] | ForEach-Object { [string] $_ })
 }
 
 # Plans one change per apply target. A ManagedBlock target only replaces existing
@@ -406,21 +334,6 @@ function Get-HarnessApplyChanges {
         }
         $reason = if ($missing.Count -gt 0) { "missing block(s) skipped: $($missing -join ', ')" } else { $null }
         New-HarnessChange $group.Name $fullPath 'ManagedBlock' $(if ($content -ceq $existing) { 'noop' } else { 'update' }) $content $reason
-    }
-
-    foreach ($group in @($Plan.Targets | Where-Object Mode -EQ 'StructuredMerge' | Group-Object Target)) {
-        $fullPath = $group.Group[0].FullPath
-        $exists = Test-Path -LiteralPath $fullPath -PathType Leaf
-        $existingText = if ($exists) { Get-Content -Raw -LiteralPath $fullPath } else { $null }
-        $existing = if ($exists) { ConvertTo-HarnessPlainObject -Value ($existingText | ConvertFrom-Json) } else { [ordered] @{} }
-        $merged = Merge-HarnessSettings -Plan $Plan -Base $existing -Targets @($group.Group)
-        $kept = @(Get-HarnessJsonDenyList -Settings $merged)
-        foreach ($entry in @(Get-HarnessJsonDenyList -Settings $existing)) {
-            if ($entry -cnotin $kept) { throw "StructuredMerge would remove permissions.deny entry '$entry' from $($group.Name)." }
-        }
-        $newText = ($merged | ConvertTo-Json -Depth 50) + "`n"
-        $action = if (-not $exists) { 'add' } elseif ($newText -cne $existingText) { 'update' } else { 'noop' }
-        New-HarnessChange $group.Name $fullPath 'StructuredMerge' $action $newText $null
     }
 
     foreach ($target in @($Plan.Targets | Where-Object Mode -EQ 'DirectoryFiles')) {
