@@ -16,7 +16,6 @@ function Resolve-ConfigPlatforms {
         [string[]] $Values
     )
     $canonical = @{
-        claude      = 'Claude'
         codex       = 'Codex'
         antigravity = 'Antigravity'
         zcode       = 'ZCode'
@@ -29,14 +28,14 @@ function Resolve-ConfigPlatforms {
             if ([string]::IsNullOrEmpty($trimmed)) { continue }
             $key = $trimmed.ToLowerInvariant()
             if (-not $canonical.ContainsKey($key)) {
-                throw "Unsupported config platform '$trimmed'. Expected Claude, Codex, Antigravity, or ZCode."
+                throw "Unsupported config platform '$trimmed'. Expected Codex, Antigravity, or ZCode."
             }
             $name = $canonical[$key]
             if ($seen.Add($name)) { $selected.Add($name) }
         }
     }
     if ($selected.Count -eq 0 -and @($Values).Count -gt 0) {
-        throw "Config -Platform requires at least one platform name. Expected Claude, Codex, Antigravity, or ZCode."
+        throw "Config -Platform requires at least one platform name. Expected Codex, Antigravity, or ZCode."
     }
     return @($selected)
 }
@@ -191,71 +190,6 @@ function Get-JsonFieldDifferences {
             Get-JsonFieldDifferences $repoValue $homeValue $field
         }
         elseif (-not (Test-JsonEqual $repoValue $homeValue)) { [pscustomobject]@{ Kind = 'changed'; Path = $field } }
-    }
-}
-
-function Merge-JsonNodeObject {
-    param(
-        [Parameter(Mandatory)] [System.Text.Json.Nodes.JsonObject] $Target,
-        [Parameter(Mandatory)] [System.Text.Json.Nodes.JsonObject] $Overlay
-    )
-    foreach ($property in @($Overlay)) {
-        $key = [string] $property.Key
-        $overlayValue = $property.Value
-        if ($Target.ContainsKey($key) -and
-            $Target[$key] -is [System.Text.Json.Nodes.JsonObject] -and
-            $overlayValue -is [System.Text.Json.Nodes.JsonObject]) {
-            Merge-JsonNodeObject -Target $Target[$key] -Overlay $overlayValue
-        }
-        elseif ($null -eq $overlayValue) {
-            $Target[$key] = $null
-        }
-        else {
-            $Target[$key] = $overlayValue.DeepClone()
-        }
-    }
-}
-
-function Get-ClaudeSettingsMergeResult {
-    # Merge repo-managed object keys into the live settings object. Home-only keys survive;
-    # arrays are replaced as a whole, matching the field comparison's array semantics.
-    param(
-        [Parameter(Mandatory)] [string] $RepoPath,
-        [Parameter(Mandatory)] [string] $HomePath
-    )
-    $repoText = [IO.File]::ReadAllText($RepoPath)
-    $homeText = [IO.File]::ReadAllText($HomePath)
-    $repoDoc = $null
-    $homeDoc = $null
-    $mergedDoc = $null
-    try {
-        $repoDoc = [System.Text.Json.JsonDocument]::Parse($repoText)
-        $homeDoc = [System.Text.Json.JsonDocument]::Parse($homeText)
-        if ($repoDoc.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Object -or
-            $homeDoc.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) {
-            throw 'both JSON roots must be objects'
-        }
-        Assert-JsonUniqueObjectKeys $repoDoc.RootElement
-        Assert-JsonUniqueObjectKeys $homeDoc.RootElement
-        $repoNode = [System.Text.Json.Nodes.JsonNode]::Parse($repoText).AsObject()
-        $homeNode = [System.Text.Json.Nodes.JsonNode]::Parse($homeText).AsObject()
-        Merge-JsonNodeObject -Target $homeNode -Overlay $repoNode
-        $options = [System.Text.Json.JsonSerializerOptions]::new()
-        $options.WriteIndented = $true
-        $content = $homeNode.ToJsonString($options) + "`n"
-        $mergedDoc = [System.Text.Json.JsonDocument]::Parse($content)
-        $changed = -not (Test-JsonEqual $mergedDoc.RootElement $homeDoc.RootElement)
-        $fields = @(Get-JsonFieldDifferences $repoDoc.RootElement $homeDoc.RootElement '')
-        [pscustomobject] @{
-            Changed            = $changed
-            Content            = $content
-            HomeOnlyFieldCount = @($fields | Where-Object { $_.Kind -eq 'home-only' }).Count
-        }
-    }
-    finally {
-        if ($null -ne $repoDoc) { $repoDoc.Dispose() }
-        if ($null -ne $homeDoc) { $homeDoc.Dispose() }
-        if ($null -ne $mergedDoc) { $mergedDoc.Dispose() }
     }
 }
 

@@ -10,8 +10,7 @@
     build/scan; config reuses the preflight scan during Apply. The stages are not atomic:
     runtime failures can still leave completed skill changes in place.
 
-    Config uses config-pull's Codex-only default; legacy Claude config requires
-    an explicit config-pull.ps1 -Platform Claude invocation and matching authorization.
+    Config uses config-pull's Codex-only default.
     Use deploy-skills.ps1 or config-pull.ps1 directly when only one stage is intended.
 #>
 [CmdletBinding()]

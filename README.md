@@ -1,6 +1,6 @@
 # AI Agent Dotfiles
 
-在 Windows 上统一维护 Codex 和 ZCode 的日常 skills 与受管配置；保留 Claude 兼容构建与显式工具入口。
+在 Windows 上维护 Codex 和 ZCode 的日常 skills 与受管配置，以及 Antigravity 的全局规则、插件和受管 MCP 服务。
 使用 PowerShell 7+；先预览，再按已授权范围执行 Apply。个人配置、凭据、会话和缓存不入库。
 
 ## 先选你的操作
@@ -29,7 +29,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list
 ```
 
 Bootstrap 安装并校验固定版本的 gitleaks，构建 skills，并打印下一步预览命令；不写 live skills 或 home 配置。
-检查 doctor 的 FAIL 和 Deploy blockers；普通 WARN 也需按提示判断，但不等同于部署阻塞。干净系统上缺失已退役的 Claude live 根会提示为 INFO，不产生 WARN。
+检查 doctor 的 FAIL 和 Deploy blockers，逐项查看 WARN 的原因。
 环境 `work` 是日常集合，`full` 包含全部受管 skills，`minimal` 是最小验证样例。
 
 ## 日常更新
@@ -97,7 +97,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 ```
 
 构建从 canonical 源生成到 `tmp/antigravity/plugins/ai-agent-dotfiles/`，不会安装；`status` 不构建或修复。
-第三方插件（`ExternalPlugins`）目前声明 `unity`（`unity@antigravity-plugins-partners`）；未安装且获明确许可时仅可通过 `antigravity deploy -ExternalPlugin <name> -Apply` 安装缺失项，已安装项保持只读核对、不自动重装或变更版本。原有 `sync`、`env deploy` 与三平台选择保持不变。首次安装可能立即启用技能，
+第三方插件（`ExternalPlugins`）目前声明 `unity`（`unity@antigravity-plugins-partners`）；未安装且获明确许可时仅可通过 `antigravity deploy -ExternalPlugin <name> -Apply` 安装缺失项，已安装项保持只读核对、不自动重装或变更版本。首次安装可能立即启用技能，
 须先审阅预览并取得覆盖具体身份、版本和启用影响的许可；原生模型验收另须覆盖实际调用范围。
 未证明的更新与回滚保持 blocked。安装、启用、加载和实际使用分别验收，详见[手册 §15](docs/README.md#15-antigravity-插件)。
 
@@ -114,12 +114,12 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -DryRun
 
 ## 管理范围
 
-- `skills-source/` 是 skills 唯一源；build 生成 `claude/skills/`、`codex/skills/`，生成物不提交。
-- 环境定义位于 `harness-source/envs/`。当前 `work` 的 Claude/Codex/ZCode 为 0/9/7，
-  `subagent-driven-development` 仅选入 Codex 的 `work`；`full` 在三平台均包含它。
+- `skills-source/` 是 skills 唯一源。构建分别生成 `codex/skills/`、`zcode/skills/` 和各自的 manifest。生成目录由 Git 忽略。
+- 在 `harness-source/envs/` 中，`work` 为 Codex 选择 9 个技能、为 ZCode 选择 7 个，`full` 分别选择 19 和 11 个。
+  `subagent-driven-development` 在 `work` 中仅供 Codex 使用，在 `full` 中两个平台均可使用。
 - 部署逐个 skill 目录进行，只 prune 本工具记录过或显式 `-Retire` 点名的目录；未知目录保留，Codex `.system` 不受管。
-- 配置 status/pull/push 及组合部署默认只处理 Codex，不会重建 Claude live 配置；Antigravity 全局协议（`antigravity/AGENTS.md`）与旧 Claude 配置工具须分别显式传入 `-Platform Antigravity` / `-Platform Claude`。`AGENTS.md` 均只更新受管 block，保留 block 外文本。
-- ZCode 继续从 Claude 生成物投影部署；这不需要 Claude 账号、CLI 或 live 根。共享 `base`/`coding` profile 默认只生成 Codex 项目目标。Codex 同时存在 `~/.codex/skills` 与 `~/.agents/skills` 时拒绝部署，需先人工判断。
+- 配置 status/pull/push 及组合部署的配置阶段默认只处理 Codex。同步 Antigravity 或 ZCode 全局协议时显式传入 `-Platform Antigravity` 或 `-Platform ZCode`。各端的 `AGENTS.md` 只同步受管块。
+- 项目 profile 仅生成 Codex 目标。Codex 同时存在 `~/.codex/skills` 与 `~/.agents/skills` 时拒绝部署，需先人工判断。
 - 整份 Codex `config.toml`、私有 `.env`、凭据、会话或缓存永不同步；`harness-source/mcp/servers.psd1` 声明的受管 MCP 条目仅通过显式 `mcp deploy` 按条目投影，不并入默认 `sync`。
 
 ## 进一步阅读

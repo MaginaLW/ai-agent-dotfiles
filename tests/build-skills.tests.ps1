@@ -22,35 +22,40 @@ try {
     New-Item -ItemType Directory -Path $repo -Force | Out-Null
     Add-Skill $repo 'shared' 'alpha'
     Add-Skill $repo 'codex-only' 'beta'
-    Add-Skill $repo 'claude-only' 'gamma'
+    Add-Skill $repo 'zcode-only' 'gamma'
     Add-Skill $repo 'reasonix-only' 'legacy'
+    Add-Skill $repo 'claude-only' 'retired'
     Set-TestFile (Join-Path $repo 'skills-source/shared/alpha/CREATION-LOG.md') "log`n"
     Set-TestFile (Join-Path $repo 'skills-source/shared/alpha/agents/openai.yaml') "agent`n"
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -eq 0) "a clean build exits 0 ($($r.Out))"
     Assert-TestCondition (
-        (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/alpha/SKILL.md')) -and
+        (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/alpha/SKILL.md')) -and
         (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/SKILL.md')) -and
         (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/beta/SKILL.md')) -and
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/beta'))) -and
-        (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/gamma/SKILL.md')) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/beta'))) -and
+        (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/gamma/SKILL.md')) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/gamma')))
     ) 'shared skills land on both roots, each platform-only skill on its own root only'
     Assert-TestCondition ((Test-Path -LiteralPath (Join-Path $repo 'skills-source/reasonix-only/legacy/SKILL.md')) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills'))) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'manifests/managed-skills.reasonix.txt')))) 'legacy-only source is preserved but does not create a retired platform output or manifest'
+    Assert-TestCondition (-not (Test-Path (Join-Path $repo 'claude/skills')) -and
+        -not (Test-Path (Join-Path $repo 'manifests/managed-skills.claude.txt')) -and
+        -not (Test-Path (Join-Path $repo 'zcode/skills/retired')) -and
+        -not (Test-Path (Join-Path $repo 'codex/skills/retired'))) 'build ignores retired Claude sources'
     Assert-TestCondition (([IO.File]::ReadAllText((Join-Path $repo 'codex/skills/beta/SKILL.md'))) -ceq "# beta`n") 'generated SKILL.md content matches the source'
     Assert-TestCondition (
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/alpha/CREATION-LOG.md'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/alpha/CREATION-LOG.md'))) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/CREATION-LOG.md')))
     ) 'CREATION-LOG.md is excluded from all generated roots'
     Assert-TestCondition (
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/alpha/agents/openai.yaml'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/alpha/agents/openai.yaml'))) -and
         (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/agents/openai.yaml'))
-    ) 'agents/openai.yaml is excluded from Claude generated root but preserved in Codex'
-    $claudeManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.claude.txt'))
+    ) 'agents/openai.yaml is excluded from Zcode generated root but preserved in Codex'
+    $zcodeManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.zcode.txt'))
     $codexManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.codex.txt'))
-    Assert-TestCondition ($claudeManifest -ceq "alpha`ngamma`n" -and $codexManifest -ceq "alpha`nbeta`n") 'manifests list each platform set sorted'
+    Assert-TestCondition ($zcodeManifest -ceq "alpha`ngamma`n" -and $codexManifest -ceq "alpha`nbeta`n") 'manifests list each platform set sorted'
 
     Write-Host '[shared vs platform-only name conflict]'
     $repo = Join-Path $work 'conflict-shared'
@@ -61,20 +66,20 @@ try {
     Assert-TestCondition ($r.Code -eq 1 -and $r.Out -match 'Skill name conflict between shared and platform-only sources') "a shared/platform-only conflict exits 1 ($($r.Out))"
     Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'manifests'))) 'a rejected build creates no manifests'
     Assert-TestCondition (
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills'))) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills')))
     ) 'a rejected build creates no generated roots'
 
     Write-Host '[cross platform-only name conflict]'
     $repo = Join-Path $work 'conflict-cross'
     New-Item -ItemType Directory -Path $repo -Force | Out-Null
-    Add-Skill $repo 'claude-only' 'dup'
+    Add-Skill $repo 'zcode-only' 'dup'
     Add-Skill $repo 'codex-only' 'dup'
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -eq 1 -and $r.Out -match 'more than one platform-only source') "a cross platform-only conflict exits 1 ($($r.Out))"
     Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'manifests'))) 'a rejected build creates no manifests'
     Assert-TestCondition (
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'claude/skills'))) -and
+        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills'))) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills')))
     ) 'a rejected build creates no generated roots'
 
@@ -84,8 +89,8 @@ try {
     Add-Skill $repo 'shared' 'alpha'
     $outside = Join-Path $work 'outside'
     Set-TestFile (Join-Path $outside 'sentinel.txt') 'keep'
-    New-Item -ItemType Directory -Path (Join-Path $repo 'claude/skills') -Force | Out-Null
-    New-Item -ItemType Junction -Path (Join-Path $repo 'claude/skills/alpha') -Target $outside | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $repo 'zcode/skills') -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $repo 'zcode/skills/alpha') -Target $outside | Out-Null
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse point') 'a junction under a generated root is refused before the wipe'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $outside 'sentinel.txt')) -eq 'keep' -and @(Get-ChildItem $outside).Count -eq 1) 'the junction target is untouched'

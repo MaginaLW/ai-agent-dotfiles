@@ -62,7 +62,7 @@ function Write-Usage([string] $Group) {
                 Write-Host 'pull: repository -> home; Apply backs up overwritten files and preserves local-only settings.'
                 Write-Host 'push: home -> repository capture; this is not git push. Review the captured diff before committing.'
                 Write-Host 'Examples: config status; config pull -DryRun; config push -DryRun'
-                Write-Host 'Options: -Platform Claude|Codex|Antigravity|ZCode (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
+                Write-Host 'Options: -Platform Codex|Antigravity|ZCode (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
             }
             env {
                 Write-Host 'list: read-only environment selections and last recorded Apply environment; it does not verify live contents.'
@@ -80,7 +80,7 @@ function Write-Usage([string] $Group) {
             skills {
                 Write-Host 'promote: imports a reviewed skill into skills-source, then builds and scans on Apply; it does not deploy live skills.'
                 Write-Host 'Example: skills promote -Path <dir> -Name <name> -Type shared -DryRun'
-                Write-Host 'Options: -Type shared|claude-only|codex-only; -Replace replaces a source skill of the same type with a backup.'
+                Write-Host 'Options: -Type shared|zcode-only|codex-only; -Replace replaces a source skill of the same type with a backup.'
             }
             mcp {
                 Write-Host 'status: read-only inspection of Antigravity, Codex, and ZCode managed MCP projections.'
@@ -144,7 +144,7 @@ function Get-EnvironmentStatusReport {
             $stateReason = 'invalid-state'
             $validState = $state -is [System.Collections.IDictionary]
             if ($validState) {
-                foreach ($platform in 'Claude', 'Codex', 'Zcode') {
+                foreach ($platform in 'Codex', 'Zcode') {
                     if ($state[$platform] -isnot [array] -or @($state[$platform] | Where-Object { $_ -isnot [string] }).Count -gt 0) { $validState = $false }
                 }
             }
@@ -185,7 +185,7 @@ function Write-EnvironmentList([object[]] $Arguments) {
     Write-Host 'Harness environments:'
     foreach ($environment in $report.Environments) {
         Write-Host ("  {0}  {1}" -f $environment.Name, $environment.Description)
-        foreach ($platform in 'Claude', 'Codex', 'Zcode') {
+        foreach ($platform in 'Codex', 'Zcode') {
             if ($environment.Skills -isnot [hashtable] -or -not $environment.Skills.ContainsKey($platform)) {
                 Write-Host "    ${platform}: unavailable (invalid selection)"
                 continue

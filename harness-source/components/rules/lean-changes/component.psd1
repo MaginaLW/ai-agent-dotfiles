@@ -2,7 +2,7 @@
     SchemaVersion = 1
     Id = 'lean-changes'
     Kind = 'Rule'
-    TargetPlatforms = @('Claude', 'Codex')
+    TargetPlatforms = @('Codex')
     Outputs = @(
         @{
             Target = 'AGENTS.md'

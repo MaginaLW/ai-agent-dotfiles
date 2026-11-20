@@ -2,7 +2,7 @@
     SchemaVersion = 1
     Id = 'commit-summary'
     Kind = 'Prompt'
-    TargetPlatforms = @('Claude', 'Codex')
+    TargetPlatforms = @('Codex')
     Outputs = @(
         @{
             Target = '.agent-harness/generated/prompts/commit-summary.md'

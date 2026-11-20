@@ -4,7 +4,6 @@
     Description = '日常编码、审查与科研写作环境；其他专用 skills 按需选择'
 
     Skills = @{
-        Claude = @()
         Codex = @(
             'antigravity-delegation',
             'git-review',

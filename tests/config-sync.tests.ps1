@@ -64,7 +64,6 @@ function New-TempRepo {
     $tr = Join-Path $work $Name
     New-Item -ItemType Directory -Path (Join-Path $tr 'manifests') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $tr 'scripts') -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $tr 'claude') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $tr 'manifests') -Force
     foreach ($name in @(
         'scan-secrets.ps1'
@@ -100,7 +99,6 @@ $failureLine = 0
 try {
     $defaultRepo = New-TempRepo 'codex-default-repo'
     $defaultHome = Join-Path $work 'codex-default-home'
-    Set-File (Join-Path $defaultRepo 'claude/settings.json') '{"legacy":true}'
     Set-File (Join-Path $defaultRepo 'codex/AGENTS.md') '# Managed defaults'
     Set-File (Join-Path $defaultRepo 'antigravity/AGENTS.md') '# Antigravity defaults'
     Set-File (Join-Path $defaultRepo 'zcode/AGENTS.md') '# ZCode defaults'
@@ -109,17 +107,24 @@ try {
     Set-File (Join-Path $defaultHome '.gemini/config/AGENTS.md') '# Antigravity defaults'
     Set-File (Join-Path $defaultHome '.zcode/AGENTS.md') '# ZCode defaults'
     foreach ($configScript in @($statusScript, $pullScript, $pushScript)) {
-        $defaultRun = Invoke-Script -Script $configScript -ScriptArgs @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome)
-        Assert ($defaultRun.Code -eq 0 -and $defaultRun.Out -match 'Codex' -and $defaultRun.Out -notmatch 'Claude|Antigravity|ZCode') "config defaults to Codex without reading Claude, Antigravity or ZCode fields: $(Split-Path -Leaf $configScript)"
+        $arguments = @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome)
+        if ($configScript -eq $statusScript) { $arguments += '-Json' }
+        $defaultRun = Invoke-Script -Script $configScript -ScriptArgs $arguments
+        $codexOnly = if ($configScript -eq $statusScript -and $defaultRun.Code -eq 0) {
+            $platforms = @(($defaultRun.Out | ConvertFrom-Json).Platform | Select-Object -Unique)
+            $platforms.Count -eq 1 -and $platforms[0] -eq 'Codex'
+        }
+        else { $defaultRun.Out -match '(?m)scope: Codex\s*$' }
+        Assert ($defaultRun.Code -eq 0 -and $codexOnly) "config defaults to Codex: $(Split-Path -Leaf $configScript)"
         $emptyPlatformRun = Invoke-Script -Script $configScript -ScriptArgs @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome, '-Platform', '')
         Assert ($emptyPlatformRun.Code -ne 0 -and $emptyPlatformRun.Out -match 'requires at least one platform name') "config script rejects empty -Platform with descriptive error: $(Split-Path -Leaf $configScript)"
     }
 
     # Platform parsing unification tests (Resolve-ConfigPlatforms)
     Assert ((Resolve-ConfigPlatforms -Values @('Codex,Antigravity')) -join ',' -eq 'Codex,Antigravity') 'Resolve-ConfigPlatforms splits comma-separated strings'
-    Assert ((Resolve-ConfigPlatforms -Values @(' codex , ZCODE , claude ')) -join ',' -eq 'Codex,ZCode,Claude') 'Resolve-ConfigPlatforms trims whitespace and normalizes case'
+    Assert ((Resolve-ConfigPlatforms -Values @(' codex , ZCODE , antigravity ')) -join ',' -eq 'Codex,ZCode,Antigravity') 'Resolve-ConfigPlatforms trims whitespace and normalizes case'
     Assert ((Resolve-ConfigPlatforms -Values @('Codex', 'codex', 'CODEX')) -join ',' -eq 'Codex') 'Resolve-ConfigPlatforms deduplicates names preserving order'
-    Assert ((Resolve-ConfigPlatforms -Values @('Claude', 'Codex', 'Antigravity', 'ZCode')) -join ',' -eq 'Claude,Codex,Antigravity,ZCode') 'Resolve-ConfigPlatforms supports all four config platforms'
+    Assert ((Resolve-ConfigPlatforms -Values @('Codex', 'Antigravity', 'ZCode')) -join ',' -eq 'Codex,Antigravity,ZCode') 'Resolve-ConfigPlatforms supports all three config platforms'
     try { $null = Resolve-ConfigPlatforms -Values @('BadPlatform'); Assert $false 'Expected exception on unsupported platform' }
     catch { Assert ($_.Exception.Message -match "Unsupported config platform 'BadPlatform'") 'Resolve-ConfigPlatforms rejects unsupported platform' }
     try { $null = Resolve-ConfigPlatforms -Values @(''); Assert $false 'Expected exception on empty platform string' }
@@ -136,58 +141,28 @@ try {
     # ===========================================================================
     $tr = New-TempRepo -Name 'status-empty-repo'
     $th = Join-Path $work 'status-empty-home'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-Json')
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
     Assert ($r.Code -eq 0 -and $r.Out.Trim() -eq '[]') 'status: no managed items emits an empty JSON array'
 
     $tr = New-TempRepo -Name 'status-repo'
     $th = Join-Path $work 'status-home'
-    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'same'
-    Set-File -Path (Join-Path $th '.claude/CLAUDE.md') -Content 'same'
-    Set-File -Path (Join-Path $th '.claude/settings.json') -Content '{"a":1}'    # home-only
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-Json')
+    Set-File -Path (Join-Path $tr 'codex/prompts/example.md') -Content 'same'
+    Set-File -Path (Join-Path $th '.codex/prompts/example.md') -Content 'same'
+    Set-File -Path (Join-Path $th '.codex/AGENTS.md') -Content 'personal rules'    # home-only
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
     $rows = $r.Out | ConvertFrom-Json
     Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 2) 'status: multiple managed items emit a JSON array'
     $byItem = @{}; foreach ($row in $rows) { $byItem[$row.Item] = $row.Status }
-    Assert ($byItem['CLAUDE.md'] -eq 'in-sync') "status: identical file -> in-sync"
-    Assert ($byItem['settings.json'] -eq 'home-only') "status: home-only file -> home-only"
+    Assert ($byItem['prompts'] -eq 'in-sync') "status: identical directory contents -> in-sync"
+    Assert ($byItem['AGENTS.md'] -eq 'home-only') "status: home-only file -> home-only"
 
-    Set-File -Path (Join-Path $th '.claude/CLAUDE.md') -Content 'changed'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-Json')
+    Set-File -Path (Join-Path $th '.codex/prompts/example.md') -Content 'changed'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
     $rows = $r.Out | ConvertFrom-Json
-    $claudeRow = $rows | Where-Object { $_.Item -eq 'CLAUDE.md' }
-    Assert ($claudeRow.Status -eq 'differs') "status: differing file -> differs"
+    $promptRow = $rows | Where-Object { $_.Item -eq 'prompts' }
+    Assert ($promptRow.Status -eq 'differs') "status: differing directory contents -> differs"
 
-    $repoSettings = Join-Path $tr 'claude/settings.json'
-    $homeSettings = Join-Path $th '.claude/settings.json'
-    Set-File -Path $repoSettings -Content '{"theme":"repo-private-value","nested":{"repoField":1,"same":true},"array":[1,{"x":2}]}'
-    Set-File -Path $homeSettings -Content '{"theme":"home-private-value","nested":{"homeField":2,"same":true},"array":[1,{"x":2}]}'
-    $homeHash = (Get-FileHash -LiteralPath $homeSettings).Hash
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'home-only "/nested/homeField".*structured merge preserves' -and $r.Out -match 'repo-only "/nested/repoField"' -and $r.Out -match 'changed "/theme"') 'status: JSON fields highlight home-only, repo-only and changed paths'
-    Assert ($r.Out -notmatch 'repo-private-value|home-private-value|changed "/array"' -and (Get-FileHash -LiteralPath $homeSettings).Hash -eq $homeHash) 'status: field comparison hides values, ignores unchanged arrays and preserves home bytes'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-Json')
-    $rows = @($r.Out | ConvertFrom-Json)
-    $settingsRow = $rows | Where-Object { $_.Item -eq 'settings.json' }
-    Assert ($r.Code -eq 0 -and ($settingsRow.PSObject.Properties.Name -join ',') -eq 'Platform,Item,Status,Detail' -and $settingsRow.Detail -eq 'managed fields differ' -and $r.Out -notmatch 'private-value|homeField') 'status: JSON output keeps file-level schema and does not expose field data'
-
-    Set-File -Path $repoSettings -Content '{"case":1,"Case":2,"a/b~c":1,"arr":[1,2],"typed":{}}'
-    Set-File -Path $homeSettings -Content '{"case":1,"a/b~c":2,"arr":[1,3],"typed":"hidden"}'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'repo-only "/Case"' -and $r.Out -match 'changed "/a~1b~0c"' -and $r.Out -match 'changed "/arr"' -and $r.Out -match 'type-changed "/typed"' -and $r.Out -notmatch 'hidden') 'status: case-sensitive paths, pointer escaping, arrays and type differences are reported without values'
-
-    Set-File -Path $homeSettings -Content '{"nested":'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'Field comparison unavailable: invalid, unsupported, or ambiguous JSON' -and $r.Out -notmatch 'private-value') 'status: invalid JSON gives a value-free diagnostic'
-    Set-File -Path $homeSettings -Content '[1,2]'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'both JSON roots must be objects') 'status: non-object JSON root is reported without assuming fields'
-    Set-File -Path $homeSettings -Content '{"nested":{"same":true,"same":false}}'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'invalid, unsupported, or ambiguous JSON' -and $r.Out -notmatch 'home-only "') 'status: duplicate JSON keys are refused without a partial field report'
-
-    Set-File -Path $homeSettings -Content '{ "case":1, "Case":2, "a/b~c":1, "arr":[1, 2], "typed":{} }'
-    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'JSON fields match; file bytes differ' -and $r.Out -notmatch 'home-only "|changed "|repo-only "') 'status: semantically matching JSON does not produce field differences'
+    Assert (($promptRow.PSObject.Properties.Name -join ',') -eq 'Platform,Item,Status,Detail') 'status: JSON reports the file-level schema'
 
     foreach ($target in $managedAgentsTargets) {
         $tr = New-TempRepo -Name "status-$($target.Platform.ToLowerInvariant())-repo"
@@ -204,42 +179,26 @@ try {
         Assert ($row.Status -eq 'in-sync' -and $row.Detail -eq 'managed block') "status: a matching $($target.Platform) managed block is in sync"
         Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 1) "status: one managed $($target.Platform) item still emits a JSON array"
     }
-    foreach ($scriptPath in @($statusScript, $pullScript, $pushScript)) {
-        $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Reasonix')
-        Assert ($r.Code -ne 0) "config: $([IO.Path]::GetFileName($scriptPath)) rejects the retired platform"
-        Assert ($r.Out -match "Unsupported config platform 'Reasonix'") "config: $([IO.Path]::GetFileName($scriptPath)) reports descriptive unsupported platform error"
+    foreach ($retired in 'Reasonix', 'Claude') {
+        foreach ($configScript in $statusScript, $pullScript, $pushScript) {
+            $arguments = @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome, '-Platform', $retired)
+            if ($configScript -ne $statusScript) {
+                $arguments += @('-BackupRoot', (Join-Path $work 'retired-backup'), '-Apply')
+            }
+            $r = Invoke-Script -Script $configScript -ScriptArgs $arguments
+            Assert ($r.Code -ne 0 -and $r.Out -match "Unsupported config platform '$retired'") "config: $(Split-Path -Leaf $configScript) rejects retired platform $retired"
+        }
     }
+    Assert (-not (Test-Path -LiteralPath (Join-Path $defaultRepo 'claude'))) 'push: retired platform capture does not recreate a repository directory'
+    Assert ((Get-Content -LiteralPath (Join-Path $defaultHome '.claude/settings.json') -Raw) -eq '{"personal":true}') 'pull: retired platform selection preserves personal settings'
 
     # Multi-platform status execution test
-    $multiStatus = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'codex, claude', '-Json')
+    $multiStatus = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'codex, ZCode', '-Json')
     Assert ($multiStatus.Code -eq 0) 'config-status accepts comma-separated mixed-case platforms'
 
     # ===========================================================================
     Write-Host "`n[config-pull]" -ForegroundColor Cyan
     # ===========================================================================
-    $tr = New-TempRepo -Name 'pull-settings-merge-repo'
-    $th = Join-Path $work 'pull-settings-merge-home'
-    $bk = Join-Path $work 'pull-settings-merge-backup'
-    $repoSettings = Join-Path $tr 'claude/settings.json'
-    $homeSettings = Join-Path $th '.claude/settings.json'
-    Set-File -Path $repoSettings -Content '{"shared":true,"theme":"repo","nested":{"managed":1},"array":[1,2]}'
-    Set-File -Path $homeSettings -Content '{"shared":false,"personal":"fixture-private-value","nested":{"home":2},"array":[9]}'
-    $beforeHash = (Get-FileHash -LiteralPath $homeSettings).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'update\s+Claude/settings.json' -and $r.Out -match 'will be merged; home-only fields are preserved' -and $r.Out -notmatch 'fixture-private-value' -and (Get-FileHash -LiteralPath $homeSettings).Hash -eq $beforeHash) 'pull: settings dry-run plans a merge and leaves home bytes unchanged'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
-    $merged = Get-Content -Raw -LiteralPath $homeSettings | ConvertFrom-Json
-    Assert ($r.Code -eq 0 -and $merged.shared -eq $true -and $merged.theme -eq 'repo' -and $merged.nested.managed -eq 1 -and $merged.nested.home -eq 2 -and $merged.personal -eq 'fixture-private-value' -and (@($merged.array) -join ',') -eq '1,2') 'pull: settings merge updates repo fields, replaces arrays and preserves home-only fields'
-    $mergedBackup = Get-ChildItem -LiteralPath $bk -Recurse -File -Filter settings.json | Select-Object -First 1
-    Assert ($null -ne $mergedBackup -and (Get-FileHash -LiteralPath $mergedBackup.FullName).Hash -eq $beforeHash) 'pull: settings merge backs up the original file'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Out -match 'Nothing to deploy') 'pull: settings merge is idempotent'
-
-    Set-File -Path $homeSettings -Content '{"broken":'
-    $brokenHash = (Get-FileHash -LiteralPath $homeSettings).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
-    Assert ($r.Code -ne 0 -and (Get-FileHash -LiteralPath $homeSettings).Hash -eq $brokenHash) 'pull: invalid home JSON fails closed without writing'
-
     foreach ($target in $managedAgentsTargets) {
         $slug = $target.Platform.ToLowerInvariant()
         $tr = New-TempRepo -Name "pull-$slug-block-repo"
@@ -278,124 +237,124 @@ try {
     $tr = New-TempRepo -Name 'pull-repo'
     $th = Join-Path $work 'pull-home'
     $bk = Join-Path $work 'pull-backup'
-    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'deploy-me'
+    Set-File -Path (Join-Path $tr 'codex/prompts/example.md') -Content 'deploy-me'
 
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Out -match 'add\s+Claude/CLAUDE.md') "pull: dry-run plans add"
-    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/CLAUDE.md'))) "pull: dry-run writes nothing"
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex')
+    Assert ($r.Out -match 'add\s+Codex/prompts/example.md') "pull: dry-run plans add"
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/example.md'))) "pull: dry-run writes nothing"
 
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
-    $deployed = Join-Path $th '.claude/CLAUDE.md'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    $deployed = Join-Path $th '.codex/prompts/example.md'
     Assert ((Test-Path -LiteralPath $deployed) -and ((Get-Content -Raw -LiteralPath $deployed).TrimEnd("`r","`n") -eq 'deploy-me')) "pull: apply deploys file"
 
-    Set-File -Path (Join-Path $th '.claude/keep-me.txt') -Content 'home-only'    # not a managed item
+    Set-File -Path (Join-Path $th '.codex/keep-me.txt') -Content 'home-only'    # not a managed item
     Set-Content -LiteralPath $deployed -Value 'stale' -NoNewline
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
     Assert ((Get-Content -Raw -LiteralPath $deployed).TrimEnd("`r","`n") -eq 'deploy-me') "pull: update overwrites stale home copy"
-    $bakFile = Get-ChildItem -Recurse -File -LiteralPath $bk -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'CLAUDE.md' } | Select-Object -First 1
+    $bakFile = Get-ChildItem -Recurse -File -LiteralPath $bk -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'example.md' } | Select-Object -First 1
     Assert ($null -ne $bakFile -and (Get-Content -Raw -LiteralPath $bakFile.FullName) -eq 'stale') "pull: overwritten home file is backed up"
-    Assert (Test-Path -LiteralPath (Join-Path $th '.claude/keep-me.txt')) "pull: home-only file survives (no prune)"
+    Assert (Test-Path -LiteralPath (Join-Path $th '.codex/keep-me.txt')) "pull: home-only file survives (no prune)"
 
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex')
     Assert ($r.Out -match 'Nothing to deploy') "pull: idempotent dry-run is a no-op"
 
-    $tr = New-TempRepo -Name 'pull-commands-repo'
-    $th = Join-Path $work 'pull-commands-home'
-    $bk = Join-Path $work 'pull-commands-backup'
-    Set-File -Path (Join-Path $tr 'claude/commands/ok.md') -Content 'command bytes'
-    Set-File -Path (Join-Path $tr 'claude/commands/sketch.local.json') -Content '{"local":true}'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
-    Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $th '.claude/commands/ok.md'))) "pull: apply copies a managed directory item"
-    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/commands/sketch.local.json'))) "pull: *.local.json inside a managed directory is not copied"
+    $tr = New-TempRepo -Name 'pull-prompts-repo'
+    $th = Join-Path $work 'pull-prompts-home'
+    $bk = Join-Path $work 'pull-prompts-backup'
+    Set-File -Path (Join-Path $tr 'codex/prompts/ok.md') -Content 'prompt bytes'
+    Set-File -Path (Join-Path $tr 'codex/prompts/sketch.local.toml') -Content 'local = true'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/ok.md'))) "pull: apply copies a managed directory item"
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/sketch.local.toml'))) "pull: *.local.toml inside a managed directory is not copied"
 
-    Set-File -Path (Join-Path $tr 'claude/commands/ok.md') -Content 'updated command'
-    Set-File -Path (Join-Path $tr 'claude/commands/nested/new.md') -Content 'new command'
-    Set-File -Path (Join-Path $tr 'claude/commands/same.md') -Content 'same command'
-    Set-File -Path (Join-Path $th '.claude/commands/same.md') -Content 'same command'
-    Set-File -Path (Join-Path $th '.claude/commands/home-only.md') -Content 'keep command'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude')
-    Assert ($r.Code -eq 0 -and $r.Out -match 'update\s+Claude/commands/ok.md' -and $r.Out -match 'add\s+Claude/commands/nested/new.md') 'pull: directory plan identifies updates and nested adds'
-    Assert ($r.Out -notmatch 'same.md|home-only.md|sketch.local.json' -and $r.Out -match 'add=1' -and $r.Out -match 'update=1') 'pull: directory plan omits unchanged, destination-only and excluded files'
-    Assert ((Get-Content -LiteralPath (Join-Path $th '.claude/commands/ok.md') -Raw) -eq 'command bytes' -and -not (Test-Path -LiteralPath (Join-Path $th '.claude/commands/nested/new.md'))) 'pull: directory dry-run preserves destination bytes'
+    Set-File -Path (Join-Path $tr 'codex/prompts/ok.md') -Content 'updated prompt'
+    Set-File -Path (Join-Path $tr 'codex/prompts/nested/new.md') -Content 'new prompt'
+    Set-File -Path (Join-Path $tr 'codex/prompts/same.md') -Content 'same prompt'
+    Set-File -Path (Join-Path $th '.codex/prompts/same.md') -Content 'same prompt'
+    Set-File -Path (Join-Path $th '.codex/prompts/home-only.md') -Content 'keep prompt'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex')
+    Assert ($r.Code -eq 0 -and $r.Out -match 'update\s+Codex/prompts/ok.md' -and $r.Out -match 'add\s+Codex/prompts/nested/new.md') 'pull: directory plan identifies updates and nested adds'
+    Assert ($r.Out -notmatch 'same.md|home-only.md|sketch.local.toml' -and $r.Out -match 'add=1' -and $r.Out -match 'update=1') 'pull: directory plan omits unchanged, destination-only and excluded files'
+    Assert ((Get-Content -LiteralPath (Join-Path $th '.codex/prompts/ok.md') -Raw) -eq 'prompt bytes' -and -not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/nested/new.md'))) 'pull: directory dry-run preserves destination bytes'
 
     # The scan must stop both adds and updates before even creating a backup.
     $tr = New-TempRepo -Name 'pull-secret-repo'
     $th = Join-Path $work 'pull-secret-home'
     $bk = Join-Path $work 'pull-secret-backup'
     $fakeToken = 'sk-' + 'ant-' + ('FAKE' * 5) + '000000'
-    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content ('unsafe ' + $fakeToken)
-    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"new":true}'
-    $original = Join-Path $th '.claude/CLAUDE.md'
+    Set-File -Path (Join-Path $tr 'codex/prompts/example.md') -Content ('unsafe ' + $fakeToken)
+    Set-File -Path (Join-Path $tr 'codex/prompts/added.md') -Content 'new prompt'
+    $original = Join-Path $th '.codex/prompts/example.md'
     Set-File -Path $original -Content 'keep original bytes'
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0 -and $r.Out -match 'Secret scan failed') 'pull: planted source secret fails closed'
     Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: failed scan preserves the existing home file'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/settings.json'))) 'pull: failed scan writes no add'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/added.md'))) 'pull: failed scan writes no add'
     Assert (-not (Test-Path -LiteralPath $bk)) 'pull: failed scan creates no backup'
 
     # Restore bytes and remove new files; empty parent directories may remain.
-    # The later commands parent is a file, so Copy-Item fails after an add and update.
+    # Platform and manifest order ensure two successful writes before the blocked prompts directory.
     $tr = New-TempRepo -Name 'pull-rollback-repo'
     $th = Join-Path $work 'pull-rollback-home'
     $bk = Join-Path $work 'pull-rollback-backup'
-    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"new":true}'
-    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'updated bytes'
-    Set-File -Path (Join-Path $tr 'claude/commands/fail.md') -Content 'later write'
-    $original = Join-Path $th '.claude/CLAUDE.md'
-    Set-File -Path $original -Content 'original bytes'
-    Set-File -Path (Join-Path $th '.claude/commands') -Content 'parent is a file'
+    Set-File -Path (Join-Path $tr 'zcode/AGENTS.md') -Content 'new ZCode rules'
+    Set-File -Path (Join-Path $tr 'codex/AGENTS.md') -Content 'updated rules'
+    Set-File -Path (Join-Path $tr 'codex/prompts/fail.md') -Content 'later write'
+    $original = Join-Path $th '.codex/AGENTS.md'
+    Set-File -Path $original -Content "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`noriginal rules`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->`n"
+    Set-File -Path (Join-Path $th '.codex/prompts') -Content 'parent is a file'
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'ZCode,Codex', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: later copy failure reports attempted recovery'
     Assert ($r.Out -match 'Could not find a part of the path') 'pull: original copy error remains visible'
     Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: rollback restores an earlier update byte-for-byte'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/settings.json'))) 'pull: rollback removes an earlier add'
-    $bakFile = @(Get-ChildItem -LiteralPath $bk -Filter 'CLAUDE.md' -File -Recurse)
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.zcode/AGENTS.md'))) 'pull: rollback removes an earlier add'
+    $bakFile = @(Get-ChildItem -LiteralPath $bk -Filter 'AGENTS.md' -File -Recurse)
     Assert ($bakFile.Count -eq 1 -and (Get-FileHash -LiteralPath $bakFile[0].FullName).Hash -eq $beforeHash) 'pull: original backup survives rollback'
 
     # A pure-add plan has no mirrored backup directory to restore from.
     $tr = New-TempRepo -Name 'pull-add-rollback-repo'
     $th = Join-Path $work 'pull-add-rollback-home'
     $bk = Join-Path $work 'pull-add-rollback-backup'
-    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{}'
-    Set-File -Path (Join-Path $tr 'claude/commands/fail.md') -Content 'later write'
-    Set-File -Path (Join-Path $th '.claude/commands') -Content 'parent is a file'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    Set-File -Path (Join-Path $tr 'zcode/AGENTS.md') -Content 'new ZCode rules'
+    Set-File -Path (Join-Path $tr 'codex/prompts/fail.md') -Content 'later write'
+    Set-File -Path (Join-Path $th '.codex/prompts') -Content 'parent is a file'
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'ZCode,Codex', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: pure-add failure reports recovery without a backup'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/settings.json'))) 'pull: pure-add rollback removes an earlier add'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.zcode/AGENTS.md'))) 'pull: pure-add rollback removes an earlier add'
     Assert (-not (Test-Path -LiteralPath $bk)) 'pull: pure-add rollback does not invent a backup directory'
 
     # Backups precede the guarded copy: a failed backup must leave home untouched.
     $tr = New-TempRepo -Name 'pull-backup-failure-repo'
     $th = Join-Path $work 'pull-backup-failure-home'
     $bk = Join-Path $work 'pull-blocked-backup'
-    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"new":true}'
-    Set-File -Path (Join-Path $th '.claude/settings.json') -Content '{"original":true}'
-    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'new file'
+    Set-File -Path (Join-Path $tr 'codex/prompts/existing.md') -Content 'updated prompt'
+    Set-File -Path (Join-Path $th '.codex/prompts/existing.md') -Content 'original prompt'
+    Set-File -Path (Join-Path $tr 'codex/prompts/example.md') -Content 'new file'
     Set-File -Path $bk -Content 'backup parent is a file'
-    $original = Join-Path $th '.claude/settings.json'
+    $original = Join-Path $th '.codex/prompts/existing.md'
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0 -and $r.Out -notmatch 'best-effort rollback') 'pull: backup failure does not run rollback'
     Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: backup failure preserves existing home bytes'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.claude/CLAUDE.md'))) 'pull: backup failure writes no add'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/example.md'))) 'pull: backup failure writes no add'
 
     # Read sharing permits planning and backup, but prevents both copy and restore.
     # A failed restore of the current item must not stop recovery of earlier writes.
     $tr = New-TempRepo -Name 'pull-restore-warning-repo'
     $th = Join-Path $work 'pull-restore-warning-home'
     $bk = Join-Path $work 'pull-restore-warning-backup'
-    Set-File -Path (Join-Path $tr 'claude/settings.json') -Content '{"new":true}'
-    Set-File -Path (Join-Path $th '.claude/settings.json') -Content '{"original":true}'
-    Set-File -Path (Join-Path $tr 'claude/CLAUDE.md') -Content 'updated bytes'
-    $locked = Join-Path $th '.claude/CLAUDE.md'
+    Set-File -Path (Join-Path $tr 'zcode/AGENTS.md') -Content 'updated ZCode rules'
+    Set-File -Path (Join-Path $th '.zcode/AGENTS.md') -Content "<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->`noriginal rules`n<!-- END AI-AGENT-DOTFILES: zcode/AGENTS.md -->`n"
+    Set-File -Path (Join-Path $tr 'codex/prompts/example.md') -Content 'updated bytes'
+    $locked = Join-Path $th '.codex/prompts/example.md'
     Set-File -Path $locked -Content 'locked original'
-    $original = Join-Path $th '.claude/settings.json'
+    $original = Join-Path $th '.zcode/AGENTS.md'
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
     $handle = [IO.File]::Open($locked, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
-        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'ZCode,Codex', '-BackupRoot', $bk, '-Apply')
     }
     finally { $handle.Dispose() }
     Assert ($r.Code -ne 0 -and $r.Out -match 'Rollback could not restore') 'pull: restore failure warns and still exits non-zero'
@@ -408,36 +367,36 @@ try {
     $tr = New-TempRepo -Name 'push-repo'
     $th = Join-Path $work 'push-home'
     $bk = Join-Path $work 'push-backup'
-    $captured = Join-Path $tr 'claude/settings.json'
-    Set-File -Path (Join-Path $tr 'claude/keep.txt') -Content 'repo-only'         # must survive (no prune)
+    $captured = Join-Path $tr 'codex/prompts/example.md'
+    Set-File -Path (Join-Path $tr 'codex/keep.txt') -Content 'repo-only'         # must survive (no prune)
 
     # clean capture passes both gates
-    Set-File -Path (Join-Path $th '.claude/settings.json') -Content '{"theme":"auto","ok":true}'
-    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    Set-File -Path (Join-Path $th '.codex/prompts/example.md') -Content 'ordinary prompt'
+    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath $captured)) "push: clean config captured (passes both gates)"
-    Assert (Test-Path -LiteralPath (Join-Path $tr 'claude/keep.txt')) "push: repo-only file survives (no prune)"
+    Assert (Test-Path -LiteralPath (Join-Path $tr 'codex/keep.txt')) "push: repo-only file survives (no prune)"
 
     # secret gate blocks + reverts (planted fake Anthropic token).
     # Assembled at runtime so the token literal never appears in this file's source
     # (otherwise scan-secrets would block committing the test itself).
     $fakeToken = 'sk-' + 'ant-' + ('FAKE' * 5) + '000000'
-    Set-File -Path (Join-Path $th '.claude/settings.json') -Content ('{"k":"' + $fakeToken + '"}')
+    Set-File -Path (Join-Path $th '.codex/prompts/example.md') -Content ('prompt contains ' + $fakeToken)
     $beforeHash = (Get-FileHash -LiteralPath $captured).Hash
-    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0) "push: secret gate exits non-zero"
     Assert ($r.Out -match 'exit code 1' -and $r.Out -match 'Reverted') 'push: scan failure reports its exit code and completed revert'
     Assert ((Get-FileHash -LiteralPath $captured).Hash -eq $beforeHash) "push: secret gate reverts the capture (no token kept)"
 
     # path gate blocks + reverts (planted machine-private path); secret scan skipped to isolate it
-    Set-File -Path (Join-Path $th '.claude/settings.json') -Content '{"p":"C:\Users\admin\foo"}'
+    Set-File -Path (Join-Path $th '.codex/prompts/example.md') -Content 'Q:\fixtures\example'
     $beforeHash = (Get-FileHash -LiteralPath $captured).Hash
-    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
+    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
     Assert ($r.Code -ne 0 -and $r.Out -match 'machine-private') "push: path gate exits non-zero"
     Assert ((Get-FileHash -LiteralPath $captured).Hash -eq $beforeHash) "push: path gate reverts the capture"
 
     # -SkipPathScan bypass keeps the path-bearing capture
-    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Claude', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan', '-SkipPathScan')
-    Assert ($r.Code -eq 0 -and ((Get-Content -Raw -LiteralPath $captured) -match 'C:\\Users')) "push: -SkipPathScan bypasses the path gate"
+    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan', '-SkipPathScan')
+    Assert ($r.Code -eq 0 -and ((Get-Content -Raw -LiteralPath $captured) -match 'Q:\\fixtures')) "push: -SkipPathScan bypasses the path gate"
 
     foreach ($target in $managedAgentsTargets) {
         $slug = $target.Platform.ToLowerInvariant()

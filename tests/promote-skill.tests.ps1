@@ -11,7 +11,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('promote-skill-tests-' + [guid]::N
 
 function New-FixtureRepo([string] $Name) {
     $repo = Join-Path $work $Name
-    Set-TestFile (Join-Path $repo '.gitignore') "tmp/`nreports/`nclaude/skills/`ncodex/skills/`nreasonix/skills/`n"
+    Set-TestFile (Join-Path $repo '.gitignore') "tmp/`nreports/`nzcode/skills/`ncodex/skills/`nreasonix/skills/`n"
     Set-TestFile (Join-Path $repo 'skills-source/shared/existing/SKILL.md') "# existing v1`n"
     Copy-Item -LiteralPath (Join-Path $RepoRoot '.gitleaks.toml') -Destination $repo
     & git -C $repo init --quiet
@@ -27,19 +27,19 @@ try {
     $skillDir = Join-Path $work 'inputs/new-skill'
     Set-TestFile (Join-Path $skillDir 'SKILL.md') "---`nname: new-skill`n---`n# new skill`n"
     Set-TestFile (Join-Path $skillDir 'refs/notes.md') "notes`n"
-    $target = Join-Path $repo 'skills-source/claude-only/new-skill'
+    $target = Join-Path $repo 'skills-source/zcode-only/new-skill'
 
     Write-Host '[dry run]'
-    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'claude-only')
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'create skills-source/claude-only/new-skill' -and $r.Out -match 'file: refs/notes\.md') "dry run lists the target and files ($($r.Out))"
+    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'zcode-only')
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'create skills-source/zcode-only/new-skill' -and $r.Out -match 'file: refs/notes\.md') "dry run lists the target and files ($($r.Out))"
     Assert-TestCondition (-not (Test-Path -LiteralPath $target)) 'dry run writes nothing'
-    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'claude-only', '-DryRun')
+    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'zcode-only', '-DryRun')
     Assert-TestCondition ($r.Code -ne 0 -and -not (Test-Path -LiteralPath $target)) 'the removed -DryRun switch is rejected and writes nothing'
 
     Write-Host '[apply]'
-    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'claude-only', '-Apply')
+    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'zcode-only', '-Apply')
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'build-skills\.ps1: PASS' -and $r.Out -match 'scan-secrets\.ps1: PASS') "Apply passes build and scan ($($r.Out))"
-    Assert-TestCondition ((Test-Path -LiteralPath (Join-Path $target 'refs/notes.md')) -and (Test-Path -LiteralPath (Join-Path $repo 'claude/skills/new-skill/SKILL.md'))) 'Apply copies the tree and rebuilds generated output'
+    Assert-TestCondition ((Test-Path -LiteralPath (Join-Path $target 'refs/notes.md')) -and (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/new-skill/SKILL.md'))) 'Apply copies the tree and rebuilds generated output'
 
     Write-Host '[refusals]'
     $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'reasonix-only')

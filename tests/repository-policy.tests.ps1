@@ -31,22 +31,17 @@ function Get-LiteralOccurrenceCount {
 # Retired local entry points and manifests
 # -----------------------------------------------------------------------------
 Write-Host '[Retired local entry points and manifests]'
-foreach ($entry in 'CLAUDE.md', '.claude/settings.json') {
+foreach ($entry in 'CLAUDE.md', '.claude/settings.json', 'claude/CLAUDE.md', 'claude/settings.json', 'manifests/managed-skills.claude.txt') {
     Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $entry))) "retired local Claude entry $entry is absent"
 }
 
-foreach ($manifest in @('manifests/managed-skills.claude.txt', 'manifests/managed-skills.codex.txt')) {
-    Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot $manifest) -PathType Leaf) "the per-platform manifest $manifest exists"
-}
-
-# full is documented as selecting every managed skill, so its per-platform lists must equal the
-# corresponding manifests, and the Zcode projection list must equal Claude's.
+# The full environment selects every skill built for each supported host.
 $fullSelection = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'harness-source/envs/full.psd1')).Skills
-foreach ($pair in @(@('Claude', 'claude'), @('Codex', 'codex'))) {
-    $manifestNames = @(Get-Content -LiteralPath (Join-Path $RepoRoot "manifests/managed-skills.$($pair[1]).txt") | Where-Object { $_ })
-    Assert-TestCondition (@(Compare-Object @($fullSelection[$pair[0]]) $manifestNames).Count -eq 0) "the full environment's $($pair[0]) selection equals the managed-skills manifest"
+Assert-TestCondition ($fullSelection.Count -eq 2) 'the full environment has two skill platforms'
+foreach ($platform in 'codex', 'zcode') {
+    $manifestNames = @(Get-Content -LiteralPath (Join-Path $RepoRoot "manifests/managed-skills.$platform.txt") | Where-Object { $_ })
+    Assert-TestCondition (@(Compare-Object @($fullSelection[$platform]) $manifestNames).Count -eq 0) "the full environment's $platform selection equals its managed-skills manifest"
 }
-Assert-TestCondition (@(Compare-Object @($fullSelection['Zcode']) @($fullSelection['Claude'])).Count -eq 0) "the full environment's Zcode selection equals Claude (projection)"
 
 # -----------------------------------------------------------------------------
 # Dangerous tracked paths
@@ -126,10 +121,10 @@ foreach ($generatedRoot in $generatedSkillRoots) {
 Assert-TestCondition ($scanPrefixes -ccontains '.git/' -and $scanPrefixes -ccontains 'tmp/') 'the shared scan policy covers Git and temporary inputs'
 
 $buildSkillsText = Read-RepoText 'scripts/build-skills.ps1'
-foreach ($rootVariable in @('$ClaudeOutputRoot', '$CodexOutputRoot')) {
+foreach ($rootVariable in @('$ZcodeOutputRoot', '$CodexOutputRoot')) {
     Assert-TestCondition ($buildSkillsText.Contains("$rootVariable = Join-Path `$RepoRoot")) "build-skills defaults $rootVariable to its repository generated root"
 }
-Assert-TestCondition ($buildSkillsText.Contains('Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ManifestOutputRoot)')) 'build-skills enforces disjoint source/manifest/generated build roots'
+Assert-TestCondition ($buildSkillsText.Contains('Assert-DisjointBuildRoots -Roots @($SourceRoot,$ZcodeOutputRoot,$CodexOutputRoot,$ManifestOutputRoot)')) 'build-skills enforces disjoint source/manifest/generated build roots'
 # build-skills discovers source and generated skills through Get-SkillDirectories, which must
 # never treat .system as a skill.
 . (Join-Path $RepoRoot 'scripts/skills-common.ps1')

@@ -2,7 +2,7 @@
     SchemaVersion = 1
     Id = 'safe-file-edits'
     Kind = 'Rule'
-    TargetPlatforms = @('Claude', 'Codex')
+    TargetPlatforms = @('Codex')
     Outputs = @(
         @{
             Target = 'AGENTS.md'

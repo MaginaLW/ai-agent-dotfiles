@@ -1,39 +1,4 @@
 @{
-    Claude = @{
-        HomeRelativeRoot = '.claude'
-        RepoRelativeRoot = 'claude'
-        PushItems = @(
-            'settings.json'
-            'CLAUDE.md'
-            'commands'
-            'agents'
-            'output-styles'
-        )
-        PullItems = @(
-            'settings.json'
-            'CLAUDE.md'
-            'commands'
-            'agents'
-            'output-styles'
-        )
-        ExcludedItems = @(
-            '.credentials.json'
-            'projects'
-            'history*'
-            'todos'
-            'statsig'
-            'shell-snapshots'
-            'logs'
-            'plugins/repos'
-            'agent-memory'
-            'ide'
-            'downloads'
-            'file-history'
-            'local'
-            '*.local.json'
-        )
-    }
-
     Codex = @{
         HomeRelativeRoot = '.codex'
         RepoRelativeRoot = 'codex'
