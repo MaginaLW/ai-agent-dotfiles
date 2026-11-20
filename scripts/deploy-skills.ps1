@@ -212,10 +212,13 @@ foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune'
     Write-Host "$($step.Action) $($step.Platform)/$($step.Name)"
 }
 
-# Every previously deployed, no-longer-selected directory was pruned above, so the deployed
-# set is now exactly the selection. Publish the complete state only after writing it separately.
+# Matching a selected skill does not establish ownership of a pre-existing directory.
 $deployed = [ordered]@{ Environment = $Environment }
-foreach ($platform in $platforms) { $deployed[$platform] = @($selection[$platform] | Sort-Object -Unique) }
+foreach ($platform in $platforms) {
+    $deployed[$platform] = @($plan | Where-Object Platform -eq $platform | Where-Object {
+        $_.Action -in 'install', 'update' -or ($_.Action -eq 'unchanged' -and $_.Name -in $state[$platform])
+    } | Select-Object -ExpandProperty Name | Sort-Object -Unique)
+}
 $tempStatePath = Join-Path $StateRoot ('deployed-skills.' + [guid]::NewGuid().ToString('N') + '.tmp')
 $ownsTempState = $false
 try {

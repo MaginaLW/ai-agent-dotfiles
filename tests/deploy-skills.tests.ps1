@@ -157,6 +157,7 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     try { $r = Invoke-Deploy $repo $writeFailureHome @('-Apply') } finally { $replacementLock.Dispose() }
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Deployment state update failed' -and (Get-FileHash -LiteralPath $writeFailureState).Hash -eq $oldWriteHash) 'blocked replacement fails and preserves the old state'
     Assert-TestCondition (@(Get-ChildItem -LiteralPath (Split-Path -Parent $writeFailureState) -Filter 'deployed-skills.*.tmp').Count -eq 0) 'blocked replacement removes its temporary state'
+    Set-TestFile (Join-Path $writeFailureHome '.zcode/skills/alpha/SKILL.md') 'needs replacement'
     $r = Invoke-Deploy $repo $writeFailureHome @('-Apply')
     $updatedState = Get-Content -Raw -LiteralPath $writeFailureState | ConvertFrom-Json
     Assert-TestCondition ($r.Code -eq 0 -and $updatedState.Environment -eq 'test' -and (@($updatedState.Zcode) -join ',') -eq 'alpha') "retry replaces the existing state after the lock is released (exit $($r.Code), environment $($updatedState.Environment), output: $($r.Out))"
@@ -166,6 +167,19 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     Set-TestFile (Join-Path $blockedStateHome 'state') 'not a directory'
     $r = Invoke-Deploy $repo $blockedStateHome @('-Apply')
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Deployment state update failed' -and $r.Out -match 'Live changes may already have occurred' -and (Test-Path (Join-Path $blockedStateHome '.zcode/skills/alpha/SKILL.md'))) 'unavailable state directory reports the failure after completed installs'
+    Set-TestEnvironment $repo @('alpha', 'beta')
+
+    Write-Host '[identical manual skill stays unowned when deselected]'
+    $manualHome = Join-Path $work 'matching-manual-home'
+    $manualFile = Join-Path $manualHome '.zcode/skills/alpha/SKILL.md'
+    Set-TestFile $manualFile "# alpha v1`n"
+    $r = Invoke-Deploy $repo $manualHome @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+unchanged\s+alpha' -and $r.Out -match 'install Zcode/beta') 'deployment preserves the matching manual skill and installs the control'
+    Set-TestEnvironment $repo @()
+    $r = Invoke-Deploy $repo $manualHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+unknown\s+alpha' -and $r.Out -match 'Zcode\s+prune\s+beta') 'deselection preview distinguishes the manual skill from the installed control'
+    $r = Invoke-Deploy $repo $manualHome @('-Apply')
+    Assert-TestCondition ($r.Code -eq 0 -and (Get-Content -Raw -LiteralPath $manualFile) -ceq "# alpha v1`n" -and -not (Test-Path (Join-Path $manualHome '.zcode/skills/beta'))) 'deselection preserves the manual file and removes the installed control'
     Set-TestEnvironment $repo @('alpha', 'beta')
 
     Write-Host '[lost state does not authorize pruning]'
