@@ -468,6 +468,7 @@ function Get-AgPluginPlan {
             Installed=$(if ($found.Count -eq 1) { $found[0] } else { $null })
         }
     }
+    if (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json')) { $plan.Reason='previous-install-needs-readback-review'; return $plan }
     if ($targetMatches.Count -gt 1) { $plan.Reason='ambiguous-native-identity'; return $plan }
     if ($targetMatches.Count -eq 1) {
         $plan.InstalledPath = $targetMatches[0].path
@@ -492,7 +493,6 @@ function Get-AgPluginPlan {
         $plan.WriteScope = @($plan.InstalledPath, (Join-Path $inventory.ConfigRoot 'config.json'), 'Pre-update live backup retained; other plugins unchanged.')
         return $plan
     }
-    if (Test-Path -LiteralPath (Join-Path $script:AgStateRoot 'pending-install.json')) { $plan.Reason='previous-install-needs-readback-review'; return $plan }
     $target = Join-Path $inventory.ConfigRoot 'plugins/ai-agent-dotfiles'
     Assert-AgPlainPath $target
     if (Test-Path -LiteralPath $target) { $plan.Reason='unregistered-target-directory'; return $plan }
