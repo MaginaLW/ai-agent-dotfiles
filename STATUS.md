@@ -9,6 +9,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
+- **Five maintenance fixes verified.** An unresolved Antigravity upgrade blocks another native attempt. Config pull preserves concurrent personal saves, and config pull/push enforce an external backup root. MCP diagnostic JSON reports changed fields without their configured values. Skills deployment tracks ownership independently of a matching manual directory. All five have isolated regression coverage. [Fix commits and verification](docs/OPEN_CODE_ISSUES.md)
 - **Managed MCP projection (`mcp-sync`).** Use `agent-dotfiles.ps1 mcp status` for current per-host configuration drift. At the last successful runtime check, a read-only `get_addon_status` call from Codex reached Blender 5.3.0 and reported add-on 2.0, protocol 16 (expected 16). Antigravity and ZCode have configuration-level verification only. [Blender connection check](docs/ONBOARD_NEW_MACHINE.md#6-project-managed-mcp-servers-mcp-sync)
 - **Global `AGENTS.md` managed via config-sync.** [antigravity/AGENTS.md](antigravity/AGENTS.md) and [zcode/AGENTS.md](zcode/AGENTS.md) sync to `~/.gemini/config/AGENTS.md` and `~/.zcode/AGENTS.md` respectively via config-sync (`-Platform Antigravity,ZCode`) as `AI-AGENT-DOTFILES` managed blocks. Config-sync defaults remain Codex-only; structured merge preserves personal content outside markers.
 - **Antigravity external plugins (`ExternalPlugins`).** `harness-source/antigravity/plugins.psd1` declares the marketplace plugin `unity`. Installing a missing entry requires `-ExternalPlugin <name>`. After the managed plugin upgrade, readback showed Unity 0.1.9-beta enabled and matching its declared source. Unity Editor workflows remain unverified.
@@ -38,7 +39,6 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- **Five open code issues.** High priority covers Antigravity upgrade retries, concurrent edits during config pull, and private values in MCP diagnostic JSON. Medium priority covers ownership of existing skill directories and the config backup path. Each issue has a source reference and a regression scenario. [Issue details and acceptance criteria](docs/OPEN_CODE_ISSUES.md)
 - **Project Harness Profiles.** Downstream use remains undetermined. The next downstream maintenance visit or cross-project inventory triggers a manual check. The window began on 2026-11-17 and runs through the next inventory, at the latest 2027-02-15. A confirmed consumer moves Profiles to on-demand maintenance. Confirming zero dependencies opens a separate retirement task. An inconclusive check records the gap and keeps Profiles frozen, with no automated retries. [Owner decision 5](docs/OPTIMIZATION_PLAN_2026-11-17.md#1-所有者设计决议记录2026-11-17)
 
 ## Known boundaries
