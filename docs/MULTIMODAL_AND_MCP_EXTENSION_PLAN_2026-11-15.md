@@ -44,7 +44,7 @@
 | --- | --- | --- |
 | **Antigravity** | 结构化逐项合并写入 `~/.gemini/config/mcp_config.json` 的 `mcpServers.<name>`（保留非托管条目与其余配置）。 | `ExternalPlugins` 通过显式 `-ExternalPlugin <name>` 触发官方 `agy plugin install <name>@<source>`；共享 Skill 随 `ai-agent-dotfiles` 插件更新。 |
 | **Codex** | 仅通过官方 `codex mcp list/get/add/remove` CLI 逐项投影声明条目，**不直接改写**整个 `config.toml`，完整保留用户模型选择、审批档位与个人配置。 | 共享 Skill 继续通过 `deploy-skills.ps1` 部署至 `~/.codex/skills`（或 `~/.agents/skills`）。 |
-| **ZCode** | 结构化逐项合并写入 `~/.zcode/cli/config.json` 的 `mcp.servers.<name>`（`type: "stdio"` / `http`，保留 `model`、`provider`、`plugins` 与非托管条目）。 | 共享 Skill 继续从 `claude/skills/` 投影部署至 `~/.zcode/skills`。 |
+| **ZCode** | 结构化逐项合并写入 `~/.zcode/cli/config.json` 的 `mcp.servers.<name>`（`type: "stdio"` / `http`，保留 `model`、`provider`、`plugins` 与非托管条目）。 | 方案落地时共享 Skill 使用 Claude 构建产物。现从 `zcode/skills/` 部署至 `~/.zcode/skills`。 |
 
 ### 3.3 安全与回滚门禁
 

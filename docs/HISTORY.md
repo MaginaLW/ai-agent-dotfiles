@@ -97,13 +97,21 @@ git ls-tree -r --name-only ee96301 -- skills-source | Select-String MERGE_NOTES
 git show ee96301:skills-source/shared/brainstorming/MERGE_NOTES.md
 ```
 
+## Claude platform retirement (2026-11-21)
+
+In `4c7dabd`, ZCode still used the Claude build output. Claude configuration sync was opt-in,
+and its settings merge preserved home-only fields. The status record at that revision documents
+the previous template's marketplace declarations and the local drift observed then. The current
+deployment, configuration and profile tools leave existing Claude client files under user control.
+
 ## Multi-platform harness profile (removed 2026-10-10)
 
 The unused `multi-platform` library profile, the components only it selected (`commit-command`,
 `claude-reviewer`, `codex-reviewer`, `review-prompt`) and `tests/harness-multiplatform.tests.ps1`
 were removed on 2026-10-10, together with the unused `Future`, `Requires` and `Conflicts` schema
-fields. The Command, ClaudeAgent, CodexPrompt and CodexAgent kinds are still supported and tested
-in `tests/harness-profile.tests.ps1`. The last commit that still has them is `e8ef4c2`.
+fields. At that point the profile engine still supported the Command, ClaudeAgent, CodexPrompt
+and CodexAgent kinds. It later retired the Claude targets. The last commit containing the
+removed `multi-platform` profile and components is `e8ef4c2`.
 
 ```powershell
 git show e8ef4c2:harness-source/profiles/multi-platform.psd1

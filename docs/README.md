@@ -4,9 +4,9 @@
 
 ## 1. 项目目的
 
-跨项目偏好写入各宿主的全局文件。某个仓库特有的构建命令、验收条件和批准范围写进该项目入口。Claude 兼容模板用相对 `@../.codex/AGENTS.md` 引用部署后的 Codex 协议；Antigravity 的受管全局路径适用于 App 和 CLI。各宿主加载行为见 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md)、[Claude Code](https://code.claude.com/docs/en/memory#import-additional-files)、[Antigravity](https://antigravity.google/docs/rules/) 和 [ZCode](ZCODE.md)。
+跨项目偏好写入各宿主的全局文件。某个仓库特有的构建命令、验收条件和批准范围写进该项目入口。Antigravity 的受管全局路径适用于 App 和 CLI。各宿主加载行为见 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md)、[Antigravity](https://antigravity.google/docs/rules/) 和 [ZCode](ZCODE.md)。
 
-重复流程写成 skill，描述开头点明适用任务，详细步骤和资料随用随读。需要一起分发的技能或连接才组成插件。需要读取实时数据或执行外部动作时，再为对应宿主声明 MCP 服务并核实工具调用结果。[GPT-6.2 任务示例](CODEX_TUNING.md#用-gpt-62-交代任务) · [技能与 MCP 的分工](https://developers.openai.com/plugins/concepts/skills) · [Claude Code 插件](https://code.claude.com/docs/en/plugins)
+重复流程写成 skill，描述开头点明适用任务，详细步骤和资料随用随读。需要一起分发的技能或连接才组成插件。需要读取实时数据或执行外部动作时，再为对应宿主声明 MCP 服务并核实工具调用结果。[GPT-6.2 任务示例](CODEX_TUNING.md#用-gpt-62-交代任务) · [技能与 MCP 的分工](https://developers.openai.com/plugins/concepts/skills)
 
 同步默认预览，部署逐目录进行。手工恢复 live 技能仅限 §8 的已授权恢复。
 
@@ -14,11 +14,10 @@
 
 ## 2. 当前管理范围
 
-生成物 `claude/skills/`、`codex/skills/`（Git-ignored）中由所选环境挑出的子集部署到：
+每个环境从本平台的构建目录中选取要部署的技能。
 
-- Claude：`~/.claude/skills`
-- Codex：`~/.codex/skills`；仅当它不存在时 fallback 到 `~/.agents/skills`（两者都存在时拒绝）
-- ZCode：`~/.zcode/skills`（投影平台，部署 Claude 生成物，自身没有生成根与 manifest）
+- Codex 从 `codex/skills/` 部署到 `~/.codex/skills`。只有该目标不存在时才使用 `~/.agents/skills`，两者都存在时拒绝部署。
+- ZCode 从 `zcode/skills/` 部署到 `~/.zcode/skills`。
 
 不管理：Codex `.system`；未选中、未记录在部署状态且未被 `-Retire` 点名的 live 目录（unknown，只报告）；部署状态与备份
 （repo 外的 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`）；机器私有配置与 secrets。
@@ -33,10 +32,9 @@
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
 | `antigravity/AGENTS.md` | Antigravity 全局工作协议源（受管 block 同步至 `~/.gemini/config/AGENTS.md`，§11） |
 | `zcode/AGENTS.md` | ZCode 全局工作协议源（受管 block 同步至 `~/.zcode/AGENTS.md`，§11） |
-| `claude/settings.json`、`claude/CLAUDE.md` | 仅供显式旧平台配置同步的分发模板；本仓 Claude 开发入口已退役 |
-| `skills-source/` | 唯一可信源（`shared/`、`claude-only/`、`codex-only/`） |
-| `claude/skills/`、`codex/skills/` | 生成物，Git-ignored，勿手改 |
-| `manifests/managed-skills.<platform>.txt` | 每平台受管名单，由 build 刷新，勿手改 |
+| `skills-source/` | 技能源目录，分为 `shared/`、`codex-only/`、`zcode-only/` |
+| `codex/skills/`、`zcode/skills/` | 构建生成的技能目录，Git 忽略，勿手改 |
+| `manifests/managed-skills.codex.txt`、`manifests/managed-skills.zcode.txt` | 两个平台的受管技能名单，由 build 刷新 |
 | `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§11） |
 | `harness-source/` | 环境定义 `envs/`（§13）、profile/component 源（§12）、Antigravity 插件清单（§15）与受管 MCP 注册表 `mcp/servers.psd1`（§16） |
 | `.agent-harness/profile.psd1` | 当前项目的 profile 声明（§12） |
@@ -55,17 +53,16 @@ API；下载结果仍必须通过锁文件中的压缩包与可执行文件 SHA-
 ## 4. 日常同步流程
 
 `deploy.ps1` 是日常联合入口：先按 `harness-source/envs/<name>.psd1` 的 `Skills` 清单（日常用 `work`）部署 skills，
-再按 Codex-only 默认运行 `config-pull.ps1`；不会恢复 Claude live 配置。Apply 前先顺序运行两阶段现有的 dry-run 规划器，规划失败时不写 live skills、
+再按 Codex-only 默认运行 `config-pull.ps1`。Apply 前先顺序运行两阶段现有的 dry-run 规划器，规划失败时不写 live skills、
 config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills Apply 中复用，config Apply 仍保留写前扫描。
 预检不验证所有写权限、备份可用性或并发变化，也不冻结计划；两阶段不是原子事务，运行时 config 阶段失败时
 已完成的 skill 阶段保持完成，并明确报告边界。
-`deploy-skills.ps1` 仍是只部署 skills 的底层入口，按同一环境逐目录部署到三个 live 根
-（Zcode 从 Claude 生成物投影）：
+`deploy-skills.ps1` 按所选环境把技能逐目录部署到 Codex 和 ZCode 的 live 根。
 
 - 默认先跑 build 与 scan，任一失败即停止。`-SkipBuild` 同时跳过两者；除隔离测试外，只有已有成功结果覆盖当前未变的源码、构建输入和生成物时，才可在同一已授权部署链或只读复核中复用，不能把它当作省略必需检查的入口。
 - 每个目录给出 `install`、`update`、`unchanged`、`prune` 或 `unknown`；不带 `-Apply` 不写 live 根或部署状态。
   对状态中没有记录的同名目录，`update` 会提示其归属未知且将备份后覆盖；状态缺失不代表目录一定未受管。
-- `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录（三平台同时生效）。
+- `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录（作用于 Codex 和 ZCode）。
 - 其余 live 目录是 unknown，只报告不碰。Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
 - 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时不会半删旧目录。
   两次改名之间中断时目标可能暂时缺失。计划会报告 `.deploying-*` 残留及备份根；再次对该 skill 做
@@ -76,7 +73,7 @@ config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills A
 - 显示上次记录的环境 → 本次目标环境（记录不证明 live 内容）；prune 区分“此前受管、本次未选中”
   和显式 `-Retire`。install/update 复用现有文件哈希比较，列出相对文件名的 add/change/remove，
   不打印文件内容或哈希。文件名本身也可能包含私有信息，分享输出前仍需审查。
-- 已部署集合记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`（每台机器各自一份）。
+- 每台机器上次部署的环境和技能记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`。旧记录中的 Claude 键被忽略，本机已有 Claude 文件由用户管理。
   没有该文件时首次运行不 prune。Apply 先在状态目录写入唯一临时文件，写完后替换正式状态；
   写入或替换失败且正式文件未被外部改动时保留旧状态，但此前成功的 live 操作不会因此回滚。
 
@@ -125,7 +122,7 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment <current-environment> -Ski
 1. 只改 `skills-source/`，然后运行 `build-skills.ps1` 与 `scan-secrets.ps1`。
 2. 提交 source / manifest / docs 变更（不提交 generated output），按授权 push。
 3. 每台机器各自跑 dry-run，审查后按有效授权 `-Apply`。`work` 技能更新的持续授权只走
-   `deploy-skills.ps1`；combined `deploy.ps1` 及 `full` 窄例外的边界见 §4。
+   `deploy-skills.ps1`；combined `deploy.ps1` 及 `full` 部署需获得覆盖实际范围的许可（§4）。
 
 **删除 skill** 时，build 同时从生成物和 manifest 移除名称。本机由 deploy-skills 部署过的目录下次 dry-run
 显示为 `prune`；deploy-skills 从未部署过的旧目录按 unknown 保留，逐项审查后用 `-Retire` 显式点名：
@@ -141,7 +138,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 
 ## 6. 新增 skill 的流程
 
-- 跨平台放 `skills-source/shared/<name>/`，单平台放 `claude-only/` 或 `codex-only/` 下。
+- 两端通用的技能放 `skills-source/shared/<name>/`。单平台技能放 `skills-source/codex-only/<name>/` 或 `skills-source/zcode-only/<name>/`。
 - 至少要有 `SKILL.md`，不能含符号链接或 junction；`.system` 不是合法名称。
 - 放进来前先审查：不重复、无 secrets / tokens、无机器私有路径（如 `C:\Users\<name>`）、无缓存或运行时状态。
 - 可以手工复制，也可以用 `promote-skill.ps1`（先 dry-run，确认后 `-Apply`，会自动 build 并扫描）：
@@ -249,23 +246,16 @@ profile 写失败时，将当前尝试写入的文件也纳入 best-effort rollb
 
 ## 11. Harness 配置同步（config-sync）
 
-配置 status/pull/push 默认仅处理 Codex；只有显式 `-Platform Claude`、`-Platform Antigravity` 或 `-Platform ZCode` 才会读写对应配置（Antigravity 全局协议位于 `antigravity/AGENTS.md` ↔ `~/.gemini/config/AGENTS.md`，ZCode 全局协议位于 `zcode/AGENTS.md` ↔ `~/.zcode/AGENTS.md`）。
+配置 status/pull/push 默认只处理 Codex。传入 `-Platform Antigravity` 可选择 `antigravity/AGENTS.md` 与 `~/.gemini/config/AGENTS.md`，传入 `-Platform ZCode` 可选择 `zcode/AGENTS.md` 与 `~/.zcode/AGENTS.md`。
 组合部署沿用 Codex-only 默认。
 
 除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与
 ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥、证书、备份与临时文件类）。
 
 - `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
-  Claude `settings.json` 两侧都是不同的 JSON 对象时，普通文本输出还显示字段的 JSON Pointer 路径：
-  `home-only` 字段会由结构化合并保留，`repo-only` 字段会新增，`changed` 或 `type-changed` 字段会替换。
-  `in-sync` 也可能带 `home-only field(s) preserved` 说明；文件字节不同不代表需要同步。
-  输出字段名但不输出字段值；字段名本身可能包含私有信息，分享终端输出前须审查。数组按整体比较。
   Codex、Antigravity 与 ZCode `AGENTS.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
-  JSON 无效、键重复或根不是对象时报告无法比较，须手工检查。
-  非 JSON 文件仍只报告文件级差异；`-Json` 保持原有文件级数组格式，不包含字段摘要。
+  `-Json` 输出文件级状态数组。
 - `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再写入。
-  Claude `settings.json` 递归合并对象：repo 中的键和值覆盖 home，数组整体替换，home-only 键保留；
-  repo 中不存在的 home 键不会被删除，因此字段删除仍需人工审查。
   Codex、Antigravity 与 ZCode `AGENTS.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
   `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` / `<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->` 对应的受管 block，block 外的个人文本保留。
   已有文件没有 block 时，仅当内容已等于 repo 才自动包裹；否则 fail closed，要求先手工放置 block。
@@ -279,9 +269,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
   Codex、Antigravity 与 ZCode `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
 - Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
-- Claude 配置模板启用 `codex@openai-codex`；模板市场声明不代表插件已经安装或加载。
-- 模板不带模型与推理档位，但这不表示可以删除个人设置：结构化合并会保留 home-only 顶层和嵌套字段；
-  审查 dry-run 时仍须确认 repo 管理的字段变化。
+- 模板沿用用户选择的模型与推理档位，同步前按 dry-run 核对受管内容。
 - `deploy.ps1` 把 skills 与 config-pull 串成一个 dry-run/apply 入口；两阶段不原子，
   config 失败不会回滚已完成的 skills。只用 skills 时直接运行 `deploy-skills.ps1`。
 - 回归测试：`pwsh -NoProfile -File tests/config-sync.tests.ps1` 和
@@ -293,8 +281,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
 pwsh -NoProfile -File scripts/config-status.ps1
 ```
 
-`differs` 只表示当前同步口径不同，不代表可以盲目覆盖。Claude 字段摘要显示路径而不显示值；
-home-only 字段由结构化合并保留。Codex `AGENTS.md` 的状态按受管 block 比较，仍可在自己的终端本地检查：
+`differs` 表示文件内容或受管块存在差异。Codex `AGENTS.md` 在同步时只比较受管块。如需查看整个文件，可在本机运行以下命令。
 
 ```powershell
 git --no-pager diff --no-index --no-ext-diff -- codex/AGENTS.md "$env:USERPROFILE/.codex/AGENTS.md"
@@ -335,29 +322,24 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
   旧命令行的空开关。
 - `apply-harness-profile.ps1`：默认 dry-run；`-Apply` 只写 allowlisted 项目输出和 `.agent-harness/backups/`
   下的项目本地 rollback backup，不写 home 或 live skills。
-- 受控输出类型：Rule 写 `AGENTS.md` / `CLAUDE.md` 的 managed block——已存在但没有任何
-  `BEGIN/END AGENT-HARNESS` 标记的文件按 skip 处理（不插入），只替换已有标记块；Prompt 只进
-  `.agent-harness/generated/`，Claude `.claude/commands/`、`.claude/agents/` 与
-  `.claude/settings.json`（结构化合并），Codex `.codex/prompts/`、`.codex/agents/`。
-- Profile 的 `Components` 只列用到的 bucket（`Rules`、`Prompts`、`Commands`、`Agents`、`ClaudeSettings`、
-  `CodexAgents`），没列的 bucket 视为空；未知 bucket 或未知顶层 key 会被拒绝。
+- 项目 profile 仅支持 Codex。Rule 更新 `AGENTS.md` 的受管块，已有文件缺少 `BEGIN/END AGENT-HARNESS` 标记时跳过。
+  Prompt 仅写入 `.agent-harness/generated/`。CodexPrompt、CodexAgent 分别写入 `.codex/prompts/`、`.codex/agents/`。
+- `Components` 可按需列出 `Rules`、`Prompts`、`CodexAgents`。省略的分组视为空，未知的分组或顶层键会导致规划失败。
+  已有项目使用退役的 Claude 平台或组件时，先修改 profile 选择。Apply 只处理当前项目清单中的目标，旧 Claude 文件继续由用户管理。
 - 改 profile/component 或这几个脚本后跑 `tests/harness-profile.tests.ps1`。
 
 ---
 
 ## 13. Harness Environments
 
-环境是命名的 skills 选集：`harness-source/envs/<name>.psd1`。deploy-skills 只消费 `Skills`：必须恰好有
-`Claude`、`Codex`、`Zcode` 三个键（不要 skill 的平台写 `@()`；Zcode 从 Claude 生成物投影，
-只有 Claude 可构建的 skill 才能选给 Zcode），否则拒绝运行，避免把缺键误读成空选集而
-prune 全部。`env list` 显示文件名、`Description` 与各平台的 skill 名称和数量；`SchemaVersion` 与 `Name` 是声明性元数据，脚本不校验。
+`harness-source/envs/<name>.psd1` 定义命名的 skills 选集。`Skills` 必须恰好包含 `Codex` 和 `Zcode` 两个键。
+某个平台不选技能时，显式写 `@()`。缺键会导致规划失败。每个平台只能选取其构建目录内的技能。
+`env list` 显示文件名、`Description` 与各平台的技能名称和数量。`SchemaVersion` 与 `Name` 是声明性元数据。
 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
-`work.Claude` 为空；`claude/skills/` 仍为 ZCode 提供构建投影，保留共享源和生成链。
-共享 `base`/`coding` 及本仓 profile 默认仅 Codex，不再自动选择 ClaudeSettings；旧 Claude 组件仍可显式选择。
-当前 `work` 为 Claude/Codex/ZCode 0/9/7：shared `subagent-driven-development` 仅在 Codex `work` 选入，
-`full` 三平台均包含。该 Skill 是委派执行约定，不授予新权限；具体额度以 [AGENTS.md](../AGENTS.md)
-和当前宿主限制为准，操作细节见 [Skill](../skills-source/shared/subagent-driven-development/SKILL.md)。
+`work` 为 Codex 选择 9 个技能、为 ZCode 选择 7 个。`full` 分别选择 19 和 11 个。
+共享技能 `subagent-driven-development` 在 `work` 中仅供 Codex 使用，在 `full` 中两端均可使用。
+委派权限及并发上限以 [AGENTS.md](../AGENTS.md) 和宿主限制为准。操作细节见 [Skill](../skills-source/shared/subagent-driven-development/SKILL.md)。
 
 新增受管 skill 时，除放入 `skills-source/` 外，还要在目标环境的各平台 `Skills` 数组中选入；
 `full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。
@@ -430,7 +412,7 @@ mcp status | deploy          -> scripts/mcp-sync.ps1 -Action <action>
 帮助说明操作方向、写入范围和常用示例，不执行子脚本。`config push` 仅捕获本机配置到仓库，不是 Git push。
 
 doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `Deploy blockers`。
-缺失已退役的 `~/.claude/skills` 提示为 INFO，不产生 WARN；双 Codex live 根会阻塞部署；未安装的平台根、dirty tree 和跳过 secret scan 等提醒不自动归为阻塞。
+Codex 的两个 live 根同时存在时会阻塞部署。对于缺少平台根目录、dirty tree 或跳过 secret scan 等提醒，按各项提示判断。
 `none detected by these checks` 也不表示部署已通过预检，仍须审查 dry-run。
 
 只读命令：`status`、`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`、`antigravity status`、`mcp status`。`build` 与 `profile build`

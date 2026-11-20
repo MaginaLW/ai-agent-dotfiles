@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-20.
+Last updated: 2026-11-21.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -13,20 +13,20 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Global `AGENTS.md` managed via config-sync.** [antigravity/AGENTS.md](antigravity/AGENTS.md) and [zcode/AGENTS.md](zcode/AGENTS.md) sync to `~/.gemini/config/AGENTS.md` and `~/.zcode/AGENTS.md` respectively via config-sync (`-Platform Antigravity,ZCode`) as `AI-AGENT-DOTFILES` managed blocks. Config-sync defaults remain Codex-only; structured merge preserves personal content outside markers.
 - **Antigravity external plugins (`ExternalPlugins`).** `harness-source/antigravity/plugins.psd1` declares the marketplace plugin `unity`. Installing a missing entry requires `-ExternalPlugin <name>`. After the managed plugin upgrade, readback showed Unity 0.1.9-beta enabled and matching its declared source. Unity Editor workflows remain unverified.
 - **Antigravity plugin.** `ai-agent-dotfiles` 0.4.1 is installed and enabled. Its files match the validated package containing `git-review`, `multimodal-generation`, `systematic-debugging`, and `verification-before-completion`. The upgrade from 0.4.0 retained the previous installation backup. Controlled updates check the scanned package and current native CLI validation before uninstalling the working version. Receipts and backups are under `%LOCALAPPDATA%/ai-agent-dotfiles.deploy/antigravity/`.
-- **Antigravity delegation.** The Codex-only skill `antigravity-delegation` is selected for Codex in `work` (0/9/7) and `full`. Default is disabled, using the Bridge managed host without distributing model defaults or credentials.
-- **Claude developer entry retirement.** Local developer entry files (`CLAUDE.md`, `.claude/settings.json`) are retired; config-sync and deployment default to Codex. Claude generated skills (`claude/skills/`) serve as the projection source for ZCode; distributable templates remain in `claude/`. The live Claude skills root is absent on the current machine.
+- **Antigravity delegation.** The Codex-only skill `antigravity-delegation` is selected for Codex in `work` and `full`. Default is disabled, using the Bridge managed host without distributing model defaults or credentials.
+- **Claude platform retirement.** Repository support for Claude skill deployment, configuration capture and deployment, and project templates is retired. Existing Claude files on user machines are outside the tool's scope. Earlier deployment state may contain a Claude entry, which deployment ignores.
 - **Proactive Git approval requests.** Agent instructions require explicit approval requests for commit, push, or merge once diffs and verification are ready, reusing existing task grants rather than ending with unexplained uncommitted changes.
 - **Historical branch cleanup.** On 2026-11-20 the owner authorized deletion of 25 remote branches. Every tip was an ancestor of `main` at `f996888`. For 24 branches the tip matched a merged PR from the same branch. The plugin planning branch was integrated through [PR #9](https://github.com/MaginaLW/ai-agent-dotfiles/pull/9). The atomic deletion checked all 25 tip SHAs, and GitHub readback showed only `main` immediately afterward.
 - **Retired skills cleanup.** Standalone skills `approval-feedback` and `boring-engineering` are fully retired across canonical sources, manifests, Antigravity plugin, and documentation.
-- **CLI and observability.** `agent-dotfiles.ps1` provides unified CLI entry points (`help <group>` and `<group> help`), structured skill plan previews with file-level diffs, preflight secret scanning, and non-atomic stage rollback guidance. The top-level `status` command reports the recorded environment, configuration drift, Antigravity plugin state, and managed MCP projections. Use the skills deployment dry run for a file-level comparison of live skills. `doctor.ps1` treats absent optional Claude roots as INFO and checks the nine core repository scripts.
+- **CLI and observability.** `agent-dotfiles.ps1` provides unified CLI entry points (`help <group>` and `<group> help`), structured skill plan previews with file-level diffs, preflight secret scanning, and non-atomic stage rollback guidance. The top-level `status` command reports the recorded environment, configuration drift, Antigravity plugin state, and managed MCP projections. Use the skills deployment dry run for a file-level comparison of live skills. `doctor.ps1` checks the nine core repository scripts.
 - **Subagent policy.** Codex agreements permit up to 50 concurrent descendant subagents (lead excluded). Substantive ready work is dispatched promptly, with implementation and tests sharing an owner and independent review kept separate when required.
 - **Grok routing.** The Codex agreement template routes explicitly requested Grok work through agent-bridge and preserves its current schema, available engines and approval flow; it has no local Grok Build CLI fallback.
 - **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial.
-- **Current scope.** `skills-source/` is the only skill source. `build-skills.ps1` generates `claude/skills/` and `codex/skills/`; `deploy-skills.ps1` deploys one environment to the live Claude, Codex and ZCode roots. Generated output is ignored by Git; `full` contains every managed skill, while `work` is the daily set.
-- **Combined deploy and config merge.** `deploy.ps1` combines skills deployment and `config-pull` into one unified dry-run/apply entry point (used by `agent-dotfiles.ps1 sync`). Claude `settings.json` merges structured objects; Codex, Antigravity, and ZCode `AGENTS.md` update their respective managed blocks.
-- **Skills and deployment.** All 19 managed skill entry points (11 shared, 8 Codex-only) have readable names and descriptions. After deployment, the `work` dry run matched all 16 selected directories by content (9 Codex, 7 ZCode), with zero installs, updates, prunes, or unknowns. The `systematic-debugging` helper passed seven npm scenarios, including zero matches and failed tests. In a fixture repository, the full-only `security-ownership-map` skill produced a queryable report using `run_ownership_map.py --no-communities` without NetworkX. Codex `.system` stays outside deployment.
+- **Current scope.** `build-skills.ps1` builds `codex/skills/` and `zcode/skills/` from `skills-source/`. `deploy-skills.ps1` deploys the chosen environment to those clients' live roots. Git ignores the generated directories.
+- **Combined deploy and config merge.** `agent-dotfiles.ps1 sync` runs the skills deployment followed by `config-pull`. Config-sync defaults to Codex and supports the Codex, Antigravity and ZCode `AGENTS.md` managed blocks.
+- **Skills and deployment.** All 19 managed skill entry points (11 shared, 8 Codex-only) have readable names and descriptions. Before Claude platform retirement, the post-deployment `work` dry run matched all 16 selected directories by content (9 Codex, 7 ZCode), with zero installs, updates, prunes, or unknowns. The `systematic-debugging` helper passed seven npm scenarios, including zero matches and failed tests. In a fixture repository, the full-only `security-ownership-map` skill produced a queryable report using `run_ownership_map.py --no-communities` without NetworkX. Codex `.system` stays outside deployment.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`, `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one. Catalog discovery and installation do not prove behavior change, and one applied case does not prove long-run improvement.
-- **Policy centralization.** Generated skill roots, scan-input prefixes and the Codex live-root rule live in `scripts/repo-common.ps1`. Build, secret scan, syntax gate, doctor, deploy and repository validation consume those definitions; generated/legacy roots remain excluded from scans and untracked-output checks.
+- **Scan and build policy.** `scripts/repo-common.ps1` defines the generated skill roots and scan-input prefixes used by the build, secret scan and validation scripts. The generated Codex and ZCode skill directories are excluded from scan input.
 - **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is absent. Enumeration errors stop the build instead of appearing as an empty skill set.
 - **Local verification and CI.** All 15 local suites passed for the code in `c6e5df4`, including scan and MCP registry fixtures for plain and encrypted private key headers. The preceding `main` revision `f996888` passed GitHub Actions. [Baseline run](https://github.com/MaginaLW/ai-agent-dotfiles/actions/runs/44392583330) · [Latest main runs](https://github.com/MaginaLW/ai-agent-dotfiles/actions/workflows/validate.yml?query=branch%3Amain)
 - **Pinned gitleaks.** Gitleaks 8.30.0 is pinned by archive and executable SHA-256 with official GitHub Releases API fallback.
@@ -45,9 +45,6 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Codex global agreements use a managed block.** `codex/AGENTS.md` is the canonical body; the
   live Codex file wraps it in `<!-- BEGIN/END AI-AGENT-DOTFILES: codex/AGENTS.md -->` markers.
   Content outside the block is local and preserved, and config-status compares the block body.
-- **Intentional Claude config drift.** The personal `agentPushNotifEnabled` override remains
-  home-only and is preserved by structured merge. The unused `claude-code-plugins` marketplace
-  declaration was removed on 2026-11-10; the tracked `openai-codex` declaration remains.
 - **Combined deploy is not atomic.** The skills stage and config stage share one command and
   authorization boundary but do not share a transaction. A config failure leaves completed skill
   changes in place; each stage keeps its own backups and rollback behavior.
@@ -62,8 +59,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Deploy state is per machine.** deploy-skills prunes only directories recorded in its state
   file. Without that file the first run prunes nothing, and directories from an older setup show
   as unknown until `-Retire` names them.
-- **ZCode user-level skills are deploy-managed.** `~/.zcode/skills` receives the Claude
-  generated projection through deploy-skills; it has no generated root or manifest of its own.
+- **ZCode skill deployment.** `build-skills.ps1` writes `zcode/skills/` and `manifests/managed-skills.zcode.txt`. The deployer installs the environment's selection under `~/.zcode/skills`.
 - **Codex catalog refresh and loaded skill bodies.** Codex detects skill changes automatically
   and may need a restart when an update does not appear. A conversation that already loaded an
   old `SKILL.md` or `AGENTS.md` body can retain that text until reloaded.
@@ -74,26 +70,25 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Inventory and scope
 
-| Scope | Canonical | Claude | Codex |
+| Scope | Canonical | Codex | ZCode |
 |---|---:|---:|---:|
 | Shared | 11 | 11 | 11 |
-| Codex-only (Claude-only is empty) | 8 | - | 8 |
-| Managed total | 19 | 11 | 19 |
+| Codex-only | 8 | 8 | 0 |
+| ZCode-only | 0 | 0 | 0 |
+| Managed total | 19 | 19 | 11 |
 
 - **Shared skills:** brainstorming, git-review, meng-cmame-writing, multimodal-generation,
   paper-polish, session-learnings, subagent-driven-development, systematic-debugging,
   tool-scope, verification-before-completion, writing-plans.
 - **Codex-only skills:** antigravity-delegation, chatgpt-apps, cli-creator, coderabbit-review,
   define-goal, security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Claude/Codex/Zcode): `minimal` 1/1/1, `work` 0/9/7,
-  `full` 11/19/11. Unselected unknown live directories are preserved, and Codex `.system` is
-  never managed.
+- **Environments** (Codex/ZCode): `minimal` 1/1, `work` 9/7, `full` 19/11.
+  Unselected unknown live directories are preserved, and Codex `.system` is never managed.
 - **Retired:** the transactional live-sync engine, its hooks/runner/schemas/tests; the former engine's
   MCP registration subsystem (replaced by per-entry `scripts/mcp-sync.ps1`); OpenClaw/OpenCode; ArkCLI-managed skills; the legacy local
   `hatch-pet` v1 packaging workflow; the custom brainstorming browser-companion server.
-- **Integrations.** ZCode maintains this repository through `AGENTS.md` and is a deployment
-  target through the Claude projection. The harness-model feedback-loop pilot is paused; one
-  remote VPS pilot remains active.
+- **Integrations.** ZCode uses the repository's `AGENTS.md` for project instructions. The
+  harness-model feedback-loop pilot is paused. One remote VPS pilot remains active.
 - **Skill retirement.** Deleting a skill's source leaves an old live directory as unknown;
   `-Retire <name>` removes it after review. See
   [docs/README.md §5](docs/README.md#5-修改已有-skill-的流程).
