@@ -21,7 +21,7 @@ function Get-PorcelainStatusPaths {
 }
 
 # Generated output roots and the filtered input prefixes shared by the build/scan gates.
-$script:GeneratedSkillRoots = @('claude/skills', 'codex/skills')
+$script:GeneratedSkillRoots = @('zcode/skills', 'codex/skills')
 $script:GeneratedSkillRootPrefixes = @($script:GeneratedSkillRoots | ForEach-Object { "$_/" })
 $script:ScanExcludedPrefixes = @('.git/') + $script:GeneratedSkillRootPrefixes + @('tmp/')
 

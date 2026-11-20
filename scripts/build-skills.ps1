@@ -23,10 +23,10 @@ function Assert-DisjointBuildRoots {
 }
 
 $SourceRoot = Join-Path $RepoRoot 'skills-source'
-$ClaudeOutputRoot = Join-Path $RepoRoot 'claude/skills'
+$ZcodeOutputRoot = Join-Path $RepoRoot 'zcode/skills'
 $CodexOutputRoot = Join-Path $RepoRoot 'codex/skills'
 $ManifestOutputRoot = Join-Path $RepoRoot 'manifests'
-Assert-DisjointBuildRoots -Roots @($SourceRoot,$ClaudeOutputRoot,$CodexOutputRoot,$ManifestOutputRoot)
+Assert-DisjointBuildRoots -Roots @($SourceRoot,$ZcodeOutputRoot,$CodexOutputRoot,$ManifestOutputRoot)
 
 $script:RuntimeExcludePatterns = @('CREATION-LOG.md')
 function Copy-SkillDirectory {
@@ -67,17 +67,17 @@ function Write-ManifestFile {
 
 # Get-SkillDirectories excludes .system: .system is not a build source or generated skill.
 $sharedSource = Join-Path $SourceRoot 'shared'
-$claudeOnlySource = Join-Path $SourceRoot 'claude-only'
+$zcodeOnlySource = Join-Path $SourceRoot 'zcode-only'
 $codexOnlySource = Join-Path $SourceRoot 'codex-only'
 $sharedSkills = Get-SkillDirectories -RootPath $sharedSource
-$claudeOnlySkills = Get-SkillDirectories -RootPath $claudeOnlySource
+$zcodeOnlySkills = Get-SkillDirectories -RootPath $zcodeOnlySource
 $codexOnlySkills = Get-SkillDirectories -RootPath $codexOnlySource
 $sharedNames = @($sharedSkills | ForEach-Object Name)
-$claudeOnlyNames = @($claudeOnlySkills | ForEach-Object Name)
+$zcodeOnlyNames = @($zcodeOnlySkills | ForEach-Object Name)
 $codexOnlyNames = @($codexOnlySkills | ForEach-Object Name)
 
 $sharedConflicts = @(
-    @($claudeOnlyNames | Where-Object { $_ -in $sharedNames }) +
+    @($zcodeOnlyNames | Where-Object { $_ -in $sharedNames }) +
     @($codexOnlyNames | Where-Object { $_ -in $sharedNames }) |
         Sort-Object -Unique
 )
@@ -88,7 +88,7 @@ if ($sharedConflicts.Count -gt 0) {
 }
 
 $platformOnlyAll = @{}
-foreach ($n in $claudeOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='claude-only' }
+foreach ($n in $zcodeOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='zcode-only' }
 foreach ($n in $codexOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='codex-only' }
 $crossPlatformConflicts = @($platformOnlyAll.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
 if ($crossPlatformConflicts.Count -gt 0) {
@@ -97,9 +97,9 @@ if ($crossPlatformConflicts.Count -gt 0) {
     exit 1
 }
 
-$claudeSet = @($sharedNames + $claudeOnlyNames | Sort-Object -Unique)
+$zcodeSet = @($sharedNames + $zcodeOnlyNames | Sort-Object -Unique)
 $codexSet = @($sharedNames + $codexOnlyNames | Sort-Object -Unique)
-foreach ($target in @($ClaudeOutputRoot,$CodexOutputRoot)) {
+foreach ($target in @($ZcodeOutputRoot,$CodexOutputRoot)) {
     if (Test-Path -LiteralPath $target) {
         Assert-SkillTreeNoReparsePoint -Root $target
         Remove-Item -LiteralPath $target -Recurse -Force
@@ -108,22 +108,22 @@ foreach ($target in @($ClaudeOutputRoot,$CodexOutputRoot)) {
 }
 if (-not (Test-Path -LiteralPath $ManifestOutputRoot)) { [System.IO.Directory]::CreateDirectory($ManifestOutputRoot) | Out-Null }
 
-$claudeExcludeRelativePaths = @(Join-Path 'agents' 'openai.yaml')
+$zcodeExcludeRelativePaths = @(Join-Path 'agents' 'openai.yaml')
 foreach ($skill in $sharedSkills) {
-    Copy-SkillDirectory -Source $skill -DestinationRoot $ClaudeOutputRoot -ExcludeRelativePaths $claudeExcludeRelativePaths
+    Copy-SkillDirectory -Source $skill -DestinationRoot $ZcodeOutputRoot -ExcludeRelativePaths $zcodeExcludeRelativePaths
     Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot
 }
-foreach ($skill in $claudeOnlySkills) {
-    Copy-SkillDirectory -Source $skill -DestinationRoot $ClaudeOutputRoot -ExcludeRelativePaths $claudeExcludeRelativePaths
+foreach ($skill in $zcodeOnlySkills) {
+    Copy-SkillDirectory -Source $skill -DestinationRoot $ZcodeOutputRoot -ExcludeRelativePaths $zcodeExcludeRelativePaths
 }
 foreach ($skill in $codexOnlySkills) {
     Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot
 }
 
-Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.claude.txt') -Names $claudeSet
+Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.zcode.txt') -Names $zcodeSet
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.codex.txt') -Names $codexSet
-$builtClaudeSkills = @(Get-SkillDirectories -RootPath $ClaudeOutputRoot)
+$builtZcodeSkills = @(Get-SkillDirectories -RootPath $ZcodeOutputRoot)
 $builtCodexSkills = @(Get-SkillDirectories -RootPath $CodexOutputRoot)
-Write-Host "Built Claude skills: $($builtClaudeSkills.Count)"
+Write-Host "Built Zcode skills: $($builtZcodeSkills.Count)"
 Write-Host "Built Codex skills: $($builtCodexSkills.Count)"
 Write-Host "Updated manifests: $ManifestOutputRoot"
