@@ -1286,6 +1286,13 @@ else {
     Invoke-McpDeploy -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Server $Server -BackupRoot $BackupRoot -DoApply:$Apply -SkipSecretScan:$SkipSecretScan
 }
 
+if ($Json -or $JsonPath) {
+    # Project diagnostics only after deployment has finished using its full plan.
+    $report.Items = @(foreach ($item in $report.Items) {
+        [pscustomobject]$item | Select-Object Platform, Server, Target, TargetPath, Action, State, Reason, Changes, UnmanagedCount
+    })
+}
+
 if ($JsonPath) {
     Write-McpJsonFile -Path ([IO.Path]::GetFullPath($JsonPath)) -Value $report
 }

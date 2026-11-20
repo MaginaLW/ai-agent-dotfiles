@@ -312,6 +312,24 @@ Assert ($statusOut.Out -match '\[Antigravity Plugins\]') 'status output contains
 Assert ($statusOut.Out -match '\[MCP Projections\]') 'status output contains MCP Projections section'
 Assert ($statusOut.Out -notmatch 'Invoking script|Command result') 'status human-readable emits no wrapper invocation banners'
 
+Set-TestFile -Path (Join-Path $fixtureRepo 'harness-source/mcp/servers.psd1') -Content @'
+@{ SchemaVersion = 1; Servers = @(
+    @{ Name = 'local'; Platforms = @('Antigravity'); Enabled = $true; Transport = 'stdio'; Command = 'fixture'; Env = @{ MODE = 'declared-mode' } }
+    @{ Name = 'remote'; Platforms = @('Antigravity'); Enabled = $true; Transport = 'streamable-http'; Url = 'https://example.invalid/mcp'; Headers = @{ 'X-Fixture' = 'declared-header' } }
+    @{ Name = 'matching'; Platforms = @('Antigravity'); Enabled = $true; Transport = 'stdio'; Command = 'fixture' }
+) }
+'@
+Set-TestFile -Path (Join-Path $fakeHome '.gemini/config/mcp_config.json') -Content @'
+{"mcpServers":{
+    "local":{"command":"fixture","args":[],"env":{"MODE":"private-fixture-mode"}},
+    "remote":{"url":"https://example.invalid/mcp","headers":{"X-Fixture":"private-fixture-header"}},
+    "matching":{"command":"fixture","args":[]}
+}}
+'@
+$reportPath = Join-Path $work 'mcp-report.json'
+$mcpResult = Invoke-Entry -Arguments @('mcp', 'status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-Platform', 'Antigravity', '-Json', '-JsonPath', $reportPath)
+Assert ($mcpResult.Code -eq 0) 'mcp status emits stdout and file diagnostics for drifted entries'
+
 $jsonResult = Invoke-Entry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
 Assert ($jsonResult.Code -eq 0) 'status -Json executes successfully (exit 0)'
 Assert ($jsonResult.Out -notmatch 'Invoking script|Command result') 'status -Json emits zero wrapper banners'
@@ -324,6 +342,18 @@ Assert ($null -ne $parsedStatus.Config -and ($parsedStatus.Config -is [array] -o
 Assert ($null -ne $parsedStatus.Antigravity) 'status JSON contains Antigravity section'
 Assert ($null -ne $parsedStatus.Mcp) 'status JSON contains Mcp section'
 Assert ($null -ne $parsedStatus.Summary -and $null -ne $parsedStatus.Summary.Environment -and $null -ne $parsedStatus.Summary.Config -and $null -ne $parsedStatus.Summary.Antigravity -and $null -ne $parsedStatus.Summary.Mcp) 'status JSON contains Summary section with all 4 subsystems'
+
+foreach ($output in @($mcpResult.Out, [IO.File]::ReadAllText($reportPath), $jsonResult.Out)) {
+    Assert ($output -notmatch 'private-fixture-mode|private-fixture-header|declared-mode|declared-header') 'entire JSON output omits live and declared MCP values'
+    $report = $output | ConvertFrom-Json
+    if ($report.PSObject.Properties['Mcp']) { $report = $report.Mcp }
+    $local = $report.Items | Where-Object Server -eq 'local'
+    $remote = $report.Items | Where-Object Server -eq 'remote'
+    $matching = $report.Items | Where-Object Server -eq 'matching'
+    Assert ($local.Platform -eq 'Antigravity' -and $local.Action -eq 'update' -and $local.Changes -contains '~ /env/MODE') 'MCP report identifies the environment field that drifted'
+    Assert ($remote.Platform -eq 'Antigravity' -and $remote.Action -eq 'update' -and $remote.Changes -contains '~ /headers/X-Fixture') 'MCP report identifies the header field that drifted'
+    Assert ($matching.Action -eq 'unchanged' -and $report.Summary.unchanged -eq 1 -and $report.Summary.update -eq 2) 'MCP report distinguishes matching and drifted entries'
+}
 
 # Mock stub aggregation tests in isolated pluginScripts
 Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content (@(
