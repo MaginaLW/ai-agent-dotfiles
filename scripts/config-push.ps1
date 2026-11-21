@@ -6,11 +6,11 @@
 
 .DESCRIPTION
     Plans an add (absent in the repo) or update (content differs; home wins) for every
-    managed file. Codex reads from ~/.codex, Antigravity from ~/.gemini/config, and ZCode from ~/.zcode.
+    managed file. Codex reads from ~/.codex and Antigravity reads from ~/.gemini/config.
     Directories are copied file-by-file and never pruned: repo-only files stay
     untouched. ExcludedItems and CommonExcludedItems are never captured.
 
-    When Codex, Antigravity, or ZCode AGENTS.md contains the config-sync managed block, only that
+    When Codex or Antigravity AGENTS.md contains the config-sync managed block, only that
     block's content is captured; personal content outside the block stays local.
 
     -Apply stages every repo file it overwrites to
@@ -30,7 +30,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Codex, Antigravity, ZCode. Defaults to Codex.
+    One or more of Codex, Antigravity. Defaults to Codex.
 
 .PARAMETER BackupRoot
     Root for the revert stage. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.

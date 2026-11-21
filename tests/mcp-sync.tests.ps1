@@ -186,22 +186,24 @@ try {
     $badGhoFix = New-McpFixture -Name 'bad-gho' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ TOKEN = '$badGho' }; Enabled = `$true; Platforms = @('Antigravity') }) }"
     Assert-McpThrows { Read-McpServerRegistry -RepoRoot $badGhoFix.Repo } 'literal secret' 'rejects literal GitHub OAuth token in Env'
 
-    $badKeyFix = New-McpFixture -Name 'bad-key' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); environment = @{}; Enabled = `$true; Platforms = @('ZCode') }) }"
+    $badKeyFix = New-McpFixture -Name 'bad-key' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); environment = @{}; Enabled = `$true; Platforms = @('Codex') }) }"
     Assert-McpThrows { Read-McpServerRegistry -RepoRoot $badKeyFix.Repo } "Unsupported MCP server key 'environment'" 'rejects legacy environment key'
 
-    Write-Host 'mcp-sync: clean empty home status/dry-run and full Apply across all 3 platforms'
+    $retiredPlatFix = New-McpFixture -Name 'retired-platform' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{}; Enabled = `$true; Platforms = @('ZCode') }) }"
+    Assert-McpThrows { Read-McpServerRegistry -RepoRoot $retiredPlatFix.Repo } 'invalid or duplicate platform' 'rejects retired ZCode platform in servers.psd1'
+
+    Write-Host 'mcp-sync: clean empty home status/dry-run and full Apply across Antigravity and Codex'
     $f1 = New-McpFixture -Name 'full-apply'
     $status1 = Get-McpPlan -RepoRoot $f1.Repo -HomeRoot $f1.Home
-    Assert-McpTest ($status1.Summary.add -eq 3 -and $status1.Summary.blocked -eq 0) 'empty home plans add for Antigravity, Codex, and ZCode'
+    Assert-McpTest ($status1.Summary.add -eq 2 -and $status1.Summary.blocked -eq 0) 'empty home plans add for Antigravity and Codex'
     Assert-McpTest (-not (Test-Path (Join-Path $f1.Home '.gemini')) -and -not (Test-Path (Join-Path $f1.Home '.codex')) -and -not (Test-Path (Join-Path $f1.Home '.zcode'))) 'Status does not create live directories'
 
     $dry1 = Invoke-McpDeploy -RepoRoot $f1.Repo -HomeRoot $f1.Home -BackupRoot $f1.Backup
-    Assert-McpTest ($dry1.Summary.add -eq 3 -and $script:McpTestScanCalls -eq 0) 'Deploy without -Apply runs dry-run without secret scan or writes'
+    Assert-McpTest ($dry1.Summary.add -eq 2 -and $script:McpTestScanCalls -eq 0) 'Deploy without -Apply runs dry-run without secret scan or writes'
     Assert-McpTest (-not (Test-Path (Join-Path $f1.Home '.gemini')) -and -not (Test-Path (Join-Path $f1.Home '.codex')) -and -not (Test-Path (Join-Path $f1.Home '.zcode'))) 'Dry-run writes no live files'
 
-    # Populate unmanaged servers and personal settings on all 3 platforms before Apply.
+    # Populate unmanaged servers and personal settings on both active platforms before Apply.
     Set-TestFile -Path (Join-Path $f1.Home '.gemini/config/mcp_config.json') -Content '{"theme":"dark","mcpServers":{"custom_ag":{"command":"node","args":["a.js"]}}}'
-    Set-TestFile -Path (Join-Path $f1.Home '.zcode/cli/config.json') -Content '{"model":"glm-5","provider":{"id":"p1"},"plugins":{"enabled":["zcode-guide"]},"mcp":{"otherFlag":true,"servers":{"custom_zc":{"type":"stdio","command":"npx","args":["tool"],"enabled":true}}}}'
     Set-TestFile -Path (Join-Path $f1.Home '.codex/config.toml') -Content "# user codex config`nmodel = `"gpt-5`"`n[mcp_servers.custom_cx]`ncommand = `"node`"`n"
     $script:McpTestCodexEntries = @(
         @{
@@ -212,14 +214,11 @@ try {
     )
 
     $apply1 = Invoke-McpDeploy -RepoRoot $f1.Repo -HomeRoot $f1.Home -BackupRoot $f1.Backup -DoApply
-    Assert-McpTest ($script:McpTestScanCalls -eq 1 -and $apply1.Summary.unchanged -eq 3 -and $apply1.Summary.add -eq 0 -and $apply1.Summary.update -eq 0) 'Apply runs secret scan and converges all 3 platforms to unchanged'
-    Assert-McpTest ($apply1.Contains('BackupDir') -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.gemini/config/mcp_config.json')) -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.zcode/cli/config.json')) -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.codex/config.toml'))) 'pre-Apply backups captured for all modified files'
+    Assert-McpTest ($script:McpTestScanCalls -eq 1 -and $apply1.Summary.unchanged -eq 2 -and $apply1.Summary.add -eq 0 -and $apply1.Summary.update -eq 0) 'Apply runs secret scan and converges Antigravity and Codex to unchanged'
+    Assert-McpTest ($apply1.Contains('BackupDir') -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.gemini/config/mcp_config.json')) -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.codex/config.toml'))) 'pre-Apply backups captured for all modified files'
 
     $agJson = Get-Content -Raw -LiteralPath (Join-Path $f1.Home '.gemini/config/mcp_config.json') | ConvertFrom-Json -AsHashtable
     Assert-McpTest ($agJson.theme -ceq 'dark' -and $agJson.mcpServers.ContainsKey('custom_ag') -and $agJson.mcpServers.blender.command -ceq 'uvx') 'Antigravity merge preserves personal keys and unmanaged servers'
-
-    $zcJson = Get-Content -Raw -LiteralPath (Join-Path $f1.Home '.zcode/cli/config.json') | ConvertFrom-Json -AsHashtable
-    Assert-McpTest ($zcJson.model -ceq 'glm-5' -and $zcJson.provider.id -ceq 'p1' -and $zcJson.mcp.otherFlag -eq $true -and $zcJson.mcp.servers.ContainsKey('custom_zc') -and $zcJson.mcp.servers.blender.type -ceq 'stdio' -and $zcJson.mcp.servers.blender.enabled -eq $true -and (-not $zcJson.mcp.servers.blender.ContainsKey('environment'))) 'ZCode merge preserves model/provider/plugins/unmanaged servers and writes strict stdio schema'
 
     $cxList = @($script:McpTestCodexEntries | Where-Object { $_.name -ceq 'blender' })
     $cxCustom = @($script:McpTestCodexEntries | Where-Object { $_.name -ceq 'custom_cx' })
@@ -227,44 +226,41 @@ try {
     Assert-McpTest ((Get-Content -Raw -LiteralPath (Join-Path $f1.Home '.codex/config.toml')) -match 'model = "gpt-5"') 'Codex config.toml personal settings remain untouched'
 
     Write-Host 'mcp-sync: drift detection, update, and 0-byte mcp_config.json'
-    # Drift Antigravity and ZCode and Codex entries
+    # Drift Antigravity and Codex entries
     Set-TestFile -Path (Join-Path $f1.Home '.gemini/config/mcp_config.json') -Content ''
-    Set-TestFile -Path (Join-Path $f1.Home '.zcode/cli/config.json') -Content '{"model":"glm-5","mcp":{"servers":{"blender":{"type":"stdio","command":"uvx","args":["old-pkg"],"enabled":true}}}}'
     $script:McpTestCodexEntries = @(
         @{ name = 'custom_cx'; enabled = $true; transport = @{ type = 'stdio'; command = 'node'; args = @(); env = $null; env_vars = @(); cwd = $null } },
         @{ name = 'blender'; enabled = $true; transport = @{ type = 'stdio'; command = 'uvx'; args = @('old-pkg'); env = $null; env_vars = @(); cwd = $null } }
     )
     $driftPlan = Get-McpPlan -RepoRoot $f1.Repo -HomeRoot $f1.Home
     $agItem = @($driftPlan.Items | Where-Object { $_.Platform -ceq 'Antigravity' })[0]
-    $zcItem = @($driftPlan.Items | Where-Object { $_.Platform -ceq 'ZCode' })[0]
     $cxItem = @($driftPlan.Items | Where-Object { $_.Platform -ceq 'Codex' })[0]
-    Assert-McpTest ($agItem.Action -ceq 'add' -and $zcItem.Action -ceq 'update' -and $cxItem.Action -ceq 'update') 'handles 0-byte mcp_config.json as add and detects drifted ZCode/Codex as update'
+    Assert-McpTest ($agItem.Action -ceq 'add' -and $cxItem.Action -ceq 'update') 'handles 0-byte mcp_config.json as add and detects drifted Codex as update'
 
     $script:McpTestCodexCalls.Clear()
     $apply2 = Invoke-McpDeploy -RepoRoot $f1.Repo -HomeRoot $f1.Home -BackupRoot $f1.Backup -DoApply
-    Assert-McpTest ($apply2.Summary.unchanged -eq 3 -and ($script:McpTestCodexCalls -contains 'mcp remove blender') -and ($script:McpTestCodexCalls -contains 'mcp add blender -- uvx mcp-for-blender')) 'update removes then re-adds Codex entry and converges all targets'
+    Assert-McpTest ($apply2.Summary.unchanged -eq 2 -and ($script:McpTestCodexCalls -contains 'mcp remove blender') -and ($script:McpTestCodexCalls -contains 'mcp add blender -- uvx mcp-for-blender')) 'update removes then re-adds Codex entry and converges all targets'
 
-    Write-Host 'mcp-sync: fail-closed boundaries (scan failure, invalid JSON, ZCode template, Codex unavailable/failure)'
+    Write-Host 'mcp-sync: fail-closed boundaries (scan failure, invalid JSON, Codex template/unavailable/failure)'
     $f2 = New-McpFixture -Name 'fail-closed'
     $script:McpTestFailScan = $true
     Assert-McpThrows { Invoke-McpDeploy -RepoRoot $f2.Repo -HomeRoot $f2.Home -BackupRoot $f2.Backup -DoApply } 'Secret scan failed' 'aborts Apply on secret scan failure without writes'
-    Assert-McpTest (-not (Test-Path (Join-Path $f2.Home '.gemini')) -and -not (Test-Path (Join-Path $f2.Home '.zcode'))) 'secret scan failure writes nothing'
+    Assert-McpTest (-not (Test-Path (Join-Path $f2.Home '.gemini')) -and -not (Test-Path (Join-Path $f2.Home '.codex'))) 'secret scan failure writes nothing'
 
     $f3 = New-McpFixture -Name 'bad-json'
     Set-TestFile -Path (Join-Path $f3.Home '.gemini/config/mcp_config.json') -Content '{invalid'
-    Set-TestFile -Path (Join-Path $f3.Home '.zcode/cli/config.json') -Content '{"mcp":"not-an-object"}'
     $script:McpTestCodexAvailable = $false
     $badStatus = Get-McpPlan -RepoRoot $f3.Repo -HomeRoot $f3.Home
-    Assert-McpTest ($badStatus.Summary.blocked -eq 3) 'invalid JSON, non-object container, and unavailable codex CLI each report blocked'
+    Assert-McpTest ($badStatus.Summary.blocked -eq 2) 'invalid JSON and unavailable codex CLI each report blocked'
     Assert-McpThrows { Invoke-McpDeploy -RepoRoot $f3.Repo -HomeRoot $f3.Home -BackupRoot $f3.Backup -DoApply } 'MCP deployment blocked' 'Apply refuses when any selected target is blocked'
 
-    # ZCode ${VAR} template rejection
+    # Codex ${VAR} template rejection while Antigravity accepts it
     $tplValue = '$' + '{MEDIA_TOKEN}'
-    $tplFix = New-McpFixture -Name 'zcode-template' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'media'; Transport = 'stdio'; Command = 'uvx'; Args = @('media-mcp'); Env = @{ MEDIA_TOKEN = '$tplValue' }; Enabled = `$true; Platforms = @('Antigravity', 'ZCode') }) }"
+    $tplFix = New-McpFixture -Name 'codex-template' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'media'; Transport = 'stdio'; Command = 'uvx'; Args = @('media-mcp'); Env = @{ MEDIA_TOKEN = '$tplValue' }; Enabled = `$true; Platforms = @('Antigravity', 'Codex') }) }"
     $tplPlan = Get-McpPlan -RepoRoot $tplFix.Repo -HomeRoot $tplFix.Home
     $tplAg = @($tplPlan.Items | Where-Object { $_.Platform -ceq 'Antigravity' })[0]
-    $tplZc = @($tplPlan.Items | Where-Object { $_.Platform -ceq 'ZCode' })[0]
-    Assert-McpTest ($tplAg.Action -ceq 'add' -and $tplZc.Action -ceq 'blocked' -and $tplZc.Reason -ceq 'zcode-env-template-unsupported') 'ZCode blocks ${...} env templates while Antigravity accepts them'
+    $tplCx = @($tplPlan.Items | Where-Object { $_.Platform -ceq 'Codex' })[0]
+    Assert-McpTest ($tplAg.Action -ceq 'add' -and $tplCx.Action -ceq 'blocked' -and $tplCx.Reason -ceq 'codex-env-template-unsupported') 'Codex blocks ${...} env templates while Antigravity accepts them'
 
     # Codex CLI failure preserves pre-Apply backup and stops chain
     $f4 = New-McpFixture -Name 'codex-fail'
@@ -278,10 +274,10 @@ try {
     Write-Host 'mcp-sync: subprocess CLI mode (-Json and -JsonPath)'
     $f5 = New-McpFixture -Name 'subprocess'
     $subJsonPath = Join-Path $f5.Root 'report.json'
-    $subProc = Invoke-TestProcess -ScriptPath (Join-Path $suiteRepo 'scripts/mcp-sync.ps1') -Arguments @('-Action', 'Status', '-RepoRoot', $f5.Repo, '-HomeRoot', $f5.Home, '-Platform', 'Antigravity,ZCode', '-Json', '-JsonPath', $subJsonPath)
+    $subProc = Invoke-TestProcess -ScriptPath (Join-Path $suiteRepo 'scripts/mcp-sync.ps1') -Arguments @('-Action', 'Status', '-RepoRoot', $f5.Repo, '-HomeRoot', $f5.Home, '-Platform', 'Antigravity', '-Json', '-JsonPath', $subJsonPath)
     $parsedStdout = $null
     try { $parsedStdout = $subProc.Out | ConvertFrom-Json } catch { $parsedStdout = $null }
-    Assert-McpTest ($subProc.Code -eq 0 -and $null -ne $parsedStdout -and $parsedStdout.Summary.add -eq 2 -and (Test-Path -LiteralPath $subJsonPath)) 'subprocess Status -Json emits clean JSON and writes -JsonPath'
+    Assert-McpTest ($subProc.Code -eq 0 -and $null -ne $parsedStdout -and $parsedStdout.Summary.add -eq 1 -and (Test-Path -LiteralPath $subJsonPath)) 'subprocess Status -Json emits clean JSON and writes -JsonPath'
 
     Write-Host "mcp-sync tests: PASS ($script:McpTestAssertions assertions)"
 }

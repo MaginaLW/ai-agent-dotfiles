@@ -1,10 +1,10 @@
 # ai-agent-dotfiles 使用说明
 
-日常工作环境是 Codex 和 ZCode；Antigravity 另有插件与全局规则。操作权限见 [AGENTS.md](../AGENTS.md)。首次安装见[新电脑接入](ONBOARD_NEW_MACHINE.md)，配置排查见 [Codex 本机指南](CODEX_TUNING.md)，当前进展见 [STATUS.md](../STATUS.md)。
+日常工作环境是 Codex；Antigravity 另有插件与全局规则。操作权限见 [AGENTS.md](../AGENTS.md)。首次安装见[新电脑接入](ONBOARD_NEW_MACHINE.md)，配置排查见 [Codex 本机指南](CODEX_TUNING.md)，当前进展见 [STATUS.md](../STATUS.md)。
 
 ## 1. 项目目的
 
-跨项目偏好写入各宿主的全局文件。某个仓库特有的构建命令、验收条件和批准范围写进该项目入口。Antigravity 的受管全局路径适用于 App 和 CLI。各宿主加载行为见 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md)、[Antigravity](https://antigravity.google/docs/rules/) 和 [ZCode](ZCODE.md)。
+跨项目偏好写入各宿主的全局文件。某个仓库特有的构建命令、验收条件和批准范围写进该项目入口。Antigravity 的受管全局路径适用于 App 和 CLI。各宿主加载行为见 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) 和 [Antigravity](https://antigravity.google/docs/rules/)。
 
 重复流程写成 skill，描述开头点明适用任务，详细步骤和资料随用随读。需要一起分发的技能或连接才组成插件。需要读取实时数据或执行外部动作时，再为对应宿主声明 MCP 服务并核实工具调用结果。[GPT-6.2 任务示例](CODEX_TUNING.md#用-gpt-62-交代任务) · [技能与 MCP 的分工](https://developers.openai.com/plugins/concepts/skills)
 
@@ -14,10 +14,9 @@
 
 ## 2. 当前管理范围
 
-每个环境从本平台的构建目录中选取要部署的技能。
+每个环境从构建目录中选取要部署到 Codex 的技能。
 
 - Codex 从 `codex/skills/` 部署到 `~/.codex/skills`。只有该目标不存在时才使用 `~/.agents/skills`，两者都存在时拒绝部署。
-- ZCode 从 `zcode/skills/` 部署到 `~/.zcode/skills`。
 
 不管理：Codex `.system`；未选中、未记录在部署状态且未被 `-Retire` 点名的 live 目录（unknown，只报告）；部署状态与备份
 （repo 外的 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy`）；机器私有配置与 secrets。
@@ -30,11 +29,10 @@
 |---|---|
 | `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印联合 deploy dry-run 命令；不写 live |
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
-| `antigravity/AGENTS.md` | Antigravity 全局工作协议源（受管 block 同步至 `~/.gemini/config/AGENTS.md`，§11） |
-| `zcode/AGENTS.md` | ZCode 全局工作协议源（受管 block 同步至 `~/.zcode/AGENTS.md`，§11） |
-| `skills-source/` | 技能源目录，分为 `shared/`、`codex-only/`、`zcode-only/` |
-| `codex/skills/`、`zcode/skills/` | 构建生成的技能目录，Git 忽略，勿手改 |
-| `manifests/managed-skills.codex.txt`、`manifests/managed-skills.zcode.txt` | 两个平台的受管技能名单，由 build 刷新 |
+| `codex/AGENTS.md`、`antigravity/AGENTS.md` | Codex / Antigravity 全局工作协议源（受管 block 分别同步至 `~/.codex/AGENTS.md`、`~/.gemini/config/AGENTS.md`，§11） |
+| `skills-source/` | 技能源目录，分为 `shared/`、`codex-only/` |
+| `codex/skills/` | 构建生成的 Codex 技能目录，Git 忽略，勿手改 |
+| `manifests/managed-skills.codex.txt` | Codex 受管技能名单，由 build 刷新 |
 | `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§11） |
 | `harness-source/` | 环境定义 `envs/`（§13）、profile/component 源（§12）、Antigravity 插件清单（§15）与受管 MCP 注册表 `mcp/servers.psd1`（§16） |
 | `.agent-harness/profile.psd1` | 当前项目的 profile 声明（§12） |
@@ -57,12 +55,12 @@ API；下载结果仍必须通过锁文件中的压缩包与可执行文件 SHA-
 config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills Apply 中复用，config Apply 仍保留写前扫描。
 预检不验证所有写权限、备份可用性或并发变化，也不冻结计划；两阶段不是原子事务，运行时 config 阶段失败时
 已完成的 skill 阶段保持完成，并明确报告边界。
-`deploy-skills.ps1` 按所选环境把技能逐目录部署到 Codex 和 ZCode 的 live 根。
+`deploy-skills.ps1` 按所选环境把技能逐目录部署到 Codex 的 live 根。
 
 - 默认先跑 build 与 scan，任一失败即停止。`-SkipBuild` 同时跳过两者；除隔离测试外，只有已有成功结果覆盖当前未变的源码、构建输入和生成物时，才可在同一已授权部署链或只读复核中复用，不能把它当作省略必需检查的入口。
 - 每个目录给出 `install`、`update`、`unchanged`、`prune` 或 `unknown`；不带 `-Apply` 不写 live 根或部署状态。
   对状态中没有记录的同名目录，`update` 会提示其归属未知且将备份后覆盖；状态缺失不代表目录一定未受管。
-- `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录（作用于 Codex 和 ZCode）。
+- `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录。
 - 其余 live 目录是 unknown，只报告不碰。Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
 - 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时不会半删旧目录。
   两次改名之间中断时目标可能暂时缺失。计划会报告 `.deploying-*` 残留及备份根；再次对该 skill 做
@@ -73,7 +71,7 @@ config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills A
 - 显示上次记录的环境 → 本次目标环境（记录不证明 live 内容）；prune 区分“此前受管、本次未选中”
   和显式 `-Retire`。install/update 复用现有文件哈希比较，列出相对文件名的 add/change/remove，
   不打印文件内容或哈希。文件名本身也可能包含私有信息，分享输出前仍需审查。
-- 每台机器上次部署的环境和技能记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`。旧记录中的 Claude 键被忽略，本机已有 Claude 文件由用户管理。
+- 每台机器上次部署的环境和技能记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`。旧记录中的已退役平台键（Claude、Zcode、Reasonix）会被忽略，本机已有对应目录由用户管理。
   没有该文件时首次运行不 prune。Apply 先在状态目录写入唯一临时文件，写完后替换正式状态；
   写入或替换失败且正式文件未被外部改动时保留旧状态，但此前成功的 live 操作不会因此回滚。
 
@@ -89,7 +87,7 @@ pwsh -NoProfile -File scripts/deploy.ps1 -Environment work -Apply
 `-Apply` 会写真实 home：先审查 dry-run 的每一行，复用覆盖实际范围的有效所有者授权；缺少授权时才询问。
 `AGENTS.md` Skill rules 10 的已批准持续授权覆盖 `work` 环境已选技能的更新；满足该节条件时，
 后续任务可用 `deploy-skills.ps1` 完成部署和复核，无需再次申请同范围许可，不覆盖 combined/config Apply。
-当前 work 持续授权仅覆盖 Codex/ZCode；选择变化、首次退役/prune、config Apply 仍按实际批准范围执行。
+当前 work 持续授权仅覆盖 Codex；选择变化、首次退役/prune、config Apply 仍按实际批准范围执行。
 统一 CLI 的 `sync` 与 `env deploy <name>` 转发到 `deploy.ps1`；直接运行 `deploy-skills.ps1` 只处理
 skills（§14）。仓库不安装 Git hooks，`git pull` 不会自动部署。
 dry-run 和 Apply 各自重新计算计划；审核后如果源、live 目标或部署状态变化，重新 dry-run 并审核；
@@ -138,7 +136,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 
 ## 6. 新增 skill 的流程
 
-- 两端通用的技能放 `skills-source/shared/<name>/`。单平台技能放 `skills-source/codex-only/<name>/` 或 `skills-source/zcode-only/<name>/`。
+- 跨端共享（供 Codex 及可选 Antigravity 插件复用）的技能放 `skills-source/shared/<name>/`。仅限 Codex 的技能放 `skills-source/codex-only/<name>/`。
 - 至少要有 `SKILL.md`，不能含符号链接或 junction；`.system` 不是合法名称。
 - 放进来前先审查：不重复、无 secrets / tokens、无机器私有路径（如 `C:\Users\<name>`）、无缓存或运行时状态。
 - 可以手工复制，也可以用 `promote-skill.ps1`（先 dry-run，确认后 `-Apply`，会自动 build 并扫描）：
@@ -246,18 +244,18 @@ profile 写失败时，将当前尝试写入的文件也纳入 best-effort rollb
 
 ## 11. Harness 配置同步（config-sync）
 
-配置 status/pull/push 默认只处理 Codex。传入 `-Platform Antigravity` 可选择 `antigravity/AGENTS.md` 与 `~/.gemini/config/AGENTS.md`，传入 `-Platform ZCode` 可选择 `zcode/AGENTS.md` 与 `~/.zcode/AGENTS.md`。
+配置 status/pull/push 默认只处理 Codex。传入 `-Platform Antigravity` 可选择 `antigravity/AGENTS.md` 与 `~/.gemini/config/AGENTS.md`。
 组合部署沿用 Codex-only 默认。
 
 除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与
 ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥、证书、备份与临时文件类）。
 
 - `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
-  Codex、Antigravity 与 ZCode `AGENTS.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
+  Codex 与 Antigravity `AGENTS.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
   `-Json` 输出文件级状态数组。
 - `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再写入。
-  Codex、Antigravity 与 ZCode `AGENTS.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
-  `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` / `<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->` 对应的受管 block，block 外的个人文本保留。
+  Codex 与 Antigravity `AGENTS.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
+  `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` 对应的受管 block，block 外的个人文本保留。
   已有文件没有 block 时，仅当内容已等于 repo 才自动包裹；否则 fail closed，要求先手工放置 block。
   备份默认写入 `~\.ai-agent-dotfiles-backups\config-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）；
   不整目录 mirror、不 prune（home-only 文件原样保留）。捕获复制异常后，尽力回滚本次已尝试写入的文件：
@@ -267,7 +265,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `~\.ai-agent-dotfiles-backups\config-push-stage-<UTC 时间戳>\`，再过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
-  Codex、Antigravity 与 ZCode `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
+  Codex 与 Antigravity `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
 - Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
 - 模板沿用用户选择的模型与推理档位，同步前按 dry-run 核对受管内容。
 - `deploy.ps1` 把 skills 与 config-pull 串成一个 dry-run/apply 入口；两阶段不原子，
@@ -332,13 +330,12 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 
 ## 13. Harness Environments
 
-`harness-source/envs/<name>.psd1` 定义命名的 skills 选集。`Skills` 必须恰好包含 `Codex` 和 `Zcode` 两个键。
-某个平台不选技能时，显式写 `@()`。缺键会导致规划失败。每个平台只能选取其构建目录内的技能。
-`env list` 显示文件名、`Description` 与各平台的技能名称和数量。`SchemaVersion` 与 `Name` 是声明性元数据。
+`harness-source/envs/<name>.psd1` 定义命名的 skills 选集。`Skills` 必须恰好包含 `Codex` 键。
+不选技能时，显式写 `@()`。缺键或包含已退役平台键会导致规划失败。只能选取构建目录内的技能。
+`env list` 显示文件名、`Description` 与 Codex 的技能名称和数量。`SchemaVersion` 与 `Name` 是声明性元数据。
 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
-`work` 为 Codex 选择 9 个技能、为 ZCode 选择 7 个。`full` 分别选择 19 和 11 个。
-共享技能 `subagent-driven-development` 在 `work` 中仅供 Codex 使用，在 `full` 中两端均可使用。
+`work` 为 Codex 选择 8 个技能，`full` 选择 18 个，`minimal` 选择 1 个。
 委派权限及并发上限以 [AGENTS.md](../AGENTS.md) 和宿主限制为准。操作细节见 [Skill](../skills-source/shared/subagent-driven-development/SKILL.md)。
 
 新增受管 skill 时，除放入 `skills-source/` 外，还要在目标环境的各平台 `Skills` 数组中选入；
@@ -429,7 +426,7 @@ Codex 的两个 live 根同时存在时会阻塞部署。对于缺少平台根�
 受管插件 `ai-agent-dotfiles` 包含 canonical `skills-source/shared/` 中的
 `git-review`、`multimodal-generation`、`systematic-debugging` 和 `verification-before-completion` 及其附属文件。选择与元数据来自
 `harness-source/antigravity/plugins.psd1`；`ExternalPlugins` 现声明 `unity`（`Source = 'antigravity-plugins-partners'`、`Version = 'ANY'`、`Enabled = $true`）。第三方来源、版本和启用状态在 `status` 与 `deploy -DryRun` 中对比报告（`unchanged` / `missing` / `different` / `blocked` / `UNKNOWN`）。仅当明确传入 `-ExternalPlugin <name>` 并经 `-DryRun` 审阅及单独授权后，`deploy -Apply` 才对 `missing` 的 marketplace 项调用一次 `agy plugin install <name>@<source>`；默认 `deploy -Apply` 不触碰第三方插件，已安装、漂移或未登记同名目录均保持只读阻塞（不自动重装或卸载）。
-本入口不打包 rules、MCP、hooks、agents 或 Codex 的 Antigravity delegation，也不调用 Bridge。
+本入口不打包 rules、MCP、hooks 或 agents。
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity build
@@ -458,7 +455,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 | external | 非本项目管理或内置组件；报告并保留 |
 
 首次安装可能立即启用技能。审阅当前完整预览后，所有者许可须明确覆盖目标插件身份、版本、包、
-原生目标根与注册状态、启用影响和有限恢复范围；Codex/ZCode 的 standing work grant 不覆盖此安装。
+原生目标根与注册状态、启用影响和有限恢复范围；Codex 的 standing work grant 不覆盖此安装。
 许可有效且源、包、目标与状态未变时，才运行：
 
 ```powershell
@@ -497,10 +494,10 @@ CLI 新进程不传 `--continue` 或 `--conversation` 时为独立会话。显�
 
 ## 16. 受管 MCP 分发（mcp-sync）
 
-`harness-source/mcp/servers.psd1`（`SchemaVersion = 1`、`Servers`）声明跨 **Antigravity、Codex、ZCode** 三端投影的受管 MCP server（当前声明 `blender`），严禁写入明文密钥、Token、回车换行或本机盘符/UNC 路径：
+`harness-source/mcp/servers.psd1`（`SchemaVersion = 1`、`Servers`）声明跨 **Antigravity、Codex** 双端投影的受管 MCP server（当前声明 `blender`），严禁写入明文密钥、Token、回车换行或本机盘符/UNC 路径：
 
 - **支持的传输与字段**：`stdio`（`Command`、`Args`、`Env`、可选 `TimeoutMs`）与 `streamable-http`（`Url`、可选 `BearerTokenEnvVar`、`Headers`），并带 `Name`、`Enabled`、`Platforms`。
-- **凭据与平台约束**：注册表读取阶段要求 `Env` 中敏感键名（`api_key` / `token` / `secret` / `password` / `passwd` / `credential`）必须写成 `${ENV_VAR}` 占位符，而 `ZCode` / `Codex` 投影器目前不支持 `${...}` 环境变量模板展开，`ZCode` 亦暂不投影 `streamable-http`；遇到不兼容项、重复键、非法 JSON 或缺失 `codex` CLI 时，规划器 fail closed 报告 `blocked`，不会猜测或写入。
+- **凭据与平台约束**：注册表读取阶段要求 `Env` 中敏感键名（`api_key` / `token` / `secret` / `password` / `passwd` / `credential`）必须写成 `${ENV_VAR}` 占位符，而 `Codex` 投影器目前不支持 `${...}` 环境变量模板展开；遇到不兼容项、重复键、非法 JSON 或缺失 `codex` CLI 时，规划器 fail closed 报告 `blocked`，不会猜测或写入。
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
@@ -509,7 +506,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Platform Antigravit
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
 ```
 
-常用参数：`-Platform Antigravity|Codex|ZCode`（可逗号分隔）、`-Server <name>`、`-Json`、`-JsonPath <file>`、`-BackupRoot <path>`、`-SkipSecretScan`（仅 `deploy` 接受 `-DryRun` / `-Apply` / `-BackupRoot` / `-SkipSecretScan`）。
+常用参数：`-Platform Antigravity|Codex`（可逗号分隔）、`-Server <name>`、`-Json`、`-JsonPath <file>`、`-BackupRoot <path>`、`-SkipSecretScan`（仅 `deploy` 接受 `-DryRun` / `-Apply` / `-BackupRoot` / `-SkipSecretScan`）。
 
 各端按条目投影并保留非托管条目与个人设置：
 
@@ -517,7 +514,6 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
 |---|---|---|
 | **Antigravity** | `~/.gemini/config/mcp_config.json` 下的 `mcpServers.<name>`（结构化 JSON 合并） | 其他非托管 `mcpServers` 与顶层字段 |
 | **Codex** | 仅通过官方 `codex mcp list/get/add/remove` CLI 逐项投影 | `[projects.*]`、`[model_providers.*]`、模型设置与非托管 `[mcp_servers.*]`（不整文件改写 `config.toml`） |
-| **ZCode** | `~/.zcode/cli/config.json` 下的 `mcp.servers.<name>`（结构化 JSON 合并，写入 `type` / `command` / `args` / `env` / `enabled`） | `model`、`provider`、`plugins` 及其他非托管 server |
 
 安全与回滚门禁：
 

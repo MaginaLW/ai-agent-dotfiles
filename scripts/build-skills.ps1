@@ -23,10 +23,9 @@ function Assert-DisjointBuildRoots {
 }
 
 $SourceRoot = Join-Path $RepoRoot 'skills-source'
-$ZcodeOutputRoot = Join-Path $RepoRoot 'zcode/skills'
 $CodexOutputRoot = Join-Path $RepoRoot 'codex/skills'
 $ManifestOutputRoot = Join-Path $RepoRoot 'manifests'
-Assert-DisjointBuildRoots -Roots @($SourceRoot,$ZcodeOutputRoot,$CodexOutputRoot,$ManifestOutputRoot)
+Assert-DisjointBuildRoots -Roots @($SourceRoot,$CodexOutputRoot,$ManifestOutputRoot)
 
 $script:RuntimeExcludePatterns = @('CREATION-LOG.md')
 function Copy-SkillDirectory {
@@ -67,17 +66,13 @@ function Write-ManifestFile {
 
 # Get-SkillDirectories excludes .system: .system is not a build source or generated skill.
 $sharedSource = Join-Path $SourceRoot 'shared'
-$zcodeOnlySource = Join-Path $SourceRoot 'zcode-only'
 $codexOnlySource = Join-Path $SourceRoot 'codex-only'
 $sharedSkills = Get-SkillDirectories -RootPath $sharedSource
-$zcodeOnlySkills = Get-SkillDirectories -RootPath $zcodeOnlySource
 $codexOnlySkills = Get-SkillDirectories -RootPath $codexOnlySource
 $sharedNames = @($sharedSkills | ForEach-Object Name)
-$zcodeOnlyNames = @($zcodeOnlySkills | ForEach-Object Name)
 $codexOnlyNames = @($codexOnlySkills | ForEach-Object Name)
 
 $sharedConflicts = @(
-    @($zcodeOnlyNames | Where-Object { $_ -in $sharedNames }) +
     @($codexOnlyNames | Where-Object { $_ -in $sharedNames }) |
         Sort-Object -Unique
 )
@@ -87,19 +82,8 @@ if ($sharedConflicts.Count -gt 0) {
     exit 1
 }
 
-$platformOnlyAll = @{}
-foreach ($n in $zcodeOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='zcode-only' }
-foreach ($n in $codexOnlyNames) { if (-not $platformOnlyAll.ContainsKey($n)) { $platformOnlyAll[$n]=@() }; $platformOnlyAll[$n]+='codex-only' }
-$crossPlatformConflicts = @($platformOnlyAll.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 })
-if ($crossPlatformConflicts.Count -gt 0) {
-    [Console]::Error.WriteLine('ERROR: Skill name appears in more than one platform-only source.')
-    $crossPlatformConflicts | ForEach-Object { [Console]::Error.WriteLine("Conflict: $($_.Key) in [$($_.Value -join ', ')]") }
-    exit 1
-}
-
-$zcodeSet = @($sharedNames + $zcodeOnlyNames | Sort-Object -Unique)
 $codexSet = @($sharedNames + $codexOnlyNames | Sort-Object -Unique)
-foreach ($target in @($ZcodeOutputRoot,$CodexOutputRoot)) {
+foreach ($target in @($CodexOutputRoot)) {
     if (Test-Path -LiteralPath $target) {
         Assert-SkillTreeNoReparsePoint -Root $target
         Remove-Item -LiteralPath $target -Recurse -Force
@@ -108,22 +92,14 @@ foreach ($target in @($ZcodeOutputRoot,$CodexOutputRoot)) {
 }
 if (-not (Test-Path -LiteralPath $ManifestOutputRoot)) { [System.IO.Directory]::CreateDirectory($ManifestOutputRoot) | Out-Null }
 
-$zcodeExcludeRelativePaths = @(Join-Path 'agents' 'openai.yaml')
 foreach ($skill in $sharedSkills) {
-    Copy-SkillDirectory -Source $skill -DestinationRoot $ZcodeOutputRoot -ExcludeRelativePaths $zcodeExcludeRelativePaths
     Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot
-}
-foreach ($skill in $zcodeOnlySkills) {
-    Copy-SkillDirectory -Source $skill -DestinationRoot $ZcodeOutputRoot -ExcludeRelativePaths $zcodeExcludeRelativePaths
 }
 foreach ($skill in $codexOnlySkills) {
     Copy-SkillDirectory -Source $skill -DestinationRoot $CodexOutputRoot
 }
 
-Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.zcode.txt') -Names $zcodeSet
 Write-ManifestFile -Path (Join-Path $ManifestOutputRoot 'managed-skills.codex.txt') -Names $codexSet
-$builtZcodeSkills = @(Get-SkillDirectories -RootPath $ZcodeOutputRoot)
 $builtCodexSkills = @(Get-SkillDirectories -RootPath $CodexOutputRoot)
-Write-Host "Built Zcode skills: $($builtZcodeSkills.Count)"
 Write-Host "Built Codex skills: $($builtCodexSkills.Count)"
 Write-Host "Updated manifests: $ManifestOutputRoot"

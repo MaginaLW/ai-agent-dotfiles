@@ -2,6 +2,16 @@
 
 Removed code and docs stay in Git history. This page says where to find them.
 
+## ZCode platform, `antigravity-delegation`, and Grok routing retirement (2026-11-21)
+
+ZCode skill deployment, configuration sync (`zcode/AGENTS.md`), MCP projection, `docs/ZCODE.md`, `skills-source/zcode-only/`, `manifests/managed-skills.zcode.txt`, the Codex-only `antigravity-delegation` skill, and the Grok routing clause in `codex/AGENTS.md` were retired on 2026-11-21. The last commit that still contains them is `f1faa91`. Existing `~/.zcode/` files on user machines remain outside this tool's scope.
+
+```powershell
+git show f1faa91:docs/ZCODE.md
+git show f1faa91:zcode/AGENTS.md
+git show f1faa91:skills-source/codex-only/antigravity-delegation/SKILL.md
+```
+
 ## Antigravity 0.1.0 execution plan (removed 2026-11-16)
 
 The initial Antigravity plugin onboarding plan (`docs/ANTIGRAVITY_PLUGIN_EXECUTION_PLAN_2026-11-13.md`, covering `0.1.0` design, gates, and the six-session App/CLI synthetic acceptance record) was archived after PR #9 (`fad4433`) and subsequent `0.4.0` updates superseded it. The last commit that still has it is `9e81abe`.

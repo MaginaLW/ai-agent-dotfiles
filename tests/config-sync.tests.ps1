@@ -101,11 +101,10 @@ try {
     $defaultHome = Join-Path $work 'codex-default-home'
     Set-File (Join-Path $defaultRepo 'codex/AGENTS.md') '# Managed defaults'
     Set-File (Join-Path $defaultRepo 'antigravity/AGENTS.md') '# Antigravity defaults'
-    Set-File (Join-Path $defaultRepo 'zcode/AGENTS.md') '# ZCode defaults'
     Set-File (Join-Path $defaultHome '.claude/settings.json') '{"personal":true}'
+    Set-File (Join-Path $defaultHome '.zcode/AGENTS.md') '# Personal ZCode defaults'
     Set-File (Join-Path $defaultHome '.codex/AGENTS.md') '# Managed defaults'
     Set-File (Join-Path $defaultHome '.gemini/config/AGENTS.md') '# Antigravity defaults'
-    Set-File (Join-Path $defaultHome '.zcode/AGENTS.md') '# ZCode defaults'
     foreach ($configScript in @($statusScript, $pullScript, $pushScript)) {
         $arguments = @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome)
         if ($configScript -eq $statusScript) { $arguments += '-Json' }
@@ -122,9 +121,9 @@ try {
 
     # Platform parsing unification tests (Resolve-ConfigPlatforms)
     Assert ((Resolve-ConfigPlatforms -Values @('Codex,Antigravity')) -join ',' -eq 'Codex,Antigravity') 'Resolve-ConfigPlatforms splits comma-separated strings'
-    Assert ((Resolve-ConfigPlatforms -Values @(' codex , ZCODE , antigravity ')) -join ',' -eq 'Codex,ZCode,Antigravity') 'Resolve-ConfigPlatforms trims whitespace and normalizes case'
+    Assert ((Resolve-ConfigPlatforms -Values @(' codex , ANTIGRAVITY ')) -join ',' -eq 'Codex,Antigravity') 'Resolve-ConfigPlatforms trims whitespace and normalizes case'
     Assert ((Resolve-ConfigPlatforms -Values @('Codex', 'codex', 'CODEX')) -join ',' -eq 'Codex') 'Resolve-ConfigPlatforms deduplicates names preserving order'
-    Assert ((Resolve-ConfigPlatforms -Values @('Codex', 'Antigravity', 'ZCode')) -join ',' -eq 'Codex,Antigravity,ZCode') 'Resolve-ConfigPlatforms supports all three config platforms'
+    Assert ((Resolve-ConfigPlatforms -Values @('Codex', 'Antigravity')) -join ',' -eq 'Codex,Antigravity') 'Resolve-ConfigPlatforms supports both config platforms'
     try { $null = Resolve-ConfigPlatforms -Values @('BadPlatform'); Assert $false 'Expected exception on unsupported platform' }
     catch { Assert ($_.Exception.Message -match "Unsupported config platform 'BadPlatform'") 'Resolve-ConfigPlatforms rejects unsupported platform' }
     try { $null = Resolve-ConfigPlatforms -Values @(''); Assert $false 'Expected exception on empty platform string' }
@@ -133,7 +132,6 @@ try {
     $managedAgentsTargets = @(
         @{ Platform = 'Codex'; RepoRel = 'codex/AGENTS.md'; HomeRel = '.codex/AGENTS.md'; BlockId = 'codex/AGENTS.md' }
         @{ Platform = 'Antigravity'; RepoRel = 'antigravity/AGENTS.md'; HomeRel = '.gemini/config/AGENTS.md'; BlockId = 'antigravity/AGENTS.md' }
-        @{ Platform = 'ZCode'; RepoRel = 'zcode/AGENTS.md'; HomeRel = '.zcode/AGENTS.md'; BlockId = 'zcode/AGENTS.md' }
     )
 
     # ===========================================================================
@@ -179,7 +177,7 @@ try {
         Assert ($row.Status -eq 'in-sync' -and $row.Detail -eq 'managed block') "status: a matching $($target.Platform) managed block is in sync"
         Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 1) "status: one managed $($target.Platform) item still emits a JSON array"
     }
-    foreach ($retired in 'Reasonix', 'Claude') {
+    foreach ($retired in 'Reasonix', 'Claude', 'ZCode') {
         foreach ($configScript in $statusScript, $pullScript, $pushScript) {
             $arguments = @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome, '-Platform', $retired)
             if ($configScript -ne $statusScript) {
@@ -189,11 +187,11 @@ try {
             Assert ($r.Code -ne 0 -and $r.Out -match "Unsupported config platform '$retired'") "config: $(Split-Path -Leaf $configScript) rejects retired platform $retired"
         }
     }
-    Assert (-not (Test-Path -LiteralPath (Join-Path $defaultRepo 'claude'))) 'push: retired platform capture does not recreate a repository directory'
-    Assert ((Get-Content -LiteralPath (Join-Path $defaultHome '.claude/settings.json') -Raw) -eq '{"personal":true}') 'pull: retired platform selection preserves personal settings'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $defaultRepo 'claude')) -and -not (Test-Path -LiteralPath (Join-Path $defaultRepo 'zcode'))) 'push: retired platform capture does not recreate a repository directory'
+    Assert ((Get-Content -LiteralPath (Join-Path $defaultHome '.claude/settings.json') -Raw) -eq '{"personal":true}' -and (Get-Content -LiteralPath (Join-Path $defaultHome '.zcode/AGENTS.md') -Raw) -eq '# Personal ZCode defaults') 'pull: retired platform selection preserves personal settings'
 
     # Multi-platform status execution test
-    $multiStatus = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'codex, ZCode', '-Json')
+    $multiStatus = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'codex, Antigravity', '-Json')
     Assert ($multiStatus.Code -eq 0) 'config-status accepts comma-separated mixed-case platforms'
 
     # ===========================================================================
@@ -325,18 +323,18 @@ $destination = Join-Path (Split-Path -Parent $RepoRoot) "$homeName/.codex/AGENTS
     $tr = New-TempRepo -Name 'pull-rollback-repo'
     $th = Join-Path $work 'pull-rollback-home'
     $bk = Join-Path $work 'pull-rollback-backup'
-    Set-File -Path (Join-Path $tr 'zcode/AGENTS.md') -Content 'new ZCode rules'
+    Set-File -Path (Join-Path $tr 'antigravity/AGENTS.md') -Content 'new Antigravity rules'
     Set-File -Path (Join-Path $tr 'codex/AGENTS.md') -Content 'updated rules'
     Set-File -Path (Join-Path $tr 'codex/prompts/fail.md') -Content 'later write'
     $original = Join-Path $th '.codex/AGENTS.md'
     Set-File -Path $original -Content "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`noriginal rules`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->`n"
     Set-File -Path (Join-Path $th '.codex/prompts') -Content 'parent is a file'
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'ZCode,Codex', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: later copy failure reports attempted recovery'
     Assert ($r.Out -match 'Could not find a part of the path') 'pull: original copy error remains visible'
     Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: rollback restores an earlier update byte-for-byte'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.zcode/AGENTS.md'))) 'pull: rollback removes an earlier add'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.gemini/config/AGENTS.md'))) 'pull: rollback removes an earlier add'
     $bakFile = @(Get-ChildItem -LiteralPath $bk -Filter 'AGENTS.md' -File -Recurse)
     Assert ($bakFile.Count -eq 1 -and (Get-FileHash -LiteralPath $bakFile[0].FullName).Hash -eq $beforeHash) 'pull: original backup survives rollback'
 
@@ -344,12 +342,12 @@ $destination = Join-Path (Split-Path -Parent $RepoRoot) "$homeName/.codex/AGENTS
     $tr = New-TempRepo -Name 'pull-add-rollback-repo'
     $th = Join-Path $work 'pull-add-rollback-home'
     $bk = Join-Path $work 'pull-add-rollback-backup'
-    Set-File -Path (Join-Path $tr 'zcode/AGENTS.md') -Content 'new ZCode rules'
+    Set-File -Path (Join-Path $tr 'antigravity/AGENTS.md') -Content 'new Antigravity rules'
     Set-File -Path (Join-Path $tr 'codex/prompts/fail.md') -Content 'later write'
     Set-File -Path (Join-Path $th '.codex/prompts') -Content 'parent is a file'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'ZCode,Codex', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply')
     Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: pure-add failure reports recovery without a backup'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.zcode/AGENTS.md'))) 'pull: pure-add rollback removes an earlier add'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $th '.gemini/config/AGENTS.md'))) 'pull: pure-add rollback removes an earlier add'
     Assert (-not (Test-Path -LiteralPath $bk)) 'pull: pure-add rollback does not invent a backup directory'
 
     # Pull and push must reject in-repository backup paths before changing either tree.
@@ -397,16 +395,16 @@ $destination = Join-Path (Split-Path -Parent $RepoRoot) "$homeName/.codex/AGENTS
     $tr = New-TempRepo -Name 'pull-restore-warning-repo'
     $th = Join-Path $work 'pull-restore-warning-home'
     $bk = Join-Path $work 'pull-restore-warning-backup'
-    Set-File -Path (Join-Path $tr 'zcode/AGENTS.md') -Content 'updated ZCode rules'
-    Set-File -Path (Join-Path $th '.zcode/AGENTS.md') -Content "<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->`noriginal rules`n<!-- END AI-AGENT-DOTFILES: zcode/AGENTS.md -->`n"
+    Set-File -Path (Join-Path $tr 'antigravity/AGENTS.md') -Content 'updated Antigravity rules'
+    Set-File -Path (Join-Path $th '.gemini/config/AGENTS.md') -Content "<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->`noriginal rules`n<!-- END AI-AGENT-DOTFILES: antigravity/AGENTS.md -->`n"
     Set-File -Path (Join-Path $tr 'codex/prompts/example.md') -Content 'updated bytes'
     $locked = Join-Path $th '.codex/prompts/example.md'
     Set-File -Path $locked -Content 'locked original'
-    $original = Join-Path $th '.zcode/AGENTS.md'
+    $original = Join-Path $th '.gemini/config/AGENTS.md'
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
     $handle = [IO.File]::Open($locked, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
-        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'ZCode,Codex', '-BackupRoot', $bk, '-Apply')
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply')
     }
     finally { $handle.Dispose() }
     Assert ($r.Code -ne 0 -and $r.Out -match 'Rollback could not restore') 'pull: restore failure warns and still exits non-zero'

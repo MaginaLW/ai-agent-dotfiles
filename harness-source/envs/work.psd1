@@ -5,22 +5,12 @@
 
     Skills = @{
         Codex = @(
-            'antigravity-delegation',
             'git-review',
             'meng-cmame-writing',
             'multimodal-generation',
             'paper-polish',
             'session-learnings',
             'subagent-driven-development',
-            'systematic-debugging',
-            'tool-scope'
-        )
-        Zcode = @(
-            'git-review',
-            'meng-cmame-writing',
-            'multimodal-generation',
-            'paper-polish',
-            'session-learnings',
             'systematic-debugging',
             'tool-scope'
         )

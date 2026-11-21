@@ -1,5 +1,5 @@
 @{
-    # Managed MCP server registry projected per declared entry to Antigravity, Codex, and ZCode.
+    # Managed MCP server registry projected per declared entry to Antigravity and Codex.
     # Keep zero plaintext secrets, tokens, or machine-private paths here.
     SchemaVersion = 1
     Servers = @(
@@ -10,7 +10,7 @@
             Args = @('mcp-for-blender')
             Env = @{}
             Enabled = $true
-            Platforms = @('Antigravity', 'Codex', 'ZCode')
+            Platforms = @('Antigravity', 'Codex')
         }
     )
 }

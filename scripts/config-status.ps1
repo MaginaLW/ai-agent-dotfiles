@@ -17,7 +17,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Codex, Antigravity, ZCode. Defaults to Codex.
+    One or more of Codex, Antigravity. Defaults to Codex.
 
 .PARAMETER Json
     Emit the results as a JSON array instead of the table.

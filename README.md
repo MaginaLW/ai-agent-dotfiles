@@ -1,6 +1,6 @@
 # AI Agent Dotfiles
 
-在 Windows 上维护 Codex 和 ZCode 的日常 skills 与受管配置，以及 Antigravity 的全局规则、插件和受管 MCP 服务。
+在 Windows 上维护 Codex 的日常 skills 与受管配置，以及 Antigravity 的全局规则、插件和受管 MCP 服务。
 使用 PowerShell 7+；先预览，再按已授权范围执行 Apply。个人配置、凭据、会话和缓存不入库。
 
 ## 先选你的操作
@@ -73,7 +73,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ```
 
-`agent-dotfiles.ps1 status` 一站式只读汇总上次 Apply 环境、三端配置漂移（Codex、Antigravity、ZCode）、Antigravity 插件状态与受管 MCP 状态；支持 `-Json` 输出纯净结构化对象。
+`agent-dotfiles.ps1 status` 一站式只读汇总上次 Apply 环境、双端配置漂移（Codex、Antigravity）、Antigravity 插件状态与受管 MCP 状态；支持 `-Json` 输出纯净结构化对象。
 `config help` 与 `help config` 等价；`status`、`env`、`profile`、`skills`、`antigravity`、`mcp` 也支持分组帮助。
 `config pull` 是仓库 → 本机，`config push` 是本机 → 仓库的配置捕获，和 Git push 无关。
 捕获的 diff 必须由人审查后才能提交。`env list -JsonPath <file>` 会写报告文件，属于只读列表的显式写出例外。
@@ -103,28 +103,27 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 
 ## 受管 MCP 分发
 
-`harness-source/mcp/servers.psd1` 集中声明需要跨 Antigravity、Codex 和 ZCode 同步的受管 MCP servers（当前声明 `blender`），零明文凭据与私有路径：
+`harness-source/mcp/servers.psd1` 集中声明需要跨 Antigravity 和 Codex 同步的受管 MCP servers（当前声明 `blender`），零明文凭据与私有路径：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -DryRun
 ```
 
-`mcp deploy` 独立于 `sync` 与 `env deploy`，按条目投影到 Antigravity（`~/.gemini/config/mcp_config.json`）、Codex（官方 `codex mcp` CLI）和 ZCode（`~/.zcode/cli/config.json`），保留各端非托管条目与个人设置。授权前仅运行只读 `status` 或 `-DryRun`，`-Apply` 须获得明确授权（不继承 Codex/ZCode `work` 持续技能授权），详见[手册 §16](docs/README.md#16-受管-mcp-分发mcp-sync)。
+`mcp deploy` 独立于 `sync` 与 `env deploy`，按条目投影到 Antigravity（`~/.gemini/config/mcp_config.json`）和 Codex（官方 `codex mcp` CLI），保留各端非托管条目与个人设置。授权前仅运行只读 `status` 或 `-DryRun`，`-Apply` 须获得明确授权（不继承 Codex `work` 持续技能授权），详见[手册 §16](docs/README.md#16-受管-mcp-分发mcp-sync)。
 
 ## 管理范围
 
-- `skills-source/` 是 skills 唯一源。构建分别生成 `codex/skills/`、`zcode/skills/` 和各自的 manifest。生成目录由 Git 忽略。
-- 在 `harness-source/envs/` 中，`work` 为 Codex 选择 9 个技能、为 ZCode 选择 7 个，`full` 分别选择 19 和 11 个。
-  `subagent-driven-development` 在 `work` 中仅供 Codex 使用，在 `full` 中两个平台均可使用。
+- `skills-source/` 是 skills 唯一源。构建生成 `codex/skills/` 和 `manifests/managed-skills.codex.txt`。生成目录由 Git 忽略。
+- 在 `harness-source/envs/` 中，`work` 为 Codex 选择 8 个技能，`full` 选择 18 个，`minimal` 选择 1 个。
 - 部署逐个 skill 目录进行，只 prune 本工具记录过或显式 `-Retire` 点名的目录；未知目录保留，Codex `.system` 不受管。
-- 配置 status/pull/push 及组合部署的配置阶段默认只处理 Codex。同步 Antigravity 或 ZCode 全局协议时显式传入 `-Platform Antigravity` 或 `-Platform ZCode`。各端的 `AGENTS.md` 只同步受管块。
+- 配置 status/pull/push 及组合部署的配置阶段默认只处理 Codex。同步 Antigravity 全局协议时显式传入 `-Platform Antigravity`。各端的 `AGENTS.md` 只同步受管块。
 - 项目 profile 仅生成 Codex 目标。Codex 同时存在 `~/.codex/skills` 与 `~/.agents/skills` 时拒绝部署，需先人工判断。
 - 整份 Codex `config.toml`、私有 `.env`、凭据、会话或缓存永不同步；`harness-source/mcp/servers.psd1` 声明的受管 MCP 条目仅通过显式 `mcp deploy` 按条目投影，不并入默认 `sync`。
 
 ## 进一步阅读
 
 - [使用手册](docs/README.md)：部署、恢复、配置、项目 profile、环境、CLI 与维护检查。
-- [新电脑接入](docs/ONBOARD_NEW_MACHINE.md)、[ZCode 使用说明](docs/ZCODE.md)。
+- [新电脑接入](docs/ONBOARD_NEW_MACHINE.md)。
 - [当前状态与未完成事项](STATUS.md)、[进行中任务](status/active/)、[历史索引](docs/HISTORY.md)。
 - [Agent 工作规则](AGENTS.md)：源文件、权限、部署、检查与提交边界。

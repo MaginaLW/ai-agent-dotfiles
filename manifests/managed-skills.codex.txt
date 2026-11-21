@@ -1,4 +1,3 @@
-antigravity-delegation
 brainstorming
 chatgpt-apps
 cli-creator

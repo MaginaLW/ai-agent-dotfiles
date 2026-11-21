@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Deploys the skills selected by one environment (harness-source/envs/<name>.psd1) to the
-    live Codex and ZCode skill directories from their respective build outputs. Dry-run unless -Apply.
+    live Codex skill directory from its build output. Dry-run unless -Apply.
 
 .DESCRIPTION
     Builds the generated skills (scripts/build-skills.ps1) and scans for secrets
@@ -31,13 +31,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
-$platforms = @('Codex', 'Zcode')
+$platforms = @('Codex')
 $statePath = Join-Path $StateRoot 'deployed-skills.json'
 $backupRoot = Join-Path $StateRoot ('skill-backups\' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
 
 function Get-DeploySkillsLiveRoot([string] $Platform) {
     switch ($Platform) {
-        'Zcode' { return Join-Path $HomeRoot '.zcode\skills' }
         'Codex' {
             $roots = Get-CodexLiveSkillRoots -HomeRoot $HomeRoot
             if ($roots.Ambiguous) { throw "codex-live-root-ambiguous: both $($roots.Preferred) and $($roots.Fallback) exist" }
@@ -77,7 +76,7 @@ if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) { throw "unknown envi
 $selection = (Import-PowerShellDataFile -LiteralPath $envPath).Skills
 # A missing or misspelled platform key would read as an empty selection and prune everything.
 if ($selection -isnot [hashtable] -or @($platforms | Where-Object { -not $selection.ContainsKey($_) }).Count -or @($selection.Keys | Where-Object { $_ -notin $platforms }).Count) {
-    throw "env $Environment must define Skills with exactly the keys Codex and Zcode (use @() for none)"
+    throw "env $Environment must define Skills with exactly the key Codex (use @() for none)"
 }
 foreach ($platform in $platforms) {
     foreach ($name in @($selection[$platform]) + @($Retire)) {

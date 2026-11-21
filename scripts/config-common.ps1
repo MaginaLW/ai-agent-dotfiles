@@ -44,7 +44,6 @@ function Resolve-ConfigPlatforms {
     $canonical = @{
         codex       = 'Codex'
         antigravity = 'Antigravity'
-        zcode       = 'ZCode'
     }
     $selected = [System.Collections.Generic.List[string]]::new()
     $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -54,14 +53,14 @@ function Resolve-ConfigPlatforms {
             if ([string]::IsNullOrEmpty($trimmed)) { continue }
             $key = $trimmed.ToLowerInvariant()
             if (-not $canonical.ContainsKey($key)) {
-                throw "Unsupported config platform '$trimmed'. Expected Codex, Antigravity, or ZCode."
+                throw "Unsupported config platform '$trimmed'. Expected Codex or Antigravity."
             }
             $name = $canonical[$key]
             if ($seen.Add($name)) { $selected.Add($name) }
         }
     }
     if ($selected.Count -eq 0 -and @($Values).Count -gt 0) {
-        throw "Config -Platform requires at least one platform name. Expected Codex, Antigravity, or ZCode."
+        throw "Config -Platform requires at least one platform name. Expected Codex or Antigravity."
     }
     return @($selected)
 }
@@ -130,11 +129,6 @@ $script:ManagedAgentsBlocks = @{
         Item    = 'AGENTS.md'
         BlockId = 'antigravity/AGENTS.md'
         Label   = 'Antigravity/AGENTS.md'
-    }
-    ZCode = @{
-        Item    = 'AGENTS.md'
-        BlockId = 'zcode/AGENTS.md'
-        Label   = 'ZCode/AGENTS.md'
     }
 }
 

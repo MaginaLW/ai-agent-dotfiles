@@ -30,32 +30,27 @@ try {
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -eq 0) "a clean build exits 0 ($($r.Out))"
     Assert-TestCondition (
-        (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/alpha/SKILL.md')) -and
         (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/SKILL.md')) -and
         (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/beta/SKILL.md')) -and
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/beta'))) -and
-        (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/gamma/SKILL.md')) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/gamma')))
-    ) 'shared skills land on both roots, each platform-only skill on its own root only'
+    ) 'shared and codex-only skills land on the Codex root'
     Assert-TestCondition ((Test-Path -LiteralPath (Join-Path $repo 'skills-source/reasonix-only/legacy/SKILL.md')) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'reasonix/skills'))) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'manifests/managed-skills.reasonix.txt')))) 'legacy-only source is preserved but does not create a retired platform output or manifest'
     Assert-TestCondition (-not (Test-Path (Join-Path $repo 'claude/skills')) -and
         -not (Test-Path (Join-Path $repo 'manifests/managed-skills.claude.txt')) -and
-        -not (Test-Path (Join-Path $repo 'zcode/skills/retired')) -and
-        -not (Test-Path (Join-Path $repo 'codex/skills/retired'))) 'build ignores retired Claude sources'
+        -not (Test-Path (Join-Path $repo 'zcode/skills')) -and
+        -not (Test-Path (Join-Path $repo 'manifests/managed-skills.zcode.txt')) -and
+        -not (Test-Path (Join-Path $repo 'codex/skills/retired'))) 'build ignores retired Claude and ZCode sources'
     Assert-TestCondition (([IO.File]::ReadAllText((Join-Path $repo 'codex/skills/beta/SKILL.md'))) -ceq "# beta`n") 'generated SKILL.md content matches the source'
     Assert-TestCondition (
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/alpha/CREATION-LOG.md'))) -and
         (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/CREATION-LOG.md')))
-    ) 'CREATION-LOG.md is excluded from all generated roots'
+    ) 'CREATION-LOG.md is excluded from generated roots'
     Assert-TestCondition (
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/alpha/agents/openai.yaml'))) -and
         (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/alpha/agents/openai.yaml'))
-    ) 'agents/openai.yaml is excluded from Zcode generated root but preserved in Codex'
-    $zcodeManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.zcode.txt'))
+    ) 'agents/openai.yaml is preserved in Codex'
     $codexManifest = [IO.File]::ReadAllText((Join-Path $repo 'manifests/managed-skills.codex.txt'))
-    Assert-TestCondition ($zcodeManifest -ceq "alpha`ngamma`n" -and $codexManifest -ceq "alpha`nbeta`n") 'manifests list each platform set sorted'
+    Assert-TestCondition ($codexManifest -ceq "alpha`nbeta`n") 'manifest lists the Codex skill set sorted'
 
     Write-Host '[shared vs platform-only name conflict]'
     $repo = Join-Path $work 'conflict-shared'
@@ -65,23 +60,7 @@ try {
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -eq 1 -and $r.Out -match 'Skill name conflict between shared and platform-only sources') "a shared/platform-only conflict exits 1 ($($r.Out))"
     Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'manifests'))) 'a rejected build creates no manifests'
-    Assert-TestCondition (
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills'))) -and
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills')))
-    ) 'a rejected build creates no generated roots'
-
-    Write-Host '[cross platform-only name conflict]'
-    $repo = Join-Path $work 'conflict-cross'
-    New-Item -ItemType Directory -Path $repo -Force | Out-Null
-    Add-Skill $repo 'zcode-only' 'dup'
-    Add-Skill $repo 'codex-only' 'dup'
-    $r = Invoke-Build $repo
-    Assert-TestCondition ($r.Code -eq 1 -and $r.Out -match 'more than one platform-only source') "a cross platform-only conflict exits 1 ($($r.Out))"
-    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'manifests'))) 'a rejected build creates no manifests'
-    Assert-TestCondition (
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills'))) -and
-        (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills')))
-    ) 'a rejected build creates no generated roots'
+    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $repo 'codex/skills'))) 'a rejected build creates no generated roots'
 
     Write-Host '[reparse points are refused]'
     $repo = Join-Path $work 'junction'
@@ -89,8 +68,8 @@ try {
     Add-Skill $repo 'shared' 'alpha'
     $outside = Join-Path $work 'outside'
     Set-TestFile (Join-Path $outside 'sentinel.txt') 'keep'
-    New-Item -ItemType Directory -Path (Join-Path $repo 'zcode/skills') -Force | Out-Null
-    New-Item -ItemType Junction -Path (Join-Path $repo 'zcode/skills/alpha') -Target $outside | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $repo 'codex/skills') -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $repo 'codex/skills/alpha') -Target $outside | Out-Null
     $r = Invoke-Build $repo
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse point') 'a junction under a generated root is refused before the wipe'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $outside 'sentinel.txt')) -eq 'keep' -and @(Get-ChildItem $outside).Count -eq 1) 'the junction target is untouched'

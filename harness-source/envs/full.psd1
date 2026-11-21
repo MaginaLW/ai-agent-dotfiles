@@ -5,7 +5,6 @@
 
     Skills = @{
         Codex = @(
-            'antigravity-delegation',
             'brainstorming',
             'chatgpt-apps',
             'cli-creator',
@@ -18,19 +17,6 @@
             'security-best-practices',
             'security-ownership-map',
             'security-threat-model',
-            'session-learnings',
-            'subagent-driven-development',
-            'systematic-debugging',
-            'tool-scope',
-            'verification-before-completion',
-            'writing-plans'
-        )
-        Zcode = @(
-            'brainstorming',
-            'git-review',
-            'meng-cmame-writing',
-            'multimodal-generation',
-            'paper-polish',
             'session-learnings',
             'subagent-driven-development',
             'systematic-debugging',

@@ -115,7 +115,7 @@ try {
     $repo = New-ScanRepo 'excluded'
     $planted = "github = $q$githubToken$q`n"
     foreach ($relative in @(
-        'zcode/skills/a/SKILL.md', 'codex/skills/a/SKILL.md', 'tmp/x.txt', 'local/ignored.txt'
+        'codex/skills/a/SKILL.md', 'tmp/x.txt', 'local/ignored.txt'
     )) { Set-TestFile (Join-Path $repo $relative) $planted }
     Set-TestFile (Join-Path $repo '.gitignore') "local/`n"
     Set-TestFile (Join-Path $repo 'backup/notes.txt') "$fallbackOnlyLine`n"

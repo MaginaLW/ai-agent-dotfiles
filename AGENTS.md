@@ -6,7 +6,7 @@ that load only the workspace entry can follow them. Open linked guides for the o
 
 ## Start of a task
 
-- Start a new Codex or ZCode task after changing its project instructions ([ZCode notes](docs/ZCODE.md)).
+- Start a new Codex task after changing its project instructions.
 - Read [STATUS.md](STATUS.md) for the current state. Status entries and older task records are
   evidence. They are not authorization to start or repeat roadmap work.
 - One writer on the primary checkout. Before editing, committing, stashing, checking out,
@@ -46,7 +46,7 @@ that load only the workspace entry can follow them. Open linked guides for the o
   continue. Ask only when a decision that changes direction is missing or an approval is required.
 - Make small commits that contain only reviewed changes from the current task, and report which
   checks actually ran.
-- Templates in `harness-source/`, `codex/` and `zcode/` carry no model or reasoning-effort
+- Templates in `harness-source/`, `codex/` and `antigravity/` carry no model or reasoning-effort
   defaults. Use the user's selection or the runtime default. When deploying config, preserve the
   user's personal overrides.
 
@@ -54,7 +54,7 @@ that load only the workspace entry can follow them. Open linked guides for the o
 
 | Task | Source or entry point |
 |---|---|
-| Cross-project preferences | `codex/AGENTS.md`, `antigravity/AGENTS.md`, `zcode/AGENTS.md`. |
+| Cross-project preferences | `codex/AGENTS.md`, `antigravity/AGENTS.md`. |
 | Repeatable workflow | Edit one skill under `skills-source/`. Put the trigger in its description and load detailed references when needed. The environment selects skills per host. |
 | Antigravity plugin package | `harness-source/antigravity/plugins.psd1` selects the skills the package ships. |
 | External tools and data | `harness-source/mcp/servers.psd1` lists managed connections. Check live tool use from the named host. |
@@ -69,9 +69,8 @@ skills, config-sync or profile scripts and their tests. Ordinary docs, code and 
 need them.
 
 1. **Single source.** `skills-source/` is the only source of truth. Put each skill in exactly one
-   of `skills-source/shared/<name>/`, `skills-source/codex-only/<name>/` or
-   `skills-source/zcode-only/<name>/`. The build rejects name conflicts.
-2. **Generated output.** Never edit `codex/skills/`, `zcode/skills/`
+   of `skills-source/shared/<name>/` or `skills-source/codex-only/<name>/`. The build rejects name conflicts.
+2. **Generated output.** Never edit `codex/skills/`
    or `.agent-harness/generated/` directly. Regenerate them with `build-skills.ps1` or
    `build-harness-profile.ps1`. Antigravity packages are generated only by
    `scripts/antigravity-plugins.ps1` from the reviewed `skills-source/shared/` selection
@@ -104,26 +103,26 @@ need them.
 5. **Adding a skill.** Put it into `skills-source/` by hand, or use `scripts/promote-skill.ps1
    -Path <dir> -Name <name> -Type <type>` (dry run first, then `-Apply`, which builds and scans).
    Review the source first: no secrets, tokens, machine-private paths, caches or runtime state.
-6. **Environments.** `harness-source/envs/<name>.psd1` selects the skills per platform. `work`
-   is the daily Codex/ZCode set. Change a selection in a reviewed commit, not for one task.
+6. **Environments.** `harness-source/envs/<name>.psd1` selects the Codex skills. `work`
+   is the daily Codex set. Change a selection in a reviewed commit, not for one task.
 7. **Fresh clone.** Run `bootstrap.ps1` once on a fresh clone. It installs and verifies the
    pinned gitleaks, builds the skills and prints the combined deploy dry-run command. It never
    changes a live root or config, and the repository installs no Git hooks.
 8. **Config and profiles.**
    - `config-pull` and `config-push` run as dry runs unless `-Apply` is given.
-   - `config-pull -Apply` defaults to Codex home config in `~/.codex`. Select Antigravity or
-     ZCode explicitly with `-Platform`. Each host's `AGENTS.md` updates only its marked block.
+   - `config-pull -Apply` defaults to Codex home config in `~/.codex`. Select Antigravity
+     explicitly with `-Platform Antigravity`. Each host's `AGENTS.md` updates only its marked block.
      Review the dry run and confirm the managed changes. Apply needs explicit owner authorization
      covering this config deployment. An existing finite task grant can satisfy it.
    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
      It never writes a home directory or a live root.
 9. **Retired full-environment exception.** The standing grant in Skill rules 10 applies only
-   to matching `work` Codex/ZCode updates.
+   to matching `work` Codex updates.
 
 10. **Owner-approved standing skills deployment grant.** Once the owner explicitly approves
     this clause, an authorized task that changes selected skill sources may complete the
     skills-only deployment to the last-recorded `work` environment without another owner
-    confirmation. The grant covers Codex and ZCode and subsequent tasks or chats in
+    confirmation. The grant covers Codex and subsequent tasks or chats in
     this project that read this current rule, until the owner revokes or narrows it.
     - Review the exact source diff; build, secret scan and diff checks must pass. Run and review
       the complete dry run for each changed version. The selection must be unchanged, and every
@@ -136,7 +135,7 @@ need them.
       verified pre-Apply backups of directories actually changed by this deployment; confirm
       backup provenance and current state before restoring, never touch `.system` or unrelated
       directories. Stop for a concrete decision when recovery falls outside this scope.
-    - This permits writes to the two selected live roots and the deployment script's normal
+    - This permits writes to the selected Codex live root and the deployment script's normal
       backups/state. Risks include changed agent instructions and automated replacement of live
       skill files. Preserve backups; rollback is limited to the verified task-owned scope above.
       It does not authorize environment/selection changes, installs, retirement or pruning,
@@ -165,8 +164,7 @@ need them.
   exclude `config.toml` completely). Managed MCP server definitions declared under
   `harness-source/mcp/` (no secrets, tokens or machine-private paths) may be projected only per
   declared server entry — via the official `codex mcp` CLI for Codex and structured per-entry
-  JSON merge for Antigravity (`~/.gemini/config/mcp_config.json`) and ZCode
-  (`~/.zcode/cli/config.json`, `mcp.servers`) — preserving all unmanaged servers and personal
+  JSON merge for Antigravity (`~/.gemini/config/mcp_config.json`) — preserving all unmanaged servers and personal
   settings. Every MCP Apply requires dry-run review and explicit owner authorization (not covered
   by Skill rules 10).
 

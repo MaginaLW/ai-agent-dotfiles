@@ -12,11 +12,11 @@ id_ed25519
 .ssh/
 
 # Generated skills: build outputs, never committed.
-zcode/skills/
 codex/skills/
 
 # Leftovers from older checkouts must stay untracked.
 claude/skills/
+zcode/skills/
 
 # Claude Code agent worktrees (machine-local checkouts).
 /.claude/worktrees/

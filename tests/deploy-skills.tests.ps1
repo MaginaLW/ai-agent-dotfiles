@@ -9,72 +9,65 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $deploy = Join-Path $RepoRoot 'scripts/deploy-skills.ps1'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('deploy-skills-tests-' + [guid]::NewGuid().ToString('N'))
 
-function Set-TestEnvironment([string] $Repo, [string[]] $Skills, [string[]] $ZcodeSkills = $Skills) {
+function Set-TestEnvironment([string] $Repo, [string[]] $Skills) {
     $list = ($Skills | ForEach-Object { "'$_'" }) -join ', '
-    $zlist = ($ZcodeSkills | ForEach-Object { "'$_'" }) -join ', '
-    Set-TestFile (Join-Path $Repo 'harness-source/envs/test.psd1') "@{ Skills = @{ Codex = @($list); Zcode = @($zlist) } }"
+    Set-TestFile (Join-Path $Repo 'harness-source/envs/test.psd1') "@{ Skills = @{ Codex = @($list) } }"
 }
 function Invoke-Deploy([string] $Repo, [string] $HomeDir, [string[]] $Extra = @()) {
     Invoke-TestProcess -ScriptPath $deploy -Arguments (@('-Environment', 'test', '-RepoRoot', $Repo, '-HomeRoot', $HomeDir, '-StateRoot', (Join-Path $HomeDir 'state'), '-SkipBuild') + $Extra)
 }
 function Get-LiveRoots([string] $HomeDir) {
-    @((Join-Path $HomeDir '.zcode/skills'), (Join-Path $HomeDir '.codex/skills'))
+    @((Join-Path $HomeDir '.codex/skills'))
 }
 
 try {
     $repo = Join-Path $work 'repo'
     $homeDir = Join-Path $work 'home'
-    foreach ($platform in 'zcode', 'codex') {
-        foreach ($skill in 'alpha', 'beta') { Set-TestFile (Join-Path $repo "$platform/skills/$skill/SKILL.md") "# $skill v1`n" }
-    }
+    foreach ($skill in 'alpha', 'beta') { Set-TestFile (Join-Path $repo "codex/skills/$skill/SKILL.md") "# $skill v1`n" }
     Set-TestEnvironment $repo @('alpha', 'beta')
     Set-TestFile (Join-Path $homeDir '.codex/skills/.system/marker.txt') 'platform'
-    Set-TestFile (Join-Path $homeDir '.zcode/skills/hand-made/SKILL.md') 'mine'
+    Set-TestFile (Join-Path $homeDir '.codex/skills/hand-made/SKILL.md') 'mine'
 
     Write-Host '[dry run writes nothing]'
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -eq 0) "dry run exits 0 ($($r.Out))"
     Assert-TestCondition ($r.Out -match 'install' -and $r.Out -match 'Dry run') 'dry run reports the planned installs'
-    Assert-TestCondition (-not (Test-Path (Join-Path $homeDir '.zcode/skills/alpha'))) 'dry run installs nothing'
+    Assert-TestCondition (-not (Test-Path (Join-Path $homeDir '.codex/skills/alpha'))) 'dry run installs nothing'
     Assert-TestCondition (-not (Test-Path (Join-Path $homeDir 'state'))) 'dry run writes no state'
 
     Write-Host '[file preview explains changes without printing contents]'
     $previewRepo = Join-Path $work 'preview-repo'
     $previewHome = Join-Path $work 'preview-home'
     Set-TestEnvironment $previewRepo @('alpha')
-    foreach ($platform in 'zcode', 'codex') {
-        Set-TestFile (Join-Path $previewRepo "$platform/skills/alpha/SKILL.md") 'do-not-print-preview-body new'
-        Set-TestFile (Join-Path $previewRepo "$platform/skills/alpha/references/added.md") 'do-not-print-preview-body added'
-        Set-TestFile (Join-Path $previewRepo "$platform/skills/alpha/Case.md") 'same'
-        Set-TestFile (Join-Path $previewHome ".$platform/skills/alpha/SKILL.md") 'do-not-print-preview-body old'
-        Set-TestFile (Join-Path $previewHome ".$platform/skills/alpha/removed.md") 'do-not-print-preview-body removed'
-        Set-TestFile (Join-Path $previewHome ".$platform/skills/alpha/case.md") 'same'
-    }
-    Set-TestFile (Join-Path $previewHome '.zcode/skills/obsolete/SKILL.md') 'old'
-    Set-TestFile (Join-Path $previewHome '.zcode/skills/retired/SKILL.md') 'old'
-    Set-TestFile (Join-Path $previewHome 'state/deployed-skills.json') '{"Environment":"full","Zcode":["alpha","obsolete"],"Codex":["alpha"]}'
+    Set-TestFile (Join-Path $previewRepo 'codex/skills/alpha/SKILL.md') 'do-not-print-preview-body new'
+    Set-TestFile (Join-Path $previewRepo 'codex/skills/alpha/references/added.md') 'do-not-print-preview-body added'
+    Set-TestFile (Join-Path $previewRepo 'codex/skills/alpha/Case.md') 'same'
+    Set-TestFile (Join-Path $previewHome '.codex/skills/alpha/SKILL.md') 'do-not-print-preview-body old'
+    Set-TestFile (Join-Path $previewHome '.codex/skills/alpha/removed.md') 'do-not-print-preview-body removed'
+    Set-TestFile (Join-Path $previewHome '.codex/skills/alpha/case.md') 'same'
+    Set-TestFile (Join-Path $previewHome '.codex/skills/obsolete/SKILL.md') 'old'
+    Set-TestFile (Join-Path $previewHome '.codex/skills/retired/SKILL.md') 'old'
+    Set-TestFile (Join-Path $previewHome 'state/deployed-skills.json') '{"Environment":"full","Codex":["alpha","obsolete"]}'
     $r = Invoke-Deploy $previewRepo $previewHome @('-Retire', 'retired')
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'change\s+SKILL.md' -and $r.Out -match 'add\s+references/added.md' -and $r.Out -match 'remove\s+removed.md') "preview identifies changed, added and removed relative files ($($r.Out))"
     Assert-TestCondition ($r.Out -cmatch 'add\s+Case.md' -and $r.Out -cmatch 'remove\s+case.md') 'preview retains case-only path changes'
     Assert-TestCondition ($r.Out -notmatch 'do-not-print-preview-body' -and $r.Out -notmatch [regex]::Escape($previewHome)) 'preview omits file bodies and full home paths'
-    Assert-TestCondition ($r.Out -match "last recorded 'full' -> target 'test'" -and $r.Out -match 'Prune reason for Zcode/obsolete: previously managed' -and $r.Out -match 'Prune reason for Zcode/retired: explicit -Retire') 'environment transition and both prune causes are explicit'
-    Assert-TestCondition ((Get-Content -Raw (Join-Path $previewHome '.zcode/skills/alpha/SKILL.md')) -eq 'do-not-print-preview-body old' -and (Test-Path (Join-Path $previewHome '.zcode/skills/obsolete'))) 'detailed preview remains read-only'
+    Assert-TestCondition ($r.Out -match "last recorded 'full' -> target 'test'" -and $r.Out -match 'Prune reason for Codex/obsolete: previously managed' -and $r.Out -match 'Prune reason for Codex/retired: explicit -Retire') 'environment transition and both prune causes are explicit'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $previewHome '.codex/skills/alpha/SKILL.md')) -eq 'do-not-print-preview-body old' -and (Test-Path (Join-Path $previewHome '.codex/skills/obsolete'))) 'detailed preview remains read-only'
 
     Write-Host '[plan summary counts mixed and empty plans]'
     $summaryHome = Join-Path $work 'summary-home'
-    foreach ($platform in 'zcode', 'codex') {
-        Set-TestFile (Join-Path $repo "$platform/skills/summary-extra/SKILL.md") "# summary-extra v1`n"
-    }
+    Set-TestFile (Join-Path $repo 'codex/skills/summary-extra/SKILL.md') "# summary-extra v1`n"
     Set-TestEnvironment $repo @('alpha', 'beta', 'summary-extra')
-    Set-TestFile (Join-Path $summaryHome '.zcode/skills/alpha/SKILL.md') "# alpha v1`n"
-    Set-TestFile (Join-Path $summaryHome '.zcode/skills/beta/SKILL.md') 'older beta'
-    Set-TestFile (Join-Path $summaryHome '.zcode/skills/obsolete/SKILL.md') 'obsolete'
-    Set-TestFile (Join-Path $summaryHome '.zcode/skills/manual/SKILL.md') 'manual'
-    Set-TestFile (Join-Path $summaryHome 'state/deployed-skills.json') '{"Zcode":["obsolete"],"Codex":[]}'
+    Set-TestFile (Join-Path $summaryHome '.codex/skills/alpha/SKILL.md') "# alpha v1`n"
+    Set-TestFile (Join-Path $summaryHome '.codex/skills/beta/SKILL.md') 'older beta'
+    Set-TestFile (Join-Path $summaryHome '.codex/skills/obsolete/SKILL.md') 'obsolete'
+    Set-TestFile (Join-Path $summaryHome '.codex/skills/manual/SKILL.md') 'manual'
+    Set-TestFile (Join-Path $summaryHome 'state/deployed-skills.json') '{"Codex":["obsolete"]}'
     $summaryStateHash = (Get-FileHash (Join-Path $summaryHome 'state/deployed-skills.json')).Hash
     $r = Invoke-Deploy $repo $summaryHome
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Plan summary: install=4\s+update=1\s+unchanged=1\s+prune=1\s+unknown=1') 'mixed plan reports each action count'
-    Assert-TestCondition ((Get-Content -Raw (Join-Path $summaryHome '.zcode/skills/beta/SKILL.md')) -eq 'older beta' -and (Test-Path (Join-Path $summaryHome '.zcode/skills/obsolete/SKILL.md')) -and -not (Test-Path (Join-Path $summaryHome '.zcode/skills/summary-extra')) -and (Get-FileHash (Join-Path $summaryHome 'state/deployed-skills.json')).Hash -eq $summaryStateHash) 'mixed dry run preserves live content and state'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Plan summary: install=1\s+update=1\s+unchanged=1\s+prune=1\s+unknown=1') 'mixed plan reports each action count'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $summaryHome '.codex/skills/beta/SKILL.md')) -eq 'older beta' -and (Test-Path (Join-Path $summaryHome '.codex/skills/obsolete/SKILL.md')) -and -not (Test-Path (Join-Path $summaryHome '.codex/skills/summary-extra')) -and (Get-FileHash (Join-Path $summaryHome 'state/deployed-skills.json')).Hash -eq $summaryStateHash) 'mixed dry run preserves live content and state'
     Set-TestEnvironment $repo @()
     $emptyHome = Join-Path $work 'empty-home'
     $r = Invoke-Deploy $repo $emptyHome
@@ -83,31 +76,29 @@ try {
 
     Write-Host '[review updates absent from deploy state]'
     $reviewHome = Join-Path $work 'review-home'
-    Set-TestFile (Join-Path $reviewHome '.zcode/skills/alpha/SKILL.md') 'existing content'
+    Set-TestFile (Join-Path $reviewHome '.codex/skills/alpha/SKILL.md') 'existing content'
     $r = Invoke-Deploy $repo $reviewHome
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Update not recorded in deploy state: Zcode/alpha' -and $r.Out -match 'ownership is unknown') 'missing state warns of an update without claiming ownership'
-    Set-TestFile (Join-Path $reviewHome 'state/deployed-skills.json') '{"Zcode":[],"Codex":[]}'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Update not recorded in deploy state: Codex/alpha' -and $r.Out -match 'ownership is unknown') 'missing state warns of an update without claiming ownership'
+    Set-TestFile (Join-Path $reviewHome 'state/deployed-skills.json') '{"Codex":[]}'
     $r = Invoke-Deploy $repo $reviewHome
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Update not recorded in deploy state: Zcode/alpha') 'existing state without the name warns'
-    Set-TestFile (Join-Path $reviewHome 'state/deployed-skills.json') '{"Zcode":["alpha"],"Codex":[]}'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Update not recorded in deploy state: Codex/alpha') 'existing state without the name warns'
+    Set-TestFile (Join-Path $reviewHome 'state/deployed-skills.json') '{"Codex":["alpha"]}'
     $r = Invoke-Deploy $repo $reviewHome
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -notmatch 'Update not recorded in deploy state: Zcode/alpha') 'state-recorded updates do not produce the warning'
-    Assert-TestCondition ((Get-Content -Raw (Join-Path $reviewHome '.zcode/skills/alpha/SKILL.md')) -eq 'existing content') 'review does not change the existing directory'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -notmatch 'Update not recorded in deploy state: Codex/alpha') 'state-recorded updates do not produce the warning'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $reviewHome '.codex/skills/alpha/SKILL.md')) -eq 'existing content') 'review does not change the existing directory'
 
     Write-Host '[selected names that collide with ordinary files are refused]'
-    Set-TestEnvironment $repo @('alpha', 'beta') @('alpha', 'beta')
-    foreach ($platform in @('codex', 'zcode')) {
-        foreach ($mode in @('dry-run', 'apply')) {
-            $collisionHome = Join-Path $work "collision-$platform-$mode"
-            $collision = Join-Path $collisionHome ".$platform/skills/beta"
-            Set-TestFile $collision 'preserve this ordinary file'
-            $extra = @()
-            if ($mode -eq 'apply') { $extra = @('-Apply') }
-            $r = Invoke-Deploy $repo $collisionHome $extra
-            Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'live-skill-target-not-directory') "$platform $mode rejects a selected ordinary file (exit $($r.Code): $($r.Out))"
-            Assert-TestCondition ((Test-Path -LiteralPath $collision -PathType Leaf) -and (Get-Content -Raw -LiteralPath $collision) -ceq 'preserve this ordinary file') "$platform $mode preserves the conflicting file"
-            Assert-TestCondition (@('codex', 'zcode' | Where-Object { Test-Path (Join-Path $collisionHome ".$_/skills/alpha") }).Count -eq 0 -and -not (Test-Path (Join-Path $collisionHome 'state'))) "$platform $mode rejects the entire plan before any installation or state write"
-        }
+    Set-TestEnvironment $repo @('alpha', 'beta')
+    foreach ($mode in @('dry-run', 'apply')) {
+        $collisionHome = Join-Path $work "collision-codex-$mode"
+        $collision = Join-Path $collisionHome '.codex/skills/beta'
+        Set-TestFile $collision 'preserve this ordinary file'
+        $extra = @()
+        if ($mode -eq 'apply') { $extra = @('-Apply') }
+        $r = Invoke-Deploy $repo $collisionHome $extra
+        Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'live-skill-target-not-directory') "codex $mode rejects a selected ordinary file (exit $($r.Code): $($r.Out))"
+        Assert-TestCondition ((Test-Path -LiteralPath $collision -PathType Leaf) -and (Get-Content -Raw -LiteralPath $collision) -ceq 'preserve this ordinary file') "codex $mode preserves the conflicting file"
+        Assert-TestCondition (-not (Test-Path (Join-Path $collisionHome '.codex/skills/alpha')) -and -not (Test-Path (Join-Path $collisionHome 'state'))) "codex $mode rejects the entire plan before any installation or state write"
     }
     Set-TestEnvironment $repo @('alpha', 'beta')
 
@@ -119,14 +110,14 @@ try {
         Assert-TestCondition (-not @(Get-ChildItem -LiteralPath $root -Directory -Force | Where-Object Name -like '.deploying-*')) "no staging left under $root"
     }
     Assert-TestCondition ((Get-Content -Raw (Join-Path $homeDir '.codex/skills/.system/marker.txt')) -eq 'platform') 'Codex .system untouched'
-    Assert-TestCondition ((Get-Content -Raw (Join-Path $homeDir '.zcode/skills/hand-made/SKILL.md')) -eq 'mine') 'unknown live skill untouched'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $homeDir '.codex/skills/hand-made/SKILL.md')) -eq 'mine') 'unknown live skill untouched'
     $state = Get-Content -Raw (Join-Path $homeDir 'state/deployed-skills.json') | ConvertFrom-Json
     Assert-TestCondition ((@($state.Codex) -join ',') -eq 'alpha,beta') 'state records the deployed set'
 
     Write-Host '[state write failure preserves existing state]'
     $writeFailureHome = Join-Path $work 'state-write-failure-home'
     $writeFailureState = Join-Path $writeFailureHome 'state/deployed-skills.json'
-    Set-TestFile $writeFailureState '{"Environment":"previous","Zcode":[],"Codex":[]}'
+    Set-TestFile $writeFailureState '{"Environment":"previous","Codex":[]}'
     $oldWriteHash = (Get-FileHash -LiteralPath $writeFailureState).Hash
     $writeFailureHarness = Join-Path $work 'fail-state-write.ps1'
     Set-TestFile $writeFailureHarness @'
@@ -149,7 +140,7 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $r = Invoke-TestProcess -ScriptPath $writeFailureHarness -Arguments @($deploy, $repo, $writeFailureHome)
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'injected partial state write failure') 'injected partial state write fails the Apply'
     Assert-TestCondition ((Get-FileHash -LiteralPath $writeFailureState).Hash -eq $oldWriteHash) 'partial state write leaves previous state unchanged'
-    Assert-TestCondition ((Test-Path (Join-Path $writeFailureHome '.zcode/skills/alpha/SKILL.md')) -and (Test-Path (Join-Path $writeFailureHome '.codex/skills/alpha/SKILL.md'))) 'completed skill installs remain after state write failure'
+    Assert-TestCondition (Test-Path (Join-Path $writeFailureHome '.codex/skills/alpha/SKILL.md')) 'completed skill installs remain after state write failure'
     Assert-TestCondition ($r.Out -match 'Live changes may already have occurred' -and @(Get-ChildItem -LiteralPath (Split-Path -Parent $writeFailureState) -Filter 'deployed-skills.*.tmp').Count -eq 0) 'failure warns about live changes and removes its temporary state'
 
     Write-Host '[blocked state replacement preserves existing state]'
@@ -160,29 +151,27 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $r = Invoke-Deploy $repo $writeFailureHome @('-Apply')
     $updatedState = Get-Content -Raw -LiteralPath $writeFailureState | ConvertFrom-Json
     Assert-TestCondition ($r.Code -eq 0 -and $updatedState.Environment -eq 'test') "retry replaces the existing state after the lock is released (exit $($r.Code), environment $($updatedState.Environment), output: $($r.Out))"
-    foreach ($platform in 'Zcode', 'Codex') {
-        $file = Join-Path $writeFailureHome ".$platform/skills/alpha/SKILL.md"
-        Assert-TestCondition ($updatedState.$platform.Count -eq 0 -and (Get-Content -Raw -LiteralPath $file) -ceq "# alpha v1`n") "retry preserves the $platform skill without a recorded owner"
-    }
+    $file = Join-Path $writeFailureHome '.codex/skills/alpha/SKILL.md'
+    Assert-TestCondition ($updatedState.Codex.Count -eq 0 -and (Get-Content -Raw -LiteralPath $file) -ceq "# alpha v1`n") 'retry preserves the Codex skill without a recorded owner'
 
     Write-Host '[unavailable state directory reports partial live changes]'
     $blockedStateHome = Join-Path $work 'blocked-state-home'
     Set-TestFile (Join-Path $blockedStateHome 'state') 'not a directory'
     $r = Invoke-Deploy $repo $blockedStateHome @('-Apply')
-    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Deployment state update failed' -and $r.Out -match 'Live changes may already have occurred' -and (Test-Path (Join-Path $blockedStateHome '.zcode/skills/alpha/SKILL.md'))) 'unavailable state directory reports the failure after completed installs'
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Deployment state update failed' -and $r.Out -match 'Live changes may already have occurred' -and (Test-Path (Join-Path $blockedStateHome '.codex/skills/alpha/SKILL.md'))) 'unavailable state directory reports the failure after completed installs'
     Set-TestEnvironment $repo @('alpha', 'beta')
 
     Write-Host '[identical manual skill stays unowned when deselected]'
     $manualHome = Join-Path $work 'matching-manual-home'
-    $manualFile = Join-Path $manualHome '.zcode/skills/alpha/SKILL.md'
+    $manualFile = Join-Path $manualHome '.codex/skills/alpha/SKILL.md'
     Set-TestFile $manualFile "# alpha v1`n"
     $r = Invoke-Deploy $repo $manualHome @('-Apply')
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+unchanged\s+alpha' -and $r.Out -match 'install Zcode/beta') 'deployment preserves the matching manual skill and installs the control'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Codex\s+unchanged\s+alpha' -and $r.Out -match 'install Codex/beta') 'deployment preserves the matching manual skill and installs the control'
     Set-TestEnvironment $repo @()
     $r = Invoke-Deploy $repo $manualHome
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+unknown\s+alpha' -and $r.Out -match 'Zcode\s+prune\s+beta') 'deselection preview distinguishes the manual skill from the installed control'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Codex\s+unknown\s+alpha' -and $r.Out -match 'Codex\s+prune\s+beta') 'deselection preview distinguishes the manual skill from the installed control'
     $r = Invoke-Deploy $repo $manualHome @('-Apply')
-    Assert-TestCondition ($r.Code -eq 0 -and (Get-Content -Raw -LiteralPath $manualFile) -ceq "# alpha v1`n" -and -not (Test-Path (Join-Path $manualHome '.zcode/skills/beta'))) 'deselection preserves the manual file and removes the installed control'
+    Assert-TestCondition ($r.Code -eq 0 -and (Get-Content -Raw -LiteralPath $manualFile) -ceq "# alpha v1`n" -and -not (Test-Path (Join-Path $manualHome '.codex/skills/beta'))) 'deselection preserves the manual file and removes the installed control'
     Set-TestEnvironment $repo @('alpha', 'beta')
 
     Write-Host '[lost state does not authorize pruning]'
@@ -193,13 +182,13 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     Remove-Item -LiteralPath (Join-Path $lostStateHome 'state/deployed-skills.json')
     Set-TestEnvironment $repo @('alpha')
     $r = Invoke-Deploy $repo $lostStateHome
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+unknown\s+beta' -and $r.Out -match 'Codex\s+unknown\s+beta' -and $r.Out -notmatch '(?m)^\s*(Zcode|Codex)\s+prune\s+beta') 'previously deployed beta becomes unknown when state is lost'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Codex\s+unknown\s+beta' -and $r.Out -notmatch '(?m)^\s*Codex\s+prune\s+beta') 'previously deployed beta becomes unknown when state is lost'
     $r = Invoke-Deploy $repo $lostStateHome @('-Apply')
-    Assert-TestCondition ($r.Code -eq 0 -and (Test-Path (Join-Path $lostStateHome '.zcode/skills/beta/SKILL.md')) -and (Test-Path (Join-Path $lostStateHome '.codex/skills/beta/SKILL.md'))) 'apply preserves formerly managed directories that are now unknown'
+    Assert-TestCondition ($r.Code -eq 0 -and (Test-Path (Join-Path $lostStateHome '.codex/skills/beta/SKILL.md'))) 'apply preserves formerly managed directories that are now unknown'
     $r = Invoke-Deploy $repo $lostStateHome @('-Retire', 'beta')
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+prune\s+beta' -and $r.Out -match 'Codex\s+prune\s+beta' -and (Test-Path (Join-Path $lostStateHome '.zcode/skills/beta/SKILL.md'))) 'explicit retire is visible in dry run without removing beta'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Codex\s+prune\s+beta' -and (Test-Path (Join-Path $lostStateHome '.codex/skills/beta/SKILL.md'))) 'explicit retire is visible in dry run without removing beta'
     $r = Invoke-Deploy $repo $lostStateHome @('-Apply', '-Retire', 'beta')
-    Assert-TestCondition ($r.Code -eq 0 -and -not (Test-Path (Join-Path $lostStateHome '.zcode/skills/beta')) -and -not (Test-Path (Join-Path $lostStateHome '.codex/skills/beta')) -and (Get-Content -Raw (Join-Path $lostStateHome '.codex/skills/.system/marker.txt')) -eq 'platform') 'explicit retirement removes beta while preserving .system'
+    Assert-TestCondition ($r.Code -eq 0 -and -not (Test-Path (Join-Path $lostStateHome '.codex/skills/beta')) -and (Get-Content -Raw (Join-Path $lostStateHome '.codex/skills/.system/marker.txt')) -eq 'platform') 'explicit retirement removes beta while preserving .system'
     Set-TestEnvironment $repo @('alpha', 'beta')
 
     Write-Host '[legacy state is ignored and retired on apply]'
@@ -207,32 +196,35 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $oldState = Get-Content -Raw $statePath | ConvertFrom-Json -AsHashtable
     $oldState['Reasonix'] = @('alpha')
     $oldState['Claude'] = @('legacy-skill')
+    $oldState['Zcode'] = @('legacy-skill')
     Set-TestFile $statePath ($oldState | ConvertTo-Json)
     $stateHash = (Get-FileHash -LiteralPath $statePath).Hash
     $legacyFile = Join-Path $homeDir 'AppData/Roaming/reasonix/skills/alpha/SKILL.md'
     Set-TestFile $legacyFile 'legacy bytes'
-    $retiredFile = Join-Path $homeDir '.claude/skills/legacy-skill/SKILL.md'
-    $independentFile = Join-Path $homeDir '.zcode/skills/legacy-skill/SKILL.md'
-    Set-TestFile $retiredFile 'retired bytes'
+    $retiredClaudeFile = Join-Path $homeDir '.claude/skills/legacy-skill/SKILL.md'
+    $retiredZcodeFile = Join-Path $homeDir '.zcode/skills/legacy-skill/SKILL.md'
+    $independentFile = Join-Path $homeDir '.codex/skills/legacy-skill/SKILL.md'
+    Set-TestFile $retiredClaudeFile 'retired claude bytes'
+    Set-TestFile $retiredZcodeFile 'retired zcode bytes'
     Set-TestFile $independentFile 'manually installed'
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -eq 0 -and (Get-FileHash -LiteralPath $statePath).Hash -eq $stateHash -and (Get-Content -Raw $legacyFile) -eq 'legacy bytes') 'dry run ignores legacy state without changing it or the retired root'
-    Assert-TestCondition ($r.Out -notmatch 'Claude' -and $r.Out -match 'Zcode\s+unknown\s+legacy-skill') 'retired state grants no ownership of the same Zcode name'
+    Assert-TestCondition ($r.Out -notmatch 'Claude|Zcode' -and $r.Out -match 'Codex\s+unknown\s+legacy-skill') 'retired state grants no ownership of the same Codex name'
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     $state = Get-Content -Raw $statePath | ConvertFrom-Json -AsHashtable
     Assert-TestCondition ($r.Code -eq 0 -and -not $state.ContainsKey('Reasonix') -and (Get-Content -Raw $legacyFile) -eq 'legacy bytes') 'apply writes active state only and preserves the retired root'
-    Assert-TestCondition (-not $state.ContainsKey('Claude') -and (Get-Content -Raw $retiredFile) -ceq 'retired bytes' -and (Get-Content -Raw $independentFile) -ceq 'manually installed') 'old Claude state is discarded without changing either directory'
+    Assert-TestCondition (-not $state.ContainsKey('Claude') -and -not $state.ContainsKey('Zcode') -and (Get-Content -Raw $retiredClaudeFile) -ceq 'retired claude bytes' -and (Get-Content -Raw $retiredZcodeFile) -ceq 'retired zcode bytes' -and (Get-Content -Raw $independentFile) -ceq 'manually installed') 'old Claude and Zcode state is discarded without changing live directories'
 
     Write-Host '[second apply is a no-op]'
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'unchanged' -and $r.Out -notmatch '(?m)^(install|update|prune) ') 'unchanged skills are left alone'
 
     Write-Host '[changed source updates with a backup]'
-    Set-TestFile (Join-Path $repo 'zcode/skills/alpha/SKILL.md') "# alpha v2`n"
+    Set-TestFile (Join-Path $repo 'codex/skills/alpha/SKILL.md') "# alpha v2`n"
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'update Zcode/alpha') 'changed skill is updated'
-    Assert-TestCondition ((Get-Content -Raw (Join-Path $homeDir '.zcode/skills/alpha/SKILL.md')) -eq "# alpha v2`n") 'live copy has the new content'
-    $backup = @(Get-ChildItem -LiteralPath (Join-Path $homeDir 'state/skill-backups') -Recurse -File -Filter SKILL.md | Where-Object { $_.FullName -match 'Zcode[\\/]alpha' })
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'update Codex/alpha') 'changed skill is updated'
+    Assert-TestCondition ((Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v2`n") 'live copy has the new content'
+    $backup = @(Get-ChildItem -LiteralPath (Join-Path $homeDir 'state/skill-backups') -Recurse -File -Filter SKILL.md | Where-Object { $_.FullName -match 'Codex[\\/]alpha' })
     Assert-TestCondition ($backup.Count -eq 1 -and (Get-Content -Raw $backup[0].FullName) -eq "# alpha v1`n") 'the previous copy is backed up'
 
     Write-Host '[deselected skill is pruned; unknown stays]'
@@ -240,14 +232,14 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'prune Codex/beta') 'deselected skill is pruned'
     foreach ($root in Get-LiveRoots $homeDir) { Assert-TestCondition (-not (Test-Path (Join-Path $root 'beta'))) "beta removed from $root" }
-    Assert-TestCondition (Test-Path (Join-Path $homeDir '.zcode/skills/hand-made')) 'unknown skill still untouched after prune'
+    Assert-TestCondition (Test-Path (Join-Path $homeDir '.codex/skills/hand-made')) 'unknown skill still untouched after prune'
     Assert-TestCondition (Test-Path (Join-Path $homeDir '.codex/skills/.system/marker.txt')) '.system still untouched after prune'
 
     Write-Host '[explicit retire removes a named unknown skill]'
     $r = Invoke-Deploy $repo $homeDir @('-Retire', 'hand-made')
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'prune' -and (Test-Path (Join-Path $homeDir '.zcode/skills/hand-made'))) 'retire is only planned on dry run'
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'prune' -and (Test-Path (Join-Path $homeDir '.codex/skills/hand-made'))) 'retire is only planned on dry run'
     $r = Invoke-Deploy $repo $homeDir @('-Apply', '-Retire', 'hand-made')
-    Assert-TestCondition ($r.Code -eq 0 -and -not (Test-Path (Join-Path $homeDir '.zcode/skills/hand-made'))) 'retire removes the named skill on apply'
+    Assert-TestCondition ($r.Code -eq 0 -and -not (Test-Path (Join-Path $homeDir '.codex/skills/hand-made'))) 'retire removes the named skill on apply'
     $r = Invoke-Deploy $repo $homeDir @('-Apply', '-Retire', '.system')
     Assert-TestCondition ($r.Code -ne 0 -and (Test-Path (Join-Path $homeDir '.codex/skills/.system/marker.txt'))) '.system can never be retired'
 
@@ -268,7 +260,7 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $lock = [IO.File]::Open((Join-Path $homeDir '.codex/skills/alpha/SKILL.md'), 'Open', 'Read', 'Read')
     try { $r = Invoke-Deploy $repo $homeDir @('-Apply') } finally { $lock.Dispose() }
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Apply failed; backups created so far') 'update over a locked file fails and reports its backup location'
-    Assert-TestCondition ((Test-Path (Join-Path $homeDir '.codex/skills/alpha/refs/a.md')) -and (Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v1`n") 'the live skill is left whole'
+    Assert-TestCondition ((Test-Path (Join-Path $homeDir '.codex/skills/alpha/refs/a.md')) -and (Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v2`n") 'the live skill is left whole'
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -eq 0 -and (Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v3`n") 'the next run completes the update'
     Assert-TestCondition (-not @(Get-ChildItem -LiteralPath (Join-Path $homeDir '.codex/skills') -Directory -Force | Where-Object Name -like '.deploying-*')) 'leftover staging is cleaned'
@@ -277,114 +269,88 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $interruptedHome = Join-Path $work 'interrupted-home'
     $r = Invoke-Deploy $repo $interruptedHome @('-Apply')
     Assert-TestCondition ($r.Code -eq 0) 'interrupted fixture is initially deployed'
-    $interruptedRoot = Join-Path $interruptedHome '.zcode/skills'
+    $interruptedRoot = Join-Path $interruptedHome '.codex/skills'
     $oldStatePath = Join-Path $interruptedHome 'state/deployed-skills.json'
     $beforeState = Get-FileHash -LiteralPath $oldStatePath
-    New-Item -ItemType Directory -Path (Join-Path $interruptedHome 'state/skill-backups/prior/Zcode') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $interruptedRoot 'alpha') -Destination (Join-Path $interruptedHome 'state/skill-backups/prior/Zcode/alpha') -Recurse -Force
+    New-Item -ItemType Directory -Path (Join-Path $interruptedHome 'state/skill-backups/prior/Codex') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $interruptedRoot 'alpha') -Destination (Join-Path $interruptedHome 'state/skill-backups/prior/Codex/alpha') -Recurse -Force
     Rename-Item -LiteralPath (Join-Path $interruptedRoot 'alpha') -NewName '.deploying-old-alpha'
-    Set-TestFile (Join-Path $repo 'zcode/skills/alpha/SKILL.md') "# alpha v5`n"
-    Copy-Item -LiteralPath (Join-Path $repo 'zcode/skills/alpha') -Destination (Join-Path $interruptedRoot '.deploying-alpha') -Recurse
+    Set-TestFile (Join-Path $repo 'codex/skills/alpha/SKILL.md') "# alpha v5`n"
+    Copy-Item -LiteralPath (Join-Path $repo 'codex/skills/alpha') -Destination (Join-Path $interruptedRoot '.deploying-alpha') -Recurse
     $r = Invoke-Deploy $repo $interruptedHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'interrupted' -and $r.Out -match '\.deploying-old-alpha' -and $r.Out -match 'skill-backups') 'dry run reports interrupted remnants and backup location'
     Assert-TestCondition ((Get-FileHash -LiteralPath $oldStatePath).Hash -eq $beforeState.Hash -and (Test-Path (Join-Path $interruptedRoot '.deploying-old-alpha/SKILL.md'))) 'dry run preserves state and old directory'
     $r = Invoke-Deploy $repo $interruptedHome @('-Apply')
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Preserved interrupted') 'apply explicitly reports preservation of the old directory'
-    $preserved = @(Get-ChildItem -LiteralPath (Join-Path $interruptedHome 'state/skill-backups') -Recurse -File -Filter SKILL.md | Where-Object { $_.FullName -match '[\\/]interrupted[\\/]Zcode[\\/]alpha[\\/]' })
-    Assert-TestCondition ($preserved.Count -gt 0 -and (Get-Content -Raw $preserved[0].FullName) -eq "# alpha v2`n") 'old content is copied to a backup before its leftover is removed'
+    $preserved = @(Get-ChildItem -LiteralPath (Join-Path $interruptedHome 'state/skill-backups') -Recurse -File -Filter SKILL.md | Where-Object { $_.FullName -match '[\\/]interrupted[\\/]Codex[\\/]alpha[\\/]' })
+    Assert-TestCondition ($preserved.Count -gt 0 -and (Get-Content -Raw $preserved[0].FullName) -eq "# alpha v3`n") 'old content is copied to a backup before its leftover is removed'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $interruptedRoot 'alpha/SKILL.md')) -eq "# alpha v5`n") 'selected skill is installed after preserving the interrupted old directory'
-    Set-TestFile (Join-Path $repo 'zcode/skills/alpha/SKILL.md') "# alpha v2`n"
+    Set-TestFile (Join-Path $repo 'codex/skills/alpha/SKILL.md') "# alpha v3`n"
 
     $blockedHome = Join-Path $work 'backup-blocked-home'
     $r = Invoke-Deploy $repo $blockedHome @('-Apply')
     Assert-TestCondition ($r.Code -eq 0) 'backup failure fixture is initially deployed'
-    $blockedRoot = Join-Path $blockedHome '.zcode/skills'
+    $blockedRoot = Join-Path $blockedHome '.codex/skills'
     Rename-Item -LiteralPath (Join-Path $blockedRoot 'alpha') -NewName '.deploying-old-alpha'
     Set-TestFile (Join-Path $blockedHome 'state/skill-backups') 'blocks backup directory'
     $r = Invoke-Deploy $repo $blockedHome @('-Apply')
-    Assert-TestCondition ($r.Code -ne 0 -and (Get-Content -Raw (Join-Path $blockedRoot '.deploying-old-alpha/SKILL.md')) -eq "# alpha v2`n") 'backup failure leaves the interrupted old directory untouched'
+    Assert-TestCondition ($r.Code -ne 0 -and (Get-Content -Raw (Join-Path $blockedRoot '.deploying-old-alpha/SKILL.md')) -eq "# alpha v3`n") 'backup failure leaves the interrupted old directory untouched'
 
     Write-Host '[overlapping temporary names preserve interrupted data]'
     $overlapHome = Join-Path $work 'overlap-home'
-    foreach ($platform in 'zcode', 'codex') {
-        Set-TestFile (Join-Path $repo "$platform/skills/old-alpha/SKILL.md") "# old-alpha v1`n"
-    }
+    Set-TestFile (Join-Path $repo 'codex/skills/old-alpha/SKILL.md') "# old-alpha v1`n"
     Set-TestEnvironment $repo @('alpha', 'old-alpha')
     $r = Invoke-Deploy $repo $overlapHome @('-Apply')
     Assert-TestCondition ($r.Code -eq 0) 'overlap fixture deploys alpha and old-alpha'
-    $overlapRoot = Join-Path $overlapHome '.zcode/skills'
+    $overlapRoot = Join-Path $overlapHome '.codex/skills'
     Rename-Item -LiteralPath (Join-Path $overlapRoot 'alpha') -NewName '.deploying-old-alpha'
-    Set-TestFile (Join-Path $repo 'zcode/skills/old-alpha/SKILL.md') "# old-alpha v2`n"
+    Set-TestFile (Join-Path $repo 'codex/skills/old-alpha/SKILL.md') "# old-alpha v2`n"
     Set-TestEnvironment $repo @('old-alpha')
     $r = Invoke-Deploy $repo $overlapHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match '\.deploying-old-alpha') 'dry run reports the ambiguous interrupted directory'
     $overlapLock = [IO.File]::Open((Join-Path $overlapRoot '.deploying-old-alpha/SKILL.md'), 'Open', 'Read', 'None')
     try { $r = Invoke-Deploy $repo $overlapHome @('-Apply') } finally { $overlapLock.Dispose() }
-    Assert-TestCondition ($r.Code -ne 0 -and (Get-Content -Raw (Join-Path $overlapRoot '.deploying-old-alpha/SKILL.md')) -eq "# alpha v2`n" -and (Get-Content -Raw (Join-Path $overlapRoot 'old-alpha/SKILL.md')) -eq "# old-alpha v1`n") 'failed staging backup leaves both the interrupted data and current target intact'
+    Assert-TestCondition ($r.Code -ne 0 -and (Get-Content -Raw (Join-Path $overlapRoot '.deploying-old-alpha/SKILL.md')) -eq "# alpha v3`n" -and (Get-Content -Raw (Join-Path $overlapRoot 'old-alpha/SKILL.md')) -eq "# old-alpha v1`n") 'failed staging backup leaves both the interrupted data and current target intact'
     $r = Invoke-Deploy $repo $overlapHome @('-Apply')
-    $overlapBackups = @(Get-ChildItem -LiteralPath (Join-Path $overlapHome 'state/skill-backups') -Recurse -File -Filter SKILL.md | Where-Object { $_.FullName -match '[\\/]interrupted-staging[\\/]Zcode[\\/]old-alpha[\\/]' })
-    Assert-TestCondition ($r.Code -eq 0 -and $overlapBackups.Count -eq 1 -and (Get-Content -Raw $overlapBackups[0].FullName) -eq "# alpha v2`n") 'ambiguous staging name is backed up before it is removed'
+    $overlapBackups = @(Get-ChildItem -LiteralPath (Join-Path $overlapHome 'state/skill-backups') -Recurse -File -Filter SKILL.md | Where-Object { $_.FullName -match '[\\/]interrupted-staging[\\/]Codex[\\/]old-alpha[\\/]' })
+    Assert-TestCondition ($r.Code -eq 0 -and $overlapBackups.Count -eq 1 -and (Get-Content -Raw $overlapBackups[0].FullName) -eq "# alpha v3`n") 'ambiguous staging name is backed up before it is removed'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $overlapRoot 'old-alpha/SKILL.md')) -eq "# old-alpha v2`n") 'the requested update still completes'
     Set-TestEnvironment $repo @('alpha')
 
-    Write-Host '[Zcode and Codex use separate build outputs and selections]'
-    Set-TestEnvironment $repo @('alpha') @()
-    $r = Invoke-Deploy $repo $homeDir @('-Apply')
-    Assert-TestCondition ($r.Code -eq 0) 'fixture deselects Zcode before testing a fresh install'
-    $zcodeRoot = Join-Path $homeDir '.zcode/skills'
-    Set-TestFile (Join-Path $zcodeRoot 'hand-made-z/SKILL.md') 'manual'
-    Set-TestEnvironment $repo @('alpha') @('alpha')
+    Write-Host '[selection without generated output is refused]'
+    Set-TestEnvironment $repo @('alpha', 'missing-skill')
     $r = Invoke-Deploy $repo $homeDir
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+install\s+alpha' -and $r.Out -match 'Zcode\s+unknown\s+hand-made-z') 'zcode plans install from the projection and reports unknown dirs'
-    $r = Invoke-Deploy $repo $homeDir @('-Apply')
-    Assert-TestCondition ($r.Code -eq 0 -and (Get-Content -Raw (Join-Path $zcodeRoot 'alpha/SKILL.md')) -eq "# alpha v2`n") 'zcode installs its generated content'
-    Assert-TestCondition ((Get-Content -Raw (Join-Path $zcodeRoot 'hand-made-z/SKILL.md')) -eq 'manual') 'zcode unknown dir untouched'
-    $state = Get-Content -Raw (Join-Path $homeDir 'state/deployed-skills.json') | ConvertFrom-Json
-    Assert-TestCondition ((@($state.Zcode) -join ',') -eq 'alpha') 'state records the Zcode set'
-    Set-TestEnvironment $repo @('alpha') @()
-    $r = Invoke-Deploy $repo $homeDir @('-Apply')
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Zcode\s+prune\s+alpha' -and (Get-Content -Raw (Join-Path $zcodeRoot 'hand-made-z/SKILL.md')) -eq 'manual') 'deselecting prunes the zcode-deployed dir but keeps unknown dirs'
-    Set-TestEnvironment $repo @('alpha') @('alpha')
-    $r = Invoke-Deploy $repo $homeDir @('-Apply')
-    Set-TestFile (Join-Path $repo 'zcode/skills/alpha/SKILL.md') "# alpha v4`n"
-    $r = Invoke-Deploy $repo $homeDir @('-Apply')
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'update Zcode/alpha') 'changing the Zcode output updates its live skill'
-    Assert-TestCondition ((Get-Content -Raw (Join-Path $zcodeRoot 'alpha/SKILL.md')) -eq "# alpha v4`n" -and (Get-Content -Raw (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -eq "# alpha v3`n") 'Zcode and Codex read their own build outputs'
-    Set-TestEnvironment $repo @('alpha') @()
-    Set-TestFile (Join-Path $repo 'codex/skills/gamma/SKILL.md') "# gamma v1`n"
-    Set-TestEnvironment $repo @('alpha') @('gamma')
-    $r = Invoke-Deploy $repo $homeDir
-    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'no generated output for Zcode') 'a Zcode selection without its generated output is refused'
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'no generated output for Codex') 'a Codex selection without its generated output is refused'
     Set-TestEnvironment $repo @('alpha')
 
     Write-Host '[malformed environments are refused]'
     $envFile = Join-Path $repo 'harness-source/envs/test.psd1'
     $good = [IO.File]::ReadAllText($envFile)
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codx = @('alpha'); Zcode = @() } }")
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codx = @('alpha') } }")
     $r = Invoke-Deploy $repo $homeDir
-    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'a misspelled platform key is refused instead of pruning everything'
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha.'); Zcode = @() } }")
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the key Codex') 'a misspelled platform key is refused instead of pruning everything'
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha.') } }")
     $r = Invoke-Deploy $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid skill name') 'a trailing-dot name is refused'
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @(''); Zcode = @() } }")
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('') } }")
     $stateFile = Join-Path $homeDir 'state/deployed-skills.json'
     $stateHash = (Get-FileHash -LiteralPath $stateFile).Hash
     $r = Invoke-Deploy $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid skill name' -and (Test-Path -LiteralPath (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -and (Get-FileHash -LiteralPath $stateFile).Hash -eq $stateHash) 'a blank skill name cannot prune a managed skill or publish empty state'
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha') } }")
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha'); Zcode = @() } }")
     $r = Invoke-Deploy $repo $homeDir
-    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'an env without the Zcode key is refused'
-    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha'); Zcode = @(); Claude = @() } }")
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the key Codex') 'an env with retired Zcode key is refused'
+    [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha'); Claude = @() } }")
     $r = Invoke-Deploy $repo $homeDir
-    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the keys') 'an env with a retired platform key is refused'
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the key Codex') 'an env with a retired platform key is refused'
     [IO.File]::WriteAllText($envFile, $good)
 
     Write-Host '[reparse points are refused]'
     $outside = Join-Path $work 'outside'
     Set-TestFile (Join-Path $outside 'sentinel.txt') 'keep'
     $junctionHome = Join-Path $work 'junction-home'
-    New-Item -ItemType Directory -Path (Join-Path $junctionHome '.zcode/skills') -Force | Out-Null
-    New-Item -ItemType Junction -Path (Join-Path $junctionHome '.zcode/skills/alpha') -Target $outside | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $junctionHome '.codex/skills') -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $junctionHome '.codex/skills/alpha') -Target $outside | Out-Null
     $r = Invoke-Deploy $repo $junctionHome @('-Apply')
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse-point-refused') 'a junction under a live root is refused'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $outside 'sentinel.txt')) -eq 'keep' -and @(Get-ChildItem $outside).Count -eq 1) 'the junction target is untouched'

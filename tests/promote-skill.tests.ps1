@@ -27,23 +27,25 @@ try {
     $skillDir = Join-Path $work 'inputs/new-skill'
     Set-TestFile (Join-Path $skillDir 'SKILL.md') "---`nname: new-skill`n---`n# new skill`n"
     Set-TestFile (Join-Path $skillDir 'refs/notes.md') "notes`n"
-    $target = Join-Path $repo 'skills-source/zcode-only/new-skill'
+    $target = Join-Path $repo 'skills-source/codex-only/new-skill'
 
     Write-Host '[dry run]'
-    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'zcode-only')
-    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'create skills-source/zcode-only/new-skill' -and $r.Out -match 'file: refs/notes\.md') "dry run lists the target and files ($($r.Out))"
+    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'codex-only')
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'create skills-source/codex-only/new-skill' -and $r.Out -match 'file: refs/notes\.md') "dry run lists the target and files ($($r.Out))"
     Assert-TestCondition (-not (Test-Path -LiteralPath $target)) 'dry run writes nothing'
-    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'zcode-only', '-DryRun')
+    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'codex-only', '-DryRun')
     Assert-TestCondition ($r.Code -ne 0 -and -not (Test-Path -LiteralPath $target)) 'the removed -DryRun switch is rejected and writes nothing'
 
     Write-Host '[apply]'
-    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'zcode-only', '-Apply')
+    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'codex-only', '-Apply')
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'build-skills\.ps1: PASS' -and $r.Out -match 'scan-secrets\.ps1: PASS') "Apply passes build and scan ($($r.Out))"
-    Assert-TestCondition ((Test-Path -LiteralPath (Join-Path $target 'refs/notes.md')) -and (Test-Path -LiteralPath (Join-Path $repo 'zcode/skills/new-skill/SKILL.md'))) 'Apply copies the tree and rebuilds generated output'
+    Assert-TestCondition ((Test-Path -LiteralPath (Join-Path $target 'refs/notes.md')) -and (Test-Path -LiteralPath (Join-Path $repo 'codex/skills/new-skill/SKILL.md'))) 'Apply copies the tree and rebuilds generated output'
 
     Write-Host '[refusals]'
-    $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', 'reasonix-only')
-    Assert-TestCondition ($r.Code -ne 0 -and -not (Test-Path -LiteralPath (Join-Path $repo 'skills-source/reasonix-only/new-skill'))) 'the retired platform type is refused without writing'
+    foreach ($retiredType in @('reasonix-only', 'zcode-only')) {
+        $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', $retiredType)
+        Assert-TestCondition ($r.Code -ne 0 -and -not (Test-Path -LiteralPath (Join-Path $repo "skills-source/$retiredType/new-skill"))) "the retired platform type $retiredType is refused without writing"
+    }
     foreach ($bad in '.system', '-dash', 'trailing.', 'a/b', '..') {
         $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', $bad, '-Type', 'shared', '-Apply')
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Invalid skill name') "refuses the name '$bad'"

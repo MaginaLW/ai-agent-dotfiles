@@ -1,8 +1,7 @@
 # New Windows Machine Onboarding
 
-Set up one Windows machine for the daily Codex, ZCode, and Antigravity workflow (skills, global agreements, plugins, and managed MCP servers).
-The `work` environment selects nine skills from `codex/skills/` for Codex and seven from
-`zcode/skills/` for ZCode. Bootstrap builds both directories from `skills-source/`.
+Set up one Windows machine for the daily Codex and Antigravity workflow (skills, global agreements, plugins, and managed MCP servers).
+The `work` environment selects eight skills from `codex/skills/` for Codex. Bootstrap builds `codex/skills/` from `skills-source/`.
 Use PowerShell 7+. Start only after the owner names the machine.
 
 ## 1. Clone and bootstrap
@@ -25,7 +24,7 @@ embedded credentials, and fix any doctor FAIL before going on.
 pwsh -NoProfile -File .\scripts\deploy.ps1 -Environment work
 ```
 
-Check every line from both stages. `install` and `update` are the selected Codex/ZCode skills;
+Check every line from both stages. `install` and `update` are the selected Codex skills;
 the config stage only shows whether the Codex `AGENTS.md` managed block needs to be added or
 updated. `unknown` lines are unselected
 live directories absent from deploy state and `-Retire`; they may be local skills, come from
@@ -55,19 +54,7 @@ config and deploy state untouched, although the skill build may regenerate repos
 Preflight does not guarantee write access or prevent concurrent changes. A runtime config failure
 can still leave skills completed; use the [recovery table](README.md#8-备份与恢复) before retrying.
 
-## 4. Sync ZCode global instructions (`~/.zcode/AGENTS.md`)
-
-Preview and apply the ZCode managed `AGENTS.md` block (`~/.zcode/AGENTS.md`) with explicit `-Platform ZCode` and owner authorization:
-
-```powershell
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform ZCode -DryRun
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform ZCode -Apply
-pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config status -Platform ZCode
-```
-
-This updates only the managed block (`<!-- BEGIN AI-AGENT-DOTFILES: zcode/AGENTS.md -->` ... `<!-- END AI-AGENT-DOTFILES: zcode/AGENTS.md -->`) and preserves any ZCode-specific tail clauses intact ([docs/ZCODE.md](ZCODE.md)).
-
-## 5. Set up Antigravity (`AGENTS.md` and plugins)
+## 4. Set up Antigravity (`AGENTS.md` and plugins)
 
 1. Preview and apply the Antigravity managed `AGENTS.md` block (`~/.gemini/config/AGENTS.md`) with explicit `-Platform Antigravity` and owner authorization:
 
@@ -88,9 +75,9 @@ pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity deploy -Apply
 
 See [docs/README.md §15](README.md#15-antigravity-插件) for ownership, `ExternalPlugins`, and post-install readback details.
 
-## 6. Project managed MCP servers (`mcp-sync`)
+## 5. Project managed MCP servers (`mcp-sync`)
 
-Ensure required runtimes/CLIs for declared servers (for example `uv` / `uvx` for `blender`, and `codex` on `PATH` for Codex projection) are installed. Preview across Antigravity, Codex, and ZCode, then run `-Apply` only after explicit owner authorization (Codex/ZCode standing `work` skill grant does not cover MCP Apply):
+Ensure required runtimes/CLIs for declared servers (for example `uv` / `uvx` for `blender`, and `codex` on `PATH` for Codex projection) are installed. Preview across Antigravity and Codex, then run `-Apply` only after explicit owner authorization (Codex standing `work` skill grant does not cover MCP Apply):
 
 ```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
@@ -107,7 +94,7 @@ pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
 
 See [docs/README.md §16](README.md#16-受管-mcp-分发mcp-sync) for per-client projection targets, unmanaged-entry preservation, and backup recovery.
 
-## 7. Optional: remove skills an older setup left
+## 6. Optional: remove skills an older setup left
 
 If the skill dry run shows `unknown` directories that an older setup deployed and that are no
 longer wanted, name them with `-Retire` in a skills-only dry run, review the `prune` lines, then

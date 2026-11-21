@@ -26,7 +26,7 @@ try {
     if ((Get-FileHash -LiteralPath $child -Algorithm SHA256).Hash -ne $beforeHash) { throw 'doctor changed the protected .system child' }
     if ($output -notmatch 'Codex live root is ambiguous') { throw 'doctor did not flag both Codex roots as ambiguous' }
     if ($output -notmatch 'Deploy blockers: 1' -or $output -notmatch 'Inspect both roots and decide' -or $output -notmatch 'Doctor result: PASS with warnings') { throw 'doctor did not distinguish a deployment blocker while preserving the warning/exit contract' }
-    if ($output -notmatch 'Zcode live root .* not found') { throw 'doctor did not warn about the missing Zcode live root' }
+    if ($output -match 'Zcode live root') { throw 'doctor still probed retired Zcode live root' }
     $coreScripts = @(
         'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'mcp-sync.ps1',
         'config-status.ps1', 'config-pull.ps1', 'config-push.ps1',
@@ -54,12 +54,12 @@ try {
     if ($reparseOutput -notmatch 'Codex live root: ~/\.codex/skills\.') { throw 'doctor did not report the preferred Codex root' }
     if ((Get-FileHash -LiteralPath $outsideChild -Algorithm SHA256).Hash -ne $outsideBefore) { throw 'outside sentinel changed' }
 
-    $zcodeHome = Join-Path $work 'zcode-home'
-    [System.IO.Directory]::CreateDirectory((Join-Path $zcodeHome '.zcode/skills')) | Out-Null
-    $zcodeOutput = & pwsh -NoProfile -File $doctor -RepoRoot $RepoRoot -HomeRoot $zcodeHome -SkipSecretsScan 2>&1 | Out-String; $zcodeCode=$LASTEXITCODE
-    if ($zcodeOutput -match 'Claude live root') { throw 'doctor probed a retired platform' }
-    if ($zcodeCode -ne 0 -or $zcodeOutput -notmatch 'Zcode live root .* detected') { throw "doctor did not detect the Zcode live root: $zcodeOutput" }
-    if ($zcodeOutput -notmatch 'Deploy blockers: none detected by these checks' -or $zcodeOutput -match 'deployment cannot proceed') { throw 'ordinary warnings were incorrectly reported as deployment blockers' }
+    $retiredHome = Join-Path $work 'retired-home'
+    [System.IO.Directory]::CreateDirectory((Join-Path $retiredHome '.zcode/skills')) | Out-Null
+    $retiredOutput = & pwsh -NoProfile -File $doctor -RepoRoot $RepoRoot -HomeRoot $retiredHome -SkipSecretsScan 2>&1 | Out-String; $retiredCode=$LASTEXITCODE
+    if ($retiredOutput -match 'Claude live root|Zcode live root') { throw 'doctor probed a retired platform' }
+    if ($retiredCode -ne 0) { throw "doctor failed on retired home: $retiredOutput" }
+    if ($retiredOutput -notmatch 'Deploy blockers: none detected by these checks' -or $retiredOutput -match 'deployment cannot proceed') { throw 'ordinary warnings were incorrectly reported as deployment blockers' }
 
     $cleanRepo = Join-Path $work 'clean-repo'
     New-Item -ItemType Directory -Path $cleanRepo -Force | Out-Null
@@ -94,7 +94,6 @@ try {
 
     $cleanHome = Join-Path $work 'clean-home'
     New-Item -ItemType Directory -Path (Join-Path $cleanHome '.codex/skills') -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $cleanHome '.zcode/skills') -Force | Out-Null
 
     $cleanOutput = & pwsh -NoProfile -File (Join-Path $cleanRepo 'scripts/doctor.ps1') -RepoRoot $cleanRepo -HomeRoot $cleanHome 2>&1 | Out-String; $cleanCode=$LASTEXITCODE
     if ($cleanCode -ne 0) { throw "clean fixture doctor failed with exit code $($cleanCode): $cleanOutput" }

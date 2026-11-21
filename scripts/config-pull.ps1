@@ -6,7 +6,7 @@
 
 .DESCRIPTION
     Plans an add (absent in home) or update (content differs; repo wins) for every
-    managed file. Codex writes to ~/.codex, Antigravity to ~/.gemini/config, and ZCode to ~/.zcode.
+    managed file. Codex writes to ~/.codex and Antigravity writes to ~/.gemini/config.
     Directories are copied file-by-file and never pruned:
     home-only files stay untouched. ExcludedItems and CommonExcludedItems are skipped.
 
@@ -28,7 +28,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Codex, Antigravity, ZCode. Defaults to Codex.
+    One or more of Codex, Antigravity. Defaults to Codex.
 
 .PARAMETER BackupRoot
     Root for the pre-overwrite backup. Defaults to
@@ -91,7 +91,7 @@ function Get-ConfigPullPlan {
 $plan = Get-ConfigPullPlan
 
 Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
-foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md', 'ZCode/AGENTS.md')) {
+foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md')) {
     if (@($plan | Where-Object { $_.Rel -eq $managedLabel }).Count -gt 0) {
         Write-Host "Only the managed block in $managedLabel will be updated; content outside it is preserved." -ForegroundColor Yellow
     }

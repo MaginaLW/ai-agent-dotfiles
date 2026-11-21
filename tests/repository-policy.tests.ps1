@@ -31,14 +31,14 @@ function Get-LiteralOccurrenceCount {
 # Retired local entry points and manifests
 # -----------------------------------------------------------------------------
 Write-Host '[Retired local entry points and manifests]'
-foreach ($entry in 'CLAUDE.md', '.claude/settings.json', 'claude/CLAUDE.md', 'claude/settings.json', 'manifests/managed-skills.claude.txt') {
-    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $entry))) "retired local Claude entry $entry is absent"
+foreach ($entry in 'CLAUDE.md', '.claude/settings.json', 'claude/CLAUDE.md', 'claude/settings.json', 'manifests/managed-skills.claude.txt', 'zcode/AGENTS.md', 'docs/ZCODE.md', 'manifests/managed-skills.zcode.txt') {
+    Assert-TestCondition (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $entry))) "retired platform entry $entry is absent"
 }
 
 # The full environment selects every skill built for each supported host.
 $fullSelection = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'harness-source/envs/full.psd1')).Skills
-Assert-TestCondition ($fullSelection.Count -eq 2) 'the full environment has two skill platforms'
-foreach ($platform in 'codex', 'zcode') {
+Assert-TestCondition ($fullSelection.Count -eq 1) 'the full environment has one skill platform (Codex)'
+foreach ($platform in @('codex')) {
     $manifestNames = @(Get-Content -LiteralPath (Join-Path $RepoRoot "manifests/managed-skills.$platform.txt") | Where-Object { $_ })
     Assert-TestCondition (@(Compare-Object @($fullSelection[$platform]) $manifestNames).Count -eq 0) "the full environment's $platform selection equals its managed-skills manifest"
 }
@@ -121,10 +121,10 @@ foreach ($generatedRoot in $generatedSkillRoots) {
 Assert-TestCondition ($scanPrefixes -ccontains '.git/' -and $scanPrefixes -ccontains 'tmp/') 'the shared scan policy covers Git and temporary inputs'
 
 $buildSkillsText = Read-RepoText 'scripts/build-skills.ps1'
-foreach ($rootVariable in @('$ZcodeOutputRoot', '$CodexOutputRoot')) {
+foreach ($rootVariable in @('$CodexOutputRoot')) {
     Assert-TestCondition ($buildSkillsText.Contains("$rootVariable = Join-Path `$RepoRoot")) "build-skills defaults $rootVariable to its repository generated root"
 }
-Assert-TestCondition ($buildSkillsText.Contains('Assert-DisjointBuildRoots -Roots @($SourceRoot,$ZcodeOutputRoot,$CodexOutputRoot,$ManifestOutputRoot)')) 'build-skills enforces disjoint source/manifest/generated build roots'
+Assert-TestCondition ($buildSkillsText.Contains('Assert-DisjointBuildRoots -Roots @($SourceRoot,$CodexOutputRoot,$ManifestOutputRoot)')) 'build-skills enforces disjoint source/manifest/generated build roots'
 # build-skills discovers source and generated skills through Get-SkillDirectories, which must
 # never treat .system as a skill.
 . (Join-Path $RepoRoot 'scripts/skills-common.ps1')
@@ -181,7 +181,7 @@ foreach ($file in $policyFiles) {
     $lineNumber = 0
     foreach ($line in [System.IO.File]::ReadLines($file.FullName)) {
         $lineNumber++
-        if ($line -match '(?i)openclaw|opencode|reasonix') { $retiredHits += "$($file.FullName):$lineNumber" }
+        if ($line -match '(?i)openclaw|opencode|reasonix|zcode') { $retiredHits += "$($file.FullName):$lineNumber" }
         if ($line -match '(?i)mcp') {
             if ($full.StartsWith($scriptsRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
                 if ($full -notin $allowedMcpScripts) { $mcpScriptHits += "$($file.FullName):$lineNumber" }
@@ -190,16 +190,14 @@ foreach ($file in $policyFiles) {
         }
     }
 }
-Assert-TestCondition ($retiredHits.Count -eq 0) 'no OpenClaw, OpenCode, or Reasonix reference exists under scripts/ or manifests/'
+Assert-TestCondition ($retiredHits.Count -eq 0) 'no OpenClaw, OpenCode, Reasonix, or ZCode reference exists under scripts/ or manifests/'
 Assert-TestCondition ($mcpScriptHits.Count -eq 0) 'MCP references under scripts/ are confined to mcp-sync.ps1, agent-dotfiles.ps1, and doctor.ps1'
 Assert-TestCondition ($mcpManifestNonCommentHits.Count -eq 0) 'MCP appears in manifests/ only as descriptive comments, never as an active operation'
-$codexConfig = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1')).Codex
+$whitelistData = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1')
+$codexConfig = $whitelistData.Codex
 Assert-TestCondition (@($codexConfig.ExcludedItems) -contains 'config.toml') 'Codex config.toml is excluded from sync'
 Assert-TestCondition ((@($codexConfig.PushItems) -notcontains 'config.toml') -and (@($codexConfig.PullItems) -notcontains 'config.toml')) 'Codex config.toml is not selected for push or pull'
-$zcodeConfig = (Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1')).ZCode
-Assert-TestCondition ($null -ne $zcodeConfig) 'ZCode platform is defined in manifests/whitelist.psd1'
-Assert-TestCondition ($zcodeConfig.HomeRelativeRoot -eq '.zcode' -and $zcodeConfig.RepoRelativeRoot -eq 'zcode') 'ZCode roots are .zcode and zcode'
-Assert-TestCondition ((@($zcodeConfig.PushItems) -contains 'AGENTS.md') -and (@($zcodeConfig.PullItems) -contains 'AGENTS.md')) 'ZCode AGENTS.md is selected for push and pull'
+Assert-TestCondition (-not $whitelistData.ContainsKey('ZCode')) 'retired ZCode platform is absent from manifests/whitelist.psd1'
 Assert-TestCondition (-not (Read-RepoText 'scripts/deploy.ps1').Contains('mcp-sync')) 'combined deploy.ps1 does not automatically project MCP servers'
 
 . (Join-Path $RepoRoot 'scripts/mcp-sync.ps1')

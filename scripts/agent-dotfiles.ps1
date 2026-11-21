@@ -62,7 +62,7 @@ function Write-Usage([string] $Group) {
                 Write-Host 'pull: repository -> home; Apply backs up overwritten files and preserves local-only settings.'
                 Write-Host 'push: home -> repository capture; this is not git push. Review the captured diff before committing.'
                 Write-Host 'Examples: config status; config pull -DryRun; config push -DryRun'
-                Write-Host 'Options: -Platform Codex|Antigravity|ZCode (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
+                Write-Host 'Options: -Platform Codex|Antigravity (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
             }
             env {
                 Write-Host 'list: read-only environment selections and last recorded Apply environment; it does not verify live contents.'
@@ -80,13 +80,13 @@ function Write-Usage([string] $Group) {
             skills {
                 Write-Host 'promote: imports a reviewed skill into skills-source, then builds and scans on Apply; it does not deploy live skills.'
                 Write-Host 'Example: skills promote -Path <dir> -Name <name> -Type shared -DryRun'
-                Write-Host 'Options: -Type shared|zcode-only|codex-only; -Replace replaces a source skill of the same type with a backup.'
+                Write-Host 'Options: -Type shared|codex-only; -Replace replaces a source skill of the same type with a backup.'
             }
             mcp {
-                Write-Host 'status: read-only inspection of Antigravity, Codex, and ZCode managed MCP projections.'
-                Write-Host 'deploy: previews per-entry projection with -DryRun; authorized -Apply merges Antigravity/ZCode JSON and runs codex mcp CLI.'
-                Write-Host 'Examples: mcp status; mcp deploy -DryRun; mcp deploy -Platform Codex,ZCode -DryRun'
-                Write-Host 'Options: -Platform Antigravity|Codex|ZCode, -Server <name>, -RepoRoot <path>, -HomeRoot <path>, -BackupRoot <path>, -JsonPath <file>, -Json, -SkipSecretScan.'
+                Write-Host 'status: read-only inspection of Antigravity and Codex managed MCP projections.'
+                Write-Host 'deploy: previews per-entry projection with -DryRun; authorized -Apply merges Antigravity JSON and runs codex mcp CLI.'
+                Write-Host 'Examples: mcp status; mcp deploy -DryRun; mcp deploy -Platform Codex,Antigravity -DryRun'
+                Write-Host 'Options: -Platform Antigravity|Codex, -Server <name>, -RepoRoot <path>, -HomeRoot <path>, -BackupRoot <path>, -JsonPath <file>, -Json, -SkipSecretScan.'
                 Write-Host 'Only deploy accepts -DryRun, -Apply, -BackupRoot, or -SkipSecretScan.'
             }
         }
@@ -144,7 +144,7 @@ function Get-EnvironmentStatusReport {
             $stateReason = 'invalid-state'
             $validState = $state -is [System.Collections.IDictionary]
             if ($validState) {
-                foreach ($platform in 'Codex', 'Zcode') {
+                foreach ($platform in @('Codex')) {
                     if ($state[$platform] -isnot [array] -or @($state[$platform] | Where-Object { $_ -isnot [string] }).Count -gt 0) { $validState = $false }
                 }
             }
@@ -185,7 +185,7 @@ function Write-EnvironmentList([object[]] $Arguments) {
     Write-Host 'Harness environments:'
     foreach ($environment in $report.Environments) {
         Write-Host ("  {0}  {1}" -f $environment.Name, $environment.Description)
-        foreach ($platform in 'Codex', 'Zcode') {
+        foreach ($platform in @('Codex')) {
             if ($environment.Skills -isnot [hashtable] -or -not $environment.Skills.ContainsKey($platform)) {
                 Write-Host "    ${platform}: unavailable (invalid selection)"
                 continue
@@ -302,7 +302,7 @@ function Invoke-UnifiedStatus {
     $configStatusScript = Join-Path $PSScriptRoot 'config-status.ps1'
     $configJson = $null
     if (Test-Path -LiteralPath $configStatusScript -PathType Leaf) {
-        $configArgs = @('-Platform', 'Codex,Antigravity,ZCode', '-Json')
+        $configArgs = @('-Platform', 'Codex,Antigravity', '-Json')
         if ($repoRoot) { $configArgs += @('-RepoRoot', $repoRoot) }
         if ($seenParameters.Contains('-HomeRoot')) { $configArgs += @('-HomeRoot', $homeRoot) }
         $configOut = & $pwshPath -NoProfile -File $configStatusScript @configArgs 2>&1
@@ -739,8 +739,8 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
                     exit 1
                 }
                 foreach ($token in $platTokens) {
-                    if ($token -notin @('Antigravity', 'Codex', 'ZCode')) {
-                        Write-Error "Unsupported MCP platform '$token'. Expected Antigravity, Codex or ZCode." -ErrorAction Continue
+                    if ($token -notin @('Antigravity', 'Codex')) {
+                        Write-Error "Unsupported MCP platform '$token'. Expected Antigravity or Codex." -ErrorAction Continue
                         exit 1
                     }
                     if ($token -notin $mcpPlatforms) { $mcpPlatforms += $token }

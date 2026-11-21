@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Inspects and projects managed MCP server definitions from harness-source/mcp/servers.psd1
-    to Antigravity, Codex, and ZCode.
+    to Antigravity and Codex.
 
 .DESCRIPTION
     Status and Deploy -DryRun are read-only and never create or modify live home files.
@@ -11,7 +11,6 @@
     personal configuration), and runs a post-Apply readback check.
 
     Antigravity writes per-entry into ~/.gemini/config/mcp_config.json (mcpServers.<name>).
-    ZCode writes per-entry into ~/.zcode/cli/config.json (mcp.servers.<name>).
     Codex projects per-entry exclusively via the official `codex mcp` CLI.
 #>
 [CmdletBinding()]
@@ -20,7 +19,7 @@ param(
     [string] $Action = 'Status',
     [string] $RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string] $HomeRoot = [Environment]::GetFolderPath('UserProfile'),
-    [string[]] $Platform = @('Antigravity', 'Codex', 'ZCode'),
+    [string[]] $Platform = @('Antigravity', 'Codex'),
     [string[]] $Server = @(),
     [string] $BackupRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.ai-agent-dotfiles-backups'),
     [string] $JsonPath,
@@ -73,7 +72,6 @@ function Resolve-McpPlatforms {
     $canonical = @{
         antigravity = 'Antigravity'
         codex       = 'Codex'
-        zcode       = 'ZCode'
     }
     $selected = [System.Collections.Generic.List[string]]::new()
     $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -83,7 +81,7 @@ function Resolve-McpPlatforms {
             if ([string]::IsNullOrEmpty($trimmed)) { continue }
             $key = $trimmed.ToLowerInvariant()
             if (-not $canonical.ContainsKey($key)) {
-                throw "Unsupported MCP platform '$trimmed'. Expected Antigravity, Codex, or ZCode."
+                throw "Unsupported MCP platform '$trimmed'. Expected Antigravity or Codex."
             }
             $name = $canonical[$key]
             if ($seen.Add($name)) { $selected.Add($name) }
@@ -138,7 +136,7 @@ function Read-McpServerRegistry {
         throw 'MCP registry Servers must be an array.'
     }
     $allowedServerKeys = @('Name', 'Transport', 'Enabled', 'Platforms', 'Command', 'Args', 'Env', 'TimeoutMs', 'Url', 'BearerTokenEnvVar', 'Headers')
-    $validPlatforms = @('Antigravity', 'Codex', 'ZCode')
+    $validPlatforms = @('Antigravity', 'Codex')
     $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $servers = [System.Collections.Generic.List[object]]::new()
 
@@ -546,54 +544,30 @@ function Read-McpJsonConfigState {
 function Get-McpExpectedJsonPayload {
     param(
         [Parameter(Mandatory)] [object] $Server,
-        [Parameter(Mandatory)] [ValidateSet('Antigravity', 'ZCode')] [string] $PlatformName
+        [Parameter(Mandatory)] [ValidateSet('Antigravity')] [string] $PlatformName
     )
-    if ($PlatformName -ceq 'Antigravity') {
-        if ($Server.Transport -ceq 'stdio') {
-            $payload = [ordered]@{
-                command = [string]$Server.Command
-                args    = [string[]]@($Server.Args | ForEach-Object { [string]$_ })
-            }
-            if ($Server.Env.Count -gt 0) {
-                $envCopy = [ordered]@{}
-                foreach ($k in $Server.Env.Keys) { $envCopy[$k] = $Server.Env[$k] }
-                $payload['env'] = $envCopy
-            }
-            return [pscustomobject]@{ Supported = $true; Reason = $null; Payload = $payload }
+    if ($Server.Transport -ceq 'stdio') {
+        $payload = [ordered]@{
+            command = [string]$Server.Command
+            args    = [string[]]@($Server.Args | ForEach-Object { [string]$_ })
         }
-        else {
-            $payload = [ordered]@{ url = [string]$Server.Url }
-            $headers = [ordered]@{}
-            foreach ($k in $Server.Headers.Keys) { $headers[$k] = $Server.Headers[$k] }
-            if ($Server.PSObject.Properties['BearerTokenEnvVar'] -and (-not $headers.Contains('Authorization'))) {
-                $headers['Authorization'] = ('Bearer ${' + $Server.BearerTokenEnvVar + '}')
-            }
-            if ($headers.Count -gt 0) { $payload['headers'] = $headers }
-            return [pscustomobject]@{ Supported = $true; Reason = $null; Payload = $payload }
+        if ($Server.Env.Count -gt 0) {
+            $envCopy = [ordered]@{}
+            foreach ($k in $Server.Env.Keys) { $envCopy[$k] = $Server.Env[$k] }
+            $payload['env'] = $envCopy
         }
+        return [pscustomobject]@{ Supported = $true; Reason = $null; Payload = $payload }
     }
-
-    if ($Server.Transport -cne 'stdio') {
-        return [pscustomobject]@{ Supported = $false; Reason = 'zcode-http-transport-unverified'; Payload = $null }
-    }
-    foreach ($k in $Server.Env.Keys) {
-        if ($Server.Env[$k] -match '\$\{[A-Za-z_][A-Za-z0-9_]*\}') {
-            return [pscustomobject]@{ Supported = $false; Reason = 'zcode-env-template-unsupported'; Payload = $null }
+    else {
+        $payload = [ordered]@{ url = [string]$Server.Url }
+        $headers = [ordered]@{}
+        foreach ($k in $Server.Headers.Keys) { $headers[$k] = $Server.Headers[$k] }
+        if ($Server.PSObject.Properties['BearerTokenEnvVar'] -and (-not $headers.Contains('Authorization'))) {
+            $headers['Authorization'] = ('Bearer ${' + $Server.BearerTokenEnvVar + '}')
         }
+        if ($headers.Count -gt 0) { $payload['headers'] = $headers }
+        return [pscustomobject]@{ Supported = $true; Reason = $null; Payload = $payload }
     }
-    $envObj = [ordered]@{}
-    foreach ($k in $Server.Env.Keys) { $envObj[$k] = $Server.Env[$k] }
-    $zcodePayload = [ordered]@{
-        type    = 'stdio'
-        command = [string]$Server.Command
-        args    = [string[]]@($Server.Args | ForEach-Object { [string]$_ })
-        env     = $envObj
-        enabled = $true
-    }
-    if ($Server.PSObject.Properties['TimeoutMs']) {
-        $zcodePayload['timeoutMs'] = [int]$Server.TimeoutMs
-    }
-    return [pscustomobject]@{ Supported = $true; Reason = $null; Payload = $zcodePayload }
 }
 
 function Get-McpExpectedCodexSpec {
@@ -742,7 +716,7 @@ function Get-McpPlan {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $HomeRoot,
-        [string[]] $Platform = @('Antigravity', 'Codex', 'ZCode'),
+        [string[]] $Platform = @('Antigravity', 'Codex'),
         [string[]] $Server = @()
     )
     $resolvedPlatforms = Resolve-McpPlatforms -Values $Platform
@@ -756,11 +730,9 @@ function Get-McpPlan {
     }
 
     $antigravityPath = Join-Path $HomeRoot '.gemini/config/mcp_config.json'
-    $zcodePath = Join-Path $HomeRoot '.zcode/cli/config.json'
     $codexPath = Join-Path $HomeRoot '.codex/config.toml'
 
     $agState = if ('Antigravity' -cin $resolvedPlatforms) { Read-McpJsonConfigState -Path $antigravityPath -ContainerPath @('mcpServers') } else { $null }
-    $zcState = if ('ZCode' -cin $resolvedPlatforms) { Read-McpJsonConfigState -Path $zcodePath -ContainerPath @('mcp', 'servers') } else { $null }
     $cxState = if ('Codex' -cin $resolvedPlatforms) { Get-McpCodexInventory -HomeRoot $HomeRoot } else { $null }
 
     $managedNamesForPlatform = @{}
@@ -773,11 +745,11 @@ function Get-McpPlan {
         foreach ($pName in $resolvedPlatforms) {
             if ($pName -cnotin $srv.Platforms) { continue }
 
-            if ($pName -cin @('Antigravity', 'ZCode')) {
-                $targetState = if ($pName -ceq 'Antigravity') { $agState } else { $zcState }
+            if ($pName -ceq 'Antigravity') {
+                $targetState = $agState
                 $unmanagedCount = @($targetState.Entries.Keys | Where-Object { $_ -cnotin $managedNamesForPlatform[$pName] }).Count
                 $expected = Get-McpExpectedJsonPayload -Server $srv -PlatformName $pName
-                $targetLabel = if ($pName -ceq 'Antigravity') { "~/.gemini/config/mcp_config.json#mcpServers.$($srv.Name)" } else { "~/.zcode/cli/config.json#mcp.servers.$($srv.Name)" }
+                $targetLabel = "~/.gemini/config/mcp_config.json#mcpServers.$($srv.Name)"
 
                 if (-not $targetState.Valid) {
                     $items.Add([ordered]@{
@@ -1072,7 +1044,7 @@ function Invoke-McpDeploy {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $HomeRoot,
-        [string[]] $Platform = @('Antigravity', 'Codex', 'ZCode'),
+        [string[]] $Platform = @('Antigravity', 'Codex'),
         [string[]] $Server = @(),
         [Parameter(Mandatory)] [string] $BackupRoot,
         [switch] $DoApply,
@@ -1120,7 +1092,7 @@ function Invoke-McpDeploy {
     $backedUpFiles = [ordered]@{}
     $jsonFileTargets = [System.Collections.Generic.List[object]]::new()
 
-    foreach ($pName in @('Antigravity', 'ZCode')) {
+    foreach ($pName in @('Antigravity')) {
         $pItems = @($pending | Where-Object { $_.Platform -ceq $pName })
         if ($pItems.Count -eq 0) { continue }
         $path = $pItems[0].TargetPath
@@ -1137,7 +1109,7 @@ function Invoke-McpDeploy {
         $jsonFileTargets.Add([pscustomobject]@{
             Platform      = $pName
             Path          = $path
-            ContainerPath = $(if ($pName -ceq 'Antigravity') { @('mcpServers') } else { @('mcp', 'servers') })
+            ContainerPath = @('mcpServers')
             Items         = $pItems
             Existed       = $existed
             BackupFile    = $backupFile

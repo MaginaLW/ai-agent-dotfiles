@@ -23,7 +23,7 @@ New-Item -ItemType Directory -Path (Join-Path $fixtureRepo 'harness-source/envs'
 New-Item -ItemType Directory -Path (Join-Path $fixtureRepo 'manifests') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $fixtureRepo 'manifests/whitelist.psd1') -Force
 foreach ($envName in @('work', 'test')) {
-    Set-Content -LiteralPath (Join-Path $fixtureRepo "harness-source/envs/$envName.psd1") -Encoding utf8 -Value "@{ Name = '$envName'; Description = 'fixture'; Skills = @{ Codex = @(); Zcode = @() } }"
+    Set-Content -LiteralPath (Join-Path $fixtureRepo "harness-source/envs/$envName.psd1") -Encoding utf8 -Value "@{ Name = '$envName'; Description = 'fixture'; Skills = @{ Codex = @() } }"
 }
 $deployArgs = @('-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'state'), '-SkipBuild')
 
@@ -78,10 +78,10 @@ $listRepo = Join-Path $work 'list-repo'
 $listEnvDir = Join-Path $listRepo 'harness-source/envs'
 $listState = Join-Path $work 'list-state'
 New-Item -ItemType Directory -Path $listEnvDir, $listState -Force | Out-Null
-Set-Content -LiteralPath (Join-Path $listEnvDir 'sample.psd1') -Encoding utf8 -Value "@{ Description = 'sample'; Skills = @{ Codex = @('gamma'); Zcode = @() } }"
+Set-Content -LiteralPath (Join-Path $listEnvDir 'sample.psd1') -Encoding utf8 -Value "@{ Description = 'sample'; Skills = @{ Codex = @('gamma') } }"
 $listArgs = @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $listState)
 $result = Invoke-Entry -Arguments $listArgs
-Assert ($result.Code -eq 0 -and $result.Out -notmatch 'Claude:' -and $result.Out -match 'Codex: 1 \[gamma\]' -and $result.Out -match 'Zcode: 0 \[\(none\)\]') 'environment selections show only the supported platforms and counts'
+Assert ($result.Code -eq 0 -and $result.Out -notmatch 'Claude:|Zcode:' -and $result.Out -match 'Codex: 1 \[gamma\]') 'environment selections show only the supported platforms and counts'
 Assert ($result.Out -match 'Last recorded successful Apply environment: unavailable \(record only; live contents may differ\)' -and -not (Test-Path (Join-Path $listState 'deployed-skills.json'))) 'missing deployment state is unavailable and not created'
 Assert ($result.Out -match 'Record unavailable reason: missing-state') 'missing deploy record has a distinct explanation'
 $listStatePath = Join-Path $listState 'deployed-skills.json'
@@ -89,27 +89,27 @@ Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{invalid'
 $result = Invoke-Entry -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable' -and $result.Out -match 'Codex: 1') 'malformed state leaves environment list available'
 Assert ($result.Out -match 'Record unavailable reason: invalid-json' -and $result.Out -notmatch '\{invalid') 'invalid JSON reports only a fixed reason, not its content'
-Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Codex":[],"Zcode":[]}'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Codex":[]}'
 $result = Invoke-Entry -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable') 'state without an environment is unavailable'
 Assert ($result.Out -match 'Record unavailable reason: missing-environment') 'missing environment is distinct from a malformed record'
-Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Codex":"alpha","Zcode":[]}'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Codex":"alpha"}'
 $result = Invoke-Entry -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable') 'structurally invalid state is unavailable'
 Assert ($result.Out -match 'Record unavailable reason: invalid-state') 'invalid selection structure is explained'
-foreach ($badState in @('[]', '{"Environment":123,"Codex":[],"Zcode":[]}', '{"Environment":"sample\nprivate-value","Codex":[],"Zcode":[]}')) {
+foreach ($badState in @('[]', '{"Environment":123,"Codex":[]}', '{"Environment":"sample\nprivate-value","Codex":[]}')) {
     Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value $badState
     $result = Invoke-Entry -Arguments $listArgs
     Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: invalid-state' -and $result.Out -notmatch 'private-value') 'invalid roots and unsafe environment values are not printed'
 }
-Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":" ","Codex":[],"Zcode":[]}'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":" ","Codex":[]}'
 $result = Invoke-Entry -Arguments $listArgs
 Assert ($result.Out -match 'Record unavailable reason: missing-environment') 'blank environment has a missing-environment explanation'
 $stateLock = [IO.File]::Open($listStatePath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
 try { $result = Invoke-Entry -Arguments $listArgs }
 finally { $stateLock.Dispose() }
 Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: read-error') 'unreadable record does not hide the available environments'
-Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":["alpha"],"Codex":[],"Zcode":[]}'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":["alpha"],"Zcode":["beta"],"Codex":[]}'
 $stateHash = (Get-FileHash -LiteralPath $listStatePath).Hash
 $fixtureJsonPath = Join-Path $work 'fixture-environments.json'
 $result = Invoke-Entry -Arguments ($listArgs + @('-JsonPath', $fixtureJsonPath))
@@ -129,7 +129,7 @@ Assert ($result.Out -notmatch 'Invoking script|Command result') 'JSON stdout exc
 $result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex,Antigravity', '-Json')
 Assert ($result.Code -eq 0) 'config status routes comma-separated platforms'
 
-$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex', '-Platform', 'ZCode', '-Json')
+$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex', '-Platform', 'Antigravity', '-Json')
 Assert ($result.Code -eq 0) 'config status routes repeated -Platform arguments without parameter binding error'
 
 $result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Invalid', '-Json')
@@ -143,11 +143,11 @@ Assert ($result.Code -eq 0 -and $null -ne $profileJson) 'profile status routes a
 $result = Invoke-Entry -Arguments @('config', 'pull', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-DryRun')
 Assert ($result.Code -eq 0) 'config pull routes through the explicit dry-run gate'
 
-$result = Invoke-Entry -Arguments @('config', 'push', '-Platform', 'ZCode', '-DryRun')
-Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config push -Platform ZCode -DryRun forwards single argument without character splatting'
+$result = Invoke-Entry -Arguments @('config', 'push', '-Platform', 'Antigravity', '-DryRun')
+Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config push -Platform Antigravity -DryRun forwards single argument without character splatting'
 
-$result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'ZCode', '-DryRun')
-Assert ($result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform ZCode -DryRun forwards single argument without character splatting'
+$result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'Antigravity', '-DryRun')
+Assert ($result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform Antigravity -DryRun forwards single argument without character splatting'
 
 $result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'Codex', '-DryRun')
 Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform Codex -DryRun forwards single argument without character splatting'
@@ -252,13 +252,13 @@ Set-TestFile -Path (Join-Path $pluginScripts 'mcp-sync.ps1') -Content (@(
     'param([ValidateSet("Status","Deploy")][string] $Action = "Status", [string] $RepoRoot, [string] $HomeRoot, [string[]] $Platform = @(), [string[]] $Server = @(), [string] $BackupRoot, [string] $JsonPath, [switch] $Json, [switch] $Apply, [switch] $SkipSecretScan)',
     '[pscustomobject]@{ Action=$Action; RepoRoot=$RepoRoot; HomeRoot=$HomeRoot; Platform=@($Platform); Server=@($Server); BackupRoot=$BackupRoot; JsonPath=$JsonPath; Json=[bool]$Json; Apply=[bool]$Apply; SkipSecretScan=[bool]$SkipSecretScan } | ConvertTo-Json -Compress'
 ) -join "`n")
-$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-Platform', 'Antigravity,ZCode', '-Server', 'blender', '-Json')
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-Platform', 'Antigravity,Codex', '-Server', 'blender', '-Json')
 $mcpPayload = $null
 try { $mcpPayload = $result.Out | ConvertFrom-Json } catch { $mcpPayload = $null }
-Assert ($result.Code -eq 0 -and $null -ne $mcpPayload -and $mcpPayload.Action -eq 'status' -and ($mcpPayload.Platform -join ',') -eq 'Antigravity,ZCode' -and ($mcpPayload.Server -join ',') -eq 'blender' -and $mcpPayload.Json -and (-not $mcpPayload.Apply) -and $result.Out -notmatch 'Invoking script|Command result') 'mcp status -Json forwards filtered arguments without banners or mutation'
+Assert ($result.Code -eq 0 -and $null -ne $mcpPayload -and $mcpPayload.Action -eq 'status' -and ($mcpPayload.Platform -join ',') -eq 'Antigravity,Codex' -and ($mcpPayload.Server -join ',') -eq 'blender' -and $mcpPayload.Json -and (-not $mcpPayload.Apply) -and $result.Out -notmatch 'Invoking script|Command result') 'mcp status -Json forwards filtered arguments without banners or mutation'
 
-$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'deploy', '-DryRun', '-Platform', 'Codex', '-Platform', 'ZCode')
-Assert ($result.Code -eq 0 -and $result.Out -match '"Action":"deploy"' -and $result.Out -match '"Apply":false' -and $result.Out -match '"Codex,ZCode"') 'mcp deploy -DryRun forwards without Apply'
+$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'deploy', '-DryRun', '-Platform', 'Codex', '-Platform', 'Antigravity')
+Assert ($result.Code -eq 0 -and $result.Out -match '"Action":"deploy"' -and $result.Out -match '"Apply":false' -and $result.Out -match '"Codex,Antigravity"') 'mcp deploy -DryRun forwards without Apply'
 
 $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'deploy', '-Apply', '-SkipSecretScan')
 Assert ($result.Code -eq 0 -and $result.Out -match '"Apply":true' -and $result.Out -match '"SkipSecretScan":true') 'mcp deploy forwards explicit Apply only when requested'
@@ -361,8 +361,7 @@ Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content (@(
     'param([string] $RepoRoot, [string] $HomeRoot, [string[]] $Platform, [switch] $Json)',
     '@(',
     '  [pscustomobject]@{ Platform="Codex"; Item="AGENTS.md"; Status="in-sync"; Detail="mock-block" },',
-    '  [pscustomobject]@{ Platform="Antigravity"; Item="AGENTS.md"; Status="in-sync"; Detail="mock-block" },',
-    '  [pscustomobject]@{ Platform="ZCode"; Item="AGENTS.md"; Status="differs"; Detail="mock-block" }',
+    '  [pscustomobject]@{ Platform="Antigravity"; Item="AGENTS.md"; Status="differs"; Detail="mock-block" }',
     ') | ConvertTo-Json -Depth 5'
 ) -join "`n")
 
@@ -391,9 +390,9 @@ Set-TestFile -Path (Join-Path $pluginScripts 'mcp-sync.ps1') -Content (@(
     'if ($Action -eq "Status") {',
     '  [pscustomobject]@{',
     '    SchemaVersion = 1;',
-    '    Platforms = @("Antigravity", "Codex", "ZCode");',
+    '    Platforms = @("Antigravity", "Codex");',
     '    Servers = @("blender");',
-    '    Summary = [pscustomobject]@{ add = 0; update = 1; unchanged = 2; blocked = 0 };',
+    '    Summary = [pscustomobject]@{ add = 0; update = 1; unchanged = 1; blocked = 0 };',
     '    Items = @(',
     '      [pscustomobject]@{ Platform="Antigravity"; Server="blender"; Action="update"; Reason="mock-diff" },',
     '      [pscustomobject]@{ Platform="Codex"; Server="blender"; Action="unchanged"; Reason="mock-match" }',
@@ -411,12 +410,12 @@ Assert ($mockResult.Code -eq 0 -and $mockResult.Out -notmatch 'Invoking script|C
 $mockJson = $null
 try { $mockJson = ConvertFrom-Json -InputObject $mockResult.Out } catch { $mockJson = $null }
 Assert ($null -ne $mockJson) 'mock stub status produces valid JSON'
-Assert ($mockJson.Config.Count -eq 3) 'mock stub config items merged correctly'
+Assert ($mockJson.Config.Count -eq 2) 'mock stub config items merged correctly'
 Assert ($mockJson.Antigravity.Name -eq 'ai-agent-dotfiles') 'mock stub Antigravity report merged correctly'
 Assert ($mockJson.Mcp.Summary.update -eq 1) 'mock stub MCP summary merged correctly'
-Assert ($mockJson.Summary.Config.'in-sync' -eq 2 -and $mockJson.Summary.Config.differs -eq 1) 'mock stub Config summary counted correctly'
+Assert ($mockJson.Summary.Config.'in-sync' -eq 1 -and $mockJson.Summary.Config.differs -eq 1) 'mock stub Config summary counted correctly'
 Assert ($mockJson.Summary.Antigravity -eq 'unchanged') 'mock stub Antigravity summary action matched'
-Assert ($mockJson.Summary.Mcp.update -eq 1 -and $mockJson.Summary.Mcp.unchanged -eq 2) 'mock stub Mcp summary matched'
+Assert ($mockJson.Summary.Mcp.update -eq 1 -and $mockJson.Summary.Mcp.unchanged -eq 1) 'mock stub Mcp summary matched'
 
 $mockHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($mockHuman.Code -eq 0) 'mock stub human-readable status exits 0'

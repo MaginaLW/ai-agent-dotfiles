@@ -87,10 +87,6 @@ if ($codexRoots.Ambiguous) {
 elseif ($codexRoots.FallbackExists) { Add-DoctorResult PASS 'Codex live root: ~/.agents/skills (fallback; ~/.codex/skills is absent).' }
 elseif ($codexRoots.PreferredExists) { Add-DoctorResult PASS 'Codex live root: ~/.codex/skills.' }
 else { Add-DoctorResult WARN 'Codex live root not found; deploy-skills would create ~/.codex/skills.' }
-if (Test-Path -LiteralPath (Join-Path $HomeRoot '.zcode\skills') -PathType Container) {
-    Add-DoctorResult PASS 'Zcode live root (~/.zcode/skills) detected.'
-}
-else { Add-DoctorResult WARN 'Zcode live root (~/.zcode/skills) not found.' }
 
 Write-Section 'Codex .system protection'
 $systemFound = $false
