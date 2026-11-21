@@ -8,7 +8,7 @@
             Transport = 'stdio'
             Command = 'uvx'
             Args = @('mcp-for-blender')
-            Env = @{}
+            Env = @{ BLENDER_PORT = '9800' }
             Enabled = $true
             Platforms = @('Antigravity', 'Codex')
         }

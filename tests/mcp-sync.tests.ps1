@@ -218,11 +218,11 @@ try {
     Assert-McpTest ($apply1.Contains('BackupDir') -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.gemini/config/mcp_config.json')) -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.codex/config.toml'))) 'pre-Apply backups captured for all modified files'
 
     $agJson = Get-Content -Raw -LiteralPath (Join-Path $f1.Home '.gemini/config/mcp_config.json') | ConvertFrom-Json -AsHashtable
-    Assert-McpTest ($agJson.theme -ceq 'dark' -and $agJson.mcpServers.ContainsKey('custom_ag') -and $agJson.mcpServers.blender.command -ceq 'uvx') 'Antigravity merge preserves personal keys and unmanaged servers'
+    Assert-McpTest ($agJson.theme -ceq 'dark' -and $agJson.mcpServers.ContainsKey('custom_ag') -and $agJson.mcpServers.blender.command -ceq 'uvx' -and $agJson.mcpServers.blender.env.BLENDER_PORT -ceq '9800') 'Antigravity merge preserves personal keys and unmanaged servers'
 
     $cxList = @($script:McpTestCodexEntries | Where-Object { $_.name -ceq 'blender' })
     $cxCustom = @($script:McpTestCodexEntries | Where-Object { $_.name -ceq 'custom_cx' })
-    Assert-McpTest ($cxList.Count -eq 1 -and $cxCustom.Count -eq 1 -and ($script:McpTestCodexCalls -contains 'mcp add blender -- uvx mcp-for-blender')) 'Codex uses official mcp add CLI and preserves unmanaged servers'
+    Assert-McpTest ($cxList.Count -eq 1 -and $cxCustom.Count -eq 1 -and ($script:McpTestCodexCalls -contains 'mcp add blender --env BLENDER_PORT=9800 -- uvx mcp-for-blender')) 'Codex uses official mcp add CLI and preserves unmanaged servers'
     Assert-McpTest ((Get-Content -Raw -LiteralPath (Join-Path $f1.Home '.codex/config.toml')) -match 'model = "gpt-5"') 'Codex config.toml personal settings remain untouched'
 
     Write-Host 'mcp-sync: drift detection, update, and 0-byte mcp_config.json'
@@ -239,7 +239,7 @@ try {
 
     $script:McpTestCodexCalls.Clear()
     $apply2 = Invoke-McpDeploy -RepoRoot $f1.Repo -HomeRoot $f1.Home -BackupRoot $f1.Backup -DoApply
-    Assert-McpTest ($apply2.Summary.unchanged -eq 2 -and ($script:McpTestCodexCalls -contains 'mcp remove blender') -and ($script:McpTestCodexCalls -contains 'mcp add blender -- uvx mcp-for-blender')) 'update removes then re-adds Codex entry and converges all targets'
+    Assert-McpTest ($apply2.Summary.unchanged -eq 2 -and ($script:McpTestCodexCalls -contains 'mcp remove blender') -and ($script:McpTestCodexCalls -contains 'mcp add blender --env BLENDER_PORT=9800 -- uvx mcp-for-blender')) 'update removes then re-adds Codex entry and converges all targets'
 
     Write-Host 'mcp-sync: fail-closed boundaries (scan failure, invalid JSON, Codex template/unavailable/failure)'
     $f2 = New-McpFixture -Name 'fail-closed'
