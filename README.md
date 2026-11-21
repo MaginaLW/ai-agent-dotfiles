@@ -17,7 +17,7 @@
 
 ## 首次安装
 
-在 PowerShell 7+ 中克隆仓库并进入仓库根目录：
+先在终端确认 `pwsh -v` 显示 7 或更高版本，且 `git --version` 能返回版本号，再克隆仓库并进入仓库根目录。
 
 ```powershell
 $RepoRoot = '<repo-root>'
@@ -54,6 +54,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -Apply
 
 源码、目标或状态变化时重新预览。Apply 不会停下来等确认；授权规则见 [AGENTS.md](AGENTS.md)。
 联合 Apply 会先完成 skills 和 config 的规划预检，再开始写入；权限、锁或并发变化仍可能导致运行时失败。
+指定 `-StateRoot` 时可使用已有目录或待创建的目录。若该路径已被普通文件占用，预览会报出冲突路径。
 完成后按[部署后复核](docs/README.md#部署后的只读复核)检查：选中 skills 应为 unchanged，受管配置应无待更新项。
 磁盘一致不代表旧聊天已加载新 skill，也不代表实际任务效果已经改善。
 
@@ -74,6 +75,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ```
 
 `agent-dotfiles.ps1 status` 一站式只读汇总上次 Apply 环境、双端配置漂移（Codex、Antigravity）、Antigravity 插件状态与受管 MCP 状态；支持 `-Json` 输出纯净结构化对象。
+查询成功时退出码为 `0`，包括发现配置差异或插件动作受阻的情况。子查询失败时仍输出可用分项，退出码为非零；自动化读取摘要前应检查退出码。
 `config help` 与 `help config` 等价；`status`、`env`、`profile`、`skills`、`antigravity`、`mcp` 也支持分组帮助。
 `config pull` 是仓库 → 本机，`config push` 是本机 → 仓库的配置捕获，和 Git push 无关。
 捕获的 diff 必须由人审查后才能提交。`env list -JsonPath <file>` 会写报告文件，属于只读列表的显式写出例外。
@@ -81,7 +83,8 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ## 失败与恢复
 
 先读失败阶段、部署预览和备份提示，再按[手册 §8](docs/README.md#8-备份与恢复)处理。
-`Preflight failed` 表示尚未写 live 或部署状态；`Skills stage completed; config stage failed` 表示 skills 已完成，配置阶段失败。
+`Skills preview failed` 或 `config preview failed` 表示预览失败，本次没有写入 live 或部署状态。`Preflight failed` 表示 Apply 停在写入前的预检。
+`Skills Apply failed before the config stage` 表示配置阶段尚未开始，应核对已处理的 skills、状态与备份。`Skills stage completed; config stage failed` 表示 skills 已完成，应核对配置错误与备份。
 联合部署的 skills 与 config 不构成原子事务；发生运行时失败时，已完成的 skills 可能仍然保留。
 unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 skill 或重新 Apply 都应先核对具体对象和授权范围。
 不要手工清理 Codex `.system` 或整目录镜像 live skills。

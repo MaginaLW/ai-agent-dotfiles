@@ -87,6 +87,13 @@ foreach ($platform in $platforms) {
     }
 }
 
+if (Test-Path -LiteralPath $StateRoot -PathType Leaf) {
+    throw "state-root-not-directory: choose a directory for -StateRoot. Found a file at $StateRoot"
+}
+if (Test-Path -LiteralPath $statePath -PathType Container) {
+    throw "state-path-is-directory: expected a deployment state file at $statePath"
+}
+
 if (-not $SkipBuild) {
     & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts\build-skills.ps1') -RepoRoot $RepoRoot
     if ($LASTEXITCODE -ne 0) { throw "build-skills failed with exit code $LASTEXITCODE" }

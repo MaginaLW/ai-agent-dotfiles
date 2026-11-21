@@ -304,7 +304,7 @@ foreach ($badStatus in @(
 }
 
 $statusOut = Invoke-Entry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
-Assert ($statusOut.Code -eq 0) 'status human-readable executes successfully (exit 0)'
+Assert ($statusOut.Code -ne 0 -and $statusOut.Out -match 'Error querying Antigravity plugins' -and $statusOut.Out -match 'Error querying MCP projections') 'status prints the partial report when fixture registries are missing'
 Assert ($statusOut.Out -match '=== Unified Status ===') 'status output contains header'
 Assert ($statusOut.Out -match '\[Environment\]' -and $statusOut.Out -match 'Available environments:') 'status output contains Environment section'
 Assert ($statusOut.Out -match '\[Config Status\]') 'status output contains Config Status section'
@@ -327,11 +327,13 @@ Set-TestFile -Path (Join-Path $fakeHome '.gemini/config/mcp_config.json') -Conte
 }}
 '@
 $reportPath = Join-Path $work 'mcp-report.json'
+# This fixture declares only Antigravity servers. Block the unused Codex target before any native probe.
+New-Item -ItemType Directory -Path (Join-Path $fakeHome '.codex/config.toml') -Force | Out-Null
 $mcpResult = Invoke-Entry -Arguments @('mcp', 'status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-Platform', 'Antigravity', '-Json', '-JsonPath', $reportPath)
 Assert ($mcpResult.Code -eq 0) 'mcp status emits stdout and file diagnostics for drifted entries'
 
 $jsonResult = Invoke-Entry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
-Assert ($jsonResult.Code -eq 0) 'status -Json executes successfully (exit 0)'
+Assert ($jsonResult.Code -ne 0) 'status JSON signals the unavailable Antigravity plugin query'
 Assert ($jsonResult.Out -notmatch 'Invoking script|Command result') 'status -Json emits zero wrapper banners'
 $parsedStatus = $null
 try { $parsedStatus = ConvertFrom-Json -InputObject $jsonResult.Out } catch { $parsedStatus = $null }
@@ -339,7 +341,7 @@ Assert ($null -ne $parsedStatus) 'status -Json produces valid parseable JSON'
 Assert ($parsedStatus.SchemaVersion -eq 1) 'status JSON contains SchemaVersion = 1'
 Assert ($null -ne $parsedStatus.Environment -and $parsedStatus.Environment.Available -contains 'work') 'status JSON contains Environment section'
 Assert ($null -ne $parsedStatus.Config -and ($parsedStatus.Config -is [array] -or $null -ne $parsedStatus.Config.Error)) 'status JSON contains Config section'
-Assert ($null -ne $parsedStatus.Antigravity) 'status JSON contains Antigravity section'
+Assert ($parsedStatus.Antigravity.Error -and $parsedStatus.Summary.Antigravity -eq 'error') 'status JSON identifies the failed plugin query'
 Assert ($null -ne $parsedStatus.Mcp) 'status JSON contains Mcp section'
 Assert ($null -ne $parsedStatus.Summary -and $null -ne $parsedStatus.Summary.Environment -and $null -ne $parsedStatus.Summary.Config -and $null -ne $parsedStatus.Summary.Antigravity -and $null -ne $parsedStatus.Summary.Mcp) 'status JSON contains Summary section with all 4 subsystems'
 
@@ -424,6 +426,17 @@ Assert ($mockHuman.Out -match 'mock-block') 'mock stub human-readable contains c
 Assert ($mockHuman.Out -match 'mock-match') 'mock stub human-readable contains antigravity plugin reason'
 Assert ($mockHuman.Out -match 'External: unity\s+action=unchanged') 'status displays a single external plugin'
 Assert ($mockHuman.Out -match 'mock-diff') 'mock stub human-readable contains mcp projection reason'
+
+$badRootArgs = @('status', '-RepoRoot', (Join-Path $work 'missing-repo'), '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
+$badRoot = Invoke-Entry -Arguments $badRootArgs
+$failed = $badRoot.Out | ConvertFrom-Json
+Assert ($badRoot.Code -ne 0 -and $failed.Environment.Error -and $failed.Config.Error -and $failed.Antigravity.Error -and $failed.Mcp.Error) 'bad RepoRoot returns nonzero and a parseable report of each unavailable section'
+Assert ($null -eq $failed.Summary.Config -and $null -eq $failed.Summary.Mcp) 'unavailable counts are distinct from a successful empty inventory'
+
+Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content "Write-Output 'invalid child JSON'"
+$partial = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
+$damaged = $partial.Out | ConvertFrom-Json
+Assert ($partial.Code -ne 0 -and $damaged.Config.Error -and $null -eq $damaged.Summary.Config -and $damaged.Summary.Mcp.update -eq 1) 'malformed child output preserves other summaries and returns nonzero'
 
 Write-Host 'unified CLI: apply gates'
 foreach ($commandArgs in @(

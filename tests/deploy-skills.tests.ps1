@@ -154,11 +154,20 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $file = Join-Path $writeFailureHome '.codex/skills/alpha/SKILL.md'
     Assert-TestCondition ($updatedState.Codex.Count -eq 0 -and (Get-Content -Raw -LiteralPath $file) -ceq "# alpha v1`n") 'retry preserves the Codex skill without a recorded owner'
 
-    Write-Host '[unavailable state directory reports partial live changes]'
+    Write-Host '[invalid deployment state paths stop planning before any write]'
     $blockedStateHome = Join-Path $work 'blocked-state-home'
-    Set-TestFile (Join-Path $blockedStateHome 'state') 'not a directory'
-    $r = Invoke-Deploy $repo $blockedStateHome @('-Apply')
-    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Deployment state update failed' -and $r.Out -match 'Live changes may already have occurred' -and (Test-Path (Join-Path $blockedStateHome '.codex/skills/alpha/SKILL.md'))) 'unavailable state directory reports the failure after completed installs'
+    $blockedStateRoot = Join-Path $blockedStateHome 'state'
+    Set-TestFile $blockedStateRoot 'not a directory'
+    $pathArgs = @('-Environment', 'test', '-RepoRoot', $repo, '-HomeRoot', $blockedStateHome, '-StateRoot', $blockedStateRoot)
+    foreach ($modeArgs in @($pathArgs, ($pathArgs + '-Apply'))) {
+        $r = Invoke-TestProcess -ScriptPath $deploy -Arguments $modeArgs
+        Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'state-root-not-directory') 'a file occupying StateRoot stops the planner before build'
+        Assert-TestCondition ((Get-Content -Raw -LiteralPath $blockedStateRoot) -ceq 'not a directory' -and -not (Test-Path (Join-Path $blockedStateHome '.codex'))) 'planning preserves the file and the empty home'
+    }
+    $directoryStateHome = Join-Path $work 'directory-state-home'
+    New-Item -ItemType Directory -Path (Join-Path $directoryStateHome 'state/deployed-skills.json') -Force | Out-Null
+    $r = Invoke-Deploy $repo $directoryStateHome
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'state-path-is-directory') 'preview identifies a directory occupying the state file'
     Set-TestEnvironment $repo @('alpha', 'beta')
 
     Write-Host '[identical manual skill stays unowned when deselected]'
