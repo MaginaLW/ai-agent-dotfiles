@@ -410,8 +410,23 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     New-Item -ItemType Junction -Path $aliasPath -Target $tr | Out-Null
     Push-Location -LiteralPath $work
     try {
+        $trDrive = $tr.Substring(0, 1)
+        $trTail = $tr.Substring(3)
+        $badRoots = @(
+            $tr,
+            './backup-boundary-repo/new',
+            (Join-Path $tr 'new'),
+            (Join-Path $aliasPath 'new'),
+            "\\?\$tr",
+            "\\?\$tr\new",
+            "\\.\$tr\new",
+            "Microsoft.PowerShell.Core\FileSystem::\\?\$tr\new",
+            "\\localhost\${trDrive}`$\$trTail\new",
+            "\\127.0.0.1\${trDrive}`$\$trTail\new",
+            'Env:\TEMP'
+        )
         foreach ($scriptPath in @($pullScript, $pushScript)) {
-            foreach ($badRoot in @($tr, './backup-boundary-repo/new', (Join-Path $tr 'new'), (Join-Path $aliasPath 'new'))) {
+            foreach ($badRoot in $badRoots) {
                 $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $badRoot, '-Apply')
                 Assert ($r.Code -ne 0 -and $r.Out -match 'BackupRoot must be outside') "$(Split-Path -Leaf $scriptPath): refuses backup root $badRoot"
             }

@@ -13,6 +13,24 @@ Set-StrictMode -Version Latest
 function Resolve-ConfigBackupRoot {
     param([Parameter(Mandatory)] [string] $RepoRoot, [Parameter(Mandatory)] [string] $BackupRoot)
 
+    if ([string]::IsNullOrWhiteSpace($BackupRoot)) {
+        throw 'BackupRoot must be outside the repository.'
+    }
+
+    function ConvertTo-ConfigLocalPath([string] $RawPath, [string] $ErrorPrefix) {
+        $provider = $null
+        $drive = $null
+        $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RawPath, [ref]$provider, [ref]$drive)
+        if ($null -eq $provider -or $provider.Name -cne 'FileSystem') {
+            throw "$ErrorPrefix (non-filesystem path)."
+        }
+        $normalized = $resolved.Replace('/', '\')
+        if ($normalized.StartsWith('\\')) {
+            throw "$ErrorPrefix (UNC and Win32 device paths are not supported)."
+        }
+        return [IO.Path]::GetFullPath($normalized)
+    }
+
     # Resolve existing junctions and symlinks even if the backup directory is new.
     function Get-ConfigDirectoryTarget([IO.DirectoryInfo] $Directory, [int] $LinksLeft = 63) {
         if ($null -eq $Directory.Parent) { return $Directory.FullName }
@@ -20,14 +38,29 @@ function Resolve-ConfigBackupRoot {
         $item = [IO.DirectoryInfo]::new([IO.Path]::Combine($parent, $Directory.Name))
         if ($null -ne $item.LinkTarget) {
             if ($LinksLeft -eq 0) { throw 'Too many links in config directory path.' }
-            return Get-ConfigDirectoryTarget ($item.ResolveLinkTarget($false)) ($LinksLeft - 1)
+            $target = $item.ResolveLinkTarget($false)
+            if ($null -eq $target) {
+                throw 'BackupRoot must be outside the repository (unresolvable reparse point).'
+            }
+            $targetPath = $target.FullName.Replace('/', '\')
+            if ($targetPath -match '^\\\\\?\\([A-Za-z]:\\.*)$') {
+                $targetPath = $Matches[1]
+            }
+            elseif ($targetPath.StartsWith('\\')) {
+                throw 'BackupRoot must be outside the repository (UNC and Win32 device targets are not supported).'
+            }
+            return Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($targetPath)) ($LinksLeft - 1)
+        }
+        if ($item.Exists -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'BackupRoot must be outside the repository (unresolvable reparse point).'
         }
         return $item.FullName
     }
 
-    $path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BackupRoot)
-    $backup = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($path))
-    $repo = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($RepoRoot))
+    $backupPath = ConvertTo-ConfigLocalPath $BackupRoot 'BackupRoot must be outside the repository'
+    $repoPath = ConvertTo-ConfigLocalPath $RepoRoot 'RepoRoot must be a local filesystem path'
+    $backup = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($backupPath))
+    $repo = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($repoPath))
     $relative = [IO.Path]::GetRelativePath($repo, $backup)
     if (-not [IO.Path]::IsPathRooted($relative) -and $relative -ne '..' -and
         -not $relative.StartsWith('..' + [IO.Path]::DirectorySeparatorChar)) {
