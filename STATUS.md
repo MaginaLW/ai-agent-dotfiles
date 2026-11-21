@@ -50,7 +50,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Open items
 
-- **Subscription delegation cost.** The completed pair establishes rubric scores and host usage for this task. The worker receipt supplied no task-level subscription token count or charge. Worker usage and total monetary cost remain unverified.
+- **Subscription delegation cost.** The saved submission ID links this review to one completed Command Code worker job. Its creation and completion timestamps were 113.522 seconds apart. The retained records contained no worker token count, charge or provider request trace ID. The local quota ledger records dispatches by tier. On 2026-11-22, all 100 requests visible in Command Code Studio were later than the job, and earlier pages were unavailable in that view. Worker tokens, the charge for this review and total monetary cost remain unverified. [Studio usage records](https://commandcode.ai/docs/studio)
 - **Antigravity → Blender on port `9800`.** On 2026-11-22, the managed entries still matched and a local connection to `127.0.0.1:9800` was refused. Once Blender is listening there, call `get_addon_status` from a fresh Antigravity session and confirm that the returned and expected protocol versions are both `16`.
 
 ## Known boundaries
