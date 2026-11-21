@@ -279,6 +279,138 @@ try {
     try { $parsedStdout = $subProc.Out | ConvertFrom-Json } catch { $parsedStdout = $null }
     Assert-McpTest ($subProc.Code -eq 0 -and $null -ne $parsedStdout -and $parsedStdout.Summary.add -eq 1 -and (Test-Path -LiteralPath $subJsonPath)) 'subprocess Status -Json emits clean JSON and writes -JsonPath'
 
+    Write-Host 'mcp-sync: diagnostic redaction, Changes array type, and quiet -Apply -Json'
+    $redactPsd1 = @'
+@{ SchemaVersion = 1; Servers = @(
+    @{ Name = 'local'; Platforms = @('Antigravity', 'Codex'); Enabled = $true; Transport = 'stdio'; Command = 'fixture'; Env = @{ MODE = 'declared-env-val' } }
+    @{ Name = 'remote'; Platforms = @('Antigravity'); Enabled = $true; Transport = 'streamable-http'; Url = 'https://example.invalid/mcp'; Headers = @{ 'X-Fixture' = 'declared-hdr-val' } }
+    @{ Name = 'matching'; Platforms = @('Antigravity', 'Codex'); Enabled = $true; Transport = 'stdio'; Command = 'fixture' }
+) }
+'@
+    $f6 = New-McpFixture -Name 'redact-drift' -ServersPsd1Content $redactPsd1
+    Set-TestFile -Path (Join-Path $f6.Home '.gemini/config/mcp_config.json') -Content '{"mcpServers":{"local":{"command":"fixture","args":[],"env":{"MODE":"live-ag-env-val"}},"remote":{"url":"https://example.invalid/mcp","headers":{"X-Fixture":"live-ag-hdr-val"}},"matching":{"command":"fixture","args":[]}}}'
+    Set-TestFile -Path (Join-Path $f6.Home '.codex/config.toml') -Content "# fixture codex config`n"
+    $script:McpTestCodexAvailable = $true
+    $script:McpTestCodexFailOn = ''
+    $script:McpTestCodexEntries = @(
+        @{ name = 'local'; enabled = $true; transport = @{ type = 'stdio'; command = 'fixture'; args = @(); env = @{ MODE = 'live-cx-env-val' }; env_vars = @(); cwd = $null } },
+        @{ name = 'matching'; enabled = $true; transport = @{ type = 'stdio'; command = 'fixture'; args = @(); env = $null; env_vars = @(); cwd = $null } }
+    )
+    $directPlan = Get-McpPlan -RepoRoot $f6.Repo -HomeRoot $f6.Home -Platform @('Antigravity', 'Codex')
+    $directJson = ConvertTo-Json -InputObject $directPlan -Depth 20
+    Assert-McpTest (@($directPlan.Items | Where-Object { $_.Contains('Before') }).Count -eq 0) 'Get-McpPlan omits dead Before property on all items'
+    Assert-McpTest ($directJson -notmatch 'live-ag-env-val|live-ag-hdr-val|live-cx-env-val') 'Get-McpPlan never retains live env or header values across platforms'
+    Assert-McpTest ($directPlan.Summary.update -eq 3 -and $directPlan.Summary.unchanged -eq 2) 'Get-McpPlan classifies drifted entries as update and matching entries as unchanged'
+
+    # Fallback Changes branches must remain arrays rather than scalar strings.
+    Set-TestFile -Path (Join-Path $f6.Home '.gemini/config/mcp_config.json') -Content '{"mcpServers":{"local":"not-an-object","remote":{"url":"https://example.invalid/mcp","headers":{"X-Fixture":"live-ag-hdr-val"}},"matching":{"command":"fixture","args":[]}}}'
+    $script:McpTestCodexEntries = @(
+        @{ name = 'local'; enabled = $true; transport = @{} }
+    )
+    $fallbackPlan = Get-McpPlan -RepoRoot $f6.Repo -HomeRoot $f6.Home -Platform @('Antigravity', 'Codex') -Server @('local')
+    foreach ($fbItem in $fallbackPlan.Items) {
+        Assert-McpTest ($fbItem.Changes -is [array] -and $fbItem.Changes.Count -eq 1) "fallback Changes on $($fbItem.Platform) remains a single-element array"
+    }
+    $fallbackJson = ConvertTo-Json -InputObject $fallbackPlan -Depth 20 -Compress
+    Assert-McpTest ($fallbackJson -match '"Changes":\["~ / \(type-changed\)"\]' -and $fallbackJson -match '"Changes":\["~ /transport"\]') 'fallback Changes serialize as JSON arrays on Antigravity and Codex'
+
+    # Subprocess Status -Json/-JsonPath, agent-dotfiles status -Json, and Deploy -Apply -Json (with secret scan enabled and fake codex CLI on PATH).
+    Set-TestFile -Path (Join-Path $f6.Home '.gemini/config/mcp_config.json') -Content '{"mcpServers":{"local":{"command":"fixture","args":[],"env":{"MODE":"live-ag-env-val"}},"remote":{"url":"https://example.invalid/mcp","headers":{"X-Fixture":"live-ag-hdr-val"}},"matching":{"command":"fixture","args":[]}}}'
+    Set-TestFile -Path (Join-Path $f6.Repo 'scripts/scan-secrets.ps1') -Content "param([string] `$RepoRoot)`nWrite-Output 'Secret scan: PASS (fixture banner)'`nexit 0`n"
+    $codexStatePath = Join-Path $f6.Home '.codex/fake-codex-mcp.json'
+    Set-TestFile -Path $codexStatePath -Content '[{"name":"local","enabled":true,"transport":{"type":"stdio","command":"fixture","args":[],"env":{"MODE":"live-cx-env-val"},"env_vars":[],"cwd":null}},{"name":"matching","enabled":true,"transport":{"type":"stdio","command":"fixture","args":[],"env":null,"env_vars":[],"cwd":null}}]'
+    $fakeBin = Join-Path $f6.Root 'bin'
+    Set-TestFile -Path (Join-Path $fakeBin 'codex.ps1') -Content @'
+$ErrorActionPreference = 'Stop'
+$joined = $args -join ' '
+if ($joined -ceq '--version') {
+    Write-Output 'codex-cli 0.0.0-fixture'
+    exit 0
+}
+$stateFile = Join-Path $env:CODEX_HOME 'fake-codex-mcp.json'
+$entries = if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+    @(Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json -AsHashtable -NoEnumerate)
+} else { @() }
+if ($joined -ceq 'mcp list --json') {
+    Write-Output (ConvertTo-Json -InputObject @($entries) -Depth 20 -Compress)
+    exit 0
+}
+if ($args.Count -ge 3 -and $args[0] -ceq 'mcp' -and $args[1] -ceq 'remove') {
+    $targetName = [string]$args[2]
+    $entries = @($entries | Where-Object { $_['name'] -cne $targetName })
+    [IO.File]::WriteAllText($stateFile, (ConvertTo-Json -InputObject @($entries) -Depth 20 -Compress))
+    Write-Output "removed $targetName"
+    exit 0
+}
+if ($args.Count -ge 4 -and $args[0] -ceq 'mcp' -and $args[1] -ceq 'add') {
+    $targetName = [string]$args[2]
+    $envObj = @{}
+    $cmdTokens = [System.Collections.Generic.List[string]]::new()
+    $afterDash = $false
+    for ($i = 3; $i -lt $args.Count; $i++) {
+        $tok = [string]$args[$i]
+        if ($afterDash) { $cmdTokens.Add($tok); continue }
+        if ($tok -ceq '--') { $afterDash = $true; continue }
+        if ($tok -ceq '--env' -and $i + 1 -lt $args.Count) {
+            $kv = ([string]$args[++$i]) -split '=', 2
+            $envObj[$kv[0]] = $kv[1]
+            continue
+        }
+    }
+    $entries += @{
+        name      = $targetName
+        enabled   = $true
+        transport = @{
+            type     = 'stdio'
+            command  = $cmdTokens[0]
+            args     = @($cmdTokens | Select-Object -Skip 1)
+            env      = $(if ($envObj.Count -gt 0) { $envObj } else { $null })
+            env_vars = @()
+            cwd      = $null
+        }
+    }
+    [IO.File]::WriteAllText($stateFile, (ConvertTo-Json -InputObject @($entries) -Depth 20 -Compress))
+    Write-Output "added $targetName"
+    exit 0
+}
+throw "Unexpected fake codex args: $joined"
+'@
+    $savedPath = $env:PATH
+    $env:PATH = "$fakeBin$([IO.Path]::PathSeparator)$savedPath"
+    try {
+        $redactPath = Join-Path $f6.Root 'redact-status.json'
+        $stProc = Invoke-TestProcess -ScriptPath (Join-Path $suiteRepo 'scripts/mcp-sync.ps1') -Arguments @('-Action', 'Status', '-RepoRoot', $f6.Repo, '-HomeRoot', $f6.Home, '-Platform', 'Antigravity,Codex', '-Json', '-JsonPath', $redactPath)
+        Assert-McpTest ($stProc.Code -eq 0) 'subprocess Status -Json succeeds on drifted Antigravity and Codex entries'
+
+        $adProc = Invoke-TestProcess -ScriptPath (Join-Path $suiteRepo 'scripts/agent-dotfiles.ps1') -Arguments @('status', '-RepoRoot', $f6.Repo, '-HomeRoot', $f6.Home, '-StateRoot', (Join-Path $f6.Root 'state'), '-Json')
+        Assert-McpTest ($adProc.Code -eq 0) 'agent-dotfiles status -Json succeeds on drifted Antigravity and Codex entries'
+
+        foreach ($payload in @($stProc.Out, [IO.File]::ReadAllText($redactPath), $adProc.Out)) {
+            Assert-McpTest ($payload -notmatch 'live-ag-env-val|live-ag-hdr-val|live-cx-env-val|declared-env-val|declared-hdr-val') 'Status JSON output omits both live and declared env/header values'
+            $parsed = $payload | ConvertFrom-Json
+            if ($parsed.PSObject.Properties['Mcp']) { $parsed = $parsed.Mcp }
+            Assert-McpTest (@($parsed.Items | Where-Object { $_.PSObject.Properties['Before'] }).Count -eq 0) 'Status JSON omits Before on all items'
+            $agLocal = @($parsed.Items | Where-Object { $_.Platform -ceq 'Antigravity' -and $_.Server -ceq 'local' })[0]
+            $cxLocal = @($parsed.Items | Where-Object { $_.Platform -ceq 'Codex' -and $_.Server -ceq 'local' })[0]
+            $agRemote = @($parsed.Items | Where-Object { $_.Platform -ceq 'Antigravity' -and $_.Server -ceq 'remote' })[0]
+            $agMatch = @($parsed.Items | Where-Object { $_.Platform -ceq 'Antigravity' -and $_.Server -ceq 'matching' })[0]
+            $cxMatch = @($parsed.Items | Where-Object { $_.Platform -ceq 'Codex' -and $_.Server -ceq 'matching' })[0]
+            Assert-McpTest ($agLocal.Action -ceq 'update' -and $agLocal.Changes -is [array] -and ($agLocal.Changes -contains '~ /env/MODE')) 'Antigravity Status JSON preserves drifted env field path as array'
+            Assert-McpTest ($cxLocal.Action -ceq 'update' -and $cxLocal.Changes -is [array] -and ($cxLocal.Changes -contains '~ /env/MODE')) 'Codex Status JSON preserves drifted env field path as array'
+            Assert-McpTest ($agRemote.Action -ceq 'update' -and $agRemote.Changes -is [array] -and ($agRemote.Changes -contains '~ /headers/X-Fixture')) 'Antigravity remote Status JSON preserves drifted header field path as array'
+            Assert-McpTest ($agMatch.Action -ceq 'unchanged' -and $cxMatch.Action -ceq 'unchanged' -and $parsed.Summary.update -eq 3 -and $parsed.Summary.unchanged -eq 2) 'Status JSON classifies drifted and matching entries across Antigravity and Codex'
+        }
+
+        $applyProc = Invoke-TestProcess -ScriptPath (Join-Path $suiteRepo 'scripts/mcp-sync.ps1') -Arguments @('-Action', 'Deploy', '-Apply', '-RepoRoot', $f6.Repo, '-HomeRoot', $f6.Home, '-Platform', 'Antigravity,Codex', '-BackupRoot', $f6.Backup, '-Json')
+        $parsedApply = $null
+        try { $parsedApply = $applyProc.Out | ConvertFrom-Json } catch { $parsedApply = $null }
+        Assert-McpTest ($applyProc.Code -eq 0 -and $null -ne $parsedApply -and $applyProc.Out -notmatch 'Secret scan: PASS' -and $applyProc.Out -notmatch 'live-ag-env-val|live-ag-hdr-val|live-cx-env-val|declared-env-val|declared-hdr-val') 'Deploy -Apply -Json suppresses secret-scan stdout banner and emits clean redacted JSON'
+        Assert-McpTest ($parsedApply.Summary.unchanged -eq 5 -and $parsedApply.Summary.update -eq 0) 'Deploy -Apply -Json converges all drifted entries'
+    }
+    finally {
+        $env:PATH = $savedPath
+    }
+
     Write-Host "mcp-sync tests: PASS ($script:McpTestAssertions assertions)"
 }
 finally {
