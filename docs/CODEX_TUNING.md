@@ -29,3 +29,16 @@ codex execpolicy check --pretty --rules "$HOME/.codex/rules/default.rules" -- gi
 ```
 
 检查器给出指定规则文件的匹配项及裁决，不执行示例中的 Git 命令。需要保存规则时，先核对前缀还能匹配哪些操作。例如，`pwsh -NoProfile -File` 后面可以跟任意脚本，`git branch` 也包含删除子命令。确认需要长期放行的具体动作后，再用相邻的不同命令检查匹配范围。[命令规则和检查器](https://learn.chatgpt.com/docs/agent-configuration/rules)
+
+## 子代理历史继承（Multi-Agent V2）
+
+在 Codex Multi-Agent V2 中，`spawn_agent` 省略 `fork_turns` 时默认继承完整父对话历史（`"all"`）。[codex/AGENTS.md](../codex/AGENTS.md) 与 `subagent-driven-development` 技能约定默认显式传 `fork_turns: "none"` 并提供自包含交接包，仅在强依赖未落盘的长对话推导或父上下文仍短时使用 `"all"`。
+
+因为 `config.toml` 属于本机私有配置且不纳入 `config-sync`，可在 `~/.codex/config.toml` 中追加以下可选片段，将提醒直接附加到 `spawn_agent` 工具描述末尾（不覆盖内置多代理指令，也不改变 `multi_agent_v2` 的默认启用状态；不要设置会替换内置指令的 `root_agent_usage_hint_text` 或 `subagent_usage_hint_text`）：
+
+```toml
+[features.multi_agent_v2]
+usage_hint_text = "Default to `fork_turns=\"none\"` with a concise, self-contained handoff (goal, non-goals, confirmed decisions/invariants/ruled-out paths, exact file/command pointers, acceptance criteria; tell the child to reply NEEDS_CONTEXT if critical context is missing). Use `fork_turns=\"all\"` only when the subtask tightly depends on extensive unpersisted parent discussion or the parent context is still small."
+```
+
+修改 `config.toml` 后重启 Codex 桌面版或开启新会话生效；可用 `codex exec --strict-config`（只读测试）确认字段被当前客户端严格接受。
