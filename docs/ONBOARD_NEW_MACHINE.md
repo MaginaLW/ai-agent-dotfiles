@@ -6,6 +6,15 @@ Use PowerShell 7+. Start only after the owner names the machine.
 
 ## 1. Clone and bootstrap
 
+Check that PowerShell 7 or later and Git are available in the terminal you will use.
+
+```powershell
+pwsh -v
+git --version
+```
+
+If either command is missing, install that tool and reopen the terminal before cloning.
+
 ```powershell
 $RepoRoot = '<repo-root>'
 git clone <repo-url> $RepoRoot
@@ -56,24 +65,40 @@ can still leave skills completed; use the [recovery table](README.md#8-备份与
 
 ## 4. Set up Antigravity (`AGENTS.md` and plugins)
 
-1. Preview and apply the Antigravity managed `AGENTS.md` block (`~/.gemini/config/AGENTS.md`) with explicit `-Platform Antigravity` and owner authorization:
+Preview the managed block in `~/.gemini/config/AGENTS.md`.
 
 ```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform Antigravity -DryRun
+```
+
+Check the target and the planned change to the managed block. Once the owner approves that change, apply it and read back the result.
+
+```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform Antigravity -Apply
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config status -Platform Antigravity
 ```
 
-2. Build, inspect, and deploy the managed `ai-agent-dotfiles` plugin (and optionally install missing declared `ExternalPlugins` such as `unity` via `-ExternalPlugin <name>` after reviewing the dry-run and securing owner authorization covering identity, version, and enablement; close the Antigravity Desktop App before installing external marketplace entries if file locks occur):
+Before building the plugin, check that the Antigravity CLI is available.
+
+```powershell
+agy --version
+```
+
+If that command fails, make the CLI available on `PATH` before continuing. Build and preview the managed plugin.
 
 ```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity build
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity status
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity deploy -DryRun
+```
+
+Check the plugin name, installed and candidate versions, package, and enablement effects. Once the owner approves that scope, apply it.
+
+```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity deploy -Apply
 ```
 
-See [docs/README.md §15](README.md#15-antigravity-插件) for ownership, `ExternalPlugins`, and post-install readback details.
+For a missing external marketplace plugin such as `unity`, select it explicitly with `-ExternalPlugin unity` in both the preview and the separately authorized Apply. If file locks interfere, close Antigravity Desktop before installation. See [the plugin guide](README.md#15-antigravity-插件) for ownership and post-install readback.
 
 ## 5. Project managed MCP servers (`mcp-sync`)
 
@@ -82,6 +107,11 @@ Ensure required runtimes/CLIs for declared servers (for example `uv` / `uvx` for
 ```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp deploy -DryRun
+```
+
+Review the server, client, and changed fields for each planned entry. After the owner approves these entries, apply them and check their status.
+
+```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp deploy -Apply
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
 ```
@@ -102,6 +132,11 @@ Apply with the owner's OK:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work -Retire <old-skill>
+```
+
+Confirm the `prune` line names the intended skill. After the owner approves its removal, use that same name in the Apply.
+
+```powershell
 pwsh -NoProfile -File .\scripts\deploy-skills.ps1 -Environment work -Retire <old-skill> -Apply
 ```
 

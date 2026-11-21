@@ -128,7 +128,7 @@ function Get-EnvironmentStatusReport {
         [string] $RepoRoot,
         [string] $StateRoot
     )
-    $environments = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'harness-source\envs') -Filter '*.psd1' -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object {
+    $environments = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'harness-source\envs') -Filter '*.psd1' -File -ErrorAction Stop | Sort-Object Name | ForEach-Object {
         $data = Import-PowerShellDataFile -LiteralPath $_.FullName
         [pscustomobject]@{ Name = $_.BaseName; Description = [string] $data['Description']; Skills = $data['Skills'] }
     })
@@ -225,10 +225,8 @@ function Get-SafeProperty {
 
 function Convert-ChildJson {
     param([object] $RawOutput)
-    if ($null -eq $RawOutput) { return $null }
     $text = if ($RawOutput -is [array]) { $RawOutput -join "`n" } else { [string] $RawOutput }
     $trimmed = $text.Trim()
-    if ([string]::IsNullOrEmpty($trimmed)) { return $null }
     try {
         return ,(ConvertFrom-Json -InputObject $trimmed -NoEnumerate -ErrorAction Stop)
     }
@@ -296,7 +294,12 @@ function Invoke-UnifiedStatus {
     $pwshPath = $pwshCommands[0].Source
 
     # 1. Environment status
-    $envReport = Get-EnvironmentStatusReport -RepoRoot $repoRoot -StateRoot $stateRoot
+    $envError = $null
+    try { $envReport = Get-EnvironmentStatusReport -RepoRoot $repoRoot -StateRoot $stateRoot }
+    catch {
+        $envError = 'Could not read the environment definitions under harness-source/envs. Check -RepoRoot.'
+        $envReport = [ordered]@{ Recorded = 'unavailable'; StateReason = 'catalog-unavailable'; Available = @() }
+    }
 
     # 2. Config status
     $configStatusScript = Join-Path $PSScriptRoot 'config-status.ps1'
@@ -309,8 +312,11 @@ function Invoke-UnifiedStatus {
         $configCode = $LASTEXITCODE
         if ($configCode -eq 0) {
             $configJson = Convert-ChildJson $configOut
-            if ($configJson -isnot [array] -and $configJson -isnot [System.Collections.IDictionary] -and $null -eq (Get-SafeProperty $configJson 'Error')) {
+            if ($null -ne (Get-SafeProperty $configJson 'Status')) {
                 $configJson = @($configJson)
+            }
+            elseif ($configJson -isnot [array] -and $null -eq (Get-SafeProperty $configJson 'Error')) {
+                $configJson = [ordered]@{ Error = 'Expected a config status report.' }
             }
         }
         else {
@@ -337,6 +343,9 @@ function Invoke-UnifiedStatus {
         $agCode = $LASTEXITCODE
         if ($agCode -eq 0) {
             $agJson = Convert-ChildJson $agOut
+            if ($null -eq (Get-SafeProperty $agJson 'Action') -and $null -eq (Get-SafeProperty $agJson 'Error')) {
+                $agJson = [ordered]@{ Error = 'Expected an Antigravity plugin status report.' }
+            }
         }
         else {
             $agJson = [ordered]@{ Error = "antigravity-plugins.ps1 failed (exit $agCode)"; Raw = ($agOut -join "`n") }
@@ -357,6 +366,9 @@ function Invoke-UnifiedStatus {
         $mcpCode = $LASTEXITCODE
         if ($mcpCode -eq 0) {
             $mcpJson = Convert-ChildJson $mcpOut
+            if ($null -eq (Get-SafeProperty $mcpJson 'Summary') -and (Get-SafeProperty $mcpJson 'Items') -isnot [array] -and $null -eq (Get-SafeProperty $mcpJson 'Error')) {
+                $mcpJson = [ordered]@{ Error = 'Expected an MCP status report.' }
+            }
         }
         else {
             $mcpJson = [ordered]@{ Error = "mcp-sync.ps1 failed (exit $mcpCode)"; Raw = ($mcpOut -join "`n") }
@@ -421,6 +433,10 @@ function Invoke-UnifiedStatus {
         }
     }
 
+    $configError = Get-SafeProperty $configJson 'Error'
+    if ($configError) { $configSummary = $null }
+    if ($mcpErrorVal) { $mcpSummary = $null }
+    $exitCode = [int][bool]($envError -or $configError -or $agErrorVal -or $mcpErrorVal)
     $summary = [ordered]@{
         Environment = $envReport.Recorded
         Config      = $configSummary
@@ -441,10 +457,11 @@ function Invoke-UnifiedStatus {
         Summary       = $summary
     }
 
+    if ($envError) { $aggregatedReport.Environment.Error = $envError }
     if ($isJson) {
         $jsonStr = ConvertTo-Json -InputObject $aggregatedReport -Depth 20
         Write-Output $jsonStr
-        return
+        exit $exitCode
     }
 
     # Human-readable layout
@@ -452,14 +469,16 @@ function Invoke-UnifiedStatus {
     Write-Host ''
     Write-Host '[Environment]' -ForegroundColor Cyan
     Write-Host ("  Last recorded Apply environment: {0} (record only; live contents may differ)" -f $envReport.Recorded)
-    if ($envReport.StateReason) {
+    if ($envError) {
+        Write-Host "  $envError" -ForegroundColor Red
+    }
+    elseif ($envReport.StateReason) {
         Write-Host ("  Record unavailable reason: {0}. Inspect local deploy record." -f $envReport.StateReason) -ForegroundColor Yellow
     }
     Write-Host ("  Available environments: {0}" -f ($envReport.Available -join ', '))
     Write-Host ''
 
     Write-Host '[Config Status]' -ForegroundColor Cyan
-    $configError = Get-SafeProperty $configJson 'Error'
     if ($configJson -is [array] -and $configJson.Count -gt 0) {
         foreach ($item in $configJson) {
             $itemStatus = Get-SafeProperty $item 'Status'
@@ -479,7 +498,7 @@ function Invoke-UnifiedStatus {
         Write-Host ("  Error querying config status: {0}" -f $configError) -ForegroundColor Red
     }
     else {
-        Write-Host '  No config items found or status unavailable.' -ForegroundColor Yellow
+        Write-Host '  No managed config items found.'
     }
     Write-Host ''
 
@@ -521,8 +540,9 @@ function Invoke-UnifiedStatus {
         Write-Host ("  Error querying MCP projections: {0}" -f $mcpErrorVal) -ForegroundColor Red
     }
     else {
-        Write-Host '  MCP projection status unavailable.' -ForegroundColor Yellow
+        Write-Host '  No managed MCP projections found.'
     }
+    exit $exitCode
 }
 
 if ([string]::IsNullOrWhiteSpace($Command)) {
@@ -593,7 +613,6 @@ if ($normalizedCommand -eq 'status') {
         exit 0
     }
     Invoke-UnifiedStatus $forwardedArguments
-    exit 0
 }
 $groupAction = $null
 if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
