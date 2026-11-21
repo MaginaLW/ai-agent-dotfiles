@@ -300,7 +300,56 @@ $destination = Join-Path (Split-Path -Parent $RepoRoot) "$homeName/.codex/AGENTS
 '@
         $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $bk, '-Apply')
         Assert ($r.Code -ne 0 -and [IO.File]::ReadAllText($file) -ceq $expected) "pull: a concurrent personal save survives a planned $action"
+        Assert (-not (Test-Path -LiteralPath $bk)) "pull: concurrent $action drift aborts before creating a backup directory"
     }
+
+    # Copy-mode plans (prompts/*.md) must also abort before backup or sibling writes when destination changes after planning.
+    foreach ($action in @('update', 'add')) {
+        $tr = New-TempRepo -Name "pull-copy-race-$action-repo"
+        $th = Join-Path $work "pull-copy-race-$action-home"
+        $bk = Join-Path $work "pull-copy-race-$action-backup"
+        $promptFile = Join-Path $th '.codex/prompts/example.md'
+        $siblingFile = Join-Path $th '.codex/prompts/sibling.md'
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $promptFile)) | Out-Null
+        Set-File (Join-Path $tr 'codex/prompts/example.md') 'repo prompt v2'
+        Set-File (Join-Path $tr 'codex/prompts/sibling.md') 'repo sibling'
+        if ($action -eq 'update') {
+            Set-File $promptFile 'home prompt v1'
+        }
+        $expected = if ($action -eq 'update') { 'home prompt v1' + ' + concurrent edit' } else { ' + concurrent edit' }
+        $scan = Join-Path $tr 'scripts/scan-secrets.ps1'
+        Rename-Item -LiteralPath $scan -NewName 'original-scan.ps1'
+        Set-File $scan @'
+param([string] $RepoRoot)
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'original-scan.ps1') -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$homeName = (Split-Path -Leaf $RepoRoot) -replace '-repo$', '-home'
+$destination = Join-Path (Split-Path -Parent $RepoRoot) "$homeName/.codex/prompts/example.md"
+[IO.File]::AppendAllText($destination, ' + concurrent edit')
+'@
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $bk, '-Apply')
+        Assert ($r.Code -ne 0 -and [IO.File]::ReadAllText($promptFile) -ceq $expected) "pull: concurrent copy-$action edit survives"
+        Assert (-not (Test-Path -LiteralPath $siblingFile) -and -not (Test-Path -LiteralPath $bk)) "pull: concurrent copy-$action drift aborts before backup or sibling writes"
+    }
+
+    # Source modification after planning must abort before backup or destination writes.
+    $tr = New-TempRepo -Name 'pull-source-race-repo'
+    $th = Join-Path $work 'pull-source-race-home'
+    $bk = Join-Path $work 'pull-source-race-backup'
+    $repoPrompt = Join-Path $tr 'codex/prompts/example.md'
+    $homePrompt = Join-Path $th '.codex/prompts/example.md'
+    Set-File $repoPrompt 'repo prompt v2'
+    Set-File $homePrompt 'home prompt v1'
+    $scan = Join-Path $tr 'scripts/scan-secrets.ps1'
+    Rename-Item -LiteralPath $scan -NewName 'original-scan.ps1'
+    Set-File $scan @'
+param([string] $RepoRoot)
+& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'original-scan.ps1') -RepoRoot $RepoRoot
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+[IO.File]::AppendAllText((Join-Path $RepoRoot 'codex/prompts/example.md'), ' + post-scan mutation')
+'@
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $bk, '-Apply')
+    Assert ($r.Code -ne 0 -and $r.Out -match 'source changed since planning' -and [IO.File]::ReadAllText($homePrompt) -ceq 'home prompt v1' -and -not (Test-Path -LiteralPath $bk)) 'pull: post-plan source mutation aborts before backup or destination write'
 
     # The scan must stop both adds and updates before even creating a backup.
     $tr = New-TempRepo -Name 'pull-secret-repo'
