@@ -83,7 +83,8 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ## 失败与恢复
 
 先读失败阶段、部署预览和备份提示，再按[手册 §8](docs/README.md#8-备份与恢复)处理。
-`Preflight failed` 表示尚未写 live 或部署状态；`Skills stage completed; config stage failed` 表示 skills 已完成，配置阶段失败。
+`Skills preview failed` 或 `config preview failed` 表示预览失败，本次没有写入 live 或部署状态。`Preflight failed` 表示 Apply 停在写入前的预检。
+`Skills Apply failed before the config stage` 表示配置阶段尚未开始，应核对已处理的 skills、状态与备份。`Skills stage completed; config stage failed` 表示 skills 已完成，应核对配置错误与备份。
 联合部署的 skills 与 config 不构成原子事务；发生运行时失败时，已完成的 skills 可能仍然保留。
 unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 skill 或重新 Apply 都应先核对具体对象和授权范围。
 不要手工清理 Codex `.system` 或整目录镜像 live skills。

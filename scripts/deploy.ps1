@@ -58,10 +58,21 @@ if ($Apply) {
     }
     $configArgs += '-Apply'
 }
-Invoke-DeployStage -Name 'skills' -ScriptName 'deploy-skills.ps1' -Arguments $skillArgs
+try {
+    Invoke-DeployStage -Name 'skills' -ScriptName 'deploy-skills.ps1' -Arguments $skillArgs
+}
+catch {
+    if ($Apply) {
+        throw "Skills Apply failed before the config stage. Check live skills, deployment state and backups before retrying. $($_.Exception.Message)"
+    }
+    throw "Skills preview failed before the config preview. No live skills, config or deploy state written. $($_.Exception.Message)"
+}
 try {
     Invoke-DeployStage -Name 'config' -ScriptName 'config-pull.ps1' -Arguments $configArgs
 }
 catch {
-    throw "Skills stage completed; config stage failed. $($_.Exception.Message)"
+    if ($Apply) {
+        throw "Skills stage completed; config stage failed. Check the config error and backups before retrying. $($_.Exception.Message)"
+    }
+    throw "Skills preview completed; config preview failed. No live skills, config or deploy state written. $($_.Exception.Message)"
 }

@@ -200,7 +200,9 @@ config-pull 的备份见 §11。
 
 | 看到的结果 | 先核对什么 | 后续操作 |
 |---|---|---|
+| `Skills preview failed` 或 `config preview failed` | 当前是 dry run，live 目录和部署状态均未写入 | 按出错阶段修正输入，重新预览 |
 | `Preflight failed` | 两个预览中的具体错误；预检可能重建仓库生成物，但尚未写 live 或部署状态 | 修复该阻塞，重新预览后按原授权范围执行 |
+| `Skills Apply failed before the config stage` | 配置阶段尚未开始，核对已处理的 skills、部署状态及本次备份 | 按实际写入结果处理失败项，重新预览 |
 | `Skills stage completed; config stage failed` | skills 当前内容、部署状态、config 错误与其备份 | 不假定整体回滚；释放文件占用等阻塞后，重新预览所需阶段 |
 | `Deployment state update failed` | live 目录与本次备份；此前成功操作可能已生效 | 不依据旧状态认定未部署，核对新的逐项计划 |
 | `.deploying-*` 残留或强制终止 | writer 是否停止、精确残留和备份内容 | 不按名称批量删除；依本节恢复说明逐项判断 |
@@ -443,6 +445,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 其中 `-JsonPath` 显式写报告；不提供未证明可用的原生 HomeRoot/ConfigRoot 隔离参数。
 
 `deploy` 在统一 CLI 中要求恰好一个 `-DryRun` 或 `-Apply`；底层脚本默认 dry run。
+用 `antigravity deploy -ExternalPlugin unity -DryRun` 预览指定插件时，JSON 首项 `SelectedExternalPlugins` 按请求顺序列出插件名、动作与原因。后面的 `Action` 属于受管插件 `ai-agent-dotfiles`，完整的外部插件清单保存在 `ExternalExpectations` 中。
 预览应核对原生版本与目标根、插件身份、候选版本与 digest、选中技能、相对文件差异、
 启用状态、扫描与校验结果，以及保留的外部插件。它不运行现有 `sync`、`env deploy` 或 Codex config-pull。
 
