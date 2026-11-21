@@ -383,7 +383,9 @@ throw "Unexpected fake codex args: $joined"
         Assert-McpTest ($stProc.Code -eq 0) 'subprocess Status -Json succeeds on drifted Antigravity and Codex entries'
 
         $adProc = Invoke-TestProcess -ScriptPath (Join-Path $suiteRepo 'scripts/agent-dotfiles.ps1') -Arguments @('status', '-RepoRoot', $f6.Repo, '-HomeRoot', $f6.Home, '-StateRoot', (Join-Path $f6.Root 'state'), '-Json')
-        Assert-McpTest ($adProc.Code -eq 0) 'agent-dotfiles status -Json succeeds on drifted Antigravity and Codex entries'
+        # This fixture supplies the MCP registry only. Other status queries report missing inputs.
+        $overview = $adProc.Out | ConvertFrom-Json
+        Assert-McpTest ($adProc.Code -eq 1 -and $overview.Environment.Error -and $overview.Antigravity.Error -and $overview.Summary.Mcp.update -eq 3) 'unified status reports unavailable sections while preserving the MCP drift summary'
 
         foreach ($payload in @($stProc.Out, [IO.File]::ReadAllText($redactPath), $adProc.Out)) {
             Assert-McpTest ($payload -notmatch 'live-ag-env-val|live-ag-hdr-val|live-cx-env-val|declared-env-val|declared-hdr-val') 'Status JSON output omits both live and declared env/header values'
