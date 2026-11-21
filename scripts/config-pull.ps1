@@ -69,11 +69,27 @@ function Get-ConfigPullPlan {
                 if (-not (Test-Path -LiteralPath $repoItem -PathType Leaf)) { throw "$($blockSpec.Label) source is not a file." }
                 if (Test-Path -LiteralPath $homeItem -PathType Container) { throw "$($blockSpec.Label) destination is a directory." }
                 $homeExists = Test-Path -LiteralPath $homeItem -PathType Leaf
+                if (-not $homeExists -and $null -ne (Get-Item -LiteralPath $homeItem -Force -ErrorAction SilentlyContinue)) {
+                    throw "$($blockSpec.Label) destination is not a readable file."
+                }
+                $srcHash = Get-FileHashHex $repoItem
+                $dstHash = if ($homeExists) { Get-FileHashHex $homeItem } else { $null }
                 $homeText = if ($homeExists) { [IO.File]::ReadAllText($homeItem) } else { '' }
                 $block = Get-ManagedAgentsBlockResult -RepoText ([IO.File]::ReadAllText($repoItem)) -HomeText $homeText -HomeExists $homeExists -BlockId $blockSpec.BlockId -Label $blockSpec.Label
                 if ($block.Changed) {
                     $action = if ($homeExists) { 'update' } else { 'add' }
-                    $plan.Add(@{ Src = $repoItem; Dst = $homeItem; Rel = $blockSpec.Label; Action = $action; Mode = 'content'; Content = $block.Content; OriginalText = $homeText })
+                    $plan.Add(@{
+                        Src               = $repoItem
+                        Dst               = $homeItem
+                        Rel               = $blockSpec.Label
+                        Action            = $action
+                        Mode              = 'content'
+                        Content           = $block.Content
+                        OriginalText      = $homeText
+                        ExpectedSrcHash   = $srcHash
+                        ExpectedDstExists = $homeExists
+                        ExpectedDstHash   = $dstHash
+                    })
                 }
                 continue
             }
@@ -110,6 +126,10 @@ if (-not $SkipSecretScan) {
     }
 }
 
+foreach ($op in $plan) {
+    Assert-ConfigPullOpUnchanged -Op $op
+}
+
 $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff')
 $backupDir = Join-Path $BackupRoot "config-backup-$stamp"
 $overwrites = @($plan | Where-Object { $_.Action -eq 'update' })
@@ -127,6 +147,7 @@ if ($overwrites.Count -gt 0) {
 $attempted = [System.Collections.Generic.List[object]]::new()
 try {
     foreach ($op in $plan) {
+        Assert-ConfigPullOpUnchanged -Op $op
         if ($op.Mode -eq 'copy' -and $op.Action -eq 'update') {
             # A copy can change the destination before throwing.
             $attempted.Add($op)

@@ -760,7 +760,6 @@ function Get-McpPlan {
                         Action         = 'blocked'
                         State          = 'blocked'
                         Reason         = $targetState.Reason
-                        Before         = $null
                         After          = $expected.Payload
                         Changes        = @()
                         UnmanagedCount = $unmanagedCount
@@ -777,7 +776,6 @@ function Get-McpPlan {
                         Action         = 'blocked'
                         State          = 'blocked'
                         Reason         = 'server-disabled-in-manifest'
-                        Before         = $(if ($targetState.Entries.Contains($srv.Name)) { $targetState.Entries[$srv.Name] } else { $null })
                         After          = $expected.Payload
                         Changes        = @()
                         UnmanagedCount = $unmanagedCount
@@ -794,7 +792,6 @@ function Get-McpPlan {
                         Action         = 'blocked'
                         State          = 'blocked'
                         Reason         = $expected.Reason
-                        Before         = $(if ($targetState.Entries.Contains($srv.Name)) { $targetState.Entries[$srv.Name] } else { $null })
                         After          = $null
                         Changes        = @()
                         UnmanagedCount = $unmanagedCount
@@ -814,7 +811,6 @@ function Get-McpPlan {
                         Action         = 'add'
                         State          = 'missing'
                         Reason         = 'missing-managed-entry'
-                        Before         = $null
                         After          = $expected.Payload
                         Changes        = (Get-McpObjectFieldDiffs -Before $null -After $expected.Payload)
                         UnmanagedCount = $unmanagedCount
@@ -830,7 +826,6 @@ function Get-McpPlan {
                         Action         = 'unchanged'
                         State          = 'unchanged'
                         Reason         = 'managed-entry-match'
-                        Before         = $before
                         After          = $expected.Payload
                         Changes        = @()
                         UnmanagedCount = $unmanagedCount
@@ -846,9 +841,8 @@ function Get-McpPlan {
                         Action         = 'update'
                         State          = 'different'
                         Reason         = 'managed-entry-differs'
-                        Before         = $before
                         After          = $expected.Payload
-                        Changes        = $(if ($before -is [System.Collections.IDictionary]) { Get-McpObjectFieldDiffs -Before $before -After $expected.Payload } else { @('~ / (type-changed)') })
+                        Changes        = @($(if ($before -is [System.Collections.IDictionary]) { Get-McpObjectFieldDiffs -Before $before -After $expected.Payload } else { @('~ / (type-changed)') }))
                         UnmanagedCount = $unmanagedCount
                         NativeAction   = $null
                     })
@@ -870,7 +864,6 @@ function Get-McpPlan {
                     Action         = 'blocked'
                     State          = 'blocked'
                     Reason         = $cxState.Reason
-                    Before         = $null
                     After          = $codexSpec.Canonical
                     Changes        = @()
                     UnmanagedCount = $codexUnmanaged
@@ -887,7 +880,6 @@ function Get-McpPlan {
                     Action         = 'blocked'
                     State          = 'blocked'
                     Reason         = 'server-disabled-in-manifest'
-                    Before         = $null
                     After          = $codexSpec.Canonical
                     Changes        = @()
                     UnmanagedCount = $codexUnmanaged
@@ -904,7 +896,6 @@ function Get-McpPlan {
                     Action         = 'blocked'
                     State          = 'blocked'
                     Reason         = $codexSpec.Reason
-                    Before         = $null
                     After          = $null
                     Changes        = @()
                     UnmanagedCount = $codexUnmanaged
@@ -923,7 +914,6 @@ function Get-McpPlan {
                     Action         = 'blocked'
                     State          = 'blocked'
                     Reason         = 'ambiguous-codex-entry'
-                    Before         = $null
                     After          = $codexSpec.Canonical
                     Changes        = @()
                     UnmanagedCount = $codexUnmanaged
@@ -939,7 +929,6 @@ function Get-McpPlan {
                     Action         = 'add'
                     State          = 'missing'
                     Reason         = 'missing-managed-entry'
-                    Before         = $null
                     After          = $codexSpec.Canonical
                     Changes        = (Get-McpObjectFieldDiffs -Before $null -After $codexSpec.Canonical)
                     UnmanagedCount = $codexUnmanaged
@@ -957,7 +946,6 @@ function Get-McpPlan {
                         Action         = 'unchanged'
                         State          = 'unchanged'
                         Reason         = 'managed-entry-match'
-                        Before         = $beforeCodex
                         After          = $codexSpec.Canonical
                         Changes        = @()
                         UnmanagedCount = $codexUnmanaged
@@ -973,9 +961,8 @@ function Get-McpPlan {
                         Action         = 'update'
                         State          = 'different'
                         Reason         = 'managed-entry-differs'
-                        Before         = $beforeCodex
                         After          = $codexSpec.Canonical
-                        Changes        = $(if ($null -ne $beforeCodex) { Get-McpObjectFieldDiffs -Before $beforeCodex -After $codexSpec.Canonical } else { @('~ /transport') })
+                        Changes        = @($(if ($null -ne $beforeCodex) { Get-McpObjectFieldDiffs -Before $beforeCodex -After $codexSpec.Canonical } else { @('~ /transport') }))
                         UnmanagedCount = $codexUnmanaged
                         NativeAction   = @($codexSpec.AddArgs)
                     })
@@ -1048,7 +1035,8 @@ function Invoke-McpDeploy {
         [string[]] $Server = @(),
         [Parameter(Mandatory)] [string] $BackupRoot,
         [switch] $DoApply,
-        [switch] $SkipSecretScan
+        [switch] $SkipSecretScan,
+        [switch] $Quiet
     )
     $plan = Get-McpPlan -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Server $Server
     if (-not $DoApply) {
@@ -1068,7 +1056,12 @@ function Invoke-McpDeploy {
 
     if (-not $SkipSecretScan) {
         try {
-            Invoke-SecretScanGate -RepoRoot $RepoRoot | Out-Host
+            if ($Quiet) {
+                Invoke-SecretScanGate -RepoRoot $RepoRoot | Out-Null
+            }
+            else {
+                Invoke-SecretScanGate -RepoRoot $RepoRoot | Out-Host
+            }
         }
         catch {
             $detail = $_.Exception.Message
@@ -1255,7 +1248,7 @@ $report = if ($Action -eq 'Status') {
     Get-McpPlan -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Server $Server
 }
 else {
-    Invoke-McpDeploy -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Server $Server -BackupRoot $BackupRoot -DoApply:$Apply -SkipSecretScan:$SkipSecretScan
+    Invoke-McpDeploy -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -Server $Server -BackupRoot $BackupRoot -DoApply:$Apply -SkipSecretScan:$SkipSecretScan -Quiet:$Json
 }
 
 if ($Json -or $JsonPath) {

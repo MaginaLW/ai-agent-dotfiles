@@ -13,6 +13,24 @@ Set-StrictMode -Version Latest
 function Resolve-ConfigBackupRoot {
     param([Parameter(Mandatory)] [string] $RepoRoot, [Parameter(Mandatory)] [string] $BackupRoot)
 
+    if ([string]::IsNullOrWhiteSpace($BackupRoot)) {
+        throw 'BackupRoot must be outside the repository.'
+    }
+
+    function ConvertTo-ConfigLocalPath([string] $RawPath, [string] $ErrorPrefix) {
+        $provider = $null
+        $drive = $null
+        $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RawPath, [ref]$provider, [ref]$drive)
+        if ($null -eq $provider -or $provider.Name -cne 'FileSystem') {
+            throw "$ErrorPrefix (non-filesystem path)."
+        }
+        $normalized = $resolved.Replace('/', '\')
+        if ($normalized.StartsWith('\\')) {
+            throw "$ErrorPrefix (UNC and Win32 device paths are not supported)."
+        }
+        return [IO.Path]::GetFullPath($normalized)
+    }
+
     # Resolve existing junctions and symlinks even if the backup directory is new.
     function Get-ConfigDirectoryTarget([IO.DirectoryInfo] $Directory, [int] $LinksLeft = 63) {
         if ($null -eq $Directory.Parent) { return $Directory.FullName }
@@ -20,14 +38,29 @@ function Resolve-ConfigBackupRoot {
         $item = [IO.DirectoryInfo]::new([IO.Path]::Combine($parent, $Directory.Name))
         if ($null -ne $item.LinkTarget) {
             if ($LinksLeft -eq 0) { throw 'Too many links in config directory path.' }
-            return Get-ConfigDirectoryTarget ($item.ResolveLinkTarget($false)) ($LinksLeft - 1)
+            $target = $item.ResolveLinkTarget($false)
+            if ($null -eq $target) {
+                throw 'BackupRoot must be outside the repository (unresolvable reparse point).'
+            }
+            $targetPath = $target.FullName.Replace('/', '\')
+            if ($targetPath -match '^\\\\\?\\([A-Za-z]:\\.*)$') {
+                $targetPath = $Matches[1]
+            }
+            elseif ($targetPath.StartsWith('\\')) {
+                throw 'BackupRoot must be outside the repository (UNC and Win32 device targets are not supported).'
+            }
+            return Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($targetPath)) ($LinksLeft - 1)
+        }
+        if ($item.Exists -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'BackupRoot must be outside the repository (unresolvable reparse point).'
         }
         return $item.FullName
     }
 
-    $path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BackupRoot)
-    $backup = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($path))
-    $repo = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($RepoRoot))
+    $backupPath = ConvertTo-ConfigLocalPath $BackupRoot 'BackupRoot must be outside the repository'
+    $repoPath = ConvertTo-ConfigLocalPath $RepoRoot 'RepoRoot must be a local filesystem path'
+    $backup = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($backupPath))
+    $repo = Get-ConfigDirectoryTarget ([IO.DirectoryInfo]::new($repoPath))
     $relative = [IO.Path]::GetRelativePath($repo, $backup)
     if (-not [IO.Path]::IsPathRooted($relative) -and $relative -ne '..' -and
         -not $relative.StartsWith('..' + [IO.Path]::DirectorySeparatorChar)) {
@@ -319,14 +352,60 @@ function Get-PlannedCopies {
     foreach ($file in $files) {
         $dst = if ($file.Rel) { Join-Path $DstItem $file.Rel } else { $DstItem }
         $rel = if ($file.Rel) { "$ItemLabel/$($file.Rel -replace '\\','/')" } else { $ItemLabel }
-        $action = if (-not (Test-Path -LiteralPath $dst)) { 'add' }
-        elseif ((Get-FileHashHex $file.FullName) -ne (Get-FileHashHex $dst)) { 'update' }
+        if (Test-Path -LiteralPath $dst -PathType Container) { throw "$rel destination is a directory." }
+        $dstExists = Test-Path -LiteralPath $dst -PathType Leaf
+        if (-not $dstExists -and $null -ne (Get-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue)) {
+            throw "$rel destination is not a readable file."
+        }
+        $srcHash = Get-FileHashHex $file.FullName
+        $dstHash = if ($dstExists) { Get-FileHashHex $dst } else { $null }
+        $action = if (-not $dstExists) { 'add' }
+        elseif ($srcHash -cne $dstHash) { 'update' }
         else { 'noop' }
         if ($action -ne 'noop') {
-            $ops.Add(@{ Src = $file.FullName; Dst = $dst; Rel = $rel; Action = $action })
+            $ops.Add(@{
+                Src               = $file.FullName
+                Dst               = $dst
+                Rel               = $rel
+                Action            = $action
+                ExpectedSrcHash   = $srcHash
+                ExpectedDstExists = $dstExists
+                ExpectedDstHash   = $dstHash
+            })
         }
     }
     return $ops
+}
+
+function Assert-ConfigPullOpUnchanged {
+    param([Parameter(Mandatory)] [hashtable] $Op)
+
+    if (-not (Test-Path -LiteralPath $Op.Src -PathType Leaf)) {
+        throw "$($Op.Rel) source changed since planning. Run config pull again to review it."
+    }
+    if ($Op.ContainsKey('ExpectedSrcHash') -and $null -ne $Op.ExpectedSrcHash) {
+        if ((Get-FileHashHex $Op.Src) -cne $Op.ExpectedSrcHash) {
+            throw "$($Op.Rel) source changed since planning. Run config pull again to review it."
+        }
+    }
+    $existing = Get-Item -LiteralPath $Op.Dst -Force -ErrorAction SilentlyContinue
+    if ($null -ne $existing -and ($existing.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "$($Op.Rel) destination is a reparse point; refusing to write."
+    }
+    if ($Op.Action -eq 'add') {
+        if ($null -ne $existing) {
+            throw "$($Op.Rel) changed since planning (destination already exists). Run config pull again to review it."
+        }
+        return
+    }
+    if ($null -eq $existing -or $existing.PSIsContainer) {
+        throw "$($Op.Rel) changed since planning. Run config pull again to review it."
+    }
+    if ($Op.ContainsKey('ExpectedDstHash') -and $null -ne $Op.ExpectedDstHash) {
+        if ((Get-FileHashHex $Op.Dst) -cne $Op.ExpectedDstHash) {
+            throw "$($Op.Rel) changed since planning. Run config pull again to review it."
+        }
+    }
 }
 
 function Write-CopyPlan {
