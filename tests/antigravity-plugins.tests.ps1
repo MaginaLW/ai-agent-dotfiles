@@ -396,14 +396,26 @@ try {
     Assert-PluginTest ($managedOnly.Action -eq 'unchanged' -and $script:AgTestInstallCalls -eq 1 -and $managedOnly.ExternalExpectations[0].State -eq 'missing') 'default Apply installs only managed plugin and leaves missing external plugin untouched'
     $extDry = Invoke-AgPluginDeploy -ExternalNames @('unity')
     Assert-PluginTest ($script:AgTestInstallCalls -eq 1 -and $extDry.ExternalExpectations[0].State -eq 'missing') 'external dry-run does not mutate native inventory'
+    $previewJson = $extDry | ConvertTo-Json -Depth 30
+    $selected = ($previewJson | ConvertFrom-Json).SelectedExternalPlugins
+    Assert-PluginTest ($previewJson -match '^\s*\{\s*"SelectedExternalPlugins"' -and $selected.Count -eq 1 -and $selected[0].Name -eq 'unity' -and $selected[0].Action -eq 'install' -and $selected[0].Reason -eq 'missing-marketplace-plugin') 'external preview leads with the requested name, action and reason'
+    Assert-PluginTest (-not $planMissing.Contains('SelectedExternalPlugins') -and -not (Invoke-AgPluginDeploy).Contains('SelectedExternalPlugins')) 'status and the default preview keep the managed plugin report'
     $extApplied = Invoke-AgPluginDeploy -DoApply -ExternalNames @('unity')
     Assert-PluginTest ($script:AgTestInstallCalls -eq 2 -and $extApplied.ExternalExpectations[0].State -eq 'unchanged' -and $extApplied.Action -eq 'unchanged') 'explicit ExternalPlugin Apply installs unity and converges to unchanged'
     $extIdempotent = Invoke-AgPluginDeploy -DoApply -ExternalNames @('unity')
     Assert-PluginTest ($script:AgTestInstallCalls -eq 2 -and $extIdempotent.ExternalExpectations[0].State -eq 'unchanged') 'repeat ExternalPlugin Apply skips agy install once matched'
+    Set-TestFile (Join-Path $script:AgStateRoot 'pending-install.json') '{}'
+    $script:AgConfig.ExternalPlugins += @{ Name='second'; Source='fixture-marketplace'; Version='ANY'; Enabled=$true }
+    $externalPreview = Invoke-AgPluginDeploy -ExternalNames @('second','unity')
+    $targets = $externalPreview.SelectedExternalPlugins
+    Assert-PluginTest ($externalPreview.Action -eq 'blocked' -and ($targets.Name -join ',') -eq 'second,unity' -and $targets[1].Action -eq 'unchanged' -and $targets[1].Reason -eq 'identity-source-and-enabled-match') 'a blocked managed plan preserves independent external actions in request order'
+    Assert-PluginTest ($externalPreview.ExternalExpectations.Count -eq 2 -and $script:AgTestInstallCalls -eq 2 -and $script:AgTestUninstallCalls -eq 0) 'targeted preview retains the inventory without native mutations'
     $script:AgTestPlugins[1].version = '0.2.0'
     Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'unchanged') 'Version=ANY accepts upstream marketplace version updates'
     $script:AgTestPlugins[1].enabled = $false
     Assert-PluginTest ((Get-AgPluginPlan).ExternalExpectations[0].State -eq 'different' -and (Get-AgPluginPlan).ExternalExpectations[0].Action -eq 'blocked') 'external enabled drift is reported as different and blocked'
+    $selected = (Invoke-AgPluginDeploy -ExternalNames @('unity')).SelectedExternalPlugins
+    Assert-PluginTest ($selected.Count -eq 1 -and $selected[0].Action -eq 'blocked' -and $selected[0].Reason -eq 'external-drift-or-update-blocked') 'single-plugin preview excludes the unrequested target from its summary'
     Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply -ExternalNames @('unity') } 'External plugin deployment blocked' 'external drift is never automatically reinstalled'
     Assert-PluginTest ($script:AgTestInstallCalls -eq 2) 'blocked external drift invokes no native install'
 

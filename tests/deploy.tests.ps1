@@ -36,6 +36,9 @@ try {
     Set-TestFile $personalAgents '# Personal instructions without a managed block'
     $personalHash = (Get-FileHash -LiteralPath $personalAgents).Hash
     $blockedArgs = @('-Environment', 'test', '-RepoRoot', $repo, '-HomeRoot', $blockedHome, '-StateRoot', (Join-Path $blockedHome 'state'), '-BackupRoot', (Join-Path $blockedHome 'backups'), '-SkipBuild', '-Apply')
+    $preview = Invoke-TestProcess -ScriptPath $deploy -Arguments @($blockedArgs | Where-Object { $_ -ne '-Apply' })
+    Assert-TestCondition ($preview.Code -ne 0 -and $preview.Out -match 'Skills preview completed; config preview failed' -and $preview.Out -match 'No live skills, config or deploy state written' -and $preview.Out -notmatch 'Skills stage completed; config stage failed') 'config preview failure reports the read-only outcome'
+    Assert-TestCondition ((Get-FileHash -LiteralPath $personalAgents).Hash -eq $personalHash -and -not (Test-Path (Join-Path $blockedHome '.codex/skills')) -and -not (Test-Path (Join-Path $blockedHome 'state'))) 'failed config preview leaves the fixture home and state untouched'
     $blocked = Invoke-TestProcess -ScriptPath $deploy -Arguments $blockedArgs
     Assert-TestCondition ($blocked.Code -ne 0 -and $blocked.Out -match 'Preflight failed; no live skills, config or deploy state written') 'config planning failure is reported before Apply'
     Assert-TestCondition ((Get-FileHash -LiteralPath $personalAgents).Hash -eq $personalHash -and -not (Test-Path (Join-Path $blockedHome '.zcode')) -and -not (Test-Path (Join-Path $blockedHome '.codex/skills')) -and -not (Test-Path (Join-Path $blockedHome 'state')) -and -not (Test-Path (Join-Path $blockedHome 'backups'))) 'config preflight failure preserves personal config and writes no skills, state or backups'
@@ -43,6 +46,8 @@ try {
     $collisionHome = Join-Path $work 'collision-home'
     Set-TestFile (Join-Path $collisionHome '.codex/skills/alpha') 'preserve ordinary file'
     $collisionArgs = @('-Environment', 'test', '-RepoRoot', $repo, '-HomeRoot', $collisionHome, '-StateRoot', (Join-Path $collisionHome 'state'), '-BackupRoot', (Join-Path $collisionHome 'backups'), '-SkipBuild', '-Apply')
+    $preview = Invoke-TestProcess -ScriptPath $deploy -Arguments @($collisionArgs | Where-Object { $_ -ne '-Apply' })
+    Assert-TestCondition ($preview.Code -ne 0 -and $preview.Out -match 'Skills preview failed before the config preview' -and $preview.Out -notmatch '=== config ===') 'a skills preview failure identifies the unstarted config preview'
     $collision = Invoke-TestProcess -ScriptPath $deploy -Arguments $collisionArgs
     Assert-TestCondition ($collision.Code -ne 0 -and $collision.Out -match 'Preflight failed' -and (Get-Content -Raw (Join-Path $collisionHome '.codex/skills/alpha')) -eq 'preserve ordinary file' -and -not (Test-Path (Join-Path $collisionHome '.zcode')) -and -not (Test-Path (Join-Path $collisionHome '.codex/AGENTS.md')) -and -not (Test-Path (Join-Path $collisionHome 'state'))) 'skills planning failure stops before any config or skills write'
 
@@ -56,6 +61,18 @@ try {
 
     $again = Invoke-TestProcess -ScriptPath $deploy -Arguments ($deployArgs + @('-Apply'))
     Assert-TestCondition ($again.Code -eq 0 -and $again.Out -match 'unchanged' -and $again.Out -match 'Nothing to deploy') 'second apply is idempotent'
+
+    $lockedHome = Join-Path $work 'locked-state-home'
+    $lockedStateRoot = Join-Path $lockedHome 'state'
+    $lockedStatePath = Join-Path $lockedStateRoot 'deployed-skills.json'
+    Set-TestFile $lockedStatePath '{"Environment":"previous","Codex":[]}'
+    $stateLock = [IO.File]::Open($lockedStatePath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        $partialSkills = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', 'test', '-RepoRoot', $repo, '-HomeRoot', $lockedHome, '-StateRoot', $lockedStateRoot, '-BackupRoot', (Join-Path $lockedHome 'backups'), '-SkipBuild', '-Apply')
+    }
+    finally { $stateLock.Dispose() }
+    Assert-TestCondition ($partialSkills.Code -ne 0 -and $partialSkills.Out -match 'Skills Apply failed before the config stage' -and $partialSkills.Out -notmatch '=== config ===') 'runtime skills failure identifies the unstarted config stage'
+    Assert-TestCondition ((Test-Path (Join-Path $lockedHome '.codex/skills/alpha/SKILL.md')) -and -not (Test-Path (Join-Path $lockedHome '.codex/AGENTS.md'))) 'partial skills Apply can install a skill while config remains untouched'
 
     Set-TestFile (Join-Path $repo 'codex/skills/alpha/SKILL.md') "# alpha updated`n"
     Set-TestFile (Join-Path $repo 'codex/AGENTS.md') "# Managed updated`n"

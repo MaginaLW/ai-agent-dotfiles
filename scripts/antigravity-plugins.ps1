@@ -531,7 +531,14 @@ function Invoke-AgPluginDeploy {
     $plan = Get-AgPluginPlan
     $targetsExternal = Invoke-AgExternalPluginInstall -Names $ExternalNames
     if ($targetsExternal.Count -gt 0) {
-        if (-not $DoApply) { return $plan }
+        if (-not $DoApply) {
+            $selected = @(foreach ($name in $targetsExternal) {
+                $expectation = @($plan.ExternalExpectations | Where-Object Name -CEQ $name)[0]
+                [ordered]@{ Name = $expectation.Name; Action = $expectation.Action; Reason = $expectation.Reason }
+            })
+            $plan.Insert(0, 'SelectedExternalPlugins', $selected)
+            return $plan
+        }
         $pendingInstall = @()
         foreach ($name in $targetsExternal) {
             $exp = @($plan.ExternalExpectations | Where-Object Name -CEQ $name)[0]
