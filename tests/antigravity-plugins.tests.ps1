@@ -285,21 +285,32 @@ try {
     Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
     $script:AgNative = 'fixture-only'
 
-    # Unbuilt update preview
-    $unbuiltPlan = Get-AgPluginPlan
-    Assert-PluginTest ($unbuiltPlan.Action -eq 'update' -and $unbuiltPlan.Reason -eq 'version-upgrade' -and $unbuiltPlan.NativeAction[1] -eq 'uninstall' -and $unbuiltPlan.NativeAction[5] -eq 'install') 'unbuilt status accurately plans update without requiring rebuild'
-    Assert-PluginTest ($unbuiltPlan.Changes.Changed.Contains('plugin.json')) 'version bump reports plugin.json changed'
-    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'Rebuild the target plugin' 'a stale candidate cannot be used to apply an update'
+    # The baseline candidate is stale after the target version changes.
+    $stalePlan = Get-AgPluginPlan
+    Assert-PluginTest ($stalePlan.Action -eq 'update' -and $stalePlan.Reason -eq 'version-upgrade' -and $stalePlan.NativeAction[1] -eq 'uninstall' -and $stalePlan.NativeAction[5] -eq 'install') 'stale status accurately plans update without changing it to blocked'
+    Assert-PluginTest ($stalePlan.ApplyRequirement -ceq 'build-with-current-agy-before-apply') 'stale update status leads with the current-agy build requirement'
+    $stalePreview = Invoke-AgPluginDeploy
+    Assert-PluginTest ($stalePreview.Action -eq 'update' -and $stalePreview.ApplyRequirement -ceq 'build-with-current-agy-before-apply' -and $stalePreview.NextStep -match 'antigravity build.*deploy -DryRun') 'stale update preview gives the build and preview commands'
+    Assert-PluginTest ($stalePlan.Changes.Changed.Contains('plugin.json')) 'version bump reports plugin.json changed'
+    Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'Rebuild the target plugin.*antigravity build' 'a stale candidate cannot be used to apply an update'
     Assert-PluginTest ($script:AgTestUninstallCalls -eq 0 -and $script:AgTestInstallCalls -eq 1) 'the installed plugin survives a rejected candidate'
+
+    # A target-version candidate that was never built reports the same guardrail.
+    Remove-Item -LiteralPath $script:AgPackage -Recurse -Force
+    Remove-Item -LiteralPath $script:AgBuildReceipt -Force
+    $unbuiltPlan = Get-AgPluginPlan
+    Assert-PluginTest ($unbuiltPlan.Action -eq 'update' -and $unbuiltPlan.Reason -eq 'version-upgrade' -and $unbuiltPlan.ApplyRequirement -ceq 'build-with-current-agy-before-apply') 'unbuilt target status remains an update and requires a current-agy build'
+    Assert-PluginTest ((Invoke-AgPluginDeploy).ApplyRequirement -ceq 'build-with-current-agy-before-apply') 'unbuilt target preview requires a current-agy build'
 
     # Built update preview
     $null = New-AgPluginBuild
     $builtPlan = Get-AgPluginPlan
-    Assert-PluginTest ($builtPlan.Action -eq 'update' -and $builtPlan.Reason -eq 'version-upgrade') 'built update plan is update'
+    Assert-PluginTest ($builtPlan.Action -eq 'update' -and $builtPlan.Reason -eq 'version-upgrade' -and $builtPlan.ApplyRequirement -ceq 'none') 'built update plan is a ready update without rebuild guidance'
     $dryPlan = Invoke-AgPluginDeploy
-    Assert-PluginTest ($dryPlan.Action -eq 'update' -and $script:AgTestInstallCalls -eq 1 -and $script:AgTestUninstallCalls -eq 0) 'update dry run does not mutate native state'
+    Assert-PluginTest ($dryPlan.Action -eq 'update' -and $dryPlan.ApplyRequirement -ceq 'none' -and $script:AgTestInstallCalls -eq 1 -and $script:AgTestUninstallCalls -eq 0) 'ready update dry run does not mutate native state or request a rebuild'
     $originalNativeVersion = $script:AgTestVersion
     $script:AgTestVersion = '1.5.9'
+    Assert-PluginTest ((Invoke-AgPluginDeploy).ApplyRequirement -ceq 'build-with-current-agy-before-apply') 'a changed native CLI preview requires a current-agy rebuild'
     Assert-PluginThrows { Invoke-AgPluginDeploy -DoApply } 'Rebuild the target plugin' 'a changed native CLI invalidates the update build'
     $script:AgTestVersion = $originalNativeVersion
 

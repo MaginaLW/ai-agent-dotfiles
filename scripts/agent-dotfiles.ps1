@@ -401,6 +401,7 @@ function Invoke-UnifiedStatus {
     $agNameVal   = Get-SafeProperty $agJson 'Name'
     $agVersionVal= Get-SafeProperty $agJson 'Version'
     $agExternals = Get-SafeProperty $agJson 'ExternalExpectations'
+    $agApplyRequirement = Get-SafeProperty $agJson 'ApplyRequirement'
 
     if ($null -ne $agActionVal) { $agAction = [string] $agActionVal }
     elseif ($null -ne $agReasonVal) { $agAction = [string] $agReasonVal }
@@ -506,6 +507,14 @@ function Invoke-UnifiedStatus {
     if ($null -ne $agNameVal) {
         $agColor = if ($agActionVal -eq 'unchanged') { 'Green' } else { 'Yellow' }
         Write-Host ("  Plugin: {0} v{1}  action={2} ({3})" -f $agNameVal, $agVersionVal, $agActionVal, $agReasonVal) -ForegroundColor $agColor
+        if ([string]$agActionVal -ceq 'update') {
+            if ([string]$agApplyRequirement -ceq 'build-with-current-agy-before-apply') {
+                Write-Host ("  Next step: {0}" -f (Get-SafeProperty $agJson 'NextStep')) -ForegroundColor Yellow
+            }
+            elseif ([string]$agApplyRequirement -ceq 'none') {
+                Write-Host '  Next step: update package is ready for reviewed Apply; no rebuild is required.' -ForegroundColor Green
+            }
+        }
         if ($agExternals -is [array]) {
             foreach ($ext in $agExternals) {
                 $extName = Get-SafeProperty $ext 'Name'

@@ -390,6 +390,7 @@ function Get-AgPluginPlan {
     $managed = $script:AgConfig.ManagedPlugin
     $plan = [ordered]@{
         SchemaVersion=1; Action='blocked'; Reason='candidate-missing'; NativeVersion=$inventory.Version
+        ApplyRequirement='not-applicable'
         InventoryToken=(Get-AgInventoryToken $inventory); RegistrationHash=(Get-AgRegistrationHash $inventory.ConfigRoot)
         ConfigRoot=$inventory.ConfigRoot; Name=$managed.Name; Version=$managed.Version; Skills=@($managed.Skills)
         Package=$script:AgPackage; Digest=$digest; GateFingerprint=(Get-AgGateFingerprint); SourceRevision=$null; Enabled=$null; InstalledPath=$null
@@ -489,6 +490,10 @@ function Get-AgPluginPlan {
         if ([version]$managed.Version -le [version]$installed.Version) { $plan.Reason='downgrade-or-version-reuse'; return $plan }
         $plan.Action = 'update'
         $plan.Reason = 'version-upgrade'
+        $plan.ApplyRequirement = if ($plan.CanonicalScan -ceq 'PASS' -and $plan.PackageScan -ceq 'PASS' -and $plan.NativeValidation -ceq 'PASS') { 'none' } else { 'build-with-current-agy-before-apply' }
+        if ($plan.ApplyRequirement -ne 'none') {
+            $plan.NextStep = 'Build with the current agy before Apply. Run pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity build, then repeat antigravity deploy -DryRun.'
+        }
         $plan.NativeAction = @('plugin', 'uninstall', $managed.Name, '&&', 'plugin', 'install', $script:AgPackage)
         $plan.WriteScope = @($plan.InstalledPath, (Join-Path $inventory.ConfigRoot 'config.json'), 'Pre-update live backup retained; other plugins unchanged.')
         return $plan
@@ -611,8 +616,8 @@ function Invoke-AgPluginDeploy {
     }
     if (-not $DoApply -or $plan.Action -eq 'unchanged') { return $plan }
     if ($plan.Action -notin @('install', 'update')) { throw ('Plugin deployment blocked: ' + $plan.Reason) }
-    if ($plan.Action -eq 'update' -and ($plan.CanonicalScan -cne 'PASS' -or $plan.PackageScan -cne 'PASS' -or $plan.NativeValidation -cne 'PASS')) {
-        throw 'Rebuild the target plugin with the current agy version before applying the update.'
+    if ($plan.Action -eq 'update' -and $plan.ApplyRequirement -cne 'none') {
+        throw "Rebuild the target plugin. $($plan.NextStep)"
     }
     $mutex = Enter-AgDeploymentMutex $plan.ConfigRoot
     $lock = $null

@@ -373,8 +373,10 @@ Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content
     'if ($Action -eq "Status") {',
     '  [pscustomobject]@{',
     '    SchemaVersion = 1;',
-    '    Action = "unchanged";',
-    '    Reason = "mock-match";',
+    '    Action = "update";',
+    '    Reason = "version-upgrade";',
+    '    ApplyRequirement = "build-with-current-agy-before-apply";',
+    '    NextStep = "Build with the current agy before Apply. Run antigravity build, then repeat antigravity deploy -DryRun.";',
     '    Name = "ai-agent-dotfiles";',
     '    Version = "0.4.0";',
     '    ExternalExpectations = @(',
@@ -416,16 +418,22 @@ Assert ($mockJson.Config.Count -eq 2) 'mock stub config items merged correctly'
 Assert ($mockJson.Antigravity.Name -eq 'ai-agent-dotfiles') 'mock stub Antigravity report merged correctly'
 Assert ($mockJson.Mcp.Summary.update -eq 1) 'mock stub MCP summary merged correctly'
 Assert ($mockJson.Summary.Config.'in-sync' -eq 1 -and $mockJson.Summary.Config.differs -eq 1) 'mock stub Config summary counted correctly'
-Assert ($mockJson.Summary.Antigravity -eq 'unchanged') 'mock stub Antigravity summary action matched'
+Assert ($mockJson.Summary.Antigravity -eq 'update' -and $mockJson.Antigravity.ApplyRequirement -eq 'build-with-current-agy-before-apply') 'mock stub Antigravity summary and build requirement matched'
 Assert ($mockJson.Summary.Mcp.update -eq 1 -and $mockJson.Summary.Mcp.unchanged -eq 1) 'mock stub Mcp summary matched'
 
 $mockHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($mockHuman.Code -eq 0) 'mock stub human-readable status exits 0'
 Assert ($mockHuman.Out -match '=== Unified Status ===') 'mock stub human-readable contains header'
 Assert ($mockHuman.Out -match 'mock-block') 'mock stub human-readable contains config detail'
-Assert ($mockHuman.Out -match 'mock-match') 'mock stub human-readable contains antigravity plugin reason'
+Assert ($mockHuman.Out -match 'version-upgrade') 'mock stub human-readable contains antigravity plugin reason'
+Assert ($mockHuman.Out -match 'build with the current agy before Apply.*antigravity build.*deploy -DryRun') 'status renders actionable current-agy build guidance'
 Assert ($mockHuman.Out -match 'External: unity\s+action=unchanged') 'status displays a single external plugin'
 Assert ($mockHuman.Out -match 'mock-diff') 'mock stub human-readable contains mcp projection reason'
+
+Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content ((Get-Content -LiteralPath (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Raw) -replace 'ApplyRequirement = "build-with-current-agy-before-apply"', 'ApplyRequirement = "none"')
+$readyHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
+Assert ($readyHuman.Code -eq 0 -and $readyHuman.Out -match 'ready for reviewed Apply; no rebuild is required') 'status renders a ready update without rebuild guidance'
+Assert ($readyHuman.Out -notmatch 'build with the current agy') 'ready update does not tell the operator to rebuild'
 
 $badRootArgs = @('status', '-RepoRoot', (Join-Path $work 'missing-repo'), '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
 $badRoot = Invoke-Entry -Arguments $badRootArgs
