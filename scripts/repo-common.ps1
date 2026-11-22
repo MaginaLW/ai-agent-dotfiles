@@ -55,6 +55,71 @@ function Get-CodexLiveSkillRoots {
     }
 }
 
+function Test-DeploySkillName($Name) {
+    return $Name -is [string] -and $Name -match '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?\z'
+}
+
+# Missing state owns no directories. An invalid record has null Ownership and cannot drive deployment.
+function Get-DeploySkillsStateRecord {
+    param([Parameter(Mandatory)] [string] $StateRoot)
+
+    $statePath = Join-Path $StateRoot 'deployed-skills.json'
+    $record = [pscustomobject]@{
+        StatePath           = $statePath
+        Reason              = $null
+        RecordedEnvironment = $null
+        Ownership           = $null
+    }
+    try {
+        if (Test-Path -LiteralPath $StateRoot -PathType Leaf -ErrorAction Stop) {
+            $record.Reason = 'state-root-not-directory'
+            return $record
+        }
+        if (Test-Path -LiteralPath $statePath -PathType Container -ErrorAction Stop) {
+            $record.Reason = 'state-path-is-directory'
+            return $record
+        }
+        if (-not (Test-Path -LiteralPath $statePath -PathType Leaf -ErrorAction Stop)) {
+            $record.Reason = 'missing-state'
+            $record.Ownership = @{ Codex = @() }
+            return $record
+        }
+        $stateText = Get-Content -Raw -LiteralPath $statePath -ErrorAction Stop
+    }
+    catch {
+        $record.Reason = 'read-error'
+        return $record
+    }
+    try {
+        $state = ConvertFrom-Json -InputObject $stateText -AsHashtable -NoEnumerate -ErrorAction Stop
+    }
+    catch {
+        $record.Reason = 'invalid-json'
+        return $record
+    }
+    if ($state -isnot [System.Collections.IDictionary] -or $state['Codex'] -isnot [array]) {
+        $record.Reason = 'invalid-state'
+        return $record
+    }
+    foreach ($name in $state['Codex']) {
+        if (-not (Test-DeploySkillName $name)) {
+            $record.Reason = 'invalid-state'
+            return $record
+        }
+    }
+    $environment = $state['Environment']
+    if ($null -eq $environment -or ($environment -is [string] -and [string]::IsNullOrWhiteSpace($environment))) {
+        $record.Reason = 'missing-environment'
+    }
+    elseif ($environment -isnot [string] -or $environment -match '[\r\n]') {
+        $record.Reason = 'invalid-state'
+        return $record
+    }
+    else { $record.RecordedEnvironment = $environment }
+    $record.Ownership = @{ Codex = $state['Codex'] }
+    return $record
+}
+
 # Files that must never be tracked, independent of their contents.
 function Test-IsDangerousTrackedPath {
     param([Parameter(Mandatory)] [string] $RelativePath)

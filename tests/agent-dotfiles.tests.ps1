@@ -109,6 +109,19 @@ $stateLock = [IO.File]::Open($listStatePath, [IO.FileMode]::Open, [IO.FileAccess
 try { $result = Invoke-Entry -Arguments $listArgs }
 finally { $stateLock.Dispose() }
 Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: read-error') 'unreadable record does not hide the available environments'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{invalid'
+$result = Invoke-Entry -Arguments $listArgs
+Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: invalid-json') 'invalid JSON keeps its fixed reason after the shared-reader switch'
+$fileStateRoot = Join-Path $work 'file-state-root'
+Set-TestFile -Path $fileStateRoot -Content 'not a directory'
+$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $fileStateRoot)
+Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: state-root-not-directory') 'a file-shaped StateRoot gets its accurate fixed reason'
+Assert ($result.Out -notmatch [regex]::Escape($fileStateRoot)) 'env list never prints the private StateRoot path'
+$dirStateRoot = Join-Path $work 'dir-state-root'
+New-Item -ItemType Directory -Path (Join-Path $dirStateRoot 'deployed-skills.json') -Force | Out-Null
+$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $dirStateRoot)
+Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: state-path-is-directory') 'a directory-shaped state file gets its accurate fixed reason'
+Assert ($result.Out -notmatch [regex]::Escape($dirStateRoot)) 'env list never prints the private state file path'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":["alpha"],"Zcode":["beta"],"Codex":[]}'
 $stateHash = (Get-FileHash -LiteralPath $listStatePath).Hash
 $fixtureJsonPath = Join-Path $work 'fixture-environments.json'
@@ -143,14 +156,16 @@ Assert ($result.Code -eq 0 -and $null -ne $profileJson) 'profile status routes a
 $result = Invoke-Entry -Arguments @('config', 'pull', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-DryRun')
 Assert ($result.Code -eq 0) 'config pull routes through the explicit dry-run gate'
 
-$result = Invoke-Entry -Arguments @('config', 'push', '-Platform', 'Antigravity', '-DryRun')
-Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config push -Platform Antigravity -DryRun forwards single argument without character splatting'
-
-$result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'Antigravity', '-DryRun')
-Assert ($result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform Antigravity -DryRun forwards single argument without character splatting'
-
-$result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'Codex', '-DryRun')
-Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform Codex -DryRun forwards single argument without character splatting'
+# Keep the original single-platform command lines while isolating their default home and backup root.
+$savedUserProfile = $env:USERPROFILE
+try {
+    $env:USERPROFILE = Join-Path ([IO.Path]::GetTempPath()) ('config-route-home-' + [guid]::NewGuid().ToString('N'))
+    foreach ($route in @(@('push', 'Antigravity'), @('pull', 'Antigravity'), @('pull', 'Codex'))) {
+        $result = Invoke-Entry -Arguments @('config', $route[0], '-Platform', $route[1], '-DryRun')
+        Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') "config $($route[0]) forwards a single $($route[1]) platform without character splatting"
+    }
+}
+finally { $env:USERPROFILE = $savedUserProfile }
 
 Write-Host 'unified CLI: deploy routes'
 $result = Invoke-Entry -Arguments (@('sync', '-DryRun') + $deployArgs)
@@ -171,6 +186,9 @@ $pluginScripts = Join-Path $work 'plugin-router/scripts'
 New-Item -ItemType Directory -Path $pluginScripts -Force | Out-Null
 $pluginEntry = Join-Path $pluginScripts 'agent-dotfiles.ps1'
 Copy-Item -LiteralPath $entry -Destination $pluginEntry
+# The dispatcher now shares the deploy-state reader from repo-common.ps1; keep the
+# isolated fixture self-contained so no real repository script is used.
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/repo-common.ps1') -Destination $pluginScripts -Force
 Set-TestFile -Path (Join-Path $pluginScripts 'config-pull.ps1') -Content 'param([switch] $Apply) Write-Output "child apply=$([bool]$Apply)"'
 foreach ($case in @(@('-DryRun', 'False'), @('-Apply', 'True'))) {
     $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('config', 'pull', $case[0])
@@ -434,6 +452,44 @@ Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content
 $readyHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($readyHuman.Code -eq 0 -and $readyHuman.Out -match 'ready for reviewed Apply; no rebuild is required') 'status renders a ready update without rebuild guidance'
 Assert ($readyHuman.Out -notmatch 'build with the current agy') 'ready update does not tell the operator to rebuild'
+
+Write-Host 'unified CLI: status deploy-state ownership failures'
+# With every other section healthy, an actually unreadable or invalid deploy record must
+# make the aggregate nonzero while a merely absent or legacy record stays normal.
+$statusStateRoot = Join-Path $work 'status-state'
+New-Item -ItemType Directory -Path $statusStateRoot -Force | Out-Null
+$statusStatePath = Join-Path $statusStateRoot 'deployed-skills.json'
+Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value '{"Environment":"work","Codex":"alpha"}'
+$scalarStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+$scalarJson = $null
+try { $scalarJson = ConvertFrom-Json -InputObject $scalarStatus.Out } catch { $scalarJson = $null }
+Assert ($scalarStatus.Code -ne 0 -and $null -ne $scalarJson -and $scalarJson.Environment.Reason -eq 'invalid-state' -and $scalarJson.Environment.Failed) 'scalar Codex ownership fails the aggregate status'
+Assert ($scalarJson.Summary.Config.'in-sync' -eq 1 -and $scalarJson.Summary.Antigravity -eq $mockJson.Summary.Antigravity -and $scalarJson.Summary.Mcp.update -eq 1) 'the state failure preserves the other sections'
+$scalarHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot)
+Assert ($scalarHuman.Code -ne 0 -and $scalarHuman.Out -match 'Deploy state read failed: invalid-state') 'human status explains the fixed failure reason'
+Assert ($scalarHuman.Out -match 'mock-block' -and $scalarHuman.Out -match 'mock-diff') 'human status keeps the other sections visible'
+foreach ($badState in @('{invalid', '{"Environment":"work"}', '{"Environment":"work","Codex":["alpha",5]}')) {
+    Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value $badState
+    $badStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+    $badJson = $null
+    try { $badJson = ConvertFrom-Json -InputObject $badStatus.Out } catch { $badJson = $null }
+    $expectedReason = if ($badState -eq '{invalid') { 'invalid-json' } else { 'invalid-state' }
+    Assert ($badStatus.Code -ne 0 -and $badJson.Environment.Reason -eq $expectedReason) "shape failure reports its fixed reason: $expectedReason"
+}
+Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value '{"Codex":["alpha"]}'
+$legacyStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+$legacyJson = $null
+try { $legacyJson = ConvertFrom-Json -InputObject $legacyStatus.Out } catch { $legacyJson = $null }
+Assert ($legacyStatus.Code -eq 0 -and $legacyJson.Environment.Reason -eq 'missing-environment' -and -not $legacyJson.Environment.Failed) 'legacy valid Codex array without Environment remains normal'
+$fileRootStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $fileStateRoot, '-Json')
+$fileRootJson = $null
+try { $fileRootJson = ConvertFrom-Json -InputObject $fileRootStatus.Out } catch { $fileRootJson = $null }
+Assert ($fileRootStatus.Code -ne 0 -and $fileRootJson.Environment.Reason -eq 'state-root-not-directory' -and $fileRootJson.Environment.Failed) 'file-shaped StateRoot fails status with its fixed reason'
+$dirRootStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $dirStateRoot, '-Json')
+$dirRootJson = $null
+try { $dirRootJson = ConvertFrom-Json -InputObject $dirRootStatus.Out } catch { $dirRootJson = $null }
+Assert ($dirRootStatus.Code -ne 0 -and $dirRootJson.Environment.Reason -eq 'state-path-is-directory' -and $dirRootJson.Environment.Failed) 'directory-shaped state file fails status with its fixed reason'
+Assert ($fileRootStatus.Out -notmatch [regex]::Escape($fileStateRoot) -and $dirRootStatus.Out -notmatch [regex]::Escape($dirStateRoot)) 'status reports no private state paths'
 
 $badRootArgs = @('status', '-RepoRoot', (Join-Path $work 'missing-repo'), '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
 $badRoot = Invoke-Entry -Arguments $badRootArgs
