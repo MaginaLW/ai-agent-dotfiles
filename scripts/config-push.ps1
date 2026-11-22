@@ -115,15 +115,18 @@ function Get-ConfigPushPlan {
                 if (-not (Test-Path -LiteralPath $homeItem -PathType Leaf)) { throw "$($blockSpec.Label) source is not a file." }
                 if (Test-Path -LiteralPath $repoItem -PathType Container) { throw "$($blockSpec.Label) destination is a directory." }
                 $content = Get-ManagedAgentsContent -HomeText ([IO.File]::ReadAllText($homeItem)) -BlockId $blockSpec.BlockId -Label $blockSpec.Label
-                if ($null -ne $content) {
-                    $exists = Test-Path -LiteralPath $repoItem -PathType Leaf
-                    $same = $exists -and ([IO.File]::ReadAllText($repoItem) -ceq $content)
-                    if (-not $same) {
-                        $action = if ($exists) { 'update' } else { 'add' }
-                        $plan.Add(@{ Src = $homeItem; Dst = $repoItem; Rel = $blockSpec.Label; Action = $action; Mode = 'content'; Content = $content })
-                    }
-                    continue
+                if ($null -eq $content) {
+                    $begin = "<!-- BEGIN AI-AGENT-DOTFILES: $($blockSpec.BlockId) -->"
+                    $end = "<!-- END AI-AGENT-DOTFILES: $($blockSpec.BlockId) -->"
+                    throw "$($blockSpec.Label) has no AI-AGENT-DOTFILES managed block. Add '$begin' and '$end' around the content to capture; unmarked personal content is never copied."
                 }
+                $exists = Test-Path -LiteralPath $repoItem -PathType Leaf
+                $same = $exists -and ([IO.File]::ReadAllText($repoItem) -ceq $content)
+                if (-not $same) {
+                    $action = if ($exists) { 'update' } else { 'add' }
+                    $plan.Add(@{ Src = $homeItem; Dst = $repoItem; Rel = $blockSpec.Label; Action = $action; Mode = 'content'; Content = $content })
+                }
+                continue
             }
             $ops = Get-PlannedCopies `
                 -SrcItem $homeItem `

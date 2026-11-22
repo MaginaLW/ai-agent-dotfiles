@@ -88,7 +88,7 @@ function Invoke-Script {
 }
 
 function Set-File {
-    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string] $Content)
+    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content)
     Set-TestFile -Path $Path -Content $Content
 }
 
@@ -103,7 +103,7 @@ try {
     Set-File (Join-Path $defaultRepo 'antigravity/AGENTS.md') '# Antigravity defaults'
     Set-File (Join-Path $defaultHome '.claude/settings.json') '{"personal":true}'
     Set-File (Join-Path $defaultHome '.zcode/AGENTS.md') '# Personal ZCode defaults'
-    Set-File (Join-Path $defaultHome '.codex/AGENTS.md') '# Managed defaults'
+    Set-File (Join-Path $defaultHome '.codex/AGENTS.md') "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`n# Managed defaults`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->"
     Set-File (Join-Path $defaultHome '.gemini/config/AGENTS.md') '# Antigravity defaults'
     foreach ($configScript in @($statusScript, $pullScript, $pushScript)) {
         $arguments = @('-RepoRoot', $defaultRepo, '-HomeRoot', $defaultHome)
@@ -153,6 +153,7 @@ try {
     $byItem = @{}; foreach ($row in $rows) { $byItem[$row.Item] = $row.Status }
     Assert ($byItem['prompts'] -eq 'in-sync') "status: identical directory contents -> in-sync"
     Assert ($byItem['AGENTS.md'] -eq 'home-only') "status: home-only file -> home-only"
+    Assert (($rows | Where-Object Item -eq 'AGENTS.md').Detail -match 'requires a valid managed block') 'status explains the prerequisite for capturing personal rules'
 
     Set-File -Path (Join-Path $th '.codex/prompts/example.md') -Content 'changed'
     $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-Json')
@@ -514,19 +515,49 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     foreach ($target in $managedAgentsTargets) {
         $slug = $target.Platform.ToLowerInvariant()
+        $tr = New-TempRepo -Name "push-$slug-unmarked-repo"
+        $th = Join-Path $work "push-$slug-unmarked-home"
+        $bk = Join-Path $work "push-$slug-unmarked-backup"
+        $repoAgents = Join-Path $tr $target.RepoRel
+        $homeAgents = Join-Path $th $target.HomeRel
+        $begin = "<!-- BEGIN AI-AGENT-DOTFILES: $($target.BlockId) -->"
+        $end = "<!-- END AI-AGENT-DOTFILES: $($target.BlockId) -->"
+        Set-File -Path $repoAgents -Content 'repository original'
+        Set-File -Path $homeAgents -Content 'personal unmarked rules'
+        $repoHash = (Get-FileHash -LiteralPath $repoAgents).Hash
+        $homeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
+        $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk)
+        $errorText = ($r.Out -replace '\r?\n', ' ') -replace '\s*\|\s*', ' '
+        Assert ($r.Code -ne 0 -and $errorText -match $target.Platform -and $errorText -match [regex]::Escape($begin) -and $errorText -match [regex]::Escape($end) -and (Get-FileHash -LiteralPath $repoAgents).Hash -eq $repoHash -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $homeHash) "push preview: $($target.Platform) rejects unmarked personal AGENTS.md without writing"
+
+        Set-File -Path $homeAgents -Content ''
+        $repoHash = (Get-FileHash -LiteralPath $repoAgents).Hash
+        $homeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
+        $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        $errorText = ($r.Out -replace '\r?\n', ' ') -replace '\s*\|\s*', ' '
+        Assert ($r.Code -ne 0 -and $errorText -match $target.Platform -and $errorText -match [regex]::Escape($begin) -and $errorText -match [regex]::Escape($end) -and (Get-FileHash -LiteralPath $repoAgents).Hash -eq $repoHash -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $homeHash) "push apply: $($target.Platform) rejects an empty unmarked AGENTS.md without writing"
+
         $tr = New-TempRepo -Name "push-$slug-block-repo"
         $th = Join-Path $work "push-$slug-block-home"
         $bk = Join-Path $work "push-$slug-block-backup"
         $repoAgents = Join-Path $tr $target.RepoRel
         $homeAgents = Join-Path $th $target.HomeRel
-        Set-File -Path $repoAgents -Content "# Managed v1`n"
-        Set-File -Path $homeAgents -Content "<!-- BEGIN AI-AGENT-DOTFILES: $($target.BlockId) -->`n# Managed v1`n<!-- END AI-AGENT-DOTFILES: $($target.BlockId) -->`n`n## Personal`nMine`n"
+        Set-File -Path $repoAgents -Content "# Previous rules`n"
+        $otherBlockId = if ($target.Platform -eq 'Codex') { 'antigravity/AGENTS.md' } else { 'codex/AGENTS.md' }
+        Set-File -Path $homeAgents -Content (@(
+            $begin
+            '# Managed v1'
+            $end
+            ''
+            '## Personal'
+            "<!-- BEGIN AI-AGENT-DOTFILES: $otherBlockId -->"
+            'Personal marked text'
+            "<!-- END AI-AGENT-DOTFILES: $otherBlockId -->"
+        ) -join "`n")
         $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
         $capturedAgents = Get-Content -Raw -LiteralPath $repoAgents
-        Assert ($r.Code -eq 0 -and $capturedAgents.TrimEnd("`r", "`n") -eq '# Managed v1' -and $capturedAgents -notmatch 'Personal|Mine') "push: $($target.Platform) capture takes only the managed block"
+        Assert ($r.Code -eq 0 -and $capturedAgents.TrimEnd("`r", "`n") -eq '# Managed v1' -and $capturedAgents -notmatch 'Personal|AI-AGENT-DOTFILES') "push: $($target.Platform) capture takes only the managed block"
 
-        $begin = "<!-- BEGIN AI-AGENT-DOTFILES: $($target.BlockId) -->"
-        $end = "<!-- END AI-AGENT-DOTFILES: $($target.BlockId) -->"
         Set-File -Path $homeAgents -Content (@($begin, 'Personal notes', $begin, 'Old rules', $end) -join "`n")
         $homeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
         $repoHash = (Get-FileHash -LiteralPath $repoAgents).Hash
