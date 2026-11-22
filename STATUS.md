@@ -37,7 +37,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 - **Codex push approval.** Codex Guardian V2 treats `git push` as data egress and trusts only a verified private user/org repository. The global Codex instructions require a read-only destination check before an escalated push, require that evidence in the justification, and allow one evidence-backed retry after a denial.
 - **Current scope.** `build-skills.ps1` builds `codex/skills/` from `skills-source/`. `deploy-skills.ps1` deploys the chosen environment to the Codex live root. Git ignores the generated directory.
 - **Combined deploy and config merge.** `agent-dotfiles.ps1 sync` runs the skills deployment followed by `config-pull`. Config-sync defaults to Codex and supports the Codex and Antigravity `AGENTS.md` managed blocks.
-- **Skills and deployment.** All 18 managed skill entry points (11 shared, 7 Codex-only) have readable names and descriptions. The `systematic-debugging` helper passed seven npm scenarios, including zero matches and failed tests. In a fixture repository, the full-only `security-ownership-map` skill produced a queryable report using `run_ownership_map.py --no-communities` without NetworkX. Codex `.system` stays outside deployment.
+- **Skills and deployment.** The 19 managed skills comprise 11 shared and 8 Codex-only entries. The standalone [grill-me skill](skills-source/codex-only/grill-me/SKILL.md) is installed in Codex `work` and asks one design question per turn with a recommendation and reason. The `systematic-debugging` helper passed seven npm scenarios, including zero matches and failed tests. In a fixture repository, the full-only `security-ownership-map` skill produced a queryable report using `run_ownership_map.py --no-communities` without NetworkX. Codex `.system` stays outside deployment.
 - **Skill effect evidence levels.** Skill-effect claims are classified as `deployed`, `loaded`, `applied`, `reused`, or `outcome-improved`; a higher level is not inferred from a lower one. Catalog discovery and installation do not prove behavior change, and one applied case does not prove long-run improvement.
 - **Scan and build policy.** `scripts/repo-common.ps1` defines the generated skill root (`codex/skills`) and scan-input prefixes used by the build, secret scan and validation scripts. The generated Codex skill directory is excluded from scan input.
 - **Fail-closed discovery.** `Get-SkillDirectories` returns an empty set only when the root is absent. Enumeration errors stop the build instead of appearing as an empty skill set.
@@ -87,15 +87,15 @@ CI run, check `git log` and the latest GitHub Actions run.
 | Scope | Canonical | Codex |
 |---|---:|---:|
 | Shared | 11 | 11 |
-| Codex-only | 7 | 7 |
-| Managed total | 18 | 18 |
+| Codex-only | 8 | 8 |
+| Managed total | 19 | 19 |
 
 - **Shared skills:** brainstorming, git-review, meng-cmame-writing, multimodal-generation,
   paper-polish, session-learnings, subagent-driven-development, systematic-debugging,
   tool-scope, verification-before-completion, writing-plans.
 - **Codex-only skills:** chatgpt-apps, cli-creator, coderabbit-review,
-  define-goal, security-best-practices, security-ownership-map, security-threat-model.
-- **Environments** (Codex): `minimal` 1, `work` 8, `full` 18.
+  define-goal, grill-me, security-best-practices, security-ownership-map, security-threat-model.
+- **Environments** (Codex): `minimal` 1, `work` 9, `full` 19.
   Unselected unknown live directories are preserved, and Codex `.system` is never managed.
 - **Retired:** ZCode platform support (`zcode/`, `docs/ZCODE.md`, `skills-source/zcode-only/`, `manifests/managed-skills.zcode.txt`); `antigravity-delegation` skill; Grok routing; Claude platform support; the transactional live-sync engine, its hooks/runner/schemas/tests; the former engine's
   MCP registration subsystem (replaced by per-entry `scripts/mcp-sync.ps1`); OpenClaw/OpenCode; Reasonix; ArkCLI-managed skills; the legacy local

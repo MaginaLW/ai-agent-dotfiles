@@ -11,6 +11,7 @@
             'coderabbit-review',
             'define-goal',
             'git-review',
+            'grill-me',
             'meng-cmame-writing',
             'multimodal-generation',
             'paper-polish',

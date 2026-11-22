@@ -6,6 +6,7 @@
     Skills = @{
         Codex = @(
             'git-review',
+            'grill-me',
             'meng-cmame-writing',
             'multimodal-generation',
             'paper-polish',
