@@ -87,6 +87,17 @@ function Invoke-Script {
     Invoke-TestProcess -ScriptPath $Script -Arguments $ScriptArgs
 }
 
+function Invoke-UnmarkedRulesPush([hashtable] $Parameters) {
+    # Capture the original error before the console wraps the marker text. Rethrowing
+    # keeps the real child process exit code for both preview and Apply.
+    $message = @(& pwsh -NoProfile -Command {
+        param($scriptPath, $options)
+        try { & $scriptPath @options > $null }
+        catch { Write-Output $_.Exception.Message; throw }
+    } -Args $pushScript, $Parameters 2>$null)
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Message = ($message -join "`n") }
+}
+
 function Set-File {
     param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content)
     Set-TestFile -Path $Path -Content $Content
@@ -526,16 +537,16 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         Set-File -Path $homeAgents -Content 'personal unmarked rules'
         $repoHash = (Get-FileHash -LiteralPath $repoAgents).Hash
         $homeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
-        $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk)
-        $errorText = ($r.Out -replace '\r?\n', ' ') -replace '\s*\|\s*', ' '
-        Assert ($r.Code -ne 0 -and $errorText -match $target.Platform -and $errorText -match [regex]::Escape($begin) -and $errorText -match [regex]::Escape($end) -and (Get-FileHash -LiteralPath $repoAgents).Hash -eq $repoHash -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $homeHash) "push preview: $($target.Platform) rejects unmarked personal AGENTS.md without writing"
+        $pushOptions = @{ RepoRoot = $tr; HomeRoot = $th; Platform = $target.Platform; BackupRoot = $bk }
+        $failure = Invoke-UnmarkedRulesPush $pushOptions
+        Assert ($failure.Code -ne 0 -and $failure.Message.Contains($target.Platform) -and $failure.Message.Contains($begin) -and $failure.Message.Contains($end) -and (Get-FileHash -LiteralPath $repoAgents).Hash -eq $repoHash -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $homeHash) "push preview: $($target.Platform) rejects unmarked personal AGENTS.md without writing"
 
         Set-File -Path $homeAgents -Content ''
         $repoHash = (Get-FileHash -LiteralPath $repoAgents).Hash
         $homeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
-        $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
-        $errorText = ($r.Out -replace '\r?\n', ' ') -replace '\s*\|\s*', ' '
-        Assert ($r.Code -ne 0 -and $errorText -match $target.Platform -and $errorText -match [regex]::Escape($begin) -and $errorText -match [regex]::Escape($end) -and (Get-FileHash -LiteralPath $repoAgents).Hash -eq $repoHash -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $homeHash) "push apply: $($target.Platform) rejects an empty unmarked AGENTS.md without writing"
+        $pushOptions.Apply = $true
+        $failure = Invoke-UnmarkedRulesPush $pushOptions
+        Assert ($failure.Code -ne 0 -and $failure.Message.Contains($target.Platform) -and $failure.Message.Contains($begin) -and $failure.Message.Contains($end) -and (Get-FileHash -LiteralPath $repoAgents).Hash -eq $repoHash -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $homeHash) "push apply: $($target.Platform) rejects an empty unmarked AGENTS.md without writing"
 
         $tr = New-TempRepo -Name "push-$slug-block-repo"
         $th = Join-Path $work "push-$slug-block-home"
