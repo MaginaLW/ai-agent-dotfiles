@@ -337,8 +337,8 @@ pwsh -NoProfile -File scripts/apply-harness-profile.ps1 -ProjectRoot <project> -
 `env list` 显示文件名、`Description` 与 Codex 的技能名称和数量。`SchemaVersion` 与 `Name` 是声明性元数据。
 
 当前环境：`minimal`（测试样例）、`work`（日常）、`full`（全部受管 skills）；内容与数量见 [STATUS.md](../STATUS.md)。
-`work` 为 Codex 选择 8 个技能，`full` 选择 18 个，`minimal` 选择 1 个。
-委派权限及并发上限以 [AGENTS.md](../AGENTS.md) 和宿主限制为准。操作细节见 [Skill](../skills-source/shared/subagent-driven-development/SKILL.md)。
+`work` 为 Codex 选择 10 个技能，`full` 选择 20 个，`minimal` 选择 1 个。
+委派权限及并发上限以 [AGENTS.md](../AGENTS.md) 和宿主限制为准。三个协作入口和上游版本见 [Codex 协作入口](COMMUNITY_COLLABORATION.md)。
 
 新增受管 skill 时，除放入 `skills-source/` 外，还要在目标环境的各平台 `Skills` 数组中选入；
 `full` 也是显式清单，需要同步维护。用 `env list` 核对选择，再用部署 dry-run 核对实际计划。

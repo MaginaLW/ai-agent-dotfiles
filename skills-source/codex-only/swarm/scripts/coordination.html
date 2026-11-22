@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>团队协作看板</title>
+<style>
+:root {color-scheme:light dark;--page:#f4f5f1;--panel:#fff;--ink:#1a2b24;--muted:#596b61;--line:#d6dfd7;--green:#216944;--accent:#2a6095;--warn:#99451d;--wash:#eaf3eb}
+@media (prefers-color-scheme:dark) {:root {--page:#171d1a;--panel:#202824;--ink:#e7eee8;--muted:#a9bab0;--line:#39473f;--green:#8bd3a8;--accent:#92bde6;--warn:#edb08b;--wash:#293b31}}
+* {box-sizing:border-box}
+body {margin:0;background:var(--page);color:var(--ink);font:14px/1.55 Inter,"Microsoft YaHei UI",sans-serif}
+main {max-width:1040px;margin:auto;padding:20px;display:grid;gap:14px}
+header,.bar,.filters,#routes {display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+header,.bar {justify-content:space-between}
+h1,h2,h3,p {margin:0} h1 {font-size:25px;letter-spacing:-.035em} h2 {font-size:17px} h3 {font-size:15px}
+small,.muted {color:var(--muted)} small {font-size:12px}
+button,select {font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer}
+section,.cards > button {background:var(--panel);border:1px solid var(--line);border-radius:10px}
+section {padding:15px;min-width:0}
+.overview {display:grid;grid-template-columns:1.2fr 1fr;gap:14px}
+.cards {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(175px,100%),1fr));gap:8px;margin-top:8px}
+.cards > button,.item {text-align:left;padding:8px 10px;overflow-wrap:anywhere}
+.cards > button {display:grid;align-content:start;gap:3px}
+.cards strong {color:var(--green)} .alert {color:var(--warn)}
+button:hover,button[aria-pressed=true] {background:var(--wash)}
+button[aria-pressed=true] {border-color:var(--green)}
+.filters {margin:9px 0 4px}.filters label {display:flex;align-items:center;gap:5px} select {max-width:200px}
+.plot {max-height:360px;overflow:auto} #graph {display:block;width:100%;min-width:340px}
+#graph text {font:13px Inter,sans-serif;fill:var(--ink)} #graph .edge {cursor:pointer}
+#graph .edge:focus {outline:2px solid var(--accent)} #graph .edge:hover .line,#graph .edge[aria-pressed=true] .line {stroke:var(--green);opacity:1}
+#routes {gap:5px} #routes button {font-size:12px}
+#events {display:grid;gap:5px;max-height:290px;overflow:auto;margin-top:8px}
+.item {display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+#detail {margin-top:12px;padding-top:10px;border-top:1px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:650px){main{padding:12px;gap:10px}.overview{grid-template-columns:1fr;gap:10px}section{padding:12px}.item{display:grid;gap:0}}
+</style>
+<main>
+<header><div><h1>团队协作看板</h1><small id="run"></small></div><span id="connection" role="status">正在连接…</span></header>
+<div class="overview">
+<section><div class="bar"><h2>任务</h2><small id="count"></small></div><div id="tasks" class="cards"></div></section>
+<section><div class="bar"><h2>成员</h2><small id="memberCount"></small></div><div id="members" class="cards"></div></section>
+</div>
+<section>
+<div class="bar"><h2>关系图</h2><label>视图 <select id="mode"><option value="communication">成员通信</option><option value="workflow">分工、审查与依赖</option></select></label></div>
+<div class="filters">
+<label>任务 <select id="taskFilter"><option value="">全部</option></select></label>
+<label>成员 <select id="memberFilter"><option value="">全部</option></select></label>
+<label>记录类型 <select id="typeFilter"><option value="">全部</option></select></label>
+<button id="clear" type="button">清除筛选</button>
+</div>
+<div class="plot"><svg id="graph" role="group" aria-label="有向关系图"></svg></div>
+<div id="routes" aria-label="展开关系记录"></div>
+</section>
+<section><div class="bar"><h2>消息与审查记录</h2><small id="total"></small></div>
+<div id="events"></div><div id="detail" aria-live="polite"></div></section>
+</main>
+<script>
+"use strict";
+const byId = id => document.getElementById(id);
+const stateLabels = {assigned:"已派工",submitted:"已提交",returned:"退回修复",approved:"复验通过",released:"已放行",blocked:"阻塞"};
+const action = {assign:"派工",message:"发送",reply:"回复",ack:"确认收到",submit:"提交",changes:"退回",approve:"审查通过",release:"放行",depends:"依赖"};
+const alerts = {"missing review":"等待独立审查","returned review":"审查已退回","stale review":"审查对应旧版本","conflicting task id":"同一任务存在冲突分工"};
+const receiptLabels = {pending:"等待回执",acknowledged:"已确认收到",replied:"已回复"};
+const communication = new Set(["message","reply","ack"]);
+const localTime = iso => new Date(iso).toLocaleTimeString("zh-CN", {hour12:false});
+const actor = name => String(name || "").replace(/^@/,"");
+const firstSeen = new Map();
+let previous = "", snapshot, eventKeys, occurrences, selected = "", activeLink = "";
+
+function element(tag, text, className) {
+  const el = document.createElement(tag);
+  if (text != null) el.textContent = text;
+  if (className) el.className = className;
+  return el;
+}
+function graphic(tag, attrs, text) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg",tag);
+  for (const [key,value] of Object.entries(attrs)) el.setAttribute(key,String(value));
+  if (text != null) el.textContent = text;
+  return el;
+}
+function route(e) {return e.to ? e.from+" → "+actor(e.to) : e.from+" → "+e.task}
+function selectEvent(e) {
+  selected = e ? eventKeys.get(e) : "";
+  for (const row of byId("events").querySelectorAll("button")) {
+    row.setAttribute("aria-pressed",String(row.dataset.key === selected));
+  }
+  const detail = byId("detail");
+  detail.replaceChildren();
+  if (!e) return;
+  const followups = snapshot.events.filter(item => item.replyTo === e.id).map(item => action[item.type]+" "+item.id);
+  const receipt = snapshot.receipts && Object.hasOwn(snapshot.receipts,e.id) ? snapshot.receipts[e.id] : null;
+  const lines = [e.text, e.replyTo && "回应 "+e.replyTo, followups.length && "后续记录 "+followups.join("、"),
+    e.version && "版本 "+e.version, receipt && receiptLabels[receipt], "事件 "+e.at+"　面板接收 "+firstSeen.get(selected)];
+  detail.append(element("h3",action[e.type]+" · "+e.id),element("p",lines.filter(Boolean).join("\n")));
+}
+function options(id, values, labels) {
+  const select = byId(id), previousValue = select.value;
+  select.replaceChildren(new Option("全部",""));
+  for (const value of values) select.add(new Option(labels ? labels[value] : value,value));
+  if (values.includes(previousValue)) select.value = previousValue;
+}
+function toggleFilter(id,value) {
+  const select = byId(id);
+  select.value = select.value === value ? "" : value;
+  activeLink = "";
+  draw();
+}
+function overview() {
+  const tasks = byId("tasks");
+  tasks.replaceChildren();
+  byId("count").textContent = snapshot.tasks.length+" 项";
+  if (!snapshot.tasks.length) tasks.append(element("p","等待派工。","muted"));
+  const lastContact = new Map();
+  for (const e of snapshot.events) if (communication.has(e.type)) lastContact.set(e.task,e);
+  for (const t of snapshot.tasks) {
+    const card = element("button"), contact = lastContact.get(t.id);
+    card.setAttribute("aria-pressed",String(byId("taskFilter").value === t.id));
+    card.append(element("h3",t.id),element("strong",stateLabels[t.status] || t.status),
+      element("span","负责 "+t.owner+"　审查 "+(t.reviewer || "按需")));
+    if (contact) card.append(element("small","最近通信 "+route(contact)+" · "+action[contact.type]));
+    for (const warning of t.alerts) card.append(element("small",alerts[warning] || warning,"alert"));
+    card.onclick = () => toggleFilter("taskFilter",t.id);
+    tasks.append(card);
+  }
+  const members = byId("members");
+  members.replaceChildren();
+  byId("memberCount").textContent = snapshot.actors.length+" 人";
+  for (const name of snapshot.actors) {
+    const card = element("button");
+    const sent = snapshot.connections.filter(c => c.fromAgentId === name).reduce((n,c) => n+c.count,0);
+    const received = snapshot.connections.filter(c => c.toAgentId === name).reduce((n,c) => n+c.count,0);
+    const owned = snapshot.tasks.filter(t => t.owner === name).length;
+    const reviewed = snapshot.tasks.filter(t => t.reviewer === name).length;
+    card.setAttribute("aria-pressed",String(byId("memberFilter").value === name));
+    card.append(element("h3",name),element("span","负责 "+owned+" 项 · 审查 "+reviewed+" 项"),
+      element("small","发送 "+sent+" 条 · 收到 "+received+" 条"));
+    card.onclick = () => toggleFilter("memberFilter",name);
+    members.append(card);
+  }
+}
+function graphLinks(visibleIds) {
+  if (byId("mode").value === "communication") {
+    return snapshot.connections.map(c => ({
+      key:c.id, from:c.fromAgentId, to:c.toAgentId, decay:c.decay,
+      ids:c.eventIds.filter(id => visibleIds.has(id))
+    })).filter(link => link.ids.length);
+  }
+  const links = new Map();
+  for (const e of snapshot.edges) {
+    if (communication.has(e.type) || !visibleIds.has(e.eventId)) continue;
+    const key = JSON.stringify([e.from,e.to]);
+    if (!links.has(key)) links.set(key,{key,from:e.from,to:e.to,ids:new Set(),dependency:e.type === "depends",decay:1});
+    links.get(key).ids.add(e.eventId);
+  }
+  return Array.from(links.values(),link => ({...link,ids:[...link.ids]}));
+}
+function renderGraph(links) {
+  const svg = byId("graph"), routes = byId("routes");
+  svg.replaceChildren(); routes.replaceChildren();
+  svg.style.display = links.length ? "block" : "none";
+  if (!links.length) {routes.append(element("p","当前范围没有这类关系。","muted")); return}
+  // Sender and receiver columns keep reciprocal messages and self-messages distinguishable.
+  const names = side => [...new Set(links.map(link => link[side]))].sort();
+  const left = names("from"), right = names("to");
+  const height = 24 + Math.max(left.length,right.length)*34;
+  const width = 620, y = (column,name) => 12+(column.indexOf(name)+0.5)*(height-24)/column.length;
+  svg.setAttribute("viewBox","0 0 "+width+" "+height);
+  svg.style.height = height+"px";
+  const defs = graphic("defs",{});
+  svg.append(defs);
+  for (const [id,color] of [["normal","var(--accent)"],["dependency","var(--warn)"]]) {
+    const marker = graphic("marker",{id,viewBox:"0 0 9 8",refX:8,refY:4,markerWidth:8,markerHeight:8,markerUnits:"userSpaceOnUse",orient:"auto"});
+    marker.append(graphic("path",{d:"M0 0 L9 4 L0 8 z",fill:color})); defs.append(marker);
+  }
+  for (const link of links) {
+    const a = y(left,link.from), b = y(right,link.to);
+    const path = "M156 "+a+" C285 "+a+",335 "+b+",464 "+b;
+    const label = link.from+" → "+link.to+" · "+link.ids.length+" 条";
+    const group = graphic("g",{class:"edge",tabindex:0,role:"button","aria-label":label,"aria-pressed":link.key === activeLink});
+    const stroke = link.dependency ? "var(--warn)" : "var(--accent)";
+    group.append(graphic("title",{},label),graphic("path",{class:"line",d:path,fill:"none",stroke,
+      opacity:0.45+0.55*link.decay,"stroke-width":1.5+Math.min(6,Math.log2(1+link.ids.length)),
+      "stroke-dasharray":link.dependency?"5 4":"none","marker-end":link.dependency?"url(#dependency)":"url(#normal)"}),
+      graphic("path",{d:path,fill:"none",stroke:"transparent","stroke-width":14}));
+    const choose = () => {activeLink = activeLink === link.key ? "" : link.key; draw()};
+    group.onclick = choose;
+    group.onkeydown = e => {if (e.key === "Enter" || e.key === " ") {e.preventDefault(); choose()}};
+    svg.append(group);
+    const chip = element("button",label);
+    chip.setAttribute("aria-pressed",String(link.key === activeLink)); chip.onclick = choose; routes.append(chip);
+  }
+  for (const [column,x] of [[left,148],[right,472]]) for (const name of column) {
+    const text = name.replace(/^task:/,"");
+    const node = graphic("text",{x,y:y(column,name)+4,"text-anchor":x<width/2?"end":"start"},
+      text.length > 17 ? text.slice(0,16)+"…" : text);
+    node.append(graphic("title",{},name)); svg.append(node);
+  }
+}
+function draw() {
+  if (!snapshot) return;
+  overview();
+  const task = byId("taskFilter").value, member = byId("memberFilter").value, type = byId("typeFilter").value;
+  let visible = snapshot.events.filter(e => (!task || e.task === task)
+    && (!member || e.from === member || actor(e.to) === member || e.reviewer === member)
+    && (!type || e.type === type));
+  const links = graphLinks(new Set(visible.filter(e => occurrences.get(e.id) === 1).map(e => e.id)));
+  const chosen = links.find(link => link.key === activeLink);
+  if (chosen) {
+    const ids = new Set(chosen.ids);
+    visible = visible.filter(e => ids.has(e.id));
+  } else activeLink = "";
+  renderGraph(links);
+  const list = byId("events");
+  list.replaceChildren();
+  const scope = chosen ? chosen.from+" → "+chosen.to+" · " : "";
+  byId("total").textContent = scope+visible.length+" / "+snapshot.events.length+" 条";
+  for (const e of [...visible].reverse()) {
+    const row = element("button",null,"item");
+    row.dataset.id = e.id; row.dataset.key = eventKeys.get(e);
+    row.append(element("span",action[e.type]+" · "+route(e)),element("small",e.task+" · "+e.id+" · "+localTime(e.at)));
+    row.onclick = () => selectEvent(e);
+    list.append(row);
+  }
+  if (!visible.length) list.append(element("p","当前范围没有记录。","muted"));
+  selectEvent(visible.find(e => eventKeys.get(e) === selected) || visible.at(-1));
+}
+function render(s) {
+  if (snapshot?.run !== s.run) {
+    firstSeen.clear(); selected = ""; activeLink = "";
+    for (const id of ["taskFilter","memberFilter","typeFilter"]) byId(id).value = "";
+  }
+  snapshot = s; eventKeys = new Map();
+  occurrences = new Map();
+  const now = new Date().toISOString();
+  for (const e of s.events) {
+    const n = occurrences.get(e.id) || 0, key = JSON.stringify([e.id,n]);
+    occurrences.set(e.id,n+1); eventKeys.set(e,key);
+    if (!firstSeen.has(key)) firstSeen.set(key,now);
+  }
+  byId("run").textContent = s.run;
+  options("taskFilter",[...new Set([...s.tasks.map(t => t.id),...s.events.map(e => e.task)])].sort());
+  options("memberFilter",s.actors);
+  draw();
+}
+options("typeFilter",Object.keys(action),action);
+for (const id of ["mode","taskFilter","memberFilter","typeFilter"]) byId(id).onchange = () => {activeLink = ""; draw()};
+byId("clear").onclick = () => {
+  for (const id of ["taskFilter","memberFilter","typeFilter"]) byId(id).value = "";
+  activeLink = ""; draw();
+};
+async function poll() {
+  try {
+    const response = await fetch("/api/state",{cache:"no-store"});
+    if (!response.ok) throw Error(String(response.status));
+    const raw = await response.text();
+    if (raw !== previous) {render(JSON.parse(raw)); previous = raw}
+    byId("connection").textContent = "● 实时连接";
+  } catch {byId("connection").textContent = "连接中断 · 正在重试"}
+  setTimeout(poll,850);
+}
+poll();
+</script>
+</html>

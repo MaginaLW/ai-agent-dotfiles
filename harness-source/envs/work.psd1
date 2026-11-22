@@ -6,12 +6,14 @@
     Skills = @{
         Codex = @(
             'git-review',
+            'grill-me',
             'meng-cmame-writing',
             'multimodal-generation',
             'paper-polish',
             'session-learnings',
-            'subagent-driven-development',
+            'swarm',
             'systematic-debugging',
+            'teamwork',
             'tool-scope'
         )
     }

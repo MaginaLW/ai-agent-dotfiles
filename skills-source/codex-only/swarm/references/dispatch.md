@@ -1,9 +1,4 @@
----
-name: subagent-driven-development
-description: Dispatch ready independent work promptly in complex tasks, adjust delegation as dependencies and results change, and hand off eligible desktop implementation together with its tests.
----
-
-# Subagent-Driven Execution
+# Dispatch and review
 
 After the minimum necessary exploration, promptly delegate substantive independent work with sufficient inputs, a clear deliverable and acceptance criteria when it is expected to shorten the critical path, fill necessary coverage or provide valuable independent verification. The lead owns direction, key decisions, integration and final user-visible acceptance.
 
@@ -20,6 +15,8 @@ Give each executor a concise, self-contained brief containing only the outcome, 
 Include dependencies and necessary isolated preparation in the already-authorized delivery chain. Distinguish owner/platform prohibitions from this stage's actions: a read-only preparation worker can be told "inspect only; do not install in this stage" without inventing a task-wide installation ban. Preserve the source and scope of real prohibitions; do not silently rewrite an existing ban. Missing authority pauses only the affected action, and this guidance grants no paid, credential, production, destructive or new data-transfer permission.
 
 ## Execute continuously
+
+For a live Desktop team board, member mentions or a visible review chain, follow [the coordination protocol](coordination.md). Project Orchestrator is the lead. Sentinel derives version-specific review alerts from the events the board and graph display.
 
 When new work appears, a dependency clears, an important result returns or the lead is about to wait, check for ready unassigned work. These are brief execution decisions, not a requirement to replan after every tool call, fill forms, score expected gains or request separate approval. Adjust delegation to ready work, shared resources and integration capacity.
 

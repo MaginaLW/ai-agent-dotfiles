@@ -11,6 +11,7 @@
             'coderabbit-review',
             'define-goal',
             'git-review',
+            'grill-me',
             'meng-cmame-writing',
             'multimodal-generation',
             'paper-polish',
@@ -18,8 +19,9 @@
             'security-ownership-map',
             'security-threat-model',
             'session-learnings',
-            'subagent-driven-development',
+            'swarm',
             'systematic-debugging',
+            'teamwork',
             'tool-scope',
             'verification-before-completion',
             'writing-plans'
