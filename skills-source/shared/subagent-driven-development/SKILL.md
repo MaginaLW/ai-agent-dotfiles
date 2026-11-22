@@ -21,6 +21,8 @@ Include dependencies and necessary isolated preparation in the already-authorize
 
 ## Execute continuously
 
+When the user asks for a live Desktop team board, member mentions, or a visible review chain, follow [the local coordination protocol](references/coordination.md). Project Orchestrator is the lead. Workers exchange addressed events directly, and Sentinel derives version-specific review alerts from the same events the board and graph display.
+
 When new work appears, a dependency clears, an important result returns or the lead is about to wait, check for ready unassigned work. These are brief execution decisions, not a requirement to replan after every tool call, fill forms, score expected gains or request separate approval. Adjust delegation to ready work, shared resources and integration capacity.
 
 Continue independent work while agents run. The lead may implement independent critical work, but must still dispatch ready work and process returned results. Wait only when the next step genuinely depends on the awaited result and no other useful work can advance. Start successors from usable returned results without waiting for unrelated branches to finish. Answer only consequential missing context. Existing authorization covers its stated finite chain; do not stop at every subtask, handoff or recoverable failure to request the same permission.
