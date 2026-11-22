@@ -39,13 +39,23 @@ function Invoke-Entry {
     Invoke-TestProcess -ScriptPath $entry -Arguments $Arguments
 }
 
+# Parser-only cases can call the dispatcher in the test host. Keep native -File coverage
+# for representative spellings and use real child processes for successful forwarding.
+function Invoke-ParserCase {
+    param([string[]] $Arguments, [string] $ScriptPath = $entry, [switch] $Native)
+    if ($Native) { return Invoke-TestProcess -ScriptPath $ScriptPath -Arguments $Arguments }
+    $output = @(& $ScriptPath @Arguments *>&1)
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($output -join "`n") }
+}
+
 Write-Host 'unified CLI: env and config/profile routing'
 $result = Invoke-Entry -Arguments @('help')
 Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
 Assert ($result.Out -match 'sync, env deploy, antigravity deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
 foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')) {
     foreach ($helpArgs in @(@('help', $group), @($group, 'help'))) {
-        $result = Invoke-Entry -Arguments $helpArgs
+        # One grouping keeps the native -File boundary; the rest are pure usage echoes.
+        $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'help config')
         Assert ($result.Code -eq 0 -and $result.Out -match "agent-dotfiles.ps1 $group <action>" -and $result.Out -notmatch 'Invoking script') "group help returns without executing a child: $($helpArgs -join ' ')"
         if ($group -eq 'config') {
             Assert ($result.Out -match 'repository -> home' -and $result.Out -match 'home -> repository' -and $result.Out -match 'not git push') 'config help explains directions and distinguishes capture from Git publication'
@@ -56,14 +66,14 @@ foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')
     }
 }
 foreach ($helpArgs in @(@('help', 'status'), @('status', 'help'))) {
-    $result = Invoke-Entry -Arguments $helpArgs
+    $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'status help')
     Assert ($result.Code -eq 0 -and $result.Out -match 'agent-dotfiles.ps1 status' -and $result.Out -match 'strictly read-only' -and $result.Out -notmatch 'Invoking script') "status help returns usage: $($helpArgs -join ' ')"
 }
 foreach ($helpArgs in @(@('help', 'unknown'), @('config', 'help', 'extra'))) {
-    $result = Invoke-Entry -Arguments $helpArgs
+    $result = Invoke-ParserCase -Arguments $helpArgs
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') 'invalid help requests remain errors'
 }
-$result = Invoke-Entry -Arguments @()
+$result = Invoke-ParserCase -Arguments @()
 Assert ($result.Code -eq 1 -and $result.Out -match 'A command is required') 'missing command remains an error'
 $result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($result.Code -eq 0 -and $result.Out -match 'Harness environments') 'env list routes through the dispatcher'
@@ -172,11 +182,11 @@ $result = Invoke-Entry -Arguments (@('sync', '-DryRun') + $deployArgs)
 Assert ($result.Code -eq 0 -and $result.Out -match "Dry run for environment 'work'" -and $result.Out -match '=== skills ===' -and $result.Out -match '=== config ===') 'sync -DryRun routes to the combined deploy entry point with the -DryRun spelling consumed'
 $result = Invoke-Entry -Arguments (@('env', 'deploy', 'test', '-DryRun') + $deployArgs)
 Assert ($result.Code -eq 0 -and $result.Out -match "Dry run for environment 'test'" -and $result.Out -match '=== config ===') 'env deploy <name> -DryRun routes to the combined deploy entry point with -Environment <name>'
-$result = Invoke-Entry -Arguments @('env', 'deploy', '-DryRun')
+$result = Invoke-ParserCase -Arguments @('env', 'deploy', '-DryRun')
 Assert ($result.Code -eq 1 -and $result.Out -match 'requires an environment name') 'env deploy without a name fails with guidance'
 Assert (-not (Test-Path -LiteralPath (Join-Path $work 'state'))) 'deploy dry runs write no state'
 foreach ($removed in @(@('env', 'activate', 'work'), @('env', 'status'), @('canonical', 'status'), @('live', 'recover'), @('backup'), @('plans'))) {
-    $result = Invoke-Entry -Arguments $removed
+    $result = Invoke-ParserCase -Arguments $removed
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') "removed route is rejected: $($removed -join ' ')"
 }
 
@@ -214,26 +224,30 @@ Assert ($result.Code -eq 0 -and $result.Out -match '"Apply":true') 'antigravity 
 $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', '-ExternalPlugin', 'unity', '-DryRun')
 Assert ($result.Code -eq 0 -and $result.Out -match '"ExternalPlugin":\["unity"\]' -and $result.Out -match '"Apply":false') 'antigravity deploy forwards ExternalPlugin without Apply'
 foreach ($badExt in @(@('status', '-ExternalPlugin', 'unity'), @('deploy', '-DryRun', '-ExternalPlugin'), @('deploy', '-DryRun', '-ExternalPlugin', 'bad,name'))) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity') + $badExt)
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity') + $badExt)
     Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') "antigravity rejects invalid ExternalPlugin route: $($badExt -join ' ')"
 }
 foreach ($action in @('build', 'status')) {
     foreach ($mode in @('-Apply', '-DryRun')) {
-        $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', $action, $mode)
+        $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', $action, $mode)
         Assert ($result.Code -eq 1 -and $result.Out -match 'accepts no' -and $result.Out -notmatch 'Invoking script') "antigravity $action rejects $mode before dispatch"
     }
 }
 foreach ($modes in @(@('-Apply', '-DryRun'), @('-Apply', '-Apply'), @('-DryRun', '-DryRun'))) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $modes)
+    $useNative = ($modes -join ' ') -eq '-Apply -DryRun'
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $modes) -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -match 'only one mode' -and $result.Out -notmatch 'Invoking script') 'antigravity deploy rejects multiple mode switches'
 }
-$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy')
+$result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy')
 Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply' -and $result.Out -notmatch 'Invoking script') 'antigravity deploy rejects implicit mode'
 foreach ($action in @('build', 'status', 'deploy')) {
     foreach ($badArgument in @('-Appl', '-App', '-Apply:$true', '-Apply:true', '-DryRun:$false', '-Repo', '-Json', 'extra-position')) {
         $routeArgs = @('antigravity', $action)
         if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
-        $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments ($routeArgs + $badArgument)
+        # The abbreviated name and the colon spelling keep the native -File boundary; the
+        # alternate and positional spellings are rejected by the same parser branch.
+        $useNative = $badArgument -in @('-Appl', '-Apply:$true')
+        $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments ($routeArgs + $badArgument) -Native:$useNative
         Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported antigravity argument|accepts no|only one mode' -and $result.Out -notmatch 'Invoking script') "antigravity $action rejects abbreviated, alternate or positional input: $badArgument"
     }
     $routeArgs = @('antigravity', $action, '-RepoRoot', '-Apply', '-JsonPath', '-DryRun')
@@ -258,10 +272,11 @@ foreach ($badArguments in @(
     @('-RepoRoot', '-DryRun'),
     @('-JsonPath', '-Apply')
 )) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $badArguments)
+    $useNative = ($badArguments -join ' ') -eq '-DryRun -RepoRoot one -RepoRoot two'
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $badArguments) -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') 'antigravity rejects missing path values, duplicate path options or value-only modes before dispatch'
 }
-$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'update', '-Apply')
+$result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', 'update', '-Apply')
 Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported' -and $result.Out -notmatch 'Invoking script') 'antigravity exposes no unverified update route'
 
 Write-Host 'unified CLI: MCP routes and mode boundaries'
@@ -294,7 +309,8 @@ foreach ($badMcp in @(
     @('deploy', '-DryRun', '-Repo'),
     @('deploy', '-DryRun', 'extra-pos')
 )) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('mcp') + $badMcp)
+    $useNative = ($badMcp -join ' ') -eq 'deploy -Apply:$true'
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('mcp') + $badMcp) -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') "mcp rejects invalid route arguments before dispatch: $($badMcp -join ' ')"
 }
 
@@ -317,7 +333,8 @@ foreach ($badStatus in @(
     @('-Json', '-Json'),
     @('extra-positional')
 )) {
-    $result = Invoke-Entry -Arguments (@('status') + $badStatus)
+    $useNative = ($badStatus -join ' ') -eq '-DryRun:$true'
+    $result = Invoke-ParserCase -Arguments (@('status') + $badStatus) -Native:$useNative
     Assert ($result.Code -eq 1 -and ($result.Out -match 'accepts no -DryRun or -Apply mode|Unsupported status argument|Missing path value|Duplicate status argument') -and $result.Out -notmatch 'Invoking script') "status rejects invalid argument: $($badStatus -join ' ')"
 }
 
@@ -510,16 +527,18 @@ foreach ($commandArgs in @(
     @('sync'),
     @('env', 'deploy', 'work')
 )) {
-    $result = Invoke-Entry -Arguments $commandArgs
+    $useNative = ($commandArgs -join ' ') -eq 'sync'
+    $result = Invoke-ParserCase -Arguments $commandArgs -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') "rejects implicit apply: $($commandArgs -join ' ')"
 }
-$result = Invoke-Entry -Arguments @('sync', '-DryRun', '-Apply')
+$result = Invoke-ParserCase -Arguments @('sync', '-DryRun', '-Apply')
 Assert ($result.Code -eq 1 -and $result.Out -match 'only one mode') 'sync rejects both modes'
 
 $result = Invoke-Entry -Arguments @('skills', 'promote')
 Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') 'rejects implicit skill promotion'
 foreach ($commandArgs in @(@('merge'), @('inventory'), @('analyze'), @('skills', 'merge'), @('skills', 'normalize'))) {
-    $result = Invoke-Entry -Arguments $commandArgs
+    $useNative = ($commandArgs -join ' ') -eq 'skills merge'
+    $result = Invoke-ParserCase -Arguments $commandArgs -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') "removed skills route is unsupported: $($commandArgs -join ' ')"
 }
 
