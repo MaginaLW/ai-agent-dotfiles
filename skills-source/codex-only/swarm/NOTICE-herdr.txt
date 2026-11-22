@@ -1,0 +1,12 @@
+herdr-synapse
+Copyright 2026 Vitaly Simonovich
+
+Licensed under the Apache License, Version 2.0. See LICENSE-herdr.txt.
+Source: https://github.com/vitalysim/herdr-synapse
+Revision: b8a5c5f27ddc4ddb23a4b6ee929ee3adc3bb9f6a
+
+scripts/coordination.py adapts the member inbox predicate from
+herdr_team/store.py (is_member_mail). scripts/member_mailbox.py adapts
+thread traversal from herdr_team/cmd_board.py (_thread_of). The Codex adapter uses manifest
+actor directories, directed events, stable string IDs, per-message
+acknowledgments and cooperative polling.

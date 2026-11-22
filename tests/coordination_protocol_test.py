@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 SCRIPT = Path(__file__).resolve().parents[1] / (
-    "skills-source/shared/subagent-driven-development/scripts/coordination.py"
+    "skills-source/codex-only/swarm/scripts/coordination.py"
 )
 sys.path.insert(0, str(SCRIPT.parent))
 import coordination  # noqa: E402
@@ -124,6 +124,36 @@ class CoordinationProtocolTests(unittest.TestCase):
         self.assertEqual(second["status"], "submitted")
         self.assertIn("missing review", second["alerts"])
 
+    def test_same_output_new_input_requires_a_bound_review_and_release(self) -> None:
+        task = "integration"
+        version = digest("identical output")
+        old_input, new_input = digest("prerequisite 1"), digest("prerequisite 2")
+        self.board.publish("Lead", {"id": "assign", "type": "assign", "task": task, "to": "A", "reviewer": "B"})
+
+        def record(sender, kind, event_id, **fields):
+            self.board.publish(sender, {"type": kind, "id": event_id, "task": task, "version": version, **fields})
+
+        record("A", "submit", "malformed", inputs={"dependency": "invalid"})
+        self.assertIsNone(self.board.task(task)["submissionId"])
+        record("A", "submit", "first", inputs={"dependency": old_input})
+        record("B", "approve", "first-review")
+        record("Lead", "release", "first-release")
+        record("A", "submit", "unchanged", inputs={"dependency": old_input.upper()})
+        self.assertEqual(self.board.task(task)["releaseId"], "first-release")
+        self.assertEqual(self.board.task(task)["submissionId"], "first")
+        record("A", "submit", "second", inputs={"dependency": new_input})
+        record("B", "approve", "old-review", replyTo="first")
+        record("B", "approve", "unbound-review")
+        self.assertEqual(self.board.task(task)["status"], "submitted")
+        self.assertIsNone(self.board.task(task)["releaseId"])
+        record("B", "approve", "current-review", replyTo="second")
+        record("Lead", "release", "old-release", replyTo="first")
+        self.assertEqual(self.board.task(task)["status"], "approved")
+        record("Lead", "release", "current-release", replyTo="second")
+        released = self.board.task(task)
+        self.assertEqual((released["submissionId"], released["releaseId"]), ("second", "current-release"))
+        self.assertEqual(released["alerts"], [])
+
     def test_actual_return_new_version_recheck_and_release(self) -> None:
         first = digest("implementation version 1")
         second = digest("implementation version 2")
@@ -207,6 +237,8 @@ class CoordinationProtocolTests(unittest.TestCase):
         self.assertEqual(released["owner"], "A")
         self.assertEqual(released["reviewer"], "B")
         self.assertEqual(released["alerts"], [])
+        self.assertEqual(released["submissionId"], "submit-2")
+        self.assertEqual(released["releaseId"], "release-2")
 
         state = self.board.state()
         self.assertEqual(len(state["events"]), 7)
@@ -268,6 +300,8 @@ class CoordinationProtocolTests(unittest.TestCase):
         task = self.board.task("task-guard")
         self.assertEqual(task["status"], "assigned")
         self.assertEqual(task["version"], None)
+        self.assertIsNone(task["submissionId"])
+        self.assertIsNone(task["releaseId"])
         self.assertEqual(task["alerts"], [])
 
         # A valid owner submission and an event falsely claiming another sender
@@ -416,6 +450,7 @@ class CoordinationProtocolTests(unittest.TestCase):
         )
         duplicate = self.board.task("task-duplicate")
         self.assertEqual(duplicate["status"], "approved")
+        self.assertIsNone(duplicate["releaseId"])
         self.assertIn("duplicate event id: note-duplicate", duplicate["alerts"])
 
         self.board.publish(
@@ -467,7 +502,35 @@ class CoordinationProtocolTests(unittest.TestCase):
         )
         conflict = self.board.task("task-conflict")
         self.assertEqual(conflict["status"], "approved")
+        self.assertIsNone(conflict["releaseId"])
         self.assertIn("conflicting task id", conflict["alerts"])
+
+    def test_weighted_directions_survive_archive_and_exclude_ambiguous_ids(self) -> None:
+        for sender, recipient, kind, event_id in [
+            ("A", "@B", "question", "question"),
+            ("B", "A", "reply", "answer"),
+            ("A", "B", "ack", "received"),
+            ("A", "A", "message", "self"),
+            ("A", "B", "message", "ambiguous"),
+            ("B", "A", "message", "ambiguous"),
+        ]:
+            self.board.publish(sender, {"id": event_id, "type": kind, "task": "talk", "to": recipient})
+        self.board.clock += timedelta(seconds=35)
+        self.board.publish("Lead", {"id": "later", "type": "message", "task": "other", "to": "B"})
+        state = self.board.state()
+        connections = state["connections"]
+        self.assertEqual(
+            [(c["fromAgentId"], c["toAgentId"], c["count"], c["eventIds"]) for c in connections],
+            [("A", "B", 2, ["question", "received"]), ("B", "A", 1, ["answer"]),
+             ("A", "A", 1, ["self"]), ("Lead", "B", 1, ["later"])],
+        )
+        self.assertEqual(len({c["id"] for c in connections}), 4)
+        self.assertEqual(connections[0]["timestamp"], state["events"][2]["at"])
+        self.assertEqual([c["decay"] for c in connections], [0, 0, 0, 1])
+        self.assertEqual(len(state["edges"]), 7)
+        archived = coordination.archive_manifest(self.board.manifest_path, self.board.root / "archive")
+        replay = coordination.derive_state(coordination.load_manifest(archived / "manifest.json"))
+        self.assertEqual(replay, state)
 
     def test_communication_and_dependency_edges_use_actor_and_task_nodes(self) -> None:
         self.board.publish(

@@ -126,7 +126,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -DryRun
 ## 管理范围
 
 - `skills-source/` 是 skills 唯一源。构建生成 `codex/skills/` 和 `manifests/managed-skills.codex.txt`。生成目录由 Git 忽略。
-- 在 `harness-source/envs/` 中，`work` 为 Codex 选择 9 个技能，`full` 选择 19 个，`minimal` 选择 1 个。
+- 在 `harness-source/envs/` 中，`work` 为 Codex 选择 10 个技能，`full` 选择 20 个，`minimal` 选择 1 个。
 - 部署逐个 skill 目录进行，只 prune 本工具记录过或显式 `-Retire` 点名的目录；未知目录保留，Codex `.system` 不受管。
 - 配置 status/pull/push 及组合部署的配置阶段默认只处理 Codex。同步 Antigravity 全局协议时显式传入 `-Platform Antigravity`。各端的 `AGENTS.md` 只同步受管块。
 - 项目 profile 仅生成 Codex 目标。Codex 同时存在 `~/.codex/skills` 与 `~/.agents/skills` 时拒绝部署，需先人工判断。

@@ -66,6 +66,10 @@ class TaskState:
     version: str | None = None
     status: str = "assigned"
     approved_version: str | None = None
+    submission_id: str | None = None
+    release_id: str | None = None
+    inputs_by_version: dict[str, set[tuple[tuple[str, str], ...]]] = field(default_factory=dict)
+    current_inputs: tuple[tuple[str, str], ...] = ()
     alerts: set[str] = field(default_factory=set)
 
 
@@ -257,6 +261,12 @@ def _validate_event(
     elif event_type in {"submit", "changes", "approve", "release"}:
         if version is None:
             raise ValueError(f"{event_type} requires version")
+        if event_type == "submit" and "inputs" in event:
+            if not isinstance(event["inputs"], dict):
+                raise ValueError("submit inputs must map task ids to SHA-256 digests")
+            for dependency, input_version in event["inputs"].items():
+                _plain_string(dependency, "input task id")
+                _digest(input_version)
         if event_type == "release" and actor != LEAD:
             raise ValueError("only Lead can release")
         if event_type == "submit" and actor == LEAD:
@@ -347,6 +357,47 @@ def _task_node(task: str) -> str:
     return f"task:{task}"
 
 
+def _addressed_mail(event: dict, reader: str) -> bool:
+    """Adapted from herdr_team/store.py:is_member_mail (Apache-2.0)."""
+    if event["type"] not in {"message", "reply"} or event["from"] == reader:
+        return False
+    # The coordination board names exactly one recipient and accepts @Name.
+    return event["to"].removeprefix("@") == reader
+
+
+def _unique_events(events: list[dict]) -> dict[str, dict]:
+    counts = Counter(event["id"] for event in events)
+    return {event["id"]: event for event in events if counts[event["id"]] == 1}
+
+
+def _matches_receipt(receipt: dict, original: dict) -> bool:
+    return (
+        receipt["type"] in {"ack", "reply"}
+        and _addressed_mail(original, receipt["from"])
+        and receipt["to"].removeprefix("@") == original["from"]
+        and receipt["task"] == original["task"]
+    )
+
+
+def delivery_receipts(events: list[dict]) -> dict[str, str]:
+    """Derive receipt state for each unambiguous, addressed message or reply."""
+    unique = _unique_events(events)
+    states = {
+        event_id: "pending"
+        for event_id, event in unique.items()
+        if event["type"] in {"message", "reply"} and event["to"].removeprefix("@") != event["from"]
+    }
+    for receipt in unique.values():
+        target = receipt.get("replyTo")
+        if target not in states or not _matches_receipt(receipt, unique[target]):
+            continue
+        if receipt["type"] == "reply":
+            states[target] = "replied"
+        elif states[target] == "pending":
+            states[target] = "acknowledged"
+    return states
+
+
 def _edges(events: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
     edges: list[dict[str, str]] = []
     for event in events:
@@ -384,19 +435,58 @@ def _edges(events: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
     return edges
 
 
+def _connections(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate unambiguous receipts in replay order, one link per direction.
+
+    The five Connection fields are compatible with jlee056/agent-mission-control
+    (packages/simulation-engine/src/state/world-state.ts). Its visual reducer
+    fades activity over 30 seconds of event time. Keep faded links for history.
+    """
+    pairs: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for event in events:
+        if event["type"] in COMMUNICATION_TYPES:
+            pairs[(event["from"], event["to"].removeprefix("@"))].append(event)
+    connections = []
+    for (sender, recipient), messages in pairs.items():
+        last = messages[-1]["at"]
+        age = (_parse_utc(events[-1]["at"]) - _parse_utc(last)).total_seconds()
+        connections.append({
+            "id": f"{sender}->{recipient}",
+            "fromAgentId": sender,
+            "toAgentId": recipient,
+            "timestamp": last,
+            "decay": max(0.0, 1.0 - age / 30.0),
+            "count": len(messages),
+            "eventIds": [message["id"] for message in messages],
+        })
+    return connections
+
+
 def _apply_effective_event(task: TaskState, event: dict[str, Any]) -> None:
     event_type = event["type"]
     actor = event["from"]
     version = _digest(event["version"]) if event.get("version") is not None else None
 
     if event_type == "submit":
-        if actor == task.owner and version != task.version:
+        inputs = tuple(sorted((key, value.lower()) for key, value in event.get("inputs", {}).items()))
+        if actor == task.owner and (version != task.version or inputs != task.current_inputs):
+            task.inputs_by_version.setdefault(version, set()).add(inputs)
+            task.current_inputs = inputs
             task.version = version
             task.status = "submitted"
             task.approved_version = None
+            task.submission_id = event["id"]
+            task.release_id = None
         return
 
     if event_type not in {"changes", "approve", "release"}:
+        return
+
+    # A digest used for different prerequisite versions no longer identifies
+    # the reviewed submission. Bind both review and release to its event ID.
+    if len(task.inputs_by_version.get(version, ())) > 1 and event.get("replyTo") != task.submission_id:
+        if actor == task.reviewer and event_type in {"changes", "approve"}:
+            task.alerts.add("stale review")
         return
 
     if event_type == "release":
@@ -407,6 +497,7 @@ def _apply_effective_event(task: TaskState, event: dict[str, Any]) -> None:
                  or (task.reviewer is None and task.status == "submitted"))
         ):
             task.status = "released"
+            task.release_id = event["id"]
         return
 
     if actor != task.reviewer or task.status != "submitted":
@@ -478,12 +569,15 @@ def derive_state(manifest: Manifest) -> dict[str, Any]:
             # released before replay reached the conflicting event, expose the
             # release as blocked rather than reporting it as clean.
             task.status = "approved"
+            task.release_id = None
         result_tasks.append(
             {
                 "id": task_id,
                 "owner": task.owner,
                 "reviewer": task.reviewer,
                 "version": task.version,
+                "submissionId": task.submission_id,
+                "releaseId": task.release_id,
                 "status": task.status,
                 "alerts": sorted(alerts),
             }
@@ -495,6 +589,8 @@ def derive_state(manifest: Manifest) -> dict[str, Any]:
         "tasks": result_tasks,
         "events": events,
         "edges": _edges(events),
+        "connections": _connections(effective_events),
+        "receipts": delivery_receipts(effective_events),
     }
 
 

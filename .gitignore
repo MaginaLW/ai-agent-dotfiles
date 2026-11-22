@@ -57,6 +57,8 @@ antigravity/sidecars/
 # Generated, backup, and temporary files.
 backup/
 tmp/
+# Complete, unmodified local community checkouts kept alongside this repository.
+/community-upstreams/
 /.tmp-*
 *.bak
 *.tmp

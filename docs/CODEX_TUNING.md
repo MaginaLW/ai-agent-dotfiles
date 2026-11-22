@@ -32,7 +32,7 @@ codex execpolicy check --pretty --rules "$HOME/.codex/rules/default.rules" -- gi
 
 ## 子代理历史继承（Multi-Agent V2）
 
-在 Codex Multi-Agent V2 中，`spawn_agent` 省略 `fork_turns` 时默认继承完整父对话历史（`"all"`）。[codex/AGENTS.md](../codex/AGENTS.md) 与 `subagent-driven-development` 技能约定默认显式传 `fork_turns: "none"` 并提供自包含交接包，仅在强依赖未落盘的长对话推导或父上下文仍短时使用 `"all"`。
+在 Codex Multi-Agent V2 中，`spawn_agent` 省略 `fork_turns` 时默认继承完整父对话历史（`"all"`）。[codex/AGENTS.md](../codex/AGENTS.md) 与 `swarm` 技能约定默认显式传 `fork_turns: "none"` 并提供自包含交接包，仅在强依赖未落盘的长对话推导或父上下文仍短时使用 `"all"`。
 
 因为 `config.toml` 属于本机私有配置且不纳入 `config-sync`，可在 `~/.codex/config.toml` 中追加以下可选片段，将提醒直接附加到 `spawn_agent` 工具描述末尾（不覆盖内置多代理指令，也不改变 `multi_agent_v2` 的默认启用状态；不要设置会替换内置指令的 `root_agent_usage_hint_text` 或 `subagent_usage_hint_text`）：
 

@@ -11,8 +11,9 @@
             'multimodal-generation',
             'paper-polish',
             'session-learnings',
-            'subagent-driven-development',
+            'swarm',
             'systematic-debugging',
+            'teamwork',
             'tool-scope'
         )
     }
