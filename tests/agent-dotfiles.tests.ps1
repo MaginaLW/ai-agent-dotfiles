@@ -44,6 +44,8 @@ function Invoke-Entry {
 function Invoke-ParserCase {
     param([string[]] $Arguments, [string] $ScriptPath = $entry, [switch] $Native)
     if ($Native) { return Invoke-TestProcess -ScriptPath $ScriptPath -Arguments $Arguments }
+    # A script returning normally from a fresh pwsh -File has exit code zero.
+    $global:LASTEXITCODE = 0
     $output = @(& $ScriptPath @Arguments *>&1)
     return [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($output -join "`n") }
 }
