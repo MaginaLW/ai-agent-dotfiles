@@ -60,7 +60,7 @@ config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills A
 - 默认先跑 build 与 scan，任一失败即停止。`-SkipBuild` 同时跳过两者；除隔离测试外，只有已有成功结果覆盖当前未变的源码、构建输入和生成物时，才可在同一已授权部署链或只读复核中复用，不能把它当作省略必需检查的入口。
 - 每个目录给出 `install`、`update`、`unchanged`、`prune` 或 `unknown`；不带 `-Apply` 不写 live 根或部署状态。
   对状态中没有记录的同名目录，`update` 会提示其归属未知且将备份后覆盖；状态缺失不代表目录一定未受管。
-- `prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的目录。
+- 预览显示实际目标目录（`~/.codex/skills` 或 `~/.agents/skills`）。`prune` 只删除本工具上次部署过、本次不再选中的目录，或 `-Retire` 点名的未选中目录。
 - 其余 live 目录是 unknown，只报告不碰。Codex `.system` 永不触碰；遇到 reparse point 直接拒绝。
 - 替换靠整目录改名：先复制到同级 `.deploying-<name>` 再换名；文件被占用时不会半删旧目录。
   两次改名之间中断时目标可能暂时缺失。计划会报告 `.deploying-*` 残留及备份根；再次对该 skill 做
@@ -72,7 +72,7 @@ config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills A
   和显式 `-Retire`。install/update 复用现有文件哈希比较，列出相对文件名的 add/change/remove，
   不打印文件内容或哈希。文件名本身也可能包含私有信息，分享输出前仍需审查。
 - 每台机器上次部署的环境和技能记录在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\deployed-skills.json`。旧记录中的已退役平台键（Claude、Zcode、Reasonix）会被忽略，本机已有对应目录由用户管理。
-  没有该文件时首次运行不 prune。Apply 先在状态目录写入唯一临时文件，写完后替换正式状态；
+  没有该文件时，首次运行只会清理显式 `-Retire` 的目录。已有记录不可读或结构无效时，部署会在生成计划前停止。旧记录可缺少环境名，其 `Codex` 字段必须是技能名称数组。Apply 先在状态目录写入唯一临时文件，写完后替换正式状态；
   写入或替换失败且正式文件未被外部改动时保留旧状态，但此前成功的 live 操作不会因此回滚。
 
 ```powershell
@@ -130,7 +130,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-s
 pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment work -Retire <old-skill> -Apply
 ```
 
-`-Retire` 只作用于 live 中存在、未被当前环境选中的目录；`.system` 永不进入计划。其它机器各自审查后执行同一命令。
+`-Retire` 只作用于 live 中存在、未被当前环境选中的目录。点名仍在选集内的技能会在构建前报错，请先确认目标环境及其选集。`.system` 永不进入计划。其它机器各自审查后执行同一命令。
 
 ---
 
@@ -267,7 +267,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `~\.ai-agent-dotfiles-backups\config-push-stage-<UTC 时间戳>\`，再过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
-  Codex 与 Antigravity `AGENTS.md` 有受管 block 时只捕获 block 正文，block 外的个人文本不写入 repo。
+  Codex 与 Antigravity 的 `AGENTS.md` 只捕获对应受管块的正文。已有文件缺少该块时，预览和捕获都会停止。先核对要共享的规则、标出受管范围，再重新预览，个人规则留在块外。
 - Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
 - 模板沿用用户选择的模型与推理档位，同步前按 dry-run 核对受管内容。
 - `deploy.ps1` 把 skills 与 config-pull 串成一个 dry-run/apply 入口；两阶段不原子，
@@ -369,6 +369,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
   这只是记录，不验证 live 内容。`env list -StateRoot <path>` 可指定部署状态目录，默认与 deploy-skills 相同。
   `unavailable` 后另列固定原因：`missing-state`（文件不存在）、`invalid-json`（无法解析）、
   `invalid-state`（结构或环境值无效）、`missing-environment`（缺少或空白环境名）、`read-error`（读取失败）。
+  普通文件占用状态根时报告 `state-root-not-directory`，状态文件位置被目录占用时报告 `state-path-is-directory`。统一 `status` 遇到路径冲突、读取失败或无效记录会保留其余分项并返回非零退出码。首次机器没有记录或旧记录缺少环境名时仍可正常查询。
   不打印原始记录或异常内容；该原因不能用来推断 live skills 是否存在。
 - `env list -JsonPath <report-file>` 仍打印上述列表，同时把 `Environments`（每项仅有 `Name`、`Description`）写入 JSON 文件。
 - 选集只能包含已有 generated output 的 skill，缺失时 deploy-skills 报错停止。
@@ -453,7 +454,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 |---|---|
 | install | 可准备首装；只有获得具体许可的 Apply 才调用官方安装 |
 | unchanged | 身份、内容与版本一致；不执行原生变更 |
-| update | 版本递增且线上内容无漂移；经审阅与授权后，Apply 执行写前备份 + 官方 uninstall + install + 读回校验 |
+| update | 版本递增且线上内容无漂移。若提示重建，先运行 `antigravity build` 并重新预览。候选包就绪且取得授权后，Apply 执行备份、卸载、安装与读回校验 |
 | blocked / unknown | 同名未知、内容漂移、同版本异内容或合同不明；停止目标写入 |
 | external | 非本项目管理或内置组件；报告并保留 |
 

@@ -32,6 +32,14 @@ Bootstrap 安装并校验固定版本的 gitleaks，构建 skills，并打印下
 检查 doctor 的 FAIL 和 Deploy blockers，逐项查看 WARN 的原因。
 环境 `work` 是日常集合，`full` 包含全部受管 skills，`minimal` 是最小验证样例。
 
+首次安装日常环境时，在仓库根目录预览：
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -DryRun
+```
+
+核对目标 skills 目录、各项文件变更和配置计划，确认每个 `prune` 都符合预期。两阶段预览均成功且所有者已授权后，按[新电脑接入说明第 3 步](docs/ONBOARD_NEW_MACHINE.md#3-apply-with-the-owners-ok)执行并复核。
+
 ## 日常更新
 
 在仓库根目录更新源码，明确本次使用的环境，再预览：

@@ -36,6 +36,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 function Write-Usage([string] $Group) {
     if ($Group) {
@@ -132,38 +133,15 @@ function Get-EnvironmentStatusReport {
         $data = Import-PowerShellDataFile -LiteralPath $_.FullName
         [pscustomobject]@{ Name = $_.BaseName; Description = [string] $data['Description']; Skills = $data['Skills'] }
     })
-    $recordedEnvironment = $null
-    $stateReason = 'missing-state'
-    $statePath = Join-Path $StateRoot 'deployed-skills.json'
-    try {
-        if (Test-Path -LiteralPath $statePath -PathType Leaf) {
-            $stateReason = 'read-error'
-            $stateText = Get-Content -Raw -LiteralPath $statePath -ErrorAction Stop
-            $stateReason = 'invalid-json'
-            $state = ConvertFrom-Json -InputObject $stateText -AsHashtable -ErrorAction Stop
-            $stateReason = 'invalid-state'
-            $validState = $state -is [System.Collections.IDictionary]
-            if ($validState) {
-                foreach ($platform in @('Codex')) {
-                    if ($state[$platform] -isnot [array] -or @($state[$platform] | Where-Object { $_ -isnot [string] }).Count -gt 0) { $validState = $false }
-                }
-            }
-            if ($validState) {
-                if ($null -eq $state['Environment'] -or ($state['Environment'] -is [string] -and [string]::IsNullOrWhiteSpace($state['Environment']))) {
-                    $stateReason = 'missing-environment'
-                }
-                elseif ($state['Environment'] -is [string] -and $state['Environment'] -notmatch '[\r\n]') {
-                    $recordedEnvironment = $state['Environment']
-                    $stateReason = $null
-                }
-            }
-        }
-    }
-    catch { $recordedEnvironment = $null }
+    # The single shared deploy-state reader keeps status, env list and deployment on one
+    # ownership-shape contract; its reasons are fixed and free of private values.
+    $stateRecord = Get-DeploySkillsStateRecord -StateRoot $StateRoot
+    $recordedEnvironment = $stateRecord.RecordedEnvironment
     if ($null -eq $recordedEnvironment) { $recordedEnvironment = 'unavailable' }
     return [pscustomobject]@{
         Recorded     = $recordedEnvironment
-        StateReason  = $stateReason
+        StateReason  = $stateRecord.Reason
+        Failed       = $null -eq $stateRecord.Ownership
         Available    = @($environments | ForEach-Object { $_.Name })
         Environments = $environments
     }
@@ -298,7 +276,7 @@ function Invoke-UnifiedStatus {
     try { $envReport = Get-EnvironmentStatusReport -RepoRoot $repoRoot -StateRoot $stateRoot }
     catch {
         $envError = 'Could not read the environment definitions under harness-source/envs. Check -RepoRoot.'
-        $envReport = [ordered]@{ Recorded = 'unavailable'; StateReason = 'catalog-unavailable'; Available = @() }
+        $envReport = [ordered]@{ Recorded = 'unavailable'; StateReason = 'catalog-unavailable'; Available = @(); Failed = $true }
     }
 
     # 2. Config status
@@ -401,6 +379,7 @@ function Invoke-UnifiedStatus {
     $agNameVal   = Get-SafeProperty $agJson 'Name'
     $agVersionVal= Get-SafeProperty $agJson 'Version'
     $agExternals = Get-SafeProperty $agJson 'ExternalExpectations'
+    $agApplyRequirement = Get-SafeProperty $agJson 'ApplyRequirement'
 
     if ($null -ne $agActionVal) { $agAction = [string] $agActionVal }
     elseif ($null -ne $agReasonVal) { $agAction = [string] $agReasonVal }
@@ -436,7 +415,7 @@ function Invoke-UnifiedStatus {
     $configError = Get-SafeProperty $configJson 'Error'
     if ($configError) { $configSummary = $null }
     if ($mcpErrorVal) { $mcpSummary = $null }
-    $exitCode = [int][bool]($envError -or $configError -or $agErrorVal -or $mcpErrorVal)
+    $exitCode = [int][bool]($envReport.Failed -or $configError -or $agErrorVal -or $mcpErrorVal)
     $summary = [ordered]@{
         Environment = $envReport.Recorded
         Config      = $configSummary
@@ -450,6 +429,7 @@ function Invoke-UnifiedStatus {
             Recorded  = $envReport.Recorded
             Reason    = $envReport.StateReason
             Available = $envReport.Available
+            Failed    = $envReport.Failed
         }
         Config        = $configJson
         Antigravity   = $agJson
@@ -471,6 +451,9 @@ function Invoke-UnifiedStatus {
     Write-Host ("  Last recorded Apply environment: {0} (record only; live contents may differ)" -f $envReport.Recorded)
     if ($envError) {
         Write-Host "  $envError" -ForegroundColor Red
+    }
+    elseif ($envReport.Failed) {
+        Write-Host ("  Deploy state read failed: {0}. Check -StateRoot and the local deployment record before retrying." -f $envReport.StateReason) -ForegroundColor Red
     }
     elseif ($envReport.StateReason) {
         Write-Host ("  Record unavailable reason: {0}. Inspect local deploy record." -f $envReport.StateReason) -ForegroundColor Yellow
@@ -506,6 +489,14 @@ function Invoke-UnifiedStatus {
     if ($null -ne $agNameVal) {
         $agColor = if ($agActionVal -eq 'unchanged') { 'Green' } else { 'Yellow' }
         Write-Host ("  Plugin: {0} v{1}  action={2} ({3})" -f $agNameVal, $agVersionVal, $agActionVal, $agReasonVal) -ForegroundColor $agColor
+        if ([string]$agActionVal -ceq 'update') {
+            if ([string]$agApplyRequirement -ceq 'build-with-current-agy-before-apply') {
+                Write-Host ("  Next step: {0}" -f (Get-SafeProperty $agJson 'NextStep')) -ForegroundColor Yellow
+            }
+            elseif ([string]$agApplyRequirement -ceq 'none') {
+                Write-Host '  Next step: update package is ready for reviewed Apply; no rebuild is required.' -ForegroundColor Green
+            }
+        }
         if ($agExternals -is [array]) {
             foreach ($ext in $agExternals) {
                 $extName = Get-SafeProperty $ext 'Name'

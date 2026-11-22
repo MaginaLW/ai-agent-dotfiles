@@ -76,6 +76,9 @@ function Compare-ConfigItem {
         return [pscustomobject] @{ Status = 'repo-only'; Detail = 'would deploy on pull' }
     }
     if ($repoKind -eq 'absent') {
+        if (Get-ManagedAgentsBlockSpec -Platform $Platform -Item $Item) {
+            return [pscustomobject] @{ Status = 'home-only'; Detail = 'capture requires a valid managed block' }
+        }
         return [pscustomobject] @{ Status = 'home-only'; Detail = 'untracked; would capture on push' }
     }
     if ($repoKind -ne $homeKind) {

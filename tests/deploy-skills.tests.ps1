@@ -72,6 +72,7 @@ try {
     $emptyHome = Join-Path $work 'empty-home'
     $r = Invoke-Deploy $repo $emptyHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Plan summary: install=0\s+update=0\s+unchanged=0\s+prune=0\s+unknown=0' -and -not (Test-Path $emptyHome)) 'empty plan reports zero counts without writing home or state'
+    Assert-TestCondition ($r.Out -cmatch 'Codex live root: ~/\.codex/skills' -and $r.Out -notmatch [regex]::Escape($emptyHome)) 'a no-action preview still shows the chosen live root home-relative'
     Set-TestEnvironment $repo @('alpha', 'beta')
 
     Write-Host '[review updates absent from deploy state]'
@@ -170,6 +171,57 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'state-path-is-directory') 'preview identifies a directory occupying the state file'
     Set-TestEnvironment $repo @('alpha', 'beta')
 
+    Write-Host '[present invalid state cannot authorize prune or write]'
+    $invalidStateHome = Join-Path $work 'invalid-state-home'
+    Set-TestFile (Join-Path $invalidStateHome '.codex/skills/alpha/SKILL.md') 'live alpha'
+    Set-TestFile (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md') 'live stray'
+    $invalidStatePath = Join-Path $invalidStateHome 'state/deployed-skills.json'
+    foreach ($invalidState in @(
+        '{"Environment":"test","Codex":"stray"}',
+        '{"Environment":"test"}',
+        '{"Environment":"test","Codex":["stray",5]}',
+        '{"Environment":"test","Codex":[""]}',
+        '[{"Environment":"test","Codex":["stray"]}]',
+        '{"Environment":"test","Codex":["stray","bad/name"]}',
+        '[]'
+    )) {
+        Set-TestFile $invalidStatePath $invalidState
+        $invalidStateHash = (Get-FileHash -LiteralPath $invalidStatePath).Hash
+        $r = Invoke-Deploy $repo $invalidStateHome
+        Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and $r.Out -notmatch '(?m)^\s*Codex\s+prune\s+') "a present invalid state plans no prune: $invalidState"
+        $r = Invoke-Deploy $repo $invalidStateHome @('-Apply')
+        Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and (Get-FileHash -LiteralPath $invalidStatePath).Hash -eq $invalidStateHash) "a present invalid state blocks Apply without rewriting state: $invalidState"
+        Assert-TestCondition ((Get-Content -Raw (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md')) -eq 'live stray' -and -not (Test-Path (Join-Path $invalidStateHome 'state/skill-backups')) -and -not (Test-Path (Join-Path $invalidStateHome '.codex/skills/beta'))) "a present invalid state authorizes no live write: $invalidState"
+        $r = Invoke-Deploy $repo $invalidStateHome @('-Retire', 'stray')
+        Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and (Test-Path (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md'))) "an invalid state cannot authorize even an explicit retire: $invalidState"
+    }
+    $unreadableStateHome = Join-Path $work 'unreadable-state-home'
+    Set-TestFile (Join-Path $unreadableStateHome '.codex/skills/alpha/SKILL.md') 'live alpha'
+    $unreadableStatePath = Join-Path $unreadableStateHome 'state/deployed-skills.json'
+    Set-TestFile $unreadableStatePath '{"Environment":"test","Codex":["stray"]}'
+    $unreadableHash = (Get-FileHash -LiteralPath $unreadableStatePath).Hash
+    $unreadableLock = [IO.File]::Open($unreadableStatePath, 'Open', 'Read', 'None')
+    try { $r = Invoke-Deploy $repo $unreadableStateHome @('-Apply') } finally { $unreadableLock.Dispose() }
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-read-error' -and (Get-FileHash -LiteralPath $unreadableStatePath).Hash -eq $unreadableHash) 'an unreadable present state blocks Apply before writes'
+    Set-TestFile $invalidStatePath '{"Codex":["stray"]}'
+    $r = Invoke-Deploy $repo $invalidStateHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match "last recorded 'unavailable'" -and $r.Out -match 'Codex\s+prune\s+stray') 'legacy valid Codex ownership without Environment still authorizes its recorded prune'
+
+    Write-Host '[retiring a selected skill is refused before build]'
+    $retireHome = Join-Path $work 'retire-selected-home'
+    Set-TestFile (Join-Path $retireHome '.codex/skills/alpha/SKILL.md') 'live alpha'
+    foreach ($mode in @(@(), @('-Apply'))) {
+        $r = Invoke-Deploy $repo $retireHome (@('-Retire', 'alpha') + $mode)
+        Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'retire-selected-skill: -Retire names .alpha., which the environment .test. still selects') "retiring selected alpha is refused ($($mode -join ' '))"
+        Assert-TestCondition ((Get-Content -Raw (Join-Path $retireHome '.codex/skills/alpha/SKILL.md')) -eq 'live alpha' -and -not (Test-Path (Join-Path $retireHome 'state'))) "the refusal writes nothing ($($mode -join ' '))"
+    }
+    $noBuildRepo = Join-Path $work 'no-build-repo'
+    Set-TestEnvironment $noBuildRepo @('alpha')
+    Set-TestFile (Join-Path $noBuildRepo 'codex/skills/alpha/SKILL.md') 'generated'
+    $r = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', 'test', '-RepoRoot', $noBuildRepo, '-HomeRoot', $retireHome, '-StateRoot', (Join-Path $retireHome 'state'), '-Retire', 'alpha')
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'retire-selected-skill' -and $r.Out -notmatch 'build-skills failed') 'the refusal happens before the build stage'
+    Assert-TestCondition (-not (Test-Path (Join-Path $retireHome 'state'))) 'the pre-build refusal still writes no state'
+
     Write-Host '[identical manual skill stays unowned when deselected]'
     $manualHome = Join-Path $work 'matching-manual-home'
     $manualFile = Join-Path $manualHome '.codex/skills/alpha/SKILL.md'
@@ -251,6 +303,18 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     Assert-TestCondition ($r.Code -eq 0 -and -not (Test-Path (Join-Path $homeDir '.codex/skills/hand-made'))) 'retire removes the named skill on apply'
     $r = Invoke-Deploy $repo $homeDir @('-Apply', '-Retire', '.system')
     Assert-TestCondition ($r.Code -ne 0 -and (Test-Path (Join-Path $homeDir '.codex/skills/.system/marker.txt'))) '.system can never be retired'
+
+    Write-Host '[preview names the chosen live root home-relative]'
+    $preferredPreviewHome = Join-Path $work 'root-preview-home'
+    New-Item -ItemType Directory -Path (Join-Path $preferredPreviewHome '.codex/skills') -Force | Out-Null
+    Set-TestFile (Join-Path $preferredPreviewHome '.codex/skills/stray/SKILL.md') 'stray'
+    $r = Invoke-Deploy $repo $preferredPreviewHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -cmatch 'Codex live root: ~/\.codex/skills' -and $r.Out -notmatch 'fallback') 'the preferred root is chosen and shown home-relative'
+    Assert-TestCondition ($r.Out -notmatch [regex]::Escape($preferredPreviewHome)) 'the live-root preview omits the machine-private home path'
+    $fallbackPreviewHome = Join-Path $work 'root-preview-fallback-home'
+    New-Item -ItemType Directory -Path (Join-Path $fallbackPreviewHome '.agents/skills') -Force | Out-Null
+    $r = Invoke-Deploy $repo $fallbackPreviewHome
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Out -cmatch 'Codex live root: ~/\.agents/skills \(fallback; ~/\.codex/skills is absent\)' -and $r.Out -notmatch [regex]::Escape($fallbackPreviewHome)) 'the fallback root is identified home-relative'
 
     Write-Host '[Codex fallback root]'
     $fallbackHome = Join-Path $work 'fallback-home'

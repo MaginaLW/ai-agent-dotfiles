@@ -303,7 +303,7 @@ function Get-ManagedAgentsBlockResult {
 function Get-ManagedAgentsContent {
     # Return the managed block body for config-push, or $null when the home file has no block.
     param(
-        [Parameter(Mandatory)] [string] $HomeText,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $HomeText,
         [string] $BlockId = 'codex/AGENTS.md',
         [string] $Label = 'Codex/AGENTS.md'
     )

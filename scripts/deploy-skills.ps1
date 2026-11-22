@@ -40,6 +40,8 @@ function Get-DeploySkillsLiveRoot([string] $Platform) {
         'Codex' {
             $roots = Get-CodexLiveSkillRoots -HomeRoot $HomeRoot
             if ($roots.Ambiguous) { throw "codex-live-root-ambiguous: both $($roots.Preferred) and $($roots.Fallback) exist" }
+            if ($roots.FallbackExists) { Write-Host 'Codex live root: ~/.agents/skills (fallback; ~/.codex/skills is absent)' }
+            else { Write-Host 'Codex live root: ~/.codex/skills' }
             return $roots.Selected
         }
     }
@@ -81,17 +83,26 @@ if ($selection -isnot [hashtable] -or @($platforms | Where-Object { -not $select
 foreach ($platform in $platforms) {
     foreach ($name in @($selection[$platform]) + @($Retire)) {
         # Only an empty selection means none. A blank name or trailing dot is invalid on Windows.
-        if ($name -isnot [string] -or $name -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?\z') {
+        if (-not (Test-DeploySkillName $name)) {
             throw "invalid skill name for ${platform}: '$name'"
         }
     }
+    foreach ($name in @($Retire | Where-Object { $_ -in @($selection[$platform]) })) {
+        throw "retire-selected-skill: -Retire names '$name', which the environment '$Environment' still selects for ${platform}. Remove it from the environment selection instead of retiring it."
+    }
 }
 
-if (Test-Path -LiteralPath $StateRoot -PathType Leaf) {
-    throw "state-root-not-directory: choose a directory for -StateRoot. Found a file at $StateRoot"
-}
-if (Test-Path -LiteralPath $statePath -PathType Container) {
-    throw "state-path-is-directory: expected a deployment state file at $statePath"
+# One shared read of the deploy-state record, before any build or plan: a present
+# unreadable or invalid record cannot authorize any prune or write, while a genuinely
+# missing record is the normal fresh condition. Legacy records without an Environment
+# entry or with retired platform keys remain usable when the Codex ownership shape is sound.
+$stateRecord = Get-DeploySkillsStateRecord -StateRoot $StateRoot
+switch ($stateRecord.Reason) {
+    'state-root-not-directory' { throw "state-root-not-directory: choose a directory for -StateRoot. Found a file at $StateRoot" }
+    'state-path-is-directory' { throw "state-path-is-directory: expected a deployment state file at $($stateRecord.StatePath)" }
+    'read-error' { throw "deploy-state-read-error: cannot read the deployment state file at $($stateRecord.StatePath). A present unreadable record cannot authorize pruning or writing; inspect it before retrying." }
+    'invalid-json' { throw "deploy-state-invalid-json: inspect the JSON in $statePath before retrying." }
+    'invalid-state' { throw "deploy-state-invalid-state: inspect $statePath. Expected a JSON object with a Codex array of skill names and an optional environment name." }
 }
 
 if (-not $SkipBuild) {
@@ -101,16 +112,8 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw "scan-secrets failed with exit code $LASTEXITCODE" }
 }
 
-$state = @{}
-$previousEnvironment = 'unavailable'
-if (Test-Path -LiteralPath $statePath) {
-    $saved = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json -AsHashtable
-    foreach ($platform in $platforms) { $state[$platform] = @($saved[$platform] | Where-Object { $_ }) }
-    if ($saved['Environment'] -is [string] -and -not [string]::IsNullOrWhiteSpace($saved['Environment']) -and $saved['Environment'] -notmatch '[\r\n]') {
-        $previousEnvironment = $saved['Environment']
-    }
-}
-foreach ($platform in $platforms) { if (-not $state.ContainsKey($platform)) { $state[$platform] = @() } }
+$state = $stateRecord.Ownership
+$previousEnvironment = if ($null -ne $stateRecord.RecordedEnvironment) { $stateRecord.RecordedEnvironment } else { 'unavailable' }
 
 $interrupted = [System.Collections.Generic.List[object]]::new()
 $plan = foreach ($platform in $platforms) {

@@ -22,4 +22,4 @@ foreach ($step in @(
 
 Write-Host ''
 Write-Host 'Bootstrap complete. Review the combined deployment dry run next:'
-Write-Host '  pwsh -NoProfile -File scripts/deploy.ps1 -Environment work'
+Write-Host '  pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -DryRun'

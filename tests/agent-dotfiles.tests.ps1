@@ -39,13 +39,25 @@ function Invoke-Entry {
     Invoke-TestProcess -ScriptPath $entry -Arguments $Arguments
 }
 
+# Parser-only cases can call the dispatcher in the test host. Keep native -File coverage
+# for representative spellings and use real child processes for successful forwarding.
+function Invoke-ParserCase {
+    param([string[]] $Arguments, [string] $ScriptPath = $entry, [switch] $Native)
+    if ($Native) { return Invoke-TestProcess -ScriptPath $ScriptPath -Arguments $Arguments }
+    # A script returning normally from a fresh pwsh -File has exit code zero.
+    $global:LASTEXITCODE = 0
+    $output = @(& $ScriptPath @Arguments *>&1)
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($output -join "`n") }
+}
+
 Write-Host 'unified CLI: env and config/profile routing'
 $result = Invoke-Entry -Arguments @('help')
 Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
 Assert ($result.Out -match 'sync, env deploy, antigravity deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
 foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')) {
     foreach ($helpArgs in @(@('help', $group), @($group, 'help'))) {
-        $result = Invoke-Entry -Arguments $helpArgs
+        # One grouping keeps the native -File boundary; the rest are pure usage echoes.
+        $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'help config')
         Assert ($result.Code -eq 0 -and $result.Out -match "agent-dotfiles.ps1 $group <action>" -and $result.Out -notmatch 'Invoking script') "group help returns without executing a child: $($helpArgs -join ' ')"
         if ($group -eq 'config') {
             Assert ($result.Out -match 'repository -> home' -and $result.Out -match 'home -> repository' -and $result.Out -match 'not git push') 'config help explains directions and distinguishes capture from Git publication'
@@ -56,14 +68,14 @@ foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')
     }
 }
 foreach ($helpArgs in @(@('help', 'status'), @('status', 'help'))) {
-    $result = Invoke-Entry -Arguments $helpArgs
+    $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'status help')
     Assert ($result.Code -eq 0 -and $result.Out -match 'agent-dotfiles.ps1 status' -and $result.Out -match 'strictly read-only' -and $result.Out -notmatch 'Invoking script') "status help returns usage: $($helpArgs -join ' ')"
 }
 foreach ($helpArgs in @(@('help', 'unknown'), @('config', 'help', 'extra'))) {
-    $result = Invoke-Entry -Arguments $helpArgs
+    $result = Invoke-ParserCase -Arguments $helpArgs
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') 'invalid help requests remain errors'
 }
-$result = Invoke-Entry -Arguments @()
+$result = Invoke-ParserCase -Arguments @()
 Assert ($result.Code -eq 1 -and $result.Out -match 'A command is required') 'missing command remains an error'
 $result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($result.Code -eq 0 -and $result.Out -match 'Harness environments') 'env list routes through the dispatcher'
@@ -109,6 +121,19 @@ $stateLock = [IO.File]::Open($listStatePath, [IO.FileMode]::Open, [IO.FileAccess
 try { $result = Invoke-Entry -Arguments $listArgs }
 finally { $stateLock.Dispose() }
 Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: read-error') 'unreadable record does not hide the available environments'
+Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{invalid'
+$result = Invoke-Entry -Arguments $listArgs
+Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: invalid-json') 'invalid JSON keeps its fixed reason after the shared-reader switch'
+$fileStateRoot = Join-Path $work 'file-state-root'
+Set-TestFile -Path $fileStateRoot -Content 'not a directory'
+$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $fileStateRoot)
+Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: state-root-not-directory') 'a file-shaped StateRoot gets its accurate fixed reason'
+Assert ($result.Out -notmatch [regex]::Escape($fileStateRoot)) 'env list never prints the private StateRoot path'
+$dirStateRoot = Join-Path $work 'dir-state-root'
+New-Item -ItemType Directory -Path (Join-Path $dirStateRoot 'deployed-skills.json') -Force | Out-Null
+$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $dirStateRoot)
+Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: state-path-is-directory') 'a directory-shaped state file gets its accurate fixed reason'
+Assert ($result.Out -notmatch [regex]::Escape($dirStateRoot)) 'env list never prints the private state file path'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":["alpha"],"Zcode":["beta"],"Codex":[]}'
 $stateHash = (Get-FileHash -LiteralPath $listStatePath).Hash
 $fixtureJsonPath = Join-Path $work 'fixture-environments.json'
@@ -143,25 +168,27 @@ Assert ($result.Code -eq 0 -and $null -ne $profileJson) 'profile status routes a
 $result = Invoke-Entry -Arguments @('config', 'pull', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-DryRun')
 Assert ($result.Code -eq 0) 'config pull routes through the explicit dry-run gate'
 
-$result = Invoke-Entry -Arguments @('config', 'push', '-Platform', 'Antigravity', '-DryRun')
-Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config push -Platform Antigravity -DryRun forwards single argument without character splatting'
-
-$result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'Antigravity', '-DryRun')
-Assert ($result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform Antigravity -DryRun forwards single argument without character splatting'
-
-$result = Invoke-Entry -Arguments @('config', 'pull', '-Platform', 'Codex', '-DryRun')
-Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') 'config pull -Platform Codex -DryRun forwards single argument without character splatting'
+# Keep the original single-platform command lines while isolating their default home and backup root.
+$savedUserProfile = $env:USERPROFILE
+try {
+    $env:USERPROFILE = Join-Path ([IO.Path]::GetTempPath()) ('config-route-home-' + [guid]::NewGuid().ToString('N'))
+    foreach ($route in @(@('push', 'Antigravity'), @('pull', 'Antigravity'), @('pull', 'Codex'))) {
+        $result = Invoke-Entry -Arguments @('config', $route[0], '-Platform', $route[1], '-DryRun')
+        Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') "config $($route[0]) forwards a single $($route[1]) platform without character splatting"
+    }
+}
+finally { $env:USERPROFILE = $savedUserProfile }
 
 Write-Host 'unified CLI: deploy routes'
 $result = Invoke-Entry -Arguments (@('sync', '-DryRun') + $deployArgs)
 Assert ($result.Code -eq 0 -and $result.Out -match "Dry run for environment 'work'" -and $result.Out -match '=== skills ===' -and $result.Out -match '=== config ===') 'sync -DryRun routes to the combined deploy entry point with the -DryRun spelling consumed'
 $result = Invoke-Entry -Arguments (@('env', 'deploy', 'test', '-DryRun') + $deployArgs)
 Assert ($result.Code -eq 0 -and $result.Out -match "Dry run for environment 'test'" -and $result.Out -match '=== config ===') 'env deploy <name> -DryRun routes to the combined deploy entry point with -Environment <name>'
-$result = Invoke-Entry -Arguments @('env', 'deploy', '-DryRun')
+$result = Invoke-ParserCase -Arguments @('env', 'deploy', '-DryRun')
 Assert ($result.Code -eq 1 -and $result.Out -match 'requires an environment name') 'env deploy without a name fails with guidance'
 Assert (-not (Test-Path -LiteralPath (Join-Path $work 'state'))) 'deploy dry runs write no state'
 foreach ($removed in @(@('env', 'activate', 'work'), @('env', 'status'), @('canonical', 'status'), @('live', 'recover'), @('backup'), @('plans'))) {
-    $result = Invoke-Entry -Arguments $removed
+    $result = Invoke-ParserCase -Arguments $removed
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') "removed route is rejected: $($removed -join ' ')"
 }
 
@@ -171,6 +198,9 @@ $pluginScripts = Join-Path $work 'plugin-router/scripts'
 New-Item -ItemType Directory -Path $pluginScripts -Force | Out-Null
 $pluginEntry = Join-Path $pluginScripts 'agent-dotfiles.ps1'
 Copy-Item -LiteralPath $entry -Destination $pluginEntry
+# The dispatcher now shares the deploy-state reader from repo-common.ps1; keep the
+# isolated fixture self-contained so no real repository script is used.
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/repo-common.ps1') -Destination $pluginScripts -Force
 Set-TestFile -Path (Join-Path $pluginScripts 'config-pull.ps1') -Content 'param([switch] $Apply) Write-Output "child apply=$([bool]$Apply)"'
 foreach ($case in @(@('-DryRun', 'False'), @('-Apply', 'True'))) {
     $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('config', 'pull', $case[0])
@@ -196,26 +226,30 @@ Assert ($result.Code -eq 0 -and $result.Out -match '"Apply":true') 'antigravity 
 $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', '-ExternalPlugin', 'unity', '-DryRun')
 Assert ($result.Code -eq 0 -and $result.Out -match '"ExternalPlugin":\["unity"\]' -and $result.Out -match '"Apply":false') 'antigravity deploy forwards ExternalPlugin without Apply'
 foreach ($badExt in @(@('status', '-ExternalPlugin', 'unity'), @('deploy', '-DryRun', '-ExternalPlugin'), @('deploy', '-DryRun', '-ExternalPlugin', 'bad,name'))) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity') + $badExt)
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity') + $badExt)
     Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') "antigravity rejects invalid ExternalPlugin route: $($badExt -join ' ')"
 }
 foreach ($action in @('build', 'status')) {
     foreach ($mode in @('-Apply', '-DryRun')) {
-        $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', $action, $mode)
+        $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', $action, $mode)
         Assert ($result.Code -eq 1 -and $result.Out -match 'accepts no' -and $result.Out -notmatch 'Invoking script') "antigravity $action rejects $mode before dispatch"
     }
 }
 foreach ($modes in @(@('-Apply', '-DryRun'), @('-Apply', '-Apply'), @('-DryRun', '-DryRun'))) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $modes)
+    $useNative = ($modes -join ' ') -eq '-Apply -DryRun'
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $modes) -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -match 'only one mode' -and $result.Out -notmatch 'Invoking script') 'antigravity deploy rejects multiple mode switches'
 }
-$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy')
+$result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy')
 Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply' -and $result.Out -notmatch 'Invoking script') 'antigravity deploy rejects implicit mode'
 foreach ($action in @('build', 'status', 'deploy')) {
     foreach ($badArgument in @('-Appl', '-App', '-Apply:$true', '-Apply:true', '-DryRun:$false', '-Repo', '-Json', 'extra-position')) {
         $routeArgs = @('antigravity', $action)
         if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
-        $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments ($routeArgs + $badArgument)
+        # The abbreviated name and the colon spelling keep the native -File boundary; the
+        # alternate and positional spellings are rejected by the same parser branch.
+        $useNative = $badArgument -in @('-Appl', '-Apply:$true')
+        $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments ($routeArgs + $badArgument) -Native:$useNative
         Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported antigravity argument|accepts no|only one mode' -and $result.Out -notmatch 'Invoking script') "antigravity $action rejects abbreviated, alternate or positional input: $badArgument"
     }
     $routeArgs = @('antigravity', $action, '-RepoRoot', '-Apply', '-JsonPath', '-DryRun')
@@ -240,10 +274,11 @@ foreach ($badArguments in @(
     @('-RepoRoot', '-DryRun'),
     @('-JsonPath', '-Apply')
 )) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $badArguments)
+    $useNative = ($badArguments -join ' ') -eq '-DryRun -RepoRoot one -RepoRoot two'
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $badArguments) -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') 'antigravity rejects missing path values, duplicate path options or value-only modes before dispatch'
 }
-$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'update', '-Apply')
+$result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', 'update', '-Apply')
 Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported' -and $result.Out -notmatch 'Invoking script') 'antigravity exposes no unverified update route'
 
 Write-Host 'unified CLI: MCP routes and mode boundaries'
@@ -276,7 +311,8 @@ foreach ($badMcp in @(
     @('deploy', '-DryRun', '-Repo'),
     @('deploy', '-DryRun', 'extra-pos')
 )) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments (@('mcp') + $badMcp)
+    $useNative = ($badMcp -join ' ') -eq 'deploy -Apply:$true'
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('mcp') + $badMcp) -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') "mcp rejects invalid route arguments before dispatch: $($badMcp -join ' ')"
 }
 
@@ -299,7 +335,8 @@ foreach ($badStatus in @(
     @('-Json', '-Json'),
     @('extra-positional')
 )) {
-    $result = Invoke-Entry -Arguments (@('status') + $badStatus)
+    $useNative = ($badStatus -join ' ') -eq '-DryRun:$true'
+    $result = Invoke-ParserCase -Arguments (@('status') + $badStatus) -Native:$useNative
     Assert ($result.Code -eq 1 -and ($result.Out -match 'accepts no -DryRun or -Apply mode|Unsupported status argument|Missing path value|Duplicate status argument') -and $result.Out -notmatch 'Invoking script') "status rejects invalid argument: $($badStatus -join ' ')"
 }
 
@@ -373,8 +410,10 @@ Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content
     'if ($Action -eq "Status") {',
     '  [pscustomobject]@{',
     '    SchemaVersion = 1;',
-    '    Action = "unchanged";',
-    '    Reason = "mock-match";',
+    '    Action = "update";',
+    '    Reason = "version-upgrade";',
+    '    ApplyRequirement = "build-with-current-agy-before-apply";',
+    '    NextStep = "Build with the current agy before Apply. Run antigravity build, then repeat antigravity deploy -DryRun.";',
     '    Name = "ai-agent-dotfiles";',
     '    Version = "0.4.0";',
     '    ExternalExpectations = @(',
@@ -416,16 +455,60 @@ Assert ($mockJson.Config.Count -eq 2) 'mock stub config items merged correctly'
 Assert ($mockJson.Antigravity.Name -eq 'ai-agent-dotfiles') 'mock stub Antigravity report merged correctly'
 Assert ($mockJson.Mcp.Summary.update -eq 1) 'mock stub MCP summary merged correctly'
 Assert ($mockJson.Summary.Config.'in-sync' -eq 1 -and $mockJson.Summary.Config.differs -eq 1) 'mock stub Config summary counted correctly'
-Assert ($mockJson.Summary.Antigravity -eq 'unchanged') 'mock stub Antigravity summary action matched'
+Assert ($mockJson.Summary.Antigravity -eq 'update' -and $mockJson.Antigravity.ApplyRequirement -eq 'build-with-current-agy-before-apply') 'mock stub Antigravity summary and build requirement matched'
 Assert ($mockJson.Summary.Mcp.update -eq 1 -and $mockJson.Summary.Mcp.unchanged -eq 1) 'mock stub Mcp summary matched'
 
 $mockHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($mockHuman.Code -eq 0) 'mock stub human-readable status exits 0'
 Assert ($mockHuman.Out -match '=== Unified Status ===') 'mock stub human-readable contains header'
 Assert ($mockHuman.Out -match 'mock-block') 'mock stub human-readable contains config detail'
-Assert ($mockHuman.Out -match 'mock-match') 'mock stub human-readable contains antigravity plugin reason'
+Assert ($mockHuman.Out -match 'version-upgrade') 'mock stub human-readable contains antigravity plugin reason'
+Assert ($mockHuman.Out -match 'build with the current agy before Apply.*antigravity build.*deploy -DryRun') 'status renders actionable current-agy build guidance'
 Assert ($mockHuman.Out -match 'External: unity\s+action=unchanged') 'status displays a single external plugin'
 Assert ($mockHuman.Out -match 'mock-diff') 'mock stub human-readable contains mcp projection reason'
+
+Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content ((Get-Content -LiteralPath (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Raw) -replace 'ApplyRequirement = "build-with-current-agy-before-apply"', 'ApplyRequirement = "none"')
+$readyHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
+Assert ($readyHuman.Code -eq 0 -and $readyHuman.Out -match 'ready for reviewed Apply; no rebuild is required') 'status renders a ready update without rebuild guidance'
+Assert ($readyHuman.Out -notmatch 'build with the current agy') 'ready update does not tell the operator to rebuild'
+
+Write-Host 'unified CLI: status deploy-state ownership failures'
+# With every other section healthy, an actually unreadable or invalid deploy record must
+# make the aggregate nonzero while a merely absent or legacy record stays normal.
+$statusStateRoot = Join-Path $work 'status-state'
+New-Item -ItemType Directory -Path $statusStateRoot -Force | Out-Null
+$statusStatePath = Join-Path $statusStateRoot 'deployed-skills.json'
+Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value '{"Environment":"work","Codex":"alpha"}'
+$scalarStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+$scalarJson = $null
+try { $scalarJson = ConvertFrom-Json -InputObject $scalarStatus.Out } catch { $scalarJson = $null }
+Assert ($scalarStatus.Code -ne 0 -and $null -ne $scalarJson -and $scalarJson.Environment.Reason -eq 'invalid-state' -and $scalarJson.Environment.Failed) 'scalar Codex ownership fails the aggregate status'
+Assert ($scalarJson.Summary.Config.'in-sync' -eq 1 -and $scalarJson.Summary.Antigravity -eq $mockJson.Summary.Antigravity -and $scalarJson.Summary.Mcp.update -eq 1) 'the state failure preserves the other sections'
+$scalarHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot)
+Assert ($scalarHuman.Code -ne 0 -and $scalarHuman.Out -match 'Deploy state read failed: invalid-state') 'human status explains the fixed failure reason'
+Assert ($scalarHuman.Out -match 'mock-block' -and $scalarHuman.Out -match 'mock-diff') 'human status keeps the other sections visible'
+foreach ($badState in @('{invalid', '{"Environment":"work"}', '{"Environment":"work","Codex":["alpha",5]}')) {
+    Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value $badState
+    $badStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+    $badJson = $null
+    try { $badJson = ConvertFrom-Json -InputObject $badStatus.Out } catch { $badJson = $null }
+    $expectedReason = if ($badState -eq '{invalid') { 'invalid-json' } else { 'invalid-state' }
+    Assert ($badStatus.Code -ne 0 -and $badJson.Environment.Reason -eq $expectedReason) "shape failure reports its fixed reason: $expectedReason"
+}
+Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value '{"Codex":["alpha"]}'
+$legacyStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+$legacyJson = $null
+try { $legacyJson = ConvertFrom-Json -InputObject $legacyStatus.Out } catch { $legacyJson = $null }
+Assert ($legacyStatus.Code -eq 0 -and $legacyJson.Environment.Reason -eq 'missing-environment' -and -not $legacyJson.Environment.Failed) 'legacy valid Codex array without Environment remains normal'
+$fileRootStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $fileStateRoot, '-Json')
+$fileRootJson = $null
+try { $fileRootJson = ConvertFrom-Json -InputObject $fileRootStatus.Out } catch { $fileRootJson = $null }
+Assert ($fileRootStatus.Code -ne 0 -and $fileRootJson.Environment.Reason -eq 'state-root-not-directory' -and $fileRootJson.Environment.Failed) 'file-shaped StateRoot fails status with its fixed reason'
+$dirRootStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $dirStateRoot, '-Json')
+$dirRootJson = $null
+try { $dirRootJson = ConvertFrom-Json -InputObject $dirRootStatus.Out } catch { $dirRootJson = $null }
+Assert ($dirRootStatus.Code -ne 0 -and $dirRootJson.Environment.Reason -eq 'state-path-is-directory' -and $dirRootJson.Environment.Failed) 'directory-shaped state file fails status with its fixed reason'
+Assert ($fileRootStatus.Out -notmatch [regex]::Escape($fileStateRoot) -and $dirRootStatus.Out -notmatch [regex]::Escape($dirStateRoot)) 'status reports no private state paths'
 
 $badRootArgs = @('status', '-RepoRoot', (Join-Path $work 'missing-repo'), '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
 $badRoot = Invoke-Entry -Arguments $badRootArgs
@@ -446,16 +529,18 @@ foreach ($commandArgs in @(
     @('sync'),
     @('env', 'deploy', 'work')
 )) {
-    $result = Invoke-Entry -Arguments $commandArgs
+    $useNative = ($commandArgs -join ' ') -eq 'sync'
+    $result = Invoke-ParserCase -Arguments $commandArgs -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') "rejects implicit apply: $($commandArgs -join ' ')"
 }
-$result = Invoke-Entry -Arguments @('sync', '-DryRun', '-Apply')
+$result = Invoke-ParserCase -Arguments @('sync', '-DryRun', '-Apply')
 Assert ($result.Code -eq 1 -and $result.Out -match 'only one mode') 'sync rejects both modes'
 
 $result = Invoke-Entry -Arguments @('skills', 'promote')
 Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') 'rejects implicit skill promotion'
 foreach ($commandArgs in @(@('merge'), @('inventory'), @('analyze'), @('skills', 'merge'), @('skills', 'normalize'))) {
-    $result = Invoke-Entry -Arguments $commandArgs
+    $useNative = ($commandArgs -join ' ') -eq 'skills merge'
+    $result = Invoke-ParserCase -Arguments $commandArgs -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') "removed skills route is unsupported: $($commandArgs -join ' ')"
 }
 

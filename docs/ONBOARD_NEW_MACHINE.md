@@ -25,17 +25,17 @@ pwsh -NoProfile -File .\scripts\doctor.ps1 -RepoRoot $RepoRoot
 
 Bootstrap installs and verifies the pinned gitleaks, builds the generated skills and prints the
 combined deploy dry-run command. It never changes a live skills directory or config. Use a URL without
-embedded credentials, and fix any doctor FAIL before going on.
+embedded credentials. Resolve any doctor FAIL or listed deployment blocker before continuing.
 
 ## 2. Review the dry run
 
 ```powershell
-pwsh -NoProfile -File .\scripts\deploy.ps1 -Environment work
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -DryRun
 ```
 
-Check every line from both stages. `install` and `update` are the selected Codex skills;
-the config stage only shows whether the Codex `AGENTS.md` managed block needs to be added or
-updated. `unknown` lines are unselected
+Check the target skills directory and the changes in both stages. Review the config changes
+and confirm that every planned `prune` is intended. Continue when both stages succeed.
+`install` and `update` are selected Codex skills. `unknown` lines are unselected
 live directories absent from deploy state and `-Retire`; they may be local skills, come from
 another tool or an older setup, or have been deployed here before state was lost. The current
 plan leaves them untouched. Codex `.system` is never listed. To keep a local skill in the
@@ -50,7 +50,7 @@ for private information before sharing the output.
 ## 3. Apply with the owner's OK
 
 ```powershell
-pwsh -NoProfile -File .\scripts\deploy.ps1 -Environment work -Apply
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -Apply
 ```
 
 Run it only after the owner authorizes this Apply for this machine. Old skill directories are
