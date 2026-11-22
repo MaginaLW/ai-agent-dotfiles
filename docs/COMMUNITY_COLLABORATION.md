@@ -6,7 +6,9 @@
 | [swarm](../skills-source/codex-only/swarm/SKILL.md) | 同时派工、点名队友、查看共享看板或消息关系图 | 负责人、真实收件回执、提交版本和原始事件 |
 | [teamwork](../skills-source/codex-only/teamwork/SKILL.md) | 任务有依赖，或要进行计划、阶段、集成审查 | 当前可执行批次、退回原因、复验证据和里程碑结果 |
 
-Codex 能按技能名调用三项，例如 `$swarm` 和 `$teamwork`。已有的 `/grill-me` 提示词继续使用同一技能。原 `subagent-driven-development` 的派单规则、评审提示词和看板已并入 Swarm。已归档的 `manifest.json` 可用 Swarm 的 `scripts/coordination.py` 打开。
+在 Codex Desktop 普通聊天输入 `/grill-me`、`/swarm` 或 `/teamwork`，按 Tab 选中对应的 `prompts:名称`，接着输入任务并按回车。刚安装后，旧窗口可能仍显示「无命令」，从「文件 → 新窗口」重新打开同一聊天即可加载新入口。也可以直接输入 `$grill-me`、`$swarm` 或 `$teamwork` 调用同一技能。
+
+在一个项目里先用 Swarm 启动成员，再用 Teamwork 验收时，第二条命令写明沿用同一运行或 manifest。这样任务、成员回复和审查都能在同一看板上追溯。原 `subagent-driven-development` 的派单规则、评审提示词和看板已并入 Swarm。已归档的 `manifest.json` 可用 Swarm 的 `scripts/coordination.py` 打开。
 
 ## 四个上游
 
