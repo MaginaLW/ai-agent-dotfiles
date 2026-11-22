@@ -1,5 +1,9 @@
 #requires -Version 7.0
 $ErrorActionPreference = 'Stop'
-$testFile = Get-Item -LiteralPath (Join-Path $PSScriptRoot 'coordination_protocol_test.py')
-& python -B -m unittest discover -s $testFile.DirectoryName -p $testFile.Name
+Push-Location -LiteralPath $PSScriptRoot
+try {
+    & python -B -m unittest coordination_protocol_test swarm_mailbox_test swarm_run_test swarm_upstream_test teamwork_gsd_test
+} finally {
+    Pop-Location
+}
 exit $LASTEXITCODE
