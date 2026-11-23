@@ -2,7 +2,7 @@
 
 | 入口 | 何时用 | 可检查的结果 |
 | --- | --- | --- |
-| [grill-me](../skills-source/codex-only/grill-me/SKILL.md) | 需求还有分歧，先用原生 Ask 定一个决策 | 实际选择、理由、验收条件 |
+| [grill-me](../skills-source/codex-only/grill-me/SKILL.md) | 需求还有分歧，先用原生 Ask 定一个决策 | 实际选择、理由、五项交接摘要（目标/决策/约束/验收/未知） |
 | [swarm](../skills-source/codex-only/swarm/SKILL.md) | 同时派工、点名队友、查看共享看板或消息关系图 | 负责人、真实收件回执、提交版本和原始事件 |
 | [teamwork](../skills-source/codex-only/teamwork/SKILL.md) | 任务有依赖，或要进行计划、阶段、集成审查 | 当前可执行批次、退回原因、复验证据和里程碑结果 |
 
