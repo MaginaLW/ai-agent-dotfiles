@@ -15,3 +15,11 @@ For an existing GSD phase, use [the GSD importer](references/waves.md#import-an-
 4. **Verify the join.** For a required integration gate, make the integrated artifact and its user-facing check a successor to the component tasks. Bind its evidence to their released digests. For milestone acceptance, reconcile the requested requirements against task summaries, verified results and the cross-component flow. Record remaining gaps and required human checks. [Review evidence template](assets/verification-report.md)
 
 The planner reads files locally with Python 3.10+. Its `complete` field reports accepted board tasks under this plan. The lead still checks the actual artifacts, the user’s outcomes and any separate execution or publication authority.
+
+## Working under a Goal
+
+When the user requests Goal-backed teamwork, use the lead chat's Goal to define the verified outcome and the approved milestones and follow-on tasks. Create a Goal only on explicit request.
+
+After each worker delivery or Goal continuation, re-read the current plan and release manifest. Check existing worker handles before dispatching any unfinished assignment. Verify delivered artifacts against the required review gates, release accepted inputs, and dispatch ready successors as capacity allows. If a branch needs an input or approval, continue independent work within the approved scope.
+
+Continue through the approved waves and follow-on tasks. Mark the Goal complete only after verifying the full objective against the current artifacts, required integration checks, and milestone acceptance evidence.
