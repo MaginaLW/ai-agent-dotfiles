@@ -118,6 +118,98 @@ def publish(args):
     return member_mailbox.publish(manifest, args.id, fields)
 
 
+def board_status(args):
+    manifest = coordination.load_manifest(args.manifest)
+    state = coordination.derive_state(manifest)
+    live = coordination.probe_server(manifest)
+    server_info = {"running": True, **live} if live is not None else {"running": False}
+    task_filter = args.task
+    actor_filter = args.actor
+
+    tasks = state["tasks"]
+    if task_filter:
+        tasks = [t for t in tasks if t["id"] == task_filter]
+    if actor_filter:
+        tasks = [t for t in tasks if t["owner"] == actor_filter or t["reviewer"] == actor_filter]
+    alerts = [{"task": t["id"], "status": t["status"], "alerts": t["alerts"]} for t in tasks if t["alerts"]]
+
+    receipts = state["receipts"]
+    pending_messages = []
+    for event in state["events"]:
+        if receipts.get(event["id"]) != "pending":
+            continue
+        recipient = (event.get("to") or "").removeprefix("@")
+        if task_filter and event["task"] != task_filter:
+            continue
+        if actor_filter and event["from"] != actor_filter and recipient != actor_filter:
+            continue
+        entry = {
+            "id": event["id"],
+            "type": event["type"],
+            "from": event["from"],
+            "to": recipient,
+            "task": event["task"],
+            "at": event["at"],
+        }
+        if args.include_text and event.get("text") is not None:
+            entry["text"] = event["text"]
+        pending_messages.append(entry)
+
+    connections = state["connections"]
+    if actor_filter:
+        connections = [
+            c for c in connections if c["fromAgentId"] == actor_filter or c["toAgentId"] == actor_filter
+        ]
+
+    matched_events = []
+    for event in state["events"]:
+        recipient = (event.get("to") or "").removeprefix("@")
+        if task_filter and event["task"] != task_filter:
+            continue
+        if actor_filter and (
+            event["from"] != actor_filter and recipient != actor_filter and event.get("reviewer") != actor_filter
+        ):
+            continue
+        matched_events.append(event)
+
+    recent_events = []
+    for event in matched_events[-10:]:
+        summary = {
+            "id": event["id"],
+            "type": event["type"],
+            "from": event["from"],
+            "task": event["task"],
+            "at": event["at"],
+        }
+        if event.get("to") is not None:
+            summary["to"] = event["to"].removeprefix("@")
+        if event.get("reviewer") is not None:
+            summary["reviewer"] = event["reviewer"]
+        if event.get("version") is not None:
+            summary["version"] = event["version"]
+        if event.get("replyTo") is not None:
+            summary["replyTo"] = event["replyTo"]
+        text = event.get("text")
+        if text is not None:
+            if args.include_text:
+                summary["text"] = text
+            else:
+                summary["textPreview"] = text[:120] + ("..." if len(text) > 120 else "")
+        recent_events.append(summary)
+
+    return {
+        "run": state["run"],
+        "actors": state["actors"],
+        "eventCount": len(state["events"]),
+        "server": server_info,
+        "tasks": tasks,
+        "alerts": alerts,
+        "pendingMessages": pending_messages,
+        "connections": connections,
+        "recentEvents": recent_events,
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -125,6 +217,11 @@ def main(argv=None):
     init.add_argument("directory", type=Path)
     init.add_argument("--name", required=True)
     init.add_argument("--member", action="append", default=[], metavar="NAME[=EXISTING_OUTBOX]")
+    status = commands.add_parser("status", help="inspect board state, alerts, pending mail and server health")
+    status.add_argument("--manifest", type=Path, required=True)
+    status.add_argument("--task", help="filter to one task id")
+    status.add_argument("--actor", help="filter to one actor name")
+    status.add_argument("--include-text", action="store_true", help="include full text on pending/recent events")
     pub = commands.add_parser("publish")
     pub.add_argument("--manifest", type=Path, required=True)
     kinds = pub.add_subparsers(dest="kind", required=True)
@@ -148,7 +245,12 @@ def main(argv=None):
                 item.add_argument("--input", action="append", metavar="TASK=SHA256")
     args = parser.parse_args(argv)
     try:
-        result = initialize(args.directory, args.name, args.member) if args.command == "init" else publish(args)
+        if args.command == "init":
+            result = initialize(args.directory, args.name, args.member)
+        elif args.command == "status":
+            result = board_status(args)
+        else:
+            result = publish(args)
     except (OSError, ValueError, coordination.BoardError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, ensure_ascii=True))

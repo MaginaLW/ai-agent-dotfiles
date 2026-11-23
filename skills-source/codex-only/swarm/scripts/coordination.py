@@ -16,6 +16,9 @@ import shutil
 import stat
 import sys
 import tempfile
+import threading
+import urllib.error
+import urllib.request
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -44,6 +47,8 @@ MAX_EVENT_BYTES = 2 * 1024 * 1024
 ACTOR_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 LEAD = "Lead"
+SERVER_INFO_FILENAME = "board-server.json"
+LOOPBACK_URL_RE = re.compile(r"^http://127\.0\.0\.1:([1-9][0-9]{0,4})/$")
 
 
 class BoardError(Exception):
@@ -701,13 +706,139 @@ def archive_manifest(manifest_path: Path | str, archive_path: Path | str) -> Pat
         raise BoardError(f"cannot create archive {target}: {exc}") from exc
 
 
+def server_info_path(manifest_path: Path | str) -> Path:
+    return Path(os.path.abspath(os.fspath(Path(manifest_path)))).with_name(SERVER_INFO_FILENAME)
+
+
+def _is_safe_server_info_location(manifest: Manifest, info_path: Path) -> bool:
+    if not _is_directory_no_symlink(info_path.parent):
+        return False
+    try:
+        info = info_path.lstat()
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+            or not stat.S_ISREG(info.st_mode)
+        ):
+            return False
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    for directory in manifest.actors.values():
+        if _same_path(info_path, directory) or _same_path(info_path.parent, directory) or directory in info_path.parents:
+            return False
+    return True
+
+
+def probe_server(manifest: Manifest, info_path: Path | None = None, timeout: float = 1.0) -> dict[str, Any] | None:
+    """Return live health JSON if a running board server matches this manifest."""
+
+    target = server_info_path(manifest.path) if info_path is None else Path(info_path)
+    try:
+        data = json.loads(_read_regular_file(target).decode("utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    url = data.get("url")
+    if not isinstance(url, str):
+        return None
+    matched = LOOPBACK_URL_RE.fullmatch(url)
+    if not matched or not 1 <= int(matched.group(1)) <= 65535:
+        return None
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(f"{url}api/health", timeout=timeout) as response:
+            if response.status != 200:
+                return None
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, urllib.error.URLError, TimeoutError):
+        return None
+    if not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("run") != manifest.run:
+        return None
+    payload_manifest = payload.get("manifest")
+    if not isinstance(payload_manifest, str) or not payload_manifest:
+        return None
+    expected_manifest = Path(os.path.abspath(os.fspath(manifest.path)))
+    actual_manifest = Path(os.path.abspath(os.fspath(Path(payload_manifest))))
+    if not _same_path(actual_manifest, expected_manifest):
+        return None
+    return payload
+
+
+def _write_server_info(manifest: Manifest, url: str, started_at: str, info_path: Path) -> bool:
+    if not _is_safe_server_info_location(manifest, info_path):
+        return False
+    payload = {
+        "run": manifest.run,
+        "manifest": os.fspath(manifest.path),
+        "url": url,
+        "pid": os.getpid(),
+        "startedAt": started_at,
+    }
+    data = (json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    try:
+        _write_atomic(info_path, data)
+    except OSError:
+        return False
+    return True
+
+
+def _cleanup_server_info(info_path: Path, url: str, pid: int) -> None:
+    try:
+        data = json.loads(_read_regular_file(info_path).decode("utf-8-sig"))
+        if isinstance(data, dict) and data.get("pid") == pid and data.get("url") == url:
+            info_path.unlink(missing_ok=True)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        pass
+
+
 class BoardHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = False
     daemon_threads = True
 
     def __init__(self, address: tuple[str, int], manifest: Manifest) -> None:
         self.manifest = manifest
+        self._metrics_lock = threading.Lock()
+        self.started_at = datetime.now(timezone.utc).isoformat()
+        self.ui_gets = 0
+        self.state_polls = 0
+        self.last_ui_at: str | None = None
+        self.last_state_at: str | None = None
+        self.last_event_count: int | None = None
         super().__init__(address, BoardRequestHandler)
+
+    def record_ui_get(self) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._metrics_lock:
+            self.ui_gets += 1
+            self.last_ui_at = now
+
+    def record_state_poll(self, event_count: int) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._metrics_lock:
+            self.state_polls += 1
+            self.last_state_at = now
+            self.last_event_count = event_count
+
+    def health_snapshot(self) -> dict[str, Any]:
+        event_count = len(collect_events(load_manifest(self.manifest.path)))
+        host, port = self.server_address[:2]
+        with self._metrics_lock:
+            return {
+                "ok": True,
+                "run": self.manifest.run,
+                "manifest": os.fspath(self.manifest.path),
+                "pid": os.getpid(),
+                "url": f"http://{host}:{port}/",
+                "startedAt": self.started_at,
+                "uiGets": self.ui_gets,
+                "statePolls": self.state_polls,
+                "lastUiAt": self.last_ui_at,
+                "lastStateAt": self.last_state_at,
+                "eventCount": event_count,
+            }
 
 
 class BoardRequestHandler(BaseHTTPRequestHandler):
@@ -771,6 +902,19 @@ class BoardRequestHandler(BaseHTTPRequestHandler):
             self._reject(403, "forbidden host or origin")
             return
         path = urlsplit(self.path).path
+        if path == "/api/health":
+            try:
+                health = self.board.health_snapshot()
+                body = (
+                    json.dumps(health, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+                    + "\n"
+                ).encode("utf-8")
+            except BoardError as exc:
+                self._reject(500, str(exc))
+                return
+            self._send_bytes(200, "application/json; charset=utf-8", body)
+            return
+
         if path == "/api/state":
             try:
                 # The lead publishes a replacement manifest when actors join or
@@ -783,6 +927,8 @@ class BoardRequestHandler(BaseHTTPRequestHandler):
             except BoardError as exc:
                 self._reject(500, str(exc))
                 return
+            if self.command == "GET":
+                self.board.record_state_poll(len(state["events"]))
             self._send_bytes(200, "application/json; charset=utf-8", body)
             return
 
@@ -795,6 +941,8 @@ class BoardRequestHandler(BaseHTTPRequestHandler):
             except OSError:
                 self._reject(404, "board UI unavailable")
                 return
+            if self.command == "GET":
+                self.board.record_ui_get()
             self._send_bytes(200, "text/html; charset=utf-8", body)
             return
 
@@ -821,6 +969,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--manifest", required=True, type=Path, help="path to manifest.json")
     parser.add_argument("--port", type=int, default=0, help="local port (default: 0)")
     parser.add_argument(
+        "--reuse",
+        action="store_true",
+        help="print the URL of an already running board server for this manifest and exit",
+    )
+    parser.add_argument(
+        "--no-server-info",
+        action="store_true",
+        help="do not write sibling board-server.json",
+    )
+    parser.add_argument(
         "--archive",
         type=Path,
         help="create an offline standalone archive at a new directory, then exit",
@@ -835,19 +993,29 @@ def main(argv: list[str] | None = None) -> int:
             archive_manifest(args.manifest, args.archive)
             return 0
         manifest = load_manifest(args.manifest)
+        if args.reuse:
+            existing = probe_server(manifest)
+            if existing is not None:
+                print(existing["url"], flush=True)
+                return 0
         server = serve(manifest, args.port)
     except BoardError as exc:
         print(f"coordination: {exc}", file=sys.stderr, flush=True)
         return 2
 
     host, actual_port = server.server_address[:2]
-    print(f"http://{host}:{actual_port}/", flush=True)
+    url = f"http://{host}:{actual_port}/"
+    info_path = server_info_path(manifest.path)
+    wrote_info = False if args.no_server_info else _write_server_info(manifest, url, server.started_at, info_path)
+    print(url, flush=True)
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        if wrote_info:
+            _cleanup_server_info(info_path, url, os.getpid())
     return 0
 
 

@@ -4,10 +4,16 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.request
 
 
 SCRIPT = (Path(__file__).resolve().parents[1] / "skills-source/codex-only/swarm/scripts/run.py")
+MAILBOX = SCRIPT.with_name("member_mailbox.py")
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(SCRIPT.parent))
+import coordination  # noqa: E402
 
 
 class WorkflowCLI(unittest.TestCase):
@@ -54,6 +60,57 @@ class WorkflowCLI(unittest.TestCase):
         new = self.root / "new"
         self.cli(self.root, "init", str(new), "--name", "team", "--member", "a", "--member", "A", ok=False)
         self.assertFalse(new.exists())
+
+    def test_status_reports_tasks_alerts_pending_mail_and_server_health(self):
+        self.publish("Lead", "assign", "start", "--to", "A", "--reviewer", "B")
+        self.publish("A", "submit", "v1", "--artifact", str(self.artifact), "--text", "checked result.txt")
+        long_text = "x" * 150
+        mail = subprocess.run(
+            [sys.executable, "-B", str(MAILBOX), "--manifest", str(self.manifest),
+             "send", "--to", "B", "--task", "build", "--id", "q1", "--text", long_text],
+            cwd=self.board / "members" / "A",
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+        mail_id = json.loads(mail.stdout)["id"]
+
+        # Works from a non-actor directory (self.root).
+        status = self.cli(self.root, "status", "--manifest", str(self.manifest))
+        self.assertFalse(status["server"]["running"])
+        self.assertEqual(status["tasks"][0]["status"], "submitted")
+        self.assertEqual(status["alerts"], [{"task": "build", "status": "submitted", "alerts": ["missing review"]}])
+        self.assertEqual([m["id"] for m in status["pendingMessages"]], [mail_id])
+        self.assertTrue(status["recentEvents"][-1]["textPreview"].endswith("..."))
+        self.assertNotIn("text", status["recentEvents"][-1])
+
+        filtered = self.cli(self.root, "status", "--manifest", str(self.manifest),
+                            "--task", "build", "--actor", "B", "--include-text")
+        self.assertEqual(filtered["pendingMessages"][0]["text"], long_text)
+        self.assertEqual(filtered["recentEvents"][-1]["text"], long_text)
+
+        manifest_obj = coordination.load_manifest(self.manifest)
+        server = coordination.serve(manifest_obj, 0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address[:2]
+            url = f"http://{host}:{port}/"
+            coordination._write_server_info(manifest_obj, url, server.started_at,
+                                            coordination.server_info_path(self.manifest))
+            for path in ("", "api/state"):
+                with urllib.request.urlopen(f"{url}{path}", timeout=3) as resp:
+                    self.assertEqual(resp.status, 200)
+            live = self.cli(self.root, "status", "--manifest", str(self.manifest))
+            self.assertTrue(live["server"]["running"])
+            self.assertEqual((live["server"]["uiGets"], live["server"]["statePolls"]), (1, 1))
+        finally:
+            coordination._cleanup_server_info(coordination.server_info_path(self.manifest), url,
+                                              coordination.os.getpid())
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
 
 
 if __name__ == "__main__":
