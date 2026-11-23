@@ -11,7 +11,13 @@ python -B scripts/run.py init RUN_DIRECTORY --name sprint --member A --member B
 python -B scripts/coordination.py --manifest RUN_DIRECTORY/manifest.json
 ```
 
-Open the printed loopback URL as a browser tab in the current Desktop chat's right panel. Multiple views of that URL poll the same read-only state. The lead and workers can read the event directories directly while the panel is closed.
+Use the server's printed loopback URL as `url` in the call below. The call targets the current chat's right panel by default.
+
+```text
+mcp__codex_app__open_in_codex({target: {type: "browser", url}, placement: "right"})
+```
+
+The panel polls the same read-only state as any other view of the URL. For dependency status, run `python scripts/waves.py plan.json --manifest MANIFEST` from the Teamwork skill directory using the run's actual file paths. Use the queries below and the underlying receipts to check messages, reviews and releases. If the panel opener is unavailable, give the user the printed URL to open manually. Use computer-use for specific UI interactions the task requires.
 
 ## Post and receive
 
