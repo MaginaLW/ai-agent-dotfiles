@@ -6,6 +6,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -703,6 +704,121 @@ class CoordinationProtocolTests(unittest.TestCase):
 
         with self.assertRaises(coordination.BoardError):
             coordination.archive_manifest(self.board.manifest_path, target)
+
+    def test_health_endpoint_counts_and_localhost_guards(self) -> None:
+        server = coordination.serve(self.board.loaded_manifest(), 0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address[:2]
+            base = f"http://{host}:{port}"
+            with urllib.request.urlopen(f"{base}/api/health", timeout=3) as response:
+                self.assertEqual(response.status, 200)
+                health = json.load(response)
+            self.assertTrue(health["ok"])
+            self.assertEqual(health["run"], RUN)
+            self.assertEqual((health["uiGets"], health["statePolls"], health["eventCount"]), (0, 0, 0))
+            self.assertIsNone(health["lastUiAt"])
+            self.assertIsNone(health["lastStateAt"])
+
+            self.board.publish("Lead", {"id": "assign-health", "type": "assign", "task": "t", "to": "A"})
+            for path in ("/", "/api/state"):
+                head_req = urllib.request.Request(f"{base}{path}", method="HEAD")
+                with urllib.request.urlopen(head_req, timeout=3) as response:
+                    self.assertEqual(response.status, 200)
+            with urllib.request.urlopen(f"{base}/api/health", timeout=3) as response:
+                after_head = json.load(response)
+            self.assertEqual((after_head["uiGets"], after_head["statePolls"], after_head["eventCount"]), (0, 0, 1))
+
+            for path in ("/", "/api/state"):
+                with urllib.request.urlopen(f"{base}{path}", timeout=3) as response:
+                    self.assertEqual(response.status, 200)
+            with urllib.request.urlopen(f"{base}/api/health", timeout=3) as response:
+                after_get = json.load(response)
+            self.assertEqual((after_get["uiGets"], after_get["statePolls"], after_get["eventCount"]), (1, 1, 1))
+            self.assertIsNotNone(after_get["lastUiAt"])
+            self.assertIsNotNone(after_get["lastStateAt"])
+
+            for headers in ({"Host": "evil.example"}, {"Origin": "https://evil.example"}):
+                connection = http.client.HTTPConnection(host, port, timeout=3)
+                connection.request("GET", "/api/health", headers=headers)
+                bad = connection.getresponse()
+                try:
+                    self.assertEqual(bad.status, 403)
+                finally:
+                    bad.read()
+                    connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
+    def test_server_info_reuse_stale_cleanup_and_ssrf_guard(self) -> None:
+        manifest = self.board.loaded_manifest()
+        info_path = coordination.server_info_path(self.board.manifest_path)
+        proc = subprocess.Popen(
+            [sys.executable, "-B", str(SCRIPT), "--manifest", str(self.board.manifest_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None
+            url = proc.stdout.readline().strip()
+            self.assertRegex(url, r"^http://127\.0\.0\.1:\d+/$")
+            self.assertTrue(info_path.is_file())
+            for directory in self.board.actor_dirs.values():
+                self.assertFalse((directory / coordination.SERVER_INFO_FILENAME).exists())
+
+            probed = coordination.probe_server(manifest)
+            self.assertIsNotNone(probed)
+            assert probed is not None
+            self.assertEqual(probed["url"], url)
+
+            reused = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), "--manifest", str(self.board.manifest_path), "--reuse"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+            self.assertEqual(reused.stdout.strip(), url)
+
+            archive = self.board.root / "archive-with-server"
+            coordination.archive_manifest(self.board.manifest_path, archive)
+            self.assertFalse((archive / coordination.SERVER_INFO_FILENAME).exists())
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
+
+        # Dead port in stale board-server.json and non-loopback URLs must be rejected safely.
+        self.assertIsNone(coordination.probe_server(manifest))
+        for bad_url in ("http://example.com:80/", "https://127.0.0.1:80/", "file:///etc/passwd"):
+            self.board.write_json(info_path, {"url": bad_url})
+            self.assertIsNone(coordination.probe_server(manifest))
+
+        info_path.unlink(missing_ok=True)
+        no_info = subprocess.Popen(
+            [sys.executable, "-B", str(SCRIPT), "--manifest", str(self.board.manifest_path), "--no-server-info"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert no_info.stdout is not None
+            self.assertRegex(no_info.stdout.readline().strip(), r"^http://127\.0\.0\.1:\d+/$")
+            self.assertFalse(info_path.exists())
+        finally:
+            no_info.terminate()
+            no_info.wait(timeout=5)
+            if no_info.stdout:
+                no_info.stdout.close()
+            if no_info.stderr:
+                no_info.stderr.close()
 
 
 if __name__ == "__main__":
