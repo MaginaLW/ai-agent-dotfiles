@@ -17,7 +17,17 @@ Use the server's printed loopback URL as `url` in the call below. The call targe
 mcp__codex_app__open_in_codex({target: {type: "browser", url}, placement: "right"})
 ```
 
-The panel polls the same read-only state as any other view of the URL. For dependency status, run `python scripts/waves.py plan.json --manifest MANIFEST` from the Teamwork skill directory using the run's actual file paths. Use the queries below and the underlying receipts to check messages, reviews and releases. If the panel opener is unavailable, give the user the printed URL to open manually. Use computer-use for specific UI interactions the task requires.
+The panel polls the same read-only state as any other view of the URL. For dependency status, run `python scripts/waves.py plan.json --manifest MANIFEST` from the Teamwork skill directory using the run's actual file paths. Use the queries below and the underlying receipts to check messages, reviews and releases. If the panel opener is unavailable, give the user the printed URL to open manually.
+
+### Wait for a queued open
+
+A `queued` result means the host accepted the open request. Keep that single request pending and wait for the current chat to be visible. Ask the user to bring the chat forward if needed. Reserve `cua_repl` for a separate task that requires direct UI interaction.
+
+Confirm loading from the panel's `GET /` returning HTTP 200 and its subsequent `/api/state` polls. To verify live refresh, check that a poll reflects a newly written receipt. Use board-side request records when available. Otherwise ask the user to confirm the panel is visible and check task state using the scripts and receipts.
+
+### Verified synthetic run
+
+On 2026-11-24, a queued request loaded after the user brought the current chat forward. A fresh open with the chat visible also returned `queued` and produced a panel `GET /` with HTTP 200. After synthetic submit, approve and release receipts, `/api/state` advanced from `assigned` with one event to `released` with four events. Teamwork's resume query showed the downstream task `ready` with the released input digest. For that foreground open, adjacent main-chat requests went from 191,900 to 192,034 input tokens, a single-run increase of 134.
 
 ## Post and receive
 
