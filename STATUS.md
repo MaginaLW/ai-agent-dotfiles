@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-11-22.
+Last updated: 2026-11-24.
 
 This file holds only present-tense facts, open items and known boundaries. Update it by replacing
 lines in place. Put dated task logs and evidence in `status/active/<task>.md`; when a task is
@@ -9,7 +9,7 @@ CI run, check `git log` and the latest GitHub Actions run.
 
 ## Current state
 
-- **Teamwork board and Goal.** Starting or resuming collaboration opens the board in the original lead chat by default. A queued open requires confirmation of panel loading. Native Goal continuations resume the approved work from current receipts and require the verified outcome before completion. [Teamwork](skills-source/codex-only/teamwork/SKILL.md)
+- **Teamwork board and Goal.** The skill requires the board to open in the original lead chat when collaboration starts or resumes and asks for confirmation of panel loading after a queued request. Native Goal continuations move approved work forward from current receipts and require verified outcomes at completion. The installed `work` skill matches the source, and the post-Apply preview showed 10 skills unchanged. The coordination suite passed 30 tests and skipped the opt-in GSD test because `TEAMWORK_GSD_TOOLS` was unset. A new live run still needs to verify automatic board opening and cross-turn Goal continuation. [Teamwork](skills-source/codex-only/teamwork/SKILL.md)
 
 - **Operator diagnostics.** Unified status preserves partial results and returns a nonzero exit code on query failure. The skills planner rejects conflicting state paths before writing. Combined deployment identifies the failed preview or Apply stage, and a targeted external plugin preview lists the requested actions first. The [new-machine guide](docs/ONBOARD_NEW_MACHINE.md) separates preview commands from authorized Apply steps.
 - **Capture and deployment previews.** Bootstrap and both onboarding guides use `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env deploy work -DryRun`. The skills preview names the target directory and rejects `-Retire` for a selected skill. Status and deployment use the same ownership checks and accept valid records without an environment name. Config capture requires the matching managed block in each existing rules file. The Antigravity plugin preview flags upgrades that need a new build. [New-machine guide](docs/ONBOARD_NEW_MACHINE.md#2-review-the-dry-run)
