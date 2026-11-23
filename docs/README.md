@@ -220,6 +220,12 @@ config-pull 的备份见 §11。
 **scan-secrets 报 false positive？** 改写源文档或示例措辞，让它不再像真实密钥（例如说明从环境变量读取），
 然后重新 build + scan。不要 whitelist 或削弱扫描。
 
+**Teamwork 看板与 Goal 怎么用？** 启动或接续协作时，看板默认在原会话右侧打开。仅制定计划时无需看板。
+工具返回 `queued` 表示请求仍在等待。面板加载并轮询状态后才确认打开，等待期间可以继续独立的已授权工作。
+原生 Codex Goal 根据最新回执推进下一项已授权工作，验收整体成果后才标记完成。已经运行的会话可能仍在使用旧指令，
+更新技能后先让会话重新读取。具体步骤见
+[teamwork SKILL.md](../skills-source/codex-only/teamwork/SKILL.md)。
+
 ---
 
 ## 10. 检查与 CI
