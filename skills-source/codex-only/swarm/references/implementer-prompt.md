@@ -1,75 +1,35 @@
-# Implementer / Executor Subagent Prompt Template
+# Implementer / Executor Brief Template
 
-Use this template for the first bounded stage of an independent task. Include only the context needed now; send important deltas at later stages instead of copying the full chat or plan. Reuse a suitable instance for the same responsibility; use a fresh one for a new responsibility or contaminated context, within the same root-task concurrent allowance and existing execution budgets.
+Use this self-contained template for Codex workers (`desktop_run_task` or `spawn_agent` with `fork_turns: "none"`). Include only the facts needed for the current stage; send consequential deltas later rather than copying full chat history.
 
-```
-Task tool (general-purpose):
-  description: "Execute Task N: [task name]"
-  prompt: |
-    You are executing Task N: [task name].
+```text
+You are executing Task [ID/Name]: [one-line outcome].
 
-    ## Task Description
+## Scope and Non-Goals
+- Deliverable: [exact file(s), change, or finding]
+- Out of scope: [what NOT to touch]
+- Confirmed constraints & ruled-out paths: [only verified invariants and settled choices]
 
-    [Current-stage outcome, scope and non-goals; include only the relevant plan excerpt or precise source pointers]
+## Inputs and Acceptance
+- Entry points / pointers: [exact paths, symbols, or commands]
+- Dependencies / inputs: [upstream task IDs + released SHA-256 digests, if any]
+- Write ownership & workspace: [allowed paths; worktree/shared/readonly boundary]
+- Acceptance check: [exact command(s) or observable truth to verify]
 
-    ## Context
+## Swarm Board (include only when using a shared board)
+- Manifest: [ABS_MANIFEST_PATH]
+- Member & outbox cwd: [MEMBER_NAME] at [ABS_OUTBOX_DIR]
+- Recipients: [named peers, e.g. Lead, B]
+- Before reporting back (when writable): check inbox (`member_mailbox.py --manifest ... inbox`) and publish `submit` (`run.py publish --manifest ... submit --task ... --id ... --artifact ... --text ... [--input DEP=SHA256]`) from your outbox cwd.
 
-    [Minimum inputs, dependencies, target/version, acceptance criteria, write ownership, workspace/output paths, authorization, shared root-task concurrent allowance, current host limits and any separate execution budgets]
+## Rules
+- Reuse the supplied decisions and authorization. Do not run unrelated broad edits or commits unless explicitly asked.
+- Escalate with `NEEDS_CONTEXT` or `BLOCKED` instead of guessing if a decisive input, file, or permission is missing.
+- Self-review diff/output and run the acceptance check before reporting back.
 
-    ## Before You Begin
-
-    Reuse the supplied decisions and valid authorization. Resolve routine details from the
-    context. Ask only when missing decisive information or required permission blocks dependent
-    work, and continue independent authorized work.
-
-    ## Your Job
-
-    Once clear:
-    1. Produce exactly what the task asks for.
-    2. Use the named sources, artifacts, tools, and checks.
-    3. Verify the output using the task's acceptance criteria.
-    4. Commit only if this is git-tracked work and the plan explicitly asks for a commit.
-    5. Self-review before reporting back.
-
-    Work from: [directory or workspace]
-
-    ## Work Organization
-
-    - Follow the relevant plan structure and report important deltas before the next stage.
-    - Delegate useful independent work when permitted; all descendants share the root-task
-      concurrent allowance under host open/active limits. Lifetime creation count is not capped
-      by that allowance. Stages, context changes and nested delegation grant no separate
-      allowance and do not reset native, paid-call or execution-count budgets.
-    - Keep outputs focused and easy to review.
-    - For code, follow local patterns and keep files focused.
-    - For documents, write for the stated audience and keep claims grounded.
-    - For research, separate evidence from inference.
-    - For operations, avoid irreversible actions unless explicitly authorized.
-
-    ## Escalate Instead of Guessing
-
-    Report NEEDS_CONTEXT or BLOCKED if:
-    - A consequential ambiguity cannot reasonably be resolved from the supplied context.
-    - Required files, sources, credentials, or tools are unavailable.
-    - The task asks for an unsafe or irreversible action without explicit authorization.
-    - You cannot verify the output.
-    - The task is larger or more coupled than the plan suggests.
-
-    ## Before Reporting Back: Self-Review
-
-    Check:
-    - Did I satisfy every requirement in the task?
-    - Did I avoid adding unrequested scope?
-    - Did I verify the output with the stated check?
-    - Are assumptions, sources, and limitations clear?
-    - Is the output easy for the next reviewer to inspect?
-
-    ## Report Format
-
-    - **Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
-    - What changed or was produced
-    - What was verified and the result
-    - Artifacts/files/locations changed
-    - Self-review findings
-    - Concerns or follow-up needed
+## Report Format
+- **Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
+- **Summary & files:** what changed or was produced (paths + SHA-256/event ID if submitted)
+- **Verification:** exact commands/checks run and observed results
+- **Concerns / gaps:** anything unresolved or outside scope
 ```

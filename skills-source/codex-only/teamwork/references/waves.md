@@ -29,7 +29,7 @@ Choose a new output filename. Check the import exit status before consuming it. 
 }
 ```
 
-The required fields are the swarm run name, a nonempty task list, and each task’s unique `id` and `verify` text. Supply `depends_on` for inputs and `files_modified` for write ownership. Paths are literal repository-relative files or directory trees. The checker treats Windows path case and separators alike. Omitting either array means empty. Add `requires_review: true` for a required independent reviewer. Set `plan_review` only if the plan itself needs versioned review. Every other task in that case must descend from the named root gate.
+The required fields are the swarm run name, a nonempty task list, and each task’s unique `id` and `verify` text. Supply `depends_on` for inputs and `files_modified` for write ownership. Paths are literal repository-relative files or directory trees. The checker treats Windows path case and separators alike. Omitting either array means empty. Add `requires_review: true` when an independent writable peer actor must sign `approve`/`changes` on the board before release; when independent review runs through a `readonly` subscription worker that cannot write an outbox, omit `requires_review: true` (or keep it false) and record the external task ID, reviewed digest, verdict, and evidence in Lead's `release --text` and verification report (Lead never impersonates a reviewer). Set `plan_review` only if the plan itself needs versioned board-signed review. Every other task in that case must descend from the named root gate.
 
 Run from the installed teamwork directory:
 

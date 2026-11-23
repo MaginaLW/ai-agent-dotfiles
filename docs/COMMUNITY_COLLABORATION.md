@@ -21,7 +21,7 @@
 | [jlee056/agent-mission-control](https://github.com/jlee056/agent-mission-control/tree/357aec908d609748005cc190f0f64888470d56b1) | 有向通信图、边的次数和事件明细；可导出原版遥测桥接受的事件 | 原版像素办公室、遥测服务和 Web 应用留在完整源码中 |
 | [gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done/tree/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815) | Grill-me 的提问线索，Teamwork 的依赖批次、目标验证、审查及里程碑交接。Teamwork 通过上游 CLI 读取已有阶段的 `PLAN.md` | 原版完整工作流和 CLI 可在下载目录中独立使用 |
 
-Desktop 里的订阅 worker 由宿主按当前隐私结果派发。消息看板接受同一协议的多个执行端。给独立 worker 分配其工作区内可写的 outbox；只读 worker 通过宿主返回结果。投递是否成功以收件方写回的记录为准。项目决策、Git 发布、部署和账户权限仍由各自的宿主管理。
+Desktop 里的订阅 worker 由宿主按当前隐私结果派发。消息看板接受同一协议的多个执行端。给独立 worker 分配其工作区内可写的 outbox；只读 worker（如 `readonly` 订阅审查员）通过宿主返回结果，由 Lead 核实后把外部任务 ID、审查摘要与核对版本写入 `release --text` 和验收报告，不在看板上指定不可写的 `reviewer`。启动或续接面板时使用 `coordination.py --manifest ... --reuse` 复用健康服务，并用 `run.py status --manifest ...` 或 `GET /api/health` 核验面板加载与实时事件。投递是否成功以收件方写回的记录为准。项目决策、Git 发布、部署和账户权限仍由各自的宿主管理。
 
 ## Desktop 验收与 Antigravity 对照
 
