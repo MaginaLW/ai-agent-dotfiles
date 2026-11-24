@@ -4,7 +4,7 @@
     Runs the repository validation gates in order and stops at the first failure.
 
 .DESCRIPTION
-    Gates: powershell-syntax, gitleaks-verify, build-skills, secret-scan,
+    Gates: powershell-syntax, python-syntax, gitleaks-verify, build-skills, secret-scan,
     doctor (isolated temp HomeRoot, -SkipSecretsScan), generated-manifests-parity,
     run-tests, dangerous-tracked-files, clean-tracked-state.
     CI runs it on a clean checkout. Locally the last gate fails on a dirty tree.
@@ -41,6 +41,35 @@ function Get-GitLines([string[]] $Arguments) {
 
 try {
     Invoke-Gate 'powershell-syntax' { Invoke-RepoScript 'check-powershell-syntax.ps1' @('-RepoRoot', $RepoRoot) }
+    Invoke-Gate 'python-syntax' {
+        $python = @(Get-Command python -CommandType Application -ErrorAction Stop)[0].Source
+        $pythonRoots = @(
+            (Join-Path $RepoRoot 'skills-source'),
+            (Join-Path $RepoRoot 'tests')
+        ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+        $pythonFiles = @(if ($pythonRoots.Count -gt 0) {
+            Get-ChildItem -LiteralPath $pythonRoots -Filter '*.py' -Recurse -File | Sort-Object FullName | ForEach-Object FullName
+        })
+        if ($pythonFiles.Count -eq 0) {
+            throw 'No Python files found under skills-source/ or tests/.'
+        }
+        $hadPycachePrefix = Test-Path Env:PYTHONPYCACHEPREFIX
+        $previousPycachePrefix = if ($hadPycachePrefix) { $env:PYTHONPYCACHEPREFIX } else { $null }
+        try {
+            $pycacheDir = [IO.Path]::GetFullPath((Join-Path $work 'pycache'))
+            if ([System.OperatingSystem]::IsWindows() -and -not $pycacheDir.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+                $pycacheDir = "\\?\$pycacheDir"
+            }
+            $env:PYTHONPYCACHEPREFIX = $pycacheDir
+            & $python -B -m py_compile @pythonFiles
+            if ($LASTEXITCODE -ne 0) { throw "python -B -m py_compile failed with exit code $LASTEXITCODE" }
+        }
+        finally {
+            if ($hadPycachePrefix) { $env:PYTHONPYCACHEPREFIX = $previousPycachePrefix }
+            else { Remove-Item Env:PYTHONPYCACHEPREFIX -ErrorAction SilentlyContinue }
+        }
+        Write-Host "Python syntax validation passed: $($pythonFiles.Count) file(s)."
+    }
     Invoke-Gate 'gitleaks-verify' { Invoke-RepoScript 'install-gitleaks.ps1' @('-VerifyOnly') }
     Invoke-Gate 'build-skills' { Invoke-RepoScript 'build-skills.ps1' @('-RepoRoot', $RepoRoot) }
     Invoke-Gate 'secret-scan' { Invoke-RepoScript 'scan-secrets.ps1' @('-RepoRoot', $RepoRoot) }

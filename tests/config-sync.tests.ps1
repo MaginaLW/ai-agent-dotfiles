@@ -437,11 +437,27 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             "\\127.0.0.1\${trDrive}`$\$trTail\new",
             'Env:\TEMP'
         )
-        foreach ($scriptPath in @($pullScript, $pushScript)) {
-            foreach ($badRoot in $badRoots) {
-                $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $badRoot, '-Apply')
-                Assert ($r.Code -ne 0 -and $r.Out -match 'BackupRoot must be outside') "$(Split-Path -Leaf $scriptPath): refuses backup root $badRoot"
+        foreach ($badRoot in $badRoots) {
+            $rejected = $false
+            $errorMessage = ''
+            try {
+                $null = Resolve-ConfigBackupRoot -RepoRoot $tr -BackupRoot $badRoot
             }
+            catch {
+                $rejected = $true
+                $errorMessage = $_.Exception.Message
+            }
+            Assert ($rejected -and $errorMessage -match 'BackupRoot must be outside') "Resolve-ConfigBackupRoot: refuses backup root $badRoot"
+        }
+        $expectedOutside = [IO.Path]::GetFullPath((Join-Path $work 'backup-boundary-outside'))
+        foreach ($goodRoot in @((Join-Path $work 'backup-boundary-outside'), './backup-boundary-outside')) {
+            $resolvedGood = Resolve-ConfigBackupRoot -RepoRoot $tr -BackupRoot $goodRoot
+            Assert ($resolvedGood -eq $expectedOutside) "Resolve-ConfigBackupRoot: accepts external backup root $goodRoot"
+        }
+        $cliBadRoot = Join-Path $tr 'new'
+        foreach ($scriptPath in @($pullScript, $pushScript)) {
+            $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $cliBadRoot, '-Apply')
+            Assert ($r.Code -ne 0 -and $r.Out -match 'BackupRoot must be outside') "$(Split-Path -Leaf $scriptPath): refuses in-repo backup root"
         }
         Assert ([IO.File]::ReadAllText($homeFile) -ceq 'personal text' -and [IO.File]::ReadAllText($repoFile) -ceq 'repository text') 'refused backup roots preserve both originals'
         Assert (-not (Test-Path (Join-Path $tr 'new')) -and @(Get-ChildItem -LiteralPath $tr -Directory -Filter 'config-*').Count -eq 0) 'refused backup roots create no backup or stage'
