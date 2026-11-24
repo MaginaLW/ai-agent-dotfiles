@@ -5,7 +5,7 @@ description: Use only when the user explicitly asks to threat-model a repository
 
 # Threat Model Source Code Repo
 
-Deliver an actionable AppSec-grade threat model that is specific to the repository or a project path, not a generic checklist. Anchor every architectural claim to evidence in the repo and keep assumptions explicit. Prioritizing realistic attacker goals and concrete impacts over generic checklists.
+Deliver an actionable AppSec-grade threat model that is specific to the repository or a project path, not a generic checklist. Anchor every architectural claim to evidence in the repo and keep assumptions explicit. Prioritize realistic attacker goals and concrete impacts.
 
 ## Quick start
 
@@ -27,12 +27,11 @@ Deliver an actionable AppSec-grade threat model that is specific to the reposito
 
 ### 2) Derive boundaries, assets, and entry points
 - Enumerate trust boundaries as concrete edges between components, noting protocol, auth, encryption, validation, and rate limiting.
-- List assets that drive risk (data, credentials, models, config, compute resources, audit logs).
+- List the risk-driving assets (data, PII, credentials, models, config, integrity- or availability-critical state/components, build artifacts, compute resources, audit logs) and their security objectives (C/I/A).
 - Identify entry points (endpoints, upload surfaces, parsers/decoders, job triggers, admin tooling, logging/error sinks).
 
-### 3) Calibrate assets and attacker capabilities
-- List the assets that drive risk (credentials, PII, integrity-critical state, availability-critical components, build artifacts).
-- Describe realistic attacker capabilities based on exposure and intended usage.
+### 3) Calibrate attacker capabilities
+- Describe realistic attacker capabilities against those assets based on exposure and intended usage.
 - Explicitly note non-capabilities to avoid inflated severity.
 
 

@@ -131,7 +131,7 @@ def load_summary(data_dir: Path) -> dict[str, object]:
 def load_communities(data_dir: Path) -> list[dict[str, object]]:
     communities_path = data_dir / "communities.json"
     if not communities_path.exists():
-        raise FileNotFoundError("communities.json not found; rerun build with --communities")
+        raise FileNotFoundError("communities.json not found; rerun build without --no-communities")
     with communities_path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
@@ -198,8 +198,48 @@ def top_edges_for_file(data_dir: Path, file_id: str) -> list[dict[str, object]]:
     return results
 
 
-def sort_records(records: list[dict[str, object]], key: str) -> list[dict[str, object]]:
-    return sorted(records, key=lambda item: item.get(key, 0), reverse=True)
+PEOPLE_SORT_KEYS = {
+    "person_id",
+    "name",
+    "email",
+    "first_seen",
+    "last_seen",
+    "commit_count",
+    "touches",
+    "sensitive_touches",
+    "primary_tz_offset",
+    "primary_tz_minutes",
+}
+FILES_SORT_KEYS = {
+    "file_id",
+    "path",
+    "first_seen",
+    "last_seen",
+    "commit_count",
+    "touches",
+    "bus_factor",
+    "sensitivity_score",
+}
+PERSON_EDGE_SORT_KEYS = {"file_id", "touches", "recency_weight", "sensitive_weight", "last_seen"}
+FILE_EDGE_SORT_KEYS = {"person_id", "touches", "recency_weight", "sensitive_weight", "last_seen"}
+COCHANGE_SORT_KEYS = {"file_id", "path", "cochange_count", "jaccard"}
+
+
+def sort_records(
+    records: list[dict[str, object]],
+    key: str,
+    allowed_keys: set[str] | None = None,
+) -> list[dict[str, object]]:
+    if allowed_keys is not None and key not in allowed_keys:
+        raise ValueError(f"Invalid sort key '{key}'; choose from {', '.join(sorted(allowed_keys))}")
+    if allowed_keys is None and records and key not in records[0]:
+        raise ValueError(f"Invalid sort key '{key}'")
+
+    def _sort_key(item: dict[str, object]) -> tuple[object, ...]:
+        value = item.get(key)
+        return (1, value) if value is not None else (0,)
+
+    return sorted(records, key=_sort_key, reverse=True)
 
 
 def handle_people(args: argparse.Namespace, data_dir: Path) -> None:
@@ -208,7 +248,7 @@ def handle_people(args: argparse.Namespace, data_dir: Path) -> None:
         people = [p for p in people if args.email_contains in p.get("email", "")]
     people = [p for p in people if p["touches"] >= args.min_touches]
     people = [p for p in people if p["sensitive_touches"] >= args.min_sensitive]
-    people = sort_records(people, args.sort)[: args.limit]
+    people = sort_records(people, args.sort, PEOPLE_SORT_KEYS)[: args.limit]
     payload = [
         {
             "person_id": p.get("person_id"),
@@ -233,7 +273,7 @@ def handle_files(args: argparse.Namespace, data_dir: Path) -> None:
     if args.bus_factor_max is not None:
         files = [f for f in files if f["bus_factor"] <= args.bus_factor_max]
     files = [f for f in files if f["sensitivity_score"] >= args.sensitivity_min]
-    files = sort_records(files, args.sort)[: args.limit]
+    files = sort_records(files, args.sort, FILES_SORT_KEYS)[: args.limit]
     payload = [
         {
             "file_id": f.get("file_id"),
@@ -255,7 +295,7 @@ def handle_person(args: argparse.Namespace, data_dir: Path) -> None:
     files = load_files(data_dir)
     file_map = {f["file_id"]: f for f in files}
     edges = top_edges_for_person(data_dir, person["person_id"])
-    edges = sort_records(edges, args.sort)[: args.limit]
+    edges = sort_records(edges, args.sort, PERSON_EDGE_SORT_KEYS)[: args.limit]
     payload = {
         "person": {
             "person_id": person.get("person_id"),
@@ -289,7 +329,7 @@ def handle_file(args: argparse.Namespace, data_dir: Path) -> None:
     people = load_people(data_dir)
     people_map = {p["person_id"]: p for p in people}
     edges = top_edges_for_file(data_dir, file_entry["file_id"])
-    edges = sort_records(edges, args.sort)[: args.limit]
+    edges = sort_records(edges, args.sort, FILE_EDGE_SORT_KEYS)[: args.limit]
     payload = {
         "file": {
             "file_id": file_entry.get("file_id"),
@@ -347,7 +387,7 @@ def handle_cochange(args: argparse.Namespace, data_dir: Path) -> None:
             }
         )
 
-    neighbors = sort_records(neighbors, args.sort)[: args.limit]
+    neighbors = sort_records(neighbors, args.sort, COCHANGE_SORT_KEYS)[: args.limit]
     payload = {
         "file": {
             "file_id": file_entry.get("file_id"),
@@ -439,8 +479,12 @@ def handle_community(args: argparse.Namespace, data_dir: Path) -> None:
     files = entry.pop("files", [])
     payload = entry
     if args.include_files:
-        payload["files"] = files[: args.file_limit]
-        payload["files_truncated"] = len(files) > args.file_limit
+        shown_files = files[: args.file_limit]
+        total_size = entry.get("size")
+        if not isinstance(total_size, int):
+            total_size = to_int(str(total_size)) if total_size is not None else len(files)
+        payload["files"] = shown_files
+        payload["files_truncated"] = total_size > len(shown_files) or len(files) > len(shown_files)
     print(json.dumps(payload, indent=2))
 
 

@@ -8,7 +8,7 @@ Use this template when dispatching a spec document reviewer subagent.
 in the project's chosen location. No mandatory spec directory or extra approval round.
 
 ```
-Task tool (general-purpose):
+Subagent dispatch (general-purpose):
   description: "Review spec document"
   prompt: |
     You are a design-note reviewer. Verify this note is complete and ready for planning, drafting, research, or execution.

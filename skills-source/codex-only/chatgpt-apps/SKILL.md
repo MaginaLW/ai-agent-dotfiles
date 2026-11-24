@@ -73,47 +73,17 @@ When responding, ask for or infer these inputs before coding:
 - Hosting target and local dev approach
 - Org ownership/verification readiness (for submission tasks)
 
-## Classify The App Before Choosing Code
-
-Before choosing examples, repo shape, or scaffolds, classify the request into one primary archetype and state it.
-
-- `tool-only`
-- `vanilla-widget`
-- `react-widget`
-- `interactive-decoupled`
-- `submission-ready`
-
-Infer the archetype unless a missing detail is truly blocking. Use the archetype to choose:
-
-- whether a UI is needed at all
-- whether to preserve a split `server/` + `web/` layout
-- whether to prefer official OpenAI examples, ext-apps examples, or the local fallback scaffold
-- which validation checks matter most
-- whether `search` and `fetch` should be the default read-only tool surface
-
-Read `references/app-archetypes.md` for the decision rubric.
-
-## Default Starting-Point Order
-
-For greenfield apps, prefer these starting points in order:
-
-1. **Official OpenAI examples** when a close example already matches the requested stack or interaction pattern.
-2. **Version-matched `@modelcontextprotocol/ext-apps` examples** when the user needs a lower-level or more portable MCP Apps baseline.
-3. **`scripts/scaffold_node_ext_apps.mjs`** only when no close example fits, the user wants a tiny Node + vanilla starter, or network access/example retrieval is undesirable.
-
-Do not generate a large custom scaffold from scratch if a close upstream example already exists.
-Copy the smallest matching example, remove unrelated demo code, then patch it to the current docs and the user request.
-
 ## Build Workflow
 
 ### 0. Classify The App Archetype
 
-Pick one primary archetype before planning tools or choosing a starting point.
+Before choosing examples, repo shape, or scaffolds, pick one primary archetype (`tool-only`, `vanilla-widget`, `react-widget`, `interactive-decoupled`, or `submission-ready`) and state it so the user can correct it early if needed.
 
-- Prefer a single primary archetype instead of mixing several.
-- If the request is broad, infer the smallest archetype that can still satisfy it.
+- Infer the smallest archetype that satisfies the request unless a missing detail is truly blocking.
 - Escalate to `submission-ready` only when the user asks for public launch, directory submission, or review-ready deployment.
-- Call out the chosen archetype in your response so the user can correct it early if needed.
+- Read `references/app-archetypes.md` for the decision rubric, repo shapes, and archetype-specific validation emphasis.
+
+> Default starting-point order: (1) **Official OpenAI examples**, (2) **version-matched `@modelcontextprotocol/ext-apps` examples**, (3) **`scripts/scaffold_node_ext_apps.mjs`** only when no close example fits or network/example retrieval is undesirable. Do not generate a large custom scaffold from scratch when a close upstream example exists.
 
 ### 1. Plan Tools Before Code
 
@@ -208,36 +178,13 @@ Set resource metadata deliberately on the widget resource/template:
 
 Avoid `frameDomains` unless iframe embeds are core to the product.
 
-### 5a. Enforce A Minimum Working Repo Contract
+### 6. Validate Against the Minimum Working Repo Contract
 
-Every generated repo should satisfy a small, stable contract before you consider it done.
+Validate against `references/repo-contract-and-validation.md`, not just “did files get created”:
 
-- The repo shape matches the chosen archetype.
-- The MCP server and tools are wired to a reachable `/mcp` endpoint.
-- Tools have clear descriptions, accurate annotations, and UI metadata where needed.
-- Connector-like, data-only, sync-oriented, and company-knowledge-style apps use the standard `search` and `fetch` tool shapes when relevant.
-- The widget uses the MCP Apps bridge correctly when a UI exists.
-- The repo includes enough scripts or commands for a user to run and check it locally.
-- The response explicitly says what validation was run and what was not run.
-
-Read `references/repo-contract-and-validation.md` for the detailed checklist and validation ladder.
-
-### 6. Validate the Local Loop
-
-Validate against the minimum working repo contract, not just “did files get created.”
-
-- Run the lowest-cost checks first:
-  - static contract review
-  - syntax or compile checks when feasible
-  - local `/mcp` health check when feasible
-- Then move up to runtime checks:
-  - verify tool descriptors and widget rendering in MCP Inspector
-  - test the app in ChatGPT developer mode through HTTPS tunneling
-  - exercise retries and repeated tool calls to confirm idempotent behavior
-  - check widget updates after host events and follow-up tool calls
-- If you are only delivering a scaffold and are not installing dependencies, still run low-cost checks and say exactly what you did not run.
-
-Read `references/repo-contract-and-validation.md` for the validation ladder.
+- Confirm the repo shape matches the archetype, `/mcp` is wired, tool annotations and UI metadata are accurate, connector-like/sync-oriented apps use standard `search` and `fetch` tools, and the widget uses the MCP Apps bridge correctly when a UI exists.
+- Run the lowest-cost checks first (static contract review, syntax/compile check, local `/mcp` health check when feasible), then runtime checks (MCP Inspector, ChatGPT Developer Mode via HTTPS tunnel, idempotent retries, widget state updates) when feasible.
+- Ensure the repo includes local run/check commands, and explicitly report which validation was run and what was not run.
 
 ### 7. Connect and Test in ChatGPT (Developer Mode)
 

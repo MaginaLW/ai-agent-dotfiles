@@ -9,7 +9,7 @@ plans do not need a document or separate reviewer. Existing valid decisions and 
 usable; a review does not restart design, planning or full validation.
 
 ```
-Task tool (general-purpose):
+Subagent dispatch (general-purpose):
   description: "Review plan document"
   prompt: |
     You are a plan document reviewer. Verify this plan is ready for execution.
