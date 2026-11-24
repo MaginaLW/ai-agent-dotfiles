@@ -220,11 +220,17 @@ config-pull 的备份见 §11。
 **scan-secrets 报 false positive？** 改写源文档或示例措辞，让它不再像真实密钥（例如说明从环境变量读取），
 然后重新 build + scan。不要 whitelist 或削弱扫描。
 
-**Teamwork 看板与 Goal 怎么用？** 启动或接续协作（含原生 Goal 续接）时，用 `coordination.py --manifest ... --reuse`
-启动或复用运行中看板，并在原会话右侧打开；仅制定计划时无需看板。工具返回 `queued` 后保持原请求等待，并通过
-`run.py status --manifest ...` 或 `GET /api/health` 核实 `uiGets >= 1`、`statePolls >= 1` 与实时事件。可写队友互审
-走 `requires_review: true` 门禁签名；`readonly` 订阅审查通过宿主返回，由 Lead 将外部任务 ID、核对版本和结论记入
-`release --text` 与验收报告。已经运行的会话可能仍在使用旧指令，更新技能后先让会话重新读取。具体步骤见
+**Teamwork 看板与 Goal 怎么用？** 调用 `$teamwork` 或 `/teamwork` 进入执行或交付（非纯规划、非 Plan Mode，
+且用户未显式说明不用 Goal）时，会自动先调用 `get_goal` 检查状态：有匹配的未完成 Goal 则续接，存在冲突的未完成
+Goal 则先询问，若无未完成 Goal 则按用户请求的完整计划或里程碑自动调用 `create_goal`；仅制定计划时既不创建
+Goal 也不启动看板。Lead 不会把 Goal 缩窄为首批子集，也不会在后续波次或可询问的收尾/门禁授权仍未处理时提前标记
+`complete`。看板方面，用 `coordination.py --manifest ... --reuse` 启动或复用运行中看板并在原会话右侧打开；
+工具返回 `queued` 后保持原请求等待，并通过 `run.py status --manifest ...` 或 `GET /api/health` 核实
+`uiGets >= 1`、`statePolls >= 1` 与实时事件。可写队友互审走 `requires_review: true` 门禁签名；
+`readonly` 订阅审查通过宿主返回，由 Lead 将外部任务 ID、核对版本和结论记入 `release --text` 与验收报告。
+注意：Codex Desktop 会在已打开窗口中缓存 `~/.codex/prompts/`（更新 slash prompt 后需使用
+File -> New Window / 文件 → 新窗口或重启以重新加载），而 `$teamwork` 的 `SKILL.md` 在每次调用时从磁盘读取
+（仍在运行中的旧会话仍需重新调用或重新读取更新后的技能文本）。具体步骤见
 [teamwork SKILL.md](../skills-source/codex-only/teamwork/SKILL.md) 与
 [swarm SKILL.md](../skills-source/codex-only/swarm/SKILL.md)。
 
