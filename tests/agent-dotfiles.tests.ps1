@@ -160,6 +160,38 @@ Assert ($result.Code -eq 0) 'config status routes repeated -Platform arguments w
 $result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Invalid', '-Json')
 Assert ($result.Code -ne 0) 'config status rejects invalid platform'
 
+foreach ($emptyPlatArgs in @(
+    @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', ''),
+    @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', '   '),
+    @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform')
+)) {
+    $rEmptyPlat = Invoke-Entry -Arguments $emptyPlatArgs
+    Assert ($rEmptyPlat.Code -ne 0) "config status rejects empty/missing platform: $($emptyPlatArgs -join ' ')"
+}
+$rEmptyColonPlat = Invoke-ParserCase -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform:')
+Assert ($rEmptyColonPlat.Code -ne 0) 'config status rejects empty -Platform:'
+
+$rJsonColonTrue = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Json:$true')
+Assert ($rJsonColonTrue.Code -eq 0 -and $rJsonColonTrue.Out -notmatch 'Invoking script|Command result') '-Json:$true suppresses dispatcher banners'
+
+$nestedListJson = Join-Path $work 'nested-env-list/sub/env-list.json'
+$rNestedList = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'), '-JsonPath', $nestedListJson)
+Assert ($rNestedList.Code -eq 0 -and (Test-Path -LiteralPath $nestedListJson -PathType Leaf)) 'env list -JsonPath auto-creates missing parent directories'
+$juncParentTarget = Join-Path $work 'env-list-junc-target'
+New-Item -ItemType Directory -Path $juncParentTarget -Force | Out-Null
+$juncParentLink = Join-Path $work 'env-list-junc-parent'
+New-Item -ItemType Junction -Path $juncParentLink -Target $juncParentTarget | Out-Null
+$rJuncList = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'), '-JsonPath', (Join-Path $juncParentLink 'out.json'))
+Assert ($rJuncList.Code -ne 0 -and $rJuncList.Out -match 'reparse') 'env list -JsonPath refuses reparse-point parent'
+foreach ($badListArgs in @(
+    @('env', 'list', '-RepoRoot', $RepoRoot, '-RepoRoot', $RepoRoot),
+    @('env', 'list', '-JsonPath'),
+    @('env', 'list', '-StateRoot', '-JsonPath')
+)) {
+    $rBadList = Invoke-Entry -Arguments $badListArgs
+    Assert ($rBadList.Code -ne 0) "env list rejects duplicate/missing flags: $($badListArgs -join ' ')"
+}
+
 $result = Invoke-Entry -Arguments @('profile', 'status', '-RepoRoot', $RepoRoot, '-ProjectRoot', $RepoRoot, '-Json')
 $profileJson = $null
 try { $profileJson = $result.Out | ConvertFrom-Json } catch { $profileJson = $null }
@@ -218,8 +250,8 @@ foreach ($action in @('build', 'status', 'deploy')) {
     if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
     $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments $routeArgs
     $payload = $null
-    try { $payload = ($result.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $payload = $null }
-    Assert ($result.Code -eq 0 -and $null -ne $payload -and $payload.Action -eq $action -and $payload.RepoRoot -eq $fixtureRepo -and $payload.JsonPath -eq (Join-Path $work 'plugin-report.json') -and -not $payload.Apply) "antigravity $action forwards Action and paths without a mutation switch"
+    try { $payload = $result.Out | ConvertFrom-Json } catch { $payload = $null }
+    Assert ($result.Code -eq 0 -and $result.Out -notmatch 'Invoking script|Command result' -and $null -ne $payload -and $payload.Action -eq $action -and $payload.RepoRoot -eq $fixtureRepo -and $payload.JsonPath -eq (Join-Path $work 'plugin-report.json') -and -not $payload.Apply) "antigravity $action forwards Action and paths as clean JSON without banners"
 }
 $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', '-Apply')
 Assert ($result.Code -eq 0 -and $result.Out -match '"Apply":true') 'antigravity deploy forwards explicit Apply only to its plugin entry'
@@ -256,8 +288,8 @@ foreach ($action in @('build', 'status', 'deploy')) {
     if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
     $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments $routeArgs
     $payload = $null
-    try { $payload = ($result.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $payload = $null }
-    Assert ($result.Code -eq 0 -and $null -ne $payload -and $payload.RepoRoot -eq '-Apply' -and $payload.JsonPath -eq '-DryRun' -and -not $payload.Apply) "antigravity $action preserves literal mode strings as path values without activation"
+    try { $payload = $result.Out | ConvertFrom-Json } catch { $payload = $null }
+    Assert ($result.Code -eq 0 -and $result.Out -notmatch 'Invoking script|Command result' -and $null -ne $payload -and $payload.RepoRoot -eq '-Apply' -and $payload.JsonPath -eq '-DryRun' -and -not $payload.Apply) "antigravity $action preserves literal mode strings as path values without activation"
 }
 # -File may split colon boolean syntax before the script sees it; a lone
 # alternate mode must also fail, not just conflict with an explicit dry run.
@@ -516,6 +548,11 @@ $failed = $badRoot.Out | ConvertFrom-Json
 Assert ($badRoot.Code -ne 0 -and $failed.Environment.Error -and $failed.Config.Error -and $failed.Antigravity.Error -and $failed.Mcp.Error) 'bad RepoRoot returns nonzero and a parseable report of each unavailable section'
 Assert ($null -eq $failed.Summary.Config -and $null -eq $failed.Summary.Mcp) 'unavailable counts are distinct from a successful empty inventory'
 
+Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content "Write-Output '[WARN] child warning [with brackets]'; Write-Output '[{""Platform"":""Codex"",""Item"":""AGENTS.md"",""Status"":""in-sync"",""Detail"":""warn-prefixed""}]'"
+$warnPrefixed = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
+$warnJson = $warnPrefixed.Out | ConvertFrom-Json
+Assert ($warnPrefixed.Code -eq 0 -and $warnJson.Config.Count -eq 1 -and $warnJson.Config[0].Detail -eq 'warn-prefixed') 'Convert-ChildJson skips bracketed [WARN] prefix lines before JSON root'
+
 Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content "Write-Output 'invalid child JSON'"
 $partial = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
 $damaged = $partial.Out | ConvertFrom-Json
@@ -550,5 +587,6 @@ if ($fail -gt 0) {
     Write-Host "Workspace kept for inspection: $work" -ForegroundColor Yellow
     exit 1
 }
+Get-ChildItem -LiteralPath $work -Recurse -Force -Attributes ReparsePoint | ForEach-Object { $_.Delete() }
 Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 exit 0

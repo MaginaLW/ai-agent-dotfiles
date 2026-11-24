@@ -46,7 +46,7 @@ try {
         $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', 'new-skill', '-Type', $retiredType)
         Assert-TestCondition ($r.Code -ne 0 -and -not (Test-Path -LiteralPath (Join-Path $repo "skills-source/$retiredType/new-skill"))) "the retired platform type $retiredType is refused without writing"
     }
-    foreach ($bad in '.system', '-dash', 'trailing.', 'a/b', '..') {
+    foreach ($bad in '.system', '-dash', 'trailing.', 'a/b', '..', "new-line`n") {
         $r = Invoke-Promote $repo @('-Path', $skillDir, '-Name', $bad, '-Type', 'shared', '-Apply')
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'Invalid skill name') "refuses the name '$bad'"
     }
@@ -74,6 +74,27 @@ try {
     $backups = @(Get-ChildItem -LiteralPath (Join-Path $repo 'tmp/skill-backups') -Recurse -Filter SKILL.md -File)
     Assert-TestCondition ($backups.Count -eq 1 -and $backups[0].FullName -match '[\\/]shared[\\/]existing[\\/]SKILL\.md$' -and (Get-Content -Raw -LiteralPath $backups[0].FullName) -match 'v1') '-Replace backs up the old copy under tmp/skill-backups'
 
+    Write-Host '[partial replace failure restores backup]'
+    $partialRepo = New-FixtureRepo 'partial-replace'
+    $partialTarget = Join-Path $partialRepo 'skills-source/shared/existing'
+    $v3 = Join-Path $work 'inputs/existing-v3'
+    Set-TestFile (Join-Path $v3 'SKILL.md') "# existing v3`n"
+    $faultHarness = Join-Path $work 'fault-promote.ps1'
+    Set-TestFile $faultHarness @'
+param([string] $Promote, [string] $Repo, [string] $Source)
+$ErrorActionPreference = 'Stop'
+function Copy-Item {
+    param([string] $LiteralPath, [string] $Destination, [switch] $Recurse, [switch] $Force)
+    [IO.Directory]::CreateDirectory($Destination) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $Destination 'partial.txt'), 'corrupt partial')
+    throw 'injected partial copy failure'
+}
+& $Promote -RepoRoot $Repo -Path $Source -Name 'existing' -Type 'shared' -Replace -Apply
+exit $LASTEXITCODE
+'@
+    $r = Invoke-TestProcess -ScriptPath $faultHarness -Arguments @($promote, $partialRepo, $v3)
+    Assert-TestCondition ($r.Code -ne 0 -and (Test-Path -LiteralPath (Join-Path $partialTarget 'SKILL.md')) -and (Get-Content -Raw -LiteralPath (Join-Path $partialTarget 'SKILL.md')) -match 'v1' -and -not (Test-Path -LiteralPath (Join-Path $partialTarget 'partial.txt'))) 'partial replace failure cleans partial target and restores backup'
+
     Write-Host '[failing scan]'
     $secret = Join-Path $work 'inputs/leaky'
     $githubToken = 'gh' + 'p_' + ('a1B2' * 9)
@@ -84,5 +105,8 @@ try {
     Write-Host 'promote-skill tests: PASS'
 }
 finally {
-    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $work) {
+        Get-ChildItem -LiteralPath $work -Recurse -Force -Attributes ReparsePoint | ForEach-Object { $_.Delete() }
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }

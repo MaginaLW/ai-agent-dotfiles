@@ -101,6 +101,17 @@ try {
     Assert-TestCondition ($r.Code -ne 0 -and $r.Json.GitleaksFailed) 'gitleaks still judges a long ALLCAPS literal on its own rules'
     $hintWarning = [regex]::Match($r.Out, 'WARN: Keyword hints found \(non-blocking\): (\d+)')
     Assert-TestCondition ($hintWarning.Success -and $r.Json.HintCount -eq [int] $hintWarning.Groups[1].Value) 'a gitleaks-only failure reports the console keyword hint count in JSON'
+    $mixedCaseLine = 'api_' + 'key = ' + $q + 'my_Lower_Secret_Value_123' + $q
+    Set-TestFile (Join-Path $repo 'config/app.toml') "$mixedCaseLine`n"
+    $r = Invoke-Scan $repo
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Json.BlockingFindingCount -ge 1) 'a mixed-case literal secret is not exempted as an ALLCAPS placeholder'
+
+    Write-Host '[hidden .gitleaks.toml is accepted with -Force]'
+    $hiddenRepo = New-ScanRepo 'hidden-config'
+    $hiddenCfg = Get-Item -LiteralPath (Join-Path $hiddenRepo '.gitleaks.toml') -Force
+    $hiddenCfg.Attributes = $hiddenCfg.Attributes -bor [IO.FileAttributes]::Hidden
+    $r = Invoke-Scan $hiddenRepo
+    Assert-TestCondition ($r.Code -eq 0 -and $r.Json.Result -eq 'PASS') 'a hidden .gitleaks.toml is accepted instead of failing missing-config'
 
     Write-Host '[# scan-ok marker]'
     $repo = New-ScanRepo 'scan-ok'
@@ -140,6 +151,23 @@ try {
     New-Item -ItemType Junction -Path (Join-Path $repo 'tmp/linked') -Target $outside | Out-Null
     $r = Invoke-Scan $repo
     Assert-TestCondition ($r.Code -eq 0) 'a junction inside an excluded root is never visited'
+
+    Write-Host '[shared Assert-PlainPathNoReparse contract]'
+    . (Join-Path $RepoRoot 'scripts/repo-common.ps1')
+    $pwdRoot = Join-Path $work 'pwd-reparse'
+    [IO.Directory]::CreateDirectory($pwdRoot) | Out-Null
+    $pwdLink = Join-Path $pwdRoot 'link-dir'
+    New-Item -ItemType Junction -Path $pwdLink -Target $outside | Out-Null
+    Push-Location -LiteralPath $pwdRoot
+    try {
+        $threwMissingAncestor = $false
+        try { Assert-PlainPathNoReparse -Path '.\link-dir\missing-sub\file.txt' -AllowMissing }
+        catch { $threwMissingAncestor = $_.Exception.Message -match 'reparse' }
+        Assert-TestCondition $threwMissingAncestor 'Assert-PlainPathNoReparse resolves relative to PWD and catches junction ancestor on missing leaf'
+    }
+    finally {
+        Pop-Location
+    }
 
     Write-Host 'scan-secrets tests: PASS'
 }
