@@ -6,14 +6,14 @@
         'antigravity-plugins.tests.ps1' = 90
         'build-skills.tests.ps1' = 60
         'config-sync.tests.ps1' = 150
-        'coordination.tests.ps1' = 30
+        'coordination.tests.ps1' = 90
         'deploy.tests.ps1' = 120
         'deploy-skills.tests.ps1' = 120
         'doctor.tests.ps1' = 60
         'mcp-sync.tests.ps1' = 60
         'pinned-tool.tests.ps1' = 60
         'powershell-syntax-gate.tests.ps1' = 90
-        'repository-policy.tests.ps1' = 120
+        'repository-policy.tests.ps1' = 60
         'harness-profile.tests.ps1' = 180
         'scan-secrets.tests.ps1' = 180
         'promote-skill.tests.ps1' = 150

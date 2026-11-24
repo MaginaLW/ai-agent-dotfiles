@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.dont_write_bytecode = True
 SCRIPTS = (
@@ -106,7 +107,8 @@ class SecurityOwnershipMapTests(unittest.TestCase):
             },
         )
 
-        out_dir = self.root / "out"
+        cp1252_env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        out_dir = self.root / "out_目录"
         proc = subprocess.run(
             [
                 sys.executable,
@@ -122,9 +124,11 @@ class SecurityOwnershipMapTests(unittest.TestCase):
             capture_output=True,
             text=True,
             encoding="utf-8",
+            env=cp1252_env,
             check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("out_目录", proc.stdout)
 
         with (out_dir / "files.csv").open("r", encoding="utf-8") as handle:
             files_rows = list(csv.DictReader(handle))
@@ -134,13 +138,12 @@ class SecurityOwnershipMapTests(unittest.TestCase):
             people_rows = list(csv.DictReader(handle))
         self.assertEqual(people_rows[0]["name"], "张伟")
 
-        # Also exercise community_maintainers git log path with non-ASCII path under cp1252 stdio.
+        # Exercise community_maintainers git log path and query_ownership stderr under cp1252 stdio.
         (out_dir / "commits.jsonl").unlink()
         (out_dir / "communities.json").write_text(
             json.dumps([{"id": 1, "size": 1, "files": ["src/安全模块/auth_模块.py"]}]),
             encoding="utf-8",
         )
-        cp1252_env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
         cm_proc = subprocess.run(
             [
                 sys.executable,
@@ -165,35 +168,13 @@ class SecurityOwnershipMapTests(unittest.TestCase):
         self.assertEqual(rows[0]["period"], "2026-02")
         self.assertEqual(rows[0]["name"], "张伟")
 
-        # Also exercise build_ownership_map and query_ownership stderr/stdout under cp1252.
-        cp1252_out = self.root / "out_目录"
-        bom_proc = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(SCRIPTS / "build_ownership_map.py"),
-                "--repo",
-                str(repo),
-                "--out",
-                str(cp1252_out),
-                "--no-communities",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=cp1252_env,
-            check=False,
-        )
-        self.assertEqual(bom_proc.returncode, 0, bom_proc.stderr)
-        self.assertIn("out_目录", bom_proc.stdout)
-
         qo_err = subprocess.run(
             [
                 sys.executable,
                 "-B",
                 str(SCRIPTS / "query_ownership.py"),
                 "--data-dir",
-                str(cp1252_out),
+                str(out_dir),
                 "file",
                 "--file",
                 "不存在的文件",
@@ -254,23 +235,18 @@ class SecurityOwnershipMapTests(unittest.TestCase):
         )
         self.assertEqual(node["id"], "src/alice_service.py")
 
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(SCRIPTS / "community_maintainers.py"),
-                "--data-dir",
-                str(data_dir),
-                "--file",
-                "alice",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        rows = list(csv.DictReader(io.StringIO(proc.stdout)))
+        buf = io.StringIO()
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                ["community_maintainers.py", "--data-dir", str(data_dir), "--file", "alice"],
+            ),
+            contextlib.redirect_stdout(buf),
+        ):
+            rc = cm.main()
+        self.assertEqual(rc, 0)
+        rows = list(csv.DictReader(io.StringIO(buf.getvalue())))
         self.assertEqual([(r["period"], r["email"]) for r in rows], [("2026-02", "alice@example.com")])
 
     def test_query_ownership_sort_none_validation_and_files_truncated(self) -> None:
@@ -306,23 +282,18 @@ class SecurityOwnershipMapTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             qo.sort_records([{"touches": 1}], "nonexistent_key", qo.PEOPLE_SORT_KEYS)
 
-        bad = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(SCRIPTS / "query_ownership.py"),
-                "--data-dir",
-                str(data_dir),
-                "people",
-                "--sort",
-                "not_a_field",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(bad.returncode, 2)
-        self.assertIn("Invalid sort key", bad.stderr)
+        err_buf = io.StringIO()
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                ["query_ownership.py", "--data-dir", str(data_dir), "people", "--sort", "not_a_field"],
+            ),
+            contextlib.redirect_stderr(err_buf),
+        ):
+            rc = qo.main()
+        self.assertEqual(rc, 2)
+        self.assertIn("Invalid sort key", err_buf.getvalue())
 
         # files_truncated uses entry["size"] even when entry["files"] was already capped at build time
         buf = io.StringIO()
