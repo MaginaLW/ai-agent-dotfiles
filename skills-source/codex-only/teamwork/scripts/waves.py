@@ -108,14 +108,20 @@ def plan_waves(tasks, gate):
     return waves
 
 
-def board_state(manifest):
+def _import_coordination():
     board_dir = Path(__file__).resolve().parents[2] / "swarm" / "scripts"
     if not (board_dir / "coordination.py").is_file():
         raise ValueError("resume needs the installed sibling swarm/scripts/coordination.py")
     sys.dont_write_bytecode = True
-    sys.path.insert(0, str(board_dir))
+    if str(board_dir) not in sys.path:
+        sys.path.insert(0, str(board_dir))
     import coordination
 
+    return coordination
+
+
+def board_state(manifest):
+    coordination = _import_coordination()
     try:
         return coordination.derive_state(coordination.load_manifest(manifest))
     except coordination.BoardError as exc:
@@ -144,6 +150,7 @@ def event_index(events, tasks):
 
 
 def resume(plan, waves, gate, digest, board):
+    coordination = _import_coordination()
     existing = {task["id"]: task for task in board["tasks"]}
     index, problems = event_index(board["events"], plan)
     releases = {}
@@ -155,7 +162,7 @@ def resume(plan, waves, gate, digest, board):
             deps = spec["depends_on"]
             waiting = [dep for dep in deps if dep not in releases]
             if current:
-                problems[key].extend(alert for alert in current["alerts"] if alert == "conflicting task id")
+                problems[key].extend(coordination.blocking_alerts(current["alerts"]))
                 if spec.get("requires_review") and not current["reviewer"]:
                     problems[key].append("board assignment is missing the required independent reviewer")
             if problems[key]:

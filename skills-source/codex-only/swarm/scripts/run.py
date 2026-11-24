@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,31 +14,53 @@ if __name__ == "__main__":
 import coordination
 import member_mailbox
 
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def _is_reserved_name(name):
+    return name.split(".", 1)[0].upper() in _WINDOWS_RESERVED_NAMES
+
+
+def _normalize_abs(path):
+    return Path(os.path.abspath(os.path.normpath(os.fspath(path))))
+
 
 def initialize(directory, name, members):
-    destination = directory.absolute()
+    destination = _normalize_abs(directory)
     name = coordination._plain_string(name, "run")
-    if destination.exists():
+    if destination.exists() or destination.is_symlink():
         raise ValueError("choose a new run directory")
     actors = {}
     local = []
     for member in ["Lead", *members]:
         actor, sep, external = member.partition("=")
         if (not coordination.ACTOR_NAME_RE.fullmatch(actor) or actor.endswith(".")
-                or Path(actor).is_reserved() or actor.casefold() in {a.casefold() for a in actors}):
+                or _is_reserved_name(actor) or actor.casefold() in {a.casefold() for a in actors}):
             raise ValueError(f"invalid or duplicate member: {actor}")
-        outbox = Path(external) if sep else destination / "members" / actor
         if sep:
-            if not outbox.is_absolute() or not coordination._is_directory_no_symlink(outbox):
+            raw_outbox = Path(external)
+            if not raw_outbox.is_absolute():
+                raise ValueError(f"{actor} needs an existing absolute outbox directory")
+            outbox = _normalize_abs(raw_outbox)
+            if not coordination._is_directory_no_symlink(outbox):
                 raise ValueError(f"{actor} needs an existing absolute outbox directory")
         else:
+            outbox = _normalize_abs(destination / "members" / actor)
             local.append(actor)
-        actors[actor] = outbox.absolute()
+        actors[actor] = outbox
     # Validate all paths before creating anything, including worker-owned directories.
     for actor, outbox in actors.items():
-        if any(outbox == other or outbox in other.parents or other in outbox.parents
-               for key, other in actors.items() if key != actor):
-            raise ValueError("members need disjoint outboxes")
+        for key, other in actors.items():
+            if key == actor:
+                continue
+            if (coordination._same_path(outbox, other)
+                    or any(coordination._same_path(outbox, parent) for parent in other.parents)
+                    or any(coordination._same_path(other, parent) for parent in outbox.parents)):
+                raise ValueError("members need disjoint outboxes")
     if not coordination._is_directory_no_symlink(destination.parent):
         raise ValueError("choose an existing parent directory without filesystem links")
     with TemporaryDirectory(dir=destination.parent) as temporary:
@@ -112,7 +135,8 @@ def publish(args):
                 raise ValueError("review must address the current submission, artifact and assigned reviewer")
         if args.kind == "release":
             required = "approved" if task["reviewer"] else "submitted"
-            if (task["status"] != required or task["alerts"] or task["version"] != fields["version"]
+            if (task["status"] != required or coordination.blocking_alerts(task["alerts"])
+                    or task["version"] != fields["version"]
                     or task["submissionId"] != fields.get("replyTo")):
                 raise ValueError("release requires the accepted artifact and resolved Sentinel alerts")
     return member_mailbox.publish(manifest, args.id, fields)
@@ -156,6 +180,27 @@ def board_status(args):
         pending_messages.append(entry)
 
     connections = state["connections"]
+    if task_filter:
+        task_events = {e["id"]: e for e in state["events"] if e["task"] == task_filter}
+        board_latest = coordination._parse_utc(state["events"][-1]["at"]) if state["events"] else None
+        filtered_connections = []
+        for conn in connections:
+            matching_ids = [eid for eid in conn["eventIds"] if eid in task_events]
+            if not matching_ids:
+                continue
+            if len(matching_ids) == len(conn["eventIds"]):
+                filtered_connections.append(conn)
+            else:
+                last_at = task_events[matching_ids[-1]]["at"]
+                age = (board_latest - coordination._parse_utc(last_at)).total_seconds() if board_latest else 0.0
+                filtered_connections.append({
+                    **conn,
+                    "timestamp": last_at,
+                    "decay": max(0.0, 1.0 - age / 30.0),
+                    "count": len(matching_ids),
+                    "eventIds": matching_ids,
+                })
+        connections = filtered_connections
     if actor_filter:
         connections = [
             c for c in connections if c["fromAgentId"] == actor_filter or c["toAgentId"] == actor_filter
