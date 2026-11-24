@@ -8,6 +8,7 @@ import csv
 import io
 import json
 import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -133,12 +134,13 @@ class SecurityOwnershipMapTests(unittest.TestCase):
             people_rows = list(csv.DictReader(handle))
         self.assertEqual(people_rows[0]["name"], "张伟")
 
-        # Also exercise community_maintainers git log path with non-ASCII path.
+        # Also exercise community_maintainers git log path with non-ASCII path under cp1252 stdio.
         (out_dir / "commits.jsonl").unlink()
         (out_dir / "communities.json").write_text(
             json.dumps([{"id": 1, "size": 1, "files": ["src/安全模块/auth_模块.py"]}]),
             encoding="utf-8",
         )
+        cp1252_env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
         cm_proc = subprocess.run(
             [
                 sys.executable,
@@ -154,6 +156,7 @@ class SecurityOwnershipMapTests(unittest.TestCase):
             capture_output=True,
             text=True,
             encoding="utf-8",
+            env=cp1252_env,
             check=False,
         )
         self.assertEqual(cm_proc.returncode, 0, cm_proc.stderr)
@@ -161,6 +164,48 @@ class SecurityOwnershipMapTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["period"], "2026-02")
         self.assertEqual(rows[0]["name"], "张伟")
+
+        # Also exercise build_ownership_map and query_ownership stderr/stdout under cp1252.
+        cp1252_out = self.root / "out_目录"
+        bom_proc = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPTS / "build_ownership_map.py"),
+                "--repo",
+                str(repo),
+                "--out",
+                str(cp1252_out),
+                "--no-communities",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=cp1252_env,
+            check=False,
+        )
+        self.assertEqual(bom_proc.returncode, 0, bom_proc.stderr)
+        self.assertIn("out_目录", bom_proc.stdout)
+
+        qo_err = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPTS / "query_ownership.py"),
+                "--data-dir",
+                str(cp1252_out),
+                "file",
+                "--file",
+                "不存在的文件",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=cp1252_env,
+            check=False,
+        )
+        self.assertEqual(qo_err.returncode, 2)
+        self.assertIn("不存在的文件", qo_err.stderr)
 
     def test_utc_monthly_bucketing_and_find_file_node_ignores_person(self) -> None:
         data_dir = self.root / "utc-data"

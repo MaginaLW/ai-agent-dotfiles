@@ -488,7 +488,14 @@ def handle_community(args: argparse.Namespace, data_dir: Path) -> None:
     print(json.dumps(payload, indent=2))
 
 
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
+    _configure_stdio()
     args = parse_args()
     data_dir = Path(args.data_dir)
     if not data_dir.exists():

@@ -972,7 +972,14 @@ def build_ownership_map(args: argparse.Namespace) -> Path:
     return out_dir
 
 
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
+    _configure_stdio()
     args = parse_args()
     try:
         out_dir = build_ownership_map(args)
