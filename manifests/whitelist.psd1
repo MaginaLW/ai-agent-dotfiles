@@ -31,6 +31,7 @@
         HomeRelativeRoot = '.gemini/config'
         RepoRelativeRoot = 'antigravity'
         # Runtime settings, plugin caches, project state and machine-local files stay outside sync scope.
+        # mcp_config.json is managed per-entry by mcp-sync, remains outside config-sync, and is ignored by .gitignore.
         PushItems = @(
             'AGENTS.md'
         )
