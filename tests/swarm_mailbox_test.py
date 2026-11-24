@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills-source/codex-only/swarm/scripts/member_mailbox.py"
@@ -136,6 +139,43 @@ class SwarmMailboxTests(unittest.TestCase):
         replay = self.invoke("A", "status", sent["id"])
         self.assertEqual(replay["state"], "replied")
         self.assertEqual(replay["thread"], [sent, replied])
+
+    def test_inbox_wait_retries_transient_permission_error_and_no_pycache(self):
+        scripts_copy = self.root / "swarm_scripts"
+        shutil.copytree(SCRIPT.parent, scripts_copy, ignore=shutil.ignore_patterns("__pycache__"))
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        proc = subprocess.run(
+            [sys.executable, str(scripts_copy / "member_mailbox.py"), "--manifest", str(self.manifest), "inbox"],
+            cwd=self.actors["B"], env=env, capture_output=True, text=True, timeout=5, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((scripts_copy / "__pycache__").exists())
+
+        sys.path.insert(0, str(SCRIPT.parent))
+        import coordination
+        import member_mailbox
+
+        loaded = coordination.load_manifest(self.manifest)
+        real_load = coordination.load_manifest
+        calls = {"n": 0}
+
+        def flaky_load(path):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise coordination.BoardError("locked") from PermissionError("transient")
+            self.send()
+            return real_load(path)
+
+        args = type("Args", (), {"availability": "idle", "all": False, "wait_seconds": 3.0})()
+        old_cwd = os.getcwd()
+        os.chdir(self.actors["B"])
+        try:
+            with mock.patch.object(member_mailbox.board, "load_manifest", side_effect=flaky_load):
+                result = member_mailbox._inbox(loaded, "B", args)
+        finally:
+            os.chdir(old_cwd)
+        self.assertEqual(result["pending"], 1)
+        self.assertGreaterEqual(calls["n"], 2)
 
 
 if __name__ == "__main__":

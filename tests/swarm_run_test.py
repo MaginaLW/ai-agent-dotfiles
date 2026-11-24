@@ -1,6 +1,8 @@
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -111,6 +113,70 @@ class WorkflowCLI(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=3)
+
+    def test_status_task_filters_connections(self):
+        for task, key in (("t1", "m1"), ("t2", "m2")):
+            subprocess.run(
+                [sys.executable, "-B", str(MAILBOX), "--manifest", str(self.manifest),
+                 "send", "--to", "B", "--task", task, "--id", key, "--text", f"msg-{task}"],
+                cwd=self.board / "members" / "A",
+                capture_output=True, text=True, timeout=5, check=True,
+            )
+        subprocess.run(
+            [sys.executable, "-B", str(MAILBOX), "--manifest", str(self.manifest),
+             "send", "--to", "A", "--task", "t2", "--id", "m3", "--text", "other-pair"],
+            cwd=self.board / "members" / "Lead",
+            capture_output=True, text=True, timeout=5, check=True,
+        )
+        filtered = self.cli(self.root, "status", "--manifest", str(self.manifest), "--task", "t1")
+        self.assertEqual(len(filtered["connections"]), 1)
+        self.assertEqual(filtered["connections"][0]["id"], "A->B")
+        self.assertEqual(filtered["connections"][0]["count"], 1)
+        self.assertEqual(filtered["connections"][0]["eventIds"], ["A/message/m1"])
+
+    def test_init_rejects_dotdot_overlapping_outbox_and_reserved_names(self):
+        shared = self.root / "shared"
+        sub = shared / "sub"
+        sub.mkdir(parents=True)
+        other = self.root / "other"
+        other.mkdir()
+        self.cli(
+            self.root, "init", str(self.root / "dotdot-board"), "--name", "dotdot",
+            "--member", f"A={sub / '..'}", "--member", f"B={sub}", ok=False,
+        )
+        self.cli(
+            self.root, "init", str(self.root / "reserved-board"), "--name", "res",
+            "--member", "CON", ok=False,
+        )
+
+    def test_late_stale_review_does_not_block_cli_release_and_no_pycache(self):
+        self.publish("Lead", "assign", "start", "--to", "A", "--reviewer", "B")
+        proof = ("--artifact", str(self.artifact), "--text", "v1")
+        self.publish("A", "submit", "v1", *proof)
+        self.artifact.write_text("v2", encoding="utf-8")
+        proof2 = ("--artifact", str(self.artifact), "--text", "v2")
+        s2 = self.publish("A", "submit", "v2", *proof2)["id"]
+        self.publish("B", "approve", "ok2", "--submission", s2, *proof2)
+        # Write a late stale review referencing v1 after v2 is approved.
+        late = {
+            "id": "B/approve/late-v1", "run": "review", "from": "B", "type": "approve",
+            "task": "build", "at": "2099-01-01T00:00:00Z",
+            "version": hashlib.sha256(b"draft").hexdigest(), "replyTo": "A/submit/v1", "text": "late",
+        }
+        (self.board / "members" / "B" / "late.json").write_text(json.dumps(late), encoding="utf-8")
+        released = self.publish("Lead", "release", "done", "--submission", s2, *proof2)
+        self.assertEqual(released["type"], "release")
+
+        # Invoking run.py without -B must not write __pycache__ alongside scripts.
+        scripts_copy = self.root / "swarm_scripts"
+        shutil.copytree(SCRIPT.parent, scripts_copy, ignore=shutil.ignore_patterns("__pycache__"))
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        proc = subprocess.run(
+            [sys.executable, str(scripts_copy / "run.py"), "status", "--manifest", str(self.manifest)],
+            cwd=self.root, env=env, capture_output=True, text=True, timeout=5, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((scripts_copy / "__pycache__").exists())
 
 
 if __name__ == "__main__":

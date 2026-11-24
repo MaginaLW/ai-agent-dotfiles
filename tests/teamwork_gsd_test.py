@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -176,6 +177,38 @@ class TeamworkCLI(unittest.TestCase):
         self.write(task("a"), run="different-run")
         self.query(error="run names differ")
 
+    def test_late_stale_review_and_duplicate_id_parity_plus_no_pycache(self):
+        self.write(task("a", requires_review=True), task("b"))
+        self.assign("a", reviewed=True)
+        self.post("Worker", "submit", "a", version=sha("v1"))
+        s2 = self.post("Worker", "submit", "a", version=sha("v2"))
+        self.post("Reviewer", "approve", "a", version=sha("v2"), replyTo=s2)
+        # Late stale review for v1 after v2 approval must leave waves status at "release", not "conflict".
+        self.post("Reviewer", "approve", "a", version=sha("v1"))
+        self.assertEqual(self.query()["tasks"]["a"]["status"], "release")
+
+        # Duplicate event id must be reported as "conflict" by waves.py (matching run.py blocking_alerts).
+        self.assign("b")
+        dup = {"id": "dup/1", "run": self.run, "from": "Worker", "type": "message", "to": "Lead",
+               "task": "b", "at": "2026-01-01T00:01:00Z", "text": "hi"}
+        (self.actors["Worker"] / "dup1.json").write_text(json.dumps(dup), encoding="utf-8")
+        (self.actors["Worker"] / "dup2.json").write_text(json.dumps(dup), encoding="utf-8")
+        self.assertEqual(self.query()["tasks"]["b"]["status"], "conflict")
+
+        # Invoking waves.py without -B must not leave __pycache__ in teamwork or swarm scripts.
+        skills_copy = self.root / "skills_copy"
+        for sub in ("swarm/scripts", "teamwork/scripts"):
+            shutil.copytree(SKILLS / sub, skills_copy / sub, ignore=shutil.ignore_patterns("__pycache__"))
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        proc = subprocess.run(
+            [sys.executable, str(skills_copy / "teamwork/scripts/waves.py"),
+             str(self.plan), "--manifest", str(self.manifest)],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((skills_copy / "teamwork/scripts/__pycache__").exists())
+        self.assertFalse((skills_copy / "swarm/scripts/__pycache__").exists())
+
     def test_gsd_frontmatter_projection_preserves_multiline_checks(self):
         # A decoded frontmatter-get response; the upstream executable round trip is separate.
         metadata = {"phase": "02-export", "plan": "01", "autonomous": "true",
@@ -187,10 +220,70 @@ class TeamworkCLI(unittest.TestCase):
         self.assertEqual((alias, item["id"]), ("02-01", "02-01-reader"))
         self.assertEqual(json.loads(item["verify"]), ["Quoted fields survive a round trip",
                                                       "python check.py\npython verify.py"])
+        # Integer plan, omitted/None files_modified fallback, and prose/backtick <verify> mentions.
+        alias_int, item_int = convert(
+            "02-01-writer-PLAN.md",
+            {"phase": "02-export", "plan": 1, "autonomous": True, "depends_on": [],
+             "files_modified": None, "files-modified": ["writer.py"], "must_haves": {}},
+            "Mention `<verify>` in backticks and unclosed <verify> in prose.\n"
+            "```markdown\n<verification>ignored example</verification>\n```\n"
+            "<verify>\n```bash\npython check.py\n```\n</verify>",
+        )
+        self.assertEqual((alias_int, item_int["id"]), ("02-01", "02-01-writer"))
+        self.assertEqual(item_int["files_modified"], ["writer.py"])
+        self.assertEqual(json.loads(item_int["verify"]), ["```bash\npython check.py\n```"])
+        _, item_omitted = convert(
+            "02-03-empty-PLAN.md",
+            {"phase": "02-export", "plan": 3, "depends_on": [], "must_haves": {"truths": ["Ok"]}},
+            "",
+        )
+        self.assertEqual(item_omitted["files_modified"], [])
         with self.assertRaisesRegex(ValueError, "checkpoint"):
             convert("PLAN.md", {**metadata, "autonomous": "false"}, "")
         with self.assertRaisesRegex(ValueError, "missing must_haves"):
             convert("PLAN.md", {**metadata, "must_haves": {}}, "")
+
+    def test_standalone_import_gsd_ignores_subdirectories_and_resolves_int_plans(self):
+        phase = self.root / ".planning" / "phases" / "02-export"
+        phase.mkdir(parents=True)
+        # Directory matching *-PLAN.md must be ignored by iterdir() filter.
+        (phase / "ignored-PLAN.md").mkdir()
+        (phase / "02-01-writer-PLAN.md").write_text(
+            "---\nphase: 02-export\nplan: 1\ndepends_on: []\n---\n<verify>echo w</verify>\n",
+            encoding="utf-8",
+        )
+        (phase / "02-02-reader-PLAN.md").write_text(
+            '---\nphase: 02-export\nplan: 2\ndepends_on: ["02-01"]\n---\n'
+            'Prose mentions `<verify>` and <verification> casually.\n'
+            '<verification>echo r</verification>\n',
+            encoding="utf-8",
+        )
+        stub_cli = self.root / "stub-gsd-tools.cjs"
+        stub_cli.write_text(
+            "const fs = require('fs');\n"
+            "const text = fs.readFileSync(process.argv[4], 'utf8');\n"
+            "const fm = text.split('---')[1] || '';\n"
+            "const out = {};\n"
+            "for (const line of fm.trim().split(/\\r?\\n/)) {\n"
+            "  const idx = line.indexOf(':');\n"
+            "  if (idx === -1) continue;\n"
+            "  const k = line.slice(0, idx).trim();\n"
+            "  const v = line.slice(idx + 1).trim();\n"
+            "  out[k] = (v.startsWith('[') || /^\\d+$/.test(v)) ? JSON.parse(v) : v;\n"
+            "}\n"
+            "process.stdout.write(JSON.stringify(out));\n",
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [sys.executable, "-B", str(GSD_IMPORT), str(phase),
+             "--gsd-tools", str(stub_cli), "--run", self.run],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        self.assertEqual([t["id"] for t in data["tasks"]], ["02-01-writer", "02-02-reader"])
+        self.assertEqual(data["tasks"][1]["depends_on"], ["02-01-writer"])
+        self.assertEqual(data["tasks"][0]["files_modified"], [])
 
     @unittest.skipUnless(os.environ.get("TEAMWORK_GSD_TOOLS"), "set TEAMWORK_GSD_TOOLS to test a real GSD checkout")
     def test_official_gsd_import_then_waves_with_external_dependency_rejection(self):
