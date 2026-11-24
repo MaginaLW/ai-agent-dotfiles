@@ -820,6 +820,81 @@ class CoordinationProtocolTests(unittest.TestCase):
             if no_info.stderr:
                 no_info.stderr.close()
 
+    def test_blocked_unreviewed_release_restores_submitted_not_approved(self) -> None:
+        version = digest("no-reviewer-release")
+        self.board.publish("Lead", {"id": "assign-1", "type": "assign", "task": "opt", "to": "A"})
+        self.board.publish("A", {"id": "submit-1", "type": "submit", "task": "opt", "version": version})
+        self.board.publish("Lead", {"id": "release-1", "type": "release", "task": "opt", "version": version})
+        # Conflicting second assignment blocks the earlier release.
+        self.board.publish("Lead", {"id": "assign-2", "type": "assign", "task": "opt", "to": "B"})
+        task = self.board.task("opt")
+        self.assertEqual(task["status"], "submitted")
+        self.assertIsNone(task["releaseId"])
+        self.assertIn("conflicting task id", task["alerts"])
+
+    def test_late_stale_review_after_approval_does_not_deadlock_release(self) -> None:
+        v1 = digest("v1")
+        v2 = digest("v2")
+        self.board.publish("Lead", {"id": "a1", "type": "assign", "task": "late", "to": "A", "reviewer": "B"})
+        self.board.publish("A", {"id": "s1", "type": "submit", "task": "late", "version": v1})
+        self.board.publish("A", {"id": "s2", "type": "submit", "task": "late", "version": v2})
+        self.board.publish("B", {"id": "ok2", "type": "approve", "task": "late", "version": v2})
+        # Late review for v1 arrives after v2 was already approved.
+        self.board.publish("B", {"id": "late1", "type": "approve", "task": "late", "version": v1})
+        task = self.board.task("late")
+        self.assertEqual(task["status"], "approved")
+        self.assertEqual(task["alerts"], [])
+        self.assertEqual(
+            coordination.blocking_alerts(["stale review", "missing review", "returned review", "conflicting task id", "duplicate event id: dup1"]),
+            ["conflicting task id", "duplicate event id: dup1"],
+        )
+        self.board.publish("Lead", {"id": "rel2", "type": "release", "task": "late", "version": v2})
+        self.assertEqual(self.board.task("late")["status"], "released")
+
+    def test_malformed_host_origin_and_reloaded_health_snapshot(self) -> None:
+        server = coordination.serve(self.board.loaded_manifest(), 0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address[:2]
+            for headers in (
+                {"Host": "[::1"},
+                {"Host": "user@127.0.0.1"},
+                {"Host": "127.0.0.1:99999"},
+                {"Host": "127.0.0.1:0"},
+                {"Host": "127.0.0.1:abc"},
+                {"Host": "127.0.0.1/evil"},
+                {"Origin": "http://[::1"},
+                {"Origin": f"http://user@localhost:{port}"},
+                {"Origin": f"http://localhost:{port}/evil"},
+            ):
+                connection = http.client.HTTPConnection(host, port, timeout=3)
+                connection.request("GET", "/api/health", headers=headers)
+                response = connection.getresponse()
+                try:
+                    self.assertEqual(response.status, 403, headers)
+                finally:
+                    response.read()
+                    connection.close()
+
+            with urllib.request.urlopen(f"http://{host}:{port}/api/health", timeout=3) as resp:
+                before = json.load(resp)
+            self.assertIsNone(before["lastEventCount"])
+
+            self.board.publish("Lead", {"id": "a1", "type": "assign", "task": "t", "to": "A"})
+            with urllib.request.urlopen(f"http://{host}:{port}/api/state", timeout=3) as resp:
+                self.assertEqual(resp.status, 200)
+            updated_manifest = dict(self.board.manifest, run="reloaded-run")
+            self.board.write_json(self.board.manifest_path, updated_manifest)
+            with urllib.request.urlopen(f"http://{host}:{port}/api/health", timeout=3) as resp:
+                after = json.load(resp)
+            self.assertEqual(after["run"], "reloaded-run")
+            self.assertEqual(after["lastEventCount"], 1)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -40,7 +40,7 @@ On PowerShell, resolve the same directory with `$SkillDir = Split-Path -Parent (
 5. Query the outputs with `scripts/query_ownership.py` for bounded JSON slices.
 6. Persist and visualize only when needed (see `references/neo4j-import.md`).
 
-In the Bash examples, set `OUTPUT_DIR` to the approved output directory before running them. Outputs can contain contributor identities, time zones and commit history. Use the user-specified destination or a project-approved ignored workspace directory, and do not commit or share them by default. Enable `--emit-commits` only when the analysis needs it.
+In the Bash examples, set `OUTPUT_DIR` to the approved output directory before running them. Outputs can contain contributor identities, time zones and commit history. Use the user-specified destination or a project-approved ignored workspace directory, and do not commit or share them by default. Enable `--emit-commits` only when the analysis needs `commits.jsonl` (for example, running `community_maintainers.py` without `--repo`).
 
 By default, the co-change graph ignores common “glue” files (lockfiles, `.github/*`, editor config) so clusters reflect actual code movement instead of shared infra edits. Override with `--cochange-exclude` or `--no-default-cochange-excludes`. Dependabot commits are excluded by default; override with `--no-default-author-excludes` or add patterns via `--author-exclude-regex`.
 
@@ -117,52 +117,33 @@ The selected output directory contains:
 
 ## LLM query helper
 
-Use `scripts/query_ownership.py` to return small, JSON-bounded slices without loading the full graph into context.
+Use `scripts/query_ownership.py` to return small, JSON-bounded slices without loading the full graph into context (use `--community-top-owners 5` at build time to control how many maintainers are stored per community).
 
-Examples:
-
-```bash
-python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" people --limit 10
-python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" files --tag auth --bus-factor-max 1
-python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" person --person alice@corp --limit 10
-python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" file --file crypto/tls
-python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" cochange --file crypto/tls --limit 10
-python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" summary --section orphaned_sensitive_code
-python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" community --id 3
-```
-
-Use `--community-top-owners 5` (default) to control how many maintainers are stored per community.
-
-## Basic security queries
-
-Run these to answer common security ownership questions with bounded output:
+Common security and ownership queries:
 
 ```bash
-# Orphaned sensitive code (stale + low bus factor)
+# Orphaned sensitive code (stale + low bus factor), hidden owners, and hotspots
 python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" summary --section orphaned_sensitive_code
-
-# Hidden owners for sensitive tags
 python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" summary --section hidden_owners
-
-# Sensitive hotspots with low bus factor
 python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" summary --section bus_factor_hotspots
 
 # Auth/crypto files with bus factor <= 1
 python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" files --tag auth --bus-factor-max 1
 python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" files --tag crypto --bus-factor-max 1
 
-# Who is touching sensitive code the most
+# Who is touching sensitive code the most, and per-person / per-file details
 python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" people --sort sensitive_touches --limit 10
+python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" person --person alice@corp --limit 10
+python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" file --file crypto/tls
 
-# Co-change neighbors (cluster hints for ownership drift)
+# Co-change neighbors (cluster hints for ownership drift) and community maintainers
 python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" cochange --file path/to/file --min-jaccard 0.05 --limit 20
-
-# Community maintainers (for a cluster)
 python "$SKILL_DIR/scripts/query_ownership.py" --data-dir "$OUTPUT_DIR" community --id 3
 
-# Monthly maintainers for the community containing a file
+# Monthly maintainers for the community containing a file (--repo is required unless --emit-commits was enabled)
 python "$SKILL_DIR/scripts/community_maintainers.py" \
   --data-dir "$OUTPUT_DIR" \
+  --repo . \
   --file network/card.c \
   --since 2025-01-01 \
   --top 5
@@ -170,6 +151,7 @@ python "$SKILL_DIR/scripts/community_maintainers.py" \
 # Quarterly buckets instead of monthly
 python "$SKILL_DIR/scripts/community_maintainers.py" \
   --data-dir "$OUTPUT_DIR" \
+  --repo . \
   --file network/card.c \
   --since 2025-01-01 \
   --bucket quarter \

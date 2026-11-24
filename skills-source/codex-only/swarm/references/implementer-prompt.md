@@ -20,7 +20,7 @@ You are executing Task [ID/Name]: [one-line outcome].
 - Manifest: [ABS_MANIFEST_PATH]
 - Member & outbox cwd: [MEMBER_NAME] at [ABS_OUTBOX_DIR]
 - Recipients: [named peers, e.g. Lead, B]
-- Before reporting back (when writable): check inbox (`member_mailbox.py --manifest ... inbox`) and publish `submit` (`run.py publish --manifest ... submit --task ... --id ... --artifact ... --text ... [--input DEP=SHA256]`) from your outbox cwd.
+- Before reporting back (when writable): check inbox (`python -B member_mailbox.py --manifest ... inbox`) and publish `submit` (`python -B run.py publish --manifest ... submit --task ... --id ... --artifact ... --text ... [--input DEP=SHA256]`) from your outbox cwd.
 
 ## Rules
 - Reuse the supplied decisions and authorization. Do not run unrelated broad edits or commits unless explicitly asked.

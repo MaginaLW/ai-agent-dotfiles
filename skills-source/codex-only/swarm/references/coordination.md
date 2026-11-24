@@ -70,4 +70,4 @@ The Project Orchestrator (`Lead`) issues assign and release. A submits and B rev
 
 Sentinel derives pending, returned and stale reviews during each refresh. Use `run.py status` or open the task/edge to inspect the source record. For a `readonly` subscription review, do not assign an unwritable board `reviewer`; collect findings via the host and record the external task ID, reviewed digest, verdict, and findings in Lead's `release --text` and verification report. Lead never impersonates a reviewer.
 
-After the last receipt, run `python scripts/coordination.py --manifest <manifest.json> --archive <new-directory>` before disposing of worktrees. Reopen the archive's `manifest.json` with `coordination.py --manifest ...` to inspect the archived state and retain accepted artifacts separately.
+After the last receipt, run `python -B scripts/coordination.py --manifest <manifest.json> --archive <new-directory>` before disposing of worktrees. Reopen the archive's `manifest.json` with `coordination.py --manifest ...` to inspect the archived state and retain accepted artifacts separately.

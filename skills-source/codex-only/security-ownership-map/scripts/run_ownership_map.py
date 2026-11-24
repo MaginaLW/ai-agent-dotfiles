@@ -118,6 +118,24 @@ def parse_args() -> argparse.Namespace:
         help="Share threshold for hidden owner detection",
     )
     parser.add_argument(
+        "--half-life-days",
+        type=float,
+        default=180.0,
+        help="Half life for recency weighting",
+    )
+    parser.add_argument(
+        "--min-touches",
+        type=int,
+        default=1,
+        help="Minimum touches to keep an edge",
+    )
+    parser.add_argument(
+        "--max-community-files",
+        type=int,
+        default=50,
+        help="Max files listed per community",
+    )
+    parser.add_argument(
         "--no-cochange",
         action="store_true",
         help="Disable co-change graph output",
@@ -166,6 +184,12 @@ def main() -> int:
         str(args.stale_days),
         "--owner-threshold",
         str(args.owner_threshold),
+        "--half-life-days",
+        str(args.half_life_days),
+        "--min-touches",
+        str(args.min_touches),
+        "--max-community-files",
+        str(args.max_community_files),
     ]
 
     if args.since:

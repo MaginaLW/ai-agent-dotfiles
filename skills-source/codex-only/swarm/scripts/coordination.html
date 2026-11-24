@@ -78,7 +78,13 @@ function graphic(tag, attrs, text) {
   if (text != null) el.textContent = text;
   return el;
 }
-function route(e) {return e.to ? e.from+" → "+actor(e.to) : e.from+" → "+e.task}
+function route(e) {
+  if (e.type === "depends" && e.dependsOn != null) {
+    const deps = Array.isArray(e.dependsOn) ? e.dependsOn : [e.dependsOn];
+    return e.task+" → "+deps.join("、");
+  }
+  return e.to ? e.from+" → "+actor(e.to) : e.from+" → "+e.task;
+}
 function selectEvent(e) {
   selected = e ? eventKeys.get(e) : "";
   for (const row of byId("events").querySelectorAll("button")) {
@@ -89,8 +95,20 @@ function selectEvent(e) {
   if (!e) return;
   const followups = snapshot.events.filter(item => item.replyTo === e.id).map(item => action[item.type]+" "+item.id);
   const receipt = snapshot.receipts && Object.hasOwn(snapshot.receipts,e.id) ? snapshot.receipts[e.id] : null;
-  const lines = [e.text, e.replyTo && "回应 "+e.replyTo, followups.length && "后续记录 "+followups.join("、"),
-    e.version && "版本 "+e.version, receipt && receiptLabels[receipt], "事件 "+e.at+"　面板接收 "+firstSeen.get(selected)];
+  const deps = e.dependsOn != null ? (Array.isArray(e.dependsOn) ? e.dependsOn : [e.dependsOn]) : [];
+  const inputs = e.inputs && typeof e.inputs === "object" ? Object.entries(e.inputs).map(([k,v]) => k+"="+v) : [];
+  const lines = [
+    e.text,
+    e.reviewer && "审查人 "+e.reviewer,
+    typeof e.requiresReview === "boolean" && "需独立审查 "+(e.requiresReview ? "是" : "否"),
+    deps.length && "前置依赖 "+deps.join("、"),
+    inputs.length && "输入摘要 "+inputs.join("、"),
+    e.replyTo && "回应 "+e.replyTo,
+    followups.length && "后续记录 "+followups.join("、"),
+    e.version && "版本 "+e.version,
+    receipt && receiptLabels[receipt],
+    "事件 "+e.at+"　面板接收 "+firstSeen.get(selected)
+  ];
   detail.append(element("h3",action[e.type]+" · "+e.id),element("p",lines.filter(Boolean).join("\n")));
 }
 function options(id, values, labels) {

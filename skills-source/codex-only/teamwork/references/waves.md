@@ -7,8 +7,8 @@ The manifest, event directories and read-only board belong to the sibling swarm 
 From the installed teamwork directory, point to one existing phase directory and a local copy of the official GSD tool. PowerShell 7 example:
 
 ```powershell
-python scripts/import_gsd.py <phase-directory> --gsd-tools <path-to-gsd-tools.cjs> --run export-format > plan.json
-python scripts/waves.py plan.json
+python -B scripts/import_gsd.py <phase-directory> --gsd-tools <path-to-gsd-tools.cjs> --run export-format > plan.json
+python -B scripts/waves.py plan.json
 ```
 
 Choose a new output filename. Check the import exit status before consuming it. The converter calls Node and GSD’s `frontmatter get` against temporary copies. The resulting plan works with Python alone. Each GSD `*-PLAN.md` becomes a teamwork task, preserving its ID, declared write paths and intra-phase dependencies. Its `verify` text contains the source’s observable truths and explicit verification sections in a JSON array string that preserves multiline checks. Graph validation rejects unresolved external prerequisites and conflicting writes. A GSD plan with a human checkpoint needs an explicit gate and owner in a manually prepared plan. Previous GSD summaries supply handoff evidence; progress in this run follows swarm receipts.
@@ -34,8 +34,8 @@ The required fields are the swarm run name, a nonempty task list, and each task�
 Run from the installed teamwork directory:
 
 ```text
-python scripts/waves.py plan.json
-python scripts/waves.py plan.json --manifest manifest.json
+python -B scripts/waves.py plan.json
+python -B scripts/waves.py plan.json --manifest manifest.json
 ```
 
 Preflight checks unknown/duplicate identifiers, cycles, and unordered writers of overlapping paths, even if they sit at different depths. It cannot infer undeclared paths or interfaces. The lead checks what workers will really touch. A malformed plan/manifest exits 2. A valid query exits 0 and produces JSON, including when some work is blocked; consumers must inspect the task statuses and `complete`.

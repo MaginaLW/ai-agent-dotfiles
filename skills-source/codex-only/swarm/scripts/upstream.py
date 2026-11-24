@@ -6,6 +6,7 @@ from collections import Counter
 from contextlib import closing
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -101,7 +102,7 @@ def import_session(database, session, target, include_text):
     selected, slots, messages = read_session(database, session, include_text)
     run = "multiagents:" + session
     coordination._plain_string(run, "run")
-    target = target.absolute()
+    target = Path(os.path.abspath(os.path.normpath(os.fspath(target))))
     if target.exists() or target.is_symlink():
         raise ValueError("board output already exists")
     if not coordination._is_directory_no_symlink(target.parent):

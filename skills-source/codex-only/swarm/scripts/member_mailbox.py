@@ -17,12 +17,12 @@ import stat
 import sys
 import tempfile
 import time
-from coordination import _addressed_mail, _matches_receipt, _unique_events, delivery_receipts
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 import coordination as board
+from coordination import _addressed_mail, _matches_receipt, _unique_events, delivery_receipts
 
 
 def current_actor(manifest: board.Manifest) -> str:
@@ -131,7 +131,16 @@ def _inbox(manifest: board.Manifest, actor: str, args: argparse.Namespace) -> di
             }
         # Reload peer outboxes when a worker changes worktrees during the wait.
         time.sleep(min(0.5, remaining))
-        updated = board.load_manifest(manifest.path)
+        try:
+            updated = board.load_manifest(manifest.path)
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise
+            continue
+        except board.BoardError as exc:
+            if isinstance(exc.__cause__, OSError) and time.monotonic() < deadline:
+                continue
+            raise
         if updated.run != manifest.run or current_actor(updated) != actor:
             raise board.BoardError("the polling member or run changed during the wait")
         manifest = updated

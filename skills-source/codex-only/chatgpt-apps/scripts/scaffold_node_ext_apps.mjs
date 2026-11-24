@@ -276,6 +276,9 @@ const WIDGET_TEMPLATE = `<!DOCTYPE html>
       };
 
       const bridgeReady = initializeBridge();
+      bridgeReady.catch((error) => {
+        console.error("Failed to initialize MCP Apps bridge:", error);
+      });
 
       toolButtonEl.addEventListener("click", async () => {
         await bridgeReady;
@@ -460,8 +463,12 @@ createServer(async (req, res) => {
     });
 
     res.on("close", () => {
-      transport.close();
-      server.close();
+      Promise.resolve(transport.close()).catch((error) => {
+        console.error("Failed to close MCP transport:", error);
+      });
+      Promise.resolve(server.close()).catch((error) => {
+        console.error("Failed to close MCP server:", error);
+      });
     });
 
     try {
@@ -510,7 +517,7 @@ function usage() {
     "",
     "If the executable bit is unavailable, run:",
     "  node scripts/scaffold_node_ext_apps.mjs <output_dir> [--app-name <name>] [--tool-name <name>] [--port <number>] [--force]",
-  ].join("\\n");
+  ].join("\n");
 }
 
 function parseArgs(argv) {
@@ -532,19 +539,31 @@ function parseArgs(argv) {
     }
 
     if (token === "--app-name") {
-      args.appName = tokens.shift() ?? "";
+      const value = tokens.shift();
+      if (!value || value.startsWith("--")) {
+        throw new Error("Expected a value after --app-name");
+      }
+      args.appName = value;
       continue;
     }
 
     if (token === "--tool-name") {
-      args.toolName = tokens.shift() ?? "";
+      const value = tokens.shift();
+      if (!value || value.startsWith("--")) {
+        throw new Error("Expected a value after --tool-name");
+      }
+      args.toolName = value;
       continue;
     }
 
     if (token === "--port") {
-      const value = Number(tokens.shift());
-      if (!Number.isInteger(value) || value <= 0) {
-        throw new Error("Expected a positive integer after --port");
+      const raw = tokens.shift();
+      if (!raw || raw.startsWith("--")) {
+        throw new Error("Expected an integer between 1 and 65535 after --port");
+      }
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < 1 || value > 65535) {
+        throw new Error("Expected an integer between 1 and 65535 after --port");
       }
       args.port = value;
       continue;
@@ -564,7 +583,7 @@ function parseArgs(argv) {
   }
 
   if (!args.outputDir) {
-    throw new Error(`Missing required output directory.\\n\\n${usage()}`);
+    throw new Error(`Missing required output directory.\n\n${usage()}`);
   }
 
   return args;

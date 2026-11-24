@@ -5,7 +5,7 @@ Run these commands from the installed `swarm` skill directory. The two adapters 
 ## Show a swarm board in Agent Mission Control
 
 ```powershell
-python scripts/upstream.py amc-export --manifest .\manifest.json > .\amc.jsonl
+python -B scripts/upstream.py amc-export --manifest .\manifest.json > .\amc.jsonl
 ```
 
 Each line is one native canonical AMC event. Open the file to review it. To replay it into an **already running local bridge with a fresh database**, send one line per request in order. Check that the bridge accepted each line, then read back the session. The collector allocates a new event ID on each request, so replaying a file twice adds duplicate activity. Use a fresh database to restart an interrupted replay. [Original collector](https://github.com/jlee056/agent-mission-control/blob/357aec908d609748005cc190f0f64888470d56b1/packages/telemetry-bridge/src/collectors/claude-code.ts)
@@ -39,8 +39,8 @@ Choose the exact upstream session ID and a standalone SQLite backup of its broke
 
 ```powershell
 sqlite3 -readonly .\peers.db ".backup broker-snapshot.db"
-python scripts/upstream.py multiagents-import --database .\broker-snapshot.db --session my-team --out .\team-board
-python scripts/coordination.py --manifest .\team-board\manifest.json
+python -B scripts/upstream.py multiagents-import --database .\broker-snapshot.db --session my-team --out .\team-board
+python -B scripts/coordination.py --manifest .\team-board\manifest.json
 ```
 
 The import reads only the selected session from an immutable, read-only connection. It creates a new board directory under an existing parent. Keep that directory in place because the board manifest contains absolute actor directories.

@@ -37,17 +37,17 @@ From there it can operate in a few ways.
 - If matching guidance exists in `references/`, load only the relevant files and follow their instructions.
 - If no matching guidance exists, consider if you know any well known security best practices for the chosen language and or frameworks, but if asked to generate a report, let the user know that concrete guidance is not available (you can still generate the report or detect for sure critical vulnerabilities)
 
-# Overrides
+## Overrides
 
 While these references contain the security best practices for languages and frameworks, customers may have cases where they need to bypass or override these practices. Pay attention to specific rules and instructions in the project's documentation and prompt files which may require you to override certain best practices. When overriding a best practice, you MAY report it to the user, but do not fight with them. If a security best practice needs to be bypassed / ignored for some project specific reason, you can also suggest to add documentation about this to the project so it is clear why the best practice is not being followed and to follow that bypass in the future.
 
-# Report Format
+## Report Format
 
 Deliver the report in the requested form and location, following project conventions. A conversational review does not require creating a repository-root file.
 
 The report should have a short executive summary at the top.
 
-The report should be clearly delineated into multiple sections based on severity of the vulnerability. The report should focus on the most critical findings as these have the highest impact for the user. All findings should be noted with an numeric ID to make them easier to reference.
+The report should be clearly delineated into multiple sections based on severity of the vulnerability. The report should focus on the most critical findings as these have the highest impact for the user. All findings should be noted with a numeric ID to make them easier to reference.
 
 For critical findings include a one sentence impact statement.
 
@@ -57,7 +57,7 @@ Important: When referencing code in the report, make sure to find and include li
 
 If a report file is written, summarize the findings and tell the user its location.
 
-# Fixes
+## Fixes
 
 If the user requested fixes as well as a report, implement authorized fixes and validate them. For a report-only request, leave fixes for a later instruction.
 
@@ -65,15 +65,15 @@ If you passively found a critical finding, notify the user and ask if they would
 
 When producing fixes, focus on fixing a single finding at a time. The fixes should have concise clear comments explaining that the new code is based on the specific security best practice, and perhaps a very short reason why it would be dangerous to not do it in this way.
 
-Always consider if the changes you want to make will impact the functionality of the user's code. Consider if the changes may cause regressions with how the project works currently. It is often the case that insecure code is relied on for other reasons (and this is why insecure code lives on for so long). Avoid breaking the user's project as this may make them not want to apply security fixes in the future. It is better to write a well thought out, well informed by the rest of the project, fix, then a quick slapdash change.
+Always consider if the changes you want to make will impact the functionality of the user's code. Consider if the changes may cause regressions with how the project works currently. It is often the case that insecure code is relied on for other reasons (and this is why insecure code lives on for so long). Avoid breaking the user's project as this may make them not want to apply security fixes in the future. It is better to write a well thought out, well informed by the rest of the project, fix, than a quick slapdash change.
 
 Always follow any normal change or commit flow the user has configured. If making git commits, provide clear commit messages explaining this is to align with security best practices. Try to avoid bunching a number of unrelated findings into a single commit.
 
 Always follow any normal testing flows the user has configured (if any) to confirm that your changes are not introducing regressions. Consider the second order impacts the changes may have and inform the user before making them if there are any.
 
-# General Security Advice
+## General Security Advice
 
-Below is a few bits of secure coding advice that applies to almost any language or framework.
+Below are a few bits of secure coding advice that applies to almost any language or framework.
 
 ### Avoid Using Incrementing IDs for Public IDs of Resources
 

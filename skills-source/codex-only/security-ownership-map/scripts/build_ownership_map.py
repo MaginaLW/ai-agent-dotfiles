@@ -13,7 +13,9 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from collections import defaultdict
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Iterable
 
@@ -207,13 +209,15 @@ def load_sensitive_rules(path: str | None) -> list[tuple[str, str, float]]:
     if not path:
         return list(DEFAULT_SENSITIVE_RULES)
     rules: list[tuple[str, str, float]] = []
-    with open(path, "r", encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.strip()
-            if not line or line.startswith("#"):
+    with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.reader(handle)
+        for row in reader:
+            if not row:
                 continue
-            parts = [part.strip() for part in line.split(",")]
-            if not parts:
+            parts = [part.strip() for part in row]
+            if not parts[0] or parts[0].startswith("#"):
+                continue
+            if [col.lower() for col in parts[:3]] == ["pattern", "tag", "weight"]:
                 continue
             pattern = parts[0]
             tag = parts[1] if len(parts) > 1 and parts[1] else "sensitive"
@@ -342,6 +346,8 @@ def run_git_log(
 ) -> Iterable[list[str]]:
     cmd = [
         "git",
+        "-c",
+        "core.quotepath=false",
         "-C",
         repo,
         "log",
@@ -362,23 +368,44 @@ def run_git_log(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert proc.stdout is not None
 
+    stderr_chunks: list[str] = []
+
+    def _drain_stderr() -> None:
+        if proc.stderr is not None:
+            stderr_chunks.append(proc.stderr.read())
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
+
     batch: list[str] = []
-    for line in proc.stdout:
-        batch.append(line.rstrip("\n"))
-        if line.rstrip("\n") == "---" and len(batch) > 1:
-            yield batch[:-1]
-            batch = ["---"]
+    completed = False
+    try:
+        for line in proc.stdout:
+            batch.append(line.rstrip("\n"))
+            if line.rstrip("\n") == "---" and len(batch) > 1:
+                yield batch[:-1]
+                batch = ["---"]
 
-    if batch:
-        yield batch
+        if batch:
+            yield batch
+        completed = True
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if not completed and proc.poll() is None:
+            proc.terminate()
+        exit_code = proc.wait()
+        stderr_thread.join(timeout=5)
+        if proc.stderr is not None:
+            proc.stderr.close()
 
-    stderr = proc.stderr.read() if proc.stderr else ""
-    exit_code = proc.wait()
     if exit_code != 0:
-        raise RuntimeError(stderr.strip() or "git log failed")
+        raise RuntimeError("".join(stderr_chunks).strip() or "git log failed")
 
 
 def iter_commits(lines: Iterable[list[str]]) -> Iterable[tuple[dict[str, object], list[str]]]:
@@ -440,10 +467,6 @@ def build_ownership_map(args: argparse.Namespace) -> Path:
     cochange_files_excluded = 0
 
     commits_path = out_dir / "commits.jsonl"
-    commit_handle = None
-    if args.emit_commits:
-        commit_handle = commits_path.open("w", encoding="utf-8")
-
     total_commits_seen = 0
     total_commits_included = 0
     commits_excluded_identities = 0
@@ -463,128 +486,137 @@ def build_ownership_map(args: argparse.Namespace) -> Path:
         cochange_excludes.extend(DEFAULT_COCHANGE_EXCLUDES)
     cochange_excludes.extend(args.cochange_exclude)
 
-    log_lines = run_git_log(args.repo, args.since, args.until, args.include_merges)
-    for commit, touched_files in iter_commits(log_lines):
-        total_commits_seen += 1
-
-        if commit.get("is_merge") and not args.include_merges:
-            commits_excluded_merges += 1
-            continue
-
-        identity_name = commit.get(f"{args.identity}_name", "")
-        identity_email = commit.get(f"{args.identity}_email", "")
-        if author_excluded(
-            identity_name,
-            identity_email,
-            author_exclude_patterns,
-        ):
-            commits_excluded_identities += 1
-            continue
-
-        if not touched_files:
-            continue
-
-        total_commits_included += 1
-        if commit_handle:
-            commit_handle.write(json.dumps({**commit, "files": touched_files}) + "\n")
-
-        identity_name = commit.get(f"{args.identity}_name", "")
-        identity_email = commit.get(f"{args.identity}_email", "") or identity_name
-        commit_date = parse_date(commit.get(f"{args.date_field}_date", ""))
-        recency = recency_weighted(now, commit_date, args.half_life_days)
-        tz_minutes = offset_minutes(commit_date)
-        if tz_minutes is not None:
-            person_timezone_counts[identity_email][tz_minutes] += 1
-        unique_files = sorted(set(touched_files))
-        if not args.no_cochange and len(unique_files) > 1:
-            if len(unique_files) > args.cochange_max_files:
-                cochange_commits_skipped += 1
-            else:
-                filtered_files = [
-                    path for path in unique_files if not is_excluded(path, cochange_excludes)
-                ]
-                excluded = len(unique_files) - len(filtered_files)
-                if excluded:
-                    cochange_files_excluded += excluded
-                if len(filtered_files) < 2:
-                    cochange_commits_filtered += 1
-                if filtered_files:
-                    for path in filtered_files:
-                        cochange_file_commits[path] += 1
-                if len(filtered_files) >= 2:
-                    cochange_commits_used += 1
-                    for idx, path in enumerate(filtered_files):
-                        for other in filtered_files[idx + 1 :]:
-                            cochange_counts[(path, other)] += 1
-
-        person = people.setdefault(
-            identity_email,
-            {
-                "name": identity_name,
-                "email": identity_email,
-                "first_seen": commit_date,
-                "last_seen": commit_date,
-                "commit_count": 0,
-                "touches": 0,
-                "sensitive_touches": 0.0,
-            },
+    with ExitStack() as stack:
+        commit_handle = (
+            stack.enter_context(commits_path.open("w", encoding="utf-8"))
+            if args.emit_commits
+            else None
         )
-        person["commit_count"] = int(person["commit_count"]) + 1
-        person["first_seen"] = min(person["first_seen"], commit_date)
-        person["last_seen"] = max(person["last_seen"], commit_date)
+        try:
+            log_lines = run_git_log(args.repo, args.since, args.until, args.include_merges)
+            for commit, touched_files in iter_commits(log_lines):
+                total_commits_seen += 1
 
-        for path in touched_files:
-            file_entry = files.setdefault(
-                path,
-                {
-                    "path": path,
-                    "first_seen": commit_date,
-                    "last_seen": commit_date,
-                    "commit_count": 0,
-                    "touches": 0,
-                    "authors": set(),
-                    "sensitive_tags": {},
-                },
-            )
-            file_entry["commit_count"] = int(file_entry["commit_count"]) + 1
-            file_entry["first_seen"] = min(file_entry["first_seen"], commit_date)
-            file_entry["last_seen"] = max(file_entry["last_seen"], commit_date)
-            file_entry["touches"] = int(file_entry["touches"]) + 1
-            file_entry["authors"].add(identity_email)
+                if commit.get("is_merge") and not args.include_merges:
+                    commits_excluded_merges += 1
+                    continue
 
-            edge = edges.setdefault(
-                (identity_email, path),
-                {
-                    "touches": 0,
-                    "first_seen": commit_date,
-                    "last_seen": commit_date,
-                    "recency_weight": 0.0,
-                    "sensitive_weight": 0.0,
-                },
-            )
-            edge["touches"] = int(edge["touches"]) + 1
-            edge["first_seen"] = min(edge["first_seen"], commit_date)
-            edge["last_seen"] = max(edge["last_seen"], commit_date)
-            edge["recency_weight"] = float(edge["recency_weight"]) + recency
+                identity_name = commit.get(f"{args.identity}_name", "")
+                identity_email = commit.get(f"{args.identity}_email", "")
+                if author_excluded(
+                    identity_name,
+                    identity_email,
+                    author_exclude_patterns,
+                ):
+                    commits_excluded_identities += 1
+                    continue
 
-            tags = match_sensitive(path, rules)
-            if tags:
-                file_entry["sensitive_tags"] = tags
-                sensitive_weight = sum(tags.values())
-                edge["sensitive_weight"] = float(edge["sensitive_weight"]) + sensitive_weight
-                person["sensitive_touches"] = float(person["sensitive_touches"]) + sensitive_weight
-                file_people_sensitive[path][identity_email] += sensitive_weight
-                for tag, weight in tags.items():
-                    tag_totals[tag] += weight
-                    tag_person_totals[tag][identity_email] += weight
+                if not touched_files:
+                    continue
 
-            person["touches"] = int(person["touches"]) + 1
-            file_people_touches[path][identity_email] += 1
-            file_people_recency[path][identity_email] += recency
-            total_edges += 1
+                total_commits_included += 1
+                if commit_handle:
+                    commit_handle.write(json.dumps({**commit, "files": touched_files}) + "\n")
 
-    if commit_handle:
-        commit_handle.close()
+                identity_name = commit.get(f"{args.identity}_name", "")
+                identity_email = commit.get(f"{args.identity}_email", "") or identity_name
+                commit_date = parse_date(commit.get(f"{args.date_field}_date", ""))
+                recency = recency_weighted(now, commit_date, args.half_life_days)
+                tz_minutes = offset_minutes(commit_date)
+                if tz_minutes is not None:
+                    person_timezone_counts[identity_email][tz_minutes] += 1
+                unique_files = sorted(set(touched_files))
+                if not args.no_cochange and len(unique_files) > 1:
+                    if len(unique_files) > args.cochange_max_files:
+                        cochange_commits_skipped += 1
+                    else:
+                        filtered_files = [
+                            path for path in unique_files if not is_excluded(path, cochange_excludes)
+                        ]
+                        excluded = len(unique_files) - len(filtered_files)
+                        if excluded:
+                            cochange_files_excluded += excluded
+                        if len(filtered_files) < 2:
+                            cochange_commits_filtered += 1
+                        if filtered_files:
+                            for path in filtered_files:
+                                cochange_file_commits[path] += 1
+                        if len(filtered_files) >= 2:
+                            cochange_commits_used += 1
+                            for idx, path in enumerate(filtered_files):
+                                for other in filtered_files[idx + 1 :]:
+                                    cochange_counts[(path, other)] += 1
+
+                person = people.setdefault(
+                    identity_email,
+                    {
+                        "name": identity_name,
+                        "email": identity_email,
+                        "first_seen": commit_date,
+                        "last_seen": commit_date,
+                        "commit_count": 0,
+                        "touches": 0,
+                        "sensitive_touches": 0.0,
+                    },
+                )
+                person["commit_count"] = int(person["commit_count"]) + 1
+                person["first_seen"] = min(person["first_seen"], commit_date)
+                person["last_seen"] = max(person["last_seen"], commit_date)
+
+                for path in touched_files:
+                    file_entry = files.setdefault(
+                        path,
+                        {
+                            "path": path,
+                            "first_seen": commit_date,
+                            "last_seen": commit_date,
+                            "commit_count": 0,
+                            "touches": 0,
+                            "authors": set(),
+                            "sensitive_tags": {},
+                        },
+                    )
+                    file_entry["commit_count"] = int(file_entry["commit_count"]) + 1
+                    file_entry["first_seen"] = min(file_entry["first_seen"], commit_date)
+                    file_entry["last_seen"] = max(file_entry["last_seen"], commit_date)
+                    file_entry["touches"] = int(file_entry["touches"]) + 1
+                    file_entry["authors"].add(identity_email)
+
+                    edge = edges.setdefault(
+                        (identity_email, path),
+                        {
+                            "touches": 0,
+                            "first_seen": commit_date,
+                            "last_seen": commit_date,
+                            "recency_weight": 0.0,
+                            "sensitive_weight": 0.0,
+                        },
+                    )
+                    edge["touches"] = int(edge["touches"]) + 1
+                    edge["first_seen"] = min(edge["first_seen"], commit_date)
+                    edge["last_seen"] = max(edge["last_seen"], commit_date)
+                    edge["recency_weight"] = float(edge["recency_weight"]) + recency
+
+                    tags = match_sensitive(path, rules)
+                    if tags:
+                        file_entry["sensitive_tags"] = tags
+                        sensitive_weight = sum(tags.values())
+                        edge["sensitive_weight"] = float(edge["sensitive_weight"]) + sensitive_weight
+                        person["sensitive_touches"] = float(person["sensitive_touches"]) + sensitive_weight
+                        file_people_sensitive[path][identity_email] += sensitive_weight
+                        for tag, weight in tags.items():
+                            tag_totals[tag] += weight
+                            tag_person_totals[tag][identity_email] += weight
+
+                    person["touches"] = int(person["touches"]) + 1
+                    file_people_touches[path][identity_email] += 1
+                    file_people_recency[path][identity_email] += recency
+                    total_edges += 1
+        except Exception:
+            if commit_handle is not None:
+                commit_handle.close()
+                commits_path.unlink(missing_ok=True)
+            raise
 
     people_rows = []
     for email, person in sorted(people.items()):
@@ -940,7 +972,14 @@ def build_ownership_map(args: argparse.Namespace) -> Path:
     return out_dir
 
 
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
+    _configure_stdio()
     args = parse_args()
     try:
         out_dir = build_ownership_map(args)

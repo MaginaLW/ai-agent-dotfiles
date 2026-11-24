@@ -11,6 +11,7 @@ import math
 import re
 import subprocess
 import sys
+import threading
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
@@ -131,7 +132,7 @@ def parse_date(value: str) -> dt.datetime:
         parsed = dt.datetime.fromisoformat(value + "T00:00:00")
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
-    return parsed
+    return parsed.astimezone(dt.timezone.utc)
 
 
 def month_key(timestamp: dt.datetime) -> str:
@@ -179,7 +180,7 @@ def add_months(timestamp: dt.datetime, months: int) -> dt.datetime:
 def recency_weight(age_days: float, half_life_days: float) -> float:
     if half_life_days <= 0:
         return 1.0
-    return math.exp(-age_days / half_life_days)
+    return math.exp(-math.log(2) * max(0.0, age_days) / half_life_days)
 
 
 def read_csv(path: Path) -> Iterable[dict[str, str]]:
@@ -211,10 +212,11 @@ def load_graph_json(data_dir: Path) -> dict[str, object] | None:
 
 
 def find_file_node(nodes: list[dict[str, object]], query: str) -> dict[str, object]:
-    exact = [node for node in nodes if node.get("id") == query]
+    file_nodes = [node for node in nodes if node.get("node_type") != "person"]
+    exact = [node for node in file_nodes if node.get("id") == query]
     if exact:
         return exact[0]
-    contains = [node for node in nodes if query in str(node.get("id", ""))]
+    contains = [node for node in file_nodes if query in str(node.get("id", ""))]
     if len(contains) == 1:
         return contains[0]
     if not contains:
@@ -225,7 +227,7 @@ def find_file_node(nodes: list[dict[str, object]], query: str) -> dict[str, obje
 
 def load_community_files(
     data_dir: Path, file_query: str | None, community_id: int | None
-) -> tuple[int, list[str]]:
+) -> tuple[int, set[str]]:
     graph = load_graph_json(data_dir)
     if graph:
         nodes = graph.get("nodes", [])
@@ -234,8 +236,13 @@ def load_community_files(
             community_id = int(node.get("community_id", -1))
         if community_id is None:
             raise ValueError("Provide --file or --community-id")
-        files = [node.get("id") for node in nodes if node.get("community_id") == community_id]
-        files = [entry for entry in files if entry]
+        files = {
+            str(node.get("id"))
+            for node in nodes
+            if node.get("community_id") == community_id
+            and node.get("node_type") != "person"
+            and node.get("id")
+        }
         if not files:
             raise ValueError(f"No files found for community {community_id}")
         return community_id, files
@@ -248,13 +255,13 @@ def load_community_files(
         for entry in communities:
             files = entry.get("files", [])
             if any(file_query == f or file_query in f for f in files):
-                return int(entry.get("id", -1)), list(files)
+                return int(entry.get("id", -1)), set(files)
         raise ValueError("File not found in communities.json (list may be truncated)")
     if community_id is None:
         raise ValueError("Provide --file or --community-id")
     for entry in communities:
         if int(entry.get("id", -1)) == community_id:
-            return community_id, list(entry.get("files", []))
+            return community_id, set(entry.get("files", []))
     raise ValueError(f"Community id not found: {community_id}")
 
 
@@ -306,6 +313,8 @@ def iter_commits_from_git(
 ) -> Iterable[dict[str, object]]:
     cmd = [
         "git",
+        "-c",
+        "core.quotepath=false",
         "-C",
         repo,
         "log",
@@ -326,25 +335,46 @@ def iter_commits_from_git(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert proc.stdout is not None
 
-    block: list[str] = []
-    for line in proc.stdout:
-        line = line.rstrip("\n")
-        if line == "---":
-            if block:
-                yield from parse_git_block(block)
-                block = []
-        else:
-            block.append(line)
-    if block:
-        yield from parse_git_block(block)
+    stderr_chunks: list[str] = []
 
-    stderr = proc.stderr.read() if proc.stderr else ""
-    exit_code = proc.wait()
+    def _drain_stderr() -> None:
+        if proc.stderr is not None:
+            stderr_chunks.append(proc.stderr.read())
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
+
+    block: list[str] = []
+    completed = False
+    try:
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            if line == "---":
+                if block:
+                    yield from parse_git_block(block)
+                    block = []
+            else:
+                block.append(line)
+        if block:
+            yield from parse_git_block(block)
+        completed = True
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if not completed and proc.poll() is None:
+            proc.terminate()
+        exit_code = proc.wait()
+        stderr_thread.join(timeout=5)
+        if proc.stderr is not None:
+            proc.stderr.close()
+
     if exit_code != 0:
-        raise RuntimeError(stderr.strip() or "git log failed")
+        raise RuntimeError("".join(stderr_chunks).strip() or "git log failed")
 
 
 def parse_git_block(block: list[str]) -> Iterable[dict[str, object]]:
@@ -375,7 +405,14 @@ def parse_git_block(block: list[str]) -> Iterable[dict[str, object]]:
     ]
 
 
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
+    _configure_stdio()
     args = parse_args()
     data_dir = Path(args.data_dir)
     if not data_dir.exists():
@@ -421,7 +458,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
-        commit_date = parse_date(date_value)
+        commit_date = parse_date(date_value).astimezone(dt.timezone.utc)
         person_id = identity_email or identity_name
         if ignore_re and ignore_re.search(identity_name or ""):
             continue
@@ -444,8 +481,8 @@ def main() -> int:
     period_counts: dict[str, Counter[str]] = defaultdict(Counter)
     period_totals: dict[str, float] = defaultdict(float)
 
-    min_date = commit_rows[0][0]
-    max_date = commit_rows[-1][0]
+    min_date = commit_rows[0][0].astimezone(dt.timezone.utc)
+    max_date = commit_rows[-1][0].astimezone(dt.timezone.utc)
     if args.bucket == "quarter":
         period_cursor = quarter_start(min_date)
         period_end_anchor = quarter_start(max_date)

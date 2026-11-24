@@ -490,7 +490,7 @@ def _apply_effective_event(task: TaskState, event: dict[str, Any]) -> None:
     # A digest used for different prerequisite versions no longer identifies
     # the reviewed submission. Bind both review and release to its event ID.
     if len(task.inputs_by_version.get(version, ())) > 1 and event.get("replyTo") != task.submission_id:
-        if actor == task.reviewer and event_type in {"changes", "approve"}:
+        if actor == task.reviewer and event_type in {"changes", "approve"} and task.status not in {"approved", "released"}:
             task.alerts.add("stale review")
         return
 
@@ -506,7 +506,7 @@ def _apply_effective_event(task: TaskState, event: dict[str, Any]) -> None:
         return
 
     if actor != task.reviewer or task.status != "submitted":
-        if actor == task.reviewer and version != task.version:
+        if actor == task.reviewer and version != task.version and task.status not in {"approved", "released"}:
             task.alerts.add("stale review")
         return
 
@@ -521,6 +521,14 @@ def _apply_effective_event(task: TaskState, event: dict[str, Any]) -> None:
         task.alerts.discard("stale review")
         task.status = "approved"
         task.approved_version = version
+
+
+def is_blocking_alert(alert: str) -> bool:
+    return alert == "conflicting task id" or alert.startswith("duplicate event id:")
+
+
+def blocking_alerts(alerts: Iterable[str]) -> list[str]:
+    return [alert for alert in alerts if is_blocking_alert(alert)]
 
 
 def derive_state(manifest: Manifest) -> dict[str, Any]:
@@ -573,7 +581,7 @@ def derive_state(manifest: Manifest) -> dict[str, Any]:
             # A conflict cannot be unobserved by a later event.  If state was
             # released before replay reached the conflicting event, expose the
             # release as blocked rather than reporting it as clean.
-            task.status = "approved"
+            task.status = "approved" if task.approved_version == task.version else "submitted"
             task.release_id = None
         result_tasks.append(
             {
@@ -823,13 +831,14 @@ class BoardHTTPServer(ThreadingHTTPServer):
             self.last_event_count = event_count
 
     def health_snapshot(self) -> dict[str, Any]:
-        event_count = len(collect_events(load_manifest(self.manifest.path)))
+        manifest = load_manifest(self.manifest.path)
+        event_count = len(collect_events(manifest))
         host, port = self.server_address[:2]
         with self._metrics_lock:
             return {
                 "ok": True,
-                "run": self.manifest.run,
-                "manifest": os.fspath(self.manifest.path),
+                "run": manifest.run,
+                "manifest": os.fspath(manifest.path),
                 "pid": os.getpid(),
                 "url": f"http://{host}:{port}/",
                 "startedAt": self.started_at,
@@ -837,6 +846,7 @@ class BoardHTTPServer(ThreadingHTTPServer):
                 "statePolls": self.state_polls,
                 "lastUiAt": self.last_ui_at,
                 "lastStateAt": self.last_state_at,
+                "lastEventCount": self.last_event_count,
                 "eventCount": event_count,
             }
 
@@ -866,7 +876,17 @@ class BoardRequestHandler(BaseHTTPRequestHandler):
 
     def _allowed_host(self) -> bool:
         host = self.headers.get("Host", "")
-        parsed = urlsplit(f"//{host}")
+        try:
+            parsed = urlsplit(f"//{host}")
+            port = parsed.port
+        except ValueError:
+            return False
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        if parsed.path or parsed.query or parsed.fragment:
+            return False
+        if port is not None and not 1 <= port <= 65535:
+            return False
         hostname = (parsed.hostname or "").lower()
         return hostname in {"127.0.0.1", "localhost", "::1"}
 
@@ -874,15 +894,19 @@ class BoardRequestHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin is None:
             return True
-        parsed = urlsplit(origin)
+        try:
+            parsed = urlsplit(origin)
+            port = parsed.port
+        except ValueError:
+            return False
         if parsed.scheme.lower() != "http":
+            return False
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        if parsed.path or parsed.query or parsed.fragment:
             return False
         hostname = (parsed.hostname or "").lower()
         if hostname not in {"127.0.0.1", "localhost", "::1"}:
-            return False
-        try:
-            port = parsed.port
-        except ValueError:
             return False
         return port == self.server.server_address[1]
 
