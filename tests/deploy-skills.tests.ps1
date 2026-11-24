@@ -428,6 +428,38 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse-point-refused') 'a junction under a live root is refused'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $outside 'sentinel.txt')) -eq 'keep' -and @(Get-ChildItem $outside).Count -eq 1) 'the junction target is untouched'
 
+    Write-Host '[ancestor reparse points, environment validation, and multi-retire]'
+    $ancestorJuncHome = Join-Path $work 'ancestor-junc-home'
+    New-Item -ItemType Directory -Path $ancestorJuncHome -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $ancestorJuncHome '.codex') -Target $outside | Out-Null
+    $r = Invoke-Deploy $repo $ancestorJuncHome
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse-point-refused') 'a junction on ~/.codex ancestor is refused even when skills subdir is missing'
+
+    $stateJuncHome = Join-Path $work 'state-junc-home'
+    New-Item -ItemType Directory -Path $stateJuncHome -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $stateJuncHome 'state') -Target $outside | Out-Null
+    $r = Invoke-Deploy $repo $stateJuncHome
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse-point-refused') 'a junction StateRoot is refused'
+
+    foreach ($badEnv in @('../test', 'bad env')) {
+        $r = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', $badEnv, '-RepoRoot', $repo, '-HomeRoot', $homeDir, '-StateRoot', (Join-Path $homeDir 'state'), '-SkipBuild')
+        Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid environment name') "invalid environment name '$badEnv' is refused"
+    }
+
+    Set-TestFile (Join-Path $repo 'harness-source/envs/noskills.psd1') '@{ Description = "missing skills" }'
+    $r = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', 'noskills', '-RepoRoot', $repo, '-HomeRoot', $homeDir, '-StateRoot', (Join-Path $homeDir 'state'), '-SkipBuild')
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the key Codex') 'env without Skills key fails cleanly'
+
+    Set-TestFile (Join-Path $repo 'harness-source/envs/dups.psd1') "@{ Skills = @{ Codex = @('alpha', 'alpha') } }"
+    $r = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', 'dups', '-RepoRoot', $repo, '-HomeRoot', $homeDir, '-StateRoot', (Join-Path $homeDir 'state'), '-SkipBuild')
+    Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'duplicate skill name') 'duplicate skill names in Skills.Codex are refused'
+
+    $commaRetireHome = Join-Path $work 'comma-retire-home'
+    Set-TestFile (Join-Path $commaRetireHome '.codex/skills/r1/SKILL.md') 'r1'
+    Set-TestFile (Join-Path $commaRetireHome '.codex/skills/r2/SKILL.md') 'r2'
+    $r = Invoke-Deploy $repo $commaRetireHome @('-Retire', 'r1,r2,r1', '-Apply')
+    Assert-TestCondition ($r.Code -eq 0 -and -not (Test-Path (Join-Path $commaRetireHome '.codex/skills/r1')) -and -not (Test-Path (Join-Path $commaRetireHome '.codex/skills/r2'))) 'comma-separated duplicate -Retire tokens split, deduplicate, and prune cleanly'
+
     Write-Host 'deploy-skills tests: PASS'
 }
 finally {

@@ -5,10 +5,12 @@
 # The cache is <LocalAppData>\ai-agent-dotfiles.tool-cache\<ToolKind>\<Version>.
 
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 function Read-PinnedToolLockFile {
     param([Parameter(Mandatory)] [string] $LockPath, [string] $CacheRoot)
 
+    Assert-PlainPathNoReparse -Path $LockPath
     $full = (Resolve-Path -LiteralPath $LockPath).Path
     $lock = Get-Content -LiteralPath $full -Raw | ConvertFrom-Json -AsHashtable
     foreach ($field in @('SchemaVersion', 'ToolKind', 'Version', 'AssetName', 'AssetUrl', 'AssetSha256', 'ExecutableName', 'ExecutableSha256', 'VersionArguments', 'ExpectedVersionPattern')) {
@@ -26,17 +28,24 @@ function Read-PinnedToolLockFile {
         if ([string]::IsNullOrWhiteSpace($local)) { throw 'The OS LocalApplicationData known folder is unavailable.' }
         $CacheRoot = Join-Path $local 'ai-agent-dotfiles.tool-cache'
     }
+    Assert-PlainPathNoReparse -Path $CacheRoot -AllowMissing
     $root = Join-Path ([System.IO.Path]::GetFullPath($CacheRoot)) (Join-Path ([string] $lock.ToolKind) ([string] $lock.Version))
+    Assert-PlainPathNoReparse -Path $root -AllowMissing
+    $archive = Join-Path $root ([string] $lock.AssetName)
+    $executable = Join-Path $root (Join-Path 'bin' ([string] $lock.ExecutableName))
+    Assert-PlainPathNoReparse -Path $archive -AllowMissing
+    Assert-PlainPathNoReparse -Path $executable -AllowMissing
     return [pscustomobject]@{
         Lock = $lock
         Root = $root
-        Archive = Join-Path $root ([string] $lock.AssetName)
-        Executable = Join-Path $root (Join-Path 'bin' ([string] $lock.ExecutableName))
+        Archive = $archive
+        Executable = $executable
     }
 }
 
 function Get-PinnedToolFileSha256 {
     param([Parameter(Mandatory)] [string] $Path)
+    Assert-PlainPathNoReparse -Path $Path -AllowMissing
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     if ($null -eq $item -or $item.PSIsContainer) { return $null }
     if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "Pinned tool file is a reparse point: $Path" }
@@ -122,6 +131,7 @@ function Install-PinnedTool {
         if ((Get-PinnedToolFileSha256 -Path $archive) -cne [string] $lock.AssetSha256) { throw "Downloaded $($lock.ToolKind) archive hash mismatch." }
         $expanded = Join-Path $candidate 'expanded'
         Expand-Archive -LiteralPath $archive -DestinationPath $expanded
+        Assert-TreeNoReparse -Root $expanded
         $found = @(Get-ChildItem -LiteralPath $expanded -File -Recurse -Filter ([string] $lock.ExecutableName))
         if ($found.Count -ne 1) { throw "Pinned archive must contain exactly one $($lock.ExecutableName)." }
         $bin = Join-Path $candidate 'bin'

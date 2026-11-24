@@ -41,7 +41,7 @@ function Invoke-DeployStage {
 }
 
 $skillArgs = @('-Environment', $Environment, '-RepoRoot', $RepoRoot, '-HomeRoot', $HomeRoot, '-StateRoot', $StateRoot)
-if ($Retire.Count -gt 0) { $skillArgs += '-Retire'; $skillArgs += $Retire }
+if ($Retire.Count -gt 0) { $skillArgs += ('-Retire:' + ($Retire -join ',')) }
 if ($SkipBuild) { $skillArgs += '-SkipBuild' }
 $configArgs = @('-RepoRoot', $RepoRoot, '-HomeRoot', $HomeRoot, '-BackupRoot', $BackupRoot)
 if ($Apply) {

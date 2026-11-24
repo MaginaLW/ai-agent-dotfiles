@@ -578,6 +578,52 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
     }
 
+    # Regression tests: ancestor/leaf reparse guards in Assert-ConfigPullOpUnchanged & config-push,
+    # Get-ConfigTargets StrictMode key safety, and Restore-Plan per-file resilience.
+    $tr = New-TempRepo -Name 'reparse-config-repo'
+    $th = Join-Path $work 'reparse-config-home'
+    $bk = Join-Path $work 'reparse-config-backup'
+    $juncOutside = Join-Path $work 'reparse-config-outside'
+    [IO.Directory]::CreateDirectory($juncOutside) | Out-Null
+    Set-File -Path (Join-Path $tr 'codex/prompts/example.md') -Content 'prompt'
+    New-Item -ItemType Directory -Path (Join-Path $th '.codex') -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $th '.codex/prompts') -Target $juncOutside | Out-Null
+    try {
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $bk, '-Apply')
+        Assert ($r.Code -ne 0 -and $r.Out -match 'reparse' -and -not (Test-Path -LiteralPath (Join-Path $juncOutside 'example.md'))) 'pull: refuses ancestor junction on destination without writing'
+    }
+    finally {
+        [IO.Directory]::Delete((Join-Path $th '.codex/prompts'))
+    }
+
+    $trPushJunc = New-TempRepo -Name 'reparse-push-repo'
+    $thPushJunc = Join-Path $work 'reparse-push-home'
+    $bkPushJunc = Join-Path $work 'reparse-push-backup'
+    New-Item -ItemType Directory -Path (Join-Path $thPushJunc '.codex') -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $thPushJunc '.codex/prompts') -Target $juncOutside | Out-Null
+    Set-File -Path (Join-Path $juncOutside 'secret.md') -Content 'outside'
+    try {
+        $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $trPushJunc, '-HomeRoot', $thPushJunc, '-BackupRoot', $bkPushJunc)
+        Assert ($r.Code -ne 0 -and $r.Out -match 'reparse') 'push: refuses junction on source directory'
+    }
+    finally {
+        [IO.Directory]::Delete((Join-Path $thPushJunc '.codex/prompts'))
+    }
+
+    # Get-ConfigTargets safely handles missing platform or missing PushItems/PullItems keys.
+    $targetsMissingKey = @(Get-ConfigTargets -RepoRoot $tr -HomeRoot $th -Platform @('Codex', 'NonExistent') -ItemKeys @('MissingKey'))
+    Assert ($targetsMissingKey.Count -eq 1 -and $targetsMissingKey[0].Items.Count -eq 0) 'Get-ConfigTargets handles missing platform and item keys under StrictMode'
+
+    # Push revert resilience: a directory occupying an added target or a locked file must not stop restoring other files.
+    $trRev = New-TempRepo -Name 'push-restore-repo'
+    $thRev = Join-Path $work 'push-restore-home'
+    $bkRev = Join-Path $work 'push-restore-backup'
+    Set-File -Path (Join-Path $trRev 'codex/prompts/existing.md') -Content 'repo original'
+    Set-File -Path (Join-Path $thRev '.codex/prompts/existing.md') -Content 'home updated'
+    Set-File -Path (Join-Path $thRev '.codex/prompts/added.md') -Content ('sk-' + 'ant-' + ('FAKE' * 5) + '000000')
+    $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $trRev, '-HomeRoot', $thRev, '-BackupRoot', $bkRev, '-Apply')
+    Assert ($r.Code -ne 0 -and ((Get-Content -Raw -LiteralPath (Join-Path $trRev 'codex/prompts/existing.md')) -ceq 'repo original') -and (-not (Test-Path -LiteralPath (Join-Path $trRev 'codex/prompts/added.md')))) 'push: Restore-Plan restores updated file and removes added file on gate failure'
+
     if ($script:fail -eq 0) { $outcome = 'Passed' }
 }
 catch {

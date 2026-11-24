@@ -100,6 +100,18 @@ function Invoke-AgNativeCommand {
         Set-TestFile -Path (Join-Path $script:AgTestNativeRoot 'config.json') -Content '{"plugins":{"ai-agent-dotfiles":{"enabled":true}}}'
         if ($script:AgTestInstallMode -eq 'extra-metadata') { Set-TestFile -Path (Join-Path $target 'native-generated.json') -Content '{}' }
         if ($script:AgTestInstallMode -eq 'unrelated-change') { $script:AgTestPlugins[0].enabled = -not $script:AgTestPlugins[0].enabled }
+        if ($script:AgTestInstallMode -eq 'reorder-external') {
+            $reordered = [Collections.Generic.List[object]]::new()
+            $others = @($script:AgTestPlugins | Where-Object { $_.name -cne 'ai-agent-dotfiles' })
+            [Array]::Reverse($others)
+            foreach ($o in $others) {
+                $copy = [ordered]@{}
+                foreach ($k in @($o.Keys | Sort-Object -Descending)) { $copy[$k] = $o[$k] }
+                $reordered.Add($copy)
+            }
+            $reordered.Add(@($script:AgTestPlugins | Where-Object { $_.name -ceq 'ai-agent-dotfiles' })[0])
+            $script:AgTestPlugins = $reordered.ToArray()
+        }
         if ($script:AgTestInstallMode -eq 'readback-fails') { $script:AgTestFailList=$true }
         return @{ Code=0; Out='fixture installed'; Error='' }
     }
@@ -518,6 +530,40 @@ try {
         if (-not $holder.WaitForExit(5000)) { $holder.Kill($true); $holder.WaitForExit() }
         $holder.Dispose()
     }
+
+    Write-Host 'Antigravity: regression checks (git rev-parse ordering, list order jitter, normalized path, corrupt external json)'
+    $root = New-PluginFixture 'regression-git-revparse'
+    $baselineBuild = New-AgPluginBuild
+    $savedGitDir = $env:GIT_DIR
+    try {
+        $env:GIT_DIR = Join-Path $suiteWork 'missing-git-dir'
+        Assert-PluginThrows { New-AgPluginBuild } 'Cannot identify source revision' 'failed git rev-parse HEAD aborts before deleting existing package'
+    }
+    finally {
+        if ($null -eq $savedGitDir) { Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue } else { $env:GIT_DIR = $savedGitDir }
+    }
+    Assert-PluginTest ((Test-Path -LiteralPath $script:AgPackage) -and (Get-AgMapDigest (Get-AgTreeFiles $script:AgPackage)) -ceq $baselineBuild.Digest) 'existing package survives failed git rev-parse HEAD'
+    Assert-PluginTest (@(Get-ChildItem -LiteralPath $script:AgWork -Directory -Filter 'build-*').Count -eq 0) 'failed build cleans up unmoved stage directory in finally'
+
+    $root = New-PluginFixture 'regression-external-jitter'
+    $ext1 = Join-Path $script:AgTestNativeRoot 'plugins/ext-one'
+    $ext2 = Join-Path $script:AgTestNativeRoot 'plugins/ext-two'
+    Set-TestFile -Path (Join-Path $ext1 'plugin.json') -Content '{"name":"ext-one","version":"1.0.0"}'
+    Set-TestFile -Path (Join-Path $ext2 'plugin.json') -Content '{corrupt json'
+    $script:AgTestPlugins = @(
+        @{ name='ext-one'; path=$ext1; enabled=$true; version='1.0.0'; source='https://example.org/1' },
+        @{ name='ext-two'; path=$ext2; enabled=$false; version='1.0.0'; source='https://example.org/2' }
+    )
+    $null = New-AgPluginBuild
+    $script:AgTestInstallMode = 'reorder-external'
+    $jitterDeploy = Invoke-AgPluginDeploy -DoApply
+    Assert-PluginTest ($jitterDeploy.Action -eq 'unchanged' -and $jitterDeploy.External.Count -eq 2) 'external plugin list order/key jitter and corrupt unrelated plugin.json do not block managed deploy'
+
+    $receiptObj = Read-AgJsonFile $script:AgInstallReceipt
+    $receiptObj['Path'] = ([string]$receiptObj['Path']).ToLowerInvariant() + '\.'
+    Write-AgJsonFile $script:AgInstallReceipt $receiptObj
+    $casePlan = Get-AgPluginPlan
+    Assert-PluginTest ($casePlan.Action -eq 'unchanged' -and $casePlan.Reason -eq 'identity-version-and-content-match') 'installed receipt Path comparison normalizes case and trailing dot'
 
     Write-Host ("Antigravity plugin tests: {0} assertions passed; native and scan operations used isolated stubs." -f $script:AgTestAssertions)
     $resolvedWork = [IO.Path]::GetFullPath($suiteWork)

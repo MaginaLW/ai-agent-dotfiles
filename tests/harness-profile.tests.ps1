@@ -567,10 +567,42 @@ try {
     $r = Invoke-Script -Script $PSCommandPath -ScriptArgs @('-RepoRoot', $homeProject)
     Assert ($r.Code -ne 0 -and $r.Out -match 'checkout outside the user home') 'test workspace: a home checkout is refused before fixture creation'
     Assert (-not (Test-Path -LiteralPath (Join-Path $homeProject 'tmp'))) 'test workspace: no fixture or external fallback is created for a home checkout'
+
+    $env:USERPROFILE = ''
+    $realProfile = [Environment]::GetFolderPath('UserProfile')
+    $fallbackHit = $false
+    try {
+        Assert-HarnessOutsideHome -Paths @((Join-Path $realProfile 'nonexistent-sub\..\blocked.md'))
+    }
+    catch {
+        $fallbackHit = $_.Exception.Message -match 'Refusing to write inside the home directory'
+    }
+    Assert $fallbackHit 'safety gate: empty USERPROFILE falls back to OS UserProfile and normalizes nonexistent relative paths'
 }
 finally {
     $env:USERPROFILE = $previousUserProfile
 }
+
+# Regression tests: multiline UNC regex, case-insensitive block match, harness-source reparse check, duplicate target path rejection.
+Assert (Test-HarnessPrivatePathText -Text "safe line`n\\server\share\file.txt") 'validation: Test-HarnessPrivatePathText detects UNC path on subsequent lines'
+
+$lcBlockProject = New-TestProject -Name 'lowercase-marker-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits'))
+Set-File -Path (Join-Path $lcBlockProject 'AGENTS.md') "<!-- begin agent-harness: safe-file-edits -->`nold`n<!-- end agent-harness: safe-file-edits -->`n"
+$rLc = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $lcBlockProject, '-Apply')
+Assert ($rLc.Code -eq 0 -and (Get-Content -Raw -LiteralPath (Join-Path $lcBlockProject 'AGENTS.md')) -match 'Safe file edit rule') 'managed block: lowercase markers match and replace cleanly'
+
+$dupeTargetRepo = New-TestHarnessRepo -Name 'dupe-target-repo'
+Add-Component -HarnessRepo $dupeTargetRepo -Path 'codex-prompts/dup-a' -Id 'dup-a' -Kind 'CodexPrompt' -Target '.codex/prompts/shared.md' -Mode 'DirectoryFiles' -Content "A`n"
+Add-Component -HarnessRepo $dupeTargetRepo -Path 'codex-prompts/dup-b' -Id 'dup-b' -Kind 'CodexPrompt' -Target '.codex/prompts/shared.md' -Mode 'DirectoryFiles' -Content "B`n"
+$dupeTargetProj = New-TestProject -Name 'dupe-target-proj' -ProfileText (New-ProjectProfileText -CodexAgents @('dup-a', 'dup-b'))
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $dupeTargetRepo, '-ProjectRoot', $dupeTargetProj) } -Pattern 'Duplicate harness target path' 'validation: duplicate target paths across components are rejected'
+
+$srcJuncRepo = New-TestHarnessRepo -Name 'src-junc-repo'
+$srcJuncTarget = Join-Path $work 'src-junc-outside'
+New-Item -ItemType Directory -Path $srcJuncTarget -Force | Out-Null
+New-Item -ItemType Junction -Path (Join-Path $srcJuncRepo 'harness-source/components/linked-comp') -Target $srcJuncTarget | Out-Null
+$srcJuncProj = New-TestProject -Name 'src-junc-proj' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits'))
+Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $srcJuncRepo, '-ProjectRoot', $srcJuncProj) } -Pattern 'reparse point' 'safety gate: reparse point under harness-source/components is rejected'
 
 # ===========================================================================
 Write-Host ''

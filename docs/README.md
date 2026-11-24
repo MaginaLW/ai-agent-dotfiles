@@ -514,7 +514,7 @@ CLI 新进程不传 `--continue` 或 `--conversation` 时为独立会话。显�
 
 `harness-source/mcp/servers.psd1`（`SchemaVersion = 1`、`Servers`）声明跨 **Antigravity、Codex** 双端投影的受管 MCP server（当前声明 `blender`），严禁写入明文密钥、Token、回车换行或本机盘符/UNC 路径：
 
-- **支持的传输与字段**：`stdio`（`Command`、`Args`、`Env`、可选 `TimeoutMs`）与 `streamable-http`（`Url`、可选 `BearerTokenEnvVar`、`Headers`），并带 `Name`、`Enabled`、`Platforms`。
+- **支持的传输与字段**：`stdio`（`Command`、`Args`、`Env`）与 `streamable-http`（`Url`、可选 `BearerTokenEnvVar`、`Headers`），并带 `Name`、`Enabled`、`Platforms`。
 - **凭据与平台约束**：注册表读取阶段要求 `Env` 中敏感键名（`api_key` / `token` / `secret` / `password` / `passwd` / `credential`）必须写成 `${ENV_VAR}` 占位符，而 `Codex` 投影器目前不支持 `${...}` 环境变量模板展开；遇到不兼容项、重复键、非法 JSON 或缺失 `codex` CLI 时，规划器 fail closed 报告 `blocked`，不会猜测或写入。
 
 ```powershell

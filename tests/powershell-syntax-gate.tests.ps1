@@ -158,6 +158,26 @@ try {
     Assert-True ($unknown.ExitCode -eq 1) "scripts/ a genuine unknown parameter exits 1 (got $($unknown.ExitCode))"
     Assert-True ($unknown.Output -match "unknown parameter '-NoSuch'") 'scripts/ a genuine unknown parameter is reported'
 
+    Write-Host '[scripts/ inline function parameter list]'
+    $inlineValidRoot = New-FixtureRepo -Files @{
+        'scripts/inline-valid.ps1' = @(
+            'function Test-Inline([string] $Value) { return $Value }'
+            "Test-Inline -Value 'ok'"
+        ) -join "`n"
+    }
+    $inlineValid = Invoke-SyntaxGate -TargetRoot $inlineValidRoot
+    Assert-True ($inlineValid.ExitCode -eq 0) "scripts/ valid inline parameter call exits 0 (got $($inlineValid.ExitCode))"
+
+    $inlineBadRoot = New-FixtureRepo -Files @{
+        'scripts/inline-bad.ps1' = @(
+            'function Test-Inline([string] $Value) { return $Value }'
+            "Test-Inline -Bogus 'x'"
+        ) -join "`n"
+    }
+    $inlineBad = Invoke-SyntaxGate -TargetRoot $inlineBadRoot
+    Assert-True ($inlineBad.ExitCode -eq 1) "scripts/ unknown parameter on inline-param function exits 1 (got $($inlineBad.ExitCode))"
+    Assert-True ($inlineBad.Output -match "unknown parameter '-Bogus' for repository function 'Test-Inline'") 'scripts/ unknown parameter on inline-param function is reported'
+
     Write-Host '[array-statement flattening fixtures]'
     $flatRoot = New-FixtureRepo -Files @{
         'probe-flat.ps1' = @(

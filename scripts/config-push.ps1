@@ -93,13 +93,25 @@ function Find-MachinePrivatePaths {
 
 function Restore-Plan {
     param([Parameter(Mandatory)] [System.Collections.IEnumerable] $Operations)
+    $restoreErrors = [System.Collections.Generic.List[string]]::new()
     foreach ($op in $Operations) {
-        if ($op.Existed) {
-            Copy-Item -LiteralPath $op.Stage -Destination $op.Dst -Force
+        try {
+            if ($op.Existed) {
+                Assert-PlainPathNoReparse -Path $op.Dst -AllowMissing
+                Copy-Item -LiteralPath $op.Stage -Destination $op.Dst -Force
+            }
+            elseif (Test-Path -LiteralPath $op.Dst -PathType Leaf) {
+                Assert-PlainPathNoReparse -Path $op.Dst
+                Remove-Item -LiteralPath $op.Dst -Force
+            }
         }
-        elseif (Test-Path -LiteralPath $op.Dst) {
-            Remove-Item -LiteralPath $op.Dst -Force
+        catch {
+            $restoreErrors.Add("$($op.Rel): $($_.Exception.Message)")
+            Write-Warning "Could not restore $($op.Rel): $($_.Exception.Message)"
         }
+    }
+    if ($restoreErrors.Count -gt 0) {
+        Write-Warning "Some files could not be reverted automatically. Stage preserved at: $stageDir"
     }
 }
 
@@ -109,6 +121,8 @@ function Get-ConfigPushPlan {
         foreach ($item in $target.Items) {
             $homeItem = Join-Path $target.HomeRoot $item
             $repoItem = Join-Path $target.RepoRoot $item
+            Assert-PlainPathNoReparse -Path $homeItem -AllowMissing
+            Assert-PlainPathNoReparse -Path $repoItem -AllowMissing
             if (-not (Test-Path -LiteralPath $homeItem)) { continue }
             $blockSpec = Get-ManagedAgentsBlockSpec -Platform $target.Name -Item $item
             if ($null -ne $blockSpec) {
@@ -148,8 +162,11 @@ if (-not (Show-ConfigSyncPlan -Plan $plan -EmptyMessage 'Nothing to capture: rep
 # The stage dir is created lazily so pure-add runs leave no empty backup folder.
 $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff')
 $stageDir = Join-Path $BackupRoot "config-push-stage-$stamp"
+Assert-PlainPathNoReparse -Path $stageDir -AllowMissing
 $index = 0
 foreach ($op in $plan) {
+    Assert-PlainPathNoReparse -Path $op.Src
+    Assert-PlainPathNoReparse -Path $op.Dst -AllowMissing
     $op.Existed = Test-Path -LiteralPath $op.Dst
     if ($op.Existed) {
         if (-not (Test-Path -LiteralPath $stageDir)) {

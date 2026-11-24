@@ -1,4 +1,4 @@
-#requires -Version 7.0
+﻿#requires -Version 7.0
 <#
 .SYNOPSIS
     Shared helpers for the status/build/apply-harness-profile.ps1 scripts.
@@ -64,7 +64,7 @@ function Select-HarnessStableUnique {
 function Test-HarnessPrivatePathText {
     param([AllowNull()] [string] $Text)
     return (-not [string]::IsNullOrWhiteSpace($Text)) -and
-        (($Text -match $script:DriveAbsolutePathPattern) -or ($Text -match ('^' + $script:UncPathPattern)))
+        (($Text -match $script:DriveAbsolutePathPattern) -or ($Text -match ('(?m)^' + $script:UncPathPattern)))
 }
 
 function Assert-HarnessNoPrivatePaths {
@@ -107,18 +107,7 @@ function Assert-HarnessNoReparsePath {
     param([Parameter(Mandatory)] [string[]] $Paths)
 
     foreach ($path in $Paths) {
-        $current = [System.IO.Path]::GetFullPath($path)
-        while ($current) {
-            $item = $null
-            try { $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop }
-            catch [System.Management.Automation.ItemNotFoundException] { }
-            if ($item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-                throw "Harness path contains a reparse point: $current"
-            }
-            $parent = Split-Path -Parent $current
-            if ($parent -eq $current) { break }
-            $current = $parent
-        }
+        Assert-PlainPathNoReparse -Path $path -AllowMissing -MessagePrefix 'Harness path contains a reparse point'
     }
 }
 
@@ -138,6 +127,7 @@ function Add-HarnessLibraryProfile {
 
     if ($Name -notmatch '^[\w-]+$') { throw "Only a profile id is allowed here, not a path: $Name" }
     $path = Join-Path $ProfilesRoot "$Name.psd1"
+    Assert-HarnessNoReparsePath -Paths @($path)
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Profile '$Name' was not found under harness-source/profiles." }
     if (@($Resolved | Where-Object Name -EQ $Name).Count -gt 0) { return }
     if (-not $Visiting.Add($Name)) { throw "Profile Extends contains a cycle at '$Name'." }
@@ -205,6 +195,7 @@ function New-HarnessProfilePlan {
 
     if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = Join-Path $PSScriptRoot '..' }
     if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { throw 'ProjectRoot must not be empty.' }
+    Assert-HarnessNoReparsePath -Paths @($RepoRoot, $ProjectRoot)
     $repo = (Resolve-Path -LiteralPath $RepoRoot).Path
     $project = (Resolve-Path -LiteralPath $ProjectRoot).Path
 
@@ -231,6 +222,7 @@ function New-HarnessProfilePlan {
 
     $componentsRoot = Join-Path $repo 'harness-source/components'
     if (-not (Test-Path -LiteralPath $componentsRoot -PathType Container)) { throw "Missing harness components root: $componentsRoot" }
+    Assert-TreeNoReparse -Root $componentsRoot -MessagePrefix 'Harness path contains a reparse point'
     $all = @(Get-ChildItem -LiteralPath $componentsRoot -Directory -Recurse -Force |
             Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'component.psd1') -PathType Leaf } |
             Sort-Object FullName | ForEach-Object {
@@ -249,6 +241,29 @@ function New-HarnessProfilePlan {
         })
 
     $targets = @(foreach ($component in $selected) { Test-HarnessComponent -Component $component -ProjectRoot $project })
+    $nonManagedTargets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $managedTargetPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $managedBlocksByTarget = @{}
+    foreach ($t in $targets) {
+        if ($t.Mode -eq 'ManagedBlock') {
+            if ($nonManagedTargets.Contains($t.Target)) {
+                throw "Duplicate harness target path '$($t.Target)' across components."
+            }
+            $null = $managedTargetPaths.Add($t.Target)
+            $blockId = if ($t.Output.ContainsKey('BlockId') -and -not [string]::IsNullOrWhiteSpace([string]$t.Output['BlockId'])) { [string]$t.Output['BlockId'] } else { [string]$t.ComponentId }
+            if (-not $managedBlocksByTarget.ContainsKey($t.Target)) {
+                $managedBlocksByTarget[$t.Target] = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            }
+            if (-not $managedBlocksByTarget[$t.Target].Add($blockId)) {
+                throw "Duplicate harness target BlockId '$blockId' for '$($t.Target)' across components."
+            }
+        }
+        else {
+            if ($managedTargetPaths.Contains($t.Target) -or (-not $nonManagedTargets.Add($t.Target))) {
+                throw "Duplicate harness target path '$($t.Target)' across components."
+            }
+        }
+    }
     foreach ($component in $selected) {
         if (@($platforms | Where-Object { $_ -in @($component.Data.TargetPlatforms) }).Count -eq 0) {
             throw "Target platform validation failed: $($component.Id) does not support any selected target platform."
@@ -320,7 +335,7 @@ function Get-HarnessApplyChanges {
         foreach ($block in $blocks) {
             $id = [regex]::Escape($block.Id)
             $pattern = "(?s)<!--\s*BEGIN AGENT-HARNESS:\s*$id\s*-->.*?<!--\s*END AGENT-HARNESS:\s*$id\s*-->"
-            if ([regex]::IsMatch($content, $pattern)) {
+            if ([regex]::IsMatch($content, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
                 # Every occurrence of the block is replaced (ignoring case), as before the rewrite.
                 $text = $block.Text
                 $content = [regex]::Replace($content, $pattern, [System.Text.RegularExpressions.MatchEvaluator] { param($m) $text },
@@ -351,10 +366,17 @@ function Get-HarnessApplyChanges {
 function Assert-HarnessOutsideHome {
     param([AllowEmptyCollection()] [string[]] $Paths)
 
-    if ([string]::IsNullOrWhiteSpace($env:USERPROFILE) -or -not (Test-Path -LiteralPath $env:USERPROFILE)) { return }
-    $homeRoot = (Resolve-Path -LiteralPath $env:USERPROFILE).Path.TrimEnd('\', '/')
+    $userHome = $env:USERPROFILE
+    if ([string]::IsNullOrWhiteSpace($userHome)) {
+        $userHome = [Environment]::GetFolderPath('UserProfile')
+    }
+    if ([string]::IsNullOrWhiteSpace($userHome)) {
+        throw 'User home directory could not be determined.'
+    }
+    $rawHome = if (Test-Path -LiteralPath $userHome) { (Resolve-Path -LiteralPath $userHome).Path } else { [System.IO.Path]::GetFullPath($userHome) }
+    $homeRoot = $rawHome.TrimEnd('\', '/')
     foreach ($path in @($Paths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
-        $resolved = if (Test-Path -LiteralPath $path) { (Resolve-Path -LiteralPath $path).Path } else { $path }
+        $resolved = if (Test-Path -LiteralPath $path) { (Resolve-Path -LiteralPath $path).Path } else { [System.IO.Path]::GetFullPath($path) }
         if ($resolved -ieq $homeRoot -or $resolved.StartsWith($homeRoot + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
             throw "Refusing to write inside the home directory: $resolved"
         }

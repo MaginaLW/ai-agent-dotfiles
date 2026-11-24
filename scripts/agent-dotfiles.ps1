@@ -151,11 +151,27 @@ function Write-EnvironmentList([object[]] $Arguments) {
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
     $stateRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-agent-dotfiles.deploy'
     $jsonPath = $null
+    $seenParameters = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $valueFlags = @('-RepoRoot', '-StateRoot', '-JsonPath')
     for ($i = 0; $i -lt $Arguments.Count; $i++) {
         $name = [string] $Arguments[$i]
-        if ($name -ieq '-RepoRoot' -and $i + 1 -lt $Arguments.Count) { $repoRoot = [string] $Arguments[++$i]; continue }
-        if ($name -ieq '-StateRoot' -and $i + 1 -lt $Arguments.Count) { $stateRoot = [string] $Arguments[++$i]; continue }
-        if ($name -ieq '-JsonPath' -and $i + 1 -lt $Arguments.Count) { $jsonPath = [string] $Arguments[++$i]; continue }
+        if ($name -in $valueFlags) {
+            if (-not $seenParameters.Add($name)) {
+                Write-Error "Duplicate env list argument: $name" -ErrorAction Continue
+                exit 1
+            }
+            if ($i + 1 -ge $Arguments.Count -or [string]::IsNullOrWhiteSpace([string] $Arguments[$i + 1]) -or ([string] $Arguments[$i + 1]) -in $valueFlags -or ([string] $Arguments[$i + 1]).StartsWith('-')) {
+                Write-Error "Missing path value for $name." -ErrorAction Continue
+                exit 1
+            }
+            $val = [string] $Arguments[++$i]
+            switch ($name.ToLowerInvariant()) {
+                '-reporoot'  { $repoRoot = $val }
+                '-stateroot' { $stateRoot = $val }
+                '-jsonpath'  { $jsonPath = $val }
+            }
+            continue
+        }
         Write-Error "Unsupported env list argument: $name" -ErrorAction Continue
         exit 1
     }
@@ -178,9 +194,17 @@ function Write-EnvironmentList([object[]] $Arguments) {
         Write-Host ("Record unavailable reason: {0}. Inspect the local deploy record; use the deployment dry run to check live contents." -f $report.StateReason)
     }
     if ($jsonPath) {
+        Assert-PlainPathNoReparse -Path $jsonPath -AllowMissing
+        $provider = $null
+        $drive = $null
+        $fullJsonPath = [System.IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($jsonPath, [ref]$provider, [ref]$drive))
+        $jsonParent = Split-Path -Parent $fullJsonPath
+        if ($jsonParent -and -not (Test-Path -LiteralPath $jsonParent)) {
+            [IO.Directory]::CreateDirectory($jsonParent) | Out-Null
+        }
         $jsonEnvironments = @($report.Environments | ForEach-Object { [ordered]@{ Name = $_.Name; Description = $_.Description } })
         $json = [ordered]@{ Environments = $jsonEnvironments } | ConvertTo-Json -Depth 5
-        [IO.File]::WriteAllText([IO.Path]::GetFullPath($jsonPath), $json + "`n", [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($fullJsonPath, $json + "`n", [Text.UTF8Encoding]::new($false))
     }
 }
 
@@ -209,13 +233,24 @@ function Convert-ChildJson {
         return ,(ConvertFrom-Json -InputObject $trimmed -NoEnumerate -ErrorAction Stop)
     }
     catch {
-        $firstBracket = $trimmed.IndexOfAny(@([char]'{', [char]'['))
-        $lastBracket = [Math]::Max($trimmed.LastIndexOf('}'), $trimmed.LastIndexOf(']'))
-        if ($firstBracket -ge 0 -and $lastBracket -gt $firstBracket) {
-            $jsonPart = $trimmed.Substring($firstBracket, $lastBracket - $firstBracket + 1)
+        $lines = @($trimmed -split "\r?\n")
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $lineTrimmed = $lines[$i].TrimStart()
+            if (-not ($lineTrimmed.StartsWith('{') -or $lineTrimmed.StartsWith('['))) { continue }
+            $candidate = ($lines[$i..($lines.Count - 1)] -join "`n").Trim()
             try {
-                return ,(ConvertFrom-Json -InputObject $jsonPart -NoEnumerate -ErrorAction Stop)
-            } catch { }
+                return ,(ConvertFrom-Json -InputObject $candidate -NoEnumerate -ErrorAction Stop)
+            }
+            catch {
+                $closingChar = if ($lineTrimmed.StartsWith('{')) { [char]'}' } else { [char]']' }
+                $lastBracket = $candidate.LastIndexOf($closingChar)
+                if ($lastBracket -gt 0) {
+                    $sliced = $candidate.Substring(0, $lastBracket + 1)
+                    try {
+                        return ,(ConvertFrom-Json -InputObject $sliced -NoEnumerate -ErrorAction Stop)
+                    } catch { }
+                }
+            }
         }
         return [ordered]@{ Error = 'Failed to parse JSON output'; Raw = $trimmed }
     }
@@ -828,24 +863,41 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
     if ($normalizedCommand -eq 'config') {
         $consolidatedArgs = [System.Collections.Generic.List[object]]::new()
         $platformValues = [System.Collections.Generic.List[string]]::new()
+        $sawPlatform = $false
         for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
             $arg = [string] $forwardedArguments[$i]
             if ($arg -ieq '-Platform') {
-                if ($i + 1 -lt $forwardedArguments.Count -and -not ([string]$forwardedArguments[$i + 1]).StartsWith('-')) {
-                    $platformValues.Add([string]$forwardedArguments[++$i])
+                $sawPlatform = $true
+                if ($i + 1 -ge $forwardedArguments.Count -or ([string]$forwardedArguments[$i + 1]).StartsWith('-')) {
+                    Write-Error 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.' -ErrorAction Continue
+                    exit 1
                 }
-                else {
-                    $consolidatedArgs.Add($arg)
+                $val = [string]$forwardedArguments[++$i]
+                if ([string]::IsNullOrWhiteSpace($val)) {
+                    Write-Error 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.' -ErrorAction Continue
+                    exit 1
                 }
+                $platformValues.Add($val)
                 continue
             }
             if ($arg -ilike '-Platform:*') {
-                $platformValues.Add($arg.Substring(10))
+                $sawPlatform = $true
+                $val = $arg.Substring(10)
+                if ([string]::IsNullOrWhiteSpace($val)) {
+                    Write-Error 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.' -ErrorAction Continue
+                    exit 1
+                }
+                $platformValues.Add($val)
                 continue
             }
             $consolidatedArgs.Add($forwardedArguments[$i])
         }
-        if ($platformValues.Count -gt 0) {
+        if ($sawPlatform) {
+            $tokens = @($platformValues | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if ($tokens.Count -eq 0) {
+                Write-Error 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.' -ErrorAction Continue
+                exit 1
+            }
             $consolidatedArgs.Add('-Platform:' + ($platformValues -join ','))
         }
         $forwardedArguments = @($consolidatedArgs)
@@ -879,11 +931,25 @@ if ($pwshCommands.Count -eq 0) {
 }
 $pwshPath = $pwshCommands[0].Source
 
-$jsonStdout = @($forwardedArguments | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0
+$normalizedForward = [System.Collections.Generic.List[object]]::new()
+for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
+    $item = $forwardedArguments[$i]
+    if ($item -is [string] -and $item -ieq '-Json' -and ($i + 1) -lt $forwardedArguments.Count -and $forwardedArguments[$i + 1] -is [bool]) {
+        $boolVal = [bool] $forwardedArguments[++$i]
+        $normalizedForward.Add($(if ($boolVal) { '-Json' } else { '-Json:$false' }))
+        continue
+    }
+    if ($item -is [string] -and $item -imatch '^-Json:\$?(true|false)$') {
+        $normalizedForward.Add($(if ($Matches[1] -ieq 'true') { '-Json' } else { '-Json:$false' }))
+        continue
+    }
+    $normalizedForward.Add($item)
+}
+$forwardList = @($normalizedForward)
+$jsonStdout = ($normalizedCommand -eq 'antigravity') -or (@($forwardList | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0)
 if (-not $jsonStdout) {
     Write-Host "Invoking script: $targetScript"
 }
-$forwardList = @($forwardedArguments)
 & $pwshPath -NoProfile -File $targetScript @forwardList
 $childExitCode = $LASTEXITCODE
 

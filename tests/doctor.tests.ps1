@@ -109,4 +109,9 @@ try {
 
     Write-Host 'doctor tests: PASS'
 }
-finally { if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force } }
+finally {
+    if (Test-Path -LiteralPath $work) {
+        Get-ChildItem -LiteralPath $work -Recurse -Force -Attributes ReparsePoint | ForEach-Object { $_.Delete() }
+        Remove-Item -LiteralPath $work -Recurse -Force
+    }
+}

@@ -9,6 +9,7 @@
 #>
 
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 function Resolve-ConfigBackupRoot {
     param([Parameter(Mandatory)] [string] $RepoRoot, [Parameter(Mandatory)] [string] $BackupRoot)
@@ -114,14 +115,18 @@ function Get-ConfigTargets {
     }
     $whitelist = Import-PowerShellDataFile -LiteralPath $whitelistPath
     foreach ($name in $Platform) {
-        $cfg = $whitelist.$name
-        if (-not $cfg) { continue }
+        if (-not $whitelist.ContainsKey($name)) { continue }
+        $cfg = $whitelist[$name]
+        if ($cfg -isnot [hashtable]) { continue }
+        $items = @(foreach ($key in $ItemKeys) {
+            if ($cfg.ContainsKey($key)) { @($cfg[$key]) }
+        }) | Select-Object -Unique
         [pscustomobject] @{
             Name     = $name
             RepoRoot = Join-Path $RepoRoot $cfg.RepoRelativeRoot
             HomeRoot = Join-Path $HomeRoot $cfg.HomeRelativeRoot
             Excluded = @($cfg.ExcludedItems) + @($whitelist.CommonExcludedItems)
-            Items    = @(@(foreach ($key in $ItemKeys) { @($cfg.$key) }) | Select-Object -Unique)
+            Items    = @($items)
         }
     }
 }
@@ -322,7 +327,7 @@ function Get-ConfigFiles {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Excluded
     )
     $rootFull = (Resolve-Path -LiteralPath $Root).Path
-    foreach ($file in (Get-ChildItem -LiteralPath $rootFull -File -Recurse -Force -ErrorAction SilentlyContinue)) {
+    foreach ($file in (Get-ChildItem -LiteralPath $rootFull -File -Recurse -Force)) {
         $rel = $file.FullName.Substring($rootFull.Length).TrimStart('\', '/')
         if (Test-Excluded -RelativePath $rel -Patterns $Excluded) { continue }
         [pscustomobject] @{ FullName = $file.FullName; Rel = $rel }
@@ -339,6 +344,8 @@ function Get-PlannedCopies {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Excluded
     )
     $ops = [System.Collections.Generic.List[object]]::new()
+    Assert-PlainPathNoReparse -Path $SrcItem -AllowMissing -MessagePrefix "$ItemLabel source contains a reparse point"
+    Assert-PlainPathNoReparse -Path $DstItem -AllowMissing -MessagePrefix "$ItemLabel destination contains a reparse point"
     if (-not (Test-Path -LiteralPath $SrcItem)) { return $ops }   # nothing to plan
 
     $files = if (Test-Path -LiteralPath $SrcItem -PathType Leaf) {
@@ -352,6 +359,8 @@ function Get-PlannedCopies {
     foreach ($file in $files) {
         $dst = if ($file.Rel) { Join-Path $DstItem $file.Rel } else { $DstItem }
         $rel = if ($file.Rel) { "$ItemLabel/$($file.Rel -replace '\\','/')" } else { $ItemLabel }
+        Assert-PlainPathNoReparse -Path $file.FullName -MessagePrefix "$rel source contains a reparse point"
+        Assert-PlainPathNoReparse -Path $dst -AllowMissing -MessagePrefix "$rel destination contains a reparse point"
         if (Test-Path -LiteralPath $dst -PathType Container) { throw "$rel destination is a directory." }
         $dstExists = Test-Path -LiteralPath $dst -PathType Leaf
         if (-not $dstExists -and $null -ne (Get-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue)) {
@@ -380,6 +389,7 @@ function Get-PlannedCopies {
 function Assert-ConfigPullOpUnchanged {
     param([Parameter(Mandatory)] [hashtable] $Op)
 
+    Assert-PlainPathNoReparse -Path $Op.Src -AllowMissing -MessagePrefix "$($Op.Rel) source contains a reparse point"
     if (-not (Test-Path -LiteralPath $Op.Src -PathType Leaf)) {
         throw "$($Op.Rel) source changed since planning. Run config pull again to review it."
     }
@@ -388,6 +398,7 @@ function Assert-ConfigPullOpUnchanged {
             throw "$($Op.Rel) source changed since planning. Run config pull again to review it."
         }
     }
+    Assert-PlainPathNoReparse -Path $Op.Dst -AllowMissing -MessagePrefix "$($Op.Rel) destination contains a reparse point"
     $existing = Get-Item -LiteralPath $Op.Dst -Force -ErrorAction SilentlyContinue
     if ($null -ne $existing -and ($existing.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         throw "$($Op.Rel) destination is a reparse point; refusing to write."
@@ -453,7 +464,7 @@ function Invoke-ConfigPlanWrite {
         if ($parent -and -not (Test-Path -LiteralPath $parent)) {
             New-Item -ItemType Directory -Path $parent -Force | Out-Null
         }
-        if ($op.Mode -eq 'content') {
+        if ($op.ContainsKey('Mode') -and $op.Mode -eq 'content') {
             [IO.File]::WriteAllText($op.Dst, [string] $op.Content, [Text.UTF8Encoding]::new($false))
         }
         else {

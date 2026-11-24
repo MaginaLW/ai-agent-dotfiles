@@ -192,6 +192,9 @@ try {
     $retiredPlatFix = New-McpFixture -Name 'retired-platform' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{}; Enabled = `$true; Platforms = @('ZCode') }) }"
     Assert-McpThrows { Read-McpServerRegistry -RepoRoot $retiredPlatFix.Repo } 'invalid or duplicate platform' 'rejects retired ZCode platform in servers.psd1'
 
+    $deadTimeoutFix = New-McpFixture -Name 'dead-timeout' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); TimeoutMs = 1000; Enabled = `$true; Platforms = @('Codex') }) }"
+    Assert-McpThrows { Read-McpServerRegistry -RepoRoot $deadTimeoutFix.Repo } "Unsupported MCP server key 'TimeoutMs'" 'rejects removed TimeoutMs key in servers.psd1'
+
     Write-Host 'mcp-sync: clean empty home status/dry-run and full Apply across Antigravity and Codex'
     $f1 = New-McpFixture -Name 'full-apply'
     $status1 = Get-McpPlan -RepoRoot $f1.Repo -HomeRoot $f1.Home
@@ -413,10 +416,58 @@ throw "Unexpected fake codex args: $joined"
         $env:PATH = $savedPath
     }
 
+    Write-Host 'mcp-sync: regression tests (BackupRoot, null args/env_vars, file .codex, drift, backup note, ancestor reparse)'
+    $fReg = New-McpFixture -Name 'regressions'
+    Assert-McpThrows { Invoke-McpDeploy -RepoRoot $fReg.Repo -HomeRoot $fReg.Home -BackupRoot (Join-Path $fReg.Repo 'in-repo-backups') -DoApply } 'BackupRoot must be outside' 'Apply rejects in-repo BackupRoot'
+    $juncTarget = Join-Path $fReg.Root 'junc-target'
+    [IO.Directory]::CreateDirectory($juncTarget) | Out-Null
+    $juncBackup = Join-Path $fReg.Root 'junc-backup'
+    New-Item -ItemType Junction -Path $juncBackup -Target $juncTarget | Out-Null
+    Assert-McpThrows { Invoke-McpDeploy -RepoRoot $fReg.Repo -HomeRoot $fReg.Home -BackupRoot $juncBackup -DoApply } 'reparse' 'Apply rejects junction BackupRoot'
+
+    $nullConverted = ConvertFrom-McpCodexLiveEntry -Entry @{
+        name = 'blender'; enabled = $true
+        transport = @{ type = 'stdio'; command = 'uvx'; args = $null; env = $null; env_vars = $null }
+    }
+    Assert-McpTest ($nullConverted.args.Count -eq 0 -and (-not $nullConverted.Contains('env_vars'))) 'ConvertFrom-McpCodexLiveEntry handles null args and env_vars cleanly'
+
+    $fCodexFile = New-McpFixture -Name 'codex-file'
+    Set-TestFile -Path (Join-Path $fCodexFile.Home '.codex') -Content 'not a directory'
+    $codexFilePlan = Get-McpPlan -RepoRoot $fCodexFile.Repo -HomeRoot $fCodexFile.Home -Platform @('Codex')
+    Assert-McpTest ($codexFilePlan.Summary.blocked -eq 1 -and $codexFilePlan.Items[0].Reason -ceq 'codex-dir-not-directory') 'Get-McpCodexInventory blocks when .codex is a regular file'
+
+    $fNoBakFail = New-McpFixture -Name 'codex-fail-no-backup'
+    $script:McpTestCodexEntries = @()
+    $script:McpTestCodexFailOn = 'add'
+    $noBakErr = ''
+    try { $null = Invoke-McpDeploy -RepoRoot $fNoBakFail.Repo -HomeRoot $fNoBakFail.Home -Platform Codex -BackupRoot $fNoBakFail.Backup -DoApply }
+    catch { $noBakErr = $_.Exception.Message }
+    Assert-McpTest ($noBakErr -match 'codex mcp add' -and $noBakErr -notmatch 'Pre-Apply backups preserved at') 'Codex CLI failure without prior files does not claim nonexistent backup dir'
+
+    $fDrift = New-McpFixture -Name 'preapply-drift'
+    $savedGateFn = ${function:Invoke-SecretScanGate}
+    try {
+        function Invoke-SecretScanGate {
+            param([string] $RepoRoot)
+            Set-TestFile -Path (Join-Path $fDrift.Repo 'harness-source/mcp/servers.psd1') -Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'blender'; Platforms = @('Antigravity'); Enabled = `$true; Transport = 'stdio'; Command = 'uvx'; Args = @('changed-mid-scan'); Env = @{ BLENDER_PORT = '9800' } }) }"
+        }
+        Assert-McpThrows { Invoke-McpDeploy -RepoRoot $fDrift.Repo -HomeRoot $fDrift.Home -Platform Antigravity -BackupRoot $fDrift.Backup -DoApply } 'drifted during pre-Apply validation' 'Invoke-McpDeploy fails closed when pending plan drifts during pre-Apply scan'
+        Assert-McpTest (-not (Test-Path (Join-Path $fDrift.Home '.gemini/config/mcp_config.json'))) 'drifted pre-Apply abort writes no target file'
+    }
+    finally {
+        Set-Item -Path 'function:Invoke-SecretScanGate' -Value $savedGateFn
+    }
+
+    $fAgJunc = New-McpFixture -Name 'ag-ancestor-junc'
+    New-Item -ItemType Junction -Path (Join-Path $fAgJunc.Home '.gemini') -Target $juncTarget | Out-Null
+    $agJuncPlan = Get-McpPlan -RepoRoot $fAgJunc.Repo -HomeRoot $fAgJunc.Home -Platform Antigravity
+    Assert-McpTest ($agJuncPlan.Summary.blocked -eq 1 -and $agJuncPlan.Items[0].Reason -ceq 'reparse-point-blocked') 'Antigravity status blocks when ancestor .gemini is a junction'
+
     Write-Host "mcp-sync tests: PASS ($script:McpTestAssertions assertions)"
 }
 finally {
     if (Test-Path -LiteralPath $suiteWork) {
+        Get-ChildItem -LiteralPath $suiteWork -Recurse -Force -Attributes ReparsePoint | ForEach-Object { $_.Delete() }
         Remove-Item -LiteralPath $suiteWork -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

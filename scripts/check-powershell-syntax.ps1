@@ -53,8 +53,17 @@ foreach ($relative in @($paths | Sort-Object -Unique)) {
             }
             $dynamicParameters = $false
             if ($null -ne $functionAst.Body.DynamicParamBlock) { $dynamicParameters = $true }
-            elseif ($null -ne $functionAst.Body.ParamBlock) {
-                foreach ($parameter in @($functionAst.Body.ParamBlock.Parameters)) {
+            else {
+                $astParameters = [System.Collections.Generic.List[System.Management.Automation.Language.ParameterAst]]::new()
+                foreach ($parameter in @($functionAst.Parameters)) {
+                    if ($null -ne $parameter) { $astParameters.Add($parameter) }
+                }
+                if ($null -ne $functionAst.Body.ParamBlock) {
+                    foreach ($parameter in @($functionAst.Body.ParamBlock.Parameters)) {
+                        if ($null -ne $parameter) { $astParameters.Add($parameter) }
+                    }
+                }
+                foreach ($parameter in $astParameters) {
                     $null = $parameterNames.Add($parameter.Name.VariablePath.UserPath)
                     foreach ($attribute in @($parameter.Attributes)) {
                         if ($attribute -is [System.Management.Automation.Language.AttributeAst] -and [string] $attribute.TypeName.Name -ceq 'Alias') {

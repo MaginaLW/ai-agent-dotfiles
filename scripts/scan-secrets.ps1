@@ -15,7 +15,8 @@ $configPath = Join-Path $RepoRoot '.gitleaks.toml'
 
 # The repository .gitleaks.toml is the scanner contract; gitleaks must never silently
 # fall back to its default rules.
-$configItem = Get-Item -LiteralPath $configPath -ErrorAction SilentlyContinue
+Assert-PlainPathNoReparse -Path $configPath -AllowMissing -MessagePrefix 'scanner-config-required: reparse point'
+$configItem = Get-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
 if (-not $configItem -or $configItem.PSIsContainer -or ($configItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
     throw "scanner-config-required: $configPath must be a plain readable file"
 }
@@ -38,21 +39,6 @@ function Test-IsScanInputExcluded {
     return $false
 }
 
-function Assert-ScanInputNoReparse {
-    # Fail closed on any reparse point (symlink, junction) in the file's path,
-    # from the drive root down to the file itself, as the old no-follow walker did.
-    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.Generic.HashSet[string]] $CheckedDirectories)
-
-    $item = Get-Item -LiteralPath $Path -Force
-    if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "Scan input contains a reparse point: $Path" }
-    if ($item.PSIsContainer) { throw "Scan input entry is a directory (nested repository or submodule): $Path" }
-    $directory = $item.Directory
-    while ($null -ne $directory -and $CheckedDirectories.Add($directory.FullName)) {
-        if ($directory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "Scan input path contains a reparse point: $($directory.FullName)" }
-        $directory = $directory.Parent
-    }
-}
-
 function Get-ScanInputRelativePaths {
     param([Parameter(Mandatory)] [string] $Root)
 
@@ -71,9 +57,11 @@ function Get-ScanInputRelativePaths {
         if ([string]::IsNullOrEmpty($relative) -or -not $seen.Add($relative)) { continue }
         if (Test-IsScanInputExcluded -RelativePath $relative) { continue }
         $full = Join-Path $Root $relative
+        Assert-PlainPathNoReparse -Path $full -AllowMissing -CheckedPaths $checkedDirectories -MessagePrefix 'Scan input contains a reparse point'
         # A tracked file deleted from the working tree is not on disk to scan.
-        if ($null -eq (Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue)) { continue }
-        Assert-ScanInputNoReparse -Path $full -CheckedDirectories $checkedDirectories
+        $item = Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) { continue }
+        if ($item.PSIsContainer) { throw "Scan input entry is a directory (nested repository or submodule): $full" }
         $paths.Add($relative)
     }
     return , $paths.ToArray()
@@ -116,7 +104,7 @@ function Test-IsAllowedPlaceholderLine {
             return $true
         }
 
-        if ($Line -match '[:=]\s*["''][A-Z][A-Z0-9_]{2,}["'']') {
+        if ($Line -cmatch '[:=]\s*["''][A-Z][A-Z0-9_]{2,}["'']') {
             return $true
         }
     }
@@ -165,18 +153,23 @@ function Invoke-GitleaksScan {
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $gitleaksProcess = [System.Diagnostics.Process]::Start($startInfo)
-    $stdoutTask = $gitleaksProcess.StandardOutput.ReadToEndAsync()
-    $stderrTask = $gitleaksProcess.StandardError.ReadToEndAsync()
-    if (-not $gitleaksProcess.WaitForExit(120000)) {
-        $gitleaksProcess.Kill($true)
-        throw 'gitleaks-timeout: the pinned scanner did not finish within 120 seconds.'
+    try {
+        $stdoutTask = $gitleaksProcess.StandardOutput.ReadToEndAsync()
+        $stderrTask = $gitleaksProcess.StandardError.ReadToEndAsync()
+        if (-not $gitleaksProcess.WaitForExit(120000)) {
+            $gitleaksProcess.Kill($true)
+            throw 'gitleaks-timeout: the pinned scanner did not finish within 120 seconds.'
+        }
+        $gitleaksProcess.WaitForExit()
+        $output = $stdoutTask.GetAwaiter().GetResult() + $stderrTask.GetAwaiter().GetResult()
+        if (-not [string]::IsNullOrWhiteSpace($output)) {
+            Write-Host $output.TrimEnd()
+        }
+        return [pscustomobject]@{ Failed = ($gitleaksProcess.ExitCode -ne 0) }
     }
-    $gitleaksProcess.WaitForExit()
-    $output = $stdoutTask.GetAwaiter().GetResult() + $stderrTask.GetAwaiter().GetResult()
-    if (-not [string]::IsNullOrWhiteSpace($output)) {
-        Write-Host $output.TrimEnd()
+    finally {
+        if ($null -ne $gitleaksProcess) { $gitleaksProcess.Dispose() }
     }
-    return [pscustomobject]@{ Failed = ($gitleaksProcess.ExitCode -ne 0) }
 }
 
 function Invoke-FallbackScan {

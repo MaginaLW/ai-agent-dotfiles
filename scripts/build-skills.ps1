@@ -31,8 +31,7 @@ $script:RuntimeExcludePatterns = @('CREATION-LOG.md')
 function Copy-SkillDirectory {
     param(
         [Parameter(Mandatory)] [System.IO.DirectoryInfo] $Source,
-        [Parameter(Mandatory)] [string] $DestinationRoot,
-        [string[]] $ExcludeRelativePaths = @()
+        [Parameter(Mandatory)] [string] $DestinationRoot
     )
     $destination = Join-Path $DestinationRoot $Source.Name
     Copy-SkillTree -SourceRoot $Source.FullName -DestinationRoot $destination
@@ -40,17 +39,6 @@ function Copy-SkillDirectory {
         $leaf = $file.Name
         if (@($script:RuntimeExcludePatterns | Where-Object { $leaf -like $_ }).Count -gt 0) {
             Remove-Item -LiteralPath $file.FullName -Force
-        }
-    }
-    foreach ($relPath in $ExcludeRelativePaths) {
-        $normalizedRel = $relPath.Replace('/', [System.IO.Path]::DirectorySeparatorChar).Replace('\', [System.IO.Path]::DirectorySeparatorChar)
-        $targetPath = Join-Path $destination $normalizedRel
-        if (Test-Path -LiteralPath $targetPath) {
-            Remove-Item -LiteralPath $targetPath -Force
-            $parent = Split-Path -Parent $targetPath
-            if ((Test-Path -LiteralPath $parent) -and @(Get-ChildItem -LiteralPath $parent -Force).Count -eq 0) {
-                Remove-Item -LiteralPath $parent -Force
-            }
         }
     }
 }
@@ -83,13 +71,11 @@ if ($sharedConflicts.Count -gt 0) {
 }
 
 $codexSet = @($sharedNames + $codexOnlyNames | Sort-Object -Unique)
-foreach ($target in @($CodexOutputRoot)) {
-    if (Test-Path -LiteralPath $target) {
-        Assert-SkillTreeNoReparsePoint -Root $target
-        Remove-Item -LiteralPath $target -Recurse -Force
-    }
-    [System.IO.Directory]::CreateDirectory($target) | Out-Null
+if (Test-Path -LiteralPath $CodexOutputRoot) {
+    Assert-SkillTreeNoReparsePoint -Root $CodexOutputRoot
+    Remove-Item -LiteralPath $CodexOutputRoot -Recurse -Force
 }
+[System.IO.Directory]::CreateDirectory($CodexOutputRoot) | Out-Null
 if (-not (Test-Path -LiteralPath $ManifestOutputRoot)) { [System.IO.Directory]::CreateDirectory($ManifestOutputRoot) | Out-Null }
 
 foreach ($skill in $sharedSkills) {

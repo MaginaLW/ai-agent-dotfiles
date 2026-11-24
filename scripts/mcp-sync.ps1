@@ -35,22 +35,6 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 . (Join-Path $PSScriptRoot 'config-common.ps1')
 
-function Assert-McpPlainPath {
-    param([Parameter(Mandatory)] [string] $Path)
-    $cursor = [IO.Path]::GetFullPath($Path)
-    while ($cursor) {
-        if (Test-Path -LiteralPath $cursor) {
-            $item = Get-Item -LiteralPath $cursor -Force
-            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                throw "MCP target path cannot contain reparse points: $cursor"
-            }
-        }
-        $parent = Split-Path -Parent $cursor
-        if ($parent -eq $cursor) { break }
-        $cursor = $parent
-    }
-}
-
 function Assert-McpSafeValue {
     param(
         [Parameter(Mandatory)] [string] $Value,
@@ -120,7 +104,7 @@ function Resolve-McpServerFilter {
 function Read-McpServerRegistry {
     param([Parameter(Mandatory)] [string] $RepoRoot)
     $registryPath = Join-Path $RepoRoot 'harness-source/mcp/servers.psd1'
-    Assert-McpPlainPath -Path $registryPath
+    Assert-PlainPathNoReparse -Path $registryPath -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
     if (-not (Test-Path -LiteralPath $registryPath -PathType Leaf)) {
         throw "Missing managed MCP registry: $registryPath"
     }
@@ -135,7 +119,7 @@ function Read-McpServerRegistry {
     if ($null -eq $data.Servers) {
         throw 'MCP registry Servers must be an array.'
     }
-    $allowedServerKeys = @('Name', 'Transport', 'Enabled', 'Platforms', 'Command', 'Args', 'Env', 'TimeoutMs', 'Url', 'BearerTokenEnvVar', 'Headers')
+    $allowedServerKeys = @('Name', 'Transport', 'Enabled', 'Platforms', 'Command', 'Args', 'Env', 'Url', 'BearerTokenEnvVar', 'Headers')
     $validPlatforms = @('Antigravity', 'Codex')
     $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $servers = [System.Collections.Generic.List[object]]::new()
@@ -234,16 +218,9 @@ function Read-McpServerRegistry {
                 }
             }
             $normalized.Env = $envMap
-
-            if ($entry.ContainsKey('TimeoutMs')) {
-                if (($entry.TimeoutMs -isnot [int] -and $entry.TimeoutMs -isnot [long]) -or [long]$entry.TimeoutMs -le 0) {
-                    throw "Stdio MCP server '$name' TimeoutMs must be a positive integer."
-                }
-                $normalized.TimeoutMs = [int]$entry.TimeoutMs
-            }
         }
         else {
-            foreach ($forbidden in @('Command', 'Args', 'Env', 'TimeoutMs')) {
+            foreach ($forbidden in @('Command', 'Args', 'Env')) {
                 if ($entry.ContainsKey($forbidden)) {
                     throw "HTTP MCP server '$name' cannot declare '$forbidden'."
                 }
@@ -432,7 +409,7 @@ function Read-McpJsonConfigState {
         [Parameter(Mandatory)] [string[]] $ContainerPath
     )
     try {
-        Assert-McpPlainPath -Path $Path
+        Assert-PlainPathNoReparse -Path $Path -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
     }
     catch {
         return [pscustomobject]@{
@@ -635,17 +612,23 @@ function ConvertFrom-McpCodexLiveEntry {
                 $envObj[$k] = [string]$transport['env'][$k]
             }
         }
+        $argsList = [System.Collections.Generic.List[string]]::new()
+        if ($transport.ContainsKey('args') -and $null -ne $transport['args']) {
+            foreach ($a in @($transport['args'])) {
+                if ($null -ne $a) { $argsList.Add([string]$a) }
+            }
+        }
         $out = [ordered]@{
             enabled = [bool]$Entry['enabled']
             type    = 'stdio'
             command = [string]$transport['command']
-            args    = [string[]]@($transport['args'] | ForEach-Object { [string]$_ })
+            args    = $argsList.ToArray()
             env     = $envObj
         }
         if ($transport.ContainsKey('cwd') -and $null -ne $transport['cwd']) {
             $out['cwd'] = [string]$transport['cwd']
         }
-        if ($transport.ContainsKey('env_vars') -and @($transport['env_vars']).Count -gt 0) {
+        if ($transport.ContainsKey('env_vars') -and $null -ne $transport['env_vars'] -and @($transport['env_vars']).Count -gt 0) {
             $out['env_vars'] = @($transport['env_vars'] | ForEach-Object { [string]$_ })
         }
         return $out
@@ -669,10 +652,13 @@ function Get-McpCodexInventory {
     $codexDir = Join-Path $HomeRoot '.codex'
     $codexConfig = Join-Path $codexDir 'config.toml'
     try {
-        Assert-McpPlainPath -Path $codexConfig
+        Assert-PlainPathNoReparse -Path $codexConfig -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
     }
     catch {
         return [pscustomobject]@{ Available = $false; Valid = $false; Reason = 'reparse-point-blocked'; Entries = @() }
+    }
+    if (Test-Path -LiteralPath $codexDir -PathType Leaf) {
+        return [pscustomobject]@{ Available = $false; Valid = $false; Reason = 'codex-dir-not-directory'; Entries = @() }
     }
     if (Test-Path -LiteralPath $codexConfig -PathType Container) {
         return [pscustomobject]@{ Available = $false; Valid = $false; Reason = 'target-is-directory'; Entries = @() }
@@ -1027,6 +1013,31 @@ function Set-McpJsonEntries {
     [IO.File]::WriteAllText($Path, $content, [Text.UTF8Encoding]::new($false))
 }
 
+function Test-McpPendingPlanMatches {
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Expected,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Actual
+    )
+    if ($Expected.Count -ne $Actual.Count) { return $false }
+    $expectedByKey = @{}
+    foreach ($item in $Expected) {
+        $expectedByKey["$($item.Platform)`0$($item.Server)"] = $item
+    }
+    foreach ($freshItem in $Actual) {
+        $key = "$($freshItem.Platform)`0$($freshItem.Server)"
+        if (-not $expectedByKey.ContainsKey($key)) { return $false }
+        $oldItem = $expectedByKey[$key]
+        if ($oldItem.Action -cne $freshItem.Action) { return $false }
+        if ($oldItem.TargetPath -cne $freshItem.TargetPath) { return $false }
+        if ($oldItem.UnmanagedCount -ne $freshItem.UnmanagedCount) { return $false }
+        $oldAction = if ($null -eq $oldItem.NativeAction) { '' } else { @($oldItem.NativeAction) -join "`0" }
+        $newAction = if ($null -eq $freshItem.NativeAction) { '' } else { @($freshItem.NativeAction) -join "`0" }
+        if ($oldAction -cne $newAction) { return $false }
+        if (-not (Test-McpObjectJsonEqual -Left $oldItem.After -Right $freshItem.After)) { return $false }
+    }
+    return $true
+}
+
 function Invoke-McpDeploy {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
@@ -1042,6 +1053,11 @@ function Invoke-McpDeploy {
     if (-not $DoApply) {
         return $plan
     }
+
+    $resolvedBackupRoot = Resolve-ConfigBackupRoot -RepoRoot $RepoRoot -BackupRoot $BackupRoot
+    Assert-PlainPathNoReparse -Path $BackupRoot -AllowMissing -MessagePrefix 'MCP backup root cannot contain reparse points'
+    Assert-PlainPathNoReparse -Path $resolvedBackupRoot -AllowMissing -MessagePrefix 'MCP backup root cannot contain reparse points'
+    $BackupRoot = $resolvedBackupRoot
 
     $blocked = @($plan.Items | Where-Object { $_.Action -ceq 'blocked' })
     if ($blocked.Count -gt 0) {
@@ -1075,10 +1091,11 @@ function Invoke-McpDeploy {
     if ($freshBlocked.Count -gt 0) {
         throw 'MCP state became blocked during pre-Apply validation.'
     }
-    $pending = @($freshPlan.Items | Where-Object { $_.Action -cin @('add', 'update') })
-    if ($pending.Count -eq 0) {
-        return $freshPlan
+    $freshPending = @($freshPlan.Items | Where-Object { $_.Action -cin @('add', 'update') })
+    if (-not (Test-McpPendingPlanMatches -Expected $pending -Actual $freshPending)) {
+        throw 'MCP plan drifted during pre-Apply validation; re-run -DryRun to review before -Apply.'
     }
+    $pending = $freshPending
 
     $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff')
     $backupDir = Join-Path $BackupRoot "mcp-backup-$stamp"
@@ -1089,7 +1106,7 @@ function Invoke-McpDeploy {
         $pItems = @($pending | Where-Object { $_.Platform -ceq $pName })
         if ($pItems.Count -eq 0) { continue }
         $path = $pItems[0].TargetPath
-        Assert-McpPlainPath -Path $path
+        Assert-PlainPathNoReparse -Path $path -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
         $existed = Test-Path -LiteralPath $path -PathType Leaf
         $backupFile = $null
         if ($existed) {
@@ -1112,7 +1129,7 @@ function Invoke-McpDeploy {
     $codexItems = @($pending | Where-Object { $_.Platform -ceq 'Codex' })
     if ($codexItems.Count -gt 0) {
         $codexConfigPath = $codexItems[0].TargetPath
-        Assert-McpPlainPath -Path $codexConfigPath
+        Assert-PlainPathNoReparse -Path $codexConfigPath -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
         if (Test-Path -LiteralPath $codexConfigPath -PathType Leaf) {
             $rel = $codexConfigPath.Substring($HomeRoot.Length).TrimStart('\', '/')
             $backupFile = Join-Path $backupDir $rel
@@ -1149,6 +1166,8 @@ function Invoke-McpDeploy {
         throw $writeError
     }
 
+    $codexBackupNote = if ($backedUpFiles.Count -gt 0) { ". Pre-Apply backups preserved at $backupDir" } else { '' }
+    $readbackBackupNote = if ($backedUpFiles.Count -gt 0) { " Backups: $backupDir" } else { '' }
     if ($codexItems.Count -gt 0) {
         $codexDir = Join-Path $HomeRoot '.codex'
         if (-not (Test-Path -LiteralPath $codexDir -PathType Container)) {
@@ -1158,12 +1177,12 @@ function Invoke-McpDeploy {
             if ($item.Action -ceq 'update') {
                 $rm = Invoke-McpCodexCommand -Arguments @('mcp', 'remove', $item.Server) -HomeRoot $HomeRoot
                 if (-not $rm.Available -or $rm.Code -ne 0) {
-                    throw "codex mcp remove '$($item.Server)' failed (exit $($rm.Code)): $($rm.Error). Pre-Apply backups preserved at $backupDir"
+                    throw "codex mcp remove '$($item.Server)' failed (exit $($rm.Code)): $($rm.Error)$codexBackupNote"
                 }
             }
             $add = Invoke-McpCodexCommand -Arguments $item.NativeAction -HomeRoot $HomeRoot
             if (-not $add.Available -or $add.Code -ne 0) {
-                throw "codex mcp add '$($item.Server)' failed (exit $($add.Code)): $($add.Error). Pre-Apply backups preserved at $backupDir"
+                throw "codex mcp add '$($item.Server)' failed (exit $($add.Code)): $($add.Error)$codexBackupNote"
             }
         }
     }
@@ -1174,10 +1193,10 @@ function Invoke-McpDeploy {
         $verified = @($readback.Items | Where-Object { $_.Platform -ceq $applied.Platform -and $_.Server -ceq $applied.Server })
         if ($verified.Count -ne 1 -or $verified[0].Action -cne 'unchanged') {
             $detail = if ($verified.Count -eq 1) { "$($verified[0].Action)/$($verified[0].Reason)" } else { 'missing' }
-            throw "Post-Apply MCP readback did not converge to unchanged for $($applied.Platform)/$($applied.Server) ($detail). Backups: $backupDir"
+            throw "Post-Apply MCP readback did not converge to unchanged for $($applied.Platform)/$($applied.Server) ($detail).$readbackBackupNote"
         }
         if ($verified[0].UnmanagedCount -lt $applied.UnmanagedCount) {
-            throw "Post-Apply MCP readback detected reduced unmanaged count for $($applied.Platform). Backups: $backupDir"
+            throw "Post-Apply MCP readback detected reduced unmanaged count for $($applied.Platform).$readbackBackupNote"
         }
     }
 
@@ -1192,7 +1211,7 @@ function Write-McpJsonFile {
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [object] $Value
     )
-    Assert-McpPlainPath -Path $Path
+    Assert-PlainPathNoReparse -Path $Path -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
     $parent = Split-Path -Parent $Path
     if ($parent) { [IO.Directory]::CreateDirectory($parent) | Out-Null }
     [IO.File]::WriteAllText($Path, (ConvertTo-Json -InputObject $Value -Depth 20) + "`n", [Text.UTF8Encoding]::new($false))

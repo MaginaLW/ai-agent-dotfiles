@@ -103,6 +103,16 @@ try {
     $normalArgs = @($deployArgs | Where-Object { $_ -ne '-SkipBuild' }) + @('-Apply')
     $normal = Invoke-TestProcess -ScriptPath $deploy -Arguments $normalArgs
     Assert-TestCondition ($normal.Code -eq 0 -and ([regex]::Matches($normal.Out, 'Fixture build invocation')).Count -eq 1 -and ([regex]::Matches($normal.Out, 'Running pinned gitleaks')).Count -eq 1) 'Apply builds once and deduplicates the config secret scan after skills preflight'
+
+    $multiRetireHome = Join-Path $work 'multi-retire-home'
+    Set-TestFile (Join-Path $multiRetireHome '.codex/skills/old-one/SKILL.md') 'old1'
+    Set-TestFile (Join-Path $multiRetireHome '.codex/skills/old-two/SKILL.md') 'old2'
+    $multiRetire = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', 'test', '-RepoRoot', $repo, '-HomeRoot', $multiRetireHome, '-StateRoot', (Join-Path $multiRetireHome 'state'), '-BackupRoot', (Join-Path $multiRetireHome 'backups'), '-Retire', 'old-one,old-two', '-SkipBuild', '-Apply')
+    Assert-TestCondition ($multiRetire.Code -eq 0 -and -not (Test-Path (Join-Path $multiRetireHome '.codex/skills/old-one')) -and -not (Test-Path (Join-Path $multiRetireHome '.codex/skills/old-two'))) "multi-skill -Retire removes all named skills via deploy.ps1 CLI ($($multiRetire.Out))"
+    Set-TestFile (Join-Path $multiRetireHome '.codex/skills/old-three/SKILL.md') 'old3'
+    Set-TestFile (Join-Path $multiRetireHome '.codex/skills/old-four/SKILL.md') 'old4'
+    & $deploy -Environment 'test' -RepoRoot $repo -HomeRoot $multiRetireHome -StateRoot (Join-Path $multiRetireHome 'state') -BackupRoot (Join-Path $multiRetireHome 'backups') -Retire @('old-three', 'old-four') -SkipBuild -Apply | Out-Null
+    Assert-TestCondition ($LASTEXITCODE -eq 0 -and -not (Test-Path (Join-Path $multiRetireHome '.codex/skills/old-three')) -and -not (Test-Path (Join-Path $multiRetireHome '.codex/skills/old-four'))) 'multi-skill array -Retire @(...) removes all named skills via deploy.ps1'
 }
 finally {
     if (Test-Path -LiteralPath $work) {
