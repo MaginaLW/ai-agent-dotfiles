@@ -57,7 +57,7 @@ try {
     }
     Invoke-Gate 'run-tests' { Invoke-RepoScript 'run-tests.ps1' @('-RepoRoot', $RepoRoot) }
     Invoke-Gate 'dangerous-tracked-files' {
-        $violations = @(Get-GitLines @('ls-files') | Where-Object {
+        $violations = @(Get-GitLines @('-c', 'core.quotepath=false', 'ls-files') | Where-Object {
             Test-IsDangerousTrackedPath -RelativePath $_
         })
         if ($violations.Count) {

@@ -29,7 +29,7 @@ $ErrorActionPreference = 'Stop'
 
 try {
     $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-    if ($Name -cnotmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?$') {
+    if ($Name -cnotmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?\z') {
         throw "Invalid skill name: '$Name'"
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "Source is not a directory: $Path" }
@@ -70,6 +70,10 @@ try {
         Copy-SkillTree -SourceRoot $source -DestinationRoot $target
     }
     catch {
+        if (Test-Path -LiteralPath $target) {
+            Assert-TreeNoReparse -Root $target
+            Remove-Item -LiteralPath $target -Recurse -Force
+        }
         if ($backup -and -not (Test-Path -LiteralPath $target)) { Move-Item -LiteralPath $backup -Destination $target }
         throw
     }

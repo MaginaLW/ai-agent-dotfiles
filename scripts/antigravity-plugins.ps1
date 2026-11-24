@@ -18,16 +18,7 @@ $script:AgStateRoot = $null
 
 function Assert-AgPlainPath {
     param([string] $Path)
-    $cursor = [IO.Path]::GetFullPath($Path)
-    while ($cursor) {
-        if (Test-Path -LiteralPath $cursor) {
-            $item = Get-Item -LiteralPath $cursor -Force
-            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Plugin paths cannot contain reparse points.' }
-        }
-        $parent = Split-Path -Parent $cursor
-        if ($parent -eq $cursor) { break }
-        $cursor = $parent
-    }
+    Assert-PlainPathNoReparse -Path $Path -AllowMissing -MessagePrefix 'Plugin paths cannot contain reparse points'
 }
 
 function Get-AgTextHash {
@@ -251,6 +242,7 @@ function Enter-AgPluginLock {
 function New-AgPluginBuild {
     $lock = Enter-AgPluginLock -LockRoot $script:AgWork
     $stage = Join-Path $script:AgWork ('build-' + [Guid]::NewGuid().ToString('N'))
+    $old = $null
     try {
         $expected = Get-AgExpectedFiles
         $digest = Get-AgMapDigest $expected
@@ -288,6 +280,8 @@ function New-AgPluginBuild {
         $validation = if ($script:AgNative) { Get-AgNativeValidation $stage } else { $null }
         if ((Get-AgMapDigest (Get-AgExpectedFiles)) -cne $digest -or (Get-AgMapDigest (Get-AgTreeFiles $stage)) -cne $digest) { throw 'Source or candidate changed during build gates.' }
         if ((Get-AgGateFingerprint) -cne $gate) { throw 'Build gate inputs changed during scanning.' }
+        $revision = (& git -C $script:AgRepo rev-parse HEAD | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($revision)) { throw 'Cannot identify source revision.' }
         Assert-AgPlainPath $script:AgPackage
         if (Test-Path -LiteralPath $script:AgPackage) {
             if ((Get-AgMapDigest (Get-AgTreeFiles $script:AgPackage)) -cne $old.Digest) { throw 'Previous candidate changed during build gates; preserve it.' }
@@ -295,8 +289,6 @@ function New-AgPluginBuild {
         if (Test-Path -LiteralPath $script:AgPackage) { Remove-Item -LiteralPath $script:AgPackage -Recurse -Force }
         [IO.Directory]::CreateDirectory((Split-Path -Parent $script:AgPackage)) | Out-Null
         Move-Item -LiteralPath $stage -Destination $script:AgPackage
-        $revision = (& git -C $script:AgRepo rev-parse HEAD | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) { throw 'Cannot identify source revision.' }
         $receipt = [ordered]@{
             SchemaVersion=1; Name='ai-agent-dotfiles'; Version=$script:AgConfig.ManagedPlugin.Version
             Digest=$digest; Files=$expected; SourceRevision=$revision; GateFingerprint=$gate
@@ -305,7 +297,10 @@ function New-AgPluginBuild {
         Write-AgJsonFile $script:AgBuildReceipt $receipt
         return $receipt
     }
-    finally { $lock.Dispose() }
+    finally {
+        if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+        $lock.Dispose()
+    }
 }
 
 function Get-AgRegistrationHash {
@@ -316,12 +311,37 @@ function Get-AgRegistrationHash {
     return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
 }
 
+function ConvertTo-AgCanonicalValue {
+    param([object] $Value)
+    if ($Value -is [System.Collections.IDictionary]) {
+        $ordered = [ordered]@{}
+        foreach ($key in @($Value.Keys | Sort-Object -CaseSensitive)) {
+            $ordered[$key] = ConvertTo-AgCanonicalValue $Value[$key]
+        }
+        return $ordered
+    }
+    if ($Value -is [System.Collections.IList]) {
+        $list = [System.Collections.Generic.List[object]]::new()
+        foreach ($item in $Value) {
+            $list.Add((ConvertTo-AgCanonicalValue $item))
+        }
+        return , $list.ToArray()
+    }
+    return $Value
+}
+
+function Get-AgCanonicalPluginListJson {
+    param([AllowEmptyCollection()] [object[]] $Plugins)
+    $sorted = @($Plugins | Sort-Object -Property @{ Expression = { [string]$_['name'] } }, @{ Expression = { [string]$_['path'] } } | ForEach-Object {
+        ConvertTo-AgCanonicalValue $_
+    })
+    return (ConvertTo-Json -InputObject @($sorted) -Depth 30 -Compress)
+}
+
 function Get-AgInventoryToken {
     param([hashtable] $Inventory)
-    $plugins = @($Inventory.Plugins | Sort-Object name,path | ForEach-Object {
-        $entry = [ordered]@{}
-        foreach ($key in @($_.Keys | Sort-Object)) { $entry[$key] = $_[$key] }
-        $entry
+    $plugins = @($Inventory.Plugins | Sort-Object -Property @{ Expression = { [string]$_['name'] } }, @{ Expression = { [string]$_['path'] } } | ForEach-Object {
+        ConvertTo-AgCanonicalValue $_
     })
     return Get-AgTextHash (ConvertTo-Json -InputObject @{ Version=$Inventory.Version; ConfigRoot=$Inventory.ConfigRoot; Plugins=$plugins } -Depth 30 -Compress)
 }
@@ -413,9 +433,19 @@ function Get-AgPluginPlan {
     $targetMatches = [Collections.Generic.List[object]]::new()
     foreach ($plugin in @($inventory.Plugins)) {
         $isTarget = $plugin.name -ieq $managed.Name
-        if (Test-Path -LiteralPath (Join-Path $plugin.path 'plugin.json')) {
-            $manifest = Read-AgJsonFile (Join-Path $plugin.path 'plugin.json')
-            if ($manifest.ContainsKey('name') -and $manifest.name -ieq $managed.Name) { $isTarget = $true }
+        if (-not $isTarget) {
+            $manifestPath = Join-Path $plugin.path 'plugin.json'
+            try {
+                if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+                    $manifest = Read-AgJsonFile $manifestPath
+                    if ($manifest -is [hashtable] -and $manifest.ContainsKey('name') -and $manifest.name -ieq $managed.Name) {
+                        $isTarget = $true
+                    }
+                }
+            }
+            catch {
+                # Unrelated third-party plugin manifest read/parse errors must not abort managed plugin status.
+            }
         }
         if ($isTarget) { $targetMatches.Add($plugin) }
         else {
@@ -480,7 +510,7 @@ function Get-AgPluginPlan {
         $plan.Reason = 'same-name-unknown-owner'
         if (-not (Test-Path -LiteralPath $script:AgInstallReceipt)) { return $plan }
         $installed = Read-AgJsonFile $script:AgInstallReceipt
-        if ($installed.Name -cne $managed.Name -or $installed.Path -cne $plan.InstalledPath -or $installed.SchemaVersion -ne 1) { return $plan }
+        if ($installed.Name -cne $managed.Name -or [string]::IsNullOrWhiteSpace([string]$installed.Path) -or ([IO.Path]::GetFullPath([string]$installed.Path) -ine [IO.Path]::GetFullPath($plan.InstalledPath)) -or $installed.SchemaVersion -ne 1) { return $plan }
 
         if ((Get-AgMapDigest $live) -cne $installed.Digest) { $plan.Reason='installed-content-drift'; return $plan }
         if ($installed.Version -ceq $managed.Version) {
@@ -601,7 +631,7 @@ function Invoke-AgPluginDeploy {
                 }
                 $oldOthers = @($before.Plugins | Where-Object name -CNE $name)
                 $newOthers = @($after.Plugins | Where-Object name -CNE $name)
-                if ((ConvertTo-Json -InputObject $oldOthers -Depth 30 -Compress) -cne (ConvertTo-Json -InputObject $newOthers -Depth 30 -Compress)) {
+                if ((Get-AgCanonicalPluginListJson $oldOthers) -cne (Get-AgCanonicalPluginListJson $newOthers)) {
                     throw 'Other plugin inventory changed during external installation; stop.'
                 }
                 Remove-Item -LiteralPath $pendingMarker
@@ -712,7 +742,7 @@ function Invoke-AgPluginDeploy {
         if ((Get-AgMapDigest $files) -cne $plan.Digest) { throw 'Installed content or native metadata needs review; no ownership receipt was written.' }
         $oldExternal = @($before.Plugins | Where-Object name -INE 'ai-agent-dotfiles')
         $newExternal = @($after.Plugins | Where-Object name -INE 'ai-agent-dotfiles')
-        if ((ConvertTo-Json -InputObject $oldExternal -Depth 30 -Compress) -cne (ConvertTo-Json -InputObject $newExternal -Depth 30 -Compress)) { throw 'Unrelated plugin inventory changed during installation; stop.' }
+        if ((Get-AgCanonicalPluginListJson $oldExternal) -cne (Get-AgCanonicalPluginListJson $newExternal)) { throw 'Unrelated plugin inventory changed during installation; stop.' }
 
         $receipt = [ordered]@{
             SchemaVersion = 1

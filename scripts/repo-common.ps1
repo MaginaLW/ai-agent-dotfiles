@@ -149,6 +149,119 @@ function Test-IsBinaryExtension {
 $script:DriveAbsolutePathPattern = '(?<![A-Za-z])[A-Za-z]:[\\/]'
 $script:UncPathPattern = '\\\\[A-Za-z0-9?.$_-]'
 
+function Assert-PlainPathNoReparse {
+    <#
+    .SYNOPSIS
+        Verifies a path's existing ancestors (from root down) and leaf contain no reparse points.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [switch] $AllowMissing,
+        [string] $MessagePrefix = 'reparse-point-refused: path contains a reparse point',
+        [System.Collections.Generic.HashSet[string]] $CheckedPaths
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw 'Path must not be empty.'
+    }
+    $provider = $null
+    $drive = $null
+    $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path, [ref]$provider, [ref]$drive)
+    if ($null -eq $provider -or $provider.Name -cne 'FileSystem') {
+        throw "Path must be a filesystem path: $Path"
+    }
+    $full = [System.IO.Path]::GetFullPath($resolved)
+    $root = [System.IO.Path]::GetPathRoot($full)
+    if ([string]::IsNullOrEmpty($root)) {
+        throw "Path must be rooted: $Path"
+    }
+    $trimmedRoot = $root.TrimEnd('\', '/')
+    $remainder = $full.Substring($root.Length).TrimStart('\', '/')
+    $segments = if ([string]::IsNullOrEmpty($remainder)) { @() } else { @($remainder -split '[\\/]' | Where-Object { $_ }) }
+
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    $candidates.Add($root)
+    $cursor = if ($trimmedRoot) { $trimmedRoot } else { $root }
+    foreach ($segment in $segments) {
+        $cursor = if ($cursor.EndsWith('\') -or $cursor.EndsWith('/')) { $cursor + $segment } else { $cursor + [System.IO.Path]::DirectorySeparatorChar + $segment }
+        $candidates.Add($cursor)
+    }
+
+    for ($i = 0; $i -lt $candidates.Count; $i++) {
+        $current = $candidates[$i]
+        $isLeaf = ($i -eq ($candidates.Count - 1))
+        if ($null -ne $CheckedPaths -and (-not $isLeaf) -and $CheckedPaths.Contains($current)) {
+            continue
+        }
+        $item = $null
+        try {
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        }
+        catch [System.Management.Automation.ItemNotFoundException] {
+            $item = $null
+        }
+        catch [System.IO.DirectoryNotFoundException] {
+            $item = $null
+        }
+        catch [System.IO.FileNotFoundException] {
+            $item = $null
+        }
+        if ($null -eq $item) {
+            if ($AllowMissing) { return }
+            throw "Path does not exist: $current"
+        }
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "${MessagePrefix}: $current"
+        }
+        if ($null -ne $CheckedPaths -and $item.PSIsContainer) {
+            $null = $CheckedPaths.Add($current)
+        }
+    }
+}
+
+function Assert-TreeNoReparse {
+    <#
+    .SYNOPSIS
+        Verifies a directory path, its existing ancestors, and all descendants contain no reparse points.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [switch] $AllowMissing,
+        [string] $MessagePrefix = 'reparse-point-refused: path contains a reparse point'
+    )
+    Assert-PlainPathNoReparse -Path $Root -AllowMissing:$AllowMissing -MessagePrefix $MessagePrefix
+    $provider = $null
+    $drive = $null
+    $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root, [ref]$provider, [ref]$drive)
+    $fullRoot = [System.IO.Path]::GetFullPath($resolved)
+    $rootItem = $null
+    try {
+        $rootItem = Get-Item -LiteralPath $fullRoot -Force -ErrorAction Stop
+    }
+    catch [System.Management.Automation.ItemNotFoundException] {
+        $rootItem = $null
+    }
+    catch [System.IO.DirectoryNotFoundException] {
+        $rootItem = $null
+    }
+    catch [System.IO.FileNotFoundException] {
+        $rootItem = $null
+    }
+    if ($null -eq $rootItem) {
+        if ($AllowMissing) { return }
+        throw "Path does not exist: $fullRoot"
+    }
+    if (-not $rootItem.PSIsContainer) {
+        throw "Path is not a plain directory: $fullRoot"
+    }
+    foreach ($entry in @(Get-ChildItem -LiteralPath $fullRoot -Recurse -Force -ErrorAction Stop)) {
+        if ($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "${MessagePrefix}: $($entry.FullName)"
+        }
+    }
+}
+
 function Invoke-SecretScanGate {
     # Runs scripts/scan-secrets.ps1 under the given repository root in a child pwsh and
     # throws on failure. Callers decide when it runs (before writes, or after with a revert).

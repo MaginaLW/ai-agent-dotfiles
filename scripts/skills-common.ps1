@@ -1,6 +1,7 @@
 #requires -Version 7.0
 
 # Skill-tree helpers shared by build-skills.ps1 and promote-skill.ps1.
+. (Join-Path $PSScriptRoot 'repo-common.ps1')
 
 function Get-SkillDirectories {
     # .system is the Codex built-in root: never a build source or generated skill.
@@ -28,15 +29,7 @@ function Test-SameOrDescendant {
 # Get-ChildItem -Recurse lists reparse entries without following them.
 function Assert-SkillTreeNoReparsePoint {
     param([Parameter(Mandatory)] [string] $Root)
-    $rootItem = Get-Item -LiteralPath $Root -Force
-    if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-        throw "Skill tree root is not a plain directory: $Root"
-    }
-    foreach ($item in @(Get-ChildItem -LiteralPath $Root -Recurse -Force)) {
-        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-            throw "Skill tree contains a reparse point: $($item.FullName)"
-        }
-    }
+    Assert-TreeNoReparse -Root $Root -MessagePrefix 'Skill tree contains a reparse point'
 }
 
 # Copies a skill tree (hidden files and empty directories included) to a create-new destination.

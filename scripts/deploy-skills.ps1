@@ -38,6 +38,8 @@ $backupRoot = Join-Path $StateRoot ('skill-backups\' + (Get-Date).ToUniversalTim
 function Get-DeploySkillsLiveRoot([string] $Platform) {
     switch ($Platform) {
         'Codex' {
+            Assert-PlainPathNoReparse -Path (Join-Path $HomeRoot '.codex\skills') -AllowMissing
+            Assert-PlainPathNoReparse -Path (Join-Path $HomeRoot '.agents\skills') -AllowMissing
             $roots = Get-CodexLiveSkillRoots -HomeRoot $HomeRoot
             if ($roots.Ambiguous) { throw "codex-live-root-ambiguous: both $($roots.Preferred) and $($roots.Fallback) exist" }
             if ($roots.FallbackExists) { Write-Host 'Codex live root: ~/.agents/skills (fallback; ~/.codex/skills is absent)' }
@@ -47,21 +49,13 @@ function Get-DeploySkillsLiveRoot([string] $Platform) {
     }
 }
 
-function Assert-DeploySkillsPlainTree([string] $Path) {
-    # Refuse any reparse point at or below a directory this tool reads, replaces or deletes.
-    if (-not (Test-Path -LiteralPath $Path)) { return }
-    if ((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "reparse-point-refused: $Path" }
-    $link = Get-ChildItem -LiteralPath $Path -Recurse -Force -Attributes ReparsePoint -ErrorAction Stop | Select-Object -First 1
-    if ($link) { throw "reparse-point-refused: $($link.FullName)" }
-}
-
 function Get-DeploySkillsTreeState([string] $Path) {
     # One walk replaces the separate plain-tree assert plus file-only hash walk: it refuses
-    # any reparse point at or below the root (same contract as Assert-DeploySkillsPlainTree)
-    # and retains relative file hashes for the preview without another tree walk.
+    # any reparse point at or below the root (including ancestors) and retains relative
+    # file hashes for the preview without another tree walk.
+    Assert-PlainPathNoReparse -Path $Path -AllowMissing
     $files = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
     if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ Hash = $null; Files = $files } }
-    if ((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "reparse-point-refused: $Path" }
     $rows = @(Get-ChildItem -LiteralPath $Path -Recurse -Force | Sort-Object FullName | ForEach-Object {
         if ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "reparse-point-refused: $($_.FullName)" }
         if ($_.PSIsContainer) { return }
@@ -73,16 +67,45 @@ function Get-DeploySkillsTreeState([string] $Path) {
     return [pscustomobject]@{ Hash = ($rows -join "`n"); Files = $files }
 }
 
+if ($Environment -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_-]*\z') {
+    throw "invalid environment name: '$Environment'"
+}
+$retireList = [System.Collections.Generic.List[string]]::new()
+$retireSeen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($rawRetire in @($Retire)) {
+    foreach ($token in ([string]$rawRetire -split ',')) {
+        $trimmed = $token.Trim()
+        if ([string]::IsNullOrEmpty($trimmed)) {
+            throw "invalid skill name for Retire: '$rawRetire'"
+        }
+        if ($retireSeen.Add($trimmed)) { $retireList.Add($trimmed) }
+    }
+}
+$Retire = $retireList.ToArray()
+
 $envPath = Join-Path $RepoRoot "harness-source\envs\$Environment.psd1"
 if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) { throw "unknown environment: $Environment ($envPath)" }
-$selection = (Import-PowerShellDataFile -LiteralPath $envPath).Skills
+$envData = Import-PowerShellDataFile -LiteralPath $envPath
+if ($envData -isnot [hashtable] -or -not $envData.ContainsKey('Skills')) {
+    throw "env $Environment must define Skills with exactly the key Codex (use @() for none)"
+}
+$selection = $envData['Skills']
 # A missing or misspelled platform key would read as an empty selection and prune everything.
 if ($selection -isnot [hashtable] -or @($platforms | Where-Object { -not $selection.ContainsKey($_) }).Count -or @($selection.Keys | Where-Object { $_ -notin $platforms }).Count) {
     throw "env $Environment must define Skills with exactly the key Codex (use @() for none)"
 }
 foreach ($platform in $platforms) {
-    foreach ($name in @($selection[$platform]) + @($Retire)) {
+    $seenSkills = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @($selection[$platform])) {
         # Only an empty selection means none. A blank name or trailing dot is invalid on Windows.
+        if (-not (Test-DeploySkillName $name)) {
+            throw "invalid skill name for ${platform}: '$name'"
+        }
+        if (-not $seenSkills.Add($name)) {
+            throw "duplicate skill name for ${platform}: '$name'"
+        }
+    }
+    foreach ($name in @($Retire)) {
         if (-not (Test-DeploySkillName $name)) {
             throw "invalid skill name for ${platform}: '$name'"
         }
@@ -92,6 +115,8 @@ foreach ($platform in $platforms) {
     }
 }
 
+Assert-PlainPathNoReparse -Path $StateRoot -AllowMissing
+Assert-PlainPathNoReparse -Path $statePath -AllowMissing
 # One shared read of the deploy-state record, before any build or plan: a present
 # unreadable or invalid record cannot authorize any prune or write, while a genuinely
 # missing record is the normal fresh condition. Legacy records without an Environment
@@ -120,7 +145,7 @@ $plan = foreach ($platform in $platforms) {
     $liveRoot = Get-DeploySkillsLiveRoot $platform
     $sourceRoot = Join-Path $RepoRoot ($platform.ToLowerInvariant() + '\skills')
     $selected = @($selection[$platform])
-    if ((Test-Path -LiteralPath $liveRoot) -and ((Get-Item -LiteralPath $liveRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "reparse-point-refused: $liveRoot" }
+    Assert-PlainPathNoReparse -Path $liveRoot -AllowMissing
     $liveNames = if (Test-Path -LiteralPath $liveRoot) { @(Get-ChildItem -LiteralPath $liveRoot -Directory -Force | ForEach-Object Name) } else { @() }
     foreach ($name in @($liveNames | Where-Object { $_.StartsWith('.deploying-') })) {
         $interrupted.Add([pscustomobject]@{ Platform = $platform; Path = (Join-Path $liveRoot $name) })
@@ -153,7 +178,7 @@ $plan = foreach ($platform in $platforms) {
     foreach ($name in $liveNames) {
         if ($name -in $selected -or $name -eq '.system' -or $name.StartsWith('.deploying-')) { continue }
         $action = if ($name -in $prunable) { 'prune' } else { 'unknown' }
-        if ($action -eq 'prune') { Assert-DeploySkillsPlainTree (Join-Path $liveRoot $name) }
+        if ($action -eq 'prune') { Assert-TreeNoReparse -Root (Join-Path $liveRoot $name) }
         $reason = if ($name -in $Retire) { 'explicit -Retire' } else { 'previously managed; not selected in target environment' }
         [pscustomobject]@{ Platform = $platform; Action = $action; Name = $name; Source = $null; Target = (Join-Path $liveRoot $name); Reason = $reason }
     }
@@ -186,10 +211,12 @@ if ($interrupted.Count -gt 0) {
 if (-not $Apply) { Write-Host "Dry run for environment '$Environment'. Re-run with -Apply to make these changes."; return }
 
 try {
+Assert-PlainPathNoReparse -Path $backupRoot -AllowMissing
+Assert-PlainPathNoReparse -Path $statePath -AllowMissing
 foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune')) {
     $liveRoot = Split-Path -Parent $step.Target
     if ($step.Action -ne 'install') {
-        Assert-DeploySkillsPlainTree $step.Target
+        Assert-TreeNoReparse -Root $step.Target
         $backup = Join-Path $backupRoot "$($step.Platform)\$($step.Name)"
         New-Item -ItemType Directory -Path (Split-Path -Parent $backup) -Force | Out-Null
         Copy-Item -LiteralPath $step.Target -Destination $backup -Recurse -Force
@@ -200,20 +227,20 @@ foreach ($step in @($plan | Where-Object Action -in 'install', 'update', 'prune'
     $staging = Join-Path $liveRoot ".deploying-$($step.Name)"
     $retired = Join-Path $liveRoot ".deploying-old-$($step.Name)"
     if (Test-Path -LiteralPath $staging) {
-        Assert-DeploySkillsPlainTree $staging
+        Assert-TreeNoReparse -Root $staging
         $stagingBackup = Join-Path $backupRoot "interrupted-staging\$($step.Platform)\$($step.Name)"
         New-Item -ItemType Directory -Path (Split-Path -Parent $stagingBackup) -Force | Out-Null
         Copy-Item -LiteralPath $staging -Destination $stagingBackup -Recurse -Force
         Write-Host "Preserved interrupted directory: $staging -> $stagingBackup"
     }
     if (Test-Path -LiteralPath $retired) {
-        Assert-DeploySkillsPlainTree $retired
+        Assert-TreeNoReparse -Root $retired
         $interruptedBackup = Join-Path $backupRoot "interrupted\$($step.Platform)\$($step.Name)"
         New-Item -ItemType Directory -Path (Split-Path -Parent $interruptedBackup) -Force | Out-Null
         Copy-Item -LiteralPath $retired -Destination $interruptedBackup -Recurse -Force
         Write-Host "Preserved interrupted directory: $retired -> $interruptedBackup"
     }
-    foreach ($leftover in $staging, $retired) { if (Test-Path -LiteralPath $leftover) { Assert-DeploySkillsPlainTree $leftover; Remove-Item -LiteralPath $leftover -Recurse -Force } }
+    foreach ($leftover in $staging, $retired) { if (Test-Path -LiteralPath $leftover) { Assert-TreeNoReparse -Root $leftover; Remove-Item -LiteralPath $leftover -Recurse -Force } }
     if ($step.Action -ne 'prune') { Copy-Item -LiteralPath $step.Source -Destination $staging -Recurse }
     if (Test-Path -LiteralPath $step.Target) { Rename-Item -LiteralPath $step.Target -NewName (Split-Path -Leaf $retired) }
     if ($step.Action -ne 'prune') { Rename-Item -LiteralPath $staging -NewName $step.Name }
