@@ -1,7 +1,7 @@
 # New Windows Machine Onboarding
 
 Set up one Windows machine for the daily Codex and Antigravity workflow (skills, global agreements, plugins, and managed MCP servers).
-The `work` environment selects nine skills from `codex/skills/` for Codex. Bootstrap builds `codex/skills/` from `skills-source/`.
+The `work` environment selects ten skills from `codex/skills/` for Codex. Bootstrap builds `codex/skills/` from `skills-source/`.
 Use PowerShell 7+. Start only after the owner names the machine.
 
 ## 1. Clone and bootstrap

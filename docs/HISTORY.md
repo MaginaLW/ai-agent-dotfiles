@@ -2,6 +2,25 @@
 
 Removed code and docs stay in Git history. This page says where to find them.
 
+## Five code issues and fix verification (removed 2026-11-24)
+
+The five code issues identified against `main` commit `ee2fe15` (plugin upgrade lockout, concurrent personal save overwrite in `config-pull`, MCP diagnostic JSON private values, manual skill ownership tracking, and backup-root boundary enforcement) were all fixed (`5c1126a`, `019d63e`, `3e952dc`, `c167673`, `3ed5b04`, `1d538f7`) and follow-up hardened in PR #39 (`ffb3234`) with isolated regression coverage. The last commit containing `docs/OPEN_CODE_ISSUES.md` is `d430500`.
+
+```powershell
+git show d430500:docs/OPEN_CODE_ISSUES.md
+```
+
+## Repository-wide optimization plan 2026-11-17 (removed 2026-11-24)
+
+The five tracks closed with an implementation or an owner decision for each of the 14 items.
+The [archived plan](https://github.com/MaginaLW/ai-agent-dotfiles/blob/514a564707624ccbacf814f4184667126be9db85/docs/OPTIMIZATION_PLAN_2026-11-17.md) preserves all six decisions.
+Under decision 5, the 2026-11-21 inventory confirmed that a downstream project uses
+`.agent-harness/profile.psd1`. Project Harness Profiles are now maintained on demand.
+
+```powershell
+git show 514a564:docs/OPTIMIZATION_PLAN_2026-11-17.md
+```
+
 ## ZCode platform, `antigravity-delegation`, and Grok routing retirement (2026-11-21)
 
 ZCode skill deployment, configuration sync (`zcode/AGENTS.md`), MCP projection, `docs/ZCODE.md`, `skills-source/zcode-only/`, `manifests/managed-skills.zcode.txt`, the Codex-only `antigravity-delegation` skill, and the Grok routing clause in `codex/AGENTS.md` were retired on 2026-11-21. The last commit that still contains them is `f1faa91`. Existing `~/.zcode/` files on user machines remain outside this tool's scope.

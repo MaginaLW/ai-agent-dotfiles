@@ -1,7 +1,19 @@
-# 三端统一扩展方案（MCP、第三方插件与跨端多模态接入）
+# 多模态与 MCP 扩展验收
 
-日期：2026-11-15。
-状态：**已立项并完成轨道 A → B → C 源码合并：轨道 A（`multimodal-generation` PR #19 `112f418`）、轨道 B（`ExternalPlugins` PR #23 `faeece9`）、轨道 C 规则修订（PR #24 `c9e71dc`）与 `mcp-sync` 实现（PR #25 `7a63a13`）均已并入 `main`；当前仅余 Antigravity 端 `blender` `/args` 实机对齐与 T3 端到端实测验收。**
+2026-11-23 更新。共享多模态技能（PR #19）、Antigravity 第三方插件清单（PR #23）、MCP 管理规则和分发实现（PR #24、#25）均已合入主线。ZCode 于 2026-11-21 退役，当前验收覆盖 Codex 和 Antigravity。[项目状态](../STATUS.md) · [平台退役记录](HISTORY.md#zcode-platform-antigravity-delegation-and-grok-routing-retirement-2026-11-21)
+
+| 项目 | 已有证据 | 剩余验收 |
+| --- | --- | --- |
+| Blender MCP | Codex CLI 和 Antigravity Desktop 均已通过 `localhost:9800` 连通 Blender。2026-11-23 在新的 Antigravity 无项目会话中调用 `get_addon_status`，返回 Blender 5.3.0、插件 2.0、实际和预期协议版本均为 `16`、`up_to_date: true`。 | 已完成。[连接步骤](ONBOARD_NEW_MACHINE.md#5-project-managed-mcp-servers-mcp-sync) |
+| Unity | Antigravity 已登记并启用 Unity 插件 0.1.9-beta，安装来源与声明一致。 | 在 Unity Editor 中实测目标工作流并记录结果。 |
+| 订阅额度内的媒体生成 | `multimodal-generation` 已部署。 | 用现有订阅额度完成一次生成，保存并检查产物。 |
+
+保留本计划，待剩余验收结果或所有者对未结项的决定记入 [STATUS.md](../STATUS.md) 后，再登记至[历史索引](HISTORY.md)。
+
+<details>
+<summary>2026-11-15 立项方案及调查记录</summary>
+
+以下保留立项时的三端方案、授权范围与调查记录。文中的版本、端口、订阅选项和待办均以当时为准。
 
 ## 1. 背景与目标
 
@@ -96,3 +108,5 @@
 - **`mcp-for-blender`（`2.3.0`）与 Blender 5.3**：
   - `uvx mcp-for-blender` 可直接作为 Stdio server 运行（默认连接 `BLENDER_HOST=localhost`、`BLENDER_PORT=9876`，无需 API 密钥）；
   - 本机已安装 `Blender 5.3`，但用户配置目录 `%APPDATA%\Blender Foundation\Blender\5.3` 尚未生成（`uvx mcp-for-blender addon-paths` 返回空），正式 T3 验收前需先启动一次 Blender 5.3 或运行 `uvx mcp-for-blender install-addon` 并启用插件。
+
+</details>
