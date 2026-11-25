@@ -91,7 +91,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 
 ## 可视化监控台
 
-双击仓库根目录的 `start-dashboard.cmd`，或运行统一 CLI 启动本地中文监控台：
+双击仓库根目录的 `start-dashboard.cmd`（也可将其创建为桌面快捷方式一键启动，关闭任务栏中的对应窗口即可停止本地服务），或运行统一 CLI 启动本地中文监控台：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard

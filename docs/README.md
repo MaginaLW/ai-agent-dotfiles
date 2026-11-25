@@ -40,6 +40,8 @@
 | `tools/gitleaks/` | pinned gitleaks 的版本、下载地址与校验锁 |
 | `.gitleaks.toml` | 仓库秘密扫描规则 |
 | `scripts/` | build、scan、deploy（§4）、promote（§6）、config（§11）、profile（§12）、测试与校验入口（§10）、只读 `doctor.ps1`、统一 CLI（§14） |
+| `dashboard/` | 本地中文可视化监控台源码（`server.py` 与 `index.html`，纯 Python 标准库，仅监听 `127.0.0.1`，§17） |
+| `start-dashboard.cmd` | Windows 一键双击启动入口（纯 ASCII + CRLF），转调 `scripts/dashboard.ps1` 打开本地中文监控台（§17） |
 
 `scripts/pinned-tool.ps1` 从调用方传入的 `-LockPath` 读取工具锁文件；gitleaks 的锁路径由
 `scripts/install-gitleaks.ps1`、扫描和 doctor 等调用方传入，不在通用 helper 中固定。
@@ -546,7 +548,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
 
 ## 17. 本地可视化监控台（dashboard）
 
-`scripts/dashboard.ps1`（或根目录双击 `start-dashboard.cmd`）启动或复用一个仅面向本机的中文 Web 监控与交互控制台（`dashboard/server.py` + `dashboard/index.html`，纯 Python 3.11+ 标准库实现，无外部 CDN/npm 依赖）。
+`scripts/dashboard.ps1`（或根目录双击 `start-dashboard.cmd`）启动或复用一个仅面向本机的中文 Web 监控与交互控制台（`dashboard/server.py` + `dashboard/index.html`，纯 Python 3.11+ 标准库实现，无外部 CDN/npm 依赖）。`start-dashboard.cmd` 采用纯 ASCII + Windows CRLF 换行（由 `.gitattributes` 锁定），也可在桌面创建快捷方式并设置为最小化窗口启动，需要停止本地服务时直接关闭任务栏中的对应窗口即可。
 
 ```powershell
 # 直接启动并自动打开浏览器（若同仓库实例已健康运行则复用）
