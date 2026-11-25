@@ -183,7 +183,7 @@ need them.
   runtime exclusions, including source-only `CREATION-LOG.md`; apply its comparison contract.
   See [the bounded recheck recipe](docs/README.md#部署后的只读复核).
 - **CI.** One `Validate` job runs `scripts/run-repository-validation.ps1` on push to `main`, on
-  pull requests and on manual dispatch: PowerShell syntax, gitleaks verification, build, secret
+  pull requests and on manual dispatch: PowerShell syntax, Python syntax, gitleaks verification, build, secret
   scan, doctor, manifest parity, every test suite, dangerous tracked files and a clean tree.
   Before merging a change to `scripts/` or `tests/`, get a green run. Local checks do not stand
   in for CI.
