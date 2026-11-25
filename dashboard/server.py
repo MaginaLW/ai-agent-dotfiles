@@ -2117,14 +2117,19 @@ def main(argv: list[str] | None = None) -> int:
         ),
         flush=True,
     )
+    open_timer: threading.Timer | None = None
     if args.open:
-        webbrowser.open(url)
+        open_timer = threading.Timer(0.15, webbrowser.open, args=(url,))
+        open_timer.daemon = True
+        open_timer.start()
 
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
+        if open_timer is not None:
+            open_timer.cancel()
         server.server_close()
         cleanup_server_json(info_path, os.getpid())
     return 0

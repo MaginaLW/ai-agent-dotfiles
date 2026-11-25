@@ -23,8 +23,36 @@ try {
     Write-Host 'dashboard: entry scripts and launcher'
     $cmdPath = Join-Path $RepoRoot 'start-dashboard.cmd'
     Assert-TestCondition (Test-Path -LiteralPath $cmdPath -PathType Leaf) 'start-dashboard.cmd exists at repository root'
-    $cmdText = [IO.File]::ReadAllText($cmdPath)
+    $cmdBytes = [IO.File]::ReadAllBytes($cmdPath)
+    $nonAsciiBytes = @($cmdBytes | Where-Object { $_ -gt 127 })
+    Assert-TestCondition ($nonAsciiBytes.Count -eq 0) 'start-dashboard.cmd contains pure ASCII bytes'
+    $cmdText = [Text.Encoding]::ASCII.GetString($cmdBytes)
+    Assert-TestCondition ($cmdText.Contains("`r`n") -and (-not ($cmdText -replace "`r`n", '').Contains("`n"))) 'start-dashboard.cmd uses CRLF line endings'
     Assert-TestCondition ($cmdText.Contains('scripts\dashboard.ps1') -and $cmdText.Contains('where pwsh')) 'start-dashboard.cmd checks pwsh and invokes scripts\dashboard.ps1'
+
+    $cmdInfo = [System.Diagnostics.ProcessStartInfo]::new('cmd.exe')
+    foreach ($arg in @('/d', '/c', $cmdPath, '-Check', '-RepoRoot', $RepoRoot)) { $cmdInfo.ArgumentList.Add($arg) }
+    $cmdInfo.WorkingDirectory = $RepoRoot
+    $cmdInfo.Environment['DASHBOARD_NO_PAUSE'] = '1'
+    $cmdInfo.UseShellExecute = $false
+    $cmdInfo.RedirectStandardInput = $true
+    $cmdInfo.RedirectStandardOutput = $true
+    $cmdInfo.RedirectStandardError = $true
+    $cmdProc = [System.Diagnostics.Process]::Start($cmdInfo)
+    $cmdProc.StandardInput.Close()
+    $cmdOutTask = $cmdProc.StandardOutput.ReadToEndAsync()
+    $cmdErrTask = $cmdProc.StandardError.ReadToEndAsync()
+    $cmdExited = $cmdProc.WaitForExit(15000)
+    if (-not $cmdExited) {
+        $cmdProc.Kill($true)
+        $cmdProc.WaitForExit(2000) | Out-Null
+    }
+    $cmdOut = $cmdOutTask.GetAwaiter().GetResult()
+    $cmdErr = $cmdErrTask.GetAwaiter().GetResult()
+    $cmdCheckJson = $null
+    try { $cmdCheckJson = $cmdOut | ConvertFrom-Json } catch { $cmdCheckJson = $null }
+    Assert-TestCondition ($cmdExited -and $cmdProc.ExitCode -eq 0 -and [string]::IsNullOrWhiteSpace($cmdErr) -and $null -ne $cmdCheckJson -and $cmdCheckJson.ok -eq $true) 'cmd.exe executes start-dashboard.cmd -Check cleanly with valid JSON'
+    $cmdProc.Dispose()
 
     $dashboardScript = Join-Path $RepoRoot 'scripts/dashboard.ps1'
     $cliScript = Join-Path $RepoRoot 'scripts/agent-dotfiles.ps1'
