@@ -2,6 +2,14 @@
 
 Removed code and docs stay in Git history. This page says where to find them.
 
+## Multimodal and MCP extension acceptance plan (removed 2026-11-25)
+
+Tracks A–C merged into `main` (PRs #19, #23, #24, #25), and ZCode was retired on 2026-11-21. Blender MCP was verified in Codex CLI and Antigravity Desktop on 2026-11-23 (`localhost:9800`, Blender 5.3.0, add-on 2.0, protocol 16). On 2026-11-25, `multimodal-generation` was verified (`applied`) in Antigravity with `$0` extra API spend via the built-in `image-generator` subagent (`1024x1024` `.jpg` artifact, `.prompt.md` sidecar, and vision read-back; video/audio generation and `ffprobe` local checks remain on demand as `ffprobe` is absent locally). Antigravity `unity` plugin `0.1.9-beta` is enabled with skills readable (`loaded`) alongside Unity 6 Editor `6000.3.28f1` (`unity` CLI absent from `PATH`), with live Unity Editor workflow verification deferred to the first active Unity project per owner direction on 2026-11-25. The last commit containing `docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md` is `3f7449c`.
+
+```powershell
+git show 3f7449c:docs/MULTIMODAL_AND_MCP_EXTENSION_PLAN_2026-11-15.md
+```
+
 ## Five code issues and fix verification (removed 2026-11-24)
 
 The five code issues identified against `main` commit `ee2fe15` (plugin upgrade lockout, concurrent personal save overwrite in `config-pull`, MCP diagnostic JSON private values, manual skill ownership tracking, and backup-root boundary enforcement) were all fixed (`5c1126a`, `019d63e`, `3e952dc`, `c167673`, `3ed5b04`, `1d538f7`) and follow-up hardened in PR #39 (`ffb3234`) with isolated regression coverage. The last commit containing `docs/OPEN_CODE_ISSUES.md` is `d430500`.

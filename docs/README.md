@@ -245,7 +245,7 @@ pwsh -NoProfile -File scripts/run-tests.ps1
 ```
 
 它打印汇总，任一套件失败或超时即以 1 退出；每个套件的时间预算在 `tests/test-timeouts.psd1`。
-CI 同款的全量验证入口是 `scripts/run-repository-validation.ps1`（语法、gitleaks 校验、build、秘密扫描、
+CI 同款的全量验证入口是 `scripts/run-repository-validation.ps1`（PowerShell 与 Python 语法、gitleaks 校验、build、秘密扫描、
 doctor、manifest 一致性、全部测试套件、危险文件检查与干净树，逐 gate 顺序执行）。
 
 config-sync 测试的 repo/home/backup fixtures 位于忽略的 `tmp/tests/config-sync/<run-id>/`。
