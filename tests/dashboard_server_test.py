@@ -545,6 +545,55 @@ class DashboardServerTests(unittest.TestCase):
                 409,
             )
 
+    def test_swarm_probe_relative_and_absolute_paths(self) -> None:
+        run_dir = self.repo / "tmp" / "swarm" / "demo-run"
+        run_dir.mkdir(parents=True)
+        rel_manifest = run_dir / "manifest.json"
+        rel_manifest.write_text(json.dumps({"run": "demo-run", "actors": {"Lead": os.fspath(run_dir)}}), encoding="utf-8")
+
+        ext_dir = self.base / "external_board"
+        ext_dir.mkdir()
+        ext_manifest = ext_dir / "manifest.json"
+        ext_manifest.write_text(json.dumps({"run": "ext-run", "actors": {"Lead": os.fspath(ext_dir)}}), encoding="utf-8")
+
+        with self._running_server() as (_server, app, port):
+            hdrs = {"X-Dashboard-Token": app.token}
+
+            # Relative path resolves against repo_root (not process CWD)
+            st_rel, _, raw_rel = self._request(
+                port,
+                "POST",
+                "/api/swarm/probe",
+                headers=hdrs,
+                body={"manifest_path": "tmp/swarm/demo-run/manifest.json"},
+            )
+            self.assertEqual(st_rel, 200)
+            rel_board = json.loads(raw_rel.decode("utf-8"))
+            self.assertEqual(rel_board["run"], "demo-run")
+            self.assertTrue(rel_board["manifest_path_display"].startswith("<repo>"))
+
+            # Absolute path outside repo_root also remains supported
+            st_abs, _, raw_abs = self._request(
+                port,
+                "POST",
+                "/api/swarm/probe",
+                headers=hdrs,
+                body={"manifest_path": os.fspath(ext_manifest)},
+            )
+            self.assertEqual(st_abs, 200)
+            abs_board = json.loads(raw_abs.decode("utf-8"))
+            self.assertEqual(abs_board["run"], "ext-run")
+
+            # Reject invalid filename and missing file
+            self.assertEqual(
+                self._request(port, "POST", "/api/swarm/probe", headers=hdrs, body={"manifest_path": "STATUS.md"})[0],
+                400,
+            )
+            self.assertEqual(
+                self._request(port, "POST", "/api/swarm/probe", headers=hdrs, body={"manifest_path": "tmp/missing/manifest.json"})[0],
+                400,
+            )
+
 
 if __name__ == "__main__":
     sys.dont_write_bytecode = True

@@ -1275,6 +1275,8 @@ class DashboardApp:
         if not isinstance(manifest_path_raw, str) or not manifest_path_raw.strip():
             raise ValueError("manifest_path is required")
         candidate = Path(manifest_path_raw.strip())
+        if not candidate.is_absolute():
+            candidate = self.repo_root / candidate
         if candidate.name != "manifest.json":
             raise ValueError("manifest_path must point to a file named manifest.json")
         abs_manifest = assert_plain_path_no_reparse(candidate, allow_missing=False)
