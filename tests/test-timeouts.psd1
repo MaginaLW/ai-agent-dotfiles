@@ -7,6 +7,7 @@
         'build-skills.tests.ps1' = 30
         'config-sync.tests.ps1' = 180
         'coordination.tests.ps1' = 90
+        'dashboard.tests.ps1' = 60
         'deploy.tests.ps1' = 100
         'deploy-skills.tests.ps1' = 110
         'doctor.tests.ps1' = 30

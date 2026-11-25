@@ -71,6 +71,10 @@ foreach ($helpArgs in @(@('help', 'status'), @('status', 'help'))) {
     $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'status help')
     Assert ($result.Code -eq 0 -and $result.Out -match 'agent-dotfiles.ps1 status' -and $result.Out -match 'strictly read-only' -and $result.Out -notmatch 'Invoking script') "status help returns usage: $($helpArgs -join ' ')"
 }
+foreach ($helpArgs in @(@('help', 'dashboard'), @('dashboard', 'help'))) {
+    $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'dashboard help')
+    Assert ($result.Code -eq 0 -and $result.Out -match 'agent-dotfiles.ps1 dashboard' -and $result.Out -match 'DryRun preview' -and $result.Out -notmatch 'Invoking script') "dashboard help returns usage: $($helpArgs -join ' ')"
+}
 foreach ($helpArgs in @(@('help', 'unknown'), @('config', 'help', 'extra'))) {
     $result = Invoke-ParserCase -Arguments $helpArgs
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') 'invalid help requests remain errors'

@@ -44,6 +44,7 @@ try {
     Invoke-Gate 'python-syntax' {
         $python = @(Get-Command python -CommandType Application -ErrorAction Stop)[0].Source
         $pythonRoots = @(
+            (Join-Path $RepoRoot 'dashboard'),
             (Join-Path $RepoRoot 'skills-source'),
             (Join-Path $RepoRoot 'tests')
         ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
@@ -51,7 +52,7 @@ try {
             Get-ChildItem -LiteralPath $pythonRoots -Filter '*.py' -Recurse -File | Sort-Object FullName | ForEach-Object FullName
         })
         if ($pythonFiles.Count -eq 0) {
-            throw 'No Python files found under skills-source/ or tests/.'
+            throw 'No Python files found under dashboard/, skills-source/, or tests/.'
         }
         $hadPycachePrefix = Test-Path Env:PYTHONPYCACHEPREFIX
         $previousPycachePrefix = if ($hadPycachePrefix) { $env:PYTHONPYCACHEPREFIX } else { $null }

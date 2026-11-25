@@ -408,6 +408,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 ```text
 help                         显示用法
 status                       -> 统一只读状态汇总（环境、config、antigravity、mcp）[-Json]
+dashboard                    -> scripts/dashboard.ps1（启动或复用本地中文监控台）
 doctor                       -> scripts/doctor.ps1
 build                        -> scripts/build-skills.ps1
 scan                         -> scripts/scan-secrets.ps1
@@ -422,7 +423,7 @@ mcp status | deploy          -> scripts/mcp-sync.ps1 -Action <action>
 ```
 
 用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help` 查看命令概览。
-用 `help config` 或 `config help` 查看分组帮助；`status`、`env`、`profile`、`skills`、`antigravity`、`mcp` 支持相同拼法。
+用 `help config` 或 `config help` 查看分组帮助；`status`、`dashboard`、`env`、`profile`、`skills`、`antigravity`、`mcp` 支持相同拼法。
 帮助说明操作方向、写入范围和常用示例，不执行子脚本。`config push` 仅捕获本机配置到仓库，不是 Git push。
 
 doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `Deploy blockers`。
@@ -540,3 +541,33 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
 - JSON 写入失败时尽力按反序从本次备份恢复或清理新建目标文件；`-Apply` 完成后执行读回校验，确认受管条目收敛为 `unchanged` 且非托管数量未减少。
 - `mcp deploy` 独立于 `sync` / `deploy.ps1`，`AGENTS.md` Skill rules 10 不覆盖 MCP Apply；每次执行 `-Apply` 前须审查完整 dry-run 并获得明确授权。
 - 回归测试：`pwsh -NoProfile -File tests/mcp-sync.tests.ps1`。
+
+---
+
+## 17. 本地可视化监控台（dashboard）
+
+`scripts/dashboard.ps1`（或根目录双击 `start-dashboard.cmd`）启动或复用一个仅面向本机的中文 Web 监控与交互控制台（`dashboard/server.py` + `dashboard/index.html`，纯 Python 3.11+ 标准库实现，无外部 CDN/npm 依赖）。
+
+```powershell
+# 直接启动并自动打开浏览器（若同仓库实例已健康运行则复用）
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard
+
+# 常用选项：指定端口、不自动打开浏览器、离线跳过 GitHub 查询、只校验环境 JSON
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard -Port 8765 -NoBrowser -Offline
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard -Check
+```
+
+常用参数：`-Port <port>`、`-NoBrowser`、`-Check`、`-Offline`、`-RepoRoot <path>`、`-HomeRoot <path>`、`-StateRoot <path>`（后两项用于隔离测试转发，不改变正常本机默认路径）。
+
+主要功能：
+
+- **开发进展监控**：按中文分类汇总当前工作区改动与按需 Diff、读取 `STATUS.md` 待办与 `status/active/` 进行中任务、展示近期提交与 GitHub PR / CI（离线时优雅降级），并自动探测或手动加入 Swarm / Teamwork 协作看板。
+- **双端资产与状态总览**：汇总 Codex 环境记录、Codex 与 Antigravity 受管 `AGENTS.md`、Antigravity 自研与第三方插件、受管 MCP 分发状态，并提供可搜索技能浏览器（点击查看脱敏后的 `SKILL.md`）。
+- **安全体检与排障指令复制**：支持只读/本地构建类操作（`doctor`、`scan`、`build`、`antigravity build`、单项或全量测试），支持一键复制脱敏后的 AI 解释、复核提交或报错排查指令；所有运行中操作受全局单执行锁保护（并发请求返回 HTTP 409）。
+
+安全边界与写入门禁：
+
+- **仅限本机回环与 CSRF 防护**：服务端仅绑定 `127.0.0.1`（拒绝非回环主机），运行时状态 `server.json` 仅写入仓库下忽略的 `tmp/dashboard/`（拒绝符号链接/重解析点）。每次启动生成随机会话 Token（`X-Dashboard-Token`），所有 `POST` 请求必须同时通过 Token、`Host` 与 `Origin` 校验（不匹配返回 HTTP 403），前端严格禁止使用 `innerHTML` 插入非信任文本，API 响应与复制指令均对用户主目录与仓库绝对路径做脱敏处理。
+- **强制先预览后确认（DryRun -> Apply）**：所有写入本机的同步按钮（Codex 完整/仅技能同步、Antigravity 全局规则/插件部署、受管 MCP 同步）只能先触发 `-DryRun` 预览。预览成功后生成绑定当前 `git HEAD`、300 秒有效且单次消费的 `preview_id`；若出现 `blocked`、需重建插件包、当前已全部同步无变更或提交记录发生变化，Apply 按钮保持禁用或被后端拒绝。只有在预览无阻塞、存在待变更项且人工勾选确认框后，才允许执行对应的 `-Apply`，完成后自动刷新状态读回。
+- **高风险操作边界**：Git 提交/推送、`config push`（本机回抓）与 `-Retire`（删除旧技能）不提供面板一键写入，仍须在 AI 对话中审查后执行。
+- 回归测试：`pwsh -NoProfile -File tests/dashboard.tests.ps1` 与 `python -B -m unittest tests/dashboard_server_test.py -v`。
